@@ -1,0 +1,477 @@
+{
+  "evidence": {
+    "alpha_runs": {
+      "0.25": {
+        "cold_coverage": {
+          "byte_length": 18157,
+          "sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889"
+        },
+        "full_compilation_wrapper": {
+          "byte_length": 262580,
+          "sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84"
+        },
+        "static": {
+          "byte_length": 106107,
+          "sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c"
+        }
+      },
+      "0.5": {
+        "cold_coverage": {
+          "byte_length": 18221,
+          "sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31"
+        },
+        "full_compilation_wrapper": {
+          "byte_length": 262555,
+          "sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481"
+        },
+        "static": {
+          "byte_length": 106107,
+          "sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c"
+        }
+      }
+    },
+    "claims": {
+      "all_density_ids_distinct": true,
+      "all_expected_reject": true,
+      "core_single_owner": true,
+      "deterministic": true,
+      "host_projection_forbidden": true,
+      "per_request_wrapper_alpha_dependent": true,
+      "reuse_both_orders_exact": true,
+      "same_density_alpha_same_key": true,
+      "static_alpha_independent": true
+    },
+    "compile_static_policy_separation": [
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "a70be56cbff415de9c8f1d467101d17524c858ce47607086b32def5d3e41a35c",
+        "different": true,
+        "field": "metric_space"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "d9cfbb82a5cb0163294db18ab968dda5be50c65e74a6b715771726086a5cf9d6",
+        "different": true,
+        "field": "angular_profile_family_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "d1331049e9cd74d36afdd2378333a0d42ceb224a44a46eaccf89ca156bd87d5f",
+        "different": true,
+        "field": "angular_profile_selection_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "17f283ea6ea129942bd59b925b7e8387c873aed0f5588e07b6c0e735222a3bce",
+        "different": true,
+        "field": "max_subturn_parameter_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "3f3abe506516f4477203f57ee995fb0465c3cb6f366c415966c5d7ee612cfe98",
+        "different": true,
+        "field": "max_subturn_value_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "b6b1da0d8a7ded0d5aa0b041cbdf1cabfd3c2065b8a54df559f55824478d6b41",
+        "different": true,
+        "field": "max_subturn_exact_value"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "d7b5b1e3b2a3614c856265000034cb69c14ca24a2cbe4c736ae75ed1f27d98ae",
+        "different": true,
+        "field": "cap_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "b08cd94714531dc446144a6fbdc5f236fc00fc29ea1e6811693653551f56c0b1",
+        "different": true,
+        "field": "boundary_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "de2a7b4f503e505eedc17f944d1a675adefed9ddbf50cb92d147268c0387258f",
+        "different": true,
+        "field": "interaction_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "b49041818f7a17fb466cba7153ca97b5de4ad8301c966584dc094a0754c8f0cb",
+        "different": true,
+        "field": "ownership_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "dad67f6449299b3815eee62be3817f92a167a2df2e132602e38da0464c249c06",
+        "different": true,
+        "field": "material_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "e971d617f0ccf33ca97d5b273f3db074da9bc574aa97974c72c5b9e478f2d91c",
+        "different": true,
+        "field": "uv_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "2d82ae8c618a5f469d55ca76cd23a6d9a38faaab4c8acae4449b96c46e73a1c3",
+        "different": true,
+        "field": "density_selection_policy_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "db9c05827e95e94420f2ff7ae52a6dd63d54b9a6c1c78a3c1d9d5c1d67c28a55",
+        "different": true,
+        "field": "density_parameter_id"
+      },
+      {
+        "base_sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090",
+        "changed_sha256": "538c9dd3f3813a4f0e6995e037019d444a1067ac883a192b368ba2005e044bc3",
+        "different": true,
+        "field": "density_value_id"
+      }
+    ],
+    "full_wrapper_bytes_different": true,
+    "inputs_sha256": "4c3bb61605f20300152714c023ef233ece2f27b56b8855f8fd09dc7e76a1b349",
+    "key_matrix": [
+      {
+        "alphas": [
+          {
+            "alpha": "0.25",
+            "byte_length": 2932,
+            "sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090"
+          },
+          {
+            "alpha": "0.5",
+            "byte_length": 2932,
+            "sha256": "15d4ff17335b4f2488dc785cb47dc6a763da6688abaec2d181e77fd4ef830090"
+          }
+        ],
+        "density_value_id": "LINEAR_REFLEX_DENSITY_0_V1"
+      },
+      {
+        "alphas": [
+          {
+            "alpha": "0.25",
+            "byte_length": 2932,
+            "sha256": "7a3b3c83236dff691589d3e3d63c1afeab235bcbb6a7b94134a1cf3a0f6f44d8"
+          },
+          {
+            "alpha": "0.5",
+            "byte_length": 2932,
+            "sha256": "7a3b3c83236dff691589d3e3d63c1afeab235bcbb6a7b94134a1cf3a0f6f44d8"
+          }
+        ],
+        "density_value_id": "LINEAR_REFLEX_DENSITY_1_V1"
+      },
+      {
+        "alphas": [
+          {
+            "alpha": "0.25",
+            "byte_length": 2932,
+            "sha256": "24ee2a77798082b2e8fff0746ae4662d47466e767e8fbe4eb0fecd0dbf394175"
+          },
+          {
+            "alpha": "0.5",
+            "byte_length": 2932,
+            "sha256": "24ee2a77798082b2e8fff0746ae4662d47466e767e8fbe4eb0fecd0dbf394175"
+          }
+        ],
+        "density_value_id": "LINEAR_REFLEX_DENSITY_2_V1"
+      },
+      {
+        "alphas": [
+          {
+            "alpha": "0.25",
+            "byte_length": 2932,
+            "sha256": "18af3c306fa19f7be45f38f817374ae74290450d2b6301d4e4436f5cc0cce2b7"
+          },
+          {
+            "alpha": "0.5",
+            "byte_length": 2932,
+            "sha256": "18af3c306fa19f7be45f38f817374ae74290450d2b6301d4e4436f5cc0cce2b7"
+          }
+        ],
+        "density_value_id": "LINEAR_REFLEX_DENSITY_3_V1"
+      },
+      {
+        "alphas": [
+          {
+            "alpha": "0.25",
+            "byte_length": 2932,
+            "sha256": "13b3f924152484509866d9dbfdc2f5c7e4b9865de7fa6f4b03a6559badfc104d"
+          },
+          {
+            "alpha": "0.5",
+            "byte_length": 2932,
+            "sha256": "13b3f924152484509866d9dbfdc2f5c7e4b9865de7fa6f4b03a6559badfc104d"
+          }
+        ],
+        "density_value_id": "LINEAR_REFLEX_DENSITY_4_V1"
+      }
+    ],
+    "performance": {
+      "byte_budget": 5000000,
+      "canonical_bytes_processed_upper_bound": 1106346,
+      "input_integer_bit_limit": 4096,
+      "input_max_integer_bit_length": 23,
+      "model": "CANONICAL_BYTES_LINEAR_SCAN_UPPER_BOUND_V1",
+      "pass": true
+    },
+    "planned_contract": {
+      "$type": "ConveyorStaticPreparationPlanV1",
+      "canonicalization": "UTF8_SORTED_KEYS_NO_WHITESPACE_V1",
+      "core_owner": "kernel/src/cftuv_envelope/wavefront/conveyor.py",
+      "exclusions": [
+        {
+          "canonical_static": false,
+          "classification": "PER_REQUEST_ALPHA_BEARING_WRAPPER",
+          "field": "compilation"
+        },
+        {
+          "canonical_static": false,
+          "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION",
+          "field": "context"
+        },
+        {
+          "canonical_static": false,
+          "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION",
+          "field": "domain"
+        },
+        {
+          "canonical_static": false,
+          "classification": "PER_REQUEST_ALPHA",
+          "field": "requested_alpha"
+        },
+        {
+          "canonical_static": false,
+          "classification": "DIAGNOSTIC_NONCANONICAL",
+          "field": "counters"
+        },
+        {
+          "canonical_static": false,
+          "classification": "DIAGNOSTIC_NONCANONICAL",
+          "field": "detail"
+        },
+        {
+          "canonical_static": false,
+          "classification": "TIMING_NONCANONICAL",
+          "field": "timings"
+        },
+        {
+          "canonical_static": false,
+          "classification": "PER_REQUEST_KEY_EXCLUSION",
+          "field": "decal_request_id"
+        }
+      ],
+      "future_host_migration": {
+        "$type": "NamedFutureHostMigrationV1",
+        "action": "CONSUME_CORE_STATIC_DTO_AND_TYPED_KEY",
+        "host_projection": "FORBIDDEN",
+        "seam": "cftuv/envelope_debug_session.py:430-474"
+      },
+      "host_projection_forbidden": true,
+      "per_request_recomposition_fields": [
+        "compilation",
+        "context",
+        "domain",
+        "requested_alpha"
+      ],
+      "schema_version": "cftuv.envelope.conveyor_static_preparation_plan.v1",
+      "static_field_whitelist": [
+        "$type",
+        "schema_version",
+        "outcome",
+        "regions",
+        "lattice",
+        "arrival_laws",
+        "law_names"
+      ],
+      "static_key_law": "SNAPSHOT_AND_ALL_COMPILE_STATIC_POLICY_WITH_DENSITY_V1",
+      "static_key_schema_version": "cftuv.envelope.conveyor_static_preparation_key.v1",
+      "static_key_type": "ConveyorStaticPreparationKeyV1",
+      "static_schema_version": "cftuv.envelope.conveyor_static_preparation.v1",
+      "static_type": "ConveyorStaticPreparationV1"
+    },
+    "product_tree": {
+      "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+      "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+      "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
+    },
+    "red_controls": {
+      "alpha_in_key": "ALPHA_IN_STATIC_KEY",
+      "density_collision": "DENSITY_KEY_COLLISION",
+      "false_all_expected_reject": "FALSE_REJECTION_CLAIM",
+      "false_determinism": "FALSE_DETERMINISM_CLAIM",
+      "forged_type": "FORGED_STATIC_TYPE",
+      "omitted_used_field": "STATIC_REQUIRED_FIELD_MISSING",
+      "reuse_mismatch_forward": "STATIC_REUSE_MISMATCH",
+      "reuse_mismatch_reverse": "STATIC_REUSE_MISMATCH",
+      "static_bytes_differ": "STATIC_ALPHA_DEPENDENCE",
+      "static_includes_alpha": "ALPHA_IN_STATIC_DTO",
+      "static_includes_compilation": "COMPILATION_IN_STATIC_DTO",
+      "static_includes_timing": "TIMING_IN_STATIC_DTO",
+      "unknown_product_tree": "UNKNOWN_PRODUCT_TREE",
+      "unknown_schema": "UNKNOWN_STATIC_SCHEMA",
+      "unknown_source_blob": "UNKNOWN_SOURCE_BLOB",
+      "wrapper_bytes_same": "PER_REQUEST_WRAPPER_IDENTITY_FORGED"
+    },
+    "reuse_matrix": [
+      {
+        "byte_identical": true,
+        "cold_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "per_request_alpha": "0.25",
+        "per_request_compilation_from_target": true,
+        "per_request_compilation_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
+        "per_request_context_from_target": true,
+        "per_request_domain_from_target": true,
+        "per_request_requested_alpha_from_target": true,
+        "requested_alpha_recomposed": "0.25",
+        "reuse_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "static_alpha_source": "0.25",
+        "static_dto_sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c",
+        "static_schema_type": "ConveyorStaticPreparationV1"
+      },
+      {
+        "byte_identical": true,
+        "cold_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "per_request_alpha": "0.5",
+        "per_request_compilation_from_target": true,
+        "per_request_compilation_sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481",
+        "per_request_context_from_target": true,
+        "per_request_domain_from_target": true,
+        "per_request_requested_alpha_from_target": true,
+        "requested_alpha_recomposed": "0.5",
+        "reuse_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "static_alpha_source": "0.25",
+        "static_dto_sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c",
+        "static_schema_type": "ConveyorStaticPreparationV1"
+      },
+      {
+        "byte_identical": true,
+        "cold_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "per_request_alpha": "0.5",
+        "per_request_compilation_from_target": true,
+        "per_request_compilation_sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481",
+        "per_request_context_from_target": true,
+        "per_request_domain_from_target": true,
+        "per_request_requested_alpha_from_target": true,
+        "requested_alpha_recomposed": "0.5",
+        "reuse_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "static_alpha_source": "0.5",
+        "static_dto_sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c",
+        "static_schema_type": "ConveyorStaticPreparationV1"
+      },
+      {
+        "byte_identical": true,
+        "cold_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "per_request_alpha": "0.25",
+        "per_request_compilation_from_target": true,
+        "per_request_compilation_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
+        "per_request_context_from_target": true,
+        "per_request_domain_from_target": true,
+        "per_request_requested_alpha_from_target": true,
+        "requested_alpha_recomposed": "0.25",
+        "reuse_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "static_alpha_source": "0.5",
+        "static_dto_sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c",
+        "static_schema_type": "ConveyorStaticPreparationV1"
+      }
+    ],
+    "schema": "cftuv.envelope.dens_a_prime.split_static_receipt.v1",
+    "source_authority": [
+      {
+        "$type": "ProofSourceAuthorityV1",
+        "blob_oid": "eac26a92a16f676375d75edbda7c62cb3219d1c0",
+        "path": "kernel/src/cftuv_envelope/wavefront/conveyor.py",
+        "ranges": {
+          "coverage_consumer": {
+            "byte_length": 3497,
+            "line_range": "1318-1408",
+            "sha256": "5051e8afcc14a8b438710fb12580d2b799f9cf8b5bf47112e18fbb1db485dec2"
+          },
+          "current_preparation_type": {
+            "byte_length": 1313,
+            "line_range": "283-310",
+            "sha256": "64ed0b39b1640bd36fdb6352608df0e1e8d66750aa8f724b2d4962d1fe451199"
+          },
+          "per_request_instance_ids": {
+            "byte_length": 1394,
+            "line_range": "1168-1195",
+            "sha256": "0eef37dcd70c3dd0107696c0a1b7397c2710a43313b518f04e349672e2c1b335"
+          },
+          "prepare_inputs": {
+            "byte_length": 4246,
+            "line_range": "1057-1165",
+            "sha256": "dc041226aa85ef9fb277ff15c5c36f0f1f122f6eb4d4b7d1e086e341f753ad42"
+          },
+          "prepare_owner": {
+            "byte_length": 2883,
+            "line_range": "995-1054",
+            "sha256": "a0017312d133c31c45f755d471f3ddd047b7f2d455e3d9430f9f3dc77a500c9f"
+          },
+          "static_region_coverage": {
+            "byte_length": 915,
+            "line_range": "1198-1225",
+            "sha256": "4ce00d6ce3240d815e75c795db8ddb16fc0bc6a4137acce618374f42b906285e"
+          }
+        },
+        "sha256": "acb35ec5a43009c0a00b851bfdc395399caa313f90e32b45939747a4bb8dafe3"
+      },
+      {
+        "$type": "ProofSourceAuthorityV1",
+        "blob_oid": "88e09b704fafd5133e42d81b5ffe07071cfec206",
+        "path": "kernel/src/cftuv_envelope/contracts/request.py",
+        "ranges": {
+          "request_contract": {
+            "byte_length": 687,
+            "line_range": "50-67",
+            "sha256": "ddc63aad76d5dc7a3ed3efe7c853a374647c8ba50e14e3cd4578900f844047f3"
+          }
+        },
+        "sha256": "320b9af4193dcf5109cd53319547ea9b34e33b8bb3df94d57a02d58c5e0e4e9b"
+      },
+      {
+        "$type": "ProofSourceAuthorityV1",
+        "blob_oid": "a921638fee6dda0e74dbe3181a22241db5850b86",
+        "path": "kernel/src/cftuv_envelope/codec.py",
+        "ranges": {
+          "canonical_json": {
+            "byte_length": 234,
+            "line_range": "120-127",
+            "sha256": "f0f175fe90313eed041997dd21566441fc955b596fefc16af79039edd4ba13e8"
+          }
+        },
+        "sha256": "bf94e7aef32cdfe3b11a00b728b769abfc5b0ddc48fe5825903034eb26480525"
+      },
+      {
+        "$type": "ProofSourceAuthorityV1",
+        "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+        "path": "cftuv/envelope_debug_session.py",
+        "ranges": {
+          "current_compile_key": {
+            "byte_length": 1472,
+            "line_range": "24-67",
+            "sha256": "f296930ae85e5a073108031589b112fa88c871abc5eef44ffb5816861b262f1b"
+          },
+          "current_preparation_cache": {
+            "byte_length": 436,
+            "line_range": "111-120",
+            "sha256": "80a9e4b47c9ca8f069c5a5a04455c30fff3165d90b37a8f4ebd062ce6008858f"
+          },
+          "future_migration_seam": {
+            "byte_length": 1764,
+            "line_range": "430-474",
+            "sha256": "88f115df58070e041379dd359a0da5e96d5f733b3b4d7e6bada9ede0825d1772"
+          }
+        },
+        "sha256": "7566a62c785f92fcba4693248c2985025c41586495e651380ebaa92858c774dd"
+      }
+    ],
+    "static_bytes_identical": true
+  },
+  "evidence_sha256": "2025481c03360193b687e417f1b8e33479397423ed888687e0a35636292c6ab3",
+  "schema": "cftuv.envelope.dens_a_prime.split_static_wrapper.v1"
+}
