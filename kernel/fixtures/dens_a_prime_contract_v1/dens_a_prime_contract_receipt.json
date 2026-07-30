@@ -9,7 +9,7 @@
   "deterministic_budgets": {
     "legacy_compilation_bytes": 262580,
     "max_integer_bits": 4,
-    "max_key_bytes": 1714,
+    "max_key_bytes": 1817,
     "seam_anchor_count": 6,
     "source_blob_count": 6
   },
@@ -24,6 +24,11 @@
       "density_collision": {
         "expected": "DENSITY_VALUE_ID_COLLISION",
         "observed": "DENSITY_VALUE_ID_COLLISION",
+        "status": "PASS"
+      },
+      "mismatched_exact_fraction": {
+        "expected": "DENSITY_EXACT_VALUE_MISMATCH",
+        "observed": "DENSITY_EXACT_VALUE_MISMATCH",
         "status": "PASS"
       },
       "mismatched_exact_symbol": {
@@ -163,87 +168,87 @@
     "canonicalization": "UTF8_JSON_SORT_KEYS_COMPACT_NO_TRAILING_LF_V1",
     "compile_static_mutation_matrix": [
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "source_revision_value",
-        "mutated_sha256": "bf39bd67db3e2ee4cd6fcbd7a8e7c8cf6c97cb7e514a876aa0b940a8d1ac17bd",
+        "mutated_sha256": "df9659a0e1a407a538f61dbbc7a5fde1c0c5aaa97638de69e42cde9928162516",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "patch_domain_id",
-        "mutated_sha256": "f50a75a5c9fe305f82b7097b341e23269a22798fe319b6990a0973149f4b5745",
+        "mutated_sha256": "99b0cb3963805597df900513946be1d39aa91cd98a8e9d055436b174f5ac5d96",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "selected_chain_use_ids",
-        "mutated_sha256": "bb3d21301960a5c24f47ddb5ee035ab04dde634906c7e1d545d45d2df1245602",
+        "mutated_sha256": "9b4ad5bc362a34791e5d6dc9a9f44f8af4e3cea76f0f761fb28c09c65d8d666d",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "selected_physical_edge_ids",
-        "mutated_sha256": "c4ca4d2aa17a333702a09f46190b0fcee8ecd290bf174053a5305ed9128350b6",
+        "mutated_sha256": "55c6d96eeaa2e1cd48dd14de54a7c755816b33980c035df2600df7fca706ac42",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "schema_version",
-        "mutated_sha256": "f753d7a0f615565f0f22fa787dc213451d44e1a479114328e745c2bda956d0f8",
+        "mutated_sha256": "dc5c15747fdc02652b2017c73be8b79bad41a81517fe3972641935059f33e5e2",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "decal_request_id",
-        "mutated_sha256": "384b047c67224f26074ff04245a2067fcfeb723707139e624ddcf4ee098cfa04",
+        "mutated_sha256": "acda2495152d57ebb852cc2d995e66992a67d097dd237de46bd94eb89008069f",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "metric_space",
-        "mutated_sha256": "083f122268e790e0da800129e007f6dd9723cd9c972d28195397714ab4229be9",
+        "mutated_sha256": "9cff63787279b63c71bd3598c93962b3d110ac3521948e77305265a4c5d13db0",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "angular_profile_family_id",
-        "mutated_sha256": "ba31de3da27f1ded0d0e706f2b4398db68b9af5f8450beeb5c30bce82dd8bbcd",
+        "mutated_sha256": "119193a3cee84754718d30f1bf20214e3686050f8d2ddda42e1436effa7562c0",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "cap_policy_id",
-        "mutated_sha256": "795e12c26b700403c12a79297e3c120b9475b13c4eb4746d1416d629b730077a",
+        "mutated_sha256": "e10f0deb7fcad0a976e1dd97d8475dfdaf4d5d2e028a4975c68791a5281b5127",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "boundary_policy_id",
-        "mutated_sha256": "60b7127e38b5d432a04c47b486d51ccaf64fd65bfbe00e6ccdcc69dd72409f43",
+        "mutated_sha256": "9e995d96134839122930dc168d75ba6444db3d7af48ea4f99e4f3ae1b9e792bd",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "interaction_policy_id",
-        "mutated_sha256": "2dcf1bb1cccb97e1b32045790e203fd2148d1db86aebcc2dd93b755e203535a1",
+        "mutated_sha256": "fde657cdca309fad7ce03ff8eadea3f10690645d7caa0067de7a3f8fd92fb934",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "ownership_policy_id",
-        "mutated_sha256": "37d09a775a0808b7fed45946e4813a7fe18b5a89fd29ab205840214f4db7f768",
+        "mutated_sha256": "421c4812c617b198adecb178cc4850b4b5879157ecc6c382350d45d8979dc421",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "material_policy_id",
-        "mutated_sha256": "7ddde9b19aa959292d68ba1a983d3add248da484d7cb28e8442551480b1831bf",
+        "mutated_sha256": "171337209a69e0d81a2198ee1abac62ba8834a81911243877f7103929c83fc01",
         "status": "DIFFERENT"
       },
       {
-        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "baseline_sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "field": "uv_policy_id",
-        "mutated_sha256": "8bcf84fa466f6b33899dbc435d75df72f7633101646862e3ba884166098a31ad",
+        "mutated_sha256": "ac334fdfbc11a71f7e2923f404f5537aab95935afac201d1599ccb20ffbfb6cd",
         "status": "DIFFERENT"
       }
     ],
@@ -255,60 +260,80 @@
     "density_authorities": [
       {
         "density": 0,
+        "max_subturn_exact_turn_fraction": {
+          "denominator": 2,
+          "numerator": 1
+        },
         "max_subturn_exact_value_symbol": "PI_OVER_2",
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1"
       },
       {
         "density": 1,
+        "max_subturn_exact_turn_fraction": {
+          "denominator": 3,
+          "numerator": 1
+        },
         "max_subturn_exact_value_symbol": "PI_OVER_3",
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
       },
       {
         "density": 2,
+        "max_subturn_exact_turn_fraction": {
+          "denominator": 4,
+          "numerator": 1
+        },
         "max_subturn_exact_value_symbol": "PI_OVER_4",
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1"
       },
       {
         "density": 3,
+        "max_subturn_exact_turn_fraction": {
+          "denominator": 5,
+          "numerator": 1
+        },
         "max_subturn_exact_value_symbol": "PI_OVER_5",
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1"
       },
       {
         "density": 4,
+        "max_subturn_exact_turn_fraction": {
+          "denominator": 6,
+          "numerator": 1
+        },
         "max_subturn_exact_value_symbol": "PI_OVER_6",
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1"
       }
     ],
     "density_key_matrix": [
       {
-        "byte_length": 1714,
-        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_2\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "byte_length": 1817,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value\":{\"$type\":\"ExactAngleV2Proof\",\"symbol\":\"PI_OVER_2\",\"turn_fraction\":{\"$type\":\"ExactRatioV1\",\"denominator\":2,\"numerator\":1}},\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
         "density": 0,
-        "sha256": "e2f0401cc307028a998cf1eb976e4e3e590c1c5c85648dcfd34dff8dc907edfd"
+        "sha256": "3a33f2826a7bb41e04b3fa55684b022148f9daa66faefad15a42c2a866250c76"
       },
       {
-        "byte_length": 1714,
-        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_3\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "byte_length": 1817,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value\":{\"$type\":\"ExactAngleV2Proof\",\"symbol\":\"PI_OVER_3\",\"turn_fraction\":{\"$type\":\"ExactRatioV1\",\"denominator\":3,\"numerator\":1}},\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
         "density": 1,
-        "sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3"
+        "sha256": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f"
       },
       {
-        "byte_length": 1714,
-        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_4\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "byte_length": 1817,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value\":{\"$type\":\"ExactAngleV2Proof\",\"symbol\":\"PI_OVER_4\",\"turn_fraction\":{\"$type\":\"ExactRatioV1\",\"denominator\":4,\"numerator\":1}},\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
         "density": 2,
-        "sha256": "dabb690a6632f270f6cedd78128705e3b21d6e45d690ceaf260ba19f583f1794"
+        "sha256": "77a16092374d33a16f63d4264c52acff981f06664218b6e0e055b67de989b448"
       },
       {
-        "byte_length": 1714,
-        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_5\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "byte_length": 1817,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value\":{\"$type\":\"ExactAngleV2Proof\",\"symbol\":\"PI_OVER_5\",\"turn_fraction\":{\"$type\":\"ExactRatioV1\",\"denominator\":5,\"numerator\":1}},\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
         "density": 3,
-        "sha256": "b1d387f2d57e49a455e6f53884c70112d01843a89f698ed94b9bdb704c1bb6e2"
+        "sha256": "c21690922d1d50b95be93131e7d41505d7174e29b96a4160462a43921707aeca"
       },
       {
-        "byte_length": 1714,
-        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_6\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "byte_length": 1817,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value\":{\"$type\":\"ExactAngleV2Proof\",\"symbol\":\"PI_OVER_6\",\"turn_fraction\":{\"$type\":\"ExactRatioV1\",\"denominator\":6,\"numerator\":1}},\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
         "density": 4,
-        "sha256": "06669b3950d2c603acac98f2525307d359dd629d5c15c48fe0a1e0f7bc7e2c4d"
+        "sha256": "9754b1035165aefe8ee3dfb55fccf54b23a6ed260d8708218ff8a474858d4229"
       }
     ],
     "excluded_non_authority": [
@@ -329,7 +354,11 @@
       "compile_static_request.angular_profile_selection_policy_id",
       "compile_static_request.max_subturn_parameter_id",
       "compile_static_request.max_subturn_value_id",
-      "compile_static_request.max_subturn_exact_value_symbol",
+      "compile_static_request.max_subturn_exact_value.$type",
+      "compile_static_request.max_subturn_exact_value.symbol",
+      "compile_static_request.max_subturn_exact_value.turn_fraction.$type",
+      "compile_static_request.max_subturn_exact_value.turn_fraction.numerator",
+      "compile_static_request.max_subturn_exact_value.turn_fraction.denominator",
       "compile_static_request.cap_policy_id",
       "compile_static_request.boundary_policy_id",
       "compile_static_request.interaction_policy_id",
@@ -347,6 +376,11 @@
       "density_collision": {
         "expected": "DENSITY_VALUE_ID_COLLISION",
         "observed": "DENSITY_VALUE_ID_COLLISION",
+        "status": "PASS"
+      },
+      "mismatched_exact_fraction": {
+        "expected": "DENSITY_EXACT_VALUE_MISMATCH",
+        "observed": "DENSITY_EXACT_VALUE_MISMATCH",
         "status": "PASS"
       },
       "mismatched_exact_symbol": {
@@ -388,14 +422,14 @@
     "same_authority_matrix": [
       {
         "case": "alpha_0.25_to_0.5",
-        "sha256_a": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
-        "sha256_b": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "sha256_a": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
+        "sha256_b": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "status": "SAME"
       },
       {
         "case": "ui_integer_1_to_4_exact_authority_unchanged",
-        "sha256_a": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
-        "sha256_b": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "sha256_a": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
+        "sha256_b": "64c39b2876b057512908d432542f3ff99a34c83c5e330c4f3af9e14b6443153f",
         "status": "SAME"
       }
     ]

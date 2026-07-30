@@ -21,7 +21,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 RECEIPT = HERE / "dens_a_prime_contract_receipt.json"
 RECEIPT_SHA256 = (
-    "74914d4ea5b1e2143aab387f4e47189138c97e40f87a9a257da25bbae312c48a"
+    "d7a288b3d2614908271ee39491fa71716fc4df41efa74068eb9f8d8e8789e7d2"
 )
 BASE_COMMIT = "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
 FIXTURE = ROOT / "kernel" / "fixtures" / "building_002_full_selection_v1"
@@ -78,26 +78,36 @@ DENSITY_ROWS = (
         0,
         "LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1",
         "PI_OVER_2",
+        1,
+        2,
     ),
     (
         1,
         "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
         "PI_OVER_3",
+        1,
+        3,
     ),
     (
         2,
         "LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1",
         "PI_OVER_4",
+        1,
+        4,
     ),
     (
         3,
         "LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1",
         "PI_OVER_5",
+        1,
+        5,
     ),
     (
         4,
         "LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1",
         "PI_OVER_6",
+        1,
+        6,
     ),
 )
 KEY_FIELDS = (
@@ -114,7 +124,20 @@ KEY_FIELDS = (
     "compile_static_request.angular_profile_selection_policy_id",
     "compile_static_request.max_subturn_parameter_id",
     "compile_static_request.max_subturn_value_id",
-    "compile_static_request.max_subturn_exact_value_symbol",
+    "compile_static_request.max_subturn_exact_value.$type",
+    "compile_static_request.max_subturn_exact_value.symbol",
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.$type"
+    ),
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.numerator"
+    ),
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.denominator"
+    ),
     "compile_static_request.cap_policy_id",
     "compile_static_request.boundary_policy_id",
     "compile_static_request.interaction_policy_id",
@@ -122,10 +145,20 @@ KEY_FIELDS = (
     "compile_static_request.material_policy_id",
     "compile_static_request.uv_policy_id",
 )
-REQUEST_FIELDS = tuple(
-    item.removeprefix("compile_static_request.")
-    for item in KEY_FIELDS
-    if item.startswith("compile_static_request.")
+REQUEST_SCALAR_FIELDS = (
+    "schema_version",
+    "decal_request_id",
+    "metric_space",
+    "angular_profile_family_id",
+    "angular_profile_selection_policy_id",
+    "max_subturn_parameter_id",
+    "max_subturn_value_id",
+    "cap_policy_id",
+    "boundary_policy_id",
+    "interaction_policy_id",
+    "ownership_policy_id",
+    "material_policy_id",
+    "uv_policy_id",
 )
 
 
@@ -204,16 +237,24 @@ def _receipt_bytes(value: dict) -> bytes:
     ).encode("utf-8")
 
 
-def _density_map(rows=DENSITY_ROWS) -> dict[int, tuple[str, str]]:
+def _density_map(rows=DENSITY_ROWS) -> dict[int, tuple[str, str, int, int]]:
     if tuple(item[0] for item in rows) != (0, 1, 2, 3, 4):
         raise VerifyReject("DENSITY_LEVEL_SET_INVALID")
     value_ids = [item[1] for item in rows]
-    pairs = [(item[1], item[2]) for item in rows]
+    pairs = [(item[1], item[2], item[3], item[4]) for item in rows]
     if len(set(value_ids)) != 5:
         raise VerifyReject("DENSITY_VALUE_ID_COLLISION")
     if len(set(pairs)) != 5:
         raise VerifyReject("DENSITY_EXACT_AUTHORITY_COLLISION")
-    return {item[0]: (item[1], item[2]) for item in rows}
+    if any(
+        numerator != 1 or denominator != density + 2
+        for density, _, _, numerator, denominator in rows
+    ):
+        raise VerifyReject("DENSITY_EXACT_VALUE_INVALID")
+    return {
+        item[0]: (item[1], item[2], item[3], item[4])
+        for item in rows
+    }
 
 
 def _nonempty(authority: dict, field: str) -> str:
@@ -231,6 +272,7 @@ def _independent_key(
     *,
     value_override: str | None = None,
     symbol_override: str | None = None,
+    fraction_override: tuple[int, int] | None = None,
     delete_symbol: bool = False,
     extras: dict | None = None,
     requested_alpha: str | None = None,
@@ -251,7 +293,12 @@ def _independent_key(
         raise VerifyReject("DENSITY_SELECTION_POLICY_ID_UNKNOWN")
     if authority.get("max_subturn_parameter_id") != DENSITY_PARAMETER:
         raise VerifyReject("DENSITY_PARAMETER_ID_UNKNOWN")
-    expected_value, expected_symbol = mapping[density]
+    (
+        expected_value,
+        expected_symbol,
+        expected_numerator,
+        expected_denominator,
+    ) = mapping[density]
     actual_value = expected_value if value_override is None else value_override
     if actual_value != expected_value:
         raise VerifyReject("DENSITY_VALUE_ID_UNKNOWN")
@@ -261,6 +308,13 @@ def _independent_key(
         expected_symbol if symbol_override is None else symbol_override
     )
     if actual_symbol != expected_symbol:
+        raise VerifyReject("DENSITY_EXACT_VALUE_MISMATCH")
+    actual_fraction = (
+        (expected_numerator, expected_denominator)
+        if fraction_override is None
+        else fraction_override
+    )
+    if actual_fraction != (expected_numerator, expected_denominator):
         raise VerifyReject("DENSITY_EXACT_VALUE_MISMATCH")
 
     selected_uses = authority.get("selected_chain_use_ids")
@@ -275,13 +329,20 @@ def _independent_key(
         raise VerifyReject("SELECTED_EDGE_AUTHORITY_DUPLICATE")
 
     request_part = {}
-    for field in REQUEST_FIELDS:
+    for field in REQUEST_SCALAR_FIELDS:
         if field == "max_subturn_value_id":
             request_part[field] = actual_value
-        elif field == "max_subturn_exact_value_symbol":
-            request_part[field] = actual_symbol
         else:
             request_part[field] = _nonempty(authority, field)
+    request_part["max_subturn_exact_value"] = {
+        "$type": "ExactAngleV2Proof",
+        "symbol": actual_symbol,
+        "turn_fraction": {
+            "$type": "ExactRatioV1",
+            "numerator": actual_fraction[0],
+            "denominator": actual_fraction[1],
+        },
+    }
     value = {
         "$type": "ConveyorPreparationCacheKeyV2Proof",
         "schema_version": "cftuv.envelope.conveyor_preparation_cache_key.proof.v2",
@@ -374,8 +435,12 @@ def _verify_key_contract(receipt: dict, request_json: dict) -> tuple[int, int]:
             "density": density,
             "max_subturn_value_id": value_id,
             "max_subturn_exact_value_symbol": symbol,
+            "max_subturn_exact_turn_fraction": {
+                "numerator": numerator,
+                "denominator": denominator,
+            },
         }
-        for density, value_id, symbol in DENSITY_ROWS
+        for density, value_id, symbol, numerator, denominator in DENSITY_ROWS
     ]
     if contract["density_authorities"] != expected_rows:
         raise AssertionError("density typed authority rows mismatch")
@@ -478,6 +543,8 @@ def _verify_key_contract(receipt: dict, request_json: dict) -> tuple[int, int]:
         4,
         collision_rows[3][1],
         collision_rows[4][2],
+        collision_rows[4][3],
+        collision_rows[4][4],
     )
     observed_red = {
         "unknown_selection_policy": _expect(
@@ -507,6 +574,12 @@ def _verify_key_contract(receipt: dict, request_json: dict) -> tuple[int, int]:
             "DENSITY_EXACT_VALUE_MISMATCH",
             lambda: _independent_key(
                 authority, 1, symbol_override="PI_OVER_4"
+            ),
+        ),
+        "mismatched_exact_fraction": _expect(
+            "DENSITY_EXACT_VALUE_MISMATCH",
+            lambda: _independent_key(
+                authority, 1, fraction_override=(1, 4)
             ),
         ),
         "missing_density_field": _expect(
@@ -766,7 +839,7 @@ def main() -> int:
                 "density_keys_distinct": 5,
                 "same_authority_cases": 2,
                 "compile_static_mutations": 14,
-                "key_named_red_controls": 9,
+                "key_named_red_controls": 10,
                 "preclaim_named_red_controls": 5,
                 "legacy_angular_selections": 4,
                 "max_key_bytes": max_key_bytes,

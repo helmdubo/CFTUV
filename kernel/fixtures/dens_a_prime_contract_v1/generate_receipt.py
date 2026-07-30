@@ -81,6 +81,10 @@ DENSITY_ROWS = (
         "density": 0,
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1",
         "max_subturn_exact_value_symbol": "PI_OVER_2",
+        "max_subturn_exact_turn_fraction": {
+            "numerator": 1,
+            "denominator": 2,
+        },
     },
     {
         "density": 1,
@@ -88,21 +92,37 @@ DENSITY_ROWS = (
             "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
         ),
         "max_subturn_exact_value_symbol": "PI_OVER_3",
+        "max_subturn_exact_turn_fraction": {
+            "numerator": 1,
+            "denominator": 3,
+        },
     },
     {
         "density": 2,
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1",
         "max_subturn_exact_value_symbol": "PI_OVER_4",
+        "max_subturn_exact_turn_fraction": {
+            "numerator": 1,
+            "denominator": 4,
+        },
     },
     {
         "density": 3,
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1",
         "max_subturn_exact_value_symbol": "PI_OVER_5",
+        "max_subturn_exact_turn_fraction": {
+            "numerator": 1,
+            "denominator": 5,
+        },
     },
     {
         "density": 4,
         "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1",
         "max_subturn_exact_value_symbol": "PI_OVER_6",
+        "max_subturn_exact_turn_fraction": {
+            "numerator": 1,
+            "denominator": 6,
+        },
     },
 )
 
@@ -120,7 +140,20 @@ KEY_FIELDS = (
     "compile_static_request.angular_profile_selection_policy_id",
     "compile_static_request.max_subturn_parameter_id",
     "compile_static_request.max_subturn_value_id",
-    "compile_static_request.max_subturn_exact_value_symbol",
+    "compile_static_request.max_subturn_exact_value.$type",
+    "compile_static_request.max_subturn_exact_value.symbol",
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.$type"
+    ),
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.numerator"
+    ),
+    (
+        "compile_static_request.max_subturn_exact_value."
+        "turn_fraction.denominator"
+    ),
     "compile_static_request.cap_policy_id",
     "compile_static_request.boundary_policy_id",
     "compile_static_request.interaction_policy_id",
@@ -128,10 +161,20 @@ KEY_FIELDS = (
     "compile_static_request.material_policy_id",
     "compile_static_request.uv_policy_id",
 )
-REQUEST_FIELDS = tuple(
-    item.removeprefix("compile_static_request.")
-    for item in KEY_FIELDS
-    if item.startswith("compile_static_request.")
+REQUEST_SCALAR_FIELDS = (
+    "schema_version",
+    "decal_request_id",
+    "metric_space",
+    "angular_profile_family_id",
+    "angular_profile_selection_policy_id",
+    "max_subturn_parameter_id",
+    "max_subturn_value_id",
+    "cap_policy_id",
+    "boundary_policy_id",
+    "interaction_policy_id",
+    "ownership_policy_id",
+    "material_policy_id",
+    "uv_policy_id",
 )
 FORBIDDEN_COMPILE_STATIC_FIELDS = (
     "requested_alpha",
@@ -214,10 +257,22 @@ def _density_table(rows: tuple[dict, ...] = DENSITY_ROWS) -> dict[int, dict]:
         raise ProofReject("DENSITY_LEVEL_SET_INVALID")
     value_ids = [item["max_subturn_value_id"] for item in rows]
     symbols = [item["max_subturn_exact_value_symbol"] for item in rows]
+    ratios = [
+        (
+            item["max_subturn_exact_turn_fraction"]["numerator"],
+            item["max_subturn_exact_turn_fraction"]["denominator"],
+        )
+        for item in rows
+    ]
     if len(set(value_ids)) != len(value_ids):
         raise ProofReject("DENSITY_VALUE_ID_COLLISION")
-    if len(set(zip(value_ids, symbols, strict=True))) != len(value_ids):
+    if len(set(zip(value_ids, symbols, ratios, strict=True))) != len(value_ids):
         raise ProofReject("DENSITY_EXACT_AUTHORITY_COLLISION")
+    if any(
+        numerator != 1 or denominator != density + 2
+        for density, (numerator, denominator) in enumerate(ratios)
+    ):
+        raise ProofReject("DENSITY_EXACT_VALUE_INVALID")
     return {item["density"]: dict(item) for item in rows}
 
 
@@ -265,6 +320,7 @@ def _build_key(
     required_density = (
         "max_subturn_value_id",
         "max_subturn_exact_value_symbol",
+        "max_subturn_exact_turn_fraction",
     )
     if any(field not in density_authority for field in required_density):
         raise ProofReject("DENSITY_AUTHORITY_FIELD_MISSING")
@@ -285,16 +341,27 @@ def _build_key(
         != canonical_density["max_subturn_exact_value_symbol"]
     ):
         raise ProofReject("DENSITY_EXACT_VALUE_MISMATCH")
+    if (
+        density_authority["max_subturn_exact_turn_fraction"]
+        != canonical_density["max_subturn_exact_turn_fraction"]
+    ):
+        raise ProofReject("DENSITY_EXACT_VALUE_MISMATCH")
 
     request_authority = {}
-    for field in REQUEST_FIELDS:
+    for field in REQUEST_SCALAR_FIELDS:
         if field == "max_subturn_value_id":
-            value = density_authority[field]
-        elif field == "max_subturn_exact_value_symbol":
             value = density_authority[field]
         else:
             value = _require_nonempty(authority, field)
         request_authority[field] = value
+    request_authority["max_subturn_exact_value"] = {
+        "$type": "ExactAngleV2Proof",
+        "symbol": density_authority["max_subturn_exact_value_symbol"],
+        "turn_fraction": {
+            "$type": "ExactRatioV1",
+            **density_authority["max_subturn_exact_turn_fraction"],
+        },
+    }
 
     selected_uses = authority.get("selected_chain_use_ids")
     selected_edges = authority.get("selected_physical_edge_ids")
@@ -564,6 +631,19 @@ def _key_contract(authority: dict) -> dict:
                 1,
                 density_override={
                     "max_subturn_exact_value_symbol": "PI_OVER_4"
+                },
+            ),
+        ),
+        "mismatched_exact_fraction": _expect_reject(
+            "DENSITY_EXACT_VALUE_MISMATCH",
+            lambda: _build_key(
+                authority,
+                1,
+                density_override={
+                    "max_subturn_exact_turn_fraction": {
+                        "numerator": 1,
+                        "denominator": 4,
+                    }
                 },
             ),
         ),
