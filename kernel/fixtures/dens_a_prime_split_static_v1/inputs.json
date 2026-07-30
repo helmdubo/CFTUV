@@ -3,7 +3,8 @@
   "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911",
   "accepted_product_oids": {
     "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
-    "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3"
+    "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+    "tools": "ec5439a5fc8ea46784d4621ac763f941b4833c36"
   },
   "fixture": {
     "snapshot_path": "kernel/fixtures/building_002_full_selection_v1/analysis_snapshot.json",
@@ -35,6 +36,10 @@
       "arrival_laws",
       "law_names"
     ],
+    "decoder_module": "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
+    "decoder_entrypoint": "decode_conveyor_static",
+    "recompose_entrypoint": "recompose_conveyor_static",
+    "recompose_law": "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1",
     "key_type": "ConveyorStaticPreparationKeyV1",
     "key_schema_version": "cftuv.envelope.conveyor_static_preparation_key.v1",
     "key_law": "SNAPSHOT_AND_ALL_COMPILE_STATIC_POLICY_WITH_DENSITY_V1",

@@ -34,9 +34,12 @@
       "all_density_ids_distinct": true,
       "all_expected_reject": true,
       "core_single_owner": true,
+      "decoded_static_is_only_static_authority": true,
       "deterministic": true,
       "host_projection_forbidden": true,
       "per_request_wrapper_alpha_dependent": true,
+      "recomposer_has_no_live_preparation_input": true,
+      "rejected_dto_never_reaches_coverage": true,
       "reuse_both_orders_exact": true,
       "same_density_alpha_same_key": true,
       "static_alpha_independent": true
@@ -133,8 +136,100 @@
         "field": "density_value_id"
       }
     ],
+    "decoder_red_matrix": [
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_REQUIRED_FIELD_MISSING",
+        "forged_dto_sha256": "df7ab1978bedfdf6d7a91120a837a83409fe570db5a89b0888221eaf9f1a9c4e",
+        "name": "decoder_missing_key",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_EXTRA_FIELD",
+        "forged_dto_sha256": "ea3504769ccb79b6ec657553cd9122da62356bbbf38aa85dbb0d6ae7e21e778d",
+        "name": "decoder_extra_key",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_UNKNOWN_FIELD",
+        "forged_dto_sha256": "b9c43e52a4192f3ef8f32660567cf81abb8a58984a1b62b49f3bade1933f2542",
+        "name": "decoder_unknown_key",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "FORGED_STATIC_TYPE",
+        "forged_dto_sha256": "0609e1137fd6c7f6a68ec169165d29215513d8547ee662e74f1545fd470bf612",
+        "name": "decoder_forged_type",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "UNKNOWN_STATIC_SCHEMA",
+        "forged_dto_sha256": "1e288b85ac1506f52eb25c0e9714cb828a80a489c23fd38d34e14a8bcf1d319c",
+        "name": "decoder_unknown_schema",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_OUTCOME_ENUM_MISMATCH",
+        "forged_dto_sha256": "90e386f59405acfad9333af887fdc0137dd51f5230d893255adfa428560082e1",
+        "name": "decoder_forged_outcome_enum",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_ARRIVAL_LAW_MISMATCH",
+        "forged_dto_sha256": "2a320c264d6b795237d4083de2740a1bfe8068b33649e65525819020ade3b8ab",
+        "name": "decoder_forged_arrival_laws",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_ARRIVAL_LAW_MISMATCH",
+        "forged_dto_sha256": "7ae9cf783bc6e1ceb785f58a11903d668d8cf2ba4227842adba3b0d9d0fe1cb0",
+        "name": "decoder_forged_law_names",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "FORGED_STATIC_TYPE",
+        "forged_dto_sha256": "a0844a439852dc2b6cf01a3a53030f67e218f816883ecffd7106d6969524c21b",
+        "name": "coupled_rehash_static_authority",
+        "outcome": "REJECT"
+      },
+      {
+        "coverage_calls_after": 0,
+        "coverage_calls_before": 0,
+        "digest_recomputed": true,
+        "expected_code": "STATIC_RECOMPOSE_DECODED_REQUIRED",
+        "forged_dto_sha256": "7f534b78af7321a76bbcf57a3711d84ee90cbf3bd62b7157db97a1e28dfc732c",
+        "name": "recompose_requires_decoded_dto",
+        "outcome": "REJECT"
+      }
+    ],
     "full_wrapper_bytes_different": true,
-    "inputs_sha256": "4c3bb61605f20300152714c023ef233ece2f27b56b8855f8fd09dc7e76a1b349",
+    "inputs_sha256": "58c44a74ac055e1aa5610c60e77547babfb5b4f1310edf33e10e924cac5af04f",
     "key_matrix": [
       {
         "alphas": [
@@ -214,7 +309,7 @@
     ],
     "performance": {
       "byte_budget": 5000000,
-      "canonical_bytes_processed_upper_bound": 1106346,
+      "canonical_bytes_processed_upper_bound": 1114210,
       "input_integer_bit_limit": 4096,
       "input_max_integer_bit_length": 23,
       "model": "CANONICAL_BYTES_LINEAR_SCAN_UPPER_BOUND_V1",
@@ -224,25 +319,51 @@
       "$type": "ConveyorStaticPreparationPlanV1",
       "canonicalization": "UTF8_SORTED_KEYS_NO_WHITESPACE_V1",
       "core_owner": "kernel/src/cftuv_envelope/wavefront/conveyor.py",
+      "decoder_entrypoint": "decode_conveyor_static",
+      "decoder_isolation": {
+        "$type": "ProofOnlyStaticDecoderIsolationV1",
+        "ast_isolated": true,
+        "decoder_entrypoint": "decode_conveyor_static",
+        "decoder_parameters": [
+          "record"
+        ],
+        "forbidden_live_symbols": [],
+        "module_path": "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
+        "module_sha256": "83c4594884d327ae7d26bbe9faac82fe59f61b704a4ded7a76669bf65ea85a54",
+        "product_imports": [],
+        "recompose_entrypoint": "recompose_conveyor_static",
+        "recompose_parameters": [
+          "static_preparation",
+          "alpha"
+        ],
+        "recompose_static_reads": [
+          "arrival_laws",
+          "lattice",
+          "law_names",
+          "outcome",
+          "regions"
+        ]
+      },
+      "decoder_module": "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
       "exclusions": [
         {
           "canonical_static": false,
-          "classification": "PER_REQUEST_ALPHA_BEARING_WRAPPER",
+          "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY",
           "field": "compilation"
         },
         {
           "canonical_static": false,
-          "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION",
+          "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY",
           "field": "context"
         },
         {
           "canonical_static": false,
-          "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION",
+          "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY",
           "field": "domain"
         },
         {
           "canonical_static": false,
-          "classification": "PER_REQUEST_ALPHA",
+          "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY",
           "field": "requested_alpha"
         },
         {
@@ -266,6 +387,12 @@
           "field": "decal_request_id"
         }
       ],
+      "external_oracle_only_fields": [
+        "compilation",
+        "context",
+        "domain",
+        "requested_alpha"
+      ],
       "future_host_migration": {
         "$type": "NamedFutureHostMigrationV1",
         "action": "CONSUME_CORE_STATIC_DTO_AND_TYPED_KEY",
@@ -273,12 +400,12 @@
         "seam": "cftuv/envelope_debug_session.py:430-474"
       },
       "host_projection_forbidden": true,
-      "per_request_recomposition_fields": [
-        "compilation",
-        "context",
-        "domain",
-        "requested_alpha"
+      "recompose_entrypoint": "recompose_conveyor_static",
+      "recompose_inputs": [
+        "decoded:ConveyorStaticPreparationV1",
+        "alpha"
       ],
+      "recompose_law": "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1",
       "schema_version": "cftuv.envelope.conveyor_static_preparation_plan.v1",
       "static_field_whitelist": [
         "$type",
@@ -298,15 +425,26 @@
     "product_tree": {
       "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
       "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
-      "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
+      "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911",
+      "tools": "ec5439a5fc8ea46784d4621ac763f941b4833c36"
     },
     "red_controls": {
       "alpha_in_key": "ALPHA_IN_STATIC_KEY",
+      "coupled_rehash_static_authority": "FORGED_STATIC_TYPE",
+      "decoder_extra_key": "STATIC_EXTRA_FIELD",
+      "decoder_forged_arrival_laws": "STATIC_ARRIVAL_LAW_MISMATCH",
+      "decoder_forged_law_names": "STATIC_ARRIVAL_LAW_MISMATCH",
+      "decoder_forged_outcome_enum": "STATIC_OUTCOME_ENUM_MISMATCH",
+      "decoder_forged_type": "FORGED_STATIC_TYPE",
+      "decoder_missing_key": "STATIC_REQUIRED_FIELD_MISSING",
+      "decoder_unknown_key": "STATIC_UNKNOWN_FIELD",
+      "decoder_unknown_schema": "UNKNOWN_STATIC_SCHEMA",
       "density_collision": "DENSITY_KEY_COLLISION",
       "false_all_expected_reject": "FALSE_REJECTION_CLAIM",
       "false_determinism": "FALSE_DETERMINISM_CLAIM",
       "forged_type": "FORGED_STATIC_TYPE",
       "omitted_used_field": "STATIC_REQUIRED_FIELD_MISSING",
+      "recompose_requires_decoded_dto": "STATIC_RECOMPOSE_DECODED_REQUIRED",
       "reuse_mismatch_forward": "STATIC_REUSE_MISMATCH",
       "reuse_mismatch_reverse": "STATIC_REUSE_MISMATCH",
       "static_bytes_differ": "STATIC_ALPHA_DEPENDENCE",
@@ -318,16 +456,22 @@
       "unknown_source_blob": "UNKNOWN_SOURCE_BLOB",
       "wrapper_bytes_same": "PER_REQUEST_WRAPPER_IDENTITY_FORGED"
     },
+    "rejected_dto_coverage_call_count": 0,
     "reuse_matrix": [
       {
+        "arrival_laws_from_decoded": true,
         "byte_identical": true,
         "cold_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "lattice_from_decoded": true,
+        "law_names_from_decoded": true,
+        "outcome_from_decoded": true,
         "per_request_alpha": "0.25",
         "per_request_compilation_from_target": true,
         "per_request_compilation_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
         "per_request_context_from_target": true,
         "per_request_domain_from_target": true,
         "per_request_requested_alpha_from_target": true,
+        "regions_from_decoded": true,
         "requested_alpha_recomposed": "0.25",
         "reuse_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
         "static_alpha_source": "0.25",
@@ -335,14 +479,19 @@
         "static_schema_type": "ConveyorStaticPreparationV1"
       },
       {
+        "arrival_laws_from_decoded": true,
         "byte_identical": true,
         "cold_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "lattice_from_decoded": true,
+        "law_names_from_decoded": true,
+        "outcome_from_decoded": true,
         "per_request_alpha": "0.5",
         "per_request_compilation_from_target": true,
         "per_request_compilation_sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481",
         "per_request_context_from_target": true,
         "per_request_domain_from_target": true,
         "per_request_requested_alpha_from_target": true,
+        "regions_from_decoded": true,
         "requested_alpha_recomposed": "0.5",
         "reuse_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
         "static_alpha_source": "0.25",
@@ -350,14 +499,19 @@
         "static_schema_type": "ConveyorStaticPreparationV1"
       },
       {
+        "arrival_laws_from_decoded": true,
         "byte_identical": true,
         "cold_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
+        "lattice_from_decoded": true,
+        "law_names_from_decoded": true,
+        "outcome_from_decoded": true,
         "per_request_alpha": "0.5",
         "per_request_compilation_from_target": true,
         "per_request_compilation_sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481",
         "per_request_context_from_target": true,
         "per_request_domain_from_target": true,
         "per_request_requested_alpha_from_target": true,
+        "regions_from_decoded": true,
         "requested_alpha_recomposed": "0.5",
         "reuse_coverage_sha256": "fcd11a2eec72ca358fecf39208bf6c13d30e14011359681547d976bd8203aa31",
         "static_alpha_source": "0.5",
@@ -365,14 +519,19 @@
         "static_schema_type": "ConveyorStaticPreparationV1"
       },
       {
+        "arrival_laws_from_decoded": true,
         "byte_identical": true,
         "cold_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
+        "lattice_from_decoded": true,
+        "law_names_from_decoded": true,
+        "outcome_from_decoded": true,
         "per_request_alpha": "0.25",
         "per_request_compilation_from_target": true,
         "per_request_compilation_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
         "per_request_context_from_target": true,
         "per_request_domain_from_target": true,
         "per_request_requested_alpha_from_target": true,
+        "regions_from_decoded": true,
         "requested_alpha_recomposed": "0.25",
         "reuse_coverage_sha256": "03af76ffda31e04689ce1d87e07ec240048e29210982d35e643538852d5ca889",
         "static_alpha_source": "0.5",
@@ -472,6 +631,6 @@
     ],
     "static_bytes_identical": true
   },
-  "evidence_sha256": "2025481c03360193b687e417f1b8e33479397423ed888687e0a35636292c6ab3",
+  "evidence_sha256": "135d41b0cdfe57048ce6f377e826cf88073edb2b3d1567d194a568142b493ced",
   "schema": "cftuv.envelope.dens_a_prime.split_static_wrapper.v1"
 }

@@ -7,6 +7,7 @@ artifact from the frozen fixture and checks the complete evidence mapping.
 from __future__ import annotations
 
 import argparse
+import ast
 from copy import deepcopy
 from dataclasses import fields, is_dataclass, replace
 from decimal import Decimal
@@ -22,6 +23,19 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from static_contract import (  # noqa: E402
+    STATIC_FIELDS,
+    STATIC_SCHEMA_VERSION,
+    STATIC_TYPE,
+    StaticContractReject,
+    decode_conveyor_static,
+    recompose_conveyor_static,
+)
+
+
+class ForgedConveyorOutcome(str, Enum):
+    EXACT = "EXACT"
 
 
 def parse_arguments():
@@ -161,15 +175,30 @@ def prove_sources(root, declarations):
     return result, byte_count
 
 
-def project_static(prepared, laws, contract):
+def static_authority(prepared, laws, contract):
     result = {
         "$type": contract["static_type"],
         "schema_version": contract["static_schema_version"],
-        "outcome": typed_value(prepared.outcome),
-        "regions": serialize(prepared.regions),
-        "lattice": serialize(prepared.lattice),
-        "arrival_laws": serialize(laws),
-        "law_names": list(prepared.law_names),
+        "outcome": prepared.outcome,
+        "regions": prepared.regions,
+        "lattice": prepared.lattice,
+        "arrival_laws": laws,
+        "law_names": prepared.law_names,
+    }
+    assert list(result) == contract["static_field_whitelist"]
+    assert set(result) == set(contract["static_field_whitelist"])
+    return result
+
+
+def project_static(decoded, contract):
+    result = {
+        "$type": contract["static_type"],
+        "schema_version": contract["static_schema_version"],
+        "outcome": typed_value(decoded.outcome),
+        "regions": serialize(decoded.regions),
+        "lattice": serialize(decoded.lattice),
+        "arrival_laws": serialize(decoded.arrival_laws),
+        "law_names": list(decoded.law_names),
     }
     assert list(result) == contract["static_field_whitelist"]
     assert set(result) == set(contract["static_field_whitelist"])
@@ -251,25 +280,263 @@ def static_key(snapshot_hash, domain_id, request, contract, density_id):
     }
 
 
-def recomposed(static_source, static_dto, per_request):
-    assert canonical_bytes(static_dto["regions"]) == canonical_bytes(
-        serialize(static_source.regions)
-    )
-    assert canonical_bytes(static_dto["lattice"]) == canonical_bytes(
-        serialize(static_source.lattice)
-    )
-    assert static_dto["law_names"] == list(static_source.law_names)
+def materialize_oracle(recomposed, per_request):
     return replace(
         per_request,
-        outcome=static_source.outcome,
-        regions=static_source.regions,
-        lattice=static_source.lattice,
-        law_names=static_source.law_names,
+        outcome=recomposed.outcome,
+        regions=recomposed.regions,
+        lattice=recomposed.lattice,
+        law_names=recomposed.law_names,
     )
 
 
 def bytes_fact(data):
     return {"byte_length": len(data), "sha256": digest(data)}
+
+
+def validate_contract_declaration(contract):
+    expected = {
+        "static_type": STATIC_TYPE,
+        "static_schema_version": STATIC_SCHEMA_VERSION,
+        "static_field_whitelist": list(STATIC_FIELDS),
+        "decoder_module": (
+            "kernel/fixtures/dens_a_prime_split_static_v1/"
+            "static_contract.py"
+        ),
+        "decoder_entrypoint": "decode_conveyor_static",
+        "recompose_entrypoint": "recompose_conveyor_static",
+        "recompose_law": (
+            "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1"
+        ),
+        "key_type": "ConveyorStaticPreparationKeyV1",
+        "key_schema_version": (
+            "cftuv.envelope.conveyor_static_preparation_key.v1"
+        ),
+        "key_law": (
+            "SNAPSHOT_AND_ALL_COMPILE_STATIC_POLICY_WITH_DENSITY_V1"
+        ),
+        "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+        "density_value_ids": [
+            f"LINEAR_REFLEX_DENSITY_{density}_V1"
+            for density in range(5)
+        ],
+        "density_selection_policy_id": (
+            "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+        ),
+    }
+    assert contract == expected
+
+
+def inspect_isolation(root, contract):
+    path = root / contract["decoder_module"]
+    source = path.read_bytes()
+    tree = ast.parse(source, filename=str(path))
+    imported = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+    product_imports = sorted(
+        name for name in imported if name.startswith("cftuv_envelope")
+    )
+    functions = {
+        item.name: item
+        for item in tree.body
+        if isinstance(item, ast.FunctionDef)
+    }
+    decoder = functions[contract["decoder_entrypoint"]]
+    recomposer = functions[contract["recompose_entrypoint"]]
+    decoder_parameters = [item.arg for item in decoder.args.args]
+    recompose_parameters = [item.arg for item in recomposer.args.args]
+    forbidden = {
+        "prepare_conveyor",
+        "conveyor_coverage",
+        "ConveyorPreparationV1",
+        "compilation",
+        "context",
+        "domain",
+        "requested_alpha",
+        "replace",
+    }
+    symbols = {
+        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+    } | {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+    }
+    static_reads = sorted(
+        {
+            node.attr
+            for node in ast.walk(recomposer)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "static_preparation"
+        }
+    )
+    expected_reads = [
+        "arrival_laws",
+        "lattice",
+        "law_names",
+        "outcome",
+        "regions",
+    ]
+    result = {
+        "$type": "ProofOnlyStaticDecoderIsolationV1",
+        "module_path": contract["decoder_module"],
+        "module_sha256": digest(source),
+        "decoder_entrypoint": decoder.name,
+        "decoder_parameters": decoder_parameters,
+        "recompose_entrypoint": recomposer.name,
+        "recompose_parameters": recompose_parameters,
+        "recompose_static_reads": static_reads,
+        "product_imports": product_imports,
+        "forbidden_live_symbols": sorted(forbidden & symbols),
+        "ast_isolated": (
+            decoder_parameters == ["record"]
+            and recompose_parameters == ["static_preparation", "alpha"]
+            and static_reads == expected_reads
+            and not product_imports
+            and not (forbidden & symbols)
+        ),
+    }
+    assert result["ast_isolated"]
+    return result
+
+
+def prove_decoder_reds(
+    authority,
+    per_request,
+    alpha,
+    coverage_oracle,
+):
+    trace = {"calls": 0}
+
+    def counted_coverage(prepared, requested_alpha):
+        trace["calls"] += 1
+        return coverage_oracle(prepared, requested_alpha)
+
+    def wire(record):
+        return canonical_bytes(
+            {
+                key: (
+                    serialize(value)
+                    if key not in {"$type", "schema_version"}
+                    else value
+                )
+                for key, value in record.items()
+            }
+        )
+
+    result = []
+
+    def red(name, code, mutate, *, decode=True):
+        forged = dict(authority)
+        mutate(forged)
+        recomputed = digest(wire(forged))
+        before = trace["calls"]
+        try:
+            decoded = (
+                decode_conveyor_static(forged)
+                if decode
+                else forged
+            )
+            recomposed = recompose_conveyor_static(decoded, alpha)
+            prepared = materialize_oracle(recomposed, per_request)
+            counted_coverage(prepared, alpha)
+        except StaticContractReject as exc:
+            assert exc.code == code
+        else:
+            raise AssertionError(f"{name}: decoder fail-open")
+        after = trace["calls"]
+        assert before == after
+        result.append(
+            {
+                "name": name,
+                "expected_code": code,
+                "outcome": "REJECT",
+                "digest_recomputed": True,
+                "forged_dto_sha256": recomputed,
+                "coverage_calls_before": before,
+                "coverage_calls_after": after,
+            }
+        )
+
+    red(
+        "decoder_missing_key",
+        "STATIC_REQUIRED_FIELD_MISSING",
+        lambda item: item.pop("regions"),
+    )
+    red(
+        "decoder_extra_key",
+        "STATIC_EXTRA_FIELD",
+        lambda item: item.update({"requested_alpha": alpha}),
+    )
+    red(
+        "decoder_unknown_key",
+        "STATIC_UNKNOWN_FIELD",
+        lambda item: item.update({"mystery_static_field": "forged"}),
+    )
+    red(
+        "decoder_forged_type",
+        "FORGED_STATIC_TYPE",
+        lambda item: item.update({"$type": "FORGED_STATIC_TYPE"}),
+    )
+    red(
+        "decoder_unknown_schema",
+        "UNKNOWN_STATIC_SCHEMA",
+        lambda item: item.update({"schema_version": "unknown"}),
+    )
+    red(
+        "decoder_forged_outcome_enum",
+        "STATIC_OUTCOME_ENUM_MISMATCH",
+        lambda item: item.update(
+            {"outcome": ForgedConveyorOutcome.EXACT}
+        ),
+    )
+
+    def forge_law(item):
+        laws = item["arrival_laws"]
+        item["arrival_laws"] = (
+            replace(laws[0], name=f"{laws[0].name}:forged"),
+            *laws[1:],
+        )
+
+    red(
+        "decoder_forged_arrival_laws",
+        "STATIC_ARRIVAL_LAW_MISMATCH",
+        forge_law,
+    )
+    red(
+        "decoder_forged_law_names",
+        "STATIC_ARRIVAL_LAW_MISMATCH",
+        lambda item: item.update(
+            {"law_names": ("forged-law-name", *item["law_names"][1:])}
+        ),
+    )
+
+    def forge_all(item):
+        item["$type"] = "FORGED_STATIC_TYPE"
+        item["schema_version"] = "unknown"
+        item["outcome"] = ForgedConveyorOutcome.EXACT
+        forge_law(item)
+        item["law_names"] = tuple(
+            law.name for law in item["arrival_laws"]
+        )
+
+    red(
+        "coupled_rehash_static_authority",
+        "FORGED_STATIC_TYPE",
+        forge_all,
+    )
+    red(
+        "recompose_requires_decoded_dto",
+        "STATIC_RECOMPOSE_DECODED_REQUIRED",
+        lambda item: None,
+        decode=False,
+    )
+    return result, trace["calls"]
 
 
 def build_expected(root, inputs, inputs_bytes):
@@ -281,12 +548,17 @@ def build_expected(root, inputs, inputs_bytes):
         "proof_base_revision": inputs["proof_base_revision"],
         "kernel_src": revision(root, "HEAD:kernel/src"),
         "cftuv": revision(root, "HEAD:cftuv"),
+        "tools": revision(root, "HEAD:tools"),
     }
     assert tree["kernel_src"] == inputs["accepted_product_oids"]["kernel_src"]
     assert tree["cftuv"] == inputs["accepted_product_oids"]["cftuv"]
+    assert tree["tools"] == inputs["accepted_product_oids"]["tools"]
     sources, source_byte_count = prove_sources(
         root, inputs["source_authority"]
     )
+    contract = inputs["planned_contract"]
+    validate_contract_declaration(contract)
+    isolation = inspect_isolation(root, contract)
 
     sys.path.insert(0, str(root / "kernel" / "src"))
     import cftuv_envelope as kernel
@@ -316,11 +588,20 @@ def build_expected(root, inputs, inputs_bytes):
         alpha: conveyor_module._arrival_laws(item.context).laws
         for alpha, item in preparations.items()
     }
-    contract = inputs["planned_contract"]
-    static_records = {
-        alpha: project_static(
-            preparations[alpha], arrival_laws[alpha], contract
+    static_authorities = {
+        alpha: static_authority(
+            preparations[alpha],
+            arrival_laws[alpha],
+            contract,
         )
+        for alpha in fixture["alphas"]
+    }
+    decoded_static = {
+        alpha: decode_conveyor_static(static_authorities[alpha])
+        for alpha in fixture["alphas"]
+    }
+    static_records = {
+        alpha: project_static(decoded_static[alpha], contract)
         for alpha in fixture["alphas"]
     }
     static_payloads = {
@@ -361,9 +642,12 @@ def build_expected(root, inputs, inputs_bytes):
         ("0.5", "0.5"),
         ("0.5", "0.25"),
     ):
-        joined = recomposed(
-            preparations[static_alpha],
-            static_records[static_alpha],
+        recomposed = recompose_conveyor_static(
+            decoded_static[static_alpha],
+            request_alpha,
+        )
+        joined = materialize_oracle(
+            recomposed,
             preparations[request_alpha],
         )
         coverage = conveyor_module.conveyor_coverage(joined, request_alpha)
@@ -380,7 +664,7 @@ def build_expected(root, inputs, inputs_bytes):
                 "static_dto_sha256": digest(static_payloads[static_alpha]),
                 "static_schema_type": static_records[static_alpha]["$type"],
                 "requested_alpha_recomposed": str(
-                    joined.requested_alpha.value
+                    recomposed.alpha
                 ),
                 "per_request_compilation_from_target": (
                     joined.compilation
@@ -396,6 +680,22 @@ def build_expected(root, inputs, inputs_bytes):
                     joined.requested_alpha
                     == preparations[request_alpha].requested_alpha
                 ),
+                "outcome_from_decoded": (
+                    joined.outcome is recomposed.outcome
+                ),
+                "regions_from_decoded": (
+                    joined.regions is recomposed.regions
+                ),
+                "lattice_from_decoded": (
+                    joined.lattice is recomposed.lattice
+                ),
+                "arrival_laws_from_decoded": (
+                    recomposed.arrival_laws
+                    is decoded_static[static_alpha].arrival_laws
+                ),
+                "law_names_from_decoded": (
+                    joined.law_names is recomposed.law_names
+                ),
                 "cold_coverage_sha256": digest(
                     cold_payloads[request_alpha]
                 ),
@@ -403,6 +703,14 @@ def build_expected(root, inputs, inputs_bytes):
                 "byte_identical": True,
             }
         )
+
+    decoder_reds, rejected_coverage_calls = prove_decoder_reds(
+        static_authorities["0.25"],
+        preparations["0.5"],
+        "0.5",
+        conveyor_module.conveyor_coverage,
+    )
+    assert rejected_coverage_calls == 0
 
     snapshot_hash = digest(kernel.canonical_json_bytes(snapshot))
     key_rows = []
@@ -461,16 +769,28 @@ def build_expected(root, inputs, inputs_bytes):
     assert all(item["different"] for item in policy_rows)
 
     exclusions = [
-        {"field": "compilation", "classification": "PER_REQUEST_ALPHA_BEARING_WRAPPER", "canonical_static": False},
-        {"field": "context", "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION", "canonical_static": False},
-        {"field": "domain", "classification": "PER_REQUEST_RUNTIME_RECOMPOSITION", "canonical_static": False},
-        {"field": "requested_alpha", "classification": "PER_REQUEST_ALPHA", "canonical_static": False},
+        {"field": "compilation", "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY", "canonical_static": False},
+        {"field": "context", "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY", "canonical_static": False},
+        {"field": "domain", "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY", "canonical_static": False},
+        {"field": "requested_alpha", "classification": "EXTERNAL_COLD_COVERAGE_ORACLE_ONLY", "canonical_static": False},
         {"field": "counters", "classification": "DIAGNOSTIC_NONCANONICAL", "canonical_static": False},
         {"field": "detail", "classification": "DIAGNOSTIC_NONCANONICAL", "canonical_static": False},
         {"field": "timings", "classification": "TIMING_NONCANONICAL", "canonical_static": False},
         {"field": "decal_request_id", "classification": "PER_REQUEST_KEY_EXCLUSION", "canonical_static": False},
     ]
     red_controls = {
+        "coupled_rehash_static_authority": "FORGED_STATIC_TYPE",
+        "decoder_extra_key": "STATIC_EXTRA_FIELD",
+        "decoder_forged_arrival_laws": "STATIC_ARRIVAL_LAW_MISMATCH",
+        "decoder_forged_law_names": "STATIC_ARRIVAL_LAW_MISMATCH",
+        "decoder_forged_outcome_enum": "STATIC_OUTCOME_ENUM_MISMATCH",
+        "decoder_forged_type": "FORGED_STATIC_TYPE",
+        "decoder_missing_key": "STATIC_REQUIRED_FIELD_MISSING",
+        "decoder_unknown_key": "STATIC_UNKNOWN_FIELD",
+        "decoder_unknown_schema": "UNKNOWN_STATIC_SCHEMA",
+        "recompose_requires_decoded_dto": (
+            "STATIC_RECOMPOSE_DECODED_REQUIRED"
+        ),
         "unknown_schema": "UNKNOWN_STATIC_SCHEMA",
         "forged_type": "FORGED_STATIC_TYPE",
         "static_includes_alpha": "ALPHA_IN_STATIC_DTO",
@@ -491,6 +811,7 @@ def build_expected(root, inputs, inputs_bytes):
     byte_count = (
         len(inputs_bytes)
         + source_byte_count
+        + len((root / contract["decoder_module"]).read_bytes())
         + len(snapshot_bytes)
         + len(request_bytes)
         + sum(len(item) for item in static_payloads.values())
@@ -521,18 +842,27 @@ def build_expected(root, inputs, inputs_bytes):
             "static_type": contract["static_type"],
             "static_schema_version": contract["static_schema_version"],
             "static_field_whitelist": contract["static_field_whitelist"],
+            "decoder_module": contract["decoder_module"],
+            "decoder_entrypoint": contract["decoder_entrypoint"],
+            "recompose_entrypoint": contract["recompose_entrypoint"],
+            "recompose_law": contract["recompose_law"],
             "static_key_type": contract["key_type"],
             "static_key_schema_version": contract["key_schema_version"],
             "static_key_law": contract["key_law"],
             "canonicalization": "UTF8_SORTED_KEYS_NO_WHITESPACE_V1",
             "exclusions": exclusions,
-            "per_request_recomposition_fields": [
+            "recompose_inputs": [
+                "decoded:ConveyorStaticPreparationV1",
+                "alpha",
+            ],
+            "external_oracle_only_fields": [
                 "compilation",
                 "context",
                 "domain",
                 "requested_alpha",
             ],
             "host_projection_forbidden": True,
+            "decoder_isolation": isolation,
             "future_host_migration": {
                 "$type": "NamedFutureHostMigrationV1",
                 "seam": "cftuv/envelope_debug_session.py:430-474",
@@ -553,6 +883,8 @@ def build_expected(root, inputs, inputs_bytes):
         "reuse_matrix": reuse_rows,
         "key_matrix": key_rows,
         "compile_static_policy_separation": policy_rows,
+        "decoder_red_matrix": decoder_reds,
+        "rejected_dto_coverage_call_count": rejected_coverage_calls,
         "red_controls": red_controls,
         "performance": performance,
         "claims": {
@@ -565,6 +897,9 @@ def build_expected(root, inputs, inputs_bytes):
             "all_density_ids_distinct": True,
             "core_single_owner": True,
             "host_projection_forbidden": True,
+            "decoded_static_is_only_static_authority": True,
+            "recomposer_has_no_live_preparation_input": True,
+            "rejected_dto_never_reaches_coverage": True,
         },
     }
 
@@ -668,7 +1003,19 @@ def main():
     forged["evidence"]["source_authority"][0]["blob_oid"] = "0" * 40
     mutations["unknown_source_blob"] = forged
 
-    matrix = {}
+    decoder_matrix = expected["decoder_red_matrix"]
+    assert expected["rejected_dto_coverage_call_count"] == 0
+    assert all(
+        item["outcome"] == "REJECT"
+        and item["digest_recomputed"]
+        and item["coverage_calls_before"] == 0
+        and item["coverage_calls_after"] == 0
+        for item in decoder_matrix
+    )
+    matrix = {
+        item["name"]: item["expected_code"]
+        for item in decoder_matrix
+    }
     for name, forged in mutations.items():
         refresh(forged)
         assert rejected(forged, expected)
@@ -683,6 +1030,13 @@ def main():
         "alpha_runs": expected["alpha_runs"],
         "reuse_matrix": expected["reuse_matrix"],
         "key_matrix": expected["key_matrix"],
+        "decoder_isolation": expected["planned_contract"][
+            "decoder_isolation"
+        ],
+        "decoder_red_matrix": decoder_matrix,
+        "rejected_dto_coverage_call_count": expected[
+            "rejected_dto_coverage_call_count"
+        ],
         "exploit_regression_matrix": matrix,
         "all_expected_reject": set(matrix) == set(expected["red_controls"]),
         "performance": expected["performance"],
