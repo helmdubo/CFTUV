@@ -1,0 +1,68 @@
+{
+  "schema": "cftuv.envelope.dens_a.synthetic_cases.v1",
+  "proof_base_revision": "db82c7c8844f17a3590f83119ab28e01608b6bf0",
+  "accepted_product_tree_oid": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+  "future_policy_authority": {
+    "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1",
+    "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+    "density_value_id_pattern": "LINEAR_REFLEX_DENSITY_{d}_V1",
+    "density_min": 0,
+    "density_max": 4,
+    "density_default": 1
+  },
+  "old_explicit_v1_authority": {
+    "request_path": "kernel/fixtures/building_002_full_selection_v1/decal_request.json",
+    "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+    "snapshot_path": "kernel/fixtures/building_002_full_selection_v1/analysis_snapshot.json",
+    "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+    "selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
+    "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+  },
+  "direction_cases": [
+    {
+      "case_id": "H1_N2",
+      "hidden_edge_count": 1,
+      "total_half_tangent": "1/2",
+      "gram": [["2", "1/3"], ["1/3", "3"]]
+    },
+    {
+      "case_id": "H2_N3",
+      "hidden_edge_count": 2,
+      "total_half_tangent": "2/3",
+      "gram": [["3", "1/5"], ["1/5", "2"]]
+    },
+    {
+      "case_id": "H3_N4",
+      "hidden_edge_count": 3,
+      "total_half_tangent": "3/4",
+      "gram": [["5/2", "1/7"], ["1/7", "7/2"]]
+    },
+    {
+      "case_id": "H4_N5",
+      "hidden_edge_count": 4,
+      "total_half_tangent": "4/5",
+      "gram": [["4", "1/9"], ["1/9", "3"]]
+    },
+    {
+      "case_id": "H5_N6",
+      "hidden_edge_count": 5,
+      "total_half_tangent": "5/6",
+      "gram": [["7/2", "1/11"], ["1/11", "9/2"]]
+    }
+  ],
+  "root_bisection": {
+    "scan_denominator": 4096,
+    "iterations": 48,
+    "synthetic_chebyshev_evaluation_budget": 30000
+  },
+  "empty_window_witness": {
+    "u": "1/3",
+    "density": 1,
+    "q": 3,
+    "cos_delta": "1/2",
+    "hidden_edge_count": 1,
+    "candidate_max_denominator": 3,
+    "evidence_class": "POINT_THRESHOLD_ONLY",
+    "named_outcome": "DENSITY_DIRECTION_BINDING_EMPTY_WINDOW_DEGRADED"
+  }
+}
