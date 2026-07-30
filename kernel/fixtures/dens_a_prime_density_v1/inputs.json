@@ -31,7 +31,15 @@
     "anchor_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
     "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
     "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
-    "hidden_count_case_id": "H1_C1",
+    "density_authority": {
+      "$type": "ProofOnlyLinearReflexDensityAuthorityV1",
+      "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+      "density_value_id": "LINEAR_REFLEX_DENSITY_0_V1",
+      "density_integer": 0,
+      "gate0_hidden_count_witness_case_id": "H1_C1",
+      "reflex_excess_source": "PUBLIC_REFLEX_ANGLE_CERTIFICATE",
+      "expected_reflex_excess_over_pi": "1/2"
+    },
     "expected_gram": [
       ["2066105/262144", "13024865/524288"],
       ["13024865/524288", "86046925/1048576"]
@@ -44,6 +52,7 @@
   },
   "bit_cost_model": {
     "name": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
-    "budget": 5000000000000
+    "budget": 5000000000000,
+    "input_integer_bit_limit": 4096
   }
 }

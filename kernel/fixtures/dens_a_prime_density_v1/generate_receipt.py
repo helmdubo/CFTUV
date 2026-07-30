@@ -15,6 +15,7 @@ import hashlib
 import json
 from math import isqrt
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -93,6 +94,26 @@ def _square_fraction(value: Fraction) -> bool:
         isqrt(value.numerator) ** 2 == value.numerator
         and isqrt(value.denominator) ** 2 == value.denominator
     )
+
+
+def _input_integer_bits(value: Any) -> int:
+    maximum = 1
+    if isinstance(value, dict):
+        for item in value.values():
+            maximum = max(maximum, _input_integer_bits(item))
+    elif isinstance(value, list):
+        for item in value:
+            maximum = max(maximum, _input_integer_bits(item))
+    elif isinstance(value, int):
+        maximum = max(maximum, abs(value).bit_length())
+    elif isinstance(value, str) and re.fullmatch(r"-?\d+(?:/\d+)?", value):
+        parsed = Fraction(value)
+        maximum = max(
+            maximum,
+            abs(parsed.numerator).bit_length(),
+            parsed.denominator.bit_length(),
+        )
+    return maximum
 
 
 @dataclass
@@ -286,7 +307,44 @@ def _load_compilation(root: Path, source: dict[str, Any]):
         raise ValueError("owner sector mismatch")
     if spec.source_relation_id.value != source["source_relation_id"]:
         raise ValueError("source relation mismatch")
-    return kernel, snapshot, compilation, metric, spec
+    relation = next(
+        item
+        for item in snapshot.corner_relations
+        if item.corner_relation_id.value == source["source_relation_id"]
+    )
+    sector = next(
+        item
+        for item in snapshot.angular_owner_sectors
+        if item.owner_sector_id.value == source["owner_sector_id"]
+    )
+    certificate = next(
+        item
+        for item in snapshot.reflex_angle_certificates
+        if item.certificate_id == relation.reflex_angle_certificate_id
+    )
+    incident = tuple(
+        item.value for item in sector.ordered_incident_chain_use_ids
+    )
+    expected_incident = (
+        source["incoming_chain_use_id"],
+        source["outgoing_chain_use_id"],
+    )
+    if incident != expected_incident:
+        raise ValueError("declared incident chains do not equal owner sector")
+    if relation.owner_sector_id != sector.owner_sector_id:
+        raise ValueError("relation does not own the declared sector")
+    if relation.source_vertex_id.value != source["anchor_source_vertex_id"]:
+        raise ValueError("relation anchor mismatch")
+    return (
+        kernel,
+        snapshot,
+        compilation,
+        metric,
+        spec,
+        relation,
+        sector,
+        certificate,
+    )
 
 
 def _metric_matrix(metric) -> tuple[tuple[Fraction, Fraction], ...]:
@@ -367,9 +425,12 @@ def _solve_orientation(
     expected_orientation: int,
     principal_bracket: tuple[Fraction, Fraction],
     other_bracket: tuple[Fraction, Fraction],
+    root_n: int,
     steps: int,
     ledger: BitLedger,
 ) -> dict[str, Any]:
+    if root_n != 2:
+        raise ValueError("this exact proof slice implements derived n=2")
     cross = _cross(incoming, outgoing)
     if _sign(cross) != expected_orientation:
         raise ValueError(f"{name}: orientation mismatch")
@@ -446,6 +507,9 @@ def main() -> None:
     root = args.source_root.resolve()
     inputs_bytes = args.inputs.read_bytes()
     inputs = json.loads(inputs_bytes)
+    input_bits = _input_integer_bits(inputs)
+    if input_bits > inputs["bit_cost_model"]["input_integer_bit_limit"]:
+        raise ValueError("input integer bit limit exceeded")
     accepted = inputs["accepted_product_oids"]
     observed = {
         "proof_base_revision": inputs["proof_base_revision"],
@@ -467,9 +531,44 @@ def main() -> None:
         raise ValueError("H1 must cover both C=1 and C=2")
 
     source = inputs["production_radical"]
-    kernel, snapshot, compilation, metric, spec = _load_compilation(
-        root, source
+    (
+        kernel,
+        snapshot,
+        compilation,
+        metric,
+        spec,
+        relation,
+        sector,
+        certificate,
+    ) = _load_compilation(root, source)
+    authority = source["density_authority"]
+    measure = certificate.measure_payload.reflex_excess_over_pi
+    if (
+        measure.lower != measure.upper
+        or measure.absolute_error_bound != 0
+        or measure.lower_kind.value != "CLOSED"
+        or measure.upper_kind.value != "CLOSED"
+    ):
+        raise ValueError("relation reflex excess is not exact")
+    certified_u = Fraction(str(measure.lower))
+    if certified_u != Fraction(authority["expected_reflex_excess_over_pi"]):
+        raise ValueError("certified reflex excess differs from authority")
+    density = int(authority["density_integer"])
+    q = density + 2
+    count = _ceil(q * certified_u)
+    emanated = max(2, count)
+    hidden = max(1, count - 1)
+    root_n = hidden + 1
+    witness = next(
+        item
+        for item in owner
+        if item["case_id"]
+        == authority["gate0_hidden_count_witness_case_id"]
     )
+    if witness["derived_H"] != hidden:
+        raise ValueError("Gate0 witness has foreign hidden count")
+    if spec.resolved_hidden_edge_count != hidden:
+        raise ValueError("compile observation conflicts with density authority")
     matrix = _metric_matrix(metric)
     if [[_f(value) for value in row] for row in matrix] != source[
         "expected_gram"
@@ -497,6 +596,7 @@ def main() -> None:
         -1,
         principal,
         other,
+        root_n,
         source["root_refinement_steps"],
         ledger,
     )
@@ -532,6 +632,7 @@ def main() -> None:
         1,
         principal,
         other,
+        root_n,
         source["root_refinement_steps"],
         ledger,
     )
@@ -569,6 +670,10 @@ def main() -> None:
         },
     }
     perf = ledger.receipt(inputs["bit_cost_model"]["budget"])
+    perf["input_max_integer_bit_length"] = input_bits
+    perf["input_integer_bit_limit"] = inputs["bit_cost_model"][
+        "input_integer_bit_limit"
+    ]
     if not perf["pass"]:
         raise ValueError("bit-cost budget exceeded")
 
@@ -600,15 +705,38 @@ def main() -> None:
             "angular_spec_id": spec.envelope_spec_id.value,
             "owner_sector_id": spec.owner_sector_id.value,
             "source_relation_id": spec.source_relation_id.value,
+            "angle_certificate_id": relation.reflex_angle_certificate_id.value,
             "evaluation_binding_law": binding.binding_law.value,
             "lattice_scale": binding.lattice_scale,
             "anchor_source_vertex_id": source["anchor_source_vertex_id"],
             "incoming_chain_use_id": source["incoming_chain_use_id"],
             "outgoing_chain_use_id": source["outgoing_chain_use_id"],
+            "ordered_incident_chain_use_ids": [
+                item.value for item in sector.ordered_incident_chain_use_ids
+            ],
+            "relation_source_vertex_id": relation.source_vertex_id.value,
+            "legacy_compile_observation": {
+                "selection_certificate_id": spec.selection_certificate_id.value,
+                "resolved_hidden_edge_count": spec.resolved_hidden_edge_count,
+                "separate_from_proof_density_authority": True,
+                "compatible_with_proof_density_hidden_count": (
+                    spec.resolved_hidden_edge_count == hidden
+                ),
+            },
         },
         "radical_binding": {
-            "owner_hidden_count_case_id": source["hidden_count_case_id"],
-            "root_n": 2,
+            "owner_density_authority": {
+                **authority,
+                "corner_relation_id": relation.corner_relation_id.value,
+                "angle_certificate_id": certificate.certificate_id.value,
+                "certified_u": _f(certified_u),
+                "q": q,
+                "derived_C": count,
+                "derived_E": emanated,
+                "derived_H": hidden,
+                "derived_root_n": root_n,
+            },
+            "root_n": root_n,
             "original": original,
             "mirrored": mirrored,
             "mirror_matrix": [["1", "0"], ["0", "-1"]],

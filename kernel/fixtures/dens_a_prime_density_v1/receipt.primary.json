@@ -11,7 +11,7 @@
       "principal_branch_unique": true,
       "production_quadratic_radical": true
     },
-    "inputs_sha256": "24a45133cdf5dab71e002dcce4d8951e4a3f64d0a8f54ef56902c1815800b0eb",
+    "inputs_sha256": "76b0bfc420bb27a001844155b1c60c6b0ce5e11adb8807f22ca4ba47fccf1e13",
     "owner_law": {
       "certificates": [
         {
@@ -172,6 +172,8 @@
       "budget": 5000000000000,
       "exact_proof_step_count": 1236,
       "fraction_arithmetic_operation_upper_bound": 316416,
+      "input_integer_bit_limit": 4096,
+      "input_max_integer_bit_length": 93,
       "max_integer_bit_length": 802,
       "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
       "pass": true,
@@ -184,15 +186,27 @@
     },
     "production_source": {
       "anchor_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
+      "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
       "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
       "evaluation_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
       "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
       "lattice_scale": 32768,
+      "legacy_compile_observation": {
+        "compatible_with_proof_density_hidden_count": true,
+        "resolved_hidden_edge_count": 1,
+        "selection_certificate_id": "profile-selection:121f6275eaa3646c47da428d",
+        "separate_from_proof_density_authority": true
+      },
       "metric_codec_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
+      "ordered_incident_chain_use_ids": [
+        "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+        "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+      ],
       "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
       "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
       "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
       "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+      "relation_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
       "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
       "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
       "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a"
@@ -367,7 +381,23 @@
         "refinement_steps": 96,
         "root_equation": "(1-6*t^2+t^4)/(1+2*t^2+t^4)=coefficient*sqrt(radicand)"
       },
-      "owner_hidden_count_case_id": "H1_C1",
+      "owner_density_authority": {
+        "$type": "ProofOnlyLinearReflexDensityAuthorityV1",
+        "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
+        "certified_u": "1/2",
+        "corner_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a",
+        "density_integer": 0,
+        "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+        "density_value_id": "LINEAR_REFLEX_DENSITY_0_V1",
+        "derived_C": 1,
+        "derived_E": 2,
+        "derived_H": 1,
+        "derived_root_n": 2,
+        "expected_reflex_excess_over_pi": "1/2",
+        "gate0_hidden_count_witness_case_id": "H1_C1",
+        "q": 2,
+        "reflex_excess_source": "PUBLIC_REFLEX_ANGLE_CERTIFICATE"
+      },
       "root_n": 2
     },
     "red_controls": {
@@ -398,6 +428,6 @@
     },
     "schema": "cftuv.envelope.dens_a_prime.radical_receipt.v1"
   },
-  "evidence_sha256": "7f61a656c84a70147f3b8dfa58609b7d2bb4c70680d6802d25ac17e1ea418a83",
+  "evidence_sha256": "222569ccbfe566447d6b26a19811eef03cf00494b4b97286f6ce817d685aeca3",
   "schema": "cftuv.envelope.dens_a_prime.radical_receipt_wrapper.v1"
 }

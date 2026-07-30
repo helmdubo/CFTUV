@@ -1,4 +1,21 @@
 {
+  "all_exploit_regressions_rejected": true,
+  "exploit_regression_matrix": {
+    "empty_red_controls": "AssertionError",
+    "false_claim_all_red_controls_reached": "AssertionError",
+    "false_claim_bit_budget_pass": "AssertionError",
+    "false_claim_other_branch_rejected": "AssertionError",
+    "false_claim_production_quadratic_radical": "AssertionError",
+    "foreign_H_case": "AssertionError",
+    "huge_bit_input": "AssertionError",
+    "huge_bit_receipt": "AssertionError",
+    "perf_upper_bound_zero": "AssertionError",
+    "root_n_999": "AssertionError",
+    "stale_digest": "AssertionError",
+    "unknown_product_tree": "AssertionError",
+    "wrong_incident_chain": "AssertionError",
+    "wrong_relation_anchor": "AssertionError"
+  },
   "owner_law": {
     "H1_C_cells": [
       1,
@@ -14,11 +31,14 @@
   },
   "performance": {
     "budget": 5000000000000,
-    "exact_proof_step_count": 1214,
+    "exact_proof_step_count": 1236,
+    "fraction_arithmetic_operation_upper_bound": 316416,
+    "input_integer_bit_limit": 4096,
+    "input_max_integer_bit_length": 93,
     "max_integer_bit_length": 802,
     "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
     "pass": true,
-    "schoolbook_integer_bit_ops_upper_bound": 799590047744
+    "schoolbook_integer_bit_ops_upper_bound": 814080147456
   },
   "product_tree": {
     "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
@@ -26,6 +46,14 @@
     "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
   },
   "radical_binding": {
+    "derived_owner_density": {
+      "C": 1,
+      "E": 2,
+      "H": 1,
+      "certified_u": "1/2",
+      "density": 0,
+      "root_n": 2
+    },
     "mirror_root_identity": true,
     "mirror_wrong_metric_red_reached": true,
     "off_diagonal_gram": true,
@@ -47,16 +75,34 @@
     "reversal_red_reached": true
   },
   "red_controls": {
-    "corrupted_receipt": "EVIDENCE_DIGEST_MISMATCH",
-    "mirror_without_metric_transform": "MIRROR_GRAM_COVARIANCE_VIOLATION",
-    "mirrored_input_reversal": "OWNER_ORIENTATION_REVERSAL",
-    "other_root_branch": "OUTSIDE_OWNER_SUBTURN_BRANCH",
-    "unknown_product_tree": "UNKNOWN_PRODUCT_TREE",
-    "unreachable_owner_H": "UNREACHABLE_H_CLAIM"
+    "mirror_without_metric_transform": {
+      "correct_dot": "25056295175/281474976710656",
+      "outcome": "MIRROR_GRAM_COVARIANCE_VIOLATION",
+      "reached": true,
+      "wrong_dot": "-48413571613856895/281474976710656"
+    },
+    "mirrored_input_reversal": {
+      "expected_orientation_sign": 1,
+      "outcome": "OWNER_ORIENTATION_REVERSAL",
+      "reached": true,
+      "reversed_cross": "-620866915/536870912"
+    },
+    "other_root_branch": {
+      "outcome": "OUTSIDE_OWNER_SUBTURN_BRANCH",
+      "reached": true,
+      "signs": [
+        -1,
+        1
+      ]
+    },
+    "unreachable_owner_H": {
+      "outcome": "UNREACHABLE_H_CLAIM",
+      "reached": true
+    }
   },
   "schema": "cftuv.envelope.dens_a_prime.radical_verification.v1",
   "scope_note": "proof receipt only; verifier does not authorize product GO",
   "verdict": "VERIFIED",
-  "verified_evidence_sha256": "7f61a656c84a70147f3b8dfa58609b7d2bb4c70680d6802d25ac17e1ea418a83",
-  "verified_receipt_sha256": "e2dab1422e04fa7d063891b402c8d56796c616da90c947d0558088185ac3ba97"
+  "verified_evidence_sha256": "222569ccbfe566447d6b26a19811eef03cf00494b4b97286f6ce817d685aeca3",
+  "verified_receipt_sha256": "6efe249b54f6294a758cdc99a61ee5787128d2957f74abf8f6579b2a9177e7f6"
 }
