@@ -19,6 +19,8 @@ UNMEASURED_REQUEST_POLICY_KNOB = "UNMEASURED_REQUEST_POLICY_KNOB"
 INSTALLER_STAMP_MISSING = "INSTALLER_STAMP_MISSING"
 INSTALLER_STAMP_MISMATCH = "INSTALLER_STAMP_MISMATCH"
 BUTTON_PARITY_MISMATCH = "BUTTON_PARITY_MISMATCH"
+BUTTON_OPERATOR_DID_NOT_FINISH = "BUTTON_OPERATOR_DID_NOT_FINISH"
+BUTTON_SIDECAR_NOT_FRESH = "BUTTON_SIDECAR_NOT_FRESH"
 SOURCE_MESH_FINGERPRINT_CHANGED = "SOURCE_MESH_FINGERPRINT_CHANGED"
 DENSITY_SWEEP_CALL_COUNT_MISMATCH = "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
 FIELD_PERFORMANCE_BUDGET_EXCEEDED = "FIELD_PERFORMANCE_BUDGET_EXCEEDED"
@@ -272,14 +274,59 @@ def _select_seams(obj, edge_indices=None):
     return wanted
 
 
-def _sidecar(obj) -> dict:
-    text = bpy.data.texts.get(envelope_debug_text_name(obj))
+def _invalidate_sidecar(obj) -> str:
+    text_name = envelope_debug_text_name(obj)
+    previous = bpy.data.texts.get(text_name)
+    if previous is not None:
+        bpy.data.texts.remove(previous)
+    if bpy.data.texts.get(text_name) is not None:
+        raise DensitySweepContractError(BUTTON_SIDECAR_NOT_FRESH)
+    return text_name
+
+
+def _require_finished(outcome) -> None:
+    if type(outcome) is not set or outcome != {"FINISHED"}:
+        raise DensitySweepContractError(
+            f"{BUTTON_OPERATOR_DID_NOT_FINISH}: {outcome!r}"
+        )
+
+
+def _sidecar_identity(payload: dict, object_name: str) -> tuple[str, ...]:
+    if type(payload) is not dict:
+        raise DensitySweepContractError(
+            f"{BUTTON_SIDECAR_NOT_FRESH}: payload is not an exact object"
+        )
+    request_ids = payload.get("decal_request_ids")
+    if (
+        payload.get("object_name") != object_name
+        or type(request_ids) is not list
+        or len(request_ids) != 1
+        or type(request_ids[0]) is not str
+        or re.fullmatch(
+            r"host-v0:decal-request-density:[0-9a-f]{24}",
+            request_ids[0],
+        )
+        is None
+    ):
+        raise DensitySweepContractError(
+            f"{BUTTON_SIDECAR_NOT_FRESH}: object/request identity differs"
+        )
+    return tuple(request_ids)
+
+
+def _fresh_sidecar(obj, text_name: str, outcome) -> dict:
+    _require_finished(outcome)
+    text = bpy.data.texts.get(text_name)
     if text is None:
-        raise DensitySweepContractError("BUTTON_SIDECAR_MISSING")
+        raise DensitySweepContractError(
+            f"{BUTTON_SIDECAR_NOT_FRESH}: sidecar absent after FINISHED"
+        )
     try:
-        return json.loads(text.as_string())
+        payload = json.loads(text.as_string())
     except (ValueError, TypeError) as exc:
-        raise DensitySweepContractError("BUTTON_SIDECAR_INVALID") from exc
+        raise DensitySweepContractError(BUTTON_SIDECAR_NOT_FRESH) from exc
+    _sidecar_identity(payload, obj.name)
+    return payload
 
 
 def _queue_semantic_digest(payload: dict) -> str:
@@ -357,11 +404,14 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
             raise DensitySweepContractError(
                 f"{UNMEASURED_REQUEST_POLICY_KNOB}: UI density readback mismatch"
             )
+        text_name = _invalidate_sidecar(obj)
+        report["sidecar_absent_before_operator"] = True
         report["operator_invoked"] = True
         outcome = bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
         report["result"] = sorted(outcome)
-        sidecar = _sidecar(obj)
-        report["request_ids"] = sorted(sidecar.get("decal_request_ids", ()))
+        sidecar = _fresh_sidecar(obj, text_name, outcome)
+        report["sidecar_fresh_after_operator"] = True
+        report["request_ids"] = list(_sidecar_identity(sidecar, obj.name))
         report["requested_alpha"] = sidecar.get("requested_alpha")
         report["request_policy_knobs"] = {
             "density": {
@@ -420,21 +470,13 @@ def _verify_direct_parity(
             f"{BUTTON_PARITY_MISMATCH}: direct receipt unavailable {path}"
         ) from exc
     expected_policy = _policy_receipt(density)
-    if (
-        receipt.get("schema")
-        != "cftuv.envelope.runtime_metric_building_gate.v2"
-        or receipt.get("repository_head") != repository_head
-        or receipt.get("effective_density") != density
-        or receipt.get("selection_policy_id")
-        != expected_policy["selection_policy_id"]
-        or receipt.get("max_subturn_value_id")
-        != expected_policy["max_subturn_value_id"]
-        or receipt.get("request_ids") != button_request_ids
-        or receipt.get("status") != "COMPLETE"
-    ):
-        raise DensitySweepContractError(
-            f"{BUTTON_PARITY_MISMATCH}: direct receipt identity differs"
-        )
+    _verify_direct_identity(
+        receipt,
+        expected_policy,
+        density,
+        button_request_ids,
+        repository_head,
+    )
     run = next(
         (
             item
@@ -460,12 +502,66 @@ def _verify_direct_parity(
     }
 
 
+def _verify_direct_identity(
+    receipt: dict,
+    expected_policy: dict,
+    density: int,
+    button_request_ids,
+    repository_head: str,
+) -> None:
+    expected = {
+        "schema": "cftuv.envelope.runtime_metric_building_gate.v2",
+        "measurement_rule": MEASUREMENT_RULE,
+        "repository_head": repository_head,
+        "requested_density": density,
+        "effective_density": density,
+        "selection_policy_id": expected_policy["selection_policy_id"],
+        "max_subturn_parameter_id": expected_policy[
+            "max_subturn_parameter_id"
+        ],
+        "max_subturn_value_id": expected_policy["max_subturn_value_id"],
+        "request_ids": button_request_ids,
+        "acceptance_eligible": True,
+        "python_safe_path": True,
+        "status": "COMPLETE",
+    }
+    actual = {key: receipt.get(key) for key in expected}
+    actual_encoded = json.dumps(
+        actual,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    expected_encoded = json.dumps(
+        expected,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if actual_encoded != expected_encoded:
+        raise DensitySweepContractError(
+            f"{BUTTON_PARITY_MISMATCH}: direct receipt identity differs"
+        )
+
+
+def _stream_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            block = stream.read(1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _source_file_identity(path: Path) -> dict:
     stat = path.stat()
     return {
         "path": str(path),
         "size": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,
+        "sha256": _stream_sha256(path),
     }
 
 
