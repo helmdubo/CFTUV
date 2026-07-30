@@ -242,6 +242,19 @@ def _rational_unit_point(half_tangent: Fraction) -> tuple[Fraction, Fraction]:
     )
 
 
+def _complex_power_fraction(
+    direction: tuple[Fraction, Fraction],
+    exponent: int,
+) -> tuple[Fraction, Fraction]:
+    result = (Fraction(1), Fraction(0))
+    for _ in range(exponent):
+        result = (
+            result[0] * direction[0] - result[1] * direction[1],
+            result[0] * direction[1] + result[1] * direction[0],
+        )
+    return result
+
+
 def _gram_distance_squared(
     left: tuple[Fraction, Fraction],
     right: tuple[Fraction, Fraction],
@@ -278,8 +291,12 @@ def _direction_case(
     for ordinal in range(1, hidden + 1):
         lower_t = lower + (upper - lower) / 4
         upper_t = lower + 3 * (upper - lower) / 4
-        lower_point = _rational_unit_point(lower_t)
-        upper_point = _rational_unit_point(upper_t)
+        lower_point = _complex_power_fraction(
+            _rational_unit_point(lower_t), ordinal
+        )
+        upper_point = _complex_power_fraction(
+            _rational_unit_point(upper_t), ordinal
+        )
         target = (
             (lower_point[0] + upper_point[0]) / 2,
             (lower_point[1] + upper_point[1]) / 2,
