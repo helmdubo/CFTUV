@@ -14,7 +14,11 @@ from pathlib import Path
 import sympy as sp
 from mpmath import iv, libmp
 
-from cftuv_envelope.reference.planar_types import interval_enclosure
+from cftuv_envelope.reference.planar_types import (
+    CertifiedPredicateUndecidable,
+    exact_sign,
+    interval_enclosure,
+)
 
 
 BASE_SHA = "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
@@ -41,6 +45,71 @@ METRIC_SOURCES = (
 )
 DECIMAL_SCALE = 10**27
 REAL_Q = (2, 3, 4, 6)
+POLICY = {
+    "owner_law_id": "HUBER_EMANATED_DENSITY_FLOOR_V1",
+    "owner_law": (
+        "u=(phi-pi)/pi; q=d+2; C=ceil(q*u) lower-OPEN/upper-CLOSED; "
+        "E=max(2,C); H=max(1,C-1); n=H+1"
+    ),
+    "candidate_authority_id": "CERTIFIED_WIDTH_SQUARE_ROOT_DENOMINATOR_V1",
+    "candidate_authority": (
+        "B(w)=min{b>=1:b^2*w>=1}; every reduced p/q strictly inside "
+        "the certified window with q<=B; then exact dual-Gram subturn"
+    ),
+    "product_window_id": "DUAL_GRAM_DOMINANT_SLOPE_MIDPOINT_OPEN_V1",
+    "product_window": (
+        "dominant-component slope; OPEN dual-unit Gram midpoint window; "
+        "outward 27-digit envelopes; width=upper.lower-lower.upper"
+    ),
+    "point_threshold_only": "EXCLUDED_FROM_FUTURE_PRODUCT_CONTRACT",
+}
+Q5_THEOREM = {
+    "law_id": "RATIONAL_GRAM_BASE_BOUND_Q5_UNREPRESENTABLE_V1",
+    "rational_cos_squared_field": "Q",
+    "q5_minimal_polynomial_coefficients": [16, -12, 1],
+    "q5_minimal_polynomial_discriminant": 80,
+    "boundary_root_class": {
+        "1": "PLUS_SQRT5",
+        "2": "MINUS_SQRT5",
+        "3": "MINUS_SQRT5",
+        "4": "PLUS_SQRT5",
+    },
+    "product_consequence": (
+        "Q5_POINT_SELECTION_CERTIFICATE_ONLY_NO_PRODUCT_IDEAL_WINDOW"
+    ),
+    "algebraic_non_base_bound_contract": "REJECTED_NON_BASE_BOUND",
+}
+RED_CONTROL_CODES = {
+    "UNREACHABLE_H": "OWNER_LAW",
+    "NON_COPRIME": "NON_COPRIME",
+    "BOUNDARY_CANDIDATE": "BOUNDARY_CANDIDATE",
+    "NON_MINIMUM": "NON_MINIMUM",
+    "FORGED_OLD_WINNER_AFTER_BETTER": (
+        "FORGED_OLD_WINNER_AFTER_BETTER"
+    ),
+    "FAKE_TIE": "FAKE_TIE",
+    "DUPLICATE": "DUPLICATE",
+    "ORDER": "ORDER",
+    "CROSS": "CROSS",
+    "UNKNOWN_PRODUCT_OID": "UNKNOWN_PRODUCT_OID",
+    "UNKNOWN_FIXTURE": "UNKNOWN_FIXTURE",
+    "ALGEBRAIC_NEAR_ZERO": "EXACT_SIGN_UNDECIDABLE",
+    "ALGEBRAIC_UNSUPPORTED": "EXACT_SIGN_UNDECIDABLE",
+}
+EXPLOIT_CONTROL_CODES = {
+    "FORGED_SCOPE": "SCOPE",
+    "FORGED_POLICY": "POLICY",
+    "FORGED_SOURCE_GRAM": "UNKNOWN_FIXTURE",
+    "FORGED_SOURCE_BLOB": "UNKNOWN_FIXTURE",
+    "FORGED_SOURCE_DOMAIN": "UNKNOWN_FIXTURE",
+    "FORGED_SOURCE_REFERENCE_ID": "UNKNOWN_FIXTURE",
+    "FORGED_FIXED_FAMILY": "FIXED_METRIC_FAMILY",
+    "FORGED_Q5_THEOREM": "Q5_THEOREM",
+    "FORGED_RED_EXPECTED_ACCEPT": "RED_MATRIX",
+    "FORGED_STATS_ZERO": "STATS",
+    "FORGED_DETERMINISM_FALSE": "GENERATION_OBSERVATION",
+    "RECOMPUTED_DIGEST_ANCHOR_ATTEMPT": "RECEIPT_ANCHOR",
+}
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -161,18 +230,18 @@ def _unit(matrix, vector):
 
 def _sign(value) -> int:
     value = sp.simplify(value)
-    if value == 0 or value.is_zero is True:
-        return 0
-    if value.is_positive is True:
-        return 1
-    if value.is_negative is True:
-        return -1
-    numeric = sp.N(value, 100)
-    if numeric > 0:
-        return 1
-    if numeric < 0:
-        return -1
-    raise RuntimeError(f"UNDECIDABLE_SIGN:{value}")
+    try:
+        result = exact_sign(value)
+    except (
+        CertifiedPredicateUndecidable,
+        ArithmeticError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise RuntimeError(f"EXACT_SIGN_UNDECIDABLE:{value}") from exc
+    if result not in (-1, 0, 1):
+        raise RuntimeError(f"EXACT_SIGN_UNDECIDABLE:{value}")
+    return result
 
 
 def _perpendicular(matrix, vector, orientation: int):
@@ -754,8 +823,12 @@ def _operand_bits(value) -> int:
     if isinstance(value, int):
         return abs(value).bit_length()
     if isinstance(value, str):
-        integers = [int(item) for item in value.replace("-", " ").split() if item.isdigit()]
-        return max((abs(item).bit_length() for item in integers), default=0)
+        import re
+
+        return max(
+            (abs(int(item)).bit_length() for item in re.findall(r"-?\d+", value)),
+            default=0,
+        )
     return 0
 
 
@@ -811,33 +884,8 @@ def build_receipt(repo: Path) -> dict:
             "product_tree_oids": PRODUCT_OIDS,
             "metric_sources": sources,
         },
-        "policy": {
-            "owner_law": (
-                "u=(phi-pi)/pi; q=d+2; C=ceil(q*u) lower-OPEN/upper-CLOSED; "
-                "E=max(2,C); H=max(1,C-1); n=H+1"
-            ),
-            "candidate_authority": (
-                "B(w)=min{b>=1:b^2*w>=1}; every reduced p/q strictly inside "
-                "the certified window with q<=B; then exact dual-Gram subturn"
-            ),
-            "product_window": (
-                "dominant-component slope; OPEN dual-unit Gram midpoint window; "
-                "outward 27-digit envelopes; width=upper.lower-lower.upper"
-            ),
-            "point_threshold_only": "EXCLUDED_FROM_FUTURE_PRODUCT_CONTRACT",
-        },
-        "q5_unrepresentability_theorem": {
-            "statement": (
-                "For rational SPD dual Gram D and rational BASE_BOUND a,b, "
-                "cos^2(delta)=(aDb)^2/((aDa)(bDb)) is rational. "
-                "At internal q=5 thresholds cos^2 is (3±sqrt(5))/8, irrational."
-            ),
-            "product_consequence": (
-                "exact q5 threshold geometry is forbidden; point behavior is "
-                "selection-certificate-owned and has no product ideal window"
-            ),
-            "algebraic_non_base_bound_contract": "REJECTED",
-        },
+        "policy": POLICY,
+        "q5_unrepresentability_theorem": Q5_THEOREM,
         "fixed_metric_family": fixed_metrics,
         "selection_point_matrix": [
             _owner_values(q, m)
@@ -850,23 +898,24 @@ def build_receipt(repo: Path) -> dict:
         "gram_objective_witness": _gram_witness(metrics_by_id),
         "candidate_extension_witness": _candidate_extension_witness(),
         "red_controls": [
-            {"name": name, "expected": "REJECT"}
-            for name in (
-                "UNREACHABLE_H",
-                "NON_COPRIME",
-                "BOUNDARY_CANDIDATE",
-                "NON_MINIMUM",
-                "FORGED_OLD_WINNER_AFTER_BETTER",
-                "FAKE_TIE",
-                "DUPLICATE",
-                "ORDER",
-                "CROSS",
-                "UNKNOWN_PRODUCT_OID",
-                "UNKNOWN_FIXTURE",
-            )
+            {
+                "name": name,
+                "expected_disposition": "REJECT",
+                "expected_code": code,
+            }
+            for name, code in sorted(RED_CONTROL_CODES.items())
+        ],
+        "exploit_regression_corpus": [
+            {
+                "name": name,
+                "expected_disposition": "REJECT",
+                "expected_code": code,
+                "digest_recomputed": True,
+            }
+            for name, code in sorted(EXPLOIT_CONTROL_CODES.items())
         ],
     }
-    receipt["stats"] = {
+    stats = {
         "real_rows": len(rows),
         "real_windows": sum(len(item["windows"]) for item in rows),
         "empty_real_windows": sum(
@@ -883,9 +932,10 @@ def build_receipt(repo: Path) -> dict:
         "max_operand_bits": _operand_bits(receipt),
         "wall_seconds_budget": "30.000000000",
     }
-    receipt["stats"]["certified_bit_cost_units"] = (
-        receipt["stats"]["candidate_rows"] + receipt["stats"]["real_windows"]
-    ) * receipt["stats"]["max_operand_bits"] ** 2
+    stats["certified_bit_cost_units"] = (
+        stats["candidate_rows"] + stats["real_windows"]
+    ) * stats["max_operand_bits"] ** 2
+    receipt["stats"] = stats
     receipt["generation_observation"] = {
         "operation": "REFERENCE_GENERATION_WALL_CLOCK_REPORTED_OUTSIDE_CANONICAL_BYTES",
         "deterministic_receipt": True,
