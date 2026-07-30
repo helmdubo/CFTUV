@@ -1,5 +1,439 @@
 {
   "$defs": {
+    "AdaptiveBoundHiddenSupportSpecV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveBoundHiddenSupportSpecV2"
+        },
+        "bound_primitive_integer_vector": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "direction_fan_authority_id": {
+          "type": "string"
+        },
+        "direction_law": {
+          "enum": [
+            "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2"
+          ],
+          "type": "string"
+        },
+        "hidden_support_id": {
+          "$ref": "#/$defs/HiddenSupportId"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "scope": {
+          "enum": [
+            "ANGULAR_ENVELOPE_SPEC_LOCAL"
+          ],
+          "type": "string"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "turn_fraction": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "zero_length_at_alpha_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "hidden_support_id",
+        "ordinal",
+        "turn_fraction",
+        "direction_law",
+        "zero_length_at_alpha_zero",
+        "scope",
+        "source_relation_id",
+        "owner_sector_id",
+        "selection_certificate_id",
+        "direction_fan_authority_id",
+        "bound_primitive_integer_vector"
+      ],
+      "type": "object"
+    },
+    "AdaptiveDensityAngularEnvelopeSpecV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveDensityAngularEnvelopeSpecV2"
+        },
+        "all_support_normal_speed": {
+          "type": "integer"
+        },
+        "angle_certificate_id": {
+          "$ref": "#/$defs/AngleCertificateId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "direction_fan_authority": {
+          "$ref": "#/$defs/AdaptiveMinimalRationalFanAuthorityV2"
+        },
+        "envelope_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "evaluation_subturn_count_lift": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EvaluationGeometrySubturnCountLiftV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exposure_policy": {
+          "enum": [
+            "EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
+            "MAY_BECOME_INTERNAL_AFTER_EXACT_UNION"
+          ],
+          "type": "string"
+        },
+        "hidden_supports": {
+          "items": {
+            "$ref": "#/$defs/AdaptiveBoundHiddenSupportSpecV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "incident_front_component_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentId"
+          },
+          "type": "array"
+        },
+        "mixed_alpha_policy": {
+          "enum": [
+            "INCIDENT_EFFECTIVE_ALPHA_VECTOR"
+          ],
+          "type": "string"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "profile_family_id": {
+          "enum": [
+            "LINEAR_REFLEX_EQUAL_V1"
+          ],
+          "type": "string"
+        },
+        "resolved_hidden_edge_count": {
+          "type": "integer"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "source_seed_id": {
+          "$ref": "#/$defs/CornerSeedId"
+        },
+        "subdivision_policy": {
+          "enum": [
+            "EQUAL_REFLEX_EXCESS"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "envelope_spec_id",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "source_relation_id",
+        "owner_sector_id",
+        "angle_certificate_id",
+        "selection_certificate_id",
+        "profile_family_id",
+        "resolved_hidden_edge_count",
+        "subdivision_policy",
+        "hidden_supports",
+        "incident_front_component_ids",
+        "all_support_normal_speed",
+        "exposure_policy",
+        "mixed_alpha_policy",
+        "direction_fan_authority",
+        "evaluation_subturn_count_lift"
+      ],
+      "type": "object"
+    },
+    "AdaptiveFareyHeightRangeWitnessV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveFareyHeightRangeWitnessV2"
+        },
+        "first_height": {
+          "type": "integer"
+        },
+        "last_height": {
+          "type": "integer"
+        },
+        "primitive_candidate_counts": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "first_height",
+        "last_height",
+        "primitive_candidate_counts"
+      ],
+      "type": "object"
+    },
+    "AdaptiveMinimalRationalFanAuthorityV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveMinimalRationalFanAuthorityV2"
+        },
+        "authority_id": {
+          "type": "string"
+        },
+        "binding_reasons": {
+          "items": {
+            "oneOf": [
+              {
+                "enum": [
+                  "SOURCE_DIRECTION_IRRATIONAL",
+                  "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "bound_primitive_integer_vectors": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "exhaustive_previous_height": {
+          "type": "integer"
+        },
+        "max_subturn_q": {
+          "type": "integer"
+        },
+        "minimal_common_height": {
+          "type": "integer"
+        },
+        "ordinal_windows": {
+          "items": {
+            "$ref": "#/$defs/AdaptiveRationalFanOrdinalWindowV2"
+          },
+          "type": "array"
+        },
+        "previous_height_witness": {
+          "$ref": "#/$defs/AdaptiveFareyHeightRangeWitnessV2"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "termination_height_upper_bound": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "authority_id",
+        "max_subturn_q",
+        "minimal_common_height",
+        "exhaustive_previous_height",
+        "termination_height_upper_bound",
+        "bound_primitive_integer_vectors",
+        "binding_reasons",
+        "ordinal_windows",
+        "previous_height_witness",
+        "proven_predicates"
+      ],
+      "type": "object"
+    },
+    "AdaptiveRationalFanOrdinalWindowV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveRationalFanOrdinalWindowV2"
+        },
+        "admissible_lower_inward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_lower_outward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_upper_inward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_upper_outward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "certified_termination_width": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "denominator_sign": {
+          "type": "integer"
+        },
+        "full_lower_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "full_upper_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "termination_lower_slope": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "termination_upper_slope": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "use_x_denominator": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "ordinal",
+        "use_x_denominator",
+        "denominator_sign",
+        "full_lower_slope_envelope",
+        "full_upper_slope_envelope",
+        "termination_lower_slope",
+        "termination_upper_slope",
+        "certified_termination_width",
+        "admissible_lower_outward",
+        "admissible_lower_inward",
+        "admissible_upper_inward",
+        "admissible_upper_outward"
+      ],
+      "type": "object"
+    },
     "AngleCertificateId": {
       "additionalProperties": false,
       "properties": {
@@ -601,6 +1035,9 @@
             "oneOf": [
               {
                 "$ref": "#/$defs/StripEnvelopeSpec"
+              },
+              {
+                "$ref": "#/$defs/AdaptiveDensityAngularEnvelopeSpecV2"
               },
               {
                 "$ref": "#/$defs/AngularEnvelopeSpec"
@@ -1219,6 +1656,66 @@
         "certified_window_width_lower_bound",
         "proven_predicates",
         "binding_reason"
+      ],
+      "type": "object"
+    },
+    "EvaluationGeometrySubturnCountLiftV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EvaluationGeometrySubturnCountLiftV1"
+        },
+        "effective_hidden_edge_count": {
+          "type": "integer"
+        },
+        "evaluation_turn_cosine_squared": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "evaluation_turn_sign": {
+          "enum": [
+            "NEGATIVE",
+            "ZERO",
+            "POSITIVE"
+          ],
+          "type": "string"
+        },
+        "lift_law": {
+          "enum": [
+            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+          ],
+          "type": "string"
+        },
+        "max_subturn_q": {
+          "type": "integer"
+        },
+        "minimality_predecessor_hidden_edge_count": {
+          "type": "integer"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_hidden_edge_count": {
+          "type": "integer"
+        },
+        "source_selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        }
+      },
+      "required": [
+        "$type",
+        "lift_law",
+        "source_selection_certificate_id",
+        "source_hidden_edge_count",
+        "effective_hidden_edge_count",
+        "max_subturn_q",
+        "evaluation_turn_sign",
+        "evaluation_turn_cosine_squared",
+        "minimality_predecessor_hidden_edge_count",
+        "proven_predicates"
       ],
       "type": "object"
     },

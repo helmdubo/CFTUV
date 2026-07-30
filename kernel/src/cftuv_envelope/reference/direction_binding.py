@@ -16,6 +16,8 @@ from .._density_policy import (
 )
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
+    AdaptiveMinimalRationalFanAuthorityV2,
+    DirectionBindingReasonV1,
     DirectionBindingCertificateV1,
     EvaluationGeometryDirectionBindingCertificateV1,
 )
@@ -712,6 +714,29 @@ def has_rational_support_direction(
     return _primitive_direction(metric.support_covector_g(unit_normal)) is not None
 
 
+def has_rational_density_support_direction(
+    metric: ExactPlanarMetric,
+    unit_normal: ExactPlanarVector,
+) -> bool:
+    """Projective rationality Density-ковектора без materialized factor."""
+
+    from .angular import _density_exact_sign
+
+    x, y = metric.density_expressions(unit_normal)
+    gram = metric.gram
+    covector_x = gram[0][0] * x + gram[0][1] * y
+    covector_y = gram[1][0] * x + gram[1][1] * y
+    if _density_exact_sign(covector_x, metric) == 0:
+        return _density_exact_sign(covector_y, metric) != 0
+    ratio = covector_y / covector_x
+    rationality = ratio.is_Rational
+    if rationality is not None:
+        return rationality is True
+    # `cancel` нужен только когда SymPy не смог доказать класс исходного
+    # exact-отношения; доказанные True/False уже являются той же властью.
+    return sp.cancel(ratio).is_Rational is True
+
+
 def certify_direction_bindings(
     metric: ExactPlanarMetric,
     ideal_unit_normals: tuple[ExactPlanarVector, ...],
@@ -733,6 +758,32 @@ def certify_huber_density_direction_bindings(
     max_subturn_q: int,
 ) -> tuple[DirectionBindingCertificateV1 | None, ...]:
     """Каноническая B(w)-привязка Density A без неограниченного root solve."""
+
+    from .adaptive_density_fan import (
+        AdaptiveDensityFanInvalid,
+        certify_legacy_density_bindings_factor_free,
+    )
+
+    try:
+        return certify_legacy_density_bindings_factor_free(
+            metric,
+            ideal_unit_normals,
+            orientation,
+            max_subturn_q,
+        )
+    except AdaptiveDensityFanInvalid as exc:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_MONOTONE
+        ) from exc
+
+
+def _certify_huber_density_direction_bindings_symbolic(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    max_subturn_q: int,
+) -> tuple[DirectionBindingCertificateV1 | None, ...]:
+    """Прежний symbolic oracle, оставленный только differential-тесту."""
 
     if max_subturn_q not in range(2, 7):
         raise DirectionBindingCertificateUnproven(BINDING_SUBTURN_LE_DELTA_MAX)
@@ -773,6 +824,75 @@ def certify_huber_density_direction_bindings(
     return certificates
 
 
+def certify_adaptive_huber_density_direction_fan(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    max_subturn_q: int,
+    binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
+) -> AdaptiveMinimalRationalFanAuthorityV2:
+    """Сертифицировать одну V2-власть, когда старая B(w) пуста."""
+
+    from .adaptive_density_fan import certify_adaptive_density_fan
+
+    return certify_adaptive_density_fan(
+        metric,
+        ideal_unit_normals,
+        orientation,
+        max_subturn_q,
+        binding_reasons=binding_reasons,
+    )
+
+
+def certify_huber_density_bindings_with_adaptive_fallback(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    max_subturn_q: int,
+    binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
+) -> tuple[
+    tuple[DirectionBindingCertificateV1 | None, ...],
+    AdaptiveMinimalRationalFanAuthorityV2 | None,
+]:
+    """Вывести B(w) и adaptive fallback из одного набора exact-фактов."""
+
+    from .adaptive_density_fan import (
+        AdaptiveDensityFanInvalid,
+        certify_density_bindings_and_adaptive_fallback,
+    )
+
+    try:
+        return certify_density_bindings_and_adaptive_fallback(
+            metric,
+            ideal_unit_normals,
+            orientation,
+            max_subturn_q,
+            binding_reasons=binding_reasons,
+        )
+    except AdaptiveDensityFanInvalid as exc:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_MONOTONE
+        ) from exc
+
+
+def verify_adaptive_huber_density_direction_fan(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    authority: AdaptiveMinimalRationalFanAuthorityV2,
+) -> None:
+    """Один раз связать sealed V2 с production-фактами."""
+
+    from .adaptive_density_fan import verify_adaptive_density_fan
+
+    verify_adaptive_density_fan(
+        metric,
+        ideal_unit_normals,
+        orientation,
+        authority,
+    )
+
+
 def verify_huber_density_direction_bindings(
     metric: ExactPlanarMetric,
     ideal_unit_normals: tuple[ExactPlanarVector, ...],
@@ -787,71 +907,23 @@ def verify_huber_density_direction_bindings(
 ) -> None:
     """Перевывести B(w)-победителей и перепроверить записанные certificates."""
 
-    if len(certificates) != max(0, len(ideal_unit_normals) - 2):
-        raise DirectionBindingCertificateUnproven(BINDING_MONOTONE)
-    ideal = tuple(
-        metric.support_covector_g(normal) for normal in ideal_unit_normals
+    from .adaptive_density_fan import (
+        AdaptiveDensityFanInvalid,
+        verify_legacy_density_bindings_factor_free,
     )
-    windows = tuple(
-        (
-            _midpoint(metric, ideal[index - 1], ideal[index]),
-            _midpoint(metric, ideal[index], ideal[index + 1]),
-        )
-        for index in range(1, len(ideal) - 1)
-    )
-    canonical = tuple(
-        _huber_density_certificate_in_window(
+
+    try:
+        verify_legacy_density_bindings_factor_free(
             metric,
-            ideal[index],
-            ideal[index - 1],
-            ideal[index + 1],
-            windows[index - 1][0],
-            windows[index - 1][1],
+            ideal_unit_normals,
+            orientation,
+            certificates,
             max_subturn_q,
         )
-        for index in range(1, len(ideal) - 1)
-    )
-    for index, (supplied, expected) in enumerate(
-        zip(certificates, canonical, strict=True),
-        start=1,
-    ):
-        if supplied is None:
-            if (
-                expected is not None
-                and _primitive_direction(ideal[index]) is None
-            ):
-                raise DirectionBindingCertificateUnproven(
-                    BINDING_INSIDE_OWN_ORDINAL_WINDOW
-                )
-            continue
-        if expected is None:
-            raise DirectionBindingCertificateUnproven(
-                BINDING_INSIDE_OWN_ORDINAL_WINDOW
-            )
-        if (
-            supplied.bound_primitive_integer_vector
-            != expected.bound_primitive_integer_vector
-            or supplied.ideal_window_lower_slope_envelope
-            != expected.ideal_window_lower_slope_envelope
-            or supplied.ideal_window_upper_slope_envelope
-            != expected.ideal_window_upper_slope_envelope
-            or supplied.certified_window_width_lower_bound
-            != expected.certified_window_width_lower_bound
-            or supplied.proven_predicates != expected.proven_predicates
-        ):
-            raise DirectionBindingCertificateUnproven(
-                BINDING_INSIDE_OWN_ORDINAL_WINDOW
-            )
-    predicate = _failed_huber_density_predicate(
-        metric,
-        ideal,
-        orientation,
-        certificates,
-        windows,
-        max_subturn_q,
-    )
-    if predicate is not None:
-        raise DirectionBindingCertificateUnproven(predicate)
+    except AdaptiveDensityFanInvalid as exc:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        ) from exc
 
 
 def _certify_k1_recipe_direction_bindings(
@@ -1022,6 +1094,29 @@ def bound_unit_normal(
         inverse[1][0] * x + inverse[1][1] * y,
     )
     return metric.unit_g(normal)
+
+
+def bound_unit_normal_from_vector(
+    metric: ExactPlanarMetric,
+    vector: tuple[int, int],
+) -> ExactPlanarVector:
+    """Восстановить G-единичную нормаль из примитивного ковектора V2."""
+
+    from .angular import _density_exact_vector, _density_unit_from_squared
+
+    x, y = vector
+    inverse = metric.inverse_gram
+    normal = _density_exact_vector(
+        inverse[0][0] * x + inverse[0][1] * y,
+        inverse[1][0] * x + inverse[1][1] * y,
+        metric,
+    )
+    nx, ny = metric.density_expressions(normal)
+    return _density_unit_from_squared(
+        normal,
+        x * nx + y * ny,
+        metric,
+    )
 
 
 def _certificate_in_window(
@@ -1500,13 +1595,20 @@ def _primitive_integer(vector):
     return (x != 0 or y != 0) and gcd(abs(x), abs(y)) == 1
 
 
-def _density_decimal_envelope(expression):
+def _density_decimal_envelope(expression, metric=None):
     """Decimal-envelope только через замкнутую Density authority."""
 
     saved = iv.prec
     iv.prec = 160
     try:
-        enclosure = density_interval_enclosure(expression)
+        enclosure = density_interval_enclosure(
+            expression,
+            (
+                None
+                if metric is None
+                else metric._density_exact_memo.intervals
+            ),
+        )
     except (
         DensityIntervalEnclosureUnsupported,
         ArithmeticError,

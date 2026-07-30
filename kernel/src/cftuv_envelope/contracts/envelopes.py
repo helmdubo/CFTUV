@@ -81,6 +81,24 @@ class CertifiedBoundHiddenSupportDirectionLawV1(str, Enum):
     )
 
 
+class AdaptiveBoundHiddenSupportDirectionLawV2(str, Enum):
+    ADAPTIVE_MINIMAL_RATIONAL_FAN_V2 = (
+        "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2"
+    )
+
+
+class EvaluationGeometrySubturnCountLiftLawV1(str, Enum):
+    EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1 = (
+        "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+    )
+
+
+class ExactTurnSignV1(str, Enum):
+    NEGATIVE = "NEGATIVE"
+    ZERO = "ZERO"
+    POSITIVE = "POSITIVE"
+
+
 class DirectionBindingReasonV1(str, Enum):
     SOURCE_DIRECTION_IRRATIONAL = "SOURCE_DIRECTION_IRRATIONAL"
     EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL = (
@@ -237,6 +255,64 @@ class EvaluationGeometryDirectionBindingCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanOrdinalWindowV2:
+    """Рациональная оболочка полного окна и внутренний termination-box."""
+
+    ordinal: int
+    use_x_denominator: bool
+    denominator_sign: int
+    full_lower_slope_envelope: CertifiedDecimalIntervalV1
+    full_upper_slope_envelope: CertifiedDecimalIntervalV1
+    termination_lower_slope: tuple[int, int]
+    termination_upper_slope: tuple[int, int]
+    certified_termination_width: tuple[int, int]
+    admissible_lower_outward: tuple[int, int]
+    admissible_lower_inward: tuple[int, int]
+    admissible_upper_inward: tuple[int, int]
+    admissible_upper_outward: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveFareyHeightRangeWitnessV2:
+    """Сжатый integer-свидетель всех высот до победителя."""
+
+    first_height: int
+    last_height: int
+    primitive_candidate_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationGeometrySubturnCountLiftV1:
+    """Минимальный evaluation-only подъём H без изменения selection."""
+
+    lift_law: EvaluationGeometrySubturnCountLiftLawV1
+    source_selection_certificate_id: SelectionCertificateId
+    source_hidden_edge_count: int
+    effective_hidden_edge_count: int
+    max_subturn_q: int
+    evaluation_turn_sign: ExactTurnSignV1
+    evaluation_turn_cosine_squared: ExactRatioV1
+    minimality_predecessor_hidden_edge_count: int
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveMinimalRationalFanAuthorityV2:
+    """Единственная sealed-власть всего Density-веера."""
+
+    authority_id: str
+    max_subturn_q: int
+    minimal_common_height: int
+    exhaustive_previous_height: int
+    termination_height_upper_bound: int
+    bound_primitive_integer_vectors: tuple[tuple[int, int], ...]
+    binding_reasons: tuple[DirectionBindingReasonV1 | None, ...]
+    ordinal_windows: tuple[AdaptiveRationalFanOrdinalWindowV2, ...]
+    previous_height_witness: AdaptiveFareyHeightRangeWitnessV2
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class CertifiedBoundHiddenSupportSpecV1:
     hidden_support_id: HiddenSupportId
     ordinal: int
@@ -251,6 +327,21 @@ class CertifiedBoundHiddenSupportSpecV1:
         DirectionBindingCertificateV1
         | EvaluationGeometryDirectionBindingCertificateV1
     )
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveBoundHiddenSupportSpecV2:
+    hidden_support_id: HiddenSupportId
+    ordinal: int
+    turn_fraction: ExactRatioV1
+    direction_law: AdaptiveBoundHiddenSupportDirectionLawV2
+    zero_length_at_alpha_zero: bool
+    scope: HiddenSupportScope
+    source_relation_id: CornerRelationId
+    owner_sector_id: OwnerSectorId
+    selection_certificate_id: SelectionCertificateId
+    direction_fan_authority_id: str
+    bound_primitive_integer_vector: tuple[int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +383,17 @@ class AngularEnvelopeSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class AdaptiveDensityAngularEnvelopeSpecV2(AngularEnvelopeSpec):
+    """Density Angular spec с одной общей властью рационального веера."""
+
+    hidden_supports: frozenset[AdaptiveBoundHiddenSupportSpecV2]
+    direction_fan_authority: AdaptiveMinimalRationalFanAuthorityV2
+    evaluation_subturn_count_lift: (
+        EvaluationGeometrySubturnCountLiftV1 | None
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class JunctionEnvelopeSpec:
     envelope_spec_id: EnvelopeSpecId
     source_seed_id: JunctionSeedId
@@ -325,7 +427,13 @@ class CapEnvelopeSpec:
     exact_two_pi_handling: ExactTwoPiHandling
 
 
-EnvelopeSpec = StripEnvelopeSpec | AngularEnvelopeSpec | JunctionEnvelopeSpec | CapEnvelopeSpec
+EnvelopeSpec = (
+    StripEnvelopeSpec
+    | AdaptiveDensityAngularEnvelopeSpecV2
+    | AngularEnvelopeSpec
+    | JunctionEnvelopeSpec
+    | CapEnvelopeSpec
+)
 
 
 @dataclass(frozen=True, slots=True)

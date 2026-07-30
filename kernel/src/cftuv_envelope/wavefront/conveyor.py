@@ -65,12 +65,16 @@ from math import gcd
 import sympy as sp
 
 from ..contracts.envelopes import (
+    AdaptiveBoundHiddenSupportSpecV2,
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportSpecV1,
     StripEnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
-from ..contracts.request import DecalRequestV1
+from ..contracts.request import (
+    AngularProfileSelectionPolicyId,
+    DecalRequestV1,
+)
 from ..ids import PatchDomainId
 from ..interactions.arrival import (
     ANGULAR_PROFILE_NORMAL_SPEED,
@@ -83,8 +87,11 @@ from ..reference.boundary import (
     build_domain_geometry,
     resolve_component_alphas,
 )
+from ..reference.angular import seal_angular_support_cache
 from ..reference.common import GeometryContext, ReferenceGeometryError
 from ..reference.compile import compile_reference_envelopes
+from ..reference.contracts import ReferenceOutcome
+from ..reference.metric import _DensityExactMemo
 from ..reference.evaluation_geometry import (
     EvaluationGeometryBindingInvalid,
     chart_lattice_for_frame,
@@ -150,6 +157,9 @@ class ConveyorOutcome(str, Enum):
     # Геометрия домена отказала своим исходом (`ReferenceOutcome`), и он лежит
     # в `reference_outcome`, а не пересказан словами.
     DOMAIN_GEOMETRY_REFUSED = "DOMAIN_GEOMETRY_REFUSED"
+    # Explicit Density не имеет права молча превратиться в старый митр:
+    # запрошен полный веер, значит недействительная sealed-власть — отказ.
+    DENSITY_SEALED_FAN_INVALID = "DENSITY_SEALED_FAN_INVALID"
     BRIDGE_DID_NOT_MAP = "BRIDGE_DID_NOT_MAP"
     SKELETON_DID_NOT_CLOSE = "SKELETON_DID_NOT_CLOSE"
     FACES_DID_NOT_ASSEMBLE = "FACES_DID_NOT_ASSEMBLE"
@@ -680,6 +690,10 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
     bound_directions = 0
+    explicit_density = (
+        context.compilation.decal_request.angular_profile_selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    )
     for spec in sorted(
         context.compilation.envelope_specs,
         key=lambda item: item.envelope_spec_id.value,
@@ -687,17 +701,36 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         if not isinstance(spec, AngularEnvelopeSpec):
             continue
         if spec.resolved_hidden_edge_count == 0:
+            if explicit_density:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
+                    "explicit Density emitted a zero-support angular fan",
+                )
             # `k = 0` — тот самый митрованный угол, и он законный член
             # семейства: скрытых опор нет, вставлять в фронт нечего.
             mitered += 1
             continue
         fan, rescaled, corner = _one_fan(context, spec, speed_squared)
         if fan is None:
+            if explicit_density:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
+                    (
+                        f"{corner.envelope_spec_id}: "
+                        f"{corner.reason}"
+                    ),
+                )
             degraded.append(corner)
             continue
         rescaled_count += rescaled
         bound_directions += sum(
-            isinstance(item, CertifiedBoundHiddenSupportSpecV1)
+            isinstance(
+                item,
+                (
+                    CertifiedBoundHiddenSupportSpecV1,
+                    AdaptiveBoundHiddenSupportSpecV2,
+                ),
+            )
             for item in spec.hidden_supports
         )
         fans.append(fan)
@@ -1054,6 +1087,15 @@ def prepare_conveyor(
     )
 
 
+def _density_transaction_memo(request):
+    return (
+        _DensityExactMemo()
+        if request.angular_profile_selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        else None
+    )
+
+
 def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     """Всё, что нужно очереди до первого региона: план, домен, законы, решётка.
 
@@ -1067,8 +1109,9 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     счётчики, а не аварийная ситуация.
     """
 
+    density_exact_memo = _density_transaction_memo(request)
     started = time.perf_counter()
-    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id)
+    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id, _density_exact_memo=density_exact_memo)
     clock.add("PLAN_COMPILE", started)
     compilation = compiled.compilation
     if compilation is None:
@@ -1078,7 +1121,13 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
 
     started = time.perf_counter()
     frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=(
+            request.angular_profile_selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
+        density_exact_memo=density_exact_memo,
     )
     if frame is None:
         clock.add("DOMAIN_BUILD", started)
@@ -1088,12 +1137,17 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
             clock,
         )
     try:
-        context = GeometryContext.build(compilation, frame)
+        context = GeometryContext.build(
+            compilation,
+            frame,
+            density_exact_memo=density_exact_memo,
+        )
+        seal_angular_support_cache(context)
         domain = build_domain_geometry(context)
     except ReferenceGeometryError as exc:
         clock.add("DOMAIN_BUILD", started)
         return None, _refused(
-            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+            _geometry_refusal_outcome(exc), exc.outcome.value, clock
         )
     clock.add("DOMAIN_BUILD", started)
     if not domain.domain_regions:
@@ -1109,7 +1163,7 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     except ReferenceGeometryError as exc:
         clock.add("ARRIVAL_LAWS", started)
         return None, _refused(
-            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+            _geometry_refusal_outcome(exc), exc.outcome.value, clock
         )
     clock.add("ARRIVAL_LAWS", started)
     if reading.detail is not None:
@@ -1163,6 +1217,14 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
         lattice,
         binding_residual,
     ), None
+
+
+def _geometry_refusal_outcome(
+    exc: ReferenceGeometryError,
+) -> ConveyorOutcome:
+    if exc.outcome is ReferenceOutcome.DENSITY_SEALED_FAN_INVALID:
+        return ConveyorOutcome.DENSITY_SEALED_FAN_INVALID
+    return ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED
 
 
 def _instance_ids_by_spec(

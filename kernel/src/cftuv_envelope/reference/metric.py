@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 import math
 
@@ -223,6 +223,18 @@ def _chart_grid(
     return chart_grid_for(gram, step), step
 
 
+class _DensityExactMemo:
+    """Mutable cache, владелец которого — один ExactPlanarMetric."""
+
+    __slots__ = ("expressions", "intervals", "signs", "sreprs")
+
+    def __init__(self) -> None:
+        self.expressions: dict[str, sp.Expr] = {}
+        self.intervals: dict[sp.Expr, object] = {}
+        self.signs: dict[sp.Expr, int] = {}
+        self.sreprs: dict[sp.Expr, str] = {}
+
+
 @dataclass(frozen=True, slots=True)
 class ExactPlanarMetric:
     gram: tuple[tuple[sp.Expr, sp.Expr], tuple[sp.Expr, sp.Expr]]
@@ -235,18 +247,39 @@ class ExactPlanarMetric:
     chart_grid: GridSpecV1 | None = None
     # Шаг решётки ИСТОЧНИКА в метрах: `None` только у `UNSNAPPED_EXACT_V1`.
     source_step: Fraction | None = None
+    # Density exact-predicate memo принадлежит конкретному metric/context.
+    # Он не участвует ни в идентичности, ни в хеше и умирает вместе с
+    # compile/prepare-транзакцией: process-global cache здесь запрещён.
+    _density_exact_memo: _DensityExactMemo = field(
+        default_factory=_DensityExactMemo,
+        compare=False,
+        hash=False,
+        repr=False,
+    )
 
     @classmethod
     def from_descriptor(
         cls,
         descriptor: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2,
+        *,
+        density_exact_memo: _DensityExactMemo | None = None,
     ) -> ExactPlanarMetric:
+        memo = (
+            _DensityExactMemo()
+            if density_exact_memo is None
+            else density_exact_memo
+        )
         if isinstance(descriptor, PlanarPatchFrameV1):
             identity = (
                 (sp.Integer(1), sp.Integer(0)),
                 (sp.Integer(0), sp.Integer(1)),
             )
-            return cls(identity, identity, 1)
+            return cls(
+                identity,
+                identity,
+                1,
+                _density_exact_memo=memo,
+            )
         orientation = (
             1
             if descriptor.chart_orientation
@@ -261,6 +294,7 @@ class ExactPlanarMetric:
             orientation,
             chart_grid,
             source_step,
+            memo,
         )
 
     @property
@@ -286,6 +320,14 @@ class ExactPlanarMetric:
         gx = self.gram[0][0] * rx + self.gram[0][1] * ry
         gy = self.gram[1][0] * rx + self.gram[1][1] * ry
         return exact_normalize(lx * gx + ly * gy)
+
+    def density_expressions(
+        self,
+        value: ExactPlanarPoint | ExactPlanarVector,
+    ) -> tuple[sp.Expr, sp.Expr]:
+        """Разобрать Density scalar только внутри memo этой транзакции."""
+
+        return value.expressions(self._density_exact_memo.expressions)
 
     def length_g(self, vector: ExactPlanarVector) -> sp.Expr:
         squared = self.dot_g(vector, vector)

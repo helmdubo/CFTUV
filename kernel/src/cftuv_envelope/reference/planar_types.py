@@ -111,8 +111,7 @@ def _canonical_expr(value: sp.Expr) -> str:
     return sp.srepr(simplified)
 
 
-@lru_cache(maxsize=32768)
-def _parse_expr(expression: str) -> sp.Expr:
+def _parse_expr_uncached(expression: str) -> sp.Expr:
     # Обратная сторона `_rational_srepr`: разбор рациональной формы напрямую,
     # без общего парсера SymPy. Шаблоны якорные, поэтому составное выражение
     # сюда не проваливается.
@@ -123,6 +122,11 @@ def _parse_expr(expression: str) -> sp.Expr:
     if match is not None:
         return sp.Rational(int(match.group(1)), int(match.group(2)))
     return sp.sympify(expression)
+
+
+@lru_cache(maxsize=32768)
+def _parse_expr(expression: str) -> sp.Expr:
+    return _parse_expr_uncached(expression)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,8 +141,18 @@ class ExactScalar:
             return value
         return cls(_canonical_expr(_expr(value)))
 
-    def as_expr(self) -> sp.Expr:
-        return _parse_expr(self.expression)
+    def as_expr(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> sp.Expr:
+        if transaction_memo is None:
+            return _parse_expr(self.expression)
+        cached = transaction_memo.get(self.expression)
+        if cached is not None:
+            return cached
+        result = _parse_expr_uncached(self.expression)
+        transaction_memo[self.expression] = result
+        return result
 
 
 class IntervalEnclosureUnsupported(Exception):
@@ -336,8 +350,14 @@ class ExactPlanarPoint:
     def from_values(cls, x: object, y: object) -> ExactPlanarPoint:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
 
-    def expressions(self) -> tuple[sp.Expr, sp.Expr]:
-        return self.x.as_expr(), self.y.as_expr()
+    def expressions(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> tuple[sp.Expr, sp.Expr]:
+        return (
+            self.x.as_expr(transaction_memo),
+            self.y.as_expr(transaction_memo),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,8 +369,14 @@ class ExactPlanarVector:
     def from_values(cls, x: object, y: object) -> ExactPlanarVector:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
 
-    def expressions(self) -> tuple[sp.Expr, sp.Expr]:
-        return self.x.as_expr(), self.y.as_expr()
+    def expressions(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> tuple[sp.Expr, sp.Expr]:
+        return (
+            self.x.as_expr(transaction_memo),
+            self.y.as_expr(transaction_memo),
+        )
 
 
 def point_add(point: ExactPlanarPoint, vector: ExactPlanarVector) -> ExactPlanarPoint:

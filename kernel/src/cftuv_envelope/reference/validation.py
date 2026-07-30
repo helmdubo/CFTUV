@@ -26,7 +26,7 @@ from .contracts import (
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
-from .metric import ExactPlanarMetric
+from .metric import ExactPlanarMetric, _DensityExactMemo
 from .planar_types import (
     CertifiedPredicateUndecidable,
     ExactPlanarVector,
@@ -98,6 +98,59 @@ def _interval_contains_oriented_support_delta(
     return lower_ok and upper_ok
 
 
+def _density_interval_contains_oriented_support_delta(
+    metric: ExactPlanarMetric,
+    incoming: ExactPlanarVector,
+    outgoing: ExactPlanarVector,
+    orientation: TurnOrientation,
+    interval,
+) -> bool:
+    """Тот же angle-certificate predicate без materialized unit vectors."""
+
+    from .angular import _density_exact_sign
+
+    ix, iy = metric.density_expressions(incoming)
+    ox, oy = metric.density_expressions(outgoing)
+    gram = metric.gram
+    incoming_squared = ix * (gram[0][0] * ix + gram[0][1] * iy) + iy * (
+        gram[1][0] * ix + gram[1][1] * iy
+    )
+    outgoing_squared = ox * (gram[0][0] * ox + gram[0][1] * oy) + oy * (
+        gram[1][0] * ox + gram[1][1] * oy
+    )
+    dot_value = ix * (gram[0][0] * ox + gram[0][1] * oy) + iy * (
+        gram[1][0] * ox + gram[1][1] * oy
+    )
+    cross_value = metric.owner_orientation_sign * (ix * oy - iy * ox)
+    expected_sign = (
+        1
+        if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+        else -1
+    )
+    if (
+        _density_exact_sign(incoming_squared, metric) <= 0
+        or _density_exact_sign(outgoing_squared, metric) <= 0
+        or _density_exact_sign(cross_value, metric) != expected_sign
+    ):
+        return False
+    cosine = dot_value / sp.sqrt(incoming_squared * outgoing_squared)
+    lower_cosine = sp.cos(sp.pi * sp.Rational(str(interval.lower)))
+    upper_cosine = sp.cos(sp.pi * sp.Rational(str(interval.upper)))
+    lower_cmp = _density_exact_sign(cosine - lower_cosine, metric)
+    upper_cmp = _density_exact_sign(cosine - upper_cosine, metric)
+    lower_ok = (
+        lower_cmp <= 0
+        if interval.lower_kind is IntervalEndpointKind.CLOSED
+        else lower_cmp < 0
+    )
+    upper_ok = (
+        upper_cmp >= 0
+        if interval.upper_kind is IntervalEndpointKind.CLOSED
+        else upper_cmp > 0
+    )
+    return lower_ok and upper_ok
+
+
 def _support_direction(payload) -> ExactPlanarVector | None:
     if isinstance(payload, CertifiedPlanarSupportDirectionV1):
         return ExactPlanarVector.from_values(
@@ -122,6 +175,8 @@ def _validate_angle_certificates(
     snapshot: AnalysisSnapshotV1,
     patch_domain_id: PatchDomainId,
     metric: ExactPlanarMetric,
+    *,
+    density_bounded: bool,
 ) -> tuple[ReferenceEvaluationDiagnosticV1, ...]:
     sector_by_id = {
         item.owner_sector_id: item
@@ -157,7 +212,12 @@ def _validate_angle_certificates(
         if incoming is None or outgoing is None:
             continue
         try:
-            matches = _interval_contains_oriented_support_delta(
+            predicate = (
+                _density_interval_contains_oriented_support_delta
+                if density_bounded
+                else _interval_contains_oriented_support_delta
+            )
+            matches = predicate(
                 metric,
                 incoming,
                 outgoing,
@@ -177,9 +237,18 @@ def _validate_angle_certificates(
     return ()
 
 
+def _metric_with_density_memo(frame, memo):
+    return ExactPlanarMetric.from_descriptor(
+        frame,
+        density_exact_memo=memo,
+    )
+
+
 def validate_reference_geometry_certificates(
     snapshot: AnalysisSnapshotV1,
     patch_domain_id: PatchDomainId,
+    *, density_bounded: bool = False,
+    density_exact_memo: _DensityExactMemo | None = None,
 ) -> tuple[ReferenceEvaluationDiagnosticV1, ...]:
     """Prove that authoritative planar and angle records describe one geometry."""
 
@@ -213,9 +282,8 @@ def validate_reference_geometry_certificates(
                 ),
             )
         return _validate_angle_certificates(
-            snapshot,
-            patch_domain_id,
-            ExactPlanarMetric.from_descriptor(frame),
+            snapshot, patch_domain_id, _metric_with_density_memo(frame, density_exact_memo),
+            density_bounded=density_bounded,
         )
     origin = _point3(frame.origin)
     axis_u = _point3(frame.axis_u)
@@ -303,14 +371,17 @@ def validate_reference_geometry_certificates(
             )
 
     return _validate_angle_certificates(
-        snapshot,
-        patch_domain_id,
-        ExactPlanarMetric.from_descriptor(frame),
+        snapshot, patch_domain_id, _metric_with_density_memo(frame, density_exact_memo),
+        density_bounded=density_bounded,
     )
 
 
 def validate_reference_geometry_payload(
-    snapshot: AnalysisSnapshotV1, patch_domain_id: PatchDomainId
+    snapshot: AnalysisSnapshotV1,
+    patch_domain_id: PatchDomainId,
+    *,
+    density_bounded: bool = False,
+    density_exact_memo: _DensityExactMemo | None = None,
 ) -> tuple[
     PlanarPatchFrameV1 | RationalAffinePlanarMetricV2 | None,
     tuple[ReferenceEvaluationDiagnosticV1, ...],
@@ -367,7 +438,10 @@ def validate_reference_geometry_payload(
             "v1 reference evaluation requires an exact planarity certificate",
         )
     certificate_diagnostics = validate_reference_geometry_certificates(
-        snapshot, patch_domain_id
+        snapshot,
+        patch_domain_id,
+        density_bounded=density_bounded,
+        density_exact_memo=density_exact_memo,
     )
     if certificate_diagnostics:
         return None, certificate_diagnostics

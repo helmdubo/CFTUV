@@ -68,6 +68,23 @@ def _line_constant(normal, point) -> ExactScalar:
     return ExactScalar.from_value(nx * px + ny * py)
 
 
+def _density_support_line(context, normal, point):
+    from ..reference.angular import _density_exact_vector, _density_srepr
+
+    nx, ny = context.metric.density_expressions(normal)
+    gram = context.metric.gram
+    covector = _density_exact_vector(
+        gram[0][0] * nx + gram[0][1] * ny,
+        gram[1][0] * nx + gram[1][1] * ny,
+        context.metric,
+    )
+    cx, cy = context.metric.density_expressions(covector)
+    px, py = context.metric.density_expressions(point)
+    return covector, ExactScalar(
+        _density_srepr(cx * px + cy * py, context.metric)
+    )
+
+
 # Скорость фронта Strip. Единица здесь не значение по умолчанию, а запись
 # самого закона `n*p = c + alpha*s`: у Strip параметр `alpha` и есть смещение
 # вдоль ковектора нормали, поэтому `s = 1` тождественно. Константа объявлена
@@ -91,6 +108,12 @@ def strip_front_support_line(context: GeometryContext, source):
     что расхождение законов между путями возможно и притом молча.
     """
 
+    if context._density_bounded():
+        return _density_support_line(
+            context,
+            source.owner_normal,
+            source.start,
+        )
     normal = context.metric.support_covector_g(source.owner_normal)
     return normal, _line_constant(normal, source.start)
 
@@ -120,9 +143,17 @@ def angular_hidden_support_lines(
     relation, anchor, support_ids, normals = angular_support_data(context, spec)
     hidden = []
     for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
-        normal = context.metric.support_covector_g(normals[ordinal])
+        if context._density_bounded():
+            normal, constant = _density_support_line(
+                context,
+                normals[ordinal],
+                anchor,
+            )
+        else:
+            normal = context.metric.support_covector_g(normals[ordinal])
+            constant = _line_constant(normal, anchor)
         hidden.append(
-            (support_ids[ordinal], normal, _line_constant(normal, anchor))
+            (support_ids[ordinal], normal, constant)
         )
     return relation, anchor, tuple(hidden)
 

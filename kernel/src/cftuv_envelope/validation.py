@@ -8,6 +8,7 @@ from enum import Enum
 from fractions import Fraction
 from math import gcd
 
+from .adaptive_density_validation import adaptive_density_effective_hidden_count, adaptive_density_structure_errors, angular_hidden_feature_id_sets
 from .canonical import geometry_batch_semantic_digest
 from .contracts.analysis import (
     ANALYSIS_SNAPSHOT_SCHEMA_V1,
@@ -1465,7 +1466,12 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                     )
             certificate = certificate_by_id.get(spec.selection_certificate_id)
             if certificate is not None:
-                k = certificate.resolved_hidden_edge_count
+                k, lift_errors = adaptive_density_effective_hidden_count(
+                    spec,
+                    certificate,
+                )
+                if lift_errors:
+                    _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("evaluation_subturn_count_lift",), lift_errors[0])
                 if spec.resolved_hidden_edge_count != k or len(spec.hidden_supports) != k:
                     _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path, "spec k must equal selection certificate and hidden support count")
                 expected_ordinals = set(range(1, k + 1))
@@ -1499,6 +1505,13 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                         }
                         if set(binding.proven_predicates) != expected_predicates:
                             _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "proven_predicates"), "direction binding must name exactly the three required predicates")
+            for suffix, error in adaptive_density_structure_errors(spec):
+                _issue(
+                    issues,
+                    ValidationCode.ANGULAR_CERTIFICATE,
+                    path + suffix,
+                    error,
+                )
             if spec.all_support_normal_speed != 1:
                 _issue(issues, ValidationCode.POLICY_MISMATCH, path + ("all_support_normal_speed",), "v1 support speed is UNIT")
         elif isinstance(spec, JunctionEnvelopeSpec):
@@ -1518,18 +1531,20 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
 
     if plan.initial_front_spec.decal_request_id != request_id or plan.initial_front_spec.patch_domain_id != domain_id:
         _issue(issues, ValidationCode.PLAN_KEY_MISMATCH, ("initial_front_spec",), "front spec differs from plan key")
+    angular_hidden_ids, angular_feature_ids = angular_hidden_feature_id_sets(plan)
+    if angular_feature_ids != angular_hidden_ids:
+        _issue(issues, ValidationCode.MISSING_REFERENCE, ("initial_front_spec", "support_features"), "angular hidden features must exactly cover all angular supports")
     for feature in plan.initial_front_spec.support_features:
         source = feature.source_id
         if isinstance(source, EnvelopeSpecId):
             _require_refs(issues, {source}, spec_ids, ("initial_front_spec", "support_features"))
         elif isinstance(source, HiddenSupportId):
-            hidden_ids = {
-                support.hidden_support_id
-                for spec in plan.envelope_specs
-                if isinstance(spec, AngularEnvelopeSpec)
-                for support in spec.hidden_supports
-            }
-            _require_refs(issues, {source}, hidden_ids, ("initial_front_spec", "support_features"))
+            _require_refs(
+                issues,
+                {source},
+                angular_hidden_ids,
+                ("initial_front_spec", "support_features"),
+            )
         if feature.kind is InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT and not isinstance(source, HiddenSupportId):
             _issue(issues, ValidationCode.SEED_VARIANT_MISMATCH, ("initial_front_spec",), "angular hidden feature requires HiddenSupportId")
 

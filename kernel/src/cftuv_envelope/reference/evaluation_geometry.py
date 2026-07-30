@@ -11,6 +11,7 @@ from ..contracts.analysis import (
     PlanarPatchFrameV1,
 )
 from ..contracts.envelopes import (
+    AdaptiveBoundHiddenSupportSpecV2,
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportSpecV1,
 )
@@ -736,7 +737,10 @@ def _expected_support_ids(
         for spec in compilation.envelope_specs
         if isinstance(spec, AngularEnvelopeSpec)
         for support in spec.hidden_supports
-        if type(support) is CertifiedBoundHiddenSupportSpecV1
+        if type(support) in (
+            CertifiedBoundHiddenSupportSpecV1,
+            AdaptiveBoundHiddenSupportSpecV2,
+        )
     )
 
 
@@ -804,7 +808,10 @@ def verify_evaluation_geometry_binding(
         and (
             not require_certified_bound_supports
             or all(
-                type(support) is CertifiedBoundHiddenSupportSpecV1
+                type(support) in (
+                    CertifiedBoundHiddenSupportSpecV1,
+                    AdaptiveBoundHiddenSupportSpecV2,
+                )
                 for spec in compilation.envelope_specs
                 if isinstance(spec, AngularEnvelopeSpec)
                 for support in spec.hidden_supports

@@ -9,11 +9,17 @@ from mpmath import iv
 
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
+    AdaptiveBoundHiddenSupportDirectionLawV2,
+    AdaptiveBoundHiddenSupportSpecV2,
+    AdaptiveDensityAngularEnvelopeSpecV2,
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     DirectionBindingReasonV1,
     EvaluationGeometryDirectionBindingCertificateV1,
+    EvaluationGeometrySubturnCountLiftLawV1,
+    EvaluationGeometrySubturnCountLiftV1,
+    ExactTurnSignV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
     StripEnvelopeSpec,
@@ -26,7 +32,7 @@ from .._density_policy import (
     density_interval_enclosure,
     huber_density_value_contract,
 )
-from ..numeric import LocalLengthV1
+from ..numeric import ExactRatioV1, LocalLengthV1
 from .common import (
     GeometryContext,
     ReferenceGeometryError,
@@ -42,9 +48,12 @@ from .direction_binding import (
     DirectionBindingCertificateUnproven,
     _verify_k1_recipe_direction_bindings,
     bound_unit_normal,
+    bound_unit_normal_from_vector,
+    has_rational_density_support_direction,
     has_rational_support_direction,
     verify_direction_bindings,
     verify_huber_density_direction_bindings,
+    verify_adaptive_huber_density_direction_fan,
 )
 from .planar_types import (
     ConstructionCertificate,
@@ -52,6 +61,8 @@ from .planar_types import (
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
+    ExactQuadraticFieldUnsupported,
+    exact_quadratic_value,
     exact_normalize,
     exact_sign,
     point_sub,
@@ -59,6 +70,16 @@ from .planar_types import (
 )
 from .metric import ExactPlanarMetric
 from .provenance import make_reference_provenance, merge_provenance
+
+
+_EVALUATION_SUBTURN_LIFT_PREDICATES = frozenset(
+    {
+        "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
+        "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
+        "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
+        "EFFECTIVE_COUNT_IS_MINIMAL",
+    }
+)
 
 
 def _incident_normal(
@@ -179,15 +200,35 @@ def _interpolated_normals(
 def _density_exact_vector(
     x: sp.Expr,
     y: sp.Expr,
+    metric: ExactPlanarMetric | None = None,
 ) -> ExactPlanarVector:
     """Записать bounded Density-expression без global factor-canonicalizer."""
 
     def scalar(expression: sp.Expr) -> ExactScalar:
-        if expression.is_Rational:
+        expression = sp.sympify(expression)
+        if isinstance(expression, sp.Rational):
             return ExactScalar.from_value(expression)
-        return ExactScalar(sp.srepr(expression))
+        return ExactScalar(_density_srepr(expression, metric))
 
     return ExactPlanarVector(scalar(x), scalar(y))
+
+
+def _density_srepr(
+    expression: sp.Expr,
+    metric: ExactPlanarMetric | None = None,
+) -> str:
+    """Сериализовать expression с memo конкретной metric-транзакции."""
+
+    expression = sp.sympify(expression)
+    if metric is None:
+        return sp.srepr(expression)
+    cached = metric._density_exact_memo.sreprs.get(expression)
+    if cached is not None:
+        return cached
+    result = sp.srepr(expression)
+    metric._density_exact_memo.sreprs[expression] = result
+    metric._density_exact_memo.expressions[result] = expression
+    return result
 
 
 def _density_dot_expression(
@@ -197,25 +238,40 @@ def _density_dot_expression(
 ) -> sp.Expr:
     """Dual-free Gram dot без generic normalization/factor."""
 
-    lx, ly = left.expressions()
-    rx, ry = right.expressions()
+    lx, ly = metric.density_expressions(left)
+    rx, ry = metric.density_expressions(right)
     return (
         lx * (metric.gram[0][0] * rx + metric.gram[0][1] * ry)
         + ly * (metric.gram[1][0] * rx + metric.gram[1][1] * ry)
     )
 
 
-def _density_exact_sign(expression: sp.Expr) -> int:
-    """Знак Density-факта: rational либо строгая interval-сертификация."""
+def _density_exact_sign(
+    expression: sp.Expr,
+    metric: ExactPlanarMetric | None = None,
+) -> int:
+    """Знак Density-факта с memo конкретной metric-транзакции."""
 
-    if expression.is_Rational:
+    expression = sp.sympify(expression)
+    if metric is not None:
+        cached = metric._density_exact_memo.signs.get(expression)
+        if cached is not None:
+            return cached
+    if isinstance(expression, sp.Rational):
         return (expression.p > 0) - (expression.p < 0)
-    if expression == 0 or expression.is_zero is True:
+    if expression == 0:
         return 0
     saved = iv.prec
     iv.prec = 160
     try:
-        enclosure = density_interval_enclosure(expression)
+        enclosure = density_interval_enclosure(
+            expression,
+            (
+                None
+                if metric is None
+                else metric._density_exact_memo.intervals
+            ),
+        )
     except (
         DensityIntervalEnclosureUnsupported,
         ArithmeticError,
@@ -227,9 +283,22 @@ def _density_exact_sign(expression: sp.Expr) -> int:
         iv.prec = saved
     if enclosure is not None:
         if enclosure.a > 0:
-            return 1
+            result = 1
+            if metric is not None:
+                metric._density_exact_memo.signs[expression] = result
+            return result
         if enclosure.b < 0:
-            return -1
+            result = -1
+            if metric is not None:
+                metric._density_exact_memo.signs[expression] = result
+            return result
+    try:
+        result = exact_quadratic_value(sp.expand(expression)).sign()
+        if metric is not None:
+            metric._density_exact_memo.signs[expression] = result
+        return result
+    except ExactQuadraticFieldUnsupported:
+        pass
     raise ReferenceGeometryError(
         ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
         "Density A exact sign is not certified without generic factorization",
@@ -239,28 +308,34 @@ def _density_exact_sign(expression: sp.Expr) -> int:
 def _density_unit_from_squared(
     vector: ExactPlanarVector,
     squared: sp.Expr,
+    metric: ExactPlanarMetric | None = None,
 ) -> ExactPlanarVector:
-    if _density_exact_sign(squared) <= 0:
+    if _density_exact_sign(squared, metric) <= 0:
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A support direction has non-positive Gram norm",
         )
-    x, y = vector.expressions()
+    x, y = (
+        vector.expressions()
+        if metric is None
+        else metric.density_expressions(vector)
+    )
     length = sp.sqrt(squared)
-    return _density_exact_vector(x / length, y / length)
+    return _density_exact_vector(x / length, y / length, metric)
 
 
 def _density_left_unit_normal(
     metric: ExactPlanarMetric,
     tangent: ExactPlanarVector,
 ) -> ExactPlanarVector:
-    tx, ty = tangent.expressions()
+    tx, ty = metric.density_expressions(tangent)
     covector_x = metric.gram[0][0] * tx + metric.gram[0][1] * ty
     covector_y = metric.gram[1][0] * tx + metric.gram[1][1] * ty
     sign = metric.owner_orientation_sign
     raw = _density_exact_vector(
         -sign * covector_y,
         sign * covector_x,
+        metric,
     )
     orthogonality = sp.expand(
         _density_dot_expression(metric, tangent, raw)
@@ -273,6 +348,7 @@ def _density_left_unit_normal(
     return _density_unit_from_squared(
         raw,
         sp.expand(_density_dot_expression(metric, raw, raw)),
+        metric,
     )
 
 
@@ -308,11 +384,13 @@ def _huber_density_interpolated_normals(
     raw_cross = sp.expand(
         metric.owner_orientation_sign
         * (
-            incoming.x.as_expr() * outgoing.y.as_expr()
-            - incoming.y.as_expr() * outgoing.x.as_expr()
+            metric.density_expressions(incoming)[0]
+            * metric.density_expressions(outgoing)[1]
+            - metric.density_expressions(incoming)[1]
+            * metric.density_expressions(outgoing)[0]
         )
     )
-    if _density_exact_sign(raw_cross) != orientation_sign:
+    if _density_exact_sign(raw_cross, metric) != orientation_sign:
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "ordered support normals do not realize the certified owner-sector turn",
@@ -328,10 +406,12 @@ def _huber_density_interpolated_normals(
     incoming = _density_unit_from_squared(
         incoming,
         incoming_squared,
+        metric,
     )
     outgoing = _density_unit_from_squared(
         outgoing,
         outgoing_squared,
+        metric,
     )
     raw_dot_squared = sp.expand(raw_dot * raw_dot)
     if raw_dot_squared.is_Rational is not True:
@@ -343,20 +423,22 @@ def _huber_density_interpolated_normals(
         incoming_squared * outgoing_squared
     )
     if (
-        _density_exact_sign(cosine_squared) < 0
-        or _density_exact_sign(cosine_squared - 1) >= 0
+        _density_exact_sign(cosine_squared, metric) < 0
+        or _density_exact_sign(cosine_squared - 1, metric) >= 0
     ):
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A requires a strict principal turn in (0, pi)",
         )
-    turn_sign = _density_exact_sign(raw_dot)
+    turn_sign = _density_exact_sign(raw_dot, metric)
     cosine_total = turn_sign * sp.sqrt(cosine_squared)
     sine_squared = 1 - cosine_squared
     principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
     subturn_count = count + 1
-    ix, iy = incoming.expressions()
-    lx, ly = _density_left_unit_normal(metric, incoming).expressions()
+    ix, iy = metric.density_expressions(incoming)
+    lx, ly = metric.density_expressions(
+        _density_left_unit_normal(metric, incoming)
+    )
     hidden = []
     for ordinal in range(1, subturn_count):
         angle = sp.Rational(ordinal, subturn_count) * principal_turn
@@ -365,6 +447,7 @@ def _huber_density_interpolated_normals(
         normal = _density_exact_vector(
             cosine * ix + sine * lx,
             cosine * iy + sine * ly,
+            metric,
         )
         hidden.append(normal)
     # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
@@ -376,6 +459,12 @@ def _ideal_angular_support_data(
     context: GeometryContext,
     spec: AngularEnvelopeSpec,
 ):
+    # Ключ включает всю immutable запись: context могут законно копировать
+    # через `replace(..., compilation=forged)` adversarial-тесты/consumers.
+    cache_key = spec
+    cached = context.angular_ideal_cache.get(cache_key)
+    if cached is not None:
+        return cached
     relation = next(
         item
         for item in context.snapshot.corner_relations
@@ -405,6 +494,10 @@ def _ideal_angular_support_data(
             type(support) is CertifiedBoundHiddenSupportSpecV1
             and support.direction_law
             is CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        ) or (
+            type(support) is AdaptiveBoundHiddenSupportSpecV2
+            and support.direction_law
+            is AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
         )
         if not law_matches_tag:
             exc = DirectionBindingCertificateUnproven(BINDING_MONOTONE)
@@ -443,7 +536,7 @@ def _ideal_angular_support_data(
         for index in range(1, spec.resolved_hidden_edge_count + 1)
     )
     support_ids.append(outgoing_support_id)
-    return (
+    result = (
         relation,
         sector,
         anchor,
@@ -451,6 +544,137 @@ def _ideal_angular_support_data(
         tuple(support_ids),
         ideal,
     )
+    context.angular_ideal_cache[cache_key] = result
+    return result
+
+
+def _lift_probe_spec(spec, hidden_count):
+    supports = frozenset(
+        replace(
+            support,
+            ordinal=ordinal,
+            turn_fraction=ExactRatioV1(ordinal, hidden_count + 1),
+        )
+        for ordinal, support in enumerate(
+            sorted(spec.hidden_supports, key=lambda item: item.ordinal)[
+                :hidden_count
+            ],
+            start=1,
+        )
+    )
+    return replace(
+        spec,
+        resolved_hidden_edge_count=hidden_count,
+        hidden_supports=supports,
+    )
+
+
+def _verify_evaluation_subturn_count_lift(
+    context,
+    spec,
+    ideal,
+) -> None:
+    from .adaptive_density_fan import _covectors, _dual_dot, _subturn
+
+    selection = next(
+        item
+        for item in context.compilation.profile_selection_certificates
+        if item.certificate_id == spec.selection_certificate_id
+    )
+    lift = spec.evaluation_subturn_count_lift
+    if lift is None:
+        if (
+            spec.resolved_hidden_edge_count
+            != selection.resolved_hidden_edge_count
+        ):
+            raise ValueError("Density effective H lacks a lift authority")
+        return
+    q_contract = huber_density_value_contract(
+        selection.max_subturn_value_id
+    )
+    if (
+        type(lift) is not EvaluationGeometrySubturnCountLiftV1
+        or lift.lift_law
+        is not EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+        or q_contract is None
+        or lift.source_selection_certificate_id
+        != selection.certificate_id
+        or lift.source_hidden_edge_count
+        != selection.resolved_hidden_edge_count
+        or lift.effective_hidden_edge_count
+        != spec.resolved_hidden_edge_count
+        or lift.max_subturn_q != q_contract[0]
+        or lift.effective_hidden_edge_count
+        <= lift.source_hidden_edge_count
+        or any(
+            type(value) is not int
+            for value in (
+                lift.source_hidden_edge_count,
+                lift.effective_hidden_edge_count,
+                lift.max_subturn_q,
+                lift.minimality_predecessor_hidden_edge_count,
+            )
+        )
+        or lift.minimality_predecessor_hidden_edge_count
+        != lift.effective_hidden_edge_count - 1
+        or lift.proven_predicates
+        != _EVALUATION_SUBTURN_LIFT_PREDICATES
+        or type(lift.evaluation_turn_sign) is not ExactTurnSignV1
+        or type(lift.evaluation_turn_cosine_squared)
+        is not ExactRatioV1
+        or type(lift.evaluation_turn_cosine_squared.numerator)
+        is not int
+        or type(lift.evaluation_turn_cosine_squared.denominator)
+        is not int
+    ):
+        raise ValueError("Density evaluation H-lift tag is invalid")
+    q = lift.max_subturn_q
+    covectors = _covectors(context.metric, ideal)
+    if not all(
+        _subturn(context.metric, left, right, q)
+        for left, right in zip(covectors, covectors[1:])
+    ):
+        raise ValueError("Density lifted H is not exactly feasible")
+    for count in (
+        lift.source_hidden_edge_count,
+        lift.minimality_predecessor_hidden_edge_count,
+    ):
+        probe = _lift_probe_spec(spec, count)
+        *_, probe_ideal = _ideal_angular_support_data(context, probe)
+        probe_covectors = _covectors(context.metric, probe_ideal)
+        if all(
+            _subturn(context.metric, left, right, q)
+            for left, right in zip(
+                probe_covectors,
+                probe_covectors[1:],
+            )
+        ):
+            raise ValueError("Density H-lift minimality witness is false")
+    incoming = covectors[0]
+    outgoing = covectors[-1]
+    dot = sp.cancel(_dual_dot(context.metric, incoming, outgoing))
+    cosine_squared = sp.cancel(
+        dot * dot
+        / (
+            _dual_dot(context.metric, incoming, incoming)
+            * _dual_dot(context.metric, outgoing, outgoing)
+        )
+    )
+    sign = _density_exact_sign(dot, context.metric)
+    expected_sign = (
+        ExactTurnSignV1.POSITIVE
+        if sign > 0
+        else ExactTurnSignV1.NEGATIVE
+        if sign < 0
+        else ExactTurnSignV1.ZERO
+    )
+    if (
+        cosine_squared.is_Rational is not True
+        or lift.evaluation_turn_sign is not expected_sign
+        or lift.evaluation_turn_cosine_squared
+        != ExactRatioV1(int(cosine_squared.p), int(cosine_squared.q))
+    ):
+        raise ValueError("Density H-lift exact turn witness is false")
 
 
 def _verify_evaluation_binding_reasons(
@@ -461,6 +685,59 @@ def _verify_evaluation_binding_reasons(
     ideal,
 ) -> None:
     *_, source_ideal = _ideal_angular_support_data(source_context, spec)
+    if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
+        try:
+            _verify_evaluation_subturn_count_lift(
+                context,
+                spec,
+                ideal,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+                f"evaluation subturn-count lift is not proven: {exc}",
+            ) from exc
+        authority = spec.direction_fan_authority
+        for ordinal, reason in enumerate(authority.binding_reasons, start=1):
+            source_rational = has_rational_density_support_direction(
+                source_context.metric,
+                source_ideal[ordinal],
+            )
+            bound_rational = has_rational_density_support_direction(
+                context.metric,
+                ideal[ordinal],
+            )
+            reason_matches = (
+                reason is None
+                and source_rational
+                and bound_rational
+            ) or (
+                reason
+                is DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL
+                and not source_rational
+            ) or (
+                reason
+                is DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+                and source_rational
+                and not bound_rational
+            )
+            if not reason_matches:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+                    f"adaptive direction reason is false for ordinal {ordinal}",
+                )
+        return
+    selection = next(
+        item
+        for item in context.compilation.profile_selection_certificates
+        if item.certificate_id == spec.selection_certificate_id
+    )
+    rational_predicate = (
+        has_rational_density_support_direction
+        if selection.selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        else has_rational_support_direction
+    )
     for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
         support = hidden_by_ordinal[ordinal]
         if type(support) is not CertifiedBoundHiddenSupportSpecV1:
@@ -471,11 +748,11 @@ def _verify_evaluation_binding_reasons(
                 ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
                 "bound evaluation direction must carry its typed binding reason",
             )
-        source_rational = has_rational_support_direction(
+        source_rational = rational_predicate(
             source_context.metric,
             source_ideal[ordinal],
         )
-        bound_rational = has_rational_support_direction(
+        bound_rational = rational_predicate(
             context.metric,
             ideal[ordinal],
         )
@@ -510,6 +787,7 @@ def verify_evaluation_direction_binding_reasons(
         ),
         context.frame,
         require_evaluation_binding=False,
+        density_exact_memo=context.metric._density_exact_memo,
     )
     for spec in context.compilation.envelope_specs:
         if not isinstance(spec, AngularEnvelopeSpec):
@@ -531,8 +809,11 @@ def verify_evaluation_direction_binding_reasons(
         )
 
 
-def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
-    """Опоры Angular из одной plan-authority записи, с перепроверкой binding."""
+def _angular_support_data_uncached(
+    context: GeometryContext,
+    spec: AngularEnvelopeSpec,
+):
+    """Один раз проверить и материализовать plan-authority опоры Angular."""
 
     (
         relation,
@@ -542,6 +823,54 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         support_ids,
         ideal,
     ) = _ideal_angular_support_data(context, spec)
+    if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
+        authority = spec.direction_fan_authority
+        try:
+            from .adaptive_density_fan import (
+                verify_sealed_adaptive_density_fan,
+            )
+
+            verify_sealed_adaptive_density_fan(
+                authority,
+                ideal_count=len(ideal),
+            )
+        except (
+            DirectionBindingCertificateUnproven,
+            ValueError,
+            TypeError,
+        ) as exc:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                f"adaptive direction fan is not proven: {exc}",
+            ) from exc
+        ordered_supports = tuple(
+            hidden_by_ordinal[index]
+            for index in range(
+                1,
+                spec.resolved_hidden_edge_count + 1,
+            )
+        )
+        if any(
+            type(item) is not AdaptiveBoundHiddenSupportSpecV2
+            or item.direction_fan_authority_id != authority.authority_id
+            or item.bound_primitive_integer_vector
+            != authority.bound_primitive_integer_vectors[item.ordinal - 1]
+            for item in ordered_supports
+        ):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                "adaptive support does not match its sealed fan authority",
+            )
+        normals = list(ideal)
+        for ordinal, vector in enumerate(
+            authority.bound_primitive_integer_vectors,
+            start=1,
+        ):
+            normals[ordinal] = bound_unit_normal_from_vector(
+                context.metric,
+                vector,
+            )
+        return relation, anchor, support_ids, tuple(normals)
     certificates = tuple(
         (
             hidden_by_ordinal[ordinal].direction_binding
@@ -598,8 +927,43 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
     normals = list(ideal)
     for ordinal, certificate in enumerate(certificates, start=1):
         if certificate is not None:
-            normals[ordinal] = bound_unit_normal(context.metric, certificate)
+            normals[ordinal] = (
+                bound_unit_normal_from_vector(
+                    context.metric,
+                    certificate.bound_primitive_integer_vector,
+                )
+                if density_contract is not None
+                and selection.selection_policy_id
+                is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+                else bound_unit_normal(context.metric, certificate)
+            )
     return relation, anchor, support_ids, tuple(normals)
+
+
+def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
+    """Вернуть уже проверенные опоры; verification не входит в hot path."""
+
+    # Spec id не удостоверяет содержимое подделанной immutable записи.
+    key = spec
+    cached = context.angular_support_cache.get(key)
+    if cached is None:
+        cached = _angular_support_data_uncached(context, spec)
+        context.angular_support_cache[key] = cached
+    return cached
+
+
+def seal_angular_support_cache(context: GeometryContext) -> None:
+    """Одна bounded verification всех Angular-властей при сборке context."""
+
+    for spec in sorted(
+        (
+            item
+            for item in context.compilation.envelope_specs
+            if isinstance(item, AngularEnvelopeSpec)
+        ),
+        key=lambda item: item.envelope_spec_id.value,
+    ):
+        angular_support_data(context, spec)
 
 
 def evaluate_angular_envelope(

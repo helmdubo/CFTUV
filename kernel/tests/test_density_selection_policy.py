@@ -5,11 +5,14 @@ from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
 import json
+from pathlib import Path
 
 import pytest
 import sympy as sp
 
 from cftuv_envelope import (
+    AdaptiveDensityAngularEnvelopeSpecV2,
+    AnalysisSnapshotCodecV1,
     AdmissibilityUpperBound,
     AngularEnvelopeSpec,
     AngularProfileSelectionPolicyId,
@@ -19,6 +22,8 @@ from cftuv_envelope import (
     DecalRequestCodecV1,
     ExactAngleSymbol,
     ExactAngleV1,
+    InitialFrontFeatureKind,
+    InitialFrontFeatureRefV1,
     HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     IntervalEndpointKind,
@@ -711,6 +716,188 @@ def test_density_h3_reduced_turn_fraction_is_valid(projections):
         issue.code is ValidationCode.ANGULAR_CERTIFICATE
         for issue in validate_compiled_plan(changed)
     )
+
+
+def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
+    projections,
+):
+    fixture = (
+        Path(__file__).parents[1]
+        / "fixtures"
+        / "building_002_full_selection_v1"
+    )
+    snapshot = AnalysisSnapshotCodecV1.loads(
+        (fixture / "analysis_snapshot.json").read_bytes()
+    )
+    legacy_request = DecalRequestCodecV1.loads(
+        (fixture / "decal_request.json").read_bytes()
+    )
+    request = _density_request(
+        legacy_request,
+        MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1,
+        ExactAngleSymbol.PI_OVER_6,
+    )
+    compiled = compile_reference_envelopes(snapshot, request)
+    lifted = next(
+        item
+        for item in compiled.compilation.envelope_specs
+        if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
+        and item.evaluation_subturn_count_lift is not None
+    )
+
+    plan = _projection(projections, "EC0-C03").plans[0]
+    legacy_certificate = next(
+        iter(plan.angular_profile_selection_certificates)
+    )
+    density_certificate = _density_certificate(
+        legacy_certificate,
+        value_id=MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1,
+        q=6,
+        bucket_c=3,
+    )
+    legacy_angular = next(
+        item
+        for item in plan.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+    remapped_supports = frozenset(
+        replace(
+            item,
+            selection_certificate_id=density_certificate.certificate_id,
+        )
+        for item in lifted.hidden_supports
+    )
+    remapped_lift = replace(
+        lifted.evaluation_subturn_count_lift,
+        source_selection_certificate_id=density_certificate.certificate_id,
+    )
+    remapped = replace(
+        lifted,
+        envelope_spec_id=legacy_angular.envelope_spec_id,
+        source_seed_id=legacy_angular.source_seed_id,
+        decal_request_id=legacy_angular.decal_request_id,
+        patch_domain_id=legacy_angular.patch_domain_id,
+        source_lineage_ids=legacy_angular.source_lineage_ids,
+        selection_certificate_id=density_certificate.certificate_id,
+        hidden_supports=remapped_supports,
+        incident_front_component_ids=(
+            legacy_angular.incident_front_component_ids
+        ),
+        evaluation_subturn_count_lift=remapped_lift,
+    )
+    non_angular_features = {
+        item
+        for item in plan.initial_front_spec.support_features
+        if item.kind is not InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT
+    }
+    angular_features = {
+        InitialFrontFeatureRefV1(
+            InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT,
+            item.hidden_support_id,
+        )
+        for item in remapped.hidden_supports
+    }
+    changed = replace(
+        plan,
+        angular_profile_selection_certificates=frozenset(
+            {density_certificate}
+        ),
+        envelope_specs=frozenset(
+            remapped if item is legacy_angular else item
+            for item in plan.envelope_specs
+        ),
+        initial_front_spec=replace(
+            plan.initial_front_spec,
+            support_features=frozenset(
+                (*non_angular_features, *angular_features)
+            ),
+        ),
+    )
+
+    assert not any(
+        issue.code is ValidationCode.ANGULAR_CERTIFICATE
+        for issue in validate_compiled_plan(changed)
+    )
+    encoded = CompiledPlanCodecV1.dumps(changed)
+    restored = CompiledPlanCodecV1.loads(encoded)
+    restored_spec = next(
+        item
+        for item in restored.envelope_specs
+        if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
+    )
+    restored_selection = next(
+        item
+        for item in restored.angular_profile_selection_certificates
+        if item.certificate_id == restored_spec.selection_certificate_id
+    )
+    restored_lift = restored_spec.evaluation_subturn_count_lift
+    assert CompiledPlanCodecV1.dumps(restored) == encoded
+    assert restored_selection.resolved_hidden_edge_count == 2
+    assert restored_selection.resolved_subturn_count == 3
+    assert restored_lift.source_selection_certificate_id == (
+        restored_selection.certificate_id
+    )
+    assert (
+        restored_lift.lift_law.value
+        == "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+    )
+    assert (
+        restored_lift.source_hidden_edge_count,
+        restored_lift.effective_hidden_edge_count,
+        restored_lift.max_subturn_q,
+        restored_lift.minimality_predecessor_hidden_edge_count,
+    ) == (2, 3, 6, 2)
+    assert restored_lift.evaluation_turn_sign.value == "NEGATIVE"
+    assert (
+        restored_lift.evaluation_turn_cosine_squared.numerator,
+        restored_lift.evaluation_turn_cosine_squared.denominator,
+    ) == (
+        45522878206665163396,
+        31361032006103445049292403005,
+    )
+    assert tuple(
+        item.value
+        for item in restored_spec.direction_fan_authority.binding_reasons
+    ) == (
+        "SOURCE_DIRECTION_IRRATIONAL",
+        "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL",
+        "SOURCE_DIRECTION_IRRATIONAL",
+    )
+    for forged in (
+        replace(
+            changed,
+            envelope_specs=frozenset(
+                replace(remapped, evaluation_subturn_count_lift=None)
+                if item is remapped
+                else item
+                for item in changed.envelope_specs
+            ),
+        ),
+        replace(
+            changed,
+            initial_front_spec=replace(
+                changed.initial_front_spec,
+                support_features=frozenset(
+                    item
+                    for item in changed.initial_front_spec.support_features
+                    if item.source_id
+                    != max(
+                        remapped.hidden_supports,
+                        key=lambda support: support.ordinal,
+                    ).hidden_support_id
+                ),
+            ),
+        ),
+    ):
+        issues = validate_compiled_plan(forged)
+        assert any(
+            issue.code
+            in (
+                ValidationCode.ANGULAR_CERTIFICATE,
+                ValidationCode.MISSING_REFERENCE,
+            )
+            for issue in issues
+        )
 
 
 def test_density_interval_cross_tag_and_unknown_tag_fail_closed(projections):

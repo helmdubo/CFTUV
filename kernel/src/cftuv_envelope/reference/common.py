@@ -19,6 +19,7 @@ from ..contracts.metric import (
     CertifiedAffineSupportDirectionV2,
     RationalAffinePlanarMetricV2,
 )
+from ..contracts.request import AngularProfileSelectionPolicyId
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
@@ -36,7 +37,7 @@ from .planar_types import (
     polygon_signed_area,
     vector_scale,
 )
-from .metric import ExactPlanarMetric
+from .metric import ExactPlanarMetric, _DensityExactMemo
 from .provenance import (
     ReferenceProvenanceV1,
     make_reference_provenance,
@@ -82,6 +83,9 @@ class GeometryContext:
     source_edges_by_id: dict
     source_faces_by_id: dict
     provenance_by_spec_id: dict[str, ReferenceProvenanceV1]
+    angular_ideal_cache: dict[object, tuple]
+    angular_support_cache: dict[object, tuple]
+    support_segment_cache: dict[tuple[ChainUseId, str], tuple]
 
     @classmethod
     def build(
@@ -91,6 +95,7 @@ class GeometryContext:
         *,
         require_evaluation_binding: bool = True,
         require_certified_bound_supports: bool = True,
+        density_exact_memo: _DensityExactMemo | None = None,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
         from .evaluation_geometry import (
@@ -133,7 +138,10 @@ class GeometryContext:
                     coordinate.y.numerator, coordinate.y.denominator
                 )
             points[item.source_vertex_id] = ExactPlanarPoint.from_values(x, y)
-        metric = ExactPlanarMetric.from_descriptor(frame)
+        metric = ExactPlanarMetric.from_descriptor(
+            frame,
+            density_exact_memo=density_exact_memo,
+        )
         # Граница домена. Слияние осмысленно только внутри одного домена,
         # поэтому наблюдение обнуляется здесь, а решётка объявляется здесь же:
         # метрика — её единственный источник, всё остальное её только читает.
@@ -153,6 +161,9 @@ class GeometryContext:
                 item.envelope_spec_id: item.provenance
                 for item in compilation.source_provenance
             },
+            angular_ideal_cache={},
+            angular_support_cache={},
+            support_segment_cache={},
         )
         if binding is not None and require_certified_bound_supports:
             from .angular import verify_evaluation_direction_binding_reasons
@@ -166,6 +177,78 @@ class GeometryContext:
         if chain_use.orientation is ChainUseOrientation.B_START_TO_END:
             vertices = tuple(reversed(vertices))
         return vertices
+
+    def _density_bounded(self) -> bool:
+        return (
+            self.compilation.decal_request.angular_profile_selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        )
+
+    def _sign(self, expression) -> int:
+        if not self._density_bounded():
+            return exact_sign(expression)
+        from .angular import _density_exact_sign
+
+        return _density_exact_sign(expression, self.metric)
+
+    def _dot_g(self, left, right):
+        if not self._density_bounded():
+            return self.metric.dot_g(left, right)
+        from .angular import _density_dot_expression
+
+        return _density_dot_expression(self.metric, left, right)
+
+    def _oriented_cross(self, left, right):
+        if not self._density_bounded():
+            return self.metric.oriented_cross(left, right)
+        lx, ly = self.metric.density_expressions(left)
+        rx, ry = self.metric.density_expressions(right)
+        return self.metric.owner_orientation_sign * (lx * ry - ly * rx)
+
+    def _unit_g(self, vector):
+        if not self._density_bounded():
+            return self.metric.unit_g(vector)
+        from .angular import (
+            _density_dot_expression,
+            _density_unit_from_squared,
+        )
+
+        return _density_unit_from_squared(
+            vector,
+            _density_dot_expression(self.metric, vector, vector),
+            self.metric,
+        )
+
+    def _owner_normal_g(self, tangent, *, owner_left, normalize=True):
+        if not self._density_bounded():
+            return self.metric.owner_normal_g(
+                tangent,
+                owner_left=owner_left,
+                normalize=normalize,
+            )
+        from .angular import (
+            _density_dot_expression,
+            _density_exact_vector,
+            _density_unit_from_squared,
+        )
+
+        tx, ty = self.metric.density_expressions(tangent)
+        gram = self.metric.gram
+        covector_x = gram[0][0] * tx + gram[0][1] * ty
+        covector_y = gram[1][0] * tx + gram[1][1] * ty
+        side = self.metric.owner_orientation_sign * (1 if owner_left else -1)
+        normal = _density_exact_vector(
+            -side * covector_y,
+            side * covector_x,
+            self.metric,
+        )
+        if not normalize:
+            return normal
+        return _density_unit_from_squared(
+            normal,
+            _density_dot_expression(self.metric, normal, normal),
+            self.metric,
+        )
 
     def _edge_for_pair(
         self, chain, start: SourceVertexId, end: SourceVertexId
@@ -226,12 +309,12 @@ class GeometryContext:
                     )
         if not candidates:
             return None
-        first = self.metric.unit_g(candidates[0])
+        first = self._unit_g(candidates[0])
         for candidate in candidates[1:]:
-            normalized = self.metric.unit_g(candidate)
+            normalized = self._unit_g(candidate)
             if (
-                exact_sign(self.metric.oriented_cross(first, normalized)) != 0
-                or exact_sign(self.metric.dot_g(first, normalized)) <= 0
+                self._sign(self._oriented_cross(first, normalized)) != 0
+                or self._sign(self._dot_g(first, normalized)) <= 0
             ):
                 raise ReferenceGeometryError(
                     ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
@@ -266,8 +349,8 @@ class GeometryContext:
                 )
             )
             same_direction = (
-                exact_sign(
-                    self.metric.dot_g(
+                self._sign(
+                    self._dot_g(
                         tangent, point_sub(cycle_end, cycle_start)
                     )
                 )
@@ -280,7 +363,7 @@ class GeometryContext:
                 self.metric.owner_orientation_sign > 0
             )
             cycle_normals.append(
-                self.metric.owner_normal_g(
+                self._owner_normal_g(
                     tangent,
                     owner_left=interior_is_left,
                     normalize=False,
@@ -291,8 +374,8 @@ class GeometryContext:
         if cycle_normals:
             first = cycle_normals[0]
             if all(
-                exact_sign(self.metric.oriented_cross(first, item)) == 0
-                and exact_sign(self.metric.dot_g(first, item)) > 0
+                self._sign(self._oriented_cross(first, item)) == 0
+                and self._sign(self._dot_g(first, item)) > 0
                 for item in cycle_normals[1:]
             ):
                 return first
@@ -302,7 +385,7 @@ class GeometryContext:
         ):
             # B reverses the directed physical path above; owner interior remains
             # the left side of the semantic direction for both patch-side uses.
-            return self.metric.owner_normal_g(
+            return self._owner_normal_g(
                 tangent,
                 owner_left=True,
                 normalize=False,
@@ -335,8 +418,8 @@ class GeometryContext:
             ].ordered_incident_chain_use_ids
         }
         for incoming, outgoing in adjacent:
-            if exact_sign(
-                self.metric.oriented_cross(
+            if self._sign(
+                self._oriented_cross(
                     incoming.tangent, outgoing.tangent
                 )
             ) == 0:
@@ -351,6 +434,10 @@ class GeometryContext:
     def support_segments_for_use(
         self, chain_use_id: ChainUseId, spec_id: str
     ) -> tuple[SourceSupportSegment, ...]:
+        cache_key = (chain_use_id, spec_id)
+        cached = self.support_segment_cache.get(cache_key)
+        if cached is not None:
+            return cached
         chain_use = self.uses_by_id[chain_use_id]
         chain = self.chains_by_id[chain_use.physical_chain_id]
         vertices = self.directed_chain_vertices(chain_use)
@@ -395,16 +482,16 @@ class GeometryContext:
             start = self.points_by_id[start_id]
             end = self.points_by_id[end_id]
             edge_id = self._edge_for_pair(chain, start_id, end_id)
-            tangent = self.metric.unit_g(point_sub(end, start))
+            tangent = self._unit_g(point_sub(end, start))
             face_normal = self._face_side_normal(chain_use, edge_id, start, end, tangent)
             normal = None
             if analysis_direction is not None:
-                if exact_sign(
-                    self.metric.dot_g(analysis_direction, tangent)
+                if self._sign(
+                    self._dot_g(analysis_direction, tangent)
                 ) == 0:
                     normal = analysis_direction
-                elif exact_sign(
-                    self.metric.oriented_cross(
+                elif self._sign(
+                    self._oriented_cross(
                         analysis_direction, tangent
                     )
                 ) == 0:
@@ -420,7 +507,7 @@ class GeometryContext:
                     ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                     f"owner-interior normal is ambiguous for {edge_id}",
                 )
-            normal = self.metric.unit_g(normal)
+            normal = self._unit_g(normal)
             support_id = stable_id("source-support", chain_use_id, edge_id)
             base_provenance = self.provenance_by_spec_id[spec_id]
             source_faces = frozenset(
@@ -456,7 +543,9 @@ class GeometryContext:
             chain_is_closed=chain.is_closed,
             chain_use_id=chain_use_id,
         )
-        return tuple(result)
+        sealed = tuple(result)
+        self.support_segment_cache[cache_key] = sealed
+        return sealed
 
 
 def source_vertex_certificate(source_vertex_id: SourceVertexId) -> ConstructionCertificate:
