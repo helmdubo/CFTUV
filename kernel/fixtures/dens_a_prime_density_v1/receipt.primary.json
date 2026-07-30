@@ -1,0 +1,403 @@
+{
+  "evidence": {
+    "claims": {
+      "H1_C1_and_C2_covered": true,
+      "all_red_controls_reached": true,
+      "bit_budget_pass": true,
+      "mirror_root_identity": true,
+      "mirrored_input_off_diagonal_gram": true,
+      "other_branch_rejected": true,
+      "owner_H1_through_H5_reachable": true,
+      "principal_branch_unique": true,
+      "production_quadratic_radical": true
+    },
+    "inputs_sha256": "24a45133cdf5dab71e002dcce4d8951e4a3f64d0a8f54ef56902c1815800b0eb",
+    "owner_law": {
+      "certificates": [
+        {
+          "case_id": "H1_C1",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "0",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1/2",
+            "upper_kind": "CLOSED"
+          },
+          "d": 0,
+          "derived_C": 1,
+          "derived_E": 2,
+          "derived_H": 1,
+          "expected_C": 1,
+          "expected_E": 2,
+          "expected_H": 1,
+          "q": 2,
+          "q_times_u": "1/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 2,
+          "u": "1/4"
+        },
+        {
+          "case_id": "H1_C2",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "1/2",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1",
+            "upper_kind": "CLOSED"
+          },
+          "d": 0,
+          "derived_C": 2,
+          "derived_E": 2,
+          "derived_H": 1,
+          "expected_C": 2,
+          "expected_E": 2,
+          "expected_H": 1,
+          "q": 2,
+          "q_times_u": "3/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 2,
+          "u": "3/4"
+        },
+        {
+          "case_id": "H2_C3",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "2/3",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1",
+            "upper_kind": "CLOSED"
+          },
+          "d": 1,
+          "derived_C": 3,
+          "derived_E": 3,
+          "derived_H": 2,
+          "expected_C": 3,
+          "expected_E": 3,
+          "expected_H": 2,
+          "q": 3,
+          "q_times_u": "5/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 3,
+          "u": "5/6"
+        },
+        {
+          "case_id": "H3_C4",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "3/4",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1",
+            "upper_kind": "CLOSED"
+          },
+          "d": 2,
+          "derived_C": 4,
+          "derived_E": 4,
+          "derived_H": 3,
+          "expected_C": 4,
+          "expected_E": 4,
+          "expected_H": 3,
+          "q": 4,
+          "q_times_u": "7/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 4,
+          "u": "7/8"
+        },
+        {
+          "case_id": "H4_C5",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "4/5",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1",
+            "upper_kind": "CLOSED"
+          },
+          "d": 3,
+          "derived_C": 5,
+          "derived_E": 5,
+          "derived_H": 4,
+          "expected_C": 5,
+          "expected_E": 5,
+          "expected_H": 4,
+          "q": 5,
+          "q_times_u": "9/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 5,
+          "u": "9/10"
+        },
+        {
+          "case_id": "H5_C6",
+          "certificate_pass": true,
+          "crossing_cell": {
+            "contains_u": true,
+            "lower": "5/6",
+            "lower_kind": "OPEN",
+            "uncertainty": "NONE_EXACT_RATIONAL",
+            "upper": "1",
+            "upper_kind": "CLOSED"
+          },
+          "d": 4,
+          "derived_C": 6,
+          "derived_E": 6,
+          "derived_H": 5,
+          "expected_C": 6,
+          "expected_E": 6,
+          "expected_H": 5,
+          "q": 6,
+          "q_times_u": "11/2",
+          "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+          "red_claimed_next_H": 6,
+          "u": "11/12"
+        }
+      ],
+      "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+      "formula": {
+        "C": "ceil(q*u)",
+        "E": "max(2,C)",
+        "H": "max(1,C-1)",
+        "q": "d+2"
+      },
+      "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+    },
+    "performance": {
+      "budget": 5000000000000,
+      "exact_proof_step_count": 1236,
+      "fraction_arithmetic_operation_upper_bound": 316416,
+      "max_integer_bit_length": 802,
+      "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
+      "pass": true,
+      "schoolbook_integer_bit_ops_upper_bound": 814080147456
+    },
+    "product_tree": {
+      "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+      "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+      "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
+    },
+    "production_source": {
+      "anchor_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
+      "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
+      "evaluation_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+      "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+      "lattice_scale": 32768,
+      "metric_codec_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
+      "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
+      "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+      "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+      "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+      "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+      "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+      "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a"
+    },
+    "radical_binding": {
+      "mirror_matrix": [
+        [
+          "1",
+          "0"
+        ],
+        [
+          "0",
+          "-1"
+        ]
+      ],
+      "mirror_root_identity": true,
+      "mirrored": {
+        "branch_certificate": {
+          "other_bracket_inside_domain": true,
+          "other_bracket_signs": [
+            -1,
+            1
+          ],
+          "other_branch_has_root": true,
+          "other_branch_rejection": "OUTSIDE_OWNER_SUBTURN_BRANCH",
+          "other_derivative_numerator_sign": "POSITIVE",
+          "other_domain": [
+            "1",
+            "POSITIVE_INFINITY"
+          ],
+          "other_monotone": "STRICTLY_INCREASING",
+          "parameter": "t=tan(theta/2)",
+          "principal_bracket_inside_domain": true,
+          "principal_derivative_numerator_sign": "NEGATIVE",
+          "principal_domain": [
+            "0",
+            "1"
+          ],
+          "principal_domain_kinds": [
+            "OPEN",
+            "OPEN"
+          ],
+          "principal_monotone": "STRICTLY_DECREASING",
+          "principal_unique_root": true,
+          "subturn_branch": "0<theta<pi/2"
+        },
+        "cosine": {
+          "coefficient": "1002251807/5017274161018234127482566533",
+          "dot": "25056295175/281474976710656",
+          "fraction_only_root_sign": false,
+          "identity": "cos_delta=(dot/norm_product)*sqrt(norm_product)",
+          "incoming_norm_squared": "696277199314325/281474976710656",
+          "integer_sqrt_floor_denominator": 281474976710656,
+          "integer_sqrt_floor_numerator": 1770817989132817,
+          "norm_product": "3135796350636396329676604083125/79228162514264337593543950336",
+          "norm_product_is_square": false,
+          "outgoing_norm_squared": "4503660831813025/281474976710656",
+          "radicand": 5017274161018234127482566533
+        },
+        "cross": "620866915/536870912",
+        "gram": [
+          [
+            "2066105/262144",
+            "-13024865/524288"
+          ],
+          [
+            "-13024865/524288",
+            "86046925/1048576"
+          ]
+        ],
+        "incoming": [
+          "5093/8192",
+          "5847/16384"
+        ],
+        "name": "MIRRORED_CCW",
+        "orientation_sign": 1,
+        "outgoing": [
+          "-212021/32768",
+          "-3797/2048"
+        ],
+        "principal_bracket": [
+          "2/5",
+          "3/7"
+        ],
+        "principal_bracket_signs": [
+          1,
+          -1
+        ],
+        "refined_bracket": [
+          "229719357627983237960536880445/554597137599850363154807652352",
+          "574298394069958094901342201113/1386492843999625907887019130880"
+        ],
+        "refinement_steps": 96,
+        "root_equation": "(1-6*t^2+t^4)/(1+2*t^2+t^4)=coefficient*sqrt(radicand)"
+      },
+      "original": {
+        "branch_certificate": {
+          "other_bracket_inside_domain": true,
+          "other_bracket_signs": [
+            -1,
+            1
+          ],
+          "other_branch_has_root": true,
+          "other_branch_rejection": "OUTSIDE_OWNER_SUBTURN_BRANCH",
+          "other_derivative_numerator_sign": "POSITIVE",
+          "other_domain": [
+            "1",
+            "POSITIVE_INFINITY"
+          ],
+          "other_monotone": "STRICTLY_INCREASING",
+          "parameter": "t=tan(theta/2)",
+          "principal_bracket_inside_domain": true,
+          "principal_derivative_numerator_sign": "NEGATIVE",
+          "principal_domain": [
+            "0",
+            "1"
+          ],
+          "principal_domain_kinds": [
+            "OPEN",
+            "OPEN"
+          ],
+          "principal_monotone": "STRICTLY_DECREASING",
+          "principal_unique_root": true,
+          "subturn_branch": "0<theta<pi/2"
+        },
+        "cosine": {
+          "coefficient": "1002251807/5017274161018234127482566533",
+          "dot": "25056295175/281474976710656",
+          "fraction_only_root_sign": false,
+          "identity": "cos_delta=(dot/norm_product)*sqrt(norm_product)",
+          "incoming_norm_squared": "696277199314325/281474976710656",
+          "integer_sqrt_floor_denominator": 281474976710656,
+          "integer_sqrt_floor_numerator": 1770817989132817,
+          "norm_product": "3135796350636396329676604083125/79228162514264337593543950336",
+          "norm_product_is_square": false,
+          "outgoing_norm_squared": "4503660831813025/281474976710656",
+          "radicand": 5017274161018234127482566533
+        },
+        "cross": "-620866915/536870912",
+        "gram": [
+          [
+            "2066105/262144",
+            "13024865/524288"
+          ],
+          [
+            "13024865/524288",
+            "86046925/1048576"
+          ]
+        ],
+        "incoming": [
+          "5093/8192",
+          "-5847/16384"
+        ],
+        "name": "ORIGINAL_CW",
+        "orientation_sign": -1,
+        "outgoing": [
+          "-212021/32768",
+          "3797/2048"
+        ],
+        "principal_bracket": [
+          "2/5",
+          "3/7"
+        ],
+        "principal_bracket_signs": [
+          1,
+          -1
+        ],
+        "refined_bracket": [
+          "229719357627983237960536880445/554597137599850363154807652352",
+          "574298394069958094901342201113/1386492843999625907887019130880"
+        ],
+        "refinement_steps": 96,
+        "root_equation": "(1-6*t^2+t^4)/(1+2*t^2+t^4)=coefficient*sqrt(radicand)"
+      },
+      "owner_hidden_count_case_id": "H1_C1",
+      "root_n": 2
+    },
+    "red_controls": {
+      "mirror_without_metric_transform": {
+        "correct_dot": "25056295175/281474976710656",
+        "outcome": "MIRROR_GRAM_COVARIANCE_VIOLATION",
+        "reached": true,
+        "wrong_dot": "-48413571613856895/281474976710656"
+      },
+      "mirrored_input_reversal": {
+        "expected_orientation_sign": 1,
+        "outcome": "OWNER_ORIENTATION_REVERSAL",
+        "reached": true,
+        "reversed_cross": "-620866915/536870912"
+      },
+      "other_root_branch": {
+        "outcome": "OUTSIDE_OWNER_SUBTURN_BRANCH",
+        "reached": true,
+        "signs": [
+          -1,
+          1
+        ]
+      },
+      "unreachable_owner_H": {
+        "outcome": "UNREACHABLE_H_CLAIM",
+        "reached": true
+      }
+    },
+    "schema": "cftuv.envelope.dens_a_prime.radical_receipt.v1"
+  },
+  "evidence_sha256": "7f61a656c84a70147f3b8dfa58609b7d2bb4c70680d6802d25ac17e1ea418a83",
+  "schema": "cftuv.envelope.dens_a_prime.radical_receipt_wrapper.v1"
+}

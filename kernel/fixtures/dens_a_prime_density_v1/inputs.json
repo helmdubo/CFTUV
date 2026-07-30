@@ -1,0 +1,49 @@
+{
+  "schema": "cftuv.envelope.dens_a_prime.radical_inputs.v1",
+  "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911",
+  "accepted_product_oids": {
+    "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+    "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3"
+  },
+  "owner_law": {
+    "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1",
+    "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+    "certificates": [
+      {"case_id": "H1_C1", "d": 0, "u": "1/4", "expected_C": 1, "expected_E": 2, "expected_H": 1},
+      {"case_id": "H1_C2", "d": 0, "u": "3/4", "expected_C": 2, "expected_E": 2, "expected_H": 1},
+      {"case_id": "H2_C3", "d": 1, "u": "5/6", "expected_C": 3, "expected_E": 3, "expected_H": 2},
+      {"case_id": "H3_C4", "d": 2, "u": "7/8", "expected_C": 4, "expected_E": 4, "expected_H": 3},
+      {"case_id": "H4_C5", "d": 3, "u": "9/10", "expected_C": 5, "expected_E": 5, "expected_H": 4},
+      {"case_id": "H5_C6", "d": 4, "u": "11/12", "expected_C": 6, "expected_E": 6, "expected_H": 5}
+    ]
+  },
+  "production_radical": {
+    "snapshot_path": "kernel/fixtures/building_002_full_selection_v1/analysis_snapshot.json",
+    "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+    "request_path": "kernel/fixtures/building_002_full_selection_v1/decal_request.json",
+    "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+    "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+    "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+    "metric_codec_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
+    "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
+    "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+    "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a",
+    "anchor_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
+    "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+    "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
+    "hidden_count_case_id": "H1_C1",
+    "expected_gram": [
+      ["2066105/262144", "13024865/524288"],
+      ["13024865/524288", "86046925/1048576"]
+    ],
+    "expected_cosine_coefficient": "1002251807/5017274161018234127482566533",
+    "expected_cosine_radicand": "5017274161018234127482566533",
+    "principal_half_tangent_bracket": ["2/5", "3/7"],
+    "other_branch_half_tangent_bracket": ["7/3", "5/2"],
+    "root_refinement_steps": 96
+  },
+  "bit_cost_model": {
+    "name": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
+    "budget": 5000000000000
+  }
+}

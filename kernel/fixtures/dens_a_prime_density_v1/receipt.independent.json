@@ -1,0 +1,62 @@
+{
+  "owner_law": {
+    "H1_C_cells": [
+      1,
+      2
+    ],
+    "hidden_counts": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "performance": {
+    "budget": 5000000000000,
+    "exact_proof_step_count": 1214,
+    "max_integer_bit_length": 802,
+    "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
+    "pass": true,
+    "schoolbook_integer_bit_ops_upper_bound": 799590047744
+  },
+  "product_tree": {
+    "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+    "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+    "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
+  },
+  "radical_binding": {
+    "mirror_root_identity": true,
+    "mirror_wrong_metric_red_reached": true,
+    "off_diagonal_gram": true,
+    "other_branch_rejected": true,
+    "other_branch_signs": [
+      -1,
+      1
+    ],
+    "principal_signs": [
+      1,
+      -1
+    ],
+    "principal_unique_by_strict_derivative": true,
+    "production_radicand": 5017274161018234127482566533,
+    "refined_bracket": [
+      "229719357627983237960536880445/554597137599850363154807652352",
+      "574298394069958094901342201113/1386492843999625907887019130880"
+    ],
+    "reversal_red_reached": true
+  },
+  "red_controls": {
+    "corrupted_receipt": "EVIDENCE_DIGEST_MISMATCH",
+    "mirror_without_metric_transform": "MIRROR_GRAM_COVARIANCE_VIOLATION",
+    "mirrored_input_reversal": "OWNER_ORIENTATION_REVERSAL",
+    "other_root_branch": "OUTSIDE_OWNER_SUBTURN_BRANCH",
+    "unknown_product_tree": "UNKNOWN_PRODUCT_TREE",
+    "unreachable_owner_H": "UNREACHABLE_H_CLAIM"
+  },
+  "schema": "cftuv.envelope.dens_a_prime.radical_verification.v1",
+  "scope_note": "proof receipt only; verifier does not authorize product GO",
+  "verdict": "VERIFIED",
+  "verified_evidence_sha256": "7f61a656c84a70147f3b8dfa58609b7d2bb4c70680d6802d25ac17e1ea418a83",
+  "verified_receipt_sha256": "e2dab1422e04fa7d063891b402c8d56796c616da90c947d0558088185ac3ba97"
+}
