@@ -11,7 +11,7 @@
       "principal_branch_unique": true,
       "production_quadratic_radical": true
     },
-    "inputs_sha256": "76b0bfc420bb27a001844155b1c60c6b0ce5e11adb8807f22ca4ba47fccf1e13",
+    "inputs_sha256": "7668782b6a6680b1328f894db2302005b6d7a9c5d00cfbb910577bcb8883e07b",
     "owner_law": {
       "certificates": [
         {
@@ -185,31 +185,142 @@
       "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911"
     },
     "production_source": {
-      "anchor_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
-      "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
-      "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
-      "evaluation_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
-      "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
-      "lattice_scale": 32768,
-      "legacy_compile_observation": {
-        "compatible_with_proof_density_hidden_count": true,
+      "$type": "ProofOnlyProductionRadicalSourceV2",
+      "angle_certificate": {
+        "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
+        "canonical_byte_length": 937,
+        "canonical_sha256": "1f7e48ecab94f8e1eea62a64268e8f84d261a9583b6dc282868a311680ead355",
+        "exact_two_pi": false,
+        "measure_law": "ORIENTED_OWNER_SECTOR_ANGLE",
+        "measure_source": "HOST_ANALYSIS_EXACT_OR_CERTIFIED",
+        "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+        "record_type": "ReflexAngleCertificateV1",
+        "reflex_excess_law": "DELTA_EQUALS_PHI_MINUS_PI",
+        "strict_range_certificate": "STRICT_PI_LT_PHI_LT_2PI"
+      },
+      "angular_spec": {
+        "all_support_normal_speed": 1,
+        "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
+        "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
+        "canonical_byte_length": 3122,
+        "canonical_sha256": "85529b55c7f9f1f94a309b335fa44a2462264f989dcbfac1aa985653b7a7f6c0",
+        "hidden_supports": [
+          {
+            "binding_reason": "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL",
+            "direction_law": "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1",
+            "hidden_support_id": "hidden-support:a5edc60ed729b5a626126fb1",
+            "ordinal": 1
+          }
+        ],
+        "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+        "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+        "profile_family_id": "LINEAR_REFLEX_EQUAL_V1",
+        "record_type": "AngularEnvelopeSpec",
         "resolved_hidden_edge_count": 1,
         "selection_certificate_id": "profile-selection:121f6275eaa3646c47da428d",
-        "separate_from_proof_density_authority": true
+        "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a",
+        "subdivision_policy": "EQUAL_REFLEX_EXCESS"
       },
-      "metric_codec_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
-      "ordered_incident_chain_use_ids": [
-        "host-v0:chain-use:6d9faa2581ad0c02e518d297",
-        "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
-      ],
-      "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
-      "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
-      "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
-      "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
-      "relation_source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8",
-      "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
-      "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
-      "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a"
+      "compilation": {
+        "canonical_byte_length": 262580,
+        "canonical_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
+        "initial_front_spec": {
+          "canonical_byte_length": 6227,
+          "canonical_sha256": "dbddef6c75b7d2ec4ddae7a43c596bb691c082a1025840a0d6fe3d0b85ee6a32",
+          "record_type": "InitialFrontSpec"
+        },
+        "outcome": "EXACT",
+        "owner_patch_id": "host-patch:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:0",
+        "plan_key": {
+          "canonical_byte_length": 230,
+          "canonical_sha256": "9682fa4528869dd5df6eddb52393adda6defc67398e3151585d563ac4b1485d3",
+          "decal_request_id": "host-v0:decal-request:f3bd95a29cb56f37cfd13d44",
+          "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+          "record_type": "PlanKeyV1"
+        },
+        "schema_version": "cftuv.envelope.reference_compilation.v1",
+        "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+      },
+      "corner_relation": {
+        "angle_certificate_id": "host-v0:angle-certificate:32d324fe8c4090c4322c5e52",
+        "canonical_byte_length": 552,
+        "canonical_sha256": "fced3e20de20a51b5f287ff4772d26888e44fb40f94b573cf9f2ac579dcba8ac",
+        "corner_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a",
+        "exact_two_pi": false,
+        "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+        "record_type": "CornerRelationV1",
+        "source_vertex_id": "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8"
+      },
+      "evaluation_geometry_binding": {
+        "binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+        "bound_hidden_support_ids": [
+          "hidden-support:36a61d30ef0657696ba6f3a0",
+          "hidden-support:a5edc60ed729b5a626126fb1",
+          "hidden-support:ae06f5231674a1770bd535f0",
+          "hidden-support:b937f926c56a31d79bfe0c55"
+        ],
+        "canonical_byte_length": 5609,
+        "canonical_sha256": "c0dd5a93bf952ff40ecabd3bf079d9691236d8eaee7518729686afbe7f48d5e2",
+        "lattice_scale": 32768,
+        "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+        "record_type": "EvaluationGeometryBindingV1",
+        "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+        "schema_version": "cftuv.envelope.evaluation_geometry_binding.v1",
+        "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+      },
+      "owner_sector": {
+        "canonical_byte_length": 1996,
+        "canonical_sha256": "ba36158f7d14815c62d21999d3d7692774ac6c9c0b8998e79a543582f984b987",
+        "interior_selection_law": "OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS",
+        "ordered_incident_chain_use_ids": [
+          "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+          "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+        ],
+        "owner_patch_id": "host-patch:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:0",
+        "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+        "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+        "record_type": "OrientedOwnerSectorV1",
+        "turn_orientation": "CW_IN_OWNER_PATCH_ORIENTATION"
+      },
+      "patch_domain": {
+        "canonical_byte_length": 5607,
+        "canonical_sha256": "450b94f6839772e6f765ce4b993ed200a3d4b99338087a6409af24ae85832ea3",
+        "owner_patch_id": "host-patch:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:0",
+        "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+        "record_type": "PatchDomainV1",
+        "surface_regime": "PLANAR"
+      },
+      "reference_metric": {
+        "canonical_byte_length": 10338,
+        "canonical_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
+        "chart_orientation": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+        "codec": "RationalAffinePlanarMetricCodecV2",
+        "codec_sha256": "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4",
+        "frame_selection_law": "CANONICAL_SOURCE_VERTEX_BASIS_V1",
+        "grid_search_order": "FINEST_ADMISSIBLE_FIRST_V1",
+        "grid_snapping_law": "SOURCE_ONLY_GRID_SNAP_V1",
+        "grid_source_scale": 2048,
+        "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+        "planarity_admission_law": "EXACT_SOURCE_PLANE_V1",
+        "planarity_reconstruction_law": "O_PLUS_U_A_PLUS_V_B_V1",
+        "record_type": "RationalAffinePlanarMetricV2",
+        "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+        "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+      },
+      "request": {
+        "canonical_byte_length": 1983,
+        "canonical_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+        "codec": "DecalRequestCodecV1",
+        "decal_request_id": "host-v0:decal-request:f3bd95a29cb56f37cfd13d44",
+        "path": "kernel/fixtures/building_002_full_selection_v1/decal_request.json"
+      },
+      "snapshot": {
+        "canonical_byte_length": 114846,
+        "canonical_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+        "codec": "AnalysisSnapshotCodecV1",
+        "path": "kernel/fixtures/building_002_full_selection_v1/analysis_snapshot.json",
+        "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+      }
     },
     "radical_binding": {
       "mirror_matrix": [
@@ -395,8 +506,14 @@
         "derived_root_n": 2,
         "expected_reflex_excess_over_pi": "1/2",
         "gate0_hidden_count_witness_case_id": "H1_C1",
+        "max_subturn_exact_value": {
+          "$type": "ProofOnlyExactAngleV1",
+          "symbol": "PI_OVER_2",
+          "turn_fraction_of_pi": "1/2"
+        },
         "q": 2,
-        "reflex_excess_source": "PUBLIC_REFLEX_ANGLE_CERTIFICATE"
+        "reflex_excess_source": "PUBLIC_REFLEX_ANGLE_CERTIFICATE",
+        "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1"
       },
       "root_n": 2
     },
@@ -428,6 +545,6 @@
     },
     "schema": "cftuv.envelope.dens_a_prime.radical_receipt.v1"
   },
-  "evidence_sha256": "222569ccbfe566447d6b26a19811eef03cf00494b4b97286f6ce817d685aeca3",
+  "evidence_sha256": "8ed5cb58a435663dd7a8cca5638b1b0b0aed944b89475757464faa6062e4b6ad",
   "schema": "cftuv.envelope.dens_a_prime.radical_receipt_wrapper.v1"
 }

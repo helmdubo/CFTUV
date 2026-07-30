@@ -20,6 +20,119 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
+INPUT_SCHEMA = "cftuv.envelope.dens_a_prime.radical_inputs.v1"
+AUTHORITY_TYPE = "ProofOnlyLinearReflexDensityAuthorityV1"
+EXACT_ANGLE_TYPE = "ProofOnlyExactAngleV1"
+OWNER_POLICY = "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+OWNER_PARAMETER = "LINEAR_REFLEX_DENSITY_A_V1"
+OWNER_FORMULA = {
+    "q": "d+2",
+    "C": "ceil(q*u)",
+    "E": "max(2,C)",
+    "H": "max(1,C-1)",
+}
+DENSITY_VALUES = {
+    f"LINEAR_REFLEX_DENSITY_{density}_V1": density
+    for density in range(5)
+}
+DENSITY_ANGLES = {
+    density: {
+        "$type": EXACT_ANGLE_TYPE,
+        "symbol": f"PI_OVER_{density + 2}",
+        "turn_fraction_of_pi": f"1/{density + 2}",
+    }
+    for density in range(5)
+}
+EXPECTED_OWNER_CASES = (
+    {
+        "case_id": "H1_C1",
+        "d": 0,
+        "u": "1/4",
+        "expected_C": 1,
+        "expected_E": 2,
+        "expected_H": 1,
+    },
+    {
+        "case_id": "H1_C2",
+        "d": 0,
+        "u": "3/4",
+        "expected_C": 2,
+        "expected_E": 2,
+        "expected_H": 1,
+    },
+    {
+        "case_id": "H2_C3",
+        "d": 1,
+        "u": "5/6",
+        "expected_C": 3,
+        "expected_E": 3,
+        "expected_H": 2,
+    },
+    {
+        "case_id": "H3_C4",
+        "d": 2,
+        "u": "7/8",
+        "expected_C": 4,
+        "expected_E": 4,
+        "expected_H": 3,
+    },
+    {
+        "case_id": "H4_C5",
+        "d": 3,
+        "u": "9/10",
+        "expected_C": 5,
+        "expected_E": 5,
+        "expected_H": 4,
+    },
+    {
+        "case_id": "H5_C6",
+        "d": 4,
+        "u": "11/12",
+        "expected_C": 6,
+        "expected_E": 6,
+        "expected_H": 5,
+    },
+)
+FROZEN_SOURCE_IDENTITY = {
+    "snapshot_path": (
+        "kernel/fixtures/building_002_full_selection_v1/"
+        "analysis_snapshot.json"
+    ),
+    "snapshot_sha256": (
+        "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16"
+    ),
+    "request_path": (
+        "kernel/fixtures/building_002_full_selection_v1/decal_request.json"
+    ),
+    "request_sha256": (
+        "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d"
+    ),
+    "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+    "reference_metric_id": "reference-metric:749dbc5d924dc816c848e90a",
+    "metric_codec_sha256": (
+        "ca72780636570dbf5c0c41f610352a63300677783e5d59b8c4f55c6fb77ca9a4"
+    ),
+    "angular_spec_id": "angular-spec:739252a710101eaedbeef0e7",
+    "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+    "source_relation_id": "host-v0:corner-relation:60fc81c8f39e546c88f9ff6a",
+    "anchor_source_vertex_id": (
+        "host-vertex:host-source:"
+        "63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:"
+        "building.002:8"
+    ),
+    "incoming_chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+    "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
+}
+PRODUCTION_INPUT_KEYS = {
+    *FROZEN_SOURCE_IDENTITY,
+    "density_authority",
+    "expected_gram",
+    "expected_cosine_coefficient",
+    "expected_cosine_radicand",
+    "principal_half_tangent_bracket",
+    "other_branch_half_tangent_bracket",
+    "root_refinement_steps",
+}
 
 
 def arguments() -> argparse.Namespace:
@@ -45,6 +158,142 @@ def pretty(value: Any) -> bytes:
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def exact_keys(record: dict[str, Any], expected: set[str], label: str) -> None:
+    actual = set(record)
+    assert actual == expected, (
+        f"{label} field mismatch: missing={sorted(expected - actual)} "
+        f"extra={sorted(actual - expected)}"
+    )
+
+
+def validate_owner_law(owner_law: dict[str, Any]) -> None:
+    exact_keys(
+        owner_law,
+        {
+            "selection_policy_id",
+            "density_parameter_id",
+            "formula",
+            "certificates",
+        },
+        "owner_law",
+    )
+    assert owner_law["selection_policy_id"] == OWNER_POLICY
+    assert owner_law["density_parameter_id"] == OWNER_PARAMETER
+    assert owner_law["formula"] == OWNER_FORMULA
+    assert owner_law["certificates"] == list(EXPECTED_OWNER_CASES)
+    for row in owner_law["certificates"]:
+        exact_keys(
+            row,
+            {
+                "case_id",
+                "d",
+                "u",
+                "expected_C",
+                "expected_E",
+                "expected_H",
+            },
+            f"owner certificate {row.get('case_id', '<missing>')}",
+        )
+
+
+def validate_density_authority(
+    authority: dict[str, Any],
+    owner_law: dict[str, Any],
+) -> int:
+    exact_keys(
+        authority,
+        {
+            "$type",
+            "selection_policy_id",
+            "density_parameter_id",
+            "density_value_id",
+            "density_integer",
+            "max_subturn_exact_value",
+            "gate0_hidden_count_witness_case_id",
+            "reflex_excess_source",
+            "expected_reflex_excess_over_pi",
+        },
+        "density_authority",
+    )
+    assert authority["$type"] == AUTHORITY_TYPE
+    assert authority["selection_policy_id"] == OWNER_POLICY
+    assert authority["density_parameter_id"] == OWNER_PARAMETER
+    value_id = authority["density_value_id"]
+    assert value_id in DENSITY_VALUES
+    density = DENSITY_VALUES[value_id]
+    assert type(authority["density_integer"]) is int
+    assert authority["density_integer"] == density
+    angle = authority["max_subturn_exact_value"]
+    assert isinstance(angle, dict)
+    exact_keys(
+        angle,
+        {"$type", "symbol", "turn_fraction_of_pi"},
+        "density exact angle",
+    )
+    assert angle == DENSITY_ANGLES[density]
+    assert authority["reflex_excess_source"] == (
+        "PUBLIC_REFLEX_ANGLE_CERTIFICATE"
+    )
+    assert Fraction(authority["expected_reflex_excess_over_pi"]) == Fraction(
+        1, 2
+    )
+    witness_id = authority["gate0_hidden_count_witness_case_id"]
+    witness = next(
+        (
+            row
+            for row in owner_law["certificates"]
+            if row["case_id"] == witness_id
+        ),
+        None,
+    )
+    assert witness is not None
+    certified_u = Fraction(authority["expected_reflex_excess_over_pi"])
+    count = ceil((density + 2) * certified_u)
+    assert witness["d"] == density
+    assert witness["expected_C"] == count
+    assert witness["expected_E"] == max(2, count)
+    assert witness["expected_H"] == max(1, count - 1)
+    return density
+
+
+def validate_inputs_contract(inputs: dict[str, Any]) -> int:
+    exact_keys(
+        inputs,
+        {
+            "schema",
+            "proof_base_revision",
+            "accepted_product_oids",
+            "owner_law",
+            "production_radical",
+            "bit_cost_model",
+        },
+        "radical inputs",
+    )
+    assert inputs["schema"] == INPUT_SCHEMA
+    exact_keys(
+        inputs["accepted_product_oids"],
+        {"kernel_src", "cftuv"},
+        "accepted product oids",
+    )
+    exact_keys(
+        inputs["bit_cost_model"],
+        {"name", "budget", "input_integer_bit_limit"},
+        "bit cost model",
+    )
+    assert inputs["bit_cost_model"]["name"] == (
+        "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1"
+    )
+    validate_owner_law(inputs["owner_law"])
+    source = inputs["production_radical"]
+    exact_keys(source, PRODUCTION_INPUT_KEYS, "production radical")
+    for field, expected in FROZEN_SOURCE_IDENTITY.items():
+        assert source[field] == expected, field
+    assert type(source["root_refinement_steps"]) is int
+    return validate_density_authority(
+        source["density_authority"], inputs["owner_law"]
+    )
 
 
 def rat(value: Any) -> Fraction:
@@ -270,6 +519,170 @@ def matrix_from(metric):
     )
 
 
+def rebuild_production_source(
+    snapshot,
+    compilation,
+    metric,
+    spec,
+    relation,
+    sector,
+    certificate,
+) -> dict[str, Any]:
+    """Независимо пересобирает весь receipt source-record."""
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.codec import canonical_json_bytes
+
+    def record(value) -> dict[str, Any]:
+        payload = canonical_json_bytes(value)
+        return {
+            "record_type": type(value).__name__,
+            "canonical_byte_length": len(payload),
+            "canonical_sha256": sha(payload),
+        }
+
+    request = compilation.decal_request
+    snapshot_bytes = kernel.AnalysisSnapshotCodecV1.dumps(snapshot)
+    request_bytes = kernel.DecalRequestCodecV1.dumps(request)
+    compilation_bytes = canonical_json_bytes(compilation)
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == compilation.plan_key.patch_domain_id
+    )
+    binding = compilation.evaluation_geometry_binding
+    grid = metric.grid_certificate
+    planarity = metric.planarity_certificate
+    hidden = sorted(spec.hidden_supports, key=lambda item: item.ordinal)
+    return {
+        "$type": "ProofOnlyProductionRadicalSourceV2",
+        "snapshot": {
+            "path": FROZEN_SOURCE_IDENTITY["snapshot_path"],
+            "codec": "AnalysisSnapshotCodecV1",
+            "canonical_byte_length": len(snapshot_bytes),
+            "canonical_sha256": sha(snapshot_bytes),
+            "source_revision": snapshot.source_revision.value,
+        },
+        "request": {
+            "path": FROZEN_SOURCE_IDENTITY["request_path"],
+            "codec": "DecalRequestCodecV1",
+            "canonical_byte_length": len(request_bytes),
+            "canonical_sha256": sha(request_bytes),
+            "decal_request_id": request.decal_request_id.value,
+        },
+        "compilation": {
+            "schema_version": compilation.schema_version,
+            "outcome": "EXACT",
+            "canonical_byte_length": len(compilation_bytes),
+            "canonical_sha256": sha(compilation_bytes),
+            "source_revision": compilation.source_revision.value,
+            "owner_patch_id": compilation.owner_patch_id.value,
+            "plan_key": {
+                **record(compilation.plan_key),
+                "decal_request_id": compilation.plan_key.decal_request_id.value,
+                "patch_domain_id": (
+                    compilation.plan_key.patch_domain_id.value
+                ),
+            },
+            "initial_front_spec": record(compilation.initial_front_spec),
+        },
+        "patch_domain": {
+            **record(domain),
+            "patch_domain_id": domain.patch_domain_id.value,
+            "owner_patch_id": domain.owner_patch_id.value,
+            "surface_regime": domain.surface_regime.value,
+        },
+        "reference_metric": {
+            **record(metric),
+            "codec": "RationalAffinePlanarMetricCodecV2",
+            "codec_sha256": sha(
+                kernel.RationalAffinePlanarMetricCodecV2.dumps(metric)
+            ),
+            "reference_metric_id": metric.reference_metric_id.value,
+            "patch_domain_id": metric.patch_domain_id.value,
+            "source_revision": metric.source_revision.value,
+            "chart_orientation": metric.chart_orientation.value,
+            "frame_selection_law": metric.frame_selection_law.value,
+            "planarity_admission_law": planarity.admission_law.value,
+            "planarity_reconstruction_law": (
+                planarity.reconstruction_law.value
+            ),
+            "grid_search_order": grid.search_order.value,
+            "grid_snapping_law": grid.snapping_law.value,
+            "grid_source_scale": grid.source_scale,
+        },
+        "angular_spec": {
+            **record(spec),
+            "angular_spec_id": spec.envelope_spec_id.value,
+            "patch_domain_id": spec.patch_domain_id.value,
+            "owner_sector_id": spec.owner_sector_id.value,
+            "source_relation_id": spec.source_relation_id.value,
+            "angle_certificate_id": spec.angle_certificate_id.value,
+            "selection_certificate_id": spec.selection_certificate_id.value,
+            "profile_family_id": spec.profile_family_id.value,
+            "resolved_hidden_edge_count": spec.resolved_hidden_edge_count,
+            "subdivision_policy": spec.subdivision_policy.value,
+            "all_support_normal_speed": spec.all_support_normal_speed,
+            "hidden_supports": [
+                {
+                    "hidden_support_id": item.hidden_support_id.value,
+                    "ordinal": item.ordinal,
+                    "direction_law": item.direction_law.value,
+                    "binding_reason": (
+                        item.direction_binding.binding_reason.value
+                    ),
+                }
+                for item in hidden
+            ],
+        },
+        "corner_relation": {
+            **record(relation),
+            "corner_relation_id": relation.corner_relation_id.value,
+            "source_vertex_id": relation.source_vertex_id.value,
+            "owner_sector_id": relation.owner_sector_id.value,
+            "angle_certificate_id": (
+                relation.reflex_angle_certificate_id.value
+            ),
+            "exact_two_pi": relation.exact_two_pi,
+        },
+        "owner_sector": {
+            **record(sector),
+            "owner_sector_id": sector.owner_sector_id.value,
+            "owner_patch_id": sector.owner_patch_id.value,
+            "patch_domain_id": sector.patch_domain_id.value,
+            "ordered_incident_chain_use_ids": [
+                item.value for item in sector.ordered_incident_chain_use_ids
+            ],
+            "turn_orientation": sector.turn_orientation.value,
+            "interior_selection_law": sector.interior_selection_law.value,
+        },
+        "angle_certificate": {
+            **record(certificate),
+            "angle_certificate_id": certificate.certificate_id.value,
+            "owner_sector_id": certificate.owner_sector_id.value,
+            "measure_law": certificate.measure_law.value,
+            "measure_source": certificate.measure_source.value,
+            "strict_range_certificate": (
+                certificate.strict_range_certificate.value
+            ),
+            "reflex_excess_law": certificate.reflex_excess_law.value,
+            "exact_two_pi": certificate.exact_two_pi,
+        },
+        "evaluation_geometry_binding": {
+            **record(binding),
+            "schema_version": binding.schema_version,
+            "source_revision": binding.source_revision.value,
+            "patch_domain_id": binding.patch_domain_id.value,
+            "reference_metric_id": binding.reference_metric_id.value,
+            "binding_law": binding.binding_law.value,
+            "lattice_scale": binding.lattice_scale,
+            "bound_hidden_support_ids": sorted(
+                item.value for item in binding.bound_hidden_support_ids
+            ),
+        },
+    }
+
+
 def chain_vector(snapshot, coordinates, chain_use_id):
     use = next(
         item
@@ -304,7 +717,21 @@ def derive_cosine(matrix, incoming, outgoing, expected, audit: Audit):
 
 
 def verify_owner(inputs, receipt) -> dict[str, Any]:
-    observed = receipt["evidence"]["owner_law"]["certificates"]
+    owner_receipt = receipt["evidence"]["owner_law"]
+    exact_keys(
+        owner_receipt,
+        {
+            "selection_policy_id",
+            "density_parameter_id",
+            "formula",
+            "certificates",
+        },
+        "owner_law receipt",
+    )
+    assert owner_receipt["selection_policy_id"] == OWNER_POLICY
+    assert owner_receipt["density_parameter_id"] == OWNER_PARAMETER
+    assert owner_receipt["formula"] == OWNER_FORMULA
+    observed = owner_receipt["certificates"]
     assert len(observed) == len(inputs["owner_law"]["certificates"])
     h1_c = set()
     hidden = set()
@@ -328,7 +755,26 @@ def verify_owner(inputs, receipt) -> dict[str, Any]:
         assert row["crossing_cell"]["lower"] == f(Fraction(c - 1, q))
         assert row["crossing_cell"]["upper"] == f(Fraction(c, q))
         assert Fraction(c - 1, q) < u <= Fraction(c, q)
-        assert row["crossing_cell"]["uncertainty"] == "NONE_EXACT_RATIONAL"
+        expected_row = {
+            **source,
+            "q": q,
+            "q_times_u": f(q * u),
+            "derived_C": c,
+            "derived_E": e,
+            "derived_H": h,
+            "crossing_cell": {
+                "lower": f(Fraction(c - 1, q)),
+                "lower_kind": "OPEN" if c > 0 else "CLOSED",
+                "upper": f(Fraction(c, q)),
+                "upper_kind": "CLOSED",
+                "contains_u": True,
+                "uncertainty": "NONE_EXACT_RATIONAL",
+            },
+            "certificate_pass": True,
+            "red_claimed_next_H": h + 1,
+            "red_claim_outcome": "UNREACHABLE_H_CLAIM",
+        }
+        assert row == expected_row
         hidden.add(h)
         if h == 1:
             h1_c.add(c)
@@ -360,7 +806,9 @@ def verify_radical(
     assert certified_u == Fraction(
         authority_input["expected_reflex_excess_over_pi"]
     )
-    density = int(authority_input["density_integer"])
+    density = validate_density_authority(
+        authority_input, inputs["owner_law"]
+    )
     q = density + 2
     count = ceil(q * certified_u)
     emanated = max(2, count)
@@ -393,28 +841,17 @@ def verify_radical(
     assert radical_receipt["root_n"] == root_n
 
     source_receipt = receipt["evidence"]["production_source"]
-    assert source_receipt["anchor_source_vertex_id"] == (
-        relation.source_vertex_id.value
+    expected_source = rebuild_production_source(
+        snapshot,
+        compilation,
+        metric,
+        spec,
+        relation,
+        sector,
+        certificate,
     )
-    assert source_receipt["relation_source_vertex_id"] == (
-        relation.source_vertex_id.value
-    )
-    actual_incident = [
-        item.value for item in sector.ordered_incident_chain_use_ids
-    ]
-    assert source_receipt["ordered_incident_chain_use_ids"] == actual_incident
-    assert source_receipt["incoming_chain_use_id"] == actual_incident[0]
-    assert source_receipt["outgoing_chain_use_id"] == actual_incident[1]
-    assert source_receipt["angle_certificate_id"] == (
-        certificate.certificate_id.value
-    )
-    legacy = source_receipt["legacy_compile_observation"]
-    assert legacy == {
-        "selection_certificate_id": spec.selection_certificate_id.value,
-        "resolved_hidden_edge_count": spec.resolved_hidden_edge_count,
-        "separate_from_proof_density_authority": True,
-        "compatible_with_proof_density_hidden_count": True,
-    }
+    assert set(source_receipt) == set(expected_source)
+    assert source_receipt == expected_source
     matrix = matrix_from(metric)
     expected_matrix = tuple(
         tuple(Fraction(value) for value in row)
@@ -568,10 +1005,31 @@ def semantic_verify(
     expected_inputs_sha: str,
     wrapper: dict[str, Any],
 ) -> dict[str, Any]:
+    validate_inputs_contract(inputs)
+    exact_keys(
+        wrapper,
+        {"schema", "evidence_sha256", "evidence"},
+        "radical receipt wrapper",
+    )
     assert wrapper["schema"] == (
         "cftuv.envelope.dens_a_prime.radical_receipt_wrapper.v1"
     )
     evidence = wrapper["evidence"]
+    exact_keys(
+        evidence,
+        {
+            "schema",
+            "inputs_sha256",
+            "product_tree",
+            "owner_law",
+            "production_source",
+            "radical_binding",
+            "red_controls",
+            "performance",
+            "claims",
+        },
+        "radical receipt evidence",
+    )
     assert sha(canonical(evidence)) == wrapper["evidence_sha256"]
     assert evidence["inputs_sha256"] == expected_inputs_sha
     input_bits = input_integer_bits(inputs)
@@ -729,15 +1187,67 @@ def main() -> None:
         forged["evidence"]["claims"][claim] = False
         mutations[f"false_claim_{claim}"] = forged
     forged = deepcopy(wrapper)
-    forged["evidence"]["production_source"]["incoming_chain_use_id"] = (
+    forged["evidence"]["production_source"]["owner_sector"][
+        "ordered_incident_chain_use_ids"
+    ][0] = (
         "host-v0:chain-use:foreign"
     )
     mutations["wrong_incident_chain"] = forged
     forged = deepcopy(wrapper)
-    forged["evidence"]["production_source"]["anchor_source_vertex_id"] = (
+    forged["evidence"]["production_source"]["corner_relation"][
+        "source_vertex_id"
+    ] = (
         "host-vertex:foreign"
     )
     mutations["wrong_relation_anchor"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["angular_spec"][
+        "angular_spec_id"
+    ] = "angular-spec:foreign"
+    mutations["foreign_angular_spec"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["patch_domain"][
+        "patch_domain_id"
+    ] = "host-v0:patch-domain:foreign"
+    mutations["foreign_patch_domain"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["reference_metric"][
+        "reference_metric_id"
+    ] = "reference-metric:foreign"
+    mutations["foreign_reference_metric"] = forged
+    for name, section in (
+        ("zero_snapshot_hash", "snapshot"),
+        ("zero_request_hash", "request"),
+        ("zero_metric_hash", "reference_metric"),
+    ):
+        forged = deepcopy(wrapper)
+        key = (
+            "codec_sha256"
+            if section == "reference_metric"
+            else "canonical_sha256"
+        )
+        forged["evidence"]["production_source"][section][key] = "0" * 64
+        mutations[name] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["reference_metric"][
+        "frame_selection_law"
+    ] = "FOREIGN_FRAME_LAW"
+    mutations["altered_reference_metric_law"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["reference_metric"][
+        "grid_snapping_law"
+    ] = "FOREIGN_LATTICE_SNAP_LAW"
+    mutations["altered_lattice_law"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["evaluation_geometry_binding"][
+        "binding_law"
+    ] = "FOREIGN_EVALUATION_BINDING_LAW"
+    mutations["altered_evaluation_binding_law"] = forged
+    forged = deepcopy(wrapper)
+    forged["evidence"]["production_source"]["evaluation_geometry_binding"][
+        "lattice_scale"
+    ] += 1
+    mutations["altered_lattice_scale"] = forged
     forged = deepcopy(wrapper)
     forged["evidence"]["performance"][
         "schoolbook_integer_bit_ops_upper_bound"
@@ -750,6 +1260,102 @@ def main() -> None:
         refresh_digest(mutated)
         mutation_results[name] = expect_reject(
             root, inputs, sha(inputs_bytes), mutated
+        )
+
+    def rehashed_input_red(name: str, path: tuple, value: Any) -> None:
+        changed_inputs = deepcopy(inputs)
+        cursor = changed_inputs
+        for part in path[:-1]:
+            cursor = cursor[part]
+        cursor[path[-1]] = value
+        changed_sha = sha(canonical(changed_inputs))
+        changed_wrapper = deepcopy(wrapper)
+        changed_wrapper["evidence"]["inputs_sha256"] = changed_sha
+        refresh_digest(changed_wrapper)
+        mutation_results[name] = expect_reject(
+            root, changed_inputs, changed_sha, changed_wrapper
+        )
+
+    authority_path = ("production_radical", "density_authority")
+    rehashed_input_red(
+        "rehashed_bogus_authority_type",
+        (*authority_path, "$type"),
+        "BOGUS_AUTHORITY",
+    )
+    rehashed_input_red(
+        "rehashed_bogus_density_parameter",
+        (*authority_path, "density_parameter_id"),
+        "BOGUS_PARAMETER",
+    )
+    rehashed_input_red(
+        "rehashed_density_4_value_with_integer_0",
+        (*authority_path, "density_value_id"),
+        "LINEAR_REFLEX_DENSITY_4_V1",
+    )
+    rehashed_input_red(
+        "rehashed_density_exact_angle_mismatch",
+        (*authority_path, "max_subturn_exact_value", "symbol"),
+        "PI_OVER_6",
+    )
+    rehashed_input_red(
+        "rehashed_foreign_reflex_excess_source",
+        (*authority_path, "reflex_excess_source"),
+        "FOREIGN_REFLEX_EXCESS_SOURCE",
+    )
+    rehashed_input_red(
+        "rehashed_foreign_gate0_witness",
+        (*authority_path, "gate0_hidden_count_witness_case_id"),
+        "FOREIGN_GATE0_WITNESS",
+    )
+    rehashed_input_red(
+        "rehashed_same_H_foreign_gate0_witness",
+        (*authority_path, "gate0_hidden_count_witness_case_id"),
+        "H1_C2",
+    )
+    rehashed_input_red(
+        "rehashed_owner_policy",
+        ("owner_law", "selection_policy_id"),
+        "FOREIGN_OWNER_POLICY",
+    )
+    rehashed_input_red(
+        "rehashed_owner_parameter",
+        ("owner_law", "density_parameter_id"),
+        "FOREIGN_OWNER_PARAMETER",
+    )
+    rehashed_input_red(
+        "rehashed_owner_formula",
+        ("owner_law", "formula", "H"),
+        "max(0,C-1)",
+    )
+    rehashed_input_red(
+        "rehashed_owner_row",
+        ("owner_law", "certificates", 5, "expected_H"),
+        4,
+    )
+    rehashed_input_red(
+        "rehashed_foreign_angular_spec",
+        ("production_radical", "angular_spec_id"),
+        "angular-spec:foreign",
+    )
+    rehashed_input_red(
+        "rehashed_foreign_patch_domain",
+        ("production_radical", "patch_domain_id"),
+        "host-v0:patch-domain:foreign",
+    )
+    rehashed_input_red(
+        "rehashed_foreign_reference_metric",
+        ("production_radical", "reference_metric_id"),
+        "reference-metric:foreign",
+    )
+    for name, field in (
+        ("rehashed_zero_snapshot_hash", "snapshot_sha256"),
+        ("rehashed_zero_request_hash", "request_sha256"),
+        ("rehashed_zero_metric_hash", "metric_codec_sha256"),
+    ):
+        rehashed_input_red(
+            name,
+            ("production_radical", field),
+            "0" * 64,
         )
 
     unknown_inputs = deepcopy(inputs)

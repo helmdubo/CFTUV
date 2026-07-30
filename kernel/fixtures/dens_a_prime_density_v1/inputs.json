@@ -8,6 +8,12 @@
   "owner_law": {
     "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1",
     "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+    "formula": {
+      "q": "d+2",
+      "C": "ceil(q*u)",
+      "E": "max(2,C)",
+      "H": "max(1,C-1)"
+    },
     "certificates": [
       {"case_id": "H1_C1", "d": 0, "u": "1/4", "expected_C": 1, "expected_E": 2, "expected_H": 1},
       {"case_id": "H1_C2", "d": 0, "u": "3/4", "expected_C": 2, "expected_E": 2, "expected_H": 1},
@@ -33,9 +39,15 @@
     "outgoing_chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
     "density_authority": {
       "$type": "ProofOnlyLinearReflexDensityAuthorityV1",
+      "selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1",
       "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
       "density_value_id": "LINEAR_REFLEX_DENSITY_0_V1",
       "density_integer": 0,
+      "max_subturn_exact_value": {
+        "$type": "ProofOnlyExactAngleV1",
+        "symbol": "PI_OVER_2",
+        "turn_fraction_of_pi": "1/2"
+      },
       "gate0_hidden_count_witness_case_id": "H1_C1",
       "reflex_excess_source": "PUBLIC_REFLEX_ANGLE_CERTIFICATE",
       "expected_reflex_excess_over_pi": "1/2"

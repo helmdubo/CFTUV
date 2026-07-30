@@ -1,20 +1,47 @@
 {
   "all_exploit_regressions_rejected": true,
   "exploit_regression_matrix": {
+    "altered_evaluation_binding_law": "AssertionError",
+    "altered_lattice_law": "AssertionError",
+    "altered_lattice_scale": "AssertionError",
+    "altered_reference_metric_law": "AssertionError",
     "empty_red_controls": "AssertionError",
     "false_claim_all_red_controls_reached": "AssertionError",
     "false_claim_bit_budget_pass": "AssertionError",
     "false_claim_other_branch_rejected": "AssertionError",
     "false_claim_production_quadratic_radical": "AssertionError",
     "foreign_H_case": "AssertionError",
+    "foreign_angular_spec": "AssertionError",
+    "foreign_patch_domain": "AssertionError",
+    "foreign_reference_metric": "AssertionError",
     "huge_bit_input": "AssertionError",
     "huge_bit_receipt": "AssertionError",
     "perf_upper_bound_zero": "AssertionError",
+    "rehashed_bogus_authority_type": "AssertionError",
+    "rehashed_bogus_density_parameter": "AssertionError",
+    "rehashed_density_4_value_with_integer_0": "AssertionError",
+    "rehashed_density_exact_angle_mismatch": "AssertionError",
+    "rehashed_foreign_angular_spec": "AssertionError",
+    "rehashed_foreign_gate0_witness": "AssertionError",
+    "rehashed_foreign_patch_domain": "AssertionError",
+    "rehashed_foreign_reference_metric": "AssertionError",
+    "rehashed_foreign_reflex_excess_source": "AssertionError",
+    "rehashed_owner_formula": "AssertionError",
+    "rehashed_owner_parameter": "AssertionError",
+    "rehashed_owner_policy": "AssertionError",
+    "rehashed_owner_row": "AssertionError",
+    "rehashed_same_H_foreign_gate0_witness": "AssertionError",
+    "rehashed_zero_metric_hash": "AssertionError",
+    "rehashed_zero_request_hash": "AssertionError",
+    "rehashed_zero_snapshot_hash": "AssertionError",
     "root_n_999": "AssertionError",
     "stale_digest": "AssertionError",
     "unknown_product_tree": "AssertionError",
     "wrong_incident_chain": "AssertionError",
-    "wrong_relation_anchor": "AssertionError"
+    "wrong_relation_anchor": "AssertionError",
+    "zero_metric_hash": "AssertionError",
+    "zero_request_hash": "AssertionError",
+    "zero_snapshot_hash": "AssertionError"
   },
   "owner_law": {
     "H1_C_cells": [
@@ -103,6 +130,6 @@
   "schema": "cftuv.envelope.dens_a_prime.radical_verification.v1",
   "scope_note": "proof receipt only; verifier does not authorize product GO",
   "verdict": "VERIFIED",
-  "verified_evidence_sha256": "222569ccbfe566447d6b26a19811eef03cf00494b4b97286f6ce817d685aeca3",
-  "verified_receipt_sha256": "6efe249b54f6294a758cdc99a61ee5787128d2957f74abf8f6579b2a9177e7f6"
+  "verified_evidence_sha256": "8ed5cb58a435663dd7a8cca5638b1b0b0aed944b89475757464faa6062e4b6ad",
+  "verified_receipt_sha256": "18c595708f494496a74c6c4dc3ca210f175c09fe256ae2b75d6b49d59ff99d0f"
 }
