@@ -1,0 +1,104 @@
+{
+  "schema": "cftuv.envelope.dens_a_prime.split_static_inputs.v1",
+  "proof_base_revision": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911",
+  "accepted_product_oids": {
+    "kernel_src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+    "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+    "tools": "ec5439a5fc8ea46784d4621ac763f941b4833c36"
+  },
+  "fixture": {
+    "snapshot_path": "kernel/fixtures/building_002_full_selection_v1/analysis_snapshot.json",
+    "snapshot_sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+    "request_path": "kernel/fixtures/building_002_full_selection_v1/decal_request.json",
+    "request_sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+    "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+    "alphas": ["0.25", "0.5"],
+    "expected_compilation_wrappers": {
+      "0.25": {
+        "length": 262580,
+        "sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84"
+      },
+      "0.5": {
+        "length": 262555,
+        "sha256": "0efabff21c1c62050387f5a8abba6e2b994cd8b02744933654fcc4cd79b4d481"
+      }
+    }
+  },
+  "planned_contract": {
+    "static_type": "ConveyorStaticPreparationV1",
+    "static_schema_version": "cftuv.envelope.conveyor_static_preparation.v1",
+    "static_field_whitelist": [
+      "$type",
+      "schema_version",
+      "outcome",
+      "regions",
+      "lattice",
+      "arrival_laws",
+      "law_names"
+    ],
+    "decoder_module": "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
+    "decoder_entrypoint": "decode_conveyor_static",
+    "decoder_input_law": "CANONICAL_UTF8_JSON_BYTES_ONLY_V1",
+    "decoded_outcome_type": "ConveyorOutcomeValueV1",
+    "recompose_entrypoint": "recompose_conveyor_static",
+    "recompose_law": "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1",
+    "key_type": "ConveyorStaticPreparationKeyV1",
+    "key_schema_version": "cftuv.envelope.conveyor_static_preparation_key.v1",
+    "key_law": "SNAPSHOT_AND_ALL_COMPILE_STATIC_POLICY_WITH_DENSITY_V1",
+    "density_parameter_id": "LINEAR_REFLEX_DENSITY_A_V1",
+    "density_value_ids": [
+      "LINEAR_REFLEX_DENSITY_0_V1",
+      "LINEAR_REFLEX_DENSITY_1_V1",
+      "LINEAR_REFLEX_DENSITY_2_V1",
+      "LINEAR_REFLEX_DENSITY_3_V1",
+      "LINEAR_REFLEX_DENSITY_4_V1"
+    ],
+    "density_selection_policy_id": "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+  },
+  "source_authority": [
+    {
+      "path": "kernel/src/cftuv_envelope/wavefront/conveyor.py",
+      "blob_oid": "eac26a92a16f676375d75edbda7c62cb3219d1c0",
+      "sha256": "acb35ec5a43009c0a00b851bfdc395399caa313f90e32b45939747a4bb8dafe3",
+      "line_ranges": {
+        "current_preparation_type": "283-310",
+        "prepare_owner": "995-1054",
+        "prepare_inputs": "1057-1165",
+        "per_request_instance_ids": "1168-1195",
+        "static_region_coverage": "1198-1225",
+        "coverage_consumer": "1318-1408"
+      }
+    },
+    {
+      "path": "kernel/src/cftuv_envelope/contracts/request.py",
+      "blob_oid": "88e09b704fafd5133e42d81b5ffe07071cfec206",
+      "sha256": "320b9af4193dcf5109cd53319547ea9b34e33b8bb3df94d57a02d58c5e0e4e9b",
+      "line_ranges": {
+        "request_contract": "50-67"
+      }
+    },
+    {
+      "path": "kernel/src/cftuv_envelope/codec.py",
+      "blob_oid": "a921638fee6dda0e74dbe3181a22241db5850b86",
+      "sha256": "bf94e7aef32cdfe3b11a00b728b769abfc5b0ddc48fe5825903034eb26480525",
+      "line_ranges": {
+        "canonical_json": "120-127"
+      }
+    },
+    {
+      "path": "cftuv/envelope_debug_session.py",
+      "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "sha256": "7566a62c785f92fcba4693248c2985025c41586495e651380ebaa92858c774dd",
+      "line_ranges": {
+        "current_compile_key": "24-67",
+        "current_preparation_cache": "111-120",
+        "future_migration_seam": "430-474"
+      }
+    }
+  ],
+  "performance": {
+    "model": "CANONICAL_BYTES_LINEAR_SCAN_UPPER_BOUND_V1",
+    "byte_budget": 5000000,
+    "input_integer_bit_limit": 4096
+  }
+}
