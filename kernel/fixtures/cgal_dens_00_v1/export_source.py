@@ -11,7 +11,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 from typing import Any
 
@@ -21,6 +20,7 @@ PATCH_ID = 0
 ALPHA = 0.3
 DENSITIES = (0, 1, 4)
 SCHEMA = "cftuv.proof.cgal_dens_00.source_snapshot.v1"
+BASE_REVISION = "c1d6cd5a92d607bd438ccc25561f0bfa6ab5150e"
 
 
 def _arguments() -> argparse.Namespace:
@@ -51,13 +51,6 @@ def _write_json(path: Path, payload: Any) -> None:
         encoding="utf-8",
         newline="\n",
     )
-
-
-def _git_sha(source_root: Path) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(source_root.resolve()), "rev-parse", "HEAD"],
-        text=True,
-    ).strip()
 
 
 def _activate_source(source_root: Path):
@@ -309,7 +302,10 @@ def main() -> None:
     }
     receipt = {
         "schema": SCHEMA,
-        "base_revision": _git_sha(source_root),
+        # Proof-only descendants preserve the product trees but change HEAD.
+        # Bind the portable source to the reviewed product base, not to the
+        # proof artifact commit that happens to run this exporter.
+        "base_revision": BASE_REVISION,
         "source": {
             "kind": "DEVELOPER_LOCAL_TESTSCENE_BLEND",
             "blend_path": str(source_blend_path),
