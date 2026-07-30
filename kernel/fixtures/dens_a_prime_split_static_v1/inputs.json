@@ -38,6 +38,8 @@
     ],
     "decoder_module": "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
     "decoder_entrypoint": "decode_conveyor_static",
+    "decoder_input_law": "CANONICAL_UTF8_JSON_BYTES_ONLY_V1",
+    "decoded_outcome_type": "ConveyorOutcomeValueV1",
     "recompose_entrypoint": "recompose_conveyor_static",
     "recompose_law": "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1",
     "key_type": "ConveyorStaticPreparationKeyV1",

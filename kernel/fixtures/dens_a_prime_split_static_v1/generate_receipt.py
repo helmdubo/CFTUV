@@ -19,19 +19,22 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
+PROOF_MODULE_PATHS = (
+    "kernel/fixtures/dens_a_prime_split_static_v1/static_contract.py",
+    "kernel/fixtures/dens_a_prime_split_static_v1/generate_receipt.py",
+    "kernel/fixtures/dens_a_prime_split_static_v1/verify_receipt.py",
+)
 sys.path.insert(0, str(HERE))
 from static_contract import (  # noqa: E402
     STATIC_FIELDS,
     STATIC_SCHEMA_VERSION,
     STATIC_TYPE,
     StaticContractReject,
+    conveyor_static_to_wire,
     decode_conveyor_static,
     recompose_conveyor_static,
+    recomposition_static_to_wire,
 )
-
-
-class ForgedConveyorOutcome(str, Enum):
-    EXACT = "EXACT"
 
 
 def arguments() -> argparse.Namespace:
@@ -56,6 +59,21 @@ def pretty(value: Any) -> bytes:
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def proof_module_hashes(root: Path) -> list[dict[str, object]]:
+    output = []
+    for relative_path in PROOF_MODULE_PATHS:
+        data = (root / relative_path).read_bytes()
+        output.append(
+            {
+                "$type": "ProofModuleHashV1",
+                "path": relative_path,
+                "byte_length": len(data),
+                "sha256": sha(data),
+            }
+        )
+    return output
 
 
 def encoded(value: Any) -> Any:
@@ -178,7 +196,7 @@ def static_authority_record(
     arrival_laws,
     contract,
 ) -> dict[str, Any]:
-    record = {
+    live_record = {
         "$type": contract["static_type"],
         "schema_version": contract["static_schema_version"],
         "outcome": prepared.outcome,
@@ -187,21 +205,21 @@ def static_authority_record(
         "arrival_laws": arrival_laws,
         "law_names": prepared.law_names,
     }
+    record = {
+        key: (
+            value
+            if key in {"$type", "schema_version"}
+            else encoded(value)
+        )
+        for key, value in live_record.items()
+    }
     if list(record) != contract["static_field_whitelist"]:
         raise ValueError("static field whitelist/order mismatch")
     return record
 
 
 def static_record(decoded, contract) -> dict[str, Any]:
-    record = {
-        "$type": contract["static_type"],
-        "schema_version": contract["static_schema_version"],
-        "outcome": id_record(decoded.outcome),
-        "regions": encoded(decoded.regions),
-        "lattice": encoded(decoded.lattice),
-        "arrival_laws": encoded(decoded.arrival_laws),
-        "law_names": list(decoded.law_names),
-    }
+    record = conveyor_static_to_wire(decoded)
     if list(record) != contract["static_field_whitelist"]:
         raise ValueError("decoded static field whitelist/order mismatch")
     return record
@@ -287,17 +305,14 @@ def key_record(
 
 def materialize_oracle_preparation(
     recomposed,
+    expected_static_wire,
     per_request_preparation,
 ):
     """Внешний oracle-адаптер; не является частью recomposition-контракта."""
 
-    return replace(
-        per_request_preparation,
-        outcome=recomposed.outcome,
-        regions=recomposed.regions,
-        lattice=recomposed.lattice,
-        law_names=recomposed.law_names,
-    )
+    if recomposition_static_to_wire(recomposed) != expected_static_wire:
+        raise ValueError("recomposed static wire differs from cold oracle")
+    return per_request_preparation
 
 
 def digest_row(data: bytes) -> dict[str, Any]:
@@ -314,6 +329,8 @@ def validate_contract_declaration(contract: dict[str, Any]) -> None:
             "static_contract.py"
         ),
         "decoder_entrypoint": "decode_conveyor_static",
+        "decoder_input_law": "CANONICAL_UTF8_JSON_BYTES_ONLY_V1",
+        "decoded_outcome_type": "ConveyorOutcomeValueV1",
         "recompose_entrypoint": "recompose_conveyor_static",
         "recompose_law": (
             "DECODED_CONVEYOR_STATIC_PLUS_DECLARED_ALPHA_ONLY_V1"
@@ -407,7 +424,7 @@ def isolation_certificate(root: Path, contract: dict[str, Any]):
         "product_imports": product_imports,
         "forbidden_live_symbols": sorted(forbidden & observed_symbols),
         "ast_isolated": (
-            decoder_parameters == ["record"]
+            decoder_parameters == ["payload"]
             and recompose_parameters == ["static_preparation", "alpha"]
             and static_reads == expected_reads
             and not product_imports
@@ -425,40 +442,81 @@ def decoder_red_matrix(
     alpha,
     coverage_oracle,
 ):
+    from collections.abc import Mapping
+    from types import MappingProxyType
+
     trace = {"coverage_calls": 0}
 
     def counted_coverage(prepared, requested_alpha):
         trace["coverage_calls"] += 1
         return coverage_oracle(prepared, requested_alpha)
 
-    def wire_payload(record):
-        return canonical(
-            {
-                key: (
-                    encoded(value)
-                    if key not in {"$type", "schema_version"}
-                    else value
-                )
-                for key, value in record.items()
-            }
+    def is_exact_wire(value):
+        if type(value) is dict:
+            return all(
+                type(key) is str and is_exact_wire(item)
+                for key, item in value.items()
+            )
+        if type(value) is list:
+            return all(is_exact_wire(item) for item in value)
+        return (
+            value is None
+            or type(value) is str
+            or type(value) is int
+            or type(value) is bool
         )
 
+    base_sha = sha(canonical(authority_record))
     rows = []
 
-    def run(name, expected_code, mutate, *, decode=True):
-        forged = dict(authority_record)
-        mutate(forged)
-        forged_sha = sha(wire_payload(forged))
+    def run(
+        name,
+        expected_code,
+        mutate,
+        *,
+        decode=True,
+        replace_input=False,
+        force_json_bytes=False,
+        wire_transform=None,
+    ):
+        forged = deepcopy(authority_record)
+        replacement = mutate(forged)
+        candidate = replacement if replace_input else forged
+        if is_exact_wire(candidate) or force_json_bytes:
+            digest_basis = (
+                "CANONICAL_WIRE_VALUE_V1"
+                if is_exact_wire(candidate)
+                else "CANONICAL_JSON_STRUCTURAL_RED_V1"
+            )
+            decode_input = canonical(candidate)
+            if wire_transform is not None:
+                decode_input = wire_transform(decode_input)
+                digest_basis = "RAW_NONCANONICAL_JSON_BYTES_V1"
+            forged_sha = sha(decode_input)
+        else:
+            digest_basis = "NON_WIRE_INPUT_DESCRIPTOR_V1"
+            decode_input = candidate
+            forged_sha = sha(
+                canonical(
+                    {
+                        "$type": "NonWireStaticForgeryDescriptorV1",
+                        "case": name,
+                        "base_static_sha256": base_sha,
+                        "python_type": type(candidate).__name__,
+                    }
+                )
+            )
         before = trace["coverage_calls"]
         try:
             decoded = (
-                decode_conveyor_static(forged)
+                decode_conveyor_static(decode_input)
                 if decode
-                else forged
+                else candidate
             )
             joined = recompose_conveyor_static(decoded, alpha)
             oracle_preparation = materialize_oracle_preparation(
                 joined,
+                authority_record,
                 per_request_preparation,
             )
             counted_coverage(oracle_preparation, alpha)
@@ -480,6 +538,7 @@ def decoder_red_matrix(
                 "outcome": "REJECT",
                 "digest_recomputed": True,
                 "forged_dto_sha256": forged_sha,
+                "digest_basis": digest_basis,
                 "coverage_calls_before": before,
                 "coverage_calls_after": after,
             }
@@ -514,16 +573,18 @@ def decoder_red_matrix(
         "decoder_forged_outcome_enum",
         "STATIC_OUTCOME_ENUM_MISMATCH",
         lambda item: item.update(
-            {"outcome": ForgedConveyorOutcome.EXACT}
+            {
+                "outcome": {
+                    "$enum_type": "ForgedConveyorOutcome",
+                    "value": "EXACT",
+                }
+            }
         ),
     )
 
     def forge_arrival_law(item):
         laws = item["arrival_laws"]
-        item["arrival_laws"] = (
-            replace(laws[0], name=f"{laws[0].name}:forged"),
-            *laws[1:],
-        )
+        laws[0]["name"] = f"{laws[0]['name']}:forged"
 
     run(
         "decoder_forged_arrival_laws",
@@ -534,18 +595,21 @@ def decoder_red_matrix(
         "decoder_forged_law_names",
         "STATIC_ARRIVAL_LAW_MISMATCH",
         lambda item: item.update(
-            {"law_names": ("forged-law-name", *item["law_names"][1:])}
+            {"law_names": ["forged-law-name", *item["law_names"][1:]]}
         ),
     )
 
     def coupled_forgery(item):
         item["$type"] = "FORGED_STATIC_TYPE"
         item["schema_version"] = "unknown"
-        item["outcome"] = ForgedConveyorOutcome.EXACT
+        item["outcome"] = {
+            "$enum_type": "ForgedConveyorOutcome",
+            "value": "EXACT",
+        }
         forge_arrival_law(item)
-        item["law_names"] = tuple(
-            law.name for law in item["arrival_laws"]
-        )
+        item["law_names"] = [
+            law["name"] for law in item["arrival_laws"]
+        ]
 
     run(
         "coupled_rehash_static_authority",
@@ -557,6 +621,105 @@ def decoder_red_matrix(
         "STATIC_RECOMPOSE_DECODED_REQUIRED",
         lambda item: None,
         decode=False,
+    )
+
+    spoofed_outcome_type = type(
+        "ConveyorOutcome",
+        (),
+        {
+            "__module__": "cftuv_envelope.wavefront.conveyor",
+            "value": "EXACT",
+        },
+    )
+
+    run(
+        "decoder_spoofed_product_metadata",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: item.update(
+            {"outcome": spoofed_outcome_type()}
+        ),
+    )
+
+    class DictSubclass(dict):
+        pass
+
+    run(
+        "decoder_dict_subclass",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: DictSubclass(item),
+        replace_input=True,
+    )
+
+    class StrSubclass(str):
+        pass
+
+    run(
+        "decoder_str_subclass",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: StrSubclass(canonical(item).decode("utf-8")),
+        replace_input=True,
+    )
+
+    class BytesSubclass(bytes):
+        pass
+
+    run(
+        "decoder_bytes_subclass",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: BytesSubclass(canonical(item)),
+        replace_input=True,
+    )
+    run(
+        "decoder_mapping_proxy",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: MappingProxyType(item),
+        replace_input=True,
+    )
+
+    class CustomMapping(Mapping):
+        def __init__(self, value):
+            self._value = value
+
+        def __getitem__(self, key):
+            return self._value[key]
+
+        def __iter__(self):
+            return iter(self._value)
+
+        def __len__(self):
+            return len(self._value)
+
+    run(
+        "decoder_custom_mapping",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: CustomMapping(item),
+        replace_input=True,
+    )
+
+    class PropertyOutcome:
+        __module__ = "cftuv_envelope.wavefront.conveyor"
+
+        @property
+        def value(self):
+            return "EXACT"
+
+    PropertyOutcome.__name__ = "ConveyorOutcome"
+    run(
+        "decoder_property_outcome_object",
+        "STATIC_DTO_BYTES_REQUIRED",
+        lambda item: item.update({"outcome": PropertyOutcome()}),
+    )
+    run(
+        "decoder_noncanonical_json_bytes",
+        "STATIC_DTO_JSON_NOT_CANONICAL",
+        lambda item: None,
+        wire_transform=lambda payload: b" " + payload,
+    )
+    run(
+        "decoder_float_lattice_scale",
+        "STATIC_LATTICE_SCHEMA_MISMATCH",
+        lambda item: item["lattice"].update({"scale": 1.5}),
+        force_json_bytes=True,
     )
     return rows, trace["coverage_calls"]
 
@@ -630,7 +793,9 @@ def main() -> None:
         for alpha in fixture["alphas"]
     }
     decoded_static = {
-        alpha: decode_conveyor_static(static_authorities[alpha])
+        alpha: decode_conveyor_static(
+            canonical(static_authorities[alpha])
+        )
         for alpha in fixture["alphas"]
     }
     static_records = {
@@ -686,6 +851,7 @@ def main() -> None:
         )
         oracle_preparation = materialize_oracle_preparation(
             recomposed,
+            static_authorities[target_alpha],
             preparations[target_alpha],
         )
         covered = conveyor_module.conveyor_coverage(
@@ -727,20 +893,28 @@ def main() -> None:
                     == preparations[target_alpha].requested_alpha
                 ),
                 "outcome_from_decoded": (
-                    oracle_preparation.outcome is recomposed.outcome
+                    recomposed.outcome
+                    is decoded_static[static_alpha].outcome
                 ),
                 "regions_from_decoded": (
-                    oracle_preparation.regions is recomposed.regions
+                    recomposed.regions
+                    is decoded_static[static_alpha].regions
                 ),
                 "lattice_from_decoded": (
-                    oracle_preparation.lattice is recomposed.lattice
+                    recomposed.lattice
+                    is decoded_static[static_alpha].lattice
                 ),
                 "arrival_laws_from_decoded": (
                     recomposed.arrival_laws
                     is decoded_static[static_alpha].arrival_laws
                 ),
                 "law_names_from_decoded": (
-                    oracle_preparation.law_names is recomposed.law_names
+                    recomposed.law_names
+                    is decoded_static[static_alpha].law_names
+                ),
+                "external_oracle_static_wire_authorized": (
+                    recomposition_static_to_wire(recomposed)
+                    == static_authorities[target_alpha]
                 ),
                 "cold_coverage_sha256": sha(cold_bytes[target_alpha]),
                 "reuse_coverage_sha256": sha(result_bytes),
@@ -861,6 +1035,17 @@ def main() -> None:
         "decoder_forged_law_names": "STATIC_ARRIVAL_LAW_MISMATCH",
         "decoder_forged_outcome_enum": "STATIC_OUTCOME_ENUM_MISMATCH",
         "decoder_forged_type": "FORGED_STATIC_TYPE",
+        "decoder_spoofed_product_metadata": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_dict_subclass": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_str_subclass": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_bytes_subclass": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_mapping_proxy": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_custom_mapping": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_property_outcome_object": "STATIC_DTO_BYTES_REQUIRED",
+        "decoder_noncanonical_json_bytes": (
+            "STATIC_DTO_JSON_NOT_CANONICAL"
+        ),
+        "decoder_float_lattice_scale": "STATIC_LATTICE_SCHEMA_MISMATCH",
         "decoder_missing_key": "STATIC_REQUIRED_FIELD_MISSING",
         "decoder_unknown_key": "STATIC_UNKNOWN_FIELD",
         "decoder_unknown_schema": "UNKNOWN_STATIC_SCHEMA",
@@ -884,10 +1069,11 @@ def main() -> None:
         "unknown_product_tree": "UNKNOWN_PRODUCT_TREE",
         "unknown_source_blob": "UNKNOWN_SOURCE_BLOB",
     }
+    module_hashes = proof_module_hashes(root)
     scanned = (
         len(inputs_bytes)
         + source_bytes
-        + len((root / contract["decoder_module"]).read_bytes())
+        + sum(item["byte_length"] for item in module_hashes)
         + len(snapshot_bytes)
         + len(request_bytes)
         + sum(len(item) for item in static_bytes.values())
@@ -913,6 +1099,7 @@ def main() -> None:
         "inputs_sha256": sha(inputs_bytes),
         "product_tree": product_tree,
         "source_authority": sources,
+        "proof_modules": module_hashes,
         "planned_contract": {
             "$type": "ConveyorStaticPreparationPlanV1",
             "schema_version": "cftuv.envelope.conveyor_static_preparation_plan.v1",
@@ -922,6 +1109,8 @@ def main() -> None:
             "static_field_whitelist": contract["static_field_whitelist"],
             "decoder_module": contract["decoder_module"],
             "decoder_entrypoint": contract["decoder_entrypoint"],
+            "decoder_input_law": contract["decoder_input_law"],
+            "decoded_outcome_type": contract["decoded_outcome_type"],
             "recompose_entrypoint": contract["recompose_entrypoint"],
             "recompose_law": contract["recompose_law"],
             "static_key_type": contract["key_type"],
@@ -978,8 +1167,11 @@ def main() -> None:
             "core_single_owner": True,
             "host_projection_forbidden": True,
             "decoded_static_is_only_static_authority": True,
+            "decoder_accepts_canonical_json_bytes_only": True,
+            "decoded_outcome_is_proof_local_immutable": True,
             "recomposer_has_no_live_preparation_input": True,
             "rejected_dto_never_reaches_coverage": True,
+            "all_proof_modules_hashed_at_generation": True,
         },
     }
     wrapper = {
