@@ -4,26 +4,105 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import time
+
+
+RECEIPT_SCHEMA_V2 = "cftuv.envelope.runtime_metric_building_gate.v2"
+MEASUREMENT_RULE = "REQUEST_POLICY_KNOBS_MEASURED_V1"
+UNMEASURED_REQUEST_POLICY_KNOB = "UNMEASURED_REQUEST_POLICY_KNOB"
+INSTALLER_STAMP_MISSING = "INSTALLER_STAMP_MISSING"
+INSTALLER_STAMP_MISMATCH = "INSTALLER_STAMP_MISMATCH"
+REQUEST_POLICY_EFFECTIVE_MISMATCH = "REQUEST_POLICY_EFFECTIVE_MISMATCH"
+FIELD_PERFORMANCE_BUDGET_EXCEEDED = "FIELD_PERFORMANCE_BUDGET_EXCEEDED"
+PYTHONSAFEPATH_REQUIRED = "PYTHONSAFEPATH_REQUIRED"
+_DENSITY_ARGUMENTS = frozenset({"0", "1", "4", "legacy"})
+_FIELD_BUDGET_SECONDS = {
+    "building.002": 5.0,
+    "2": 17.3,
+    "building": 120.0,
+}
+_STAMP_PATTERN = re.compile(
+    r"commit\s+([0-9a-f]{7,40})\s+\(([^)]+)\)",
+)
+
+
+class DensityGateContractError(RuntimeError):
+    """Fail-closed нарушение измерительного контракта Density."""
+
+
+def _arguments_after_separator(argv=None) -> tuple[str, ...]:
+    values = tuple(sys.argv if argv is None else argv)
+    return values[values.index("--") + 1 :] if "--" in values else ()
+
+
+def _parse_density_argument(value: str | None) -> tuple[int | str, int | None]:
+    if value not in _DENSITY_ARGUMENTS:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: "
+            "explicit density must be one of 0,1,4,legacy"
+        )
+    if value == "legacy":
+        return "legacy", None
+    density = int(value)
+    return density, density
+
+
+def _parsed_gate_arguments(arguments) -> dict:
+    if len(arguments) != 5:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: exactly five gate arguments "
+            "including density are required"
+        )
+    requested_density, effective_density = _parse_density_argument(arguments[4])
+    return {
+        "output": arguments[0],
+        "scopes": arguments[1],
+        "object_name": arguments[2],
+        "engines": arguments[3],
+        "requested_density": requested_density,
+        "effective_density": effective_density,
+        "acceptance_eligible": effective_density is not None,
+    }
+
+
+def _contract_only() -> None:
+    print(
+        json.dumps(
+            {
+                "schema": RECEIPT_SCHEMA_V2,
+                "measurement_rule": MEASUREMENT_RULE,
+                **_parsed_gate_arguments(_arguments_after_separator()),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+if __name__ == "__main__" and "--contract-only" in sys.argv:
+    try:
+        _contract_only()
+    except DensityGateContractError as exc:
+        raise SystemExit(str(exc)) from exc
+    raise SystemExit(0)
+
+if __name__ == "__main__" and os.environ.get("PYTHONSAFEPATH") != "1":
+    raise SystemExit(
+        f"{PYTHONSAFEPATH_REQUIRED}: kernel field runs require PYTHONSAFEPATH=1"
+    )
+
 
 import bmesh
 import bpy
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "kernel" / "src"))
-for module_name in tuple(sys.modules):
-    if (
-        module_name == "cftuv"
-        or module_name.startswith("cftuv.")
-        or module_name == "cftuv_envelope"
-        or module_name.startswith("cftuv_envelope.")
-    ):
-        del sys.modules[module_name]
 
+import cftuv  # noqa: E402
 from cftuv.analysis import build_analysis_bundle  # noqa: E402
 from cftuv.envelope_debug_profile import (  # noqa: E402
     EnvelopeDebugProfileBuilderV1,
@@ -40,6 +119,230 @@ from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPathKind,
 )
 import cftuv_envelope as kernel  # noqa: E402
+
+
+def _git_text(*arguments: str) -> str:
+    try:
+        return subprocess.check_output(
+            ("git", "-C", str(ROOT), *arguments),
+            text=True,
+            encoding="utf-8",
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: repository identity unavailable"
+        ) from exc
+
+
+def _repository_identity() -> dict:
+    head = _git_text("rev-parse", "HEAD")
+    branch = _git_text("rev-parse", "--abbrev-ref", "HEAD")
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: invalid repository HEAD"
+        )
+    return {"head": head, "branch": branch}
+
+
+def _package_fingerprint(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    return digest.hexdigest()[:16]
+
+
+def _installer_identity(repository: dict) -> dict:
+    scripts = Path(bpy.utils.user_resource("SCRIPTS"))
+    addon_root = (scripts / "addons" / "cftuv").resolve()
+    kernel_root = (scripts / "modules" / "cftuv_envelope").resolve()
+    loaded_addon_root = Path(cftuv.__file__).resolve().parent
+    loaded_kernel_root = Path(kernel.__file__).resolve().parent
+    if loaded_addon_root != addon_root or loaded_kernel_root != kernel_root:
+        raise DensityGateContractError(
+            f"{INSTALLER_STAMP_MISMATCH}: repository path shadows installed product"
+        )
+    addon_path = addon_root / "_install_stamp.txt"
+    kernel_path = kernel_root / "_install_stamp.txt"
+    try:
+        addon_stamp = addon_path.read_text(encoding="utf-8-sig").strip()
+        kernel_stamp = kernel_path.read_text(encoding="utf-8-sig").strip()
+    except (OSError, UnicodeError) as exc:
+        raise DensityGateContractError(
+            f"{INSTALLER_STAMP_MISSING}: addon/kernel stamp is required"
+        ) from exc
+    if not addon_stamp or addon_stamp != kernel_stamp:
+        raise DensityGateContractError(
+            f"{INSTALLER_STAMP_MISMATCH}: addon and kernel stamps differ"
+        )
+    found = _STAMP_PATTERN.search(addon_stamp)
+    if found is None or not repository["head"].startswith(found.group(1)):
+        raise DensityGateContractError(
+            f"{INSTALLER_STAMP_MISMATCH}: stamp does not name repository HEAD"
+        )
+    addon_source = ROOT / "cftuv"
+    kernel_source = ROOT / "kernel" / "src" / "cftuv_envelope"
+    fingerprints = {
+        "cftuv_repository": _package_fingerprint(addon_source),
+        "cftuv_installed": _package_fingerprint(addon_root),
+        "kernel_repository": _package_fingerprint(kernel_source),
+        "kernel_installed": _package_fingerprint(kernel_root),
+    }
+    if (
+        fingerprints["cftuv_repository"] != fingerprints["cftuv_installed"]
+        or fingerprints["kernel_repository"] != fingerprints["kernel_installed"]
+    ):
+        raise DensityGateContractError(
+            f"{INSTALLER_STAMP_MISMATCH}: installed fingerprints differ"
+        )
+    return {
+        "raw": addon_stamp,
+        "addon_path": str(addon_path),
+        "kernel_path": str(kernel_path),
+        "commit": found.group(1),
+        "branch": found.group(2),
+        "matched_repository_head": True,
+        "loaded_cftuv_path": str(Path(cftuv.__file__).resolve()),
+        "loaded_kernel_path": str(Path(kernel.__file__).resolve()),
+        "fingerprints": fingerprints,
+    }
+
+
+def _identity_value(value) -> str:
+    return str(value.value) if hasattr(value, "value") else str(value)
+
+
+def _request_policy_receipt(
+    request,
+    requested_density: int | str,
+    effective_density: int | None,
+) -> dict:
+    selection_policy_id = _identity_value(
+        request.angular_profile_selection_policy_id
+    )
+    value_id = _identity_value(request.max_subturn_value_id)
+    parameter_id = _identity_value(request.max_subturn_parameter_id)
+    expected_selection = (
+        "MIN_K_FOR_MAX_SUBTURN_V1"
+        if effective_density is None
+        else "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+    )
+    expected_value = (
+        "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+        if effective_density is None
+        else f"LINEAR_REFLEX_DENSITY_{effective_density}_V1"
+    )
+    expected_parameter = (
+        "LINEAR_REFLEX_MAX_SUBTURN_V1"
+        if effective_density is None
+        else "LINEAR_REFLEX_DENSITY_A_V1"
+    )
+    if (
+        selection_policy_id != expected_selection
+        or value_id != expected_value
+        or parameter_id != expected_parameter
+    ):
+        raise DensityGateContractError(
+            f"{REQUEST_POLICY_EFFECTIVE_MISMATCH}: request policy differs "
+            "from requested density"
+        )
+    policy_fields = {}
+    for name in request.__dataclass_fields__:
+        if name == "requested_alpha" or name.endswith(
+            ("_policy_id", "_parameter_id", "_value_id", "_exact_value")
+        ):
+            value = getattr(request, name)
+            if name.endswith("_exact_value"):
+                value = value.symbol
+            if name == "requested_alpha":
+                value = value.value
+            policy_fields[name] = _identity_value(value)
+    alpha = policy_fields.get("requested_alpha")
+    if alpha is None:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: requested_alpha is absent"
+        )
+    return {
+        "requested_density": requested_density,
+        "effective_density": effective_density,
+        "selection_policy_id": selection_policy_id,
+        "max_subturn_parameter_id": parameter_id,
+        "max_subturn_value_id": value_id,
+        "request_id": _identity_value(request.decal_request_id),
+        "request_policy_knobs": {
+            "density": {
+                "requested": requested_density,
+                "effective": effective_density,
+                "id": selection_policy_id,
+            },
+            "alpha": {
+                "requested": "0.3",
+                "effective": alpha,
+                "id": "requested_alpha",
+            },
+        },
+        "request_policy_fields": policy_fields,
+    }
+
+
+def _merged_request_policy_receipt(receipts) -> dict:
+    if not receipts:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: no request policy was measured"
+        )
+    first = dict(receipts[0])
+    request_ids = sorted({item["request_id"] for item in receipts})
+    first.pop("request_id")
+    for item in receipts[1:]:
+        comparable = dict(item)
+        comparable.pop("request_id")
+        if comparable != first:
+            raise DensityGateContractError(
+                f"{REQUEST_POLICY_EFFECTIVE_MISMATCH}: scope requests disagree"
+            )
+    first["request_ids"] = request_ids
+    return first
+
+
+def _merged_scope_policy_receipt(runs) -> dict:
+    receipts = [dict(run["request_policy"]) for run in runs]
+    if not receipts:
+        raise DensityGateContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: no scope receipt"
+        )
+    first = receipts[0]
+    request_ids = set(first.pop("request_ids"))
+    for item in receipts[1:]:
+        request_ids.update(item.pop("request_ids"))
+        if item != first:
+            raise DensityGateContractError(
+                f"{REQUEST_POLICY_EFFECTIVE_MISMATCH}: run policies disagree"
+            )
+    first["request_ids"] = sorted(request_ids)
+    return first
+
+
+def _queue_semantic_digest(payload: dict) -> str:
+    semantic = {
+        key: value
+        for key, value in payload.items()
+        if key
+        not in {
+            "prepare_seconds",
+            "coverage_seconds",
+            "contour_seconds",
+            "timings",
+        }
+    }
+    encoded = json.dumps(
+        semantic,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _mesh_fingerprint(obj) -> str:
@@ -122,7 +425,7 @@ def _queue_payload(patch_id: int, domain_id: str, snapshot, request) -> dict:
     было бы нечего — осталась бы одна колонка, и та новая.
     """
 
-    from cftuv.envelope_queue_export import run_queue_domain
+    from cftuv.envelope_queue_export import queue_domain_payload, run_queue_domain
 
     alpha_text = str(request.requested_alpha.value)
     prepared, domain = run_queue_domain(
@@ -138,6 +441,7 @@ def _queue_payload(patch_id: int, domain_id: str, snapshot, request) -> dict:
         stage = "QUEUE_COVERAGE_REJECTED"
     else:
         stage = "QUEUE_RESOLVED"
+    semantic_digest = _queue_semantic_digest(queue_domain_payload(domain))
     return {
         "stage": stage,
         "alpha": alpha_text,
@@ -151,6 +455,7 @@ def _queue_payload(patch_id: int, domain_id: str, snapshot, request) -> dict:
         "wall_edges": sum(item.wall_edge_count for item in domain.regions),
         "owners": sorted({face.envelope_spec_id for face in domain.faces}),
         "lattice_scale": domain.lattice_scale,
+        "semantic_digest": semantic_digest,
         "region_outcomes": [
             {
                 "region_id": item.region_id,
@@ -265,6 +570,56 @@ def _domain_row(
     }
 
 
+def _parity_projection(domains) -> list[dict]:
+    projection = []
+    for domain in domains:
+        queue = domain.get("queue")
+        if queue is None:
+            continue
+        projection.append(
+            {
+                "patch_domain_id": domain["patch_domain_id"],
+                "stage": queue["stage"],
+                "preparation_outcome": queue["preparation_outcome"],
+                "coverage_outcome": queue["coverage_outcome"],
+                "resolved": queue["stage"] == "QUEUE_RESOLVED",
+                "semantic_digest": queue["semantic_digest"],
+            }
+        )
+    return sorted(projection, key=lambda item: item["patch_domain_id"])
+
+
+def _performance_receipt(runs, object_name: str) -> dict:
+    budget = _FIELD_BUDGET_SECONDS.get(object_name)
+    run = next(
+        (item for item in runs if item["scope"] == "all_seam_chains_l0"),
+        None,
+    )
+    if run is None or budget is None:
+        return {
+            "scope": "all_seam_chains_l0",
+            "budget_seconds": budget,
+            "measured_queue_seconds": None,
+            "passed": budget is None,
+        }
+    measured = sum(
+        (domain.get("queue") or {}).get("prepare_seconds") or 0.0
+        for domain in run["domains"]
+    ) + sum(
+        (
+            ((domain.get("queue") or {}).get("coverage_seconds") or 0.0)
+            + ((domain.get("queue") or {}).get("contour_seconds") or 0.0)
+        )
+        for domain in run["domains"]
+    )
+    return {
+        "scope": "all_seam_chains_l0",
+        "budget_seconds": budget,
+        "measured_queue_seconds": measured,
+        "passed": measured <= budget,
+    }
+
+
 def _metric_seconds(profile, domain_id) -> float:
     """Сумма FRAME_ADMISSION домена — цена метрики, уже уплаченная профилем."""
 
@@ -276,10 +631,39 @@ def _metric_seconds(profile, domain_id) -> float:
     )
 
 
+def _snapshot_request(
+    bundle,
+    patch_id: int,
+    selected_edges,
+    profile,
+    domain_id: str,
+    request_id: str,
+    density_contract: tuple[int | str, int | None],
+):
+    with profile.measure("SNAPSHOT_EXPORT", domain_id):
+        snapshot = build_envelope_analysis_snapshot(
+            bundle,
+            included_patch_ids=frozenset({patch_id}),
+            profile=profile,
+        )
+        request = build_envelope_decal_request(
+            snapshot,
+            frozenset(selected_edges),
+            0.3,
+            decal_request_id_value=request_id,
+            density=density_contract[1],
+        )
+    return snapshot, request, _request_policy_receipt(
+        request,
+        *density_contract,
+    )
+
+
 def _run_scope(
     bundle,
     name: str,
     edge_ids: tuple[int, ...],
+    density_contract: tuple[int | str, int | None],
     object_name: str = "building.002",
     engines: frozenset[str] = frozenset({"raw", "queue"}),
 ) -> dict:
@@ -294,21 +678,20 @@ def _run_scope(
     elapsed = time.perf_counter() - started
     domains = []
     queue_entries = []
+    policy_receipts = []
     for patch_id in patch_ids:
         domain_id = _typed_value("patch-domain", revision, patch_id)
         try:
-            with profile.measure("SNAPSHOT_EXPORT", domain_id):
-                snapshot = build_envelope_analysis_snapshot(
-                    bundle,
-                    included_patch_ids=frozenset({patch_id}),
-                    profile=profile,
-                )
-                request = build_envelope_decal_request(
-                    snapshot,
-                    frozenset(selected_edges_by_domain[domain_id]),
-                    0.3,
-                    decal_request_id_value=request_id,
-                )
+            snapshot, request, policy_receipt = _snapshot_request(
+                bundle,
+                patch_id,
+                selected_edges_by_domain[domain_id],
+                profile,
+                domain_id,
+                request_id,
+                density_contract,
+            )
+            policy_receipts.append(policy_receipt)
         except EnvelopeHostAdapterError as exc:
             stage = (
                 "METRIC_REJECTED"
@@ -382,49 +765,29 @@ def _run_scope(
                 runtime=runtime_payload,
             )
         )
-    return {
+    result = {
         "scope": name,
         "selected_physical_edge_ids": list(edge_ids),
         "topology_elapsed_seconds": elapsed,
         "profile": profile.snapshot().to_payload(),
         "domains": domains,
-        # Смена alpha на тёплых подготовках: ровно то число, которым срез
-        # принимается. Вторая alpha намеренно отличается от alpha запроса.
         "queue_alpha_change": _queue_alpha_change(queue_entries, "0.5"),
+        "request_policy": _merged_request_policy_receipt(policy_receipts),
     }
+    result["parity_projection"] = _parity_projection(domains)
+    return result
 
 
-def main() -> None:
-    # Аргументы после `--`: [выход.json] [scope,scope] [имя_объекта] [движки]
-    # Движки: "raw,queue" (умолчание) либо "queue" — RAW на большом выделении
-    # стоит часы, и его пропуск обязан быть явным выбором, а не тихой потерей.
-    arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-    output = (
-        Path(arguments[0])
-        if arguments
-        else ROOT / "artifacts" / "envelope_runtime_r1" / "building_002.json"
-    )
-    object_name = arguments[2] if len(arguments) > 2 else "building.002"
-    engines = frozenset(
-        (arguments[3] if len(arguments) > 3 else "raw,queue").split(",")
-    )
-    if not engines <= {"raw", "queue"}:
-        raise ValueError(f"неизвестные движки: {sorted(engines)}")
-    obj = bpy.data.objects.get(object_name)
-    if obj is None or obj.type != "MESH":
-        raise RuntimeError(f"{object_name} mesh object is unavailable")
-    before = _mesh_fingerprint(obj)
-    # Анализ хоста писан под EDIT MODE (классификатор много-петлевых патчей
-    # зовёт `bmesh.update_edit_mesh`), и живой оператор всегда в нём. Фоновые
-    # ворота обязаны дать анализу ту же среду: на `building.002` object-mode
-    # прощался только потому, что ветка UV-классификации не срабатывала.
+def _analysis_bundle(obj):
+    """Анализу нужна та же EDIT_MODE-среда, что настоящему оператору."""
+
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
     try:
         bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
-        bundle = build_analysis_bundle(
+        return build_analysis_bundle(
             bm,
             tuple(face.index for face in bm.faces),
             obj,
@@ -432,9 +795,9 @@ def main() -> None:
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
-    seam_edges = tuple(
-        edge.index for edge in obj.data.edges if edge.use_seam
-    )
+
+def _selected_scopes(obj, requested: str):
+    seam_edges = tuple(edge.index for edge in obj.data.edges if edge.use_seam)
     scopes = (
         ("gate_edge_12", (12,)),
         ("one_chain_l0", (2,)),
@@ -442,20 +805,61 @@ def main() -> None:
         ("ten_chains_l0", tuple(range(1, 11))),
         ("all_seam_chains_l0", seam_edges),
     )
-    if len(arguments) > 1 and arguments[1] != "all":
-        requested_scopes = frozenset(arguments[1].split(","))
-        scopes = tuple(
-            item for item in scopes if item[0] in requested_scopes
-        )
-        if not scopes:
-            raise ValueError("requested M-R1 field scopes are unknown")
+    if requested == "all":
+        return scopes
+    requested_names = frozenset(requested.split(","))
+    selected = tuple(item for item in scopes if item[0] in requested_names)
+    if not selected:
+        raise ValueError("requested M-R1 field scopes are unknown")
+    return selected
+
+
+def main() -> None:
+    # После `--`: output, scopes, object, engines, density (0/1/4/legacy).
+    # Движки: "raw,queue" (умолчание) либо "queue" — RAW на большом выделении
+    # стоит часы, и его пропуск обязан быть явным выбором, а не тихой потерей.
+    arguments = _arguments_after_separator()
+    parsed = _parsed_gate_arguments(arguments)
+    output = Path(parsed["output"])
+    object_name = parsed["object_name"]
+    engines = frozenset(parsed["engines"].split(","))
+    if not engines <= {"raw", "queue"}:
+        raise ValueError(f"неизвестные движки: {sorted(engines)}")
+    repository = _repository_identity()
+    installer = _installer_identity(repository)
+    density_contract = (
+        parsed["requested_density"],
+        parsed["effective_density"],
+    )
+    obj = bpy.data.objects.get(object_name)
+    if obj is None or obj.type != "MESH":
+        raise RuntimeError(f"{object_name} mesh object is unavailable")
+    before = _mesh_fingerprint(obj)
+    bundle = _analysis_bundle(obj)
+    scopes = _selected_scopes(obj, parsed["scopes"])
     runs = []
     output.parent.mkdir(parents=True, exist_ok=True)
     for name, edges in scopes:
         print(f"M-R1 field scope start: {name}", flush=True)
-        runs.append(_run_scope(bundle, name, edges, obj.name, engines))
+        runs.append(
+            _run_scope(
+                bundle,
+                name,
+                edges,
+                density_contract,
+                obj.name,
+                engines,
+            )
+        )
         checkpoint = {
-            "schema": "cftuv.envelope.runtime_metric_building_gate.v1",
+            "schema": RECEIPT_SCHEMA_V2,
+            "measurement_rule": MEASUREMENT_RULE,
+            "repository_head": repository["head"],
+            "repository_branch": repository["branch"],
+            "installer_stamp": installer,
+            "python_safe_path": True,
+            "requested_density": density_contract[0],
+            "effective_density": density_contract[1],
             "source_file": bpy.data.filepath,
             "source_object": obj.name,
             "status": "IN_PROGRESS",
@@ -473,11 +877,27 @@ def main() -> None:
         )
         print(f"M-R1 field scope complete: {name}", flush=True)
     after = _mesh_fingerprint(obj)
+    policy = _merged_scope_policy_receipt(runs)
+    performance = _performance_receipt(runs, obj.name)
+    unchanged = before == after
+    gate_failure = None
+    if not unchanged:
+        gate_failure = "SOURCE_MESH_FINGERPRINT_CHANGED"
+    elif not performance["passed"]:
+        gate_failure = FIELD_PERFORMANCE_BUDGET_EXCEEDED
     payload = {
-        "schema": "cftuv.envelope.runtime_metric_building_gate.v1",
+        "schema": RECEIPT_SCHEMA_V2,
+        "measurement_rule": MEASUREMENT_RULE,
+        "repository_head": repository["head"],
+        "repository_branch": repository["branch"],
+        "installer_stamp": installer,
+        "python_safe_path": True,
+        **policy,
         "source_file": bpy.data.filepath,
         "source_object": obj.name,
-        "status": "COMPLETE",
+        "status": "COMPLETE" if gate_failure is None else "REJECTED",
+        "acceptance_eligible": parsed["acceptance_eligible"],
+        "gate_failure": gate_failure,
         "mesh_counts": {
             "vertices": len(obj.data.vertices),
             "edges": len(obj.data.edges),
@@ -485,7 +905,8 @@ def main() -> None:
         },
         "mesh_fingerprint_before": before,
         "mesh_fingerprint_after": after,
-        "source_mesh_unchanged": before == after,
+        "source_mesh_unchanged": unchanged,
+        "performance": performance,
         "runs": runs,
     }
     output.write_text(
@@ -494,6 +915,8 @@ def main() -> None:
         encoding="utf-8",
     )
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    if gate_failure is not None:
+        raise DensityGateContractError(gate_failure)
 
 
 if __name__ == "__main__":

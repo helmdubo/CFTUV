@@ -6,20 +6,19 @@
 #   2. гоняет полевые ворота run_envelope_mr1_building_gate.py на building.002:
 #      по умолчанию — ФОНОВЫМ Blender'ом по файлу сцены (ничего не трогает в
 #      сеансе владельца, воспроизводимо, свежий интерпретатор — кэш модулей не
-#      врёт); с ключом -Live — в ЖИВОМ сеансе через remote control (порт 9876),
+#      врёт); ворота исполняют УСТАНОВЛЕННЫЕ пакеты и сверяют их штампы и
+#      отпечатки с HEAD; с ключом -Live — в ЖИВОМ сеансе через remote control,
 #      если проверяется именно то, что владелец видит на экране сейчас;
 #   3. печатает сводку: домены, Resolved N/M, секунды.
 #
-# Ворота сами ставят код РЕПОЗИТОРИЯ в начало sys.path и вычищают кэш модулей
-# cftuv*/cftuv_envelope*, поэтому шаг -Install для замера НЕ обязателен: правка
-# в рабочей копии видна следующему же прогону. -Install нужен, когда проверяется
-# именно установленная копия (то, что видит аддон при обычной работе владельца).
+# Density-ворота не подменяют импорт checkout'ом: принимается только установленный
+# продукт с двумя совпавшими штампами/отпечатками. `-Install` нужен после каждого
+# изменения; без него допустим лишь уже установленный точно тот же HEAD.
 #
 # Запуск:
-#   tools\field_cycle.bat                       — фоновый прогон всех scope
-#   tools\field_cycle.bat -Scopes all_seam_chains_l0
-#   tools\field_cycle.bat -Live -TimeoutSeconds 1800
-#   tools\field_cycle.bat -Install
+#   tools\field_cycle.bat -Density 1 -Install
+#   tools\field_cycle.bat -Density 0 -Scopes all_seam_chains_l0
+#   tools\field_cycle.bat -Density legacy       — только контроль, не приёмка
 #
 # Выход: artifacts\envelope_runtime_r1\building_002_field_run.json (не коммитится).
 
@@ -32,6 +31,10 @@ param(
     [string]$BlenderExe = "",
     [string]$Output = "",
     [int]$TimeoutSeconds = 1800,
+    # Ручка обязана быть измерена явно. legacy — именованный контроль старого
+    # 60° закона; product-acceptance разрешена только для 0/1/4.
+    [string]$Density = "",
+    [switch]$DryRun,
     # Имя меша в сцене. Ворота по умолчанию заточены на building.002; для
     # другого меша осмыслен только scope all_seam_chains_l0.
     [string]$ObjectName = "building.002",
@@ -49,24 +52,50 @@ function Fail($message) {
     exit 1
 }
 
+$validDensity = @("0", "1", "4", "legacy")
+if (-not $validDensity.Contains($Density)) {
+    Fail "UNMEASURED_REQUEST_POLICY_KNOB: укажите -Density 0, 1, 4 или legacy"
+}
+
 if (-not (Test-Path (Join-Path $repo "tools\run_envelope_mr1_building_gate.py"))) {
     Fail "скрипт запущен не из репозитория"
 }
 
 if ($Install) {
+    $canonicalInstallRoot = "E:\GITHUB\CFTUV"
+    if (
+        -not (Test-Path -LiteralPath $canonicalInstallRoot) -or
+        (Resolve-Path -LiteralPath $repo).Path -ne
+            (Resolve-Path -LiteralPath $canonicalInstallRoot).Path
+    ) {
+        Fail "INSTALL_SOURCE_NOT_CANONICAL: установка разрешена только из E:\GITHUB\CFTUV"
+    }
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "tools\install_to_blender.ps1")
     if ($LASTEXITCODE -ne 0) { Fail "установка не прошла — замер по ней не имеет смысла" }
 }
 
 if (-not $Output) {
     $slug = ($ObjectName -replace '[^0-9A-Za-z]+', '_').ToLower()
-    $Output = Join-Path $repo "artifacts\envelope_runtime_r1\${slug}_field_run.json"
+    $Output = Join-Path $repo "artifacts\envelope_runtime_r1\${slug}_density_${Density}_field_run.json"
 }
 $gate = Join-Path $repo "tools\run_envelope_mr1_building_gate.py"
-# Позиционные аргументы ворот: выход, scope'ы, объект, движки. Литерал "all"
-# сохраняет прежнее умолчание «все scope», позволяя передать объект позиционно.
+# Позиционные аргументы: выход, scope'ы, объект, движки, density. Литерал "all"
+# сохраняет прежнее умолчание scope, но измеряемая ручка умолчания не имеет.
 $scopeArg = if ($Scopes) { $Scopes } else { "all" }
-$tailArgs = @($Output, $scopeArg, $ObjectName, $Engines)
+$tailArgs = @($Output, $scopeArg, $ObjectName, $Engines, $Density)
+$env:PYTHONSAFEPATH = "1"
+
+if ($DryRun) {
+    [ordered]@{
+        schema = "cftuv.envelope.runtime_metric_building_gate.v2"
+        measurement_rule = "REQUEST_POLICY_KNOBS_MEASURED_V1"
+        density = $Density
+        acceptance_eligible = $Density -ne "legacy"
+        python_safe_path = $env:PYTHONSAFEPATH
+        gate_arguments = $tailArgs
+    } | ConvertTo-Json -Compress
+    exit 0
+}
 
 if ($Live) {
     # Живой сеанс: интерфейс владельца будет занят на всё время счёта.
