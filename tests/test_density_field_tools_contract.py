@@ -414,6 +414,126 @@ def test_button_does_not_read_sidecar_after_cancelled_or_running_modal():
         namespace["_fresh_sidecar"](obj, "sidecar", {"FINISHED"})
 
 
+@pytest.mark.parametrize(
+    ("patch", "expected"),
+    (
+        ({"result": ["CANCELLED"]}, "BUTTON_OPERATOR_DID_NOT_FINISH"),
+        ({"result": ["RUNNING_MODAL"]}, "BUTTON_OPERATOR_DID_NOT_FINISH"),
+        ({"result": {"FINISHED"}}, "BUTTON_OPERATOR_DID_NOT_FINISH"),
+        (
+            {"sidecar_absent_before_operator": False},
+            "BUTTON_SIDECAR_NOT_FRESH",
+        ),
+        (
+            {"sidecar_fresh_after_operator": False},
+            "BUTTON_SIDECAR_NOT_FRESH",
+        ),
+        (
+            {"sidecar_fresh_after_operator": None},
+            "BUTTON_SIDECAR_NOT_FRESH",
+        ),
+    ),
+)
+def test_final_sweep_consumer_rejects_forged_report(patch, expected):
+    function = _function(_module(BUTTON_SWEEP), "_receipt_failure")
+    namespace = {
+        "_EXPECTED_CALLS_PER_DENSITY": 1,
+        "_EXPECTED_TOTAL_CALLS": 1,
+        "_FIELD_BUDGET_SECONDS": {},
+        "DENSITY_SWEEP_CALL_COUNT_MISMATCH": (
+            "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
+        ),
+        "BUTTON_OPERATOR_DID_NOT_FINISH": "BUTTON_OPERATOR_DID_NOT_FINISH",
+        "BUTTON_SIDECAR_NOT_FRESH": "BUTTON_SIDECAR_NOT_FRESH",
+        "SOURCE_MESH_FINGERPRINT_CHANGED": (
+            "SOURCE_MESH_FINGERPRINT_CHANGED"
+        ),
+        "FIELD_PERFORMANCE_BUDGET_EXCEEDED": (
+            "FIELD_PERFORMANCE_BUDGET_EXCEEDED"
+        ),
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    report = {
+        "result": ["FINISHED"],
+        "sidecar_absent_before_operator": True,
+        "sidecar_fresh_after_operator": True,
+        "mesh": "mesh",
+        "scenario": "all_seams",
+        **patch,
+    }
+    densities = [
+        {
+            "operator_invocations": 1,
+            "source_fingerprints": [{"unchanged": True}],
+            "reports": [report],
+        }
+    ]
+    scene_identity = {"sha256": "a" * 64}
+    assert (
+        namespace["_receipt_failure"](
+            densities,
+            scene_identity,
+            dict(scene_identity),
+        )
+        == expected
+    )
+
+
+def test_final_sweep_consumer_accepts_only_complete_fresh_finished_report():
+    function = _function(_module(BUTTON_SWEEP), "_receipt_failure")
+    namespace = {
+        "_EXPECTED_CALLS_PER_DENSITY": 1,
+        "_EXPECTED_TOTAL_CALLS": 1,
+        "_FIELD_BUDGET_SECONDS": {},
+        "DENSITY_SWEEP_CALL_COUNT_MISMATCH": (
+            "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
+        ),
+        "BUTTON_OPERATOR_DID_NOT_FINISH": "BUTTON_OPERATOR_DID_NOT_FINISH",
+        "BUTTON_SIDECAR_NOT_FRESH": "BUTTON_SIDECAR_NOT_FRESH",
+        "SOURCE_MESH_FINGERPRINT_CHANGED": (
+            "SOURCE_MESH_FINGERPRINT_CHANGED"
+        ),
+        "FIELD_PERFORMANCE_BUDGET_EXCEEDED": (
+            "FIELD_PERFORMANCE_BUDGET_EXCEEDED"
+        ),
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    report = {
+        "result": ["FINISHED"],
+        "sidecar_absent_before_operator": True,
+        "sidecar_fresh_after_operator": True,
+        "mesh": "mesh",
+        "scenario": "all_seams",
+    }
+    densities = [
+        {
+            "operator_invocations": 1,
+            "source_fingerprints": [{"unchanged": True}],
+            "reports": [report],
+        }
+    ]
+    identity = {"sha256": "a" * 64}
+    assert namespace["_receipt_failure"](
+        densities,
+        identity,
+        dict(identity),
+    ) is None
+
+
 def test_direct_parity_rejects_every_spoofed_authority_field():
     function = _function(_module(BUTTON_SWEEP), "_verify_direct_identity")
     namespace = {
