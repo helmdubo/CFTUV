@@ -21,7 +21,11 @@ from ..contracts.envelopes import (
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
 )
-from .._density_policy import huber_density_value_contract
+from .._density_policy import (
+    DensityIntervalEnclosureUnsupported,
+    density_interval_enclosure,
+    huber_density_value_contract,
+)
 from ..numeric import LocalLengthV1
 from .common import (
     GeometryContext,
@@ -48,10 +52,8 @@ from .planar_types import (
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
-    IntervalEnclosureUnsupported,
     exact_normalize,
     exact_sign,
-    interval_enclosure,
     point_sub,
     support_intersection,
 )
@@ -213,9 +215,9 @@ def _density_exact_sign(expression: sp.Expr) -> int:
     saved = iv.prec
     iv.prec = 160
     try:
-        enclosure = interval_enclosure(expression)
+        enclosure = density_interval_enclosure(expression)
     except (
-        IntervalEnclosureUnsupported,
+        DensityIntervalEnclosureUnsupported,
         ArithmeticError,
         TypeError,
         ValueError,

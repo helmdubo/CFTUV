@@ -36,7 +36,10 @@ from cftuv_envelope.reference import (
     ReferenceOutcome,
     compile_reference_envelopes,
 )
-from cftuv_envelope.reference.angular import _interpolated_normals
+from cftuv_envelope.reference.angular import (
+    _density_exact_sign,
+    _interpolated_normals,
+)
 from cftuv_envelope.reference.compile import (
     _resolve_huber_density_bucket,
 )
@@ -449,6 +452,23 @@ def test_density_h1_through_h5_fan_uses_no_generic_symbolic_solver(
             assert len(ideal) == q + 1
 
     assert forbidden_calls == []
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    (
+        (sp.sin(sp.Rational(1, 3)), 1),
+        (sp.cos(sp.Rational(1, 3)), 1),
+        (sp.atan(sp.Rational(-1, 3)), -1),
+        (sp.atan2(1, -1, evaluate=False), 1),
+        (sp.pi - 3, 1),
+    ),
+)
+def test_density_local_interval_authority_certifies_trigonometry(
+    expression,
+    expected,
+):
+    assert _density_exact_sign(expression) == expected
 
 
 def test_density_empty_authority_rejects_forged_supplied_certificate():
