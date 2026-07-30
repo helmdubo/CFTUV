@@ -56,7 +56,7 @@ from .planar_types import (
     polygon_signed_area,
 )
 from .strip import evaluate_strip_envelope
-from .validation import validate_reference_geometry_payload
+from .validation import validate_compilation_geometry_payload
 
 
 REFERENCE_ARRANGEMENT_BACKEND = ExactSegmentArrangementBackend()
@@ -377,9 +377,7 @@ def _evaluate_reference_raw_coverage(
         return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, str(exc))
     if alpha_value.value < 0:
         return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, _NEGATIVE_ALPHA)
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         return ReferenceEvaluationResultV1(
             payload_diagnostics[0].outcome, None, payload_diagnostics

@@ -17,12 +17,14 @@ from ..contracts.metric import (
     CertifiedAffineSupportDirectionV2,
     RationalAffinePlanarMetricV2,
 )
+from ..contracts.request import AngularProfileSelectionPolicyId
 from ..contracts.surface import SurfacePayloadMode
 from ..ids import PatchDomainId
 from ..numeric import IntervalEndpointKind, LocalPoint3V1
 from ..validation import validate_rational_affine_planar_metric
 from .contracts import (
     ReferenceDiagnosticSeverity,
+    ReferenceEnvelopeCompilationV1,
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
@@ -176,7 +178,7 @@ def _validate_angle_certificates(
     patch_domain_id: PatchDomainId,
     metric: ExactPlanarMetric,
     *,
-    density_bounded: bool,
+    density_bounded: bool = False,
 ) -> tuple[ReferenceEvaluationDiagnosticV1, ...]:
     sector_by_id = {
         item.owner_sector_id: item
@@ -446,3 +448,18 @@ def validate_reference_geometry_payload(
     if certificate_diagnostics:
         return None, certificate_diagnostics
     return frame, ()
+
+
+def validate_compilation_geometry_payload(
+    compilation: ReferenceEnvelopeCompilationV1,
+):
+    """Validate geometry under the angle authority declared by the request."""
+
+    return validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=(
+            compilation.decal_request.angular_profile_selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
+    )

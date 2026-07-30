@@ -63,6 +63,7 @@ from cftuv.envelope_host_adapter import (  # noqa: E402
 from cftuv.model import BoundaryCorner, CornerKind  # noqa: E402
 import cftuv_envelope as kernel  # noqa: E402
 from cftuv_envelope.reference import angle_measure  # noqa: E402
+from cftuv_envelope.reference import validation as reference_validation  # noqa: E402
 from cftuv_envelope.reference.metric import ExactPlanarMetric  # noqa: E402
 from cftuv_envelope.reference.planar_types import (  # noqa: E402
     ExactPlanarVector,
@@ -357,6 +358,59 @@ def test_host_snapshot_passes_the_reference_angle_certificate_check():
         certificate.measure_payload.reflex_excess_over_pi.lower
         <= certificate.measure_payload.reflex_excess_over_pi.upper
     )
+
+
+def test_legacy_omission_and_explicit_density_select_distinct_predicates(
+    monkeypatch,
+):
+    """Omitted keyword остаётся legacy, Density выбирается только явно."""
+
+    snapshot = _reflex_snapshot()
+    domain_id = next(iter(snapshot.patch_domains)).patch_domain_id
+    metric = ExactPlanarMetric.from_descriptor(
+        next(iter(snapshot.surface_metric_descriptors))
+    )
+    calls = []
+
+    def legacy(*args):
+        del args
+        calls.append("LEGACY")
+        return True
+
+    def density(*args):
+        del args
+        calls.append("DENSITY")
+        return True
+
+    monkeypatch.setattr(
+        reference_validation,
+        "_interval_contains_oriented_support_delta",
+        legacy,
+    )
+    monkeypatch.setattr(
+        reference_validation,
+        "_density_interval_contains_oriented_support_delta",
+        density,
+    )
+
+    assert _validate_angle_certificates(snapshot, domain_id, metric) == ()
+    legacy_count = len(calls)
+    assert legacy_count > 0
+    assert calls == ["LEGACY"] * legacy_count
+
+    assert (
+        _validate_angle_certificates(
+            snapshot,
+            domain_id,
+            metric,
+            density_bounded=True,
+        )
+        == ()
+    )
+    assert calls == [
+        *(["LEGACY"] * legacy_count),
+        *(["DENSITY"] * legacy_count),
+    ]
 
 
 # --------------------------------------------------------------------------

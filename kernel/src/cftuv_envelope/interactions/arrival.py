@@ -41,7 +41,7 @@ from ..reference.planar_types import (
     ExactScalar,
     exact_sign,
 )
-from ..reference.validation import validate_reference_geometry_payload
+from ..reference.validation import validate_compilation_geometry_payload
 from .contracts import (
     ActiveDomainCertificateV1,
     AngularProfileArrivalModelV1,
@@ -303,9 +303,7 @@ def _compile_arrival_models(
 ) -> tuple[tuple[ArrivalModelV1, ...], tuple[InteractionDiagnosticV1, ...]]:
     """Build laws from source supports; emitted regions only certify active reach."""
 
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         return (), (
             InteractionDiagnosticV1(

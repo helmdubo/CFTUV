@@ -12,7 +12,7 @@ from ..reference.contracts import (
     RawCoverageResultV1,
     ReferenceEnvelopeCompilationV1,
 )
-from ..reference.validation import validate_reference_geometry_payload
+from ..reference.validation import validate_compilation_geometry_payload
 from .arrival import compile_arrival_models
 from .candidates import generate_interaction_candidates
 from .components import compile_interaction_components
@@ -148,9 +148,7 @@ def _resolve_coverage_interactions(
             candidates=candidates,
             diagnostics=(*arrival_diagnostics, *mutual_diagnostics),
         )
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         diagnostic = InteractionDiagnosticV1(
             InteractionOutcome.INTERACTION_INPUT_CONTRACT_INVALID,
