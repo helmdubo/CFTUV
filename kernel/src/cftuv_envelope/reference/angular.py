@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from fractions import Fraction
 
 import sympy as sp
 from mpmath import iv
@@ -80,6 +81,22 @@ _EVALUATION_SUBTURN_LIFT_PREDICATES = frozenset(
         "EFFECTIVE_COUNT_IS_MINIMAL",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _DensityRuntimeVector:
+    """Транзакционный exact-вектор без wire srepr/reparse."""
+
+    x: sp.Expr
+    y: sp.Expr
+
+    def expressions(self, transaction_memo=None):
+        del transaction_memo
+        return self.x, self.y
+
+
+def _density_runtime_vector(x: sp.Expr, y: sp.Expr) -> _DensityRuntimeVector:
+    return _DensityRuntimeVector(sp.sympify(x), sp.sympify(y))
 
 
 def _incident_normal(
@@ -321,7 +338,7 @@ def _density_unit_from_squared(
         else metric.density_expressions(vector)
     )
     length = sp.sqrt(squared)
-    return _density_exact_vector(x / length, y / length, metric)
+    return _density_runtime_vector(x / length, y / length)
 
 
 def _density_left_unit_normal(
@@ -332,10 +349,9 @@ def _density_left_unit_normal(
     covector_x = metric.gram[0][0] * tx + metric.gram[0][1] * ty
     covector_y = metric.gram[1][0] * tx + metric.gram[1][1] * ty
     sign = metric.owner_orientation_sign
-    raw = _density_exact_vector(
+    raw = _density_runtime_vector(
         -sign * covector_y,
         sign * covector_x,
-        metric,
     )
     orthogonality = sp.expand(
         _density_dot_expression(metric, tangent, raw)
@@ -444,10 +460,9 @@ def _huber_density_interpolated_normals(
         angle = sp.Rational(ordinal, subturn_count) * principal_turn
         cosine = sp.cos(angle)
         sine = orientation_sign * sp.sin(angle)
-        normal = _density_exact_vector(
+        normal = _density_runtime_vector(
             cosine * ix + sine * lx,
             cosine * iy + sine * ly,
-            metric,
         )
         hidden.append(normal)
     # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
@@ -466,10 +481,21 @@ def _ideal_angular_support_data(
     if cached is not None:
         return cached
     relation = next(
-        item
-        for item in context.snapshot.corner_relations
-        if item.corner_relation_id == spec.source_relation_id
+        (
+            item
+            for item in context.snapshot.corner_relations
+            if item.corner_relation_id == spec.source_relation_id
+        ),
+        None,
     )
+    if relation is None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+            (
+                f"AngularEnvelope {spec.envelope_spec_id} references unknown "
+                f"CornerRelation {spec.source_relation_id}"
+            ),
+        )
     sector = next(
         item
         for item in context.snapshot.angular_owner_sectors
@@ -569,6 +595,73 @@ def _lift_probe_spec(spec, hidden_count):
     )
 
 
+def _compare_q5_cos_squared(value: Fraction, numerator: int) -> int:
+    """Сравнить rational value с cos²(n*pi/5) без materialized radical."""
+
+    shifted = 8 * value - 3
+    radical_sign = 1 if numerator in (1, 4) else -1
+    if radical_sign > 0:
+        if shifted < 0:
+            return -1
+        squared = shifted * shifted
+        return 0 if squared == 5 else 1 if squared > 5 else -1
+    if shifted >= 0:
+        return 1
+    squared = shifted * shifted
+    return 0 if squared == 5 else -1 if squared > 5 else 1
+
+
+def _compare_turn_cos_squared(
+    value: Fraction,
+    threshold_turn: Fraction,
+) -> int:
+    """Сравнить с cos²(threshold_turn*pi) на закрытом q<=6 наборе."""
+
+    reduced = (threshold_turn.numerator, threshold_turn.denominator)
+    rational = {
+        (1, 6): Fraction(3, 4),
+        (5, 6): Fraction(3, 4),
+        (1, 4): Fraction(1, 2),
+        (3, 4): Fraction(1, 2),
+        (1, 3): Fraction(1, 4),
+        (2, 3): Fraction(1, 4),
+        (1, 2): Fraction(0),
+    }.get(reduced)
+    if rational is not None:
+        return (value > rational) - (value < rational)
+    if threshold_turn.denominator == 5:
+        return _compare_q5_cos_squared(value, threshold_turn.numerator)
+    raise ValueError("Density H-lift threshold is outside q<=6")
+
+
+def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
+    """Проверить theta/(H+1)<=pi/q по sealed signed-cos² рационально."""
+
+    threshold_turn = Fraction(hidden_count + 1, lift.max_subturn_q)
+    if threshold_turn >= 1:
+        return True
+    sign = (
+        1
+        if lift.evaluation_turn_sign is ExactTurnSignV1.POSITIVE
+        else -1
+        if lift.evaluation_turn_sign is ExactTurnSignV1.NEGATIVE
+        else 0
+    )
+    if threshold_turn == Fraction(1, 2):
+        return sign >= 0
+    cosine_squared = Fraction(
+        lift.evaluation_turn_cosine_squared.numerator,
+        lift.evaluation_turn_cosine_squared.denominator,
+    )
+    comparison = _compare_turn_cos_squared(
+        cosine_squared,
+        threshold_turn,
+    )
+    if threshold_turn < Fraction(1, 2):
+        return sign > 0 and comparison >= 0
+    return sign >= 0 or comparison <= 0
+
+
 def _verify_evaluation_subturn_count_lift(
     context,
     spec,
@@ -628,27 +721,17 @@ def _verify_evaluation_subturn_count_lift(
         is not int
     ):
         raise ValueError("Density evaluation H-lift tag is invalid")
-    q = lift.max_subturn_q
     covectors = _covectors(context.metric, ideal)
-    if not all(
-        _subturn(context.metric, left, right, q)
-        for left, right in zip(covectors, covectors[1:])
+    if not _lift_count_is_feasible(
+        lift,
+        lift.effective_hidden_edge_count,
     ):
         raise ValueError("Density lifted H is not exactly feasible")
     for count in (
         lift.source_hidden_edge_count,
         lift.minimality_predecessor_hidden_edge_count,
     ):
-        probe = _lift_probe_spec(spec, count)
-        *_, probe_ideal = _ideal_angular_support_data(context, probe)
-        probe_covectors = _covectors(context.metric, probe_ideal)
-        if all(
-            _subturn(context.metric, left, right, q)
-            for left, right in zip(
-                probe_covectors,
-                probe_covectors[1:],
-            )
-        ):
+        if _lift_count_is_feasible(lift, count):
             raise ValueError("Density H-lift minimality witness is false")
     incoming = covectors[0]
     outgoing = covectors[-1]

@@ -31,6 +31,7 @@ from .planar_types import (
     ExactPlanarVector,
     PlanarLoop,
     PlanarRegion,
+    exact_normalize,
     exact_sign,
     point_add,
     point_sub,
@@ -86,6 +87,7 @@ class GeometryContext:
     angular_ideal_cache: dict[object, tuple]
     angular_support_cache: dict[object, tuple]
     support_segment_cache: dict[tuple[ChainUseId, str], tuple]
+    support_geometry_key: tuple
 
     @classmethod
     def build(
@@ -163,7 +165,21 @@ class GeometryContext:
             },
             angular_ideal_cache={},
             angular_support_cache={},
-            support_segment_cache={},
+            support_segment_cache=(
+                {}
+                if density_exact_memo is None
+                else density_exact_memo.support_segments
+            ),
+            support_geometry_key=tuple(
+                sorted(
+                    (
+                        vertex_id.value,
+                        point.x.expression,
+                        point.y.expression,
+                    )
+                    for vertex_id, point in points.items()
+                )
+            ),
         )
         if binding is not None and require_certified_bound_supports:
             from .angular import verify_evaluation_direction_binding_reasons
@@ -228,7 +244,7 @@ class GeometryContext:
             )
         from .angular import (
             _density_dot_expression,
-            _density_exact_vector,
+            _density_runtime_vector,
             _density_unit_from_squared,
         )
 
@@ -237,10 +253,9 @@ class GeometryContext:
         covector_x = gram[0][0] * tx + gram[0][1] * ty
         covector_y = gram[1][0] * tx + gram[1][1] * ty
         side = self.metric.owner_orientation_sign * (1 if owner_left else -1)
-        normal = _density_exact_vector(
+        normal = _density_runtime_vector(
             -side * covector_y,
             side * covector_x,
-            self.metric,
         )
         if not normalize:
             return normal
@@ -343,15 +358,16 @@ class GeometryContext:
             cycle_end = self.points_by_id[
                 face.vertex_cycle[(edge_ordinal + 1) % len(face.vertex_cycle)]
             ]
-            cycle_area_sign = exact_sign(
-                polygon_signed_area(
-                    self.points_by_id[item] for item in face.vertex_cycle
-                )
+            cycle_points = tuple(
+                self.points_by_id[item] for item in face.vertex_cycle
+            )
+            cycle_area_sign = self._sign(
+                self._polygon_signed_area(cycle_points)
             )
             same_direction = (
                 self._sign(
                     self._dot_g(
-                        tangent, point_sub(cycle_end, cycle_start)
+                        tangent, self._point_sub(cycle_end, cycle_start)
                     )
                 )
                 > 0
@@ -391,6 +407,34 @@ class GeometryContext:
                 normalize=False,
             )
         return None
+
+    def _polygon_signed_area(self, points) -> sp.Expr:
+        """Площадь Density читает через memo текущей geometry-транзакции."""
+
+        if not self._density_bounded():
+            return polygon_signed_area(points)
+        vertices = tuple(points)
+        if len(vertices) < 3:
+            return sp.Integer(0)
+        twice_area = sp.Integer(0)
+        for start, end in zip(vertices, vertices[1:] + vertices[:1]):
+            sx, sy = self.metric.density_expressions(start)
+            ex, ey = self.metric.density_expressions(end)
+            twice_area += sx * ey - sy * ex
+        return exact_normalize(twice_area / 2)
+
+    def _point_sub(
+        self,
+        left: ExactPlanarPoint,
+        right: ExactPlanarPoint,
+    ) -> ExactPlanarVector:
+        """Разность Density-точек не пересекает process-global parser."""
+
+        if not self._density_bounded():
+            return point_sub(left, right)
+        lx, ly = self.metric.density_expressions(left)
+        rx, ry = self.metric.density_expressions(right)
+        return ExactPlanarVector.from_values(lx - rx, ly - ry)
 
     def _validate_segment_corners(
         self,
@@ -434,10 +478,6 @@ class GeometryContext:
     def support_segments_for_use(
         self, chain_use_id: ChainUseId, spec_id: str
     ) -> tuple[SourceSupportSegment, ...]:
-        cache_key = (chain_use_id, spec_id)
-        cached = self.support_segment_cache.get(cache_key)
-        if cached is not None:
-            return cached
         chain_use = self.uses_by_id[chain_use_id]
         chain = self.chains_by_id[chain_use.physical_chain_id]
         vertices = self.directed_chain_vertices(chain_use)
@@ -461,6 +501,17 @@ class GeometryContext:
                 ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                 f"v1 geometry requires one owner-interior component for {chain_use_id}",
             )
+        base_provenance = self.provenance_by_spec_id[spec_id]
+        cache_key = (
+            self.support_geometry_key,
+            chain_use_id,
+            spec_id,
+            base_provenance,
+            tuple(component_ids),
+        )
+        cached = self.support_segment_cache.get(cache_key)
+        if cached is not None:
+            return cached
         # Chart-lattice binding двигает концы физического ребра и тем самым
         # объявляет НОВУЮ evaluation-прямую. Analysis direction остаётся
         # сертификатом исходной геометрии и после такого сдвига уже не обязана
@@ -482,7 +533,7 @@ class GeometryContext:
             start = self.points_by_id[start_id]
             end = self.points_by_id[end_id]
             edge_id = self._edge_for_pair(chain, start_id, end_id)
-            tangent = self._unit_g(point_sub(end, start))
+            tangent = self._unit_g(self._point_sub(end, start))
             face_normal = self._face_side_normal(chain_use, edge_id, start, end, tangent)
             normal = None
             if analysis_direction is not None:
@@ -509,7 +560,6 @@ class GeometryContext:
                 )
             normal = self._unit_g(normal)
             support_id = stable_id("source-support", chain_use_id, edge_id)
-            base_provenance = self.provenance_by_spec_id[spec_id]
             source_faces = frozenset(
                 face.face_id.value
                 for face in self.snapshot.surface_ir.source_faces

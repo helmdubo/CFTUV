@@ -108,17 +108,31 @@ def _expected_orientation(orientation: TurnOrientation) -> int:
 def _dual_dot(metric, left, right):
     lx, ly = metric.density_expressions(left)
     rx, ry = metric.density_expressions(right)
+    key = (lx, ly, rx, ry)
+    cached = metric._density_exact_memo.dual_dots.get(key)
+    if cached is not None:
+        return cached
     inverse = metric.inverse_gram
-    return (
+    result = (
         lx * (inverse[0][0] * rx + inverse[0][1] * ry)
         + ly * (inverse[1][0] * rx + inverse[1][1] * ry)
     )
+    metric._density_exact_memo.dual_dots[key] = result
+    metric._density_exact_memo.dual_dots[(rx, ry, lx, ly)] = result
+    return result
 
 
 def _oriented_cross(metric, left, right):
     lx, ly = metric.density_expressions(left)
     rx, ry = metric.density_expressions(right)
-    return metric.owner_orientation_sign * (lx * ry - ly * rx)
+    key = (lx, ly, rx, ry)
+    cached = metric._density_exact_memo.crosses.get(key)
+    if cached is not None:
+        return cached
+    result = metric.owner_orientation_sign * (lx * ry - ly * rx)
+    metric._density_exact_memo.crosses[key] = result
+    metric._density_exact_memo.crosses[(rx, ry, lx, ly)] = -result
+    return result
 
 
 def _sign(expression, metric: ExactPlanarMetric | None = None) -> int:
@@ -302,11 +316,31 @@ def _candidate_vector(
 
 
 def _subturn(metric, left, right, q: int) -> bool:
+    left_values = metric.density_expressions(left)
+    right_values = metric.density_expressions(right)
+    key = (
+        *left_values,
+        *right_values,
+        q,
+    )
+    reverse_key = (
+        *right_values,
+        *left_values,
+        q,
+    )
+    cached = metric._density_exact_memo.subturns.get(key)
+    if cached is not None:
+        return cached
     dot = _dual_dot(metric, left, right)
     dot_sign = _sign(dot, metric)
     if q == 2:
-        return dot_sign >= 0
+        result = dot_sign >= 0
+        metric._density_exact_memo.subturns[key] = result
+        metric._density_exact_memo.subturns[reverse_key] = result
+        return result
     if dot_sign <= 0:
+        metric._density_exact_memo.subturns[key] = False
+        metric._density_exact_memo.subturns[reverse_key] = False
         return False
     norm_product = _dual_dot(metric, left, left) * _dual_dot(
         metric,
@@ -326,7 +360,10 @@ def _subturn(metric, left, right, q: int) -> bool:
         residual = 4 * dot_squared - 3 * norm_product
     else:
         raise AdaptiveDensityFanInvalid("unsupported Density q")
-    return _sign(residual, metric) >= 0
+    result = _sign(residual, metric) >= 0
+    metric._density_exact_memo.subturns[key] = result
+    metric._density_exact_memo.subturns[reverse_key] = result
+    return result
 
 
 def _subturn_boundary(metric, left, right, q: int) -> bool:

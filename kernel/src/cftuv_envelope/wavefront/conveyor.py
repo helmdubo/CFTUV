@@ -445,7 +445,7 @@ def _rational_after_scaling(value, scale) -> Fraction | None:
 
 
 def _read_arrival_law(
-    name: str, normal, constant, speed_squared
+    name: str, normal, constant, speed_squared, density_metric=None
 ) -> tuple[PlainArrivalLawV1 | None, bool, str]:
     """Запись закона в точных дробях: как есть либо пере-масштабированная.
 
@@ -476,8 +476,12 @@ def _read_arrival_law(
     нулю — и это проверяемое утверждение, а не намерение.
     """
 
-    normal_x, normal_y = normal.expressions()
-    law_constant = constant.as_expr()
+    if density_metric is None:
+        normal_x, normal_y = normal.expressions()
+        law_constant = constant.as_expr()
+    else:
+        normal_x, normal_y = density_metric.density_expressions(normal)
+        law_constant = density_metric.density_expression(constant)
     plain = (
         exact_rational(normal_x),
         exact_rational(normal_y),
@@ -599,9 +603,12 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
     compilation = context.compilation
     laws: list[PlainArrivalLawV1] = []
     rescaled_count = 0
-    speed_squared = (
-        STRIP_FRONT_NORMAL_SPEED.as_expr() * STRIP_FRONT_NORMAL_SPEED.as_expr()
+    speed = (
+        context.metric.density_expression(STRIP_FRONT_NORMAL_SPEED)
+        if context._density_bounded()
+        else STRIP_FRONT_NORMAL_SPEED.as_expr()
     )
+    speed_squared = speed * speed
     for spec in sorted(
         compilation.envelope_specs, key=lambda item: item.envelope_spec_id.value
     ):
@@ -617,7 +624,11 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         ):
             normal, constant = strip_front_support_line(context, source)
             law, rescaled, issue = _read_arrival_law(
-                spec.envelope_spec_id.value, normal, constant, speed_squared
+                spec.envelope_spec_id.value,
+                normal,
+                constant,
+                speed_squared,
+                context.metric if context._density_bounded() else None,
             )
             if law is None:
                 return _ArrivalLawsV1(
@@ -681,10 +692,12 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     записалась вовсе, добавил бы к нему единицу за закон, которого в очереди нет.
     """
 
-    speed_squared = (
-        ANGULAR_PROFILE_NORMAL_SPEED.as_expr()
-        * ANGULAR_PROFILE_NORMAL_SPEED.as_expr()
+    speed = (
+        context.metric.density_expression(ANGULAR_PROFILE_NORMAL_SPEED)
+        if context._density_bounded()
+        else ANGULAR_PROFILE_NORMAL_SPEED.as_expr()
     )
+    speed_squared = speed * speed
     fans: list[PlainVertexFanV1] = []
     rescaled_count = 0
     degraded: list[DegradedMiterCornerV1] = []
@@ -769,7 +782,11 @@ def _one_fan(context: GeometryContext, spec, speed_squared):
         if item.corner_relation_id == spec.source_relation_id
     )
     anchor = context.points_by_id[relation.source_vertex_id]
-    point = _rational_point(anchor)
+    point = (
+        _rational_point(anchor, context.metric)
+        if context._density_bounded()
+        else _rational_point(anchor)
+    )
     if point is None:
         return (
             None,
@@ -787,7 +804,11 @@ def _one_fan(context: GeometryContext, spec, speed_squared):
     reasons: list[str] = []
     for support_id, normal, constant in hidden:
         law, rescaled, issue = _read_arrival_law(
-            f"{name}/{support_id}", normal, constant, speed_squared
+            f"{name}/{support_id}",
+            normal,
+            constant,
+            speed_squared,
+            context.metric if context._density_bounded() else None,
         )
         if law is None:
             reasons.append(f"{support_id}: {issue}")
@@ -808,9 +829,13 @@ def _one_fan(context: GeometryContext, spec, speed_squared):
     return PlainVertexFanV1(name, point, tuple(supports)), rescaled_count, None
 
 
-def _rational_point(point) -> tuple[Fraction, Fraction] | None:
-    x = exact_rational(point.x.as_expr())
-    y = exact_rational(point.y.as_expr())
+def _rational_point(point, density_metric=None) -> tuple[Fraction, Fraction] | None:
+    if density_metric is None:
+        x_value, y_value = point.expressions()
+    else:
+        x_value, y_value = density_metric.density_expressions(point)
+    x = exact_rational(x_value)
+    y = exact_rational(y_value)
     return None if x is None or y is None else (x, y)
 
 

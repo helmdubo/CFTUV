@@ -25,6 +25,7 @@ from cftuv_envelope import (
     TurnOrientation,
 )
 from cftuv_envelope.codec import ContractCodecV1
+from cftuv_envelope.ids import CornerRelationId
 from cftuv_envelope.adaptive_density_validation import (
     adaptive_density_structure_errors,
 )
@@ -45,7 +46,7 @@ from cftuv_envelope.reference.common import (
     GeometryContext,
     ReferenceGeometryError,
 )
-from cftuv_envelope.reference.metric import ExactPlanarMetric
+from cftuv_envelope.reference.metric import ExactPlanarMetric, _DensityExactMemo
 from cftuv_envelope.reference.planar_types import ExactPlanarVector
 from cftuv_envelope.wavefront import prepare_conveyor
 from cftuv_envelope.reference.validation import (
@@ -116,13 +117,14 @@ def test_density_compile_does_not_use_global_parser_for_algebraic_values(
     original = planar_types._parse_expr
     seen = []
 
-    def rational_only(expression):
+    def forbidden(expression):
         seen.append(expression)
-        assert expression.startswith(("Integer(", "Rational("))
-        return original(expression)
+        raise AssertionError(
+            f"Density compile called process-global parser for {expression}"
+        )
 
     planar_types._parse_expr.cache_clear()
-    monkeypatch.setattr(planar_types, "_parse_expr", rational_only)
+    monkeypatch.setattr(planar_types, "_parse_expr", forbidden)
     first = kernel.compile_reference_envelopes(snapshot, request)
     for value in range(-20, 21):
         original(f"Integer({value})")
@@ -131,7 +133,45 @@ def test_density_compile_does_not_use_global_parser_for_algebraic_values(
     assert first.outcome is ReferenceOutcome.EXACT
     assert second.outcome is ReferenceOutcome.EXACT
     assert first.compilation == second.compilation
-    assert seen
+    assert seen == []
+
+
+def test_density_component_is_independent_of_global_parser_population(
+    monkeypatch,
+):
+    import cftuv_envelope.reference.planar_types as planar_types
+    from cftuv_envelope.wavefront import conveyor
+
+    snapshot, request = _field_inputs(4)
+    original = planar_types._parse_expr
+    calls = []
+
+    def forbidden(expression):
+        calls.append(expression)
+        raise AssertionError(
+            f"Density component called process-global parser for {expression}"
+        )
+
+    def run():
+        inputs, refusal = conveyor._prepare_inputs(
+            snapshot,
+            request,
+            None,
+            conveyor._Clock(),
+        )
+        assert refusal is None
+        compilation, _, domain, reading, lattice, residual = inputs
+        return compilation, domain, reading, lattice, residual
+
+    planar_types._parse_expr.cache_clear()
+    monkeypatch.setattr(planar_types, "_parse_expr", forbidden)
+    clear = run()
+    for value in range(-20, 21):
+        original(f"Integer({value})")
+    populated = run()
+
+    assert clear == populated
+    assert calls == []
 
 
 def _field_inputs(density: int):
@@ -359,6 +399,74 @@ def test_field_density_four_has_one_exact_minimal_h_lift():
         item.hidden_support_id.value
         for item in lifted[0].hidden_supports
     )
+
+
+def test_density_context_names_missing_corner_relation_before_supports():
+    snapshot, request = _field_inputs(4)
+    result = kernel.compile_reference_envelopes(snapshot, request)
+    compilation = result.compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=True,
+    )
+    assert frame is not None, diagnostics
+    missing = CornerRelationId("missing-density-corner-relation")
+    forged = replace(
+        compilation,
+        envelope_specs=frozenset(
+            (
+                replace(item, source_relation_id=missing)
+                if isinstance(item, AngularEnvelopeSpec)
+                else item
+            )
+            for item in compilation.envelope_specs
+        ),
+    )
+    memo = _DensityExactMemo()
+
+    with pytest.raises(ReferenceGeometryError) as failure:
+        GeometryContext.build(
+            forged,
+            frame,
+            density_exact_memo=memo,
+        )
+
+    assert failure.value.outcome is ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID
+    assert "unknown CornerRelation" in str(failure.value)
+    assert memo.support_segments == {}
+
+
+def test_density_context_names_foreign_existing_corner_relation():
+    snapshot, request = _field_inputs(4)
+    result = kernel.compile_reference_envelopes(snapshot, request)
+    compilation = result.compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=True,
+    )
+    assert frame is not None, diagnostics
+    foreign = min(
+        snapshot.corner_relations,
+        key=lambda item: item.corner_relation_id.value,
+    ).corner_relation_id
+    forged = replace(
+        compilation,
+        envelope_specs=frozenset(
+            (
+                replace(item, source_relation_id=foreign)
+                if isinstance(item, AngularEnvelopeSpec)
+                else item
+            )
+            for item in compilation.envelope_specs
+        ),
+    )
+
+    with pytest.raises(ReferenceGeometryError) as failure:
+        GeometryContext.build(forged, frame)
+
+    assert failure.value.outcome is ReferenceOutcome.PLANAR_CHAIN_SUPPORT_NOT_LINEAR
 
 
 def test_farey_witness_and_fan_tampering_fail_closed():

@@ -1102,14 +1102,13 @@ def bound_unit_normal_from_vector(
 ) -> ExactPlanarVector:
     """Восстановить G-единичную нормаль из примитивного ковектора V2."""
 
-    from .angular import _density_exact_vector, _density_unit_from_squared
+    from .angular import _density_runtime_vector, _density_unit_from_squared
 
     x, y = vector
     inverse = metric.inverse_gram
-    normal = _density_exact_vector(
+    normal = _density_runtime_vector(
         inverse[0][0] * x + inverse[0][1] * y,
         inverse[1][0] * x + inverse[1][1] * y,
-        metric,
     )
     nx, ny = metric.density_expressions(normal)
     return _density_unit_from_squared(

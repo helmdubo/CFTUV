@@ -226,13 +226,26 @@ def _chart_grid(
 class _DensityExactMemo:
     """Mutable cache, владелец которого — один ExactPlanarMetric."""
 
-    __slots__ = ("expressions", "intervals", "signs", "sreprs")
+    __slots__ = (
+        "expressions",
+        "dual_dots",
+        "crosses",
+        "intervals",
+        "signs",
+        "sreprs",
+        "subturns",
+        "support_segments",
+    )
 
     def __init__(self) -> None:
         self.expressions: dict[str, sp.Expr] = {}
+        self.dual_dots: dict[tuple, sp.Expr] = {}
+        self.crosses: dict[tuple, sp.Expr] = {}
         self.intervals: dict[sp.Expr, object] = {}
         self.signs: dict[sp.Expr, int] = {}
         self.sreprs: dict[sp.Expr, str] = {}
+        self.subturns: dict[tuple, bool] = {}
+        self.support_segments: dict[tuple, tuple] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +341,11 @@ class ExactPlanarMetric:
         """Разобрать Density scalar только внутри memo этой транзакции."""
 
         return value.expressions(self._density_exact_memo.expressions)
+
+    def density_expression(self, value: ExactScalar) -> sp.Expr:
+        """Разобрать один Density scalar внутри той же transaction memo."""
+
+        return value.as_expr(self._density_exact_memo.expressions)
 
     def length_g(self, vector: ExactPlanarVector) -> sp.Expr:
         squared = self.dot_g(vector, vector)

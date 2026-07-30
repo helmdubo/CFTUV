@@ -165,8 +165,12 @@ def _chain_segment_records(context: GeometryContext, chain_use):
     )
 
 
-def _normalize_loop_winding(loop: PlanarLoop, kind: BoundaryLoopKind) -> PlanarLoop:
-    area_sign = exact_sign(polygon_signed_area(loop.points))
+def _normalize_loop_winding(
+    context: GeometryContext,
+    loop: PlanarLoop,
+    kind: BoundaryLoopKind,
+) -> PlanarLoop:
+    area_sign = context._sign(context._polygon_signed_area(loop.points))
     if area_sign == 0:
         raise _fail(f"BoundaryLoop {loop.loop_id} has zero planar area")
     expected_positive = kind is BoundaryLoopKind.OUTER
@@ -289,7 +293,7 @@ def _build_boundary_loop(
             )
     planar_loop = PlanarLoop(loop.boundary_loop_id.value, tuple(segments))
     _validate_closed_loop(planar_loop)
-    return _normalize_loop_winding(planar_loop, loop.kind)
+    return _normalize_loop_winding(context, planar_loop, loop.kind)
 
 
 def _explicit_barrier_segments(
