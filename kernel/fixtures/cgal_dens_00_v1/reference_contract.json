@@ -1,0 +1,44 @@
+{
+  "schema": "cftuv.proof.cgal_dens_00.reference_contract.v1",
+  "official_cgal": {
+    "documentation_version": "6.2",
+    "input_contract": {
+      "contour_edge": "oriented straight segment between two contour vertices",
+      "contour_vertex_incidence": 2,
+      "general_planar_directed_graph_supported": false,
+      "holes_supported": true,
+      "polygon_with_holes_required": true,
+      "weakly_simple_required": true,
+      "weight_domain": "POSITIVE_MULTIPLICATIVE_CONTOUR_EDGE_WEIGHT"
+    },
+    "license": {
+      "package_license": "GPL",
+      "production_clearance": "NOT_ESTABLISHED",
+      "reason": "Open-source GPL terms or a commercial CGAL license require a separate owner decision."
+    },
+    "urls": {
+      "license": "https://www.cgal.org/license.html",
+      "reference": "https://doc.cgal.org/latest/Straight_skeleton_2/group__PkgStraightSkeleton2Ref.html",
+      "user_manual": "https://doc.cgal.org/latest/Straight_skeleton_2/index.html"
+    }
+  },
+  "svcgal": {
+    "commit": "6e57d533790693e90062d121e4a2c586fb48becb",
+    "commit_tree": "6aab87a62532c361f81d8fa5e3df95f07de767f6",
+    "repository": "https://github.com/satabol/SVCGAL.git",
+    "source_blobs": {
+      "ctSVCGAL/CMakeLists.txt": "ca42dfdd98b53202fb580d8d0bcc2ea2a1880413",
+      "ctSVCGAL/Readme.md": "3af22e76e65471ca9e4cb4089592e731af82f7ce",
+      "ctSVCGAL/ctSVCGAL.cpp": "d78aa544d07f20e4512abac4ea0d9a3c134426ad",
+      "pySVCGAL/LICENSE": "2939dbc652b5dff4ea9e802f926a4009a9529def",
+      "pySVCGAL/src/pySVCGAL/pySVCGAL.py": "cf2988c8c59f4968c30c33d8db8c1b33008cc900"
+    },
+    "license_evidence": {
+      "ctSVCGAL_or_repository_license_file": "ABSENT",
+      "github_detected_license": null,
+      "production_clearance": "NOT_ESTABLISHED",
+      "pySVCGAL_license_content": "GPL3",
+      "pySVCGAL_license_sha256": "763f578f82104874cdb3f3d5fd0827287a220505ef5fa1ceed21390e2cd4160d"
+    }
+  }
+}

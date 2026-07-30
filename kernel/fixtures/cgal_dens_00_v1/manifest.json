@@ -1,0 +1,56 @@
+{
+  "schema": "cftuv.proof.cgal_dens_00.manifest.v1",
+  "fixture_id": "cgal_dens_00_v1",
+  "base_revision": "c1d6cd5a92d607bd438ccc25561f0bfa6ab5150e",
+  "scope": "proof-only source encoding spike; no product code and no third-party binaries",
+  "source_case": {
+    "blend_path": "E:\\testscene.blend",
+    "blend_sha256": "65948c37cc25cc1bf934be779bfa02ca48f2ddcdf43aa3b5575cea30077c0697",
+    "object": "building.002",
+    "patch": 0,
+    "densities": [
+      0,
+      1,
+      4
+    ]
+  },
+  "dependency_reachability": {
+    "cmake": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+    "compiler": "Visual Studio 2022 Community MSVC 14.44.35207",
+    "cgal_installed": false,
+    "svcgal_commit_reached": "6e57d533790693e90062d121e4a2c586fb48becb",
+    "svcgal_tree_reached": "6aab87a62532c361f81d8fa5e3df95f07de767f6",
+    "build_status": "NOT_RUN_AFTER_SEMANTIC_STOP",
+    "engine_invocation_count": 0
+  },
+  "exact_invocations": [
+    "$env:PYTHONSAFEPATH='1'; & 'C:\\Program Files\\Blender Foundation\\Blender 4.3\\blender.exe' --background 'E:\\testscene.blend' --python 'C:\\tmp\\CFTUV-cgal-dens-00\\kernel\\fixtures\\cgal_dens_00_v1\\export_source.py' -- --source-root 'C:\\tmp\\CFTUV-cgal-dens-00' --output-root 'C:\\tmp\\CFTUV-cgal-dens-00\\kernel\\fixtures\\cgal_dens_00_v1\\source'",
+    "$env:PYTHONSAFEPATH='1'; python kernel/fixtures/cgal_dens_00_v1/analyze_mapping.py --source kernel/fixtures/cgal_dens_00_v1/source/source_snapshot.json --reference kernel/fixtures/cgal_dens_00_v1/reference_contract.json --output kernel/fixtures/cgal_dens_00_v1/receipt_run_1.json",
+    "$env:PYTHONSAFEPATH='1'; python kernel/fixtures/cgal_dens_00_v1/analyze_mapping.py --source kernel/fixtures/cgal_dens_00_v1/source/source_snapshot.json --reference kernel/fixtures/cgal_dens_00_v1/reference_contract.json --output kernel/fixtures/cgal_dens_00_v1/receipt_run_2.json",
+    "$env:PYTHONSAFEPATH='1'; python kernel/fixtures/cgal_dens_00_v1/verify_receipt.py"
+  ],
+  "files": {
+    "analyze_mapping.py": "e4731d4adc9c8d10cdc3858cf255583c5c436afb850b8375e580ca8d19c9da3a",
+    "export_source.py": "f4522cc66d87ac8c18e4f4313645eebe9ae61ec00495efc5bb32bc4fd4459047",
+    "receipt_run_1.json": "d13db7e431a54952d69c7a71cb21d6ac3e905917a28d0dca076bfa29cb94535c",
+    "receipt_run_2.json": "d13db7e431a54952d69c7a71cb21d6ac3e905917a28d0dca076bfa29cb94535c",
+    "reference_contract.json": "24934a14794a4a510b41b9f3980e7a5aa513ecb5c8b8a76a9df548ecbb1d22ac",
+    "source/analysis_snapshot.json": "59497afe1350958422f3aa9a3cb049b5e3e60fc5e60d8c6ef6c70b3a313ffbdc",
+    "source/decal_request_d0.json": "a5dbef6be2aeebc0179b0e642e954be0d232e2007ffd0dc31dcccd31c6eeade7",
+    "source/decal_request_d1.json": "8478a40f89b42a93f752deedaacbc2e4da43bdf4bf807a82d7ef9ba49638a405",
+    "source/decal_request_d4.json": "52c9a95ae484f1de8a394cd8e2d964429af89e94ab46c0ff85d14b030ae2170f",
+    "source/source_snapshot.json": "6b7e14cb6caa6b96250fd8ec963164490be0995b15e0c6e549df054e780fb507",
+    "verify_receipt.py": "7339e185a802390e87717c505032c352eda6c0162faff1309cd00ade0564407b"
+  },
+  "expected_result": {
+    "verdict": "STOP",
+    "primary_stop": "CGAL_INPUT_CANNOT_REPRESENT_ZERO_LENGTH_MOVING_VERTEX_FAN_SOURCES",
+    "secondary_stop": "PRODUCTION_LICENSE_CLEARANCE_NOT_ESTABLISHED",
+    "fan_source_counts": {
+      "d0": 4,
+      "d1": 5,
+      "d4": 11
+    },
+    "runtime_and_projection_claims": "NOT_RUN_FAIL_CLOSED"
+  }
+}
