@@ -83,6 +83,7 @@ class QueueSessionStateV1:
     #: дошедшему до подготовки. Домены, отказавшие раньше, сюда не попадают.
     entries: tuple
     receipts: tuple
+    density: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +127,7 @@ class EnvelopeDebugSessionController:
         # совпадением скелета при alpha 0.25 и 0.5), поэтому ключ её и не
         # содержит: только ревизия источника, домен и выделенные рёбра домена.
         self._conveyor_preparation_cache: dict[
-            tuple[str, str, frozenset[int]], object
+            tuple[str, str, frozenset[int], tuple[str, ...]], object
         ] = {}
         self._queue_session: QueueSessionStateV1 | None = None
         self._build_counts: dict[str, int] = {
@@ -432,21 +433,24 @@ class EnvelopeDebugSessionController:
         source_revision_value: str,
         patch_domain_id: str,
         selected_edge_ids: frozenset[int],
+        request,
         build,
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
     ):
         """Подготовка очереди из кэша либо построенная и запомненная.
 
-        Ключ не содержит alpha намеренно: alpha-независимость подготовки
-        доказана ядром побитово, и включение alpha в ключ обнуляло бы кэш на
-        каждом движении ползунка — то есть отменяло бы весь смысл разреза.
+        Ключ не содержит alpha намеренно, но содержит каноническую подпись
+        angular policy: геометрия подготовки зависит от плотности веера.
         """
+
+        from .envelope_request_policy import envelope_request_policy_signature
 
         key = (
             str(source_revision_value),
             str(patch_domain_id),
             frozenset(int(item) for item in selected_edge_ids),
+            envelope_request_policy_signature(request),
         )
         cached = self._conveyor_preparation_cache.get(key)
         if cached is not None:
@@ -476,6 +480,11 @@ class EnvelopeDebugSessionController:
     def remember_queue_session(self, state: QueueSessionStateV1) -> None:
         self._queue_session = state
 
+    def invalidate_queue_session(self) -> None:
+        """Сбрасывает только warm redraw, сохраняя правильно ключённые кэши."""
+
+        self._queue_session = None
+
     def evaluate_staged(
         self,
         analysis_bundle: AnalysisBundle,
@@ -486,6 +495,7 @@ class EnvelopeDebugSessionController:
         source_data_key: Hashable,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
         engine: str = "LEGACY",
+        density,
     ):
         from .envelope_queue_export import (
             ENVELOPE_DEBUG_ENGINE_QUEUE,
@@ -534,6 +544,7 @@ class EnvelopeDebugSessionController:
                 profile=profile,
                 topology_export=topology_export,
                 domain_snapshot_provider=snapshot_provider,
+                density=density,
             )
 
         revision = topology_export.source_revision_value
@@ -551,6 +562,7 @@ class EnvelopeDebugSessionController:
                 revision,
                 domain_id,
                 selected_edges,
+                request,
                 lambda: prepare_conveyor(snapshot, request),
                 profile=profile,
             )
@@ -563,6 +575,7 @@ class EnvelopeDebugSessionController:
             topology_export=topology_export,
             domain_snapshot_provider=snapshot_provider,
             preparation_provider=preparation_provider,
+            density=density,
         )
 
 
@@ -572,6 +585,8 @@ def remember_queue_session(
     topology_scene,
     exact_scenes,
     evaluation,
+    *,
+    density,
 ):
     """Запомнить подготовки очереди, чтобы ползунок нашёл их тёплыми.
 
@@ -580,6 +595,7 @@ def remember_queue_session(
     """
 
     from .envelope_queue_export import build_queue_scene
+    from .envelope_request_policy import normalize_envelope_fan_density
 
     queue_domains = evaluation.queue_domains
     if not queue_domains:
@@ -595,6 +611,7 @@ def remember_queue_session(
                 if item.preparation is not None
             ),
             evaluation.receipts,
+            normalize_envelope_fan_density(density),
         )
     )
     return build_queue_scene(queue_domains)
@@ -610,6 +627,7 @@ def evaluate_envelope_debug_staged(
     source_object_key: Hashable | None = None,
     source_data_key: Hashable | None = None,
     engine: str = "LEGACY",
+    density=None,
 ):
     """Compatibility entry point with optional persistent session reuse."""
 
@@ -637,6 +655,7 @@ def evaluate_envelope_debug_staged(
             alpha,
             profile=profile,
             topology_export=topology_export,
+            density=density,
         )
     if source_object_key is None or source_data_key is None:
         raise ValueError(
@@ -650,6 +669,7 @@ def evaluate_envelope_debug_staged(
         source_data_key=source_data_key,
         profile=profile,
         engine=engine,
+        density=density,
     )
 
 

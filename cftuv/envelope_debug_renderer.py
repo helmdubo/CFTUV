@@ -1325,6 +1325,7 @@ def update_queue_alpha(
     source_name,
     alpha,
     *,
+    density,
     settings=None,
     profile=None,
 ) -> str | None:
@@ -1340,6 +1341,7 @@ def update_queue_alpha(
         queue_timing_text,
         recompute_queue_coverage,
     )
+    from .envelope_request_policy import normalize_envelope_fan_density
 
     session = getattr(controller, "queue_session", None)
     if (
@@ -1348,6 +1350,8 @@ def update_queue_alpha(
         or not session.entries
     ):
         return None
+    if session.density != normalize_envelope_fan_density(density):
+        return "Fan Density changed; press Build"
     started = time.perf_counter()
     scene = recompute_queue_coverage(
         session.entries,

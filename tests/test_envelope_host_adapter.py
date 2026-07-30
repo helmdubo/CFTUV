@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from fractions import Fraction
+import hashlib
 import sys
 from pathlib import Path
 
@@ -60,6 +61,7 @@ from cftuv.surface_ir import (  # noqa: E402
     SurfaceTriangle,
 )
 from cftuv_envelope import (  # noqa: E402
+    DecalRequestCodecV1,
     PlanarityAdmissionLawV1,
     compile_reference_envelopes,
 )
@@ -574,6 +576,93 @@ def test_real_analysis_bundle_runs_public_static_pipeline():
         not item.self_contact_pair_declarations
         for item in evaluation.compilations
     )
+
+
+def test_omitted_density_freezes_legacy_request_bytes_and_identity():
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    request = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    canonical = DecalRequestCodecV1.dumps(request)
+
+    assert request.decal_request_id.value == (
+        "host-v0:decal-request:22a7682ed575e2ead77e6f51"
+    )
+    assert hashlib.sha256(canonical).hexdigest() == (
+        "09163981263697faf3bb367c48a27cf767a4ff5a90bf7fcdc745677c325f9383"
+    )
+
+
+@pytest.mark.parametrize(
+    ("density", "value_id", "symbol"),
+    (
+        (0, "LINEAR_REFLEX_DENSITY_0_V1", "PI_OVER_2"),
+        (1, "LINEAR_REFLEX_DENSITY_1_V1", "PI_OVER_3"),
+        (2, "LINEAR_REFLEX_DENSITY_2_V1", "PI_OVER_4"),
+        (3, "LINEAR_REFLEX_DENSITY_3_V1", "PI_OVER_5"),
+        (4, "LINEAR_REFLEX_DENSITY_4_V1", "PI_OVER_6"),
+    ),
+)
+def test_all_fan_density_values_map_to_the_sealed_kernel_contract(
+    density,
+    value_id,
+    symbol,
+):
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    request = build_envelope_decal_request(
+        snapshot,
+        frozenset({0}),
+        0.25,
+        density=str(density),
+    )
+
+    assert request.angular_profile_selection_policy_id.value == (
+        "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+    )
+    assert request.max_subturn_parameter_id.value == (
+        "LINEAR_REFLEX_DENSITY_A_V1"
+    )
+    assert request.max_subturn_value_id.value == value_id
+    assert request.max_subturn_exact_value.symbol.value == symbol
+
+
+def test_explicit_density_enters_request_identity():
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    legacy = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    requests = tuple(
+        build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
+        for density in range(5)
+    )
+
+    identities = {item.decal_request_id for item in requests}
+    assert len(identities) == 5
+    assert legacy.decal_request_id not in identities
+
+
+@pytest.mark.parametrize(
+    ("density", "error_type"),
+    (
+        (True, TypeError),
+        (1.0, TypeError),
+        (-1, ValueError),
+        (5, ValueError),
+        ("01", ValueError),
+        (" 1 ", ValueError),
+        (object(), TypeError),
+    ),
+)
+def test_noncanonical_fan_density_fails_closed(density, error_type):
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    with pytest.raises(error_type, match="Fan Density"):
+        build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
 
 
 def test_the_declared_grid_policy_reaches_the_metric_certificate():
@@ -1435,6 +1524,107 @@ def test_session_reuses_analysis_topology_metric_and_domain_for_alpha_changes():
         assert "FRAME_ADMISSION" not in stage_names
         assert "ANGULAR_RELATIONS" not in stage_names
         assert "DOMAIN_GEOMETRY_EXPORT" not in stage_names
+
+
+def test_legacy_and_queue_stages_receive_identical_density_policy_fields():
+    bundle = _single_patch_bundle()
+    evaluations = tuple(
+        evaluate_envelope_debug_staged(
+            bundle,
+            frozenset({0}),
+            0.25,
+            engine=engine,
+            density="1",
+        )
+        for engine in ("LEGACY", "QUEUE")
+    )
+    requests = tuple(item.domains[0].request for item in evaluations)
+    assert all(request is not None for request in requests)
+
+    fields = (
+        "angular_profile_selection_policy_id",
+        "max_subturn_parameter_id",
+        "max_subturn_value_id",
+        "max_subturn_exact_value",
+    )
+    assert tuple(getattr(requests[0], name) for name in fields) == tuple(
+        getattr(requests[1], name) for name in fields
+    )
+    assert requests[0].decal_request_id == requests[1].decal_request_id
+
+
+def test_queue_preparation_cache_is_keyed_by_density_and_survives_warm_reset():
+    from cftuv.envelope_debug_session import QueueSessionStateV1
+
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    requests = {
+        density: build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
+        for density in (1, 4)
+    }
+    controller = EnvelopeDebugSessionController()
+    builds = []
+
+    def prepared(request):
+        return controller.get_conveyor_preparation(
+            "revision",
+            "domain",
+            frozenset({0}),
+            request,
+            lambda: builds.append(object()) or builds[-1],
+        )
+
+    sequence = tuple(prepared(requests[density]) for density in (1, 1, 4, 1))
+    assert sequence[0] is sequence[1] is sequence[3]
+    assert sequence[2] is not sequence[0]
+    assert len(builds) == 2
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 2
+    legacy = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    assert prepared(legacy) is not sequence[0]
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 3
+
+    controller.remember_queue_session(
+        QueueSessionStateV1(
+            "source",
+            object(),
+            (),
+            ((1, "domain", object()),),
+            (),
+            1,
+        )
+    )
+    controller.invalidate_queue_session()
+    assert controller.queue_session is None
+    assert prepared(requests[1]) is sequence[0]
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 3
+
+
+def test_alpha_redraw_refuses_a_stale_density_session():
+    from cftuv.envelope_debug_renderer import update_queue_alpha
+    from cftuv.envelope_debug_session import QueueSessionStateV1
+
+    controller = EnvelopeDebugSessionController()
+    controller.remember_queue_session(
+        QueueSessionStateV1(
+            "source",
+            object(),
+            (),
+            ((1, "domain", object()),),
+            (),
+            1,
+        )
+    )
+
+    assert update_queue_alpha(
+        controller,
+        "source",
+        0.5,
+        density=4,
+    ) == "Fan Density changed; press Build"
 
 
 def test_selection_change_rebuilds_request_but_reuses_source_caches():
