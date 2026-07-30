@@ -1,0 +1,478 @@
+{
+  "$type": "DensAPrimeContractProofReceiptV1",
+  "base_commit": "b5b97e43ee7ca4d30a540f42ff36cf01852c2911",
+  "determinism": {
+    "independent_generator_and_verifier_modules": true,
+    "receipt_encoding": "UTF8_JSON_SORT_KEYS_INDENT_2_TRAILING_LF_V1",
+    "wall_clock_excluded_from_canonical_bytes": true
+  },
+  "deterministic_budgets": {
+    "legacy_compilation_bytes": 262580,
+    "max_integer_bits": 4,
+    "max_key_bytes": 1714,
+    "seam_anchor_count": 6,
+    "source_blob_count": 6
+  },
+  "falsifiability": {
+    "all_expected_reject": true,
+    "key_named_red_controls": {
+      "alpha_included": {
+        "expected": "ALPHA_IS_NOT_COMPILE_STATIC",
+        "observed": "ALPHA_IS_NOT_COMPILE_STATIC",
+        "status": "PASS"
+      },
+      "density_collision": {
+        "expected": "DENSITY_VALUE_ID_COLLISION",
+        "observed": "DENSITY_VALUE_ID_COLLISION",
+        "status": "PASS"
+      },
+      "mismatched_exact_symbol": {
+        "expected": "DENSITY_EXACT_VALUE_MISMATCH",
+        "observed": "DENSITY_EXACT_VALUE_MISMATCH",
+        "status": "PASS"
+      },
+      "missing_compile_static_field": {
+        "expected": "COMPILE_STATIC_FIELD_MISSING",
+        "observed": "COMPILE_STATIC_FIELD_MISSING",
+        "status": "PASS"
+      },
+      "missing_density_field": {
+        "expected": "DENSITY_AUTHORITY_FIELD_MISSING",
+        "observed": "DENSITY_AUTHORITY_FIELD_MISSING",
+        "status": "PASS"
+      },
+      "ui_integer_included": {
+        "expected": "UI_INTEGER_IS_NOT_COMPILE_STATIC",
+        "observed": "UI_INTEGER_IS_NOT_COMPILE_STATIC",
+        "status": "PASS"
+      },
+      "unknown_parameter_id": {
+        "expected": "DENSITY_PARAMETER_ID_UNKNOWN",
+        "observed": "DENSITY_PARAMETER_ID_UNKNOWN",
+        "status": "PASS"
+      },
+      "unknown_selection_policy": {
+        "expected": "DENSITY_SELECTION_POLICY_ID_UNKNOWN",
+        "observed": "DENSITY_SELECTION_POLICY_ID_UNKNOWN",
+        "status": "PASS"
+      },
+      "unknown_value_id": {
+        "expected": "DENSITY_VALUE_ID_UNKNOWN",
+        "observed": "DENSITY_VALUE_ID_UNKNOWN",
+        "status": "PASS"
+      }
+    },
+    "preclaim_named_red_controls": {
+      "altered_request_bytes": {
+        "expected": "FROZEN_REQUEST_SHA256_MISMATCH",
+        "observed": "FROZEN_REQUEST_SHA256_MISMATCH",
+        "status": "PASS"
+      },
+      "altered_snapshot_bytes": {
+        "expected": "FROZEN_SNAPSHOT_SHA256_MISMATCH",
+        "observed": "FROZEN_SNAPSHOT_SHA256_MISMATCH",
+        "status": "PASS"
+      },
+      "changed_legacy_compile_anchor": {
+        "expected": "LEGACY_COMPILE_ANCHOR_CHANGED",
+        "observed": "LEGACY_COMPILE_ANCHOR_CHANGED",
+        "status": "PASS"
+      },
+      "corrupted_receipt_sha": {
+        "expected": "RECEIPT_SHA256_MISMATCH",
+        "observed": "RECEIPT_SHA256_MISMATCH",
+        "status": "PASS"
+      },
+      "unknown_product_tree": {
+        "expected": "UNKNOWN_PRODUCT_TREE",
+        "observed": "UNKNOWN_PRODUCT_TREE",
+        "status": "PASS"
+      }
+    }
+  },
+  "legacy_v1_60": {
+    "$type": "LegacyV160ByteStabilityProofV1",
+    "commands": [
+      "PYTHONSAFEPATH=1 python kernel/fixtures/dens_a_prime_contract_v1/verify_contract.py",
+      "PYTHONSAFEPATH=1 python kernel/fixtures/dens_a_prime_contract_v1/generate_receipt.py --check"
+    ],
+    "compile": {
+      "angular_selection_count": 4,
+      "canonical_byte_length": 262580,
+      "canonical_sha256": "db385afb41940d0eca68a16e54e12bd93f44d9517fd7cc2c24b259e46f3c4c84",
+      "entrypoint": "compile_reference_envelopes",
+      "outcome": "EXACT",
+      "selections": [
+        {
+          "hidden_support_count": 1,
+          "hidden_turn_fractions": [
+            "1/2"
+          ],
+          "owner_sector_id": "host-v0:owner-sector:61b0b6dce1ac4ac9b8074681",
+          "selection_certificate_id": "profile-selection:461ce517f94c3680d5c14c6a",
+          "subturn_count": 2
+        },
+        {
+          "hidden_support_count": 1,
+          "hidden_turn_fractions": [
+            "1/2"
+          ],
+          "owner_sector_id": "host-v0:owner-sector:770ee3e1cd404f2dff8cc137",
+          "selection_certificate_id": "profile-selection:b8d06821e8421434b79dad2c",
+          "subturn_count": 2
+        },
+        {
+          "hidden_support_count": 1,
+          "hidden_turn_fractions": [
+            "1/2"
+          ],
+          "owner_sector_id": "host-v0:owner-sector:b4426220b8b8721bc83b51c0",
+          "selection_certificate_id": "profile-selection:121f6275eaa3646c47da428d",
+          "subturn_count": 2
+        },
+        {
+          "hidden_support_count": 1,
+          "hidden_turn_fractions": [
+            "1/2"
+          ],
+          "owner_sector_id": "host-v0:owner-sector:e65861ea6b0a157c0d043372",
+          "selection_certificate_id": "profile-selection:8128d5ca81d1d027137fa998",
+          "subturn_count": 2
+        }
+      ]
+    },
+    "fixture": "building_002_full_selection_v1",
+    "request": {
+      "byte_length": 1983,
+      "codec": "DecalRequestCodecV1",
+      "decode_reencode_byte_fixed": true,
+      "max_subturn_exact_value_symbol": "PI_OVER_3",
+      "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+      "selection_policy": "MIN_K_FOR_MAX_SUBTURN_V1",
+      "sha256": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d"
+    },
+    "snapshot": {
+      "byte_length": 114846,
+      "codec": "AnalysisSnapshotCodecV1",
+      "decode_reencode_byte_fixed": true,
+      "sha256": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16"
+    }
+  },
+  "planned_key_contract": {
+    "$type": "ConveyorPreparationCacheKeyContractProofV1",
+    "canonicalization": "UTF8_JSON_SORT_KEYS_COMPACT_NO_TRAILING_LF_V1",
+    "compile_static_mutation_matrix": [
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "source_revision_value",
+        "mutated_sha256": "bf39bd67db3e2ee4cd6fcbd7a8e7c8cf6c97cb7e514a876aa0b940a8d1ac17bd",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "patch_domain_id",
+        "mutated_sha256": "f50a75a5c9fe305f82b7097b341e23269a22798fe319b6990a0973149f4b5745",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "selected_chain_use_ids",
+        "mutated_sha256": "bb3d21301960a5c24f47ddb5ee035ab04dde634906c7e1d545d45d2df1245602",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "selected_physical_edge_ids",
+        "mutated_sha256": "c4ca4d2aa17a333702a09f46190b0fcee8ecd290bf174053a5305ed9128350b6",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "schema_version",
+        "mutated_sha256": "f753d7a0f615565f0f22fa787dc213451d44e1a479114328e745c2bda956d0f8",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "decal_request_id",
+        "mutated_sha256": "384b047c67224f26074ff04245a2067fcfeb723707139e624ddcf4ee098cfa04",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "metric_space",
+        "mutated_sha256": "083f122268e790e0da800129e007f6dd9723cd9c972d28195397714ab4229be9",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "angular_profile_family_id",
+        "mutated_sha256": "ba31de3da27f1ded0d0e706f2b4398db68b9af5f8450beeb5c30bce82dd8bbcd",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "cap_policy_id",
+        "mutated_sha256": "795e12c26b700403c12a79297e3c120b9475b13c4eb4746d1416d629b730077a",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "boundary_policy_id",
+        "mutated_sha256": "60b7127e38b5d432a04c47b486d51ccaf64fd65bfbe00e6ccdcc69dd72409f43",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "interaction_policy_id",
+        "mutated_sha256": "2dcf1bb1cccb97e1b32045790e203fd2148d1db86aebcc2dd93b755e203535a1",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "ownership_policy_id",
+        "mutated_sha256": "37d09a775a0808b7fed45946e4813a7fe18b5a89fd29ab205840214f4db7f768",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "material_policy_id",
+        "mutated_sha256": "7ddde9b19aa959292d68ba1a983d3add248da484d7cb28e8442551480b1831bf",
+        "status": "DIFFERENT"
+      },
+      {
+        "baseline_sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "field": "uv_policy_id",
+        "mutated_sha256": "8bcf84fa466f6b33899dbc435d75df72f7633101646862e3ba884166098a31ad",
+        "status": "DIFFERENT"
+      }
+    ],
+    "decal_request_id_is_not_sufficient": {
+      "distinct_density_key_count": 5,
+      "shared_decal_request_id": "host-v0:decal-request:f3bd95a29cb56f37cfd13d44",
+      "status": "PASS"
+    },
+    "density_authorities": [
+      {
+        "density": 0,
+        "max_subturn_exact_value_symbol": "PI_OVER_2",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1"
+      },
+      {
+        "density": 1,
+        "max_subturn_exact_value_symbol": "PI_OVER_3",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+      },
+      {
+        "density": 2,
+        "max_subturn_exact_value_symbol": "PI_OVER_4",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1"
+      },
+      {
+        "density": 3,
+        "max_subturn_exact_value_symbol": "PI_OVER_5",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1"
+      },
+      {
+        "density": 4,
+        "max_subturn_exact_value_symbol": "PI_OVER_6",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1"
+      }
+    ],
+    "density_key_matrix": [
+      {
+        "byte_length": 1714,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_2\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_90_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "density": 0,
+        "sha256": "e2f0401cc307028a998cf1eb976e4e3e590c1c5c85648dcfd34dff8dc907edfd"
+      },
+      {
+        "byte_length": 1714,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_3\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "density": 1,
+        "sha256": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3"
+      },
+      {
+        "byte_length": 1714,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_4\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_45_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "density": 2,
+        "sha256": "dabb690a6632f270f6cedd78128705e3b21d6e45d690ceaf260ba19f583f1794"
+      },
+      {
+        "byte_length": 1714,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_5\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_36_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "density": 3,
+        "sha256": "b1d387f2d57e49a455e6f53884c70112d01843a89f698ed94b9bdb704c1bb6e2"
+      },
+      {
+        "byte_length": 1714,
+        "canonical_utf8": "{\"$type\":\"ConveyorPreparationCacheKeyV2Proof\",\"compile_static_request\":{\"angular_profile_family_id\":\"LINEAR_REFLEX_EQUAL_V1\",\"angular_profile_selection_policy_id\":\"HUBER_EMANATED_VERTEX_FLOOR_V1\",\"boundary_policy_id\":\"BOUNDARY_LIMITED_PROPAGATION\",\"cap_policy_id\":\"PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1\",\"decal_request_id\":\"host-v0:decal-request:f3bd95a29cb56f37cfd13d44\",\"interaction_policy_id\":\"INTRAPATCH_POLICY_B_V1\",\"material_policy_id\":\"ENVELOPE_DEBUG_NO_MATERIAL_V1\",\"max_subturn_exact_value_symbol\":\"PI_OVER_6\",\"max_subturn_parameter_id\":\"LINEAR_REFLEX_MAX_SUBTURN_V1\",\"max_subturn_value_id\":\"LINEAR_REFLEX_MAX_SUBTURN_30_DEGREES_V1\",\"metric_space\":\"SOURCE_LOCAL_INTRINSIC\",\"ownership_policy_id\":\"TOTAL_DISJOINT_RESOLVED_COVERAGE_V1\",\"schema_version\":\"cftuv.envelope.decal_request.v1\",\"uv_policy_id\":\"ENVELOPE_DEBUG_NO_UV_V1\"},\"patch_domain_id\":\"host-v0:patch-domain:bf66337616136188f314fb69\",\"schema_version\":\"cftuv.envelope.conveyor_preparation_cache_key.proof.v2\",\"selected_chain_use_ids\":[\"host-v0:chain-use:10d2c628f7abf99a3e7cac96\",\"host-v0:chain-use:34deda43365746e1b753c125\",\"host-v0:chain-use:3562c29b17b05b8851d54210\",\"host-v0:chain-use:55a91672dbf8e1cd6f62ba60\",\"host-v0:chain-use:596a60ada6cb215b14c683f0\",\"host-v0:chain-use:6d9faa2581ad0c02e518d297\",\"host-v0:chain-use:80119f15cae40e97f3727976\",\"host-v0:chain-use:abe3ec586d60bea450ab74ee\",\"host-v0:chain-use:b0f5bd8218305496ed2c499f\",\"host-v0:chain-use:b4e7558fce187cab081082aa\",\"host-v0:chain-use:fefd7b48cd65d85d0f50b1d0\",\"host-v0:chain-use:ff677ce60692e74fdbe13e2f\"],\"selected_physical_edge_ids\":[1,2,3,4,5,6,7,8,9,10,11,12],\"source_revision_value\":\"host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002\"}",
+        "density": 4,
+        "sha256": "06669b3950d2c603acac98f2525307d359dd629d5c15c48fe0a1e0f7bc7e2c4d"
+      }
+    ],
+    "excluded_non_authority": [
+      "requested_alpha",
+      "ui_density_integer"
+    ],
+    "field_order": [
+      "$type",
+      "schema_version",
+      "source_revision_value",
+      "patch_domain_id",
+      "selected_chain_use_ids",
+      "selected_physical_edge_ids",
+      "compile_static_request.schema_version",
+      "compile_static_request.decal_request_id",
+      "compile_static_request.metric_space",
+      "compile_static_request.angular_profile_family_id",
+      "compile_static_request.angular_profile_selection_policy_id",
+      "compile_static_request.max_subturn_parameter_id",
+      "compile_static_request.max_subturn_value_id",
+      "compile_static_request.max_subturn_exact_value_symbol",
+      "compile_static_request.cap_policy_id",
+      "compile_static_request.boundary_policy_id",
+      "compile_static_request.interaction_policy_id",
+      "compile_static_request.ownership_policy_id",
+      "compile_static_request.material_policy_id",
+      "compile_static_request.uv_policy_id"
+    ],
+    "key_type": "ConveyorPreparationCacheKeyV2Proof",
+    "named_red_controls": {
+      "alpha_included": {
+        "expected": "ALPHA_IS_NOT_COMPILE_STATIC",
+        "observed": "ALPHA_IS_NOT_COMPILE_STATIC",
+        "status": "PASS"
+      },
+      "density_collision": {
+        "expected": "DENSITY_VALUE_ID_COLLISION",
+        "observed": "DENSITY_VALUE_ID_COLLISION",
+        "status": "PASS"
+      },
+      "mismatched_exact_symbol": {
+        "expected": "DENSITY_EXACT_VALUE_MISMATCH",
+        "observed": "DENSITY_EXACT_VALUE_MISMATCH",
+        "status": "PASS"
+      },
+      "missing_compile_static_field": {
+        "expected": "COMPILE_STATIC_FIELD_MISSING",
+        "observed": "COMPILE_STATIC_FIELD_MISSING",
+        "status": "PASS"
+      },
+      "missing_density_field": {
+        "expected": "DENSITY_AUTHORITY_FIELD_MISSING",
+        "observed": "DENSITY_AUTHORITY_FIELD_MISSING",
+        "status": "PASS"
+      },
+      "ui_integer_included": {
+        "expected": "UI_INTEGER_IS_NOT_COMPILE_STATIC",
+        "observed": "UI_INTEGER_IS_NOT_COMPILE_STATIC",
+        "status": "PASS"
+      },
+      "unknown_parameter_id": {
+        "expected": "DENSITY_PARAMETER_ID_UNKNOWN",
+        "observed": "DENSITY_PARAMETER_ID_UNKNOWN",
+        "status": "PASS"
+      },
+      "unknown_selection_policy": {
+        "expected": "DENSITY_SELECTION_POLICY_ID_UNKNOWN",
+        "observed": "DENSITY_SELECTION_POLICY_ID_UNKNOWN",
+        "status": "PASS"
+      },
+      "unknown_value_id": {
+        "expected": "DENSITY_VALUE_ID_UNKNOWN",
+        "observed": "DENSITY_VALUE_ID_UNKNOWN",
+        "status": "PASS"
+      }
+    },
+    "same_authority_matrix": [
+      {
+        "case": "alpha_0.25_to_0.5",
+        "sha256_a": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "sha256_b": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "status": "SAME"
+      },
+      {
+        "case": "ui_integer_1_to_4_exact_authority_unchanged",
+        "sha256_a": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "sha256_b": "25d4d4533dc56b8573ef3c330a784e5d8b77260984b000313b109b89106c01d3",
+        "status": "SAME"
+      }
+    ]
+  },
+  "preclaim_gate": {
+    "product_tree_oids": {
+      "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
+      "kernel/src": "ed33d3f43635a5acbe5b8695dfed9b2e12396c6b",
+      "tools": "ec5439a5fc8ea46784d4621ac763f941b4833c36"
+    },
+    "rule": "PRODUCT_TREE_AND_SEAM_BLOBS_MATCH_BEFORE_CLAIMS",
+    "seam_blob_oids": {
+      "cftuv/envelope_debug_session.py": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "cftuv/envelope_queue_export.py": "92690a1f25076b40cd77082da9c746cf466a2d83",
+      "kernel/src/cftuv_envelope/codec.py": "a921638fee6dda0e74dbe3181a22241db5850b86",
+      "kernel/src/cftuv_envelope/contracts/request.py": "88e09b704fafd5133e42d81b5ffe07071cfec206",
+      "kernel/src/cftuv_envelope/reference/compile.py": "51f46766e21a6e5aa47b766bc06b33ce26810271",
+      "kernel/src/cftuv_envelope/wavefront/conveyor.py": "eac26a92a16f676375d75edbda7c62cb3219d1c0"
+    },
+    "status": "PASS"
+  },
+  "real_seams": [
+    {
+      "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "line_end": 67,
+      "line_start": 32,
+      "normalized_lf_sha256": "56fe1c476ad2bc407e0193e50430d07957e366d77e59f504535fc06c572da619",
+      "normalized_lf_text": "@dataclass(frozen=True, slots=True)\nclass CompiledEnvelopeCacheKeyV1:\n    \"\"\"Compile-static key; intentionally excludes requested alpha.\"\"\"\n\n    source_revision_value: str\n    selected_chain_use_ids: tuple[str, ...]\n    policy_values: tuple[str, ...]\n\n    @classmethod\n    def from_request(cls, source_revision_value: str, request):\n        def value(item) -> str:\n            return str(item.value) if hasattr(item, \"value\") else str(item)\n\n        return cls(\n            str(source_revision_value),\n            tuple(\n                sorted(value(item) for item in request.selected_chain_use_ids)\n            ),\n            tuple(\n                value(getattr(request, name))\n                for name in (\n                    \"metric_space\",\n                    \"angular_profile_family_id\",\n                    \"angular_profile_selection_policy_id\",\n                    \"max_subturn_parameter_id\",\n                    \"max_subturn_value_id\",\n                    \"max_subturn_exact_value\",\n                    \"cap_policy_id\",\n                    \"boundary_policy_id\",\n                    \"interaction_policy_id\",\n                    \"ownership_policy_id\",\n                    \"material_policy_id\",\n                    \"uv_policy_id\",\n                )\n            ),\n        )\n",
+      "path": "cftuv/envelope_debug_session.py",
+      "purpose": "compile-key evidence"
+    },
+    {
+      "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "line_end": 130,
+      "line_start": 125,
+      "normalized_lf_sha256": "cd5247ca2c317cdc2c44e66c0513ebd6b8305546e0d9513a6be3687bdf03c8ae",
+      "normalized_lf_text": "        # Подготовка очереди alpha-НЕЗАВИСИМА (ядро доказало это побитовым\n        # совпадением скелета при alpha 0.25 и 0.5), поэтому ключ её и не\n        # содержит: только ревизия источника, домен и выделенные рёбра домена.\n        self._conveyor_preparation_cache: dict[\n            tuple[str, str, frozenset[int]], object\n        ] = {}\n",
+      "path": "cftuv/envelope_debug_session.py",
+      "purpose": "current preparation key"
+    },
+    {
+      "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "line_end": 474,
+      "line_start": 430,
+      "normalized_lf_sha256": "88f115df58070e041379dd359a0da5e96d5f733b3b4d7e6bada9ede0825d1772",
+      "normalized_lf_text": "    def get_conveyor_preparation(\n        self,\n        source_revision_value: str,\n        patch_domain_id: str,\n        selected_edge_ids: frozenset[int],\n        build,\n        *,\n        profile: EnvelopeDebugProfileBuilderV1 | None = None,\n    ):\n        \"\"\"Подготовка очереди из кэша либо построенная и запомненная.\n\n        Ключ не содержит alpha намеренно: alpha-независимость подготовки\n        доказана ядром побитово, и включение alpha в ключ обнуляло бы кэш на\n        каждом движении ползунка — то есть отменяло бы весь смысл разреза.\n        \"\"\"\n\n        key = (\n            str(source_revision_value),\n            str(patch_domain_id),\n            frozenset(int(item) for item in selected_edge_ids),\n        )\n        cached = self._conveyor_preparation_cache.get(key)\n        if cached is not None:\n            self._record_cache(\n                profile,\n                \"CONVEYOR_PREPARATION\",\n                True,\n                patch_domain_id=patch_domain_id,\n                cache_key=key,\n            )\n            return cached\n        prepared = build()\n        self._conveyor_preparation_cache[key] = prepared\n        self._build_counts[\"CONVEYOR_PREPARATION\"] += 1\n        self._cache_build_counts[(\"CONVEYOR_PREPARATION\", key)] = (\n            self._cache_build_counts.get((\"CONVEYOR_PREPARATION\", key), 0) + 1\n        )\n        self._record_cache(\n            profile,\n            \"CONVEYOR_PREPARATION\",\n            False,\n            patch_domain_id=patch_domain_id,\n            cache_key=key,\n        )\n        return prepared\n",
+      "path": "cftuv/envelope_debug_session.py",
+      "purpose": "cache construction"
+    },
+    {
+      "blob_oid": "3e69d6c2e201ea8f5cbe5508486b68681b2128ee",
+      "line_end": 555,
+      "line_start": 541,
+      "normalized_lf_sha256": "70ad4a3ffb4b6ed4b68a1b26654228ec3fead11d11d79e94015ec82ce7ca1bee",
+      "normalized_lf_text": "        def preparation_provider(\n            _patch_id,\n            domain_id,\n            selected_edges,\n            snapshot,\n            request,\n        ):\n            from cftuv_envelope.wavefront import prepare_conveyor\n\n            return self.get_conveyor_preparation(\n                revision,\n                domain_id,\n                selected_edges,\n                lambda: prepare_conveyor(snapshot, request),\n                profile=profile,\n",
+      "path": "cftuv/envelope_debug_session.py",
+      "purpose": "request-consuming seam"
+    },
+    {
+      "blob_oid": "92690a1f25076b40cd77082da9c746cf466a2d83",
+      "line_end": 736,
+      "line_start": 700,
+      "normalized_lf_sha256": "e7f6844a73136f55566dc88727201a176ab9ccfbac0166c13448dff37bba09ba",
+      "normalized_lf_text": "def run_queue_domain(\n    patch_id: int,\n    patch_domain_id: str,\n    snapshot,\n    request,\n    alpha_text: str,\n    *,\n    selected_edges: frozenset[int] = frozenset(),\n    profile=None,\n    preparation_provider=None,\n):\n    \"\"\"Две ступени очереди на одном домене, каждая под своей стадией профиля.\n\n    Возвращает `(ConveyorPreparationV1, EnvelopeQueueDomainV1)`: подготовка\n    нужна вызывающему и дальше — её кэширует сессия и по ней же считается\n    покрытие при смене alpha.\n    \"\"\"\n\n    from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor\n\n    started = time.perf_counter()\n    with _measure(profile, \"QUEUE_PREPARE\", patch_domain_id):\n        if preparation_provider is None:\n            prepared = prepare_conveyor(snapshot, request)\n        else:\n            prepared = preparation_provider(\n                patch_id,\n                patch_domain_id,\n                frozenset(selected_edges),\n                snapshot,\n                request,\n            )\n    prepare_seconds = time.perf_counter() - started\n\n    started = time.perf_counter()\n    with _measure(profile, \"QUEUE_COVERAGE\", patch_domain_id):\n        coverage = conveyor_coverage(prepared, alpha_text)\n",
+      "path": "cftuv/envelope_queue_export.py",
+      "purpose": "queue provider seam"
+    },
+    {
+      "blob_oid": "eac26a92a16f676375d75edbda7c62cb3219d1c0",
+      "line_end": 1021,
+      "line_start": 995,
+      "normalized_lf_sha256": "8e2d4825fb1a8cab33a5504bf3d120eb40775cb06ee87cc8bd45703bb89ce80e",
+      "normalized_lf_text": "def prepare_conveyor(\n    snapshot: AnalysisSnapshotV1,\n    request: DecalRequestV1,\n    *,\n    patch_domain_id: PatchDomainId | None = None,\n) -> ConveyorPreparationV1:\n    \"\"\"Alpha-независимая подготовка очереди для домена плана.\n\n    Союз не считается, попарный крой не зовётся, `exact_union` не вызывается ни\n    разу.\n\n    Проходятся ВСЕ регионы домена, а не первый: хелпер теста брал\n    `domain_regions[0]`, и разница была невидима, то есть непроверяема. Сколько\n    их на самом деле — ИЗМЕРЕНО, и ответ сильнее фикстуры:\n    `SparsePatchDomainGeometryV1.domain_regions` возвращает РОВНО ОДИН регион\n    по построению, а при нескольких внешних петлях отказывает\n    `REFERENCE_INPUT_CONTRACT_INVALID`. То есть в v1 второго региона не бывает\n    вовсе, и цикл здесь — не запас на будущее, а отсутствие молчаливой\n    зависимости от этого контракта. Число регионов лежит счётчиком\n    `CONVEYOR_DOMAIN_REGIONS`, и оно на фикстуре равно 1 не случайно.\n    \"\"\"\n\n    clock = _Clock()\n    inputs, refusal = _prepare_inputs(snapshot, request, patch_domain_id, clock)\n    if inputs is None:\n        return refusal\n    compilation, context, domain, reading, lattice, binding_residual = inputs\n",
+      "path": "kernel/src/cftuv_envelope/wavefront/conveyor.py",
+      "purpose": "kernel preparation entry"
+    }
+  ],
+  "schema_version": "cftuv.envelope.dens_a_prime_contract_proof.v1",
+  "scope": "PROOF_ONLY_NO_PRODUCT_AUTHORITY"
+}
