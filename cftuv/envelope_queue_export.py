@@ -804,6 +804,7 @@ def _queue_snapshot_and_request(
     alpha,
     request_id: str,
     *,
+    density,
     profile=None,
     topology_export=None,
     domain_snapshot_provider=None,
@@ -828,6 +829,7 @@ def _queue_snapshot_and_request(
             selected_edges,
             alpha,
             decal_request_id_value=request_id,
+            density=density,
         )
     return snapshot, request
 
@@ -882,6 +884,7 @@ def evaluate_envelope_queue_staged(
     topology_export=None,
     domain_snapshot_provider=None,
     preparation_provider=None,
+    density,
 ):
     """Движок QUEUE: подготовка плюс покрытие с владельцами, без союза.
 
@@ -966,6 +969,7 @@ def evaluate_envelope_queue_staged(
                 alpha,
                 alpha_text,
                 request_id,
+                density=density,
                 profile=profile,
                 topology_export=topology_export,
                 domain_snapshot_provider=domain_snapshot_provider,
@@ -988,6 +992,7 @@ def _queue_domain_evaluation(
     alpha_text: str,
     request_id: str,
     *,
+    density,
     profile=None,
     topology_export=None,
     domain_snapshot_provider=None,
@@ -1009,6 +1014,7 @@ def _queue_domain_evaluation(
             selected_edges,
             alpha,
             request_id,
+            density=density,
             profile=profile,
             topology_export=topology_export,
             domain_snapshot_provider=domain_snapshot_provider,

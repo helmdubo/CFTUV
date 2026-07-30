@@ -83,6 +83,7 @@ def _run_legacy_default_creates_no_queue_layer():
     source_obj = _build_two_patch_seam()
     settings = _settings()
     assert settings.envelope_debug_engine == "LEGACY"
+    assert settings.envelope_debug_fan_density == "1"
     assert (
         bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
         == {"FINISHED"}
@@ -225,6 +226,47 @@ def _run_repeat_press_hits_the_preparation_cache():
     assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [0, 0]
 
 
+def _run_density_sequence_keys_preparation_and_invalidates_only_warm_session():
+    """Последовательность 1,1,4,1 даёт miss/hit/miss/hit по каждому домену."""
+
+    settings = _settings()
+    controller = _controller()
+    density_one_count = controller.build_counts["CONVEYOR_PREPARATION"]
+    assert density_one_count > 0
+
+    settings.envelope_debug_fan_density = "4"
+    assert controller.queue_session is None
+    assert settings.envelope_debug_queue_timing == (
+        "Fan Density changed; press Build"
+    )
+    settings.envelope_debug_alpha = 0.4
+    assert settings.envelope_debug_queue_timing == (
+        "Fan Density changed; press Build"
+    )
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    density_four_count = controller.build_counts["CONVEYOR_PREPARATION"]
+    assert density_four_count == density_one_count * 2
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_HIT") == [0, 0]
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [1, 1]
+
+    settings.envelope_debug_alpha = 0.42
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == density_four_count
+    assert "alpha redraw" in settings.envelope_debug_queue_timing
+
+    settings.envelope_debug_fan_density = "1"
+    assert controller.queue_session is None
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == density_four_count
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_HIT") == [1, 1]
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [0, 0]
+
+
 def _visibility_toggle_hides_only_queue(source_obj):
     settings = _settings()
     settings.envelope_debug_show_queue = False
@@ -253,6 +295,7 @@ def _main():
     source_obj, payload = _run_queue_engine_paints_owners()
     _run_alpha_change_reuses_the_preparation(source_obj, payload)
     _run_repeat_press_hits_the_preparation_cache()
+    _run_density_sequence_keys_preparation_and_invalidates_only_warm_session()
     _visibility_toggle_hides_only_queue(source_obj)
     print("ENVELOPE_QUEUE_BLENDER_SMOKE_OK")
 

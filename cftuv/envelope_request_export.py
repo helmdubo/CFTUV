@@ -21,6 +21,11 @@ from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_GRID_POLICY, HOST_PLANARITY_POLICY
+from .envelope_request_policy import (
+    build_envelope_request_contract,
+    envelope_angular_policy,
+    envelope_decal_request_id_value,
+)
 from .envelope_angle_certificate import (
     SnapshotExportRejected,
     certified_reflex_measure,
@@ -2331,10 +2336,12 @@ def build_envelope_decal_request(
     alpha: float,
     *,
     decal_request_id_value: str | None = None,
+    density=None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request."""
 
     kernel, _ = _load_kernel()
+    angular_policy = envelope_angular_policy(kernel, density)
     if not selected_physical_edge_ids:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
@@ -2399,32 +2406,20 @@ def build_envelope_decal_request(
             f"requested alpha must be finite and non-negative: {alpha}",
         )
     request_id = kernel.DecalRequestId(
-        decal_request_id_value
-        or _typed_value(
-            "decal-request",
+        envelope_decal_request_id_value(
+            _typed_value,
             snapshot.source_revision.value,
-            tuple(sorted(item.value for item in selected_chain_ids)),
+            selected_chain_ids,
+            decal_request_id_value,
+            angular_policy,
         )
     )
-    request = kernel.DecalRequestV1(
-        schema_version=kernel.DECAL_REQUEST_SCHEMA_V1,
-        decal_request_id=request_id,
-        selected_chain_use_ids=selected_use_ids,
-        requested_alpha=kernel.LocalLengthV1(alpha_decimal),
-        metric_space=kernel.MetricSpace.SOURCE_LOCAL_INTRINSIC,
-        angular_profile_family_id=kernel.AngularProfileFamilyId.LINEAR_REFLEX_EQUAL_V1,
-        angular_profile_selection_policy_id=kernel.AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1,
-        max_subturn_parameter_id=kernel.MaxSubturnParameterId.LINEAR_REFLEX_MAX_SUBTURN_V1,
-        max_subturn_value_id=kernel.MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1,
-        max_subturn_exact_value=kernel.ExactAngleV1(
-            kernel.ExactAngleSymbol.PI_OVER_3
-        ),
-        cap_policy_id=kernel.CapPolicyId.PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1,
-        boundary_policy_id=kernel.BoundaryPolicyId.BOUNDARY_LIMITED_PROPAGATION,
-        interaction_policy_id=kernel.InteractionPolicyId.INTRAPATCH_POLICY_B_V1,
-        ownership_policy_id=kernel.OwnershipPolicyId.TOTAL_DISJOINT_RESOLVED_COVERAGE_V1,
-        material_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_MATERIAL_V1"),
-        uv_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_UV_V1"),
+    request = build_envelope_request_contract(
+        kernel,
+        request_id,
+        selected_use_ids,
+        alpha_decimal,
+        angular_policy,
     )
     issues = kernel.validate_decal_request(request)
     issues += kernel.validate_snapshot_request_references(snapshot, request)
@@ -2499,7 +2494,8 @@ def _scene_diagnostics(kernel, diagnostics):
 def evaluate_envelope_debug(
     analysis_bundle: AnalysisBundle,
     selected_physical_edge_ids: frozenset[int],
-    alpha: float,
+    alpha: float, *,
+    density=None,
 ) -> EnvelopeDebugEvaluationV1:
     """Run V0-A full recompute and publish only one complete DebugScene."""
 
@@ -2520,7 +2516,7 @@ def evaluate_envelope_debug(
         # полные цепочки, и передать сюда исходное значило бы вернуть тот же
         # отказ на слое ниже.
         request = build_envelope_decal_request(
-            snapshot, scope.edge_ids, alpha
+            snapshot, scope.edge_ids, alpha, density=density
         )
     except EnvelopeHostAdapterError as exc:
         timings.append(
@@ -2714,6 +2710,7 @@ def evaluate_envelope_debug_staged(
     profile: EnvelopeDebugProfileBuilderV1 | None = None,
     topology_export=None,
     domain_snapshot_provider=None,
+    density,
 ) -> EnvelopeDebugStagedEvaluationV1:
     """Evaluate exact reference coverage per domain after host topology."""
 
@@ -2803,6 +2800,7 @@ def evaluate_envelope_debug_staged(
                     frozenset(selected_edges_by_domain[domain_id]),
                     alpha,
                     decal_request_id_value=global_request_id,
+                    density=density,
                 )
         except EnvelopeHostAdapterError as exc:
             diagnostic = exc.diagnostic()
