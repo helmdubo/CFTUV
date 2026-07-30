@@ -630,10 +630,19 @@ def _receipt_failure(densities, scene_before: dict, scene_after: dict) -> str | 
     ):
         return DENSITY_SWEEP_CALL_COUNT_MISMATCH
     reports = [report for item in densities for report in item["reports"]]
-    if len(reports) != _EXPECTED_TOTAL_CALLS or any(
-        report.get("result") == "EXCEPTION" for report in reports
-    ):
+    if len(reports) != _EXPECTED_TOTAL_CALLS:
         return DENSITY_SWEEP_CALL_COUNT_MISMATCH
+    for report in reports:
+        if (
+            type(report.get("result")) is not list
+            or report["result"] != ["FINISHED"]
+        ):
+            return BUTTON_OPERATOR_DID_NOT_FINISH
+        if (
+            report.get("sidecar_absent_before_operator") is not True
+            or report.get("sidecar_fresh_after_operator") is not True
+        ):
+            return BUTTON_SIDECAR_NOT_FRESH
     if any(not item["unchanged"] for density in densities for item in density["source_fingerprints"]):
         return SOURCE_MESH_FINGERPRINT_CHANGED
     if scene_before != scene_after:
