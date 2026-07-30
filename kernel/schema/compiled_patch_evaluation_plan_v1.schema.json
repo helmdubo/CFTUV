@@ -136,7 +136,8 @@
         },
         "admissibility_upper_bound": {
           "enum": [
-            "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"
+            "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX",
+            "HUBER_DENSITY_BUCKET_CLOSED_UPPER"
           ],
           "type": "string"
         },
@@ -163,13 +164,19 @@
         },
         "max_subturn_value_id": {
           "enum": [
-            "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+            "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+            "LINEAR_REFLEX_DENSITY_0_V1",
+            "LINEAR_REFLEX_DENSITY_1_V1",
+            "LINEAR_REFLEX_DENSITY_2_V1",
+            "LINEAR_REFLEX_DENSITY_3_V1",
+            "LINEAR_REFLEX_DENSITY_4_V1"
           ],
           "type": "string"
         },
         "minimality_lower_bound": {
           "enum": [
-            "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"
+            "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA",
+            "HUBER_DENSITY_BUCKET_OPEN_LOWER"
           ],
           "type": "string"
         },
@@ -209,17 +216,26 @@
           "type": "integer"
         },
         "selection_interval_certificate": {
-          "$ref": "#/$defs/SelectionIntervalCertificateV1"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SelectionIntervalCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/HuberDensitySelectionIntervalCertificateV1"
+            }
+          ]
         },
         "selection_law": {
           "enum": [
-            "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
+            "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
+            "HUBER_EMANATED_DENSITY_FLOOR_V1"
           ],
           "type": "string"
         },
         "selection_policy_id": {
           "enum": [
-            "MIN_K_FOR_MAX_SUBTURN_V1"
+            "MIN_K_FOR_MAX_SUBTURN_V1",
+            "HUBER_EMANATED_COUNT_DENSITY_A_V1"
           ],
           "type": "string"
         }
@@ -1853,6 +1869,50 @@
         "source_relation_id",
         "owner_sector_id",
         "selection_certificate_id"
+      ],
+      "type": "object"
+    },
+    "HuberDensitySelectionIntervalCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "HuberDensitySelectionIntervalCertificateV1"
+        },
+        "bucket_c": {
+          "type": "integer"
+        },
+        "lower_bound_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "lower_bound_numerator": {
+          "type": "integer"
+        },
+        "q": {
+          "type": "integer"
+        },
+        "upper_bound_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper_bound_numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "q",
+        "bucket_c",
+        "lower_bound_kind",
+        "lower_bound_numerator",
+        "upper_bound_kind",
+        "upper_bound_numerator"
       ],
       "type": "object"
     },

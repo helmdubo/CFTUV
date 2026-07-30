@@ -38,6 +38,7 @@ from .contracts.analysis import (
 )
 from .contracts.coverage import CoverageEffect
 from .contracts.envelopes import (
+    AdmissibilityUpperBound,
     AngularEnvelopeSpec,
     CapEnvelopeSpec,
     CertifiedBoundHiddenSupportDirectionLawV1,
@@ -45,7 +46,12 @@ from .contracts.envelopes import (
     EnvelopeSpecVariant,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
+    HuberDensitySelectionIntervalCertificateV1,
+    IntervalBoundKind,
     JunctionEnvelopeSpec,
+    MinimalityLowerBound,
+    SelectionIntervalCertificateV1,
+    SelectionLaw,
     StripEnvelopeSpec,
 )
 from .contracts.events import EventParticipantKind, InitialFrontFeatureKind
@@ -1304,16 +1310,28 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
     return tuple(issues)
 
 
+def _huber_density_value_contract(
+    value_id: MaxSubturnValueId,
+) -> tuple[int, ExactAngleSymbol] | None:
+    if value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_0_V1:
+        return 2, ExactAngleSymbol.PI_OVER_2
+    if value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_1_V1:
+        return 3, ExactAngleSymbol.PI_OVER_3
+    if value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1:
+        return 4, ExactAngleSymbol.PI_OVER_4
+    if value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_3_V1:
+        return 5, ExactAngleSymbol.PI_OVER_5
+    if value_id is MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1:
+        return 6, ExactAngleSymbol.PI_OVER_6
+    return None
+
+
 def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     expected = (
         (request.schema_version == DECAL_REQUEST_SCHEMA_V1, "schema_version"),
         (request.metric_space is MetricSpace.SOURCE_LOCAL_INTRINSIC, "metric_space"),
         (request.angular_profile_family_id is AngularProfileFamilyId.LINEAR_REFLEX_EQUAL_V1, "angular_profile_family_id"),
-        (request.angular_profile_selection_policy_id is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1, "angular_profile_selection_policy_id"),
-        (request.max_subturn_parameter_id is MaxSubturnParameterId.LINEAR_REFLEX_MAX_SUBTURN_V1, "max_subturn_parameter_id"),
-        (request.max_subturn_value_id is MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1, "max_subturn_value_id"),
-        (request.max_subturn_exact_value.symbol is ExactAngleSymbol.PI_OVER_3, "max_subturn_exact_value"),
         (request.cap_policy_id is CapPolicyId.PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1, "cap_policy_id"),
         (request.boundary_policy_id is BoundaryPolicyId.BOUNDARY_LIMITED_PROPAGATION, "boundary_policy_id"),
         (request.interaction_policy_id is InteractionPolicyId.INTRAPATCH_POLICY_B_V1, "interaction_policy_id"),
@@ -1323,6 +1341,58 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
         if not valid:
             code = ValidationCode.SCHEMA_VERSION if field == "schema_version" else ValidationCode.POLICY_MISMATCH
             _issue(issues, code, (field,), "unsupported v1 value")
+    policy = request.angular_profile_selection_policy_id
+    if policy is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1:
+        angular_expected = (
+            (
+                request.max_subturn_parameter_id
+                is MaxSubturnParameterId.LINEAR_REFLEX_MAX_SUBTURN_V1,
+                "max_subturn_parameter_id",
+            ),
+            (
+                request.max_subturn_value_id
+                is MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1,
+                "max_subturn_value_id",
+            ),
+            (
+                request.max_subturn_exact_value.symbol
+                is ExactAngleSymbol.PI_OVER_3,
+                "max_subturn_exact_value",
+            ),
+        )
+    elif (
+        policy
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    ):
+        value_contract = _huber_density_value_contract(
+            request.max_subturn_value_id
+        )
+        angular_expected = (
+            (
+                request.max_subturn_parameter_id
+                is MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_A_V1,
+                "max_subturn_parameter_id",
+            ),
+            (value_contract is not None, "max_subturn_value_id"),
+            (
+                value_contract is not None
+                and request.max_subturn_exact_value.symbol
+                is value_contract[1],
+                "max_subturn_exact_value",
+            ),
+        )
+    else:
+        angular_expected = (
+            (False, "angular_profile_selection_policy_id"),
+        )
+    for valid, field in angular_expected:
+        if not valid:
+            _issue(
+                issues,
+                ValidationCode.POLICY_MISMATCH,
+                (field,),
+                "unsupported angular policy tuple",
+            )
     if not request.selected_chain_use_ids:
         _issue(issues, ValidationCode.MISSING_REFERENCE, ("selected_chain_use_ids",), "at least one ChainUse is required")
     return tuple(issues)
@@ -1406,8 +1476,77 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
         interval = certificate.selection_interval_certificate
         if k < 0 or certificate.resolved_subturn_count != k + 1 or certificate.local_profile_support_count != k + 2 or certificate.local_profile_segment_count != k + 2:
             _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, ("angular_profile_selection_certificates", str(certificate.certificate_id)), "k+1/k+2 cardinality law violated")
-        if interval.lower_bound_integer != k or interval.upper_bound_integer != k + 1:
-            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, ("angular_profile_selection_certificates", str(certificate.certificate_id), "selection_interval_certificate"), "certificate must encode open k < ratio <= k+1")
+        certificate_path = (
+            "angular_profile_selection_certificates",
+            str(certificate.certificate_id),
+        )
+        if (
+            certificate.selection_policy_id
+            is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1
+        ):
+            legacy_contract = (
+                certificate.max_subturn_value_id
+                is MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1
+                and certificate.selection_law
+                is SelectionLaw.MIN_K_FOR_MAX_SUBTURN
+                and certificate.minimality_lower_bound
+                is MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER
+                and certificate.admissibility_upper_bound
+                is AdmissibilityUpperBound.CLOSED_UPPER
+                and type(interval) is SelectionIntervalCertificateV1
+                and interval.lower_bound_kind is IntervalBoundKind.OPEN
+                and interval.upper_bound_kind is IntervalBoundKind.CLOSED
+                and interval.lower_bound_integer == k
+                and interval.upper_bound_integer == k + 1
+            )
+            if not legacy_contract:
+                _issue(
+                    issues,
+                    ValidationCode.ANGULAR_CERTIFICATE,
+                    certificate_path + ("selection_interval_certificate",),
+                    "legacy certificate must encode open k < ratio <= k+1",
+                )
+        elif (
+            certificate.selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ):
+            value_contract = _huber_density_value_contract(
+                certificate.max_subturn_value_id
+            )
+            density_contract = (
+                value_contract is not None
+                and certificate.selection_law
+                is SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1
+                and certificate.minimality_lower_bound
+                is MinimalityLowerBound.HUBER_DENSITY_BUCKET_OPEN_LOWER
+                and certificate.admissibility_upper_bound
+                is AdmissibilityUpperBound.HUBER_DENSITY_BUCKET_CLOSED_UPPER
+                and type(interval)
+                is HuberDensitySelectionIntervalCertificateV1
+                and interval.q == value_contract[0]
+                and 1 <= interval.bucket_c <= interval.q
+                and interval.lower_bound_kind is IntervalBoundKind.OPEN
+                and interval.upper_bound_kind is IntervalBoundKind.CLOSED
+                and interval.lower_bound_numerator
+                == interval.bucket_c - 1
+                and interval.upper_bound_numerator == interval.bucket_c
+                and k == max(1, interval.bucket_c - 1)
+                and k <= 5
+            )
+            if not density_contract:
+                _issue(
+                    issues,
+                    ValidationCode.ANGULAR_CERTIFICATE,
+                    certificate_path + ("selection_interval_certificate",),
+                    "Density A certificate must encode (C-1)/q < u <= C/q and H=max(1,C-1)",
+                )
+        else:
+            _issue(
+                issues,
+                ValidationCode.POLICY_MISMATCH,
+                certificate_path + ("selection_policy_id",),
+                "unsupported angular selection policy",
+            )
 
     spec_by_id = {spec.envelope_spec_id: spec for spec in plan.envelope_specs}
     for spec in plan.envelope_specs:

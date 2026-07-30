@@ -15,7 +15,11 @@ class MetricSpace(str, Enum):
 
 
 class ExactAngleSymbol(str, Enum):
+    PI_OVER_2 = "PI_OVER_2"
     PI_OVER_3 = "PI_OVER_3"
+    PI_OVER_4 = "PI_OVER_4"
+    PI_OVER_5 = "PI_OVER_5"
+    PI_OVER_6 = "PI_OVER_6"
 
 
 class SurfaceCoordinateUnavailableReason(str, Enum):

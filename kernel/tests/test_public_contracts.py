@@ -44,10 +44,10 @@ from cftuv_envelope import (
 # Финальная recertification того же среза добавляет typed reason и отдельный
 # evaluation-geometry certificate; legacy certificate остаётся отдельным типом,
 # чтобы synthetic bytes не двигались.
-# SEM-CLB-02-R добавляет только явный V2 straight-chain binding, его записи,
-# закон, codec/validator и union alias; V1 DTO и canonical bytes не расширены.
-PUBLIC_API_CHAIN_STRAIGHT_BINDING_V2_SHA256 = (
-    "53d082fccf7cfd86b8d526908877c1e6d62d382714cd4602f20c4d90fc1c57b8"
+# DENS-K добавляет именованные density IDs и отдельный tagged interval
+# certificate; прежний SelectionIntervalCertificateV1 не расширен.
+PUBLIC_API_HUBER_DENSITY_A_V1_SHA256 = (
+    "ba368dae5955ebd83b7374c4943396ef3ba736d5899defa5757935272cb194e8"
 )
 
 
@@ -99,7 +99,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_CHAIN_STRAIGHT_BINDING_V2_SHA256
+    assert digest == PUBLIC_API_HUBER_DENSITY_A_V1_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

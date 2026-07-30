@@ -600,6 +600,7 @@ __all__ = (
     "BoundaryResolutionState",
     "EffectiveAlphaBindingKind",
     "SelectionIntervalCertificateV1",
+    "HuberDensitySelectionIntervalCertificateV1",
     "AngularProfileSelectionCertificateV1",
     "HiddenSupportSpecV1",
     "DirectionBindingCertificateV1",

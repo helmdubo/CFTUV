@@ -124,14 +124,17 @@ class AngularRegressionFixtureId(str, Enum):
 
 class SelectionLaw(str, Enum):
     MIN_K_FOR_MAX_SUBTURN = "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
+    HUBER_EMANATED_DENSITY_FLOOR_V1 = "HUBER_EMANATED_DENSITY_FLOOR_V1"
 
 
 class MinimalityLowerBound(str, Enum):
     K_ZERO_OR_STRICT_LOWER = "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"
+    HUBER_DENSITY_BUCKET_OPEN_LOWER = "HUBER_DENSITY_BUCKET_OPEN_LOWER"
 
 
 class AdmissibilityUpperBound(str, Enum):
     CLOSED_UPPER = "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"
+    HUBER_DENSITY_BUCKET_CLOSED_UPPER = "HUBER_DENSITY_BUCKET_CLOSED_UPPER"
 
 
 class SelectionCertificateAuthority(str, Enum):
@@ -162,6 +165,18 @@ class SelectionIntervalCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class HuberDensitySelectionIntervalCertificateV1:
+    """Именованная ячейка `(C-1)/q < u <= C/q` политики Density A."""
+
+    q: int
+    bucket_c: int
+    lower_bound_kind: IntervalBoundKind
+    lower_bound_numerator: int
+    upper_bound_kind: IntervalBoundKind
+    upper_bound_numerator: int
+
+
+@dataclass(frozen=True, slots=True)
 class AngularProfileSelectionCertificateV1:
     certificate_id: SelectionCertificateId
     decal_request_id: DecalRequestId
@@ -179,7 +194,10 @@ class AngularProfileSelectionCertificateV1:
     selection_law: SelectionLaw
     minimality_lower_bound: MinimalityLowerBound
     admissibility_upper_bound: AdmissibilityUpperBound
-    selection_interval_certificate: SelectionIntervalCertificateV1
+    selection_interval_certificate: (
+        SelectionIntervalCertificateV1
+        | HuberDensitySelectionIntervalCertificateV1
+    )
     certificate_authority: SelectionCertificateAuthority
     regression_fixture_id: AngularRegressionFixtureId | None
 
