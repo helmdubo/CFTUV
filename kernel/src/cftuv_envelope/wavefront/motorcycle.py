@@ -63,6 +63,10 @@ from .event_time import (
     event_point,
 )
 from .polygon import PolygonV1
+from ..exact_sqrt_sum import (
+    _divide_with_prime_universe,
+    _prime_universe_from_q_values,
+)
 from .sqrt_sum import SqrtSumV1
 
 
@@ -504,6 +508,10 @@ def polygon_box(polygon: PolygonV1) -> tuple[int, int, int, int]:
 def build_motorcycle_graph(polygon: PolygonV1) -> MotorcycleGraphV1:
     """Граф трасс всех reflex-вершин входа, с крушениями о стены и о трассы."""
 
+    prime_universe = _prime_universe_from_q_values(
+        tuple(speed for _, _, speed in polygon.edges())
+        + tuple(line.q for _, _, line in polygon.fan_edges())
+    )
     walls = walls_of(polygon)
     x_min, y_min, x_max, y_max = polygon_box(polygon)
     grid = CellGridV1.covering(
@@ -529,7 +537,7 @@ def build_motorcycle_graph(polygon: PolygonV1) -> MotorcycleGraphV1:
         },
     )
     _seed_traces(polygon, walls, graph)
-    _resolve_trace_crashes(graph)
+    _resolve_trace_crashes(graph, prime_universe)
     return graph
 
 
@@ -574,7 +582,10 @@ def _seed_traces(
         vertex += size
 
 
-def _resolve_trace_crashes(graph: MotorcycleGraphV1) -> None:
+def _resolve_trace_crashes(
+    graph: MotorcycleGraphV1,
+    prime_universe: tuple[int, ...],
+) -> None:
     """Крушения о трассы, в порядке возрастания времени.
 
     Порядок — не удобство. Когда из очереди выходит самое раннее крушение, оно
@@ -632,10 +643,14 @@ def _resolve_trace_crashes(graph: MotorcycleGraphV1) -> None:
                     next(counter),
                 ),
             )
-    _drain_crashes(graph, heap)
+    _drain_crashes(graph, heap, prime_universe)
 
 
-def _drain_crashes(graph: MotorcycleGraphV1, heap: list[_CrashEntry]) -> None:
+def _drain_crashes(
+    graph: MotorcycleGraphV1,
+    heap: list[_CrashEntry],
+    prime_universe: tuple[int, ...],
+) -> None:
     """Очередь только уменьшается: ничего не досыпается, значит цикл конечен.
 
     Отменённый кандидат («сосед разбился, не доехав до точки встречи») просто
@@ -654,17 +669,23 @@ def _drain_crashes(graph: MotorcycleGraphV1, heap: list[_CrashEntry]) -> None:
         peer = settled.get(entry.target)
         if peer is not None and compare_times(peer, entry.peer_time) < 0:
             continue
-        if _apply_trace_crash(graph, entry):
+        if _apply_trace_crash(graph, entry, prime_universe):
             settled[entry.motorcycle] = entry.time
 
 
-def _apply_trace_crash(graph: MotorcycleGraphV1, entry: _CrashEntry) -> bool:
+def _apply_trace_crash(
+    graph: MotorcycleGraphV1,
+    entry: _CrashEntry,
+    prime_universe: tuple[int, ...],
+) -> bool:
     trace = graph.traces[entry.motorcycle]
     if compare_times(entry.time, trace.crash_time) >= 0:
         return False
     point = EventPointV1(
-        trace.origin.x + trace.velocity[0] * _as_sqrt_sum(entry.time),
-        trace.origin.y + trace.velocity[1] * _as_sqrt_sum(entry.time),
+        trace.origin.x
+        + trace.velocity[0] * _as_sqrt_sum(entry.time, prime_universe),
+        trace.origin.y
+        + trace.velocity[1] * _as_sqrt_sum(entry.time, prime_universe),
     )
     graph.traces[entry.motorcycle] = TraceV1(
         ident=trace.ident,
@@ -685,10 +706,17 @@ def _apply_trace_crash(graph: MotorcycleGraphV1, entry: _CrashEntry) -> bool:
     return True
 
 
-def _as_sqrt_sum(time: EventTimeV1) -> SqrtSumV1:
+def _as_sqrt_sum(
+    time: EventTimeV1,
+    prime_universe: tuple[int, ...],
+) -> SqrtSumV1:
     """Значение времени как сумма корней. Одно деление, и только здесь."""
 
-    return SqrtSumV1.rational(time.dividend) / time.divisor
+    return _divide_with_prime_universe(
+        SqrtSumV1.rational(time.dividend),
+        time.divisor,
+        prime_universe,
+    )
 
 
 def _trace_pairs(graph: MotorcycleGraphV1, live: dict[int, TraceV1]):

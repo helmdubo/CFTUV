@@ -101,15 +101,64 @@ def _pollard_rho(n: int) -> int:
     rng = random.Random(n)
     while True:
         c = rng.randrange(1, n)
-        x = y = rng.randrange(0, n)
-        divisor = 1
-        while divisor == 1:
-            x = (x * x + c) % n
-            y = (y * y + c) % n
-            y = (y * y + c) % n
-            divisor = gcd(abs(x - y), n)
-        if divisor != n:
+        y = rng.randrange(0, n)
+        divisor = _pollard_rho_brent_attempt(n, y, c, batch_size=64)
+        if divisor is not None:
+            assert 1 < divisor < n and n % divisor == 0
             return divisor
+
+
+def _pollard_rho_brent_attempt(
+    n: int,
+    y: int,
+    c: int,
+    *,
+    batch_size: int,
+) -> int | None:
+    """Одна попытка Брента; `None` требует следующую пару параметров.
+
+    GCD берётся с произведения не более `batch_size` разностей. Если пакет
+    дал `g == n` (включая `q == 0`), сохранённая граница пакета проигрывается
+    по одному шагу. Так общий делитель не теряется внутри `gcd(0, n) == n`,
+    а неудачная орбита не меняет состояние локального `Random(n)`.
+    """
+
+    if batch_size < 1:
+        raise ValueError("размер пакета Брента должен быть положительным")
+    power = 1
+    while True:
+        x = y
+        for _ in range(power):
+            y = (y * y + c) % n
+        offset = 0
+        while offset < power:
+            checkpoint = y
+            steps = min(batch_size, power - offset)
+            product = 1
+            for _ in range(steps):
+                y = (y * y + c) % n
+                product = product * abs(x - y) % n
+            divisor = gcd(product, n)
+            if divisor == 1:
+                offset += steps
+                continue
+            if 1 < divisor < n:
+                assert n % divisor == 0
+                return divisor
+
+            replay = checkpoint
+            for _ in range(steps):
+                replay = (replay * replay + c) % n
+                divisor = gcd(abs(x - replay), n)
+                if divisor == 1:
+                    continue
+                if 1 < divisor < n:
+                    assert n % divisor == 0
+                    return divisor
+                # Орбита замкнулась раньше доказанного делителя: новая попытка.
+                return None
+            return None
+        power *= 2
 
 
 def _factorize(n: int) -> dict[int, int]:
@@ -128,6 +177,7 @@ def _factorize(n: int) -> dict[int, int]:
             stack.append(root)
             continue
         divisor = _pollard_rho(value)
+        assert 1 < divisor < value and value % divisor == 0
         stack.append(divisor)
         stack.append(value // divisor)
     return factors
@@ -156,6 +206,88 @@ def prime_support(radicand: int) -> tuple[int, ...]:
     if radicand <= 1:
         return ()
     return tuple(sorted(_factorize(radicand)))
+
+
+def _prime_universe_from_q_values(
+    q_values: tuple[int | Fraction, ...],
+) -> tuple[int, ...]:
+    """Простые нечётных степеней примитивных `q`, один раз на операцию.
+
+    Для `q = p/r` подкоренное целое канонической формы равно `p*r`, потому
+    что `sqrt(p/r) = sqrt(p*r)/r`. Факторизация здесь конечна и проверяется
+    обратным произведением; дальше деление использует только делимость.
+    """
+
+    transformed: set[int] = set()
+    for raw_q in q_values:
+        q = Fraction(raw_q)
+        if q < 0:
+            raise NegativeRadicandError(f"под корнем {q}")
+        if q == 0:
+            continue
+        transformed.add(q.numerator * q.denominator)
+    primes: set[int] = set()
+    for radicand in sorted(transformed):
+        factors = _factorize(radicand)
+        reconstructed = 1
+        for prime, power in factors.items():
+            reconstructed *= prime**power
+            if power % 2:
+                primes.add(prime)
+        if reconstructed != radicand:
+            raise ArithmeticError(
+                f"факторизация {radicand} не восстановила исходное число"
+            )
+    return tuple(sorted(primes))
+
+
+def _support_from_prime_universe(
+    radicand: int,
+    prime_universe: tuple[int, ...],
+) -> tuple[int, ...] | None:
+    """Точный носитель бесквадратного радикала либо `None`.
+
+    Остаток обязан стать единицей, произведение — исходным радикандом, а
+    повторная делимость тем же простым запрещена. Любой промах означает,
+    что локальное доказательство неполно и вся операция должна уйти в legacy.
+    """
+
+    if radicand <= 1:
+        return () if radicand == 1 else None
+    remainder = radicand
+    product = 1
+    support: list[int] = []
+    for prime in prime_universe:
+        if remainder % prime != 0:
+            continue
+        remainder //= prime
+        product *= prime
+        support.append(prime)
+        if remainder % prime == 0:
+            return None
+        if remainder == 1:
+            break
+    if remainder != 1 or product != radicand:
+        return None
+    return tuple(support)
+
+
+def _pick_prime_from_universe(
+    terms: dict[int, Fraction],
+    prime_universe: tuple[int, ...],
+) -> int | None:
+    """Минимальный простой носителя, если ВСЕ радикалы восстановлены точно."""
+
+    smallest: int | None = None
+    for radicand, coefficient in terms.items():
+        if not coefficient or radicand == 1:
+            continue
+        support = _support_from_prime_universe(radicand, prime_universe)
+        if not support:
+            return None
+        if smallest is None or support[0] < smallest:
+            smallest = support[0]
+    return smallest
 
 
 # --------------------------------------------------------------------------
@@ -364,6 +496,43 @@ class SqrtSumV1:
             return certified
         SIGN_COUNTS["closed_by_conjugation"] += 1
         return _exact_sign(self.as_map(), filter_bits)
+
+
+def _divide_with_prime_universe(
+    numerator: SqrtSumV1,
+    denominator: SqrtSumV1,
+    prime_universe: tuple[int, ...],
+) -> SqrtSumV1:
+    """Точное деление с локально доказанным носителем примитивных `q`.
+
+    Сопряжения и их порядок совпадают с `__truediv__`. Отличается только
+    источник минимального простого: делимость по конечному universe вместо
+    факторизации каждого производного радикала. Если хотя бы один радикал
+    целиком не восстановлен, прежний путь запускается заново на ИСХОДНЫХ
+    операндах — частично сопряжённые величины никогда не смешиваются с legacy.
+    """
+
+    original_numerator = numerator
+    original_denominator = denominator
+    if denominator.is_zero:
+        return numerator / denominator
+    while True:
+        rational = denominator.as_rational()
+        if rational is not None:
+            return numerator.scaled(Fraction(1) / rational)
+        prime = _pick_prime_from_universe(
+            denominator.as_map(),
+            prime_universe,
+        )
+        if prime is None:
+            return original_numerator / original_denominator
+        outside, inside = _split_by_prime(denominator.as_map(), prime)
+        root = SqrtSumV1.radical(1, prime)
+        conjugate = SqrtSumV1._from_map(outside) - (
+            SqrtSumV1._from_map(inside) * root
+        )
+        numerator = numerator * conjugate
+        denominator = denominator * conjugate
 
 
 def _split_by_prime(

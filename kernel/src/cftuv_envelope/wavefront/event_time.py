@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
 
+from ..exact_sqrt_sum import _divide_with_prime_universe
 from .sqrt_sum import SqrtSumV1
 
 
@@ -406,6 +407,32 @@ def event_point(
     остаётся канонической суммой корней и сравним побитово.
     """
 
+    return _event_point(first, second, time, prime_universe=None)
+
+
+def _event_point_with_prime_universe(
+    first: SupportLineV1,
+    second: SupportLineV1,
+    time: EventTimeV1,
+    prime_universe: tuple[int, ...],
+) -> EventPointV1:
+    """Точка события с доказанным локальным базисом примитивных скоростей."""
+
+    return _event_point(
+        first,
+        second,
+        time,
+        prime_universe=prime_universe,
+    )
+
+
+def _event_point(
+    first: SupportLineV1,
+    second: SupportLineV1,
+    time: EventTimeV1,
+    *,
+    prime_universe: tuple[int, ...] | None,
+) -> EventPointV1:
     determinant = first.a * second.b - second.a * first.b
     if determinant == 0:
         raise ParallelSupportLinesError("прямые параллельны, точки пересечения нет")
@@ -416,6 +443,20 @@ def event_point(
         time.dividend, second.q
     )
     scale = time.divisor.scaled(determinant)
-    x = (right_first.scaled(second.b) - right_second.scaled(first.b)) / scale
-    y = (right_second.scaled(first.a) - right_first.scaled(second.a)) / scale
+    x_numerator = right_first.scaled(second.b) - right_second.scaled(first.b)
+    y_numerator = right_second.scaled(first.a) - right_first.scaled(second.a)
+    if prime_universe is None:
+        x = x_numerator / scale
+        y = y_numerator / scale
+    else:
+        x = _divide_with_prime_universe(
+            x_numerator,
+            scale,
+            prime_universe,
+        )
+        y = _divide_with_prime_universe(
+            y_numerator,
+            scale,
+            prime_universe,
+        )
     return EventPointV1(x, y)

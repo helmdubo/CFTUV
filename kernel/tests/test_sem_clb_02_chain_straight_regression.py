@@ -7,12 +7,18 @@ from pathlib import Path
 
 import cftuv_envelope as kernel
 import pytest
+from cftuv_envelope import exact_sqrt_sum as exact_sqrt_sum_module
 from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
+from cftuv_envelope.wavefront import coverage as coverage_module
+from cftuv_envelope.wavefront import event_time as event_time_module
+from cftuv_envelope.wavefront import motorcycle as motorcycle_module
 from cftuv_envelope.wavefront import skeleton as skeleton_module
+from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.skeleton import (
     CandidateRefusal,
     refusal_counter,
 )
+from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 
 KERNEL_ROOT = Path(__file__).parents[1]
@@ -78,6 +84,48 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 1,
     },
 }
+EXPECTED_PATCH006_SKELETON_PRIME_UNIVERSE = (
+    2,
+    13,
+    17,
+    29,
+    37,
+    41,
+    53,
+    89,
+    113,
+    181,
+    197,
+    293,
+    617,
+    877,
+    941,
+    1789,
+    1901,
+    5417,
+    8209,
+    78241,
+    80629,
+    85093,
+    262313,
+    355777,
+    4610729,
+    12310913,
+    13285057,
+    45517601,
+    69827269,
+    251194849,
+    433707749,
+    4814427773,
+    7830174716261,
+    13258330511417,
+    24615899915773,
+    34915153375909,
+    82022315028289,
+    1208514780081437,
+    2665193254113601,
+    37366821091976921,
+)
 
 
 def _receipt():
@@ -413,3 +461,195 @@ def test_public_wavefront_classifies_exact_straight_seed_vertices(
     assert coverage.outcome.value == "EXACT", coverage.detail
     (covered_region,) = coverage.regions
     assert covered_region.outcome.value == "EXACT"
+
+
+def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
+    monkeypatch,
+):
+    case_name = "building_all_seams_patch_006_lost_resolved_v1"
+    snapshot, request, domain, _ = _load_case(case_name)
+    observed_universes = []
+    event_calls = 0
+    coordinate_divisions = 0
+    pick_iterations = 0
+    support_checks = 0
+    incomplete_picks = 0
+    incomplete_supports = 0
+    coordinate_depth = 0
+    original_build = skeleton_module._prime_universe_from_q_values
+    original_event = skeleton_module._event_point_with_prime_universe
+    original_divide = event_time_module._divide_with_prime_universe
+    original_pick = exact_sqrt_sum_module._pick_prime_from_universe
+    original_support = exact_sqrt_sum_module._support_from_prime_universe
+
+    def capture_build(q_values):
+        universe = original_build(q_values)
+        observed_universes.append(universe)
+        return universe
+
+    def capture_event(first, second, time, prime_universe):
+        nonlocal event_calls
+        event_calls += 1
+        assert observed_universes
+        assert prime_universe is observed_universes[0]
+        return original_event(first, second, time, prime_universe)
+
+    def capture_divide(numerator, denominator, prime_universe):
+        nonlocal coordinate_depth, coordinate_divisions
+        coordinate_divisions += 1
+        coordinate_depth += 1
+        try:
+            return original_divide(
+                numerator,
+                denominator,
+                prime_universe,
+            )
+        finally:
+            coordinate_depth -= 1
+
+    def capture_pick(terms, prime_universe):
+        nonlocal pick_iterations, incomplete_picks
+        prime = original_pick(terms, prime_universe)
+        if coordinate_depth:
+            pick_iterations += 1
+            if prime is None:
+                incomplete_picks += 1
+        return prime
+
+    def capture_support(radicand, prime_universe):
+        nonlocal support_checks, incomplete_supports
+        support = original_support(radicand, prime_universe)
+        if coordinate_depth:
+            support_checks += 1
+            if support is None:
+                incomplete_supports += 1
+        return support
+
+    monkeypatch.setattr(
+        skeleton_module,
+        "_prime_universe_from_q_values",
+        capture_build,
+    )
+    monkeypatch.setattr(
+        skeleton_module,
+        "_event_point_with_prime_universe",
+        capture_event,
+    )
+    monkeypatch.setattr(
+        event_time_module,
+        "_divide_with_prime_universe",
+        capture_divide,
+    )
+    monkeypatch.setattr(
+        exact_sqrt_sum_module,
+        "_pick_prime_from_universe",
+        capture_pick,
+    )
+    monkeypatch.setattr(
+        exact_sqrt_sum_module,
+        "_support_from_prime_universe",
+        capture_support,
+    )
+
+    prepared = prepare_conveyor(
+        snapshot,
+        request,
+        patch_domain_id=domain.patch_domain_id,
+    )
+    assert prepared.outcome.value == "EXACT", prepared.detail
+    (region,) = prepared.regions
+    assert region.skeleton is not None
+    assert observed_universes == [
+        EXPECTED_PATCH006_SKELETON_PRIME_UNIVERSE
+    ]
+    assert event_calls == 5265
+    assert coordinate_divisions == 10530
+    assert pick_iterations == 18344
+    assert support_checks == 31830
+    assert incomplete_picks == 0
+    assert incomplete_supports == 0
+    assert semantic_digest(region.skeleton) == (
+        "d2e21b47e48bae7fbeb411f418fa216e9ae478b4523468a090ca869ea82e9280"
+    )
+
+
+def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
+    case_name = "building_all_seams_patch_011_lost_resolved_v1"
+    snapshot, request, domain, _ = _load_case(case_name)
+    observed_universes = {"MOTORCYCLE": [], "COVERAGE": []}
+    optimized_calls = {"MOTORCYCLE": 0, "COVERAGE": 0}
+    fallback_calls = []
+    original_legacy = SqrtSumV1.__truediv__
+    original_optimized = (
+        exact_sqrt_sum_module._divide_with_prime_universe
+    )
+    original_motorcycle_build = (
+        motorcycle_module._prime_universe_from_q_values
+    )
+    original_coverage_build = coverage_module._prime_universe_from_q_values
+
+    def capture_universe(operation, original):
+        def capture(q_values):
+            universe = original(q_values)
+            observed_universes[operation].append(universe)
+            return universe
+
+        return capture
+
+    def observe_division(operation):
+        def divide(numerator, denominator, prime_universe):
+            optimized_calls[operation] += 1
+
+            def track_fallback(left, right):
+                fallback_calls.append((operation, left, right))
+                return original_legacy(left, right)
+
+            with monkeypatch.context() as local_patch:
+                local_patch.setattr(
+                    SqrtSumV1,
+                    "__truediv__",
+                    track_fallback,
+                )
+                return original_optimized(
+                    numerator,
+                    denominator,
+                    prime_universe,
+                )
+
+        return divide
+
+    monkeypatch.setattr(
+        motorcycle_module,
+        "_prime_universe_from_q_values",
+        capture_universe("MOTORCYCLE", original_motorcycle_build),
+    )
+    monkeypatch.setattr(
+        coverage_module,
+        "_prime_universe_from_q_values",
+        capture_universe("COVERAGE", original_coverage_build),
+    )
+    monkeypatch.setattr(
+        motorcycle_module,
+        "_divide_with_prime_universe",
+        observe_division("MOTORCYCLE"),
+    )
+    monkeypatch.setattr(
+        coverage_module,
+        "_divide_with_prime_universe",
+        observe_division("COVERAGE"),
+    )
+
+    prepared = prepare_conveyor(
+        snapshot,
+        request,
+        patch_domain_id=domain.patch_domain_id,
+    )
+    assert prepared.outcome.value == "EXACT", prepared.detail
+    coverage = conveyor_coverage(prepared)
+    assert coverage.outcome.value == "EXACT", coverage.detail
+    assert len(observed_universes["MOTORCYCLE"]) == 1
+    assert len(observed_universes["MOTORCYCLE"][0]) == 39
+    assert len(observed_universes["COVERAGE"]) == 1
+    assert len(observed_universes["COVERAGE"][0]) == 39
+    assert optimized_calls == {"MOTORCYCLE": 18, "COVERAGE": 96}
+    assert fallback_calls == []

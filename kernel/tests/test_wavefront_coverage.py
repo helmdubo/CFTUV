@@ -19,6 +19,7 @@ from fractions import Fraction
 import pytest
 
 from cftuv_envelope.wavefront import build_skeleton
+from cftuv_envelope.wavefront import coverage as coverage_module
 from cftuv_envelope.wavefront.coverage import (
     CoverageOutcome,
     clip_to_halfplane,
@@ -185,3 +186,39 @@ def test_the_halfplane_clip_halves_a_square_exactly():
     line = SupportLineV1.through((0, 0), (4, 0))
     clipped = clip_to_halfplane(square, line, Fraction(2))
     assert doubled_shoelace(clipped).as_rational() == Fraction(16)
+
+
+def test_coverage_builds_one_partition_wide_prime_universe(monkeypatch):
+    polygon = PolygonV1.build(((0, 0), (12, 0), (0, 12)))
+    partition = _partition(polygon)
+    expected_q = tuple(face.line.q for face in partition.faces)
+    built_from = []
+    used_universes = []
+    original_build = coverage_module._prime_universe_from_q_values
+    original_divide = coverage_module._divide_with_prime_universe
+
+    def capture_build(q_values):
+        built_from.append(q_values)
+        return original_build(q_values)
+
+    def capture_divide(numerator, denominator, prime_universe):
+        used_universes.append(prime_universe)
+        return original_divide(numerator, denominator, prime_universe)
+
+    monkeypatch.setattr(
+        coverage_module,
+        "_prime_universe_from_q_values",
+        capture_build,
+    )
+    monkeypatch.setattr(
+        coverage_module,
+        "_divide_with_prime_universe",
+        capture_divide,
+    )
+    coverage = coverage_at(partition, Fraction(1))
+    assert coverage.outcome is CoverageOutcome.EXACT
+    assert built_from == [expected_q]
+    assert used_universes
+    assert used_universes == [original_build(expected_q)] * len(
+        used_universes
+    )

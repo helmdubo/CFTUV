@@ -67,15 +67,16 @@ from fractions import Fraction
 from functools import cmp_to_key
 from math import gcd
 
+from ..exact_sqrt_sum import _prime_universe_from_q_values
 from .event_time import (
     ZERO_TIME,
+    _event_point_with_prime_universe,
     EventPointV1,
     EventTimeV1,
     EventTimeOutcome,
     SupportLineV1,
     compare_times,
     concurrency_time,
-    event_point,
     sliding_point,
     sliding_time,
 )
@@ -328,6 +329,10 @@ class _Builder:
         split_search: SplitSearch = SplitSearch.MOTORCYCLE,
     ) -> None:
         self.polygon = polygon
+        self._prime_universe = _prime_universe_from_q_values(
+            tuple(speed for _, _, speed in polygon.edges())
+            + tuple(line.q for _, _, line in polygon.fan_edges())
+        )
         self.split_search = split_search
         self.edges: list[_Edge] = []
         self.vertices: list[_Vertex] = []
@@ -778,7 +783,12 @@ class _Builder:
         first = self.edges[vertex.prev_edge].line
         second = self.edges[vertex.next_edge].line
         if first.a * second.b - second.a * first.b:
-            return event_point(first, second, time)
+            return _event_point_with_prime_universe(
+                first,
+                second,
+                time,
+                self._prime_universe,
+            )
         if vertex.sliding is None:
             return None
         return sliding_point(first, vertex.sliding, time)

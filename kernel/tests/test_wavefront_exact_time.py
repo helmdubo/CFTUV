@@ -12,6 +12,8 @@ import math
 
 import pytest
 
+from cftuv_envelope import exact_sqrt_sum as exact_sqrt_sum_module
+from cftuv_envelope.wavefront import event_time as event_time_module
 from cftuv_envelope.wavefront.event_time import (
     EventTimeOutcome,
     EventTimeV1,
@@ -34,6 +36,98 @@ def test_squarefree_split_pulls_the_whole_square_out():
     assert squarefree_split(72) == (6, 2)
     assert squarefree_split(1) == (1, 1)
     assert squarefree_split(2**20 * 3) == (2**10, 3)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    (
+        (1_000_003, {1_000_003: 1}),
+        (1_000_003 * 1_000_033, {1_000_003: 1, 1_000_033: 1}),
+        (10_007**2, {10_007: 2}),
+        (10_007**5, {10_007: 5}),
+        (10_007**3 * 10_009**2, {10_007: 3, 10_009: 2}),
+    ),
+)
+def test_factorization_vectors_reconstruct_exactly(value, expected):
+    factors = exact_sqrt_sum_module._factorize(value)
+    reconstructed = math.prod(
+        prime**power for prime, power in factors.items()
+    )
+    assert factors == expected
+    assert reconstructed == value
+
+
+@pytest.mark.parametrize(
+    "composite",
+    (
+        1_000_003 * 1_000_033,
+        10_007**3,
+        10_007 * 10_009 * 10_037,
+    ),
+)
+def test_pollard_rho_returns_a_deterministic_proper_divisor(composite):
+    observed = [exact_sqrt_sum_module._pollard_rho(composite) for _ in range(4)]
+    assert observed == [observed[0]] * 4
+    divisor = observed[0]
+    assert 1 < divisor < composite
+    assert composite % divisor == 0
+
+
+def test_batched_brent_replays_a_zero_product_from_its_checkpoint(monkeypatch):
+    """Весь пакет даёт gcd(0, 9) == 9, replay находит делитель 3."""
+
+    calls = []
+    real_gcd = math.gcd
+
+    def tracking_gcd(left, right):
+        divisor = real_gcd(left, right)
+        calls.append((left, right, divisor))
+        return divisor
+
+    monkeypatch.setattr(exact_sqrt_sum_module, "gcd", tracking_gcd)
+    divisor = exact_sqrt_sum_module._pollard_rho_brent_attempt(
+        9,
+        2,
+        6,
+        batch_size=2,
+    )
+    batch_failure = calls.index((0, 9, 9))
+    recovered = calls.index((6, 9, 3))
+    assert divisor == 3
+    assert batch_failure < recovered
+    assert 1 < divisor < 9 and 9 % divisor == 0
+
+
+def test_prime_universe_deduplicates_q_and_keeps_rational_radicals_exact(
+    monkeypatch,
+):
+    calls = []
+    original = exact_sqrt_sum_module._factorize
+
+    def tracking_factorize(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(exact_sqrt_sum_module, "_factorize", tracking_factorize)
+    universe = exact_sqrt_sum_module._prime_universe_from_q_values(
+        (
+            Fraction(12, 5),
+            Fraction(12, 5),
+            18,
+            0,
+            18,
+        )
+    )
+    assert calls == [18, 60]
+    assert universe == (2, 3, 5)
+
+
+def test_prime_universe_reconstructs_only_complete_squarefree_support():
+    reconstruct = exact_sqrt_sum_module._support_from_prime_universe
+    assert reconstruct(30, (2, 3, 5, 7)) == (2, 3, 5)
+    assert reconstruct(30, (2, 3, 7)) is None
+    assert reconstruct(12, (2, 3)) is None
+    assert reconstruct(1, ()) == ()
 
 
 def test_the_canonical_form_proves_an_identity_rationally():
@@ -103,6 +197,98 @@ def test_division_stays_canonical():
         SqrtSumV1.radical(1, 2) + SqrtSumV1.rational(1)
     )
     assert value == SqrtSumV1.radical(1, 2) - SqrtSumV1.rational(1)
+
+
+def test_prime_universe_division_matches_legacy_terms_and_identity():
+    numerator = (
+        SqrtSumV1.rational(7)
+        + SqrtSumV1.radical(2, 6)
+        - SqrtSumV1.radical(1, 10)
+    )
+    denominator = (
+        SqrtSumV1.rational(3)
+        + SqrtSumV1.radical(1, 6)
+        - SqrtSumV1.radical(2, 15)
+    )
+    legacy = numerator / denominator
+    optimized = exact_sqrt_sum_module._divide_with_prime_universe(
+        numerator,
+        denominator,
+        (2, 3, 5),
+    )
+    assert optimized.terms == legacy.terms
+    assert optimized * denominator == numerator
+
+
+def test_prime_universe_miss_restarts_legacy_on_whole_original_operands(
+    monkeypatch,
+):
+    numerator = SqrtSumV1.rational(5) + SqrtSumV1.radical(1, 2)
+    denominator = (
+        SqrtSumV1.rational(3)
+        + SqrtSumV1.radical(1, 2)
+        + SqrtSumV1.radical(1, 3)
+    )
+    original = SqrtSumV1.__truediv__
+    expected = original(numerator, denominator)
+    calls = []
+
+    def tracking_legacy(left, right):
+        calls.append((left, right))
+        return original(left, right)
+
+    monkeypatch.setattr(SqrtSumV1, "__truediv__", tracking_legacy)
+    actual = exact_sqrt_sum_module._divide_with_prime_universe(
+        numerator,
+        denominator,
+        (2,),
+    )
+    assert actual.terms == expected.terms
+    assert calls == [(numerator, denominator)]
+
+
+def test_rational_prime_universe_division_never_picks_or_falls_back(monkeypatch):
+    numerator = SqrtSumV1.rational(7)
+    denominator = SqrtSumV1.rational(3)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("рациональное деление не выбирает простой")
+
+    monkeypatch.setattr(
+        exact_sqrt_sum_module,
+        "_pick_prime_from_universe",
+        forbidden,
+    )
+    monkeypatch.setattr(SqrtSumV1, "__truediv__", forbidden)
+    assert exact_sqrt_sum_module._divide_with_prime_universe(
+        numerator,
+        denominator,
+        (),
+    ) == SqrtSumV1.rational(Fraction(7, 3))
+
+
+def test_prime_universe_is_operation_local_and_never_leaks_between_calls():
+    first_numerator = SqrtSumV1.rational(1)
+    first_denominator = (
+        SqrtSumV1.rational(1) + SqrtSumV1.radical(1, 2)
+    )
+    second_numerator = SqrtSumV1.rational(1)
+    second_denominator = (
+        SqrtSumV1.rational(1) + SqrtSumV1.radical(1, 3)
+    )
+    first = exact_sqrt_sum_module._divide_with_prime_universe(
+        first_numerator,
+        first_denominator,
+        (2,),
+    )
+    second = exact_sqrt_sum_module._divide_with_prime_universe(
+        second_numerator,
+        second_denominator,
+        (3,),
+    )
+    assert first.terms == (first_numerator / first_denominator).terms
+    assert second.terms == (second_numerator / second_denominator).terms
+    assert not hasattr(exact_sqrt_sum_module, "_CURRENT_PRIME_UNIVERSE")
 
 
 def test_prime_support_is_deterministic():
@@ -176,6 +362,36 @@ def test_the_square_collapses_at_exactly_half_its_side():
     point = event_point(lines[0], lines[1], time)
     assert point.x == SqrtSumV1.rational(4)
     assert point.y == SqrtSumV1.rational(4)
+
+
+def test_event_point_distinguishes_legacy_none_from_certified_empty_basis(
+    monkeypatch,
+):
+    lines = _square(8)
+    time, outcome = concurrency_time(lines[0], lines[1], lines[2])
+    assert outcome is EventTimeOutcome.EXACT
+    observed_universes = []
+    original = event_time_module._divide_with_prime_universe
+
+    def capture(numerator, denominator, prime_universe):
+        observed_universes.append(prime_universe)
+        return original(numerator, denominator, prime_universe)
+
+    monkeypatch.setattr(
+        event_time_module,
+        "_divide_with_prime_universe",
+        capture,
+    )
+    legacy = event_point(lines[0], lines[1], time)
+    assert observed_universes == []
+    certified = event_time_module._event_point_with_prime_universe(
+        lines[0],
+        lines[1],
+        time,
+        (),
+    )
+    assert observed_universes == [(), ()]
+    assert certified == legacy
 
 
 def test_all_four_collapses_of_a_square_are_the_same_exact_instant():

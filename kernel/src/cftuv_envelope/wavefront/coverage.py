@@ -35,6 +35,10 @@ from enum import Enum
 from fractions import Fraction
 
 from .event_time import SupportLineV1
+from ..exact_sqrt_sum import (
+    _divide_with_prime_universe,
+    _prime_universe_from_q_values,
+)
 from .faces import (
     EdgeKey,
     FaceOutcome,
@@ -111,7 +115,11 @@ def _value(line: SupportLineV1, point: Point, alpha: Fraction) -> SqrtSumV1:
 
 
 def clip_to_halfplane(
-    points: tuple[Point, ...], line: SupportLineV1, alpha: Fraction
+    points: tuple[Point, ...],
+    line: SupportLineV1,
+    alpha: Fraction,
+    *,
+    prime_universe: tuple[int, ...] | None = None,
 ) -> tuple[Point, ...]:
     """Сазерленд—Хоџмен по `a*x + b*y - c <= alpha*sqrt(q)`, точно.
 
@@ -137,7 +145,16 @@ def clip_to_halfplane(
         if (signs[current] > 0) == (signs[following] > 0):
             continue
         # Точка пересечения: t = v0 / (v0 - v1), деление точное.
-        share = values[current] / (values[current] - values[following])
+        divisor = values[current] - values[following]
+        share = (
+            values[current] / divisor
+            if prime_universe is None
+            else _divide_with_prime_universe(
+                values[current],
+                divisor,
+                prime_universe,
+            )
+        )
         x0, y0 = points[current]
         x1, y1 = points[following]
         result.append(
@@ -195,10 +212,19 @@ def coverage_at(
             str(alpha),
         )
 
+    face_lines = tuple(_line_of(face) for face in partition.faces)
+    prime_universe = _prime_universe_from_q_values(
+        tuple(line.q for line in face_lines)
+    )
     covered: list[FaceCoverageV1] = []
     total = SqrtSumV1.zero()
-    for face in partition.faces:
-        clipped = clip_to_halfplane(face.points, _line_of(face), alpha)
+    for face, line in zip(partition.faces, face_lines):
+        clipped = clip_to_halfplane(
+            face.points,
+            line,
+            alpha,
+            prime_universe=prime_universe,
+        )
         doubled = doubled_shoelace(clipped) if len(clipped) >= 3 else (
             SqrtSumV1.zero()
         )

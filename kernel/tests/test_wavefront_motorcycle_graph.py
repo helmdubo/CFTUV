@@ -37,7 +37,14 @@ from cftuv_envelope.wavefront.motorcycle import (
     march_budget,
     walls_of,
 )
-from cftuv_envelope.wavefront.polygon import LoopV1, PolygonRejected, PolygonV1
+from cftuv_envelope.wavefront.polygon import (
+    FanSupportV1,
+    LoopV1,
+    PolygonRejected,
+    PolygonV1,
+    VertexFanV1,
+    with_vertex_fans,
+)
 from cftuv_envelope.wavefront.skeleton import (
     SkeletonOutcome,
     SplitSearch,
@@ -70,6 +77,35 @@ CORPUS = {
     "hole": (HOLE_OUTER, (HOLE_INNER,)),
     "two_holes": (TWO_HOLES_OUTER, TWO_HOLES),
 }
+
+
+def test_motorcycle_prime_universe_includes_a_fan_only_factor(monkeypatch):
+    polygon = with_vertex_fans(
+        PolygonV1.build(ELL),
+        (
+            VertexFanV1(
+                (6, 6),
+                (FanSupportV1(-1, -2, 5),),
+            ),
+        ),
+    )
+    observed_q = []
+    original = motorcycle_module._prime_universe_from_q_values
+
+    def capture(q_values):
+        observed_q.append(q_values)
+        return original(q_values)
+
+    monkeypatch.setattr(
+        motorcycle_module,
+        "_prime_universe_from_q_values",
+        capture,
+    )
+    build_motorcycle_graph(polygon)
+    assert len(observed_q) == 1
+    assert observed_q[0][-1] == 5
+    assert original(observed_q[0]) == (5,)
+
 
 # Дайджесты, снятые с коммита ДО этого среза (`1586f2d`) и обязанные не
 # сдвинуться ни на один. Это главные ворота среза: motorcycle graph меняет цену
