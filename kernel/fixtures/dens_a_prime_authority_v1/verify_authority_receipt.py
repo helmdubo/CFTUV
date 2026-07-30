@@ -600,6 +600,40 @@ def _validate_gram(document: dict) -> None:
         _reject("FAKE_TIE")
 
 
+def _validate_extension(document: dict) -> None:
+    witness = document.get("candidate_extension_witness", {})
+    if witness.get("scope") != "SYNTHETIC_MONOTONE_AUTHORITY_EXTENSION":
+        _reject("CANDIDATE_EXTENSION")
+    _validate_simple_authority(witness["base"])
+    _validate_simple_authority(witness["extended"])
+    base = [_f(item) for item in witness["base"]["candidates"]]
+    extended = [_f(item) for item in witness["extended"]["candidates"]]
+    if base != [Fraction(1, 4)] or extended != [
+        Fraction(1, 5),
+        Fraction(1, 4),
+    ]:
+        _reject("CANDIDATE_EXTENSION")
+    if _f(witness["base"]["winner"]) != Fraction(1, 4):
+        _reject("CANDIDATE_EXTENSION")
+    matrix = _metric_by_id(document, witness["metric_id"])
+    ideal = tuple(_expr(item) for item in witness["ideal_vector"])
+    values = [
+        _objective(matrix, ideal, (item.denominator, item.numerator))
+        for item in extended
+    ]
+    supplied = witness["extended"]["objectives"]
+    if any(
+        _sign(_expr(record) - value) != 0
+        for record, value in zip(supplied, values, strict=True)
+    ):
+        _reject("CANDIDATE_EXTENSION")
+    winner = extended[min(range(len(values)), key=lambda index: values[index])]
+    if _f(witness["extended"]["old_winner"]) != Fraction(1, 4):
+        _reject("CANDIDATE_EXTENSION")
+    if _f(witness["extended"]["winner"]) != winner:
+        _reject("FORGED_OLD_WINNER_AFTER_BETTER")
+
+
 def validate(document: dict, repo: Path) -> None:
     if document.get("schema") != "cftuv.envelope.dens_a_prime_authority_proof.v1":
         _reject("SCHEMA")
@@ -609,6 +643,7 @@ def validate(document: dict, repo: Path) -> None:
     _validate_q5(document)
     _validate_farey(document)
     _validate_gram(document)
+    _validate_extension(document)
     expected_red = {
         "UNREACHABLE_H",
         "NON_COPRIME",
@@ -757,9 +792,9 @@ def run_red_matrix(document: dict, repo: Path) -> list[dict]:
 
     def forged_old_winner():
         forged = copy.deepcopy(document)
-        target = forged["gram_objective_witness"]["metric_switch_rows"][0]
-        target["winner"] = [1, 5] if target["winner"] == [1, 4] else [1, 4]
-        _validate_gram(forged)
+        target = forged["candidate_extension_witness"]["extended"]
+        target["winner"] = copy.deepcopy(target["old_winner"])
+        _validate_extension(forged)
 
     results.append(
         _expect_reject(
@@ -834,6 +869,11 @@ def main() -> int:
     if elapsed > float(document["stats"]["wall_seconds_budget"]):
         _reject("PERF_WALL_BUDGET")
     if _max_bits(document) != document["stats"]["max_operand_bits"]:
+        _reject("PERF_BIT_ACCOUNTING")
+    expected_bit_cost = (
+        document["stats"]["candidate_rows"] + document["stats"]["real_windows"]
+    ) * document["stats"]["max_operand_bits"] ** 2
+    if document["stats"].get("certified_bit_cost_units") != expected_bit_cost:
         _reject("PERF_BIT_ACCOUNTING")
     print(
         json.dumps(

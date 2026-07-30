@@ -714,6 +714,38 @@ def _gram_witness(metrics_by_id: dict[str, dict]) -> dict:
     }
 
 
+def _candidate_extension_witness() -> dict:
+    base = _simple_authority_window(Fraction(1, 5), Fraction(27, 100))
+    extended = _simple_authority_window(Fraction(39, 200), Fraction(51, 200))
+    if base["candidates"] != [[1, 4]]:
+        raise RuntimeError("EXTENSION_BASE_CANDIDATES_DRIFT")
+    if extended["candidates"] != [[1, 5], [1, 4]]:
+        raise RuntimeError("EXTENSION_CANDIDATES_DRIFT")
+    matrix = ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1)))
+    ideal = (sp.Integer(200), sp.Integer(41))
+    extended_values = [
+        _objective_value(matrix, ideal, Fraction(1, 5)),
+        _objective_value(matrix, ideal, Fraction(1, 4)),
+    ]
+    if _sign(extended_values[0] - extended_values[1]) >= 0:
+        raise RuntimeError("EXTENSION_BETTER_CANDIDATE_DRIFT")
+    return {
+        "scope": "SYNTHETIC_MONOTONE_AUTHORITY_EXTENSION",
+        "metric_id": "IDENTITY",
+        "ideal_vector": [_canonical_expr(item) for item in ideal],
+        "base": {
+            **base,
+            "winner": [1, 4],
+        },
+        "extended": {
+            **extended,
+            "objectives": [_canonical_expr(item) for item in extended_values],
+            "old_winner": [1, 4],
+            "winner": [1, 5],
+        },
+    }
+
+
 def _operand_bits(value) -> int:
     if isinstance(value, dict):
         return max((_operand_bits(item) for item in value.values()), default=0)
@@ -816,6 +848,7 @@ def build_receipt(repo: Path) -> dict:
         "q5_selection_matrix": _q5_selection_rows(),
         "farey_falsification_witness": _farey_falsification(),
         "gram_objective_witness": _gram_witness(metrics_by_id),
+        "candidate_extension_witness": _candidate_extension_witness(),
         "red_controls": [
             {"name": name, "expected": "REJECT"}
             for name in (
@@ -850,6 +883,9 @@ def build_receipt(repo: Path) -> dict:
         "max_operand_bits": _operand_bits(receipt),
         "wall_seconds_budget": "30.000000000",
     }
+    receipt["stats"]["certified_bit_cost_units"] = (
+        receipt["stats"]["candidate_rows"] + receipt["stats"]["real_windows"]
+    ) * receipt["stats"]["max_operand_bits"] ** 2
     receipt["generation_observation"] = {
         "operation": "REFERENCE_GENERATION_WALL_CLOCK_REPORTED_OUTSIDE_CANONICAL_BYTES",
         "deterministic_receipt": True,
