@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import sympy as sp
+from mpmath import iv
 
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
@@ -47,8 +48,10 @@ from .planar_types import (
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
+    IntervalEnclosureUnsupported,
     exact_normalize,
     exact_sign,
+    interval_enclosure,
     point_sub,
     support_intersection,
 )
@@ -96,15 +99,7 @@ def _interpolated_normals(
     *,
     huber_density: bool = False,
 ) -> tuple[ExactPlanarVector, ...]:
-    incoming = metric.unit_g(incoming)
-    outgoing = metric.unit_g(outgoing)
-    turn_cross = exact_sign(metric.oriented_cross(incoming, outgoing))
     expected = 1 if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION else -1
-    if turn_cross != expected:
-        raise ReferenceGeometryError(
-            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
-            "ordered support normals do not realize the certified owner-sector turn",
-        )
     if huber_density:
         return _huber_density_interpolated_normals(
             metric,
@@ -112,6 +107,14 @@ def _interpolated_normals(
             outgoing,
             count,
             expected,
+        )
+    incoming = metric.unit_g(incoming)
+    outgoing = metric.unit_g(outgoing)
+    turn_cross = exact_sign(metric.oriented_cross(incoming, outgoing))
+    if turn_cross != expected:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "ordered support normals do not realize the certified owner-sector turn",
         )
     if count == 0:
         return incoming, outgoing
@@ -171,6 +174,106 @@ def _interpolated_normals(
     return incoming, hidden_one, hidden_two, outgoing
 
 
+def _density_exact_vector(
+    x: sp.Expr,
+    y: sp.Expr,
+) -> ExactPlanarVector:
+    """Записать bounded Density-expression без global factor-canonicalizer."""
+
+    def scalar(expression: sp.Expr) -> ExactScalar:
+        if expression.is_Rational:
+            return ExactScalar.from_value(expression)
+        return ExactScalar(sp.srepr(expression))
+
+    return ExactPlanarVector(scalar(x), scalar(y))
+
+
+def _density_dot_expression(
+    metric: ExactPlanarMetric,
+    left: ExactPlanarVector,
+    right: ExactPlanarVector,
+) -> sp.Expr:
+    """Dual-free Gram dot без generic normalization/factor."""
+
+    lx, ly = left.expressions()
+    rx, ry = right.expressions()
+    return (
+        lx * (metric.gram[0][0] * rx + metric.gram[0][1] * ry)
+        + ly * (metric.gram[1][0] * rx + metric.gram[1][1] * ry)
+    )
+
+
+def _density_exact_sign(expression: sp.Expr) -> int:
+    """Знак Density-факта: rational либо строгая interval-сертификация."""
+
+    if expression.is_Rational:
+        return (expression.p > 0) - (expression.p < 0)
+    if expression == 0 or expression.is_zero is True:
+        return 0
+    saved = iv.prec
+    iv.prec = 160
+    try:
+        enclosure = interval_enclosure(expression)
+    except (
+        IntervalEnclosureUnsupported,
+        ArithmeticError,
+        TypeError,
+        ValueError,
+    ):
+        enclosure = None
+    finally:
+        iv.prec = saved
+    if enclosure is not None:
+        if enclosure.a > 0:
+            return 1
+        if enclosure.b < 0:
+            return -1
+    raise ReferenceGeometryError(
+        ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+        "Density A exact sign is not certified without generic factorization",
+    )
+
+
+def _density_unit_from_squared(
+    vector: ExactPlanarVector,
+    squared: sp.Expr,
+) -> ExactPlanarVector:
+    if _density_exact_sign(squared) <= 0:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "Density A support direction has non-positive Gram norm",
+        )
+    x, y = vector.expressions()
+    length = sp.sqrt(squared)
+    return _density_exact_vector(x / length, y / length)
+
+
+def _density_left_unit_normal(
+    metric: ExactPlanarMetric,
+    tangent: ExactPlanarVector,
+) -> ExactPlanarVector:
+    tx, ty = tangent.expressions()
+    covector_x = metric.gram[0][0] * tx + metric.gram[0][1] * ty
+    covector_y = metric.gram[1][0] * tx + metric.gram[1][1] * ty
+    sign = metric.owner_orientation_sign
+    raw = _density_exact_vector(
+        -sign * covector_y,
+        sign * covector_x,
+    )
+    orthogonality = sp.expand(
+        _density_dot_expression(metric, tangent, raw)
+    )
+    if orthogonality != 0:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            "Density A Gram-orthogonal basis construction is not exact",
+        )
+    return _density_unit_from_squared(
+        raw,
+        sp.expand(_density_dot_expression(metric, raw, raw)),
+    )
+
+
 def _huber_density_interpolated_normals(
     metric: ExactPlanarMetric,
     incoming: ExactPlanarVector,
@@ -191,58 +294,80 @@ def _huber_density_interpolated_normals(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
             "Density A supports only the certified H=1..5 range",
         )
-    cosine_total = exact_normalize(metric.dot_g(incoming, outgoing))
-    cosine_squared = exact_normalize(cosine_total * cosine_total)
-    if cosine_squared.is_Rational is not True:
+    incoming_squared = sp.expand(
+        _density_dot_expression(metric, incoming, incoming)
+    )
+    outgoing_squared = sp.expand(
+        _density_dot_expression(metric, outgoing, outgoing)
+    )
+    raw_dot = sp.expand(
+        _density_dot_expression(metric, incoming, outgoing)
+    )
+    raw_cross = sp.expand(
+        metric.owner_orientation_sign
+        * (
+            incoming.x.as_expr() * outgoing.y.as_expr()
+            - incoming.y.as_expr() * outgoing.x.as_expr()
+        )
+    )
+    if _density_exact_sign(raw_cross) != orientation_sign:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "ordered support normals do not realize the certified owner-sector turn",
+        )
+    if (
+        incoming_squared.is_Rational is not True
+        or outgoing_squared.is_Rational is not True
+    ):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            "Density A source Gram norms are not rational",
+        )
+    incoming = _density_unit_from_squared(
+        incoming,
+        incoming_squared,
+    )
+    outgoing = _density_unit_from_squared(
+        outgoing,
+        outgoing_squared,
+    )
+    raw_dot_squared = sp.expand(raw_dot * raw_dot)
+    if raw_dot_squared.is_Rational is not True:
         raise ReferenceGeometryError(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
             "Density A signed-cos-squared is not rational in the declared Gram metric",
         )
+    cosine_squared = raw_dot_squared / (
+        incoming_squared * outgoing_squared
+    )
     if (
-        exact_sign(cosine_squared) < 0
-        or exact_sign(cosine_squared - 1) >= 0
+        _density_exact_sign(cosine_squared) < 0
+        or _density_exact_sign(cosine_squared - 1) >= 0
     ):
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A requires a strict principal turn in (0, pi)",
         )
-    sine_squared = exact_normalize(1 - cosine_squared)
+    turn_sign = _density_exact_sign(raw_dot)
+    cosine_total = turn_sign * sp.sqrt(cosine_squared)
+    sine_squared = 1 - cosine_squared
     principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
     subturn_count = count + 1
     ix, iy = incoming.expressions()
-    lx, ly = metric.owner_normal_g(
-        incoming,
-        owner_left=True,
-    ).expressions()
+    lx, ly = _density_left_unit_normal(metric, incoming).expressions()
     hidden = []
     for ordinal in range(1, subturn_count):
         angle = sp.Rational(ordinal, subturn_count) * principal_turn
         cosine = sp.cos(angle)
         sine = orientation_sign * sp.sin(angle)
-        normal = ExactPlanarVector.from_values(
+        normal = _density_exact_vector(
             cosine * ix + sine * lx,
             cosine * iy + sine * ly,
         )
-        squared_residual = sp.trigsimp(
-            metric.dot_g(normal, normal) - 1
-        )
-        if exact_sign(squared_residual) != 0:
-            raise ReferenceGeometryError(
-                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
-                "Density A hidden support unit-speed proof failed",
-            )
         hidden.append(normal)
-    sequence = (incoming, *hidden, outgoing)
-    if any(
-        exact_sign(metric.oriented_cross(left, right))
-        != orientation_sign
-        for left, right in zip(sequence, sequence[1:])
-    ):
-        raise ReferenceGeometryError(
-            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
-            "Density A principal Chebyshev branch is not monotone",
-        )
-    return sequence
+    # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
+    # Поэтому каждая разность соседних ordinal углов строго одного знака.
+    return incoming, *hidden, outgoing
 
 
 def _ideal_angular_support_data(

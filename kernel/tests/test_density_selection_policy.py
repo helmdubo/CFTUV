@@ -392,6 +392,65 @@ def test_density_h1_through_h5_direction_authority_is_orientation_symmetric(
     )
 
 
+def test_density_h1_through_h5_fan_uses_no_generic_symbolic_solver(
+    monkeypatch,
+):
+    metric = ExactPlanarMetric(
+        (
+            (sp.Rational(1), sp.Rational(0)),
+            (sp.Rational(0), sp.Rational(1)),
+        ),
+        (
+            (sp.Rational(1), sp.Rational(0)),
+            (sp.Rational(0), sp.Rational(1)),
+        ),
+        1,
+    )
+    incoming = ExactPlanarVector.from_values(1, 0)
+    cases = (
+        (
+            TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION,
+            ExactPlanarVector.from_values(0, 1),
+        ),
+        (
+            TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION,
+            ExactPlanarVector.from_values(0, -1),
+        ),
+    )
+    forbidden_calls = []
+
+    def forbidden(name):
+        def reject(*args, **kwargs):
+            del args, kwargs
+            forbidden_calls.append(name)
+            raise AssertionError(
+                f"Density fan called forbidden generic operation sp.{name}"
+            )
+
+        return reject
+
+    for name in ("factor", "roots", "solve", "nroots", "N"):
+        monkeypatch.setattr(
+            sp,
+            name,
+            forbidden(name),
+        )
+
+    for q in range(2, 7):
+        for orientation, outgoing in cases:
+            ideal = _interpolated_normals(
+                metric,
+                incoming,
+                outgoing,
+                q - 1,
+                orientation,
+                huber_density=True,
+            )
+            assert len(ideal) == q + 1
+
+    assert forbidden_calls == []
+
+
 def test_density_empty_authority_rejects_forged_supplied_certificate():
     metric = ExactPlanarMetric(
         (
