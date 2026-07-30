@@ -1,4 +1,4 @@
-"""One-law LINEAR_REFLEX_EQUAL_V1 AngularEnvelope construction for K=0/1/2."""
+"""LINEAR_REFLEX_EQUAL_V1 construction: frozen legacy plus Density A fan."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from ..contracts.envelopes import (
     HiddenSupportSpecV1,
     StripEnvelopeSpec,
 )
+from ..contracts.request import (
+    AngularProfileSelectionPolicyId,
+)
+from .._density_policy import huber_density_value_contract
 from ..numeric import LocalLengthV1
 from .common import (
     GeometryContext,
@@ -35,6 +39,7 @@ from .direction_binding import (
     bound_unit_normal,
     has_rational_support_direction,
     verify_direction_bindings,
+    verify_huber_density_direction_bindings,
 )
 from .planar_types import (
     ConstructionCertificate,
@@ -88,6 +93,8 @@ def _interpolated_normals(
     outgoing: ExactPlanarVector,
     count: int,
     orientation: TurnOrientation,
+    *,
+    huber_density: bool = False,
 ) -> tuple[ExactPlanarVector, ...]:
     incoming = metric.unit_g(incoming)
     outgoing = metric.unit_g(outgoing)
@@ -97,6 +104,14 @@ def _interpolated_normals(
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "ordered support normals do not realize the certified owner-sector turn",
+        )
+    if huber_density:
+        return _huber_density_interpolated_normals(
+            metric,
+            incoming,
+            outgoing,
+            count,
+            expected,
         )
     if count == 0:
         return incoming, outgoing
@@ -156,6 +171,80 @@ def _interpolated_normals(
     return incoming, hidden_one, hidden_two, outgoing
 
 
+def _huber_density_interpolated_normals(
+    metric: ExactPlanarMetric,
+    incoming: ExactPlanarVector,
+    outgoing: ExactPlanarVector,
+    count: int,
+    orientation_sign: int,
+) -> tuple[ExactPlanarVector, ...]:
+    """Равноугольный веер H=1..5 без generic root solver.
+
+    Власть ветви выводится из production Gram-фактов: знак `dot_g` и
+    несократимый рациональный `dot_g²`.  `atan2(sqrt(1-c²), c)/(H+1)` —
+    точная principal-ветвь того же корня `T_n(x)=c`; интервалы ниже лишь
+    сертифицируют знаки/окна и никогда не подменяют конструкцию числом.
+    """
+
+    if count not in range(1, 6):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
+            "Density A supports only the certified H=1..5 range",
+        )
+    cosine_total = exact_normalize(metric.dot_g(incoming, outgoing))
+    cosine_squared = exact_normalize(cosine_total * cosine_total)
+    if cosine_squared.is_Rational is not True:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            "Density A signed-cos-squared is not rational in the declared Gram metric",
+        )
+    if (
+        exact_sign(cosine_squared) < 0
+        or exact_sign(cosine_squared - 1) >= 0
+    ):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "Density A requires a strict principal turn in (0, pi)",
+        )
+    sine_squared = exact_normalize(1 - cosine_squared)
+    principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
+    subturn_count = count + 1
+    ix, iy = incoming.expressions()
+    lx, ly = metric.owner_normal_g(
+        incoming,
+        owner_left=True,
+    ).expressions()
+    hidden = []
+    for ordinal in range(1, subturn_count):
+        angle = sp.Rational(ordinal, subturn_count) * principal_turn
+        cosine = sp.cos(angle)
+        sine = orientation_sign * sp.sin(angle)
+        normal = ExactPlanarVector.from_values(
+            cosine * ix + sine * lx,
+            cosine * iy + sine * ly,
+        )
+        squared_residual = sp.trigsimp(
+            metric.dot_g(normal, normal) - 1
+        )
+        if exact_sign(squared_residual) != 0:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                "Density A hidden support unit-speed proof failed",
+            )
+        hidden.append(normal)
+    sequence = (incoming, *hidden, outgoing)
+    if any(
+        exact_sign(metric.oriented_cross(left, right))
+        != orientation_sign
+        for left, right in zip(sequence, sequence[1:])
+    ):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "Density A principal Chebyshev branch is not monotone",
+        )
+    return sequence
+
+
 def _ideal_angular_support_data(
     context: GeometryContext,
     spec: AngularEnvelopeSpec,
@@ -212,6 +301,14 @@ def _ideal_angular_support_data(
         outgoing,
         spec.resolved_hidden_edge_count,
         sector.turn_orientation,
+        huber_density=(
+            next(
+                item
+                for item in context.compilation.profile_selection_certificates
+                if item.certificate_id == spec.selection_certificate_id
+            ).selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
     )
     support_ids = [incoming_support_id]
     support_ids.extend(
@@ -329,8 +426,28 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         )
         for ordinal in range(1, spec.resolved_hidden_edge_count + 1)
     )
+    selection = next(
+        item
+        for item in context.compilation.profile_selection_certificates
+        if item.certificate_id == spec.selection_certificate_id
+    )
+    density_contract = huber_density_value_contract(
+        selection.max_subturn_value_id
+    )
     try:
-        if spec.resolved_hidden_edge_count == 1:
+        if (
+            selection.selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+            and density_contract is not None
+        ):
+            verify_huber_density_direction_bindings(
+                context.metric,
+                ideal,
+                sector.turn_orientation,
+                certificates,
+                density_contract[0],
+            )
+        elif spec.resolved_hidden_edge_count == 1:
             _verify_k1_recipe_direction_bindings(
                 context.metric,
                 ideal[0],

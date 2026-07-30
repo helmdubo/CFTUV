@@ -157,6 +157,8 @@ def interval_enclosure(expression: sp.Expr):
         return iv.mpf(int(expression))
     if expression.is_Rational:
         return iv.mpf(int(expression.p)) / iv.mpf(int(expression.q))
+    if expression is sp.pi:
+        return iv.pi
     if expression.is_Add:
         total = iv.mpf(0)
         for term in expression.args:
@@ -175,6 +177,21 @@ def interval_enclosure(expression: sp.Expr):
         if exponent.is_Rational and exponent.q == 2:
             root = iv.sqrt(enclosure)
             return root if exponent.p == 1 else root ** int(exponent.p)
+    if expression.func is sp.sin:
+        return iv.sin(interval_enclosure(expression.args[0]))
+    if expression.func is sp.cos:
+        return iv.cos(interval_enclosure(expression.args[0]))
+    if expression.func is sp.atan:
+        return iv.atan2(
+            interval_enclosure(expression.args[0]),
+            iv.mpf(1),
+        )
+    if expression.func is sp.atan2:
+        y, x = expression.args
+        return iv.atan2(
+            interval_enclosure(y),
+            interval_enclosure(x),
+        )
     raise IntervalEnclosureUnsupported(str(expression))
 
 

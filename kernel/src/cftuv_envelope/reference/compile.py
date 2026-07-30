@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
@@ -35,6 +35,7 @@ from ..contracts.envelopes import (
     HiddenSupportDirectionLaw,
     HiddenSupportScope,
     HiddenSupportSpecV1,
+    HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     JunctionEnvelopeSpec,
     JunctionSupportLawId,
@@ -66,7 +67,11 @@ from ..contracts.plan import (
     PlanKeyV1,
     SelfContactPairDeclarationV1,
 )
-from ..contracts.request import DecalRequestV1
+from ..contracts.request import (
+    AngularProfileSelectionPolicyId,
+    DecalRequestV1,
+)
+from .._density_policy import huber_density_value_contract
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
@@ -111,8 +116,10 @@ from .direction_binding import (
     _certify_k1_recipe_direction_bindings,
     _verify_k1_recipe_direction_bindings,
     certify_direction_bindings,
+    certify_huber_density_direction_bindings,
     has_rational_support_direction,
     verify_direction_bindings,
+    verify_huber_density_direction_bindings,
 )
 from .evaluation_geometry import (
     EvaluationGeometryBindingInvalid,
@@ -147,6 +154,11 @@ def _fraction(value: Decimal) -> Fraction:
     return Fraction(value)
 
 
+def _exact_ratio(numerator: int, denominator: int) -> ExactRatioV1:
+    value = Fraction(numerator, denominator)
+    return ExactRatioV1(value.numerator, value.denominator)
+
+
 def _strictly_above(interval, threshold: Fraction) -> bool:
     lower = _fraction(interval.lower)
     return lower > threshold or (
@@ -167,6 +179,97 @@ def _resolve_hidden_edge_count(measure: CertifiedReflexAngleMeasureV1) -> int | 
         if lower_proven and _at_most(interval, upper):
             return hidden_count
     return None
+
+
+def _resolve_huber_density_bucket(
+    measure: CertifiedReflexAngleMeasureV1,
+    q: int,
+) -> int | None:
+    """Доказать единственный `C` для `(C-1)/q < u <= C/q`."""
+
+    return _resolve_huber_density_bucket_interval(
+        measure.reflex_excess_over_pi,
+        q,
+    )
+
+
+def _resolve_huber_density_bucket_interval(interval, q: int) -> int | None:
+    """Точное ядро селектора; принимает любую Fraction-совместимую оболочку."""
+
+    for bucket_c in range(1, q + 1):
+        lower = Fraction(bucket_c - 1, q)
+        upper = Fraction(bucket_c, q)
+        if _strictly_above(interval, lower) and _at_most(interval, upper):
+            return bucket_c
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedAngularProfileSelection:
+    hidden_count: int
+    selection_law: SelectionLaw
+    minimality_lower_bound: MinimalityLowerBound
+    admissibility_upper_bound: AdmissibilityUpperBound
+    interval_certificate: (
+        SelectionIntervalCertificateV1
+        | HuberDensitySelectionIntervalCertificateV1
+    )
+    regression_fixture_id: AngularRegressionFixtureId | None
+
+
+def _resolve_angular_profile_selection(request, measure):
+    policy = request.angular_profile_selection_policy_id
+    if policy is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1:
+        hidden_count = _resolve_hidden_edge_count(measure)
+        if hidden_count is None:
+            return None
+        return _ResolvedAngularProfileSelection(
+            hidden_count,
+            SelectionLaw.MIN_K_FOR_MAX_SUBTURN,
+            MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER,
+            AdmissibilityUpperBound.CLOSED_UPPER,
+            SelectionIntervalCertificateV1(
+                IntervalBoundKind.OPEN,
+                hidden_count,
+                IntervalBoundKind.CLOSED,
+                hidden_count + 1,
+            ),
+            (
+                AngularRegressionFixtureId.K0
+                if hidden_count == 0
+                else AngularRegressionFixtureId.K1
+                if hidden_count == 1
+                else None
+            ),
+        )
+    density_contract = huber_density_value_contract(
+        request.max_subturn_value_id
+    )
+    if (
+        policy
+        is not AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        or density_contract is None
+    ):
+        return None
+    bucket_c = _resolve_huber_density_bucket(measure, density_contract[0])
+    if bucket_c is None:
+        return None
+    hidden_count = max(1, bucket_c - 1)
+    return _ResolvedAngularProfileSelection(
+        hidden_count,
+        SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1,
+        MinimalityLowerBound.HUBER_DENSITY_BUCKET_OPEN_LOWER,
+        AdmissibilityUpperBound.HUBER_DENSITY_BUCKET_CLOSED_UPPER,
+        HuberDensitySelectionIntervalCertificateV1(
+            density_contract[0],
+            bucket_c,
+            IntervalBoundKind.OPEN,
+            bucket_c - 1,
+            IntervalBoundKind.CLOSED,
+            bucket_c,
+        ),
+        None,
+    )
 
 
 def _route_pair_ids(topology) -> frozenset:
@@ -298,7 +401,7 @@ def _attach_direction_bindings(
 ) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
     """Сертифицировать фактические hidden directions evaluation-геометрии."""
 
-    from .angular import angular_support_data
+    from .angular import _ideal_angular_support_data
     from .common import GeometryContext, ReferenceGeometryError
 
     if (
@@ -342,8 +445,11 @@ def _attach_direction_bindings(
                 for item in context.snapshot.angular_owner_sectors
                 if item.owner_sector_id == spec.owner_sector_id
             )
-            _, _, _, ideal = angular_support_data(context, spec)
-            _, _, _, source_ideal = angular_support_data(source_context, spec)
+            *_, ideal = _ideal_angular_support_data(context, spec)
+            *_, source_ideal = _ideal_angular_support_data(
+                source_context,
+                spec,
+            )
             source_is_rational = tuple(
                 has_rational_support_direction(
                     source_context.metric,
@@ -369,8 +475,28 @@ def _attach_direction_bindings(
             )
             if not any(needs_binding):
                 continue
+            selection = next(
+                item
+                for item in compilation.profile_selection_certificates
+                if item.certificate_id == spec.selection_certificate_id
+            )
+            density_contract = huber_density_value_contract(
+                selection.max_subturn_value_id
+            )
+            is_density = (
+                selection.selection_policy_id
+                is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+                and density_contract is not None
+            )
             certificates = (
-                _certify_k1_recipe_direction_bindings(
+                certify_huber_density_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                    density_contract[0],
+                )
+                if is_density
+                else _certify_k1_recipe_direction_bindings(
                     context.metric,
                     ideal[0],
                     ideal[-1],
@@ -396,6 +522,7 @@ def _attach_direction_bindings(
                     )
                     if (
                         needed
+                        and certificate is not None
                         and compilation.evaluation_geometry_binding is not None
                     )
                     else certificate if needed else None
@@ -407,7 +534,15 @@ def _attach_direction_bindings(
                     strict=True,
                 )
             )
-            if spec.resolved_hidden_edge_count == 1:
+            if is_density:
+                verify_huber_density_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                    selected_certificates,
+                    density_contract[0],
+                )
+            elif spec.resolved_hidden_edge_count == 1:
                 _verify_k1_recipe_direction_bindings(
                     context.metric,
                     ideal[0],
@@ -858,12 +993,16 @@ def compile_reference_envelopes(
                 ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
                 f"CornerRelation {relation.corner_relation_id} lacks a certified numeric angle",
             )
-        hidden_count = _resolve_hidden_edge_count(angle_certificate.measure_payload)
-        if hidden_count is None:
+        resolved_selection = _resolve_angular_profile_selection(
+            request,
+            angle_certificate.measure_payload,
+        )
+        if resolved_selection is None:
             return _failure(
                 ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-                f"CornerRelation {relation.corner_relation_id} does not prove a unique k",
+                f"CornerRelation {relation.corner_relation_id} does not prove a unique angular profile",
             )
+        hidden_count = resolved_selection.hidden_count
         selection_id = SelectionCertificateId(
             _stable_value("profile-selection", request.decal_request_id, relation.corner_relation_id)
         )
@@ -881,21 +1020,12 @@ def compile_reference_envelopes(
             resolved_subturn_count=hidden_count + 1,
             local_profile_support_count=hidden_count + 2,
             local_profile_segment_count=hidden_count + 2,
-            selection_law=SelectionLaw.MIN_K_FOR_MAX_SUBTURN,
-            minimality_lower_bound=MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER,
-            admissibility_upper_bound=AdmissibilityUpperBound.CLOSED_UPPER,
-            selection_interval_certificate=SelectionIntervalCertificateV1(
-                lower_bound_kind=IntervalBoundKind.OPEN,
-                lower_bound_integer=hidden_count,
-                upper_bound_kind=IntervalBoundKind.CLOSED,
-                upper_bound_integer=hidden_count + 1,
-            ),
+            selection_law=resolved_selection.selection_law,
+            minimality_lower_bound=resolved_selection.minimality_lower_bound,
+            admissibility_upper_bound=resolved_selection.admissibility_upper_bound,
+            selection_interval_certificate=resolved_selection.interval_certificate,
             certificate_authority=SelectionCertificateAuthority.EXACT_OR_CERTIFIED_ANGLE_COMPARISON,
-            regression_fixture_id=(
-                AngularRegressionFixtureId.K0
-                if hidden_count == 0
-                else AngularRegressionFixtureId.K1 if hidden_count == 1 else None
-            ),
+            regression_fixture_id=resolved_selection.regression_fixture_id,
         )
         selection_certificates.add(selection)
         seed_id = CornerSeedId(
@@ -918,7 +1048,7 @@ def compile_reference_envelopes(
                     _stable_value("hidden-support", relation.corner_relation_id, ordinal)
                 ),
                 ordinal=ordinal,
-                turn_fraction=ExactRatioV1(ordinal, hidden_count + 1),
+                turn_fraction=_exact_ratio(ordinal, hidden_count + 1),
                 direction_law=HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN,
                 zero_length_at_alpha_zero=True,
                 scope=HiddenSupportScope.ANGULAR_ENVELOPE_SPEC_LOCAL,

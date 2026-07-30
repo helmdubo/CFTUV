@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
-from math import gcd
+from math import gcd, isqrt
 
 from mpmath import iv, libmp
 import sympy as sp
@@ -722,6 +722,134 @@ def certify_direction_bindings(
     )
 
 
+def certify_huber_density_direction_bindings(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    max_subturn_q: int,
+) -> tuple[DirectionBindingCertificateV1 | None, ...]:
+    """Каноническая B(w)-привязка Density A без неограниченного root solve."""
+
+    if max_subturn_q not in range(2, 7):
+        raise DirectionBindingCertificateUnproven(BINDING_SUBTURN_LE_DELTA_MAX)
+    if len(ideal_unit_normals) < 3:
+        return ()
+    ideal = tuple(
+        metric.support_covector_g(normal) for normal in ideal_unit_normals
+    )
+    windows = tuple(
+        (
+            _midpoint(metric, ideal[index - 1], ideal[index]),
+            _midpoint(metric, ideal[index], ideal[index + 1]),
+        )
+        for index in range(1, len(ideal) - 1)
+    )
+    certificates = tuple(
+        _huber_density_certificate_in_window(
+            metric,
+            ideal[index],
+            ideal[index - 1],
+            ideal[index + 1],
+            windows[index - 1][0],
+            windows[index - 1][1],
+            max_subturn_q,
+        )
+        for index in range(1, len(ideal) - 1)
+    )
+    predicate = _failed_huber_density_predicate(
+        metric,
+        ideal,
+        orientation,
+        certificates,
+        windows,
+        max_subturn_q,
+    )
+    if predicate is not None:
+        raise DirectionBindingCertificateUnproven(predicate)
+    return certificates
+
+
+def verify_huber_density_direction_bindings(
+    metric: ExactPlanarMetric,
+    ideal_unit_normals: tuple[ExactPlanarVector, ...],
+    orientation: TurnOrientation,
+    certificates: tuple[
+        DirectionBindingCertificateV1
+        | EvaluationGeometryDirectionBindingCertificateV1
+        | None,
+        ...,
+    ],
+    max_subturn_q: int,
+) -> None:
+    """Перевывести B(w)-победителей и перепроверить записанные certificates."""
+
+    if len(certificates) != max(0, len(ideal_unit_normals) - 2):
+        raise DirectionBindingCertificateUnproven(BINDING_MONOTONE)
+    ideal = tuple(
+        metric.support_covector_g(normal) for normal in ideal_unit_normals
+    )
+    windows = tuple(
+        (
+            _midpoint(metric, ideal[index - 1], ideal[index]),
+            _midpoint(metric, ideal[index], ideal[index + 1]),
+        )
+        for index in range(1, len(ideal) - 1)
+    )
+    canonical = tuple(
+        _huber_density_certificate_in_window(
+            metric,
+            ideal[index],
+            ideal[index - 1],
+            ideal[index + 1],
+            windows[index - 1][0],
+            windows[index - 1][1],
+            max_subturn_q,
+        )
+        for index in range(1, len(ideal) - 1)
+    )
+    for index, (supplied, expected) in enumerate(
+        zip(certificates, canonical, strict=True),
+        start=1,
+    ):
+        if supplied is None:
+            if (
+                expected is not None
+                and _primitive_direction(ideal[index]) is None
+            ):
+                raise DirectionBindingCertificateUnproven(
+                    BINDING_INSIDE_OWN_ORDINAL_WINDOW
+                )
+            continue
+        if expected is None:
+            raise DirectionBindingCertificateUnproven(
+                BINDING_INSIDE_OWN_ORDINAL_WINDOW
+            )
+        if (
+            supplied.bound_primitive_integer_vector
+            != expected.bound_primitive_integer_vector
+            or supplied.ideal_window_lower_slope_envelope
+            != expected.ideal_window_lower_slope_envelope
+            or supplied.ideal_window_upper_slope_envelope
+            != expected.ideal_window_upper_slope_envelope
+            or supplied.certified_window_width_lower_bound
+            != expected.certified_window_width_lower_bound
+            or supplied.proven_predicates != expected.proven_predicates
+        ):
+            raise DirectionBindingCertificateUnproven(
+                BINDING_INSIDE_OWN_ORDINAL_WINDOW
+            )
+    predicate = _failed_huber_density_predicate(
+        metric,
+        ideal,
+        orientation,
+        certificates,
+        windows,
+        max_subturn_q,
+    )
+    if predicate is not None:
+        raise DirectionBindingCertificateUnproven(predicate)
+
+
 def _certify_k1_recipe_direction_bindings(
     metric: ExactPlanarMetric,
     incoming: ExactPlanarVector,
@@ -929,6 +1057,122 @@ def _certificate_in_window(
     )
 
 
+def _huber_density_certificate_in_window(
+    metric: ExactPlanarMetric,
+    ideal: ExactPlanarVector,
+    left_ideal: ExactPlanarVector,
+    right_ideal: ExactPlanarVector,
+    left_window: ExactPlanarVector,
+    right_window: ExactPlanarVector,
+    max_subturn_q: int,
+) -> DirectionBindingCertificateV1 | None:
+    use_x = _dominant_x(ideal)
+    denominator_index = 0 if use_x else 1
+    denominator_sign = exact_sign(ideal.expressions()[denominator_index])
+    if denominator_sign == 0:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        )
+    slopes = (
+        _slope(left_window, use_x),
+        _slope(right_window, use_x),
+    )
+    lower_exact, upper_exact = (
+        slopes
+        if exact_sign(slopes[1] - slopes[0]) > 0
+        else (slopes[1], slopes[0])
+    )
+    lower_envelope = _decimal_envelope(lower_exact)
+    upper_envelope = _decimal_envelope(upper_exact)
+    lower = Fraction(lower_envelope.upper)
+    upper = Fraction(upper_envelope.lower)
+    width = upper - lower
+    if width <= 0:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        )
+    authority_budget = _huber_authority_budget(width)
+    candidates = []
+    ideal_unit = _dual_unit(metric, ideal)
+    for denominator in range(1, authority_budget + 1):
+        scaled_lower = lower * denominator
+        scaled_upper = upper * denominator
+        first = scaled_lower.numerator // scaled_lower.denominator + 1
+        last = -(
+            (-scaled_upper.numerator) // scaled_upper.denominator
+        ) - 1
+        for numerator in range(first, last + 1):
+            if gcd(abs(numerator), denominator) != 1:
+                continue
+            slope = Fraction(numerator, denominator)
+            vector = _vector_from_slope(
+                slope,
+                use_x,
+                denominator_sign,
+            )
+            candidate = ExactPlanarVector.from_values(*vector)
+            if not (
+                _subturn_at_most_pi_over_q(
+                    metric,
+                    left_ideal,
+                    candidate,
+                    max_subturn_q,
+                )
+                and _subturn_at_most_pi_over_q(
+                    metric,
+                    candidate,
+                    right_ideal,
+                    max_subturn_q,
+                )
+            ):
+                continue
+            candidate_unit = _dual_unit(metric, candidate)
+            ix, iy = ideal_unit.expressions()
+            cx, cy = candidate_unit.expressions()
+            difference = ExactPlanarVector.from_values(cx - ix, cy - iy)
+            objective = _dual_dot(metric, difference, difference)
+            candidates.append((objective, slope, vector))
+    if not candidates:
+        # A′-власть конечна и допускает EMPTY_AUTHORITY: в этом случае
+        # канонической остаётся точная символическая ordinal-опора.
+        return None
+    winner = candidates[0]
+    for candidate in candidates[1:]:
+        comparison = exact_sign(candidate[0] - winner[0])
+        if comparison < 0 or (
+            comparison == 0 and candidate[1] > winner[1]
+        ):
+            winner = candidate
+    return DirectionBindingCertificateV1(
+        bound_primitive_integer_vector=winner[2],
+        ideal_window_lower_slope_envelope=lower_envelope,
+        ideal_window_upper_slope_envelope=upper_envelope,
+        certified_window_width_lower_bound=(
+            upper_envelope.lower - lower_envelope.upper
+        ),
+        proven_predicates=_PROVEN_PREDICATES,
+    )
+
+
+def _huber_authority_budget(width: Fraction) -> int:
+    """Минимальный B: `B²*w >= 1`, без поискового цикла по кандидатам."""
+
+    quotient_ceiling = (
+        width.denominator + width.numerator - 1
+    ) // width.numerator
+    budget = isqrt(quotient_ceiling)
+    if budget * budget < quotient_ceiling:
+        budget += 1
+    while budget > 1 and (
+        (budget - 1) * (budget - 1) * width.numerator
+        >= width.denominator
+    ):
+        budget -= 1
+    if budget * budget * width.numerator < width.denominator:
+        budget += 1
+    return budget
+
+
 def _failed_predicate(metric, ideal, orientation, certificates, windows):
     if any(
         certificate is not None
@@ -981,6 +1225,79 @@ def _failed_predicate(metric, ideal, orientation, certificates, windows):
     return None
 
 
+def _failed_huber_density_predicate(
+    metric,
+    ideal,
+    orientation,
+    certificates,
+    windows,
+    max_subturn_q,
+):
+    if any(
+        certificate is not None
+        and (
+            certificate.proven_predicates != _PROVEN_PREDICATES
+            or not _primitive_integer(
+                certificate.bound_primitive_integer_vector
+            )
+        )
+        for certificate in certificates
+    ):
+        return BINDING_MONOTONE
+    resolved = tuple(
+        ideal[index]
+        if certificate is None
+        else ExactPlanarVector.from_values(
+            *certificate.bound_primitive_integer_vector
+        )
+        for index, certificate in enumerate(certificates, start=1)
+    )
+    expected = (
+        1
+        if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+        else -1
+    )
+    sequence = (ideal[0], *resolved, ideal[-1])
+    try:
+        if any(
+            exact_sign(_oriented_cross(metric, left, right)) != expected
+            for left, right in zip(sequence, sequence[1:])
+        ):
+            return BINDING_MONOTONE
+        if any(
+            certificate is not None
+            and not _inside(metric, candidate, window, expected)
+            for certificate, candidate, window in zip(
+                certificates,
+                resolved,
+                windows,
+                strict=True,
+            )
+        ):
+            return BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        if not _certificate_intervals_hold(
+            ideal,
+            resolved,
+            certificates,
+        ):
+            return BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        if any(
+            not _subturn_at_most_pi_over_q(
+                metric,
+                left,
+                right,
+                max_subturn_q,
+            )
+            for left, right in zip(sequence, sequence[1:])
+        ):
+            return BINDING_SUBTURN_LE_DELTA_MAX
+    except DirectionBindingCertificateUnproven as exc:
+        return exc.predicate
+    except (CertifiedPredicateUndecidable, ValueError, TypeError):
+        return BINDING_MONOTONE
+    return None
+
+
 def _inside(metric, candidate, window, expected):
     left, right = window
     return (
@@ -1005,6 +1322,43 @@ def _subturn_at_most_pi_over_three(metric, left, right):
         * _dual_dot(metric, right_primitive, right_primitive)
     )
     return exact_sign(lhs - rhs) >= 0
+
+
+def _subturn_at_most_pi_over_q(metric, left, right, q: int):
+    """Точный dual-Gram predicate для q=2..6.
+
+    Для q=5 порог `(3+sqrt(5))/8` намеренно остаётся quadratic exact
+    expression; никакой Decimal/float-подмены здесь нет.
+    """
+
+    dot = _dual_dot(metric, left, right)
+    dot_sign = exact_sign(dot)
+    if q == 2:
+        return dot_sign >= 0
+    if dot_sign <= 0:
+        return False
+    norm_product = exact_normalize(
+        _dual_dot(metric, left, left)
+        * _dual_dot(metric, right, right)
+    )
+    dot_squared = exact_normalize(dot * dot)
+    if q == 3:
+        residual = exact_normalize(4 * dot_squared - norm_product)
+    elif q == 4:
+        residual = exact_normalize(2 * dot_squared - norm_product)
+    elif q == 5:
+        residual = exact_normalize(
+            8 * dot_squared - (3 + sp.sqrt(5)) * norm_product
+        )
+    elif q == 6:
+        residual = exact_normalize(
+            4 * dot_squared - 3 * norm_product
+        )
+    else:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_SUBTURN_LE_DELTA_MAX
+        )
+    return exact_sign(residual) >= 0
 
 
 def _certificate_intervals_hold(ideal, bound, certificates):
