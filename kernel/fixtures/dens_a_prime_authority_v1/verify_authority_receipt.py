@@ -19,6 +19,7 @@ from pathlib import Path
 import sympy as sp
 from mpmath import iv, libmp
 
+import cftuv_envelope as kernel
 from cftuv_envelope.reference.planar_types import (
     CertifiedPredicateUndecidable,
     exact_sign,
@@ -299,13 +300,6 @@ def _owner(q: int, m: int) -> tuple[int, int, int, int]:
     return c, e, h, h + 1
 
 
-def _exact_rational(record) -> Fraction:
-    _keys(record, {"$type", "numerator", "denominator"}, "UNKNOWN_FIXTURE")
-    if record["$type"] != "ExactRationalV1":
-        _reject("UNKNOWN_FIXTURE")
-    return Fraction(record["numerator"], record["denominator"])
-
-
 def _matrix_record(matrix) -> list[list[list[int]]]:
     return [
         [
@@ -325,37 +319,46 @@ def _fixture_metric(repo: Path, claimed: dict) -> dict:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != digest:
         _reject("UNKNOWN_FIXTURE")
-    payload = json.loads(raw)
+    try:
+        snapshot = kernel.AnalysisSnapshotCodecV1.loads(raw)
+    except Exception:
+        _reject("UNKNOWN_FIXTURE")
     matches = [
         item
-        for item in payload["surface_metric_descriptors"]
-        if item["reference_metric_id"]["value"]
+        for item in snapshot.surface_metric_descriptors
+        if str(item.reference_metric_id)
         == claimed.get("reference_metric_id")
-        and item["patch_domain_id"]["value"] == claimed.get("patch_domain_id")
+        and str(item.patch_domain_id) == claimed.get("patch_domain_id")
     ]
     if len(matches) != 1:
         _reject("UNKNOWN_FIXTURE")
     descriptor = matches[0]
-    gram_raw = descriptor["exact_gram_matrix"]
-    inverse_raw = descriptor["exact_inverse_gram_matrix"]
+    gram_raw = descriptor.exact_gram_matrix
+    inverse_raw = descriptor.exact_inverse_gram_matrix
+
+    def typed_fraction(value) -> Fraction:
+        if type(value).__name__ != "ExactRationalV1":
+            _reject("UNKNOWN_FIXTURE")
+        return Fraction(value.numerator, value.denominator)
+
     gram = (
         (
-            _exact_rational(gram_raw["m00"]),
-            _exact_rational(gram_raw["m01"]),
+            typed_fraction(gram_raw.m00),
+            typed_fraction(gram_raw.m01),
         ),
         (
-            _exact_rational(gram_raw["m10"]),
-            _exact_rational(gram_raw["m11"]),
+            typed_fraction(gram_raw.m10),
+            typed_fraction(gram_raw.m11),
         ),
     )
     inverse = (
         (
-            _exact_rational(inverse_raw["m00"]),
-            _exact_rational(inverse_raw["m01"]),
+            typed_fraction(inverse_raw.m00),
+            typed_fraction(inverse_raw.m01),
         ),
         (
-            _exact_rational(inverse_raw["m10"]),
-            _exact_rational(inverse_raw["m11"]),
+            typed_fraction(inverse_raw.m10),
+            typed_fraction(inverse_raw.m11),
         ),
     )
     expected = {
