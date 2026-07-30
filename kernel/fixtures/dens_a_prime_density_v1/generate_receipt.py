@@ -1,9 +1,9 @@
-"""Generate the proof-only DENS-A-prime owner/radical receipt.
+"""Generate the proof-only DENS-A-prime owner/root receipt.
 
 This file deliberately contains no product implementation.  It reads a frozen
 field fixture, asks the existing compiler for its evaluation geometry, then
-proves the density owner law and the resulting quadratic-radical root with
-integer/Fraction predicates.
+proves the density owner law and isolates the resulting root with exact
+SignedCosSquaredV1 predicates over integers/Fractions.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from fractions import Fraction
 import hashlib
 import json
-from math import isqrt
 from pathlib import Path
 import re
 import subprocess
@@ -26,6 +25,7 @@ SCHEMA = "cftuv.envelope.dens_a_prime.radical_receipt.v1"
 INPUT_SCHEMA = "cftuv.envelope.dens_a_prime.radical_inputs.v1"
 AUTHORITY_TYPE = "ProofOnlyLinearReflexDensityAuthorityV1"
 EXACT_ANGLE_TYPE = "ProofOnlyExactAngleV1"
+SIGNED_COS_SQUARED_TYPE = "SignedCosSquaredV1"
 OWNER_POLICY = "HUBER_EMANATED_COUNT_DENSITY_A_V1"
 OWNER_PARAMETER = "LINEAR_REFLEX_DENSITY_A_V1"
 OWNER_FORMULA = {
@@ -130,8 +130,7 @@ PRODUCTION_INPUT_KEYS = {
     *FROZEN_SOURCE_IDENTITY,
     "density_authority",
     "expected_gram",
-    "expected_cosine_coefficient",
-    "expected_cosine_radicand",
+    "expected_signed_cos_squared",
     "principal_half_tangent_bracket",
     "other_branch_half_tangent_bracket",
     "root_refinement_steps",
@@ -278,6 +277,28 @@ def _validate_density_authority(
     return density
 
 
+def _validate_signed_cos_squared_record(record: dict[str, Any]) -> None:
+    _exact_keys(
+        record,
+        {"$type", "turn_sign", "cos_squared"},
+        "signed cosine squared",
+    )
+    if record["$type"] != SIGNED_COS_SQUARED_TYPE:
+        raise ValueError("unknown signed cosine squared type")
+    if record["turn_sign"] not in {"NEGATIVE", "ZERO", "POSITIVE"}:
+        raise ValueError("unknown signed cosine turn sign")
+    cosine_squared = Fraction(record["cos_squared"])
+    if not 0 <= cosine_squared <= 1:
+        raise ValueError("cosine squared is outside [0,1]")
+    if record["turn_sign"] == "ZERO":
+        if cosine_squared != 0:
+            raise ValueError("zero cosine sign requires zero squared value")
+    elif cosine_squared == 0:
+        raise ValueError("nonzero cosine sign requires positive squared value")
+    if record["cos_squared"] != str(cosine_squared):
+        raise ValueError("cosine squared is not in irreducible canonical form")
+
+
 def _validate_inputs_contract(inputs: dict[str, Any]) -> int:
     _exact_keys(
         inputs,
@@ -314,6 +335,7 @@ def _validate_inputs_contract(inputs: dict[str, Any]) -> int:
     for field, expected in FROZEN_SOURCE_IDENTITY.items():
         if source[field] != expected:
             raise ValueError(f"foreign production source field: {field}")
+    _validate_signed_cos_squared_record(source["expected_signed_cos_squared"])
     if type(source["root_refinement_steps"]) is not int:
         raise ValueError("root refinement steps must be an integer")
     return _validate_density_authority(
@@ -358,13 +380,6 @@ def _gram_dot(matrix, left, right) -> Fraction:
         matrix[0][0] * right[0] + matrix[0][1] * right[1]
     ) + left[1] * (
         matrix[1][0] * right[0] + matrix[1][1] * right[1]
-    )
-
-
-def _square_fraction(value: Fraction) -> bool:
-    return (
-        isqrt(value.numerator) ** 2 == value.numerator
-        and isqrt(value.denominator) ** 2 == value.denominator
     )
 
 
@@ -426,57 +441,85 @@ class BitLedger:
         }
 
 
-@dataclass(frozen=True)
-class SqrtSum:
-    rational: Fraction
-    coefficient: Fraction
-    radicand: int
+def _signed_cos_squared(
+    dot: Fraction,
+    norm_product: Fraction,
+) -> dict[str, Any]:
+    if norm_product <= 0:
+        raise ValueError("non-positive norm product")
+    if dot == 0:
+        return {
+            "$type": SIGNED_COS_SQUARED_TYPE,
+            "turn_sign": "ZERO",
+            "cos_squared": "0",
+        }
+    cosine_squared = dot * dot / norm_product
+    if not 0 < cosine_squared <= 1:
+        raise ValueError("derived cosine squared is outside (0,1]")
+    return {
+        "$type": SIGNED_COS_SQUARED_TYPE,
+        "turn_sign": "POSITIVE" if dot > 0 else "NEGATIVE",
+        "cos_squared": _f(cosine_squared),
+    }
 
-    def sign(self, ledger: BitLedger) -> int:
-        if self.radicand <= 0:
-            raise ValueError("non-positive radicand")
-        ledger.step(1, self.rational, self.coefficient, self.radicand)
-        if self.coefficient == 0:
-            return _sign(self.rational)
-        if self.rational == 0:
-            return _sign(self.coefficient)
-        if _sign(self.rational) == _sign(self.coefficient):
-            return _sign(self.rational)
-        rational_sq = self.rational * self.rational
-        radical_sq = self.coefficient * self.coefficient * self.radicand
-        ledger.step(1, rational_sq, radical_sq)
-        comparison = _sign(rational_sq - radical_sq)
-        return comparison if self.rational > 0 else -comparison
 
-
-def _cos_two_from_half_tangent(t: Fraction) -> Fraction:
+def _chebyshev_from_half_tangent(t: Fraction, n: int) -> Fraction:
+    if type(n) is not int or n < 0:
+        raise ValueError("Chebyshev degree must be a non-negative integer")
     t2 = t * t
-    return (1 - 6 * t2 + t2 * t2) / (1 + 2 * t2 + t2 * t2)
+    x = (1 - t2) / (1 + t2)
+    if n == 0:
+        return Fraction(1)
+    if n == 1:
+        return x
+    previous = Fraction(1)
+    current = x
+    for _ in range(2, n + 1):
+        previous, current = current, 2 * x * current - previous
+    return current
 
 
 def _root_sign(
-    t: Fraction, coefficient: Fraction, radicand: int, ledger: BitLedger
+    t: Fraction,
+    root_n: int,
+    target: dict[str, Any],
+    ledger: BitLedger,
 ) -> int:
-    rational = _cos_two_from_half_tangent(t)
-    ledger.step(4, t, rational)
-    return SqrtSum(rational, -coefficient, radicand).sign(ledger)
+    chebyshev = _chebyshev_from_half_tangent(t, root_n)
+    ledger.step(4 + 3 * max(0, root_n - 1), t, chebyshev)
+    cosine_squared = Fraction(target["cos_squared"])
+    target_sign = {
+        "NEGATIVE": -1,
+        "ZERO": 0,
+        "POSITIVE": 1,
+    }[target["turn_sign"]]
+    ledger.step(1, chebyshev, cosine_squared, target_sign)
+    if target_sign == 0:
+        return _sign(chebyshev)
+    chebyshev_sign = _sign(chebyshev)
+    if chebyshev_sign != target_sign:
+        return 1 if chebyshev_sign > target_sign else -1
+    chebyshev_squared = chebyshev * chebyshev
+    ledger.step(1, chebyshev_squared, cosine_squared)
+    comparison = _sign(chebyshev_squared - cosine_squared)
+    return comparison * target_sign
 
 
 def _refine(
     lower: Fraction,
     upper: Fraction,
-    coefficient: Fraction,
-    radicand: int,
+    root_n: int,
+    target: dict[str, Any],
     steps: int,
     ledger: BitLedger,
 ) -> tuple[Fraction, Fraction]:
-    if _root_sign(lower, coefficient, radicand, ledger) != 1:
+    if _root_sign(lower, root_n, target, ledger) != 1:
         raise ValueError("principal lower endpoint does not have positive sign")
-    if _root_sign(upper, coefficient, radicand, ledger) != -1:
+    if _root_sign(upper, root_n, target, ledger) != -1:
         raise ValueError("principal upper endpoint does not have negative sign")
     for _ in range(steps):
         middle = (lower + upper) / 2
-        if _root_sign(middle, coefficient, radicand, ledger) > 0:
+        if _root_sign(middle, root_n, target, ledger) > 0:
             lower = middle
         else:
             upper = middle
@@ -816,40 +859,29 @@ def _chain_vector(
     return _sub(coordinates[end], coordinates[start])
 
 
-def _cosine_radical(
+def _cosine_squared_binding(
     matrix,
     incoming,
     outgoing,
+    expected: dict[str, Any],
     ledger: BitLedger,
-) -> tuple[Fraction, int, dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     aa = _gram_dot(matrix, incoming, incoming)
     bb = _gram_dot(matrix, outgoing, outgoing)
     ab = _gram_dot(matrix, incoming, outgoing)
     product = aa * bb
-    if aa <= 0 or bb <= 0 or ab <= 0:
-        raise ValueError("production rays do not define an acute excess angle")
-    # ab/sqrt(product) == (ab/product)*sqrt(product).  In this field case
-    # product has a rational square denominator and a square factor upstairs.
-    numerator_root = isqrt(product.numerator)
-    denominator_root = isqrt(product.denominator)
-    # Reduce square factors without a CAS.  The accepted field witness is
-    # deliberately represented by the already reduced integer radicand.
-    expected_r = 5017274161018234127482566533
-    coefficient = Fraction(1002251807, expected_r)
-    if coefficient * coefficient * expected_r != ab * ab / product:
-        raise ValueError("derived cosine does not equal production radical")
-    if _square_fraction(product):
-        raise ValueError("production norm product unexpectedly became rational")
+    if aa <= 0 or bb <= 0:
+        raise ValueError("production rays do not define positive Gram norms")
+    target = _signed_cos_squared(ab, product)
+    if target != expected:
+        raise ValueError("serialized signed cosine differs from production")
     ledger.step(12, matrix, incoming, outgoing, aa, bb, ab, product)
-    return coefficient, expected_r, {
+    return target, {
         "incoming_norm_squared": _f(aa),
         "outgoing_norm_squared": _f(bb),
         "dot": _f(ab),
         "norm_product": _f(product),
-        "norm_product_is_square": False,
-        "integer_sqrt_floor_numerator": numerator_root,
-        "integer_sqrt_floor_denominator": denominator_root,
-        "identity": "cos_delta=(dot/norm_product)*sqrt(norm_product)",
+        "identity": "cos_squared=dot^2/(incoming_norm_squared*outgoing_norm_squared)",
     }
 
 
@@ -863,6 +895,7 @@ def _solve_orientation(
     other_bracket: tuple[Fraction, Fraction],
     root_n: int,
     steps: int,
+    expected_cosine: dict[str, Any],
     ledger: BitLedger,
 ) -> dict[str, Any]:
     if root_n != 2:
@@ -870,19 +903,19 @@ def _solve_orientation(
     cross = _cross(incoming, outgoing)
     if _sign(cross) != expected_orientation:
         raise ValueError(f"{name}: orientation mismatch")
-    coefficient, radicand, gram = _cosine_radical(
-        matrix, incoming, outgoing, ledger
+    signed_cosine, gram = _cosine_squared_binding(
+        matrix, incoming, outgoing, expected_cosine, ledger
     )
     principal_signs = [
-        _root_sign(value, coefficient, radicand, ledger)
+        _root_sign(value, root_n, signed_cosine, ledger)
         for value in principal_bracket
     ]
     other_signs = [
-        _root_sign(value, coefficient, radicand, ledger)
+        _root_sign(value, root_n, signed_cosine, ledger)
         for value in other_bracket
     ]
     refined = _refine(
-        *principal_bracket, coefficient, radicand, steps, ledger
+        *principal_bracket, root_n, signed_cosine, steps, ledger
     )
     # d/dt cos(2 theta(t)) = -16t(1-t^2)/(1+t^2)^3.
     # Thus it is strictly negative on (0,1), strictly positive on (1,+inf).
@@ -921,15 +954,20 @@ def _solve_orientation(
         "cross": _f(cross),
         "orientation_sign": _sign(cross),
         "cosine": {
-            "coefficient": _f(coefficient),
-            "radicand": radicand,
-            "fraction_only_root_sign": False,
+            **signed_cosine,
             **gram,
         },
         "root_equation": (
-            "(1-6*t^2+t^4)/(1+2*t^2+t^4)"
-            "=coefficient*sqrt(radicand)"
+            "T_n((1-t^2)/(1+t^2))=signed_sqrt(cos_squared)"
         ),
+        "root_predicate": {
+            "n": root_n,
+            "selected_sign_branch": signed_cosine["turn_sign"],
+            "comparison": (
+                "sign(T_n(x))=turn_sign; compare T_n(x)^2 to cos_squared"
+            ),
+            "arithmetic": "EXACT_FRACTION",
+        },
         "principal_bracket": [_f(value) for value in principal_bracket],
         "principal_bracket_signs": principal_signs,
         "refined_bracket": [_f(value) for value in refined],
@@ -1035,16 +1073,9 @@ def main() -> None:
         other,
         root_n,
         source["root_refinement_steps"],
+        source["expected_signed_cos_squared"],
         ledger,
     )
-    if original["cosine"]["coefficient"] != source[
-        "expected_cosine_coefficient"
-    ]:
-        raise ValueError("cosine coefficient mismatch")
-    if original["cosine"]["radicand"] != int(
-        source["expected_cosine_radicand"]
-    ):
-        raise ValueError("cosine radicand mismatch")
 
     # Mirror is rebuilt from mirrored coordinates and M^T G M, not from the
     # original result.  M=diag(1,-1), so the off-diagonal entries change sign.
@@ -1071,6 +1102,7 @@ def main() -> None:
         other,
         root_n,
         source["root_refinement_steps"],
+        source["expected_signed_cos_squared"],
         ledger,
     )
     if mirrored["refined_bracket"] != original["refined_bracket"]:
@@ -1165,7 +1197,7 @@ def main() -> None:
             == [1, 2, 3, 4, 5],
             "H1_C1_and_C2_covered": {item["derived_C"] for item in h1}
             == {1, 2},
-            "production_quadratic_radical": True,
+            "production_signed_cos_squared": True,
             "principal_branch_unique": original["branch_certificate"][
                 "principal_unique_root"
             ],

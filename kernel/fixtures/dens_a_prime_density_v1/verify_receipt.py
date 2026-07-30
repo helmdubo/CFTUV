@@ -1,8 +1,8 @@
-"""Independent verifier for the DENS-A-prime owner/radical receipt.
+"""Independent verifier for the DENS-A-prime owner/root receipt.
 
 It intentionally does not import generate_receipt.py.  All exact predicates,
-fixture extraction, mirroring, root isolation, and red controls are repeated
-here from the receipt inputs.
+fixture extraction, signed-cos-squared derivation, mirroring, root isolation,
+and red controls are repeated here from the receipt inputs.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 INPUT_SCHEMA = "cftuv.envelope.dens_a_prime.radical_inputs.v1"
 AUTHORITY_TYPE = "ProofOnlyLinearReflexDensityAuthorityV1"
 EXACT_ANGLE_TYPE = "ProofOnlyExactAngleV1"
+SIGNED_COS_SQUARED_TYPE = "SignedCosSquaredV1"
 OWNER_POLICY = "HUBER_EMANATED_COUNT_DENSITY_A_V1"
 OWNER_PARAMETER = "LINEAR_REFLEX_DENSITY_A_V1"
 OWNER_FORMULA = {
@@ -127,11 +128,20 @@ PRODUCTION_INPUT_KEYS = {
     *FROZEN_SOURCE_IDENTITY,
     "density_authority",
     "expected_gram",
-    "expected_cosine_coefficient",
-    "expected_cosine_radicand",
+    "expected_signed_cos_squared",
     "principal_half_tangent_bracket",
     "other_branch_half_tangent_bracket",
     "root_refinement_steps",
+}
+COSINE_RECEIPT_KEYS = {
+    "$type",
+    "turn_sign",
+    "cos_squared",
+    "incoming_norm_squared",
+    "outgoing_norm_squared",
+    "dot",
+    "norm_product",
+    "identity",
 }
 
 
@@ -258,6 +268,23 @@ def validate_density_authority(
     return density
 
 
+def validate_signed_cos_squared_record(record: dict[str, Any]) -> None:
+    exact_keys(
+        record,
+        {"$type", "turn_sign", "cos_squared"},
+        "signed cosine squared",
+    )
+    assert record["$type"] == SIGNED_COS_SQUARED_TYPE
+    assert record["turn_sign"] in {"NEGATIVE", "ZERO", "POSITIVE"}
+    cosine_squared = Fraction(record["cos_squared"])
+    assert 0 <= cosine_squared <= 1
+    if record["turn_sign"] == "ZERO":
+        assert cosine_squared == 0
+    else:
+        assert cosine_squared > 0
+    assert record["cos_squared"] == str(cosine_squared)
+
+
 def validate_inputs_contract(inputs: dict[str, Any]) -> int:
     exact_keys(
         inputs,
@@ -290,6 +317,7 @@ def validate_inputs_contract(inputs: dict[str, Any]) -> int:
     exact_keys(source, PRODUCTION_INPUT_KEYS, "production radical")
     for field, expected in FROZEN_SOURCE_IDENTITY.items():
         assert source[field] == expected, field
+    validate_signed_cos_squared_record(source["expected_signed_cos_squared"])
     assert type(source["root_refinement_steps"]) is int
     return validate_density_authority(
         source["density_authority"], inputs["owner_law"]
@@ -377,56 +405,67 @@ class Audit:
         return self.steps * 256 * (2 * self.max_bits) ** 2
 
 
-def sqrt_sum_sign(
-    rational: Fraction,
-    coefficient: Fraction,
-    radicand: int,
-    audit: Audit,
-) -> int:
-    if radicand <= 0:
-        raise AssertionError("radicand must be positive")
-    audit.record(1, rational, coefficient, radicand)
-    if coefficient == 0:
-        return sign(rational)
-    if rational == 0:
-        return sign(coefficient)
-    if sign(rational) == sign(coefficient):
-        return sign(rational)
-    left = rational * rational
-    right = coefficient * coefficient * radicand
-    audit.record(1, left, right)
-    comparison = sign(left - right)
-    return comparison if rational > 0 else -comparison
+class RootSolveTrace:
+    def __init__(self) -> None:
+        self.endpoint_predicate_calls = 0
 
 
-def cos_two(t: Fraction) -> Fraction:
+def chebyshev_from_half_tangent(t: Fraction, n: int) -> Fraction:
+    assert type(n) is int and n >= 0
     square = t * t
-    return (1 - 6 * square + square * square) / (
-        1 + 2 * square + square * square
-    )
+    x = (1 - square) / (1 + square)
+    if n == 0:
+        return Fraction(1)
+    if n == 1:
+        return x
+    before = Fraction(1)
+    value = x
+    for _ in range(2, n + 1):
+        before, value = value, 2 * x * value - before
+    return value
 
 
 def root_sign(
-    t: Fraction, coefficient: Fraction, radicand: int, audit: Audit
+    t: Fraction,
+    root_n: int,
+    target: dict[str, Any],
+    audit: Audit,
+    trace: RootSolveTrace,
 ) -> int:
-    value = cos_two(t)
-    audit.record(4, t, value)
-    return sqrt_sum_sign(value, -coefficient, radicand, audit)
+    trace.endpoint_predicate_calls += 1
+    value = chebyshev_from_half_tangent(t, root_n)
+    audit.record(4 + 3 * max(0, root_n - 1), t, value)
+    cosine_squared = Fraction(target["cos_squared"])
+    target_sign = {
+        "NEGATIVE": -1,
+        "ZERO": 0,
+        "POSITIVE": 1,
+    }[target["turn_sign"]]
+    audit.record(1, value, cosine_squared, target_sign)
+    if target_sign == 0:
+        return sign(value)
+    value_sign = sign(value)
+    if value_sign != target_sign:
+        return 1 if value_sign > target_sign else -1
+    value_squared = value * value
+    audit.record(1, value_squared, cosine_squared)
+    return sign(value_squared - cosine_squared) * target_sign
 
 
 def refine(
     lower: Fraction,
     upper: Fraction,
-    coefficient: Fraction,
-    radicand: int,
+    root_n: int,
+    target: dict[str, Any],
     steps: int,
     audit: Audit,
+    trace: RootSolveTrace,
 ) -> tuple[Fraction, Fraction]:
-    assert root_sign(lower, coefficient, radicand, audit) == 1
-    assert root_sign(upper, coefficient, radicand, audit) == -1
+    assert root_sign(lower, root_n, target, audit, trace) == 1
+    assert root_sign(upper, root_n, target, audit, trace) == -1
     for _ in range(steps):
         middle = (lower + upper) / 2
-        if root_sign(middle, coefficient, radicand, audit) > 0:
+        if root_sign(middle, root_n, target, audit, trace) > 0:
             lower = middle
         else:
             upper = middle
@@ -703,17 +742,35 @@ def chain_vector(snapshot, coordinates, chain_use_id):
     return subtract(coordinates[end], coordinates[start])
 
 
-def derive_cosine(matrix, incoming, outgoing, expected, audit: Audit):
+def derive_signed_cos_squared(
+    matrix,
+    incoming,
+    outgoing,
+    expected: dict[str, Any],
+    audit: Audit,
+):
     aa = dot(matrix, incoming, incoming)
     bb = dot(matrix, outgoing, outgoing)
     ab = dot(matrix, incoming, outgoing)
     product = aa * bb
-    coefficient = Fraction(expected["expected_cosine_coefficient"])
-    radicand = int(expected["expected_cosine_radicand"])
     audit.record(12, matrix, incoming, outgoing, aa, bb, ab, product)
-    assert aa > 0 and bb > 0 and ab > 0
-    assert coefficient * coefficient * radicand == ab * ab / product
-    return coefficient, radicand, aa, bb, ab, product
+    assert aa > 0 and bb > 0
+    if ab == 0:
+        derived = {
+            "$type": SIGNED_COS_SQUARED_TYPE,
+            "turn_sign": "ZERO",
+            "cos_squared": "0",
+        }
+    else:
+        cosine_squared = ab * ab / product
+        assert 0 < cosine_squared <= 1
+        derived = {
+            "$type": SIGNED_COS_SQUARED_TYPE,
+            "turn_sign": "POSITIVE" if ab > 0 else "NEGATIVE",
+            "cos_squared": f(cosine_squared),
+        }
+    assert expected == derived
+    return derived, aa, bb, ab, product
 
 
 def verify_owner(inputs, receipt) -> dict[str, Any]:
@@ -784,7 +841,12 @@ def verify_owner(inputs, receipt) -> dict[str, Any]:
 
 
 def verify_radical(
-    root, inputs, receipt, audit: Audit, owner_summary
+    root,
+    inputs,
+    receipt,
+    audit: Audit,
+    trace: RootSolveTrace,
+    owner_summary,
 ) -> dict[str, Any]:
     source = inputs["production_radical"]
     (
@@ -870,58 +932,23 @@ def verify_radical(
         snapshot, coordinates, source["outgoing_chain_use_id"]
     )
     assert sign(cross(incoming, outgoing)) == -1
-    coefficient, radicand, aa, bb, ab, product = derive_cosine(
-        matrix, incoming, outgoing, source, audit
-    )
-    lower, upper = (
-        Fraction(value) for value in source["principal_half_tangent_bracket"]
-    )
-    other_lower, other_upper = (
-        Fraction(value)
-        for value in source["other_branch_half_tangent_bracket"]
-    )
-    principal_signs = [
-        root_sign(lower, coefficient, radicand, audit),
-        root_sign(upper, coefficient, radicand, audit),
-    ]
-    other_signs = [
-        root_sign(other_lower, coefficient, radicand, audit),
-        root_sign(other_upper, coefficient, radicand, audit),
-    ]
-    assert 0 < lower < upper < 1
-    assert principal_signs == [1, -1]
-    # Independent uniqueness argument: derivative numerator
-    # -16*t*(1-t^2) is strictly negative on this whole domain.
-    assert lower > 0 and upper < 1
-    assert 1 < other_lower < other_upper
-    assert other_signs == [-1, 1]
-    refined = refine(
-        lower,
-        upper,
-        coefficient,
-        radicand,
-        source["root_refinement_steps"],
+    signed_cosine, aa, bb, ab, product = derive_signed_cos_squared(
+        matrix,
+        incoming,
+        outgoing,
+        source["expected_signed_cos_squared"],
         audit,
     )
-
     generated = radical_receipt["original"]
     assert generated["gram"] == [[f(x) for x in row] for row in matrix]
     assert generated["incoming"] == [f(x) for x in incoming]
     assert generated["outgoing"] == [f(x) for x in outgoing]
-    assert generated["cosine"]["coefficient"] == f(coefficient)
-    assert generated["cosine"]["radicand"] == radicand
+    assert {
+        key: generated["cosine"][key]
+        for key in ("$type", "turn_sign", "cos_squared")
+    } == signed_cosine
     assert generated["cosine"]["dot"] == f(ab)
     assert generated["cosine"]["norm_product"] == f(product)
-    assert generated["principal_bracket_signs"] == principal_signs
-    assert generated["refined_bracket"] == [f(x) for x in refined]
-    assert generated["branch_certificate"]["principal_monotone"] == (
-        "STRICTLY_DECREASING"
-    )
-    assert generated["branch_certificate"]["principal_unique_root"]
-    assert generated["branch_certificate"]["other_branch_has_root"]
-    assert generated["branch_certificate"]["other_branch_rejection"] == (
-        "OUTSIDE_OWNER_SUBTURN_BRANCH"
-    )
 
     mirrored_coordinates = {
         key: (value[0], -value[1]) for key, value in coordinates.items()
@@ -937,36 +964,118 @@ def verify_radical(
         snapshot, mirrored_coordinates, source["outgoing_chain_use_id"]
     )
     assert sign(cross(mirrored_incoming, mirrored_outgoing)) == 1
-    m_coefficient, m_radicand, _, _, m_dot, m_product = derive_cosine(
+    mirrored_signed_cosine, _, _, m_dot, m_product = derive_signed_cos_squared(
         mirrored_matrix,
         mirrored_incoming,
         mirrored_outgoing,
-        source,
+        source["expected_signed_cos_squared"],
         audit,
     )
-    assert (m_coefficient, m_radicand) == (coefficient, radicand)
-    mirrored_refined = refine(
-        lower,
-        upper,
-        m_coefficient,
-        m_radicand,
-        source["root_refinement_steps"],
-        audit,
-    )
-    assert mirrored_refined == refined
-    # Repeat the same sign/bracket work for the independently mirrored input.
-    assert root_sign(lower, m_coefficient, m_radicand, audit) == 1
-    assert root_sign(upper, m_coefficient, m_radicand, audit) == -1
-    assert root_sign(other_lower, m_coefficient, m_radicand, audit) == -1
-    assert root_sign(other_upper, m_coefficient, m_radicand, audit) == 1
+    assert mirrored_signed_cosine == signed_cosine
     generated_mirror = radical_receipt["mirrored"]
     assert generated_mirror["gram"] == [
         [f(x) for x in row] for row in mirrored_matrix
     ]
-    assert generated_mirror["incoming"] == [f(x) for x in mirrored_incoming]
-    assert generated_mirror["outgoing"] == [f(x) for x in mirrored_outgoing]
+    assert generated_mirror["incoming"] == [
+        f(x) for x in mirrored_incoming
+    ]
+    assert generated_mirror["outgoing"] == [
+        f(x) for x in mirrored_outgoing
+    ]
+    assert {
+        key: generated_mirror["cosine"][key]
+        for key in ("$type", "turn_sign", "cos_squared")
+    } == mirrored_signed_cosine
     assert generated_mirror["cosine"]["dot"] == f(m_dot)
     assert generated_mirror["cosine"]["norm_product"] == f(m_product)
+
+    lower, upper = (
+        Fraction(value) for value in source["principal_half_tangent_bracket"]
+    )
+    other_lower, other_upper = (
+        Fraction(value)
+        for value in source["other_branch_half_tangent_bracket"]
+    )
+    principal_signs = [
+        root_sign(lower, root_n, signed_cosine, audit, trace),
+        root_sign(upper, root_n, signed_cosine, audit, trace),
+    ]
+    other_signs = [
+        root_sign(other_lower, root_n, signed_cosine, audit, trace),
+        root_sign(other_upper, root_n, signed_cosine, audit, trace),
+    ]
+    assert 0 < lower < upper < 1
+    assert principal_signs == [1, -1]
+    # Independent uniqueness argument: derivative numerator
+    # -16*t*(1-t^2) is strictly negative on this whole domain.
+    assert lower > 0 and upper < 1
+    assert 1 < other_lower < other_upper
+    assert other_signs == [-1, 1]
+    refined = refine(
+        lower,
+        upper,
+        root_n,
+        signed_cosine,
+        source["root_refinement_steps"],
+        audit,
+        trace,
+    )
+
+    assert generated["root_equation"] == (
+        "T_n((1-t^2)/(1+t^2))=signed_sqrt(cos_squared)"
+    )
+    assert generated["root_predicate"] == {
+        "n": root_n,
+        "selected_sign_branch": signed_cosine["turn_sign"],
+        "comparison": (
+            "sign(T_n(x))=turn_sign; compare T_n(x)^2 to cos_squared"
+        ),
+        "arithmetic": "EXACT_FRACTION",
+    }
+    assert generated["principal_bracket_signs"] == principal_signs
+    assert generated["refined_bracket"] == [f(x) for x in refined]
+    assert generated["branch_certificate"]["principal_monotone"] == (
+        "STRICTLY_DECREASING"
+    )
+    assert generated["branch_certificate"]["principal_unique_root"]
+    assert generated["branch_certificate"]["other_branch_has_root"]
+    assert generated["branch_certificate"]["other_branch_rejection"] == (
+        "OUTSIDE_OWNER_SUBTURN_BRANCH"
+    )
+
+    mirrored_refined = refine(
+        lower,
+        upper,
+        root_n,
+        mirrored_signed_cosine,
+        source["root_refinement_steps"],
+        audit,
+        trace,
+    )
+    assert mirrored_refined == refined
+    # Repeat the same sign/bracket work for the independently mirrored input.
+    assert (
+        root_sign(lower, root_n, mirrored_signed_cosine, audit, trace) == 1
+    )
+    assert (
+        root_sign(upper, root_n, mirrored_signed_cosine, audit, trace) == -1
+    )
+    assert (
+        root_sign(
+            other_lower, root_n, mirrored_signed_cosine, audit, trace
+        )
+        == -1
+    )
+    assert (
+        root_sign(
+            other_upper, root_n, mirrored_signed_cosine, audit, trace
+        )
+        == 1
+    )
+    assert generated_mirror["root_equation"] == generated["root_equation"]
+    assert (
+        generated_mirror["root_predicate"] == generated["root_predicate"]
+    )
     assert generated_mirror["refined_bracket"] == [f(x) for x in refined]
 
     # Reach the two mirror red controls independently.
@@ -980,7 +1089,7 @@ def verify_radical(
         "other_branch_signs": other_signs,
         "other_branch_rejected": True,
         "refined_bracket": [f(x) for x in refined],
-        "production_radicand": radicand,
+        "production_signed_cos_squared": signed_cosine,
         "derived_owner_density": {
             "certified_u": f(certified_u),
             "density": density,
@@ -1004,7 +1113,10 @@ def semantic_verify(
     inputs: dict[str, Any],
     expected_inputs_sha: str,
     wrapper: dict[str, Any],
+    trace: RootSolveTrace | None = None,
 ) -> dict[str, Any]:
+    if trace is None:
+        trace = RootSolveTrace()
     validate_inputs_contract(inputs)
     exact_keys(
         wrapper,
@@ -1030,6 +1142,20 @@ def semantic_verify(
         },
         "radical receipt evidence",
     )
+    radical_binding = evidence["radical_binding"]
+    for orientation in ("original", "mirrored"):
+        cosine = radical_binding[orientation]["cosine"]
+        exact_keys(
+            cosine,
+            COSINE_RECEIPT_KEYS,
+            f"{orientation} signed cosine receipt",
+        )
+        validate_signed_cos_squared_record(
+            {
+                key: cosine[key]
+                for key in ("$type", "turn_sign", "cos_squared")
+            }
+        )
     assert sha(canonical(evidence)) == wrapper["evidence_sha256"]
     assert evidence["inputs_sha256"] == expected_inputs_sha
     input_bits = input_integer_bits(inputs)
@@ -1050,7 +1176,7 @@ def semantic_verify(
 
     audit = Audit()
     owner = verify_owner(inputs, wrapper)
-    radical = verify_radical(root, inputs, wrapper, audit, owner)
+    radical = verify_radical(root, inputs, wrapper, audit, trace, owner)
     budget = inputs["bit_cost_model"]["budget"]
     assert audit.cost() <= budget
     primary_perf = evidence["performance"]
@@ -1095,13 +1221,9 @@ def semantic_verify(
         "owner_H1_through_H5_reachable": owner["hidden_counts"]
         == [1, 2, 3, 4, 5],
         "H1_C1_and_C2_covered": owner["H1_C_cells"] == [1, 2],
-        "production_quadratic_radical": (
-            radical["production_radicand"]
-            == int(
-                inputs["production_radical"][
-                    "expected_cosine_radicand"
-                ]
-            )
+        "production_signed_cos_squared": (
+            radical["production_signed_cos_squared"]
+            == inputs["production_radical"]["expected_signed_cos_squared"]
         ),
         "principal_branch_unique": radical[
             "principal_unique_by_strict_derivative"
@@ -1128,6 +1250,9 @@ def semantic_verify(
         "radical_binding": public_radical,
         "red_controls": expected_red,
         "performance": expected_perf,
+        "root_solve_trace": {
+            "endpoint_predicate_calls": trace.endpoint_predicate_calls,
+        },
     }
 
 
@@ -1140,11 +1265,12 @@ def expect_reject(
     inputs: dict[str, Any],
     inputs_sha: str,
     wrapper: dict[str, Any],
-) -> str:
+) -> tuple[str, int]:
+    trace = RootSolveTrace()
     try:
-        semantic_verify(root, inputs, inputs_sha, wrapper)
+        semantic_verify(root, inputs, inputs_sha, wrapper, trace)
     except (AssertionError, KeyError, StopIteration, ValueError) as exc:
-        return type(exc).__name__
+        return type(exc).__name__, trace.endpoint_predicate_calls
     raise AssertionError("forged receipt was accepted")
 
 
@@ -1158,11 +1284,34 @@ def main() -> None:
     verified = semantic_verify(root, inputs, sha(inputs_bytes), wrapper)
 
     mutation_results: dict[str, str] = {}
+    mutation_root_calls: dict[str, int] = {}
+
+    def record_rejection(
+        name: str,
+        changed_inputs: dict[str, Any],
+        changed_inputs_sha: str,
+        changed_wrapper: dict[str, Any],
+        *,
+        require_zero_root_calls: bool = False,
+    ) -> None:
+        outcome, root_calls = expect_reject(
+            root,
+            changed_inputs,
+            changed_inputs_sha,
+            changed_wrapper,
+        )
+        if require_zero_root_calls:
+            assert root_calls == 0
+        mutation_results[name] = outcome
+        mutation_root_calls[name] = root_calls
 
     stale = deepcopy(wrapper)
     stale["evidence"]["claims"]["principal_branch_unique"] = False
-    mutation_results["stale_digest"] = expect_reject(
-        root, inputs, sha(inputs_bytes), stale
+    record_rejection(
+        "stale_digest",
+        inputs,
+        sha(inputs_bytes),
+        stale,
     )
 
     mutations: dict[str, dict[str, Any]] = {}
@@ -1180,7 +1329,7 @@ def main() -> None:
     for claim in (
         "all_red_controls_reached",
         "other_branch_rejected",
-        "production_quadratic_radical",
+        "production_signed_cos_squared",
         "bit_budget_pass",
     ):
         forged = deepcopy(wrapper)
@@ -1258,11 +1407,36 @@ def main() -> None:
     mutations["huge_bit_receipt"] = forged
     for name, mutated in mutations.items():
         refresh_digest(mutated)
-        mutation_results[name] = expect_reject(
-            root, inputs, sha(inputs_bytes), mutated
+        record_rejection(
+            name,
+            inputs,
+            sha(inputs_bytes),
+            mutated,
         )
 
-    def rehashed_input_red(name: str, path: tuple, value: Any) -> None:
+    # Receipt fields are witnesses only: even a structurally valid opposite
+    # sign must lose to aa/bb/ab derivation before the first root predicate.
+    for orientation in ("original", "mirrored"):
+        forged = deepcopy(wrapper)
+        forged["evidence"]["radical_binding"][orientation]["cosine"][
+            "turn_sign"
+        ] = "NEGATIVE"
+        refresh_digest(forged)
+        record_rejection(
+            f"receipt_only_opposite_sign_{orientation}",
+            inputs,
+            sha(inputs_bytes),
+            forged,
+            require_zero_root_calls=True,
+        )
+
+    def rehashed_input_red(
+        name: str,
+        path: tuple,
+        value: Any,
+        *,
+        require_zero_root_calls: bool = False,
+    ) -> None:
         changed_inputs = deepcopy(inputs)
         cursor = changed_inputs
         for part in path[:-1]:
@@ -1272,8 +1446,12 @@ def main() -> None:
         changed_wrapper = deepcopy(wrapper)
         changed_wrapper["evidence"]["inputs_sha256"] = changed_sha
         refresh_digest(changed_wrapper)
-        mutation_results[name] = expect_reject(
-            root, changed_inputs, changed_sha, changed_wrapper
+        record_rejection(
+            name,
+            changed_inputs,
+            changed_sha,
+            changed_wrapper,
+            require_zero_root_calls=require_zero_root_calls,
         )
 
     authority_path = ("production_radical", "density_authority")
@@ -1358,26 +1536,191 @@ def main() -> None:
             "0" * 64,
         )
 
+    def coupled_cosine_red(
+        name: str,
+        mutated_record: dict[str, Any],
+    ) -> None:
+        changed_inputs = deepcopy(inputs)
+        changed_inputs["production_radical"][
+            "expected_signed_cos_squared"
+        ] = deepcopy(mutated_record)
+        changed_sha = sha(canonical(changed_inputs))
+        changed_wrapper = deepcopy(wrapper)
+        changed_wrapper["evidence"]["inputs_sha256"] = changed_sha
+        for orientation in ("original", "mirrored"):
+            cosine = changed_wrapper["evidence"]["radical_binding"][
+                orientation
+            ]["cosine"]
+            for key, value in mutated_record.items():
+                cosine[key] = value
+        refresh_digest(changed_wrapper)
+        record_rejection(
+            name,
+            changed_inputs,
+            changed_sha,
+            changed_wrapper,
+            require_zero_root_calls=True,
+        )
+
+    signed_cosine = inputs["production_radical"][
+        "expected_signed_cos_squared"
+    ]
+    opposite_sign = deepcopy(signed_cosine)
+    opposite_sign["turn_sign"] = "NEGATIVE"
+    coupled_cosine_red(
+        "rehashed_signed_cosine_opposite_sign",
+        opposite_sign,
+    )
+
+    unknown_type = deepcopy(signed_cosine)
+    unknown_type["$type"] = "ProofOnlySignedNormalizedRadicalV1"
+    coupled_cosine_red(
+        "rehashed_unknown_signed_cosine_type",
+        unknown_type,
+    )
+
+    unknown_form = deepcopy(signed_cosine)
+    unknown_form["form"] = "SIGNED_SQUAREFREE_RADICAL"
+    coupled_cosine_red(
+        "rehashed_unknown_legacy_radical_form",
+        unknown_form,
+    )
+
+    unknown_sign = deepcopy(signed_cosine)
+    unknown_sign["turn_sign"] = "CLOCKWISE"
+    coupled_cosine_red(
+        "rehashed_unknown_turn_sign_enum",
+        unknown_sign,
+    )
+
+    zero_sign_with_nonzero_square = deepcopy(signed_cosine)
+    zero_sign_with_nonzero_square["turn_sign"] = "ZERO"
+    coupled_cosine_red(
+        "rehashed_zero_sign_with_nonzero_square",
+        zero_sign_with_nonzero_square,
+    )
+
+    current_squared = Fraction(signed_cosine["cos_squared"])
+    out_of_range_squared = deepcopy(signed_cosine)
+    out_of_range_squared["cos_squared"] = "2"
+    coupled_cosine_red(
+        "rehashed_cos_squared_out_of_range",
+        out_of_range_squared,
+    )
+
+    unreduced_squared = deepcopy(signed_cosine)
+    unreduced_squared["cos_squared"] = (
+        f"{2 * current_squared.numerator}/"
+        f"{2 * current_squared.denominator}"
+    )
+    coupled_cosine_red(
+        "rehashed_unreduced_cos_squared",
+        unreduced_squared,
+    )
+
+    # Старый scale-equivalent обход не представим в SignedCosSquaredV1:
+    # сама obsolete-запись отвергается exact-keyset до root predicate.
+    coupled_cosine_red(
+        "rehashed_legacy_scaled_radical_pair",
+        {
+            "$type": "ProofOnlyScaledQuadraticRadicalV1",
+            "coefficient": (
+                "1002251807/10034548322036468254965133066"
+            ),
+            "radicand": "20069096644072936509930266132",
+        },
+    )
+
+    # Неанонсированный deterministic-random RED: один бит числителя.
+    random_bitflip = deepcopy(signed_cosine)
+    random_bitflip["cos_squared"] = str(
+        Fraction(
+            current_squared.numerator ^ 1,
+            current_squared.denominator,
+        )
+    )
+    coupled_cosine_red(
+        "rehashed_random_cos_squared_numerator_bitflip",
+        random_bitflip,
+    )
+
     unknown_inputs = deepcopy(inputs)
     unknown_inputs["accepted_product_oids"]["kernel_src"] = "0" * 40
     unknown_wrapper = deepcopy(wrapper)
     unknown_sha = sha(canonical(unknown_inputs))
     unknown_wrapper["evidence"]["inputs_sha256"] = unknown_sha
     refresh_digest(unknown_wrapper)
-    mutation_results["unknown_product_tree"] = expect_reject(
-        root, unknown_inputs, unknown_sha, unknown_wrapper
+    record_rejection(
+        "unknown_product_tree",
+        unknown_inputs,
+        unknown_sha,
+        unknown_wrapper,
     )
 
     huge_inputs = deepcopy(inputs)
-    huge_inputs["production_radical"]["expected_cosine_coefficient"] = (
-        "1" + "0" * 1600
+    huge_inputs["production_radical"]["expected_signed_cos_squared"][
+        "cos_squared"
+    ] = (
+        "1/" + "1" + "0" * 1600
     )
     huge_wrapper = deepcopy(wrapper)
     huge_sha = sha(canonical(huge_inputs))
     huge_wrapper["evidence"]["inputs_sha256"] = huge_sha
     refresh_digest(huge_wrapper)
-    mutation_results["huge_bit_input"] = expect_reject(
-        root, huge_inputs, huge_sha, huge_wrapper
+    record_rejection(
+        "huge_bit_input",
+        huge_inputs,
+        huge_sha,
+        huge_wrapper,
+    )
+
+    invalid_signed_cosine_cases = (
+        "receipt_only_opposite_sign_original",
+        "receipt_only_opposite_sign_mirrored",
+        "rehashed_signed_cosine_opposite_sign",
+        "rehashed_unknown_signed_cosine_type",
+        "rehashed_unknown_legacy_radical_form",
+        "rehashed_unknown_turn_sign_enum",
+        "rehashed_zero_sign_with_nonzero_square",
+        "rehashed_cos_squared_out_of_range",
+        "rehashed_unreduced_cos_squared",
+        "rehashed_legacy_scaled_radical_pair",
+        "rehashed_random_cos_squared_numerator_bitflip",
+    )
+    invalid_signed_cosine_trace = {
+        name: mutation_root_calls[name]
+        for name in invalid_signed_cosine_cases
+    }
+    assert all(value == 0 for value in invalid_signed_cosine_trace.values())
+
+    late_post_root_classes = {
+        "empty_red_controls": "RED_CONTROL_RECEIPT",
+        "false_claim_all_red_controls_reached": "CLAIM_RECEIPT",
+        "false_claim_bit_budget_pass": "CLAIM_RECEIPT",
+        "false_claim_other_branch_rejected": "CLAIM_RECEIPT",
+        "false_claim_production_signed_cos_squared": "CLAIM_RECEIPT",
+        "huge_bit_receipt": "PERFORMANCE_RECEIPT",
+        "perf_upper_bound_zero": "PERFORMANCE_RECEIPT",
+    }
+    nonzero_call_cases = {
+        name
+        for name, calls in mutation_root_calls.items()
+        if calls != 0
+    }
+    assert nonzero_call_cases == set(late_post_root_classes)
+    valid_root_calls = verified["root_solve_trace"][
+        "endpoint_predicate_calls"
+    ]
+    late_post_root_trace = {
+        name: {
+            "classification": classification,
+            "endpoint_predicate_calls": mutation_root_calls[name],
+        }
+        for name, classification in late_post_root_classes.items()
+    }
+    assert all(
+        row["endpoint_predicate_calls"] == valid_root_calls
+        for row in late_post_root_trace.values()
     )
 
     output = {
@@ -1386,6 +1729,15 @@ def main() -> None:
         "verified_evidence_sha256": wrapper["evidence_sha256"],
         **verified,
         "exploit_regression_matrix": mutation_results,
+        "exploit_root_solve_call_counts": mutation_root_calls,
+        "invalid_signed_cos_squared_zero_call_trace": {
+            "endpoint_predicate_calls": invalid_signed_cosine_trace,
+            "all_zero": True,
+        },
+        "late_post_root_receipt_red_trace": {
+            "expected_valid_endpoint_predicate_calls": valid_root_calls,
+            "cases": late_post_root_trace,
+        },
         "all_exploit_regressions_rejected": all(
             value in {"AssertionError", "KeyError", "StopIteration", "ValueError"}
             for value in mutation_results.values()

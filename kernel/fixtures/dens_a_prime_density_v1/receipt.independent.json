@@ -9,7 +9,7 @@
     "false_claim_all_red_controls_reached": "AssertionError",
     "false_claim_bit_budget_pass": "AssertionError",
     "false_claim_other_branch_rejected": "AssertionError",
-    "false_claim_production_quadratic_radical": "AssertionError",
+    "false_claim_production_signed_cos_squared": "AssertionError",
     "foreign_H_case": "AssertionError",
     "foreign_angular_spec": "AssertionError",
     "foreign_patch_domain": "AssertionError",
@@ -17,8 +17,11 @@
     "huge_bit_input": "AssertionError",
     "huge_bit_receipt": "AssertionError",
     "perf_upper_bound_zero": "AssertionError",
+    "receipt_only_opposite_sign_mirrored": "AssertionError",
+    "receipt_only_opposite_sign_original": "AssertionError",
     "rehashed_bogus_authority_type": "AssertionError",
     "rehashed_bogus_density_parameter": "AssertionError",
+    "rehashed_cos_squared_out_of_range": "AssertionError",
     "rehashed_density_4_value_with_integer_0": "AssertionError",
     "rehashed_density_exact_angle_mismatch": "AssertionError",
     "rehashed_foreign_angular_spec": "AssertionError",
@@ -26,13 +29,21 @@
     "rehashed_foreign_patch_domain": "AssertionError",
     "rehashed_foreign_reference_metric": "AssertionError",
     "rehashed_foreign_reflex_excess_source": "AssertionError",
+    "rehashed_legacy_scaled_radical_pair": "AssertionError",
     "rehashed_owner_formula": "AssertionError",
     "rehashed_owner_parameter": "AssertionError",
     "rehashed_owner_policy": "AssertionError",
     "rehashed_owner_row": "AssertionError",
+    "rehashed_random_cos_squared_numerator_bitflip": "AssertionError",
     "rehashed_same_H_foreign_gate0_witness": "AssertionError",
+    "rehashed_signed_cosine_opposite_sign": "AssertionError",
+    "rehashed_unknown_legacy_radical_form": "AssertionError",
+    "rehashed_unknown_signed_cosine_type": "AssertionError",
+    "rehashed_unknown_turn_sign_enum": "AssertionError",
+    "rehashed_unreduced_cos_squared": "AssertionError",
     "rehashed_zero_metric_hash": "AssertionError",
     "rehashed_zero_request_hash": "AssertionError",
+    "rehashed_zero_sign_with_nonzero_square": "AssertionError",
     "rehashed_zero_snapshot_hash": "AssertionError",
     "root_n_999": "AssertionError",
     "stale_digest": "AssertionError",
@@ -42,6 +53,109 @@
     "zero_metric_hash": "AssertionError",
     "zero_request_hash": "AssertionError",
     "zero_snapshot_hash": "AssertionError"
+  },
+  "exploit_root_solve_call_counts": {
+    "altered_evaluation_binding_law": 0,
+    "altered_lattice_law": 0,
+    "altered_lattice_scale": 0,
+    "altered_reference_metric_law": 0,
+    "empty_red_controls": 204,
+    "false_claim_all_red_controls_reached": 204,
+    "false_claim_bit_budget_pass": 204,
+    "false_claim_other_branch_rejected": 204,
+    "false_claim_production_signed_cos_squared": 204,
+    "foreign_H_case": 0,
+    "foreign_angular_spec": 0,
+    "foreign_patch_domain": 0,
+    "foreign_reference_metric": 0,
+    "huge_bit_input": 0,
+    "huge_bit_receipt": 204,
+    "perf_upper_bound_zero": 204,
+    "receipt_only_opposite_sign_mirrored": 0,
+    "receipt_only_opposite_sign_original": 0,
+    "rehashed_bogus_authority_type": 0,
+    "rehashed_bogus_density_parameter": 0,
+    "rehashed_cos_squared_out_of_range": 0,
+    "rehashed_density_4_value_with_integer_0": 0,
+    "rehashed_density_exact_angle_mismatch": 0,
+    "rehashed_foreign_angular_spec": 0,
+    "rehashed_foreign_gate0_witness": 0,
+    "rehashed_foreign_patch_domain": 0,
+    "rehashed_foreign_reference_metric": 0,
+    "rehashed_foreign_reflex_excess_source": 0,
+    "rehashed_legacy_scaled_radical_pair": 0,
+    "rehashed_owner_formula": 0,
+    "rehashed_owner_parameter": 0,
+    "rehashed_owner_policy": 0,
+    "rehashed_owner_row": 0,
+    "rehashed_random_cos_squared_numerator_bitflip": 0,
+    "rehashed_same_H_foreign_gate0_witness": 0,
+    "rehashed_signed_cosine_opposite_sign": 0,
+    "rehashed_unknown_legacy_radical_form": 0,
+    "rehashed_unknown_signed_cosine_type": 0,
+    "rehashed_unknown_turn_sign_enum": 0,
+    "rehashed_unreduced_cos_squared": 0,
+    "rehashed_zero_metric_hash": 0,
+    "rehashed_zero_request_hash": 0,
+    "rehashed_zero_sign_with_nonzero_square": 0,
+    "rehashed_zero_snapshot_hash": 0,
+    "root_n_999": 0,
+    "stale_digest": 0,
+    "unknown_product_tree": 0,
+    "wrong_incident_chain": 0,
+    "wrong_relation_anchor": 0,
+    "zero_metric_hash": 0,
+    "zero_request_hash": 0,
+    "zero_snapshot_hash": 0
+  },
+  "invalid_signed_cos_squared_zero_call_trace": {
+    "all_zero": true,
+    "endpoint_predicate_calls": {
+      "receipt_only_opposite_sign_mirrored": 0,
+      "receipt_only_opposite_sign_original": 0,
+      "rehashed_cos_squared_out_of_range": 0,
+      "rehashed_legacy_scaled_radical_pair": 0,
+      "rehashed_random_cos_squared_numerator_bitflip": 0,
+      "rehashed_signed_cosine_opposite_sign": 0,
+      "rehashed_unknown_legacy_radical_form": 0,
+      "rehashed_unknown_signed_cosine_type": 0,
+      "rehashed_unknown_turn_sign_enum": 0,
+      "rehashed_unreduced_cos_squared": 0,
+      "rehashed_zero_sign_with_nonzero_square": 0
+    }
+  },
+  "late_post_root_receipt_red_trace": {
+    "cases": {
+      "empty_red_controls": {
+        "classification": "RED_CONTROL_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "false_claim_all_red_controls_reached": {
+        "classification": "CLAIM_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "false_claim_bit_budget_pass": {
+        "classification": "CLAIM_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "false_claim_other_branch_rejected": {
+        "classification": "CLAIM_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "false_claim_production_signed_cos_squared": {
+        "classification": "CLAIM_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "huge_bit_receipt": {
+        "classification": "PERFORMANCE_RECEIPT",
+        "endpoint_predicate_calls": 204
+      },
+      "perf_upper_bound_zero": {
+        "classification": "PERFORMANCE_RECEIPT",
+        "endpoint_predicate_calls": 204
+      }
+    },
+    "expected_valid_endpoint_predicate_calls": 204
   },
   "owner_law": {
     "H1_C_cells": [
@@ -58,14 +172,14 @@
   },
   "performance": {
     "budget": 5000000000000,
-    "exact_proof_step_count": 1236,
-    "fraction_arithmetic_operation_upper_bound": 316416,
+    "exact_proof_step_count": 1848,
+    "fraction_arithmetic_operation_upper_bound": 473088,
     "input_integer_bit_limit": 4096,
     "input_max_integer_bit_length": 93,
     "max_integer_bit_length": 802,
     "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
     "pass": true,
-    "schoolbook_integer_bit_ops_upper_bound": 814080147456
+    "schoolbook_integer_bit_ops_upper_bound": 1217168375808
   },
   "product_tree": {
     "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
@@ -94,7 +208,11 @@
       -1
     ],
     "principal_unique_by_strict_derivative": true,
-    "production_radicand": 5017274161018234127482566533,
+    "production_signed_cos_squared": {
+      "$type": "SignedCosSquaredV1",
+      "cos_squared": "1004508684634765249/5017274161018234127482566533",
+      "turn_sign": "POSITIVE"
+    },
     "refined_bracket": [
       "229719357627983237960536880445/554597137599850363154807652352",
       "574298394069958094901342201113/1386492843999625907887019130880"
@@ -127,9 +245,12 @@
       "reached": true
     }
   },
+  "root_solve_trace": {
+    "endpoint_predicate_calls": 204
+  },
   "schema": "cftuv.envelope.dens_a_prime.radical_verification.v1",
   "scope_note": "proof receipt only; verifier does not authorize product GO",
   "verdict": "VERIFIED",
-  "verified_evidence_sha256": "8ed5cb58a435663dd7a8cca5638b1b0b0aed944b89475757464faa6062e4b6ad",
-  "verified_receipt_sha256": "18c595708f494496a74c6c4dc3ca210f175c09fe256ae2b75d6b49d59ff99d0f"
+  "verified_evidence_sha256": "3cdab56e9619643927f877374d3471ddd7dad06c450cbd6f48f8d8e97afa2e8b",
+  "verified_receipt_sha256": "efdcc12b74a7f6628fc01e6cea547247eb38c8021998bd3a2ce2d20c28360d05"
 }

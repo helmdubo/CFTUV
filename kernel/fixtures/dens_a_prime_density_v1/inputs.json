@@ -56,8 +56,11 @@
       ["2066105/262144", "13024865/524288"],
       ["13024865/524288", "86046925/1048576"]
     ],
-    "expected_cosine_coefficient": "1002251807/5017274161018234127482566533",
-    "expected_cosine_radicand": "5017274161018234127482566533",
+    "expected_signed_cos_squared": {
+      "$type": "SignedCosSquaredV1",
+      "turn_sign": "POSITIVE",
+      "cos_squared": "1004508684634765249/5017274161018234127482566533"
+    },
     "principal_half_tangent_bracket": ["2/5", "3/7"],
     "other_branch_half_tangent_bracket": ["7/3", "5/2"],
     "root_refinement_steps": 96

@@ -9,9 +9,9 @@
       "other_branch_rejected": true,
       "owner_H1_through_H5_reachable": true,
       "principal_branch_unique": true,
-      "production_quadratic_radical": true
+      "production_signed_cos_squared": true
     },
-    "inputs_sha256": "7668782b6a6680b1328f894db2302005b6d7a9c5d00cfbb910577bcb8883e07b",
+    "inputs_sha256": "a8919ddb18131de1b70deff46ed5a5c4d3a5aaf789f9edd7510a479d000b8985",
     "owner_law": {
       "certificates": [
         {
@@ -170,14 +170,14 @@
     },
     "performance": {
       "budget": 5000000000000,
-      "exact_proof_step_count": 1236,
-      "fraction_arithmetic_operation_upper_bound": 316416,
+      "exact_proof_step_count": 1848,
+      "fraction_arithmetic_operation_upper_bound": 473088,
       "input_integer_bit_limit": 4096,
       "input_max_integer_bit_length": 93,
       "max_integer_bit_length": 802,
       "model": "SCHOOLBOOK_INTEGER_BIT_OPS_UPPER_BOUND_V1",
       "pass": true,
-      "schoolbook_integer_bit_ops_upper_bound": 814080147456
+      "schoolbook_integer_bit_ops_upper_bound": 1217168375808
     },
     "product_tree": {
       "cftuv": "01f510088b50c425570cc2e42c13e400ca4875f3",
@@ -365,17 +365,14 @@
           "subturn_branch": "0<theta<pi/2"
         },
         "cosine": {
-          "coefficient": "1002251807/5017274161018234127482566533",
+          "$type": "SignedCosSquaredV1",
+          "cos_squared": "1004508684634765249/5017274161018234127482566533",
           "dot": "25056295175/281474976710656",
-          "fraction_only_root_sign": false,
-          "identity": "cos_delta=(dot/norm_product)*sqrt(norm_product)",
+          "identity": "cos_squared=dot^2/(incoming_norm_squared*outgoing_norm_squared)",
           "incoming_norm_squared": "696277199314325/281474976710656",
-          "integer_sqrt_floor_denominator": 281474976710656,
-          "integer_sqrt_floor_numerator": 1770817989132817,
           "norm_product": "3135796350636396329676604083125/79228162514264337593543950336",
-          "norm_product_is_square": false,
           "outgoing_norm_squared": "4503660831813025/281474976710656",
-          "radicand": 5017274161018234127482566533
+          "turn_sign": "POSITIVE"
         },
         "cross": "620866915/536870912",
         "gram": [
@@ -411,7 +408,13 @@
           "574298394069958094901342201113/1386492843999625907887019130880"
         ],
         "refinement_steps": 96,
-        "root_equation": "(1-6*t^2+t^4)/(1+2*t^2+t^4)=coefficient*sqrt(radicand)"
+        "root_equation": "T_n((1-t^2)/(1+t^2))=signed_sqrt(cos_squared)",
+        "root_predicate": {
+          "arithmetic": "EXACT_FRACTION",
+          "comparison": "sign(T_n(x))=turn_sign; compare T_n(x)^2 to cos_squared",
+          "n": 2,
+          "selected_sign_branch": "POSITIVE"
+        }
       },
       "original": {
         "branch_certificate": {
@@ -444,17 +447,14 @@
           "subturn_branch": "0<theta<pi/2"
         },
         "cosine": {
-          "coefficient": "1002251807/5017274161018234127482566533",
+          "$type": "SignedCosSquaredV1",
+          "cos_squared": "1004508684634765249/5017274161018234127482566533",
           "dot": "25056295175/281474976710656",
-          "fraction_only_root_sign": false,
-          "identity": "cos_delta=(dot/norm_product)*sqrt(norm_product)",
+          "identity": "cos_squared=dot^2/(incoming_norm_squared*outgoing_norm_squared)",
           "incoming_norm_squared": "696277199314325/281474976710656",
-          "integer_sqrt_floor_denominator": 281474976710656,
-          "integer_sqrt_floor_numerator": 1770817989132817,
           "norm_product": "3135796350636396329676604083125/79228162514264337593543950336",
-          "norm_product_is_square": false,
           "outgoing_norm_squared": "4503660831813025/281474976710656",
-          "radicand": 5017274161018234127482566533
+          "turn_sign": "POSITIVE"
         },
         "cross": "-620866915/536870912",
         "gram": [
@@ -490,7 +490,13 @@
           "574298394069958094901342201113/1386492843999625907887019130880"
         ],
         "refinement_steps": 96,
-        "root_equation": "(1-6*t^2+t^4)/(1+2*t^2+t^4)=coefficient*sqrt(radicand)"
+        "root_equation": "T_n((1-t^2)/(1+t^2))=signed_sqrt(cos_squared)",
+        "root_predicate": {
+          "arithmetic": "EXACT_FRACTION",
+          "comparison": "sign(T_n(x))=turn_sign; compare T_n(x)^2 to cos_squared",
+          "n": 2,
+          "selected_sign_branch": "POSITIVE"
+        }
       },
       "owner_density_authority": {
         "$type": "ProofOnlyLinearReflexDensityAuthorityV1",
@@ -545,6 +551,6 @@
     },
     "schema": "cftuv.envelope.dens_a_prime.radical_receipt.v1"
   },
-  "evidence_sha256": "8ed5cb58a435663dd7a8cca5638b1b0b0aed944b89475757464faa6062e4b6ad",
+  "evidence_sha256": "3cdab56e9619643927f877374d3471ddd7dad06c450cbd6f48f8d8e97afa2e8b",
   "schema": "cftuv.envelope.dens_a_prime.radical_receipt_wrapper.v1"
 }
