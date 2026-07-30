@@ -200,6 +200,16 @@ def _require_blobs(actual: dict[str, str]) -> None:
         raise VerifyReject("UNKNOWN_SEAM_BLOB")
 
 
+def _require_hash(payload: bytes, expected: str, code: str) -> None:
+    if _sha(payload) != expected:
+        raise VerifyReject(code)
+
+
+def _require_compilation(payload: bytes, length: int, digest: str) -> None:
+    if len(payload) != length or _sha(payload) != digest:
+        raise VerifyReject("LEGACY_COMPILE_ANCHOR_CHANGED")
+
+
 def _unique_pairs(pairs):
     result = {}
     for key, value in pairs:
@@ -637,7 +647,7 @@ def _kernel():
     return importlib.import_module("cftuv_envelope")
 
 
-def _verify_legacy(receipt: dict) -> tuple[dict, int]:
+def _verify_legacy(receipt: dict) -> tuple[dict, bytes]:
     kernel = _kernel()
     snapshot_bytes = (FIXTURE / "analysis_snapshot.json").read_bytes()
     request_bytes = (FIXTURE / "decal_request.json").read_bytes()
@@ -730,10 +740,10 @@ def _verify_legacy(receipt: dict) -> tuple[dict, int]:
     }
     if legacy != expected:
         raise AssertionError("legacy V1/60 receipt facts mismatch")
-    return request_json, len(compilation_bytes)
+    return request_json, compilation_bytes
 
 
-def _verify_red_controls(receipt: dict) -> None:
+def _verify_red_controls(receipt: dict, compilation_bytes: bytes) -> None:
     wrong_tree = dict(PRODUCT_OIDS)
     wrong_tree["cftuv"] = "0" * 40
     snapshot = (FIXTURE / "analysis_snapshot.json").read_bytes()
@@ -744,38 +754,34 @@ def _verify_red_controls(receipt: dict) -> None:
         ),
         "corrupted_receipt_sha": _expect(
             "RECEIPT_SHA256_MISMATCH",
-            lambda: (
-                None
-                if _sha(b"receipt-corrupted") == _sha(b"receipt-canonical")
-                else (_ for _ in ()).throw(
-                    VerifyReject("RECEIPT_SHA256_MISMATCH")
-                )
+            lambda: _require_hash(
+                b"receipt-corrupted",
+                _sha(b"receipt-canonical"),
+                "RECEIPT_SHA256_MISMATCH",
             ),
         ),
         "altered_snapshot_bytes": _expect(
             "FROZEN_SNAPSHOT_SHA256_MISMATCH",
-            lambda: (
-                None
-                if _sha(snapshot + b"\x00") == SNAPSHOT_SHA256
-                else (_ for _ in ()).throw(
-                    VerifyReject("FROZEN_SNAPSHOT_SHA256_MISMATCH")
-                )
+            lambda: _require_hash(
+                snapshot + b"\x00",
+                SNAPSHOT_SHA256,
+                "FROZEN_SNAPSHOT_SHA256_MISMATCH",
             ),
         ),
         "altered_request_bytes": _expect(
             "FROZEN_REQUEST_SHA256_MISMATCH",
-            lambda: (
-                None
-                if _sha(request + b"\x00") == REQUEST_SHA256
-                else (_ for _ in ()).throw(
-                    VerifyReject("FROZEN_REQUEST_SHA256_MISMATCH")
-                )
+            lambda: _require_hash(
+                request + b"\x00",
+                REQUEST_SHA256,
+                "FROZEN_REQUEST_SHA256_MISMATCH",
             ),
         ),
         "changed_legacy_compile_anchor": _expect(
             "LEGACY_COMPILE_ANCHOR_CHANGED",
-            lambda: (_ for _ in ()).throw(
-                VerifyReject("LEGACY_COMPILE_ANCHOR_CHANGED")
+            lambda: _require_compilation(
+                compilation_bytes,
+                COMPILATION_LENGTH,
+                "0" * 64,
             ),
         ),
     }
@@ -818,14 +824,14 @@ def main() -> int:
     ):
         raise AssertionError("receipt preclaim gate mismatch")
     _verify_seams(receipt)
-    request_json, compilation_bytes = _verify_legacy(receipt)
+    request_json, compilation_payload = _verify_legacy(receipt)
     max_key_bytes, max_bits = _verify_key_contract(receipt, request_json)
-    _verify_red_controls(receipt)
+    _verify_red_controls(receipt, compilation_payload)
     budgets = receipt["deterministic_budgets"]
     if budgets != {
         "max_key_bytes": max_key_bytes,
         "max_integer_bits": max_bits,
-        "legacy_compilation_bytes": compilation_bytes,
+        "legacy_compilation_bytes": len(compilation_payload),
         "source_blob_count": len(BLOB_OIDS),
         "seam_anchor_count": len(ANCHORS),
     }:
