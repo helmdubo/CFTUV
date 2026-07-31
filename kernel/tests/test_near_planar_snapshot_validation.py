@@ -549,6 +549,25 @@ def test_a_budget_law_that_does_not_reproduce_the_number_is_refused(
     assert any("residual" in "/".join(item.path) for item in issues), issues
 
 
+def test_a_certificate_of_an_unknown_type_is_refused_by_name():
+    """Третий тип на проводе — названный отказ, а не молчаливый пропуск.
+
+    Разбор идёт точным `type() is`, поэтому «ни то ни другое» обязано иметь
+    свой исход. И обязано быть отказом, а не `AttributeError` изнутри
+    проверяющего: у неизвестной записи может не быть ни одного поля, которое
+    он собирался прочесть.
+    """
+
+    metric = near_planar_metric(SOURCE_SNAP)
+
+    class _ForeignCertificate:
+        patch_domain_id = DOMAIN
+
+    broken = replace(metric, planarity_certificate=_ForeignCertificate())
+    issues = validate_rational_affine_planar_metric(broken)
+    assert any("unknown planarity-admission" in item.message for item in issues), issues
+
+
 def test_a_projected_vertex_dropped_from_the_certificate_is_refused():
     """Забыть назвать спроецированную вершину — тот же отказ, не новая проверка.
 

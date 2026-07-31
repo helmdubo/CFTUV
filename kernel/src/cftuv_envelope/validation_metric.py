@@ -295,12 +295,23 @@ def validate_rational_affine_planar_metric(
     elif type(certificate) is NearPlanarProjectionCertificateV1:
         _check_near_planar_certificate(issues, certificate_path, metric)
     else:
+        # Ниже сертификат читается по полям, которых у неизвестного типа может
+        # не быть вовсе. Разбор кончается здесь названным отказом, а не
+        # `AttributeError` изнутри проверяющего.
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             certificate_path,
             "unknown planarity-admission certificate on the wire",
         )
+        _check_gram(
+            issues,
+            path,
+            metric,
+            fraction_point3(metric.exact_basis_a),
+            fraction_point3(metric.exact_basis_b),
+        )
+        return tuple(issues)
     basis_a = fraction_point3(metric.exact_basis_a)
     basis_b = fraction_point3(metric.exact_basis_b)
     normal = fraction_cross3(basis_a, basis_b)
