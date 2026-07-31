@@ -13,6 +13,7 @@ from cftuv.envelope_debug_renderer import (
     ENVELOPE_DEBUG_LABEL_LAYER,
     ENVELOPE_DEBUG_LAYER_STYLES,
     ENVELOPE_DEBUG_REFUSED_LAYER,
+    _render_topology_scene,
     envelope_debug_object_name,
     envelope_debug_profile_text_name,
     envelope_debug_text_name,
@@ -22,8 +23,10 @@ from cftuv.envelope_debug_renderer import (
 )
 from cftuv.envelope_topology_debug import (
     ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
+    EnvelopeTopologyDebugPairV1,
     EnvelopeTopologyDebugPathV1,
     EnvelopeTopologyDebugSceneV1,
+    EnvelopeTopologyPairKind,
     EnvelopeTopologyPathKind,
 )
 
@@ -324,6 +327,178 @@ def test_nothing_is_drawn_without_a_refusal_or_without_topology():
     ) == 0
     assert writer.paths == []
     assert stroke_map == []
+
+
+def _chain_path(local_points, *, closed=False):
+    return EnvelopeTopologyDebugPathV1(
+        semantic_id="chain-a",
+        patch_domain_id="domain-a",
+        kind=EnvelopeTopologyPathKind.PHYSICAL_CHAIN,
+        local_points=local_points,
+        host_vertex_ids=tuple(range(len(local_points))),
+        host_edge_ids=tuple(range(len(local_points) - 1)),
+        closed=closed,
+        directed=False,
+        selected=False,
+        style_key="ENV_10_PHYSICAL_CHAINS",
+        label="chain",
+        physical_chain_id="physical-chain:a",
+        display_normal=(0.0, 0.0, 1.0),
+    )
+
+
+def _pair_scene(local_points, *, kind, closed=False):
+    domains = (
+        ("domain-a", "domain-b")
+        if kind is EnvelopeTopologyPairKind.PATCH
+        else ("domain-a", "domain-a")
+    )
+    return EnvelopeTopologyDebugSceneV1(
+        ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
+        "rev",
+        ("domain-a", "domain-b"),
+        (0,),
+        (_chain_path(local_points, closed=closed),),
+        (
+            EnvelopeTopologyDebugPairV1(
+                pair_id="pair-a",
+                kind=kind,
+                physical_chain_id="physical-chain:a",
+                chain_use_ids=("use-a", "use-b"),
+                patch_domain_ids=domains,
+                host_edge_ids=(0, 1),
+            ),
+        ),
+        (),
+    )
+
+
+def _pair_marker_centers(scene, layer_name):
+    writer = _RecordingWriter()
+    layer_ordinals = {
+        name: ordinal
+        for ordinal, name in enumerate(ENVELOPE_DEBUG_LAYER_STYLES)
+    }
+    _render_topology_scene(scene, writer, layer_ordinals, [])
+    centers = []
+    for name, points, _width, _cyclic in writer.paths:
+        if name != layer_name:
+            continue
+        first, second = points
+        centers.append(tuple((first[axis] + second[axis]) / 2.0 for axis in range(3)))
+    return centers
+
+
+def _chain_vertices(scene):
+    """Вершины цепи в тех же координатах, в которых её рисует слой цепей."""
+
+    writer = _RecordingWriter()
+    layer_ordinals = {
+        name: ordinal
+        for ordinal, name in enumerate(ENVELOPE_DEBUG_LAYER_STYLES)
+    }
+    _render_topology_scene(scene, writer, layer_ordinals, [])
+    for name, points, _width, _cyclic in writer.paths:
+        if name == "ENV_10_PHYSICAL_CHAINS":
+            return [tuple(point) for point in points]
+    raise AssertionError("слой цепей не нарисован")
+
+
+def test_pair_marker_avoids_every_chain_vertex_on_a_two_edge_chain():
+    """Крестик пары — не junction-пометка, и это утверждение исполняемое.
+
+    Полевое наблюдение владельца: на цепи из двух коллинеарных рёбер крестик
+    `ENV_13_PATCH_PAIRS` садился ровно на внутреннюю вершину, то есть маскировал
+    запись о ЦЕПИ под семантику УГЛА. Причина была в том, что место маркера
+    бралось счётом вершин (`points[len(points) // 2]`), а не длиной цепи.
+
+    Проверяется случай РАВНЫХ половин — тот самый, на котором и середина дуги
+    села бы на вершину: ребро шва, разбитое вершиной пополам.
+    """
+
+    scene = _pair_scene(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+        kind=EnvelopeTopologyPairKind.PATCH,
+    )
+    vertices = _chain_vertices(scene)
+    centers = _pair_marker_centers(scene, "ENV_13_PATCH_PAIRS")
+
+    # Крестик — два штриха, и оба стоят в ОДНОЙ точке.
+    assert len(centers) == 2
+    assert centers[0] == centers[1]
+    marker = centers[0]
+    assert all(
+        marker[:2] != vertex[:2] for vertex in vertices
+    ), (marker, vertices)
+    # И он лежит на самой цепи, а не рядом с ней: середина второго ребра.
+    assert marker[:2] == (1.5, 0.0)
+
+
+def test_pair_marker_follows_length_and_not_the_vertex_count():
+    """Место маркера определяет ДЛИНА цепи, а не то, где её разбили вершины.
+
+    Одна и та же геометрия, разбитая по-разному, даёт разное место у прежнего
+    правила и одно и то же — у нового: лишняя вершина не двигает длину.
+    """
+
+    coarse = _pair_scene(
+        ((0.0, 0.0, 0.0), (4.0, 0.0, 0.0)),
+        kind=EnvelopeTopologyPairKind.PATCH,
+    )
+    fine = _pair_scene(
+        (
+            (0.0, 0.0, 0.0),
+            (0.5, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (4.0, 0.0, 0.0),
+        ),
+        kind=EnvelopeTopologyPairKind.PATCH,
+    )
+
+    assert _pair_marker_centers(coarse, "ENV_13_PATCH_PAIRS")[0][:2] == (2.0, 0.0)
+    # Середина дуги (2.0) лежит внутри третьего ребра 1.0 -> 4.0; маркер идёт в
+    # его середину. Прежнее правило поставило бы его в вершину (1.0, 0.0).
+    marker = _pair_marker_centers(fine, "ENV_13_PATCH_PAIRS")[0]
+    assert marker[:2] == (2.5, 0.0)
+    assert all(
+        marker[:2] != vertex[:2] for vertex in _chain_vertices(fine)
+    )
+
+
+def test_seam_self_pairs_use_the_same_placement_rule():
+    """SEAM_SELF идёт тем же кодом: два правила разошлись бы молча."""
+
+    scene = _pair_scene(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)),
+        kind=EnvelopeTopologyPairKind.SEAM_SELF,
+    )
+    centers = _pair_marker_centers(scene, "ENV_14_SEAM_SELF_PAIRS")
+
+    assert len(centers) == 2
+    assert centers[0][:2] == (1.5, 0.0)
+    assert _pair_marker_centers(scene, "ENV_13_PATCH_PAIRS") == []
+
+
+def test_a_closed_chain_counts_its_closing_span():
+    """У замкнутой цепи дуга — периметр, а не путь до последней вершины."""
+
+    square = (
+        (0.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (2.0, 2.0, 0.0),
+        (0.0, 2.0, 0.0),
+    )
+    scene = _pair_scene(
+        square, kind=EnvelopeTopologyPairKind.PATCH, closed=True
+    )
+    marker = _pair_marker_centers(scene, "ENV_13_PATCH_PAIRS")[0]
+
+    # Периметр 8, середина дуги 4 — конец второго ребра; маркер уходит в
+    # середину ТРЕТЬЕГО, то есть снова не на вершину.
+    assert marker[:2] == (1.0, 2.0)
+    assert all(
+        marker[:2] != vertex[:2] for vertex in _chain_vertices(scene)
+    )
 
 
 def test_renderer_does_not_import_legacy_or_production_geometry():

@@ -331,6 +331,55 @@ def _topology_cross(center: Vector, normal: Vector, size: float = 0.025):
     )
 
 
+def _pair_marker_point(points, *, closed: bool) -> Vector:
+    """Куда ставится крестик пары: середина СРЕДИННОГО ПО ДЛИНЕ сегмента цепи.
+
+    Стояло `points[len(points) // 2]` — срединная ВЕРШИНА полилинии. На цепи из
+    двух рёбер это внутренняя вершина, на цепи из одного — вообще её конец, и
+    владелец читал pair-запись как junction-пометку: крестик садился ровно туда,
+    где смысл имеют отношения углов, а не цепей. Место маркера при этом
+    определялось СЧЁТОМ вершин, то есть тем, где цепь оказалась разбита, — а не
+    её геометрией.
+
+    Место выбирается длиной: берётся сегмент, внутри которого лежит середина
+    дуги, и маркер ставится в СЕРЕДИНУ ЭТОГО СЕГМЕНТА.
+
+    Почему не сама середина дуги, хотя интерполяция внутри сегмента дала бы
+    именно её. У цепи из двух РАВНЫХ рёбер — а это обычный случай, ребро шва,
+    разбитое вершиной пополам, — середина дуги совпадает с той самой внутренней
+    вершиной, и дефект не был бы вылечен вовсе. Отличать этот случай пришлось бы
+    сравнением накопленных длин с нулём, то есть порогом на float'ах. Середина
+    сегмента же не совпадает с вершиной НИ ПРИ КАКОЙ длине — по построению, а не
+    по удаче, и никакого сравнения для этого не нужно.
+
+    Замкнутая цепь считается вместе со своим замыкающим сегментом: длина её
+    дуги — периметр, а не путь до последней вершины.
+
+    Семантика самих pair-записей не двигается: меняется только точка, в которой
+    рисуется их крестик.
+    """
+
+    spans = list(zip(points, points[1:]))
+    if closed and len(points) > 2:
+        spans.append((points[-1], points[0]))
+    measured = [
+        (start, end, (end - start).length)
+        for start, end in spans
+        if (end - start).length_squared > 0.0
+    ]
+    if not measured:
+        return Vector(points[0]) if points else Vector((0.0, 0.0, 0.0))
+    target = sum(length for _, _, length in measured) / 2.0
+    walked = 0.0
+    chosen = measured[-1]
+    for span in measured:
+        walked += span[2]
+        if walked > target:
+            chosen = span
+            break
+    return (chosen[0] + chosen[1]) * 0.5
+
+
 def _topology_record_mapping(record, layer_name, stroke_index):
     return {
         "layer": layer_name,
@@ -383,6 +432,7 @@ def _render_topology_scene(
             path_by_physical_chain[record.physical_chain_id] = (
                 points,
                 Vector(record.display_normal),
+                record.closed,
             )
 
         if record.directed and not record.closed and len(points) >= 2:
@@ -433,8 +483,8 @@ def _render_topology_scene(
         carrier = path_by_physical_chain.get(pair.physical_chain_id)
         if carrier is None:
             continue
-        points, normal = carrier
-        center = points[len(points) // 2]
+        points, normal, closed = carrier
+        center = _pair_marker_point(points, closed=closed)
         layer_name = (
             "ENV_13_PATCH_PAIRS"
             if pair.kind.value == "PATCH"
