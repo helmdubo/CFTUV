@@ -1341,6 +1341,39 @@ def test_atlas_search_spends_the_same_exact_work_on_every_run():
     )
 
 
+def test_atlas_sweep_names_exhaustion_instead_of_walking_to_the_height_cap():
+    """Atlas-ветвь тоже отказывает по работе, а не идёт до 10^6 высот.
+
+    Доказанная высота останова этого окна равна 4.4e7 — ровно поэтому
+    `_RESOURCE_HEIGHT_CAP` не был бюджетом. Здесь веер не находится никогда,
+    и единственное, что обязано остановить проход, — счётчик работы.
+    """
+
+    metric, orientation, normals = _projective_atlas_repro()
+    ideal = _covectors(metric, normals)
+    budget = _work_budget(1 << 12)
+
+    with pytest.raises(
+        DensityRationalAuthorityExhausted,
+        match="DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    ):
+        search_global_height(
+            metric,
+            ideal,
+            orientation,
+            2,
+            10**6,
+            local_candidate=_local_candidate,
+            best_fan=lambda *_: None,
+            budget=budget,
+        )
+
+    assert budget.counters() == (
+        ("DENSITY_FAN_SHELL_PROBES", (1 << 12) + 1),
+        ("DENSITY_FAN_ORDER_STEPS", 0),
+    )
+
+
 def test_exhausted_density_domain_names_the_outcome_and_leaves_no_trace(
     monkeypatch,
 ):
@@ -1362,6 +1395,24 @@ def test_exhausted_density_domain_names_the_outcome_and_leaves_no_trace(
     assert "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED" in (
         result.diagnostics[0].message
     )
+
+
+def test_exhausted_density_domain_still_gets_a_prepare_receipt(monkeypatch):
+    """Полевой путь QUEUE: домен отказывает именем, receipt существует.
+
+    Именно этого не было в поле: домен считал 240+ секунд, и стадия не
+    оставляла ни исхода, ни таймингов.
+    """
+
+    monkeypatch.setattr(_density_fan, "_DENSITY_EXACT_WORK_CAP", 1)
+    snapshot, request = _field_inputs(4)
+
+    prepared = prepare_conveyor(snapshot, request)
+
+    assert prepared.outcome.value == "PLAN_IS_NOT_COMPILED"
+    assert prepared.detail == "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
+    assert prepared.regions == ()
+    assert dict(prepared.timings)["PLAN_COMPILE"] >= 0
 
 
 def test_deepest_green_field_authority_stays_far_below_the_work_cap(
