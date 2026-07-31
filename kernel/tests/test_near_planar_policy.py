@@ -109,6 +109,8 @@ def test_requested_near_planar_policy_admits_and_records_the_projection():
     certificate = _unit_quad_metric(1e-12, NEAR).planarity_certificate
     assert certificate.admission_law is NEAR
     assert certificate.exact is False
+    # Квад НЕ привязан (политика решётки по умолчанию — `UNSNAPPED_EXACT_V1`),
+    # поэтому его двигать некому и бюджет остаётся шумом представления.
     assert certificate.residual_budget_law is (
         NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
     )
@@ -139,6 +141,97 @@ def test_source_beyond_the_budget_is_refused_by_name():
         failure.value.outcome
         is NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
     )
+
+
+def test_the_budget_refusal_carries_the_numbers_it_judged_by():
+    """Отказ бюджета обязан нести числа, а не только перечень вершин.
+
+    Прежде печатались одни имена вершин, и поле не могло отличить честный отказ
+    (подлинная кривизна) от неверного бюджета (сравнение с величиной чужого
+    закона) — разбор полевого случая стоил ручного пересчёта Ньюэлла дробями.
+    Замораживается НАЛИЧИЕ каждой величины, из которой сложилось решение: обе
+    сравниваемые (обе — квадраты, и названы квадратами), сам бюджет, закон,
+    который его дал, и шаг решётки, когда бюджет пришёл от ячейки.
+    """
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _unit_quad_metric(0.05, NEAR)
+    message = str(failure.value)
+    for name in (
+        "max_residual_squared=",
+        "residual_budget_squared=",
+        "residual_budget=",
+        "residual_budget_law=RELATIVE_EXTENT_OR_ULP_V1",
+        "grid_step=none",
+    ):
+        assert name in message, message
+
+    # Снапнутый домен судится ячейкой, и отказ обязан назвать ячейку ЕЮ.
+    vertices, faces = _slope_patch(bend=0.05)
+    with pytest.raises(PlanarMetricAdmissionError) as snapped:
+        _metric(vertices, faces, SOURCE_SNAP)
+    snapped_message = str(snapped.value)
+    assert "residual_budget_law=GRID_STEP_CELL_V1" in snapped_message
+    assert "grid_step=6.103516e-05" in snapped_message, snapped_message
+
+
+def test_the_snapped_budget_declares_the_law_that_produced_its_number():
+    """Записанный закон бюджета — тот, который реально дал число.
+
+    Полевой дефект: `_admission_budget` уже брала бюджет из ЯЧЕЙКИ у всякого
+    снапнутого домена, а сертификат безусловно писал
+    `RELATIVE_EXTENT_OR_ULP_V1`. Число и закон расходились на два порядка
+    (6.10e-05 против 3.31e-07 на полевом скате) у полевого default'а, и
+    прочитать по сертификату, чем судили домен, было нельзя.
+    """
+
+    vertices, faces = _slope_patch()
+    certificate = _metric(vertices, faces, SOURCE_SNAP).planarity_certificate
+    grid = _metric(vertices, faces, SOURCE_SNAP).grid_certificate
+
+    assert certificate.residual_budget_law is (
+        NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
+    )
+    # И объявленное число — это ровно ячейка объявленного шага.
+    assert certificate.residual_budget == grid.window_step
+
+    # Та же геометрия без привязки: двигать источник некому, бюджет —
+    # представление, и он на два порядка меньше ячейки.
+    unsnapped = _metric(vertices, faces, GridSnappingLawV1.UNSNAPPED_EXACT_V1)
+    assert unsnapped.planarity_certificate.residual_budget_law is (
+        NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
+    )
+    budget = Fraction(
+        unsnapped.planarity_certificate.residual_budget.numerator,
+        unsnapped.planarity_certificate.residual_budget.denominator,
+    )
+    cell = Fraction(grid.window_step.numerator, grid.window_step.denominator)
+    assert budget < cell / 100
+
+
+def test_the_recorded_residual_is_named_a_square_because_it_is_one():
+    """Имя поля обязано говорить о величине.
+
+    `max_residual` хранило КВАДРАТ невязки: сравнение идёт в квадратах, чтобы
+    не вводить корень, а корень из рационального в общем случае не представим
+    точно. Читающий сравнивал поле с `residual_budget` и получал разницу в
+    квадрат — на полевом скате 8.8e-11 против 6.1e-05.
+    """
+
+    certificate = _unit_quad_metric(1e-12, NEAR).planarity_certificate
+    squared = Fraction(
+        certificate.max_residual_squared.numerator,
+        certificate.max_residual_squared.denominator,
+    )
+    budget = Fraction(
+        certificate.residual_budget.numerator,
+        certificate.residual_budget.denominator,
+    )
+    assert squared <= budget * budget
+    # Величина именно квадратичная: подъём 1e-12 даёт невязку порядка 1e-13,
+    # а поле — порядка её квадрата.
+    assert squared < Fraction(1, 10**24)
+    assert not hasattr(certificate, "max_residual")
 
 
 def test_projected_source_reconstructs_exactly():

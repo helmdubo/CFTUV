@@ -273,10 +273,29 @@ class IntegerGridCertificateV1:
 
 
 class NearPlanarResidualBudgetLawV1(str, Enum):
+    """Чем меряется отклонение источника от собственной плоскости.
+
+    Членов ДВА, потому что величин две, и они принадлежат разным законам.
+    Записью от 2026-07-31 бюджет берётся у того закона, который источник
+    ДВИГАЕТ: у привязывающего это ячейка выбранного шага, у
+    `UNSNAPPED_EXACT_V1` — прежний шум представления. Пока член был один,
+    контракт лгал о власти: `_admission_budget` уже брала ячейку у всякого
+    снапнутого домена (полевой default), а сертификат безусловно писал
+    `RELATIVE_EXTENT_OR_ULP_V1`. Число и закон расходились на два порядка —
+    6.10e-05 против 3.31e-07 на полевом скате, — и прочитать по сертификату,
+    чем судили домен, было нельзя. Это класс отказа «декоративная власть/DTO»:
+    поле объявляет закон, которому не подчиняется.
+    """
+
     # max(relative_extent_factor * max(planar_extent, minimum_extent),
     #     coordinate_ulp_multiplier * max_coordinate_ulp)
     # Исследовано в M-R0 как RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1.
     RELATIVE_EXTENT_OR_ULP_V1 = "RELATIVE_EXTENT_OR_ULP_V1"
+    # Ячейка выбранного шага решётки: `IntegerGridCertificateV1.window_step`.
+    # Осевая решётка сама вносит непланарность — наклонную плоскость она рвёт,
+    # каждая координата садится в свой узел независимо, — и внесённое ею
+    # отклонение ограничено ячейкой шага.
+    GRID_STEP_CELL_V1 = "GRID_STEP_CELL_V1"
 
 
 class AffineFrameSelectionLawV1(str, Enum):
@@ -406,6 +425,21 @@ class NearPlanarProjectionCertificateV1:
     каждая неточная политика записывает масштаб, метод, бюджет невязки и
     ревизию источника. Проекция здесь точная (рациональная); приблизителен
     выбор плоскости, и именно он зафиксирован этими полями.
+
+    `max_residual_squared` назван КВАДРАТОМ, потому что квадратом и является:
+    невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень, а
+    корень из рационального в общем случае не представим точно и хранить его
+    было бы нечем. Прежнее имя `max_residual` лгало о величине — читающий
+    сравнивал его с `residual_budget` и получал разницу в квадрат.
+
+    `max_coordinate_ulp` записан затем, чтобы проверяющий мог ПЕРЕСЧИТАТЬ
+    `residual_budget` по объявленному закону, ничего не принимая на веру. У
+    закона ячейки для этого хватает `IntegerGridCertificateV1.window_step`
+    метрики, а закон представления берёт максимум из двух членов, и второй из
+    них — ULP координат ИСТОЧНИКА (до проекции). По самой метрике он
+    невосстановим: карта несёт координаты уже спроецированных позиций.
+    Без этого поля записанное число не проверялось бы вовсе, и «бюджет»
+    остался бы заявлением.
     """
 
     certificate_id: PlanarityCertificateId
@@ -420,9 +454,10 @@ class NearPlanarProjectionCertificateV1:
     relative_extent_factor: ExactRationalV1
     minimum_extent: ExactRationalV1
     coordinate_ulp_multiplier: int
+    max_coordinate_ulp: ExactRationalV1
     planar_extent: ExactRationalV1
     residual_budget: ExactRationalV1
-    max_residual: ExactRationalV1
+    max_residual_squared: ExactRationalV1
     projected_source_vertex_ids: frozenset[SourceVertexId]
 
     def __post_init__(self) -> None:
