@@ -751,7 +751,7 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
     }
 
 
-def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json():
+def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json(tmp_path):
     """Эхо расписки — строка, а не побайтовый дубликат только что записанного.
 
     Замер принципала: полный JSON в stdout — 51 тыс. символов на
@@ -764,7 +764,7 @@ def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json():
 
     source = FIELD_GATE.read_text(encoding="utf-8")
     assert "print(json.dumps(payload" not in source
-    assert "print(_receipt_echo(output, text, payload))" in source
+    assert "print(_receipt_echo(output, payload))" in source
 
     function = _function(_module(FIELD_GATE), "_receipt_echo")
     namespace = {"hashlib": hashlib}
@@ -776,10 +776,13 @@ def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json():
         ),
         namespace,
     )
-    text = '{"status": "COMPLETE"}\n'
+    # Дайджест берётся с ЗАПИСАННОГО файла, а не со строки перед записью:
+    # `write_text` переводит `\n` в `os.linesep`, и на Windows дайджест строки
+    # разошёлся бы с `sha256sum` файла.
+    receipt = tmp_path / "run.json"
+    receipt.write_text('{"status": "COMPLETE"}\n', encoding="utf-8")
     line = namespace["_receipt_echo"](
-        Path("artifacts/run.json"),
-        text,
+        receipt,
         {
             "status": "COMPLETE",
             "gate_failure": None,
@@ -796,10 +799,11 @@ def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json():
             ],
         },
     )
-    assert "artifacts" in line and "run.json" in line
+    assert "run.json" in line
     assert "status=COMPLETE" in line
     assert "gate_failure=None" in line
     assert "domains[COMPILE_REJECTED=1 METRIC_REJECTED=1 RAW_READY=2]" in line
-    assert f"sha256={hashlib.sha256(text.encode('utf-8')).hexdigest()}" in line
-    # Компактность — предмет требования, а не побочный эффект.
+    assert f"sha256={hashlib.sha256(receipt.read_bytes()).hexdigest()}" in line
+    # Компактность — предмет требования, а не побочный эффект. Полная расписка
+    # в поле — 51 тыс. символов на `building.002`, ~170 тыс. на `building`.
     assert len(line) < 300
