@@ -425,7 +425,7 @@ def test_projective_atlas_codec_and_partition_are_fail_closed():
 
 
 def test_public_compile_names_unrepresentable_density_window(monkeypatch):
-    import cftuv_envelope.reference.compile as compile_module
+    import cftuv_envelope.reference.adaptive_density_fan as fan_module
 
     snapshot, request = _field_inputs(1)
 
@@ -436,22 +436,20 @@ def test_public_compile_names_unrepresentable_density_window(monkeypatch):
         )
 
     monkeypatch.setattr(
-        compile_module,
-        "certify_adaptive_huber_density_direction_fan",
-        refuse,
-    )
-    monkeypatch.setattr(
-        compile_module,
-        "certify_huber_density_bindings_with_adaptive_fallback",
+        fan_module,
+        "certify_density_bindings_and_adaptive_fallback",
         refuse,
     )
     result = kernel.compile_reference_envelopes(snapshot, request)
 
     assert result.outcome is ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE
     assert result.compilation is None
-    assert tuple(item.message for item in result.diagnostics) == (
+    messages = tuple(item.message for item in result.diagnostics)
+    assert messages == (
         "DENSITY_WINDOW_CHART_UNREPRESENTABLE",
     )
+    assert all("BINDING_MONOTONE" not in item for item in messages)
+    assert all("Traceback" not in item for item in messages)
 
 
 def test_projective_atlas_hot_path_uses_no_forbidden_symbolic_operations(

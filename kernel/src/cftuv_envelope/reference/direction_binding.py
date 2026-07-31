@@ -858,6 +858,7 @@ def certify_huber_density_bindings_with_adaptive_fallback(
 
     from .adaptive_density_fan import (
         AdaptiveDensityFanInvalid,
+        DensityWindowChartUnrepresentable,
         certify_density_bindings_and_adaptive_fallback,
     )
 
@@ -869,6 +870,8 @@ def certify_huber_density_bindings_with_adaptive_fallback(
             max_subturn_q,
             binding_reasons=binding_reasons,
         )
+    except DensityWindowChartUnrepresentable:
+        raise
     except AdaptiveDensityFanInvalid as exc:
         raise DirectionBindingCertificateUnproven(
             BINDING_MONOTONE
@@ -909,6 +912,7 @@ def verify_huber_density_direction_bindings(
 
     from .adaptive_density_fan import (
         AdaptiveDensityFanInvalid,
+        DensityWindowChartUnrepresentable,
         verify_legacy_density_bindings_factor_free,
     )
 
@@ -920,6 +924,8 @@ def verify_huber_density_direction_bindings(
             certificates,
             max_subturn_q,
         )
+    except DensityWindowChartUnrepresentable:
+        raise
     except AdaptiveDensityFanInvalid as exc:
         raise DirectionBindingCertificateUnproven(
             BINDING_INSIDE_OWN_ORDINAL_WINDOW
