@@ -913,7 +913,7 @@ def test_affine_metric_uses_canonical_source_vertex_origin_exactly():
     exact_origin = metric.exact_origin
     # Начало — вершина источника ТОЧНО, а не подгонка. «Точно» означает
     # позицию под ОБЪЯВЛЕННЫМ законом решётки, а не сырую binary64: ровно так
-    # эту же сверку делает `validation._position_under_grid_law`
+    # эту же сверку делает `validation_metric.position_under_grid_law`
     # (`DECISIONS.md` за 2026-07-25). Узел пересчитывается здесь заново из
     # масштаба, который называет сертификат, поэтому проверяется ещё и то, что
     # метрика привязана к ТОМУ масштабу, который объявляет.
