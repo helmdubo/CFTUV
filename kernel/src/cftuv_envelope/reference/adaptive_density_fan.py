@@ -950,6 +950,8 @@ def _legacy_density_certificate(
 ) -> DirectionBindingCertificateV1 | None:
     from .direction_binding import _PROVEN_PREDICATES
 
+    if type(record) is AtlasWindowPrepared:
+        return None
     use_x, denominator_sign, lower_envelope, upper_envelope = record
     lower = Fraction(lower_envelope.upper)
     upper = Fraction(upper_envelope.lower)
@@ -1039,7 +1041,8 @@ def _legacy_full_fan_valid(
     return all(
         certificate is None
         or (
-            _inside_ordinal(
+            type(record) is not AtlasWindowPrepared
+            and _inside_ordinal(
                 metric,
                 candidate,
                 ideal[ordinal - 1],

@@ -352,6 +352,98 @@ def test_projective_atlas_has_chart_invariant_minimal_height():
     )
 
 
+def test_density_zero_fallback_routes_valid_projective_atlas():
+    from cftuv_envelope.reference.direction_binding import (
+        certify_huber_density_bindings_with_adaptive_fallback,
+    )
+
+    metric, orientation, ideal = _projective_atlas_repro()
+
+    certificates, authority = (
+        certify_huber_density_bindings_with_adaptive_fallback(
+            metric,
+            ideal,
+            orientation,
+            2,
+            (DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL,),
+        )
+    )
+    payload = kernel.canonical_json_bytes(authority)
+
+    assert certificates == (None,)
+    assert type(authority) is AdaptiveMinimalRationalFanAuthorityV2
+    assert authority.minimal_common_height == 4
+    assert authority.bound_primitive_integer_vectors == ((3, 4),)
+    assert (
+        type(authority.ordinal_windows[0])
+        is AdaptiveRationalFanOrdinalWindowAtlasV1
+    )
+    assert len(payload) == 3359
+    assert sha256(payload).hexdigest() == (
+        "6bbf2d44590a23d210ac3b3b8d98350aa70b29e926a59574b37a7792980e23a7"
+    )
+    verify_sealed_adaptive_density_fan(authority, ideal_count=3)
+    verify_adaptive_density_fan(metric, ideal, orientation, authority)
+
+
+@pytest.mark.parametrize("q", (2, 3, 6))
+def test_legacy_density_refuses_projective_atlas_without_tuple_unpack(q):
+    from cftuv_envelope.reference.adaptive_density_atlas import (
+        AtlasWindowPrepared,
+    )
+    from cftuv_envelope.reference.adaptive_density_fan import (
+        _covectors,
+        _legacy_density_certificate,
+        _window_envelopes,
+    )
+
+    metric, _, normals = _projective_atlas_repro()
+    ideal = _covectors(metric, normals)
+    _, records = _window_envelopes(ideal)
+
+    assert type(records[0]) is AtlasWindowPrepared
+    assert _legacy_density_certificate(
+        metric,
+        ideal,
+        1,
+        q,
+        records[0],
+    ) is None
+
+
+def test_legacy_full_fan_rejects_non_none_atlas_certificate():
+    from cftuv_envelope import DirectionBindingCertificateV1
+    from cftuv_envelope.reference.adaptive_density_fan import (
+        _covectors,
+        _legacy_full_fan_valid,
+        _window_envelopes,
+    )
+    from cftuv_envelope.reference.direction_binding import _PROVEN_PREDICATES
+
+    metric, orientation, normals = _projective_atlas_repro()
+    ideal = _covectors(metric, normals)
+    _, records = _window_envelopes(ideal)
+    local = records[0].local_record
+    forged = DirectionBindingCertificateV1(
+        bound_primitive_integer_vector=(3, 4),
+        ideal_window_lower_slope_envelope=local[2],
+        ideal_window_upper_slope_envelope=local[3],
+        certified_window_width_lower_bound=(
+            local[3].lower - local[2].upper
+        ),
+        proven_predicates=_PROVEN_PREDICATES,
+    )
+
+    assert not _legacy_full_fan_valid(
+        metric,
+        ideal,
+        orientation,
+        2,
+        records,
+        (forged,),
+    )
+
+
 def test_projective_atlas_codec_and_partition_are_fail_closed():
     metric, orientation, ideal = _projective_atlas_repro()
     authority = certify_adaptive_density_fan(
