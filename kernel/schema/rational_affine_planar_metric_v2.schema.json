@@ -367,7 +367,10 @@
         "exact_plane_normal": {
           "$ref": "#/$defs/ExactVector3V1"
         },
-        "max_residual": {
+        "max_coordinate_ulp": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "max_residual_squared": {
           "$ref": "#/$defs/ExactRationalV1"
         },
         "minimum_extent": {
@@ -400,7 +403,8 @@
         },
         "residual_budget_law": {
           "enum": [
-            "RELATIVE_EXTENT_OR_ULP_V1"
+            "RELATIVE_EXTENT_OR_ULP_V1",
+            "GRID_STEP_CELL_V1"
           ],
           "type": "string"
         },
@@ -429,9 +433,10 @@
         "relative_extent_factor",
         "minimum_extent",
         "coordinate_ulp_multiplier",
+        "max_coordinate_ulp",
         "planar_extent",
         "residual_budget",
-        "max_residual",
+        "max_residual_squared",
         "projected_source_vertex_ids"
       ],
       "type": "object"

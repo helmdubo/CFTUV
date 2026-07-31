@@ -189,7 +189,9 @@ def _plane_anchor(positions, required_ids):
 @dataclass(frozen=True, slots=True)
 class _NearPlanarFacts:
     planar_extent: Fraction
+    max_coordinate_ulp: Fraction
     residual_budget: Fraction
+    residual_budget_law: NearPlanarResidualBudgetLawV1
     max_residual_squared: Fraction
     projected: tuple[SourceVertexId, ...]
 
@@ -219,7 +221,9 @@ def _representation_budget(planar_extent, max_ulp):
     )
 
 
-def _admission_budget(*, planar_extent, max_ulp, grid_certificate):
+def _admission_budget(
+    *, planar_extent, max_ulp, grid_certificate
+) -> tuple[Fraction, NearPlanarResidualBudgetLawV1]:
     """Насколько источнику разрешено отклоняться от собственной плоскости.
 
     Величина принадлежит ЗАКОНУ РЕШЁТКИ, а не плоскости, и потому берётся из
@@ -242,12 +246,61 @@ def _admission_budget(*, planar_extent, max_ulp, grid_certificate):
 
     Закон, который источник не двигает, не вносит ничего, и для него бюджет
     остаётся прежним — шум представления.
+
+    Возвращается ПАРА: число и тот закон, который его дал. Прежде возвращалось
+    одно число, а сертификат безусловно писал `RELATIVE_EXTENT_OR_ULP_V1` —
+    поэтому у всякого снапнутого домена (полевой default) объявленный закон и
+    записанное число расходились. Пара делает расхождение невозможным по
+    построению: назвать закон, отличный от того, который считал, здесь больше
+    нечем.
     """
 
     if not grid_certificate.snapping_law.snaps_source:
-        return _representation_budget(planar_extent, max_ulp)
+        return (
+            _representation_budget(planar_extent, max_ulp),
+            NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1,
+        )
     step = grid_certificate.window_step
-    return Fraction(step.numerator, step.denominator)
+    return (
+        Fraction(step.numerator, step.denominator),
+        NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1,
+    )
+
+
+def _budget_refusal_text(
+    *, max_residual_squared, budget, budget_law, grid_certificate, off_plane
+) -> str:
+    """Отказ бюджета обязан нести числа, а не только имена вершин.
+
+    Прежде печатался один перечень вершин. Поле не могло по нему отличить
+    честный отказ (подлинная кривизна) от неверного бюджета (сравнение с
+    величиной чужого закона), и разбор полевого случая стоил ручного пересчёта
+    Ньюэлла дробями. Здесь названо всё, из чего сложилось решение: обе
+    сравниваемые величины, сам бюджет, ЗАКОН, который его дал, и шаг решётки,
+    когда бюджет пришёл от ячейки.
+
+    Обе сравниваемые величины — квадраты, и названы квадратами. Корень из
+    рационального в общем случае не представим точно, поэтому сравнение идёт в
+    квадратах; печатать «невязку» вместо квадрата невязки значило бы
+    повторить ложь имени поля. Числа выводятся как binary64-приближения — это
+    диагностика для чтения человеком, а не величина, на которую кто-то
+    ссылается; точные величины лежат в сертификате.
+    """
+
+    step = grid_certificate.window_step
+    grid_step = (
+        "none"
+        if step is None or not grid_certificate.snapping_law.snaps_source
+        else f"{float(Fraction(step.numerator, step.denominator)):.6e}"
+    )
+    return (
+        "source deviates beyond the declared near-planar budget: "
+        f"max_residual_squared={float(max_residual_squared):.6e} "
+        f"> residual_budget_squared={float(budget * budget):.6e} "
+        f"(residual_budget={float(budget):.6e}, "
+        f"residual_budget_law={budget_law.value}, grid_step={grid_step}); "
+        f"vertices={[item.value for item in off_plane]}"
+    )
 
 
 def _project_onto_exact_plane(
@@ -270,7 +323,7 @@ def _project_onto_exact_plane(
         max_residual_squared = max(max_residual_squared, residual_squared)
 
     planar_extent, max_ulp = _plane_extent_and_ulp(positions)
-    budget = _admission_budget(
+    budget, budget_law = _admission_budget(
         planar_extent=planar_extent,
         max_ulp=max_ulp,
         grid_certificate=grid_certificate,
@@ -278,8 +331,13 @@ def _project_onto_exact_plane(
     if max_residual_squared > budget * budget:
         raise PlanarMetricAdmissionError(
             NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
-            "source deviates beyond the declared near-planar budget: "
-            f"vertices={[item.value for item in off_plane]}",
+            _budget_refusal_text(
+                max_residual_squared=max_residual_squared,
+                budget=budget,
+                budget_law=budget_law,
+                grid_certificate=grid_certificate,
+                off_plane=off_plane,
+            ),
         )
     for vertex_id in off_plane:
         scale = _dot3(_sub3(positions[vertex_id], origin), normal) / normal_squared
@@ -288,7 +346,9 @@ def _project_onto_exact_plane(
         )
     return _NearPlanarFacts(
         planar_extent=planar_extent,
+        max_coordinate_ulp=max_ulp,
         residual_budget=budget,
+        residual_budget_law=budget_law,
         max_residual_squared=max_residual_squared,
         projected=off_plane,
     )
@@ -371,15 +431,15 @@ def _planarity_certificate(
         exact_plane_normal=_vector3_record(normal),
         source_vertex_ids=frozenset(required_ids),
         reconstruction_law=AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1,
-        residual_budget_law=(
-            NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
-        ),
+        # Записывается ТОТ закон, который дал число, а не один и тот же всегда.
+        residual_budget_law=near_planar_facts.residual_budget_law,
         relative_extent_factor=_rational(_RELATIVE_EXTENT_FACTOR),
         minimum_extent=_rational(_MINIMUM_EXTENT),
         coordinate_ulp_multiplier=_COORDINATE_ULP_MULTIPLIER,
+        max_coordinate_ulp=_rational(near_planar_facts.max_coordinate_ulp),
         planar_extent=_rational(near_planar_facts.planar_extent),
         residual_budget=_rational(near_planar_facts.residual_budget),
-        max_residual=_rational(near_planar_facts.max_residual_squared),
+        max_residual_squared=_rational(near_planar_facts.max_residual_squared),
         projected_source_vertex_ids=frozenset(near_planar_facts.projected),
     )
 

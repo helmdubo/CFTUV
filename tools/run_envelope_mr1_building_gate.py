@@ -108,7 +108,7 @@ from cftuv.envelope_debug_profile import (  # noqa: E402
     EnvelopeDebugProfileBuilderV1,
 )
 from cftuv.envelope_request_export import (  # noqa: E402
-    EnvelopeDebugHostOutcome,
+    METRIC_STAGE_OUTCOMES,
     EnvelopeHostAdapterError,
     _typed_value,
     build_envelope_analysis_snapshot,
@@ -693,13 +693,12 @@ def _run_scope(
             )
             policy_receipts.append(policy_receipt)
         except EnvelopeHostAdapterError as exc:
+            # Власть классификации ступени одна и хостовая. Своё множество
+            # имён здесь было двухэлементным против шести, и четыре отказа
+            # метрики расписка молча переносила на ступень COMPILE.
             stage = (
                 "METRIC_REJECTED"
-                if exc.outcome
-                in {
-                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                    EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-                }
+                if exc.outcome in METRIC_STAGE_OUTCOMES
                 else "COMPILE_REJECTED"
             )
             domains.append(
@@ -794,6 +793,38 @@ def _analysis_bundle(obj):
         )
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def _receipt_echo(output, payload: dict) -> str:
+    """Компактное эхо расписки: путь, исход, счёт доменов по ступеням, дайджест.
+
+    Прежде в stdout уходил ПОЛНЫЙ JSON — побайтовый дубликат только что
+    записанного файла. Замер принципала: 51 тыс. символов на `building.002`,
+    ~170 тыс. на `building` за прогон. Конвейер это эхо не потребляет:
+    `field_cycle.ps1` проверяет наличие ФАЙЛА и передаёт его путь
+    `field_cycle_summary.py`, который читает файл; единственный потребитель
+    stdout — путь `--contract-only`, и он до сюда не доходит вовсе (ранний
+    `SystemExit` до импорта bpy).
+
+    Дайджест считается ЧТЕНИЕМ ЗАПИСАННОГО ФАЙЛА, а не строки перед записью:
+    `Path.write_text` переводит `\\n` в `os.linesep`, и на Windows дайджест
+    строки не совпал бы с `sha256sum` файла — то есть врал бы ровно тому, кто
+    решит его проверить. Байты файла не двигаются: перевод строк остался
+    прежним, изменился только источник дайджеста.
+    """
+
+    stages: dict[str, int] = {}
+    for run in payload["runs"]:
+        for domain in run.get("domains", ()):
+            stage = domain.get("stage") or "UNKNOWN"
+            stages[stage] = stages.get(stage, 0) + 1
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+    counts = " ".join(f"{name}={stages[name]}" for name in sorted(stages))
+    return (
+        f"M-R1 receipt {output} status={payload['status']} "
+        f"gate_failure={payload['gate_failure']} "
+        f"domains[{counts}] sha256={digest}"
+    )
 
 
 def _selected_scopes(obj, requested: str):
@@ -914,7 +945,7 @@ def main() -> None:
         + "\n",
         encoding="utf-8",
     )
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    print(_receipt_echo(output, payload))
     if gate_failure is not None:
         raise DensityGateContractError(gate_failure)
 
