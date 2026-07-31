@@ -251,6 +251,10 @@ NEW_FUNCTION_LINE_LIMIT = 120
 
 # Модули, превышающие NEW_MODULE_LINE_LIMIT на момент заморозки.
 MODULE_LINE_ALLOWANCE = {
+    # DENS-PROJECTIVE-CHART: владелец разрешил узкий остаточный потолок после
+    # extraction exact-atlas helpers в sibling `adaptive_density_atlas.py`.
+    # Старый single-chart закон оставлен в исходном модуле ради byte-stability.
+    "kernel/src/cftuv_envelope/reference/adaptive_density_fan.py": 2200,
     "cftuv/decal_voronoi.py": 16889,
     "cftuv/decal_rail_geometry.py": 5583,
     # 3107 -> 3053 (измерение угла ушло в ядро) -> 3070. +17 куплены осознанно:

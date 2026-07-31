@@ -134,7 +134,9 @@ from .direction_binding import (
 )
 from .metric import _DensityExactMemo
 from .adaptive_density_fan import (
+    AdaptiveDensityFanInvalid,
     DensityRationalAuthorityExhausted,
+    DensityWindowChartUnrepresentable,
     _subturn,
 )
 from .evaluation_geometry import (
@@ -851,6 +853,22 @@ def _attach_direction_bindings(
         return (
             _failure(
                 ReferenceOutcome.DENSITY_RATIONAL_AUTHORITY_EXHAUSTED,
+                str(exc),
+            ),
+            None,
+        )
+    except DensityWindowChartUnrepresentable:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE,
+                ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE.value,
+            ),
+            None,
+        )
+    except AdaptiveDensityFanInvalid as exc:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
                 str(exc),
             ),
             None,

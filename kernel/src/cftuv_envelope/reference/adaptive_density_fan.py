@@ -14,12 +14,23 @@ from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
     AdaptiveFareyHeightRangeWitnessV2,
     AdaptiveMinimalRationalFanAuthorityV2,
+    AdaptiveRationalFanOrdinalWindowAtlasV1,
     AdaptiveRationalFanOrdinalWindowV2,
     DirectionBindingReasonV1,
     DirectionBindingCertificateV1,
     EvaluationGeometryDirectionBindingCertificateV1,
 )
 from ..numeric import CertifiedDecimalIntervalV1
+from .adaptive_density_atlas import (
+    AtlasWindowPrepared,
+    build_atlas_window_record,
+    global_termination_height,
+    piece_contains_vector,
+    piece_ordered_endpoints,
+    search_global_height,
+    termination_piece,
+    validate_atlas_structure,
+)
 from .common import stable_id
 from .metric import ExactPlanarMetric
 from .planar_types import ExactPlanarVector
@@ -63,6 +74,10 @@ class DensityRationalAuthorityExhausted(ValueError):
 
 class AdaptiveDensityFanInvalid(ValueError):
     """Запись V2 не следует из production metric/ideal facts."""
+
+
+class DensityWindowChartUnrepresentable(AdaptiveDensityFanInvalid):
+    """Допустимое projective-окно не представимо принятым chart-контрактом."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,8 +246,8 @@ def _chart_for_window(
         if 0 in signs or len(set(signs)) != 1:
             continue
         return use_x, signs[0]
-    raise AdaptiveDensityFanInvalid(
-        "ordinal window does not fit one projective height chart"
+    raise DensityWindowChartUnrepresentable(
+        "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
     )
 
 
@@ -257,12 +272,29 @@ def _window_envelopes(ideal):
             center_values[1] + right_values[1],
             metric,
         )
-        use_x, denominator_sign = _chart_for_window(
-            metric,
-            ideal[ordinal],
-            left,
-            right,
-        )
+        try:
+            use_x, denominator_sign = _chart_for_window(
+                metric,
+                ideal[ordinal],
+                left,
+                right,
+            )
+        except DensityWindowChartUnrepresentable:
+            windows.append((left, right))
+            records.append(
+                build_atlas_window_record(
+                    metric,
+                    ideal[ordinal],
+                    left,
+                    right,
+                    sign=_sign,
+                    slope=_slope,
+                    vector=_vector,
+                    decimal_envelope=_density_decimal_envelope,
+                    invalid=DensityWindowChartUnrepresentable,
+                )
+            )
+            continue
         slopes = (
             _slope(left, use_x, metric),
             _slope(right, use_x, metric),
@@ -657,6 +689,10 @@ def _termination_height(boxes) -> int:
             )
         bounds.append(width.denominator // width.numerator + 2)
     return max(bounds, default=0)
+
+
+def _local_record(record):
+    return record.local_record if type(record) is AtlasWindowPrepared else record
 
 
 def _raw_numerator_bounds(record, height: int) -> tuple[int, int]:
@@ -1306,6 +1342,17 @@ def _search(
 
 
 def _authority_id(q, height, fan, windows) -> str:
+    if any(
+        type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        for item in windows
+    ):
+        return stable_id(
+            "adaptive-density-fan-authority-atlas-v1",
+            q,
+            height,
+            fan,
+            windows,
+        )
     return stable_id(
         "adaptive-density-fan-authority-v2",
         q,
@@ -1365,12 +1412,14 @@ def _certify_adaptive_density_fan_prepared(
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Достроить V2 из фактов, уже выведенных в этой транзакции."""
 
+    local_records = tuple(_local_record(record) for record in records)
+    uses_atlas = any(type(record) is AtlasWindowPrepared for record in records)
     boxes = _termination_boxes(
         metric,
         ideal,
         orientation,
         max_subturn_q,
-        records,
+        local_records,
     )
     sealed_intervals = tuple(
         _sealed_local_interval(
@@ -1379,53 +1428,78 @@ def _certify_adaptive_density_fan_prepared(
             ordinal,
             orientation,
             max_subturn_q,
-            record,
+            local_record,
         )
-        for ordinal, record in enumerate(records, start=1)
+        for ordinal, local_record in enumerate(local_records, start=1)
     )
-    termination_height = _termination_height(boxes)
+    termination_height = (
+        global_termination_height(
+            boxes,
+            local_height=_termination_height,
+        )
+        if uses_atlas
+        else _termination_height(boxes)
+    )
     stop_height = min(termination_height, resource_height_cap)
-    height, fan, previous_counts, _ = _search(
-        metric,
-        ideal,
-        orientation,
-        max_subturn_q,
-        records,
-        sealed_intervals,
-        stop_height,
+    height, fan, previous_counts, _ = (
+        search_global_height(
+            metric,
+            ideal,
+            orientation,
+            max_subturn_q,
+            stop_height,
+            local_candidate=_local_candidate,
+            best_fan=_best_fan,
+        )
+        if uses_atlas
+        else _search(
+            metric,
+            ideal,
+            orientation,
+            max_subturn_q,
+            records,
+            sealed_intervals,
+            stop_height,
+        )
     )
     if fan is None:
         raise DensityRationalAuthorityExhausted(
             "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
         )
-    windows = tuple(
-        AdaptiveRationalFanOrdinalWindowV2(
-            ordinal=ordinal,
-            use_x_denominator=record[0],
-            denominator_sign=record[1],
-            full_lower_slope_envelope=record[2],
-            full_upper_slope_envelope=record[3],
-            termination_lower_slope=_ratio(box[0]),
-            termination_upper_slope=_ratio(box[1]),
-            certified_termination_width=_ratio(box[1] - box[0]),
-            admissible_lower_outward=_ratio(
-                sealed_intervals[ordinal - 1][0]
-            ),
-            admissible_lower_inward=_ratio(
-                sealed_intervals[ordinal - 1][1]
-            ),
-            admissible_upper_inward=_ratio(
-                sealed_intervals[ordinal - 1][2]
-            ),
-            admissible_upper_outward=_ratio(
-                sealed_intervals[ordinal - 1][3]
-            ),
-        )
-        for ordinal, (record, box) in enumerate(
-            zip(records, boxes, strict=True),
-            start=1,
-        )
-    )
+    windows = []
+    for ordinal, (record, box, sealed) in enumerate(
+        zip(records, boxes, sealed_intervals, strict=True),
+        start=1,
+    ):
+        common = {
+            "ordinal": ordinal,
+            "termination_lower_slope": _ratio(box[0]),
+            "termination_upper_slope": _ratio(box[1]),
+            "certified_termination_width": _ratio(box[1] - box[0]),
+            "admissible_lower_outward": _ratio(sealed[0]),
+            "admissible_lower_inward": _ratio(sealed[1]),
+            "admissible_upper_inward": _ratio(sealed[2]),
+            "admissible_upper_outward": _ratio(sealed[3]),
+        }
+        if type(record) is AtlasWindowPrepared:
+            windows.append(
+                AdaptiveRationalFanOrdinalWindowAtlasV1(
+                    pieces=record.pieces,
+                    termination_piece_index=record.termination_piece_index,
+                    **common,
+                )
+            )
+        else:
+            windows.append(
+                AdaptiveRationalFanOrdinalWindowV2(
+                    use_x_denominator=record[0],
+                    denominator_sign=record[1],
+                    full_lower_slope_envelope=record[2],
+                    full_upper_slope_envelope=record[3],
+                    **common,
+                )
+            )
+    windows = tuple(windows)
     authority_id = _authority_id(max_subturn_q, height, fan, windows)
     return AdaptiveMinimalRationalFanAuthorityV2(
         authority_id=authority_id,
@@ -1486,8 +1560,11 @@ def _verify_authority_structure(supplied, ideal_count) -> None:
         or len(supplied.bound_primitive_integer_vectors) != ideal_count - 2
         or any(
             type(item.ordinal) is not int
-            or type(item.use_x_denominator) is not bool
-            or type(item.denominator_sign) is not int
+            or type(item)
+            not in {
+                AdaptiveRationalFanOrdinalWindowV2,
+                AdaptiveRationalFanOrdinalWindowAtlasV1,
+            }
             for item in supplied.ordinal_windows
         )
         or tuple(item.ordinal for item in supplied.ordinal_windows)
@@ -1499,10 +1576,31 @@ def _verify_authority_structure(supplied, ideal_count) -> None:
 def _decode_authority_windows(supplied):
     records = tuple(
         (
-            item.use_x_denominator,
-            item.denominator_sign,
-            item.full_lower_slope_envelope,
-            item.full_upper_slope_envelope,
+            (
+                item.use_x_denominator,
+                item.denominator_sign,
+                item.full_lower_slope_envelope,
+                item.full_upper_slope_envelope,
+            )
+            if type(item) is AdaptiveRationalFanOrdinalWindowV2
+            else (
+                termination_piece(
+                    item,
+                    invalid=AdaptiveDensityFanInvalid,
+                ).use_x_denominator,
+                termination_piece(
+                    item,
+                    invalid=AdaptiveDensityFanInvalid,
+                ).denominator_sign,
+                termination_piece(
+                    item,
+                    invalid=AdaptiveDensityFanInvalid,
+                ).lower_slope_envelope,
+                termination_piece(
+                    item,
+                    invalid=AdaptiveDensityFanInvalid,
+                ).upper_slope_envelope,
+            )
         )
         for item in supplied.ordinal_windows
     )
@@ -1510,10 +1608,14 @@ def _decode_authority_windows(supplied):
         (
             _fraction(item.termination_lower_slope),
             _fraction(item.termination_upper_slope),
-            item.use_x_denominator,
-            item.denominator_sign,
+            record[0],
+            record[1],
         )
-        for item in supplied.ordinal_windows
+        for item, record in zip(
+            supplied.ordinal_windows,
+            records,
+            strict=True,
+        )
     )
     sealed_intervals = tuple(
         (
@@ -1535,28 +1637,48 @@ def verify_sealed_adaptive_density_fan(
     """Проверить wire-власть рационально, не повторяя root certification."""
 
     _verify_authority_structure(supplied, ideal_count)
-    _, boxes, sealed_intervals = _decode_authority_windows(supplied)
-    for item, vector, box, sealed in zip(
+    records, boxes, sealed_intervals = _decode_authority_windows(supplied)
+    for item, record, vector, box, sealed in zip(
         supplied.ordinal_windows,
+        records,
         supplied.bound_primitive_integer_vectors,
         boxes,
         sealed_intervals,
         strict=True,
     ):
-        denominator = vector[0 if item.use_x_denominator else 1]
-        numerator = vector[1 if item.use_x_denominator else 0]
+        use_x, denominator_sign, lower_envelope, upper_envelope = record
+        denominator = vector[0 if use_x else 1]
+        numerator = vector[1 if use_x else 0]
         slope = Fraction(numerator, denominator)
+        atlas = type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        if atlas:
+            validate_atlas_structure(
+                item,
+                invalid=AdaptiveDensityFanInvalid,
+            )
         if (
-            item.denominator_sign not in (-1, 1)
-            or (1 if denominator > 0 else -1)
-            != item.denominator_sign
-            or not (
-                Fraction(item.full_lower_slope_envelope.upper)
-                < slope
-                < Fraction(item.full_upper_slope_envelope.lower)
+            denominator_sign not in (-1, 1)
+            or (
+                not atlas
+                and (
+                    (1 if denominator > 0 else -1) != denominator_sign
+                    or not (
+                        Fraction(lower_envelope.upper)
+                        < slope
+                        < Fraction(upper_envelope.lower)
+                    )
+                )
+            )
+            or (
+                atlas
+                and sum(
+                    piece_contains_vector(piece, vector)
+                    for piece in item.pieces
+                )
+                != 1
             )
             or not (sealed[0] <= sealed[1] < sealed[2] <= sealed[3])
-            or not (sealed[0] < slope < sealed[3])
+            or (not atlas and not (sealed[0] < slope < sealed[3]))
             or box[0] >= box[1]
             or _fraction(item.certified_termination_width)
             != box[1] - box[0]
@@ -1564,17 +1686,30 @@ def verify_sealed_adaptive_density_fan(
             raise AdaptiveDensityFanInvalid(
                 "sealed adaptive rational authority is false"
             )
+    uses_atlas = any(
+        type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        for item in supplied.ordinal_windows
+    )
     if (
-        _termination_height(boxes)
+        (
+            global_termination_height(
+                boxes,
+                local_height=_termination_height,
+            )
+            if uses_atlas
+            else _termination_height(boxes)
+        )
         != supplied.termination_height_upper_bound
         or max(
             (
-                abs(
-                    vector[0 if item.use_x_denominator else 1]
+                (
+                    _height(vector)
+                    if uses_atlas
+                    else abs(vector[0 if record[0] else 1])
                 )
-                for vector, item in zip(
+                for vector, record in zip(
                     supplied.bound_primitive_integer_vectors,
-                    supplied.ordinal_windows,
+                    records,
                     strict=True,
                 )
             ),
@@ -1637,18 +1772,42 @@ def _verify_adaptive_density_fan(
             record,
             sealed,
         )
-    if _termination_height(boxes) != supplied.termination_height_upper_bound:
+    uses_atlas = any(
+        type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        for item in supplied.ordinal_windows
+    )
+    termination_height = (
+        global_termination_height(
+            boxes,
+            local_height=_termination_height,
+        )
+        if uses_atlas
+        else _termination_height(boxes)
+    )
+    if termination_height != supplied.termination_height_upper_bound:
         raise AdaptiveDensityFanInvalid(
             "adaptive termination height is false"
         )
-    height, fan, previous_counts, _ = _search(
-        metric,
-        ideal,
-        orientation,
-        supplied.max_subturn_q,
-        records,
-        sealed_intervals,
-        supplied.minimal_common_height,
+    height, fan, previous_counts, _ = (
+        search_global_height(
+            metric,
+            ideal,
+            orientation,
+            supplied.max_subturn_q,
+            supplied.minimal_common_height,
+            local_candidate=_local_candidate,
+            best_fan=_best_fan,
+        )
+        if uses_atlas
+        else _search(
+            metric,
+            ideal,
+            orientation,
+            supplied.max_subturn_q,
+            records,
+            sealed_intervals,
+            supplied.minimal_common_height,
+        )
     )
     if (
         height != supplied.minimal_common_height
@@ -1732,10 +1891,111 @@ def _brackets_boundary(left_scores, right_scores) -> bool:
     return changes == 1
 
 
+def _atlas_boundary_envelope(piece, *, first: bool):
+    start, end = piece_ordered_endpoints(piece)
+    return start if first else end
+
+
+def _verify_atlas_window(metric, ideal, item) -> None:
+    """Связать atlas-piece свойства с chart-free production predicates."""
+
+    validate_atlas_structure(
+        item,
+        invalid=AdaptiveDensityFanInvalid,
+    )
+    ordinal = item.ordinal
+    left_values = metric.density_expressions(ideal[ordinal - 1])
+    center_values = metric.density_expressions(ideal[ordinal])
+    right_values = metric.density_expressions(ideal[ordinal + 1])
+    left = _vector(
+        left_values[0] + center_values[0],
+        left_values[1] + center_values[1],
+        metric,
+    )
+    right = _vector(
+        center_values[0] + right_values[0],
+        center_values[1] + right_values[1],
+        metric,
+    )
+    try:
+        _chart_for_window(metric, ideal[ordinal], left, right)
+    except DensityWindowChartUnrepresentable:
+        pass
+    else:
+        raise AdaptiveDensityFanInvalid(
+            "adaptive fan atlas used for a single-chart window"
+        )
+    for piece, first in (
+        (item.pieces[0], True),
+        (item.pieces[-1], False),
+    ):
+        envelope = _atlas_boundary_envelope(piece, first=first)
+        scores = tuple(
+            _boundary_scores(
+                metric,
+                ideal,
+                ordinal,
+                Fraction(value),
+                piece.use_x_denominator,
+                piece.denominator_sign,
+            )
+            for value in (envelope.lower, envelope.upper)
+        )
+        if not _brackets_boundary(*scores):
+            raise AdaptiveDensityFanInvalid(
+                "atlas outward ordinal envelope is not production-bound"
+            )
+    for piece in item.pieces:
+        lower = Fraction(piece.lower_slope_envelope.upper)
+        upper = Fraction(piece.upper_slope_envelope.lower)
+        midpoint = (lower + upper) / 2
+        vector = _candidate_vector(
+            midpoint,
+            piece.use_x_denominator,
+            piece.denominator_sign,
+            metric,
+        )
+        if not _inside_ordinal(
+            metric,
+            vector,
+            ideal[ordinal - 1],
+            ideal[ordinal],
+            ideal[ordinal + 1],
+        ):
+            raise AdaptiveDensityFanInvalid(
+                "atlas piece is outside the production ordinal"
+            )
+    selected_piece = termination_piece(
+        item,
+        invalid=AdaptiveDensityFanInvalid,
+    )
+    denominator = metric.density_expressions(ideal[ordinal])[
+        0 if selected_piece.use_x_denominator else 1
+    ]
+    if (
+        _sign(denominator, metric) != selected_piece.denominator_sign
+        or not (
+            Fraction(selected_piece.lower_slope_envelope.upper)
+            < _slope(
+                ideal[ordinal],
+                selected_piece.use_x_denominator,
+                metric,
+            )
+            < Fraction(selected_piece.upper_slope_envelope.lower)
+        )
+    ):
+        raise AdaptiveDensityFanInvalid(
+            "atlas termination piece does not own the ideal direction"
+        )
+
+
 def _verify_window_envelopes(metric, ideal, windows) -> None:
     """Связать outward envelopes с двумя production Voronoi predicates."""
 
     for item in windows:
+        if type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1:
+            _verify_atlas_window(metric, ideal, item)
+            continue
         if (
             type(item.use_x_denominator) is not bool
             or item.denominator_sign not in (-1, 1)

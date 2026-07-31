@@ -49,8 +49,10 @@ from cftuv_envelope import (
 # CORR-DENS-02 добавляет V2 authority/window/spec/support одного полного
 # рационального веера и отдельную evaluation-only H-lift власть; прежние V1
 # records и selection certificate остаются отдельными типами.
-PUBLIC_API_ADAPTIVE_DENSITY_FAN_V2_SHA256 = (
-    "1a1eac2b4ef0c4698d062373e94996a73cfa4e6d5bcf7ae55d9bda1d22bc977a"
+# DENS-PROJECTIVE-CHART добавляет tagged atlas/piece/pole-ownership только
+# для окон, пересекающих coordinate poles; single-chart V2 остаётся отдельным.
+PUBLIC_API_DENS_PROJECTIVE_CHART_V1_SHA256 = (
+    "76a2d58e54d158b2a38065450086ebd4feb3222d1caa8d054e914b6419fd9064"
 )
 
 
@@ -102,7 +104,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_ADAPTIVE_DENSITY_FAN_V2_SHA256
+    assert digest == PUBLIC_API_DENS_PROJECTIVE_CHART_V1_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

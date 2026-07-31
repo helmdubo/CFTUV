@@ -99,6 +99,12 @@ class ExactTurnSignV1(str, Enum):
     POSITIVE = "POSITIVE"
 
 
+class AdaptiveProjectivePoleOwnershipV1(str, Enum):
+    NONE = "NONE"
+    X_ZERO = "X_ZERO"
+    Y_ZERO = "Y_ZERO"
+
+
 class DirectionBindingReasonV1(str, Enum):
     SOURCE_DIRECTION_IRRATIONAL = "SOURCE_DIRECTION_IRRATIONAL"
     EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL = (
@@ -273,6 +279,37 @@ class AdaptiveRationalFanOrdinalWindowV2:
 
 
 @dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanProjectiveChartPieceV1:
+    """Один непересекающийся кусок канонического projective-атласа."""
+
+    piece_index: int
+    use_x_denominator: bool
+    denominator_sign: int
+    lower_slope_envelope: CertifiedDecimalIntervalV1
+    upper_slope_envelope: CertifiedDecimalIntervalV1
+    lower_endpoint_included: bool
+    upper_endpoint_included: bool
+    slope_increases_in_ordinal_order: bool
+    pole_ownership: AdaptiveProjectivePoleOwnershipV1
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanOrdinalWindowAtlasV1:
+    """Tagged atlas только для окна, пересекающего coordinate-chart poles."""
+
+    ordinal: int
+    pieces: tuple[AdaptiveRationalFanProjectiveChartPieceV1, ...]
+    termination_piece_index: int
+    termination_lower_slope: tuple[int, int]
+    termination_upper_slope: tuple[int, int]
+    certified_termination_width: tuple[int, int]
+    admissible_lower_outward: tuple[int, int]
+    admissible_lower_inward: tuple[int, int]
+    admissible_upper_inward: tuple[int, int]
+    admissible_upper_outward: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class AdaptiveFareyHeightRangeWitnessV2:
     """Сжатый integer-свидетель всех высот до победителя."""
 
@@ -307,7 +344,11 @@ class AdaptiveMinimalRationalFanAuthorityV2:
     termination_height_upper_bound: int
     bound_primitive_integer_vectors: tuple[tuple[int, int], ...]
     binding_reasons: tuple[DirectionBindingReasonV1 | None, ...]
-    ordinal_windows: tuple[AdaptiveRationalFanOrdinalWindowV2, ...]
+    ordinal_windows: tuple[
+        AdaptiveRationalFanOrdinalWindowV2
+        | AdaptiveRationalFanOrdinalWindowAtlasV1,
+        ...,
+    ]
     previous_height_witness: AdaptiveFareyHeightRangeWitnessV2
     proven_predicates: frozenset[str]
 

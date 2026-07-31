@@ -9,6 +9,7 @@ from .contracts.envelopes import (
     AdaptiveBoundHiddenSupportDirectionLawV2,
     AdaptiveBoundHiddenSupportSpecV2,
     AdaptiveDensityAngularEnvelopeSpecV2,
+    AdaptiveRationalFanOrdinalWindowAtlasV1,
     EvaluationGeometrySubturnCountLiftLawV1,
     EvaluationGeometrySubturnCountLiftV1,
     ExactTurnSignV1,
@@ -182,6 +183,10 @@ def adaptive_density_structure_errors(
     ):
         return tuple(errors)
     authority = spec.direction_fan_authority
+    uses_atlas = any(
+        type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        for item in authority.ordinal_windows
+    )
     ordered = tuple(
         item.bound_primitive_integer_vector
         for item in sorted(
@@ -207,9 +212,13 @@ def adaptive_density_structure_errors(
         != max(
             (
                 abs(
-                    vector[0]
-                    if window.use_x_denominator
-                    else vector[1]
+                    max(vector, key=abs)
+                    if uses_atlas
+                    else (
+                        vector[0]
+                        if window.use_x_denominator
+                        else vector[1]
+                    )
                 )
                 for vector, window in zip(
                     ordered,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
 import json
 from pathlib import Path
 
@@ -11,6 +12,9 @@ import cftuv_envelope as kernel
 from cftuv_envelope import (
     AdaptiveBoundHiddenSupportSpecV2,
     AdaptiveDensityAngularEnvelopeSpecV2,
+    AdaptiveMinimalRationalFanAuthorityV2,
+    AdaptiveProjectivePoleOwnershipV1,
+    AdaptiveRationalFanOrdinalWindowAtlasV1,
     AngularEnvelopeSpec,
     AngularProfileSelectionPolicyId,
     ContractCodecError,
@@ -32,10 +36,12 @@ from cftuv_envelope.adaptive_density_validation import (
 from cftuv_envelope.reference.adaptive_density_fan import (
     AdaptiveDensityFanInvalid,
     DensityRationalAuthorityExhausted,
+    DensityWindowChartUnrepresentable,
     _subturn,
     certify_adaptive_density_fan,
     certify_density_bindings_and_adaptive_fallback,
     verify_adaptive_density_fan,
+    verify_sealed_adaptive_density_fan,
 )
 from cftuv_envelope.reference.angular import (
     _density_exact_sign,
@@ -67,6 +73,12 @@ class _AdaptiveDensityAngularCodecV2(
     root_type = AdaptiveDensityAngularEnvelopeSpecV2
 
 
+class _AdaptiveFanAuthorityCodecV2(
+    ContractCodecV1[AdaptiveMinimalRationalFanAuthorityV2]
+):
+    root_type = AdaptiveMinimalRationalFanAuthorityV2
+
+
 def _euclidean_metric() -> ExactPlanarMetric:
     return ExactPlanarMetric(
         (
@@ -93,6 +105,46 @@ def _minimal_repro():
         huber_density=True,
     )
     return metric, orientation, ideal
+
+
+def _projective_atlas_repro(*, swap_coordinates: bool = False):
+    gram = (
+        (sp.Rational(18), sp.Rational(15)),
+        (sp.Rational(15), sp.Rational(13)),
+    )
+    inverse = (
+        (sp.Rational(13, 9), sp.Rational(-5, 3)),
+        (sp.Rational(-5, 3), sp.Rational(2)),
+    )
+    normals = (
+        ExactPlanarVector.from_values(sp.Rational(-58, 75), sp.Rational(17, 25)),
+        ExactPlanarVector.from_values(-1, sp.Rational(17, 13)),
+        ExactPlanarVector.from_values(sp.Rational(29, 51), sp.Rational(-7, 17)),
+    )
+    owner_orientation_sign = 1
+    if swap_coordinates:
+        gram = ((gram[1][1], gram[1][0]), (gram[0][1], gram[0][0]))
+        inverse = (
+            (inverse[1][1], inverse[1][0]),
+            (inverse[0][1], inverse[0][0]),
+        )
+        normals = tuple(
+            ExactPlanarVector.from_values(
+                normal.expressions()[1],
+                normal.expressions()[0],
+            )
+            for normal in normals
+        )
+        owner_orientation_sign = -1
+    return (
+        ExactPlanarMetric(
+            gram,
+            inverse,
+            owner_orientation_sign,
+        ),
+        TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION,
+        normals,
+    )
 
 
 def test_density_exact_memo_is_owned_by_one_metric_transaction():
@@ -237,6 +289,227 @@ def test_minimal_repro_has_common_height_five_and_vector_five_one():
     )
     verify_adaptive_density_fan(metric, ideal, orientation, authority)
 
+
+def test_single_chart_authority_bytes_remain_frozen():
+    metric, orientation, ideal = _minimal_repro()
+
+    authority = certify_adaptive_density_fan(
+        metric,
+        ideal,
+        orientation,
+        2,
+        binding_reasons=(None,),
+    )
+    payload = kernel.canonical_json_bytes(authority)
+
+    assert len(payload) == 1977
+    assert sha256(payload).hexdigest() == (
+        "1302da818b2cf980043a7f1b2b70924db0cad3ab7cc770688d324cc2a6f9dc9a"
+    )
+
+
+def test_projective_atlas_has_chart_invariant_minimal_height():
+    metric, orientation, ideal = _projective_atlas_repro()
+    swapped_metric, swapped_orientation, swapped_ideal = (
+        _projective_atlas_repro(swap_coordinates=True)
+    )
+
+    authority = certify_adaptive_density_fan(
+        metric,
+        ideal,
+        orientation,
+        2,
+        binding_reasons=(None,),
+    )
+    swapped = certify_adaptive_density_fan(
+        swapped_metric,
+        swapped_ideal,
+        swapped_orientation,
+        2,
+        binding_reasons=(None,),
+    )
+
+    assert authority.minimal_common_height == 4
+    assert authority.exhaustive_previous_height == 3
+    assert authority.previous_height_witness.primitive_candidate_counts == (0,)
+    assert authority.bound_primitive_integer_vectors == ((3, 4),)
+    assert swapped.minimal_common_height == 4
+    assert swapped.bound_primitive_integer_vectors == ((4, 3),)
+    window = authority.ordinal_windows[0]
+    assert type(window) is AdaptiveRationalFanOrdinalWindowAtlasV1
+    assert tuple(piece.pole_ownership for piece in window.pieces) == (
+        AdaptiveProjectivePoleOwnershipV1.Y_ZERO,
+        AdaptiveProjectivePoleOwnershipV1.X_ZERO,
+        AdaptiveProjectivePoleOwnershipV1.NONE,
+    )
+    verify_sealed_adaptive_density_fan(authority, ideal_count=3)
+    verify_adaptive_density_fan(metric, ideal, orientation, authority)
+    verify_adaptive_density_fan(
+        swapped_metric,
+        swapped_ideal,
+        swapped_orientation,
+        swapped,
+    )
+
+
+def test_projective_atlas_codec_and_partition_are_fail_closed():
+    metric, orientation, ideal = _projective_atlas_repro()
+    authority = certify_adaptive_density_fan(
+        metric,
+        ideal,
+        orientation,
+        2,
+        binding_reasons=(None,),
+    )
+    payload = _AdaptiveFanAuthorityCodecV2.dumps(authority)
+    assert _AdaptiveFanAuthorityCodecV2.dumps(
+        _AdaptiveFanAuthorityCodecV2.loads(payload)
+    ) == payload
+
+    document = json.loads(payload)
+    atlas = document["ordinal_windows"][0]
+    for tag in (
+        "UnknownProjectiveAtlas",
+        "AdaptiveRationalFanOrdinalWindowV2",
+    ):
+        forged = json.loads(payload)
+        forged["ordinal_windows"][0]["$type"] = tag
+        with pytest.raises(ContractCodecError):
+            _AdaptiveFanAuthorityCodecV2.loads(
+                json.dumps(forged).encode()
+            )
+    forged = json.loads(payload)
+    forged["ordinal_windows"][0]["unexpected"] = True
+    with pytest.raises(ContractCodecError):
+        _AdaptiveFanAuthorityCodecV2.loads(json.dumps(forged).encode())
+    forged = json.loads(payload)
+    del forged["ordinal_windows"][0]["pieces"]
+    with pytest.raises(ContractCodecError):
+        _AdaptiveFanAuthorityCodecV2.loads(json.dumps(forged).encode())
+
+    window = authority.ordinal_windows[0]
+    left, right = window.pieces[:2]
+    for broken in (
+        replace(
+            authority,
+            ordinal_windows=(
+                replace(
+                    window,
+                    pieces=(
+                        replace(left, lower_endpoint_included=False),
+                        right,
+                        *window.pieces[2:],
+                    ),
+                ),
+            ),
+        ),
+        replace(
+            authority,
+            ordinal_windows=(
+                replace(
+                    window,
+                    pieces=(
+                        left,
+                        replace(
+                            right,
+                            lower_slope_envelope=right.upper_slope_envelope,
+                        ),
+                        *window.pieces[2:],
+                    ),
+                ),
+            ),
+        ),
+    ):
+        with pytest.raises(AdaptiveDensityFanInvalid):
+            verify_sealed_adaptive_density_fan(broken, ideal_count=3)
+
+
+def test_public_compile_names_unrepresentable_density_window(monkeypatch):
+    import cftuv_envelope.reference.compile as compile_module
+
+    snapshot, request = _field_inputs(1)
+
+    def refuse(*args, **kwargs):
+        del args, kwargs
+        raise DensityWindowChartUnrepresentable(
+            "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
+        )
+
+    monkeypatch.setattr(
+        compile_module,
+        "certify_adaptive_huber_density_direction_fan",
+        refuse,
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "certify_huber_density_bindings_with_adaptive_fallback",
+        refuse,
+    )
+    result = kernel.compile_reference_envelopes(snapshot, request)
+
+    assert result.outcome is ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE
+    assert result.compilation is None
+    assert tuple(item.message for item in result.diagnostics) == (
+        "DENSITY_WINDOW_CHART_UNREPRESENTABLE",
+    )
+
+
+def test_projective_atlas_hot_path_uses_no_forbidden_symbolic_operations(
+    monkeypatch,
+):
+    metric, orientation, ideal = _projective_atlas_repro()
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("forbidden symbolic operation in atlas hot path")
+
+    for name in ("factor", "roots", "solve", "nroots", "N"):
+        monkeypatch.setattr(sp, name, forbidden)
+
+    authority = certify_adaptive_density_fan(
+        metric,
+        ideal,
+        orientation,
+        2,
+        binding_reasons=(None,),
+    )
+    verify_adaptive_density_fan(metric, ideal, orientation, authority)
+
+    assert authority.minimal_common_height == 4
+    assert calls == []
+
+
+def test_adaptive_structure_validator_accepts_global_atlas_height():
+    metric, orientation, ideal = _projective_atlas_repro()
+    authority = certify_adaptive_density_fan(
+        metric,
+        ideal,
+        orientation,
+        2,
+        binding_reasons=(None,),
+    )
+    snapshot, request = _field_inputs(1)
+    compiled = kernel.compile_reference_envelopes(snapshot, request)
+    base = next(
+        item
+        for item in compiled.compilation.envelope_specs
+        if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
+        and len(item.hidden_supports) == 1
+    )
+    support = next(iter(base.hidden_supports))
+    rebound_support = replace(
+        support,
+        bound_primitive_integer_vector=(3, 4),
+        direction_fan_authority_id=authority.authority_id,
+    )
+    rebound = replace(
+        base,
+        hidden_supports=frozenset({rebound_support}),
+        direction_fan_authority=authority,
+    )
+
+    assert adaptive_density_structure_errors(rebound) == ()
 
 def test_minimality_and_bound_vector_forgery_fail_before_consumption():
     metric, orientation, ideal = _minimal_repro()

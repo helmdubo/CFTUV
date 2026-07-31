@@ -271,7 +271,14 @@
         },
         "ordinal_windows": {
           "items": {
-            "$ref": "#/$defs/AdaptiveRationalFanOrdinalWindowV2"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AdaptiveRationalFanOrdinalWindowV2"
+              },
+              {
+                "$ref": "#/$defs/AdaptiveRationalFanOrdinalWindowAtlasV1"
+              }
+            ]
           },
           "type": "array"
         },
@@ -301,6 +308,131 @@
         "ordinal_windows",
         "previous_height_witness",
         "proven_predicates"
+      ],
+      "type": "object"
+    },
+    "AdaptiveRationalFanOrdinalWindowAtlasV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveRationalFanOrdinalWindowAtlasV1"
+        },
+        "admissible_lower_inward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_lower_outward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_upper_inward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "admissible_upper_outward": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "certified_termination_width": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "pieces": {
+          "items": {
+            "$ref": "#/$defs/AdaptiveRationalFanProjectiveChartPieceV1"
+          },
+          "type": "array"
+        },
+        "termination_lower_slope": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "termination_piece_index": {
+          "type": "integer"
+        },
+        "termination_upper_slope": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "ordinal",
+        "pieces",
+        "termination_piece_index",
+        "termination_lower_slope",
+        "termination_upper_slope",
+        "certified_termination_width",
+        "admissible_lower_outward",
+        "admissible_lower_inward",
+        "admissible_upper_inward",
+        "admissible_upper_outward"
       ],
       "type": "object"
     },
@@ -431,6 +563,59 @@
         "admissible_lower_inward",
         "admissible_upper_inward",
         "admissible_upper_outward"
+      ],
+      "type": "object"
+    },
+    "AdaptiveRationalFanProjectiveChartPieceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AdaptiveRationalFanProjectiveChartPieceV1"
+        },
+        "denominator_sign": {
+          "type": "integer"
+        },
+        "lower_endpoint_included": {
+          "type": "boolean"
+        },
+        "lower_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "piece_index": {
+          "type": "integer"
+        },
+        "pole_ownership": {
+          "enum": [
+            "NONE",
+            "X_ZERO",
+            "Y_ZERO"
+          ],
+          "type": "string"
+        },
+        "slope_increases_in_ordinal_order": {
+          "type": "boolean"
+        },
+        "upper_endpoint_included": {
+          "type": "boolean"
+        },
+        "upper_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "use_x_denominator": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "piece_index",
+        "use_x_denominator",
+        "denominator_sign",
+        "lower_slope_envelope",
+        "upper_slope_envelope",
+        "lower_endpoint_included",
+        "upper_endpoint_included",
+        "slope_increases_in_ordinal_order",
+        "pole_ownership"
       ],
       "type": "object"
     },
