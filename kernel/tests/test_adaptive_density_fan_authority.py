@@ -1389,6 +1389,146 @@ def test_atlas_search_spends_the_same_exact_work_on_every_run():
     )
 
 
+def _max_norm_shell(height: int):
+    """Прежний закон перечисления — все примитивные ковекторы высоты h.
+
+    Здесь он оставлен ОРАКУЛОМ: по-кусковое перечисление обязано давать ровно
+    то же множество кандидатов, иначе падение цены неотличимо от потери
+    кандидата. Считать им прогон нельзя — это 8h векторов на высоту.
+    """
+
+    from math import gcd
+
+    for first in range(-height, height + 1):
+        for second in (-height, height):
+            if gcd(abs(first), abs(second)) == 1:
+                yield first, second
+    for second in range(-height + 1, height):
+        for first in (-height, height):
+            if gcd(abs(first), abs(second)) == 1:
+                yield first, second
+
+
+def _two_piece_atlas_repro(owner_orientation_sign: int = 1):
+    """Atlas-окно, чей допустимый конус ПЕРЕСЕКАЕТ границу ячеек.
+
+    В `_projective_atlas_repro` конус целиком лежит в termination-куске, и
+    ветвь «соседний кусок тоже метётся» там недостижима. Здесь достижима:
+    вектор перехода между кусками допустим, поэтому обход захватывает оба
+    куска, а оболочка не-terminating куска строится теми же двумя лучами
+    subturn, а не sealed-интервалом termination-куска.
+    """
+
+    normals = (
+        ExactPlanarVector.from_values(
+            sp.Rational(-58, 75), sp.Rational(17, 25)
+        ),
+        ExactPlanarVector.from_values(
+            sp.Rational(-2074, 2235), sp.Rational(929, 745)
+        ),
+        ExactPlanarVector.from_values(
+            sp.Rational(-69, 85), sp.Rational(97, 85)
+        ),
+    )
+    return (
+        ExactPlanarMetric(
+            (
+                (sp.Rational(18), sp.Rational(15)),
+                (sp.Rational(15), sp.Rational(13)),
+            ),
+            (
+                (sp.Rational(13, 9), sp.Rational(-5, 3)),
+                (sp.Rational(-5, 3), sp.Rational(2)),
+            ),
+            owner_orientation_sign,
+        ),
+        TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION,
+        normals,
+    )
+
+
+@pytest.mark.parametrize("owner_orientation_sign", (1, -1))
+def test_piecewise_sweep_finds_exactly_the_max_norm_shell(
+    owner_orientation_sign,
+):
+    """По-кусковый закон даёт ТО ЖЕ множество, что и оболочка max-нормы.
+
+    Это оракул эквивалентности, а не тест производительности: на каждой
+    высоте сверяется множество кандидатов, а не его размер. Окно выбрано так,
+    что метутся ОБА куска — иначе оболочка не-terminating куска осталась бы
+    непокрытой.
+    """
+
+    from cftuv_envelope.reference.adaptive_density_atlas import (
+        AtlasWindowPrepared,
+        reachable_pieces,
+    )
+
+    metric, orientation, normals = _two_piece_atlas_repro(
+        owner_orientation_sign
+    )
+    ideal = _covectors(metric, normals)
+    _, records = _density_fan._window_envelopes(ideal)
+    local_records = tuple(
+        _density_fan._local_record(item) for item in records
+    )
+    sealed = tuple(
+        _density_fan._sealed_local_interval(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            2,
+            item,
+        )
+        for ordinal, item in enumerate(local_records, start=1)
+    )
+    segments = _density_fan._search_segments(
+        metric,
+        ideal,
+        orientation,
+        2,
+        records,
+        local_records,
+        sealed,
+    )
+    reached = reachable_pieces(
+        records[0],
+        admissible=lambda item: _density_fan._local_candidate(
+            metric, ideal, 1, item, 2
+        ),
+        invalid=DensityWindowChartUnrepresentable,
+    )
+
+    assert type(records[0]) is AtlasWindowPrepared
+    assert len(records[0].pieces) == 2
+    assert records[0].termination_piece_index == 1
+    assert reached == (0, 1)
+    assert len(segments[0]) == 2
+
+    budget = _work_budget(10**9)
+    for height in range(1, 25):
+        expected = {
+            item
+            for item in _max_norm_shell(height)
+            if _density_fan._local_candidate(metric, ideal, 1, item, 2)
+        }
+        actual = set()
+        for segment in segments[0]:
+            actual.update(
+                _density_fan._global_shell_candidates(
+                    metric,
+                    ideal,
+                    1,
+                    2,
+                    segment,
+                    height,
+                    budget,
+                )
+            )
+        assert actual == expected, height
+
+
 def test_atlas_sweep_names_exhaustion_instead_of_walking_to_the_height_cap():
     """Atlas-ветвь тоже отказывает по работе, а не идёт до 10^6 высот.
 
