@@ -69,6 +69,18 @@ class EnvelopeDebugHostOutcome(str, Enum):
     RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
         "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
     )
+    # Отказы плоскости и решётки выходят каждый под СВОИМ именем. Прежде хост
+    # сводил их все к `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`, и
+    # полевое сообщение объявляло «нужна near-planar политика» в тот момент,
+    # когда она уже была включена, а отказал бюджет либо сам снап. Имя,
+    # указывающее не на ту причину, дороже отсутствующего.
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = (
+        "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    )
+    GRID_SNAP_LEFT_THE_PATCH_PLANE = "GRID_SNAP_LEFT_THE_PATCH_PLANE"
+    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+    NO_GRID_SCALE_RESTORES_RELATIONS = "NO_GRID_SCALE_RESTORES_RELATIONS"
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = (
         "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     )
@@ -1779,6 +1791,21 @@ def _build_angular_relations(
     )
 
 
+def _host_outcome_for(outcome):
+    """Исход ядра — в исход хоста, по имени.
+
+    Именем, а не таблицей соответствий: у каждого из этих отказов имя ядра и
+    имя хоста совпадают, и совпадать они обязаны — расхождение означало бы, что
+    поле читает одно, а лог ядра говорит другое. Неизвестное имя не
+    подменяется ближайшим: тогда новый исход ядра молча выходил бы под чужим.
+    """
+
+    try:
+        return EnvelopeDebugHostOutcome(outcome.value)
+    except ValueError:
+        return EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED
+
+
 def _rational_affine_metric(
     kernel,
     *,
@@ -1812,8 +1839,12 @@ def _rational_affine_metric(
             ),
         )
     except kernel.PlanarMetricAdmissionError as exc:
+        # Исход ядра переносится ПО ИМЕНИ, а не сводится к одному. Ядро
+        # различает «политика проекции не запрошена», «источник вне бюджета»,
+        # «снап вывел источник из плоскости» и три исхода окна решётки; хост,
+        # схлопывая их, оставлял в поле причину, которой не было.
         raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+            _host_outcome_for(exc.outcome),
             str(exc),
             patch_domain_id=patch_domain_id.value,
         ) from exc

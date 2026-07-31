@@ -203,6 +203,10 @@ class HostGridPolicy(str, Enum):
     # Привязывается только источник; конструкции остаются точными.
     SOURCE_ONLY_GRID_SNAP_V1 = "SOURCE_ONLY_GRID_SNAP_V1"
     INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+    # То же, но решётка пересечена с собственной плоскостью патча.
+    SOURCE_ONLY_PATCH_PLANE_GRID_SNAP_V2 = (
+        "SOURCE_ONLY_PATCH_PLANE_GRID_SNAP_V2"
+    )
 
 
 # Хост запрашивает привязку ИСТОЧНИКА и не запрашивает привязку конструкций.
@@ -222,9 +226,24 @@ class HostGridPolicy(str, Enum):
 # `INTEGER_GRID_SNAP_V1` не удалён: он нужен, когда привязку конструкций
 # починят topology-preserving snap rounding'ом. До тех пор его отказ сторожит
 # `kernel/tests/test_grid_wiring.py::test_the_field_mesh_still_refuses_downstream_of_the_restored_corners`,
-# а выигрыш нового закона —
+# а выигрыш привязки источника —
 # `...::test_the_field_mesh_keeps_its_topology_when_only_the_source_is_snapped`.
-HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
+#
+# `SOURCE_ONLY_GRID_SNAP_V1` заменён на `SOURCE_ONLY_PATCH_PLANE_GRID_SNAP_V2`
+# по полевому дефекту: осевая решётка сохраняет планарность только у
+# плоскостей, соизмеримых с мировыми осями, и любой НАКЛОННЫЙ патч она
+# выводила из его собственной плоскости на два порядка дальше near-planar
+# бюджета. Замер: скат с нормалью (0,−0.4525,−0.8918) при габарите 3.3125
+# точно планарен до 3.2e-18, а после осевой привязки его невязка к собственной
+# плоскости 1.27e-06 … 3.69e-03 при бюджете 3.31e-07, и ни один из восьми
+# допустимых масштабов окна её не спасает.
+#
+# Новый закон берёт ТУ ЖЕ решётку, пересечённую с плоскостью патча. Поэтому
+# планарность сохраняется тождественно, а у осевого патча привязка не меняется
+# ВОВСЕ: на `building.002` патч 0 совпадение с прежним законом побитовое на
+# всех масштабах окна, задуманно прямых по-прежнему 3 из 3, и выигрыш решения
+# владельца 2026-07-25 остаётся на месте.
+HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_PATCH_PLANE_GRID_SNAP_V2
 
 
 class PreviewFailurePolicy(str, Enum):
