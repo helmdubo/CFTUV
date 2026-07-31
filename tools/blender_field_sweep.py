@@ -13,7 +13,12 @@ import traceback
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RECEIPT_SCHEMA_V2 = "cftuv.envelope.density_button_sweep.v2"
+# v2 -> v3. Решением владельца охват свипа сужен: три ИМЕНОВАННЫХ меша и один
+# сценарий вместо «все меши сцены × два сценария». Версия поднята затем, чтобы
+# расписка на 78 кнопок и расписка на 9 не читались как одна и та же величина:
+# они отвечают на разные вопросы, и молча сравнивать их числа было бы ошибкой
+# того же класса, что сравнивать бюджеты двух разных законов.
+RECEIPT_SCHEMA_V3 = "cftuv.envelope.density_button_sweep.v3"
 MEASUREMENT_RULE = "REQUEST_POLICY_KNOBS_MEASURED_V1"
 UNMEASURED_REQUEST_POLICY_KNOB = "UNMEASURED_REQUEST_POLICY_KNOB"
 INSTALLER_STAMP_MISSING = "INSTALLER_STAMP_MISSING"
@@ -25,12 +30,37 @@ SOURCE_MESH_FINGERPRINT_CHANGED = "SOURCE_MESH_FINGERPRINT_CHANGED"
 DENSITY_SWEEP_CALL_COUNT_MISMATCH = "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
 FIELD_PERFORMANCE_BUDGET_EXCEEDED = "FIELD_PERFORMANCE_BUDGET_EXCEEDED"
 PYTHONSAFEPATH_REQUIRED = "PYTHONSAFEPATH_REQUIRED"
+ADDON_REGISTRATION_PARTIAL = "ADDON_REGISTRATION_PARTIAL"
+# КЕМ зарегистрирован аддон к моменту первой кнопки. Окружение прогона — часть
+# расписки: свип, поднятый в Blender с включённым в настройках CFTUV, и свип,
+# поднятый с `--factory-startup`, приходят к кнопке разными путями, и по
+# расписке обязано быть видно, каким именно.
+ADDON_REGISTERED_BY_STARTUP_PREFERENCES = "startup_preferences"
+ADDON_REGISTERED_BY_SWEEP = "sweep"
+SWEPT_MESH_ABSENT = "SWEPT_MESH_ABSENT"
 _DENSITY_MATRIX = (0, 1, 4)
-_EXPECTED_CALLS_PER_DENSITY = 26
-_EXPECTED_TOTAL_CALLS = 78
+# Три ИМЕНОВАННЫХ меша владельца, а не «всё, что нашлось в сцене со швами».
+# Прежний контракт открывал сцену и считал её содержимое своей нормой, поэтому
+# ломался о живую сцену: владелец редактирует её непрерывно, мешей со швами
+# стало не 13, и свип упал `DENSITY_SWEEP_CALL_COUNT_MISMATCH` до первой
+# кнопки. Список делает охват свойством ИНСТРУМЕНТА, а не сцены; исчезновение
+# любого из трёх — событие, о котором расписка кричит по имени, а не молча
+# суженный охват.
+_SWEPT_MESH_NAMES = ("building", "building.002", "building.004")
+# Один сценарий. `single_edge` снят решением владельца вместе с сокращением
+# 78 кнопок до 9: он мерил ту же кнопку на вырожденном выделении.
+_SWEEP_SCENARIO = "all_seams"
+_EXPECTED_CALLS_PER_DENSITY = len(_SWEPT_MESH_NAMES)
+_EXPECTED_TOTAL_CALLS = _EXPECTED_CALLS_PER_DENSITY * len(_DENSITY_MATRIX)
 _FIELD_BUDGET_SECONDS = {
     "building.002": 5.0,
-    "2": 17.3,
+    # 1.19 с queue total на d1 — свежий замер принципала. Кап поставлен на
+    # уровне соседнего меша, а не затянут вокруг этого числа, и это НАЗВАННЫЙ
+    # выбор: d4 у `building.004` ещё не мерен, а бюджет обязан покрывать
+    # худшую плотность прогона (у `building` кап 120 оправдан именно замером
+    # d4 — 98.2). Затянуть до величины, выведенной из d1, значило бы выдать
+    # догадку за замер. Кап подлежит уточнению первым же d4-числом поля.
+    "building.004": 5.0,
     "building": 120.0,
 }
 _STAMP_PATTERN = re.compile(
@@ -76,6 +106,8 @@ def _parsed_sweep_arguments(arguments) -> dict:
         "output": arguments[0],
         "density_matrix": list(matrix),
         "direct_receipt_directory": arguments[2],
+        "swept_meshes": list(_SWEPT_MESH_NAMES),
+        "scenario": _SWEEP_SCENARIO,
         "expected_calls_per_density": _EXPECTED_CALLS_PER_DENSITY,
         "expected_total_calls": _EXPECTED_TOTAL_CALLS,
     }
@@ -85,7 +117,7 @@ def _contract_only() -> None:
     print(
         json.dumps(
             {
-                "schema": RECEIPT_SCHEMA_V2,
+                "schema": RECEIPT_SCHEMA_V3,
                 "measurement_rule": MEASUREMENT_RULE,
                 **_parsed_sweep_arguments(_arguments_after_separator()),
             },
@@ -114,6 +146,68 @@ import cftuv
 import cftuv_envelope as kernel
 from cftuv.envelope_debug_renderer import envelope_debug_text_name
 from cftuv.envelope_request_policy import envelope_angular_policy
+
+
+def _registered_cftuv_classes() -> tuple[type, ...]:
+    """Классы аддона, зарегистрированные в `bpy.types` ПРЯМО СЕЙЧАС.
+
+    Предикат — ТОЖДЕСТВО (`is`), а не наличие имени. Имя в `bpy.types` может
+    принадлежать чужому или устаревшему объекту класса (перезагрузка скрипта
+    оставляет прежний), и «имя есть» означало бы «зарегистрирован» там, где
+    зарегистрирован кто-то другой. `bpy.utils.register_class` кладёт в
+    `bpy.types` ровно тот объект, который ему дали, поэтому тождество отвечает
+    на заданный вопрос и ни на какой другой.
+
+    Перечень берётся у `cftuv.operators.classes` — единственного места, где он
+    назван; собственная копия имён в инструменте разошлась бы с продуктом ровно
+    так же, как разошлось множество имён ступени METRIC.
+    """
+
+    from cftuv.operators import classes
+
+    return tuple(
+        cls for cls in classes if getattr(bpy.types, cls.__name__, None) is cls
+    )
+
+
+def _ensure_addon_registered() -> str:
+    """Зарегистрировать аддон, если он ещё не зарегистрирован, и назвать КЕМ.
+
+    Полевой факт: владелец включил CFTUV в настройках Blender, а настройки
+    автосохраняются, поэтому ЛЮБОЙ фоновый Blender теперь регистрирует аддон на
+    старте. Безусловный `cftuv.register()` после этого падает
+    `ValueError: register_class(...): already registered as a subclass
+    'HOTSPOTUV_AddonPreferences'` — до первой кнопки, то есть до всякого
+    измерения. Инструмент обязан работать в ОБОИХ окружениях: и с
+    автовключением из настроек, и с `--factory-startup`.
+
+    Идемпотентность живёт ЗДЕСЬ, а не в `cftuv.register()`. Внутри продукта
+    двойная регистрация — честный дефект, и прятать её значило бы сделать
+    молчаливой ту ошибку, которую Blender сообщает по имени.
+
+    Исходов три, потому что состояний три. Частичная регистрация —
+    зарегистрирована часть классов — не «уже есть» и не «ещё нет»: звать
+    `register()` нельзя (упадёт на уже зарегистрированных), пропустить нельзя
+    (недостающие операторы не появятся). Это названный отказ, а не выбор
+    наугад между двумя неверными ветками.
+    """
+
+    from cftuv.operators import classes
+
+    registered = _registered_cftuv_classes()
+    if len(registered) == len(classes):
+        return ADDON_REGISTERED_BY_STARTUP_PREFERENCES
+    if registered:
+        missing = sorted(
+            cls.__name__ for cls in classes if cls not in registered
+        )
+        raise DensitySweepContractError(
+            f"{ADDON_REGISTRATION_PARTIAL}: "
+            f"{len(registered)}/{len(classes)} cftuv classes registered; "
+            f"missing={missing}"
+        )
+    cftuv.register()
+    return ADDON_REGISTERED_BY_SWEEP
 
 
 def _git_text(*arguments: str) -> str:
@@ -565,6 +659,35 @@ def _source_file_identity(path: Path) -> dict:
     }
 
 
+def _swept_meshes() -> list:
+    """Ровно три ИМЕНОВАННЫХ меша владельца, в объявленном порядке.
+
+    Прежде свип открывал сцену и объявлял её содержимое своей нормой: «все
+    меши со швами × два сценария × три плотности = 78». Норма, выведенная из
+    живой сцены, ломается о живую сцену — владелец правит её непрерывно, мешей
+    со швами стало не 13, и свип упал `DENSITY_SWEEP_CALL_COUNT_MISMATCH` до
+    первой кнопки, ничего не измерив.
+
+    Отсутствие любого из трёх — ОТКАЗ ПО ИМЕНИ, а не тихое сужение охвата.
+    Меш, переименованный или удалённый владельцем, есть событие: расписка на
+    два меша, выданная за расписку контракта, солгала бы о том, что мерили.
+    """
+
+    resolved = []
+    missing = []
+    for name in _SWEPT_MESH_NAMES:
+        obj = bpy.data.objects.get(name)
+        if obj is None or obj.type != "MESH":
+            missing.append(name)
+            continue
+        resolved.append(obj)
+    if missing:
+        raise DensitySweepContractError(
+            f"{SWEPT_MESH_ABSENT}: {missing}"
+        )
+    return resolved
+
+
 def _density_run(
     density: int,
     meshes,
@@ -576,23 +699,12 @@ def _density_run(
     parity = []
     for obj in meshes:
         before = _mesh_fingerprint(obj)
-        all_seams = _run_operator(obj, "all_seams", density)
-        first_seam = next(
-            (edge.index for edge in obj.data.edges if edge.use_seam),
-            None,
-        )
-        single_edge = _run_operator(
-            obj,
-            "single_edge",
-            density,
-            edge_indices=set() if first_seam is None else {first_seam},
-        )
+        all_seams = _run_operator(obj, _SWEEP_SCENARIO, density)
         after = _mesh_fingerprint(obj)
-        for report in (all_seams, single_edge):
-            report["source_mesh_fingerprint_before"] = before
-            report["source_mesh_fingerprint_after"] = after
-            report["source_mesh_unchanged"] = before == after
-        reports.extend((all_seams, single_edge))
+        all_seams["source_mesh_fingerprint_before"] = before
+        all_seams["source_mesh_fingerprint_after"] = after
+        all_seams["source_mesh_unchanged"] = before == after
+        reports.append(all_seams)
         fingerprints.append(
             {
                 "mesh": obj.name,
@@ -601,17 +713,20 @@ def _density_run(
                 "unchanged": before == after,
             }
         )
-        if obj.name in _FIELD_BUDGET_SECONDS:
-            parity.append(
-                _verify_direct_parity(
-                    direct_directory,
-                    obj.name,
-                    density,
-                    all_seams.get("parity_projection"),
-                    all_seams.get("request_ids"),
-                    repository_head,
-                )
+        # Паритет с прямой распиской — у КАЖДОГО из свипаемых мешей. Прежде
+        # условием было попадание в таблицу бюджетов: две разные величины
+        # (охват сверки и потолок времени) держались одним ключом, и добавить
+        # меш без бюджета значило молча снять с него сверку.
+        parity.append(
+            _verify_direct_parity(
+                direct_directory,
+                obj.name,
+                density,
+                all_seams.get("parity_projection"),
+                all_seams.get("request_ids"),
+                repository_head,
             )
+        )
     invocations = sum(bool(item["operator_invoked"]) for item in reports)
     return {
         **_policy_receipt(density),
@@ -650,7 +765,7 @@ def _receipt_failure(densities, scene_before: dict, scene_after: dict) -> str | 
     for report in reports:
         budget = _FIELD_BUDGET_SECONDS.get(report["mesh"])
         if (
-            report["scenario"] == "all_seams"
+            report["scenario"] == _SWEEP_SCENARIO
             and budget is not None
             and (report.get("queue_seconds") is None or report["queue_seconds"] > budget)
         ):
@@ -668,15 +783,11 @@ def main() -> None:
         )
     repository = _repository_identity()
     installer = _installer_identity(repository)
-    cftuv.register()
+    addon_registration = _ensure_addon_registered()
     scene_path = Path(bpy.data.filepath)
     scene_before = _source_file_identity(scene_path)
-    meshes = [
-        obj
-        for obj in bpy.data.objects
-        if obj.type == "MESH" and any(edge.use_seam for edge in obj.data.edges)
-    ]
-    if len(meshes) * 2 != _EXPECTED_CALLS_PER_DENSITY:
+    meshes = _swept_meshes()
+    if len(meshes) != _EXPECTED_CALLS_PER_DENSITY:
         raise DensitySweepContractError(DENSITY_SWEEP_CALL_COUNT_MISMATCH)
     densities = [
         _density_run(
@@ -690,12 +801,13 @@ def main() -> None:
     scene_after = _source_file_identity(scene_path)
     failure = _receipt_failure(densities, scene_before, scene_after)
     payload = {
-        "schema": RECEIPT_SCHEMA_V2,
+        "schema": RECEIPT_SCHEMA_V3,
         "measurement_rule": MEASUREMENT_RULE,
         "repository_head": repository["head"],
         "repository_branch": repository["branch"],
         "installer_stamp": installer,
         "python_safe_path": True,
+        "addon_registration": addon_registration,
         "requested_density_matrix": parsed["density_matrix"],
         "expected_calls_per_density": _EXPECTED_CALLS_PER_DENSITY,
         "expected_total_calls": _EXPECTED_TOTAL_CALLS,
