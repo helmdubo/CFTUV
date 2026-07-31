@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
+from math import gcd
 
 from ..contracts.envelopes import (
     AdaptiveProjectivePoleOwnershipV1,
@@ -579,6 +580,227 @@ def reachable_pieces(item, *, admissible, invalid):
     return tuple(sorted(reached))
 
 
+@dataclass(frozen=True, slots=True)
+class SegmentPlanLaws:
+    """Точные предикаты Density, которыми этот модуль не владеет.
+
+    Модуль atlas отвечает за карты, ячейки и оболочки; знаки, наклоны и
+    предикат допустимости остаются в `adaptive_density_fan`. Собранные в одну
+    запись, они не размазываются по семи именованным аргументам.
+    """
+
+    sign: object
+    slope: object
+    decimal_envelope: object
+    local_candidate: object
+    vector_from_slope: object
+    subturn_boundary_vectors: object
+    invalid: object
+
+
+def piece_bracket(metric, boundary_vectors, piece, laws):
+    """Sealed-оболочка одного куска по тем же двум subturn-лучам.
+
+    Луч, чей знаменатель в карте куска имеет другой знак, здесь не
+    применяется: его перенос в эту карту не был бы утверждением о самом луче.
+    Пропуск ограничения только РАСШИРЯЕТ outer-оболочку, то есть она остаётся
+    надмножеством; inner-часть после этого доказывается концами отдельно.
+    """
+
+    use_x = piece.use_x_denominator
+    lower_bounds = [piece.lower_slope_envelope]
+    upper_bounds = [piece.upper_slope_envelope]
+    middle = (
+        Fraction(piece.lower_slope_envelope.upper)
+        + Fraction(piece.upper_slope_envelope.lower)
+    ) / 2
+    for boundary in boundary_vectors:
+        denominator = metric.density_expressions(boundary)[0 if use_x else 1]
+        if laws.sign(denominator, metric) != piece.denominator_sign:
+            continue
+        envelope = laws.decimal_envelope(
+            laws.slope(boundary, use_x, metric),
+            metric,
+        )
+        if Fraction(envelope.upper) < middle:
+            lower_bounds.append(envelope)
+        elif Fraction(envelope.lower) > middle:
+            upper_bounds.append(envelope)
+    lower = max(lower_bounds, key=lambda item: item.upper)
+    upper = min(upper_bounds, key=lambda item: item.lower)
+    return (
+        Fraction(lower.lower),
+        Fraction(lower.upper),
+        Fraction(upper.lower),
+        Fraction(upper.upper),
+    )
+
+
+def proven_segment(metric, ideal, ordinal, q, segment, laws):
+    """Оставить inner-быстрый путь только если оба его конца допустимы.
+
+    Допустимое множество выпукло, а наклон внутри одной карты — монотонная
+    параметризация направлений, поэтому допустимость обоих концов замкнутого
+    интервала доказывает допустимость всего интервала. Это ровно тот закон,
+    которым запечатан одно-картный sealed-интервал.
+    """
+
+    if segment.inner_lower >= segment.inner_upper or all(
+        laws.local_candidate(
+            metric,
+            ideal,
+            ordinal,
+            laws.vector_from_slope(
+                value,
+                segment.use_x_denominator,
+                segment.denominator_sign,
+            ),
+            q,
+        )
+        for value in (segment.inner_lower, segment.inner_upper)
+    ):
+        return segment
+    return replace(segment, inner_lower=Fraction(0), inner_upper=Fraction(0))
+
+
+def ordinal_segments(
+    metric,
+    ideal,
+    ordinal,
+    orientation,
+    q,
+    window,
+    record,
+    sealed,
+    laws,
+):
+    """План по-кускового перечисления одного ordinal под atlas-законом."""
+
+    pieces = getattr(window, "pieces", None)
+    if pieces is None:
+        raw = cell_segments(record[0], record[1], sealed)
+    else:
+        boundary_vectors = laws.subturn_boundary_vectors(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            q,
+        )
+        raw = ()
+        for index in reachable_pieces(
+            window,
+            admissible=lambda vector: laws.local_candidate(
+                metric,
+                ideal,
+                ordinal,
+                vector,
+                q,
+            ),
+            invalid=laws.invalid,
+        ):
+            piece = pieces[index]
+            raw += cell_segments(
+                piece.use_x_denominator,
+                piece.denominator_sign,
+                sealed
+                if index == window.termination_piece_index
+                else piece_bracket(metric, boundary_vectors, piece, laws),
+            )
+    return tuple(
+        proven_segment(metric, ideal, ordinal, q, item, laws) for item in raw
+    )
+
+
+def search_segments(
+    metric,
+    ideal,
+    orientation,
+    q,
+    windows,
+    records,
+    sealed_intervals,
+    laws,
+):
+    """По одному плану на ordinal; одно-картное окно — тоже один план."""
+
+    return tuple(
+        ordinal_segments(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            q,
+            window,
+            record,
+            sealed,
+            laws,
+        )
+        for ordinal, (window, record, sealed) in enumerate(
+            zip(windows, records, sealed_intervals, strict=True),
+            start=1,
+        )
+    )
+
+
+def numerator_bounds(lower: Fraction, upper: Fraction, height: int):
+    """Замкнутые границы числителя внутри ячейки на высоте `height`.
+
+    Границы куска бывают ТОЧНЫМИ (переход между ячейками — это ровно
+    |slope| == 1), поэтому здесь, в отличие от одно-картного закона, концы
+    включаются: иначе диагональный ковектор (±1, ±1) высоты 1 не был бы
+    перечислен ни одной из двух соседних ячеек. Зажим |numerator| <= height —
+    это и есть определение ячейки: за ним max-норма перестаёт быть
+    знаменателем.
+    """
+
+    scaled_lower = lower * height
+    scaled_upper = upper * height
+    first = -((-scaled_lower.numerator) // scaled_lower.denominator)
+    last = scaled_upper.numerator // scaled_upper.denominator
+    return max(first, -height), min(last, height)
+
+
+def segment_candidates(
+    metric,
+    ideal,
+    ordinal,
+    q,
+    segment,
+    height,
+    budget,
+    *,
+    local_candidate,
+    vector_from_slope,
+):
+    """Числители одного cell-куска на одной chart-invariant высоте."""
+
+    use_x = segment.use_x_denominator
+    denominator_sign = segment.denominator_sign
+    first, last = numerator_bounds(
+        segment.outer_lower,
+        segment.outer_upper,
+        height,
+    )
+    # Пустая высота тоже стоит один probe: иначе последовательность пустых
+    # высот прошла бы под капом без единой единицы работы.
+    budget.spend_shell_probes(max(last - first + 1, 1))
+    if first > last:
+        return ()
+    candidates = []
+    for numerator in range(first, last + 1):
+        if gcd(abs(numerator), height) != 1:
+            continue
+        slope = Fraction(numerator, height)
+        vector = vector_from_slope(slope, use_x, denominator_sign)
+        if (
+            segment.inner_lower < slope < segment.inner_upper
+            or local_candidate(metric, ideal, ordinal, vector, q)
+        ):
+            candidates.append(vector)
+    return tuple(candidates)
+
+
 def search_global_height(
     metric,
     ideal,
@@ -587,7 +809,8 @@ def search_global_height(
     stop_height,
     *,
     segments,
-    shell_candidates,
+    local_candidate,
+    vector_from_slope,
     best_fan,
     budget,
 ):
@@ -610,7 +833,7 @@ def search_global_height(
         for ordinal, plan in enumerate(segments, start=1):
             for segment in plan:
                 candidates[ordinal - 1].update(
-                    shell_candidates(
+                    segment_candidates(
                         metric,
                         ideal,
                         ordinal,
@@ -618,6 +841,8 @@ def search_global_height(
                         segment,
                         height,
                         budget,
+                        local_candidate=local_candidate,
+                        vector_from_slope=vector_from_slope,
                     )
                 )
         fan = (

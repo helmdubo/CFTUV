@@ -36,6 +36,8 @@ from cftuv_envelope.adaptive_density_validation import (
 from cftuv_envelope.reference import adaptive_density_fan as _density_fan
 from cftuv_envelope.reference.adaptive_density_atlas import (
     search_global_height,
+    search_segments,
+    segment_candidates,
 )
 from cftuv_envelope.reference.adaptive_density_fan import (
     AdaptiveDensityFanInvalid,
@@ -1338,7 +1340,7 @@ def _atlas_search_inputs(q: int = 2):
         )
         for ordinal, item in enumerate(local_records, start=1)
     )
-    segments = _density_fan._search_segments(
+    segments = search_segments(
         metric,
         ideal,
         orientation,
@@ -1346,6 +1348,7 @@ def _atlas_search_inputs(q: int = 2):
         records,
         local_records,
         sealed,
+        _density_fan._segment_plan_laws(),
     )
     return metric, ideal, orientation, segments
 
@@ -1373,7 +1376,8 @@ def test_atlas_search_spends_the_same_exact_work_on_every_run():
             2,
             8,
             segments=segments,
-            shell_candidates=_density_fan._global_shell_candidates,
+            local_candidate=_density_fan._local_candidate,
+            vector_from_slope=_density_fan._vector_from_slope,
             best_fan=_best_fan,
             budget=budget,
         )
@@ -1483,7 +1487,7 @@ def test_piecewise_sweep_finds_exactly_the_max_norm_shell(
         )
         for ordinal, item in enumerate(local_records, start=1)
     )
-    segments = _density_fan._search_segments(
+    segments = search_segments(
         metric,
         ideal,
         orientation,
@@ -1491,6 +1495,7 @@ def test_piecewise_sweep_finds_exactly_the_max_norm_shell(
         records,
         local_records,
         sealed,
+        _density_fan._segment_plan_laws(),
     )
     reached = reachable_pieces(
         records[0],
@@ -1516,7 +1521,7 @@ def test_piecewise_sweep_finds_exactly_the_max_norm_shell(
         actual = set()
         for segment in segments[0]:
             actual.update(
-                _density_fan._global_shell_candidates(
+                segment_candidates(
                     metric,
                     ideal,
                     1,
@@ -1524,6 +1529,8 @@ def test_piecewise_sweep_finds_exactly_the_max_norm_shell(
                     segment,
                     height,
                     budget,
+                    local_candidate=_density_fan._local_candidate,
+                    vector_from_slope=_density_fan._vector_from_slope,
                 )
             )
         assert actual == expected, height
@@ -1554,7 +1561,8 @@ def test_atlas_sweep_names_exhaustion_instead_of_walking_to_the_height_cap():
             2,
             10**6,
             segments=segments,
-            shell_candidates=_density_fan._global_shell_candidates,
+            local_candidate=_density_fan._local_candidate,
+            vector_from_slope=_density_fan._vector_from_slope,
             best_fan=lambda *_: None,
             budget=budget,
         )

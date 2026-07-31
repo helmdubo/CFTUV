@@ -24,13 +24,13 @@ from ..numeric import CertifiedDecimalIntervalV1
 from .adaptive_density_atlas import (
     AtlasWindowPrepared,
     DensityExactWorkBudget,
+    SegmentPlanLaws,
     build_atlas_window_record,
-    cell_segments,
     global_termination_height,
     piece_contains_vector,
     piece_ordered_endpoints,
-    reachable_pieces,
     search_global_height,
+    search_segments,
     termination_piece,
     validate_atlas_structure,
 )
@@ -741,19 +741,6 @@ def _local_record(record):
     return record.local_record if type(record) is AtlasWindowPrepared else record
 
 
-def _raw_numerator_bounds(record, height: int) -> tuple[int, int]:
-    use_x, denominator_sign, lower, upper = record
-    del use_x, denominator_sign
-    lower_bound = Fraction(lower.lower)
-    upper_bound = Fraction(upper.upper)
-    first = (
-        lower_bound * height
-    ).numerator // (lower_bound * height).denominator + 1
-    scaled_upper = upper_bound * height
-    last = -((-scaled_upper.numerator) // scaled_upper.denominator) - 1
-    return first, last
-
-
 def _local_candidate(metric, ideal, ordinal, vector, q) -> bool:
     candidate = _vector(*vector, metric)
     return (
@@ -776,73 +763,6 @@ def _local_candidate(metric, ideal, ordinal, vector, q) -> bool:
             ideal[ordinal + 1],
             q,
         )
-    )
-
-
-def _local_shell_candidates(
-    metric,
-    ideal,
-    ordinal,
-    q,
-    record,
-    termination_box,
-    height,
-):
-    """Binary-prune до полного contiguous local-admissible диапазона."""
-
-    use_x, denominator_sign, _, _ = record
-    first, last = _raw_numerator_bounds(record, height)
-    if first > last:
-        return ()
-    center = (termination_box[0] + termination_box[1]) / 2
-    scaled = center * height
-    floor = scaled.numerator // scaled.denominator
-    probes = tuple(
-        item
-        for item in (floor, floor + 1)
-        if first <= item <= last
-    )
-
-    def admissible(numerator):
-        return _local_candidate(
-            metric,
-            ideal,
-            ordinal,
-            _vector_from_slope(
-                Fraction(numerator, height),
-                use_x,
-                denominator_sign,
-            ),
-            q,
-        )
-
-    seed = next((item for item in probes if admissible(item)), None)
-    if seed is None:
-        return ()
-    low, high = first, seed
-    while low < high:
-        middle = (low + high) // 2
-        if admissible(middle):
-            high = middle
-        else:
-            low = middle + 1
-    local_first = low
-    low, high = seed, last
-    while low < high:
-        middle = (low + high + 1) // 2
-        if admissible(middle):
-            low = middle
-        else:
-            high = middle - 1
-    local_last = low
-    return tuple(
-        _vector_from_slope(
-            Fraction(numerator, height),
-            use_x,
-            denominator_sign,
-        )
-        for numerator in range(local_first, local_last + 1)
-        if gcd(abs(numerator), height) == 1
     )
 
 
@@ -921,212 +841,19 @@ def _farey_shell_candidates(
     return tuple(candidates)
 
 
-def _global_numerator_bounds(
-    lower: Fraction,
-    upper: Fraction,
-    height: int,
-) -> tuple[int, int]:
-    """Замкнутые границы числителя внутри ячейки на высоте `height`.
-
-    Границы куска бывают ТОЧНЫМИ (переход между ячейками — это ровно
-    |slope| == 1), поэтому здесь, в отличие от одно-картного закона, концы
-    включаются: иначе диагональный ковектор (±1, ±1) высоты 1 не был бы
-    перечислен ни одной из двух соседних ячеек. Зажим |numerator| <= height —
-    это и есть определение ячейки: за ним max-норма перестаёт быть
-    знаменателем.
-    """
-
-    scaled_lower = lower * height
-    scaled_upper = upper * height
-    first = -((-scaled_lower.numerator) // scaled_lower.denominator)
-    last = scaled_upper.numerator // scaled_upper.denominator
-    return max(first, -height), min(last, height)
-
-
-def _global_shell_candidates(
-    metric,
-    ideal,
-    ordinal,
-    q,
-    segment,
-    height,
-    budget,
-):
-    """Числители одного cell-куска на одной chart-invariant высоте."""
-
-    use_x = segment.use_x_denominator
-    denominator_sign = segment.denominator_sign
-    first, last = _global_numerator_bounds(
-        segment.outer_lower,
-        segment.outer_upper,
-        height,
-    )
-    # Пустая высота тоже стоит один probe: иначе последовательность пустых
-    # высот прошла бы под капом без единой единицы работы.
-    budget.spend_shell_probes(max(last - first + 1, 1))
-    if first > last:
-        return ()
-    candidates = []
-    for numerator in range(first, last + 1):
-        if gcd(abs(numerator), height) != 1:
-            continue
-        slope = Fraction(numerator, height)
-        vector = _vector_from_slope(slope, use_x, denominator_sign)
-        if (
-            segment.inner_lower < slope < segment.inner_upper
-            or _local_candidate(metric, ideal, ordinal, vector, q)
-        ):
-            candidates.append(vector)
-    return tuple(candidates)
-
-
-def _piece_bracket(metric, boundary_vectors, piece):
-    """Sealed-оболочка одного куска по тем же двум subturn-лучам.
-
-    Луч, чей знаменатель в карте куска имеет другой знак, здесь не
-    применяется: его перенос в эту карту не был бы утверждением о самом луче.
-    Пропуск ограничения только РАСШИРЯЕТ outer-оболочку, то есть остаётся
-    надмножеством; inner-часть после этого доказывается концами отдельно.
-    """
+def _segment_plan_laws() -> SegmentPlanLaws:
+    """Точные предикаты, которыми sibling-модуль atlas не владеет."""
 
     from .direction_binding import _density_decimal_envelope
 
-    use_x = piece.use_x_denominator
-    lower_bounds = [piece.lower_slope_envelope]
-    upper_bounds = [piece.upper_slope_envelope]
-    middle = (
-        Fraction(piece.lower_slope_envelope.upper)
-        + Fraction(piece.upper_slope_envelope.lower)
-    ) / 2
-    for boundary in boundary_vectors:
-        denominator = metric.density_expressions(boundary)[0 if use_x else 1]
-        if _sign(denominator, metric) != piece.denominator_sign:
-            continue
-        envelope = _density_decimal_envelope(
-            _slope(boundary, use_x, metric),
-            metric,
-        )
-        if Fraction(envelope.upper) < middle:
-            lower_bounds.append(envelope)
-        elif Fraction(envelope.lower) > middle:
-            upper_bounds.append(envelope)
-    lower = max(lower_bounds, key=lambda item: item.upper)
-    upper = min(upper_bounds, key=lambda item: item.lower)
-    return (
-        Fraction(lower.lower),
-        Fraction(lower.upper),
-        Fraction(upper.lower),
-        Fraction(upper.upper),
-    )
-
-
-def _proven_segment(metric, ideal, ordinal, q, segment):
-    """Оставить inner-быстрый путь только если оба его конца допустимы.
-
-    Допустимое множество выпукло, а наклон внутри одной карты — монотонная
-    параметризация направлений, поэтому допустимость обоих концов замкнутого
-    интервала доказывает допустимость всего интервала. Это ровно тот закон,
-    которым запечатан одно-картный sealed-интервал.
-    """
-
-    if segment.inner_lower >= segment.inner_upper:
-        return segment
-    if all(
-        _local_candidate(
-            metric,
-            ideal,
-            ordinal,
-            _vector_from_slope(
-                value,
-                segment.use_x_denominator,
-                segment.denominator_sign,
-            ),
-            q,
-        )
-        for value in (segment.inner_lower, segment.inner_upper)
-    ):
-        return segment
-    return replace(
-        segment,
-        inner_lower=Fraction(0),
-        inner_upper=Fraction(0),
-    )
-
-
-def _global_height_segments(
-    metric,
-    ideal,
-    ordinal,
-    orientation,
-    q,
-    window,
-    record,
-    sealed,
-):
-    """План по-кускового перечисления одного ordinal под atlas-законом."""
-
-    pieces = getattr(window, "pieces", None)
-    if pieces is None:
-        raw = cell_segments(record[0], record[1], sealed)
-    else:
-        boundary_vectors = _subturn_boundary_vectors(
-            metric,
-            ideal,
-            ordinal,
-            orientation,
-            q,
-        )
-        raw = ()
-        for index in reachable_pieces(
-            window,
-            admissible=lambda vector: _local_candidate(
-                metric,
-                ideal,
-                ordinal,
-                vector,
-                q,
-            ),
-            invalid=DensityWindowChartUnrepresentable,
-        ):
-            piece = pieces[index]
-            raw += cell_segments(
-                piece.use_x_denominator,
-                piece.denominator_sign,
-                sealed
-                if index == window.termination_piece_index
-                else _piece_bracket(metric, boundary_vectors, piece),
-            )
-    return tuple(
-        _proven_segment(metric, ideal, ordinal, q, item) for item in raw
-    )
-
-
-def _search_segments(
-    metric,
-    ideal,
-    orientation,
-    q,
-    windows,
-    records,
-    sealed_intervals,
-):
-    """По одному плану на ordinal; одно-картное окно — тоже один план."""
-
-    return tuple(
-        _global_height_segments(
-            metric,
-            ideal,
-            ordinal,
-            orientation,
-            q,
-            window,
-            record,
-            sealed,
-        )
-        for ordinal, (window, record, sealed) in enumerate(
-            zip(windows, records, sealed_intervals, strict=True),
-            start=1,
-        )
+    return SegmentPlanLaws(
+        sign=_sign,
+        slope=_slope,
+        decimal_envelope=_density_decimal_envelope,
+        local_candidate=_local_candidate,
+        vector_from_slope=_vector_from_slope,
+        subturn_boundary_vectors=_subturn_boundary_vectors,
+        invalid=DensityWindowChartUnrepresentable,
     )
 
 
@@ -1666,6 +1393,45 @@ def certify_adaptive_density_fan(
     )
 
 
+def _authority_windows(records, boxes, sealed_intervals):
+    """Собрать wire-окна власти: atlas и одно-картное — по своей форме."""
+
+    windows = []
+    for ordinal, (record, box, sealed) in enumerate(
+        zip(records, boxes, sealed_intervals, strict=True),
+        start=1,
+    ):
+        common = {
+            "ordinal": ordinal,
+            "termination_lower_slope": _ratio(box[0]),
+            "termination_upper_slope": _ratio(box[1]),
+            "certified_termination_width": _ratio(box[1] - box[0]),
+            "admissible_lower_outward": _ratio(sealed[0]),
+            "admissible_lower_inward": _ratio(sealed[1]),
+            "admissible_upper_inward": _ratio(sealed[2]),
+            "admissible_upper_outward": _ratio(sealed[3]),
+        }
+        if type(record) is AtlasWindowPrepared:
+            windows.append(
+                AdaptiveRationalFanOrdinalWindowAtlasV1(
+                    pieces=record.pieces,
+                    termination_piece_index=record.termination_piece_index,
+                    **common,
+                )
+            )
+        else:
+            windows.append(
+                AdaptiveRationalFanOrdinalWindowV2(
+                    use_x_denominator=record[0],
+                    denominator_sign=record[1],
+                    full_lower_slope_envelope=record[2],
+                    full_upper_slope_envelope=record[3],
+                    **common,
+                )
+            )
+    return tuple(windows)
+
+
 def _certify_adaptive_density_fan_prepared(
     metric,
     ideal,
@@ -1714,7 +1480,7 @@ def _certify_adaptive_density_fan_prepared(
             orientation,
             max_subturn_q,
             stop_height,
-            segments=_search_segments(
+            segments=search_segments(
                 metric,
                 ideal,
                 orientation,
@@ -1722,8 +1488,10 @@ def _certify_adaptive_density_fan_prepared(
                 records,
                 local_records,
                 sealed_intervals,
+                _segment_plan_laws(),
             ),
-            shell_candidates=_global_shell_candidates,
+            local_candidate=_local_candidate,
+            vector_from_slope=_vector_from_slope,
             best_fan=_best_fan,
             budget=_work_budget(),
         )
@@ -1743,40 +1511,7 @@ def _certify_adaptive_density_fan_prepared(
         raise DensityRationalAuthorityExhausted(
             "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
         )
-    windows = []
-    for ordinal, (record, box, sealed) in enumerate(
-        zip(records, boxes, sealed_intervals, strict=True),
-        start=1,
-    ):
-        common = {
-            "ordinal": ordinal,
-            "termination_lower_slope": _ratio(box[0]),
-            "termination_upper_slope": _ratio(box[1]),
-            "certified_termination_width": _ratio(box[1] - box[0]),
-            "admissible_lower_outward": _ratio(sealed[0]),
-            "admissible_lower_inward": _ratio(sealed[1]),
-            "admissible_upper_inward": _ratio(sealed[2]),
-            "admissible_upper_outward": _ratio(sealed[3]),
-        }
-        if type(record) is AtlasWindowPrepared:
-            windows.append(
-                AdaptiveRationalFanOrdinalWindowAtlasV1(
-                    pieces=record.pieces,
-                    termination_piece_index=record.termination_piece_index,
-                    **common,
-                )
-            )
-        else:
-            windows.append(
-                AdaptiveRationalFanOrdinalWindowV2(
-                    use_x_denominator=record[0],
-                    denominator_sign=record[1],
-                    full_lower_slope_envelope=record[2],
-                    full_upper_slope_envelope=record[3],
-                    **common,
-                )
-            )
-    windows = tuple(windows)
+    windows = _authority_windows(records, boxes, sealed_intervals)
     authority_id = _authority_id(max_subturn_q, height, fan, windows)
     return AdaptiveMinimalRationalFanAuthorityV2(
         authority_id=authority_id,
@@ -2072,7 +1807,7 @@ def _verify_adaptive_density_fan(
             orientation,
             supplied.max_subturn_q,
             supplied.minimal_common_height,
-            segments=_search_segments(
+            segments=search_segments(
                 metric,
                 ideal,
                 orientation,
@@ -2080,8 +1815,10 @@ def _verify_adaptive_density_fan(
                 supplied.ordinal_windows,
                 records,
                 sealed_intervals,
+                _segment_plan_laws(),
             ),
-            shell_candidates=_global_shell_candidates,
+            local_candidate=_local_candidate,
+            vector_from_slope=_vector_from_slope,
             best_fan=_best_fan,
             budget=_work_budget(),
         )
