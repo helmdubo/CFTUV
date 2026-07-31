@@ -33,11 +33,20 @@ from cftuv_envelope.ids import CornerRelationId
 from cftuv_envelope.adaptive_density_validation import (
     adaptive_density_structure_errors,
 )
+from cftuv_envelope.reference import adaptive_density_fan as _density_fan
+from cftuv_envelope.reference.adaptive_density_atlas import (
+    search_global_height,
+)
 from cftuv_envelope.reference.adaptive_density_fan import (
     AdaptiveDensityFanInvalid,
     DensityRationalAuthorityExhausted,
     DensityWindowChartUnrepresentable,
+    _DENSITY_EXACT_WORK_CAP,
+    _best_fan,
+    _covectors,
+    _local_candidate,
     _subturn,
+    _work_budget,
     certify_adaptive_density_fan,
     certify_density_bindings_and_adaptive_fallback,
     verify_adaptive_density_fan,
@@ -1209,3 +1218,168 @@ def test_full_density_prepare_calls_no_forbidden_symbolic_solver(
 
     assert prepared.outcome.value == "EXACT", prepared.detail
     assert calls == []
+
+
+# --------------------------------------------------------------------------
+# Ресурсный кап поиска минимального D*.
+#
+# Высота одна не была ресурсом: `_RESOURCE_HEIGHT_CAP` ограничивал номер
+# последней высоты, а не работу, и при узком окне фронт уходил в счёт без
+# исхода. Ниже заморожен ровно противоположный факт: работа считается, кап
+# объявлен литералом, а его превышение — именованный исход.
+# --------------------------------------------------------------------------
+
+
+def _narrow_window_repro(denominator: int):
+    """Синтетическое ordinal-окно ширины порядка 1/denominator.
+
+    Доказанная высота останова растёт линейно по `denominator`; ровно этот
+    класс входа в поле считался без исхода.
+    """
+
+    metric = _euclidean_metric()
+    orientation = TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+    ideal = _interpolated_normals(
+        metric,
+        ExactPlanarVector.from_values(1, 0),
+        ExactPlanarVector.from_values(denominator, 1),
+        1,
+        orientation,
+        huber_density=True,
+    )
+    return metric, orientation, ideal
+
+
+def _budget_spy(monkeypatch):
+    budgets = []
+    original = _density_fan._work_budget
+
+    def spy(cap=None):
+        budget = original(cap)
+        budgets.append(budget)
+        return budget
+
+    monkeypatch.setattr(_density_fan, "_work_budget", spy)
+    return budgets
+
+
+def test_exact_work_cap_turns_endless_density_search_into_named_refusal():
+    """Вход, не укладывающийся в объявленный бюджет, отказывает именем.
+
+    Фронт обязан продолжиться, дойти до именованного события или именованно
+    отказать. «Считает вечно» не является ни одним из трёх.
+    """
+
+    metric, orientation, ideal = _narrow_window_repro(100_000)
+
+    with pytest.raises(
+        DensityRationalAuthorityExhausted,
+        match="DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    ) as raised:
+        certify_adaptive_density_fan(
+            metric,
+            ideal,
+            orientation,
+            2,
+            binding_reasons=(None,),
+        )
+
+    message = str(raised.value)
+    assert f"cap={_DENSITY_EXACT_WORK_CAP}" in message
+    assert "shell_probes=" in message
+    assert "order_steps=" in message
+
+
+def test_exact_work_cap_counters_repeat_bit_for_bit():
+    """Счётчики — точная работа, а не время: два прогона совпадают."""
+
+    messages = []
+    for _ in range(2):
+        metric, orientation, ideal = _narrow_window_repro(100_000)
+        with pytest.raises(DensityRationalAuthorityExhausted) as raised:
+            certify_adaptive_density_fan(
+                metric,
+                ideal,
+                orientation,
+                2,
+                binding_reasons=(None,),
+            )
+        messages.append(str(raised.value))
+
+    assert messages[0] == messages[1]
+    assert messages[0].endswith(
+        f"cap={_DENSITY_EXACT_WORK_CAP} "
+        f"shell_probes={_DENSITY_EXACT_WORK_CAP + 1} order_steps=0"
+    )
+
+
+def test_atlas_search_spends_the_same_exact_work_on_every_run():
+    """Atlas-ветвь тратит бюджет из того же счётчика и так же повторяемо."""
+
+    runs = []
+    for _ in range(2):
+        metric, orientation, normals = _projective_atlas_repro()
+        ideal = _covectors(metric, normals)
+        budget = _work_budget()
+        result = search_global_height(
+            metric,
+            ideal,
+            orientation,
+            2,
+            8,
+            local_candidate=_local_candidate,
+            best_fan=_best_fan,
+            budget=budget,
+        )
+        runs.append((result, budget.counters()))
+
+    assert runs[0] == runs[1]
+    assert runs[0][0][0] == 4
+    assert runs[0][1] == (
+        ("DENSITY_FAN_SHELL_PROBES", 48),
+        ("DENSITY_FAN_ORDER_STEPS", 2),
+    )
+
+
+def test_exhausted_density_domain_names_the_outcome_and_leaves_no_trace(
+    monkeypatch,
+):
+    """Домен отказывает именованно, компиляция не появляется, прогон живёт."""
+
+    monkeypatch.setattr(_density_fan, "_DENSITY_EXACT_WORK_CAP", 1)
+    snapshot, request = _field_inputs(4)
+
+    result = kernel.compile_reference_envelopes(snapshot, request)
+
+    assert (
+        result.outcome
+        is ReferenceOutcome.DENSITY_RATIONAL_AUTHORITY_EXHAUSTED
+    )
+    assert result.compilation is None
+    assert [item.outcome for item in result.diagnostics] == [
+        ReferenceOutcome.DENSITY_RATIONAL_AUTHORITY_EXHAUSTED
+    ]
+    assert "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED" in (
+        result.diagnostics[0].message
+    )
+
+
+def test_deepest_green_field_authority_stays_far_below_the_work_cap(
+    monkeypatch,
+):
+    """Замороженный якорь маржи: поле d=4 не приближается к капу.
+
+    Самая глубокая зелёная власть поля (`60fc81c8…`, минимальная общая
+    высота 4492) — это и есть худший случай замороженного корпуса, из
+    которого выведен литерал капа. Число ниже двигать нельзя молча: его
+    рост означает, что маржа съедена.
+    """
+
+    budgets = _budget_spy(monkeypatch)
+    snapshot, request = _field_inputs(4)
+
+    result = kernel.compile_reference_envelopes(snapshot, request)
+
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    assert max(item.spent for item in budgets) == 9_035
+    assert 9_035 * 8 < _DENSITY_EXACT_WORK_CAP

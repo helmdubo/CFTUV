@@ -16,6 +16,62 @@ from ..numeric import CertifiedDecimalIntervalV1, IntervalEndpointKind
 
 
 _UNREPRESENTABLE = "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
+_EXHAUSTED = "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
+
+
+class DensityExactWorkBudget:
+    """Детерминированный счётчик точной работы поиска минимального D*.
+
+    Считается только точная работа. Wall-clock и любые временные лимиты
+    здесь запрещены: время прогона не воспроизводимо побитово, а число
+    выполненных exact-предикатов воспроизводимо и одинаково на любой машине.
+
+    `shell_probes` — сколько примитивных ковекторов проверено предикатом
+    локальной допустимости: ровно один probe на пару (перечисленный вектор
+    оболочки, ordinal-окно). Это стоимость перечисления Farey/atlas-оболочки.
+
+    `order_steps` — сколько кандидатов тронуто при Gram-упорядочивании и
+    сборке веера: вход сортировки на каждый вызов плюс каждое ребро
+    backtracking-обхода.
+
+    Сумма двух счётчиков ограничивает всю точную работу поиска: размер
+    накопленных множеств кандидатов сам не превышает `shell_probes`, поэтому
+    ни сортировка, ни обход не могут стоить больше, чем оплачено.
+    """
+
+    __slots__ = ("cap", "exhausted", "shell_probes", "order_steps")
+
+    def __init__(self, exhausted, cap: int) -> None:
+        self.exhausted = exhausted
+        self.cap = cap
+        self.shell_probes = 0
+        self.order_steps = 0
+
+    @property
+    def spent(self) -> int:
+        return self.shell_probes + self.order_steps
+
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        return (
+            ("DENSITY_FAN_SHELL_PROBES", self.shell_probes),
+            ("DENSITY_FAN_ORDER_STEPS", self.order_steps),
+        )
+
+    def spend_shell_probes(self, count: int) -> None:
+        self.shell_probes += count
+        self._enforce()
+
+    def spend_order_steps(self, count: int) -> None:
+        self.order_steps += count
+        self._enforce()
+
+    def _enforce(self) -> None:
+        if self.spent > self.cap:
+            raise self.exhausted(
+                f"{_EXHAUSTED} cap={self.cap} "
+                f"shell_probes={self.shell_probes} "
+                f"order_steps={self.order_steps}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,6 +501,7 @@ def search_global_height(
     *,
     local_candidate,
     best_fan,
+    budget,
 ):
     """Минимальный веер по единой, chart-invariant covector-высоте."""
 
@@ -452,6 +509,7 @@ def search_global_height(
     previous_counts = tuple(0 for _ in candidates)
     for height in range(1, stop_height + 1):
         for vector in primitive_global_shell(height):
+            budget.spend_shell_probes(len(candidates))
             for ordinal in range(1, len(ideal) - 1):
                 if local_candidate(
                     metric,
@@ -462,7 +520,7 @@ def search_global_height(
                 ):
                     candidates[ordinal - 1].add(vector)
         fan = (
-            best_fan(metric, ideal, orientation, q, candidates)
+            best_fan(metric, ideal, orientation, q, candidates, budget)
             if all(candidates)
             else None
         )

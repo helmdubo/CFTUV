@@ -23,6 +23,7 @@ from ..contracts.envelopes import (
 from ..numeric import CertifiedDecimalIntervalV1
 from .adaptive_density_atlas import (
     AtlasWindowPrepared,
+    DensityExactWorkBudget,
     build_atlas_window_record,
     global_termination_height,
     piece_contains_vector,
@@ -67,6 +68,38 @@ ADAPTIVE_FAN_PROVEN_PREDICATES = frozenset(
 _RESOURCE_HEIGHT_CAP = 1_000_000
 _BOX_REFINEMENT_CAP = 96
 
+# Объявленный кап точной работы поиска минимального D*.
+#
+# Высота одна не является ресурсом: исчерпывающий проход по высотам стоит
+# квадратично, поэтому `_RESOURCE_HEIGHT_CAP` ограничивает не работу, а только
+# номер последней высоты, и при узком окне фронт уходит в счёт без исхода.
+#
+# Закон бюджета D*. Доказанная высота останова (закон Фарея,
+# `_termination_height`) для окна ширины w равна floor(1/w) + 2, а atlas
+# поднимает её в chart-invariant норму множителем модуля коробки; на поле
+# она достигает 4.3e7 и 1.0e8, то есть высота останова НЕ является бюджетом.
+# Стоимость же прохода известна точно:
+#   * одна карта — внутри sealed-интервала перечисляются только числители,
+#     то есть примерно w*h + 1 пробников на высоту h и окно;
+#   * atlas — перебирается вся оболочка max-нормы, а примитивных ковекторов
+#     ровно высоты h не больше 8h (периметр квадрата [-h, h]^2), то есть
+#     проход по высотам 1..H для веера из k окон стоит не больше
+#     sum_{h<=H} 8*h*k = 4*H*(H+1)*k пробников.
+#
+# Литерал выведен из худшего случая ЗАМОРОЖЕННОГО корпуса, а не из потолка:
+# самая глубокая зелёная власть поля (building.002, explicit density 4,
+# corner relation 60fc81c8…) имеет минимальную общую высоту 4492 при k = 2 и
+# тратит ровно 9 035 единиц (см. тест
+# `test_deepest_green_field_authority_stays_far_below_the_work_cap`).
+# Кап — эта величина с запасом в 14 раз, округлённая до степени двойки:
+#   9 035 * 14.5 ~ 131 000  ->  1 << 17 = 131 072.
+# В atlas-ветви тот же литерал по закону 4*H*(H+1) означает исчерпывающий
+# chart-invariant проход примерно до высоты 180.
+#
+# Кап тратится на все k окон сразу: больший k честно уменьшает достижимую
+# высоту, а не удорожает прогон.
+_DENSITY_EXACT_WORK_CAP = 1 << 17
+
 
 class DensityRationalAuthorityExhausted(ValueError):
     """Именованный отказ только при превышении доказанного resource cap."""
@@ -78,6 +111,15 @@ class AdaptiveDensityFanInvalid(ValueError):
 
 class DensityWindowChartUnrepresentable(AdaptiveDensityFanInvalid):
     """Допустимое projective-окно не представимо принятым chart-контрактом."""
+
+
+def _work_budget(cap: int | None = None) -> DensityExactWorkBudget:
+    """Свежий счётчик точной работы одной транзакции поиска D*."""
+
+    return DensityExactWorkBudget(
+        DensityRationalAuthorityExhausted,
+        _DENSITY_EXACT_WORK_CAP if cap is None else cap,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -822,6 +864,7 @@ def _farey_shell_candidates(
     record,
     sealed_interval,
     height,
+    budget,
 ):
     """Высота Farey: integer-only внутри inner, exact только в shell."""
 
@@ -834,6 +877,9 @@ def _farey_shell_candidates(
         outer_upper,
         height,
     )
+    # Пустая высота тоже стоит один probe: иначе последовательность пустых
+    # высот прошла бы под капом без единой единицы работы.
+    budget.spend_shell_probes(max(last - first + 1, 1))
     if first > last:
         return ()
     candidates = []
@@ -1240,8 +1286,9 @@ def verify_legacy_density_bindings_factor_free(
         )
 
 
-def _best_fan(metric, ideal, orientation, q, candidates):
+def _best_fan(metric, ideal, orientation, q, candidates, budget):
     expected = _expected_orientation(orientation)
+    budget.spend_order_steps(sum(len(items) for items in candidates))
     ordered = tuple(
         tuple(
             sorted(
@@ -1282,6 +1329,7 @@ def _best_fan(metric, ideal, orientation, q, candidates):
             else _vector(*prefix[-1], metric)
         )
         for vector in ordered[ordinal]:
+            budget.spend_order_steps(1)
             candidate = _vector(*vector, metric)
             if (
                 _sign(
@@ -1313,6 +1361,7 @@ def _search(
     records,
     sealed_intervals,
     stop_height,
+    budget,
 ):
     candidates = [set() for _ in records]
     previous_counts = tuple(0 for _ in records)
@@ -1327,10 +1376,11 @@ def _search(
                     record,
                     sealed_intervals[ordinal - 1],
                     height,
+                    budget,
                 )
             )
         fan = (
-            _best_fan(metric, ideal, orientation, q, candidates)
+            _best_fan(metric, ideal, orientation, q, candidates, budget)
             if all(candidates)
             else None
         )
@@ -1453,6 +1503,7 @@ def _certify_adaptive_density_fan_prepared(
             stop_height,
             local_candidate=_local_candidate,
             best_fan=_best_fan,
+            budget=_work_budget(),
         )
         if uses_atlas
         else _search(
@@ -1463,6 +1514,7 @@ def _certify_adaptive_density_fan_prepared(
             records,
             sealed_intervals,
             stop_height,
+            _work_budget(),
         )
     )
     if fan is None:
@@ -1800,6 +1852,7 @@ def _verify_adaptive_density_fan(
             supplied.minimal_common_height,
             local_candidate=_local_candidate,
             best_fan=_best_fan,
+            budget=_work_budget(),
         )
         if uses_atlas
         else _search(
@@ -1810,6 +1863,7 @@ def _verify_adaptive_density_fan(
             records,
             sealed_intervals,
             supplied.minimal_common_height,
+            _work_budget(),
         )
     )
     if (
