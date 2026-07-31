@@ -25,9 +25,11 @@ from .adaptive_density_atlas import (
     AtlasWindowPrepared,
     DensityExactWorkBudget,
     build_atlas_window_record,
+    cell_segments,
     global_termination_height,
     piece_contains_vector,
     piece_ordered_endpoints,
+    reachable_pieces,
     search_global_height,
     termination_piece,
     validate_atlas_structure,
@@ -520,6 +522,16 @@ def _rotate_q(metric, vector, orientation: int, q: int):
     )
 
 
+def _subturn_boundary_vectors(metric, ideal, ordinal, orientation, q):
+    """Два крайних луча subturn-ограничений ordinal — без всякой карты."""
+
+    expected = _expected_orientation(orientation)
+    return (
+        _rotate_q(metric, ideal[ordinal - 1], expected, q),
+        _rotate_q(metric, ideal[ordinal + 1], -expected, q),
+    )
+
+
 def _sealed_local_interval(
     metric,
     ideal,
@@ -533,20 +545,12 @@ def _sealed_local_interval(
     from .direction_binding import _density_decimal_envelope
 
     use_x, _, ordinal_lower, ordinal_upper = record
-    expected = _expected_orientation(orientation)
-    boundary_vectors = (
-        _rotate_q(
-            metric,
-            ideal[ordinal - 1],
-            expected,
-            q,
-        ),
-        _rotate_q(
-            metric,
-            ideal[ordinal + 1],
-            -expected,
-            q,
-        ),
+    boundary_vectors = _subturn_boundary_vectors(
+        metric,
+        ideal,
+        ordinal,
+        orientation,
+        q,
     )
     boundaries = []
     for boundary_vector in boundary_vectors:
@@ -915,6 +919,215 @@ def _farey_shell_candidates(
                 )
             )
     return tuple(candidates)
+
+
+def _global_numerator_bounds(
+    lower: Fraction,
+    upper: Fraction,
+    height: int,
+) -> tuple[int, int]:
+    """Замкнутые границы числителя внутри ячейки на высоте `height`.
+
+    Границы куска бывают ТОЧНЫМИ (переход между ячейками — это ровно
+    |slope| == 1), поэтому здесь, в отличие от одно-картного закона, концы
+    включаются: иначе диагональный ковектор (±1, ±1) высоты 1 не был бы
+    перечислен ни одной из двух соседних ячеек. Зажим |numerator| <= height —
+    это и есть определение ячейки: за ним max-норма перестаёт быть
+    знаменателем.
+    """
+
+    scaled_lower = lower * height
+    scaled_upper = upper * height
+    first = -((-scaled_lower.numerator) // scaled_lower.denominator)
+    last = scaled_upper.numerator // scaled_upper.denominator
+    return max(first, -height), min(last, height)
+
+
+def _global_shell_candidates(
+    metric,
+    ideal,
+    ordinal,
+    q,
+    segment,
+    height,
+    budget,
+):
+    """Числители одного cell-куска на одной chart-invariant высоте."""
+
+    use_x = segment.use_x_denominator
+    denominator_sign = segment.denominator_sign
+    first, last = _global_numerator_bounds(
+        segment.outer_lower,
+        segment.outer_upper,
+        height,
+    )
+    # Пустая высота тоже стоит один probe: иначе последовательность пустых
+    # высот прошла бы под капом без единой единицы работы.
+    budget.spend_shell_probes(max(last - first + 1, 1))
+    if first > last:
+        return ()
+    candidates = []
+    for numerator in range(first, last + 1):
+        if gcd(abs(numerator), height) != 1:
+            continue
+        slope = Fraction(numerator, height)
+        vector = _vector_from_slope(slope, use_x, denominator_sign)
+        if (
+            segment.inner_lower < slope < segment.inner_upper
+            or _local_candidate(metric, ideal, ordinal, vector, q)
+        ):
+            candidates.append(vector)
+    return tuple(candidates)
+
+
+def _piece_bracket(metric, boundary_vectors, piece):
+    """Sealed-оболочка одного куска по тем же двум subturn-лучам.
+
+    Луч, чей знаменатель в карте куска имеет другой знак, здесь не
+    применяется: его перенос в эту карту не был бы утверждением о самом луче.
+    Пропуск ограничения только РАСШИРЯЕТ outer-оболочку, то есть остаётся
+    надмножеством; inner-часть после этого доказывается концами отдельно.
+    """
+
+    from .direction_binding import _density_decimal_envelope
+
+    use_x = piece.use_x_denominator
+    lower_bounds = [piece.lower_slope_envelope]
+    upper_bounds = [piece.upper_slope_envelope]
+    middle = (
+        Fraction(piece.lower_slope_envelope.upper)
+        + Fraction(piece.upper_slope_envelope.lower)
+    ) / 2
+    for boundary in boundary_vectors:
+        denominator = metric.density_expressions(boundary)[0 if use_x else 1]
+        if _sign(denominator, metric) != piece.denominator_sign:
+            continue
+        envelope = _density_decimal_envelope(
+            _slope(boundary, use_x, metric),
+            metric,
+        )
+        if Fraction(envelope.upper) < middle:
+            lower_bounds.append(envelope)
+        elif Fraction(envelope.lower) > middle:
+            upper_bounds.append(envelope)
+    lower = max(lower_bounds, key=lambda item: item.upper)
+    upper = min(upper_bounds, key=lambda item: item.lower)
+    return (
+        Fraction(lower.lower),
+        Fraction(lower.upper),
+        Fraction(upper.lower),
+        Fraction(upper.upper),
+    )
+
+
+def _proven_segment(metric, ideal, ordinal, q, segment):
+    """Оставить inner-быстрый путь только если оба его конца допустимы.
+
+    Допустимое множество выпукло, а наклон внутри одной карты — монотонная
+    параметризация направлений, поэтому допустимость обоих концов замкнутого
+    интервала доказывает допустимость всего интервала. Это ровно тот закон,
+    которым запечатан одно-картный sealed-интервал.
+    """
+
+    if segment.inner_lower >= segment.inner_upper:
+        return segment
+    if all(
+        _local_candidate(
+            metric,
+            ideal,
+            ordinal,
+            _vector_from_slope(
+                value,
+                segment.use_x_denominator,
+                segment.denominator_sign,
+            ),
+            q,
+        )
+        for value in (segment.inner_lower, segment.inner_upper)
+    ):
+        return segment
+    return replace(
+        segment,
+        inner_lower=Fraction(0),
+        inner_upper=Fraction(0),
+    )
+
+
+def _global_height_segments(
+    metric,
+    ideal,
+    ordinal,
+    orientation,
+    q,
+    window,
+    record,
+    sealed,
+):
+    """План по-кускового перечисления одного ordinal под atlas-законом."""
+
+    pieces = getattr(window, "pieces", None)
+    if pieces is None:
+        raw = cell_segments(record[0], record[1], sealed)
+    else:
+        boundary_vectors = _subturn_boundary_vectors(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            q,
+        )
+        raw = ()
+        for index in reachable_pieces(
+            window,
+            admissible=lambda vector: _local_candidate(
+                metric,
+                ideal,
+                ordinal,
+                vector,
+                q,
+            ),
+            invalid=DensityWindowChartUnrepresentable,
+        ):
+            piece = pieces[index]
+            raw += cell_segments(
+                piece.use_x_denominator,
+                piece.denominator_sign,
+                sealed
+                if index == window.termination_piece_index
+                else _piece_bracket(metric, boundary_vectors, piece),
+            )
+    return tuple(
+        _proven_segment(metric, ideal, ordinal, q, item) for item in raw
+    )
+
+
+def _search_segments(
+    metric,
+    ideal,
+    orientation,
+    q,
+    windows,
+    records,
+    sealed_intervals,
+):
+    """По одному плану на ordinal; одно-картное окно — тоже один план."""
+
+    return tuple(
+        _global_height_segments(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            q,
+            window,
+            record,
+            sealed,
+        )
+        for ordinal, (window, record, sealed) in enumerate(
+            zip(windows, records, sealed_intervals, strict=True),
+            start=1,
+        )
+    )
 
 
 def _objective(metric, ideal, ordinal, vector):
@@ -1501,7 +1714,16 @@ def _certify_adaptive_density_fan_prepared(
             orientation,
             max_subturn_q,
             stop_height,
-            local_candidate=_local_candidate,
+            segments=_search_segments(
+                metric,
+                ideal,
+                orientation,
+                max_subturn_q,
+                records,
+                local_records,
+                sealed_intervals,
+            ),
+            shell_candidates=_global_shell_candidates,
             best_fan=_best_fan,
             budget=_work_budget(),
         )
@@ -1850,7 +2072,16 @@ def _verify_adaptive_density_fan(
             orientation,
             supplied.max_subturn_q,
             supplied.minimal_common_height,
-            local_candidate=_local_candidate,
+            segments=_search_segments(
+                metric,
+                ideal,
+                orientation,
+                supplied.max_subturn_q,
+                supplied.ordinal_windows,
+                records,
+                sealed_intervals,
+            ),
+            shell_candidates=_global_shell_candidates,
             best_fan=_best_fan,
             budget=_work_budget(),
         )

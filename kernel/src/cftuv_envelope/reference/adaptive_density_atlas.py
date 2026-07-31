@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
-from math import gcd
 
 from ..contracts.envelopes import (
     AdaptiveProjectivePoleOwnershipV1,
@@ -479,17 +478,105 @@ def global_termination_height(boxes, *, local_height) -> int:
     return max(bounds, default=0)
 
 
-def primitive_global_shell(height: int):
-    """Все primitive covectors ровно высоты max(|a|, |b|) == height."""
+@dataclass(frozen=True, slots=True)
+class GlobalHeightSegment:
+    """Один cell-кусок ordinal-окна: карта плюс sealed рациональная оболочка.
 
-    for first in range(-height, height + 1):
-        for second in (-height, height):
-            if gcd(abs(first), abs(second)) == 1:
-                yield first, second
-    for second in range(-height + 1, height):
-        for first in (-height, height):
-            if gcd(abs(first), abs(second)) == 1:
-                yield first, second
+    Внутри одной канонической ячейки выполняется |slope| <= 1, поэтому
+    max-норма ковектора РАВНА знаменателю его наклона в карте этой ячейки.
+    Значит перечисление числителей при фиксированном знаменателе — это и есть
+    перечисление по chart-invariant высоте, и закон минимальности не меняется:
+    меняется только цена его проверки.
+
+    `outer_*` — доказанное надмножество допустимого в этом куске, `inner_*` —
+    доказанное подмножество (пустое, если inner_lower >= inner_upper).
+    """
+
+    use_x_denominator: bool
+    denominator_sign: int
+    outer_lower: Fraction
+    inner_lower: Fraction
+    inner_upper: Fraction
+    outer_upper: Fraction
+
+
+def cell_segments(use_x: bool, denominator_sign: int, bracket):
+    """Разрезать sealed-оболочку карты по границам ячеек |slope| == 1.
+
+    Часть оболочки с |slope| >= 1 лежит в соседней ячейке: там знаменателем
+    max-нормы служит другая координата. Она переводится обратной картой
+    slope' = 1/slope со знаком знаменателя `denominator_sign * sign(slope)`,
+    после чего снова |slope'| <= 1 и высота опять равна знаменателю.
+    """
+
+    outer_lower, inner_lower, inner_upper, outer_upper = bracket
+    if outer_lower > outer_upper:
+        return ()
+    cuts = [outer_lower]
+    cuts.extend(
+        value
+        for value in (Fraction(-1), Fraction(1))
+        if outer_lower < value < outer_upper
+    )
+    cuts.append(outer_upper)
+    segments = []
+    for low, high in zip(cuts, cuts[1:]):
+        inner = (max(inner_lower, low), min(inner_upper, high))
+        if inner[0] >= inner[1]:
+            inner = None
+        if low >= 1 or high <= -1:
+            chart = (
+                not use_x,
+                denominator_sign if low >= 1 else -denominator_sign,
+            )
+            bounds = (1 / high, 1 / low)
+            inner = None if inner is None else (1 / inner[1], 1 / inner[0])
+        else:
+            chart = (use_x, denominator_sign)
+            bounds = (low, high)
+        segments.append(
+            GlobalHeightSegment(
+                use_x_denominator=chart[0],
+                denominator_sign=chart[1],
+                outer_lower=bounds[0],
+                inner_lower=Fraction(0) if inner is None else inner[0],
+                inner_upper=Fraction(0) if inner is None else inner[1],
+                outer_upper=bounds[1],
+            )
+        )
+    return tuple(segments)
+
+
+def reachable_pieces(item, *, admissible, invalid):
+    """Куски, до которых вообще дотягивается допустимый конус ordinal.
+
+    Допустимое множество ordinal — пересечение полуплоскостей, то есть
+    выпуклый конус, и он содержит окрестность ideal, лежащего в
+    termination-куске. По порядку поворота он связен: если общий вектор
+    перехода между соседними кусками недопустим, за ним недопустимо всё.
+    Один exact-предикат на границу решает, метётся ли соседний кусок вовсе,
+    и обход не может вернуться назад.
+    """
+
+    termination_piece(item, invalid=invalid)
+    pieces = item.pieces
+    start = item.termination_piece_index
+    reached = {start}
+    for step in (-1, 1):
+        index = start
+        while 0 <= index + step < len(pieces):
+            left = min(index, index + step)
+            if not admissible(
+                _transition_vector(
+                    _piece_cell_index(pieces[left]),
+                    _piece_cell_index(pieces[left + 1]),
+                    invalid=invalid,
+                )
+            ):
+                break
+            index += step
+            reached.add(index)
+    return tuple(sorted(reached))
 
 
 def search_global_height(
@@ -499,26 +586,40 @@ def search_global_height(
     q,
     stop_height,
     *,
-    local_candidate,
+    segments,
+    shell_candidates,
     best_fan,
     budget,
 ):
-    """Минимальный веер по единой, chart-invariant covector-высоте."""
+    """Минимальный веер по единой, chart-invariant covector-высоте.
 
-    candidates = [set() for _ in range(len(ideal) - 2)]
+    Оболочка max-нормы целиком НЕ метётся: примитивных ковекторов ровно
+    высоты h не больше 8h, и проход по высотам стоил бы 4*H*(H+1)*k, то есть
+    квадратично, а исчерпание бюджета было бы артефактом закона перечисления,
+    а не глубины задачи. Вместо этого каждая высота стоит суммы по кускам
+    ширины sealed-оболочки куска: w*h + 1 числителей, как в одно-картной
+    ветви. Минимум на объединении кусков — минимум по-кусковых минимумов,
+    поэтому закон минимальности прежний.
+    """
+
+    candidates = [set() for _ in segments]
     previous_counts = tuple(0 for _ in candidates)
+    if not all(segments):
+        return None, None, previous_counts, previous_counts
     for height in range(1, stop_height + 1):
-        for vector in primitive_global_shell(height):
-            budget.spend_shell_probes(len(candidates))
-            for ordinal in range(1, len(ideal) - 1):
-                if local_candidate(
-                    metric,
-                    ideal,
-                    ordinal,
-                    vector,
-                    q,
-                ):
-                    candidates[ordinal - 1].add(vector)
+        for ordinal, plan in enumerate(segments, start=1):
+            for segment in plan:
+                candidates[ordinal - 1].update(
+                    shell_candidates(
+                        metric,
+                        ideal,
+                        ordinal,
+                        q,
+                        segment,
+                        height,
+                        budget,
+                    )
+                )
         fan = (
             best_fan(metric, ideal, orientation, q, candidates, budget)
             if all(candidates)

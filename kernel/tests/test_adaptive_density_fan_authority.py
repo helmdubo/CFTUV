@@ -44,7 +44,6 @@ from cftuv_envelope.reference.adaptive_density_fan import (
     _DENSITY_EXACT_WORK_CAP,
     _best_fan,
     _covectors,
-    _local_candidate,
     _subturn,
     _work_budget,
     certify_adaptive_density_fan,
@@ -73,6 +72,12 @@ _FIELD = (
     Path(__file__).parents[1]
     / "fixtures"
     / "building_002_full_selection_v1"
+)
+
+_PATCH10 = (
+    Path(__file__).parents[1]
+    / "fixtures"
+    / "building_patch10_density4_v1"
 )
 
 
@@ -1313,13 +1318,53 @@ def test_exact_work_cap_counters_repeat_bit_for_bit():
     )
 
 
+def _atlas_search_inputs(q: int = 2):
+    """Тот же вход, что у atlas-ветви сертификации: план по кускам окна."""
+
+    metric, orientation, normals = _projective_atlas_repro()
+    ideal = _covectors(metric, normals)
+    _, records = _density_fan._window_envelopes(ideal)
+    local_records = tuple(
+        _density_fan._local_record(item) for item in records
+    )
+    sealed = tuple(
+        _density_fan._sealed_local_interval(
+            metric,
+            ideal,
+            ordinal,
+            orientation,
+            q,
+            item,
+        )
+        for ordinal, item in enumerate(local_records, start=1)
+    )
+    segments = _density_fan._search_segments(
+        metric,
+        ideal,
+        orientation,
+        q,
+        records,
+        local_records,
+        sealed,
+    )
+    return metric, ideal, orientation, segments
+
+
 def test_atlas_search_spends_the_same_exact_work_on_every_run():
-    """Atlas-ветвь тратит бюджет из того же счётчика и так же повторяемо."""
+    """Atlas-ветвь тратит бюджет из того же счётчика и так же повторяемо.
+
+    Числа счётчиков — цена ЗАКОНА ПЕРЕЧИСЛЕНИЯ, а не глубины задачи, и
+    здесь они упали с 48 до 4 при том же исходе (высота 4, вектор (3, 4)).
+    Прежний закон мёл всю оболочку max-нормы: до 8h примитивных ковекторов
+    на высоту, то есть 4*H*(H+1)*k на проход. Новый перечисляет только
+    числители внутри sealed-оболочки каждого cell-куска, как одно-картная
+    ветвь. Исход обязан совпадать побитово — это и проверяется рядом с
+    ценой, иначе падение цены нечем отличить от потери кандидатов.
+    """
 
     runs = []
     for _ in range(2):
-        metric, orientation, normals = _projective_atlas_repro()
-        ideal = _covectors(metric, normals)
+        metric, ideal, orientation, segments = _atlas_search_inputs()
         budget = _work_budget()
         result = search_global_height(
             metric,
@@ -1327,7 +1372,8 @@ def test_atlas_search_spends_the_same_exact_work_on_every_run():
             orientation,
             2,
             8,
-            local_candidate=_local_candidate,
+            segments=segments,
+            shell_candidates=_density_fan._global_shell_candidates,
             best_fan=_best_fan,
             budget=budget,
         )
@@ -1335,8 +1381,10 @@ def test_atlas_search_spends_the_same_exact_work_on_every_run():
 
     assert runs[0] == runs[1]
     assert runs[0][0][0] == 4
+    assert runs[0][0][1] == ((3, 4),)
+    assert runs[0][0][2] == (0,)
     assert runs[0][1] == (
-        ("DENSITY_FAN_SHELL_PROBES", 48),
+        ("DENSITY_FAN_SHELL_PROBES", 4),
         ("DENSITY_FAN_ORDER_STEPS", 2),
     )
 
@@ -1347,10 +1395,12 @@ def test_atlas_sweep_names_exhaustion_instead_of_walking_to_the_height_cap():
     Доказанная высота останова этого окна равна 4.4e7 — ровно поэтому
     `_RESOURCE_HEIGHT_CAP` не был бюджетом. Здесь веер не находится никогда,
     и единственное, что обязано остановить проход, — счётчик работы.
+
+    Перерасход над капом больше единицы: высота теперь стоит w*h + 1
+    числителей одного куска, и последняя высота оплачивается целиком.
     """
 
-    metric, orientation, normals = _projective_atlas_repro()
-    ideal = _covectors(metric, normals)
+    metric, ideal, orientation, segments = _atlas_search_inputs()
     budget = _work_budget(1 << 12)
 
     with pytest.raises(
@@ -1363,13 +1413,14 @@ def test_atlas_sweep_names_exhaustion_instead_of_walking_to_the_height_cap():
             orientation,
             2,
             10**6,
-            local_candidate=_local_candidate,
+            segments=segments,
+            shell_candidates=_density_fan._global_shell_candidates,
             best_fan=lambda *_: None,
             budget=budget,
         )
 
     assert budget.counters() == (
-        ("DENSITY_FAN_SHELL_PROBES", (1 << 12) + 1),
+        ("DENSITY_FAN_SHELL_PROBES", 4_130),
         ("DENSITY_FAN_ORDER_STEPS", 0),
     )
 
@@ -1434,3 +1485,101 @@ def test_deepest_green_field_authority_stays_far_below_the_work_cap(
     assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
     assert max(item.spent for item in budgets) == 9_035
     assert 9_035 * 8 < _DENSITY_EXACT_WORK_CAP
+
+
+def _patch10_inputs():
+    return (
+        kernel.AnalysisSnapshotCodecV1.loads(
+            (_PATCH10 / "analysis_snapshot.json").read_bytes()
+        ),
+        kernel.DecalRequestCodecV1.loads(
+            (_PATCH10 / "decal_request.json").read_bytes()
+        ),
+    )
+
+
+def test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap(
+    monkeypatch,
+):
+    """Полевой домен с atlas-окном: власть строится, а не исчерпывается.
+
+    До по-кускового перечисления этот домен отказывал именем
+    `DENSITY_RATIONAL_AUTHORITY_EXHAUSTED`, потратив весь кап 131 072 единиц
+    и 723 МиБ пиковой памяти. Причина была в ЗАКОНЕ ПЕРЕЧИСЛЕНИЯ, а не в
+    глубине задачи: atlas-ветвь мела всю оболочку max-нормы (до 8h примитивных
+    ковекторов на высоту, 4*H*(H+1)*k на проход), тогда как одно-картная ветвь
+    перечисляла только числители внутри sealed-интервала.
+
+    Здесь заморожено, что задача была неглубокой: D* = 1711 достигается за
+    3 432 единицы — в 38 раз меньше капа. Рядом заморожена доказанная высота
+    останова 191 692 805: `_RESOURCE_HEIGHT_CAP` = 10^6 не был бюджетом и на
+    этом домене, поэтому исчерпание нельзя было объяснить «слишком глубоко».
+
+    Проверяется ИМЕННО atlas-ветвь: ровно одна власть домена несёт
+    `AdaptiveRationalFanOrdinalWindowAtlasV1`, и это она самая глубокая.
+    Без этой строки тест прошёл бы и на одно-картных окнах.
+    """
+
+    budgets = _budget_spy(monkeypatch)
+    snapshot, request = _patch10_inputs()
+
+    result = kernel.compile_reference_envelopes(snapshot, request)
+
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    authorities = tuple(
+        spec.direction_fan_authority
+        for spec in result.compilation.envelope_specs
+        if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2
+    )
+    atlas = tuple(
+        item
+        for item in authorities
+        if any(
+            type(window) is AdaptiveRationalFanOrdinalWindowAtlasV1
+            for window in item.ordinal_windows
+        )
+    )
+    assert len(authorities) == 4
+    assert len({item.authority_id for item in atlas}) == 1
+    deepest = max(authorities, key=lambda item: item.minimal_common_height)
+    assert deepest.authority_id == atlas[0].authority_id
+    assert deepest.max_subturn_q == 6
+    assert deepest.minimal_common_height == 1_711
+    assert deepest.exhaustive_previous_height == 1_710
+    assert deepest.bound_primitive_integer_vectors == (
+        (1474, 1711),
+        (738, 1399),
+    )
+    assert deepest.previous_height_witness.primitive_candidate_counts == (
+        0,
+        7,
+    )
+    assert deepest.termination_height_upper_bound == 191_692_805
+    assert tuple(
+        type(window) is AdaptiveRationalFanOrdinalWindowAtlasV1
+        for window in deepest.ordinal_windows
+    ) == (False, True)
+    verify_sealed_adaptive_density_fan(deepest, ideal_count=4)
+    assert max(item.spent for item in budgets) == 3_432
+    assert 3_432 * 32 < _DENSITY_EXACT_WORK_CAP
+
+
+def test_patch10_density_four_domain_reaches_its_own_named_lattice_refusal():
+    """Домен доходит до СВОЕЙ стадии и отказывает там своим именем.
+
+    Плата за починку перечисления — новый факт, а не молчание: план теперь
+    компилируется, поэтому домен доходит до привязки к решётке и получает
+    именованный отказ `LATTICE_SNAP_BREAKS_A_VERTEX_FAN` на стадии BRIDGE.
+    Это ДРУГОЙ закон и другая карточка; здесь он зафиксирован, чтобы его
+    появление нельзя было принять за возврат Density-исчерпания.
+    """
+
+    snapshot, request = _patch10_inputs()
+
+    prepared = prepare_conveyor(snapshot, request)
+
+    assert prepared.outcome.value == "BRIDGE_DID_NOT_MAP"
+    assert prepared.detail.endswith("LATTICE_SNAP_BREAKS_A_VERTEX_FAN")
+    assert "DENSITY" not in prepared.detail
+    assert dict(prepared.counters)["CONVEYOR_RATIONAL_VERTEX_FANS"] == 4
+    assert dict(prepared.timings)["PLAN_COMPILE"] >= 0
