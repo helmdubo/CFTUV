@@ -26,7 +26,11 @@ from cftuv_envelope.contracts.metric import (
     PlanarityAdmissionLawV1,
 )
 from cftuv_envelope.robust.grid import GridSpecV1
-from cftuv_envelope.source_grid import snap_positions
+from cftuv_envelope.source_grid import (
+    intended_right_corners,
+    restored_right_corners,
+    snap_positions,
+)
 from cftuv_envelope.contracts.surface import SourceFaceV1
 from cftuv_envelope.ids import (
     PatchDomainId,
@@ -41,6 +45,7 @@ from cftuv_envelope.outcomes import NamedOutcome
 from cftuv_envelope.planar_metric import (
     PlanarMetricAdmissionError,
     build_rational_affine_planar_metric,
+    patch_plane_normal,
 )
 
 
@@ -369,6 +374,86 @@ def test_the_axial_wall_keeps_its_frame_bit_for_bit():
     assert metric.planarity_certificate.exact is True
     assert isinstance(metric.planarity_certificate, ExactSourcePlaneCertificateV1)
     assert _normal_of(metric) == (Fraction(1), Fraction(0), Fraction(0))
+
+
+def test_the_restored_right_angles_of_a_tilted_patch_survive_the_projection():
+    """(d) Проекция на плоскость патча не отменяет того, что вернула решётка.
+
+    Это ровно тот риск, который вносит порядок «привязать, затем спроецировать»:
+    привязка делает задуманно прямой угол точным, а проекция потом двигает
+    вершины ещё раз — на величину внесённой самой привязкой непланарности. Если
+    бы восстановление этого не переживало, выигрыш решения владельца 2026-07-25
+    был бы обменян на планарность молча.
+
+    Патч наклонный (плоскость y + 2z = 0), у одной вершины авторская ошибка
+    3e-06 — она и делает четыре угла «задуманно прямыми», не будучи такими
+    точно. Замер: восстановлено 4 из 4 и ДО проекции, и после, на всех
+    масштабах окна.
+    """
+
+    width = 3.3125
+    positions = {}
+    identifiers = []
+    for row, height in enumerate((0.0, 0.6, 1.2)):
+        for column, across in enumerate((0.0, width)):
+            index = row * 2 + column
+            vertex_id = SourceVertexId(f"t{index:02d}")
+            identifiers.append(vertex_id)
+            skew = 3e-06 if (row == 1 and column == 1) else 0.0
+            point = LocalPoint3V1(across + skew, 2.0 * height, -1.0 * height)
+            positions[vertex_id] = tuple(
+                Fraction(*value.as_integer_ratio())
+                for value in (point.x, point.y, point.z)
+            )
+    faces = [
+        SourceFaceV1(
+            face_id=SourceFaceId(f"q{index}"),
+            patch_id=PatchId("p0"),
+            vertex_cycle=cycle,
+            edge_cycle=tuple(PhysicalChainId(f"r{index}{side}") for side in range(4)),
+            polygon_normal=LocalPoint3V1(0.0, 1.0, 2.0),
+            triangle_ids=(),
+        )
+        for index, cycle in enumerate(
+            (
+                (identifiers[0], identifiers[1], identifiers[3], identifiers[2]),
+                (identifiers[2], identifiers[3], identifiers[5], identifiers[4]),
+            )
+        )
+    ]
+
+    intended = intended_right_corners(positions, faces)
+    assert len(intended) == 4, intended
+
+    for scale in (16384, 4096, 2048, 512):
+        snapped = snap_positions(positions, GridSpecV1(scale=scale))
+        before = restored_right_corners(snapped, intended)
+        assert before == len(intended), (scale, before)
+
+        normal = patch_plane_normal(snapped, faces)
+        anchor = snapped[identifiers[0]]
+        squared = sum(item * item for item in normal)
+        projected = {
+            vertex_id: tuple(
+                point[axis]
+                - sum(a * (b - c) for a, b, c in zip(normal, point, anchor))
+                * normal[axis]
+                / squared
+                for axis in range(3)
+            )
+            for vertex_id, point in snapped.items()
+        }
+        # Проекция сделала патч ТОЧНО плоским...
+        assert all(
+            sum(
+                a * (b - c)
+                for a, b, c in zip(normal, projected[vertex_id], projected[identifiers[0]])
+            )
+            == 0
+            for vertex_id in identifiers
+        ), scale
+        # ...и не отняла ни одного восстановленного угла.
+        assert restored_right_corners(projected, intended) == len(intended), scale
 
 
 def test_the_plane_normal_is_written_in_canonical_primitive_form():
