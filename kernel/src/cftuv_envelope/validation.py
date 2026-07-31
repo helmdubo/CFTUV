@@ -753,12 +753,16 @@ def validate_rational_affine_planar_metric(
             path + ("exact_basis_a", "exact_basis_b"),
             "affine basis vectors must be linearly independent",
         )
-    if _fraction_point3(certificate.exact_plane_normal) != normal:
+    declared = _fraction_point3(certificate.exact_plane_normal)
+    # Прежде стояло равенство `A × B`: проверялось не свойство плоскости, а
+    # конкретный вывод. Каноничность записи не требуется намеренно — это
+    # свойство того, что ПИШЕТ построитель.
+    if any(normal) and any(declared) and any(_fraction_cross3(declared, normal)):
         _issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("planarity_certificate", "exact_plane_normal"),
-            "plane normal must be the exact A cross B construction",
+            "plane normal must span the same plane as the A/B basis",
         )
     gram = _fraction_matrix2(metric.exact_gram_matrix)
     expected_gram = (

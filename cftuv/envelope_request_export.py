@@ -69,6 +69,16 @@ class EnvelopeDebugHostOutcome(str, Enum):
     RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
         "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
     )
+    # Отказы метрики выходят каждый под СВОИМ именем. Прежде хост сводил их все
+    # к `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`, и поле читало «нужна
+    # near-planar политика» ровно тогда, когда она уже была включена, а отказал
+    # бюджет. Имя не на ту причину дороже отсутствующего.
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = (
+        "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    )
+    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+    NO_GRID_SCALE_RESTORES_RELATIONS = "NO_GRID_SCALE_RESTORES_RELATIONS"
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = (
         "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     )
@@ -97,6 +107,22 @@ class EnvelopeDebugHostOutcome(str, Enum):
     ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED = (
         "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
     )
+
+
+# Отказы, случившиеся НА СТУПЕНИ МЕТРИКИ (все — из
+# `PlanarMetricAdmissionError`). Ступень домена определяется тем, ГДЕ отказ
+# произошёл, а не тем, как он назван, поэтому разведение схлопнутого имени не
+# должно молча переносить домен на другую ступень.
+METRIC_STAGE_OUTCOMES = frozenset(
+    {
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+        EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
+        EnvelopeDebugHostOutcome.GRID_WINDOW_CLOSED,
+        EnvelopeDebugHostOutcome.NO_POWER_OF_TWO_STEP_IN_WINDOW,
+        EnvelopeDebugHostOutcome.NO_GRID_SCALE_RESTORES_RELATIONS,
+    }
+)
 
 
 class EnvelopeDebugHostSeverity(str, Enum):
@@ -1779,6 +1805,20 @@ def _build_angular_relations(
     )
 
 
+def _host_outcome_for(outcome):
+    """Исход ядра — в исход хоста, ПО ИМЕНИ, а не таблицей соответствий.
+
+    Имя ядра и имя хоста обязаны совпадать: расхождение означало бы, что поле
+    читает одно, а лог ядра говорит другое. Неизвестное имя не подменяется
+    ближайшим — иначе новый исход ядра молча выходил бы под чужим.
+    """
+
+    try:
+        return EnvelopeDebugHostOutcome(outcome.value)
+    except ValueError:
+        return EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED
+
+
 def _rational_affine_metric(
     kernel,
     *,
@@ -1812,8 +1852,12 @@ def _rational_affine_metric(
             ),
         )
     except kernel.PlanarMetricAdmissionError as exc:
+        # Исход ядра переносится ПО ИМЕНИ, а не сводится к одному. Ядро
+        # различает «политика проекции не запрошена», «источник вне бюджета»,
+        # «снап вывел источник из плоскости» и три исхода окна решётки; хост,
+        # схлопывая их, оставлял в поле причину, которой не было.
         raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+            _host_outcome_for(exc.outcome),
             str(exc),
             patch_domain_id=patch_domain_id.value,
         ) from exc
@@ -2807,11 +2851,7 @@ def evaluate_envelope_debug_staged(
             diagnostics.append(diagnostic)
             stage = (
                 EnvelopeDomainStage.METRIC_REJECTED
-                if exc.outcome
-                in {
-                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                    EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-                }
+                if exc.outcome in METRIC_STAGE_OUTCOMES
                 else EnvelopeDomainStage.COMPILE_REJECTED
             )
             receipt = _receipt_for_failure(

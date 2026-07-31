@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 from hashlib import sha256
+from math import gcd
 import math
 from typing import Iterable
 
@@ -50,7 +51,7 @@ from .ids import (
     SourceRevision,
     SourceVertexId,
 )
-from .numeric import LocalPoint3V1
+from .numeric import LocalPoint3V1, canonical_primitive_normal
 from .outcomes import NamedOutcome
 from .source_grid import resolve_source_grid
 
@@ -137,6 +138,54 @@ _MINIMUM_EXTENT = Fraction(1, 10**3)
 _COORDINATE_ULP_MULTIPLIER = 64
 
 
+def _newell_normal(positions, faces):
+    """Нормаль Ньюэлла по ВСЕМ полигонам патча — собственная плоскость патча.
+
+    Почему Ньюэлл, а не векторное произведение затравочной тройки вершин:
+    тройка не управляет своей обусловленностью. У ската, выдавленного вдоль
+    одной оси, первые два независимых вектора в порядке сортировки id идут
+    ВДОЛЬ склона и почти коллинеарны; их произведение вырождается, и нормаль
+    схлопывается на ось выдавливания. Замерено на полевом скате (нормаль
+    (0,−0.4525,−0.8918), габарит 3.3125, хранение вершин float32): невязка к
+    такой плоскости 3.312 — то есть ВЕСЬ габарит патча — при бюджете 3.31e-07,
+    тогда как к плоскости Ньюэлла та же невязка 1.84e-08. Ньюэлл суммирует
+    вклад каждого ребра каждого полигона, поэтому вырождение одной тройки его
+    не двигает, а на точно планарном входе он точен.
+    """
+
+    x = y = z = Fraction(0)
+    for face in faces:
+        cycle = face.vertex_cycle
+        count = len(cycle)
+        for index in range(count):
+            head = positions[cycle[index]]
+            tail = positions[cycle[(index + 1) % count]]
+            x += (head[1] - tail[1]) * (head[2] + tail[2])
+            y += (head[2] - tail[2]) * (head[0] + tail[0])
+            z += (head[0] - tail[0]) * (head[1] + tail[1])
+    return (x, y, z)
+
+
+def patch_plane_normal(positions, faces):
+    """Собственная плоскость патча: Ньюэлл плюс каноническая примитивная форма."""
+
+    return canonical_primitive_normal(_newell_normal(positions, faces))
+
+
+def _plane_anchor(positions, required_ids):
+    """Опора плоскости — первая вершина кадра, та же, что и начало координат.
+
+    Опора задаёт СМЕЩЕНИЕ плоскости вдоль нормали, направление даёт Ньюэлл.
+    Взята вершина, а не центроид, по двум причинам, и обе про записи, а не про
+    точность: `projected_source_vertex_ids` обязан называть ТЕ вершины, которые
+    действительно отклонились, — от центроида отклоняются все, и перечень
+    перестаёт быть диагностикой; и на точно планарном входе вершина даёт ровно
+    прежний ноль, поэтому прежнее поведение не двигается вовсе.
+    """
+
+    return positions[required_ids[0]]
+
+
 @dataclass(frozen=True, slots=True)
 class _NearPlanarFacts:
     planar_extent: Fraction
@@ -145,7 +194,65 @@ class _NearPlanarFacts:
     projected: tuple[SourceVertexId, ...]
 
 
-def _project_onto_exact_plane(*, positions, origin, normal, off_plane):
+def _plane_extent_and_ulp(positions):
+    """Габарит патча и наибольший ULP его координат — вход обоих бюджетов."""
+
+    planar_extent = max(
+        max(point[axis] for point in positions.values())
+        - min(point[axis] for point in positions.values())
+        for axis in range(3)
+    )
+    max_ulp = Fraction(0)
+    for point in positions.values():
+        for value in point:
+            magnitude = math.ulp(float(value)) if value else math.ulp(1.0)
+            max_ulp = max(max_ulp, Fraction(*magnitude.as_integer_ratio()))
+    return planar_extent, max_ulp
+
+
+def _representation_budget(planar_extent, max_ulp):
+    """Бюджет шума ПРЕДСТАВЛЕНИЯ: сколько binary64 врёт о задуманной плоскости."""
+
+    return max(
+        _RELATIVE_EXTENT_FACTOR * max(planar_extent, _MINIMUM_EXTENT),
+        _COORDINATE_ULP_MULTIPLIER * max_ulp,
+    )
+
+
+def _admission_budget(*, planar_extent, max_ulp, grid_certificate):
+    """Насколько источнику разрешено отклоняться от собственной плоскости.
+
+    Величина принадлежит ЗАКОНУ РЕШЁТКИ, а не плоскости, и потому берётся из
+    его сертификата.
+
+    Закон, который источник ДВИГАЕТ, сам же и вносит непланарность: осевая
+    решётка сохраняет плоскость точно только у плоскостей, соизмеримых с
+    осями, а наклонную она рвёт — каждая координата садится в свой узел
+    независимо. Внесённое таким образом отклонение ограничено ячейкой шага, и
+    судить его шумовым бюджетом было бы подменой величин: бюджет описывает
+    точность ПРЕДСТАВЛЕНИЯ (1e-7 от габарита), а ячейка есть объявленная
+    правка ГЕОМЕТРИИ, которая крупнее его в сотни и тысячи раз — множитель
+    зависит от выбранного масштаба и потому назван замером, а не порядком
+    (`DECISIONS.md` за 2026-07-25 уже правил здесь «четыре порядка» на
+    14–1776 раз). Замер на полевом скате
+    (нормаль (0,−0.4525,−0.8918), габарит 3.3125): после привязки отклонение
+    от собственной плоскости 8.65e-06 при ячейке 6.10e-05 — своё, а при
+    подлинной кривизне 0.05 м оно 1.87e-02 при той же ячейке, то есть чужое.
+    Разделение на три порядка, а не на проценты.
+
+    Закон, который источник не двигает, не вносит ничего, и для него бюджет
+    остаётся прежним — шум представления.
+    """
+
+    if not grid_certificate.snapping_law.snaps_source:
+        return _representation_budget(planar_extent, max_ulp)
+    step = grid_certificate.window_step
+    return Fraction(step.numerator, step.denominator)
+
+
+def _project_onto_exact_plane(
+    *, grid_certificate, positions, origin, normal, off_plane
+):
     """Спроецировать отклонившиеся вершины на плоскость — точно, в дробях.
 
     `p - ((p-o)·n / (n·n)) · n` считается в рациональных числах, поэтому вниз
@@ -162,20 +269,11 @@ def _project_onto_exact_plane(*, positions, origin, normal, off_plane):
         residual_squared = deviation * deviation / normal_squared
         max_residual_squared = max(max_residual_squared, residual_squared)
 
-    planar_extent = max(
-        max(point[axis] for point in positions.values())
-        - min(point[axis] for point in positions.values())
-        for axis in range(3)
-    )
-    max_ulp = Fraction(0)
-    for point in positions.values():
-        for value in point:
-            magnitude = math.ulp(float(value)) if value else math.ulp(1.0)
-            max_ulp = max(max_ulp, Fraction(*magnitude.as_integer_ratio()))
-
-    budget = max(
-        _RELATIVE_EXTENT_FACTOR * max(planar_extent, _MINIMUM_EXTENT),
-        _COORDINATE_ULP_MULTIPLIER * max_ulp,
+    planar_extent, max_ulp = _plane_extent_and_ulp(positions)
+    budget = _admission_budget(
+        planar_extent=planar_extent,
+        max_ulp=max_ulp,
+        grid_certificate=grid_certificate,
     )
     if max_residual_squared > budget * budget:
         raise PlanarMetricAdmissionError(
@@ -183,7 +281,6 @@ def _project_onto_exact_plane(*, positions, origin, normal, off_plane):
             "source deviates beyond the declared near-planar budget: "
             f"vertices={[item.value for item in off_plane]}",
         )
-
     for vertex_id in off_plane:
         scale = _dot3(_sub3(positions[vertex_id], origin), normal) / normal_squared
         positions[vertex_id] = tuple(
@@ -194,6 +291,47 @@ def _project_onto_exact_plane(*, positions, origin, normal, off_plane):
         residual_budget=budget,
         max_residual_squared=max_residual_squared,
         projected=off_plane,
+    )
+
+
+def _resolve_patch_plane(
+    *, positions, faces, required_ids, planarity_policy, grid_certificate
+):
+    """Плоскость патча и то, что пришлось в неё положить.
+
+    ЗАКОН ПЛОСКОСТИ живёт здесь. Плоскость выводится из фактов патча — Ньюэлл
+    по всем его полигонам — и выводится ДО базиса. Прежде порядок был обратным:
+    плоскость получалась побочным продуктом затравочной тройки базиса, то есть
+    выбиралась тремя вершинами, обусловленностью которых никто не управлял. У
+    ската, выдавленного вдоль оси, эта тройка почти коллинеарна, нормаль
+    схлопывается на ось выдавливания, и патч мерялся против чужой плоскости —
+    полевой отказ на `building.002` был именно этим.
+
+    `positions` правятся на месте: проекция кладёт отклонившиеся вершины в
+    плоскость точно, и ниже базис строится уже от них.
+    """
+
+    normal = patch_plane_normal(positions, faces)
+    anchor = _plane_anchor(positions, required_ids)
+    off_plane = tuple(
+        vertex_id
+        for vertex_id in required_ids
+        if _dot3(_sub3(positions[vertex_id], anchor), normal) != 0
+    )
+    if not off_plane:
+        return normal, None
+    if planarity_policy is not PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1:
+        raise PlanarMetricAdmissionError(
+            NamedOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+            "EXACT_SOURCE_PLANE_V1 rejected source vertices: "
+            + ", ".join(item.value for item in off_plane),
+        )
+    return normal, _project_onto_exact_plane(
+        grid_certificate=grid_certificate,
+        positions=positions,
+        origin=anchor,
+        normal=normal,
+        off_plane=off_plane,
     )
 
 
@@ -304,6 +442,13 @@ def build_rational_affine_planar_metric(
         positions=positions, faces=faces, snapping_law=grid_policy
     )
     positions = grid_facts.positions
+    normal, near_planar_facts = _resolve_patch_plane(
+        positions=positions,
+        faces=faces,
+        required_ids=required_ids,
+        planarity_policy=planarity_policy,
+        grid_certificate=grid_facts.certificate,
+    )
     origin_id = required_ids[0]
     origin = positions[origin_id]
     candidates = tuple(
@@ -330,23 +475,6 @@ def build_rational_affine_planar_metric(
     if second is None:
         raise ValueError(
             "source vertices do not define linearly independent A/B"
-        )
-    normal = _cross3(first, second)
-    off_plane = tuple(
-        vertex_id
-        for vertex_id in required_ids
-        if _dot3(_sub3(positions[vertex_id], origin), normal) != 0
-    )
-    near_planar_facts = None
-    if off_plane:
-        if planarity_policy is not PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1:
-            raise PlanarMetricAdmissionError(
-                NamedOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-                "EXACT_SOURCE_PLANE_V1 rejected source vertices: "
-                + ", ".join(item.value for item in off_plane),
-            )
-        near_planar_facts = _project_onto_exact_plane(
-            positions=positions, origin=origin, normal=normal, off_plane=off_plane
         )
 
     g00 = _dot3(first, first)

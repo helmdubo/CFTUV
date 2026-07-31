@@ -1135,6 +1135,13 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     проверки, а её механизм — соседний тест держит именно этот факт.
     1e-2 больше половины ячейки, поэтому переживает привязку и обязано быть
     отвергнутым бюджетом невязки, как и прежде.
+
+    Имя отказа — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`, а не прежнее
+    `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`. Прежде хост сводил все
+    отказы метрики к одному имени, и поле читало «нужна near-planar политика»
+    ровно тогда, когда она уже была включена (`HOST_PLANARITY_POLICY`), а
+    отказал бюджет. Тело сообщения говорило про бюджет, имя — про политику;
+    расходились они всегда, и виновата в этом была не геометрия.
     """
 
     evaluation = evaluate_envelope_debug(
@@ -1145,7 +1152,7 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
 
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
     )
     # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ приходит от
     # бюджета невязки, а не от требования побитовой компланарности.
