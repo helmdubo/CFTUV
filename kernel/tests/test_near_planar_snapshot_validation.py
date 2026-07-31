@@ -436,7 +436,7 @@ def test_the_validator_admits_what_its_own_builder_writes(grid_law):
 def test_a_forged_coordinate_is_refused():
     """R2. Одна подделанная координата карты — реконструкция мимо плоскости."""
 
-    snapshot, metric = near_planar_snapshot(SOURCE_SNAP)
+    metric = near_planar_metric(SOURCE_SNAP)
     victim = min(
         metric.exact_source_vertex_coordinates,
         key=lambda item: item.source_vertex_id.value,
