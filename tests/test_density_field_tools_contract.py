@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -671,3 +672,134 @@ def test_batch_wrapper_keeps_density_argument_visible():
     cycle = FIELD_CYCLE.read_text(encoding="utf-8")
     assert "INSTALL_SOURCE_NOT_CANONICAL" in cycle
     assert 'canonicalInstallRoot = "E:\\GITHUB\\CFTUV"' in cycle
+
+
+# --------------------------------------------------------------------------
+# Классификация ступени домена: власть одна, и она хостовая.
+# --------------------------------------------------------------------------
+
+
+HOST_EXPORT = ROOT / "cftuv" / "envelope_request_export.py"
+
+
+def _frozenset_members(module: ast.Module, name: str) -> set[str]:
+    """Имена членов множества `name = frozenset({A.x, A.y, ...})` из ИСХОДНИКА.
+
+    Читается текстом, а не импортом: `cftuv.envelope_request_export` тянет
+    `mathutils` через `cftuv.model` и вне Blender не импортируется вовсе.
+    """
+
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(item, ast.Name) and item.id == name for item in node.targets
+        ):
+            continue
+        return {
+            item.attr for item in ast.walk(node.value) if isinstance(item, ast.Attribute)
+        }
+    raise AssertionError(f"assignment {name} not found")
+
+
+def test_field_gate_consumes_the_host_metric_stage_authority():
+    """Ступень домена классифицирует ХОСТ, и только он.
+
+    Инструмент держал собственное двухэлементное множество имён против шести у
+    хоста, поэтому четыре отказа метрики — оба закрытия окна решётки,
+    отсутствие степени двойки в нём и превышение бюджета невязки — расписка
+    молча переносила на ступень COMPILE. Запись `DECISIONS.md` за 2026-07-31
+    прямо это запрещает: множество отказов ступени METRIC названо ОДИН раз,
+    чтобы разведение имени не переносило домен на другую ступень. Кнопка
+    владельца всё это время классифицировала верно; врал только инструмент.
+
+    Способ проверки — чтение исходника, как в `test_architecture.py`. Причина:
+    охраняемое свойство — «у инструмента нет СВОЕГО множества имён», и это
+    свойство исходника, а не поведения. Поведенческий тест прошёл бы и на
+    инструменте, отрастившем второе множество в другом месте; и импортировать
+    ни инструмент (bpy), ни хост (mathutils) вне Blender нельзя.
+    """
+
+    source = FIELD_GATE.read_text(encoding="utf-8")
+    assert "METRIC_STAGE_OUTCOMES," in source, "инструмент не импортирует власть"
+    assert "exc.outcome in METRIC_STAGE_OUTCOMES" in source
+
+    # Собственного множества имён исходов в инструменте не остаётся.
+    gate = _module(FIELD_GATE)
+    literals = [
+        node
+        for node in ast.walk(gate)
+        if isinstance(node, (ast.Set, ast.Tuple, ast.List))
+        and any(
+            isinstance(item, ast.Attribute)
+            and isinstance(item.value, ast.Name)
+            and item.value.id == "EnvelopeDebugHostOutcome"
+            for item in node.elts
+        )
+    ]
+    assert literals == [], ast.dump(literals[0]) if literals else ""
+
+    # И потребляемая власть — та самая, у которой все шесть имён.
+    members = _frozenset_members(_module(HOST_EXPORT), "METRIC_STAGE_OUTCOMES")
+    assert members == {
+        "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
+        "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED",
+        "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+        "GRID_WINDOW_CLOSED",
+        "NO_POWER_OF_TWO_STEP_IN_WINDOW",
+        "NO_GRID_SCALE_RESTORES_RELATIONS",
+    }
+
+
+def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json():
+    """Эхо расписки — строка, а не побайтовый дубликат только что записанного.
+
+    Замер принципала: полный JSON в stdout — 51 тыс. символов на
+    `building.002`, ~170 тыс. на `building` за прогон. Конвейер его не
+    потребляет: `field_cycle.ps1` проверяет наличие ФАЙЛА и отдаёт его путь
+    `field_cycle_summary.py`, который читает файл. Единственный потребитель
+    stdout ворот — путь `--contract-only`, и он выходит ранним `SystemExit` до
+    импорта bpy, то есть до этой строки вовсе.
+    """
+
+    source = FIELD_GATE.read_text(encoding="utf-8")
+    assert "print(json.dumps(payload" not in source
+    assert "print(_receipt_echo(output, text, payload))" in source
+
+    function = _function(_module(FIELD_GATE), "_receipt_echo")
+    namespace = {"hashlib": hashlib}
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(FIELD_GATE),
+            "exec",
+        ),
+        namespace,
+    )
+    text = '{"status": "COMPLETE"}\n'
+    line = namespace["_receipt_echo"](
+        Path("artifacts/run.json"),
+        text,
+        {
+            "status": "COMPLETE",
+            "gate_failure": None,
+            "runs": [
+                {
+                    "domains": [
+                        {"stage": "RAW_READY"},
+                        {"stage": "RAW_READY"},
+                        {"stage": "METRIC_REJECTED"},
+                    ]
+                },
+                {"domains": [{"stage": "COMPILE_REJECTED"}]},
+                {"domains": []},
+            ],
+        },
+    )
+    assert "artifacts" in line and "run.json" in line
+    assert "status=COMPLETE" in line
+    assert "gate_failure=None" in line
+    assert "domains[COMPILE_REJECTED=1 METRIC_REJECTED=1 RAW_READY=2]" in line
+    assert f"sha256={hashlib.sha256(text.encode('utf-8')).hexdigest()}" in line
+    # Компактность — предмет требования, а не побочный эффект.
+    assert len(line) < 300
