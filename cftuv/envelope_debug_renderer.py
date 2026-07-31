@@ -781,6 +781,14 @@ def render_queue_scene(
                                 face.envelope_spec_id
                             ),
                             "doubled_area": face.doubled_area_text,
+                            # Цепь владельца и слитые владельцы — здесь, а не
+                            # только в счётчике: число отвечает «сколько», а
+                            # найти подавленный разделитель на меше можно лишь
+                            # по именам тех граней, которые в штрих вошли.
+                            "source_chain_id": face.source_chain_id,
+                            "merged_owners": [
+                                list(item) for item in face.merged_owners
+                            ],
                         },
                     )
                 )

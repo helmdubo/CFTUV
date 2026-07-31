@@ -25,6 +25,44 @@
 число рядом с ней, и расхождение было бы тихим. Поэтому контур берётся у
 `coverage_at` — того же вызова, которым покрытие и считалось, — и нарисованная
 область равна измеренной по построению. Цена названа стадией `QUEUE_CONTOUR`.
+
+ПОЧЕМУ ВНУТРЕННИЙ РАЗДЕЛИТЕЛЬ ОДНОЙ ЦЕПИ ПОДАВЛЯЕТСЯ, и это слой ОТОБРАЖЕНИЯ,
+а не разбиения. Ядро строит по грани на КАЖДОЕ ребро-источник, и два
+коллинеарных ребра одной `PhysicalChain` (полевой случай: `building.004`,
+рёбра 18 и 38, общая вершина 6) дают ДВЕ грани, разделённые перпендикулярной
+дугой из прямой вершины скелета. Разбиение при этом верное — дуга есть
+настоящая граница двух граней, — но контур ПОКРЫТИЯ рисует её как ребро
+декали, то есть показывает шов там, где у продукта его нет.
+
+Подавляется ровно внутренняя граница и ровно там, где все четыре условия
+доказаны ТОЧНО и целочисленно: один домен-регион, один класс несущей прямой у
+рёбер-источников (`_integer_line_class` — та же формула, что у
+`bridge.line_class`), одна `PhysicalChain` (`source_chain_by_span`) и
+совпавшая семантика владельца (оба имени равны, в том числе оба пустые).
+Порогов нет ни одного: общий сегмент границы опознаётся ТОЧНЫМ равенством
+концов через канонические `SqrtSumV1.terms`.
+
+Тихого исчезновения при этом не появилось, и следов тому три. Дуга по-прежнему
+рисуется слоем скелета (`_skeleton_segments` читает ПОЛНЫЕ грани разбиения и
+слияния не видит вовсе — роли слоёв разделены). Число подавленных
+разделителей лежит счётчиком `CONTOUR_MERGED_SAME_CHAIN_SEPARATORS`. Владельцы
+слитых граней перечислены поимённо в `merged_owners` самой записи и в
+sidecar-разметке штриха.
+
+ЧЕМ СЛИЯНИЕ ДОКАЗЫВАЕТ СЕБЯ, и почему НЕ площадью. Площадь тут проверять
+нечего: сокращение встречных полурёбер вычитает из суммы трапеций ровно ноль
+(`cross(p,q) + cross(q,p) = 0`), поэтому равенство площади слитого контура
+сумме площадей граней выполняется ТОЖДЕСТВЕННО при любом обходе, в том числе
+неверном. Проверка такого равенства мерила бы арифметику, а не сборку, — и
+выглядела бы доказательством, не будучи им.
+
+Проверяется то, что тождеством не является: обход обязан сложиться в ОДИН
+цикл, покрывший все оставшиеся полурёбра (без повторов, развилок и второго
+цикла), а полученный контур обязан быть ПРОСТЫМ — та же граница 1
+(`contour_crossings`), которой ядро проверяет собственные грани, и тем же
+точным предикатом знака. Не доказавшая себя группа остаётся НЕслитой и
+считается `CONTOUR_MERGE_BOUNDARY_UNRESOLVED`: молчаливый запасной обход
+означал бы, что верным считается тот контур, который получился.
 """
 
 from __future__ import annotations
@@ -94,6 +132,31 @@ ENVELOPE_DEBUG_ENGINE_QUEUE = "QUEUE"
 # одного цвета без единого следа о том, что так вышло.
 QUEUE_OWNER_PALETTE_WRAPPED = "QUEUE_OWNER_PALETTE_WRAPPED"
 
+#: Сколько внутренних разделителей стадия контура подавила: каждая пара
+#: встречных полурёбер, сокращённая при слиянии граней одной цепи, — единица.
+CONTOUR_MERGED_SAME_CHAIN_SEPARATORS = "CONTOUR_MERGED_SAME_CHAIN_SEPARATORS"
+
+#: Сколько ГРУПП граней слилось. Отдельно от числа разделителей, потому что три
+#: коллинеарных ребра одной цепи дают одну группу и два разделителя, и по одному
+#: числу эти два случая неотличимы.
+CONTOUR_MERGED_SAME_CHAIN_GROUPS = "CONTOUR_MERGED_SAME_CHAIN_GROUPS"
+
+#: Сколько групп-кандидатов НЕ слилось: обход объединения не сложился в один
+#: цикл либо его площадь не совпала с суммой площадей граней. Ноль здесь —
+#: измерение, а не умолчание: без счётчика «слияний не было» было бы
+#: неотличимо от «слияние отказало молча».
+CONTOUR_MERGE_BOUNDARY_UNRESOLVED = "CONTOUR_MERGE_BOUNDARY_UNRESOLVED"
+
+#: Счётчики стадии контура, принадлежащие ХОСТУ, а не ядру. Пишутся ВСЕГДА и
+#: перечнем: список из одного сработавшего счётчика не отличал бы ноль от
+#: неизмеренного. Держатся отдельным полем `host_counters`, чтобы канонические
+#: числа ядра (`counters`) остались побитово теми же.
+HOST_CONTOUR_COUNTERS = (
+    CONTOUR_MERGED_SAME_CHAIN_SEPARATORS,
+    CONTOUR_MERGED_SAME_CHAIN_GROUPS,
+    CONTOUR_MERGE_BOUNDARY_UNRESOLVED,
+)
+
 #: Разрядность целочисленной оболочки при переводе `SqrtSumV1` в число.
 #: Читать величину по частям правило проекта запрещает; оболочка — объявленный
 #: способ, и её середина отличается от истинного значения не больше чем на
@@ -121,6 +184,61 @@ class EnvelopeQueueFaceV1:
     points: tuple[tuple[float, float], ...]
     doubled_area: float
     doubled_area_text: str
+    #: `PhysicalChain` ребра-источника. Аддитивное поле ХОСТА: ядро цепь в
+    #: ключе владельца не несёт (`EdgeKey` — вхождение отрезка), а домен несёт
+    #: её в провенансе каждого сегмента граничной петли. `None` — цепь не
+    #: названа: скрытая опора веера, отказавшая выгрузка либо два разных ответа
+    #: на один решёточный отрезок.
+    source_chain_id: str | None = None
+    #: Владельцы граней, слитых в ЭТОТ контур. Пусто — грань не сливалась.
+    #: Перечень, а не число: без имён «грань слита» не говорит, с чем именно, и
+    #: подавленный разделитель нечем было бы найти на меше.
+    merged_owners: tuple[tuple[int, ...], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeQueueCoveredFaceV1:
+    """Кусок покрытия ДО перевода в метры: ТОЧНЫЙ контур и оба имени владельца.
+
+    Промежуточная запись стадии контура. Существует затем, что слияние
+    внутренних разделителей обязано идти по точным координатам: во float'ах
+    «тот же самый узел» превращается в «почти тот же», а порогов у этого слоя
+    нет ни одного.
+    """
+
+    region_id: str
+    owner: tuple[int, ...]
+    envelope_spec_id: str
+    envelope_instance_id: str | None
+    #: Точки контура как их вернул `coverage_at`: пары `SqrtSumV1`.
+    points: tuple
+    #: Удвоенная площадь куска, `SqrtSumV1`.
+    doubled_area: object
+    source_chain_id: str | None = None
+    merged_owners: tuple[tuple[int, ...], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeQueueMergeStatsV1:
+    """Числа слияния контуров одного региона. Ноль — тоже измерение."""
+
+    merged_separators: int = 0
+    merged_groups: int = 0
+    unresolved_groups: int = 0
+
+    def __add__(self, other: "EnvelopeQueueMergeStatsV1"):
+        return EnvelopeQueueMergeStatsV1(
+            self.merged_separators + other.merged_separators,
+            self.merged_groups + other.merged_groups,
+            self.unresolved_groups + other.unresolved_groups,
+        )
+
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        return (
+            (CONTOUR_MERGED_SAME_CHAIN_SEPARATORS, self.merged_separators),
+            (CONTOUR_MERGED_SAME_CHAIN_GROUPS, self.merged_groups),
+            (CONTOUR_MERGE_BOUNDARY_UNRESOLVED, self.unresolved_groups),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +286,10 @@ class EnvelopeQueueDomainV1:
     prepare_seconds: float
     coverage_seconds: float
     contour_seconds: float
+    #: Счётчики стадии контура, принадлежащие ХОСТУ. Отдельным полем от
+    #: `counters`: те — канонические числа ядра, и подмешивать к ним измерения
+    #: слоя отображения значило бы сделать «числа ядра» свойством хоста.
+    host_counters: tuple[tuple[str, float], ...] = ()
     #: Сама `ConveyorPreparationV1`. Лежит рядом с записью, а не только в кэше
     #: сессии: лёгкий путь ползунка считает покрытие именно по ней, и искать
     #: её по ключу кэша означало бы второй способ её найти.
@@ -379,6 +501,362 @@ def _covered_contours(region, lattice_alpha: Fraction):
     return coverage_at(region.partition, lattice_alpha).faces
 
 
+def undirected_span(owner) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Ключ ребра-источника БЕЗ направления. `None` — отрезка у владельца нет.
+
+    Без направления, потому что физическое ребро направления не имеет, а обход
+    решёточного полигона его задаёт: `PolygonV1.build` нормирует ориентацию
+    петель, и петля домена может прийти в полигон развёрнутой. Направленный
+    ключ тогда молча не нашёл бы цепь — то есть слияние выключилось бы без
+    единого следа, а выключаться оно обязано только по доказанному условию.
+
+    `None` у скрытой опоры веера: её ключ пятиместный и отрезка не задаёт.
+    """
+
+    if len(owner) != 4:
+        return None
+    start = (int(owner[0]), int(owner[1]))
+    end = (int(owner[2]), int(owner[3]))
+    if start == end:
+        return None
+    return (start, end) if start <= end else (end, start)
+
+
+def _integer_line_class(owner):
+    """Класс несущей прямой ЦЕЛОЧИСЛЕННОГО ребра. `None` — прямой у него нет.
+
+    Формула та же, что у `bridge.line_class` и `bridge._rational_edges`:
+    нормаль `(-dy, dx)` смотрит влево от хода, константа `a*x0 + b*y0`, вся
+    тройка делится на модуль первой ненулевой компоненты нормали. Деление на
+    МОДУЛЬ, а не на саму компоненту, сохраняет знак — то есть класс различает
+    сторону, в которую идёт фронт, и два встречных ребра одной прямой в один
+    класс не попадут.
+
+    Арифметика целая и дробная, ни одного float: `Fraction` от целых точна.
+    """
+
+    if len(owner) != 4:
+        return None
+    x0, y0, x1, y1 = (int(item) for item in owner)
+    a, b = y0 - y1, x1 - x0
+    if a == 0 and b == 0:
+        return None
+    scale = abs(a) if a != 0 else abs(b)
+    return (
+        Fraction(a, scale),
+        Fraction(b, scale),
+        Fraction(a * x0 + b * y0, scale),
+    )
+
+
+def source_chain_by_span(prepared) -> dict:
+    """`region_id -> (ненаправленный решёточный отрезок -> PhysicalChain)`.
+
+    АДДИТИВНАЯ выгрузка хоста поверх готовой подготовки ядра: ни одного байта
+    ядра она не двигает и ни одного его числа не пересчитывает. Ядру цепь не
+    нужна — владельцем грани у него служит вхождение отрезка (`EdgeKey`), — а
+    домену она известна: `_loop_segment` кладёт `physical_chain_ids` в
+    провенанс КАЖДОГО сегмента граничной петли.
+
+    Решёточный образ берётся ТЕМИ ЖЕ функциями ядра (`_region_loops` и
+    `_lattice_image`), которыми мост строил полигон. Второй способ его
+    посчитать разошёлся бы с первым молча — а разойтись ему есть на чём:
+    привязка к решётке двигает вершины, и повторять её округление на глаз
+    означало бы получать другой ответ на другом масштабе.
+
+    Сегмент, у которого цепь названа не единственным именем, и отрезок, на
+    который два сегмента ответили по-разному, остаются БЕЗ цепи: два разных
+    ответа — не ответ, и выбирать между ними здесь нечем.
+    """
+
+    from cftuv_envelope.wavefront.bridge import _lattice_image
+    from cftuv_envelope.wavefront.conveyor import _region_loops
+
+    domain = getattr(prepared, "domain", None)
+    if domain is None:
+        return {}
+    lattice = getattr(prepared, "lattice", None)
+    result: dict[str, dict] = {}
+    for region in domain.domain_regions:
+        loops, _issue = _region_loops(region)
+        if loops is None:
+            continue
+        lattice_loops, _off_lattice, _residual = _lattice_image(loops, lattice)
+        sources = (region.outer, *region.holes)
+        if lattice_loops is None or len(lattice_loops) != len(sources):
+            continue
+        by_span: dict[tuple, str | None] = {}
+        for loop_index, source in enumerate(sources):
+            nodes = lattice_loops[loop_index]
+            segments = source.segments
+            if len(segments) != len(nodes):
+                continue
+            for index, segment in enumerate(segments):
+                names = tuple(
+                    sorted(segment.provenance.physical_chain_ids)
+                )
+                if len(names) != 1:
+                    continue
+                start = nodes[index]
+                end = nodes[(index + 1) % len(nodes)]
+                span = undirected_span(
+                    (start[0], start[1], end[0], end[1])
+                )
+                if span is None:
+                    continue
+                if span in by_span and by_span[span] != names[0]:
+                    by_span[span] = None
+                    continue
+                by_span[span] = names[0]
+        result[region.region_id] = {
+            span: name for span, name in by_span.items() if name is not None
+        }
+    return result
+
+
+def _point_key(point):
+    """Тождество точки контура: канонические наборы её координат.
+
+    `SqrtSumV1` каноничен, поэтому равные величины дают равные `terms`, а
+    разные — разные. Тот же ключ уже служит дедупликации дуг скелета
+    (`_skeleton_segments`), и второго тождества точки в модуле нет.
+    """
+
+    return (point[0].terms, point[1].terms)
+
+
+def _merge_key(face: EnvelopeQueueCoveredFaceV1):
+    """Ключ группы слияния либо `None`, если хоть одно условие не доказано.
+
+    Условий четыре и все они — из карточки: один регион, один класс несущей
+    прямой у рёбер-источников, одна `PhysicalChain`, совпавшая семантика
+    владельца. Имя экземпляра входит в ключ вместе с именем спеки: экземпляр
+    стоит на ЭФФЕКТИВНОЙ alpha, и две грани одной спеки с разными эффективными
+    alpha — разные огибающие, а не одна.
+    """
+
+    line = _integer_line_class(face.owner)
+    if line is None or face.source_chain_id is None:
+        return None
+    return (
+        face.region_id,
+        line,
+        face.source_chain_id,
+        face.envelope_spec_id,
+        face.envelope_instance_id,
+    )
+
+
+def _half_edges(face):
+    """Направленные полурёбра контура. Нулевой длины — пропускаются.
+
+    У верных граней корпуса частичного источника сегмент нулевой длины
+    встречается (два узла скелета в одной точке), площадь не двигает, а
+    встречной пары у него нет — он совпал бы сам с собой.
+    """
+
+    points = face.points
+    size = len(points)
+    edges = []
+    for index in range(size):
+        start_key = _point_key(points[index])
+        end_key = _point_key(points[(index + 1) % size])
+        if start_key != end_key:
+            edges.append((start_key, end_key))
+    return edges
+
+
+def _adjacent_components(block):
+    """Компоненты СМЕЖНОСТИ внутри группы: кто с кем делит границу.
+
+    Нужны затем, что группа — это ещё не соседство. Два коллинеарных ребра
+    одной цепи могут стоять на противоположных концах домена, и их грани не
+    касаются вовсе: сливать там нечего, и объявлять это неудачей слияния
+    значило бы кричать на законном входе. Отказ `CONTOUR_MERGE_BOUNDARY_UNRESOLVED`
+    остаётся именем настоящей аномалии — обхода, который не сложился у граней,
+    смежность которых уже доказана.
+    """
+
+    keys = [frozenset(_half_edges(face)) for face in block]
+    parent = list(range(len(block)))
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for left in range(len(block)):
+        for right in range(left + 1, len(block)):
+            if any(
+                (end, start) in keys[right] for start, end in keys[left]
+            ):
+                parent[root(left)] = root(right)
+    components: dict[int, list[int]] = {}
+    for index in range(len(block)):
+        components.setdefault(root(index), []).append(index)
+    return tuple(components.values())
+
+
+def _union_contour(faces):
+    """Контур объединения граней и число сокращённых разделителей.
+
+    Правило одно: внутренняя граница двух граней проходится ими в РАЗНЫЕ
+    стороны, поэтому пара встречных полурёбер сокращается, а оставшиеся
+    складываются в один обход. Ни одного знака `SqrtSumV1` при этом не
+    спрашивается — сокращение и обход суть отношения на ключах точек.
+
+    `(None, 0)` — обход не доказан: повторившееся полуребро, развилка, ни
+    одного сокращения либо цикл, покрывший не все оставшиеся полурёбра.
+    Молчаливого второго порядка обхода здесь нет.
+
+    Сегменты нулевой длины сюда не попадают вовсе (`_half_edges`): встречной
+    пары у них нет — они совпали бы сами с собой.
+    """
+
+    directed: dict[tuple, object] = {}
+    for face in faces:
+        points = face.points
+        by_start = {
+            _point_key(point): point for point in points
+        }
+        for key in _half_edges(face):
+            if key in directed:
+                return None, 0
+            directed[key] = by_start[key[0]]
+    shared = 0
+    for key in tuple(directed):
+        opposite = (key[1], key[0])
+        if key in directed and opposite in directed:
+            del directed[key]
+            del directed[opposite]
+            shared += 1
+    if shared == 0 or len(directed) < 3:
+        return None, 0
+
+    successor: dict[tuple, tuple] = {}
+    for start_key, end_key in directed:
+        if start_key in successor:
+            return None, 0
+        successor[start_key] = end_key
+    first = next(iter(directed))[0]
+    walk: list[tuple] = []
+    current = first
+    while True:
+        following = successor.get(current)
+        if following is None:
+            return None, 0
+        walk.append((current, following))
+        current = following
+        if current == first:
+            break
+        if len(walk) > len(directed):
+            return None, 0
+    if len(walk) != len(directed):
+        return None, 0
+    return tuple(directed[edge] for edge in walk), shared
+
+
+def merge_same_chain_faces(faces):
+    """Грани одной цепи на одной прямой — одним контуром. Точно и с числами.
+
+    Возвращает `(грани, EnvelopeQueueMergeStatsV1)`. Порядок сохраняется:
+    слитая запись встаёт на место ПЕРВОЙ грани группы, остальные исчезают из
+    списка — но не из отчёта, их владельцы перечислены в `merged_owners`.
+
+    Слияние принимается после ДВУХ проверок, и площади среди них нет: она
+    выполняется тождественно (сокращение встречных полурёбер вычитает ноль) и
+    доказывала бы арифметику вместо сборки. Проверяются обход — один цикл на
+    все оставшиеся полурёбра — и ПРОСТОТА полученного контура той же границей
+    1 ядра (`contour_crossings`, точный знак `SqrtSumV1`, ни одного порога).
+    Группа, не прошедшая их, остаётся неслитой и считается отдельным числом.
+    """
+
+    from cftuv_envelope.wavefront.faces import contour_crossings
+
+    faces = tuple(faces)
+    groups: dict[tuple, list[int]] = {}
+    for index, face in enumerate(faces):
+        key = _merge_key(face)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(index)
+
+    replacement: dict[int, EnvelopeQueueCoveredFaceV1] = {}
+    dropped: set[int] = set()
+    separators = 0
+    merged_groups = 0
+    unresolved = 0
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        group = [faces[index] for index in members]
+        for component in _adjacent_components(group):
+            if len(component) < 2:
+                continue
+            positions = [members[index] for index in component]
+            block = [group[index] for index in component]
+            contour, shared = _union_contour(block)
+            if contour is None or contour_crossings(contour):
+                unresolved += 1
+                continue
+            total = block[0].doubled_area
+            for face in block[1:]:
+                total = total + face.doubled_area
+            separators += shared
+            merged_groups += 1
+            primary = min(block, key=lambda item: item.owner)
+            replacement[min(positions)] = EnvelopeQueueCoveredFaceV1(
+                region_id=primary.region_id,
+                owner=primary.owner,
+                envelope_spec_id=primary.envelope_spec_id,
+                envelope_instance_id=primary.envelope_instance_id,
+                points=contour,
+                doubled_area=total,
+                source_chain_id=primary.source_chain_id,
+                merged_owners=tuple(
+                    sorted(
+                        item.owner
+                        for item in block
+                        if item.owner != primary.owner
+                    )
+                ),
+            )
+            dropped.update(sorted(positions)[1:])
+    merged = tuple(
+        replacement.get(index, face)
+        for index, face in enumerate(faces)
+        if index not in dropped
+    )
+    return merged, EnvelopeQueueMergeStatsV1(
+        separators, merged_groups, unresolved
+    )
+
+
+def _projected_face(
+    face: EnvelopeQueueCoveredFaceV1, scale: int
+) -> EnvelopeQueueFaceV1:
+    """Точная запись стадии контура -> метры карты. Единственный перевод."""
+
+    return EnvelopeQueueFaceV1(
+        region_id=face.region_id,
+        owner=tuple(int(item) for item in face.owner),
+        envelope_spec_id=face.envelope_spec_id,
+        envelope_instance_id=face.envelope_instance_id,
+        points=tuple(
+            (
+                sqrt_sum_float(point[0]) / scale,
+                sqrt_sum_float(point[1]) / scale,
+            )
+            for point in face.points
+        ),
+        doubled_area=sqrt_sum_float(face.doubled_area),
+        doubled_area_text=_face_area_text(face.doubled_area),
+        source_chain_id=face.source_chain_id,
+        merged_owners=face.merged_owners,
+    )
+
+
 def build_queue_domain(
     patch_id: int,
     patch_domain_id: str,
@@ -398,6 +876,8 @@ def build_queue_domain(
     faces: list[EnvelopeQueueFaceV1] = []
     segments: list[EnvelopeQueueSegmentV1] = []
     contour_started = time.perf_counter()
+    chain_by_region = source_chain_by_span(prepared)
+    merge_stats = EnvelopeQueueMergeStatsV1()
     for region in prepared.regions:
         covered = coverage_by_region.get(region.region_id)
         regions.append(
@@ -427,29 +907,32 @@ def build_queue_domain(
         if covered is None:
             continue
         contours = _covered_contours(region, coverage.lattice_alpha)
+        spans = chain_by_region.get(region.region_id, {})
+        covered_faces: list[EnvelopeQueueCoveredFaceV1] = []
         for index, named in enumerate(covered.faces):
             if index >= len(contours):
                 break
             contour = contours[index]
             if contour.owner != named.owner or len(contour.points) < 3:
                 continue
-            faces.append(
-                EnvelopeQueueFaceV1(
+            owner = tuple(int(item) for item in named.owner)
+            span = undirected_span(owner)
+            covered_faces.append(
+                EnvelopeQueueCoveredFaceV1(
                     region_id=named.region_id,
-                    owner=tuple(int(item) for item in named.owner),
+                    owner=owner,
                     envelope_spec_id=str(named.envelope_spec_id),
                     envelope_instance_id=named.envelope_instance_id,
-                    points=tuple(
-                        (
-                            sqrt_sum_float(point[0]) / scale,
-                            sqrt_sum_float(point[1]) / scale,
-                        )
-                        for point in contour.points
+                    points=tuple(contour.points),
+                    doubled_area=named.doubled_area,
+                    source_chain_id=(
+                        None if span is None else spans.get(span)
                     ),
-                    doubled_area=sqrt_sum_float(named.doubled_area),
-                    doubled_area_text=_face_area_text(named.doubled_area),
                 )
             )
+        merged, stats = merge_same_chain_faces(covered_faces)
+        merge_stats = merge_stats + stats
+        faces.extend(_projected_face(item, scale) for item in merged)
     contour_seconds = time.perf_counter() - contour_started
     return EnvelopeQueueDomainV1(
         patch_id=int(patch_id),
@@ -469,6 +952,7 @@ def build_queue_domain(
         prepare_seconds=float(prepare_seconds),
         coverage_seconds=float(coverage_seconds),
         contour_seconds=contour_seconds,
+        host_counters=merge_stats.counters(),
     )
 
 
@@ -536,6 +1020,10 @@ def refused_queue_domain(
         prepare_seconds=float(prepare_seconds),
         coverage_seconds=float(coverage_seconds),
         contour_seconds=0.0,
+        # Стадии контура на отказавшем домене не было вовсе, и три нуля здесь —
+        # именно это утверждение. Пустой кортеж означал бы «не измерялось», то
+        # есть неотличимое от «измерялось и промолчало».
+        host_counters=EnvelopeQueueMergeStatsV1().counters(),
     )
 
 
@@ -558,6 +1046,12 @@ def queue_domain_payload(domain: EnvelopeQueueDomainV1) -> dict:
         "counters": [
             {"name": name, "value": value}
             for name, value in domain.counters
+        ],
+        # Числа ХОСТА своим ключом: смешать их с числами ядра значило бы
+        # потерять ответ на вопрос «чьё это измерение».
+        "host_counters": [
+            {"name": name, "value": value}
+            for name, value in domain.host_counters
         ],
         "timings": [
             {"stage": stage, "elapsed_seconds": value}
@@ -1061,6 +1555,11 @@ def _queue_domain_evaluation(
     profile.add_timing("QUEUE_CONTOUR", queue_domain.contour_seconds, domain_id)
     for name, value in queue_domain.counters:
         profile.set_counter(name, value, domain_id)
+    # Числа стадии контура идут в тот же профиль и тем же способом: разделены
+    # они по ПРИНАДЛЕЖНОСТИ, а не по видимости, и прятать измерение хоста от
+    # владельца было бы ровно тем тихим слоем, против которого счётчик заведён.
+    for name, value in queue_domain.host_counters:
+        profile.set_counter(name, value, domain_id)
     compilation = prepared.compilation
     debug_scene, scene_failure = _queue_debug_scene(
         kernel,
@@ -1121,13 +1620,19 @@ def queue_timing_text(scene: EnvelopeQueueSceneV1) -> str:
 
 
 __all__ = (
+    "CONTOUR_MERGED_SAME_CHAIN_GROUPS",
+    "CONTOUR_MERGED_SAME_CHAIN_SEPARATORS",
+    "CONTOUR_MERGE_BOUNDARY_UNRESOLVED",
     "ENVELOPE_DEBUG_ENGINE_LEGACY",
     "ENVELOPE_DEBUG_ENGINE_QUEUE",
+    "EnvelopeQueueCoveredFaceV1",
     "EnvelopeQueueDomainV1",
     "EnvelopeQueueFaceV1",
+    "EnvelopeQueueMergeStatsV1",
     "EnvelopeQueueRegionV1",
     "EnvelopeQueueSceneV1",
     "EnvelopeQueueSegmentV1",
+    "HOST_CONTOUR_COUNTERS",
     "QUEUE_ENCLOSURE_BITS",
     "QUEUE_LAYER_STYLES",
     "QUEUE_OWNER_COLORS",
@@ -1142,11 +1647,14 @@ __all__ = (
     "build_queue_palette",
     "build_queue_scene",
     "evaluate_envelope_queue_staged",
+    "merge_same_chain_faces",
     "queue_domain_payload",
     "queue_scene_payload",
     "queue_timing_text",
     "recompute_queue_coverage",
     "refused_queue_domain",
     "run_queue_domain",
+    "source_chain_by_span",
     "sqrt_sum_float",
+    "undirected_span",
 )
