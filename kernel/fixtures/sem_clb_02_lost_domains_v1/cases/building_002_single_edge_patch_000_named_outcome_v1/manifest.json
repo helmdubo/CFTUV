@@ -485,11 +485,11 @@
     }
   },
   "files": {
-    "analysis_snapshot.json": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+    "analysis_snapshot.json": "762b717ad8d7cb047d6828434fc055dfcae8276a4da343ef69a3bbfe9ee2ed83",
     "decal_request.json": "92cc28d5607f0e4a5de226356c2be3a54c2cbe457c29446a693666acad4f0b80",
     "host_mesh.json": "ae40130f684dcbf7870a9b622e6857fe68d8f473b32addb5ca928e0ddb46f633"
   },
-  "fixture_hash": "eb05b7108c5eb6820d1539f0af981b04bd398c232b419ddaaeaf740d6596885d",
+  "fixture_hash": "e9c7a1b4257b5a64293e09d9e2b78dbdb8e672717f72a2faa6f44915859ad820",
   "fixture_id": "building_002_single_edge_patch_000_named_outcome_v1",
   "mesh_counts": {
     "edges": 38,

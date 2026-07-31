@@ -267,8 +267,7 @@
           "enum": [
             "UNSNAPPED_EXACT_V1",
             "SOURCE_ONLY_GRID_SNAP_V1",
-            "INTEGER_GRID_SNAP_V1",
-            "SOURCE_ONLY_PATCH_PLANE_GRID_SNAP_V2"
+            "INTEGER_GRID_SNAP_V1"
           ],
           "type": "string"
         },

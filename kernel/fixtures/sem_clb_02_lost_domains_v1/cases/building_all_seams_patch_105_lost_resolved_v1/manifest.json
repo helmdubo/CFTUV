@@ -465,11 +465,11 @@
     }
   },
   "files": {
-    "analysis_snapshot.json": "e246bb850a15be878a7aebcc05867d43c0cd2f0bd47f977d60dd12748f863658",
+    "analysis_snapshot.json": "8623d0e3dca9528ef0df98a2bff5c210b2157a41851bac758d8d3a9385633346",
     "decal_request.json": "2b2705a194104c5ebf6f0b5c43a04c0a0874a7b6516cdd49588edee4a7d1def8",
     "host_mesh.json": "30c27a75c7ed651d1d1be969ff722d5a7344ef0c3d7a741ab1d053ed41832b2d"
   },
-  "fixture_hash": "d093d256364beb9ef39d69a5c9db33d536aa436b62b491643d218bd56842989e",
+  "fixture_hash": "704b4ec760a80ef9f6494d9d2f6c28231e751d927669d06861751bf3e69db4c7",
   "fixture_id": "building_all_seams_patch_105_lost_resolved_v1",
   "mesh_counts": {
     "edges": 688,

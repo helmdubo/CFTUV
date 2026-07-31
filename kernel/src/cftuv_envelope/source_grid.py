@@ -118,57 +118,6 @@ def snap_positions(positions, grid: GridSpecV1) -> dict:
     }
 
 
-def plane_dominant_axis(normal) -> int:
-    """Ось, которую решают из уравнения плоскости: наибольшая |N|, ничья — младшая.
-
-    Наибольшая по модулю координата нормали выбрана не ради красоты: именно на
-    неё делят, и она же входит в знаменатель результата, поэтому наибольшая
-    даёт наименьший рост чисел и наименьшее усиление сдвига двух остальных
-    координат. Ничья разрешается младшим индексом — детерминированно.
-    """
-
-    return max(range(3), key=lambda axis: (abs(normal[axis]), -axis))
-
-
-def snap_positions_in_patch_plane(positions, normal, anchor, grid: GridSpecV1) -> dict:
-    """Мировая решётка, ПЕРЕСЕЧЁННАЯ с собственной плоскостью патча.
-
-    Решётка та же самая, что и у осевой привязки, — тот же шаг, те же узлы, —
-    но точке разрешено садиться только в ту её часть, которая лежит в плоскости
-    патча. Две координаты привязываются мировой решёткой как прежде, третья
-    (доминантная ось нормали) РЕШАЕТСЯ из уравнения плоскости. Поэтому:
-
-    - планарность сохраняется тождественно, а не с точностью до бюджета;
-    - у осевой плоскости (`N` = единичный орт) решать нечего: смещение
-      плоскости само лежит в узле, и результат СОВПАДАЕТ с прежней осевой
-      привязкой побитово — замерено на `building.002` патч 0 на всех масштабах
-      окна;
-    - задуманно прямые углы восстанавливаются ровно как прежде: у осевого
-      патча привязка не изменилась вовсе (3 из 3 на масштабе 2048).
-
-    Смещение плоскости привязывается тем же `snap_value` и к той же решётке:
-    иначе плоскость прошла бы мимо узлов и «пересечение с решёткой» оказалось
-    бы пустым, а координата доминантной оси уехала бы на полклетки у ВСЕХ
-    вершин сразу.
-    """
-
-    axis = plane_dominant_axis(normal)
-    others = tuple(index for index in range(3) if index != axis)
-    offset = Fraction(
-        snap_value(_dot(normal, anchor), grid), grid.scale
-    )
-    result = {}
-    for vertex_id, point in positions.items():
-        coordinates = [None, None, None]
-        for index in others:
-            coordinates[index] = Fraction(snap_value(point[index], grid), grid.scale)
-        coordinates[axis] = (
-            offset - sum(normal[index] * coordinates[index] for index in others)
-        ) / normal[axis]
-        result[vertex_id] = tuple(coordinates)
-    return result
-
-
 def _sub(left, right):
     return tuple(a - b for a, b in zip(left, right, strict=True))
 
@@ -291,35 +240,7 @@ def chart_grid_for(gram, step: Fraction) -> GridSpecV1:
     return GridSpecV1(scale=scale)
 
 
-def snapper_for(snapping_law: GridSnappingLawV1, plane):
-    """Чем именно закон двигает источник: `(позиции, масштаб) -> позиции`.
-
-    Один выбор на весь модуль. Перебор масштабов и итоговая привязка обязаны
-    идти ОДНОЙ функцией: иначе выбранный масштаб доказан на одной привязке, а
-    применён к другой, и сертификат перестаёт описывать то, что произошло.
-    """
-
-    if snapping_law.snaps_in_patch_plane:
-        if plane is None:
-            raise ValueError(
-                f"{snapping_law.value} требует плоскость патча"
-            )
-        normal, anchor = plane
-
-        def snap(positions, scale):
-            return snap_positions_in_patch_plane(
-                positions, normal, anchor, GridSpecV1(scale=scale)
-            )
-
-        return snap
-
-    def snap(positions, scale):
-        return snap_positions(positions, GridSpecV1(scale=scale))
-
-    return snap
-
-
-def select_grid_scale(*, positions, intended, window, search_order, snap):
+def select_grid_scale(*, positions, intended, window, search_order):
     """Первый масштаб окна, на котором проверка 2 проходит, и весь перебор.
 
     ЭТО НЕ ПОДГОНКА, и различие принципиально. Подгонка — это свободный
@@ -365,7 +286,7 @@ def select_grid_scale(*, positions, intended, window, search_order, snap):
     trials = []
     for scale in candidates:
         grid = GridSpecV1(scale=scale)
-        restored = restored_right_corners(snap(positions, scale), intended)
+        restored = restored_right_corners(snap_positions(positions, grid), intended)
         passed = restored == len(intended)
         trials.append(
             GridScaleTrialV1(
@@ -390,7 +311,6 @@ def resolve_source_grid(
     faces,
     snapping_law: GridSnappingLawV1,
     search_order: GridScaleSearchOrderV1 = GRID_SCALE_SEARCH_ORDER,
-    plane=None,
 ):
     """Окно шага, выбор масштаба законом, привязка и сертификат — или отказ.
 
@@ -445,15 +365,13 @@ def resolve_source_grid(
         )
     if window.grid is None:
         raise _refusal(outcome.value, extent, window)
-    snap = snapper_for(snapping_law, plane)
     grid, trials = select_grid_scale(
         positions=positions,
         intended=intended,
         window=window,
         search_order=search_order,
-        snap=snap,
     )
-    snapped = snap(positions, grid.scale)
+    snapped = snap_positions(positions, grid)
     facts["window_step"] = _rational(Fraction(1, grid.scale))
     facts["source_scale"] = grid.scale
     facts["magnitude_bound"] = grid.magnitude_bound

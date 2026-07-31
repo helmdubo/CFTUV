@@ -10,6 +10,45 @@ from math import gcd, isfinite
 from .ids import SymbolicScalarId
 
 
+def canonical_primitive_normal(vector):
+    """Каноническая примитивная форма нормали: целые, gcd = 1, знак объявлен.
+
+    Нормаль задаёт ПЛОСКОСТЬ, а плоскость не меняется от умножения нормали на
+    ненулевое число. Поэтому запись нормали обязана быть канонической, иначе
+    один и тот же геометрический факт печатается разными числами в зависимости
+    от того, каким выводом его получили, и дайджест начинает различать то, что
+    геометрически неразличимо.
+
+    Знак: первая ненулевая координата положительна. Ориентация карты этим не
+    теряется — она живёт отдельно, в `chart_orientation`, и выводится из знака
+    площади граней в координатах карты. Привязывать знак нормали ещё и к обходу
+    граней значило бы хранить одну величину дважды.
+
+    Живёт в `numeric`, а не рядом с построителем метрики, потому что её читают
+    оба конца: построитель — чтобы записать нормаль, валидатор — чтобы
+    проверить, что записанная нормаль канонична. Общий предок у них только
+    здесь.
+    """
+
+    from fractions import Fraction
+
+    denominator = 1
+    for item in vector:
+        denominator = denominator * item.denominator // gcd(
+            denominator, item.denominator
+        )
+    integers = [int(item * denominator) for item in vector]
+    divisor = 0
+    for item in integers:
+        divisor = gcd(divisor, abs(item))
+    if divisor == 0:
+        raise ValueError("patch polygons do not define a non-zero plane normal")
+    integers = [item // divisor for item in integers]
+    if next(item for item in integers if item) < 0:
+        integers = [-item for item in integers]
+    return tuple(Fraction(item) for item in integers)
+
+
 class MetricSpace(str, Enum):
     SOURCE_LOCAL_INTRINSIC = "SOURCE_LOCAL_INTRINSIC"
 

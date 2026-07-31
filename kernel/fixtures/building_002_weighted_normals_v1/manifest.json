@@ -23,11 +23,11 @@
     }
   },
   "files": {
-    "analysis_snapshot.json": "e5bbf6b3210ee195c227b4f09ac776418dd1f723592cefdbefe1acfd844693a3",
+    "analysis_snapshot.json": "7bd0351b2a94017c870c1054cd0f4c574342d1e8eec3f347d04109b89a58f54c",
     "decal_request.json": "9d24e52ace9543d2748d2771185cfe08247d0ef261235d0c80c5d69fdc980677",
     "host_mesh.json": "ae40130f684dcbf7870a9b622e6857fe68d8f473b32addb5ca928e0ddb46f633"
   },
-  "fixture_hash": "29046a58337b2fe4ce7395d64c496fcbb544053873df347d7a2cd301d55473d5",
+  "fixture_hash": "b48d5bb15c672e5f10a342133bd23e6d8af1eac459b9ddb8445b899ddc0d9d05",
   "fixture_id": "building_002_weighted_normals_v1",
   "mesh_counts": {
     "edges": 38,
