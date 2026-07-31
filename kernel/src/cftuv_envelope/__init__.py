@@ -749,6 +749,11 @@ for _module_name in (
     "outcomes",
     "schema",
     "validation",
+    # Соседи `validation.py`: общий словарь проверок и ветка метрики. Публичный
+    # API ими не расширяется — имена убираются тем же механизмом, что и сам
+    # `validation`.
+    "validation_issues",
+    "validation_metric",
     "version",
     "reference",
     "interactions",

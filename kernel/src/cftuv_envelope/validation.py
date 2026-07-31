@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
 from fractions import Fraction
 from math import gcd
 
@@ -53,14 +51,7 @@ from .contracts.envelopes import (
 from .contracts.events import EventParticipantKind, InitialFrontFeatureKind
 from .contracts.geometry_batch import GEOMETRY_BATCH_SCHEMA_V1, GeometryBatchV1
 from .contracts.metric import (
-    AffineFrameSelectionLawV1,
-    AffineReconstructionLawV1,
-    ExactMatrix2V1,
-    ExactPoint3V1,
-    ExactRationalV1,
-    ExactVector3V1,
     MetricSemanticIdentityLawV1,
-    PlanarityAdmissionLawV1,
     RuntimeMetricFallbackLawV1,
     RuntimePlanarMetricV1,
     RuntimePredicateFilterLawV1,
@@ -128,60 +119,23 @@ from .ids import (
 )
 from .numeric import IntervalEndpointKind, LocalPoint3V1, MetricSpace
 from .outcomes import NamedOutcome
-
-
-class ValidationCode(str, Enum):
-    SCHEMA_VERSION = "SCHEMA_VERSION"
-    CAPABILITY = "CAPABILITY"
-    DUPLICATE_ID = "DUPLICATE_ID"
-    MISSING_REFERENCE = "MISSING_REFERENCE"
-    CROSS_CONTRACT_MISMATCH = "CROSS_CONTRACT_MISMATCH"
-    POLICY_MISMATCH = "POLICY_MISMATCH"
-    ANGULAR_CERTIFICATE = "ANGULAR_CERTIFICATE"
-    SEED_VARIANT_MISMATCH = "SEED_VARIANT_MISMATCH"
-    PLAN_KEY_MISMATCH = "PLAN_KEY_MISMATCH"
-    OWNERSHIP_DECLARATION = "OWNERSHIP_DECLARATION"
-    TESSELLATION_AUTHORITY = "TESSELLATION_AUTHORITY"
-    GEOMETRY_BATCH = "GEOMETRY_BATCH"
-    FORBIDDEN_TOPOLOGY_IDENTITY = "FORBIDDEN_TOPOLOGY_IDENTITY"
-    SURFACE_TOPOLOGY = "SURFACE_TOPOLOGY"
-    SURFACE_METRIC = "SURFACE_METRIC"
-    ROUTE_TOPOLOGY = "ROUTE_TOPOLOGY"
-    TERMINAL_RELATION = "TERMINAL_RELATION"
-    ANGULAR_SELECTION_UNCERTAIN = "ANGULAR_SELECTION_UNCERTAIN"
-    STATION_FACT = "STATION_FACT"
-    EVALUATION_GEOMETRY = "EVALUATION_GEOMETRY"
-
-
-@dataclass(frozen=True, slots=True)
-class ValidationIssue:
-    code: ValidationCode
-    path: tuple[str, ...]
-    message: str
-
-
-class ContractValidationError(ValueError):
-    def __init__(self, issues: tuple[ValidationIssue, ...]) -> None:
-        self.issues = issues
-        detail = "; ".join(
-            f"{issue.code.value}@{'.'.join(issue.path)}: {issue.message}"
-            for issue in issues
-        )
-        super().__init__(detail)
-
-
-def raise_for_issues(issues: tuple[ValidationIssue, ...]) -> None:
-    if issues:
-        raise ContractValidationError(issues)
-
-
-def _issue(
-    issues: list[ValidationIssue],
-    code: ValidationCode,
-    path: tuple[str, ...],
-    message: str,
-) -> None:
-    issues.append(ValidationIssue(code, path, message))
+# Словарь проверок и ветка метрики живут в соседях: `validation.py` стоит ровно
+# на своём потолке в `tests/test_architecture.py`, и закон near-planar туда не
+# помещается. Потолок не поднимается — поднятие числа в таблице бюджетов есть
+# заявление о наращивании долга, а не способ найти место.
+from .validation_issues import (
+    ContractValidationError,
+    ValidationCode,
+    ValidationIssue,
+    add_issue as _issue,
+    raise_for_issues,
+)
+from .validation_metric import (
+    expected_source_position,
+    fraction_of as _fraction,
+    fraction_point3 as _fraction_point3,
+    validate_rational_affine_planar_metric,
+)
 
 
 def _values(records: frozenset[object], attribute: str) -> set[OpaqueId]:
@@ -225,65 +179,6 @@ def _interval_strictly_above(interval: object, value: Decimal) -> bool:
 def _interval_strictly_below(interval: object, value: Decimal) -> bool:
     return interval.upper < value or (
         interval.upper == value and interval.upper_kind is IntervalEndpointKind.OPEN
-    )
-
-
-def _fraction(value: ExactRationalV1) -> Fraction:
-    return Fraction(value.numerator, value.denominator)
-
-
-def _fraction_point3(
-    value: ExactPoint3V1 | ExactVector3V1,
-) -> tuple[Fraction, Fraction, Fraction]:
-    return _fraction(value.x), _fraction(value.y), _fraction(value.z)
-
-
-def _position_under_grid_law(
-    position: LocalPoint3V1, certificate
-) -> tuple[Fraction, Fraction, Fraction]:
-    """Позиция источника такой, какой её делает ОБЪЯВЛЕННЫЙ закон решётки.
-
-    Проверка «карта восстанавливает вершину точно» обязана сверяться с тем
-    входом, который метрика реально получила. До решётки это была сама
-    координата binary64; у всякого закона, который двигает источник, — её
-    узел. Сверяться с непривязанной координатой значило бы требовать от
-    привязанной метрики невозможного, а снять проверку — потерять
-    единственное место, где карта сверяется с источником.
-
-    Условие — `snaps_source`, а не имя закона: привязку конструкций эта
-    проверка не видит вовсе (она про вершины источника), поэтому
-    `SOURCE_ONLY_GRID_SNAP_V1` обязан идти здесь тем же путём, что и
-    `INTEGER_GRID_SNAP_V1`.
-
-    Узел перевычисляется здесь заново, из объявленного в сертификате масштаба,
-    а не берётся у построителя: так проверяется и то, что метрика привязана к
-    ТОМУ масштабу, который она объявляет.
-    """
-
-    from .robust.grid import GridSpecV1, snap_value
-
-    exact = tuple(
-        Fraction(*float(value).as_integer_ratio())
-        for value in (position.x, position.y, position.z)
-    )
-    if (
-        not certificate.snapping_law.snaps_source
-        or certificate.source_scale is None
-    ):
-        return exact
-    grid = GridSpecV1(scale=certificate.source_scale)
-    return tuple(
-        Fraction(snap_value(item, grid), certificate.source_scale)
-        for item in exact
-    )
-
-
-def _fraction_matrix2(
-    value: ExactMatrix2V1,
-) -> tuple[tuple[Fraction, Fraction], tuple[Fraction, Fraction]]:
-    return (
-        (_fraction(value.m00), _fraction(value.m01)),
-        (_fraction(value.m10), _fraction(value.m11)),
     )
 
 
@@ -698,138 +593,6 @@ def validate_chain_straight_evaluation_geometry_binding(
     return tuple(issues)
 
 
-def _fraction_dot3(left, right) -> Fraction:
-    return sum(
-        (a * b for a, b in zip(left, right, strict=True)),
-        Fraction(0),
-    )
-
-
-def _fraction_cross3(left, right):
-    return (
-        left[1] * right[2] - left[2] * right[1],
-        left[2] * right[0] - left[0] * right[2],
-        left[0] * right[1] - left[1] * right[0],
-    )
-
-
-def validate_rational_affine_planar_metric(
-    metric: RationalAffinePlanarMetricV2,
-) -> tuple[ValidationIssue, ...]:
-    issues: list[ValidationIssue] = []
-    path = ("RationalAffinePlanarMetricV2",)
-    if (
-        metric.frame_selection_law
-        is not AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
-    ):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("frame_selection_law",),
-            "unsupported deterministic affine-frame law",
-        )
-    certificate = metric.planarity_certificate
-    if (
-        certificate.patch_domain_id != metric.patch_domain_id
-        or certificate.admission_law
-        is not PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
-        or certificate.reconstruction_law
-        is not AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1
-        or not certificate.exact
-    ):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("planarity_certificate",),
-            "metric requires an exact same-domain source-plane certificate",
-        )
-    basis_a = _fraction_point3(metric.exact_basis_a)
-    basis_b = _fraction_point3(metric.exact_basis_b)
-    normal = _fraction_cross3(basis_a, basis_b)
-    if not any(normal):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_basis_a", "exact_basis_b"),
-            "affine basis vectors must be linearly independent",
-        )
-    declared = _fraction_point3(certificate.exact_plane_normal)
-    # Прежде стояло равенство `A × B`: проверялось не свойство плоскости, а
-    # конкретный вывод. Каноничность записи не требуется намеренно — это
-    # свойство того, что ПИШЕТ построитель.
-    if any(normal) and any(declared) and any(_fraction_cross3(declared, normal)):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("planarity_certificate", "exact_plane_normal"),
-            "plane normal must span the same plane as the A/B basis",
-        )
-    gram = _fraction_matrix2(metric.exact_gram_matrix)
-    expected_gram = (
-        (
-            _fraction_dot3(basis_a, basis_a),
-            _fraction_dot3(basis_a, basis_b),
-        ),
-        (
-            _fraction_dot3(basis_b, basis_a),
-            _fraction_dot3(basis_b, basis_b),
-        ),
-    )
-    if gram != expected_gram:
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_gram_matrix",),
-            "Gram matrix does not equal the exact A/B dot products",
-        )
-    determinant = gram[0][0] * gram[1][1] - gram[0][1] * gram[1][0]
-    if determinant <= 0:
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_gram_matrix",),
-            "Gram matrix must be positive definite",
-        )
-    else:
-        inverse = _fraction_matrix2(metric.exact_inverse_gram_matrix)
-        expected_inverse = (
-            (
-                gram[1][1] / determinant,
-                -gram[0][1] / determinant,
-            ),
-            (
-                -gram[1][0] / determinant,
-                gram[0][0] / determinant,
-            ),
-        )
-        if inverse != expected_inverse:
-            _issue(
-                issues,
-                ValidationCode.SURFACE_METRIC,
-                path + ("exact_inverse_gram_matrix",),
-                "inverse Gram matrix is not exact",
-            )
-    coordinate_ids = [
-        item.source_vertex_id
-        for item in metric.exact_source_vertex_coordinates
-    ]
-    if len(coordinate_ids) != len(set(coordinate_ids)):
-        _issue(
-            issues,
-            ValidationCode.DUPLICATE_ID,
-            path + ("exact_source_vertex_coordinates",),
-            "duplicate source vertex coordinate",
-        )
-    if set(coordinate_ids) != set(certificate.source_vertex_ids):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_source_vertex_coordinates",),
-            "coordinate and planarity-certificate vertex sets differ",
-        )
-    return tuple(issues)
-
-
 def validate_runtime_planar_metric(
     metric: RuntimePlanarMetricV1,
 ) -> tuple[ValidationIssue, ...]:
@@ -1083,8 +846,13 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                 )
                 if source is None or not isinstance(source.position, LocalPoint3V1):
                     continue
-                position = _position_under_grid_law(
-                    source.position, descriptor.grid_certificate
+                # Ожидание считает ВСЕ законы, которые метрика объявила
+                # двигающими источник: узел решётки, а поверх него — для
+                # названных спроецированными — точную проекцию этого узла на
+                # сертифицированную плоскость. Прежде считался один первый, и
+                # near-planar метрика расходилась с ожиданием ровно на второй.
+                position = expected_source_position(
+                    source.position, vertex_id, descriptor
                 )
                 coordinate = coordinate_by_id[vertex_id]
                 u = _fraction(coordinate.x)
@@ -1096,7 +864,7 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                     for index in range(3)
                 )
                 if reconstructed != position:
-                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with the source position the declared grid law produces")
+                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with the source position the declared grid and planarity laws produce")
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path, "intrinsic metric regime must match a non-planar PatchDomain")

@@ -93,6 +93,14 @@ from cftuv_envelope import (
     validate_rational_affine_planar_metric,
 )
 
+# Оба имени не входят в `__all__` пакета намеренно — публичный API ими не
+# расширяется, поэтому берутся оттуда, где живут, как это уже делает
+# `test_near_planar_policy.py`.
+from cftuv_envelope.contracts.metric import (
+    NearPlanarProjectionCertificateV1,
+    NearPlanarResidualBudgetLawV1,
+)
+
 
 NEAR = PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1
 EXACT = PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
@@ -409,7 +417,9 @@ def test_the_validator_admits_what_its_own_builder_writes(grid_law):
     certificate = metric.planarity_certificate
 
     # Синтетика обязана целить в окно «пережил снап, но в бюджете»: иначе
-    # проверялась бы EXACT-ветка под именем near-planar.
+    # проверялась бы EXACT-ветка под именем near-planar. Тип — по проводу, тем
+    # же `type() is`, каким его читает валидатор.
+    assert type(certificate) is NearPlanarProjectionCertificateV1
     assert certificate.admission_law is NEAR
     assert certificate.exact is False
     assert certificate.projected_source_vertex_ids
@@ -493,6 +503,50 @@ def test_an_exact_certificate_over_projected_coordinates_is_refused():
     assert any(
         "exact affine reconstruction disagrees" in item.message for item in issues
     ), issues
+
+
+def test_a_recorded_residual_above_the_recorded_budget_is_refused():
+    """R4. `max_residual_squared > budget²` — сертификат противоречит себе.
+
+    Величина, объявленная допущенной, обязана быть допущенной по объявленному
+    же бюджету. Без этой проверки бюджет был бы полем, которое никто не читает:
+    строитель сравнил у себя, записал число, и дальше сравнения нет.
+    """
+
+    metric = near_planar_metric(SOURCE_SNAP)
+    certificate = metric.planarity_certificate
+    budget = _fraction(certificate.residual_budget)
+    broken = _with_certificate(
+        metric,
+        max_residual_squared=_rational(budget * budget * 2),
+    )
+    assert validate_rational_affine_planar_metric(broken) != ()
+
+
+@pytest.mark.parametrize(
+    "grid_law,forged_law",
+    [
+        (SOURCE_SNAP, NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1),
+        (UNSNAPPED, NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1),
+    ],
+    ids=["snapped-claims-representation", "unsnapped-claims-cell"],
+)
+def test_a_budget_law_that_does_not_reproduce_the_number_is_refused(
+    grid_law, forged_law
+):
+    """R6. Объявленный закон бюджета обязан воспроизводить записанное число.
+
+    Обе стороны подмены проверяются отдельно, потому что они разные: снапнутый
+    домен, объявляющий представление, и неснапнутый, объявляющий ячейку. Ровно
+    этим полевой дефект и был — строитель считал по ячейке, а писал закон
+    представления, и расхождение (6.10e-05 против 3.31e-07) никто не видел.
+    """
+
+    metric = near_planar_metric(grid_law)
+    broken = _with_certificate(metric, residual_budget_law=forged_law)
+    issues = validate_rational_affine_planar_metric(broken)
+    assert issues != ()
+    assert any("residual" in "/".join(item.path) for item in issues), issues
 
 
 def test_a_projected_vertex_dropped_from_the_certificate_is_refused():
