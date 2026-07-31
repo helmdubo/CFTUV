@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from math import gcd, isfinite
 
 from .ids import SymbolicScalarId
@@ -29,8 +30,6 @@ def canonical_primitive_normal(vector):
     проверить, что записанная нормаль канонична. Общий предок у них только
     здесь.
     """
-
-    from fractions import Fraction
 
     denominator = 1
     for item in vector:
