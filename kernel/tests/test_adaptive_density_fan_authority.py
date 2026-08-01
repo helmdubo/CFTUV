@@ -1615,6 +1615,109 @@ def test_exhausted_density_domain_still_gets_a_prepare_receipt(monkeypatch):
     assert dict(prepared.timings)["PLAN_COMPILE"] >= 0
 
 
+@pytest.mark.parametrize(
+    "density, certificates, emitted, lift",
+    (
+        (2, 5, 6, (1, 2, 4)),
+        (4, 9, 10, (2, 3, 6)),
+    ),
+)
+def test_the_conveyor_emits_the_spec_count_and_the_lift_owns_the_difference(
+    density, certificates, emitted, lift
+):
+    """ПО-ВЕЕРНАЯ сверка эмиссии: конвейер не изобретает опор и не теряет их.
+
+    Полевая диагностика прочла сумму сертификатов селекции против счётчика
+    `CONVEYOR_FAN_SUPPORTS`, увидела разницу в единицу и назвала её дефектом
+    эмиссии. Здесь та же разница воспроизведена на фикстуре и разложена
+    по-веерно: она принадлежит ОДНОМУ углу и несёт СВОЮ власть —
+    `EvaluationGeometrySubturnCountLiftV1`.
+
+    Закон, который здесь и заморожен, двухступенчатый:
+
+    1. конвейер эмитит РОВНО `spec.resolved_hidden_edge_count` на веер;
+    2. `spec.resolved_hidden_edge_count` равен сертификату селекции ВСЮДУ,
+       кроме углов с доказанным лифтом, где он равен
+       `lift.effective_hidden_edge_count`.
+
+    Лифт — не поблажка: `_evaluation_density_spec` поднимает счёт только после
+    того, как ИДЕАЛ при счёте сертификата оказался неосуществим в ГЕОМЕТРИИ
+    ВЫЧИСЛЕНИЯ (метрика карты — не метрика источника), и поднимает до
+    минимального осуществимого, записывая предшественника. Требование
+    «эмиссия равна сертификату селекции» удалило бы этот механизм и вернуло бы
+    подшаг, превышающий объявленный delta_max, на углах у границы ячейки.
+
+    Обе строки — угол на границе `q`: при density 2 (`q = 4`) лифт 1 -> 2, при
+    density 4 (`q = 6`) лифт 2 -> 3. Виновный угол один и тот же
+    (`angular-spec:7dde3e10be8587bd61e928d6`).
+    """
+
+    snapshot, request = _field_inputs(density)
+    result = kernel.compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    selection_by_id = {
+        item.certificate_id: item
+        for item in result.compilation.profile_selection_certificates
+    }
+    specs = tuple(
+        item
+        for item in result.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+
+    certificate_total = 0
+    spec_total = 0
+    lifted = []
+    for spec in specs:
+        selection = selection_by_id[spec.selection_certificate_id]
+        certificate_total += selection.resolved_hidden_edge_count
+        spec_total += spec.resolved_hidden_edge_count
+        # Спека несёт ровно столько записей опор, сколько объявила: срез
+        # `_lift_probe_spec` обязан быть исполненным, а не заявленным.
+        assert len(spec.hidden_supports) == spec.resolved_hidden_edge_count
+        record = spec.evaluation_subturn_count_lift
+        if record is None:
+            assert (
+                spec.resolved_hidden_edge_count
+                == selection.resolved_hidden_edge_count
+            ), spec.envelope_spec_id
+            continue
+        lifted.append((spec, record, selection))
+
+    assert certificate_total == certificates
+    assert spec_total == emitted
+    # Разницу несёт РОВНО один угол, и она равна ровно его лифту.
+    assert len(lifted) == 1
+    spec, record, selection = lifted[0]
+    assert spec.envelope_spec_id.value == (
+        "angular-spec:7dde3e10be8587bd61e928d6"
+    )
+    assert (
+        record.source_hidden_edge_count,
+        record.effective_hidden_edge_count,
+        record.max_subturn_q,
+    ) == lift
+    assert record.source_hidden_edge_count == (
+        selection.resolved_hidden_edge_count
+    )
+    assert record.effective_hidden_edge_count == (
+        spec.resolved_hidden_edge_count
+    )
+    assert spec_total - certificate_total == (
+        record.effective_hidden_edge_count - record.source_hidden_edge_count
+    )
+
+    prepared = prepare_conveyor(snapshot, request)
+    counters = dict(prepared.counters)
+
+    assert prepared.outcome.value == "EXACT"
+    assert counters["CONVEYOR_RATIONAL_VERTEX_FANS"] == len(specs)
+    # Счётчик эмиссии равен сумме СПЕК, а не сумме сертификатов, и именно это
+    # равенство отличает «конвейер посчитал по власти» от «конвейер приписал».
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == spec_total
+    assert counters["CONVEYOR_BOUND_FAN_DIRECTIONS"] == spec_total
+
+
 def test_deepest_green_field_authority_stays_far_below_the_work_cap(
     monkeypatch,
 ):
