@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -1712,22 +1713,54 @@ def test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap(
     assert 3_432 * 32 < _DENSITY_EXACT_WORK_CAP
 
 
-def test_patch10_density_four_domain_reaches_its_own_named_lattice_refusal():
-    """Домен доходит до СВОЕЙ стадии и отказывает там своим именем.
+def test_patch10_density_four_domain_passes_the_bridge_on_its_mirrored_chart():
+    """Домен ЗЕРКАЛЬНОЙ карты проходит мост целиком, и это заморожено числами.
 
-    Плата за починку перечисления — новый факт, а не молчание: план теперь
-    компилируется, поэтому домен доходит до привязки к решётке и получает
-    именованный отказ `LATTICE_SNAP_BREAKS_A_VERTEX_FAN` на стадии BRIDGE.
-    Это ДРУГОЙ закон и другая карточка; здесь он зафиксирован, чтобы его
-    появление нельзя было принять за возврат Density-исчерпания.
+    Прежде здесь стоял замороженный отказ
+    `LATTICE_SNAP_BREAKS_A_VERTEX_FAN` (тест назывался
+    `..._reaches_its_own_named_lattice_refusal`), и имя это указывало не на ту
+    причину: снап невиновен. Карта домена — `COORDINATE_CW_MATCHES_OWNER_PATCH`,
+    то есть обход патча-владельца и обход координат карты противоположны, и
+    веер, построенный рецептом направлений в первом смысле, приходил в полигон
+    развёрнутым. Измерено: векторные произведения соседних опор всех четырёх
+    вееров были ПОЛОЖИТЕЛЬНЫ (+45, +71, +5, +799408) при требовании строго
+    отрицательного вращения; сырая внешняя петля решётки при этом вышла CCW
+    (`2S = +255156622028`), то есть разворачивать её `PolygonV1.build` и не
+    пробовал.
+
+    Гипотеза ROADMAP «веер знаменателя 1711 не переживает привязку якоря»
+    ОПРОВЕРГНУТА этими числами: тот же веер `(1474, 1711) / (738, 1399)` проходит
+    без единой правки решётки, шаг которой остался прежним (65536), а
+    `snap_residual` — прежним `4464165/640696385536`.
+
+    Замораживается ИСХОД, каким он вышел, а не какой хотелось: домен доходит до
+    конца конвейера (`EXACT`), скелет из 20 узлов, 22 грани, и сумма граней
+    воспроизводит площадь полигона. Четыре рациональных веера сохранены — это и
+    есть контроль, что домен не стал зелёным ценой выброшенного угла.
     """
 
     snapshot, request = _patch10_inputs()
 
     prepared = prepare_conveyor(snapshot, request)
 
-    assert prepared.outcome.value == "BRIDGE_DID_NOT_MAP"
-    assert prepared.detail.endswith("LATTICE_SNAP_BREAKS_A_VERTEX_FAN")
-    assert "DENSITY" not in prepared.detail
-    assert dict(prepared.counters)["CONVEYOR_RATIONAL_VERTEX_FANS"] == 4
+    assert prepared.outcome.value == "EXACT"
+    assert prepared.detail == ""
+    counters = dict(prepared.counters)
+    assert counters["CONVEYOR_RATIONAL_VERTEX_FANS"] == 4
+    assert counters["CONVEYOR_DEGRADED_MITER_CORNERS"] == 0
+    assert counters["CONVEYOR_MITERED_CORNERS"] == 0
+    assert counters["CONVEYOR_FAN_EDGES"] == 10
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == 10
+    assert counters["CONVEYOR_BOUND_FAN_DIRECTIONS"] == 10
+    assert counters["CONVEYOR_SKELETON_NODES"] == 20
+    assert counters["CONVEYOR_FACES"] == 22
+    assert counters["CONVEYOR_LATTICE_SCALE"] == 65_536
+    assert counters["CONVEYOR_SOURCE_EDGES"] == 12
+    assert counters["CONVEYOR_WALL_EDGES"] == 0
+    (region,) = prepared.regions
+    assert region.bridge_outcome.value == "EXACT"
+    assert region.skeleton_outcome.value == "EXACT"
+    assert region.face_outcome.value == "EXACT"
+    assert region.bridge.snap_residual == Fraction(4_464_165, 640_696_385_536)
+    assert region.partition.area_reproduces_polygon
     assert dict(prepared.timings)["PLAN_COMPILE"] >= 0
