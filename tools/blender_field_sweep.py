@@ -25,6 +25,12 @@ INSTALLER_STAMP_MISSING = "INSTALLER_STAMP_MISSING"
 INSTALLER_STAMP_MISMATCH = "INSTALLER_STAMP_MISMATCH"
 BUTTON_PARITY_MISMATCH = "BUTTON_PARITY_MISMATCH"
 BUTTON_OPERATOR_DID_NOT_FINISH = "BUTTON_OPERATOR_DID_NOT_FINISH"
+# Исключение при сборе отчёта — НЕ «оператор вернул не FINISHED». Разведено
+# намеренно: `except Exception` в `_run_operator` клал трейсбек в отчёт, отчёт
+# ехал дальше с `request_ids=None`, и наружу выходило ЧУЖОЕ имя
+# `BUTTON_PARITY_MISMATCH: expected=null`. Маскировка стоила трёх
+# инструментированных перегонов. Причина обязана называть себя сама.
+BUTTON_REPORT_COLLECTION_FAILED = "BUTTON_REPORT_COLLECTION_FAILED"
 BUTTON_SIDECAR_NOT_FRESH = "BUTTON_SIDECAR_NOT_FRESH"
 SOURCE_MESH_FINGERPRINT_CHANGED = "SOURCE_MESH_FINGERPRINT_CHANGED"
 DENSITY_SWEEP_CALL_COUNT_MISMATCH = "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
@@ -152,7 +158,10 @@ import bpy
 
 import cftuv
 import cftuv_envelope as kernel
-from cftuv.envelope_debug_renderer import envelope_debug_text_name
+from cftuv.envelope_debug_renderer import (
+    envelope_debug_object_name,
+    envelope_debug_text_name,
+)
 from cftuv.envelope_request_policy import (
     MEASURED_REQUEST_ALPHA,
     envelope_angular_policy,
@@ -404,14 +413,32 @@ def _require_finished(outcome) -> None:
         )
 
 
-def _sidecar_identity(payload: dict, object_name: str) -> tuple[str, ...]:
+def _sidecar_identity(payload: dict, expected_object_name: str) -> tuple[str, ...]:
+    """Идентичность сайдкара: имя объекта и ровно один `DecalRequestId`.
+
+    `expected_object_name` — имя ОТЛАДОЧНОГО объекта
+    (`envelope_debug_object_name`), а не исходного меша. Сайдкар несёт его с
+    `5fb22ea`: рендерер пишет `ENVELOPE_DEBUG_GP_PREFIX + source`, и с тех пор
+    не менялся. Сама эта проверка добавлена много позже (между `9eb3825` и
+    `a472d45`) и ждала `obj.name`, то есть была ложна С ПЕРВОГО ДНЯ: в поле она
+    ни разу не отработала зелёной — каждый свип с её рождения падал на более
+    ранней стадии, и красная колонка проверки не исполнялась никогда.
+
+    Урок записан здесь, потому что стоил трёх перегонов: проверка, чья красная
+    колонка ни разу не исполнялась в поле, — это ЗАЯВЛЕНИЕ, а не проверка.
+
+    Имя строит ВЛАСТЬ ХОСТА (`envelope_debug_renderer`), а не сборка префикса в
+    инструменте: своя копия правила именования разошлась бы с рендерером ровно
+    так же, как разошлось множество имён ступени METRIC.
+    """
+
     if type(payload) is not dict:
         raise DensitySweepContractError(
             f"{BUTTON_SIDECAR_NOT_FRESH}: payload is not an exact object"
         )
     request_ids = payload.get("decal_request_ids")
     if (
-        payload.get("object_name") != object_name
+        payload.get("object_name") != expected_object_name
         or type(request_ids) is not list
         or len(request_ids) != 1
         or type(request_ids[0]) is not str
@@ -422,7 +449,10 @@ def _sidecar_identity(payload: dict, object_name: str) -> tuple[str, ...]:
         is None
     ):
         raise DensitySweepContractError(
-            f"{BUTTON_SIDECAR_NOT_FRESH}: object/request identity differs"
+            f"{BUTTON_SIDECAR_NOT_FRESH}: object/request identity differs — "
+            f"object_name expected={expected_object_name!r} "
+            f"actual={payload.get('object_name')!r}; "
+            f"decal_request_ids={request_ids!r}"
         )
     return tuple(request_ids)
 
@@ -438,7 +468,7 @@ def _fresh_sidecar(obj, text_name: str, outcome) -> dict:
         payload = json.loads(text.as_string())
     except (ValueError, TypeError) as exc:
         raise DensitySweepContractError(BUTTON_SIDECAR_NOT_FRESH) from exc
-    _sidecar_identity(payload, obj.name)
+    _sidecar_identity(payload, envelope_debug_object_name(obj.name))
     return payload
 
 
@@ -559,7 +589,9 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
         report["result"] = sorted(outcome)
         sidecar = _fresh_sidecar(obj, text_name, outcome)
         report["sidecar_fresh_after_operator"] = True
-        report["request_ids"] = list(_sidecar_identity(sidecar, obj.name))
+        report["request_ids"] = list(
+            _sidecar_identity(sidecar, envelope_debug_object_name(obj.name))
+        )
         report["requested_alpha"] = sidecar.get("requested_alpha")
         report["request_policy_knobs"] = {
             "density": {
@@ -759,6 +791,32 @@ def _swept_meshes() -> list:
     return resolved
 
 
+def _stop_on_report_exception(report: dict) -> None:
+    """Отчёт, собранный через исключение, дальше не едет. Вовсе.
+
+    `_run_operator` ловит `except Exception`, кладёт трейсбек в
+    `report['traceback']` и возвращает отчёт как ни в чём не бывало. Дальше
+    отчёт уезжал в сверку паритета с `request_ids=None`, и наружу выходило
+    ЧУЖОЕ имя: `BUTTON_PARITY_MISMATCH: request_ids expected=null`. Маскировка
+    стоила трёх инструментированных перегонов — каждый по прогону всей сцены, —
+    прежде чем настоящая причина вообще стала видна.
+
+    Стоп стоит НЕМЕДЛЕННО после кнопки: до паритета такой отчёт доезжать не
+    имеет права, потому что паритету нечего сравнивать и он скажет об этом
+    неверным именем. Трейсбек печатается в сообщении отказа, а не остаётся
+    лежать в поле расписки, которую ещё надо догадаться открыть.
+    """
+
+    if report.get("result") != "EXCEPTION":
+        return
+    raise DensitySweepContractError(
+        f"{BUTTON_REPORT_COLLECTION_FAILED}: "
+        f"mesh={report.get('mesh')!r} scenario={report.get('scenario')!r} "
+        f"density={report.get('requested_density')!r}\n"
+        + str(report.get("traceback"))
+    )
+
+
 def _density_run(
     density: int,
     meshes,
@@ -771,6 +829,7 @@ def _density_run(
     for obj in meshes:
         before = _mesh_fingerprint(obj)
         all_seams = _run_operator(obj, _SWEEP_SCENARIO, density)
+        _stop_on_report_exception(all_seams)
         after = _mesh_fingerprint(obj)
         all_seams["source_mesh_fingerprint_before"] = before
         all_seams["source_mesh_fingerprint_after"] = after

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import ast
 from decimal import Decimal
-import struct
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import struct
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -1242,6 +1243,153 @@ def test_the_request_alpha_rule_still_matches_the_host_that_owns_it():
 
     for probe in (0.3, 0.25, 0.78, 1, "0.5"):
         assert request_alpha_decimal(probe) == Decimal(str(float(probe)))
+
+
+# --------------------------------------------------------------------------
+# Идентичность сайдкара и маскировка исключений.
+# --------------------------------------------------------------------------
+
+
+def test_sidecar_identity_expects_the_debug_object_name_the_host_writes():
+    """Сайдкар несёт имя ОТЛАДОЧНОГО объекта, а не исходного меша.
+
+    УРОК, стоивший трёх перегонов и записанный здесь намеренно: проверка, чья
+    красная колонка НИ РАЗУ не исполнялась в поле, — это заявление, а не
+    проверка. `_sidecar_identity` ждала `obj.name`, тогда как рендерер пишет
+    `ENVELOPE_DEBUG_GP_PREFIX + source` с `5fb22ea` и с тех пор не менялся.
+    Сама проверка добавлена много позже (между `9eb3825` и `a472d45`), то есть
+    её ожидание было ложно С ПЕРВОГО ДНЯ — и ни один свип этого не показал,
+    потому что каждый падал на более ранней стадии. Полевой отказ:
+    `object_name = 'CFTUV_DEBUG_Envelope_building'` против ожидаемого
+    `'building'`.
+
+    Мок приведён к полевой семантике: сайдкар содержит имя, которое РЕАЛЬНО
+    строит хост, а ожидание берётся у той же власти.
+    """
+
+    from cftuv.envelope_debug_renderer import envelope_debug_object_name
+
+    function = _function(_module(BUTTON_SWEEP), "_sidecar_identity")
+    namespace = {
+        "re": re,
+        "DensitySweepContractError": RuntimeError,
+        "BUTTON_SIDECAR_NOT_FRESH": "BUTTON_SIDECAR_NOT_FRESH",
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    request_id = "host-v0:decal-request-density:" + "6caed596e8f36ae3b7d46257"[:24]
+    debug_name = envelope_debug_object_name("building")
+    assert debug_name != "building"
+    payload = {"object_name": debug_name, "decal_request_ids": [request_id]}
+
+    assert namespace["_sidecar_identity"](payload, debug_name) == (request_id,)
+
+    # Прежнее ожидание — имя исходного меша — обязано отвергаться, и отказ
+    # обязан назвать обе строки: именно их отсутствие стоило перегонов.
+    with pytest.raises(RuntimeError, match="BUTTON_SIDECAR_NOT_FRESH") as failure:
+        namespace["_sidecar_identity"](payload, "building")
+    message = str(failure.value)
+    assert "expected='building'" in message, message
+    assert f"actual={debug_name!r}" in message, message
+
+
+def test_sweep_consumes_the_host_debug_object_naming_authority():
+    """Префикс строит хост, а не инструмент своей копией правила."""
+
+    source = BUTTON_SWEEP.read_text(encoding="utf-8")
+    assert "envelope_debug_object_name" in source
+    module = _module(BUTTON_SWEEP)
+    imported = {
+        alias.name
+        for node in ast.walk(module)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "cftuv.envelope_debug_renderer"
+        for alias in node.names
+    }
+    assert "envelope_debug_object_name" in imported
+    # Собственной сборки префикса в инструменте не заводится. Смотрим на КОД:
+    # докстрока называет правило рендерера как объяснение, и это не копия.
+    constants = {
+        node.value
+        for node in ast.walk(module)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        and "CFTUV_DEBUG" in node.value
+    }
+    assert constants == set(), constants
+    names = {node.id for node in ast.walk(module) if isinstance(node, ast.Name)}
+    assert "ENVELOPE_DEBUG_GP_PREFIX" not in names
+
+
+def test_an_exception_report_stops_the_sweep_before_parity():
+    """Исключение при сборе отчёта — свой отказ, а не чужое имя паритета.
+
+    `except Exception` в `_run_operator` клал трейсбек в отчёт и возвращал его
+    как ни в чём не бывало; отчёт уезжал в сверку паритета с
+    `request_ids=None`, и наружу выходило `BUTTON_PARITY_MISMATCH:
+    expected=null` — имя, не имеющее к причине никакого отношения. Три
+    инструментированных перегона ушли на то, чтобы это увидеть.
+    """
+
+    function = _function(_module(BUTTON_SWEEP), "_stop_on_report_exception")
+    namespace = {
+        "DensitySweepContractError": RuntimeError,
+        "BUTTON_REPORT_COLLECTION_FAILED": "BUTTON_REPORT_COLLECTION_FAILED",
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    # Здоровый отчёт проходит молча.
+    namespace["_stop_on_report_exception"]({"result": ["FINISHED"]})
+
+    with pytest.raises(RuntimeError, match="BUTTON_REPORT_COLLECTION_FAILED") as fail:
+        namespace["_stop_on_report_exception"](
+            {
+                "result": "EXCEPTION",
+                "mesh": "building",
+                "scenario": "all_seams",
+                "requested_density": 4,
+                "traceback": "Traceback (most recent call last):\n  boom",
+            }
+        )
+    message = str(fail.value)
+    # Трейсбек — в сообщении, а не только в поле расписки.
+    assert "boom" in message, message
+    assert "mesh='building'" in message, message
+    assert "BUTTON_PARITY_MISMATCH" not in message
+
+
+def test_the_exception_stop_runs_before_any_parity_call():
+    """Стоп стоит НЕМЕДЛЕННО после кнопки, до сверки паритета.
+
+    Порядок — предмет требования: паритету нечего сравнивать у сломанного
+    отчёта, и он скажет об этом неверным именем.
+    """
+
+    density_run = _function(_module(BUTTON_SWEEP), "_density_run")
+    order = [
+        node.func.id
+        for node in ast.walk(density_run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id
+        in {"_run_operator", "_stop_on_report_exception", "_verify_direct_parity"}
+    ]
+    assert order == [
+        "_run_operator",
+        "_stop_on_report_exception",
+        "_verify_direct_parity",
+    ], order
 
 
 def test_sweep_takes_the_three_named_meshes_in_declared_order():
