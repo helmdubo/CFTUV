@@ -24,6 +24,9 @@
 | полевые фикстуры объявляют углы: 4, 4 и 0; вееров 2, 4 и 0    | `..._the_field_fixtures_declare_their_corner_relations_by_name` |
 | полное выделение: домен `EXACT`, 4 веера, 0 деградаций        | `..._the_full_selection_domain_builds_with_four_rational_fans` |
 | chart-lattice binding делает canonical разность точным нулём | `..._bound_full_selection_freezes_the_exact_queue_reference_sliver` |
+| зеркальная карта даёт ОТРАЖЁННЫЕ скелет и покрытие            | `..._the_mirrored_chart_gives_the_reflected_skeleton_and_coverage` |
+| перевёрнутый руками порядок на прямой карте — отказ по имени   | `..._the_inverted_support_order_on_a_direct_chart_is_still_refused` |
+| склеенные привязкой якоря — отказ решётки, ветка достижима     | `..._the_lattice_keeps_the_refusal_it_actually_causes` |
 
 Ни одна строка сверки не пропущена: `ell`, `staircase`, `u_shape` при каждой
 alpha, для которой независимость квадратов доказана самим митрованным эталоном.
@@ -522,6 +525,218 @@ def test_a_fan_anchor_off_the_lattice_domain_is_refused_by_name():
     assert (
         report.outcome is BridgeOutcome.VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX
     )
+    assert report.polygon is None
+
+
+# Веер `k = 2` В ПОРЯДКЕ ОБХОДА ПАТЧА-ВЛАДЕЛЬЦА, взятый у
+# `test_two_supports_of_one_vertex_get_two_distinct_faces`: там же он и
+# проверен машинерией граней. Направления рациональны и не равноугольны —
+# профилем `LINEAR_REFLEX_EQUAL_V1` они не являются, и здесь это не нужно:
+# предмет теста — ПОРЯДОК, а не рецепт.
+MIRROR_ANCHOR = (6, 6)
+MIRROR_OWNER_SUPPORTS = ((-1, -2, Fraction(5)), (-2, -1, Fraction(5)))
+
+
+def _reflected(point):
+    """Отражение координат карты `(x, y) -> (y, x)`: определитель равен -1."""
+
+    return (point[1], point[0])
+
+
+def _mirror_pair_column(mirrored: bool):
+    """Одна колонка синтетической пары «прямая карта ↔ её зеркало».
+
+    Отражается ВСЁ, что живёт в координатах карты: петля домена, якорь угла и
+    ковекторы нормалей опор (`a*x + b*y` при `(x, y) -> (y, x)` переходит в
+    `b*x' + a*y'`). ПОРЯДОК опор не отражается — он приходит из обхода
+    патча-владельца, а патч отражение карты не трогает. Ровно поэтому колонки
+    различаются только знаком `owner_orientation_sign`, который и есть вся
+    власть закона.
+    """
+
+    from cftuv_envelope.wavefront.bridge import (
+        VertexFanLawV1,
+        bridge_arrival_laws,
+        unit_speed_laws_of,
+    )
+    from cftuv_envelope.wavefront.conveyor import computation_loop_supports
+
+    points = tuple(loop.points for loop in ell(12).loops)
+    supports = MIRROR_OWNER_SUPPORTS
+    anchor = MIRROR_ANCHOR
+    if mirrored:
+        points = tuple(tuple(_reflected(item) for item in loop) for loop in points)
+        supports = tuple((b, a, q) for a, b, q in supports)
+        anchor = _reflected(MIRROR_ANCHOR)
+    figure = PolygonV1.build(points[0], points[1:])
+    report = bridge_arrival_laws(
+        tuple(
+            tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+            for loop in figure.loops
+        ),
+        unit_speed_laws_of(figure),
+        vertex_fans=(
+            VertexFanLawV1(
+                "angular-spec:mirror",
+                (Fraction(anchor[0]), Fraction(anchor[1])),
+                computation_loop_supports(supports, -1 if mirrored else 1),
+            ),
+        ),
+    )
+    return figure, report
+
+
+def _mirror_pair_reading(mirrored: bool, alpha: Fraction):
+    """Скелет и покрытие колонки, приведённые к ПРЯМЫМ координатам.
+
+    Приведение — то же отражение, что и на входе, поэтому равенство колонок
+    после него есть в точности «зеркально равны», а не «похожи по числу».
+    """
+
+    from cftuv_envelope.wavefront.bridge import BridgeOutcome
+
+    _, report = _mirror_pair_column(mirrored)
+    assert report.outcome is BridgeOutcome.EXACT, report.findings
+    skeleton = build_skeleton(report.polygon)
+    assert skeleton.outcome is SkeletonOutcome.EXACT, skeleton.outcome
+    partition = build_faces(report.polygon, skeleton)
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    covered = coverage_at(partition, alpha)
+    assert covered.outcome is CoverageOutcome.EXACT
+
+    def straight(x, y):
+        return (y.terms, x.terms) if mirrored else (x.terms, y.terms)
+
+    nodes = sorted(
+        straight(node.point.x, node.point.y) for node in skeleton.nodes
+    )
+    members = sorted(
+        (
+            tuple(sorted(straight(x, y) for x, y in face.points)),
+            face.doubled_area.terms,
+        )
+        for face in covered.faces
+    )
+    return nodes, members, covered
+
+
+@pytest.mark.parametrize("alpha", (Fraction(1), Fraction(2)))
+def test_the_mirrored_chart_gives_the_reflected_skeleton_and_coverage(alpha):
+    """ЗАКОН ПОРЯДКА ОПОР, проверенный ПОКРЫТИЕМ, а не приёмом входа.
+
+    Пара синтетическая и различается ровно одним: ориентацией карты. Прямая
+    колонка — веер `k = 2` из `..._two_supports_of_one_vertex_get_two_faces`,
+    зеркальная — та же задача в отражённых координатах карты
+    (`COORDINATE_CW_MATCHES_OWNER_PATCH`). Продукт от выбора карты зависеть не
+    может, поэтому требуется не «мост принял», а зеркальное равенство ВСЕГО
+    ответа: узлы скелета, члены покрытия со своими площадями и сумма площадей.
+
+    До закона зеркальная колонка КРАСНАЯ, и краснеет она не приёмом входа, а
+    отказом: `VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP` при
+    `lattice=None`, то есть там, где привязка не двигала ни одной вершины.
+    """
+
+    direct_nodes, direct_members, direct_covered = _mirror_pair_reading(
+        False, alpha
+    )
+    mirror_nodes, mirror_members, mirror_covered = _mirror_pair_reading(
+        True, alpha
+    )
+
+    assert mirror_nodes == direct_nodes
+    assert mirror_members == direct_members
+    # Сумма — ТОЧНОЕ равенство `SqrtSumV1`, а не совпадение до знака: площадь
+    # обеих колонок иррациональна, и рациональным это сравнение быть не могло.
+    assert (
+        mirror_covered.doubled_area - direct_covered.doubled_area
+    ).is_zero
+    assert direct_covered.polygon_doubled_area == (
+        mirror_covered.polygon_doubled_area
+    )
+
+
+def test_the_inverted_support_order_on_a_direct_chart_is_still_refused():
+    """ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ: закон не ослабил проверку сектора.
+
+    Порядок опор перевёрнут РУКАМИ на ПРЯМОЙ карте, то есть власть ориентации
+    сказала «оставить как есть», а вход всё равно пришёл развёрнутым. Мост
+    обязан отказать именем, а не молча починить: если бы закон был реализован
+    переворотом «до зелёного», этот тест стал бы зелёным вместе с ним.
+    """
+
+    from cftuv_envelope.wavefront.bridge import (
+        BridgeOutcome,
+        VertexFanLawV1,
+        bridge_arrival_laws,
+        unit_speed_laws_of,
+    )
+    from cftuv_envelope.wavefront.conveyor import computation_loop_supports
+
+    figure = ell(12)
+    inverted = tuple(reversed(MIRROR_OWNER_SUPPORTS))
+    assert computation_loop_supports(inverted, 1) == inverted
+    report = bridge_arrival_laws(
+        tuple(
+            tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+            for loop in figure.loops
+        ),
+        unit_speed_laws_of(figure),
+        vertex_fans=(
+            VertexFanLawV1(
+                "angular-spec:inverted",
+                (Fraction(6), Fraction(6)),
+                inverted,
+            ),
+        ),
+    )
+
+    assert report.outcome is (
+        BridgeOutcome.VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP
+    )
+    assert report.polygon is None
+
+
+def test_the_lattice_keeps_the_refusal_it_actually_causes():
+    """Разведение имён: у решётки остаётся ровно тот отказ, что её.
+
+    Два якоря веера сидят в РАЗНЫХ точках дроби и садятся в ОДИН узел — это и
+    есть работа привязки, поэтому имя `LATTICE_SNAP_BREAKS_A_VERTEX_FAN`
+    остаётся правдой и ветка достижима. Отказ вращательного смысла имя сменил
+    именно затем, чтобы эти два случая перестали отвечать одинаково: первый
+    лечится шагом решётки, второй ориентацией карты.
+    """
+
+    from cftuv_envelope.robust.grid import GridSpecV1
+    from cftuv_envelope.wavefront.bridge import (
+        BridgeOutcome,
+        VertexFanLawV1,
+        bridge_arrival_laws,
+        unit_speed_laws_of,
+    )
+
+    figure = ell(12)
+    report = bridge_arrival_laws(
+        tuple(
+            tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+            for loop in figure.loops
+        ),
+        unit_speed_laws_of(figure),
+        lattice=GridSpecV1(1),
+        vertex_fans=(
+            VertexFanLawV1(
+                "angular-spec:first",
+                (Fraction(6), Fraction(6)),
+                ((-1, -1, Fraction(2)),),
+            ),
+            VertexFanLawV1(
+                "angular-spec:second",
+                (Fraction(24, 4) + Fraction(1, 5), Fraction(6)),
+                ((-1, -1, Fraction(2)),),
+            ),
+        ),
+    )
+
+    assert report.outcome is BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN
     assert report.polygon is None
 
 
