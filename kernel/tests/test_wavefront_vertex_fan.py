@@ -583,7 +583,7 @@ def _mirror_pair_column(mirrored: bool):
             ),
         ),
     )
-    return figure, report
+    return report
 
 
 def _mirror_pair_reading(mirrored: bool, alpha: Fraction):
@@ -591,16 +591,24 @@ def _mirror_pair_reading(mirrored: bool, alpha: Fraction):
 
     Приведение — то же отражение, что и на входе, поэтому равенство колонок
     после него есть в точности «зеркально равны», а не «похожи по числу».
+
+    Обе опоры веера обязаны дожить до СВОЕЙ непустой грани, и это проверяется
+    здесь, а не подразумевается: две колонки с выброшенным веером были бы
+    зеркально равны друг другу тоже, и тест прошёл бы, ничего не проверив.
     """
 
     from cftuv_envelope.wavefront.bridge import BridgeOutcome
 
-    _, report = _mirror_pair_column(mirrored)
+    report = _mirror_pair_column(mirrored)
     assert report.outcome is BridgeOutcome.EXACT, report.findings
+    assert report.fan_edge_count == len(MIRROR_OWNER_SUPPORTS)
     skeleton = build_skeleton(report.polygon)
     assert skeleton.outcome is SkeletonOutcome.EXACT, skeleton.outcome
     partition = build_faces(report.polygon, skeleton)
     assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    fan_faces = [face for face in partition.faces if face.is_fan_support]
+    assert len(fan_faces) == len(MIRROR_OWNER_SUPPORTS)
+    assert all(face.doubled_area.sign() > 0 for face in fan_faces)
     covered = coverage_at(partition, alpha)
     assert covered.outcome is CoverageOutcome.EXACT
 
@@ -728,9 +736,10 @@ def test_the_lattice_keeps_the_refusal_it_actually_causes():
                 (Fraction(6), Fraction(6)),
                 ((-1, -1, Fraction(2)),),
             ),
+            # `6 + 1/5`: другая дробь, тот же узел при шаге решётки 1.
             VertexFanLawV1(
                 "angular-spec:second",
-                (Fraction(24, 4) + Fraction(1, 5), Fraction(6)),
+                (Fraction(31, 5), Fraction(6)),
                 ((-1, -1, Fraction(2)),),
             ),
         ),
