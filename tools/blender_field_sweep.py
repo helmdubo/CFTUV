@@ -153,7 +153,11 @@ import bpy
 import cftuv
 import cftuv_envelope as kernel
 from cftuv.envelope_debug_renderer import envelope_debug_text_name
-from cftuv.envelope_request_policy import envelope_angular_policy
+from cftuv.envelope_request_policy import (
+    MEASURED_REQUEST_ALPHA,
+    envelope_angular_policy,
+    request_alpha_decimal,
+)
 
 
 def _registered_cftuv_classes() -> tuple[type, ...]:
@@ -493,6 +497,40 @@ def _queue_seconds(sidecar: dict) -> float:
     )
 
 
+def _pin_measured_alpha(settings) -> None:
+    """Прижать ползунок alpha к измеренному значению и ПЕРЕЧИТАТЬ его.
+
+    Полевой отказ: гейт строил запрос с alpha измеренной константой, а кнопка
+    наследовала alpha из ползунка сцены — владелец накрутил 0.78, и свип упал
+    `BUTTON_PARITY_MISMATCH: direct receipt identity differs`. `DecalRequestId`
+    есть контентный хэш запроса, alpha в него входит, поэтому идентичность
+    расходилась ПО ПОСТРОЕНИЮ при любом ползунке ≠ измеренного. Свип нарушал
+    собственное правило `REQUEST_POLICY_KNOBS_MEASURED_V1`: density он пиннит и
+    перечитывает, alpha не пиннил вовсе.
+
+    Сверка идёт в ВЕЛИЧИНЕ ЗАПРОСА (`request_alpha_decimal`), а не в сыром
+    float, потому что в контентный хэш входит именно она. И проверка эта не
+    формальность: `FloatProperty` Blender хранит binary32, и десятичное
+    значение переживает круг «записал → прочитал» не всякое. Замер на
+    кандидатах: 0.3 -> 0.30000001192092896 (НЕ переживает), 0.78 ->
+    0.7799999713897705 (не переживает), 0.25 / 0.375 / 0.5 / 0.75 — переживают
+    точно. Если измеренная alpha круга не переживает, паритет недостижим по
+    построению, и это обязано быть НАЗВАНО здесь, а не всплыть расхождением
+    идентичности двумя стадиями позже.
+    """
+
+    settings.envelope_debug_alpha = MEASURED_REQUEST_ALPHA
+    pinned = request_alpha_decimal(MEASURED_REQUEST_ALPHA)
+    readback = request_alpha_decimal(settings.envelope_debug_alpha)
+    if readback != pinned:
+        raise DensitySweepContractError(
+            f"{UNMEASURED_REQUEST_POLICY_KNOB}: UI alpha readback mismatch — "
+            f"pinned={pinned} readback={readback}; "
+            "the measured alpha does not survive the binary32 slider, so the "
+            "button request can never carry the value the direct gate uses"
+        )
+
+
 def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
     report = {
         "mesh": obj.name,
@@ -513,6 +551,7 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
             raise DensitySweepContractError(
                 f"{UNMEASURED_REQUEST_POLICY_KNOB}: UI density readback mismatch"
             )
+        _pin_measured_alpha(settings)
         text_name = _invalidate_sidecar(obj)
         report["sidecar_absent_before_operator"] = True
         report["operator_invoked"] = True
@@ -528,8 +567,13 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
                 "effective": int(settings.envelope_debug_fan_density),
                 "id": report["selection_policy_id"],
             },
+            # `requested` — ПИННУТОЕ значение, `effective` — то, что запрос
+            # реально понёс. Прежде оба поля читались из одного места
+            # (сайдкара), поэтому «измерено» выполнялось тождественно: ручка
+            # сходилась сама с собой при любом положении ползунка. Расхождение
+            # этих двух чисел и есть тот дефект, который стоил полевого падения.
             "alpha": {
-                "requested": sidecar.get("requested_alpha"),
+                "requested": str(MEASURED_REQUEST_ALPHA),
                 "effective": sidecar.get("requested_alpha"),
                 "id": "requested_alpha",
             },
@@ -611,6 +655,19 @@ def _verify_direct_parity(
     }
 
 
+def _compact(value) -> str:
+    """Одно поле расписки в сравнимой и читаемой форме.
+
+    Сравнение идёт по канонической кодировке, а не по `==`: значения приходят
+    из JSON и из построителя, и списки/словари обязаны сверяться порядком
+    ключей, а не порядком записи.
+    """
+
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+
+
 def _verify_direct_identity(
     receipt: dict,
     expected_policy: dict,
@@ -634,22 +691,21 @@ def _verify_direct_identity(
         "python_safe_path": True,
         "status": "COMPLETE",
     }
-    actual = {key: receipt.get(key) for key in expected}
-    actual_encoded = json.dumps(
-        actual,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    expected_encoded = json.dumps(
-        expected,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    if actual_encoded != expected_encoded:
+    # Диагностика по ПОЛЯМ, а не двумя цельными JSON. Прежде отказ говорил
+    # «direct receipt identity differs» и молчал о том, ЧТО именно разошлось;
+    # чтобы увидеть хотя бы стадию, приходилось перегонять весь свип с
+    # захватом лога. Расхождение почти всегда в одном поле, и назвать его —
+    # разница между одной строкой и полным полевым прогоном.
+    differences = [
+        f"{key}: expected={_compact(expected[key])} "
+        f"actual={_compact(receipt.get(key))}"
+        for key in sorted(expected)
+        if _compact(receipt.get(key)) != _compact(expected[key])
+    ]
+    if differences:
         raise DensitySweepContractError(
-            f"{BUTTON_PARITY_MISMATCH}: direct receipt identity differs"
+            f"{BUTTON_PARITY_MISMATCH}: direct receipt identity differs in "
+            f"{len(differences)} field(s) — " + "; ".join(differences)
         )
 
 

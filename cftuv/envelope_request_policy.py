@@ -3,6 +3,51 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+
+
+# Измеренное значение alpha приёмки — ОДИН узел на оба инструмента.
+# Прежде гейт нёс литерал `0.3` в двух местах, а свип не пиннил alpha вовсе и
+# наследовал её из ползунка сцены. Владелец накрутил ползунок на 0.78, и
+# 9-кнопочный свип упал `BUTTON_PARITY_MISMATCH`: `DecalRequestId` — контентный
+# хэш запроса, alpha в него входит, поэтому идентичность прямой расписки и
+# кнопки расходилась ПО ПОСТРОЕНИЮ при любом положении ползунка ≠ измеренного.
+# Свип при этом нарушал собственное правило `REQUEST_POLICY_KNOBS_MEASURED_V1`:
+# density он пиннит и перечитывает, alpha — нет. Одна константа делает
+# расхождение двух инструментов непредставимым; наследование из сцены —
+# измеримым.
+#
+# 0.3 -> 0.25, решение принципала. Основания по весу:
+# (1) 0.25 — СОБСТВЕННЫЙ дефолт ползунка (`envelope_debug_alpha`), поэтому
+#     кнопка на нетронутой сцене несёт ровно измеренный узел без выставлений;
+# (2) величина диадическая — точна в binary32, в binary64 и в
+#     `Decimal(str(float(...)))` одновременно, поэтому круг «записал в ползунок
+#     → прочитал» переживает ТОЖДЕСТВЕННО. 0.3 не переживала: `FloatProperty`
+#     хранит binary32, и 0.3 возвращается как 0.30000001192092896, то есть
+#     запрос кнопки нёс бы `Decimal('0.30000001192092896')` против
+#     `Decimal('0.3')` у гейта — паритет был недостижим по построению никаким
+#     пиннингом;
+# (3) непрерывность с историческим 0.3 не стоит ничего: расписки ребейзятся с
+#     каждой правкой сцены владельцем, а сравнение чисел разных alpha и так
+#     запрещено по построению.
+MEASURED_REQUEST_ALPHA = 0.25
+
+
+def request_alpha_decimal(alpha) -> Decimal:
+    """Та величина alpha, которую понесёт ЗАПРОС, а не та, что стоит в ползунке.
+
+    Повторяет правило `build_envelope_decal_request`:
+    `alpha_decimal = Decimal(str(float(alpha)))`. Живёт здесь, чтобы сверять
+    ползунок можно было в ТОЙ ЖЕ величине, которая попадает в контентный хэш
+    запроса. Сверять сырые float значило бы проверять не то, что расходится:
+    в идентичность запроса входит именно эта Decimal.
+
+    Оговорка, которую обязан знать вызывающий: `FloatProperty` Blender хранит
+    binary32, и не всякое десятичное значение переживает круг «записал в
+    ползунок → прочитал». Поэтому проверка round-trip у инструмента и нужна.
+    """
+
+    return Decimal(str(float(alpha)))
 
 
 ENVELOPE_FAN_DENSITY_ITEMS = (
@@ -171,10 +216,12 @@ def build_envelope_request_contract(
 __all__ = (
     "DEFAULT_ENVELOPE_FAN_DENSITY",
     "ENVELOPE_FAN_DENSITY_ITEMS",
+    "MEASURED_REQUEST_ALPHA",
     "EnvelopeAngularPolicyV1",
     "build_envelope_request_contract",
     "envelope_angular_policy",
     "envelope_decal_request_id_value",
     "envelope_request_policy_signature",
     "normalize_envelope_fan_density",
+    "request_alpha_decimal",
 )

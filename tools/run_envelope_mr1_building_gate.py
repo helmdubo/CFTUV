@@ -130,6 +130,9 @@ from cftuv.envelope_request_export import (  # noqa: E402
     build_envelope_decal_request,
     build_envelope_topology_debug_scene,
 )
+from cftuv.envelope_request_policy import (  # noqa: E402
+    MEASURED_REQUEST_ALPHA,
+)
 from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPathKind,
 )
@@ -293,7 +296,7 @@ def _request_policy_receipt(
                 "id": selection_policy_id,
             },
             "alpha": {
-                "requested": "0.3",
+                "requested": str(MEASURED_REQUEST_ALPHA),
                 "effective": alpha,
                 "id": "requested_alpha",
             },
@@ -664,7 +667,7 @@ def _snapshot_request(
         request = build_envelope_decal_request(
             snapshot,
             frozenset(selected_edges),
-            0.3,
+            MEASURED_REQUEST_ALPHA,
             decal_request_id_value=request_id,
             density=density_contract[1],
         )

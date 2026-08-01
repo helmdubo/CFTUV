@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+from decimal import Decimal
+import struct
 import hashlib
 import json
 import os
@@ -575,21 +577,29 @@ def test_final_sweep_consumer_accepts_only_complete_fresh_finished_report():
 
 
 def test_direct_parity_rejects_every_spoofed_authority_field():
-    function = _function(_module(BUTTON_SWEEP), "_verify_direct_identity")
+    """Подделка любого поля отвергается, и отказ НАЗЫВАЕТ поле с обоими числами.
+
+    Прежде отказ говорил «direct receipt identity differs» и молчал о том, что
+    именно разошлось: чтобы увидеть хотя бы стадию, приходилось перегонять
+    весь свип с захватом лога. Расхождение почти всегда в одном поле.
+    """
+
+    module = _module(BUTTON_SWEEP)
     namespace = {
         "json": json,
         "MEASUREMENT_RULE": "REQUEST_POLICY_KNOBS_MEASURED_V1",
         "DensitySweepContractError": RuntimeError,
         "BUTTON_PARITY_MISMATCH": "BUTTON_PARITY_MISMATCH",
     }
-    exec(
-        compile(
-            ast.Module(body=[function], type_ignores=[]),
-            str(BUTTON_SWEEP),
-            "exec",
-        ),
-        namespace,
-    )
+    for name in ("_compact", "_verify_direct_identity"):
+        exec(
+            compile(
+                ast.Module(body=[_function(module, name)], type_ignores=[]),
+                str(BUTTON_SWEEP),
+                "exec",
+            ),
+            namespace,
+        )
     policy = {
         "selection_policy_id": "SELECTION",
         "max_subturn_parameter_id": "PARAMETER",
@@ -629,7 +639,7 @@ def test_direct_parity_rejects_every_spoofed_authority_field():
     }
     for key, value in spoofs.items():
         forged = {**receipt, key: value}
-        with pytest.raises(RuntimeError, match="BUTTON_PARITY_MISMATCH"):
+        with pytest.raises(RuntimeError, match="BUTTON_PARITY_MISMATCH") as failure:
             namespace["_verify_direct_identity"](
                 forged,
                 policy,
@@ -637,6 +647,14 @@ def test_direct_parity_rejects_every_spoofed_authority_field():
                 request_ids,
                 head,
             )
+        message = str(failure.value)
+        # Названо ПОЛЕ и обе его величины — по-полевому диффом, а не двумя
+        # цельными JSON, из которых глазами вычитают разницу.
+        assert f"{key}: expected=" in message, message
+        assert "actual=" in message
+        assert json.dumps(value, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":")) in message
+        assert "1 field(s)" in message, message
 
 
 def test_scene_identity_hash_catches_same_size_restored_mtime_spoof(tmp_path):
@@ -1080,6 +1098,150 @@ def _sweep_meshes(objects_by_name):
 
 def _mesh(name):
     return SimpleNamespace(name=name, type="MESH")
+
+
+# --------------------------------------------------------------------------
+# Ручка alpha: измерена, пиннута и перечитана — как density.
+# --------------------------------------------------------------------------
+
+
+POLICY_MODULE = ROOT / "cftuv" / "envelope_request_policy.py"
+HOST_EXPORT_FILE = ROOT / "cftuv" / "envelope_request_export.py"
+
+
+def _pin_alpha(slider_readback, measured=0.25):
+    """`_pin_measured_alpha` на подставном `settings` с заданным round-trip.
+
+    Ползунок моделируется как СВОЙСТВО, возвращающее не то, что записали:
+    именно так ведёт себя `FloatProperty` Blender (binary32), и мок обязан
+    уметь это воспроизвести, а не постулировать идеальный round-trip.
+    """
+
+    class _Settings:
+        def __init__(self):
+            self.written = None
+
+        @property
+        def envelope_debug_alpha(self):
+            return slider_readback
+
+        @envelope_debug_alpha.setter
+        def envelope_debug_alpha(self, value):
+            self.written = value
+
+    settings = _Settings()
+    function = _function(_module(BUTTON_SWEEP), "_pin_measured_alpha")
+    namespace = {
+        "MEASURED_REQUEST_ALPHA": measured,
+        "request_alpha_decimal": lambda value: Decimal(str(float(value))),
+        "DensitySweepContractError": RuntimeError,
+        "UNMEASURED_REQUEST_POLICY_KNOB": "UNMEASURED_REQUEST_POLICY_KNOB",
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    namespace["_pin_measured_alpha"](settings)
+    return settings.written
+
+
+def test_sweep_pins_alpha_instead_of_inheriting_the_owner_slider():
+    """Ползунок сцены больше не решает, какой запрос уйдёт в кнопку.
+
+    Полевой отказ: гейт строил запрос с измеренной alpha, кнопка наследовала
+    её из ползунка, владелец накрутил 0.78 — и `DecalRequestId` (контентный
+    хэш, alpha в него входит) разошёлся по построению. Свип нарушал
+    собственное правило `REQUEST_POLICY_KNOBS_MEASURED_V1`: density он пиннит
+    и перечитывает, alpha не пиннил вовсе.
+    """
+
+    # Сцена с чужим ползунком: свип обязан ЗАПИСАТЬ измеренное значение.
+    assert _pin_alpha(slider_readback=0.25) == 0.25
+
+
+def test_sweep_refuses_when_the_slider_does_not_return_the_pinned_alpha():
+    """Readback — не формальность: расхождение обязано быть названо здесь.
+
+    `FloatProperty` Blender хранит binary32, и десятичное значение переживает
+    круг «записал → прочитал» не всякое. Замер: 0.3 -> 0.30000001192092896,
+    0.78 -> 0.7799999713897705; 0.25 / 0.375 / 0.5 / 0.75 переживают точно.
+    Если измеренная alpha круга не переживает, паритет недостижим ПО
+    ПОСТРОЕНИЮ, и отказ обязан прозвучать на ручке, а не всплыть расхождением
+    идентичности двумя стадиями позже.
+    """
+
+    # Принятое значение круг переживает — проверка обязана МОЛЧАТЬ.
+    assert _pin_alpha(slider_readback=0.25) == 0.25
+
+    # А исторические 0.3 не переживали, и это ровно тот отказ, который обязан
+    # звучать на ручке. Проба синтетическая: она про механизм, а не про
+    # принятую константу.
+    with pytest.raises(RuntimeError, match="UNMEASURED_REQUEST_POLICY_KNOB") as failure:
+        _pin_alpha(slider_readback=0.30000001192092896, measured=0.3)
+    message = str(failure.value)
+    assert "pinned=0.3" in message, message
+    assert "readback=0.30000001192092896" in message, message
+
+
+def test_both_acceptance_tools_consume_one_measured_alpha_node():
+    """Одна константа на оба инструмента — расхождение непредставимо.
+
+    Прежде гейт нёс литерал `0.3` в двух местах, а свип не нёс его вовсе.
+    Разойтись двум литералам ничто не мешало, и разошлись они не между
+    инструментами, а между инструментом и ЖИВОЙ СЦЕНОЙ.
+    """
+
+    from cftuv.envelope_request_policy import (
+        MEASURED_REQUEST_ALPHA,
+        request_alpha_decimal,
+    )
+
+    assert MEASURED_REQUEST_ALPHA == 0.25
+    assert request_alpha_decimal(0.25) == Decimal("0.25")
+
+    # Диадическая величина: круг «записал в binary32 → прочитал» она переживает
+    # ТОЖДЕСТВЕННО, поэтому запрос кнопки несёт ту же Decimal, что и гейт.
+    # Это и есть условие достижимости паритета, а не удобство записи.
+    assert struct.unpack("f", struct.pack("f", MEASURED_REQUEST_ALPHA))[0] == (
+        MEASURED_REQUEST_ALPHA
+    )
+    assert request_alpha_decimal(MEASURED_REQUEST_ALPHA) == request_alpha_decimal(
+        struct.unpack("f", struct.pack("f", MEASURED_REQUEST_ALPHA))[0]
+    )
+
+    for path in (FIELD_GATE, BUTTON_SWEEP):
+        source = path.read_text(encoding="utf-8")
+        assert "MEASURED_REQUEST_ALPHA" in source, path
+        # Своего литерала alpha ни у одного инструмента не остаётся.
+        literals = [
+            node.value
+            for node in ast.walk(_module(path))
+            if isinstance(node, ast.Constant)
+            and node.value in (0.3, MEASURED_REQUEST_ALPHA)
+        ]
+        assert literals == [], f"{path}: собственный литерал alpha"
+
+
+def test_the_request_alpha_rule_still_matches_the_host_that_owns_it():
+    """`request_alpha_decimal` обязан повторять правило построителя запроса.
+
+    Правило живёт в `envelope_request_export.py`, который стоит на потолке
+    строк, поэтому вынести его туда нельзя, и в `envelope_request_policy.py`
+    оно записано вторым экземпляром. Второй экземпляр без исполняемой связи
+    разошёлся бы молча — связь ниже и есть эта проверка.
+    """
+
+    source = HOST_EXPORT_FILE.read_text(encoding="utf-8")
+    assert "alpha_decimal = Decimal(str(float(alpha)))" in source
+
+    from cftuv.envelope_request_policy import request_alpha_decimal
+
+    for probe in (0.3, 0.25, 0.78, 1, "0.5"):
+        assert request_alpha_decimal(probe) == Decimal(str(float(probe)))
 
 
 def test_sweep_takes_the_three_named_meshes_in_declared_order():
