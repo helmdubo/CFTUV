@@ -142,7 +142,15 @@ def test_button_sweep_rejects_any_non_acceptance_matrix(matrix):
     assert NAMED_OMISSION in result.stderr
 
 
-def test_button_sweep_contract_counts_exactly_78_true_button_calls():
+def test_button_sweep_contract_counts_exactly_9_true_button_calls():
+    """Решением владельца охват свипа — три меша × один сценарий × три плотности.
+
+    Прежний контракт (13 мешей × 2 сценария = 78) выводил свою норму из ЖИВОЙ
+    сцены и о неё же ломался: владелец правит сцену непрерывно, мешей со швами
+    стало не 13, и свип упал `DENSITY_SWEEP_CALL_COUNT_MISMATCH` до первой
+    кнопки. Охват стал свойством инструмента и назван поимённо.
+    """
+
     result = _run(
         sys.executable,
         str(BUTTON_SWEEP),
@@ -153,9 +161,16 @@ def test_button_sweep_contract_counts_exactly_78_true_button_calls():
         "receipts",
     )
     payload = _json_output(result)
+    assert payload["schema"].endswith(".v3")
     assert payload["density_matrix"] == [0, 1, 4]
-    assert payload["expected_calls_per_density"] == 26
-    assert payload["expected_total_calls"] == 78
+    assert payload["swept_meshes"] == [
+        "building",
+        "building.002",
+        "building.004",
+    ]
+    assert payload["scenario"] == "all_seams"
+    assert payload["expected_calls_per_density"] == 3
+    assert payload["expected_total_calls"] == 9
 
 
 def _module(path: Path) -> ast.Module:
@@ -253,9 +268,25 @@ def test_direct_and_button_use_the_same_canonical_queue_projection():
 
 
 def test_budgets_are_unchanged_in_both_acceptance_tools():
-    expected = {"building.002": 5.0, "2": 17.3, "building": 120.0}
-    assert _assignment(_module(FIELD_GATE), "_FIELD_BUDGET_SECONDS") == expected
-    assert _assignment(_module(BUTTON_SWEEP), "_FIELD_BUDGET_SECONDS") == expected
+    """Каждый кап — замер, и таблицы двух инструментов больше не одна таблица.
+
+    У ворот охват прежний, поэтому и таблица прежняя. У свипа охват сужен
+    решением владельца: `"2"` выходит вместе со сценарием, `building.004`
+    входит вместе с мешом. Его кап 5.0 — НАЗВАННЫЙ выбор, а не замер: 1.19 с
+    измерены на d1, а бюджет обязан покрывать d4, который у этого меша ещё не
+    мерен. Затянуть кап вокруг d1 значило бы выдать догадку за замер.
+    """
+
+    assert _assignment(_module(FIELD_GATE), "_FIELD_BUDGET_SECONDS") == {
+        "building.002": 5.0,
+        "2": 17.3,
+        "building": 120.0,
+    }
+    assert _assignment(_module(BUTTON_SWEEP), "_FIELD_BUDGET_SECONDS") == {
+        "building.002": 5.0,
+        "building.004": 5.0,
+        "building": 120.0,
+    }
 
 
 def test_sweep_sets_and_reads_back_ui_density_before_true_operator():
@@ -441,6 +472,7 @@ def test_final_sweep_consumer_rejects_forged_report(patch, expected):
         "_EXPECTED_CALLS_PER_DENSITY": 1,
         "_EXPECTED_TOTAL_CALLS": 1,
         "_FIELD_BUDGET_SECONDS": {},
+        "_SWEEP_SCENARIO": "all_seams",
         "DENSITY_SWEEP_CALL_COUNT_MISMATCH": (
             "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
         ),
@@ -493,6 +525,7 @@ def test_final_sweep_consumer_accepts_only_complete_fresh_finished_report():
         "_EXPECTED_CALLS_PER_DENSITY": 1,
         "_EXPECTED_TOTAL_CALLS": 1,
         "_FIELD_BUDGET_SECONDS": {},
+        "_SWEEP_SCENARIO": "all_seams",
         "DENSITY_SWEEP_CALL_COUNT_MISMATCH": (
             "DENSITY_SWEEP_CALL_COUNT_MISMATCH"
         ),
@@ -807,3 +840,297 @@ def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json(tmp_path):
     # Компактность — предмет требования, а не побочный эффект. Полная расписка
     # в поле — 51 тыс. символов на `building.002`, ~170 тыс. на `building`.
     assert len(line) < 300
+
+
+# --------------------------------------------------------------------------
+# Регистрация аддона в свипе: идемпотентна на уровне СВИПА, и кем — в расписке.
+# --------------------------------------------------------------------------
+
+
+class _FakeBpyTypes:
+    """`bpy.types` ровно в объёме предиката: имя → объект или его отсутствие."""
+
+    def __init__(self, registered):
+        for cls in registered:
+            setattr(self, cls.__name__, cls)
+
+
+def _sweep_registration(registered, classes, recorder):
+    """Выполнить обе функции регистрации свипа в подставном окружении.
+
+    Функции берутся ИЗ ИСХОДНИКА (`ast`) и исполняются с подставными `bpy` и
+    `cftuv`: настоящие требуют Blender, а проверяемое свойство — чистая логика
+    трёх состояний, и она обязана быть проверяема без него.
+    """
+
+    module = _module(BUTTON_SWEEP)
+    namespace = {
+        "bpy": SimpleNamespace(types=_FakeBpyTypes(registered)),
+        "cftuv": SimpleNamespace(register=recorder),
+        "DensitySweepContractError": RuntimeError,
+        "ADDON_REGISTRATION_PARTIAL": "ADDON_REGISTRATION_PARTIAL",
+        "ADDON_REGISTERED_BY_STARTUP_PREFERENCES": "startup_preferences",
+        "ADDON_REGISTERED_BY_SWEEP": "sweep",
+    }
+    for name in ("_registered_cftuv_classes", "_ensure_addon_registered"):
+        function = _function(module, name)
+        exec(
+            compile(
+                ast.Module(body=[function], type_ignores=[]),
+                str(BUTTON_SWEEP),
+                "exec",
+            ),
+            namespace,
+        )
+    # `from cftuv.operators import classes` внутри функций — подставляем модуль.
+    # Прежнее значение ВОЗВРАЩАЕТСЯ, а не удаляется: `cftuv.operators` мог быть
+    # уже импортирован другим тестом, и `del` вынес бы настоящий модуль из
+    # `sys.modules` — соседний файл падал бы из-за подстановки в этом.
+    previous = sys.modules.get("cftuv.operators")
+    sys.modules["cftuv.operators"] = SimpleNamespace(classes=classes)
+    try:
+        return namespace["_ensure_addon_registered"]()
+    finally:
+        if previous is None:
+            sys.modules.pop("cftuv.operators", None)
+        else:
+            sys.modules["cftuv.operators"] = previous
+
+
+class _AlphaClass:
+    pass
+
+
+class _BetaClass:
+    pass
+
+
+_SWEEP_CLASSES = (_AlphaClass, _BetaClass)
+
+
+def test_sweep_registers_the_addon_only_when_it_is_not_registered_yet():
+    """Свип обязан работать И с автовключением из настроек, И без него.
+
+    Полевой факт: владелец включил CFTUV в настройках Blender, настройки
+    автосохраняются, и теперь любой фоновый Blender регистрирует аддон на
+    старте. Безусловный `cftuv.register()` после этого падает
+    `already registered as a subclass 'HOTSPOTUV_AddonPreferences'` — до первой
+    кнопки, то есть до всякого измерения.
+    """
+
+    calls = []
+    # Пусто — регистрирует свип.
+    assert _sweep_registration((), _SWEEP_CLASSES, lambda: calls.append(1)) == (
+        "sweep"
+    )
+    assert calls == [1]
+
+    # Всё уже зарегистрировано настройками — свип не трогает ничего.
+    calls.clear()
+    assert _sweep_registration(
+        _SWEEP_CLASSES, _SWEEP_CLASSES, lambda: calls.append(1)
+    ) == "startup_preferences"
+    assert calls == []
+
+
+def test_sweep_refuses_a_half_registered_addon_by_name():
+    """Частичная регистрация — названный отказ, а не выбор наугад.
+
+    Зарегистрирована часть классов: звать `register()` нельзя (упадёт на уже
+    зарегистрированных), пропустить нельзя (недостающие операторы не
+    появятся). Предикат тождества обязан различать это состояние, иначе
+    полусломанная регистрация читалась бы как «уже есть».
+    """
+
+    calls = []
+    with pytest.raises(RuntimeError, match="ADDON_REGISTRATION_PARTIAL"):
+        _sweep_registration(
+            (_AlphaClass,), _SWEEP_CLASSES, lambda: calls.append(1)
+        )
+    assert calls == []
+
+
+def test_sweep_registration_predicate_is_identity_not_name_presence():
+    """Чужой объект под тем же именем — не наш зарегистрированный класс.
+
+    Перезагрузка скрипта оставляет в `bpy.types` ПРЕЖНИЙ объект класса под тем
+    же именем. Проверка «имя есть» объявила бы такое состояние
+    зарегистрированным и пропустила бы свип к кнопке без живых операторов.
+    """
+
+    class _AlphaClass:  # то же имя, другой объект
+        pass
+
+    calls = []
+    with pytest.raises(RuntimeError, match="ADDON_REGISTRATION_PARTIAL"):
+        _sweep_registration(
+            (_AlphaClass, _BetaClass), _SWEEP_CLASSES, lambda: calls.append(1)
+        )
+    assert calls == []
+
+
+def test_sweep_owns_registration_idempotence_and_records_who_registered():
+    """Идемпотентность живёт в СВИПЕ, а `cftuv.register()` не тронут.
+
+    Прятать двойную регистрацию внутри продукта запрещено: там она честный
+    дефект, и Blender сообщает о ней по имени. А перечень классов свип обязан
+    брать у продукта — собственная копия имён разошлась бы с ним ровно так же,
+    как разошлось множество имён ступени METRIC.
+    """
+
+    source = BUTTON_SWEEP.read_text(encoding="utf-8")
+    assert "addon_registration = _ensure_addon_registered()" in source
+    assert '"addon_registration": addon_registration,' in source
+    # Перечень классов берётся у продукта, а не переписан в инструменте.
+    assert "from cftuv.operators import classes" in source
+
+    # `cftuv.register()` зовётся РОВНО ОДИН раз и только из-под предиката.
+    # Строковая проверка здесь не годится: законный вызов внутри
+    # `_ensure_addon_registered` выглядит так же, как прежний безусловный.
+    module = _module(BUTTON_SWEEP)
+    guarded = _function(module, "_ensure_addon_registered")
+    callers = [
+        node.name
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "register"
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "cftuv"
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+        )
+    ]
+    assert callers == [guarded.name], callers
+
+    # Сам продукт не получил обхода двойной регистрации: там она честный
+    # дефект, о котором Blender сообщает по имени. Два очевидных способа её
+    # спрятать — предикат наличия и проглоченное исключение — оба закрыты.
+    operators = (ROOT / "cftuv" / "operators.py").read_text(encoding="utf-8")
+    registration = _function(ast.parse(operators), "register")
+    hidden = [
+        node
+        for node in ast.walk(registration)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"getattr", "hasattr"}
+        )
+        or isinstance(node, ast.ExceptHandler)
+    ]
+    assert hidden == [], "продукт не должен прятать двойную регистрацию"
+
+
+# --------------------------------------------------------------------------
+# Охват свипа: три ИМЕНОВАННЫХ меша, а не то, что нашлось в живой сцене.
+# --------------------------------------------------------------------------
+
+
+def _sweep_meshes(objects_by_name):
+    """`_swept_meshes` в подставном `bpy.data.objects`."""
+
+    function = _function(_module(BUTTON_SWEEP), "_swept_meshes")
+    namespace = {
+        "bpy": SimpleNamespace(
+            data=SimpleNamespace(objects=SimpleNamespace(get=objects_by_name.get))
+        ),
+        "DensitySweepContractError": RuntimeError,
+        "SWEPT_MESH_ABSENT": "SWEPT_MESH_ABSENT",
+        "_SWEPT_MESH_NAMES": ("building", "building.002", "building.004"),
+    }
+    exec(
+        compile(
+            ast.Module(body=[function], type_ignores=[]),
+            str(BUTTON_SWEEP),
+            "exec",
+        ),
+        namespace,
+    )
+    return namespace["_swept_meshes"]()
+
+
+def _mesh(name):
+    return SimpleNamespace(name=name, type="MESH")
+
+
+def test_sweep_takes_the_three_named_meshes_in_declared_order():
+    """Охват — свойство ИНСТРУМЕНТА, а не содержимого сцены.
+
+    Посторонние меши со швами в сцене больше не расширяют охват, и их
+    появление не двигает контракт 3 × 1 × 3.
+    """
+
+    scene = {name: _mesh(name) for name in
+             ("building", "building.002", "building.004", "building.007", "Cube")}
+    assert [obj.name for obj in _sweep_meshes(scene)] == [
+        "building",
+        "building.002",
+        "building.004",
+    ]
+
+
+@pytest.mark.parametrize(
+    "absent",
+    ("building", "building.002", "building.004"),
+)
+def test_sweep_refuses_a_missing_named_mesh_by_name(absent):
+    """Пропавший меш — событие, а не молча суженный охват.
+
+    Прежний свип выводил норму из живой сцены и о неё же ломался. Новый
+    норму объявляет, поэтому расхождение с ней обязано быть названо: расписка
+    на два меша, выданная за расписку контракта, солгала бы о том, что мерили.
+    """
+
+    scene = {
+        name: _mesh(name)
+        for name in ("building", "building.002", "building.004")
+        if name != absent
+    }
+    with pytest.raises(RuntimeError, match="SWEPT_MESH_ABSENT"):
+        _sweep_meshes(scene)
+    # И не-меш под тем же именем — тоже отсутствие, а не подмена.
+    scene[absent] = SimpleNamespace(name=absent, type="EMPTY")
+    with pytest.raises(RuntimeError, match="SWEPT_MESH_ABSENT"):
+        _sweep_meshes(scene)
+
+
+def test_sweep_runs_one_scenario_and_verifies_parity_for_every_swept_mesh():
+    """`single_edge` снят, а сверка с прямой распиской осталась у всех трёх.
+
+    Прежде условием сверки было попадание меша в таблицу бюджетов: охват
+    сверки и потолок времени держались одним ключом, и меш без бюджета молча
+    оставался несверенным.
+    """
+
+    source = BUTTON_SWEEP.read_text(encoding="utf-8")
+    assert "if obj.name in _FIELD_BUDGET_SECONDS:" not in source
+
+    module = _module(BUTTON_SWEEP)
+    # Проверяется КОД, а не текст: `single_edge` остаётся в комментарии как
+    # запись о снятом сценарии, и это не его возвращение.
+    scenarios = {
+        node.value
+        for node in ast.walk(module)
+        if isinstance(node, ast.Constant) and node.value == "single_edge"
+    }
+    assert scenarios == set(), "сценарий single_edge снят решением владельца"
+
+    density_run = _function(module, "_density_run")
+    operator_calls = [
+        node
+        for node in ast.walk(density_run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_run_operator"
+    ]
+    parity_calls = [
+        node
+        for node in ast.walk(density_run)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_verify_direct_parity"
+    ]
+    # По одной кнопке и по одной сверке на меш — обе безусловны в теле цикла.
+    assert len(operator_calls) == 1
+    assert len(parity_calls) == 1
