@@ -404,7 +404,8 @@
         "residual_budget_law": {
           "enum": [
             "RELATIVE_EXTENT_OR_ULP_V1",
-            "GRID_STEP_CELL_V1"
+            "GRID_STEP_CELL_V1",
+            "PRODUCT_SKIRT_ABSOLUTE_V1"
           ],
           "type": "string"
         },
