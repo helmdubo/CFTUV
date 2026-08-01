@@ -941,6 +941,53 @@ def test_affine_metric_uses_canonical_source_vertex_origin_exactly():
     assert certificate.snapping_law.value == HOST_GRID_POLICY.value
 
 
+def test_both_host_paths_export_the_same_grid_certificate():
+    """Кнопка и инструмент приёмки видят ОДИН сертификат решётки.
+
+    Пути различаются ровно двумя необязательными аргументами: кнопочный несёт
+    `topology_export` (собранные цепочки хоста) и заранее нарезанный
+    `analysis_view`, гейтовый оба берёт умолчанием. Замер по карточке
+    GRID-PATH-SPLIT-01 объявил расхождение сертификатов решётки между этими
+    путями; здесь оно проверяется РАВЕНСТВОМ ПОЛЕЙ, а не пересказом.
+
+    Проверка стоит именно на сертификате: окно шага выводится из габарита
+    патча и двух констант ядра (`AUTHOR_ANGULAR_ERROR`, `DECAL_DETAIL`), а
+    политику называет одна `HOST_GRID_POLICY` на один вызов
+    `build_rational_affine_planar_metric`. Ни панель, ни `topology_export` в
+    этот вывод не входят — и если войдут, тест обязан упасть.
+    """
+
+    from cftuv.envelope_topology_export import (
+        build_analysis_bundle_id_view,
+        build_envelope_topology_export,
+    )
+
+    bundle = _single_patch_bundle()
+    topology_export = build_envelope_topology_export(bundle)
+
+    gate_snapshot = build_envelope_analysis_snapshot(
+        bundle,
+        included_patch_ids=frozenset({0}),
+    )
+    button_snapshot = build_envelope_analysis_snapshot(
+        bundle,
+        included_patch_ids=frozenset({0}),
+        topology_export=topology_export,
+        analysis_view=build_analysis_bundle_id_view(bundle, frozenset({0})),
+    )
+
+    gate_metric = next(iter(gate_snapshot.surface_metric_descriptors))
+    button_metric = next(iter(button_snapshot.surface_metric_descriptors))
+
+    assert gate_metric.grid_certificate == button_metric.grid_certificate
+    assert gate_metric.grid_certificate.snapping_law.value == (
+        HOST_GRID_POLICY.value
+    )
+    # Не только сертификат: сама метрика обязана совпасть целиком, иначе
+    # равенство сертификатов означало бы лишь, что расхождение уехало ниже.
+    assert gate_metric == button_metric
+
+
 def test_exact_plane_with_irrational_unit_normal_uses_rational_affine_metric():
     bundle = _single_patch_bundle()
     root = 2.0**-0.5
