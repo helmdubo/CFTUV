@@ -111,7 +111,6 @@ from ..reference.raw_coverage import (
 from ..reference.strip import strip_envelope_instance_id
 from ..reference.validation import validate_reference_geometry_payload
 from ..robust.grid import GridSpecV1
-from .dissolve import DissolveReportV1, dissolve_straight_vertices
 from .bridge import (
     BridgeOutcome,
     BridgeReportV1,
@@ -280,11 +279,6 @@ class PreparedRegionV1:
     # Без значения по умолчанию намеренно: пустой кортеж «на всякий случай» дал бы
     # будущему месту сборки региона право забыть деградацию молча.
     degraded_miter_corners: tuple[DegradedMiterCornerV1, ...]
-    # Растворение прямых вершин: сколько убрано и сколько удержано по какой
-    # причине. Тоже без значения по умолчанию, и ровно по той же причине, что
-    # выше: закон, менявший вход, обязан отчитаться числом на каждом регионе, а
-    # не только там, где кто-то вспомнил его записать.
-    dissolve: DissolveReportV1
 
     @property
     def is_exact(self) -> bool:
@@ -918,59 +912,6 @@ def _region_loops(region):
     return tuple(loops), None
 
 
-def _domain_anchor_points(context, domain, reading) -> frozenset:
-    """Точки домена, на которые ССЫЛАЮТСЯ входы. Растворению не подлежат.
-
-    Стоп-лист собирается ПОДСЧЁТОМ ССЫЛОК, а не перечнем «важных» мест: важность
-    — суждение, а ссылка — факт входа. Считаются:
-
-    * `context.points_by_id` — все вершины источника, названные снапшотом. Это
-      и концы chain use, и границы владельцев, и вершины junction: каждая из
-      них есть `SourceVertexId`, на который ссылается хотя бы одна запись
-      снапшота, иначе её бы в карте не было.
-    * `reading.fans[*].point` — якоря вееров вогнутых вершин.
-    * `reading.degraded_corners[*].anchor` — вершины, чей веер записать НЕ
-      удалось. Они остаются острыми и потому тем более неприкосновенны:
-      растворить вершину, про которую уже названо, что её угол не получился,
-      значило бы убрать вместе с ней и само имя отказа.
-    * `domain.explicit_barriers[*].segment` — концы явных барьеров.
-
-    ЗАЧЕМ СТОП-ЛИСТ, ЕСЛИ ОТКАЗ И ТАК ЕСТЬ. Мост уже ловит потерю якоря веера:
-    `bridge._lattice_fans` требует, чтобы якорь пережил привязку узлом петли, и
-    иначе отвечает `VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX`. Но это ловля
-    ПОСЛЕ ФАКТА — домен уже испорчен, и остаётся только назвать это по имени.
-    Стоп-лист существует затем, чтобы именованный отказ НЕ СЛУЧАЛСЯ там, где
-    вход можно было не портить.
-
-    Ключ — дробная пара, полученная тем же `exact_rational`, каким
-    `_region_loops` строит сами петли. `planar_types.point_key` здесь не
-    годится, и это не пренебрежение готовым: он ключует СТРОКОЙ выражения
-    SymPy, а петли к этому месту уже переведены в дроби. Сравнение строки
-    выражения с дробью сравнивало бы два представления одного числа, а два
-    разных выражения могут обозначать одно и то же (`sqrt(2)**2` и `2`), и
-    стоп-лист молча терял бы попадания. Дробное равенство таких промахов не
-    допускает.
-    """
-
-    points: set[tuple[Fraction, Fraction]] = set()
-
-    def remember(point) -> None:
-        rational = _rational_point(point)
-        if rational is not None:
-            points.add(rational)
-
-    for point in context.points_by_id.values():
-        remember(point)
-    for fan in reading.fans:
-        points.add(fan.point)
-    for corner in reading.degraded_corners:
-        points.add(corner.anchor)
-    for barrier in domain.explicit_barriers:
-        remember(barrier.segment.start)
-        remember(barrier.segment.end)
-    return frozenset(points)
-
-
 def _max_snap_residual(*values: Fraction | None) -> Fraction | None:
     """Максимум измеренных стадий; `None` не подменяет измеренный ноль."""
 
@@ -984,22 +925,12 @@ def _prepare_region(
     lattice: GridSpecV1,
     binding_residual: Fraction,
     clock: _Clock,
-    anchor_points: frozenset = frozenset(),
 ) -> tuple[PreparedRegionV1 | None, str | None]:
     started = time.perf_counter()
     loops, issue = _region_loops(region)
     clock.add("DOMAIN_LOOPS", started)
     if loops is None:
         return None, issue
-
-    # Растворение прямых вершин идёт ДО моста и до решётки: лишний узел портит
-    # ровно те два места, которые ниже, — блок класса несущей прямой в мосте и
-    # вершину третьего вида в скелете. Закон — `dissolve.DISSOLVE_STRAIGHT_V3`.
-    started = time.perf_counter()
-    loops, dissolve_report = dissolve_straight_vertices(
-        loops, laws=reading.laws, protected_points=anchor_points
-    )
-    clock.add("DOMAIN_DISSOLVE", started)
 
     started = time.perf_counter()
     bound_report = bridge_arrival_laws(
@@ -1032,7 +963,6 @@ def _prepare_region(
         wall_edge_count=report.wall_edge_count,
         ambiguous_owner_spans=report.ambiguous_owner_spans,
         degraded_miter_corners=reading.degraded_corners,
-        dissolve=dissolve_report,
     )
     if report.polygon is None:
         return prepared, None
@@ -1070,7 +1000,6 @@ def _with_skeleton(
         wall_edge_count=prepared.wall_edge_count,
         ambiguous_owner_spans=prepared.ambiguous_owner_spans,
         degraded_miter_corners=prepared.degraded_miter_corners,
-        dissolve=prepared.dissolve,
     )
 
 
@@ -1210,10 +1139,9 @@ def prepare_conveyor(
     law_counters: Counters = _law_counters(reading)
 
     prepared_regions: list[PreparedRegionV1] = []
-    anchor_points = _domain_anchor_points(context, domain, reading)
     for region in domain.domain_regions:
         prepared, issue = _prepare_region(
-            region, reading, lattice, binding_residual, clock, anchor_points
+            region, reading, lattice, binding_residual, clock
         )
         if prepared is None:
             return _refused(
