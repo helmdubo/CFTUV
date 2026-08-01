@@ -20,6 +20,7 @@ import pytest
 
 from cftuv_envelope.contracts.analysis import SourceVertexV1
 from cftuv_envelope.contracts.metric import (
+    PRODUCT_SKIRT_ABSOLUTE_BUDGET,
     ExactSourcePlaneCertificateV1,
     GridSnappingLawV1,
     NearPlanarResidualBudgetLawV1,
@@ -109,10 +110,10 @@ def test_requested_near_planar_policy_admits_and_records_the_projection():
     certificate = _unit_quad_metric(1e-12, NEAR).planarity_certificate
     assert certificate.admission_law is NEAR
     assert certificate.exact is False
-    # Квад НЕ привязан (политика решётки по умолчанию — `UNSNAPPED_EXACT_V1`),
-    # поэтому его двигать некому и бюджет остаётся шумом представления.
+    # Допуск объявляет продуктовая власть — одна на оба закона решётки
+    # (решение владельца от 2026-08-01).
     assert certificate.residual_budget_law is (
-        NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
+        NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
     )
     # Записан масштаб, метод, бюджет и ревизия источника.
     assert certificate.source_revision == SourceRevision("rev")
@@ -160,53 +161,90 @@ def test_the_budget_refusal_carries_the_numbers_it_judged_by():
     for name in (
         "max_residual_squared=",
         "residual_budget_squared=",
-        "residual_budget=",
-        "residual_budget_law=RELATIVE_EXTENT_OR_ULP_V1",
+        "residual_budget=1.250000e-02",
+        "residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1",
         "grid_step=none",
     ):
         assert name in message, message
 
-    # Снапнутый домен судится ячейкой, и отказ обязан назвать ячейку ЕЮ.
+    # Снапнутый домен судится ТЕМ ЖЕ продуктовым допуском — власть едина, — но
+    # шаг решётки в сообщении остаётся: он по-прежнему факт прогона.
     vertices, faces = _slope_patch(bend=0.05)
     with pytest.raises(PlanarMetricAdmissionError) as snapped:
         _metric(vertices, faces, SOURCE_SNAP)
     snapped_message = str(snapped.value)
-    assert "residual_budget_law=GRID_STEP_CELL_V1" in snapped_message
+    assert "residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1" in snapped_message
+    assert "residual_budget=1.250000e-02" in snapped_message, snapped_message
     assert "grid_step=6.103516e-05" in snapped_message, snapped_message
 
 
-def test_the_snapped_budget_declares_the_law_that_produced_its_number():
-    """Записанный закон бюджета — тот, который реально дал число.
+def test_the_product_skirt_budget_governs_both_grid_laws():
+    """Допуск объявляет ПРОДУКТОВАЯ власть, и одна на оба закона решётки.
 
-    Полевой дефект: `_admission_budget` уже брала бюджет из ЯЧЕЙКИ у всякого
-    снапнутого домена, а сертификат безусловно писал
-    `RELATIVE_EXTENT_OR_ULP_V1`. Число и закон расходились на два порядка
-    (6.10e-05 против 3.31e-07 на полевом скате) у полевого default'а, и
-    прочитать по сертификату, чем судили домен, было нельзя.
+    Решение владельца от 2026-08-01: цель — юбка декалей вдоль выбранных seam
+    chains, планарность домена сама по себе не цель. Прежде допуск брался у
+    того закона, который источник ДВИГАЕТ (ячейка у привязывающего, шум
+    представления у неподвижного); оба отвечали на вопрос «сколько
+    непланарности внёс конвейер», а продукту нужен ответ на другой — «сколько
+    несёт сама поверхность и сколько юбка готова стерпеть». Кривые крыши
+    `building.004` (0.15 мм – 1.2 см) отвергались обоими законами честно и
+    бесполезно.
+
+    Записанный закон по-прежнему обязан быть ТЕМ, который дал число, — это
+    свойство не отменено, оно лишь получило нового владельца числа.
     """
 
     vertices, faces = _slope_patch()
-    certificate = _metric(vertices, faces, SOURCE_SNAP).planarity_certificate
-    grid = _metric(vertices, faces, SOURCE_SNAP).grid_certificate
+    for grid_law in (SOURCE_SNAP, GridSnappingLawV1.UNSNAPPED_EXACT_V1):
+        certificate = _metric(vertices, faces, grid_law).planarity_certificate
+        assert certificate.residual_budget_law is (
+            NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
+        ), grid_law
+        budget = Fraction(
+            certificate.residual_budget.numerator,
+            certificate.residual_budget.denominator,
+        )
+        # Число принадлежит закону, а не записи: ровно 1/80 = 1.25 см.
+        assert budget == PRODUCT_SKIRT_ABSOLUTE_BUDGET == Fraction(1, 80), grid_law
 
-    assert certificate.residual_budget_law is (
-        NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
-    )
-    # И объявленное число — это ровно ячейка объявленного шага.
-    assert certificate.residual_budget == grid.window_step
+    # Вытесненные законы НЕ удалены: они остаются членами перечисления, потому
+    # что сертификаты, которые их объявляют, обязаны воспроизводить свои числа,
+    # а красные контроли на подмену закона — жить.
+    assert NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
+    assert NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
 
-    # Та же геометрия без привязки: двигать источник некому, бюджет —
-    # представление, и он на два порядка меньше ячейки.
-    unsnapped = _metric(vertices, faces, GridSnappingLawV1.UNSNAPPED_EXACT_V1)
-    assert unsnapped.planarity_certificate.residual_budget_law is (
-        NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
-    )
-    budget = Fraction(
-        unsnapped.planarity_certificate.residual_budget.numerator,
-        unsnapped.planarity_certificate.residual_budget.denominator,
-    )
-    cell = Fraction(grid.window_step.numerator, grid.window_step.denominator)
-    assert budget < cell / 100
+
+def test_the_product_budget_admits_roof_curvature_and_still_refuses_real_bends():
+    """Граница допуска замерена с обеих сторон, а не объявлена.
+
+    Замер на полевом скате (3 ряда, габарит 3.3125): прогиб 0.01 даёт невязку
+    6.70e-03 — крыши `building.004` такого порядка и обязаны СТРОИТЬСЯ; прогиб
+    0.02 даёт 1.34e-02 и обязан отвергаться. Контроль, что допуск не стал
+    дырой: полевой прогиб 0.1035 (10 см) на `building.002` patch 10 больше
+    границы в 8.3 раза и остаётся отвергнутым.
+    """
+
+    for grid_law in (SOURCE_SNAP, GridSnappingLawV1.UNSNAPPED_EXACT_V1):
+        vertices, faces = _slope_patch(bend=0.01)
+        certificate = _metric(vertices, faces, grid_law).planarity_certificate
+        assert certificate.exact is False, grid_law
+        squared = Fraction(
+            certificate.max_residual_squared.numerator,
+            certificate.max_residual_squared.denominator,
+        )
+        # Невязка ВЫШЕ полуячейки (снап её не съел) и внутри допуска.
+        assert squared > (Fraction(1, 16384) / 2) ** 2, grid_law
+        assert squared <= PRODUCT_SKIRT_ABSOLUTE_BUDGET**2, grid_law
+
+        vertices, faces = _slope_patch(bend=0.02)
+        with pytest.raises(PlanarMetricAdmissionError) as failure:
+            _metric(vertices, faces, grid_law)
+        assert failure.value.outcome is (
+            NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+        ), grid_law
+
+    # Полевой прогиб building.002 patch 10 — вне допуска на порядок.
+    assert Fraction(1035, 10000) > PRODUCT_SKIRT_ABSOLUTE_BUDGET * 8
 
 
 def test_the_recorded_residual_is_named_a_square_because_it_is_one():

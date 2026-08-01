@@ -88,6 +88,7 @@ from cftuv_envelope import (
     TerminalRelationId,
     TerminalRelationKind,
     TerminalRelationV1,
+    NamedOutcome,
     build_rational_affine_planar_metric,
     validate_analysis_snapshot,
     validate_rational_affine_planar_metric,
@@ -97,9 +98,11 @@ from cftuv_envelope import (
 # расширяется, поэтому берутся оттуда, где живут, как это уже делает
 # `test_near_planar_policy.py`.
 from cftuv_envelope.contracts.metric import (
+    PRODUCT_SKIRT_ABSOLUTE_BUDGET,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
 )
+from cftuv_envelope.planar_metric import PlanarMetricAdmissionError
 
 
 NEAR = PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1
@@ -371,6 +374,33 @@ def near_planar_metric(grid_law: GridSnappingLawV1):
     )
 
 
+def _slope_positions_bent(bend: float):
+    """Тот же скат, но с ПРОГИБОМ: подлинная кривизна, а не шум конвейера."""
+
+    positions = {}
+    for column, x in enumerate((0.0, WIDTH)):
+        for row, y in enumerate(ROWS):
+            index = column * len(ROWS) + row
+            height = SLOPE * y + (bend if (column and row) else 0.0)
+            positions[VERTEX_IDS[index]] = LocalPoint3V1(x, y, height)
+    return positions, _surface_ir(positions).source_faces
+
+
+def _bent_metric(positions, faces, grid_law):
+    return build_rational_affine_planar_metric(
+        source_revision=REVISION,
+        patch_domain_id=DOMAIN,
+        owner_patch_id=PATCH,
+        source_vertices=[
+            SourceVertexV1(vertex_id, point)
+            for vertex_id, point in positions.items()
+        ],
+        source_faces=faces,
+        planarity_policy=NEAR,
+        grid_policy=grid_law,
+    )
+
+
 def near_planar_snapshot(grid_law: GridSnappingLawV1, descriptor=None):
     positions = _slope_positions()
     surface_ir = _surface_ir(positions)
@@ -540,6 +570,11 @@ def test_a_budget_law_that_does_not_reproduce_the_number_is_refused(
     домен, объявляющий представление, и неснапнутый, объявляющий ячейку. Ровно
     этим полевой дефект и был — строитель считал по ячейке, а писал закон
     представления, и расхождение (6.10e-05 против 3.31e-07) никто не видел.
+
+    Решением владельца от 2026-08-01 оба этих закона ВЫТЕСНЕНЫ из допуска
+    продуктовым, но из перечисления не удалены — и эта семья остаётся красной
+    именно потому, что они историчны: сертификат, объявляющий вытесненный
+    закон, обязан отвергаться и как «не тот закон», и как «не то число».
     """
 
     metric = near_planar_metric(grid_law)
@@ -547,6 +582,50 @@ def test_a_budget_law_that_does_not_reproduce_the_number_is_refused(
     issues = validate_rational_affine_planar_metric(broken)
     assert issues != ()
     assert any("residual" in "/".join(item.path) for item in issues), issues
+
+
+@pytest.mark.parametrize("grid_law", [UNSNAPPED, SOURCE_SNAP])
+def test_curvature_beyond_the_product_skirt_budget_is_refused(grid_law):
+    """R-a. Отклонение за продуктовым допуском отвергается с числами.
+
+    Допуск владельца — 1/80 (1.25 см). Замер на этой форме: прогиб 0.02 даёт
+    невязку 1.34e-02, то есть за границей. Отказ обязан быть именованным и
+    нести обе сравниваемые величины: расширение допуска не отменяет того,
+    что за его границей отказ остаётся честным.
+    """
+
+    vertices, faces = _slope_positions_bent(0.02)
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _bent_metric(vertices, faces, grid_law)
+    assert failure.value.outcome is (
+        NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+    )
+    message = str(failure.value)
+    assert "residual_budget=1.250000e-02" in message, message
+    assert "residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1" in message, message
+    assert "max_residual_squared=" in message, message
+
+
+def test_the_product_law_declared_with_a_foreign_number_is_refused():
+    """R-b. Число принадлежит ЗАКОНУ; сертификат его лишь повторяет.
+
+    Продуктовый закон владеет величиной 1/80. Сертификат, объявляющий этот
+    закон при любом другом числе, лжёт о том, чем судили домен, — и это тот
+    же класс отказа, что R6, только внутри действующего закона, а не между
+    вытесненными.
+    """
+
+    metric = near_planar_metric(SOURCE_SNAP)
+    assert metric.planarity_certificate.residual_budget_law is (
+        NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
+    )
+    broken = _with_certificate(
+        metric, residual_budget=_rational(PRODUCT_SKIRT_ABSOLUTE_BUDGET * 2)
+    )
+    issues = validate_rational_affine_planar_metric(broken)
+    assert any(
+        "residual_budget" in "/".join(item.path) for item in issues
+    ), issues
 
 
 def test_a_certificate_of_an_unknown_type_is_refused_by_name():

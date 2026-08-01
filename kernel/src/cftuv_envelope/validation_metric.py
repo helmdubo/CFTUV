@@ -29,6 +29,7 @@ from .contracts.metric import (
     ExactRationalV1,
     ExactSourcePlaneCertificateV1,
     ExactVector3V1,
+    PRODUCT_SKIRT_ABSOLUTE_BUDGET,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
     PlanarityAdmissionLawV1,
@@ -173,6 +174,13 @@ def _recomputed_budget(certificate, grid_certificate) -> Fraction | None:
     """
 
     if certificate.residual_budget_law is (
+        NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
+    ):
+        # Число принадлежит ЗАКОНУ, а не записи: сертификат его повторяет, а
+        # владеет им ядро. Сверка с константой — то же самое требование, что и
+        # к двум другим законам: объявил закон — воспроизведи его величину.
+        return PRODUCT_SKIRT_ABSOLUTE_BUDGET
+    if certificate.residual_budget_law is (
         NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
     ):
         step = grid_certificate.window_step
@@ -225,20 +233,18 @@ def _check_near_planar_certificate(
             "projected vertices must be a non-empty subset of the "
             "certificate source vertices",
         )
-    expected_law = (
-        NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
-        if metric.grid_certificate.snapping_law.snaps_source
-        else NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
-    )
+    # Власть допуска ПРОДУКТОВАЯ и единая для обоих законов решётки — решение
+    # владельца от 2026-08-01. Прежде ожидание выводилось из `snaps_source`
+    # (ячейка либо представление); те законы остались членами перечисления и
+    # остались пересчитываемыми ниже, но допуском больше не распоряжаются.
+    expected_law = NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
     if certificate.residual_budget_law is not expected_law:
-        # Бюджет принадлежит тому закону, который источник ДВИГАЕТ: у
-        # привязывающего это ячейка шага, у неподвижного — шум представления.
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("residual_budget_law",),
-            "declared residual-budget law is not the one the declared grid "
-            "law owns",
+            "near-planar admission is governed by the product skirt budget; "
+            "the declared residual-budget law is not it",
         )
     budget = fraction_of(certificate.residual_budget)
     recomputed = _recomputed_budget(certificate, metric.grid_certificate)
