@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from decimal import Decimal
+import struct
 import hashlib
 import json
 import os
@@ -1108,7 +1109,7 @@ POLICY_MODULE = ROOT / "cftuv" / "envelope_request_policy.py"
 HOST_EXPORT_FILE = ROOT / "cftuv" / "envelope_request_export.py"
 
 
-def _pin_alpha(slider_readback, measured=0.3):
+def _pin_alpha(slider_readback, measured=0.25):
     """`_pin_measured_alpha` на подставном `settings` с заданным round-trip.
 
     Ползунок моделируется как СВОЙСТВО, возвращающее не то, что записали:
@@ -1159,7 +1160,7 @@ def test_sweep_pins_alpha_instead_of_inheriting_the_owner_slider():
     """
 
     # Сцена с чужим ползунком: свип обязан ЗАПИСАТЬ измеренное значение.
-    assert _pin_alpha(slider_readback=0.3) == 0.3
+    assert _pin_alpha(slider_readback=0.25) == 0.25
 
 
 def test_sweep_refuses_when_the_slider_does_not_return_the_pinned_alpha():
@@ -1173,8 +1174,14 @@ def test_sweep_refuses_when_the_slider_does_not_return_the_pinned_alpha():
     идентичности двумя стадиями позже.
     """
 
+    # Принятое значение круг переживает — проверка обязана МОЛЧАТЬ.
+    assert _pin_alpha(slider_readback=0.25) == 0.25
+
+    # А исторические 0.3 не переживали, и это ровно тот отказ, который обязан
+    # звучать на ручке. Проба синтетическая: она про механизм, а не про
+    # принятую константу.
     with pytest.raises(RuntimeError, match="UNMEASURED_REQUEST_POLICY_KNOB") as failure:
-        _pin_alpha(slider_readback=0.30000001192092896)
+        _pin_alpha(slider_readback=0.30000001192092896, measured=0.3)
     message = str(failure.value)
     assert "pinned=0.3" in message, message
     assert "readback=0.30000001192092896" in message, message
@@ -1193,8 +1200,18 @@ def test_both_acceptance_tools_consume_one_measured_alpha_node():
         request_alpha_decimal,
     )
 
-    assert MEASURED_REQUEST_ALPHA == 0.3
-    assert request_alpha_decimal(0.3) == Decimal("0.3")
+    assert MEASURED_REQUEST_ALPHA == 0.25
+    assert request_alpha_decimal(0.25) == Decimal("0.25")
+
+    # Диадическая величина: круг «записал в binary32 → прочитал» она переживает
+    # ТОЖДЕСТВЕННО, поэтому запрос кнопки несёт ту же Decimal, что и гейт.
+    # Это и есть условие достижимости паритета, а не удобство записи.
+    assert struct.unpack("f", struct.pack("f", MEASURED_REQUEST_ALPHA))[0] == (
+        MEASURED_REQUEST_ALPHA
+    )
+    assert request_alpha_decimal(MEASURED_REQUEST_ALPHA) == request_alpha_decimal(
+        struct.unpack("f", struct.pack("f", MEASURED_REQUEST_ALPHA))[0]
+    )
 
     for path in (FIELD_GATE, BUTTON_SWEEP):
         source = path.read_text(encoding="utf-8")
@@ -1203,7 +1220,8 @@ def test_both_acceptance_tools_consume_one_measured_alpha_node():
         literals = [
             node.value
             for node in ast.walk(_module(path))
-            if isinstance(node, ast.Constant) and node.value == 0.3
+            if isinstance(node, ast.Constant)
+            and node.value in (0.3, MEASURED_REQUEST_ALPHA)
         ]
         assert literals == [], f"{path}: собственный литерал alpha"
 
