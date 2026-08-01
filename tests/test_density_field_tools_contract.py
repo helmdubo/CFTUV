@@ -267,25 +267,31 @@ def test_direct_and_button_use_the_same_canonical_queue_projection():
     )
 
 
-def test_budgets_are_unchanged_in_both_acceptance_tools():
-    """Каждый кап — замер, и таблицы двух инструментов больше не одна таблица.
+def test_every_perf_cap_carries_a_named_price():
+    """Каждый кап назван ценой, и таблицы двух инструментов больше не одна.
 
-    У ворот охват прежний, поэтому и таблица прежняя. У свипа охват сужен
-    решением владельца: `"2"` выходит вместе со сценарием, `building.004`
-    входит вместе с мешом. Его кап 5.0 — НАЗВАННЫЙ выбор, а не замер: 1.19 с
-    измерены на d1, а бюджет обязан покрывать d4, который у этого меша ещё не
-    мерен. Затянуть кап вокруг d1 значило бы выдать догадку за замер.
+    У свипа охват сужен решением владельца: `"2"` вышел вместе со сценарием,
+    `building.004` вошёл вместе с мешом. Его 5.0 — НАЗВАННЫЙ выбор, а не
+    замер: 1.19 с измерены на d1, а бюджет обязан покрывать d4, который у
+    этого меша ещё не мерен.
+
+    Два капа подняты ценой новых EXACT-доменов, а не потерей скорости:
+    `building` 120 -> 180 (d4 стал 111/122 против 105; семь бывших
+    bridge-отказников стоят 67.6 с, старые домены не подорожали — 82.1 с;
+    прогон 149.71) и `"2"` 17.3 -> 30.0 в гейте (d4 стал 20/32 против 19,
+    +16.4 с, прогон 28.30 при полевой SLA-рамке 30, которая ДЕРЖИТСЯ).
+    Курс владельца: ширина продукта важнее полировки скорости.
     """
 
     assert _assignment(_module(FIELD_GATE), "_FIELD_BUDGET_SECONDS") == {
         "building.002": 5.0,
-        "2": 17.3,
-        "building": 120.0,
+        "2": 30.0,
+        "building": 180.0,
     }
     assert _assignment(_module(BUTTON_SWEEP), "_FIELD_BUDGET_SECONDS") == {
         "building.002": 5.0,
         "building.004": 5.0,
-        "building": 120.0,
+        "building": 180.0,
     }
 
 
@@ -847,25 +853,36 @@ def test_field_gate_echoes_a_compact_receipt_line_not_the_whole_json(tmp_path):
 # --------------------------------------------------------------------------
 
 
-class _FakeBpyTypes:
-    """`bpy.types` ровно в объёме предиката: имя → объект или его отсутствие."""
+def _sweep_classes(*flags):
+    """Классы аддона в полевой семантике: истину знает `cls.is_registered`.
 
-    def __init__(self, registered):
-        for cls in registered:
-            setattr(self, cls.__name__, cls)
+    Имя класса намеренно НЕ попадает никуда, кроме самого класса: `bpy.types`
+    его не публикует, и мок обязан это воспроизводить, а не опровергать.
+    """
+
+    return tuple(
+        type(f"HOTSPOTUV_Fake{index}", (), {"is_registered": flag})
+        for index, flag in enumerate(flags)
+    )
 
 
-def _sweep_registration(registered, classes, recorder):
+def _sweep_registration(classes, recorder):
     """Выполнить обе функции регистрации свипа в подставном окружении.
 
     Функции берутся ИЗ ИСХОДНИКА (`ast`) и исполняются с подставными `bpy` и
     `cftuv`: настоящие требуют Blender, а проверяемое свойство — чистая логика
     трёх состояний, и она обязана быть проверяема без него.
+
+    `bpy.types` здесь ПУСТ, и это не упрощение, а полевой факт: зонд в
+    настоящем Blender при зарегистрированном аддоне вернул `None` для каждого
+    `getattr(bpy.types, cls.__name__)`. Пустой `bpy.types` рядом с
+    `is_registered == True` — ровно то состояние, в котором прежний предикат
+    отвечал «ничего не зарегистрировано», и мок обязан его удерживать.
     """
 
     module = _module(BUTTON_SWEEP)
     namespace = {
-        "bpy": SimpleNamespace(types=_FakeBpyTypes(registered)),
+        "bpy": SimpleNamespace(types=SimpleNamespace()),
         "cftuv": SimpleNamespace(register=recorder),
         "DensitySweepContractError": RuntimeError,
         "ADDON_REGISTRATION_PARTIAL": "ADDON_REGISTRATION_PARTIAL",
@@ -897,17 +914,6 @@ def _sweep_registration(registered, classes, recorder):
             sys.modules["cftuv.operators"] = previous
 
 
-class _AlphaClass:
-    pass
-
-
-class _BetaClass:
-    pass
-
-
-_SWEEP_CLASSES = (_AlphaClass, _BetaClass)
-
-
 def test_sweep_registers_the_addon_only_when_it_is_not_registered_yet():
     """Свип обязан работать И с автовключением из настроек, И без него.
 
@@ -919,16 +925,16 @@ def test_sweep_registers_the_addon_only_when_it_is_not_registered_yet():
     """
 
     calls = []
-    # Пусто — регистрирует свип.
-    assert _sweep_registration((), _SWEEP_CLASSES, lambda: calls.append(1)) == (
-        "sweep"
-    )
+    # Ничего не зарегистрировано — регистрирует свип.
+    assert _sweep_registration(
+        _sweep_classes(False, False), lambda: calls.append(1)
+    ) == "sweep"
     assert calls == [1]
 
     # Всё уже зарегистрировано настройками — свип не трогает ничего.
     calls.clear()
     assert _sweep_registration(
-        _SWEEP_CLASSES, _SWEEP_CLASSES, lambda: calls.append(1)
+        _sweep_classes(True, True), lambda: calls.append(1)
     ) == "startup_preferences"
     assert calls == []
 
@@ -938,34 +944,56 @@ def test_sweep_refuses_a_half_registered_addon_by_name():
 
     Зарегистрирована часть классов: звать `register()` нельзя (упадёт на уже
     зарегистрированных), пропустить нельзя (недостающие операторы не
-    появятся). Предикат тождества обязан различать это состояние, иначе
-    полусломанная регистрация читалась бы как «уже есть».
+    появятся). Предикат обязан различать это состояние, иначе полусломанная
+    регистрация читалась бы как «уже есть».
     """
 
     calls = []
     with pytest.raises(RuntimeError, match="ADDON_REGISTRATION_PARTIAL"):
         _sweep_registration(
-            (_AlphaClass,), _SWEEP_CLASSES, lambda: calls.append(1)
+            _sweep_classes(True, False), lambda: calls.append(1)
         )
     assert calls == []
 
 
-def test_sweep_registration_predicate_is_identity_not_name_presence():
-    """Чужой объект под тем же именем — не наш зарегистрированный класс.
+def test_sweep_registration_asks_the_class_not_bpy_types_by_name():
+    """Предикат — `cls.is_registered`, и `bpy.types` он не спрашивает вовсе.
 
-    Перезагрузка скрипта оставляет в `bpy.types` ПРЕЖНИЙ объект класса под тем
-    же именем. Проверка «имя есть» объявила бы такое состояние
-    зарегистрированным и пропустила бы свип к кнопке без живых операторов.
+    ЗДЕСЬ БЫЛ ДЕФЕКТ, и дефект был в МОКЕ. Прежний тест строил `bpy.types`,
+    публикующий классы по их именам (`setattr(fake, cls.__name__, cls)`), и на
+    такой подставке предикат `getattr(bpy.types, cls.__name__, None) is cls`
+    проходил все три состояния зелёным. Мок утверждал семантику, которой в
+    Blender НЕТ: полевой зонд принципала в настоящем Blender — аддон
+    зарегистрирован стартом, prefs-автовключение активно — вернул `None` для
+    КАЖДОГО класса `cftuv.operators.classes`: ни операторов, ни
+    `PropertyGroup`, ни `AddonPreferences`. `bpy.types` не публикует классы по
+    именам Python-классов. Тождество было тождественно ЛОЖНЫМ, свип читал
+    «ничего не зарегистрировано», звал `register()` и падал тем же
+    `ValueError: already registered as a subclass 'HOTSPOTUV_AddonPreferences'`.
+    Тем же зондом `cls.is_registered` вернул `True` у всех.
+
+    Урок предметный: мок, придуманный из головы, проверяет придуманную
+    семантику и красит её зелёным. Здесь `bpy.types` ПУСТ — как в поле, — и
+    зелёный цвет обязан держаться на `is_registered`, а не на устройстве
+    подставки.
     """
 
-    class _AlphaClass:  # то же имя, другой объект
-        pass
+    predicate = _function(_module(BUTTON_SWEEP), "_registered_cftuv_classes")
+    # Смотрим на КОД, а не на текст: докстрока называет прежний предикат как
+    # запись о дефекте, и это не его возвращение.
+    attributes = {
+        node.attr for node in ast.walk(predicate) if isinstance(node, ast.Attribute)
+    }
+    names = {node.id for node in ast.walk(predicate) if isinstance(node, ast.Name)}
+    assert "is_registered" in attributes
+    assert "bpy" not in names, "предикат не должен спрашивать bpy.types"
+    assert "getattr" not in names, "предикат спрашивает класс напрямую"
 
+    # Полевое состояние: зарегистрированы все, а `bpy.types` пуст.
     calls = []
-    with pytest.raises(RuntimeError, match="ADDON_REGISTRATION_PARTIAL"):
-        _sweep_registration(
-            (_AlphaClass, _BetaClass), _SWEEP_CLASSES, lambda: calls.append(1)
-        )
+    assert _sweep_registration(
+        _sweep_classes(True, True, True), lambda: calls.append(1)
+    ) == "startup_preferences"
     assert calls == []
 
 
