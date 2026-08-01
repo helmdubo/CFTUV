@@ -144,48 +144,87 @@ def test_a_vertex_named_by_an_anchor_is_never_dissolved():
     assert report.changed is False
 
 
-def test_two_laws_on_one_line_class_hold_the_vertex():
-    """R3. Разные законы по сторонам — вершина неприкосновенна.
+# --------------------------------------------------------------------------
+# Разбор ТРЁХ случаев доказательства (б) — по тесту на случай.
+#
+# Условие «в классе несущей прямой не более одного закона» доказывается
+# разбором `0 / 1 / ≥2`, и каждый случай отвечает на свой вопрос, поэтому
+# держать их одним тестом значило бы получить один ответ на три вопроса:
+# упавший тест не сказал бы, КАКОЙ из случаев сломан.
+# --------------------------------------------------------------------------
 
-    Два ребра и два закона в классе допускают однозначное сопоставление
+
+def test_case_zero_laws_both_edges_are_wall_and_merging_walls_gives_a_wall():
+    """Случай 0: законов на классе нет.
+
+    Оба ребра — стена, слияние двух стен даёт стену. Сопоставление не
+    двигается вовсе: сопоставленных рёбер в классе было ноль и осталось
+    ноль. Растворение здесь чистое — уходит только узел скелета.
+    """
+
+    laws = ()
+    assert law_counts_by_class(laws) == {}
+    loops, report = dissolve_straight_vertices(
+        (SQUARE_WITH_STRAIGHT_VERTEX,), laws=laws, protected_points=frozenset()
+    )
+    assert report.dissolved_count == 1
+    assert report.contested_count == 0
+    assert len(loops[0]) == 4
+
+
+def test_case_one_law_keeps_the_matched_count_and_can_only_sharpen_ownership():
+    """Случай 1: закон на классе ровно один.
+
+    Число сопоставленных рёбер не меняется: `min(1, B) = 1` до слияния и
+    `min(1, B−1) = 1` после, потому что `B ≥ 2`. А определённость владельца
+    может только вырасти — блок из двух рёбер при одном законе мост числит
+    `undetermined` («источником является не всякое ребро, а какое именно, во
+    входе не записано»), блок из одного ребра при одном законе есть
+    ВЫНУЖДЕННАЯ пара. Регрессии нет ни при каком размере блока.
+    """
+
+    laws = (_bottom_law("srcA"),)
+    assert set(law_counts_by_class(laws).values()) == {1}
+    loops, report = dissolve_straight_vertices(
+        (SQUARE_WITH_STRAIGHT_VERTEX,), laws=laws, protected_points=frozenset()
+    )
+    assert report.dissolved_count == 1
+    assert report.contested_count == 0
+    assert len(loops[0]) == 4
+    # Класс слитого ребра тот же, поэтому закон по-прежнему его находит.
+    assert _edge_class(_p(0, 0), _p(4, 0)) == line_class(
+        (laws[0].normal_x, laws[0].normal_y, laws[0].constant)
+    )
+
+
+def test_case_two_laws_would_destroy_a_one_to_one_pairing_so_the_vertex_holds():
+    """R3, случай ≥2: два закона на классе — вершина неприкосновенна.
+
+    Два ребра и два закона допускают однозначное сопоставление
     один-к-одному. Слияние оставило бы одно ребро на два закона, то есть
-    превратило бы законный источник в `surplus`, — это потеря, а не упрощение.
+    превратило бы законный источник в `surplus`, — это потеря, а не
+    упрощение.
 
     Условие записано СЧЁТОМ законов в классе, а не сравнением «закона левого
-    ребра» с «законом правого»: `PlainArrivalLawV1` не имеет концов вовсе и
-    ключуется ПРЯМОЙ, а какое ребро класса чей закон — ровно то, что мост
-    называет незаписанным во входе.
+    ребра» с «законом правого», и форму продиктовал вход:
+    `PlainArrivalLawV1` не имеет концов вовсе (`name`, `normal_x`,
+    `normal_y`, `constant`, `speed_squared`) — закон ключуется ПРЯМОЙ. Какое
+    ребро класса чей закон, есть ровно то, что мост называет незаписанным во
+    входе; концами ключуется `BridgeReportV1.owner_by_edge`, а он существует
+    только ПОСЛЕ моста, тогда как растворять надо до.
     """
 
     laws = (_bottom_law("srcA"), _bottom_law("srcB"))
     assert set(law_counts_by_class(laws).values()) == {2}
-
     loops, report = dissolve_straight_vertices(
         (SQUARE_WITH_STRAIGHT_VERTEX,), laws=laws, protected_points=frozenset()
     )
     assert loops[0] == SQUARE_WITH_STRAIGHT_VERTEX
     assert report.dissolved_count == 0
     assert report.contested_count == 1
-
-
-def test_one_law_on_the_class_dissolves_and_can_only_improve_ownership():
-    """Один закон на класс — растворение разрешено и полезно.
-
-    До слияния блок класса состоял из двух рёбер при одном законе, то есть был
-    `undetermined`: «источником является не всякое ребро, а какое именно — во
-    входе не записано», и фронт не шёл. После слияния блок из одного ребра при
-    одном законе есть ВЫНУЖДЕННАЯ пара. Число сопоставленных рёбер при этом не
-    меняется (`min(1, B)` и `min(1, B−1)` при `B ≥ 2` равны единице), поэтому
-    регрессии нет ни при каком размере блока.
-    """
-
-    laws = (_bottom_law("srcA"),)
-    loops, report = dissolve_straight_vertices(
-        (SQUARE_WITH_STRAIGHT_VERTEX,), laws=laws, protected_points=frozenset()
-    )
-    assert len(loops[0]) == 4
-    assert report.dissolved_count == 1
-    assert report.contested_count == 0
+    # У законов нет концов — проверка формы условия, а не пересказ.
+    assert not hasattr(laws[0], "start")
+    assert not hasattr(laws[0], "end")
 
 
 def test_a_hairpin_inside_a_loop_is_counted_and_kept():

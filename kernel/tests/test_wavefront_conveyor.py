@@ -364,6 +364,10 @@ def test_the_public_entry_never_calls_the_exact_union(field_preparation):
         "ARRIVAL_LAWS",
         "CHART_LATTICE",
         "DOMAIN_LOOPS",
+        # Растворение прямых вершин — ИЗМЕРЯЕМАЯ ступень, а не побочный шаг
+        # внутри петель: закон меняет вход моста, и его цена обязана быть
+        # видна отдельной строкой, иначе она спрячется в `DOMAIN_LOOPS`.
+        "DOMAIN_DISSOLVE",
         "BRIDGE",
         "SKELETON",
         "FACES",
