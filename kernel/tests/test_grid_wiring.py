@@ -52,6 +52,7 @@ from cftuv_envelope.reference.planar_types import (
     PlanarLoop,
     PlanarRegion,
 )
+from cftuv_envelope.reference.evaluation_geometry import chart_lattice_for_frame
 from cftuv_envelope.reference.provenance import make_reference_provenance
 from cftuv_envelope.robust.grid import (
     SNAP_COUNTS,
@@ -1201,3 +1202,148 @@ def test_the_declared_author_error_is_the_one_the_certificate_carries():
         certificate.author_angular_error.numerator,
         certificate.author_angular_error.denominator,
     ) == AUTHOR_ANGULAR_ERROR
+
+
+# Синтетический эквивалент полевого `building.003`: H-нгон из 12 вершин с
+# УВОДОМ ОСИ 0.85 мм на вершине перекладины (принципал замерил на меше
+# `v2 y=40.24956` против `v4 y=40.24871`). Габарит 10 м — тот же порядок, что у
+# полевого патча. Фигура нужна затем, чтобы спор о числах решётки решался
+# прогоном, а не пересказом полевой сессии.
+AXIS_DRIFT = 0.00085
+DRIFTED_H_NGON = (
+    (0.0, 0.0),
+    (3.0, 0.0),
+    (3.0, 4.0),
+    (7.0, 4.0 - AXIS_DRIFT),
+    (7.0, 0.0),
+    (10.0, 0.0),
+    (10.0, 10.0),
+    (7.0, 10.0),
+    (7.0, 6.0),
+    (3.0, 6.0),
+    (3.0, 10.0),
+    (0.0, 10.0),
+)
+
+
+def _drifted_h_metric(figure_scale: float = 1.0):
+    """Метрика H-нгона с уводом оси, построенная ПОЛИТИКОЙ ХОСТА.
+
+    Политика прописана здесь литералом намеренно: `SOURCE_ONLY_GRID_SNAP_V1` —
+    это `HOST_GRID_POLICY`, и тест обязан упасть, если хост её сменит, а не
+    молча померить другую задачу.
+    """
+
+    from cftuv_envelope import (
+        LocalVector3V1,
+        PatchDomainId,
+        PatchId,
+        PhysicalEdgeId,
+        PlanarityAdmissionLawV1,
+        SourceFaceId,
+        SourceFaceV1,
+        SourceRevision,
+        SourceVertexId,
+    )
+
+    ids = tuple(SourceVertexId(f"v{index}") for index in range(len(DRIFTED_H_NGON)))
+    vertices = frozenset(
+        SourceVertexV1(
+            ids[index],
+            LocalPoint3V1(x * figure_scale, y * figure_scale, 0.0),
+        )
+        for index, (x, y) in enumerate(DRIFTED_H_NGON)
+    )
+    face = SourceFaceV1(
+        SourceFaceId("f"),
+        PatchId("p"),
+        ids,
+        tuple(PhysicalEdgeId(f"e{index}") for index in range(len(ids))),
+        LocalVector3V1(0.0, 0.0, 1.0),
+        (),
+    )
+    return build_rational_affine_planar_metric(
+        source_revision=SourceRevision("drifted-h"),
+        patch_domain_id=PatchDomainId("d"),
+        owner_patch_id=PatchId("p"),
+        source_vertices=vertices,
+        source_faces=(face,),
+        planarity_policy=PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
+        grid_policy=GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
+    )
+
+
+def test_the_source_scale_and_the_chart_scale_are_two_different_numbers():
+    """4096 и 65536 — ОДИН прогон, а не два расходящихся пути.
+
+    Полевая диагностика прочла масштаб источника (`source_scale` сертификата,
+    гейт-путь) и масштаб решётки КАРТЫ (`CONVEYOR_LATTICE_SCALE`, кнопочный
+    путь) как одну величину и объявила расхождение путей. Здесь оба числа
+    сняты с ОДНОЙ метрики: `chart_grid_for` переносит шаг источника в
+    координаты карты через матрицу Грама, поэтому у патча габаритом 10 м пара
+    (4096, 65536) — это норма, а не спор.
+
+    Вторая строка (габарит 1 м) заморожена рядом затем, чтобы пара не читалась
+    как константа: сдвигается ОБА числа, и сдвигает их габарит.
+    """
+
+    ten_metres = _drifted_h_metric(1.0)
+    one_metre = _drifted_h_metric(0.1)
+
+    assert ten_metres.grid_certificate.source_scale == 4096
+    assert chart_lattice_for_frame(ten_metres).scale == 65_536
+    assert one_metre.grid_certificate.source_scale == 65_536
+    assert chart_lattice_for_frame(one_metre).scale == 131_072
+
+
+def test_an_axis_drift_of_one_millimetre_is_not_an_intended_right_corner():
+    """Увод 0.85 мм ВНЕ класса авторской ошибки, поэтому привязка о нём не спрошена.
+
+    `intended_right_corners` числит угол задуманно прямым при `|cos| <= 7e-6 *
+    |sin|`. Увод 0.85 мм на ребре 4 м даёт 2.1e-4 рад — в тридцать раз больше
+    объявленной авторской ошибки. Значит `restored/intended` про ножевой угол
+    не говорит НИЧЕГО, и читать «restored = intended» как «увод съеден» нельзя:
+    здесь оба числа равны нулю при живом уводе.
+    """
+
+    certificate = _drifted_h_metric(1.0).grid_certificate
+
+    assert certificate.intended_right_corners == 0
+    assert certificate.restored_right_corners == 0
+    assert len(certificate.scale_trials) == 1
+
+
+@pytest.mark.parametrize(
+    "scale, residual",
+    (
+        (4096, Fraction(3, 4096)),
+        (2048, Fraction(2, 2048)),
+        (1024, Fraction(1, 1024)),
+        (512, Fraction(0)),
+    ),
+)
+def test_the_source_snap_eats_the_axis_drift_only_below_the_chosen_scale(
+    scale, residual
+):
+    """Привязка съедает увод 0.85 мм с масштаба 512, а не с выбранного 4096.
+
+    Записанное свойство «привязка решётки съедает отклонение 1e-3» верно только
+    там, где ячейка КРУПНЕЕ отклонения. У выбранного окном масштаба 4096 ячейка
+    2.44e-4 м, то есть втрое МЕЛЬЧЕ увода, и увод переживает привязку с
+    остатком 7.32e-4. Числа заморожены поимённо, чтобы «шаг решётки лечит
+    увод оси» нельзя было применить к масштабу, на котором он не лечит.
+    """
+
+    from cftuv_envelope.source_grid import snap_positions
+
+    positions = {
+        f"v{index}": (
+            Fraction(x),
+            Fraction(y),
+            Fraction(0),
+        )
+        for index, (x, y) in enumerate(DRIFTED_H_NGON)
+    }
+    snapped = snap_positions(positions, GridSpecV1(scale))
+
+    assert abs(snapped["v3"][1] - snapped["v2"][1]) == residual
