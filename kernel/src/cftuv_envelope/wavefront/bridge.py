@@ -96,6 +96,7 @@ from .event_time import SupportLineV1, normalized_speed
 from .polygon import (
     FanSupportV1,
     LoopV1,
+    PolygonOutcome,
     PolygonRejected,
     PolygonV1,
     VertexFanV1,
@@ -155,11 +156,22 @@ class BridgeOutcome(str, Enum):
     VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX = (
         "VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX"
     )
-    # Привязанный домен с веером `PolygonV1` не принял: направление скрытой
-    # опоры перестало лежать внутри вогнутого сектора решёточной вершины.
-    # Отдельно от `LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON`, потому что причина
-    # другая — не петля, а угол, — и лечится она сменой шага решётки, а не формы.
+    # Привязка склеила ДВА якоря веера в один узел (либо якорь сел в точку,
+    # принадлежащую двум петлям). Веер вставляется между входящим и исходящим
+    # ребром, и у неединственной вершины таких пар две. Это единственная
+    # оставшаяся причина, у которой привязка действительно виновата: узлы
+    # двигает она.
     LATTICE_SNAP_BREAKS_A_VERTEX_FAN = "LATTICE_SNAP_BREAKS_A_VERTEX_FAN"
+    # Цепочка `(n_вх, s1..sk, n_исх)` не поворачивает внутрь вогнутого сектора
+    # монотонно. Имя называет НАБЛЮДАЕМЫЙ факт, а не причину, и заведено оно
+    # взамен привязки этого отказа к решётке: измерено на
+    # `building_patch10_density4_v1`, что нарушение стоит между двумя ОПОРАМИ,
+    # которых решётка не касается вовсе, и воспроизводится при `lattice=None`.
+    # Прежнее имя `LATTICE_SNAP_BREAKS_A_VERTEX_FAN` в этой точке утверждало
+    # причину, которой нет, и стоило полевой сессии диагностики.
+    VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP = (
+        "VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP"
+    )
 
 
 # Порядок объявлен, а не выведен из порядка проверок: чем ниже, тем глубже
@@ -176,7 +188,22 @@ _OUTCOME_ORDER = (
     BridgeOutcome.EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
     BridgeOutcome.VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX,
     BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN,
+    BridgeOutcome.VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP,
 )
+
+
+#: Отказ полигона на веере — своим именем. Развод по ЧЛЕНУ отказа, а не по
+#: наличию решётки: неединственная вершина есть следствие сдвига узлов, а
+#: немонотонный поворот цепочки есть свойство самого входа и виден при
+#: `lattice=None` тоже.
+_FAN_REFUSAL_NAMES = {
+    PolygonOutcome.VERTEX_FAN_SUPPORT_IS_NOT_INSIDE_THE_REFLEX_SECTOR: (
+        BridgeOutcome.VERTEX_FAN_SUPPORTS_DO_NOT_TURN_WITH_THE_COMPUTATION_LOOP
+    ),
+    PolygonOutcome.VERTEX_FAN_POINT_IS_NOT_A_UNIQUE_VERTEX: (
+        BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -742,8 +769,12 @@ def _built_polygon(
         try:
             polygon = with_vertex_fans(polygon, fans)
         except PolygonRejected as refusal:
-            findings.append(BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN)
-            _ = refusal
+            named = _FAN_REFUSAL_NAMES.get(refusal.outcome)
+            if named is None:
+                # Своего имени у моста для этого отказа нет. Пересказать его
+                # чужим значило бы снова назвать не ту причину.
+                raise
+            findings.append(named)
             return _BuiltPolygonV1()
     return _BuiltPolygonV1(
         polygon=polygon,
