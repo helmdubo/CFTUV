@@ -62,7 +62,7 @@
   "minimal_mismatch_repros": [],
   "mismatched": 0,
   "mismatch_report": "first exact differing axis includes both complete projections",
-  "new_absolute_digests_frozen": false,
+  "new_absolute_digests_frozen": true,
   "p0_2_rebase_reconciliation": {
     "expected_and_observed_digest_shifts": [
       "partial_source::ell_12_source_edges_0_1",
@@ -84,6 +84,9 @@
     "project_frozen_digests_modified": false
   },
   "pruned": 17,
+  "post_p0_2b_absolute_digest_tail": "artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
+  "post_p0_2b_kernel_source_tree": "d87b96e08fc54353ba330689da1895acd114064a",
+  "post_p0_2b_product_commit": "852059a34062fd5c5dd18b1833c2908904a08362",
   "q_semantics": "literal absolute SupportLineV1.q; moving sources use q and walls use 0",
   "required_special_cases": {
     "collinear_moving_source_and_wall": "collinear_moving_source_and_wall",
