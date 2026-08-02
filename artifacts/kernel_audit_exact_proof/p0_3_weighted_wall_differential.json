@@ -10,8 +10,9 @@
     "proof_status",
     "stable_proof_obligation_multiset"
   ],
-  "base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
-  "baseline_snapshot_commit": "5b25d3ceda95b74258df66af6840f7d6d8c51c8b",
+  "current_audit_base_sha": "a0910285e624fa053903187820b4d4c8635b5a34",
+  "original_snapshot_base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
+  "baseline_snapshot_commit": "a69baaaa3218ef4e61acd51ce16ac167c802861c",
   "cases": [
     {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1/4", "pruned": true},
     {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1", "pruned": true},
@@ -53,6 +54,26 @@
   "mismatched": 0,
   "mismatch_report": "first exact differing axis includes both complete projections",
   "new_absolute_digests_frozen": false,
+  "p0_2_rebase_reconciliation": {
+    "expected_and_observed_digest_shifts": [
+      "partial_source::ell_12_source_edges_0_1",
+      "partial_source::ell_12_source_edges_1_2",
+      "partial_source::ell_12_source_edges_3_4",
+      "partial_source::ell_12_source_edges_4_5",
+      "partial_source::staircase_source_edges_0_1",
+      "partial_source::staircase_source_edges_1_2",
+      "partial_source::staircase_source_edges_2_3",
+      "partial_source::staircase_source_edges_3_4",
+      "partial_source::staircase_source_edges_5_6",
+      "partial_source::staircase_source_edges_6_7",
+      "partial_source::ell_12_source_without_the_reflex_pair"
+    ],
+    "legacy_counter_deltas": 0,
+    "legacy_outcome_deltas": 0,
+    "proof_status_deltas": 0,
+    "unexpected_digest_shifts": [],
+    "project_frozen_digests_modified": false
+  },
   "pruned": 17,
   "q_semantics": "literal absolute SupportLineV1.q; moving sources use q and walls use 0",
   "required_special_cases": {
