@@ -359,6 +359,10 @@ def _split_records(skeleton) -> list:
         repr(node_record(node))
         for node in skeleton.nodes
         if node.kind is EventKind.SPLIT
+        or (
+            node.kind is EventKind.MULTIWAY
+            and EventKind.SPLIT in node.kinds
+        )
     )
 
 
@@ -819,6 +823,7 @@ def test_start_and_switch_are_a_named_seam_and_the_reason_is_now_precise():
 
     assert {kind.value for kind in EventKind} == {
         "EDGE",
+        "MULTIWAY",
         "SPLIT",
         "START",
         "SWITCH",

@@ -180,6 +180,24 @@ _PROOF_STATUS_ORACLE = {
     'partial_source::ell_12_all_sources_mixed_speeds_at_the_reflex_vertex': 'COMPLETE',
 }
 
+# P0-2 B меняет только 11 canonical node records: два incidence-connected
+# `(time, point)` records становятся одним MULTIWAY. A-oracle выше остаётся
+# буквальным base snapshot; здесь явно перечислена разрешённая дельта B.
+_P0_2_MERGED_DIGESTS = {
+    "partial_source::ell_12_source_edges_0_1": "208868ef5bcd90e754cbb58f8b0a217ba01c16394b760233e674aa08f71f86f8",
+    "partial_source::ell_12_source_edges_1_2": "c1aabdde087d2f953a36923650162908b53d86dc2cdb7440ecd0ece742fb82c3",
+    "partial_source::ell_12_source_edges_3_4": "744e86a41a44ab628dc3101884db0d7424af4d5bcd8169061765b54438b52e78",
+    "partial_source::ell_12_source_edges_4_5": "cbac4fa128c53fd0f0953b5ab90538512e88cdaeb2f0929db26242d504f8d341",
+    "partial_source::staircase_source_edges_0_1": "e30d8794d7271c2950e55ec91831e94d18f7be6e30c9d646a631767d1d125d8f",
+    "partial_source::staircase_source_edges_1_2": "15029ab3a8777120e59f0f5580a8e0a66105a4f18d3724ad8ce80f200adf7887",
+    "partial_source::staircase_source_edges_2_3": "16329a311d077ee03c80615bbeaa8322ab74d3255889ad8dccdd63050cc64008",
+    "partial_source::staircase_source_edges_3_4": "55d7a8e32294b2c96e0da4afbcb42a3546f0cc861d45505c3bd329fba2b607bd",
+    "partial_source::staircase_source_edges_5_6": "7405ce535fb0ebe22c3e84ebb6d31b07b8e20b03701691b166c71f51cf5083d9",
+    "partial_source::staircase_source_edges_6_7": "1fdf15957d7935dfaabf85de614ca5d0c02d9ab734118d7fb73d5c1cfc5e4d5b",
+    "partial_source::ell_12_source_without_the_reflex_pair": "3011b4558c599f307946d1a41fd74fbe6a74dd847e13a2e5a6a98c5dbac9aadf",
+}
+
+
 _CASES = (
     *((f"named::{name}", polygon) for name, polygon in named_corpus()),
     *((f"partial_source::{name}", polygon) for name, polygon in partial_source_corpus()),
@@ -197,7 +215,9 @@ def test_p0_geometry_and_existing_counter_oracle(case_id, polygon):
     counter_map = dict(skeleton.counters)
     assert all(name in counter_map for name in _LEGACY_COUNTER_NAMES)
     assert skeleton.outcome.value == expected_outcome
-    assert semantic_digest(skeleton) == expected_digest
+    assert semantic_digest(skeleton) == _P0_2_MERGED_DIGESTS.get(
+        case_id, expected_digest
+    )
     assert tuple(counter_map[name] for name in _LEGACY_COUNTER_NAMES) == expected_counter_values
     assert skeleton.proof_status.value == _PROOF_STATUS_ORACLE[case_id]
 

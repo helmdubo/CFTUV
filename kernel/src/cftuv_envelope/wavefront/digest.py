@@ -24,6 +24,8 @@ import hashlib
 import json
 
 from .skeleton import SkeletonNodeV1, SkeletonV1
+from .events import EventKind
+from .superlevel import validate_multiway_node
 from .sqrt_sum import SqrtSumV1
 
 
@@ -60,7 +62,7 @@ def node_record(node: SkeletonNodeV1) -> dict:
     """Каноническая запись узла. Ровно то, что входит в дайджест."""
 
     time = node.time.canonical()
-    return {
+    record = {
         "kind": node.kind.value,
         "time_dividend": _fraction_record(time.dividend),
         "time_divisor": _sqrt_sum_record(time.divisor),
@@ -69,12 +71,42 @@ def node_record(node: SkeletonNodeV1) -> dict:
         "participants": [_participant_record(key) for key in node.participants],
         "converging_vertices": node.converging_vertices,
     }
+    if node.kind is EventKind.MULTIWAY:
+        canonical_kinds, canonical_incidences = validate_multiway_node(node)
+        record["kinds"] = [kind.value for kind in canonical_kinds]
+        record["incidences"] = [
+            [_participant_record(key) for key in incidence]
+            for incidence in canonical_incidences
+        ]
+    return record
 
 
 def skeleton_records(skeleton: SkeletonV1) -> list[dict]:
     records = [node_record(node) for node in skeleton.nodes]
     records.sort(key=lambda record: json.dumps(record, sort_keys=True))
     return records
+
+
+def duplicate_node_counts(nodes: tuple[SkeletonNodeV1, ...]) -> tuple[int, int]:
+    """Лишние canonical `(time, point)` records и mixed-kind места."""
+
+    groups: dict[str, list[str]] = {}
+    for node in nodes:
+        record = node_record(node)
+        key = json.dumps(
+            [
+                record["time_dividend"],
+                record["time_divisor"],
+                record["point_x"],
+                record["point_y"],
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        groups.setdefault(key, []).append(record["kind"])
+    duplicates = sum(max(0, len(kinds) - 1) for kinds in groups.values())
+    mixed = sum(len(set(kinds)) > 1 for kinds in groups.values())
+    return duplicates, mixed
 
 
 def semantic_digest(skeleton: SkeletonV1) -> str:

@@ -103,7 +103,15 @@ def test_the_reflex_vertex_splits_where_hand_computation_says():
 
     skeleton = _skeleton(ELL)
     assert skeleton.outcome is SkeletonOutcome.EXACT
-    splits = [node for node in skeleton.nodes if node.kind is EventKind.SPLIT]
+    splits = [
+        node
+        for node in skeleton.nodes
+        if node.kind is EventKind.SPLIT
+        or (
+            node.kind is EventKind.MULTIWAY
+            and EventKind.SPLIT in node.kinds
+        )
+    ]
     assert len(splits) == 1
     split = splits[0]
     time = split.time.canonical()
@@ -114,7 +122,15 @@ def test_the_reflex_vertex_splits_where_hand_computation_says():
 
 def test_both_teeth_of_the_comb_split_at_the_same_exact_instant():
     skeleton = _skeleton(COMB)
-    splits = [node for node in skeleton.nodes if node.kind is EventKind.SPLIT]
+    splits = [
+        node
+        for node in skeleton.nodes
+        if node.kind is EventKind.SPLIT
+        or (
+            node.kind is EventKind.MULTIWAY
+            and EventKind.SPLIT in node.kinds
+        )
+    ]
     assert len(splits) == 2
     assert compare_times(splits[0].time, splits[1].time) == 0
     # Время иррационально: 4/(1 + sqrt(2)) = 4*sqrt(2) - 4.
@@ -228,7 +244,15 @@ def test_the_front_of_a_hole_meets_the_outer_front_as_an_ordinary_event():
 
     skeleton = _skeleton(HOLE_OUTER, (HOLE_INNER,))
     assert skeleton.outcome is SkeletonOutcome.EXACT
-    splits = [node for node in skeleton.nodes if node.kind is EventKind.SPLIT]
+    splits = [
+        node
+        for node in skeleton.nodes
+        if node.kind is EventKind.SPLIT
+        or (
+            node.kind is EventKind.MULTIWAY
+            and EventKind.SPLIT in node.kinds
+        )
+    ]
     assert len(splits) == 4
     for node in splits:
         time = node.time.canonical()
@@ -317,6 +341,7 @@ def test_the_unbuilt_extended_wavefront_is_a_named_seam_not_a_silence():
 
     assert {kind.value for kind in EventKind} == {
         "EDGE",
+        "MULTIWAY",
         "SPLIT",
         "START",
         "SWITCH",
