@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -40,12 +41,19 @@ TESTS = REPO_ROOT / "tests"
 # --------------------------------------------------------------------------
 
 
+@cache
 def _python_files(root: Path) -> tuple[Path, ...]:
     return tuple(sorted(path for path in root.rglob("*.py")))
 
 
+@cache
+def _source_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+@cache
 def _parse(path: Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return ast.parse(_source_text(path), filename=str(path))
 
 
 def _imported_roots(path: Path) -> set[str]:
@@ -79,8 +87,9 @@ def _relative(path: Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
 
 
+@cache
 def _line_count(path: Path) -> int:
-    return len(path.read_text(encoding="utf-8").splitlines())
+    return len(_source_text(path).splitlines())
 
 
 def _max_function_lines(path: Path) -> tuple[int, str]:
