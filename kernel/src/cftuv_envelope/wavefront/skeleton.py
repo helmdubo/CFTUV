@@ -102,7 +102,12 @@ from .proof import (
     ProofStatus,
 )
 from .sqrt_sum import SqrtSumV1
-from .superlevel import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
+from .superlevel import (
+    has_same_time_residual,
+    SkeletonNodeV1,
+    SkeletonOutcome,
+    SkeletonV1,
+)
 
 
 class SplitSearch(str, Enum):
@@ -1043,18 +1048,26 @@ class _Builder:
                 return self._finish(SkeletonOutcome.LEVEL_BUDGET_EXHAUSTED, levels)
             level = self.queue.pop_level()
             self.now = level[0].time
-            levels += 1
-            self._apply_level(level)
-            same_time = self.queue._count_at_time(self.now)
-            self.counters["same_time_events_enqueued_during_level"] += same_time
+            while level:
+                levels += 1
+                self._apply_level(level)
+                self.counters["same_time_events_enqueued_during_level"] += (
+                    self.queue._count_at_time(self.now)
+                )
+                if self.refusal is not None:
+                    return self._finish(self.refusal, levels)
+                self._close_short_lavs()
+                self._discharge_observed_obligations()
+                if not has_same_time_residual(self.queue, self.now):
+                    break
+                if levels >= budget:
+                    return self._finish(
+                        SkeletonOutcome.LEVEL_BUDGET_EXHAUSTED, levels
+                    )
+                level = self.queue.pop_level()
             self.counters["same_time_residual_after_level"] += int(
-                self.queue.peek_time() is not None
-                and compare_times(self.queue.peek_time(), self.now) == 0
+                has_same_time_residual(self.queue, self.now)
             )
-            if self.refusal is not None:
-                return self._finish(self.refusal, levels)
-            self._close_short_lavs()
-            self._discharge_observed_obligations()
         outcome = (
             SkeletonOutcome.EXACT
             if not any(vertex.alive for vertex in self.vertices)

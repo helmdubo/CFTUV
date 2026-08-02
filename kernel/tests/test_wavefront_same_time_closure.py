@@ -19,6 +19,7 @@ from test_wavefront_proof_obligations import (
     _CASES,
     _GEOMETRY_ORACLE,
     _LEGACY_COUNTER_NAMES,
+    _P0_2_MERGED_DIGESTS,
     _PROOF_STATUS_ORACLE,
 )
 
@@ -422,6 +423,15 @@ def test_phase_b_duplicate_counters_are_zero_after_accumulation():
     assert mixed_cases == []
 
 
+def test_phase_c_drains_every_superlevel_without_changing_b_digests():
+    for case_id, polygon in _CASES:
+        skeleton = build_skeleton(polygon)
+        assert skeleton.counter("same_time_residual_after_level") == 0
+        assert semantic_digest(skeleton) == _P0_2_MERGED_DIGESTS.get(
+            case_id, _GEOMETRY_ORACLE[case_id][1]
+        )
+
+
 def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
     """Counters имеют разные знаменатели и поэтому не дублируют друг друга.
 
@@ -458,4 +468,4 @@ def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
     assert sum(enqueued for enqueued, _ in measurements) == 4
     assert sum(residual > 0 for _, residual in measurements) == 2
     assert skeleton.counter("same_time_events_enqueued_during_level") == 4
-    assert skeleton.counter("same_time_residual_after_level") == 2
+    assert skeleton.counter("same_time_residual_after_level") == 0

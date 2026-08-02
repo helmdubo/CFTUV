@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from .event_time import EventPointV1, EventTimeV1
-from .events import EventKind
+from .event_time import EventPointV1, EventTimeV1, compare_times
+from .events import EventKind, EventQueueV1
 from .proof import ProofObligationV1, ProofStatus
 
 
@@ -48,6 +48,13 @@ class SkeletonV1:
 
     def counter(self, name: str) -> int:
         return dict(self.counters).get(name, 0)
+
+
+def has_same_time_residual(queue: EventQueueV1, now: EventTimeV1) -> bool:
+    """Есть ли exact-time packet, который обязан войти в текущий superlevel."""
+
+    upcoming = queue.peek_time()
+    return upcoming is not None and compare_times(upcoming, now) == 0
 
 
 def _place_key(node) -> tuple:
