@@ -1220,6 +1220,89 @@ NEAR-PLANAR-VALIDATOR-01 закрыла все три (слито `255312b`, п�
    затем РЕШЕНИЕ ВЛАДЕЛЬЦА: кап/сужение бюджета юбки/приоритет
    Surfer2-оракула. Кнопку building.004 владелец почувствует пальцем —
    молчаливый кап-подъём запрещён этой строкой.
+
+   Форма диагноза уточнена аудитом ядра (записи 2026-08-02 в DECISIONS) —
+   карточка **FIELD-800S-STAGE-ATTRIBUTION**: пер-доменная пер-стадийная
+   таблица (METRIC_BUILD / SOURCE_GRID / NEWELL_AND_PROJECTION /
+   SNAPSHOT_VALIDATION / PLAN_COMPILE / DENSITY_PROOF / DOMAIN_BUILD /
+   ARRIVAL_LAWS / BRIDGE / MOTORCYCLE_GRAPH / SKELETON / FACES / COVERAGE /
+   DEBUG_PROJECTION) плюс счётчики домена: vertices/reflex/sources/walls/
+   fans, события/уровни/same-time группы, split-кандидаты, exhaustive-
+   откаты, stale, NO_RULE, sign queries, пик кучи. Выход — committed JSON
+   в artifacts с SHA, поверх существующих расписок field_cycle/sweep.
+   Развилка исполняется по числу, а не по вкусу: доминирует
+   metric/compile/admission → чинить его; доминирует SKELETON на доменах
+   общего положения (star-режим O(n²), ~163 000 мкс/вершину против ~2 100
+   на гребёнке — замер уже в этом файле) → запускать R1 kinetic-спайк;
+   цена в нескольких спец-отказниках → сначала их правила.
+
+0-bis. **АУДИТ ЯДРА 2026-08-02 — ПРИНЯТАЯ ОЧЕРЕДЬ КАРТОЧЕК** (три раунда
+   внешнего аудита + исполняемая сверка; свидетельства —
+   `artifacts/kernel_audit_exact_proof/`). Четыре P0 не зависят от того,
+   останется ли бэкенд LAV/motorcycle или его заменит kinetic:
+   - **P0-1 WF-PROOF-OBLIGATION-CHANNEL** — вторая ось результата
+     `proof_status` с жизненным циклом обязательств; счётчик
+     `EDGE_COLLAPSE_SPAN_UNPROVEN_BUT_ACCEPTED`; счётчик отброса
+     неизвестного kind; ни одна применённая недоказанная ветка не остаётся
+     без записи. Ворота: 40/63 фигур корпуса, сегодня дающих EXACT при
+     NO_RULE, получают явный proof_status без смены геометрического
+     ответа.
+   - **P0-2 WF-SAME-TIME-CLOSURE-GATE** — этапы A→D: наблюдаемость
+     (`SAME_TIME_EVENTS_ENQUEUED_DURING_LEVEL`,
+     `SAME_TIME_RESIDUAL_AFTER_LEVEL`, `DUPLICATE_EXACT_TIME_POINT_NODES`,
+     `MIXED_KIND_EXACT_TIME_POINT_NODES`, `peek_time`) → канонический
+     аккумулятор узлов по компоненте инцидентности (kinds — множеством,
+     не выбором) → fixed-point drain одного t → дифференциальные ворота
+     порядка (split-first против edge-first, перестановки входа; сверка
+     живой топологии, partition, ownership, coverage, obligations).
+     Полная superlevel-транзакция — ТОЛЬКО при расхождении. Контрпримеры
+     уже найдены: 11 фигур с двумя узлами на одну точную (t, точку) —
+     `ell_12_source_edges_{0_1,1_2,3_4,4_5}`,
+     `staircase_source_edges_{0_1,1_2,2_3,3_4,5_6,6_7}`,
+     `ell_12_source_without_the_reflex_pair`.
+   - **P0-3 WF-WEIGHTED-WALL-DIFFERENTIAL** — MOTORCYCLE против EXHAUSTIVE
+     на сетке q ∈ {0, 1/4, 1, 4, полевые рациональные}, источник+стены,
+     веерные нулевые рёбра, дыры, зеркальный чарт, коллинеарные вхождения,
+     same-time weighted collapse. Сверка по 8 осям: outcome, канонический
+     граф узлов, времена/точки, participants, owners, площади, coverage
+     на нескольких alpha, proof obligations. Текущий расклад частичного
+     источника — 23/17/1 (исполняемые константы
+     `test_wavefront_partial_source.py:120-122`; таблица среза 7е выше —
+     исторический протокол своего момента). Surfer2-exact дополняет как
+     внешний оракул positive-weight пересечения; q = 0 закрывает только
+     собственный EXHAUSTIVE.
+   - **P0-4 NEAR-PLANAR-EMBEDDING-CERTIFICATE** — два сертификата
+     (`SourceSnapEmbeddingCertificateV1`,
+     `NearPlanarProjectionEmbeddingCertificateV1`) отдельно от бюджета
+     1/80: инъективность, ненулевые рёбра, отсутствие новых пересечений,
+     ориентация КАЖДОЙ петли, вложенность, cyclic order, якоря
+     источников/вееров. Бюджет остаётся политикой качества юбки и
+     перестаёт играть роль топологического сертификата, которой у него
+     нет.
+   - **R0 SURFER2-EXACT-ORACLE** (параллельно, не ждёт п.0): pinned
+     upstream commit, exact-сборка в Linux CI/WSL, немодифицированный
+     бинарь, JSON-обмен, корпус пересечения моделей, результаты только в
+     artifacts + validate-tool. Clean-room граница GPLv3 для любого
+     переноса идей.
+   - **R1 KINETIC-CERTIFICATE-SPIKE** (условный, после P0-0 и R0):
+     Python-прототип kinetic-сертификатов; мерить на star-семействе и
+     живых доменах building.004, не на гребёнке; коэффициенты — в
+     существующем поле `SqrtSumV1`; flip-vs-real — знаковыми тестами в
+     текущем поле; flip-vs-flip — редукцией по минимальному полиному с
+     интервальным фильтром; телеметрия роста числа членов
+     (расширение `benchmark_wavefront_event_algebra.py`).
+   - **P1**: именованные ворота `FACE_REQUIRES_MULTIBOUNDARY_REPRESENTATION`
+     (затем FaceV2 либо artificial bisectors); TEST-COLLECTION-BOOT
+     (ленивые фасады `__getattr__` — сейчас импорт любого подмодуля ядра
+     требует SymPy через `__init__` → `source_grid`; кэш AST в
+     test_architecture — 330 → 175 parse; `--ignore=test_architecture.py`
+     во втором CI-прогоне; grep вместо третьей коллекции);
+     DECISIONS-RESTRUCTURE (ACTIVE-индекс + архив + генерируемый статус —
+     взамен удалённых architecture_status.json/adr_index.md).
+   - **P2, заморожено до вердикта P0-0/R1** (мерить счётчиками — можно,
+     реализовывать — нет): support-class/active-span memo, line-triple
+     cache, alpha-limited resumable skeleton, иерархический broad phase,
+     per-line speed bound вместо глобального.
 1. ~~**Зеркальные веера**~~ — ЗАКРЫТО кодом И ПОЛЕМ: `building` d4
    **114/122** после юбки (см. счета), «2» d4 **20/32**. Закон
    `computation_loop_supports`; «5 против 4 опор» закрыто двухступенчатой
