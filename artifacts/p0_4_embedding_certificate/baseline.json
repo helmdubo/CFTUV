@@ -1,0 +1,21 @@
+{
+  "schema": "P0_4_EMBEDDING_CERTIFICATE_BASELINE_V1",
+  "base_sha": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+  "focused_tests": {
+    "command": "PYTHONPATH=src python -m pytest tests/test_near_planar_policy.py tests/test_robust_snapping.py tests/test_near_planar_snapshot_validation.py tests/test_planar_metric_v2.py -q",
+    "passed": 74,
+    "seconds": 5.44
+  },
+  "architecture_tests": {
+    "command": "PYTHONPATH=kernel/src python -m pytest tests/test_architecture.py -q",
+    "passed": 370,
+    "seconds": 4.47
+  },
+  "public_api": {
+    "all_count": 507,
+    "dir_count": 535,
+    "all_sha256": "76a2d58e54d158b2a38065450086ebd4feb3222d1caa8d054e914b6419fd9064",
+    "contracts_metric_dir_count": 59
+  },
+  "immutable_budget": "1/80"
+}
