@@ -170,9 +170,17 @@ class BlockSymbolicPackages(importlib.abc.MetaPathFinder):
         return None
 
 sys.meta_path.insert(0, BlockSymbolicPackages())
+import cftuv_envelope as package
 import cftuv_envelope.wavefront.event_time
 import cftuv_envelope.wavefront.events
 import cftuv_envelope.wavefront.skeleton
+assert "wavefront" not in package.__dict__
+try:
+    package.wavefront
+except AttributeError as exc:
+    assert str(exc) == "module 'cftuv_envelope' has no attribute 'wavefront'"
+else:
+    raise AssertionError("wavefront leaked onto the root facade")
 assert not any(
     name == "sympy" or name.startswith("sympy.")
     or name == "mpmath" or name.startswith("mpmath.")

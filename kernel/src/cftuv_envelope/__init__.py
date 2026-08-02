@@ -677,3 +677,9 @@ def __getattr__(name: str):
 
 def __dir__() -> list[str]:
     return sorted((*__all__, *_LEGACY_DIR_EXTRAS))
+
+
+# Подпакет-фасад сам лёгкий. Загружаем его один раз, чтобы последующие импорты
+# листьев не привязали к родителю исторически скрытое имя `wavefront`.
+_import_module("cftuv_envelope.wavefront")
+globals().pop("wavefront", None)
