@@ -1260,7 +1260,7 @@ NEAR-PLANAR-VALIDATOR-01 закрыла все три (слито `255312b`, п�
      `ell_12_source_edges_{0_1,1_2,3_4,4_5}`,
      `staircase_source_edges_{0_1,1_2,2_3,3_4,5_6,6_7}`,
      `ell_12_source_without_the_reflex_pair`.
-   - **P0-3 WF-WEIGHTED-WALL-DIFFERENTIAL** — MOTORCYCLE против EXHAUSTIVE
+   - **P0-3 WF-WEIGHTED-WALL-DIFFERENTIAL** — ЗАКРЫТА (`38e4012`: 23/23 по девяти осям, 17/23 с реальным отсечением, q=0 — именованные отказы вне знаменателя; заморозка дайджестов — после P0-2b): MOTORCYCLE против EXHAUSTIVE
      на сетке q ∈ {0, 1/4, 1, 4, полевые рациональные}, источник+стены,
      веерные нулевые рёбра, дыры, зеркальный чарт, коллинеарные вхождения,
      same-time weighted collapse. Сверка по 8 осям: outcome, канонический
