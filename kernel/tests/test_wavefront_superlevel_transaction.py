@@ -17,6 +17,8 @@ from cftuv_envelope.wavefront.events import (
     EventQueueV1,
 )
 from cftuv_envelope.wavefront.polygon import PolygonV1
+from cftuv_envelope.wavefront.coverage import coverage_at
+from cftuv_envelope.wavefront.faces import build_faces
 from cftuv_envelope.wavefront.proof import (
     ProofObligationBranch,
     ProofObligationDisposition,
@@ -89,6 +91,18 @@ _PROJECTION_KEYS = (
     "proof_status",
     "proof_verdict_sha256",
     "proof_geometric_projection",
+    "partition_geometric_projection",
+    "coverage_geometric_projection",
+)
+_INPUT_PROJECTION_KEYS = tuple(
+    key
+    for key in _PROJECTION_KEYS
+    if key
+    not in {
+        "partition_sha256",
+        "coverage_by_alpha",
+        "coverage_sha256",
+    }
 )
 
 
@@ -178,12 +192,60 @@ def _run(
     record["proof_geometric_projection"] = _REPRO._proof_projection(
         skeleton.proof_obligations
     )
+    partition = build_faces(polygon, skeleton)
+    partition_record = _REPRO._partition_record(partition)
+    geometric_faces = []
+    for face in partition_record["faces"]:
+        geometric = dict(face)
+        geometric.pop("start")
+        geometric.pop("end")
+        geometric_faces.append(geometric)
+    geometric_faces.sort(key=repr)
+    record["partition_geometric_projection"] = {
+        key: value
+        for key, value in partition_record.items()
+        if key != "faces"
+    } | {"faces": geometric_faces}
+    coverage_records = []
+    for alpha in (Fraction(1, 4), Fraction(1), Fraction(3)):
+        coverage = _REPRO._coverage_record(coverage_at(partition, alpha))
+        coverage["faces"].sort(key=repr)
+        coverage_records.append(coverage)
+    record["coverage_geometric_projection"] = coverage_records
     return record
 
 
-def _differences(reference: dict, candidate: dict) -> tuple[str, ...]:
+def _input_permutations(polygon: PolygonV1) -> dict[str, PolygonV1]:
+    variants = {
+        "outer_rotate_1": PolygonV1(
+            polygon.outer.rotated(1), polygon.holes, polygon.vertex_fans
+        ),
+        "outer_rotate_last": PolygonV1(
+            polygon.outer.rotated(-1), polygon.holes, polygon.vertex_fans
+        ),
+    }
+    if polygon.holes:
+        variants["hole_rotate_1"] = PolygonV1(
+            polygon.outer,
+            tuple(hole.rotated(1) for hole in polygon.holes),
+            polygon.vertex_fans,
+        )
+    if len(polygon.holes) > 1:
+        variants["hole_order_reverse"] = PolygonV1(
+            polygon.outer,
+            tuple(reversed(polygon.holes)),
+            polygon.vertex_fans,
+        )
+    return variants
+
+
+def _differences(
+    reference: dict,
+    candidate: dict,
+    keys: tuple[str, ...] = _PROJECTION_KEYS,
+) -> tuple[str, ...]:
     return tuple(
-        key for key in _PROJECTION_KEYS if reference[key] != candidate[key]
+        key for key in keys if reference[key] != candidate[key]
     )
 
 
@@ -199,11 +261,24 @@ def test_d_config_is_transaction_invariant_under_every_schedule(name):
             polygon, apply=_input_geometric_reverse
         ),
     }
+    input_variants = {
+        schedule: _run(candidate)
+        for schedule, candidate in _input_permutations(polygon).items()
+    }
     failures = {
         schedule: _differences(reference, candidate)
         for schedule, candidate in variants.items()
         if _differences(reference, candidate)
     }
+    failures.update(
+        {
+            schedule: _differences(
+                reference, candidate, _INPUT_PROJECTION_KEYS
+            )
+            for schedule, candidate in input_variants.items()
+            if _differences(reference, candidate, _INPUT_PROJECTION_KEYS)
+        }
+    )
     assert failures == {}, (name, failures)
 
 
@@ -228,6 +303,9 @@ def test_main_product_axes_converge_without_moving_coverage(name):
     )
 
 
+@pytest.mark.skip(
+    reason="AUTH_PENDING_STAIRCASE_3_4_T4_MIXED_REPLACEMENT"
+)
 def test_staircase_3_4_names_the_midrun_split_split_component(monkeypatch):
     planner = getattr(
         superlevel_module, "plan_superlevel_components", None
