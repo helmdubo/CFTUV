@@ -84,7 +84,6 @@ from .events import (
     CandidateEventV1,
     EventKind,
     EventQueueV1,
-    cluster_by_point,
     point_sort_key as _point_sort_key,
 )
 from .motorcycle import (
@@ -376,6 +375,10 @@ class _Builder:
             "same_time_residual_after_level": 0,
             "duplicate_exact_time_point_nodes": 0,
             "mixed_kind_exact_time_point_nodes": 0,
+            "superlevel_unresolvable_components": 0,
+            # Число geometry-derived ContactJunction, которые прошли frozen
+            # plan validation и были атомарно материализованы.
+            "superlevel_contact_junction_resolutions": 0,
         }
         self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
@@ -1056,8 +1059,6 @@ class _Builder:
                 )
                 if self.refusal is not None:
                     return self._finish(self.refusal, levels)
-                self._close_short_lavs()
-                self._discharge_observed_obligations()
                 if not has_same_time_residual(self.queue, self.now):
                     break
                 if levels >= budget:
@@ -1065,6 +1066,12 @@ class _Builder:
                         SkeletonOutcome.LEVEL_BUDGET_EXHAUSTED, levels
                     )
                 level = self.queue.pop_level()
+            # Весь exact-time fixed point — одна наблюдаемая граница. Между
+            # поколениями кандидатов нельзя ни закрывать короткие LAV, ни
+            # гасить proof debt: оба действия читают liveness и сделали бы
+            # следующий frozen packet функцией служебной границы поколения.
+            self._close_short_lavs()
+            self._discharge_observed_obligations()
             self.counters["same_time_residual_after_level"] += int(
                 has_same_time_residual(self.queue, self.now)
             )
@@ -1108,64 +1115,11 @@ class _Builder:
         )
 
     def _apply_level(self, level: tuple[CandidateEventV1, ...]) -> None:
-        """Весь уровень разом: сначала ВСЕ разрезы, потом ВСЕ схлопывания.
+        """Применить exact-time packet одной транзакцией frozen-prestate."""
 
-        Живость всех кандидатов уровня определяется ДО первого применения.
-        Иначе порядок применения решал бы, какие события уровня выживут, — то
-        есть ровно тот дефект, ради которого очередь и строится: последовательный
-        попарный крой не композируется.
+        from .superlevel import apply_superlevel_transaction
 
-        Ни одно снятое событие не теряется молча: не прошедшее проверку идёт в
-        счётчик устаревших, а неразрешимая одновременность — в именованный
-        исход, а не в выбор «первого попавшегося».
-        """
-
-        supported = {EventKind.SPLIT, EventKind.EDGE}
-        for event in level:
-            if event.kind in supported:
-                continue
-            self.counters["unsupported_event_kind_dropped"] += 1
-            valid_vertices = tuple(
-                ident
-                for ident in (event.vertex, event.peer)
-                if 0 <= ident < len(self.vertices)
-            )
-            carried_edge = self._edge_keys(event.edge)
-            self._record_obligation(
-                cause=ProofObligationBranch.UNSUPPORTED_EVENT_KIND,
-                disposition=(
-                    ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED
-                ),
-                vertex_ids=valid_vertices,
-                participant_edge_keys=carried_edge,
-                target_edge_keys=carried_edge,
-                level=event.time,
-                event_kind=event.kind,
-            )
-
-        splits = [event for event in level if event.kind is EventKind.SPLIT]
-        collapses = [event for event in level if event.kind is EventKind.EDGE]
-        live_splits = [event for event in splits if self._split_is_live(event)]
-        self.counters["discarded_stale_candidates"] += len(splits) - len(
-            live_splits
-        )
-        meetings, cuts = self._separate_vertex_meetings(live_splits)
-        cuts += self._apply_vertex_meetings(meetings)
-        cuts = [event for event in cuts if self._split_is_live(event)]
-        separated = self._dedupe_by_vertex(cuts)
-        if separated is None:
-            return
-        for edge_id, group in self._group_splits(separated):
-            self._apply_multi_split(edge_id, group)
-
-        live_collapses = [
-            event for event in collapses if self._edge_event_is_live(event)
-        ]
-        self.counters["discarded_stale_candidates"] += len(collapses) - len(
-            live_collapses
-        )
-        for cluster in cluster_by_point(tuple(live_collapses)):
-            self._apply_multi_edge(list(cluster))
+        apply_superlevel_transaction(self, level)
 
     def _separate_vertex_meetings(
         self, splits: list[CandidateEventV1]
