@@ -2,7 +2,8 @@
   "schema": "P0_2_PHASE_C_RECEIPT_V1",
   "base_phase": {
     "phase_b": "b42b6fd",
-    "canonical_incidence_fix": "7338516"
+    "canonical_incidence_fix": "7338516",
+    "schema_hardening": "200af79"
   },
   "commits": {
     "phase_c": "914bf2b",

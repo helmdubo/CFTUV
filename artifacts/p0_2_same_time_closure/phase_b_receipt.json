@@ -5,7 +5,8 @@
     "snapshot_gate": "bb003b6",
     "phase_a": "58d2e82",
     "phase_b": "b42b6fd",
-    "phase_b_incidence_fix": "7338516"
+    "phase_b_incidence_fix": "7338516",
+    "phase_b_schema_hardening": "200af79"
   },
   "reachability": {
     "corpus_cases": 63,
@@ -29,6 +30,8 @@
     "merged_node_record_includes_original_incidences": true,
     "incidence_union_equals_participants": true,
     "multiway_metadata_is_strictly_canonical": true,
+    "empty_inner_incidence_rejected": true,
+    "digest_and_faces_share_validator": true,
     "two_pass_accumulation_preserves_original_incidences": true,
     "incidence_mutation_changes_semantic_digest": true,
     "unmerged_node_record_omits_kinds": true,
