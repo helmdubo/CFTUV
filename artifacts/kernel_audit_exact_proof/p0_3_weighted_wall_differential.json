@@ -1,0 +1,57 @@
+{
+  "axes": [
+    "outcome",
+    "node_record_multiset",
+    "exact_times_and_points",
+    "participants",
+    "face_owners",
+    "exact_face_areas",
+    "coverage_at_three_alphas",
+    "proof_status",
+    "proof_disposition_counts"
+  ],
+  "base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
+  "baseline_snapshot_commit": "5b25d3ceda95b74258df66af6840f7d6d8c51c8b",
+  "coverage_alphas": ["1/4", "1", "4"],
+  "cases": [
+    {"beyond_trace": 12, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1/4", "pruned": true},
+    {"beyond_trace": 12, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1", "pruned": true},
+    {"beyond_trace": 19, "examined_exhaustive": 102, "examined_motorcycle": 98, "mismatch_axes": [], "name": "cross_full_q_4", "pruned": true},
+    {"beyond_trace": 14, "examined_exhaustive": 60, "examined_motorcycle": 56, "mismatch_axes": [], "name": "cross_full_q_65/64", "pruned": true},
+    {"beyond_trace": 2, "examined_exhaustive": 76, "examined_motorcycle": 76, "mismatch_axes": [], "name": "cross_source_and_walls_q_0", "pruned": true},
+    {"beyond_trace": 2, "examined_exhaustive": 93, "examined_motorcycle": 93, "mismatch_axes": [], "name": "cross_source_and_walls_q_1/4", "pruned": true},
+    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_1", "pruned": true},
+    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_4", "pruned": true},
+    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_65/64", "pruned": true},
+    {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_full_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_full_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_full_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 2, "examined_exhaustive": 12, "examined_motorcycle": 12, "mismatch_axes": [], "name": "weighted_vertex_fan", "pruned": true},
+    {"beyond_trace": 8, "examined_exhaustive": 30, "examined_motorcycle": 30, "mismatch_axes": [], "name": "weighted_holes_1", "pruned": true},
+    {"beyond_trace": 28, "examined_exhaustive": 100, "examined_motorcycle": 88, "mismatch_axes": [], "name": "weighted_holes_2", "pruned": true},
+    {"beyond_trace": 3, "examined_exhaustive": 50, "examined_motorcycle": 42, "mismatch_axes": [], "name": "mirror_direct", "pruned": true},
+    {"beyond_trace": 3, "examined_exhaustive": 50, "examined_motorcycle": 40, "mismatch_axes": [], "name": "mirror_reflected", "pruned": true},
+    {"beyond_trace": 14, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "several_collinear_incidences", "pruned": true},
+    {"beyond_trace": 4, "examined_exhaustive": 40, "examined_motorcycle": 32, "mismatch_axes": [], "name": "same_time_weighted_collapse", "pruned": true}
+  ],
+  "corpus_commit": "28d3f826396fa59513e0319cd866232b6f3ac560",
+  "focused_test": {
+    "passed": 26,
+    "runtime_seconds": 1.33
+  },
+  "full_source_q_zero": {
+    "differential_denominator": false,
+    "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
+    "phase": "polygon_construction"
+  },
+  "matched": 22,
+  "minimal_mismatch_repros": [],
+  "mismatched": 0,
+  "new_absolute_digests_frozen": false,
+  "pruned": 16,
+  "runnable_cases": 22,
+  "schema": "cftuv.p0_3.weighted_wall_differential_receipt.v1"
+}
