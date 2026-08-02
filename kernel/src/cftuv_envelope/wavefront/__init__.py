@@ -37,67 +37,7 @@
 замолчан: без него `START` и `SWITCH` недостижимы.
 """
 
-from .cell_grid import CellGridRejected, CellGridV1, CellIndexV1
-from .conveyor import (
-    ConveyorCoverageV1,
-    ConveyorFaceCoverageV1,
-    ConveyorOutcome,
-    ConveyorPreparationV1,
-    ConveyorRegionCoverageV1,
-    DegradedMiterCornerV1,
-    PreparedRegionV1,
-    chart_lattice_for_frame,
-    conveyor_coverage,
-    evaluate_conveyor_coverage,
-    prepare_conveyor,
-)
-from .event_time import (
-    ZERO_TIME,
-    EventPointV1,
-    EventTimeOutcome,
-    EventTimeV1,
-    SupportLineV1,
-    compare_times,
-    concurrency_time,
-    event_point,
-    times_are_equal,
-)
-from .motorcycle import (
-    CrashKind,
-    MotorcycleGraphV1,
-    TraceCandidateIndexV1,
-    TraceOutcome,
-    TraceV1,
-    WallV1,
-    build_motorcycle_graph,
-    march_budget,
-    walls_of,
-)
-from .events import (
-    CandidateEventV1,
-    EventKind,
-    EventQueueV1,
-    MotorcycleSeam,
-    cluster_by_point,
-)
-from .polygon import (
-    FanSupportV1,
-    LoopV1,
-    PolygonOutcome,
-    PolygonRejected,
-    PolygonV1,
-    VertexFanV1,
-    with_vertex_fans,
-)
-from .skeleton import (
-    SkeletonNodeV1,
-    SkeletonOutcome,
-    SkeletonV1,
-    SplitSearch,
-    build_skeleton,
-    level_budget,
-)
-from .sqrt_sum import SqrtSumV1
+from importlib import import_module as _import_module
 
 __all__ = [
     "CandidateEventV1",
@@ -152,3 +92,98 @@ __all__ = [
     "walls_of",
     "with_vertex_fans",
 ]
+
+_EXPORT_RANGES = (
+    (0, 1, "cftuv_envelope.wavefront.events"),
+    (1, 4, "cftuv_envelope.wavefront.cell_grid"),
+    (4, 9, "cftuv_envelope.wavefront.conveyor"),
+    (9, 10, "cftuv_envelope.wavefront.motorcycle"),
+    (10, 11, "cftuv_envelope.wavefront.conveyor"),
+    (11, 12, "cftuv_envelope.wavefront.events"),
+    (12, 13, "cftuv_envelope.wavefront.event_time"),
+    (13, 14, "cftuv_envelope.wavefront.events"),
+    (14, 16, "cftuv_envelope.wavefront.event_time"),
+    (16, 18, "cftuv_envelope.wavefront.polygon"),
+    (18, 19, "cftuv_envelope.wavefront.motorcycle"),
+    (19, 20, "cftuv_envelope.wavefront.events"),
+    (20, 23, "cftuv_envelope.wavefront.polygon"),
+    (23, 24, "cftuv_envelope.wavefront.conveyor"),
+    (24, 28, "cftuv_envelope.wavefront.skeleton"),
+    (28, 29, "cftuv_envelope.wavefront.sqrt_sum"),
+    (29, 30, "cftuv_envelope.wavefront.event_time"),
+    (30, 33, "cftuv_envelope.wavefront.motorcycle"),
+    (33, 34, "cftuv_envelope.wavefront.polygon"),
+    (34, 35, "cftuv_envelope.wavefront.motorcycle"),
+    (35, 36, "cftuv_envelope.wavefront.event_time"),
+    (36, 37, "cftuv_envelope.wavefront.motorcycle"),
+    (37, 38, "cftuv_envelope.wavefront.skeleton"),
+    (38, 39, "cftuv_envelope.wavefront.conveyor"),
+    (39, 40, "cftuv_envelope.wavefront.events"),
+    (40, 42, "cftuv_envelope.wavefront.event_time"),
+    (42, 44, "cftuv_envelope.wavefront.conveyor"),
+    (44, 45, "cftuv_envelope.wavefront.event_time"),
+    (45, 46, "cftuv_envelope.wavefront.skeleton"),
+    (46, 47, "cftuv_envelope.wavefront.motorcycle"),
+    (47, 48, "cftuv_envelope.wavefront.conveyor"),
+    (48, 49, "cftuv_envelope.wavefront.event_time"),
+    (49, 50, "cftuv_envelope.wavefront.motorcycle"),
+    (50, 51, "cftuv_envelope.wavefront.polygon"),
+)
+
+_EXPORTS = {
+    name: (module_name, name)
+    for start, stop, module_name in _EXPORT_RANGES
+    for name in __all__[start:stop]
+}
+
+_SUBMODULES = {
+    name: f"cftuv_envelope.wavefront.{name}"
+    for name in (
+        "bridge",
+        "cell_grid",
+        "conveyor",
+        "coverage",
+        "event_time",
+        "events",
+        "faces",
+        "motorcycle",
+        "polygon",
+        "skeleton",
+        "sqrt_sum",
+    )
+}
+
+_LEGACY_DIR_EXTRAS = (
+    "__all__",
+    "__builtins__",
+    "__cached__",
+    "__doc__",
+    "__file__",
+    "__loader__",
+    "__name__",
+    "__package__",
+    "__path__",
+    "__spec__",
+    *_SUBMODULES,
+)
+
+
+def __getattr__(name: str):
+    target = _EXPORTS.get(name)
+    if target is not None:
+        module_name, symbol_name = target
+        value = getattr(_import_module(module_name), symbol_name)
+        globals()[name] = value
+        return value
+
+    module_name = _SUBMODULES.get(name)
+    if module_name is not None:
+        value = _import_module(module_name)
+        globals()[name] = value
+        return value
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted((*__all__, *_LEGACY_DIR_EXTRAS))
