@@ -6,6 +6,7 @@ import itertools
 
 import pytest
 
+import cftuv_envelope.wavefront.proof as proof_module
 from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.event_time import ZERO_TIME
 from cftuv_envelope.wavefront.events import CandidateEventV1, EventKind, EventQueueV1
@@ -352,7 +353,9 @@ def test_every_no_rule_refusal_has_one_exhaustive_disposition_mapping():
         for reason in CandidateRefusal
         if reason.value.startswith("NO_RULE_")
     }
-    assert set(skeleton_module._NO_RULE_DISPOSITIONS) == no_rule
+    assert set(proof_module._NO_RULE_DISPOSITIONS) == {
+        reason.value for reason in no_rule
+    }
 
     for _, polygon in _CASES:
         skeleton = build_skeleton(polygon)

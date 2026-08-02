@@ -61,7 +61,7 @@ LAV и уводит соседей по ложной траектории; на 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
 from functools import cmp_to_key
@@ -94,6 +94,13 @@ from .motorcycle import (
     build_motorcycle_graph,
 )
 from .polygon import PolygonV1
+from .proof import (
+    ProofLedger,
+    ProofObligationBranch,
+    ProofObligationDisposition,
+    ProofObligationV1,
+    ProofStatus,
+)
 from .sqrt_sum import SqrtSumV1
 
 
@@ -185,98 +192,11 @@ class CandidateRefusal(str, Enum):
     NO_RULE_MEETING_NOT_RECONNECTABLE = "NO_RULE_MEETING_NOT_RECONNECTABLE"
 
 
-class ProofObligationDisposition(str, Enum):
-    """Что стало с явно названной, но ещё не доказанной ветвью."""
-
-    OBSERVED = "OBSERVED"
-    DISCHARGED_BY_PROVEN_SAME_TIME_EVENT = (
-        "DISCHARGED_BY_PROVEN_SAME_TIME_EVENT"
-    )
-    UNPROVEN_FALLBACK_APPLIED = "UNPROVEN_FALLBACK_APPLIED"
-    EVENT_ACCEPTED_WITH_UNPROVEN_SPAN = "EVENT_ACCEPTED_WITH_UNPROVEN_SPAN"
-    SURVIVED_PAST_EVENT_TIME = "SURVIVED_PAST_EVENT_TIME"
-    UNSUPPORTED_EVENT_KIND_DROPPED = "UNSUPPORTED_EVENT_KIND_DROPPED"
-
-
-class ProofStatus(str, Enum):
-    COMPLETE = "COMPLETE"
-    INCOMPLETE = "INCOMPLETE"
-
-
-class ProofObligationBranch(str, Enum):
-    EDGE_COLLAPSE_SPAN_UNPROVEN = "EDGE_COLLAPSE_SPAN_UNPROVEN"
-    UNSUPPORTED_EVENT_KIND = "UNSUPPORTED_EVENT_KIND"
-
-
-@dataclass(frozen=True, slots=True)
-class ProofObligationV1:
-    """Стабильное тождество одного непогашенного доказательного долга."""
-
-    cause: CandidateRefusal | ProofObligationBranch
-    disposition: ProofObligationDisposition
-    vertex_ids: tuple[int, ...]
-    participant_edge_keys: tuple[tuple[int, ...], ...]
-    target_edge_keys: tuple[tuple[int, ...], ...]
-    level: EventTimeV1
-    event_kind: EventKind | None
-
-
 _ObligationIdentity = tuple[
     tuple[int, ...],
     tuple[tuple[int, ...], ...],
     tuple[tuple[int, ...], ...],
 ]
-
-
-_NO_RULE_DISPOSITIONS = {
-    CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT: (
-        ProofObligationDisposition.OBSERVED
-    ),
-    CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL: (
-        ProofObligationDisposition.OBSERVED
-    ),
-    CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL: (
-        ProofObligationDisposition.OBSERVED
-    ),
-    CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS: (
-        ProofObligationDisposition.OBSERVED
-    ),
-    CandidateRefusal.NO_RULE_SPAN_VANISHED: (
-        ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
-    ),
-    CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE: (
-        ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
-    ),
-}
-
-_INCOMPLETE_DISPOSITIONS = frozenset(
-    {
-        ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED,
-        ProofObligationDisposition.EVENT_ACCEPTED_WITH_UNPROVEN_SPAN,
-        ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME,
-        ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED,
-    }
-)
-
-
-def _proof_obligation_sort_key(obligation: ProofObligationV1) -> tuple:
-    level = obligation.level.canonical()
-    dividend = level.dividend
-    divisor = tuple(
-        (radicand, coefficient.numerator, coefficient.denominator)
-        for radicand, coefficient in level.divisor.terms
-    )
-    return (
-        dividend.numerator,
-        dividend.denominator,
-        divisor,
-        obligation.cause.value,
-        obligation.disposition.value,
-        obligation.vertex_ids,
-        obligation.participant_edge_keys,
-        obligation.target_edge_keys,
-        obligation.event_kind.value if obligation.event_kind is not None else "",
-    )
 
 
 def refusal_counter(reason: CandidateRefusal) -> str:
@@ -436,7 +356,7 @@ class _Builder:
         self.edge_start: dict[int, int] = {}
         self.edge_end: dict[int, int] = {}
         self.nodes: list[SkeletonNodeV1] = []
-        self.proof_obligations: list[ProofObligationV1] = []
+        self._proof = ProofLedger()
         self.refusal: SkeletonOutcome | None = None
         # Трассы мотоциклов и двусторонний индекс. `None` — путь полного
         # перебора: эталон, с которым сверяется рабочий путь.
@@ -507,16 +427,13 @@ class _Builder:
         """
 
         self.counters[refusal_counter(reason)] += 1
-        disposition = _NO_RULE_DISPOSITIONS.get(reason)
-        if disposition is not None:
-            self._record_obligation(
-                cause=reason,
-                disposition=disposition,
-                vertex_ids=vertex_ids,
-                participant_edge_keys=participant_edge_keys,
-                target_edge_keys=target_edge_keys,
-                level=self.now,
-            )
+        self._proof.record_refusal(
+            reason,
+            vertex_ids=vertex_ids,
+            participant_edge_keys=participant_edge_keys,
+            target_edge_keys=target_edge_keys,
+            level=self.now,
+        )
         return None
 
     def _record_obligation(
@@ -530,21 +447,23 @@ class _Builder:
         level: EventTimeV1,
         event_kind: EventKind | None = None,
     ) -> None:
-        """Нормализовать identity, не теряя кратность самих obligations."""
+        """Тонкая точка вызова ledger для event-loop instrumentation."""
 
-        self.proof_obligations.append(
-            ProofObligationV1(
-                cause=cause,
-                disposition=disposition,
-                vertex_ids=tuple(sorted(set(vertex_ids))),
-                participant_edge_keys=tuple(
-                    sorted(set(participant_edge_keys))
-                ),
-                target_edge_keys=tuple(sorted(set(target_edge_keys))),
-                level=level.canonical(),
-                event_kind=event_kind,
-            )
+        self._proof.record(
+            cause=cause,
+            disposition=disposition,
+            vertex_ids=vertex_ids,
+            participant_edge_keys=participant_edge_keys,
+            target_edge_keys=target_edge_keys,
+            level=level,
+            event_kind=event_kind,
         )
+
+    @property
+    def proof_obligations(self) -> tuple[ProofObligationV1, ...]:
+        """Read-only compatibility view для узких proof-стендов."""
+
+        return self._proof.obligations
 
     def _edge_keys(self, *edge_ids: int) -> tuple[tuple[int, ...], ...]:
         return tuple(
@@ -1174,26 +1093,8 @@ class _Builder:
         return self._finish(outcome, levels)
 
     def _finish(self, outcome: SkeletonOutcome, levels: int) -> SkeletonV1:
-        self._discharge_observed_obligations()
-        self.proof_obligations = [
-            replace(
-                obligation,
-                disposition=ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME,
-            )
-            if obligation.disposition is ProofObligationDisposition.OBSERVED
-            else obligation
-            for obligation in self.proof_obligations
-        ]
-        obligations = tuple(
-            sorted(self.proof_obligations, key=_proof_obligation_sort_key)
-        )
-        proof_status = (
-            ProofStatus.INCOMPLETE
-            if any(
-                obligation.disposition in _INCOMPLETE_DISPOSITIONS
-                for obligation in obligations
-            )
-            else ProofStatus.COMPLETE
+        proof_status, obligations = self._proof.finalize(
+            vertex.ident for vertex in self.vertices if not vertex.alive
         )
         counters = dict(self.counters)
         if self.graph is not None:
@@ -1212,25 +1113,9 @@ class _Builder:
     def _discharge_observed_obligations(self) -> None:
         """Погасить долг только смертью всех названных вершин этого уровня."""
 
-        self.proof_obligations = [
-            replace(
-                obligation,
-                disposition=(
-                    ProofObligationDisposition.DISCHARGED_BY_PROVEN_SAME_TIME_EVENT
-                ),
-            )
-            if (
-                obligation.disposition is ProofObligationDisposition.OBSERVED
-                and obligation.vertex_ids
-                and all(
-                    0 <= ident < len(self.vertices)
-                    and not self.vertices[ident].alive
-                    for ident in obligation.vertex_ids
-                )
-            )
-            else obligation
-            for obligation in self.proof_obligations
-        ]
+        self._proof.discharge(
+            vertex.ident for vertex in self.vertices if not vertex.alive
+        )
 
     def _apply_level(self, level: tuple[CandidateEventV1, ...]) -> None:
         """Весь уровень разом: сначала ВСЕ разрезы, потом ВСЕ схлопывания.
