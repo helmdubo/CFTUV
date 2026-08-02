@@ -77,6 +77,28 @@ def skeleton_records(skeleton: SkeletonV1) -> list[dict]:
     return records
 
 
+def duplicate_node_counts(nodes: tuple[SkeletonNodeV1, ...]) -> tuple[int, int]:
+    """Лишние canonical `(time, point)` records и mixed-kind места."""
+
+    groups: dict[str, list[str]] = {}
+    for node in nodes:
+        record = node_record(node)
+        key = json.dumps(
+            [
+                record["time_dividend"],
+                record["time_divisor"],
+                record["point_x"],
+                record["point_y"],
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        groups.setdefault(key, []).append(record["kind"])
+    duplicates = sum(max(0, len(kinds) - 1) for kinds in groups.values())
+    mixed = sum(len(set(kinds)) > 1 for kinds in groups.values())
+    return duplicates, mixed
+
+
 def semantic_digest(skeleton: SkeletonV1) -> str:
     """sha256 семантики скелета. Порядок входа на него влиять не должен."""
 

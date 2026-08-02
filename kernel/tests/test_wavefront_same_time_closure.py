@@ -294,6 +294,27 @@ def test_phase_zero_freezes_exactly_11_duplicate_cases_and_invariants():
     assert observed == _DUPLICATE_ORACLE
 
 
+def test_phase_a_counters_ratchet_the_11_cases_without_new_geometry():
+    duplicate_cases = []
+    mixed_cases = []
+    for case_id, polygon in _CASES:
+        skeleton = build_skeleton(polygon)
+        duplicate_count = skeleton.counter("duplicate_exact_time_point_nodes")
+        mixed_count = skeleton.counter("mixed_kind_exact_time_point_nodes")
+        assert duplicate_count == int(case_id in _DUPLICATE_ORACLE)
+        assert mixed_count == int(
+            case_id in _DUPLICATE_ORACLE
+            and _DUPLICATE_ORACLE[case_id][1] == ("EDGE", "SPLIT")
+        )
+        if duplicate_count:
+            duplicate_cases.append(case_id)
+        if mixed_count:
+            mixed_cases.append(case_id)
+    assert set(duplicate_cases) == set(_DUPLICATE_ORACLE)
+    assert len(duplicate_cases) == 11
+    assert len(mixed_cases) == 10
+
+
 def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
     """Counters имеют разные знаменатели и поэтому не дублируют друг друга.
 
@@ -324,8 +345,10 @@ def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
 
     monkeypatch.setattr(skeleton_module._Builder, "_apply_level", measured)
     cross = dict(_CASES)["named::cross"]
-    build_skeleton(cross)
+    skeleton = build_skeleton(cross)
 
     assert [residual for _, residual in measurements] == [2, 0, 2, 0, 0, 0]
     assert sum(enqueued for enqueued, _ in measurements) == 4
     assert sum(residual > 0 for _, residual in measurements) == 2
+    assert skeleton.counter("same_time_events_enqueued_during_level") == 4
+    assert skeleton.counter("same_time_residual_after_level") == 2

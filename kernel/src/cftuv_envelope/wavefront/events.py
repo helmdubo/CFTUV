@@ -116,6 +116,18 @@ class EventQueueV1:
     def __len__(self) -> int:
         return len(self._heap)
 
+    def peek_time(self) -> EventTimeV1 | None:
+        """Минимальное exact time без извлечения; `None` у пустой очереди."""
+
+        return None if not self._heap else self._heap[0].event.time
+
+    def _count_at_time(self, time: EventTimeV1) -> int:
+        """Сколько queued events имеют данное exact time. Только telemetry."""
+
+        return sum(
+            compare_times(entry.event.time, time) == 0 for entry in self._heap
+        )
+
     def pop_level(self) -> tuple[CandidateEventV1, ...]:
         """Все события ТОЧНО того же времени, что у вершины кучи.
 

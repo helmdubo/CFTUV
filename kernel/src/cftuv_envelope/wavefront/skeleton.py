@@ -407,6 +407,10 @@ class _Builder:
             "vertex_meeting_events": 0,
             "edge_collapse_span_unproven_but_accepted": 0,
             "unsupported_event_kind_dropped": 0,
+            "same_time_events_enqueued_during_level": 0,
+            "same_time_residual_after_level": 0,
+            "duplicate_exact_time_point_nodes": 0,
+            "mixed_kind_exact_time_point_nodes": 0,
         }
         self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
@@ -1081,6 +1085,12 @@ class _Builder:
             self.now = level[0].time
             levels += 1
             self._apply_level(level)
+            same_time = self.queue._count_at_time(self.now)
+            self.counters["same_time_events_enqueued_during_level"] += same_time
+            self.counters["same_time_residual_after_level"] += int(
+                self.queue.peek_time() is not None
+                and compare_times(self.queue.peek_time(), self.now) == 0
+            )
             if self.refusal is not None:
                 return self._finish(self.refusal, levels)
             self._close_short_lavs()
@@ -1093,10 +1103,15 @@ class _Builder:
         return self._finish(outcome, levels)
 
     def _finish(self, outcome: SkeletonOutcome, levels: int) -> SkeletonV1:
+        from .digest import duplicate_node_counts
+
         proof_status, obligations = self._proof.finalize(
             vertex.ident for vertex in self.vertices if not vertex.alive
         )
         counters = dict(self.counters)
+        duplicates, mixed = duplicate_node_counts(tuple(self.nodes))
+        counters["duplicate_exact_time_point_nodes"] = duplicates
+        counters["mixed_kind_exact_time_point_nodes"] = mixed
         if self.graph is not None:
             # Цена графа входит в отчёт. Иначе выигрыш в кандидатах мерился бы
             # против базы, у которой этой статьи расхода просто нет.
