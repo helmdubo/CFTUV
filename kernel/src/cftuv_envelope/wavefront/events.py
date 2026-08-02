@@ -80,6 +80,9 @@ class CandidateEventV1:
     vertex: int
     peer: int
     edge: int
+    # Точная проверка исчезающего span не дала ответа. Флаг не участвует в
+    # тождестве кандидата: это отдельная ось доказанности, не геометрия.
+    span_unproven: bool = field(default=False, compare=False, repr=False)
 
 
 @dataclass(order=False, slots=True)

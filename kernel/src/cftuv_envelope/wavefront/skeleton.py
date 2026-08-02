@@ -94,6 +94,13 @@ from .motorcycle import (
     build_motorcycle_graph,
 )
 from .polygon import PolygonV1
+from .proof import (
+    ProofLedger,
+    ProofObligationBranch,
+    ProofObligationDisposition,
+    ProofObligationV1,
+    ProofStatus,
+)
 from .sqrt_sum import SqrtSumV1
 
 
@@ -183,6 +190,13 @@ class CandidateRefusal(str, Enum):
     # среди встретившихся оказались соседи по LAV. Кандидаты возвращаются
     # прежнему разбору — разрезу, — и это признанный долг, а не решение.
     NO_RULE_MEETING_NOT_RECONNECTABLE = "NO_RULE_MEETING_NOT_RECONNECTABLE"
+
+
+_ObligationIdentity = tuple[
+    tuple[int, ...],
+    tuple[tuple[int, ...], ...],
+    tuple[tuple[int, ...], ...],
+]
 
 
 def refusal_counter(reason: CandidateRefusal) -> str:
@@ -290,6 +304,8 @@ class SkeletonV1:
     nodes: tuple[SkeletonNodeV1, ...]
     levels: int
     counters: tuple[tuple[str, int], ...]
+    proof_status: ProofStatus = ProofStatus.COMPLETE
+    proof_obligations: tuple[ProofObligationV1, ...] = ()
 
     def counter(self, name: str) -> int:
         return dict(self.counters).get(name, 0)
@@ -340,6 +356,7 @@ class _Builder:
         self.edge_start: dict[int, int] = {}
         self.edge_end: dict[int, int] = {}
         self.nodes: list[SkeletonNodeV1] = []
+        self._proof = ProofLedger()
         self.refusal: SkeletonOutcome | None = None
         # Трассы мотоциклов и двусторонний индекс. `None` — путь полного
         # перебора: эталон, с которым сверяется рабочий путь.
@@ -388,11 +405,20 @@ class _Builder:
             # Встречи ВЕРШИН фронта, разобранные пересоединением. До среза они
             # молча обрабатывались как разрезы и рождали отрезки нулевой длины.
             "vertex_meeting_events": 0,
+            "edge_collapse_span_unproven_but_accepted": 0,
+            "unsupported_event_kind_dropped": 0,
         }
         self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
 
-    def _refuse(self, reason: CandidateRefusal) -> None:
+    def _refuse(
+        self,
+        reason: CandidateRefusal,
+        *,
+        vertex_ids: tuple[int, ...] = (),
+        participant_edge_keys: tuple[tuple[int, ...], ...] = (),
+        target_edge_keys: tuple[tuple[int, ...], ...] = (),
+    ) -> None:
         """Отказ кандидата ПОД ИМЕНЕМ. Ни один `return` не проходит мимо.
 
         Возвращает `None`, чтобы место отказа читалось одной строкой
@@ -401,7 +427,82 @@ class _Builder:
         """
 
         self.counters[refusal_counter(reason)] += 1
+        self._proof.record_refusal(
+            reason,
+            vertex_ids=vertex_ids,
+            participant_edge_keys=participant_edge_keys,
+            target_edge_keys=target_edge_keys,
+            level=self.now,
+        )
         return None
+
+    def _record_obligation(
+        self,
+        *,
+        cause: CandidateRefusal | ProofObligationBranch,
+        disposition: ProofObligationDisposition,
+        vertex_ids: tuple[int, ...] = (),
+        participant_edge_keys: tuple[tuple[int, ...], ...] = (),
+        target_edge_keys: tuple[tuple[int, ...], ...] = (),
+        level: EventTimeV1,
+        event_kind: EventKind | None = None,
+    ) -> None:
+        """Тонкая точка вызова ledger для event-loop instrumentation."""
+
+        self._proof.record(
+            cause=cause,
+            disposition=disposition,
+            vertex_ids=vertex_ids,
+            participant_edge_keys=participant_edge_keys,
+            target_edge_keys=target_edge_keys,
+            level=level,
+            event_kind=event_kind,
+        )
+
+    @property
+    def proof_obligations(self) -> tuple[ProofObligationV1, ...]:
+        """Read-only compatibility view для узких proof-стендов."""
+
+        return self._proof.obligations
+
+    def _edge_keys(self, *edge_ids: int) -> tuple[tuple[int, ...], ...]:
+        return tuple(
+            self.edges[ident].key
+            for ident in edge_ids
+            if 0 <= ident < len(self.edges)
+        )
+
+    def _proof_edge_endpoint_ids(self, edge_id: int) -> tuple[int, ...]:
+        """Runtime ID концов без live-фильтра, только для proof identity."""
+
+        return tuple(
+            ident
+            for ident in (
+                self.edge_start.get(edge_id),
+                self.edge_end.get(edge_id),
+            )
+            if ident is not None and 0 <= ident < len(self.vertices)
+        )
+
+    def _edge_obligation_identity(
+        self, vertex: _Vertex, peer: _Vertex
+    ) -> _ObligationIdentity:
+        shared = vertex.next_edge
+        return (
+            (vertex.ident, peer.ident),
+            self._edge_keys(vertex.prev_edge, shared, peer.next_edge),
+            self._edge_keys(shared),
+        )
+
+    def _split_obligation_identity(
+        self, vertex: _Vertex, edge: _Edge
+    ) -> _ObligationIdentity:
+        endpoints = self._proof_edge_endpoint_ids(edge.ident)
+        return (
+            (vertex.ident, *endpoints),
+            self._edge_keys(vertex.prev_edge, vertex.next_edge, edge.ident),
+            self._edge_keys(edge.ident),
+        )
 
     def counter_of(self, reason: CandidateRefusal) -> int:
         """Сколько раз отказ этого вида случился. Для стендов и отчётов."""
@@ -659,7 +760,13 @@ class _Builder:
         if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
             return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
-            return self._refuse(CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT)
+            identity = self._edge_obligation_identity(vertex, peer)
+            return self._refuse(
+                CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
+                vertex_ids=identity[0],
+                participant_edge_keys=identity[1],
+                target_edge_keys=identity[2],
+            )
         if not self._is_future(time, vertex, peer):
             return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
         # ФРОНТ НЕ ГАСИТ ТОГО, ЧЕГО НЕ КАСАЕТСЯ ПО МЕРЕ. `concurrency_time`
@@ -678,12 +785,18 @@ class _Builder:
         ):
             # Отрезок нулевой в момент рождения обоих концов: он ОТКРЫВАЕТСЯ.
             return self._refuse(CandidateRefusal.FILTER_SPAN_IS_BORN_ZERO)
-        point = self._vertex_position(vertex, time)
+        point = self._vertex_position(vertex, time, peer=peer)
         if point is None:
             return
         self.queue.push(
             CandidateEventV1(
-                EventKind.EDGE, time, point, vertex.ident, peer.ident, -1
+                EventKind.EDGE,
+                time,
+                point,
+                vertex.ident,
+                peer.ident,
+                -1,
+                span_unproven=span is None,
             )
         )
 
@@ -734,7 +847,13 @@ class _Builder:
         if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
             return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
-            return self._refuse(CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT)
+            identity = self._split_obligation_identity(vertex, edge)
+            return self._refuse(
+                CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
+                vertex_ids=identity[0],
+                participant_edge_keys=identity[1],
+                target_edge_keys=identity[2],
+            )
         if time.sign <= 0 or compare_times(time, vertex.birth) <= 0:
             return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
         if compare_times(time, self.now) < 0:
@@ -746,7 +865,7 @@ class _Builder:
         if trace is not None and not trace.bounds_time(time):
             self.counters["split_candidates_beyond_trace"] += 1
             return self._refuse(CandidateRefusal.FILTER_BEYOND_TRACE)
-        point = self._vertex_position(vertex, time)
+        point = self._vertex_position(vertex, time, target_edge=edge)
         if point is None:
             return None
         if not self._edge_span_contains(edge, point, time):
@@ -794,7 +913,12 @@ class _Builder:
         return sliding_point(first, vertex.sliding, time)
 
     def _vertex_position(
-        self, vertex: _Vertex, time: EventTimeV1
+        self,
+        vertex: _Vertex,
+        time: EventTimeV1,
+        *,
+        peer: _Vertex | None = None,
+        target_edge: _Edge | None = None,
     ) -> EventPointV1 | None:
         """То же место, но с ИМЕНОВАННЫМ отказом, когда места нет.
 
@@ -806,11 +930,24 @@ class _Builder:
 
         place = self._position(vertex, time)
         if place is None:
+            if peer is not None:
+                identity = self._edge_obligation_identity(vertex, peer)
+            elif target_edge is not None:
+                identity = self._split_obligation_identity(vertex, target_edge)
+            else:
+                identity = (
+                    (vertex.ident,),
+                    self._edge_keys(vertex.prev_edge, vertex.next_edge),
+                    (),
+                )
             self._refuse(
                 _joint_kind(
                     self.edges[vertex.prev_edge].line,
                     self.edges[vertex.next_edge].line,
-                )
+                ),
+                vertex_ids=identity[0],
+                participant_edge_keys=identity[1],
+                target_edge_keys=identity[2],
             )
         return place
 
@@ -947,6 +1084,7 @@ class _Builder:
             if self.refusal is not None:
                 return self._finish(self.refusal, levels)
             self._close_short_lavs()
+            self._discharge_observed_obligations()
         outcome = (
             SkeletonOutcome.EXACT
             if not any(vertex.alive for vertex in self.vertices)
@@ -955,6 +1093,9 @@ class _Builder:
         return self._finish(outcome, levels)
 
     def _finish(self, outcome: SkeletonOutcome, levels: int) -> SkeletonV1:
+        proof_status, obligations = self._proof.finalize(
+            vertex.ident for vertex in self.vertices if not vertex.alive
+        )
         counters = dict(self.counters)
         if self.graph is not None:
             # Цена графа входит в отчёт. Иначе выигрыш в кандидатах мерился бы
@@ -965,6 +1106,15 @@ class _Builder:
             nodes=tuple(self.nodes),
             levels=levels,
             counters=tuple(sorted(counters.items())),
+            proof_status=proof_status,
+            proof_obligations=obligations,
+        )
+
+    def _discharge_observed_obligations(self) -> None:
+        """Погасить долг только смертью всех названных вершин этого уровня."""
+
+        self._proof.discharge(
+            vertex.ident for vertex in self.vertices if not vertex.alive
         )
 
     def _apply_level(self, level: tuple[CandidateEventV1, ...]) -> None:
@@ -979,6 +1129,29 @@ class _Builder:
         счётчик устаревших, а неразрешимая одновременность — в именованный
         исход, а не в выбор «первого попавшегося».
         """
+
+        supported = {EventKind.SPLIT, EventKind.EDGE}
+        for event in level:
+            if event.kind in supported:
+                continue
+            self.counters["unsupported_event_kind_dropped"] += 1
+            valid_vertices = tuple(
+                ident
+                for ident in (event.vertex, event.peer)
+                if 0 <= ident < len(self.vertices)
+            )
+            carried_edge = self._edge_keys(event.edge)
+            self._record_obligation(
+                cause=ProofObligationBranch.UNSUPPORTED_EVENT_KIND,
+                disposition=(
+                    ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED
+                ),
+                vertex_ids=valid_vertices,
+                participant_edge_keys=carried_edge,
+                target_edge_keys=carried_edge,
+                level=event.time,
+                event_kind=event.kind,
+            )
 
         splits = [event for event in level if event.kind is EventKind.SPLIT]
         collapses = [event for event in level if event.kind is EventKind.EDGE]
@@ -1038,7 +1211,23 @@ class _Builder:
                 # умирает), поэтому кандидат идёт прежним путём — разрезом.
                 # Отбрасывать его нельзя: измерено, что на фигурах общего
                 # положения это теряет до шести настоящих событий из восьми.
-                self._refuse(CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE)
+                vertex = self.vertices[event.vertex]
+                self._refuse(
+                    CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE,
+                    vertex_ids=(
+                        vertex.ident,
+                        met.ident,
+                        *self._proof_edge_endpoint_ids(event.edge),
+                    ),
+                    participant_edge_keys=self._edge_keys(
+                        vertex.prev_edge,
+                        vertex.next_edge,
+                        met.prev_edge,
+                        met.next_edge,
+                        event.edge,
+                    ),
+                    target_edge_keys=self._edge_keys(event.edge),
+                )
                 cuts.append(event)
                 continue
             key = (event.point.x.terms, event.point.y.terms)
@@ -1119,7 +1308,28 @@ class _Builder:
                 )
             )
             if pairs is None or self._meeting_touches_itself(meeting):
-                self._refuse(CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE)
+                target_edges = tuple(
+                    event.edge for event in entry["events"]
+                )
+                incident_edges = tuple(
+                    edge_id
+                    for vertex in meeting
+                    for edge_id in (vertex.prev_edge, vertex.next_edge)
+                )
+                target_vertices = tuple(
+                    ident
+                    for edge_id in target_edges
+                    for ident in self._proof_edge_endpoint_ids(edge_id)
+                )
+                self._refuse(
+                    CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE,
+                    vertex_ids=tuple(vertex.ident for vertex in meeting)
+                    + target_vertices,
+                    participant_edge_keys=self._edge_keys(
+                        *incident_edges, *target_edges
+                    ),
+                    target_edge_keys=self._edge_keys(*target_edges),
+                )
                 deferred.extend(entry["events"])
                 continue
             self._apply_vertex_meeting(meeting, pairs, entry["event"])
@@ -1286,6 +1496,24 @@ class _Builder:
     def _apply_multi_edge(self, events: list[CandidateEventV1]) -> None:
         """Кластер сходящихся в ОДНОЙ точке рёбер — одна цепь, один узел."""
 
+        for event in events:
+            if not event.span_unproven:
+                continue
+            vertex = self.vertices[event.vertex]
+            peer = self.vertices[event.peer]
+            identity = self._edge_obligation_identity(vertex, peer)
+            self.counters["edge_collapse_span_unproven_but_accepted"] += 1
+            self._record_obligation(
+                cause=ProofObligationBranch.EDGE_COLLAPSE_SPAN_UNPROVEN,
+                disposition=(
+                    ProofObligationDisposition.EVENT_ACCEPTED_WITH_UNPROVEN_SPAN
+                ),
+                vertex_ids=identity[0],
+                participant_edge_keys=identity[1],
+                target_edge_keys=identity[2],
+                level=event.time,
+            )
+
         chains = _chains(
             {event.vertex for event in events} | {event.peer for event in events},
             self.vertices,
@@ -1358,7 +1586,24 @@ class _Builder:
         span_end = self._edge_end_vertex(edge_id)
         if span_start is None or span_end is None:
             self.counters["discarded_stale_candidates"] += len(group)
-            self._refuse(CandidateRefusal.NO_RULE_SPAN_VANISHED)
+            emitters = tuple(self.vertices[event.vertex] for event in group)
+            incident_edges = tuple(
+                edge_ident
+                for vertex in emitters
+                for edge_ident in (vertex.prev_edge, vertex.next_edge)
+            )
+            endpoints = self._proof_edge_endpoint_ids(edge_id)
+            self._refuse(
+                CandidateRefusal.NO_RULE_SPAN_VANISHED,
+                vertex_ids=tuple(
+                    vertex.ident for vertex in emitters
+                )
+                + endpoints,
+                participant_edge_keys=self._edge_keys(
+                    *incident_edges, edge_id
+                ),
+                target_edge_keys=self._edge_keys(edge_id),
+            )
             return
         # segments[i] — отрезок между p_{i-1} и p_i; последний примыкает к
         # `span_end` и сохраняет исходный идентификатор ребра.
