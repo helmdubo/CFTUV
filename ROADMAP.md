@@ -1292,17 +1292,17 @@ NEAR-PLANAR-VALIDATOR-01 закрыла все три (слито `255312b`, п�
      интервальным фильтром; телеметрия роста числа членов
      (расширение `benchmark_wavefront_event_algebra.py`).
    - **P1**: именованные ворота `FACE_REQUIRES_MULTIBOUNDARY_REPRESENTATION`
-     (затем FaceV2 либо artificial bisectors); TEST-COLLECTION-BOOT
-     (ленивые фасады `__getattr__` — сейчас импорт любого подмодуля ядра
-     требует SymPy через `__init__` → `source_grid`; кэш AST в
-     test_architecture — 330 → 175 parse; `--ignore=test_architecture.py`
-     во втором CI-прогоне; grep вместо третьей коллекции);
+     (затем FaceV2 либо artificial bisectors); ~~TEST-COLLECTION-BOOT~~ — ЗАКРЫТА
+     (HYG-1 слита `984f040`: импорт ядра без SymPy, importtime ~21×,
+     parse 332→221 без повторных путей, CI-дедуп; цена — RSS кэша AST
+     190 MiB, вытеснение в P2);
      DECISIONS-RESTRUCTURE (ACTIVE-индекс + архив + генерируемый статус —
      взамен удалённых architecture_status.json/adr_index.md).
    - **P2, заморожено до вердикта P0-0/R1** (мерить счётчиками — можно,
      реализовывать — нет): support-class/active-span memo, line-triple
      cache, alpha-limited resumable skeleton, иерархический broad phase,
-     per-line speed bound вместо глобального.
+     per-line speed bound вместо глобального; phase-scoped вытеснение
+     AST-кэша архитектурных тестов (цена HYG-1: RSS 190 MiB).
 1. ~~**Зеркальные веера**~~ — ЗАКРЫТО кодом И ПОЛЕМ: `building` d4
    **114/122** после юбки (см. счета), «2» d4 **20/32**. Закон
    `computation_loop_supports`; «5 против 4 опор» закрыто двухступенчатой
