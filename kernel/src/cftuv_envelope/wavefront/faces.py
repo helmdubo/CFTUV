@@ -159,6 +159,7 @@ from enum import Enum
 from fractions import Fraction
 
 from .event_time import SupportLineV1
+from .events import EventKind
 from .polygon import PolygonV1, signed_double_area
 from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
@@ -182,6 +183,9 @@ class FaceOutcome(str, Enum):
     EXACT = "EXACT"
     # Скелет не доказан — граней у него нет, и придумывать их нельзя.
     SKELETON_IS_NOT_EXACT = "SKELETON_IS_NOT_EXACT"
+    MULTIWAY_NODE_INCIDENCE_UNAVAILABLE = (
+        "MULTIWAY_NODE_INCIDENCE_UNAVAILABLE"
+    )
     # Два вхождения с одинаковыми концами: вход задал одно ребро дважды, и грань
     # у них была бы одна на двоих. Заменил `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES`,
     # который отказывал на коллинеарных рёбрах РАЗНЫХ граней, — это оказалось
@@ -652,8 +656,21 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
 
     nodes_by_key: dict[EdgeKey, list[SkeletonNodeV1]] = {}
     for node in skeleton.nodes:
-        for key in node.participants:
-            nodes_by_key.setdefault(key, []).append(node)
+        if node.kind is EventKind.MULTIWAY:
+            if not node.incidences:
+                return FacePartitionV1(
+                    FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE,
+                    (),
+                    SqrtSumV1.zero(),
+                    empty.polygon_doubled_area,
+                    "MULTIWAY node has no original participant incidences",
+                )
+            incidences = node.incidences
+        else:
+            incidences = (node.participants,)
+        for incidence in incidences:
+            for key in incidence:
+                nodes_by_key.setdefault(key, []).append(node)
     neighbours = edge_neighbours(polygon)
 
     faces: list[FaceV1] = []

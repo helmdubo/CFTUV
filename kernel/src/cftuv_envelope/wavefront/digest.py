@@ -24,6 +24,7 @@ import hashlib
 import json
 
 from .skeleton import SkeletonNodeV1, SkeletonV1
+from .events import EventKind
 from .sqrt_sum import SqrtSumV1
 
 
@@ -60,7 +61,7 @@ def node_record(node: SkeletonNodeV1) -> dict:
     """Каноническая запись узла. Ровно то, что входит в дайджест."""
 
     time = node.time.canonical()
-    return {
+    record = {
         "kind": node.kind.value,
         "time_dividend": _fraction_record(time.dividend),
         "time_divisor": _sqrt_sum_record(time.divisor),
@@ -69,6 +70,11 @@ def node_record(node: SkeletonNodeV1) -> dict:
         "participants": [_participant_record(key) for key in node.participants],
         "converging_vertices": node.converging_vertices,
     }
+    if node.kind is EventKind.MULTIWAY:
+        if not node.kinds:
+            raise ValueError("MULTIWAY_NODE_KINDS_UNAVAILABLE")
+        record["kinds"] = [kind.value for kind in node.kinds]
+    return record
 
 
 def skeleton_records(skeleton: SkeletonV1) -> list[dict]:

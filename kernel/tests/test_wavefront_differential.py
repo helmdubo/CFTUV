@@ -929,7 +929,13 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     assert exhaustive.outcome is SkeletonOutcome.EXACT
     assert semantic_digest(by_trace) == semantic_digest(exhaustive)
     assert len(by_trace.nodes) == 12
-    kinds = Counter(node.kind for node in by_trace.nodes)
+    kinds = Counter(
+        kind
+        for node in by_trace.nodes
+        for kind in (
+            node.kinds if node.kind is EventKind.MULTIWAY else (node.kind,)
+        )
+    )
     assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 6})
 
     partition = build_faces(polygon, by_trace)

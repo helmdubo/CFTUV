@@ -102,6 +102,7 @@ from .proof import (
     ProofStatus,
 )
 from .sqrt_sum import SqrtSumV1
+from .superlevel import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 
 
 class SplitSearch(str, Enum):
@@ -109,15 +110,6 @@ class SplitSearch(str, Enum):
 
     MOTORCYCLE = "MOTORCYCLE"
     EXHAUSTIVE = "EXHAUSTIVE"
-
-
-class SkeletonOutcome(str, Enum):
-    """Чем кончилось построение. Тихого выхода нет ни одного."""
-
-    EXACT = "EXACT"
-    LEVEL_BUDGET_EXHAUSTED = "LEVEL_BUDGET_EXHAUSTED"
-    MULTIWAY_SPLIT_UNPROVEN = "MULTIWAY_SPLIT_UNPROVEN"
-    WAVEFRONT_LEFT_UNRESOLVED = "WAVEFRONT_LEFT_UNRESOLVED"
 
 
 class CandidateRefusal(str, Enum):
@@ -278,39 +270,6 @@ class _Vertex:
     sliding: SqrtSumV1 | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class SkeletonNodeV1:
-    """Узел скелета: момент, место и ВСЕ участники сразу.
-
-    `participants` — ключи ВХОЖДЕНИЙ исходных рёбер `(x0, y0, x1, y1)`,
-    отсортированные. Три фронта, сошедшиеся в одной точке, дают ОДИН такой узел
-    с тремя ключами, а не три попарных.
-
-    Ключ здесь именно вхождение, а не несущая прямая: два коллинеарных
-    сонаправленных ребра — два РАЗНЫХ участника, и грани у них две. См.
-    `_Edge.key`.
-    """
-
-    kind: EventKind
-    time: EventTimeV1
-    point: EventPointV1
-    participants: tuple[tuple[int, ...], ...]
-    converging_vertices: int
-
-
-@dataclass(frozen=True, slots=True)
-class SkeletonV1:
-    outcome: SkeletonOutcome
-    nodes: tuple[SkeletonNodeV1, ...]
-    levels: int
-    counters: tuple[tuple[str, int], ...]
-    proof_status: ProofStatus = ProofStatus.COMPLETE
-    proof_obligations: tuple[ProofObligationV1, ...] = ()
-
-    def counter(self, name: str) -> int:
-        return dict(self.counters).get(name, 0)
-
-
 def level_budget(polygon: PolygonV1) -> int:
     """Объявленная граница числа уровней. Превышение — именованный исход.
 
@@ -356,6 +315,7 @@ class _Builder:
         self.edge_start: dict[int, int] = {}
         self.edge_end: dict[int, int] = {}
         self.nodes: list[SkeletonNodeV1] = []
+        self._node_vertex_ids: list[tuple[int, ...]] = []
         self._proof = ProofLedger()
         self.refusal: SkeletonOutcome | None = None
         # Трассы мотоциклов и двусторонний индекс. `None` — путь полного
@@ -1104,12 +1064,14 @@ class _Builder:
 
     def _finish(self, outcome: SkeletonOutcome, levels: int) -> SkeletonV1:
         from .digest import duplicate_node_counts
+        from .superlevel import accumulate_nodes
 
         proof_status, obligations = self._proof.finalize(
             vertex.ident for vertex in self.vertices if not vertex.alive
         )
+        nodes = accumulate_nodes(tuple(self.nodes), tuple(self._node_vertex_ids))
         counters = dict(self.counters)
-        duplicates, mixed = duplicate_node_counts(tuple(self.nodes))
+        duplicates, mixed = duplicate_node_counts(nodes)
         counters["duplicate_exact_time_point_nodes"] = duplicates
         counters["mixed_kind_exact_time_point_nodes"] = mixed
         if self.graph is not None:
@@ -1118,7 +1080,7 @@ class _Builder:
             counters.update(self.graph.counters)
         return SkeletonV1(
             outcome=outcome,
-            nodes=tuple(self.nodes),
+            nodes=nodes,
             levels=levels,
             counters=tuple(sorted(counters.items())),
             proof_status=proof_status,
@@ -1387,7 +1349,12 @@ class _Builder:
             {self.edges[vertex.prev_edge].key for vertex in meeting}
             | {self.edges[vertex.next_edge].key for vertex in meeting}
         )
-        self._emit(EventKind.SPLIT, event, tuple(participants), len(meeting))
+        self._emit(
+            EventKind.SPLIT,
+            event,
+            tuple(participants),
+            tuple(vertex.ident for vertex in meeting),
+        )
         self.counters["vertex_meeting_events"] += 1
         if len(participants) > 3:
             self.counters["multi_participant_nodes"] += 1
@@ -1546,8 +1513,9 @@ class _Builder:
                 for ident in chain
             }
         )
-        converging = sum(len(chain) for chain in chains)
-        self._emit(EventKind.EDGE, sample, tuple(participants), converging)
+        converged = tuple(ident for chain in chains for ident in chain)
+        converging = len(converged)
+        self._emit(EventKind.EDGE, sample, tuple(participants), converged)
         self.counters["edge_events"] += 1
         if converging > 2:
             self.counters["multi_participant_nodes"] += 1
@@ -1754,7 +1722,7 @@ class _Builder:
                 edge.key,
             }
         )
-        self._emit(EventKind.SPLIT, event, tuple(participants), 1)
+        self._emit(EventKind.SPLIT, event, tuple(participants), (vertex.ident,))
         self.counters["split_events"] += 1
 
     def _classify_sliding(self, vertex: _Vertex) -> None:
@@ -1803,13 +1771,19 @@ class _Builder:
         kind: EventKind,
         event: CandidateEventV1,
         participants: tuple[tuple[int, ...], ...],
-        converging: int,
+        converged_vertex_ids: tuple[int, ...],
     ) -> None:
+        converged_vertex_ids = tuple(sorted(set(converged_vertex_ids)))
         self.nodes.append(
             SkeletonNodeV1(
-                kind, event.time, event.point, participants, converging
+                kind,
+                event.time,
+                event.point,
+                participants,
+                len(converged_vertex_ids),
             )
         )
+        self._node_vertex_ids.append(converged_vertex_ids)
 
     def _close_short_lavs(self) -> None:
         """LAV из двух вершин — конёк крыши: событий больше не будет."""

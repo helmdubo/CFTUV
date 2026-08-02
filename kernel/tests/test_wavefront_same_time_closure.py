@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from fractions import Fraction
 import hashlib
 import json
 
 import cftuv_envelope.wavefront.skeleton as skeleton_module
+import pytest
 from cftuv_envelope.wavefront.coverage import coverage_at
 from cftuv_envelope.wavefront.digest import node_record, semantic_digest
 from cftuv_envelope.wavefront.event_time import compare_times
-from cftuv_envelope.wavefront.faces import build_faces
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+from cftuv_envelope.wavefront.events import EventKind
 from cftuv_envelope.wavefront.skeleton import build_skeleton
+from cftuv_envelope.wavefront.superlevel import accumulate_nodes
 from test_wavefront_proof_obligations import (
     _CASES,
     _GEOMETRY_ORACLE,
@@ -264,8 +268,7 @@ def _duplicate_projection(skeleton):
     return tuple(sorted(duplicated))
 
 
-def test_phase_zero_freezes_all_63_digests_and_legacy_axes():
-    """Первый P0-2 commit меняет только gate, не production behavior."""
+def test_phase_b_preserves_nonduplicate_digests_and_all_legacy_axes():
 
     assert len(_CASES) == 63
     for case_id, polygon in _CASES:
@@ -275,44 +278,110 @@ def test_phase_zero_freezes_all_63_digests_and_legacy_axes():
         skeleton = build_skeleton(polygon)
         counters = dict(skeleton.counters)
         assert skeleton.outcome.value == expected_outcome
-        assert semantic_digest(skeleton) == expected_digest
+        if case_id not in _DUPLICATE_ORACLE:
+            assert semantic_digest(skeleton) == expected_digest
         assert tuple(counters[name] for name in _LEGACY_COUNTER_NAMES) == (
             expected_counters
         )
         assert skeleton.proof_status.value == _PROOF_STATUS_ORACLE[case_id]
 
 
-def test_phase_zero_freezes_exactly_11_duplicate_cases_and_invariants():
-    observed = {}
+def test_phase_b_merges_exactly_11_duplicate_cases_and_preserves_invariants():
+    merged = {}
     for case_id, polygon in _CASES:
         skeleton = build_skeleton(polygon)
-        duplicated = _duplicate_projection(skeleton)
-        if duplicated:
-            assert len(duplicated) == 1
-            observed[case_id] = duplicated[0]
+        assert _duplicate_projection(skeleton) == ()
+        multiway = [node for node in skeleton.nodes if node.kind is EventKind.MULTIWAY]
+        if multiway:
+            assert len(multiway) == 1
+            node = multiway[0]
+            record = node_record(node)
+            key = json.dumps(
+                [
+                    record["time_dividend"],
+                    record["time_divisor"],
+                    record["point_x"],
+                    record["point_y"],
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            merged[case_id] = (
+                hashlib.sha256(key.encode("utf-8")).hexdigest(),
+                tuple(record["kinds"]),
+                tuple(tuple(item) for item in record["participants"]),
+                record["converging_vertices"],
+            )
             assert _invariant_digest(polygon, skeleton) == _INVARIANT_SHA256[case_id]
-    assert observed == _DUPLICATE_ORACLE
+    assert set(merged) == set(_DUPLICATE_ORACLE)
+    for case_id, (key, kinds, participants, converging) in merged.items():
+        before = _DUPLICATE_ORACLE[case_id]
+        assert key == before[0]
+        assert kinds == tuple(sorted(set(before[1])))
+        assert participants == before[2]
+        assert converging == sum(before[3])
 
 
-def test_phase_a_counters_ratchet_the_11_cases_without_new_geometry():
+def test_phase_b_accumulator_keeps_independent_coincident_components():
+    base = build_skeleton(dict(_CASES)["named::axis_square"]).nodes[0]
+    shared = base.participants[0]
+    second = replace(
+        base,
+        kind=EventKind.SPLIT,
+        participants=(shared, (100, 0, 101, 0)),
+        converging_vertices=2,
+    )
+    independent = replace(
+        base,
+        participants=((200, 0, 201, 0),),
+        converging_vertices=1,
+    )
+    nodes = accumulate_nodes(
+        (base, second, independent),
+        ((1, 2), (2, 3), (4,)),
+    )
+
+    assert len(nodes) == 2
+    merged = next(node for node in nodes if node.kind is EventKind.MULTIWAY)
+    assert merged.kinds == (EventKind.EDGE, EventKind.SPLIT)
+    assert merged.converging_vertices == 3
+    assert set(merged.participants) == set(base.participants) | set(
+        second.participants
+    )
+    assert independent in nodes
+
+
+def test_phase_b_consumers_refuse_unannotated_multiway_by_name():
+    polygon = dict(_CASES)["named::axis_square"]
+    skeleton = build_skeleton(polygon)
+    invalid = replace(
+        skeleton.nodes[0],
+        kind=EventKind.MULTIWAY,
+        kinds=(),
+        incidences=(),
+    )
+
+    with pytest.raises(ValueError, match="MULTIWAY_NODE_KINDS_UNAVAILABLE"):
+        node_record(invalid)
+    partition = build_faces(polygon, replace(skeleton, nodes=(invalid,)))
+    assert partition.outcome is FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE
+
+
+def test_phase_b_duplicate_counters_are_zero_after_accumulation():
     duplicate_cases = []
     mixed_cases = []
     for case_id, polygon in _CASES:
         skeleton = build_skeleton(polygon)
         duplicate_count = skeleton.counter("duplicate_exact_time_point_nodes")
         mixed_count = skeleton.counter("mixed_kind_exact_time_point_nodes")
-        assert duplicate_count == int(case_id in _DUPLICATE_ORACLE)
-        assert mixed_count == int(
-            case_id in _DUPLICATE_ORACLE
-            and _DUPLICATE_ORACLE[case_id][1] == ("EDGE", "SPLIT")
-        )
+        assert duplicate_count == 0
+        assert mixed_count == 0
         if duplicate_count:
             duplicate_cases.append(case_id)
         if mixed_count:
             mixed_cases.append(case_id)
-    assert set(duplicate_cases) == set(_DUPLICATE_ORACLE)
-    assert len(duplicate_cases) == 11
-    assert len(mixed_cases) == 10
+    assert duplicate_cases == []
+    assert mixed_cases == []
 
 
 def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):

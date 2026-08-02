@@ -36,6 +36,8 @@ from .event_time import EventPointV1, EventTimeV1, compare_times
 
 class EventKind(str, Enum):
     EDGE = "EDGE"
+    # Только итоговый `SkeletonNodeV1`: в queue такой candidate не рождается.
+    MULTIWAY = "MULTIWAY"
     SPLIT = "SPLIT"
     START = "START"
     SWITCH = "SWITCH"
