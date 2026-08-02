@@ -41,14 +41,23 @@
   "coverage_alphas": ["1/4", "1", "4"],
   "focused_test": {
     "command": "python -m pytest -q tests/test_wavefront_weighted_wall_differential.py",
-    "passed": 29,
-    "runtime_seconds": 1.66
+    "passed": 30,
+    "runtime_seconds": 1.76
   },
-  "full_source_q_zero": {
-    "differential_denominator": false,
-    "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
-    "status": "REJECTED_BEFORE_SPLIT_MODE"
-  },
+  "rejected_grid_controls": [
+    {
+      "differential_denominator": false,
+      "grid_cell": "full_source_q_0",
+      "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
+      "status": "REJECTED_BEFORE_SPLIT_MODE"
+    },
+    {
+      "differential_denominator": false,
+      "grid_cell": "source_and_walls_q_0",
+      "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
+      "status": "REJECTED_BEFORE_SPLIT_MODE"
+    }
+  ],
   "matched": 23,
   "minimal_mismatch_repros": [],
   "mismatched": 0,

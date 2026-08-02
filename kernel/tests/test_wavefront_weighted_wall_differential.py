@@ -174,10 +174,16 @@ def test_at_least_one_third_of_the_corpus_exercises_real_pruning():
     assert len(pruned) * 3 >= len(CORPUS), (len(pruned), len(CORPUS), pruned)
 
 
-def test_q_zero_full_source_is_rejected_before_split_mode():
+@pytest.mark.parametrize(
+    "grid_cell", ("full_source_q_0", "source_and_walls_q_0")
+)
+def test_q_zero_grid_cells_are_rejected_before_split_mode(grid_cell):
     with pytest.raises(PolygonRejected) as refusal:
         all_stationary(cross(wide=6, tall=4))
-    assert refusal.value.outcome is PolygonOutcome.POLYGON_HAS_NO_SOURCE_EDGE
+    assert (
+        grid_cell,
+        refusal.value.outcome,
+    ) == (grid_cell, PolygonOutcome.POLYGON_HAS_NO_SOURCE_EDGE)
 
 
 def test_strict_pruning_witness_executes_two_different_searches():
@@ -226,6 +232,12 @@ def test_q_grid_and_special_families_are_facts_of_the_inputs():
     assert reflected_edges == {
         (frozenset((start, end)), speed) for start, end, speed in reflected.edges()
     }
+
+    incidences = BY_NAME["several_collinear_incidences"].polygon
+    line_multiplicity = Counter(
+        _primitive_line_key(start, end) for start, end, _ in incidences.edges()
+    )
+    assert sum(count == 2 for count in line_multiplicity.values()) == 4
 
     collinear = BY_NAME["collinear_moving_source_and_wall"].polygon
     by_line = {}
