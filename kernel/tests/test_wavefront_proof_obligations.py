@@ -1,10 +1,30 @@
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import replace
+import itertools
+
 import pytest
 
 from cftuv_envelope.wavefront.digest import semantic_digest
-from cftuv_envelope.wavefront.skeleton import build_skeleton
+from cftuv_envelope.wavefront.event_time import ZERO_TIME
+from cftuv_envelope.wavefront.events import CandidateEventV1, EventKind, EventQueueV1
+from cftuv_envelope.wavefront.polygon import LoopV1, PolygonV1
+from cftuv_envelope.wavefront import skeleton as skeleton_module
+from cftuv_envelope.wavefront.skeleton import (
+    CandidateRefusal,
+    ProofObligationBranch,
+    ProofObligationDisposition,
+    ProofStatus,
+    SkeletonOutcome,
+    build_skeleton,
+    refusal_counter,
+)
 from test_wavefront_motorcycle_graph import FROZEN_DIGESTS
+from test_wavefront_event_queue import (
+    CORPUS as INPUT_ORDER_CORPUS,
+    ELL as INPUT_ORDER_ELL,
+)
 from test_wavefront_partial_source import (
     FIGURES_WHERE_THE_QUEUE_MATCHES_THE_STANDARD,
     FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME,
@@ -93,6 +113,72 @@ _GEOMETRY_ORACLE = {
     'partial_source::ell_12_all_sources_mixed_speeds_at_the_reflex_vertex': ('EXACT', '139f3a89c2a40fa9a0eebcdd738fb93818547dffe06e422863c8a6a2dfba8064', (0, 4, 2, 2, 0, 0, 1, 0, 1, 8, 1, 0, 0, 2, 2, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 4, 0, 2, 0, 4, 0, 0, 0, 0, 0, 1)),
 }
 
+_PROOF_STATUS_ORACLE = {
+    'named::axis_square': 'COMPLETE',
+    'named::axis_rectangle': 'COMPLETE',
+    'named::right_triangle': 'COMPLETE',
+    'named::diamond': 'COMPLETE',
+    'named::ell': 'COMPLETE',
+    'named::comb_2': 'COMPLETE',
+    'named::comb_4': 'COMPLETE',
+    'named::hole_1': 'COMPLETE',
+    'named::holes_2': 'COMPLETE',
+    'named::cross': 'COMPLETE',
+    'named::staircase': 'COMPLETE',
+    'named::u_shape': 'COMPLETE',
+    'named::double_notch': 'COMPLETE',
+    'named::field_building_002_scale_64': 'INCOMPLETE',
+    'named::field_building_002_scale_256': 'INCOMPLETE',
+    'named::field_building_002_scale_1024': 'INCOMPLETE',
+    'named::star_9_seed_0': 'INCOMPLETE',
+    'named::star_9_seed_1': 'COMPLETE',
+    'named::star_9_seed_2': 'COMPLETE',
+    'named::star_9_seed_3': 'COMPLETE',
+    'named::star_9_seed_4': 'INCOMPLETE',
+    'named::star_9_seed_5': 'INCOMPLETE',
+    'partial_source::rect_12x8_source_edge_0': 'COMPLETE',
+    'partial_source::rect_12x8_source_edge_1': 'COMPLETE',
+    'partial_source::rect_12x8_source_edge_2': 'COMPLETE',
+    'partial_source::rect_12x8_source_edge_3': 'COMPLETE',
+    'partial_source::rect_12x8_source_edges_0_1': 'COMPLETE',
+    'partial_source::rect_12x8_source_edges_1_2': 'COMPLETE',
+    'partial_source::rect_12x8_source_edges_2_3': 'COMPLETE',
+    'partial_source::rect_12x8_source_edges_3_0': 'COMPLETE',
+    'partial_source::ell_12_source_edge_0': 'COMPLETE',
+    'partial_source::ell_12_source_edge_1': 'INCOMPLETE',
+    'partial_source::ell_12_source_edge_2': 'COMPLETE',
+    'partial_source::ell_12_source_edge_3': 'COMPLETE',
+    'partial_source::ell_12_source_edge_4': 'INCOMPLETE',
+    'partial_source::ell_12_source_edge_5': 'COMPLETE',
+    'partial_source::ell_12_source_edges_0_1': 'INCOMPLETE',
+    'partial_source::ell_12_source_edges_1_2': 'INCOMPLETE',
+    'partial_source::ell_12_source_edges_2_3': 'COMPLETE',
+    'partial_source::ell_12_source_edges_3_4': 'INCOMPLETE',
+    'partial_source::ell_12_source_edges_4_5': 'INCOMPLETE',
+    'partial_source::ell_12_source_edges_5_0': 'COMPLETE',
+    'partial_source::staircase_source_edge_0': 'COMPLETE',
+    'partial_source::staircase_source_edge_1': 'INCOMPLETE',
+    'partial_source::staircase_source_edge_2': 'COMPLETE',
+    'partial_source::staircase_source_edge_3': 'INCOMPLETE',
+    'partial_source::staircase_source_edge_4': 'INCOMPLETE',
+    'partial_source::staircase_source_edge_5': 'COMPLETE',
+    'partial_source::staircase_source_edge_6': 'INCOMPLETE',
+    'partial_source::staircase_source_edge_7': 'COMPLETE',
+    'partial_source::staircase_source_edges_0_1': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_1_2': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_2_3': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_3_4': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_4_5': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_5_6': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_6_7': 'INCOMPLETE',
+    'partial_source::staircase_source_edges_7_0': 'COMPLETE',
+    'partial_source::ell_12_source_without_the_reflex_pair': 'INCOMPLETE',
+    'partial_source::rect_12x8_source_bottom_at_double_speed': 'COMPLETE',
+    'partial_source::ell_12_all_sources_bottom_at_double_speed': 'COMPLETE',
+    'partial_source::staircase_all_sources_bottom_at_double_speed': 'COMPLETE',
+    'partial_source::ell_12_all_sources_mixed_speeds_at_the_reflex_vertex': 'COMPLETE',
+}
+
 _CASES = (
     *((f"named::{name}", polygon) for name, polygon in named_corpus()),
     *((f"partial_source::{name}", polygon) for name, polygon in partial_source_corpus()),
@@ -112,6 +198,7 @@ def test_p0_geometry_and_existing_counter_oracle(case_id, polygon):
     assert skeleton.outcome.value == expected_outcome
     assert semantic_digest(skeleton) == expected_digest
     assert tuple(counter_map[name] for name in _LEGACY_COUNTER_NAMES) == expected_counter_values
+    assert skeleton.proof_status.value == _PROOF_STATUS_ORACLE[case_id]
 
 
 def test_p0_oracle_covers_all_63_cases_exactly():
@@ -119,6 +206,7 @@ def test_p0_oracle_covers_all_63_cases_exactly():
     assert len(case_ids) == 63
     assert len(set(case_ids)) == 63
     assert set(case_ids) == set(_GEOMETRY_ORACLE)
+    assert set(case_ids) == set(_PROOF_STATUS_ORACLE)
     assert len(_LEGACY_COUNTER_NAMES) == 36
     assert len(set(_LEGACY_COUNTER_NAMES)) == 36
 
@@ -131,3 +219,324 @@ def test_p0_frozen_digest_and_partial_source_oracles_are_unchanged():
         FIGURES_WHERE_THE_STANDARD_REFUSES_BY_NAME,
     ) == (23, 17, 1)
 
+
+def _case(case_id):
+    return dict(_CASES)[case_id]
+
+
+def test_axis_square_is_exact_and_proof_complete():
+    skeleton = build_skeleton(_case("named::axis_square"))
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    assert skeleton.proof_status is ProofStatus.COMPLETE
+    assert skeleton.proof_obligations == ()
+
+
+def test_star_seed_4_names_three_unproven_meeting_fallbacks():
+    skeleton = build_skeleton(_case("named::star_9_seed_4"))
+    fallbacks = tuple(
+        obligation
+        for obligation in skeleton.proof_obligations
+        if obligation.cause
+        is CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE
+        and obligation.disposition
+        is ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
+    )
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    assert skeleton.proof_status is ProofStatus.INCOMPLETE
+    assert len(fallbacks) == 3
+    assert all(len(obligation.vertex_ids) == 3 for obligation in fallbacks)
+
+
+def test_span_unproven_is_counted_only_for_the_four_live_applications():
+    applied = {
+        case_id: build_skeleton(polygon).counter(
+            "edge_collapse_span_unproven_but_accepted"
+        )
+        for case_id, polygon in _CASES
+    }
+    assert {case_id: count for case_id, count in applied.items() if count} == {
+        "partial_source::ell_12_source_edge_1": 1,
+        "partial_source::staircase_source_edge_1": 1,
+        "partial_source::staircase_source_edge_3": 1,
+        "partial_source::staircase_source_edges_2_3": 1,
+    }
+
+
+def test_cross_queues_four_unproven_spans_but_applies_none(monkeypatch):
+    queued = []
+    original = EventQueueV1.push
+
+    def capturing_push(queue, event):
+        if event.span_unproven:
+            queued.append(event)
+        return original(queue, event)
+
+    monkeypatch.setattr(EventQueueV1, "push", capturing_push)
+    skeleton = build_skeleton(_case("named::cross"))
+    assert len(queued) == 4
+    assert skeleton.counter("edge_collapse_span_unproven_but_accepted") == 0
+    assert not any(
+        obligation.cause
+        is ProofObligationBranch.EDGE_COLLAPSE_SPAN_UNPROVEN
+        for obligation in skeleton.proof_obligations
+    )
+
+
+def test_start_and_switch_are_each_dropped_under_a_named_obligation():
+    builder = skeleton_module._Builder(_case("named::axis_square"))
+    point = builder.vertices[0].point
+    queue = EventQueueV1()
+    events = tuple(
+        CandidateEventV1(kind, ZERO_TIME, point, 0, 1, 0)
+        for kind in (EventKind.START, EventKind.SWITCH)
+    )
+    for event in events:
+        queue.push(event)
+    builder._apply_level(queue.pop_level())
+    skeleton = builder._finish(SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED, 0)
+    unsupported = tuple(
+        obligation
+        for obligation in skeleton.proof_obligations
+        if obligation.cause is ProofObligationBranch.UNSUPPORTED_EVENT_KIND
+    )
+    assert skeleton.counter("unsupported_event_kind_dropped") == 2
+    assert skeleton.counter("start_events") == 0
+    assert skeleton.counter("switch_events") == 0
+    assert tuple(obligation.event_kind for obligation in unsupported) == (
+        EventKind.START,
+        EventKind.SWITCH,
+    )
+    assert all(
+        obligation.disposition
+        is ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED
+        for obligation in unsupported
+    )
+    assert skeleton.proof_status is ProofStatus.INCOMPLETE
+
+
+def test_observed_debt_has_discharge_fallback_and_survival_lifecycles():
+    cross = build_skeleton(_case("named::cross"))
+    star = build_skeleton(_case("named::star_9_seed_4"))
+    unresolved = build_skeleton(
+        _case("partial_source::ell_12_source_edge_4")
+    )
+    assert sum(
+        obligation.disposition
+        is ProofObligationDisposition.DISCHARGED_BY_PROVEN_SAME_TIME_EVENT
+        for obligation in cross.proof_obligations
+    ) == 20
+    assert sum(
+        obligation.disposition
+        is ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
+        for obligation in star.proof_obligations
+    ) == 3
+    assert sum(
+        obligation.disposition
+        is ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME
+        for obligation in unresolved.proof_obligations
+    ) == 4
+
+
+def test_no_finished_corpus_case_retains_observed_debt():
+    for _, polygon in _CASES:
+        skeleton = build_skeleton(polygon)
+        assert all(
+            obligation.disposition is not ProofObligationDisposition.OBSERVED
+            for obligation in skeleton.proof_obligations
+        )
+
+
+def test_every_no_rule_refusal_has_one_exhaustive_disposition_mapping():
+    no_rule = {
+        reason
+        for reason in CandidateRefusal
+        if reason.value.startswith("NO_RULE_")
+    }
+    assert set(skeleton_module._NO_RULE_DISPOSITIONS) == no_rule
+
+    for _, polygon in _CASES:
+        skeleton = build_skeleton(polygon)
+        for reason in CandidateRefusal:
+            obligations = sum(
+                obligation.cause is reason
+                for obligation in skeleton.proof_obligations
+            )
+            if reason in no_rule:
+                assert obligations == skeleton.counter(refusal_counter(reason))
+            else:
+                assert obligations == 0
+
+        for obligation in skeleton.proof_obligations:
+            if (
+                obligation.cause
+                is CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT
+                and obligation.target_edge_keys
+            ):
+                assert len(obligation.vertex_ids) > 1
+
+
+def test_proof_status_is_exactly_the_incomplete_disposition_predicate():
+    incomplete = {
+        ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED,
+        ProofObligationDisposition.EVENT_ACCEPTED_WITH_UNPROVEN_SPAN,
+        ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME,
+        ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED,
+    }
+    for _, polygon in _CASES:
+        skeleton = build_skeleton(polygon)
+        expected = (
+            ProofStatus.INCOMPLETE
+            if any(
+                obligation.disposition in incomplete
+                for obligation in skeleton.proof_obligations
+            )
+            else ProofStatus.COMPLETE
+        )
+        assert skeleton.proof_status is expected
+
+
+def test_ridge_death_discharges_only_nonempty_observed_identity():
+    builder = skeleton_module._Builder(_case("named::axis_square"))
+    for vertex in builder.vertices:
+        vertex.alive = False
+    first, second = builder.vertices[:2]
+    first.alive = True
+    second.alive = True
+    first.next = second.ident
+    second.next = first.ident
+    builder._record_obligation(
+        cause=CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
+        disposition=ProofObligationDisposition.OBSERVED,
+        vertex_ids=(first.ident, second.ident),
+        level=ZERO_TIME,
+    )
+    builder._record_obligation(
+        cause=CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
+        disposition=ProofObligationDisposition.OBSERVED,
+        level=ZERO_TIME,
+    )
+    builder._close_short_lavs()
+    builder._discharge_observed_obligations()
+    assert tuple(
+        obligation.disposition
+        for obligation in builder.proof_obligations[-2:]
+    ) == (
+        ProofObligationDisposition.DISCHARGED_BY_PROVEN_SAME_TIME_EVENT,
+        ProofObligationDisposition.OBSERVED,
+    )
+
+
+def test_vanished_span_keeps_dead_target_endpoints_and_group_multiplicity():
+    builder = skeleton_module._Builder(_case("named::axis_square"))
+    edge_id = 0
+    endpoint_ids = (
+        builder.edge_start[edge_id],
+        builder.edge_end[edge_id],
+    )
+    for ident in endpoint_ids:
+        builder.vertices[ident].alive = False
+    point = builder.vertices[2].point
+    group = [
+        CandidateEventV1(EventKind.SPLIT, ZERO_TIME, point, ident, -1, edge_id)
+        for ident in (2, 3)
+    ]
+    stale_before = builder.counters["discarded_stale_candidates"]
+    builder._apply_multi_split(edge_id, group)
+    obligations = tuple(
+        obligation
+        for obligation in builder.proof_obligations
+        if obligation.cause is CandidateRefusal.NO_RULE_SPAN_VANISHED
+    )
+    assert builder.counters["discarded_stale_candidates"] == stale_before + 2
+    assert len(obligations) == 1
+    assert obligations[0].disposition is (
+        ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
+    )
+    assert set(endpoint_ids).issubset(obligations[0].vertex_ids)
+
+
+def test_semantic_digest_ignores_the_proof_axis():
+    skeleton = build_skeleton(_case("named::star_9_seed_4"))
+    stripped = replace(
+        skeleton,
+        proof_status=ProofStatus.COMPLETE,
+        proof_obligations=(),
+    )
+    assert semantic_digest(stripped) == semantic_digest(skeleton)
+
+
+def _geometric_proof_projection(skeleton):
+    return Counter(
+        (
+            obligation.cause,
+            obligation.disposition,
+            obligation.level.canonical(),
+            obligation.participant_edge_keys,
+            obligation.target_edge_keys,
+            obligation.event_kind,
+        )
+        for obligation in skeleton.proof_obligations
+    )
+
+
+@pytest.mark.parametrize(
+    "case_id,polygon",
+    _CASES,
+    ids=tuple(case_id for case_id, _ in _CASES),
+)
+def test_proof_status_and_geometric_report_are_input_rotation_invariant(
+    case_id, polygon
+):
+    reference = build_skeleton(polygon)
+    for shift in range(len(polygon.outer.points)):
+        rotated = PolygonV1(
+            polygon.outer.rotated(shift),
+            polygon.holes,
+            polygon.vertex_fans,
+        )
+        skeleton = build_skeleton(rotated)
+        assert skeleton.proof_status is reference.proof_status, case_id
+        assert _geometric_proof_projection(
+            skeleton
+        ) == _geometric_proof_projection(reference), case_id
+
+
+@pytest.mark.parametrize("name", sorted(INPUT_ORDER_CORPUS))
+def test_proof_status_survives_outer_hole_order_and_hole_shift(name):
+    outer, holes = INPUT_ORDER_CORPUS[name]
+    reference = build_skeleton(PolygonV1.build(outer, holes)).proof_status
+    for shift in range(len(outer)):
+        rotated_outer = LoopV1(tuple(outer)).rotated(shift).points
+        for order in itertools.permutations(range(len(holes))):
+            for hole_shift in range(len(holes[0]) if holes else 1):
+                rotated_holes = tuple(
+                    LoopV1(tuple(holes[index])).rotated(hole_shift).points
+                    for index in order
+                )
+                skeleton = build_skeleton(
+                    PolygonV1.build(rotated_outer, rotated_holes)
+                )
+                assert skeleton.proof_status is reference
+
+
+def test_proof_status_survives_declared_winding_reversal():
+    forward = build_skeleton(PolygonV1.build(INPUT_ORDER_ELL)).proof_status
+    backward = build_skeleton(
+        PolygonV1.build(tuple(reversed(INPUT_ORDER_ELL)))
+    ).proof_status
+    assert backward is forward
+
+
+def test_obligation_identity_is_canonical_and_event_kind_is_narrow():
+    for _, polygon in _CASES:
+        for obligation in build_skeleton(polygon).proof_obligations:
+            assert obligation.vertex_ids == tuple(
+                sorted(set(obligation.vertex_ids))
+            )
+            assert obligation.participant_edge_keys == tuple(
+                sorted(set(obligation.participant_edge_keys))
+            )
+            assert obligation.target_edge_keys == tuple(
+                sorted(set(obligation.target_edge_keys))
+            )
+            assert obligation.event_kind is None
