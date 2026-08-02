@@ -467,5 +467,6 @@ def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
     assert [residual for _, residual in measurements] == [2, 0, 2, 0, 0, 0]
     assert sum(enqueued for enqueued, _ in measurements) == 4
     assert sum(residual > 0 for _, residual in measurements) == 2
+    assert skeleton.levels == len(measurements) == 6
     assert skeleton.counter("same_time_events_enqueued_during_level") == 4
     assert skeleton.counter("same_time_residual_after_level") == 0
