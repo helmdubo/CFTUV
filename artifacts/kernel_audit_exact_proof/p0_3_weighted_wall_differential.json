@@ -8,50 +8,68 @@
     "exact_face_areas",
     "coverage_at_three_alphas",
     "proof_status",
-    "proof_disposition_counts"
+    "stable_proof_obligation_multiset"
   ],
   "base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
   "baseline_snapshot_commit": "5b25d3ceda95b74258df66af6840f7d6d8c51c8b",
-  "coverage_alphas": ["1/4", "1", "4"],
   "cases": [
-    {"beyond_trace": 12, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1/4", "pruned": true},
-    {"beyond_trace": 12, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1", "pruned": true},
-    {"beyond_trace": 19, "examined_exhaustive": 102, "examined_motorcycle": 98, "mismatch_axes": [], "name": "cross_full_q_4", "pruned": true},
-    {"beyond_trace": 14, "examined_exhaustive": 60, "examined_motorcycle": 56, "mismatch_axes": [], "name": "cross_full_q_65/64", "pruned": true},
-    {"beyond_trace": 2, "examined_exhaustive": 76, "examined_motorcycle": 76, "mismatch_axes": [], "name": "cross_source_and_walls_q_0", "pruned": true},
-    {"beyond_trace": 2, "examined_exhaustive": 93, "examined_motorcycle": 93, "mismatch_axes": [], "name": "cross_source_and_walls_q_1/4", "pruned": true},
-    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_1", "pruned": true},
-    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_4", "pruned": true},
-    {"beyond_trace": 2, "examined_exhaustive": 83, "examined_motorcycle": 83, "mismatch_axes": [], "name": "cross_source_and_walls_q_65/64", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1/4", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_4", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_65/64", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_1/4", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_1", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_4", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_65/64", "pruned": true},
     {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_full_q_65_64", "pruned": false},
     {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_source_and_walls_q_65_64", "pruned": false},
     {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_full_q_65_64", "pruned": false},
     {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_source_and_walls_q_65_64", "pruned": false},
-    {"beyond_trace": 0, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_full_q_65_64", "pruned": false},
+    {"beyond_trace": 4, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_full_q_65_64", "pruned": true},
     {"beyond_trace": 0, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_source_and_walls_q_65_64", "pruned": false},
-    {"beyond_trace": 2, "examined_exhaustive": 12, "examined_motorcycle": 12, "mismatch_axes": [], "name": "weighted_vertex_fan", "pruned": true},
-    {"beyond_trace": 8, "examined_exhaustive": 30, "examined_motorcycle": 30, "mismatch_axes": [], "name": "weighted_holes_1", "pruned": true},
-    {"beyond_trace": 28, "examined_exhaustive": 100, "examined_motorcycle": 88, "mismatch_axes": [], "name": "weighted_holes_2", "pruned": true},
-    {"beyond_trace": 3, "examined_exhaustive": 50, "examined_motorcycle": 42, "mismatch_axes": [], "name": "mirror_direct", "pruned": true},
-    {"beyond_trace": 3, "examined_exhaustive": 50, "examined_motorcycle": 40, "mismatch_axes": [], "name": "mirror_reflected", "pruned": true},
-    {"beyond_trace": 14, "examined_exhaustive": 60, "examined_motorcycle": 52, "mismatch_axes": [], "name": "several_collinear_incidences", "pruned": true},
-    {"beyond_trace": 4, "examined_exhaustive": 40, "examined_motorcycle": 32, "mismatch_axes": [], "name": "same_time_weighted_collapse", "pruned": true}
+    {"beyond_trace": 10, "examined_exhaustive": 42, "examined_motorcycle": 42, "mismatch_axes": [], "name": "weighted_vertex_fan", "pruned": true},
+    {"beyond_trace": 0, "examined_exhaustive": 24, "examined_motorcycle": 24, "mismatch_axes": [], "name": "weighted_holes_1", "pruned": false},
+    {"beyond_trace": 16, "examined_exhaustive": 116, "examined_motorcycle": 116, "mismatch_axes": [], "name": "weighted_holes_2", "pruned": true},
+    {"beyond_trace": 11, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "mirror_direct", "pruned": true},
+    {"beyond_trace": 11, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "mirror_reflected", "pruned": true},
+    {"beyond_trace": 18, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "several_collinear_incidences", "pruned": true},
+    {"beyond_trace": 9, "examined_exhaustive": 52, "examined_motorcycle": 46, "mismatch_axes": [], "name": "search_pruning_witness", "pruned": true},
+    {"beyond_trace": 1, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "collinear_moving_source_and_wall", "pruned": true},
+    {"beyond_trace": 8, "examined_exhaustive": 40, "examined_motorcycle": 40, "mismatch_axes": [], "name": "same_time_weighted_collapse", "pruned": true}
   ],
-  "corpus_commit": "28d3f826396fa59513e0319cd866232b6f3ac560",
+  "coverage_alphas": ["1/4", "1", "4"],
   "focused_test": {
-    "passed": 26,
-    "runtime_seconds": 1.33
+    "command": "python -m pytest -q tests/test_wavefront_weighted_wall_differential.py",
+    "passed": 29,
+    "runtime_seconds": 1.66
   },
   "full_source_q_zero": {
     "differential_denominator": false,
     "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
-    "phase": "polygon_construction"
+    "status": "REJECTED_BEFORE_SPLIT_MODE"
   },
-  "matched": 22,
+  "matched": 23,
   "minimal_mismatch_repros": [],
   "mismatched": 0,
+  "mismatch_report": "first exact differing axis includes both complete projections",
   "new_absolute_digests_frozen": false,
-  "pruned": 16,
-  "runnable_cases": 22,
-  "schema": "cftuv.p0_3.weighted_wall_differential_receipt.v1"
+  "pruned": 17,
+  "q_semantics": "literal absolute SupportLineV1.q; moving sources use q and walls use 0",
+  "required_special_cases": {
+    "collinear_moving_source_and_wall": "collinear_moving_source_and_wall",
+    "field_rational_form": "literal q=65/64",
+    "same_time_weighted_collapse": "same_time_weighted_collapse",
+    "strict_pruning_witness": "search_pruning_witness"
+  },
+  "runnable_cases": 23,
+  "schema": "cftuv.p0_3.weighted_wall_differential_receipt.v2",
+  "stable_proof_projection_excludes": ["runtime_vertex_ids"],
+  "stable_proof_projection_includes": [
+    "cause",
+    "disposition",
+    "canonical_exact_level",
+    "participant_edge_keys",
+    "target_edge_keys",
+    "event_kind"
+  ]
 }

@@ -12,7 +12,6 @@ from fractions import Fraction
 
 from cftuv_envelope.wavefront.polygon import (
     PolygonV1,
-    unit_speed_squared,
     with_edge_speeds,
 )
 
@@ -49,21 +48,16 @@ def _weighted(
     *,
     source_and_walls: bool,
 ) -> PolygonV1:
-    """Меняет одно q; в стеновой колонке оставляет не более двух источников."""
+    """Ставит абсолютное q: всем источникам либо двум источникам среди стен."""
 
     rows = []
     edges = tuple(polygon.edges())
     probe = min(2, len(edges) - 1)
     for index, (start, end, _) in enumerate(edges):
-        unit = unit_speed_squared(start, end)
         if source_and_walls:
-            value = (
-                (factor if index == probe else Fraction(1)) * unit
-                if index in {0, probe}
-                else Fraction(0)
-            )
+            value = factor if index in {0, probe} else Fraction(0)
         else:
-            value = (factor if index == 0 else Fraction(1)) * unit
+            value = factor
         rows.append((start, end, value))
     return with_edge_speeds(polygon, tuple(rows))
 
@@ -81,10 +75,21 @@ def _uniform_weight(polygon: PolygonV1, factor: Fraction) -> PolygonV1:
     return with_edge_speeds(
         polygon,
         tuple(
-            (start, end, factor * unit_speed_squared(start, end))
+            (start, end, factor)
             for start, end, _ in polygon.edges()
         ),
     )
+
+
+def _collinear_moving_source_and_wall() -> PolygonV1:
+    """Одна прямая y=4 несёт moving source справа и wall слева."""
+
+    polygon = cross(wide=6, tall=4)
+    rows = []
+    for start, end, _ in polygon.edges():
+        is_moving = start[1] == end[1] == 4 and min(start[0], end[0]) >= 10
+        rows.append((start, end, Fraction(65, 64) if is_moving else Fraction(0)))
+    return with_edge_speeds(polygon, tuple(rows))
 
 
 def _reflected(polygon: PolygonV1) -> PolygonV1:
@@ -109,7 +114,7 @@ def _reflected(polygon: PolygonV1) -> PolygonV1:
 
 
 def weighted_wall_differential_corpus() -> tuple[WeightedWallCase, ...]:
-    """22 входа: полная q-сетка где достижима и все особые семейства карточки."""
+    """23 входа: достижимая q-сетка и все особые семейства карточки."""
 
     cases: list[WeightedWallCase] = []
     grid = cross(wide=6, tall=4)
@@ -121,7 +126,7 @@ def weighted_wall_differential_corpus() -> tuple[WeightedWallCase, ...]:
                 ("q_grid", "full_source", "collinear"),
             )
         )
-    for factor in Q_FACTORS:
+    for factor in Q_FACTORS[1:]:
         cases.append(
             WeightedWallCase(
                 f"cross_source_and_walls_q_{factor}",
@@ -189,10 +194,26 @@ def weighted_wall_differential_corpus() -> tuple[WeightedWallCase, ...]:
     )
     cases.append(
         WeightedWallCase(
-            "same_time_weighted_collapse",
+            "search_pruning_witness",
             _uniform_weight(cross(wide=4, tall=4), Fraction(4)),
+            ("strict_pruning", "weighted"),
+        )
+    )
+    cases.append(
+        WeightedWallCase(
+            "collinear_moving_source_and_wall",
+            _collinear_moving_source_and_wall(),
+            ("collinear", "moving_source_and_wall"),
+        )
+    )
+    cases.append(
+        WeightedWallCase(
+            "same_time_weighted_collapse",
+            _uniform_weight(
+                cross(wide=4, tall=4, arm=4, right=12, top=12),
+                Fraction(4),
+            ),
             ("same_time", "weighted"),
         )
     )
     return tuple(cases)
-
