@@ -3654,3 +3654,82 @@ line-triple cache, alpha horizon, иерархический broad phase — P2-
 неисполняемый статус-файл хуже отсутствующего («слух», AGENTS.md).
 Реструктуризация DECISIONS.md в ACTIVE-индекс + архив — отдельная
 P1-карточка, не побочный эффект аудита.
+
+**2026-08-02** — Вердикт спайка S-WF0 ЗАПИСАН (правило A/B/C висело с
+закрытия спайка неотвеченным): выбран курс C для кривых поверхностей —
+семейство SurfaceWavefront становится curved-бэкендом, planar exact
+остаётся отдельным. Числа решения: rail-chart на half_sphere ошибается в
+ширине до 23.3% alpha (p95 11%) при том, что на developable-фикстурах он
+точен до 1e-15; FMM — 1.7% max при locus F1 = 1.0 и побитовой
+ретриангуляционной инвариантности; HEAT непригоден как власть (locus
+F1 = 0, дрейф 2.5% на ретриангуляции) — только predictor/transport.
+Свидетельство: artifacts/s_wf0/{summary,retriangulation}.csv.
+
+**2026-08-02** — КУРС НЕПЛАНАРНЫХ ПОВЕРХНОСТЕЙ ПРИНЯТ: четыре независимых
+слоя (surface metric / arrival-propagation / footprint / offset shell) и
+лестница режимов с маршрутизацией СЕРТИФИКАТОМ (PLANAR_EXACT /
+NEAR_PLANAR_PROJECTED / DEVELOPABLE_UNFOLDED / GEODESIC_TUBULAR /
+POLYHEDRAL_WINDOW_REFERENCE / MULTILABEL_FMM); ни один режим не подменяет
+другой молча. Предположение «весь домен имеет один почти-евклидов 2D-чарт»
+заменяется распространением triangle→triangle с конкуренцией path
+histories: holonomy не устраняется, а представляется конкурентами.
+Причина: немонотонная невязка глобального unroll на куполе (мельче
+сетка — дефект меньше — ошибка ширины в 7 раз больше, нефизично), седло
+E3 = 24 чарта / 105 переходов при замороженной приёмке, канонический
+owner переходов — признание расхождения путей по построению. Мандат
+владельца записан 2026-08-01 (допуск 1.25 см поднят «чтобы искать
+алгоритм, который ляжет на криволинейные поверхности»). Программа —
+ROADMAP, «Программа S».
+
+**2026-08-02** — Модель точности поверхности: власть метрики
+general-curved — evaluated triangulated mesh ПОСЛЕ снапа в решётку
+(piecewise-flat, рациональные квадраты длин); решётко-точный EXACT
+остаётся только у PLANAR и DEVELOPABLE-на-снапнутой-модели; general-curved
+отвечает certified enclosure с именованным ε через канал proof-obligations
+(P0-1) и никогда не называется EXACT. Причина: цепочки разворотов
+компонуют радикалы и наращивают алгебраическую степень — решётка
+SqrtSumV1 их не вмещает; честная граница точности лучше притворного
+exact. Гладкий limit-предел subdivision — отдельная задача, не этой
+программы.
+
+**2026-08-02** — Developable-тир идёт портом ДОКАЗАННОЙ
+legacy-спецификации допуска (G1–G8: overlap, angle defect ≤ 0.02, edge
+error, area ratio, sampled geodesic half-width; отказы
+NON_DEVELOPABLE_SUPPORT / CHART_SELF_OVERLAP /
+PERIODIC_HOLONOMY_UNSUPPORTED / MULTI_CUT_REQUIRED; бюджет 2%
+intrinsic-ширины) через unfold → снап решётки → embedding-сертификаты
+P0-4 → НЫНЕШНИЙ planar kernel → lift в форме DomainLocation
+(chart/triangle + barycentric + source feature + transition key). Legacy
+PATCH_VORONOI — замороженная спецификация, не переносимый код; периодика —
+universal cover (механизм легаси). Следствие композиции: любое улучшение
+planar-бэкенда (включая исход R1 kinetic) developable-тир наследует
+даром. Три бюджета не смешиваются: 1.25 см — 3D-отклонение юбки, 2% —
+intrinsic-искажение ширины, embedding-сертификат — отсутствие
+топологической подмены; каждый отвечает на свой вопрос.
+
+**2026-08-02** — Стены на поверхности РАЗДВАИВАЮТСЯ: непроницаемый
+barrier (constraint домена, не участник конкуренции расстояний) и
+stationary boundary support (граничное условие топологии); q = 0 остаётся
+представлением planar-редукции в адаптере. Вееры на поверхности: hidden
+supports живут в tangent cone вершины (сумма углов ≠ 2π — штатный
+источник новых path histories), Huber-профиль и семантика CornerRelation
+сохраняются — меняется только носитель направлений. Порядок: программа S
+НЕ вытесняет очередь аудита (P0-0..P0-4, R0, R1); контрактный этап S0
+(власть метрики + IR-смежность: SourceEdgeV1 сегодня теряет face ids,
+диагонали тесселяции невосстановимы, surface_triangles геометрией не
+читаются) и S2 готовятся параллельно R0; S1 стартует после P0-1/P0-2.
+
+**2026-08-02** — Reference-якорь S3 назван: extended Xin–Wang
+(«Efficiently computing geodesic offsets on triangle meshes», окна с
+parallel source). Причина выбора среди exact-семейства: единственный
+классический метод, построенный именно для offsets НЕПРЕРЫВНЫХ кривых
+(MMP спайка s_wf0 честно считал от дискретных вершин); память O(n) против
+O(n²) у MMP; alpha-обрезка распространения окон — родная; parallel-source
+окно — атомарный закон прибытия и для segment-источника, и для hidden
+support веера, поэтому corner-seeding (linear axis) переносится на
+поверхность как параметр посева, а не свойство солвера; интервал станции
+источника окно несёт бесплатно (source-s provenance). Открытые
+обязанности сверх статьи: multi-source weighted конкуренция (владельцы,
+cut locus), weighted dominance при разных скоростях, certified-interval
+арифметика окон вместо double. Роль — reference authority S3, не runtime
+(runtime — MULTILABEL_FMM).

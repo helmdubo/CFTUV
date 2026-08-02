@@ -1435,6 +1435,102 @@ ff и переустановку) — пишет ШТАМП, и панель а�
 
 ---
 
+## Программа S — непланарные поверхности (курс зафиксирован 2026-08-02)
+
+Мандат владельца записан 2026-08-01: допуск поднят до 1.25 см специально
+выше потребности — «чтобы искать алгоритм, который ляжет на криволинейные
+поверхности». Развилка цены кривых доменов (п.0) при этом ОТКРЫТА; эта
+программа — её долгосрочная ветвь, а не закрытие. Курс выбран по трём
+пластам свидетельств: спайк S-WF0 (`artifacts/s_wf0/`, вердикт записан в
+DECISIONS 2026-08-02), полевые пределы легаси (немонотонная невязка
+глобального unroll на куполе; седло E3 = 24 чарта/105 переходов при
+замороженной приёмке), аудит контрактов ядра (DEVELOPABLE/GENERAL_CURVED —
+мёртвые оси; допущенная кривизна сегодня стирается проекцией, а не
+моделируется).
+
+**Четыре независимых слоя** (смешение запрещено): surface metric →
+arrival/propagation → surface footprint → offset shell. Lift-политики
+легаси (одна нормаль / биссектор двух / least-squares пересечение
+offset-плоскостей) — спецификация SurfaceLiftPlan, не определение
+расстояния.
+
+**Лестница режимов** — маршрутизация СЕРТИФИКАТОМ, не похожестью на
+плоское; ни один режим не подменяет другой молча:
+
+| режим | носитель | точность |
+|---|---|---|
+| PLANAR_EXACT_V1 | текущая очередь | решётко-EXACT |
+| NEAR_PLANAR_PROJECTED_V1 | текущая проекция | EXACT-на-проектированной-модели; сертификат дополняется width-distortion σmin/σmax (JᵀJ) поверх P0-4; три бюджета не смешиваются: 1.25 см = 3D-юбка, 2% = intrinsic-ширина, embedding = топология |
+| DEVELOPABLE_UNFOLDED_V1 | unfold → снап → planar kernel | решётко-EXACT на снапнутой модели |
+| GEODESIC_TUBULAR_V1 | straightest geodesic rays от станций | certified fast path, уступает general по нарушению сертификата |
+| POLYHEDRAL_WINDOW_REFERENCE_V1 | arrival windows (extended Xin–Wang) | reference authority; certified enclosure с именованным ε |
+| MULTILABEL_FMM_V1 | multi-label FMM + локальная сертификация | production runtime |
+
+**Этапы:**
+
+- **S0 — власть метрики и IR-смежность.** Власть general-curved =
+  evaluated triangulated mesh после снапа (рациональные квадраты длин).
+  Граница расширяется: `SourceEdgeV1` сегодня теряет face ids, диагонали
+  тесселяции невосстановимы (`physical_edge_ids = None`),
+  `surface_triangles` геометрией не читаются — полная triangle adjacency
+  обязана пересечь границу.
+- **S1 — DEVELOPABLE_UNFOLDED_V1.** Порт доказанной legacy-спецификации
+  допуска (G1–G8; отказы NON_DEVELOPABLE_SUPPORT / CHART_SELF_OVERLAP /
+  PERIODIC_HOLONOMY_UNSUPPORTED / MULTI_CUT_REQUIRED; продуктовый бюджет
+  2% intrinsic-ширины) через unfold → снап → embedding-сертификаты P0-4 →
+  нынешний planar kernel → lift в форме DomainLocation. Периодика —
+  universal cover. Покрывает трубы, фаски, желоба, арки, цилиндрические
+  колонны — поставленный legacy-класс F1–F6 + Tranche D. Любое улучшение
+  planar-бэкенда (включая исход R1) наследуется даром. Старт — после
+  P0-1/P0-2.
+- **S2 — SurfaceArrivalComplexV1 + flat-reduction ворота.**
+  Backend-independent контракт (per-triangle candidate cells, cut locus,
+  owner fragments, proof status, alpha horizon). Исполняемый инвариант:
+  на плоском и developable входе surface-путь совпадает с planar kernel —
+  owners, события, coverage.
+- **S3 — POLYHEDRAL_WINDOW_REFERENCE_V1.** Alpha-ограниченное window
+  propagation по extended Xin–Wang (parallel-source окна для segment- и
+  hidden-support-генераторов; point-окна = ROUND-предел linear axis, то
+  есть corner-seeding остаётся параметром посева и на поверхности).
+  Сначала один источник без вееров и стен; затем tangent-cone вееры
+  (сумма углов ≠ 2π — штатный источник path histories); затем barriers.
+  Сверх статьи: multi-source weighted конкуренция, weighted dominance,
+  certified-interval окна с proof obligations вместо double.
+- **S4 — MULTILABEL_FMM_V1.** Несколько ArrivalCandidate на
+  triangle/vertex/edge, локальная exact/certified проверка у границ
+  владения, precompute до alpha_max, drag только режет готовый complex.
+  Базлайн S-WF0: 1.7% max на полусфере, locus F1 = 1.0, побитовая
+  ретриангуляционная инвариантность.
+- **S5 — GEODESIC_TUBULAR_V1.** Fast path узкой ленты с сертификатом
+  tubular injectivity (ноль crossings/foldovers, порядок станций, один
+  (s,r) на точку, нет cut locus в пределах alpha); вводится ПОСЛЕ S3,
+  чтобы было чем проверять дифференциально.
+- **S6 — intrinsic Delaunay preprocessing.** Только после базовых
+  замеров S3/S4. Критерий на одной polyhedral-поверхности —
+  инвариантность к intrinsic-ретриангуляции; при geometric refinement —
+  сходимость с bounded error, не побитовый дайджест.
+- **S7 — SurfaceLiftPlan / offset shell.** Отдельный конвейер с
+  собственными проверками: ориентация после lift, нулевые площади,
+  инверсия shell, самопересечение (локальный |h·κ|-бюджет не заменяет
+  глобальный collision check), fold continuity, единственность
+  материализации.
+
+**Границы ролей.** Surfer2 — planar/developable оракул (R0), не
+general-curved solver. HEAT / Vector Heat — predictor и transport-сервис,
+никогда authority (S-WF0: locus F1 = 0). Legacy PATCH_VORONOI — заморожен
+как спецификация (IR/provenance/периодика/канонический 1D
+transition-контракт/materialization), код не переносится. Стены:
+barrier (constraint) ≠ stationary boundary support (граничное условие);
+q = 0 — представление planar-редукции в адаптере.
+
+**Порядок.** Программа S не вытесняет очередь аудита (P0-0..P0-4, R0,
+R1): S0/S2 (контракты) готовятся параллельно R0; S1 — после P0-1/P0-2;
+S3+ — по вердиктам P0-0 и S1. Фикстуры: harness и девятка S-WF0
+переиспользуются; добавляются saddle, torus strip, cut-locus chain,
+barrier-on-curved; flat reduction — весь planar корпус.
+
+---
+
 ## Фаза 3 — паритет возможностей
 
 Один чеклист вместо карт и handoff-документов. Строка = возможность легаси = тест =
