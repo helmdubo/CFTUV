@@ -1488,19 +1488,53 @@ offset-плоскостей) — спецификация SurfaceLiftPlan, не 
   owner fragments, proof status, alpha horizon). Исполняемый инвариант:
   на плоском и developable входе surface-путь совпадает с planar kernel —
   owners, события, coverage.
-- **S3 — POLYHEDRAL_WINDOW_REFERENCE_V1.** Alpha-ограниченное window
-  propagation по extended Xin–Wang (parallel-source окна для segment- и
-  hidden-support-генераторов; point-окна = ROUND-предел linear axis, то
-  есть corner-seeding остаётся параметром посева и на поверхности).
-  Сначала один источник без вееров и стен; затем tangent-cone вееры
-  (сумма углов ≠ 2π — штатный источник path histories); затем barriers.
-  Сверх статьи: multi-source weighted конкуренция, weighted dominance,
-  certified-interval окна с proof obligations вместо double.
+- **S3 — POLYHEDRAL_WINDOW_REFERENCE_V1.** Два независимых режима
+  (запись 2026-08-02 о раздвоении S3):
+  **S3-A STANDARD_GEODESIC_OFFSET** — чистый extended Xin–Wang
+  (points + непрерывные polylines, unit speed, штатные endpoint
+  point-окна): внешний математический оракул ROUND∞ / geodesic offset,
+  снимает discrete-source оговорку S-WF0.
+  **S3-B CFTUV_DIRECTIONAL_ARRIVAL** — кандидат продуктового ядра:
+  посев из общего SurfaceArrivalGenerator (PARALLEL_SEGMENT /
+  DIRECTIONAL_PARALLEL / POINT / BOUNDARY_CONDITION; автоматические
+  endpoint point-окна ВЫКЛЮЧЕНЫ — терминал это политика, POINT — только
+  по явному запросу), tangent-cone вееры конечного k (сумма углов ≠ 2π —
+  штатный источник path histories), labels + station witnesses (на cut
+  locus — кортеж witnesses, не один source_s), multiway сохраняется до
+  атомарного resolver; поверх окон — local labeled GVD слой (внутри
+  треугольника границы — отрезки/гиперболы/параболы; float-политику
+  вырождений реализации 2014 НЕ берём — равные кандидаты живут до
+  resolver). Weighted-фильтрация — только после exhaustive-эталона окон
+  (паттерн MOTORCYCLE против EXHAUSTIVE). Карточки: S3-0
+  PLANAR_REDUCTION_SPEC (до кода: какие посевы дают MITER / ROUND_k /
+  ROUND∞ / CAP / terminal rail / wall / T-X / weighted) → S3-1
+  CONTINUOUS_POLYLINE_ORACLE → S3-2 LABELED_LOCAL_GVD → S3-3
+  CFTUV_SEED_COMPILER → S3-4 WALL_AND_BOUNDARY_CONDITIONS → S3-5
+  WEIGHTED_WINDOWS → S3-6 CERTIFIED_ARITHMETIC (интервалы + obligations;
+  малый CORE-класс exact-оракул на adversarial фикстурах — отдельно) →
+  S3-7 FIELD_BENCHMARK (building.004, полусфера, седло, T/X, стены,
+  d0–d4, планарные/developable отрицательные контроли).
+
+  **Ворота планарной редукции S3** — на каждой планарной фикстуре четыре
+  колонки: A текущая очередь, B standard XW, C seeded XW, D legacy
+  Voronoi / closed-form. C обязана совпасть с A всюду (внутренность
+  источника, MITER, конечный ROUND_k, ROUND∞, веса, стены, terminal
+  rail); B обязана совпасть с A на внутренности источника и ROUND∞/cap —
+  и обязана НЕ совпасть на MITER и конечном ROUND_k (отрицательный
+  контроль против проверки слишком простого случая). Сверяются coverage
+  на нескольких alpha, owner каждого фрагмента, source occurrence +
+  station, cut locus, события, терминалы, участники вееров, same-time
+  компоненты, proof status.
 - **S4 — MULTILABEL_FMM_V1.** Несколько ArrivalCandidate на
   triangle/vertex/edge, локальная exact/certified проверка у границ
   владения, precompute до alpha_max, drag только режет готовый complex.
   Базлайн S-WF0: 1.7% max на полусфере, locus F1 = 1.0, побитовая
-  ретриангуляционная инвариантность.
+  ретриангуляционная инвариантность. Честная граница: FMM подтверждён
+  как distance-predictor, но НЕ как owner/event-бэкенд (на planar L/T
+  его locus F1 = 0.69–0.81 против 1.0 у MMP) — production-гибрид: FMM
+  предлагает активные owners и зоны столкновений, локальное window/exact
+  уточнение сертифицирует cut locus и станции. Runtime-роль
+  alpha-limited Xin–Wang заранее не фиксируется — решает S3-7.
 - **S5 — GEODESIC_TUBULAR_V1.** Fast path узкой ленты с сертификатом
   tubular injectivity (ноль crossings/foldovers, порядок станций, один
   (s,r) на точку, нет cut locus в пределах alpha); вводится ПОСЛЕ S3,
@@ -1519,9 +1553,11 @@ offset-плоскостей) — спецификация SurfaceLiftPlan, не 
 general-curved solver. HEAT / Vector Heat — predictor и transport-сервис,
 никогда authority (S-WF0: locus F1 = 0). Legacy PATCH_VORONOI — заморожен
 как спецификация (IR/provenance/периодика/канонический 1D
-transition-контракт/materialization), код не переносится. Стены:
-barrier (constraint) ≠ stationary boundary support (граничное условие);
-q = 0 — представление planar-редукции в адаптере.
+transition-контракт/materialization), код не переносится. Стены —
+три роли: barrier (constraint допустимых путей), boundary condition
+(терминальная политика фронта у границы), arrival source (волна ИЗ
+границы — нативный режим Xin–Wang); стены CFTUV — почти всегда первые
+две; q = 0 — представление planar-редукции в адаптере.
 
 **Порядок.** Программа S не вытесняет очередь аудита (P0-0..P0-4, R0,
 R1): S0/S2 (контракты) готовятся параллельно R0; S1 — после P0-1/P0-2;

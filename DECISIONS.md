@@ -3733,3 +3733,50 @@ support веера, поэтому corner-seeding (linear axis) переноси
 cut locus), weighted dominance при разных скоростях, certified-interval
 арифметика окон вместо double. Роль — reference authority S3, не runtime
 (runtime — MULTILABEL_FMM).
+
+**2026-08-02** — Три поправки к моей же записи о якоре S3 (append-only,
+по пятому раунду аудита): (1) multi-source у статьи ЕСТЬ — источник
+определён как множество points + polylines; сверх статьи недостаёт не
+multi-source, а weighted/labeled/directed arrival complex;
+(2) память O(n) — свойство scalar-distance пути (один генератор на
+треугольник + filtering theorem) и НЕ доказана для labeled complex CFTUV
+(компаньон polyline-GVD 2014 — уже O(nN)); честная форма — «цель,
+подлежащая замеру при alpha-обрезке», не гарантия; (3) alpha-обрезка
+практична, но получает маленькие ворота: priority key обязан быть
+сертифицированной нижней гранью окна, монотонность переподтверждается
+при весах, additive стартах и directional seeds.
+
+**2026-08-02** — СЕМАНТИКА НАЧАЛЬНОЙ ВОЛНЫ ВЫНОСИТСЯ из planar kernel в
+общий SurfaceArrivalGenerator: посев один — бэкенда три (planar queue /
+developable unfold / curved windows). Таксономия посева:
+PARALLEL_SEGMENT / DIRECTIONAL_PARALLEL / POINT / BOUNDARY_CONDITION.
+Автоматические endpoint point-окна статьи ВЫКЛЮЧЕНЫ по умолчанию:
+терминал CFTUV — продуктовая политика (rail/cap/junction/fold), не
+круглый cap; POINT — только по явному запросу (ROUND∞ / circular cap).
+PRODUCT_POINT_SOURCE ≠ GEOMETRIC_PSEUDO_SOURCE: saddle-witness —
+транспортный узел path history существующего генератора, владельцем не
+становится. Основание из собственного ядра: веерные рёбра planar kernel
+УЖЕ суть DirectionalParallelSeed — нулевой span `(x, y, x, y, ordinal)`
+при SupportLineV1 с нормалью и скоростью (`_seed_fan_edges`), извлечение —
+рефакторинг существующей семантики. Point-окно ≠ конечный ROUND_k
+алгоритмически (только предел формы при k→∞: у конечного k — конечные
+owners, прямые границы, конечная комбинаторика). Стены — ТРИ роли:
+barrier (constraint путей) / boundary condition (терминальная политика) /
+arrival source (нативный режим XW); стены CFTUV — почти всегда первые
+две. Weighted-фильтрация окон — только после exhaustive-эталона окон
+(тот же паттерн, что MOTORCYCLE против EXHAUSTIVE). Точность — три тира:
+REFERENCE_EXACT_SMALL (CORE-класс, малые adversarial фикстуры, оракул) /
+REFERENCE_CERTIFIED (интервалы + proof obligations) /
+RUNTIME_APPROXIMATE (FMM с именованной неопределённостью). S3
+раздваивается: S3-A STANDARD_GEODESIC_OFFSET (чистый XW — внешний
+оракул, снимает discrete-source оговорку S-WF0) и S3-B
+CFTUV_DIRECTIONAL_ARRIVAL (кандидат продуктового ядра). Ворота планарной
+редукции — четыре колонки (planar queue / standard XW / seeded XW /
+legacy Voronoi) с ОТРИЦАТЕЛЬНЫМ контролем: standard XW обязан НЕ
+совпасть с очередью на MITER и конечном ROUND_k — иначе ворота проверяют
+слишком простой случай. FMM подтверждён S-WF0 как distance-predictor, но
+НЕ как owner/event-бэкенд (на planar L/T его locus F1 = 0.69–0.81);
+production-гибрид — FMM предлагает, локальное window/exact уточнение
+сертифицирует. Runtime-роль alpha-limited XW заранее НЕ фиксируется —
+решает полевой бенчмарк (локальные support bands в C++ могут успеть в
+confirm/final).
