@@ -184,17 +184,17 @@ _PROOF_STATUS_ORACLE = {
 # `(time, point)` records становятся одним MULTIWAY. A-oracle выше остаётся
 # буквальным base snapshot; здесь явно перечислена разрешённая дельта B.
 _P0_2_MERGED_DIGESTS = {
-    "partial_source::ell_12_source_edges_0_1": "9b9ffb215c65ae767a64682f7440cfc9047ca89bce48efd77f44086b299cd6ac",
-    "partial_source::ell_12_source_edges_1_2": "1794c8080b92ebbb594cc8cf726b297fd7d4bffd68f13140f6b32fbe39b15e2b",
-    "partial_source::ell_12_source_edges_3_4": "d582b606f0702dea0085a483dada3f9ea0c14c11738e264617614e452a0fcac3",
-    "partial_source::ell_12_source_edges_4_5": "e649567afe70b7eeee3fef9ec0798f1d6b631509ba125a33a60bee3bc628183b",
-    "partial_source::staircase_source_edges_0_1": "53de559487b2be48182f780e28af0e521e888fc8142d774428d0a1aaa3580b88",
-    "partial_source::staircase_source_edges_1_2": "4494e609e49b68b365b2304c7650f2b130f83e8633ed2900e17ce168ab152d03",
-    "partial_source::staircase_source_edges_2_3": "85ee3d5c9f19f2eaeab89d93ae82407b1522cc787d0ef901205ee7632e6367bb",
-    "partial_source::staircase_source_edges_3_4": "2d7a920bac5c629d4ab410fcb7bc43528fabf227223b7da5e7b744258c5c793e",
-    "partial_source::staircase_source_edges_5_6": "3c1493b690217efcd7090a51a3d08c7ae970386e4e0cc06c357daa80643ae4de",
-    "partial_source::staircase_source_edges_6_7": "a2e4ee121c9a1caa5424e28d5ba6f62b576e2c5db2e5d959eb271d658bb854b4",
-    "partial_source::ell_12_source_without_the_reflex_pair": "3fb75da671ad199460545dc12ded3ed36543b71b7842cffda93783aee1f9eab0",
+    "partial_source::ell_12_source_edges_0_1": "208868ef5bcd90e754cbb58f8b0a217ba01c16394b760233e674aa08f71f86f8",
+    "partial_source::ell_12_source_edges_1_2": "c1aabdde087d2f953a36923650162908b53d86dc2cdb7440ecd0ece742fb82c3",
+    "partial_source::ell_12_source_edges_3_4": "744e86a41a44ab628dc3101884db0d7424af4d5bcd8169061765b54438b52e78",
+    "partial_source::ell_12_source_edges_4_5": "cbac4fa128c53fd0f0953b5ab90538512e88cdaeb2f0929db26242d504f8d341",
+    "partial_source::staircase_source_edges_0_1": "e30d8794d7271c2950e55ec91831e94d18f7be6e30c9d646a631767d1d125d8f",
+    "partial_source::staircase_source_edges_1_2": "15029ab3a8777120e59f0f5580a8e0a66105a4f18d3724ad8ce80f200adf7887",
+    "partial_source::staircase_source_edges_2_3": "16329a311d077ee03c80615bbeaa8322ab74d3255889ad8dccdd63050cc64008",
+    "partial_source::staircase_source_edges_3_4": "55d7a8e32294b2c96e0da4afbcb42a3546f0cc861d45505c3bd329fba2b607bd",
+    "partial_source::staircase_source_edges_5_6": "7405ce535fb0ebe22c3e84ebb6d31b07b8e20b03701691b166c71f51cf5083d9",
+    "partial_source::staircase_source_edges_6_7": "1fdf15957d7935dfaabf85de614ca5d0c02d9ab734118d7fb73d5c1cfc5e4d5b",
+    "partial_source::ell_12_source_without_the_reflex_pair": "3011b4558c599f307946d1a41fd74fbe6a74dd847e13a2e5a6a98c5dbac9aadf",
 }
 
 

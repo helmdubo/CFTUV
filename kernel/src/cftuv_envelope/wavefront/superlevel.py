@@ -87,6 +87,25 @@ def _incidence_components(nodes: tuple) -> tuple[tuple[int, ...], ...]:
     return tuple(components)
 
 
+def _original_kinds(node) -> tuple[EventKind, ...]:
+    if node.kind is not EventKind.MULTIWAY:
+        return (node.kind,)
+    canonical = tuple(sorted(set(node.kinds), key=lambda kind: kind.value))
+    if not canonical:
+        raise ValueError("MULTIWAY_NODE_KINDS_UNAVAILABLE")
+    if EventKind.MULTIWAY in canonical or node.kinds != canonical:
+        raise ValueError("MULTIWAY_NODE_KINDS_NOT_CANONICAL")
+    return canonical
+
+
+def _original_incidences(node) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    if node.kind is not EventKind.MULTIWAY:
+        return (node.participants,)
+    if not node.incidences:
+        raise ValueError("MULTIWAY_NODE_INCIDENCE_UNAVAILABLE")
+    return node.incidences
+
+
 def accumulate_nodes(
     nodes: tuple, converged_vertex_ids: tuple[tuple[int, ...], ...]
 ) -> tuple:
@@ -111,11 +130,7 @@ def accumulate_nodes(
                     {
                         original
                         for index in component
-                        for original in (
-                            nodes[index].kinds
-                            if nodes[index].kind is EventKind.MULTIWAY
-                            else (nodes[index].kind,)
-                        )
+                        for original in _original_kinds(nodes[index])
                     },
                     key=lambda kind: kind.value,
                 )
@@ -144,7 +159,11 @@ def accumulate_nodes(
                         converging_vertices=len(vertices),
                         kinds=kinds,
                         incidences=tuple(
-                            nodes[index].participants for index in component
+                            sorted(
+                                incidence
+                                for index in component
+                                for incidence in _original_incidences(nodes[index])
+                            )
                         ),
                     ),
                 )

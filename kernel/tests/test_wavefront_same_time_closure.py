@@ -351,6 +351,44 @@ def test_phase_b_accumulator_keeps_independent_coincident_components():
     assert independent in nodes
 
 
+def test_phase_b_accumulator_flattens_two_pass_original_incidences():
+    skeleton = build_skeleton(dict(_CASES)["named::axis_square"])
+    base = skeleton.nodes[0]
+    a = (10, 0, 11, 0)
+    b = (20, 0, 21, 0)
+    c = (30, 0, 31, 0)
+    d = (40, 0, 41, 0)
+    ab = replace(base, participants=(a, b), converging_vertices=2)
+    bc = replace(
+        base,
+        kind=EventKind.SPLIT,
+        participants=(b, c),
+        converging_vertices=2,
+    )
+    cd = replace(base, participants=(c, d), converging_vertices=2)
+
+    first = accumulate_nodes((ab, bc), ((1, 2), (2, 3)))[0]
+    merged = accumulate_nodes((first, cd), ((1, 2, 3), (3, 4)))[0]
+    assert merged.participants == (a, b, c, d)
+    assert merged.incidences == ((a, b), (b, c), (c, d))
+    assert merged.kinds == (EventKind.EDGE, EventKind.SPLIT)
+    assert merged.converging_vertices == 4
+
+    mutated = replace(merged, incidences=((a, b), (a, c), (c, d)))
+    assert node_record(mutated) != node_record(merged)
+    assert semantic_digest(replace(skeleton, nodes=(mutated,))) != (
+        semantic_digest(replace(skeleton, nodes=(merged,)))
+    )
+    with pytest.raises(
+        ValueError, match="MULTIWAY_NODE_INCIDENCE_UNION_MISMATCH"
+    ):
+        node_record(replace(merged, incidences=((a, b),)))
+    with pytest.raises(ValueError, match="MULTIWAY_NODE_KINDS_NOT_CANONICAL"):
+        node_record(
+            replace(merged, kinds=(EventKind.SPLIT, EventKind.EDGE))
+        )
+
+
 def test_phase_b_consumers_refuse_unannotated_multiway_by_name():
     polygon = dict(_CASES)["named::axis_square"]
     skeleton = build_skeleton(polygon)
