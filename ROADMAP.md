@@ -1247,7 +1247,7 @@ NEAR-PLANAR-VALIDATOR-01 закрыла все три (слито `255312b`, п�
      без записи. Ворота: 40/63 фигур корпуса, сегодня дающих EXACT при
      NO_RULE, получают явный proof_status без смены геометрического
      ответа.
-   - **P0-2 WF-SAME-TIME-CLOSURE-GATE** — этапы A→D: наблюдаемость
+   - **P0-2 WF-SAME-TIME-CLOSURE-GATE** — ЗАКРЫТА (`4527a1c`: A–C в продукте, D дал доказанный STOP — на 5 EXACT-фигурах partition/ownership зависят от порядка; транзакция выдана карточкой P0-2b): этапы A→D: наблюдаемость
      (`SAME_TIME_EVENTS_ENQUEUED_DURING_LEVEL`,
      `SAME_TIME_RESIDUAL_AFTER_LEVEL`, `DUPLICATE_EXACT_TIME_POINT_NODES`,
      `MIXED_KIND_EXACT_TIME_POINT_NODES`, `peek_time`) → канонический
