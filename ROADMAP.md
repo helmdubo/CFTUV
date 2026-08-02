@@ -1240,7 +1240,7 @@ NEAR-PLANAR-VALIDATOR-01 закрыла все три (слито `255312b`, п�
    внешнего аудита + исполняемая сверка; свидетельства —
    `artifacts/kernel_audit_exact_proof/`). Четыре P0 не зависят от того,
    останется ли бэкенд LAV/motorcycle или его заменит kinetic:
-   - **P0-1 WF-PROOF-OBLIGATION-CHANNEL** — вторая ось результата
+   - **P0-1 WF-PROOF-OBLIGATION-CHANNEL** — ЗАКРЫТА (`b69f3e5`, merge `0f44096`: 39/24, 420 обязательств, 63 фигуры побитово, канал в `wavefront/proof.py` 202 строки): вторая ось результата
      `proof_status` с жизненным циклом обязательств; счётчик
      `EDGE_COLLAPSE_SPAN_UNPROVEN_BUT_ACCEPTED`; счётчик отброса
      неизвестного kind; ни одна применённая недоказанная ветка не остаётся
