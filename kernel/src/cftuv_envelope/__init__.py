@@ -1,220 +1,29 @@
 """Explicit public API for the Blender-free Envelope contract package."""
 
-from . import ids as _ids
-from . import numeric as _numeric
-from . import outcomes as _outcomes
-from .canonical import (
-    GeometryBatchSemanticDigest,
-    SemanticPlanDigest,
-    SnapshotDigest,
-    geometry_batch_semantic_digest,
-    semantic_plan_digest,
-    snapshot_digest,
-)
-from .codec import (
-    AnalysisSnapshotCodecV1,
-    CompiledPlanCodecV1,
-    ChainStraightEvaluationGeometryBindingCodecV2,
-    ContractCodecError,
-    DecalRequestCodecV1,
-    EnvelopeDebugSceneCodecV1,
-    EvaluationGeometryBindingCodecV1,
-    GeometryBatchCodecV1,
-    RationalAffinePlanarMetricCodecV2,
-    RuntimePlanarMetricCodecV1,
-    canonical_json_bytes,
-)
-from .contracts import debug as _debug
-from .contracts.debug import (
-    ENVELOPE_DEBUG_SCENE_SCHEMA_V1,
-    DebugDiagnosticSeverity,
-    DebugDiagnosticV1,
-    DebugExactPoint2V1,
-    DebugLabelV1,
-    DebugLoopV1,
-    DebugPathV1,
-    DebugPatchFrameV1,
-    DebugPointV1,
-    DebugPrimitiveKind,
-    DebugRegionV1,
-    EnvelopeDebugSceneV1,
-    EnvelopeDebugStage,
-)
-from .debug_scene import build_envelope_debug_scene, validate_envelope_debug_scene
-from .contracts import analysis as _analysis
-from .contracts import coverage as _coverage
-from .contracts import envelopes as _envelopes
-from .contracts import events as _events
-from .contracts import geometry_batch as _geometry_batch
-from .contracts import metric as _metric
-from .contracts import ownership as _ownership
-from .contracts import plan as _plan
-from .contracts import request as _request
-from .contracts import seeds as _seeds
-from .contracts import surface as _surface
-from .contracts import tessellation as _tessellation
-from .planar_metric import (
-    Binary64IntervalV1,
-    FilteredPredicateDecisionV1,
-    PlanarMetricAdmissionError,
-    RuntimePredicateTelemetryV1,
-    build_rational_affine_planar_metric,
-    build_runtime_planar_metric,
-    filtered_orient2d,
-    fraction_from_exact,
-    resolve_orient2d,
-)
-from .schema import ContractSchemaError, json_schema_for
-from .reference.compile import (
-    compile_reference_envelopes,
-    declare_reference_self_contacts,
-)
-from .reference.contracts import (
-    REFERENCE_COMPILATION_SCHEMA_V1,
-    RAW_COVERAGE_RESULT_SCHEMA_V1,
-    RAW_COVERAGE_RESULT_SCHEMA_V2,
-    BoundaryVertexOccurrenceV1,
-    BoundaryContactKind,
-    BoundaryResolvedEnvelopeV1,
-    ComponentEffectiveAlphaV1,
-    EnvelopeSourceProvenanceV1,
-    RawCoverageEdgeV1,
-    RawCoverageLoopKind,
-    RawCoverageLoopV1,
-    RawCoverageRegionV1,
-    RawCoverageResultV1,
-    RawCoverageResultV2,
-    RawCoverageVertexV1,
-    PointContactRecordV1,
-    ReachabilityCertificateV1,
-    ReferenceCompileResultV1,
-    ReferenceDiagnosticSeverity,
-    ReferenceEnvelopeCompilationV1,
-    ReferenceEnvelopeInstanceV1,
-    ReferenceEvaluationDiagnosticV1,
-    ReferenceEvaluationResultV1,
-    ReferenceOutcome,
-)
-from .reference.digest import (
-    RawCoverageSemanticDigest,
-    raw_coverage_semantic_projection,
-    raw_coverage_semantic_digest,
-    validate_raw_coverage_digest,
-    validate_raw_coverage_semantic_digest,
-)
-from .reference.domain_geometry import (
-    BlockingBoundarySegment,
-    BoundaryRole,
-    SparsePatchDomainGeometryV1,
-    build_sparse_patch_domain_geometry,
-)
-from .reference.provenance import (
-    BoundaryGeneratorProvenanceV1,
-    CoverageContributorProvenanceV1,
-    ReferenceProvenanceV1,
-)
-from .reference.metric import (
-    ExactPlanarMetric,
-    angle_G,
-    distance_to_support_G,
-    dot_G,
-    length_G,
-    offset_support_G,
-    owner_normal_G,
-    unit_G,
-)
-from .reference.raw_coverage import (
-    REFERENCE_BOUNDARY_CAPABILITIES_V1,
-    evaluate_reference_raw_coverage,
-)
-from .interactions import (
-    RESOLVED_COVERAGE_RESULT_SCHEMA_V1,
-    INTRAPATCH_POLICY_B_V1,
-    SELF_CONTACT_POLICY_B_V1,
-    ActiveDomainCertificateV1,
-    AngularProfileArrivalModelV1,
-    ArrivalModelKind,
-    ArrivalModelV1,
-    CapArrivalModelV1,
-    EqualityLocusOwner,
-    EqualityLocusSegmentV1,
-    EqualityLocusV1,
-    ExactFrontArrivalLawV1,
-    FreezeState,
-    FrontArrivalReadingV1,
-    InteractionApplicationV1,
-    InteractionCandidateKind,
-    InteractionCandidateV1,
-    InteractionComponentV1,
-    InteractionCoverageEffect,
-    InteractionDiagnosticSeverity,
-    InteractionDiagnosticV1,
-    InteractionOutcome,
-    InteractionProvenanceV1,
-    InteractionResolutionResultV1,
-    MutualArrivalCertificateV1,
-    ResolvedContributionV1,
-    ResolvedCoverageResultV1,
-    ResolvedCoverageSemanticDigest,
-    StripArrivalModelV1,
-    UnsupportedJunctionArrivalModelV1,
-    compile_arrival_models,
-    compile_interaction_components,
-    generate_interaction_candidates,
-    prove_mutual_arrivals,
-    resolve_coverage_interactions,
-    resolved_coverage_semantic_digest,
-    resolved_coverage_semantic_projection,
-    validate_interaction_inputs,
-    validate_resolved_coverage_digest,
-)
-from .validation import (
-    ContractValidationError,
-    ValidationCode,
-    ValidationIssue,
-    raise_for_issues,
-    validate_analysis_snapshot,
-    validate_compiled_plan,
-    validate_chain_straight_evaluation_geometry_binding,
-    validate_cross_contract_references,
-    validate_decal_request,
-    validate_evaluation_geometry_binding,
-    validate_geometry_batch,
-    validate_rational_affine_planar_metric,
-    validate_runtime_planar_metric,
-    validate_snapshot_request_references,
-)
-from .runtime_metric import (
-    RuntimeMetricPerformanceReportV1,
-    RuntimeRawCoverageEvaluationV1,
-    evaluate_filtered_runtime_raw_coverage,
-)
-from .version import __version__
-# Импортируется здесь, а не при первом обращении из теста, намеренно: механизм
-# импорта привязывает подпакет к родителю ТОЛЬКО при первой загрузке, и если
-# первая загрузка случится снаружи, имя всплывёт в `dir(cftuv_envelope)` уже
-# после уборки ниже — и снимок публичного API упадёт в полном прогоне, но не
-# поодиночке. Так же заведены `reference`, `interactions`, `planar_metric`.
-from . import robust  # noqa: F401
+from importlib import import_module as _import_module
+from sys import modules as _modules
+from types import ModuleType as _ModuleType
 
 
+# Имена модулей сохранены как данные: фасад не импортирует их до обращения к
+# конкретному публичному имени.
 _PUBLIC_VALUE_MODULES = (
-    _ids,
-    _numeric,
-    _outcomes,
-    _analysis,
-    _coverage,
-    _envelopes,
-    _events,
-    _geometry_batch,
-    _metric,
-    _ownership,
-    _plan,
-    _request,
-    _seeds,
-    _surface,
-    _tessellation,
-    _debug,
+    "cftuv_envelope.ids",
+    "cftuv_envelope.numeric",
+    "cftuv_envelope.outcomes",
+    "cftuv_envelope.contracts.analysis",
+    "cftuv_envelope.contracts.coverage",
+    "cftuv_envelope.contracts.envelopes",
+    "cftuv_envelope.contracts.events",
+    "cftuv_envelope.contracts.geometry_batch",
+    "cftuv_envelope.contracts.metric",
+    "cftuv_envelope.contracts.ownership",
+    "cftuv_envelope.contracts.plan",
+    "cftuv_envelope.contracts.request",
+    "cftuv_envelope.contracts.seeds",
+    "cftuv_envelope.contracts.surface",
+    "cftuv_envelope.contracts.tessellation",
+    "cftuv_envelope.contracts.debug",
 )
 
 __all__ = (
@@ -727,45 +536,172 @@ __all__ = (
     "TessellationPlan",
 )
 
-for _module in _PUBLIC_VALUE_MODULES:
-    for _name in __all__:
-        if _name not in globals() and hasattr(_module, _name):
-            globals()[_name] = getattr(_module, _name)
+_EXPORT_RANGES = (
+    (0, 1, "cftuv_envelope.version"),
+    (1, 12, "cftuv_envelope.codec"),
+    (12, 18, "cftuv_envelope.canonical"),
+    (18, 20, "cftuv_envelope.reference.compile"),
+    (20, 22, "cftuv_envelope.reference.raw_coverage"),
+    (22, 26, "cftuv_envelope.reference.domain_geometry"),
+    (26, 31, "cftuv_envelope.reference.digest"),
+    (31, 70, "cftuv_envelope.interactions"),
+    (70, 77, "cftuv_envelope.reference.contracts"),
+    (77, 80, "cftuv_envelope.reference.provenance"),
+    (80, 88, "cftuv_envelope.reference.metric"),
+    (88, 105, "cftuv_envelope.reference.contracts"),
+    (105, 107, "cftuv_envelope.schema"),
+    (107, 116, "cftuv_envelope.planar_metric"),
+    (116, 128, "cftuv_envelope.validation"),
+    (128, 131, "cftuv_envelope.runtime_metric"),
+    (131, 133, "cftuv_envelope.validation"),
+    (133, 146, "cftuv_envelope.contracts.debug"),
+    (146, 148, "cftuv_envelope.debug_scene"),
+    (148, 226, "cftuv_envelope.ids"),
+    (226, 244, "cftuv_envelope.numeric"),
+    (244, 245, "cftuv_envelope.outcomes"),
+    (245, 316, "cftuv_envelope.contracts.analysis"),
+    (316, 339, "cftuv_envelope.contracts.metric"),
+    (339, 340, "cftuv_envelope.contracts.analysis"),
+    (340, 341, "cftuv_envelope.contracts.metric"),
+    (341, 342, "cftuv_envelope.contracts.analysis"),
+    (342, 351, "cftuv_envelope.contracts.metric"),
+    (351, 358, "cftuv_envelope.contracts.coverage"),
+    (358, 407, "cftuv_envelope.contracts.envelopes"),
+    (407, 423, "cftuv_envelope.contracts.events"),
+    (423, 435, "cftuv_envelope.contracts.geometry_batch"),
+    (435, 444, "cftuv_envelope.contracts.ownership"),
+    (444, 476, "cftuv_envelope.contracts.plan"),
+    (476, 477, "cftuv_envelope.contracts.request"),
+    (477, 479, "cftuv_envelope.contracts.envelopes"),
+    (479, 480, "cftuv_envelope.contracts.request"),
+    (480, 481, "cftuv_envelope.contracts.envelopes"),
+    (481, 486, "cftuv_envelope.contracts.request"),
+    (486, 487, "cftuv_envelope.contracts.seeds"),
+    (487, 488, "cftuv_envelope.contracts.envelopes"),
+    (488, 493, "cftuv_envelope.contracts.seeds"),
+    (493, 494, "cftuv_envelope.contracts.plan"),
+    (494, 498, "cftuv_envelope.contracts.surface"),
+    (498, 499, "cftuv_envelope.contracts.analysis"),
+    (499, 505, "cftuv_envelope.contracts.tessellation"),
+    (505, 506, "cftuv_envelope.contracts.plan"),
+    (506, 507, "cftuv_envelope.contracts.tessellation"),
+)
 
-# `wavefront` подтягивается сюда ровно затем, чтобы быть тут же убранным из
-# пространства имён пакета, — как это уже сделано с `robust`. Без раннего
-# импорта первый же `import cftuv_envelope.wavefront` у любого потребителя
-# ПРИВЯЗАЛ БЫ имя подмодуля к пакету, и `dir(cftuv_envelope)` разошёлся бы с
-# `__all__`. Публичного API это не расширяет: имя удаляется ниже, `__all__`
-# не меняется, дайджест публичного API остаётся прежним.
-from . import wavefront as _wavefront
+_EXPORTS = {
+    name: (module_name, name)
+    for start, stop, module_name in _EXPORT_RANGES
+    for name in __all__[start:stop]
+}
 
-for _module_name in (
+_PRIVATE_MODULES = {
+    "_analysis": "cftuv_envelope.contracts.analysis",
+    "_coverage": "cftuv_envelope.contracts.coverage",
+    "_debug": "cftuv_envelope.contracts.debug",
+    "_density_policy": "cftuv_envelope._density_policy",
+    "_envelopes": "cftuv_envelope.contracts.envelopes",
+    "_events": "cftuv_envelope.contracts.events",
+    "_geometry_batch": "cftuv_envelope.contracts.geometry_batch",
+    "_ids": "cftuv_envelope.ids",
+    "_metric": "cftuv_envelope.contracts.metric",
+    "_numeric": "cftuv_envelope.numeric",
+    "_outcomes": "cftuv_envelope.outcomes",
+    "_ownership": "cftuv_envelope.contracts.ownership",
+    "_plan": "cftuv_envelope.contracts.plan",
+    "_request": "cftuv_envelope.contracts.request",
+    "_seeds": "cftuv_envelope.contracts.seeds",
+    "_surface": "cftuv_envelope.contracts.surface",
+    "_tessellation": "cftuv_envelope.contracts.tessellation",
+}
+
+_CHILD_MODULE_NAMES = (
+    "adaptive_density_validation",
     "canonical",
     "codec",
     "contracts",
+    "debug_scene",
+    "exact_sqrt_sum",
     "ids",
+    "interactions",
     "numeric",
     "outcomes",
+    "planar_metric",
+    "reference",
+    "robust",
+    "runtime_metric",
     "schema",
+    "source_grid",
     "validation",
-    # Соседи `validation.py`: общий словарь проверок и ветка метрики. Публичный
-    # API ими не расширяется — имена убираются тем же механизмом, что и сам
-    # `validation`.
     "validation_issues",
     "validation_metric",
     "version",
-    "reference",
-    "interactions",
-    "debug_scene",
-    "planar_metric",
-    "source_grid",
-    "runtime_metric",
-    "adaptive_density_validation",
-    "exact_sqrt_sum",
-    "robust",
     "wavefront",
-):
-    globals().pop(_module_name, None)
+)
 
-del _module, _module_name, _name, _wavefront
+_LEGACY_DIR_EXTRAS = (
+    "_PUBLIC_VALUE_MODULES",
+    "__all__",
+    "__builtins__",
+    "__cached__",
+    "__doc__",
+    "__file__",
+    "__loader__",
+    "__name__",
+    "__package__",
+    "__path__",
+    "__spec__",
+    *_PRIVATE_MODULES,
+)
+
+
+def _hide_child_modules() -> None:
+    for child_name in _CHILD_MODULE_NAMES:
+        globals().pop(child_name, None)
+
+
+def __getattr__(name: str):
+    target = _EXPORTS.get(name)
+    if target is not None:
+        module_name, symbol_name = target
+        value = getattr(_import_module(module_name), symbol_name)
+        _hide_child_modules()
+        globals()[name] = value
+        return value
+
+    module_name = _PRIVATE_MODULES.get(name)
+    if module_name is not None:
+        value = _import_module(module_name)
+        _hide_child_modules()
+        globals()[name] = value
+        return value
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted((*__all__, *_LEGACY_DIR_EXTRAS))
+
+
+class _EnvelopeFacadeModule(_ModuleType):
+    """Не даёт importlib расширять исторически замороженный root-фасад."""
+
+    def __setattr__(self, name: str, value) -> None:
+        if name in _CHILD_MODULE_NAMES and isinstance(value, _ModuleType):
+            return
+        super().__setattr__(name, value)
+
+    def __getattribute__(self, name: str):
+        if name in _CHILD_MODULE_NAMES:
+            module_name = super().__getattribute__("__name__")
+            raise AttributeError(
+                f"module {module_name!r} has no attribute {name!r}"
+            )
+        return super().__getattribute__(name)
+
+
+_hide_child_modules()
+_modules[__name__].__class__ = _EnvelopeFacadeModule
+
+# Подпакет-фасад сам лёгкий. Загружаем его один раз, чтобы последующие импорты
+# листьев не привязали к родителю исторически скрытое имя `wavefront`.
+_import_module("cftuv_envelope.wavefront")
+globals().pop("wavefront", None)
