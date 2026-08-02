@@ -1,0 +1,43 @@
+{
+  "schema": "P0_2_PHASE_C_RECEIPT_V1",
+  "base_phase": {
+    "phase_b": "b42b6fd",
+    "canonical_incidence_fix": "7338516"
+  },
+  "commits": {
+    "phase_c": "914bf2b",
+    "packet_accounting_ratchet": "9166a60"
+  },
+  "algorithm": {
+    "threshold_owner": "kernel/src/cftuv_envelope/wavefront/superlevel.py",
+    "threshold": "queue.peek_time() equals current exact time by compare_times",
+    "drain": "apply packets until no same-time packet remains",
+    "level_budget_unit": "each applied packet",
+    "candidate_generation_changed": false,
+    "candidate_filtering_changed": false,
+    "full_transaction_implemented": false
+  },
+  "gates": {
+    "corpus_cases": 63,
+    "same_time_residual_after_level_all_zero": true,
+    "semantic_digests_equal_phase_b": 63,
+    "digest_change_from_phase_b": false,
+    "cross_same_time_events_enqueued": 4,
+    "cross_packets": 6,
+    "cross_residual_event_sizes_during_packets": [2, 0, 2, 0, 0, 0],
+    "cross_completed_superlevel_residual_occurrences": 0
+  },
+  "verification": [
+    {
+      "tests": "same_time_closure, proof_obligations, event_queue",
+      "passed": 227,
+      "seconds": 66.10
+    },
+    {
+      "tests": "cross packet accounting ratchet",
+      "passed": 1,
+      "seconds": 0.17
+    }
+  ],
+  "skeleton_py_lines": 1963
+}
