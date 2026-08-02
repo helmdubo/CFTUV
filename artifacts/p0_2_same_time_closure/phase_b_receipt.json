@@ -4,7 +4,8 @@
   "commits": {
     "snapshot_gate": "bb003b6",
     "phase_a": "58d2e82",
-    "phase_b": "b42b6fd"
+    "phase_b": "b42b6fd",
+    "phase_b_incidence_fix": "7338516"
   },
   "reachability": {
     "corpus_cases": 63,
@@ -25,6 +26,11 @@
     "converging_vertices_is_distinct_runtime_id_union_cardinality": true,
     "merged_kind": "MULTIWAY",
     "merged_kinds": "unique value-sorted original kinds",
+    "merged_node_record_includes_original_incidences": true,
+    "incidence_union_equals_participants": true,
+    "multiway_metadata_is_strictly_canonical": true,
+    "two_pass_accumulation_preserves_original_incidences": true,
+    "incidence_mutation_changes_semantic_digest": true,
     "unmerged_node_record_omits_kinds": true,
     "nonduplicate_digests_byte_equal": 52,
     "intentional_merged_digest_changes": 11,
@@ -63,6 +69,11 @@
       "tests": "faces, coverage",
       "passed": 185,
       "seconds": 49.67
+    },
+    {
+      "tests": "same_time_closure and proof_obligations after incidence fix",
+      "passed": 157,
+      "seconds": 36.34
     }
   ],
   "discarded_run": {
