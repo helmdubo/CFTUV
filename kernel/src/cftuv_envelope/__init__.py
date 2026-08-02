@@ -1,6 +1,8 @@
 """Explicit public API for the Blender-free Envelope contract package."""
 
 from importlib import import_module as _import_module
+from sys import modules as _modules
+from types import ModuleType as _ModuleType
 
 
 # Имена модулей сохранены как данные: фасад не импортирует их до обращения к
@@ -678,6 +680,26 @@ def __getattr__(name: str):
 def __dir__() -> list[str]:
     return sorted((*__all__, *_LEGACY_DIR_EXTRAS))
 
+
+class _EnvelopeFacadeModule(_ModuleType):
+    """Не даёт importlib расширять исторически замороженный root-фасад."""
+
+    def __setattr__(self, name: str, value) -> None:
+        if name in _CHILD_MODULE_NAMES and isinstance(value, _ModuleType):
+            return
+        super().__setattr__(name, value)
+
+    def __getattribute__(self, name: str):
+        if name in _CHILD_MODULE_NAMES:
+            module_name = super().__getattribute__("__name__")
+            raise AttributeError(
+                f"module {module_name!r} has no attribute {name!r}"
+            )
+        return super().__getattribute__(name)
+
+
+_hide_child_modules()
+_modules[__name__].__class__ = _EnvelopeFacadeModule
 
 # Подпакет-фасад сам лёгкий. Загружаем его один раз, чтобы последующие импорты
 # листьев не привязали к родителю исторически скрытое имя `wavefront`.

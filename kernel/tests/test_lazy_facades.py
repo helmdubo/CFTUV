@@ -174,18 +174,52 @@ import cftuv_envelope as package
 import cftuv_envelope.wavefront.event_time
 import cftuv_envelope.wavefront.events
 import cftuv_envelope.wavefront.skeleton
-assert "wavefront" not in package.__dict__
-try:
-    package.wavefront
-except AttributeError as exc:
-    assert str(exc) == "module 'cftuv_envelope' has no attribute 'wavefront'"
-else:
-    raise AssertionError("wavefront leaked onto the root facade")
+for child_name in package._CHILD_MODULE_NAMES:
+    assert child_name not in package.__dict__, child_name
+    try:
+        getattr(package, child_name)
+    except AttributeError as exc:
+        assert str(exc) == (
+            f"module 'cftuv_envelope' has no attribute {{child_name!r}}"
+        )
+    else:
+        raise AssertionError(child_name + " leaked onto the root facade")
 assert not any(
     name == "sympy" or name.startswith("sympy.")
     or name == "mpmath" or name.startswith("mpmath.")
     for name in sys.modules
 )
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_direct_child_imports_work_without_root_attribute_leaks():
+    source_root = str(__file__.rsplit("tests", 1)[0] + "src")
+    script = f"""
+import sys
+sys.path.insert(0, {source_root!r})
+import cftuv_envelope as package
+import cftuv_envelope.codec as codec_alias
+from cftuv_envelope import codec as codec_from
+assert codec_alias is sys.modules["cftuv_envelope.codec"]
+assert codec_from is codec_alias
+assert codec_alias.canonical_json_bytes({{"value": 1}}) == b'{{"value":1}}'
+for child_name in package._CHILD_MODULE_NAMES:
+    assert child_name not in package.__dict__, child_name
+    try:
+        getattr(package, child_name)
+    except AttributeError as exc:
+        assert str(exc) == (
+            f"module 'cftuv_envelope' has no attribute {{child_name!r}}"
+        )
+    else:
+        raise AssertionError(child_name + " leaked onto the root facade")
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
