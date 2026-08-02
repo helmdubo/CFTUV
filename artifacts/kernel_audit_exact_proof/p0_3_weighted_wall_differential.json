@@ -1,0 +1,105 @@
+{
+  "axes": [
+    "outcome",
+    "node_record_multiset",
+    "exact_times_and_points",
+    "participants",
+    "face_owners",
+    "exact_face_areas",
+    "coverage_at_three_alphas",
+    "proof_status",
+    "stable_proof_obligation_multiset"
+  ],
+  "current_audit_base_sha": "a0910285e624fa053903187820b4d4c8635b5a34",
+  "original_snapshot_base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
+  "baseline_snapshot_commit": "a69baaaa3218ef4e61acd51ce16ac167c802861c",
+  "cases": [
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1/4", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_1", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_4", "pruned": true},
+    {"beyond_trace": 16, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "cross_full_q_65/64", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_1/4", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_1", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_4", "pruned": true},
+    {"beyond_trace": 6, "examined_exhaustive": 86, "examined_motorcycle": 86, "mismatch_axes": [], "name": "cross_source_and_walls_q_65/64", "pruned": true},
+    {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_full_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 0, "examined_motorcycle": 0, "mismatch_axes": [], "name": "rect_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_full_q_65_64", "pruned": false},
+    {"beyond_trace": 0, "examined_exhaustive": 4, "examined_motorcycle": 4, "mismatch_axes": [], "name": "ell_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 4, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_full_q_65_64", "pruned": true},
+    {"beyond_trace": 0, "examined_exhaustive": 14, "examined_motorcycle": 14, "mismatch_axes": [], "name": "staircase_source_and_walls_q_65_64", "pruned": false},
+    {"beyond_trace": 10, "examined_exhaustive": 42, "examined_motorcycle": 42, "mismatch_axes": [], "name": "weighted_vertex_fan", "pruned": true},
+    {"beyond_trace": 0, "examined_exhaustive": 24, "examined_motorcycle": 24, "mismatch_axes": [], "name": "weighted_holes_1", "pruned": false},
+    {"beyond_trace": 16, "examined_exhaustive": 116, "examined_motorcycle": 116, "mismatch_axes": [], "name": "weighted_holes_2", "pruned": true},
+    {"beyond_trace": 11, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "mirror_direct", "pruned": true},
+    {"beyond_trace": 11, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "mirror_reflected", "pruned": true},
+    {"beyond_trace": 18, "examined_exhaustive": 52, "examined_motorcycle": 52, "mismatch_axes": [], "name": "several_collinear_incidences", "pruned": true},
+    {"beyond_trace": 9, "examined_exhaustive": 52, "examined_motorcycle": 46, "mismatch_axes": [], "name": "search_pruning_witness", "pruned": true},
+    {"beyond_trace": 1, "examined_exhaustive": 50, "examined_motorcycle": 50, "mismatch_axes": [], "name": "collinear_moving_source_and_wall", "pruned": true},
+    {"beyond_trace": 8, "examined_exhaustive": 40, "examined_motorcycle": 40, "mismatch_axes": [], "name": "same_time_weighted_collapse", "pruned": true}
+  ],
+  "coverage_alphas": ["1/4", "1", "4"],
+  "focused_test": {
+    "command": "python -m pytest -q tests/test_wavefront_weighted_wall_differential.py",
+    "passed": 30,
+    "runtime_seconds": 1.76
+  },
+  "rejected_grid_controls": [
+    {
+      "differential_denominator": false,
+      "grid_cell": "full_source_q_0",
+      "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
+      "status": "REJECTED_BEFORE_SPLIT_MODE"
+    },
+    {
+      "differential_denominator": false,
+      "grid_cell": "source_and_walls_q_0",
+      "outcome": "POLYGON_HAS_NO_SOURCE_EDGE",
+      "status": "REJECTED_BEFORE_SPLIT_MODE"
+    }
+  ],
+  "matched": 23,
+  "minimal_mismatch_repros": [],
+  "mismatched": 0,
+  "mismatch_report": "first exact differing axis includes both complete projections",
+  "new_absolute_digests_frozen": false,
+  "p0_2_rebase_reconciliation": {
+    "expected_and_observed_digest_shifts": [
+      "partial_source::ell_12_source_edges_0_1",
+      "partial_source::ell_12_source_edges_1_2",
+      "partial_source::ell_12_source_edges_3_4",
+      "partial_source::ell_12_source_edges_4_5",
+      "partial_source::staircase_source_edges_0_1",
+      "partial_source::staircase_source_edges_1_2",
+      "partial_source::staircase_source_edges_2_3",
+      "partial_source::staircase_source_edges_3_4",
+      "partial_source::staircase_source_edges_5_6",
+      "partial_source::staircase_source_edges_6_7",
+      "partial_source::ell_12_source_without_the_reflex_pair"
+    ],
+    "legacy_counter_deltas": 0,
+    "legacy_outcome_deltas": 0,
+    "proof_status_deltas": 0,
+    "unexpected_digest_shifts": [],
+    "project_frozen_digests_modified": false
+  },
+  "pruned": 17,
+  "q_semantics": "literal absolute SupportLineV1.q; moving sources use q and walls use 0",
+  "required_special_cases": {
+    "collinear_moving_source_and_wall": "collinear_moving_source_and_wall",
+    "field_rational_form": "literal q=65/64",
+    "same_time_weighted_collapse": "same_time_weighted_collapse",
+    "strict_pruning_witness": "search_pruning_witness"
+  },
+  "runnable_cases": 23,
+  "schema": "cftuv.p0_3.weighted_wall_differential_receipt.v2",
+  "stable_proof_projection_excludes": ["runtime_vertex_ids"],
+  "stable_proof_projection_includes": [
+    "cause",
+    "disposition",
+    "canonical_exact_level",
+    "participant_edge_keys",
+    "target_edge_keys",
+    "event_kind"
+  ]
+}
