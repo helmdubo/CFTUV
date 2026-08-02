@@ -94,23 +94,51 @@ def _incidence_components(nodes: tuple) -> tuple[tuple[int, ...], ...]:
     return tuple(components)
 
 
-def _original_kinds(node) -> tuple[EventKind, ...]:
-    if node.kind is not EventKind.MULTIWAY:
-        return (node.kind,)
+def validate_multiway_node(node) -> tuple:
+    """Canonical original kinds/incidences либо именованная schema error."""
+
     canonical = tuple(sorted(set(node.kinds), key=lambda kind: kind.value))
     if not canonical:
         raise ValueError("MULTIWAY_NODE_KINDS_UNAVAILABLE")
     if EventKind.MULTIWAY in canonical or node.kinds != canonical:
         raise ValueError("MULTIWAY_NODE_KINDS_NOT_CANONICAL")
-    return canonical
+    if not node.incidences:
+        raise ValueError("MULTIWAY_NODE_INCIDENCE_UNAVAILABLE")
+    if any(not incidence for incidence in node.incidences):
+        raise ValueError("MULTIWAY_NODE_INCIDENCE_EMPTY")
+    incidences = tuple(
+        sorted(tuple(sorted(set(incidence))) for incidence in node.incidences)
+    )
+    if node.incidences != incidences:
+        raise ValueError("MULTIWAY_NODE_INCIDENCES_NOT_CANONICAL")
+    incidence_union = tuple(
+        sorted(
+            {
+                participant
+                for incidence in incidences
+                for participant in incidence
+            }
+        )
+    )
+    if incidence_union != node.participants:
+        raise ValueError("MULTIWAY_NODE_INCIDENCE_UNION_MISMATCH")
+    return canonical, incidences
+
+
+def _original_kinds(node) -> tuple[EventKind, ...]:
+    return (
+        (node.kind,)
+        if node.kind is not EventKind.MULTIWAY
+        else validate_multiway_node(node)[0]
+    )
 
 
 def _original_incidences(node) -> tuple[tuple[tuple[int, ...], ...], ...]:
-    if node.kind is not EventKind.MULTIWAY:
-        return (node.participants,)
-    if not node.incidences:
-        raise ValueError("MULTIWAY_NODE_INCIDENCE_UNAVAILABLE")
-    return node.incidences
+    return (
+        (node.participants,)
+        if node.kind is not EventKind.MULTIWAY
+        else validate_multiway_node(node)[1]
+    )
 
 
 def accumulate_nodes(

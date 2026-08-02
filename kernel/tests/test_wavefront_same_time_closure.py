@@ -388,6 +388,8 @@ def test_phase_b_accumulator_flattens_two_pass_original_incidences():
         node_record(
             replace(merged, kinds=(EventKind.SPLIT, EventKind.EDGE))
         )
+    with pytest.raises(ValueError, match="MULTIWAY_NODE_INCIDENCE_EMPTY"):
+        node_record(replace(merged, incidences=((), (a, b, c, d))))
 
 
 def test_phase_b_consumers_refuse_unannotated_multiway_by_name():
@@ -404,6 +406,25 @@ def test_phase_b_consumers_refuse_unannotated_multiway_by_name():
         node_record(invalid)
     partition = build_faces(polygon, replace(skeleton, nodes=(invalid,)))
     assert partition.outcome is FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE
+    assert partition.detail == "MULTIWAY_NODE_KINDS_UNAVAILABLE"
+
+    valid = next(
+        node
+        for node in build_skeleton(
+            dict(_CASES)["partial_source::ell_12_source_edges_0_1"]
+        ).nodes
+        if node.kind is EventKind.MULTIWAY
+    )
+    empty_inner = replace(
+        valid,
+        incidences=tuple(sorted(((), *valid.incidences))),
+    )
+    partition = build_faces(
+        dict(_CASES)["partial_source::ell_12_source_edges_0_1"],
+        replace(skeleton, nodes=(empty_inner,)),
+    )
+    assert partition.outcome is FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE
+    assert partition.detail == "MULTIWAY_NODE_INCIDENCE_EMPTY"
 
 
 def test_phase_b_duplicate_counters_are_zero_after_accumulation():

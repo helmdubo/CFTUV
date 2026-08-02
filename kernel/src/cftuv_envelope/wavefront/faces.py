@@ -163,6 +163,7 @@ from .events import EventKind
 from .polygon import PolygonV1, signed_double_area
 from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
+from .superlevel import validate_multiway_node
 
 
 #: Ключ УЧАСТНИКА события и владельца грани: вхождение ребра `(x0, y0, x1, y1)`,
@@ -657,15 +658,16 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
     nodes_by_key: dict[EdgeKey, list[SkeletonNodeV1]] = {}
     for node in skeleton.nodes:
         if node.kind is EventKind.MULTIWAY:
-            if not node.incidences:
+            try:
+                _, incidences = validate_multiway_node(node)
+            except ValueError as error:
                 return FacePartitionV1(
                     FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE,
                     (),
                     SqrtSumV1.zero(),
                     empty.polygon_doubled_area,
-                    "MULTIWAY node has no original participant incidences",
+                    str(error),
                 )
-            incidences = node.incidences
         else:
             incidences = (node.participants,)
         for incidence in incidences:

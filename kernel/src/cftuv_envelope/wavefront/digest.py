@@ -25,6 +25,7 @@ import json
 
 from .skeleton import SkeletonNodeV1, SkeletonV1
 from .events import EventKind
+from .superlevel import validate_multiway_node
 from .sqrt_sum import SqrtSumV1
 
 
@@ -71,33 +72,7 @@ def node_record(node: SkeletonNodeV1) -> dict:
         "converging_vertices": node.converging_vertices,
     }
     if node.kind is EventKind.MULTIWAY:
-        canonical_kinds = tuple(
-            sorted(set(node.kinds), key=lambda kind: kind.value)
-        )
-        if not canonical_kinds:
-            raise ValueError("MULTIWAY_NODE_KINDS_UNAVAILABLE")
-        if EventKind.MULTIWAY in canonical_kinds or node.kinds != canonical_kinds:
-            raise ValueError("MULTIWAY_NODE_KINDS_NOT_CANONICAL")
-        if not node.incidences:
-            raise ValueError("MULTIWAY_NODE_INCIDENCE_UNAVAILABLE")
-        canonical_incidences = tuple(
-            sorted(
-                tuple(sorted(set(incidence))) for incidence in node.incidences
-            )
-        )
-        if node.incidences != canonical_incidences:
-            raise ValueError("MULTIWAY_NODE_INCIDENCES_NOT_CANONICAL")
-        incidence_union = tuple(
-            sorted(
-                {
-                    participant
-                    for incidence in node.incidences
-                    for participant in incidence
-                }
-            )
-        )
-        if incidence_union != node.participants:
-            raise ValueError("MULTIWAY_NODE_INCIDENCE_UNION_MISMATCH")
+        canonical_kinds, canonical_incidences = validate_multiway_node(node)
         record["kinds"] = [kind.value for kind in canonical_kinds]
         record["incidences"] = [
             [_participant_record(key) for key in incidence]
