@@ -774,13 +774,23 @@ def _check_seeds(complex_: SurfaceArrivalComplexV1) -> None:
 
 
 def _check_fragments(complex_: SurfaceArrivalComplexV1) -> None:
+    """Фрагмент владения обязан лежать в ОБЪЯВЛЕННОЙ ячейке и иметь посев.
+
+    Висячая ссылка на ячейку — не пробел записи, а неверный ответ без отказа:
+    читатель нашёл бы площадь там, где комплекс не признаёт ни одного
+    кандидата.
+    """
+
     seed_keys = {seed.owner_key for seed in complex_.seeds}
+    cell_ids = {cell.cell_id.value for cell in complex_.cells}
     places: set[tuple[str, str]] = set()
     for fragment in complex_.owner_fragments:
         if fragment.owner_key not in seed_keys:
             _fail(
                 "FRAGMENT_OWNER_IS_NOT_A_SEED", fragment.owner_key.value
             )
+        if fragment.cell_id.value not in cell_ids:
+            _fail("FRAGMENT_CELL_IS_NOT_DECLARED", fragment.cell_id.value)
         place = (fragment.owner_key.value, fragment.cell_id.value)
         if place in places:
             _fail("FRAGMENT_PLACE_UNIQUE", f"{place[0]}@{place[1]}")

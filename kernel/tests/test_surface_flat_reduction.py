@@ -58,15 +58,20 @@ from cftuv_envelope.contracts.surface_arrival import (
     SurfaceArrivalComplexV1,
     SurfaceArrivalContractError,
     SurfaceMetricRefV1,
+    arrival_metric_digest,
     exact_rational,
     require_alpha_within_horizon,
+    validate_arrival_against_metric,
 )
+from cftuv_envelope.contracts.metric import GridSnappingLawV1
 from cftuv_envelope.contracts.surface_metric_v2 import (
     NamedEpsilonV1,
     SurfaceAdjacencyRefV1,
     SurfaceMetricPrecisionTierV1,
 )
 from cftuv_envelope.ids import LawId, PatchDomainId, SourceRevision
+from cftuv_envelope.surface_adjacency_compat import read_surface_adjacency
+from cftuv_envelope.surface_metric_build import build_surface_metric_v2
 from cftuv_envelope.surface_arrival_planar_queue import (
     PLANAR_CHART_CELL_PREFIX,
     build_planar_queue_arrival_complex,
@@ -86,6 +91,7 @@ from cftuv_envelope.wavefront.polygon import (
 )
 from cftuv_envelope.wavefront.skeleton import SplitSearch, build_skeleton
 
+from surface_adjacency_factories import two_triangle_quad, vertex
 from wavefront_cases import named_corpus, partial_source_corpus
 from weighted_wall_differential_cases import weighted_wall_differential_corpus
 from test_wavefront_weighted_wall_differential import (
@@ -692,6 +698,131 @@ def test_a_candidate_whose_owner_is_not_a_seed_is_refused():
     assert (
         _refusal(replace, planar, cells=frozenset({stranger}))
         == "CANDIDATE_OWNER_IS_NOT_A_SEED"
+    )
+
+
+def test_a_fragment_pointing_at_an_undeclared_cell_is_refused():
+    planar = _planar_complex()
+    victim = min(planar.owner_fragments, key=lambda item: item.owner_key.value)
+    dangling = replace(
+        victim, cell_id=ArrivalCellId(PLANAR_CHART_CELL_PREFIX + "nowhere")
+    )
+    assert (
+        _refusal(
+            replace,
+            planar,
+            owner_fragments=frozenset(
+                {dangling}
+                | {item for item in planar.owner_fragments if item is not victim}
+            ),
+        )
+        == "FRAGMENT_CELL_IS_NOT_DECLARED"
+    )
+
+
+# --------------------------------------------------------------------------
+# Рукопожатие с S0: ссылки сверяются с НАСТОЯЩИМИ байтами метрики
+# --------------------------------------------------------------------------
+
+
+def _s0_metric_and_adjacency():
+    """Настоящая V2-метрика S0 на плоском квадрате из двух треугольников."""
+
+    surface = two_triangle_quad()
+    adjacency = read_surface_adjacency(
+        surface, scope=SurfaceAdjacencyScopeV1.FULL_SOURCE_MESH
+    )
+    metric = build_surface_metric_v2(
+        patch_domain_id=DOMAIN,
+        surface=surface,
+        adjacency=adjacency,
+        source_positions={
+            vertex(0): (Fraction(0), Fraction(0), Fraction(0)),
+            vertex(1): (Fraction(1), Fraction(0), Fraction(0)),
+            vertex(2): (Fraction(1), Fraction(1), Fraction(0)),
+            vertex(3): (Fraction(0), Fraction(1), Fraction(0)),
+        },
+        surface_regime=SurfaceRegime.DEVELOPABLE,
+        snapping_law=GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
+    )
+    return metric, adjacency
+
+
+def _mesh_complex_on(metric, **overrides) -> SurfaceArrivalComplexV1:
+    return _surface_complex(
+        source_revision=metric.source_revision,
+        metric_ref=SurfaceMetricRefV1(
+            metric.source_revision,
+            metric.patch_domain_id,
+            metric.surface_regime,
+            arrival_metric_digest(metric),
+            metric.adjacency_ref,
+        ),
+        adjacency_ref=metric.adjacency_ref,
+        precision_tier=metric.precision_tier,
+        named_epsilon=metric.named_epsilon,
+        **overrides,
+    )
+
+
+def test_the_mesh_arm_agrees_with_real_s0_bytes():
+    """Ссылка — сравнение пересчитанного дайджеста, а не доверие к полю."""
+
+    metric, adjacency = _s0_metric_and_adjacency()
+    complex_ = _mesh_complex_on(metric)
+    validate_arrival_against_metric(
+        complex_, metric=metric, adjacency=adjacency
+    )
+
+
+def test_a_tampered_metric_digest_is_caught_by_recomputation():
+    metric, adjacency = _s0_metric_and_adjacency()
+    complex_ = _mesh_complex_on(metric)
+    tampered = replace(
+        complex_,
+        metric_ref=replace(
+            complex_.metric_ref,
+            metric_digest=ArrivalMetricDigestValue("e" * 64),
+        ),
+    )
+    assert (
+        _refusal(
+            validate_arrival_against_metric,
+            tampered,
+            metric=metric,
+            adjacency=adjacency,
+        )
+        == "METRIC_DIGEST"
+    )
+
+
+def test_a_cell_that_is_not_a_mesh_triangle_is_caught_against_the_table():
+    """Адрес ячейки под `MESH_TRIANGLE_V1` обязан БЫТЬ треугольником таблицы."""
+
+    metric, adjacency = _s0_metric_and_adjacency()
+    planar = _planar_complex()
+    borrowed = min(planar.cells, key=lambda item: item.cell_id.value)
+    complex_ = _mesh_complex_on(
+        metric,
+        seeds=planar.seeds,
+        cells=frozenset(
+            {
+                ArrivalCellV1(
+                    ArrivalCellId("synthetic:triangle:9999"),
+                    borrowed.candidates,
+                    ArrivalTieResolutionV1.RESOLVED_EXACT,
+                )
+            }
+        ),
+    )
+    assert (
+        _refusal(
+            validate_arrival_against_metric,
+            complex_,
+            metric=metric,
+            adjacency=adjacency,
+        )
+        == "CELL_IS_NOT_A_MESH_TRIANGLE"
     )
 
 
