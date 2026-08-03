@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from hashlib import sha256
 
 from .surface_ir import (
@@ -347,9 +348,298 @@ def build_analysis_bundle(bm, face_indices, obj, build_patch_graph):
     return bundle
 
 
+# --------------------------------------------------------------------------
+# Смежность треугольников поверхности (карточка S0)
+#
+# Заполняется ОТДЕЛЬНОЙ функцией и ничего не меняет в `PatchSurfaceIR`: байты
+# снапшота неподвижны, таблица живёт рядом. Идентичность сюда ПЕРЕДАЁТСЯ, а не
+# минтится: функция физически не может выдумать `PhysicalEdgeId` диагонали,
+# потому что у неё нет ни одного id, которого ей не дали.
+#
+# Blender нужен ровно одной строчке — `surface_edge_face_counts`. Всё
+# остальное работает от `PatchSurfaceIR` (модуль `surface_ir` Blender-free),
+# поэтому тестируется без `bpy`.
+# --------------------------------------------------------------------------
+
+
+class SurfaceAdjacencyBuildRejected(ValueError):
+    """Хост не может назвать смежность честно и отказывается её называть."""
+
+    def __init__(self, reason: str, details: str = ""):
+        self.reason = str(reason)
+        self.details = str(details)
+        message = self.reason
+        if self.details:
+            message += f": {self.details}"
+        super().__init__(message)
+
+
+def surface_edge_face_counts(bm, edge_indices=None) -> dict:
+    """Сколько граней ПОЛНОГО меша держит каждое ребро.
+
+    Единственное место, читающее bmesh. Без этого числа сосед вне среза
+    неотличим от границы меша — ровно та неоднозначность, ради которой
+    заводится таблица.
+    """
+
+    requested = None if edge_indices is None else {int(v) for v in edge_indices}
+    return {
+        int(edge.index): len(edge.link_faces)
+        for edge in bm.edges
+        if requested is None or int(edge.index) in requested
+    }
+
+
+def _triangle_side_records(patch_surface):
+    """`(triangle_id, ordinal) -> (from, to, physical_edge_id)` по всем сторонам.
+
+    `ordinal` здесь ЯДЕРНЫЙ: сторона `i` — пара `(v[i], v[(i + 1) % 3])`. У
+    хоста тот же кортеж индексируется противолежащей вершиной, поэтому
+    физическое ребро берётся со сдвигом `(i + 2) % 3` — тем же самым, который
+    делает экспортёр (`envelope_request_export.py`: `[2], [0], [1]`). Сдвиг
+    записан ЗДЕСЬ, а не подразумевается: два закона нумерации одной величины
+    уже живут в конвейере, и третьего молчаливого быть не должно.
+    """
+
+    records = {}
+    for triangle in patch_surface.triangles:
+        for ordinal in range(3):
+            records[(int(triangle.triangle_id), ordinal)] = (
+                int(triangle.vertex_ids[ordinal]),
+                int(triangle.vertex_ids[(ordinal + 1) % 3]),
+                triangle.physical_edge_ids[(ordinal + 2) % 3],
+            )
+    return records
+
+
+def _sides_by_endpoint_pair(records):
+    grouped = {}
+    for key, (first, second, _edge_id) in records.items():
+        grouped.setdefault(frozenset((first, second)), []).append(key)
+    return {pair: tuple(sorted(keys)) for pair, keys in grouped.items()}
+
+
+def _lone_side_reason(edge_id, scope_is_full, edge_face_counts):
+    """Чем кончается сторона без пары. Ни одна ветка не выбирается молча."""
+
+    if edge_id is None:
+        # Диагональ тесселяции лежит ВНУТРИ грани и пару обязана иметь.
+        return "HOST_DECLARED_UNKNOWN"
+    if edge_face_counts is None:
+        return "MESH_BOUNDARY" if scope_is_full else "HOST_DECLARED_UNKNOWN"
+    count = edge_face_counts.get(int(edge_id))
+    if count is None:
+        return "HOST_DECLARED_UNKNOWN"
+    if count >= 3:
+        return "NON_MANIFOLD_FAN"
+    if count <= 1:
+        return "MESH_BOUNDARY"
+    if scope_is_full:
+        raise SurfaceAdjacencyBuildRejected(
+            "SURFACE_ADJACENCY_SCOPE_DECLARATION_INVALID",
+            f"ребро {int(edge_id)} держат {count} граней полного меша, но в "
+            "payload попала одна: срез объявлен полным мешем",
+        )
+    return "OUTSIDE_REQUESTED_SCOPE"
+
+
+def _opposite_for_pair(keys, records, scope_is_full, edge_face_counts):
+    """Что стоит по другую сторону каждой стороны одной пары концов."""
+
+    if len(keys) > 2:
+        return {key: ("BOUNDARY", "NON_MANIFOLD_FAN") for key in keys}
+    if len(keys) == 1:
+        key = keys[0]
+        reason = _lone_side_reason(
+            records[key][2], scope_is_full, edge_face_counts
+        )
+        return {key: ("BOUNDARY", reason)}
+    left, right = keys
+    if records[left][0] != records[right][1] or records[left][1] != records[right][0]:
+        # Две стороны проходят общую пару концов в ОДНУ сторону: цикл граней
+        # источника не согласован, и склеивать их значило бы объявить
+        # ориентацию, которой нет.
+        return {key: ("BOUNDARY", "HOST_DECLARED_UNKNOWN") for key in keys}
+    return {left: ("SIDE", right), right: ("SIDE", left)}
+
+
+def _vertex_incidence(patch_surface):
+    incidence = {}
+    for triangle in patch_surface.triangles:
+        for vertex_id in triangle.vertex_ids:
+            incidence.setdefault(int(vertex_id), set()).add(int(triangle.triangle_id))
+    return incidence
+
+
+def _fan_links(vertex_id, triangle_ids, records, opposites, named):
+    """Граф склеек при вершине В ЯДЕРНЫХ id: соседи через стороны при ней.
+
+    Ключи — уже ядерные `SurfaceTriangleId`, потому что канонический порядок
+    веера определён контрактом ИМЕННО на них. Сортировка по хостовому целому
+    дала бы другой конец цепи (числа и строки упорядочены по-разному), и два
+    вывода одной смежности разошлись бы на печати, совпав по существу.
+    """
+
+    links = {named[triangle_id]: set() for triangle_id in triangle_ids}
+    reasons = set()
+    for triangle_id in triangle_ids:
+        for ordinal in range(3):
+            key = (triangle_id, ordinal)
+            first, second, _edge = records[key]
+            if vertex_id not in (first, second):
+                continue
+            kind, payload = opposites[key]
+            if kind == "SIDE" and payload[0] in named:
+                links[named[triangle_id]].add(named[payload[0]])
+            elif kind != "SIDE":
+                reasons.add(payload)
+    return links, reasons
+
+
+def _fan_unavailable_reason(reasons):
+    for candidate in (
+        "NON_MANIFOLD_FAN",
+        "OUTSIDE_REQUESTED_SCOPE",
+        "HOST_DECLARED_UNKNOWN",
+    ):
+        if candidate in reasons:
+            return candidate
+    return "NON_MANIFOLD_FAN"
+
+
+def _named_id(table, key, kind):
+    value = table.get(int(key))
+    if value is None:
+        raise SurfaceAdjacencyBuildRejected(
+            "SURFACE_ADJACENCY_IDENTITY_MISSING",
+            f"{kind} {int(key)} не назван вызывающим",
+        )
+    return value
+
+
+def _adjacency_sides(contracts, records, opposites, identity):
+    """Стороны таблицы. Каждый id БЕРЁТСЯ из переданной идентичности."""
+
+    triangle_ids, vertex_ids, edge_ids = identity
+    sides = []
+    for key, (first, second, edge_id) in records.items():
+        kind, payload = opposites[key]
+        if kind == "SIDE":
+            opposite = contracts.TriangleSideRefV1(
+                triangle_id=_named_id(triangle_ids, payload[0], "треугольник"),
+                side_ordinal=payload[1],
+            )
+        else:
+            opposite = contracts.SideBoundaryV1(
+                reason=contracts.SideBoundaryReasonV1(payload)
+            )
+        sides.append(
+            contracts.TriangleSideV1(
+                side=contracts.TriangleSideRefV1(
+                    triangle_id=_named_id(triangle_ids, key[0], "треугольник"),
+                    side_ordinal=key[1],
+                ),
+                from_vertex_id=_named_id(vertex_ids, first, "вершина"),
+                to_vertex_id=_named_id(vertex_ids, second, "вершина"),
+                kind=(
+                    contracts.TriangleSideKindV1.FACE_DIAGONAL
+                    if edge_id is None
+                    else contracts.TriangleSideKindV1.SOURCE_EDGE
+                ),
+                physical_edge_id=(
+                    None if edge_id is None else _named_id(edge_ids, edge_id, "ребро")
+                ),
+                opposite=opposite,
+            )
+        )
+    return frozenset(sides)
+
+
+def _adjacency_fans(contracts, patch_surface, records, opposites, identity):
+    triangle_ids, vertex_ids, _edge_ids = identity
+    fans = []
+    for vertex_id, incident in sorted(_vertex_incidence(patch_surface).items()):
+        links, reasons = _fan_links(
+            vertex_id, sorted(incident), records, opposites, triangle_ids
+        )
+        ordered = contracts.canonical_fan_order(links)
+        named_vertex = _named_id(vertex_ids, vertex_id, "вершина")
+        if ordered is None:
+            fans.append(
+                contracts.VertexFanUnavailableV1(
+                    vertex_id=named_vertex,
+                    reason=contracts.VertexFanUnavailableReasonV1(
+                        _fan_unavailable_reason(reasons)
+                    ),
+                )
+            )
+            continue
+        order, closed = ordered
+        fans.append(
+            contracts.VertexFanV1(
+                vertex_id=named_vertex,
+                ordered_triangle_ids=order,
+                is_closed=closed,
+            )
+        )
+    return frozenset(fans)
+
+
+def build_surface_adjacency_ir(
+    patch_surface,
+    *,
+    source_revision,
+    triangle_ids,
+    vertex_ids,
+    edge_ids,
+    scope,
+    scope_patch_ids=(),
+    edge_face_counts=None,
+):
+    """Собрать `SurfaceAdjacencyIRV1` из уже построенного `PatchSurfaceIR`.
+
+    Идентичность (`triangle_ids`, `vertex_ids`, `edge_ids`, `source_revision`)
+    ПЕРЕДАЁТСЯ вызывающим: смежность её не минтит и потому не может заразить
+    `PhysicalEdgeId` синтетикой. `edge_face_counts` — единственная величина,
+    которую даёт bmesh, и единственная, которая отличает границу меша от
+    границы запроса; без неё срез честно отвечает `HOST_DECLARED_UNKNOWN`.
+    """
+
+    kernel_module = importlib.import_module(
+        "cftuv_envelope.contracts.surface_adjacency"
+    )
+    scope_value = kernel_module.SurfaceAdjacencyScopeV1(str(scope))
+    scope_is_full = scope_value is kernel_module.SurfaceAdjacencyScopeV1.FULL_SOURCE_MESH
+    records = _triangle_side_records(patch_surface)
+    opposites = {}
+    for keys in _sides_by_endpoint_pair(records).values():
+        opposites.update(
+            _opposite_for_pair(keys, records, scope_is_full, edge_face_counts)
+        )
+    identity = (triangle_ids, vertex_ids, edge_ids)
+    return kernel_module.SurfaceAdjacencyIRV1(
+        schema_version=kernel_module.SURFACE_ADJACENCY_IR_SCHEMA_V1,
+        source_revision=source_revision,
+        scope=scope_value,
+        scope_patch_ids=frozenset(scope_patch_ids),
+        orientation_law=(
+            kernel_module.SurfaceOrientationLawV1.CONSISTENT_WITH_SOURCE_FACE_CYCLE_V1
+        ),
+        triangle_sides=_adjacency_sides(
+            kernel_module, records, opposites, identity
+        ),
+        vertex_fans=_adjacency_fans(
+            kernel_module, patch_surface, records, opposites, identity
+        ),
+    )
+
+
 __all__ = (
+    "SurfaceAdjacencyBuildRejected",
     "build_analysis_bundle",
     "build_patch_surface_ir",
+    "build_surface_adjacency_ir",
     "source_revision_from_bmesh",
+    "surface_edge_face_counts",
     "validate_analysis_bundle",
 )
