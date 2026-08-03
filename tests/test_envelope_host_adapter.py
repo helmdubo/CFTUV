@@ -60,6 +60,7 @@ from cftuv.surface_ir import (  # noqa: E402
     SourceVertex,
     SurfaceTriangle,
 )
+from envelope_fixture_bundles import planar_quad_bundle  # noqa: E402
 from cftuv_envelope import (  # noqa: E402
     DecalRequestCodecV1,
     PlanarityAdmissionLawV1,
@@ -177,94 +178,6 @@ def _single_patch_bundle(*, approximate_frame: bool = False, combined_chain: boo
                 (2, 3, None),
                 (0.0, 0.0, 1.0),
             ),
-        ),
-    )
-    return AnalysisBundle(revision, graph, surface)
-
-
-def _collinear_chain_bundle():
-    """Патч с многорёберной цепочкой, которая ПРЯМАЯ на самом деле.
-
-    `combined_chain=True` даёт цепочку `[0, 1, 2]`, которая гнётся на 90° в
-    вершине 1: с тех пор как экспортёр режет физические цепочки по точному
-    излому, она перестала быть многорёберной, и дополнение частичного
-    выделения на ней больше не проверяется. Здесь ребро 0 поделено
-    КОЛЛИНЕАРНОЙ вершиной 4 — цепочка `[0, 4, 1]` остаётся одной, и предмет
-    тех тестов сохраняется.
-    """
-
-    revision = SourceRevision("v0-collinear", "sha256:v0-collinear")
-    graph = PatchGraph(source_revision=revision)
-    coordinates = {
-        0: (0.0, 0.0, 0.0),
-        4: (2.0, 0.0, 0.0),
-        1: (4.0, 0.0, 0.0),
-        2: (4.0, 3.0, 0.0),
-        3: (0.0, 3.0, 0.0),
-    }
-
-    def chain(vertices, edges):
-        return BoundaryChain(
-            vert_indices=list(vertices),
-            vert_cos=[Vector(coordinates[item]) for item in vertices],
-            edge_indices=list(edges),
-            side_face_indices=[0 for _ in edges],
-            side_face_normals=[Vector((0, 0, 1)) for _ in edges],
-        )
-
-    loop = BoundaryLoop(
-        vert_indices=[0, 4, 1, 2, 3],
-        vert_cos=[Vector(coordinates[item]) for item in (0, 4, 1, 2, 3)],
-        edge_indices=[0, 4, 1, 2, 3],
-        side_face_indices=[0, 0, 0, 0, 0],
-        kind=LoopKind.OUTER,
-        chains=[
-            chain((0, 4, 1), (0, 4)),
-            chain((1, 2), (1,)),
-            chain((2, 3), (2,)),
-            chain((3, 0), (3,)),
-        ],
-    )
-    graph.add_node(
-        PatchNode(
-            patch_id=0,
-            face_indices=[0],
-            centroid=Vector((2, 1.5, 0)),
-            normal=Vector((0, 0, 1)),
-            basis_u=Vector((1.0, 0.0, 0.0)),
-            basis_v=Vector((0.0, 1.0, 0.0)),
-            patch_type=PatchType.FLOOR,
-            world_facing=WorldFacing.UP,
-            boundary_loops=[loop],
-        )
-    )
-    surface = PatchSurfaceIR(
-        revision,
-        vertices=tuple(
-            SourceVertex(vertex_id, coordinates[vertex_id])
-            for vertex_id in sorted(coordinates)
-        ),
-        edges=(
-            SourceEdge(0, (0, 4), (0,)),
-            SourceEdge(1, (1, 2), (0,)),
-            SourceEdge(2, (2, 3), (0,)),
-            SourceEdge(3, (3, 0), (0,)),
-            SourceEdge(4, (4, 1), (0,)),
-        ),
-        faces=(
-            SourceFace(
-                0,
-                0,
-                (0, 4, 1, 2, 3),
-                (0, 4, 1, 2, 3),
-                (0.0, 0.0, 1.0),
-                (0, 1, 2),
-            ),
-        ),
-        triangles=(
-            SurfaceTriangle(0, 0, (0, 4, 1), (4, None, 0), (0.0, 0.0, 1.0)),
-            SurfaceTriangle(1, 0, (0, 1, 2), (1, None, None), (0.0, 0.0, 1.0)),
-            SurfaceTriangle(2, 0, (0, 2, 3), (2, 3, None), (0.0, 0.0, 1.0)),
         ),
     )
     return AnalysisBundle(revision, graph, surface)
@@ -821,7 +734,7 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
     """
 
     evaluation = evaluate_envelope_debug(
-        _collinear_chain_bundle(),
+        planar_quad_bundle(),
         frozenset({0}),
         1.0,
     )
@@ -847,10 +760,10 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
 
 
 def test_selection_completion_is_counted_and_named_in_the_scene():
-    profile = EnvelopeDebugProfileBuilderV1("v0-collinear", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _collinear_chain_bundle(),
+        planar_quad_bundle(),
         frozenset({0}),
         profile=profile,
     )
@@ -875,10 +788,10 @@ def test_selection_completion_is_counted_and_named_in_the_scene():
 def test_whole_chain_selection_counts_zero_completion_rather_than_silence():
     """Нулевое дополнение — объявленный ноль, а не отсутствие измерения."""
 
-    profile = EnvelopeDebugProfileBuilderV1("v0-collinear", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _collinear_chain_bundle(),
+        planar_quad_bundle(),
         frozenset({0, 4}),
         profile=profile,
     )
@@ -939,7 +852,7 @@ def test_kernel_request_still_refuses_a_hand_made_partial_chain():
     не молча доезжать до ядра.
     """
 
-    snapshot = build_envelope_analysis_snapshot(_collinear_chain_bundle())
+    snapshot = build_envelope_analysis_snapshot(planar_quad_bundle())
     with pytest.raises(Exception) as error:
         build_envelope_decal_request(snapshot, frozenset({0}), 1.0)
     assert error.value.outcome is (
