@@ -29,6 +29,7 @@ from .adaptive_density_atlas import (
     global_termination_height,
     piece_contains_vector,
     piece_ordered_endpoints,
+    preparation_budget,
     search_global_height,
     search_segments,
     termination_piece,
@@ -122,6 +123,12 @@ def _work_budget(cap: int | None = None) -> DensityExactWorkBudget:
         DensityRationalAuthorityExhausted,
         _DENSITY_EXACT_WORK_CAP if cap is None else cap,
     )
+
+
+def _preparation_budget(cap: int | None = None) -> DensityExactWorkBudget:
+    """Счётчик точной работы подготовки власти. Закон капа — в atlas."""
+
+    return preparation_budget(DensityRationalAuthorityExhausted, cap)
 
 
 @dataclass(frozen=True, slots=True)
@@ -706,8 +713,14 @@ def _termination_boxes(metric, ideal, orientation, q, records):
     # Termination-box не участвует в поиске D*: это отдельный позитивный
     # свидетель существования. Начинаем сразу с узкой dyadic окрестности,
     # чтобы не повторять тяжёлые algebraic predicates на каждом удвоении.
+    #
+    # Каждое уточнение стоит ровно 2^k проверенных угловых последовательностей
+    # (`_box_is_feasible` строит их полный декартов набор), поэтому работа
+    # оплачивается вперёд и по точному числу, а не по факту.
+    budget = _preparation_budget()
     divisor = 1 << 24
     for _ in range(_BOX_REFINEMENT_CAP):
+        budget.spend_order_steps(1 << len(centers))
         boxes = tuple(
             (
                 center - gap / divisor,
@@ -945,6 +958,11 @@ def _legacy_density_certificate(
     if width <= 0:
         raise AdaptiveDensityFanInvalid("legacy Density window is empty")
     budget = _legacy_authority_budget(width)
+    # Длина развёртки известна ТОЧНО до первого шага, поэтому она оплачивается
+    # вперёд: узкое окно отказывает именем за микросекунды, а не после часа
+    # перебора. Сам перебор ниже не тронут — на доменах под капом он побитово
+    # прежний.
+    _preparation_budget().spend_shell_probes(budget)
     winner = None
     for denominator in range(1, budget + 1):
         scaled_lower = lower * denominator

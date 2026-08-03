@@ -1,0 +1,119 @@
+{
+  "card": "PERF-CANON-1",
+  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 22b85e7",
+  "harness": "artifacts/perf_prepare_diag (headless, без Blender); env.py сделан переносимым (корень выводится из положения файла)",
+  "machine_note": "4 ядра, параллельно шёл прогон соседней сессии; абсолютные секунды сопоставимы только внутри этой таблицы",
+
+  "walls_012_density_0": {
+    "script": "artifacts/perf_prepare_diag/density_sweep.py 0",
+    "before": {
+      "prepare_ms": 4722.9,
+      "coverage_ms": 1178.6,
+      "contour_ms": 1016.8,
+      "sum_ms": 6918.3,
+      "total_ms": 7025.8,
+      "outcome": "EXACT"
+    },
+    "after": {
+      "prepare_ms": 898.8,
+      "coverage_ms": 78.8,
+      "contour_ms": 5.0,
+      "sum_ms": 982.6,
+      "total_ms": 1029.4,
+      "outcome": "EXACT"
+    },
+    "speedup": {"prepare": 5.25, "coverage": 14.96, "contour": 203.4, "sum": 7.04},
+    "counters_moved": "нет — все 17 счётчиков совпали (SOURCE_EDGES 3, WALL_EDGES 9, LATTICE_SCALE 32768, SKELETON_NODES 12, FAN_EDGES 2, RESCALED_ARRIVAL_LAWS 5, FACES 5)"
+  },
+
+  "walls_012_density_1": {
+    "script": "scratchpad/d1_trace.py 1 (тот же путь, что d1_probe.py)",
+    "before": {
+      "outcome": "НЕ ВЕРНУЛСЯ",
+      "wall_seconds": ">900 (прогон снят по таймауту; диагност мерил >1500)",
+      "last_progress_at_s": 4.85,
+      "where": "build_skeleton -> motorcycle._march_steps -> _wall_hit -> event_time.event_point -> SqrtSumV1.__truediv__ -> _pick_prime -> prime_support -> _factorize -> _pollard_rho_brent_attempt"
+    },
+    "after": {
+      "outcome": "EXACT",
+      "total_seconds": 0.81,
+      "compile_seconds": 0.53,
+      "skeleton_seconds": 0.12
+    },
+    "correction_to_diagnosis": "REPORT.txt §6 приписал этот блокер подготовке власти веера. Измерено обратное: COMPILE (включая власть D*=433) завершается за 0.53 s и на density 1, и до, и после; счёт стоял в факторизации на стадии скелета. Класс тот же, что у Р1/Р2, и Р1+Р2 его чинят."
+  },
+
+  "factorize_calls_walls_012_density_0": {
+    "calls": 35,
+    "distinct_radicands": 15,
+    "before_seconds_total": 6.007,
+    "before_seconds_distinct_only": 1.927,
+    "batch_of_five_naive_seconds": 1.832,
+    "coprime_basis_of_the_batch": {
+      "atoms": 10,
+      "gcd_milliseconds": 0.30,
+      "bits": [2, 2, 6, 19, 72, 83, 89, 91, 117, 117],
+      "factorization_seconds": 0.121
+    },
+    "primes_total": 28,
+    "primes_from_the_first_batch": 28,
+    "remainder_of_the_other_ten_radicands_after_stripping_batch_primes": 1
+  },
+
+  "building_patches_density_0": {
+    "script": "artifacts/perf_prepare_diag/big_scene.py 3 0 1500 89,109,121",
+    "89": {
+      "before": {"outcome": "HOST_REJECT:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", "host_export_s": 0.66},
+      "after": {"outcome": "HOST_REJECT:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", "host_export_s": 0.47},
+      "moved": "нет — отказ тот же и на той же невязке 3.573965e-04"
+    },
+    "109": {
+      "before": {"prepare_s": 34.83, "coverage_s": 0.25, "contour_s": 0.04, "factorization_s": 34.23, "factorization_calls": 60, "radicand_bits_max": 227, "outcome": "EXACT"},
+      "after": {"prepare_s": 0.51, "coverage_s": 0.32, "contour_s": 0.03, "factorization_s": 0.0, "factorization_calls": 60, "radicand_bits_max": 227, "outcome": "EXACT"},
+      "speedup_prepare": 68.3,
+      "counters_moved": "нет — LATTICE_SCALE 131072, DOMAIN_EDGES 10, SOURCE_EDGES 10, WALL_EDGES 0, SKELETON_NODES 10, FACES 12"
+    },
+    "121": {
+      "before": {"prepare_s": 0.13, "coverage_s": 0.09, "contour_s": 0.02, "factorization_s": 0.08, "outcome": "EXACT"},
+      "after": {"prepare_s": 0.06, "coverage_s": 0.05, "contour_s": 0.0, "factorization_s": 0.0, "outcome": "EXACT"},
+      "counters_moved": "нет — LATTICE_SCALE 262144, SKELETON_NODES 2, FACES 4"
+    }
+  },
+
+  "fan_preparation_cap": {
+    "constant": "DENSITY_FAN_PREPARATION_WORK_CAP = 1 << 16 (kernel/src/cftuv_envelope/reference/adaptive_density_atlas.py)",
+    "refusal": "DensityRationalAuthorityExhausted -> ReferenceOutcome.DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "charged_at": [
+      "adaptive_density_fan._legacy_density_certificate: spend_shell_probes(число знаменателей развёртки), оплата вперёд",
+      "adaptive_density_fan._termination_boxes: spend_order_steps(2^k) на каждое уточнение"
+    ],
+    "measured_worst_spent": {
+      "kernel_corpus_full_suite": 32,
+      "kernel_corpus_preparations_counted": 351,
+      "field_walls_012_and_wall_2_001_densities_0_to_4": 36,
+      "field_deepest_green_authority_density_4": 8
+    },
+    "contrast": {
+      "window_width": 5e-14,
+      "with_cap_seconds": 0.0016,
+      "without_cap_seconds": 53.95,
+      "note": "цена развёртки растёт как 1/sqrt(w); при 5e-18 это уже часы"
+    }
+  },
+
+  "suites": {
+    "kernel_after_p1_p2": "2767 passed, 2 skipped (SURFACE_BACKEND_NOT_IMPLEMENTED) за 982 s",
+    "kernel_after_p1_p2_and_cap": "2767 passed, 2 skipped за 1306 s (те же тесты; прогон нёс счётчик подготовки)",
+    "host": "1245 passed, 5 skipped, 2 failed — оба падения известные средовые (powershell отсутствует)",
+    "architecture": "396 passed",
+    "corpus_63": "test_wavefront_proof_obligations / partial_source / motorcycle_graph — 508 passed, дайджесты не сдвинулись",
+    "new_tests": "kernel/tests/test_exact_canonicalization_memory.py — 8 passed; три теста капа в test_adaptive_density_fan_authority.py"
+  },
+
+  "open_questions": [
+    "Q-CANON-ATTRIBUTION: §6 REPORT.txt приписал полевой блокер №1 подготовке власти веера — измерение это опровергает (COMPILE 0.53 s на density 1). Нужна ли поправочная строка к записи PERF-PREPARE-DIAG в DECISIONS?",
+    "Q-FACTORIZATION-WORK-BUDGET: у канонизации по-прежнему НЕТ капа работы. Грязнее меш — и `_factorize` снова уйдёт в счёт без исхода. Кап там требует именованного исхода, проведённого через wavefront/ (skeleton/motorcycle/conveyor), а эти файлы карточка трогать запрещала. Отдельная карточка.",
+    "Q-MEMORY-TRANSACTION: память канонизации процессная, с именованными потолками, а не привязана к транзакции домена, как предлагал §7 Р1. Нужен ли сброс на границе домена (GeometryContext)?",
+    "Q-PREPARATION-REFUSAL-NAME: отказ подготовки переиспользует DENSITY_RATIONAL_AUTHORITY_EXHAUSTED и отличим только по cap=65536 против cap=131072. Заводить ли отдельный ReferenceOutcome?"
+  ]
+}

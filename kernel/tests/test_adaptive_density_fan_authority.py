@@ -36,6 +36,7 @@ from cftuv_envelope.adaptive_density_validation import (
 )
 from cftuv_envelope.reference import adaptive_density_fan as _density_fan
 from cftuv_envelope.reference.adaptive_density_atlas import (
+    DENSITY_FAN_PREPARATION_WORK_CAP,
     search_global_height,
     search_segments,
     segment_candidates,
@@ -1737,6 +1738,101 @@ def test_deepest_green_field_authority_stays_far_below_the_work_cap(
     assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
     assert max(item.spent for item in budgets) == 9_035
     assert 9_035 * 8 < _DENSITY_EXACT_WORK_CAP
+
+
+def _preparation_budget_spy(monkeypatch):
+    budgets = []
+    original = _density_fan._preparation_budget
+
+    def spy(cap=None):
+        budget = original(cap)
+        budgets.append(budget)
+        return budget
+
+    monkeypatch.setattr(_density_fan, "_preparation_budget", spy)
+    return budgets
+
+
+def test_fan_preparation_work_is_capped_by_a_named_refusal():
+    """Подготовка власти обязана отказать именем, а не считать без исхода.
+
+    Кап поиска D* заводится уже ВНУТРИ поиска, поэтому всё, что посчитано
+    раньше, до этой карточки не было оплачено ничем: legacy-развёртка
+    ordinal-окна перебирает ceil(1/sqrt(w)) знаменателей и при сужении окна
+    растёт без границы. Здесь окно шириной 5e-12 требует 447 214
+    знаменателей — отказ наступает ДО первого шага развёртки.
+    """
+
+    metric, orientation, ideal = _narrow_window_repro(100_000_000_000)
+
+    with pytest.raises(
+        DensityRationalAuthorityExhausted,
+        match="DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    ) as raised:
+        certify_density_bindings_and_adaptive_fallback(
+            metric,
+            ideal,
+            orientation,
+            2,
+            binding_reasons=(None,),
+        )
+
+    message = str(raised.value)
+    assert f"cap={DENSITY_FAN_PREPARATION_WORK_CAP}" in message
+    assert "shell_probes=447214" in message
+    assert "order_steps=0" in message
+
+
+def test_fan_preparation_cap_leaves_the_domain_below_it_untouched(monkeypatch):
+    """Домен ПОД капом считается ровно как прежде — тем же ответом.
+
+    Окно шириной 5e-10 требует 44 722 знаменателей: это две трети капа, и
+    домен обязан досчитаться. Сравнение идёт с прогоном, у которого капа
+    подготовки фактически нет: если ответы совпали, кап не участвует в
+    вычислении, а только его ограничивает.
+    """
+
+    def run():
+        metric, orientation, ideal = _narrow_window_repro(1_000_000_000)
+        return certify_density_bindings_and_adaptive_fallback(
+            metric,
+            ideal,
+            orientation,
+            2,
+            binding_reasons=(None,),
+        )
+
+    original = _density_fan._preparation_budget
+    capped = run()
+    monkeypatch.setattr(
+        _density_fan,
+        "_preparation_budget",
+        lambda cap=None: original(1 << 40),
+    )
+    uncapped = run()
+
+    assert capped == uncapped
+    assert capped[1] is None
+    assert len(capped[0]) == 1
+
+
+def test_fan_preparation_work_stays_far_below_its_cap(monkeypatch):
+    """Замороженный якорь маржи подготовки: поле d=4 не приближается к капу.
+
+    Тот же домен, что и у якоря поиска D*. Число ниже двигать нельзя молча:
+    его рост означает, что маржа съедена. Контекст замера, из которого выведен
+    литерал капа: 351 подготовка полного зелёного корпуса тратит не больше 32
+    единиц, полевые слепки на плотностях 0…4 — не больше 36.
+    """
+
+    budgets = _preparation_budget_spy(monkeypatch)
+    snapshot, request = _field_inputs(4)
+
+    result = kernel.compile_reference_envelopes(snapshot, request)
+
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    assert max(item.spent for item in budgets) == 8
+    assert 36 * 1000 < DENSITY_FAN_PREPARATION_WORK_CAP
 
 
 def _patch10_inputs():

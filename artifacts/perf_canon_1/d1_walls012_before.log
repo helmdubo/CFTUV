@@ -1,0 +1,23 @@
+[    0.47s] host export done
+[    0.47s] COMPILE start
+[    0.89s] LEGACY ordinal=1 q=3 -> cert 0.35s
+[    0.95s] LEGACY ordinal=1 q=3 -> None 0.00s
+[    0.96s] FAN start q=3 windows=1
+[    0.98s] FAN ok D*=433 0.02s
+[    0.99s] COMPILE done 0.51s
+[    1.04s] LEGACY ordinal=1 q=3 -> cert 0.04s
+[    1.06s] SKELETON start
+[    1.29s] FACT  203 bits     0.23s maxprime=39 bits
+[    1.51s] FACT  216 bits     0.21s maxprime=78 bits
+[    1.88s] FACT  243 bits     0.37s maxprime=73 bits
+[    2.05s] FACT  246 bits     0.18s maxprime=65 bits
+[    2.28s] FACT  203 bits     0.23s maxprime=39 bits
+[    2.49s] FACT  216 bits     0.21s maxprime=78 bits
+[    2.85s] FACT  243 bits     0.36s maxprime=73 bits
+[    3.03s] FACT  246 bits     0.18s maxprime=65 bits
+[    3.21s] FACT  246 bits     0.18s maxprime=65 bits
+[    3.60s] FACT  243 bits     0.37s maxprime=73 bits
+[    3.85s] FACT  203 bits     0.23s maxprime=39 bits
+[    4.62s] FACT  201 bits     0.76s maxprime=65 bits
+[    4.85s] FACT  216 bits     0.22s maxprime=78 bits
+EXIT=124

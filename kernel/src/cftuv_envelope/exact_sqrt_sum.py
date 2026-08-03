@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+from bisect import insort
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache
@@ -161,7 +162,9 @@ def _pollard_rho_brent_attempt(
         power *= 2
 
 
-def _factorize(n: int) -> dict[int, int]:
+def _rho_factors(n: int) -> dict[int, int]:
+    """Разложение с нуля: Миллер—Рабин, точный квадрат, ро-Поллард."""
+
     factors: dict[int, int] = {}
     stack = [n]
     while stack:
@@ -181,6 +184,184 @@ def _factorize(n: int) -> dict[int, int]:
         stack.append(divisor)
         stack.append(value // divisor)
     return factors
+
+
+# --------------------------------------------------------------------------
+# Память канонизации: реестр доказанных простых и взаимно простой базис
+#
+# Разложение на простые ЕДИНСТВЕННО, поэтому ни память, ни базис не могут
+# изменить ответ: они меняют только ПУТЬ, которым он получен. Всё, что ниже,
+# — цена, а не семантика; сброс памяти обязан давать те же кортежи.
+#
+# Ёмкости названы, потому что владелец потребовал реестра допусков. Категория
+# у всех трёх одна — NUMERIC/WORK budget: превышение не отказ и не другой
+# ответ, а возврат к прежнему (дорогому) пути.
+# --------------------------------------------------------------------------
+
+# Память разложений (Р1). На walls.012 density 0 измерено 35 вызовов
+# `_factorize` при 15 различных радикандах; на худшем измеренном домене
+# `building` (патч 109) — 60 вызовов. 8192 записи — два порядка запаса над
+# худшим измеренным доменом; запись держит целое-ключ и кортеж пар.
+_FACTORIZATION_MEMO_ENTRIES = 1 << 13
+
+# Реестр доказанных простых (Р2). На walls.012 их 28 на домен, на пятёрке
+# самых тяжёлых доменов `building` — меньше трёхсот. 8192 — тот же порядок
+# запаса. Переполнение очищает реестр целиком: половинчатый реестр остался бы
+# корректным, но непредсказуемым по цене, а полный сброс воспроизводим.
+_KNOWN_PRIME_REGISTRY_ENTRIES = 1 << 13
+
+# Бюджет расщеплений при построении взаимно простого базиса. Каждое
+# расщепление строго уменьшает сумму элементов, поэтому цикл конечен и без
+# бюджета; бюджет — верхняя граница, названная явно. Измерено: базис пяти
+# радикандов walls.012 строится за 0.3 мс и 10 расщеплений.
+_COPRIME_BASIS_SPLIT_BUDGET = 1 << 12
+
+_KNOWN_PRIMES: list[int] = []
+_KNOWN_PRIME_SET: set[int] = set()
+
+
+def reset_factorization_memory() -> None:
+    """Сбросить память канонизации. Ответы не меняются — меняется только цена."""
+
+    _KNOWN_PRIMES.clear()
+    _KNOWN_PRIME_SET.clear()
+    _factorization_pairs.cache_clear()
+    squarefree_split.cache_clear()
+    prime_support.cache_clear()
+
+
+def _register_prime(prime: int) -> None:
+    """Запомнить доказанное простое. Реестр возрастающий и без повторов."""
+
+    if prime in _KNOWN_PRIME_SET:
+        return
+    if len(_KNOWN_PRIMES) >= _KNOWN_PRIME_REGISTRY_ENTRIES:
+        _KNOWN_PRIMES.clear()
+        _KNOWN_PRIME_SET.clear()
+    insort(_KNOWN_PRIMES, prime)
+    _KNOWN_PRIME_SET.add(prime)
+
+
+def _strip_known_primes(n: int) -> tuple[dict[int, int], int]:
+    """Снять уже доказанные простые ДЕЛЕНИЕМ, вернуть кофактор.
+
+    Реестр возрастающий, поэтому обход прекращается на первом простом,
+    большем остатка. Ни одного нового доказательства здесь не возникает.
+    """
+
+    factors: dict[int, int] = {}
+    remainder = n
+    for prime in _KNOWN_PRIMES:
+        if prime > remainder:
+            break
+        if remainder % prime:
+            continue
+        power = 0
+        while remainder % prime == 0:
+            remainder //= prime
+            power += 1
+        factors[prime] = power
+    return factors, remainder
+
+
+@lru_cache(maxsize=_FACTORIZATION_MEMO_ENTRIES)
+def _factorization_pairs(n: int) -> tuple[tuple[int, int], ...]:
+    """Разложение как неизменяемый кортеж пар, по возрастанию простого.
+
+    Кешируемый слой отделён от `_factorize` намеренно: наружу обязан уходить
+    свежий `dict`, иначе вызывающий получил бы общий изменяемый объект.
+    """
+
+    if n < 2:
+        return ()
+    factors, remainder = _strip_known_primes(n)
+    if remainder > 1:
+        for prime, power in _rho_factors(remainder).items():
+            factors[prime] = factors.get(prime, 0) + power
+    for prime in factors:
+        _register_prime(prime)
+    return tuple(sorted(factors.items()))
+
+
+def _factorize(n: int) -> dict[int, int]:
+    """Разложение `n` на простые: `{простое: степень}`.
+
+    Р1 — память. Функция чистая (разложение единственно), поэтому мемоизация
+    не может изменить ответ. Измерено на walls.012 density 0: 35 вызовов при
+    15 различных радикандах, 6.01 s против 1.93 s.
+
+    Р2 — реестр простых. Уже доказанные простые снимаются делением, и
+    ро-Поллард запускается только на кофакторе. Радикалы одного домена родом
+    из одних и тех же законов прихода и делят почти все свои простые: на
+    walls.012 ВСЕ 28 простых происходят из первого же набора, поэтому десять
+    последующих радикандов (до 201 бита) разлагаются делением досуха.
+    """
+
+    return dict(_factorization_pairs(n))
+
+
+def _coprime_basis(values: tuple[int, ...]) -> list[int]:
+    """Взаимно простой базис набора. Только gcd, ни одной факторизации.
+
+    Каждое расщепление заменяет пару `(a, b)` на `(g, a//g, b//g)`, что
+    строго уменьшает сумму элементов, поэтому цикл конечен. По исчерпании
+    `_COPRIME_BASIS_SPLIT_BUDGET` расщепления прекращаются, и элемент кладётся
+    в базис как есть: базис перестаёт быть взаимно простым, но его назначение
+    — только УЗНАТЬ простые, и ответ от этого не зависит.
+    """
+
+    basis: list[int] = []
+    stack = [value for value in values if value > 1]
+    splits = 0
+    while stack:
+        value = stack.pop()
+        placed = False
+        for index, atom in enumerate(basis):
+            common = gcd(value, atom)
+            if common == 1:
+                continue
+            if common == value and common == atom:
+                placed = True
+                break
+            if splits >= _COPRIME_BASIS_SPLIT_BUDGET:
+                break
+            splits += 1
+            basis.pop(index)
+            stack.append(common)
+            if atom // common > 1:
+                stack.append(atom // common)
+            if value // common > 1:
+                stack.append(value // common)
+            placed = True
+            break
+        if not placed:
+            basis.append(value)
+    return basis
+
+
+def _seed_factorization_basis(radicands: tuple[int, ...]) -> None:
+    """Р2: разложить НАБОР радикандов через его взаимно простой базис.
+
+    Поэлементная факторизация платит за наибольший простой делитель КАЖДОГО
+    радиканда; базис платит за него один раз. Измерено на walls.012 density 0:
+    набор из пяти радикандов (203…246 бит) даёт базис из десяти элементов
+    максимум в 117 бит за 0.3 мс gcd-ов, и его факторизация стоит 0.121 s
+    против 1.83 s поэлементной.
+
+    Тождество, на котором это стоит: базис порождает те же простые, что и
+    сам набор, а разложение на простые единственно. Поэтому `squarefree_split`
+    и `prime_support` возвращают побитово те же значения.
+    """
+
+    residues = []
+    for radicand in radicands:
+        _, remainder = _strip_known_primes(radicand)
+        if remainder > 1:
+            residues.append(remainder)
+    if len(residues) < 2:
+        return
+    for atom in _coprime_basis(tuple(residues)):
+        _factorization_pairs(atom)
 
 
 @lru_cache(maxsize=None)
@@ -216,6 +397,11 @@ def _prime_universe_from_q_values(
     Для `q = p/r` подкоренное целое канонической формы равно `p*r`, потому
     что `sqrt(p/r) = sqrt(p*r)/r`. Факторизация здесь конечна и проверяется
     обратным произведением; дальше деление использует только делимость.
+
+    Это ЕДИНСТВЕННОЕ место, где набор радикандов виден целиком, поэтому
+    взаимно простой базис (Р2) строится именно здесь. Сам обход остаётся
+    прежним: `_factorize` вызывается по одному разу на радиканд и в том же
+    возрастающем порядке — базис только удешевляет эти вызовы.
     """
 
     transformed: set[int] = set()
@@ -226,6 +412,7 @@ def _prime_universe_from_q_values(
         if q == 0:
             continue
         transformed.add(q.numerator * q.denominator)
+    _seed_factorization_basis(tuple(sorted(transformed)))
     primes: set[int] = set()
     for radicand in sorted(transformed):
         factors = _factorize(radicand)
