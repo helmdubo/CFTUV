@@ -1,0 +1,5 @@
+host export 0.41s
+FAN start q=3 ideal=3
+FAN ok D*=433 term_ub=14647595525 0.02s
+EXIT=124
+EXIT=124

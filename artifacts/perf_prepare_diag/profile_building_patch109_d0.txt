@@ -1,0 +1,54 @@
+===== building patch 109 QUEUE_PREPARE — CUMULATIVE =====
+         47982254 function calls (47952939 primitive calls) in 53.837 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1550 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000   53.854   53.854 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/conveyor.py:1110(prepare_conveyor)
+        1    0.000    0.000   53.291   53.291 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/conveyor.py:922(_prepare_region)
+        1    0.000    0.000   53.186   53.186 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:293(build_skeleton)
+      251    0.000    0.000   52.840    0.211 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:857(_position)
+        1    0.000    0.000   52.820   52.820 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:306(__init__)
+        1    0.000    0.000   52.807   52.807 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:483(_seed)
+       27    0.000    0.000   52.795    1.955 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:674(_enqueue_for)
+      168    0.000    0.000   52.765    0.314 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:947(_span_end)
+      133    0.001    0.000   52.761    0.397 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:801(_split_candidate)
+       64    0.000    0.000   52.709    0.824 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:925(_edge_span_contains)
+        9    0.000    0.000   52.698    5.855 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:772(_enqueue_split_events)
+      120    0.000    0.000   52.698    0.439 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/skeleton.py:793(_try_split)
+      157    0.001    0.000   52.583    0.335 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:402(__truediv__)
+       42    0.003    0.000   52.576    1.252 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:164(_factorize)
+     1009    0.001    0.000   52.559    0.052 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:96(_pollard_rho)
+       45    0.000    0.000   52.553    1.168 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/wavefront/event_time.py:306(sliding_point)
+      406   48.102    0.118   52.551    0.129 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:111(_pollard_rho_brent_attempt)
+      141    0.000    0.000   52.545    0.373 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:554(_pick_prime)
+        9    0.000    0.000   52.540    5.838 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:202(prime_support)
+44388136/44387961    3.559    0.000    3.559    0.000 {built-in method builtins.abs}
+
+
+
+===== TOTTIME =====
+         47982254 function calls (47952939 primitive calls) in 53.837 seconds
+
+   Ordered by: internal time
+   List reduced from 1550 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      406   48.102    0.118   52.551    0.129 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:111(_pollard_rho_brent_attempt)
+44388136/44387961    3.559    0.000    3.559    0.000 {built-in method builtins.abs}
+   857826    0.711    0.000    0.711    0.000 {built-in method math.gcd}
+   696950    0.246    0.000    0.246    0.000 {built-in method builtins.min}
+    44882    0.127    0.000    0.206    0.000 /usr/lib/python3.11/fractions.py:484(_mul)
+   125997    0.084    0.000    0.113    0.000 /usr/lib/python3.11/fractions.py:62(__new__)
+    77226    0.064    0.000    0.407    0.000 /usr/lib/python3.11/fractions.py:357(forward)
+    30042    0.063    0.000    0.120    0.000 /usr/lib/python3.11/fractions.py:452(_add)
+      527    0.058    0.000    0.097    0.000 /usr/local/lib/python3.11/dist-packages/sympy/ntheory/factor_.py:1045(_trial)
+     3145    0.040    0.000    0.250    0.000 /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag/kernel/src/cftuv_envelope/exact_sqrt_sum.py:386(__mul__)
+ 1046/913    0.031    0.000    0.259    0.000 /usr/local/lib/python3.11/dist-packages/sympy/core/mul.py:205(flatten)
+   344674    0.031    0.000    0.043    0.000 /usr/local/lib/python3.11/dist-packages/sympy/ntheory/generate.py:188(primerange)
+      863    0.029    0.000    0.060    0.000 /usr/local/lib/python3.11/dist-packages/sympy/core/facts.py:599(deduce_all_facts)
+157983/157831    0.023    0.000    0.030    0.000 {built-in method builtins.isinstance}
+   132893    0.022    0.000    0.022    0.000 {built-in method __new__ of type object at 0x928000}
+
+

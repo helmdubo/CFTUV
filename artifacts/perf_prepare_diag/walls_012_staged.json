@@ -1,0 +1,14 @@
+{
+  "0": {
+    "preparation_outcome": "PLAN_IS_NOT_COMPILED",
+    "coverage_outcome": "PREPARATION_IS_NOT_EXACT",
+    "detail": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "prepare_ms": 1530.5,
+    "coverage_ms": 0.1,
+    "contour_ms": 0.0,
+    "total_ms": 1643.2,
+    "counters": {},
+    "faces": 0,
+    "lattice_scale": 1
+  }
+}
