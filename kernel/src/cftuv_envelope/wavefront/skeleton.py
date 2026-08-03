@@ -84,8 +84,25 @@ from .events import (
     CandidateEventV1,
     EventKind,
     EventQueueV1,
-    cluster_by_point,
     point_sort_key as _point_sort_key,
+)
+from .candidate_law import evaluate_edge_candidate, evaluate_split_candidate
+from .candidate_refusal import (
+    CandidateRefusal,
+    REFUSAL_COUNTERS,
+    joint_refusal as _joint_kind,
+    refusal_counter,
+)
+from .exact_candidate_view import (
+    CandidateSpanStateV1,
+    CandidateVertexStateV1,
+    ExactCandidateViewV1,
+    collapsing_span as _exact_collapsing_span,
+    edge_event_time as _exact_edge_event_time,
+    is_future as _exact_is_future,
+    position as _exact_position,
+    span_contains as _exact_span_contains,
+    span_end as _exact_span_end,
 )
 from .motorcycle import (
     MotorcycleGraphV1,
@@ -117,98 +134,11 @@ class SplitSearch(str, Enum):
     EXHAUSTIVE = "EXHAUSTIVE"
 
 
-class CandidateRefusal(str, Enum):
-    """Почему кандидат в события не родился. Две категории, и они РАЗНЫЕ.
-
-    Отклонить кандидата — штатная работа фильтра, а не потеря: событие в
-    прошлом фронта, точка вне текущего отрезка, кандидат за трассой (теорема
-    2.11), тройка прямых, которая не сходится никогда. У всего этого правило
-    ЕСТЬ, и правило говорит «события нет». Такие члены помечены `FILTER`.
-
-    Тихая потеря — это когда правила нет вовсе: конфигурация встретилась, а
-    алгоритм вместо названного исхода просто ничего не делает. Такие члены
-    помечены `NO_RULE`, и каждый из них — открытый счёт, а не оговорка.
-    Именно ради этого различения перечисление заведено: без него счётчик
-    отказов утонул бы в штатном шуме и потеря в нём не была бы видна.
-    """
-
-    # -- FILTER: правило есть, и оно говорит «события нет» -----------------
-    FILTER_SOLO_VERTEX = "FILTER_SOLO_VERTEX"
-    FILTER_TRIPLE_NEVER_CONCURRENT = "FILTER_TRIPLE_NEVER_CONCURRENT"
-    FILTER_EVENT_IN_THE_PAST = "FILTER_EVENT_IN_THE_PAST"
-    FILTER_POINT_OUTSIDE_FRONT = "FILTER_POINT_OUTSIDE_FRONT"
-    FILTER_BEYOND_TRACE = "FILTER_BEYOND_TRACE"
-    FILTER_EDGE_IS_OWN = "FILTER_EDGE_IS_OWN"
-    # Схлопываемый отрезок фронта к назначенному моменту НЕ сжался в точку:
-    # его концы стоят на разных проекциях, и это доказано точным равенством, а
-    # не оценено. Edge-событие означает исчезновение отрезка; отрезок
-    # положительной длины исчезнуть не может, и «три прямые сошлись» этого не
-    # заменяет — тройка отвечает про ПРЯМЫЕ, а гаснет ОТРЕЗОК.
-    FILTER_SPAN_DOES_NOT_COLLAPSE = "FILTER_SPAN_DOES_NOT_COLLAPSE"
-    # Схлопываемый отрезок фронта РОЖДЁН нулевым: событие назначено ровно на
-    # момент рождения ОБОИХ его концов, и длина в этот момент равна нулю точно.
-    # Положение вершины фронта аффинно по времени, значит и проекционная длина
-    # отрезка аффинна; аффинная функция, равная нулю в начале своего
-    # существования, положительной ДО него не была. Схлопываться такому отрезку
-    # не из чего: он открывается, а не закрывается.
-    #
-    # Конфигурация рождается ровно веером вогнутой вершины: три его прямые
-    # проходят через саму вершину, поэтому `concurrency_time` честно отвечает
-    # `t = 0`, и без этого фильтра ребро веера гасло бы на нулевом уровне — то
-    # есть мягкий угол молча превращался бы обратно в митрованный.
-    FILTER_SPAN_IS_BORN_ZERO = "FILTER_SPAN_IS_BORN_ZERO"
-
-    # -- NO_RULE: конфигурация без правила ---------------------------------
-    # Тройка прямых сошлась НАВСЕГДА: определитель равен нулю тождественно.
-    # Формула `t = -D0/S` тут не отвечает не потому, что события нет, а потому,
-    # что вопрос ей задан неверный: две из трёх прямых — одна и та же движущаяся
-    # прямая. Что при этом происходит с фронтом, формула не знает.
-    NO_RULE_TRIPLE_ALWAYS_CONCURRENT = "NO_RULE_TRIPLE_ALWAYS_CONCURRENT"
-    # Соседние рёбра вершины лежат на одной движущейся прямой и смотрят В РАЗНЫЕ
-    # стороны: фронт локально вывернулся, два его отрезка совпали. У вершины нет
-    # позиции — не «её трудно посчитать», а её нет.
-    NO_RULE_JOINT_IS_ANTIPARALLEL = "NO_RULE_JOINT_IS_ANTIPARALLEL"
-    # Соседние рёбра вершины лежат на одной движущейся прямой и смотрят В ОДНУ
-    # сторону: угол ровно развёрнутый. Пересечения двух прямых нет, и позиция
-    # вершины ВДОЛЬ прямой парой рёбер не определяется вовсе.
-    NO_RULE_JOINT_IS_CODIRECTIONAL = "NO_RULE_JOINT_IS_CODIRECTIONAL"
-    # То же коллинеарное сонаправленное соседство, но скорости РАЗНЫЕ: прямые
-    # совпали на одно мгновение и уже расходятся. Развёрнутым углом это не
-    # является, закреплённой проекции у такой вершины нет, и правила для неё в
-    # модуле тоже нет. Рождается конфигурация только с приходом стен и весов:
-    # при единичной скорости коллинеарность соседей влекла совпадение прямых.
-    NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS = (
-        "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS"
-    )
-    # Отрезок, который собирались резать, к моменту применения потерял концы.
-    NO_RULE_SPAN_VANISHED = "NO_RULE_SPAN_VANISHED"
-    # Вершины фронта встретились в одной точке, а сшить их концы однозначно
-    # нечем: два конца одного рода легли на один луч (фронт сложился вдвое) либо
-    # среди встретившихся оказались соседи по LAV. Кандидаты возвращаются
-    # прежнему разбору — разрезу, — и это признанный долг, а не решение.
-    NO_RULE_MEETING_NOT_RECONNECTABLE = "NO_RULE_MEETING_NOT_RECONNECTABLE"
-
-
 _ObligationIdentity = tuple[
     tuple[int, ...],
     tuple[tuple[int, ...], ...],
     tuple[tuple[int, ...], ...],
 ]
-
-
-def refusal_counter(reason: CandidateRefusal) -> str:
-    """Имя счётчика отказов данного вида. Одна функция на весь репозиторий.
-
-    Имя выводится из члена, а не пишется рядом с ним: иначе перечисление и
-    отчёт можно было бы рассогласовать правкой одного из двух, и отказ, у
-    которого счётчик назвали иначе, исчез бы из диагностики молча.
-    """
-
-    return f"refused_{reason.value.lower()}"
-
-
-#: Счётчик на каждый член `CandidateRefusal`.
-REFUSAL_COUNTERS = tuple(refusal_counter(member) for member in CandidateRefusal)
 
 
 @dataclass(slots=True)
@@ -376,6 +306,10 @@ class _Builder:
             "same_time_residual_after_level": 0,
             "duplicate_exact_time_point_nodes": 0,
             "mixed_kind_exact_time_point_nodes": 0,
+            "superlevel_unresolvable_components": 0,
+            # Число geometry-derived ContactJunction, которые прошли frozen
+            # plan validation и были атомарно материализованы.
+            "superlevel_contact_junction_resolutions": 0,
         }
         self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
@@ -671,6 +605,38 @@ class _Builder:
 
     # ---- порождение кандидатов ------------------------------------------
 
+    def _candidate_view(self) -> ExactCandidateViewV1:
+        def vertex_state(ident):
+            vertex = self.vertices[ident]
+            return CandidateVertexStateV1(
+                vertex.prev_edge,
+                vertex.next_edge,
+                vertex.birth,
+                vertex.sliding,
+            )
+
+        def span_state(ident):
+            edge = self.edges[ident]
+            start = self._edge_start_vertex(ident)
+            end = self._edge_end_vertex(ident)
+            return CandidateSpanStateV1(
+                edge.line,
+                edge.span,
+                None if start is None else start.ident,
+                None if end is None else end.ident,
+            )
+
+        def trace_bounds(ident, time):
+            trace = self.traces.get(ident)
+            return None if trace is None else trace.bounds_time(time)
+
+        return ExactCandidateViewV1(
+            self._prime_universe,
+            vertex_state,
+            span_state,
+            trace_bounds,
+        )
+
     def _enqueue_for(self, vertex: _Vertex) -> None:
         self._enqueue_edge_event(vertex)
         if vertex.reflex or vertex.sliding is not None:
@@ -695,77 +661,46 @@ class _Builder:
         названы, и ни один не молчит.
         """
 
-        if vertex.sliding is not None and peer.sliding is not None:
-            here = self._position(vertex, self.now)
-            there = self._position(peer, self.now)
-            if (here.x - there.x).is_zero and (here.y - there.y).is_zero:
-                # Оба уже в одной точке и идут вместе: отрезок между ними имеет
-                # нулевую длину, и событие не «когда-нибудь», а СЕЙЧАС.
-                return self.now, EventTimeOutcome.EXACT
-            return None, EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT
-        if vertex.sliding is not None:
-            return sliding_time(
-                self.edges[vertex.prev_edge].line,
-                vertex.sliding,
-                self.edges[peer.next_edge].line,
-            )
-        if peer.sliding is not None:
-            return sliding_time(
-                self.edges[peer.prev_edge].line,
-                peer.sliding,
-                self.edges[vertex.prev_edge].line,
-            )
-        return concurrency_time(
-            self.edges[vertex.prev_edge].line,
-            self.edges[vertex.next_edge].line,
-            self.edges[peer.next_edge].line,
+        return _exact_edge_event_time(
+            self._candidate_view(),
+            vertex.ident,
+            peer.ident,
+            self.now,
         )
 
     def _enqueue_edge_event(self, vertex: _Vertex) -> None:
         peer = self.vertices[vertex.next]
-        if peer.ident == vertex.ident:
-            return self._refuse(CandidateRefusal.FILTER_SOLO_VERTEX)
-        time, outcome = self._edge_event_time(vertex, peer)
-        if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
-            return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
-        if outcome is not EventTimeOutcome.EXACT or time is None:
-            identity = self._edge_obligation_identity(vertex, peer)
-            return self._refuse(
-                CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
-                vertex_ids=identity[0],
-                participant_edge_keys=identity[1],
-                target_edge_keys=identity[2],
+        decision = evaluate_edge_candidate(
+            self._candidate_view(),
+            vertex.ident,
+            peer.ident,
+            now=self.now,
+            same_vertex=peer.ident == vertex.ident,
+            proof_identity_factory=lambda: self._edge_obligation_identity(
+                vertex, peer
+            ),
+        )
+        for effect in decision.effects:
+            assert compare_times(effect.evaluation_level, self.now) == 0
+            identity = effect.proof_identity
+            self._refuse(
+                effect.reason,
+                vertex_ids=() if identity is None else identity[0],
+                participant_edge_keys=() if identity is None else identity[1],
+                target_edge_keys=() if identity is None else identity[2],
             )
-        if not self._is_future(time, vertex, peer):
-            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
-        # ФРОНТ НЕ ГАСИТ ТОГО, ЧЕГО НЕ КАСАЕТСЯ ПО МЕРЕ. `concurrency_time`
-        # отвечает про три ПРЯМЫЕ, а гаснет ОТРЕЗОК, и это не одно и то же:
-        # когда движущаяся прямая источника наезжает на прямую коллинеарной
-        # СТЕНЫ, тройка честно сходится, хотя отрезки перекрываются в одной
-        # точке и стена не сжимается ни на шаг. Отрезок положительной длины
-        # исчезнуть не может, поэтому проверяется он, а не тройка.
-        span = self._collapsing_span(vertex, peer, time)
-        if span is not None and not span.is_zero:
-            return self._refuse(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
-        if (
-            span is not None
-            and compare_times(time, vertex.birth) == 0
-            and compare_times(time, peer.birth) == 0
-        ):
-            # Отрезок нулевой в момент рождения обоих концов: он ОТКРЫВАЕТСЯ.
-            return self._refuse(CandidateRefusal.FILTER_SPAN_IS_BORN_ZERO)
-        point = self._vertex_position(vertex, time, peer=peer)
-        if point is None:
+        candidate = decision.candidate
+        if candidate is None:
             return
         self.queue.push(
             CandidateEventV1(
                 EventKind.EDGE,
-                time,
-                point,
+                candidate.time,
+                candidate.point,
                 vertex.ident,
                 peer.ident,
                 -1,
-                span_unproven=span is None,
+                span_unproven=candidate.span_unproven,
             )
         )
 
@@ -801,57 +736,47 @@ class _Builder:
     def _split_candidate(
         self, vertex: _Vertex, edge: _Edge
     ) -> CandidateEventV1 | None:
-        if vertex.sliding is None:
-            time, outcome = concurrency_time(
-                self.edges[vertex.prev_edge].line,
-                self.edges[vertex.next_edge].line,
-                edge.line,
+        decision = evaluate_split_candidate(
+            self._candidate_view(),
+            vertex.ident,
+            edge.ident,
+            now=self.now,
+            proof_identity_factory=lambda: self._split_obligation_identity(
+                vertex, edge
+            ),
+        )
+        for effect in decision.effects:
+            assert compare_times(effect.evaluation_level, self.now) == 0
+            for name, increment in effect.counter_deltas:
+                self.counters[name] += increment
+            identity = effect.proof_identity
+            self._refuse(
+                effect.reason,
+                vertex_ids=() if identity is None else identity[0],
+                participant_edge_keys=() if identity is None else identity[1],
+                target_edge_keys=() if identity is None else identity[2],
             )
-        else:
-            # У развёрнутой вершины двух прямых нет — есть одна и закреплённая
-            # проекция вдоль неё. Тройка тут вырождена, и спрашивать её незачем.
-            time, outcome = sliding_time(
-                self.edges[vertex.prev_edge].line, vertex.sliding, edge.line
-            )
-        if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
-            return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
-        if outcome is not EventTimeOutcome.EXACT or time is None:
-            identity = self._split_obligation_identity(vertex, edge)
-            return self._refuse(
-                CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
-                vertex_ids=identity[0],
-                participant_edge_keys=identity[1],
-                target_edge_keys=identity[2],
-            )
-        if time.sign <= 0 or compare_times(time, vertex.birth) <= 0:
-            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
-        if compare_times(time, self.now) < 0:
-            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
-        # ТЕОРЕМА 2.11: вершина не уходит за свою трассу, значит событие позже
-        # крушения невозможно. Это и есть достаточное условие, которого наивной
-        # проверке попадания в отрезок не хватало.
-        trace = self.traces.get(vertex.ident)
-        if trace is not None and not trace.bounds_time(time):
-            self.counters["split_candidates_beyond_trace"] += 1
-            return self._refuse(CandidateRefusal.FILTER_BEYOND_TRACE)
-        point = self._vertex_position(vertex, time, target_edge=edge)
-        if point is None:
+        candidate = decision.candidate
+        if candidate is None:
             return None
-        if not self._edge_span_contains(edge, point, time):
-            return self._refuse(CandidateRefusal.FILTER_POINT_OUTSIDE_FRONT)
         return CandidateEventV1(
-            EventKind.SPLIT, time, point, vertex.ident, -1, edge.ident
+            EventKind.SPLIT,
+            candidate.time,
+            candidate.point,
+            vertex.ident,
+            -1,
+            edge.ident,
         )
 
     def _is_future(
         self, time: EventTimeV1, vertex: _Vertex, peer: _Vertex
     ) -> bool:
-        if time.sign < 0:
-            return False
-        return (
-            compare_times(time, vertex.birth) >= 0
-            and compare_times(time, peer.birth) >= 0
-            and compare_times(time, self.now) >= 0
+        return _exact_is_future(
+            self._candidate_view(),
+            time,
+            vertex.ident,
+            peer.ident,
+            now=self.now,
         )
 
     def _position(
@@ -868,18 +793,7 @@ class _Builder:
         не потому, что его трудно посчитать, а потому, что его нет.
         """
 
-        first = self.edges[vertex.prev_edge].line
-        second = self.edges[vertex.next_edge].line
-        if first.a * second.b - second.a * first.b:
-            return _event_point_with_prime_universe(
-                first,
-                second,
-                time,
-                self._prime_universe,
-            )
-        if vertex.sliding is None:
-            return None
-        return sliding_point(first, vertex.sliding, time)
+        return _exact_position(self._candidate_view(), vertex.ident, time)
 
     def _vertex_position(
         self,
@@ -931,18 +845,9 @@ class _Builder:
         сравнение остаётся точным знаком `SqrtSumV1` и порога не требует.
         """
 
-        start = self._edge_start_vertex(edge.ident)
-        end = self._edge_end_vertex(edge.ident)
-        if start is None or end is None:
-            return False
-        here = _project(edge.line, point)
-        low = self._span_end(start, edge, time, at_start=True)
-        high = self._span_end(end, edge, time, at_start=False)
-        if low is not None and (here - low).sign() < 0:
-            return False
-        if high is not None and (high - here).sign() < 0:
-            return False
-        return True
+        return _exact_span_contains(
+            self._candidate_view(), edge.ident, point, time
+        )
 
     def _span_end(
         self,
@@ -979,15 +884,12 @@ class _Builder:
         ребра, а конец — конец.
         """
 
-        place = self._position(vertex, time)
-        if place is not None:
-            return _project(edge.line, place)
-        if not edge.line.is_stationary:
-            return None
-        x0, y0, x1, y1 = edge.span
-        node_x, node_y = (x0, y0) if at_start else (x1, y1)
-        return SqrtSumV1.rational(
-            node_x * edge.line.b - node_y * edge.line.a
+        return _exact_span_end(
+            self._candidate_view(),
+            vertex.ident,
+            edge.ident,
+            time,
+            at_start=at_start,
         )
 
     def _collapsing_span(
@@ -1006,12 +908,9 @@ class _Builder:
         доказательства не есть доказательство отсутствия.
         """
 
-        edge = self.edges[vertex.next_edge]
-        low = self._span_end(vertex, edge, time, at_start=True)
-        high = self._span_end(peer, edge, time, at_start=False)
-        if low is None or high is None:
-            return None
-        return high - low
+        return _exact_collapsing_span(
+            self._candidate_view(), vertex.ident, peer.ident, time
+        )
 
     def _register(self, vertex: _Vertex) -> None:
         self.edge_start[vertex.next_edge] = vertex.ident
@@ -1056,8 +955,6 @@ class _Builder:
                 )
                 if self.refusal is not None:
                     return self._finish(self.refusal, levels)
-                self._close_short_lavs()
-                self._discharge_observed_obligations()
                 if not has_same_time_residual(self.queue, self.now):
                     break
                 if levels >= budget:
@@ -1065,6 +962,12 @@ class _Builder:
                         SkeletonOutcome.LEVEL_BUDGET_EXHAUSTED, levels
                     )
                 level = self.queue.pop_level()
+            # Весь exact-time fixed point — одна наблюдаемая граница. Между
+            # поколениями кандидатов нельзя ни закрывать короткие LAV, ни
+            # гасить proof debt: оба действия читают liveness и сделали бы
+            # следующий frozen packet функцией служебной границы поколения.
+            self._close_short_lavs()
+            self._discharge_observed_obligations()
             self.counters["same_time_residual_after_level"] += int(
                 has_same_time_residual(self.queue, self.now)
             )
@@ -1108,64 +1011,11 @@ class _Builder:
         )
 
     def _apply_level(self, level: tuple[CandidateEventV1, ...]) -> None:
-        """Весь уровень разом: сначала ВСЕ разрезы, потом ВСЕ схлопывания.
+        """Применить exact-time packet одной транзакцией frozen-prestate."""
 
-        Живость всех кандидатов уровня определяется ДО первого применения.
-        Иначе порядок применения решал бы, какие события уровня выживут, — то
-        есть ровно тот дефект, ради которого очередь и строится: последовательный
-        попарный крой не композируется.
+        from .superlevel import apply_superlevel_transaction
 
-        Ни одно снятое событие не теряется молча: не прошедшее проверку идёт в
-        счётчик устаревших, а неразрешимая одновременность — в именованный
-        исход, а не в выбор «первого попавшегося».
-        """
-
-        supported = {EventKind.SPLIT, EventKind.EDGE}
-        for event in level:
-            if event.kind in supported:
-                continue
-            self.counters["unsupported_event_kind_dropped"] += 1
-            valid_vertices = tuple(
-                ident
-                for ident in (event.vertex, event.peer)
-                if 0 <= ident < len(self.vertices)
-            )
-            carried_edge = self._edge_keys(event.edge)
-            self._record_obligation(
-                cause=ProofObligationBranch.UNSUPPORTED_EVENT_KIND,
-                disposition=(
-                    ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED
-                ),
-                vertex_ids=valid_vertices,
-                participant_edge_keys=carried_edge,
-                target_edge_keys=carried_edge,
-                level=event.time,
-                event_kind=event.kind,
-            )
-
-        splits = [event for event in level if event.kind is EventKind.SPLIT]
-        collapses = [event for event in level if event.kind is EventKind.EDGE]
-        live_splits = [event for event in splits if self._split_is_live(event)]
-        self.counters["discarded_stale_candidates"] += len(splits) - len(
-            live_splits
-        )
-        meetings, cuts = self._separate_vertex_meetings(live_splits)
-        cuts += self._apply_vertex_meetings(meetings)
-        cuts = [event for event in cuts if self._split_is_live(event)]
-        separated = self._dedupe_by_vertex(cuts)
-        if separated is None:
-            return
-        for edge_id, group in self._group_splits(separated):
-            self._apply_multi_split(edge_id, group)
-
-        live_collapses = [
-            event for event in collapses if self._edge_event_is_live(event)
-        ]
-        self.counters["discarded_stale_candidates"] += len(collapses) - len(
-            live_collapses
-        )
-        for cluster in cluster_by_point(tuple(live_collapses)):
-            self._apply_multi_edge(list(cluster))
+        apply_superlevel_transaction(self, level)
 
     def _separate_vertex_meetings(
         self, splits: list[CandidateEventV1]
@@ -1669,7 +1519,12 @@ class _Builder:
             self._enqueue_for(vertex)
         self._enqueue_edge_event(span_start)
 
-    def _enqueue_splits_against(self, edge: _Edge) -> None:
+    def _enqueue_splits_against(
+        self,
+        edge: _Edge,
+        *,
+        excluded_vertex_ids: frozenset[int] = frozenset(),
+    ) -> None:
         """Кандидаты живых reflex-вершин против ВНОВЬ ПОЯВИВШЕГОСЯ отрезка.
 
         Без этого срез теряет события молча, и потеря видна не сразу: у
@@ -1678,6 +1533,11 @@ class _Builder:
         надвое, и оставшиеся кандидаты перестают попадать в СВОЙ отрезок. Рёбра
         во время счёта размножаются, поэтому перепорождение обязательно.
 
+        `excluded_vertex_ids` — только защита от повторной ПОСТАНОВКИ. Она
+        применяется транзакцией к born-вершинам, которые перед этим уже прошли
+        полный `_enqueue_for` против всех текущих рёбер; кандидатов из поиска
+        этот параметр не фильтрует.
+
         Запрос обратный к `lines_near` и по построению согласован с ним: пара
         попадает в кандидаты тогда и только тогда, когда у вершины и прямой есть
         общая ячейка. Несогласованность двух направлений теряла бы ровно те
@@ -1685,6 +1545,8 @@ class _Builder:
         """
 
         for ident in self._split_partners(edge):
+            if ident in excluded_vertex_ids:
+                continue
             vertex = self.vertices[ident]
             if not vertex.alive or not (
                 vertex.reflex or vertex.sliding is not None
@@ -1896,29 +1758,6 @@ def _reconnect_by_rays(
     if rest_in:
         pairs.append((rest_in[0], rest_out[0]))
     return tuple(pairs)
-
-
-def _joint_kind(
-    first: SupportLineV1, second: SupportLineV1
-) -> CandidateRefusal:
-    """Какое именно вырождение у стыка двух ПАРАЛЛЕЛЬНЫХ прямых фронта.
-
-    Направление ребра — `(b, -a)`. Скалярное произведение направлений решает
-    вопрос точно и целочисленно: положительное — рёбра смотрят в одну сторону
-    (угол развёрнутый, вершина скользит вдоль прямой), отрицательное — навстречу
-    (фронт вывернулся, два его отрезка совпали).
-
-    У сонаправленного стыка спрашивается ещё и равенство скоростей `q1/N1` и
-    `q2/N2`: прямые разных скоростей совпадают на одно мгновение, и называть
-    такой стык развёрнутым углом было бы неверным диагнозом, а не огрублением.
-    """
-
-    dot = first.b * second.b + first.a * second.a
-    if dot <= 0:
-        return CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL
-    if first.q * second.normal_squared != second.q * first.normal_squared:
-        return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS
-    return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL
 
 
 def _is_reflex(first: SupportLineV1, second: SupportLineV1) -> bool:

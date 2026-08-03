@@ -1,0 +1,82 @@
+{
+  "schema": "P0_2B_SPLIT_STABLE_REBIND_GATE_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "scope": {
+    "product_integration": false,
+    "runtime_materialization": false,
+    "pure_symbolic_split_rebind": true,
+    "slice": "kernel/src/cftuv_envelope/wavefront/superlevel_fixed_point.py",
+    "slice_lines": 245,
+    "slice_sha256": "6cf4906e75cca9167c61f69e588b19826aafd9ed0ed05c64dd3905b0022c300d"
+  },
+  "identity": {
+    "old_leaf_bound_added_incidents_retained": false,
+    "stable_key_fields": [
+      "exact_time_key",
+      "exact_point_key",
+      "emitter_junction_ref",
+      "root_span_family_ref",
+      "stable_participant_keys"
+    ],
+    "runtime_ids_in_stable_key": false,
+    "requested_key_all_alias_exact_hydration": true,
+    "unrelated_key_exact_hydration": false
+  },
+  "rebuild_law": {
+    "frozen_input": "original F0 incidents",
+    "monotone_state": "stable added split contacts",
+    "each_iteration": "recompile every stable contact to its exact F0 emitter port and frozen root occurrence and edge, then rebuild M1 overlay",
+    "prior_child_occurrence_preserved_as_target": false
+  },
+  "synthetic_nested_gate": {
+    "families": 1,
+    "f0_contacts": 1,
+    "added_causal_generations": 2,
+    "second_generation_discovered_on_child_leaf": true,
+    "root_and_child_discovery_stable_key_equal": true,
+    "root_and_child_participants_equal": true,
+    "discovery_leaf_dict_orders": 2,
+    "compiled_contact_orders": 2,
+    "all_compiled_targets_are_root_occurrence": true,
+    "stale_child_target_incidents": 0,
+    "flattened_contacts": 3,
+    "flattened_segments": 4,
+    "forward_reverse_normal_forms_equal": true
+  },
+  "cross_full_q_1_t8_gate": {
+    "stable_latent_split_contacts": 1,
+    "iterations": 1,
+    "overlay_vertices": 7,
+    "overlay_spans": 11,
+    "changed_spans": 6,
+    "overlay_signature_repr_sha256": "3d6b8df16e96110f66e6e579cfdecff6dbdca8d2d6daee15c64fffe8a4673bb0",
+    "matches_pre_rebind_overlay": true
+  },
+  "endpoint_gate": {
+    "at_start_reason": "SYMBOLIC_SPLIT_ENDPOINT_JUNCTION_REQUIRED",
+    "at_end_reason": "SYMBOLIC_SPLIT_ENDPOINT_JUNCTION_REQUIRED",
+    "coerced_to_interior": false
+  },
+  "function_gate": {
+    "stable_contact_classes": [
+      "SymbolicSplitContactKeyV1",
+      "SymbolicSplitContactV1"
+    ],
+    "leaf_bound_added_incidents_symbol": false,
+    "product_imports": false
+  },
+  "validation": [
+    {
+      "command": "python -m pytest -q -p no:cacheprovider kernel/tests/test_wavefront_superlevel_transaction.py::test_split_family_normal_form_materializes_comb_2_once kernel/tests/test_wavefront_superlevel_transaction.py::test_nested_split_contacts_rebind_to_one_root_family kernel/tests/test_wavefront_superlevel_transaction.py::test_cross_t8_edge_generations_are_stable_under_permutations kernel/tests/test_wavefront_superlevel_transaction.py::test_same_generation_edge_component_is_one_order_free_delta kernel/tests/test_wavefront_superlevel_transaction.py::test_ambiguous_edge_component_ports_refuse_without_mutation kernel/tests/test_wavefront_superlevel_transaction.py::test_edge_generation_refuses_duplicate_active_span_owner",
+      "result": "6 passed in 0.45s"
+    },
+    {
+      "command": "python -m pytest -q -p no:cacheprovider tests/test_architecture.py",
+      "result": "386 passed in 2.95s"
+    }
+  ],
+  "status": "PURE_GATE_GREEN_PRODUCT_OFF_ENDPOINT_MERGE_PENDING"
+}

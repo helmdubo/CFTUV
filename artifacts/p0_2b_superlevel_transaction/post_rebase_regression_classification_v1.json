@@ -1,0 +1,195 @@
+{
+  "schema": "P0_2B_POST_REBASE_REGRESSION_CLASSIFICATION_V1",
+  "baseline_sha": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+  "product_head_sha": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "classification_state": {
+    "uncommitted_authorized_dedup_fix": [
+      "kernel/src/cftuv_envelope/wavefront/skeleton.py",
+      "kernel/src/cftuv_envelope/wavefront/superlevel.py",
+      "kernel/tests/test_wavefront_degenerate_event.py"
+    ],
+    "publication": "STOP_NO_PUSH"
+  },
+  "commands": {
+    "wrong_cwd_full_kernel": {
+      "cwd": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+      "env": "PYTHONPATH=kernel/src;kernel/tests",
+      "argv": "python -m pytest -q kernel/tests",
+      "result": "2191 passed, 15 failed in 1235.08s",
+      "wall_seconds": 1239.513,
+      "classification": "NON_AUTHORITATIVE_CWD; isolation failure is caused by repository root exposing host package cftuv"
+    },
+    "correct_cwd_degenerate_before_fix": {
+      "cwd": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction\\kernel",
+      "env": "PYTHONPATH=src;tests",
+      "argv": "python -m pytest -q tests/test_wavefront_degenerate_event.py",
+      "result": "51 passed, 6 failed in 4.42s",
+      "wall_seconds": 5.948
+    },
+    "correct_cwd_degenerate_after_fix": {
+      "cwd": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction\\kernel",
+      "env": "PYTHONPATH=src;tests",
+      "argv": "python -m pytest -q tests/test_wavefront_degenerate_event.py",
+      "result": "57 passed in 3.66s",
+      "wall_seconds": 5.155
+    },
+    "correct_cwd_sem_clb02_after_fix": {
+      "cwd": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction\\kernel",
+      "env": "PYTHONPATH=src;tests",
+      "argv": "python -m pytest -q --tb=line tests/test_sem_clb_02_chain_straight_regression.py::test_public_wavefront_classifies_exact_straight_seed_vertices tests/test_sem_clb_02_chain_straight_regression.py::test_patch006_skeleton_event_points_use_the_frozen_prime_basis tests/test_sem_clb_02_chain_straight_regression.py::test_patch011_prime_basis_is_complete_and_never_falls_back",
+      "result": "6 failed in 87.28s",
+      "wall_seconds": 89.196
+    },
+    "correct_cwd_differential_after_fix": {
+      "cwd": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction\\kernel",
+      "env": "PYTHONPATH=src;tests",
+      "argv": "python -m pytest -q --tb=line tests/test_wavefront_differential.py::test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree tests/test_wavefront_differential.py::test_the_field_patch_needs_the_weights_and_not_only_the_lattice",
+      "result": "2 failed in 71.43s",
+      "wall_seconds": 73.525
+    }
+  },
+  "wrong_cwd_exact_failed_nodeids": [
+    "tests/test_isolation.py::test_blender_and_host_packages_are_physically_absent",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_public_wavefront_classifies_exact_straight_seed_vertices[building_all_seams_patch_001_lost_resolved_v1]",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_public_wavefront_classifies_exact_straight_seed_vertices[building_all_seams_patch_006_lost_resolved_v1]",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_public_wavefront_classifies_exact_straight_seed_vertices[building_all_seams_patch_011_lost_resolved_v1]",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_public_wavefront_classifies_exact_straight_seed_vertices[building_all_seams_patch_105_lost_resolved_v1]",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_patch006_skeleton_event_points_use_the_frozen_prime_basis",
+    "tests/test_sem_clb_02_chain_straight_regression.py::test_patch011_prime_basis_is_complete_and_never_falls_back",
+    "tests/test_wavefront_degenerate_event.py::test_the_required_straight_seed_case_is_exact_in_both_search_modes[MOTORCYCLE]",
+    "tests/test_wavefront_degenerate_event.py::test_the_required_straight_seed_case_is_exact_in_both_search_modes[EXHAUSTIVE]",
+    "tests/test_wavefront_degenerate_event.py::test_scaled_raw_q_still_has_one_exact_physical_seed_speed[MOTORCYCLE]",
+    "tests/test_wavefront_degenerate_event.py::test_scaled_raw_q_still_has_one_exact_physical_seed_speed[EXHAUSTIVE]",
+    "tests/test_wavefront_degenerate_event.py::test_the_arms_of_a_cross_collapse_in_one_level_of_six_simultaneous_events",
+    "tests/test_wavefront_degenerate_event.py::test_the_ridge_crossing_is_the_meeting_of_the_two_sliding_vertices",
+    "tests/test_wavefront_differential.py::test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree",
+    "tests/test_wavefront_differential.py::test_the_field_patch_needs_the_weights_and_not_only_the_lattice"
+  ],
+  "degenerate": {
+    "classification": "FIVE_STALE_ONLY_RATCHETS_PLUS_ONE_DUPLICATE_SCHEDULING_BUG",
+    "straight_cases": {
+      "small": {"baseline_levels": 3, "current_levels": 3},
+      "required": {
+        "baseline_levels": 3,
+        "current_levels": 2,
+        "baseline_digest": "9963729a16ada82827398624ed4fe1d8ea9fc108e5ac8df67b8a40e04deb7cbd",
+        "current_digest": "9963729a16ada82827398624ed4fe1d8ea9fc108e5ac8df67b8a40e04deb7cbd",
+        "stable_product": {"outcome": "EXACT", "nodes": 3, "faces": 5, "polygon_doubled_area": 48, "area_defect_terms": []},
+        "first_trace": {
+          "baseline": [
+            {"time": 2, "events": 3, "live_prestate": 3, "applied_edge": 2, "applied_split": 1, "enqueued_same_time": 2, "residual": true},
+            {"time": 2, "events": 2, "live_prestate": 0, "stale": 2, "enqueued_same_time": 0, "residual": false}
+          ],
+          "current": [
+            {"time": 2, "events": 3, "live_prestate": 3, "applied_edge": 2, "applied_split": 1, "contact_junction_births": 4, "enqueued_same_time": 0, "residual": false}
+          ]
+        }
+      },
+      "scaled": {
+        "baseline_levels": 4,
+        "current_levels": 3,
+        "baseline_digest": "f042bbe001e20a00571263ad78930f91368f3487ea33232507a5af2639334d82",
+        "current_digest": "d1c11014e8f2482197311670cd9b6afde7f52149cf09662661976e38c648ab98",
+        "stable_geometric_product": {"outcome": "EXACT", "nodes": 2, "faces": 5, "polygon_doubled_area": 48, "area_defect_terms": []},
+        "trace_delta": "baseline had one trailing same-time EDGE packet with live_prestate=0; current has none"
+      }
+    },
+    "cross": {
+      "baseline_digest": "a5205821ef102efb12752307e917214b535e60a8379f938d481fc19aadbc74cf",
+      "current_digest": "a5205821ef102efb12752307e917214b535e60a8379f938d481fc19aadbc74cf",
+      "stable_product": {"outcome": "EXACT", "nodes": 7, "ridge_y": [3, 6, 17], "vertex_meeting_events": 3},
+      "time_2": {
+        "baseline_packets": [
+          {"events": 6, "live_prestate": 6, "applied_edge": 2, "vertex_meetings": 2, "enqueued_same_time": 2, "residual": true},
+          {"events": 2, "live_prestate": 0, "stale": 2, "residual": false}
+        ],
+        "current_packets": [
+          {"events": 6, "unique_events": 6, "live_prestate": 6, "applied_edge": 2, "vertex_meetings": 2, "contact_junction_births": 6, "enqueued_same_time": 0, "residual": false}
+        ]
+      },
+      "time_3_post_dedup": {
+        "MOTORCYCLE": {"total_events": 6, "unique_events": 6, "split_candidates_examined_final": 52},
+        "EXHAUSTIVE": {"total_events": 14, "unique_events": 14, "split_candidates_examined_final": 60}
+      },
+      "fixed_duplicate_identities": ["(SPLIT,v17,e1)", "(SPLIT,v17,e5)", "(SPLIT,v12,e7)", "(SPLIT,v12,e11)"],
+      "cause": "born _enqueue_for scheduled each candidate, then affected-edge _enqueue_splits_against scheduled the same born vertex/edge pair again",
+      "minimal_action": "keep the local scheduling-only excluded_vertex_ids guard; do not recreate stale packets"
+    }
+  },
+  "sem_clb02": {
+    "classification": "THREE_PRODUCT_REGRESSIONS_AND_ONE_STALE_LEVEL_RATCHET",
+    "cases": {
+      "building_all_seams_patch_001_lost_resolved_v1": {
+        "baseline": {"outcome": "EXACT", "digest": "a9883546116fa89997284f66226f6723d1de6db766f2ce0c251d7f1e03eaa4fc", "levels": 223, "nodes": 62, "faces": 54, "coverage": "EXACT", "polygon_doubled_area": 1000842338256},
+        "current": {"outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE", "digest": "bade3aa2fe824a0b75af4495ea95d76e1456c5cc7162d96e83c6968b48d1d02d", "levels": 59, "nodes": 31, "proof": "INCOMPLETE"},
+        "first_failure": {
+          "time": {"dividend": ["3849888909296738373", "9217108736"], "divisor_terms": [[8434226, "1", "1"], [2647231435736498, "-9545", "288034648"], [8828304768354706, "7207", "288034648"]]},
+          "point_sha256": "bb5d584f3efdbaa7a6bd2c9cd268143bb4e9d5231cbf32f1b1b042fb112d1cf7",
+          "point": {"x_terms": [[1, "-1560782670807736630931842681", "13008306947994246347360"], [1500090580711240297, "461024260679119371", "13008306947994246347360"], [5002681914349720409, "-183088994167253187", "13008306947994246347360"], [1570180455996439113052056857, "-17602695825819", "13008306947994246347360"]], "y_terms": [[1, "824848799573482611508018325", "1300830694799424634736"], [1500090580711240297, "-1030885647438999027", "6504153473997123173680"], [5002681914349720409, "5220244912436463", "1300830694799424634736"], [1570180455996439113052056857, "26659046412843", "6504153473997123173680"]]},
+          "kinds": ["SPLIT"], "events": 3,
+          "plan_predicates": {"unique_incidents": true, "edge_contact_valid": true, "cuts_valid": true, "ports_valid": true, "dead_overlaps": []},
+          "commit_failure": {"new_segment_occurrences_already_exist": 2}
+        },
+        "minimal_action": "repair split segment-occurrence replacement semantics in _commit_prestate; do not ratchet to SKELETON_DID_NOT_CLOSE"
+      },
+      "building_all_seams_patch_006_lost_resolved_v1": {
+        "baseline": {"outcome": "EXACT", "digest": "d2e21b47e48bae7fbeb411f418fa216e9ae478b4523468a090ca869ea82e9280", "levels": 266, "nodes": 73, "faces": 63, "coverage": "EXACT", "polygon_doubled_area": 4917431057152},
+        "current": {"outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE", "digest": "6b06ee6b5936b58c239f2648b6ebe3ef77b536e994412305a21d90eb4658c036", "levels": 20, "nodes": 16, "proof": "INCOMPLETE"},
+        "first_failure": {
+          "time": {"dividend": ["96960715", "512"], "divisor_terms": [[1, "1", "1"]]},
+          "point_sha256": "651b28a67b7bcf718b92723208be1a52e088603c7e19654bdd8a6137feada5fc",
+          "point": {"x_terms": [[1, "-1268764880044", "194167"], [1363570787851646333, "25796", "1383828209"]], "y_terms": [[1, "33985473588", "194167"], [1363570787851646333, "-25796", "1383828209"]]},
+          "kinds": ["EDGE"], "events": 1,
+          "plan_predicates": {"unique_incidents": true, "edge_contact_valid": true, "cuts_valid": true, "ports_valid": false, "dead_overlaps": []},
+          "raw_births": 1
+        },
+        "minimal_action": "extend frozen port wiring for the observed single EDGE contact; retain fail-closed outcome until the exact wiring invariant is proved"
+      },
+      "building_all_seams_patch_011_lost_resolved_v1": {
+        "baseline": {"outcome": "EXACT", "digest": "6683f9d2951b6ed27a7d90518ea7982c7eb8961a2d7976201fb39d87c481439b", "levels": 218, "nodes": 62, "faces": 54, "coverage": "EXACT", "polygon_doubled_area": 3009689813344},
+        "current": {"outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE", "digest": "9378b810258c8055a28f18eef4eeb76c0b8066bdcc63620ae94c58f1ba37297a", "levels": 75, "nodes": 40, "proof": "INCOMPLETE"},
+        "first_failure": {
+          "time": {"dividend": ["597242002232696775389", "4917760"], "divisor_terms": [[10240585, "1", "1"], [27188483234716645, "793081", "345780"], [5206161287889372445, "57313", "345780"]]},
+          "point_sha256": "fea53b6d59aa5fcba24fbe65a7e55ffb854565742dd4b284c4ef71acaf7fc28c",
+          "point": {"x_terms": [[1, "-840084874366531494883032649814937295088", "12128488456305175824180196233"], [11137038943447630161493, "1301834601991380696497204234", "12128488456305175824180196233"], [2132565487693623564787213, "-94083589417067284635412682", "12128488456305175824180196233"], [5661905155720440776952942657833881, "11165002444147456745500", "12128488456305175824180196233"]], "y_terms": [[1, "2394136313317478876518275257644107107", "72843774512343398343424602"], [11137038943447630161493, "-7818816386935513089105683", "72843774512343398343424602"], [2132565487693623564787213, "20906868982548298126111763", "2695219656956705738706710274"], [5661905155720440776952942657833881, "-1177300376798959297891", "2695219656956705738706710274"]]},
+          "kinds": ["SPLIT"], "events": 1,
+          "plan_predicates": {"unique_incidents": true, "edge_contact_valid": true, "cuts_valid": true, "ports_valid": true, "dead_overlaps": []},
+          "commit_failure": {"new_segment_occurrences_already_exist": 1}
+        },
+        "minimal_action": "same split occurrence fix as patch_001, guarded by both exact fixtures"
+      },
+      "building_all_seams_patch_105_lost_resolved_v1": {
+        "baseline": {"outcome": "EXACT", "digest": "afdd1c29bafb8a3f7f013b94fd1acab28e4f2fb849ae9872ff2f4fc6a537f68d", "levels": 13, "nodes": 6, "faces": 8, "coverage": "EXACT", "polygon_doubled_area": 29265078464, "proof": "INCOMPLETE"},
+        "current": {"outcome": "EXACT", "digest": "1e96e075b63a08fd5439b4262e3acd554dd55a305013a5f7c648ac4d4653f737", "levels": 12, "nodes": 6, "faces": 8, "coverage": "EXACT", "polygon_doubled_area": 29265078464, "proof": "COMPLETE"},
+        "minimal_action": "after the three product regressions close, ratchet level 13 to 12 only with permanent outcome/node/face/area/coverage assertions"
+      }
+    },
+    "prime_tests": {
+      "patch006": "blocked at prepare_conveyor before expected event_calls=5265, coordinate_divisions=10530, pick_iterations=18344, support_checks=31830, incomplete=0 and digest assertion",
+      "patch011": "blocked at prepare_conveyor before expected 39-prime universes, optimized_calls MOTORCYCLE=18/COVERAGE=96 and fallback_calls=[] assertions"
+    }
+  },
+  "differential": {
+    "weighted": {
+      "baseline": {"outcome": "EXACT", "digest": "4f958b64760e1c7ef896bd45608f95379e51adc35aecd41c2dac59e258e5561f", "levels": {"MOTORCYCLE": 18, "EXHAUSTIVE": 19}, "nodes": 12, "expanded_kinds": {"EDGE": 6, "SPLIT": 6}, "proof": "INCOMPLETE"},
+      "current": {"outcome": "EXACT", "digest": "d652127a9bacd795c07503573ec997dce3bc3e0416e0f6bbae8c215971f6c640", "levels": {"MOTORCYCLE": 18, "EXHAUSTIVE": 18}, "nodes": 12, "expanded_kinds": {"EDGE": 10, "SPLIT": 6}, "proof": "COMPLETE", "contact_junction_resolutions": 11},
+      "stable_partition": {"outcome": "EXACT", "faces": 5, "polygon_doubled_area": 27224141715, "area_defect_terms": []},
+      "record_delta": "four nodes retain exact place and participant hashes but change SPLIT to MULTIWAY kinds=(EDGE,SPLIT), converging 1 to 2, incidences 0 to 1",
+      "changed_place_hashes": ["c813eb79bca5f35e", "de8cc623abed6bfd", "37b434480a82e949", "8a8e1794c616a75b"],
+      "minimal_action": "candidate intended P0-2b record ratchet; require reviewer acceptance and freeze all 12 place/participant identities plus partition"
+    },
+    "unit_speed_negative_control": {
+      "baseline": {"outcome": "WAVEFRONT_LEFT_UNRESOLVED", "digest": "e263f61656addcc088ef1414c3b10cb3a3a160d7e32c4a5ba1d8bf7d2665f5e2", "levels": 20, "nodes": 12, "expanded_kinds": {"EDGE": 6, "SPLIT": 6}, "proof": "INCOMPLETE"},
+      "current": {"outcome": "EXACT", "digest": "a09cf1444201631c68b77fc320721aa2342d5f0bd82983652fcfc1082fe80ff4", "levels": 20, "nodes": 12, "expanded_kinds": {"EDGE": 10, "SPLIT": 6}, "proof": "COMPLETE", "faces": 5, "polygon_doubled_area": 27224141715, "area_defect_terms": []},
+      "classification": "SEMANTIC_PREMISE_CHANGED; the test specifically claimed weights were necessary for closure",
+      "minimal_action": "do not blindly ratchet; reviewer must decide whether exact unit-speed closure invalidates the old evidence or exposes over-resolution, then either replace the negative control with valid evidence or constrain the transaction rule"
+    }
+  },
+  "recommended_sequence": [
+    "keep STOP_NO_PUSH and no full-suite run",
+    "repair and independently gate patch_001/006/011 exact closure first",
+    "obtain reviewer decision for the unit-speed negative-control semantic change",
+    "only then ratchet patch_105 and weighted differential with stronger product assertions",
+    "rerun focused P0-2b, P0-3, architecture, full kernel from cwd=kernel, full host and invariants"
+  ]
+}
