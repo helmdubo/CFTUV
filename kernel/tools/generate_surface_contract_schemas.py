@@ -21,6 +21,10 @@ from cftuv_envelope.contracts.surface_adjacency import (
     SurfaceAdjacencyIRV1,
     SurfaceCompleteIRV1,
 )
+from cftuv_envelope.contracts.surface_arrival import (
+    SURFACE_ARRIVAL_COMPLEX_V1_SCHEMA,
+    SurfaceArrivalComplexV1,
+)
 from cftuv_envelope.contracts.surface_metric_v2 import (
     SURFACE_METRIC_DESCRIPTOR_V2_SCHEMA,
     SurfaceMetricDescriptorV2,
@@ -43,6 +47,11 @@ SCHEMAS = (
         SurfaceMetricDescriptorV2,
         SURFACE_METRIC_DESCRIPTOR_V2_SCHEMA,
         "surface_metric_descriptor_v2.schema.json",
+    ),
+    (
+        SurfaceArrivalComplexV1,
+        SURFACE_ARRIVAL_COMPLEX_V1_SCHEMA,
+        "surface_arrival_complex_v1.schema.json",
     ),
 )
 
