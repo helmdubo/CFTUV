@@ -16,6 +16,11 @@ from .proof import (
 )
 # Слой frozen prestate вынесен целиком; имена остаются на этом модуле, потому
 # что его читают и `base.X`, и тесты — фасад дешевле правки тридцати мест.
+from .superlevel_germ import (
+    SuperlevelGermLedgerV1,
+    incident_ends,
+    locus_ends,
+)
 from .superlevel_snapshot import (  # noqa: F401
     SuperlevelIncidentV1,
     SuperlevelSnapshotV1,
@@ -282,6 +287,21 @@ def _component_fields(
     )
 
 
+def _fold_germ(previous: BoundaryBirthV1, repeated: BoundaryBirthV1):
+    """Свернуть два предъявления одного зародыша в один объект.
+
+    Нагрузка (`replaces`) складывается объединением, представитель —
+    канонический минимум по ключу. Порядок предъявления на результат не
+    влияет. Два РАЗНЫХ представителя одного ключа не сворачиваются: это
+    неоднозначность, и её обязан назвать вызывающий, а не леджер.
+    """
+
+    if previous.key != repeated.key:
+        return previous if repr(previous.key) <= repr(repeated.key) else repeated
+    merged = tuple(sorted(set(previous.replaces) | set(repeated.replaces)))
+    return replace(previous, replaces=merged)
+
+
 def _birth(
     time: EventTimeV1,
     point_key: tuple,
@@ -289,8 +309,15 @@ def _birth(
     next_occurrence: tuple | None,
     *,
     replaces: tuple[int, ...] = (),
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> BoundaryBirthV1 | None:
-    """Построить canonical ContactJunction; runtime id в ключ не входит."""
+    """Единая дверь материализации ContactJunction; runtime id в ключ не входит.
+
+    Все три пути одного пакета — контакт рёбер, разрез и встреча вершин —
+    рождают зародыш ЗДЕСЬ и только здесь. Повторное предъявление того же
+    зародыша возвращает тот же объект: это не фильтр дубликатов, а тождество
+    локуса (AUTH Q-10-ADD).
+    """
 
     if prev_occurrence is None or next_occurrence is None:
         return None
@@ -300,19 +327,29 @@ def _birth(
         prev_occurrence,
         next_occurrence,
     )
-    return BoundaryBirthV1(
+    germ = BoundaryBirthV1(
         point_key=point_key,
         prev_occurrence=prev_occurrence,
         next_occurrence=next_occurrence,
         key=key,
         replaces=replaces,
     )
+    if ledger is None:
+        return germ
+    germ_key = ledger.key(
+        _time_key(time), point_key, prev_occurrence, next_occurrence
+    )
+    if germ_key is None:
+        return germ
+    return ledger.materialize(germ_key, germ, fold=_fold_germ)
 
 
 def _edge_contact_plans(
     edges: tuple[SuperlevelIncidentV1, ...],
     splits: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
+    *,
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> tuple[
     tuple[EdgeContactPlanV1, ...],
     tuple[SuperlevelIncidentV1, ...],
@@ -334,45 +371,22 @@ def _edge_contact_plans(
             for ident in (incident.event.vertex, incident.event.peer)
         }
         chains = _snapshot_chains(dead, vertices)
-        incident_edges = {
-            edge_id
-            for ident in dead
-            for edge_id in (vertices[ident].prev_edge, vertices[ident].next_edge)
-        }
-        boundary_endpoints = set()
-        for chain in chains:
-            head, tail = vertices[chain[0]], vertices[chain[-1]]
-            boundary_endpoints.update(
-                (
-                    (head.prev_occurrence, head.ident, "END"),
-                    (tail.next_occurrence, tail.ident, "START"),
-                )
-            )
+        # Зародыш локуса: набор концов, который занимает смерть этих портов.
+        # SPLIT, все концы которого уже лежат в этом наборе, описывает ТОТ ЖЕ
+        # локус — он поглощается контактом, а не открывает второй план на те
+        # же вершины. Тождество геометрическое: ключ вхождения плюс луч, вид
+        # события в него не входит (AUTH Q-10-ADD).
+        occupied = locus_ends(dead, vertices)
         local_splits = tuple(
             dict.fromkeys(
                 incident
                 for incident in splits
                 if incident.point_key == point_key
                 and incident.event.vertex in dead
-                and incident.event.edge in incident_edges
-                and incident.met_adjacent
-                and incident.met_vertex_id is not None
-                and (
-                    (
-                        incident.target_occurrence,
-                        incident.met_vertex_id,
-                        "END",
-                    )
-                    in boundary_endpoints
-                    and incident.target_end_id == incident.met_vertex_id
-                    or (
-                        incident.target_occurrence,
-                        incident.met_vertex_id,
-                        "START",
-                    )
-                    in boundary_endpoints
-                    and incident.target_start_id == incident.met_vertex_id
+                and incident_ends(
+                    incident, vertices, edge_kind=EventKind.EDGE
                 )
+                <= occupied
             )
         )
         absorbed.update(incident.event for incident in local_splits)
@@ -389,6 +403,7 @@ def _edge_contact_plans(
                 head.prev_occurrence,
                 tail.next_occurrence,
                 replaces=chain,
+                ledger=ledger,
             )
             if birth is None:
                 valid = False
@@ -462,6 +477,8 @@ def _reconnect_snapshot(
 def _meeting_plans(
     splits: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
+    *,
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> tuple[
     tuple[VertexMeetingPlanV1, ...],
     tuple[SuperlevelIncidentV1, ...],
@@ -505,6 +522,7 @@ def _meeting_plans(
                 point_key,
                 vertices[incoming].prev_occurrence,
                 vertices[outgoing].next_occurrence,
+                ledger=ledger,
             )
             for incoming, outgoing in pairs
         )
@@ -606,6 +624,8 @@ def _dedupe_split_incidents(
 def _split_cut_plans(
     splits: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
+    *,
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> tuple[tuple[SplitCutPlanV1, ...], int, bool]:
     chosen, dropped, valid = _dedupe_split_incidents(splits)
     if not valid:
@@ -656,6 +676,7 @@ def _split_cut_plans(
                 emitter.prev_occurrence,
                 segment_occurrences[index + 1],
                 replaces=(emitter.ident,),
+                ledger=ledger,
             )
             right = _birth(
                 item.event.time,
@@ -663,6 +684,7 @@ def _split_cut_plans(
                 segment_occurrences[index],
                 emitter.next_occurrence,
                 replaces=(emitter.ident,),
+                ledger=ledger,
             )
             if left is None or right is None:
                 return (), 0, False
@@ -790,11 +812,49 @@ def _decompose_birth_function(
     return tuple(sorted(components, key=repr)), len(seen) == len(births)
 
 
+def _quotient_by_germ(
+    births: tuple[BoundaryBirthV1, ...],
+    ledger: SuperlevelGermLedgerV1 | None,
+) -> tuple[tuple[BoundaryBirthV1, ...], bool]:
+    """Факторизовать рождения по зародышу ДО проверки единственности биекции.
+
+    Один локус, предъявленный двумя путями пакета, — один объект: нагрузка
+    складывается объединением. Один ключ зародыша с ДВУМЯ разными
+    представителями — неоднозначность, и она остаётся fail-closed: выбирать
+    между ними леджеру нечем.
+    """
+
+    if ledger is None:
+        return births, True
+    grouped: dict[object, BoundaryBirthV1] = {}
+    order: list[object] = []
+    for birth in births:
+        key = ledger.key(
+            birth.key[0],
+            birth.point_key,
+            birth.prev_occurrence,
+            birth.next_occurrence,
+        )
+        if key is None:
+            key = ("UNKEYED", birth.key)
+        previous = grouped.get(key)
+        if previous is None:
+            grouped[key] = birth
+            order.append(key)
+            continue
+        if previous.key != birth.key:
+            return births, False
+        grouped[key] = _fold_germ(previous, birth)
+    return tuple(grouped[key] for key in order), True
+
+
 def _wire_births(
     births: tuple[BoundaryBirthV1, ...],
     dead: set[int],
     vertices: tuple[_VertexSnapshot, ...],
     split_cuts: tuple[SplitCutPlanV1, ...],
+    *,
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> tuple[
     tuple[BoundaryBirthV1, ...],
     tuple[tuple[tuple, VertexReferenceV1, VertexReferenceV1], ...],
@@ -817,6 +877,10 @@ def _wire_births(
         for cut in split_cuts
         for key, keep_prev, keep_next in cut.final_birth_ports
     }
+    quotient, unambiguous = _quotient_by_germ(births, ledger)
+    if not unambiguous:
+        return births, (), (), (), False
+    births = quotient
     rewritten = tuple(
         sorted(
             (
@@ -926,11 +990,14 @@ def _terminal_two_birth_cycles(
     return tuple(terminal)
 
 
-def _composed_initial_plans(contacts, split_cuts, vertices):
+def _composed_initial_plans(contacts, split_cuts, vertices, ledger=None):
     from .symbolic_initial_composition import compose_edge_split_overlap
 
+    def birth_factory(*args, **fields):
+        return _birth(*args, ledger=ledger, **fields)
+
     return compose_edge_split_overlap(
-        contacts, split_cuts, vertices, birth_factory=_birth
+        contacts, split_cuts, vertices, birth_factory=birth_factory
     )
 
 
@@ -938,6 +1005,7 @@ def _planned_component(
     component: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
     base: dict,
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> SuperlevelComponentPlanV1:
     kinds = base["event_kinds"]
     geometric_events: dict[tuple, set[CandidateEventV1]] = {}
@@ -959,18 +1027,20 @@ def _planned_component(
         if incident.event.kind is EventKind.SPLIT
     )
     contacts, remaining, valid = _edge_contact_plans(
-        edges, splits, vertices
+        edges, splits, vertices, ledger=ledger
     )
-    meetings, cuts, fallbacks = _meeting_plans(remaining, vertices)
+    meetings, cuts, fallbacks = _meeting_plans(
+        remaining, vertices, ledger=ledger
+    )
     split_cuts, dropped, cuts_valid = _split_cut_plans(
-        cuts, vertices
+        cuts, vertices, ledger=ledger
     )
     (
         contacts,
         split_cuts,
         composed_contact_cut_overlap,
         composition_valid,
-    ) = _composed_initial_plans(contacts, split_cuts, vertices)
+    ) = _composed_initial_plans(contacts, split_cuts, vertices, ledger)
     contact_dead = {
         ident for contact in contacts for ident in contact.dead_vertex_ids
     }
@@ -1010,6 +1080,7 @@ def _planned_component(
         dead,
         vertices,
         split_cuts,
+        ledger=ledger,
     )
     terminal_birth_cycles = _terminal_two_birth_cycles(
         births,
@@ -1060,18 +1131,44 @@ def _planned_component(
 def _component_plan(
     component: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
+    ledger: SuperlevelGermLedgerV1 | None = None,
 ) -> SuperlevelComponentPlanV1:
     base = _component_fields(component)
-    return _planned_component(component, vertices, base)
+    return _planned_component(component, vertices, base, ledger)
+
+
+def _snapshot_rays(snapshot: SuperlevelSnapshotV1) -> dict:
+    """Примитивный луч каждого вхождения пакета, снятый с несущих прямых."""
+
+    rays: dict = {}
+    for vertex in snapshot.vertices:
+        if vertex.next_occurrence is not None:
+            rays.setdefault(vertex.next_occurrence[0], vertex.outgoing_ray)
+        if vertex.prev_occurrence is not None:
+            rays.setdefault(
+                vertex.prev_occurrence[0],
+                (-vertex.incoming_ray[0], -vertex.incoming_ray[1]),
+            )
+    for incident in snapshot.incidents:
+        if incident.target_occurrence is not None:
+            rays.setdefault(
+                incident.target_occurrence[0], incident.target_ray
+            )
+    return {key: ray for key, ray in rays.items() if ray is not None}
 
 
 def plan_superlevel_components(
     snapshot: SuperlevelSnapshotV1,
 ) -> tuple[SuperlevelComponentPlanV1, ...]:
-    """Построить все component deltas, не меняя ни одного runtime объекта."""
+    """Построить все component deltas, не меняя ни одного runtime объекта.
 
+    Леджер зародышей заводится на ВЕСЬ пакет, а не на компоненту: локус,
+    предъявленный двумя компонентами, обязан быть одним объектом.
+    """
+
+    ledger = SuperlevelGermLedgerV1(_snapshot_rays(snapshot))
     plans = tuple(
-        _component_plan(component, snapshot.vertices)
+        _component_plan(component, snapshot.vertices, ledger)
         for component in _connected_components(snapshot.incidents)
     )
     return tuple(

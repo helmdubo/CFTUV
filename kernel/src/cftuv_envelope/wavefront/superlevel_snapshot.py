@@ -47,6 +47,10 @@ class SuperlevelIncidentV1:
     emitter_key: tuple = ()
     peer_key: tuple = ()
     target_occurrence: tuple | None = None
+    #: Примитивный целочисленный луч рассекаемого вхождения. Он берётся из
+    #: несущей ПРЯМОЙ, а не из ключа: у скрытой опоры веера ключ вырожден
+    #: (`x, y, x, y, ordinal`) и направления не несёт.
+    target_ray: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +125,7 @@ def _incident(
     met_vertex_id = None
     met_adjacent = False
     target_projection = None
+    target_ray = None
     target_start_id = None
     target_end_id = None
     if event.kind is EventKind.EDGE:
@@ -164,6 +169,7 @@ def _incident(
             )
         edge = builder.edges[event.edge]
         if hasattr(edge, "line"):
+            target_ray = _direction(edge.line)
             target_projection = (
                 event.point.x.scaled(edge.line.b)
                 - event.point.y.scaled(edge.line.a)
@@ -202,6 +208,7 @@ def _incident(
             else ()
         ),
         target_occurrence=target_occurrence,
+        target_ray=target_ray,
     )
 
 def _live_level(builder, level):

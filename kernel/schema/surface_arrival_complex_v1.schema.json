@@ -266,7 +266,8 @@
             "UNPROVEN_FALLBACK_APPLIED",
             "EVENT_ACCEPTED_WITH_UNPROVEN_SPAN",
             "SURVIVED_PAST_EVENT_TIME",
-            "UNSUPPORTED_EVENT_KIND_DROPPED"
+            "UNSUPPORTED_EVENT_KIND_DROPPED",
+            "SUPERLEVEL_COMPONENT_UNRESOLVABLE"
           ],
           "type": "string"
         },
@@ -913,7 +914,8 @@
             "EXACT",
             "LEVEL_BUDGET_EXHAUSTED",
             "MULTIWAY_SPLIT_UNPROVEN",
-            "WAVEFRONT_LEFT_UNRESOLVED"
+            "WAVEFRONT_LEFT_UNRESOLVED",
+            "SUPERLEVEL_COMPONENT_UNRESOLVABLE"
           ],
           "type": "string"
         },
