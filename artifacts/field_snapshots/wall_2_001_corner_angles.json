@@ -1,0 +1,307 @@
+{
+ "source": "wall_2_001_snapshot.json (owner upload 2026-08-03)",
+ "plane": "exact x=const, deviations exactly 0",
+ "loop_order": [
+  0,
+  1,
+  6,
+  33,
+  9,
+  10,
+  34,
+  7,
+  8,
+  11,
+  4,
+  2,
+  3,
+  5,
+  20,
+  18,
+  19,
+  21,
+  16,
+  14,
+  15,
+  17,
+  25,
+  23,
+  24,
+  26,
+  31,
+  29,
+  30,
+  32,
+  28,
+  27,
+  22,
+  12,
+  13
+ ],
+ "summary": {
+  "right_angle_corners": 28,
+  "exactly_90": 25,
+  "above_90": [
+   6,
+   28
+  ],
+  "below_90": [
+   27
+  ]
+ },
+ "d2_law_note": "boundary of hidden-count cell sits exactly at 90 deg turn (270 interior); EXACTLY_90 -> closed side H=1; ABOVE_90 -> H=2",
+ "corners": [
+  {
+   "vertex": 6,
+   "signed_turn_deg": -90.00008396597664,
+   "exact_vs_90": "ABOVE_90",
+   "dot_exact": "-755189/68719476736",
+   "d2_hidden_count_source_law": 2,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": -8.396597664273031e-05
+  },
+  {
+   "vertex": 9,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 10,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 7,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 8,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 11,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 4,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 2,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 3,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 5,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 20,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 18,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 19,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 21,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 16,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 14,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 15,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 17,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 25,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 23,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 24,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 26,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 31,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 29,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 30,
+   "signed_turn_deg": 90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 32,
+   "signed_turn_deg": -90.0,
+   "exact_vs_90": "EXACTLY_90",
+   "dot_exact": "0",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.0
+  },
+  {
+   "vertex": 28,
+   "signed_turn_deg": -90.00006276588955,
+   "exact_vs_90": "ABOVE_90",
+   "dot_exact": "-210521/137438953472",
+   "d2_hidden_count_source_law": 2,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": -6.276588955245188e-05
+  },
+  {
+   "vertex": 27,
+   "signed_turn_deg": -89.99983557564327,
+   "exact_vs_90": "BELOW_90",
+   "dot_exact": "2952919/137438953472",
+   "d2_hidden_count_source_law": 1,
+   "d1_hidden_count_source_law": 1,
+   "deviation_deg": 0.00016442435672558986
+  }
+ ]
+}
