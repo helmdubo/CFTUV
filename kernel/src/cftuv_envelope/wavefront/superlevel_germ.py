@@ -77,6 +77,34 @@ def incident_ends(incident, vertices, *, edge_kind) -> frozenset:
     return ends | target_ends(incident)
 
 
+def absorbed_by_locus(incident, vertices, occupied, *, edge_kind) -> bool:
+    """Описывает ли инцидент ТОТ ЖЕ локус, что уже занят `occupied`.
+
+    Условие одно: все концы инцидента лежат в наборе концов локуса. У SPLIT
+    рассекаемое вхождение проверяется двумя шагами, и это не два правила, а
+    одно, разложенное по доступности данных:
+
+    * НЕОБХОДИМОЕ — ключ рассекаемого вхождения обязан быть плечом локуса.
+      Проверяется всегда, потому что ключ есть в frozen prestate всегда.
+    * ТОЧНОЕ — конкретные концы (ключ, луч) обязаны лежать в наборе. Луч
+      берётся с несущей прямой; в продукте он есть у КАЖДОГО split-инцидента,
+      и тогда работает именно этот шаг. Отсутствие луча (снимок, собранный без
+      несущих прямых) оставляет только необходимое условие — расширять
+      поглощение оно не может, потому что ключ уже проверен.
+    """
+
+    if not port_ends(vertices[incident.event.vertex]) <= occupied:
+        return False
+    if incident.event.kind is edge_kind:
+        return port_ends(vertices[incident.event.peer]) <= occupied
+    occurrence = incident.target_occurrence
+    if occurrence is None or occurrence[0] not in {key for key, _ in occupied}:
+        return False
+    if incident.target_ray is None:
+        return True
+    return target_ends(incident) <= occupied
+
+
 def locus_ends(idents, vertices) -> frozenset:
     """Набор концов локуса, который уже занят планом смерти этих портов."""
 

@@ -18,7 +18,7 @@ from .proof import (
 # что его читают и `base.X`, и тесты — фасад дешевле правки тридцати мест.
 from .superlevel_germ import (
     SuperlevelGermLedgerV1,
-    incident_ends,
+    absorbed_by_locus,
     locus_ends,
 )
 from .superlevel_snapshot import (  # noqa: F401
@@ -383,10 +383,9 @@ def _edge_contact_plans(
                 for incident in splits
                 if incident.point_key == point_key
                 and incident.event.vertex in dead
-                and incident_ends(
-                    incident, vertices, edge_kind=EventKind.EDGE
+                and absorbed_by_locus(
+                    incident, vertices, occupied, edge_kind=EventKind.EDGE
                 )
-                <= occupied
             )
         )
         absorbed.update(incident.event for incident in local_splits)
