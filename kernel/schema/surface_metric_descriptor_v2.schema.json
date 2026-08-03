@@ -1,0 +1,726 @@
+{
+  "$defs": {
+    "CertifiedDecimalIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedDecimalIntervalV1"
+        },
+        "absolute_error_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "upper_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "lower",
+        "upper",
+        "lower_kind",
+        "upper_kind",
+        "absolute_error_bound"
+      ],
+      "type": "object"
+    },
+    "DegenerateTriangleV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DegenerateTriangleV1"
+        },
+        "reason": {
+          "enum": [
+            "COINCIDENT_SNAPPED_VERTICES",
+            "COLLINEAR_SNAPPED_VERTICES"
+          ],
+          "type": "string"
+        },
+        "triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ExactMatrix2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactMatrix2V1"
+        },
+        "m00": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m01": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m10": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m11": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "m00",
+        "m01",
+        "m10",
+        "m11"
+      ],
+      "type": "object"
+    },
+    "ExactPoint3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint3V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "z": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "GridScaleTrialV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GridScaleTrialV1"
+        },
+        "outcome": {
+          "enum": [
+            "RELATIONS_RESTORED",
+            "RELATIONS_NOT_RESTORED"
+          ],
+          "type": "string"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "scale",
+        "step",
+        "restored_right_corners",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "IntegerGridCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntegerGridCertificateV1"
+        },
+        "author_angular_error": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "decal_detail": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "intended_right_corners": {
+          "type": "integer"
+        },
+        "magnitude_bound": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale_trials": {
+          "items": {
+            "$ref": "#/$defs/GridScaleTrialV1"
+          },
+          "type": "array"
+        },
+        "search_order": {
+          "enum": [
+            "FINEST_ADMISSIBLE_FIRST_V1",
+            "COARSEST_ADMISSIBLE_FIRST_V1"
+          ],
+          "type": "string"
+        },
+        "snapping_law": {
+          "enum": [
+            "UNSNAPPED_EXACT_V1",
+            "SOURCE_ONLY_GRID_SNAP_V1",
+            "INTEGER_GRID_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "source_scale": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_lower_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "window_outcome": {
+          "enum": [
+            "WINDOW_AVAILABLE",
+            "GRID_WINDOW_CLOSED",
+            "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+          ],
+          "type": "string"
+        },
+        "window_step": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_upper_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "snapping_law",
+        "window_outcome",
+        "patch_extent",
+        "author_angular_error",
+        "decal_detail",
+        "window_lower_bound",
+        "window_upper_bound",
+        "window_step",
+        "source_scale",
+        "magnitude_bound",
+        "intended_right_corners",
+        "restored_right_corners",
+        "search_order",
+        "scale_trials"
+      ],
+      "type": "object"
+    },
+    "IntrinsicSurfaceGeometryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntrinsicSurfaceGeometryV2"
+        },
+        "degenerate_triangles": {
+          "items": {
+            "$ref": "#/$defs/DegenerateTriangleV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "triangle_gram_matrices": {
+          "items": {
+            "$ref": "#/$defs/TriangleGramV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "triangle_squared_lengths": {
+          "items": {
+            "$ref": "#/$defs/TriangleSquaredLengthsV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_squared_lengths",
+        "triangle_gram_matrices",
+        "degenerate_triangles"
+      ],
+      "type": "object"
+    },
+    "LawId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LawId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "NamedEpsilonV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NamedEpsilonV1"
+        },
+        "absolute_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/LawId"
+        }
+      },
+      "required": [
+        "$type",
+        "name",
+        "absolute_bound"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PhysicalEdgeId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalEdgeId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SnappedSourcePositionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SnappedSourcePositionV1"
+        },
+        "position": {
+          "$ref": "#/$defs/ExactPoint3V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "position"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SurfaceAdjacencyDigestValue": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SurfaceAdjacencyDigestValue"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SurfaceAdjacencyRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceAdjacencyRefV1"
+        },
+        "adjacency_digest": {
+          "$ref": "#/$defs/SurfaceAdjacencyDigestValue"
+        },
+        "scope": {
+          "enum": [
+            "FULL_SOURCE_MESH",
+            "REQUEST_SCOPED_PATCH_SET"
+          ],
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "source_revision",
+        "scope",
+        "adjacency_digest"
+      ],
+      "type": "object"
+    },
+    "SurfaceBarrierV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceBarrierV1"
+        },
+        "physical_edge_id": {
+          "$ref": "#/$defs/PhysicalEdgeId"
+        },
+        "role": {
+          "enum": [
+            "BARRIER",
+            "BOUNDARY_CONDITION",
+            "ARRIVAL_SOURCE"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "physical_edge_id",
+        "role"
+      ],
+      "type": "object"
+    },
+    "SurfaceMetricDescriptorV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceMetricDescriptorV2"
+        },
+        "adjacency_ref": {
+          "$ref": "#/$defs/SurfaceAdjacencyRefV1"
+        },
+        "barriers": {
+          "items": {
+            "$ref": "#/$defs/SurfaceBarrierV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "evaluation_law": {
+          "enum": [
+            "EVALUATED_TRIANGULATED_MESH_AFTER_SOURCE_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "grid_certificate": {
+          "$ref": "#/$defs/IntegerGridCertificateV1"
+        },
+        "intrinsic": {
+          "$ref": "#/$defs/IntrinsicSurfaceGeometryV2"
+        },
+        "named_epsilon": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NamedEpsilonV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "periodic_topology": {
+          "enum": [
+            "NON_PERIODIC_V1",
+            "PERIODIC_UNIVERSAL_COVER_V1"
+          ],
+          "type": "string"
+        },
+        "precision_tier": {
+          "enum": [
+            "REFERENCE_EXACT_SMALL",
+            "REFERENCE_CERTIFIED",
+            "RUNTIME_APPROXIMATE"
+          ],
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "snapped_source_positions": {
+          "items": {
+            "$ref": "#/$defs/SnappedSourcePositionV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "surface_regime": {
+          "enum": [
+            "INTRINSIC_PATCH_SURFACE",
+            "PLANAR",
+            "DEVELOPABLE",
+            "GENERAL_CURVED"
+          ],
+          "type": "string"
+        },
+        "vertex_cone_angles": {
+          "items": {
+            "$ref": "#/$defs/VertexConeAngleV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "patch_domain_id",
+        "source_revision",
+        "surface_regime",
+        "evaluation_law",
+        "precision_tier",
+        "named_epsilon",
+        "grid_certificate",
+        "snapped_source_positions",
+        "intrinsic",
+        "adjacency_ref",
+        "barriers",
+        "vertex_cone_angles",
+        "periodic_topology"
+      ],
+      "type": "object"
+    },
+    "SurfaceTriangleId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SurfaceTriangleId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "TriangleGramV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TriangleGramV1"
+        },
+        "gram": {
+          "$ref": "#/$defs/ExactMatrix2V1"
+        },
+        "triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_id",
+        "gram"
+      ],
+      "type": "object"
+    },
+    "TriangleSquaredLengthsV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TriangleSquaredLengthsV1"
+        },
+        "side_0": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "side_1": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "side_2": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_id",
+        "side_0",
+        "side_1",
+        "side_2"
+      ],
+      "type": "object"
+    },
+    "VertexConeAngleV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "VertexConeAngleV1"
+        },
+        "enclosure": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "measure_law": {
+          "enum": [
+            "EXACT_PLANAR_CLOSED_FAN_V1",
+            "CERTIFIED_INTERVAL_ENCLOSURE_V1",
+            "FAN_UNAVAILABLE_V1"
+          ],
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "EXACT_TWO_PI",
+            "STRICTLY_LESS",
+            "STRICTLY_GREATER",
+            "UNDECIDED_FAIL_CLOSED"
+          ],
+          "type": "string"
+        },
+        "vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "vertex_id",
+        "enclosure",
+        "verdict",
+        "measure_law"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.surface_metric_descriptor.v2",
+  "$ref": "#/$defs/SurfaceMetricDescriptorV2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfaceMetricDescriptorV2"
+}
