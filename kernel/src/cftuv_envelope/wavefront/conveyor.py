@@ -72,8 +72,11 @@ from ..contracts.envelopes import (
 )
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.request import (
-    AngularProfileSelectionPolicyId,
     DecalRequestV1,
+)
+from .._density_policy import (
+    is_huber_density_policy,
+    is_midpoint_density_policy,
 )
 from ..ids import PatchDomainId
 from ..interactions.arrival import (
@@ -743,9 +746,17 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
     bound_directions = 0
-    explicit_density = (
+    request_policy = (
         context.compilation.decal_request.angular_profile_selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    )
+    explicit_density = is_huber_density_policy(request_policy)
+    # Закон A клал `H >= 1` по построению (`max(1, C-1)`), поэтому нулевой веер
+    # при явной плотности мог быть только подделкой. Закон B делает `H = 0`
+    # ЗАКОННЫМ исходом нижней ячейки: поворот `<= 3*pi/(2q)` просит ровно один
+    # подповорот, и угол остаётся митрованным — тем же членом семейства, что
+    # legacy `k = 0`. Отказ остаётся ровно там, где остался его инвариант.
+    zero_fan_is_forgery = explicit_density and not is_midpoint_density_policy(
+        request_policy
     )
     for spec in sorted(
         context.compilation.envelope_specs,
@@ -754,7 +765,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         if not isinstance(spec, AngularEnvelopeSpec):
             continue
         if spec.resolved_hidden_edge_count == 0:
-            if explicit_density:
+            if zero_fan_is_forgery:
                 raise ReferenceGeometryError(
                     ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
                     "explicit Density emitted a zero-support angular fan",
@@ -1172,8 +1183,9 @@ def prepare_conveyor(
 def _density_transaction_memo(request):
     return (
         _DensityExactMemo()
-        if request.angular_profile_selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        if is_huber_density_policy(
+            request.angular_profile_selection_policy_id
+        )
         else None
     )
 
@@ -1205,9 +1217,8 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     frame, payload_diagnostics = validate_reference_geometry_payload(
         compilation.analysis_snapshot,
         compilation.plan_key.patch_domain_id,
-        density_bounded=(
+        density_bounded=is_huber_density_policy(
             request.angular_profile_selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         ),
         density_exact_memo=density_exact_memo,
     )

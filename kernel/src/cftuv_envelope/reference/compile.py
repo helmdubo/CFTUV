@@ -44,6 +44,7 @@ from ..contracts.envelopes import (
     HiddenSupportDirectionLaw,
     HiddenSupportScope,
     HiddenSupportSpecV1,
+    HuberDensityMidpointSelectionIntervalCertificateV1,
     HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     JunctionEnvelopeSpec,
@@ -80,7 +81,13 @@ from ..contracts.request import (
     AngularProfileSelectionPolicyId,
     DecalRequestV1,
 )
-from .._density_policy import huber_density_value_contract
+from .._density_policy import (
+    density_cell_lower_turn,
+    density_cell_threshold_turn,
+    huber_density_value_contract,
+    is_huber_density_policy,
+    is_midpoint_density_policy,
+)
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
@@ -173,9 +180,8 @@ def _fraction(value: Decimal) -> Fraction:
 
 
 def _is_explicit_density(compilation) -> bool:
-    return (
+    return is_huber_density_policy(
         compilation.decal_request.angular_profile_selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
     )
 
 
@@ -229,6 +235,24 @@ def _resolve_huber_density_bucket_interval(interval, q: int) -> int | None:
     return None
 
 
+def _resolve_midpoint_density_cell_interval(interval, q: int) -> int | None:
+    """Доказать единственный `H` для `(2H+1)/(2q) < u <= (2H+3)/(2q)`.
+
+    Нижняя ячейка `H=0` открыта снизу нулём, а не `1/(2q)`: поворот величиной
+    `pi/q` (СЕРЕДИНА этой ячейки) обязан лежать строго внутри неё, иначе
+    свойство «ровно `k*pi/q` не сидит на границе» ломается на `k=1`.
+    Интервал, седлающий границу, даёт `None` — тот же fail-closed, что у A.
+    """
+
+    for hidden_count in range(0, q):
+        lower = density_cell_lower_turn(hidden_count, q, midpoint=True)
+        upper = density_cell_threshold_turn(hidden_count, q, midpoint=True)
+        lower_proven = hidden_count == 0 or _strictly_above(interval, lower)
+        if lower_proven and _at_most(interval, upper):
+            return hidden_count
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class _ResolvedAngularProfileSelection:
     hidden_count: int
@@ -238,8 +262,35 @@ class _ResolvedAngularProfileSelection:
     interval_certificate: (
         SelectionIntervalCertificateV1
         | HuberDensitySelectionIntervalCertificateV1
+        | HuberDensityMidpointSelectionIntervalCertificateV1
     )
     regression_fixture_id: AngularRegressionFixtureId | None
+
+
+def _resolve_midpoint_density_selection(measure, q: int):
+    """Сертификат ячейки закона B по сертифицированному интервалу источника."""
+
+    hidden_count = _resolve_midpoint_density_cell_interval(
+        measure.reflex_excess_over_pi,
+        q,
+    )
+    if hidden_count is None:
+        return None
+    return _ResolvedAngularProfileSelection(
+        hidden_count,
+        SelectionLaw.HUBER_EMANATED_DENSITY_MIDPOINT_V1,
+        MinimalityLowerBound.HUBER_DENSITY_MIDPOINT_CELL_OPEN_LOWER,
+        AdmissibilityUpperBound.HUBER_DENSITY_MIDPOINT_CELL_CLOSED_UPPER,
+        HuberDensityMidpointSelectionIntervalCertificateV1(
+            q,
+            hidden_count,
+            IntervalBoundKind.OPEN,
+            0 if hidden_count == 0 else 2 * hidden_count + 1,
+            IntervalBoundKind.CLOSED,
+            2 * hidden_count + 3,
+        ),
+        None,
+    )
 
 
 def _resolve_angular_profile_selection(request, measure):
@@ -270,12 +321,13 @@ def _resolve_angular_profile_selection(request, measure):
     density_contract = huber_density_value_contract(
         request.max_subturn_value_id
     )
-    if (
-        policy
-        is not AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
-        or density_contract is None
-    ):
+    if not is_huber_density_policy(policy) or density_contract is None:
         return None
+    if is_midpoint_density_policy(policy):
+        return _resolve_midpoint_density_selection(
+            measure,
+            density_contract[0],
+        )
     bucket_c = _resolve_huber_density_bucket(measure, density_contract[0])
     if bucket_c is None:
         return None
@@ -453,7 +505,13 @@ def _density_spec_with_hidden_count(
 ) -> AngularEnvelopeSpec:
     """Перестроить только evaluation fan, не меняя selection authority."""
 
-    exemplar = min(spec.hidden_supports, key=lambda item: item.ordinal)
+    # `H=0` закона B не оставляет образца опоры, а scope угловой опоры один по
+    # построению — тот же, что кладёт эмиссия спеки.
+    scope = (
+        min(spec.hidden_supports, key=lambda item: item.ordinal).scope
+        if spec.hidden_supports
+        else HiddenSupportScope.ANGULAR_ENVELOPE_SPEC_LOCAL
+    )
     supports = frozenset(
         HiddenSupportSpecV1(
             hidden_support_id=HiddenSupportId(
@@ -469,7 +527,7 @@ def _density_spec_with_hidden_count(
                 HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
             ),
             zero_length_at_alpha_zero=True,
-            scope=exemplar.scope,
+            scope=scope,
             source_relation_id=spec.source_relation_id,
             owner_sector_id=spec.owner_sector_id,
             selection_certificate_id=spec.selection_certificate_id,
@@ -528,11 +586,93 @@ def _exact_turn_witness(metric, ideal):
     )
 
 
+def _midpoint_evaluation_density_spec(
+    context,
+    spec,
+    selection,
+    q: int,
+    source_spec,
+    source_count_ideal,
+):
+    """Тот же закон ячеек B в МЕТРИКЕ КАРТЫ — по одному точному свидетелю.
+
+    Полный поворот `theta` от счёта не зависит, поэтому свидетель снимается
+    ОДИН раз, а осуществимость каждого счёта решает `density_count_is_feasible`
+    — та самая функция, которой лифт потом перепроверяется. Второго закона
+    осуществимости в ядре нет.
+    """
+
+    from .angular import _ideal_angular_support_data, density_count_is_feasible
+
+    source_count = selection.resolved_hidden_edge_count
+    sign, cosine_squared = _exact_turn_witness(
+        context.metric,
+        source_count_ideal,
+    )
+    signed = (
+        1
+        if sign is ExactTurnSignV1.POSITIVE
+        else -1
+        if sign is ExactTurnSignV1.NEGATIVE
+        else 0
+    )
+    ratio = Fraction(cosine_squared.numerator, cosine_squared.denominator)
+    if density_count_is_feasible(
+        signed,
+        ratio,
+        source_count,
+        q,
+        midpoint=True,
+    ):
+        return source_spec, None, source_count_ideal
+    for effective_count in range(source_count + 1, q):
+        if not density_count_is_feasible(
+            signed,
+            ratio,
+            effective_count,
+            q,
+            midpoint=True,
+        ):
+            continue
+        candidate_spec = _density_spec_with_hidden_count(
+            spec,
+            effective_count,
+        )
+        *_, candidate_ideal = _ideal_angular_support_data(
+            context,
+            candidate_spec,
+        )
+        return (
+            candidate_spec,
+            EvaluationGeometrySubturnCountLiftV1(
+                lift_law=(
+                    EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+                ),
+                source_selection_certificate_id=selection.certificate_id,
+                source_hidden_edge_count=source_count,
+                effective_hidden_edge_count=effective_count,
+                max_subturn_q=q,
+                evaluation_turn_sign=sign,
+                evaluation_turn_cosine_squared=cosine_squared,
+                minimality_predecessor_hidden_edge_count=(
+                    effective_count - 1
+                ),
+                proven_predicates=_EVALUATION_SUBTURN_LIFT_PREDICATES,
+            ),
+            candidate_ideal,
+        )
+    raise DirectionBindingCertificateUnproven(
+        BINDING_SUBTURN_LE_DELTA_MAX
+    )
+
+
 def _evaluation_density_spec(
     context,
     spec,
     selection,
     q: int,
+    *,
+    midpoint: bool,
 ):
     """Вернуть H_effective и отдельную точную власть lift, если нужна."""
 
@@ -544,6 +684,15 @@ def _evaluation_density_spec(
         context,
         source_spec,
     )
+    if midpoint:
+        return _midpoint_evaluation_density_spec(
+            context,
+            spec,
+            selection,
+            q,
+            source_spec,
+            source_count_ideal,
+        )
     if _density_ideal_is_subturn_feasible(
         context.metric,
         source_count_ideal,
@@ -649,7 +798,13 @@ def _attach_direction_bindings(
                 item
                 for item in compilation.envelope_specs
                 if isinstance(item, AngularEnvelopeSpec)
-                and item.resolved_hidden_edge_count > 0
+                and (
+                    item.resolved_hidden_edge_count > 0
+                    # `H=0` закона B обязан пройти ступень: лифт метрики карты
+                    # поднимает счёт именно отсюда, и пропуск был бы тихим
+                    # исчезновением подъёма, а не его отсутствием.
+                    or _is_explicit_density(compilation)
+                )
             ),
             key=lambda item: item.envelope_spec_id.value,
         ):
@@ -668,8 +823,7 @@ def _attach_direction_bindings(
                 selection.max_subturn_value_id
             )
             is_density = (
-                selection.selection_policy_id
-                is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+                is_huber_density_policy(selection.selection_policy_id)
                 and density_contract is not None
             )
             lift = None
@@ -679,6 +833,9 @@ def _attach_direction_bindings(
                     spec,
                     selection,
                     density_contract[0],
+                    midpoint=is_midpoint_density_policy(
+                        selection.selection_policy_id
+                    ),
                 )
                 source_spec = _density_spec_with_hidden_count(
                     spec,
@@ -1275,9 +1432,8 @@ def declare_reference_self_contacts(
 def _compile_density_memo(request, supplied):
     if supplied is not None:
         return supplied
-    if (
+    if is_huber_density_policy(
         request.angular_profile_selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
     ):
         return _DensityExactMemo()
     return None
@@ -1344,9 +1500,8 @@ def compile_reference_envelopes(
     geometry_diagnostics = validate_reference_geometry_certificates(
         snapshot,
         patch_domain_id,
-        density_bounded=(
+        density_bounded=is_huber_density_policy(
             request.angular_profile_selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         ),
         density_exact_memo=density_exact_memo,
     )

@@ -17,7 +17,7 @@ from ..contracts.metric import (
     CertifiedAffineSupportDirectionV2,
     RationalAffinePlanarMetricV2,
 )
-from ..contracts.request import AngularProfileSelectionPolicyId
+from .._density_policy import is_huber_density_policy
 from ..contracts.surface import SurfacePayloadMode
 from ..ids import PatchDomainId
 from ..numeric import IntervalEndpointKind, LocalPoint3V1
@@ -458,8 +458,7 @@ def validate_compilation_geometry_payload(
     return validate_reference_geometry_payload(
         compilation.analysis_snapshot,
         compilation.plan_key.patch_domain_id,
-        density_bounded=(
+        density_bounded=is_huber_density_policy(
             compilation.decal_request.angular_profile_selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         ),
     )

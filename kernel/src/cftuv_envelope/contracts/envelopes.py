@@ -149,16 +149,23 @@ class AngularRegressionFixtureId(str, Enum):
 class SelectionLaw(str, Enum):
     MIN_K_FOR_MAX_SUBTURN = "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
     HUBER_EMANATED_DENSITY_FLOOR_V1 = "HUBER_EMANATED_DENSITY_FLOOR_V1"
+    HUBER_EMANATED_DENSITY_MIDPOINT_V1 = "HUBER_EMANATED_DENSITY_MIDPOINT_V1"
 
 
 class MinimalityLowerBound(str, Enum):
     K_ZERO_OR_STRICT_LOWER = "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"
     HUBER_DENSITY_BUCKET_OPEN_LOWER = "HUBER_DENSITY_BUCKET_OPEN_LOWER"
+    HUBER_DENSITY_MIDPOINT_CELL_OPEN_LOWER = (
+        "HUBER_DENSITY_MIDPOINT_CELL_OPEN_LOWER"
+    )
 
 
 class AdmissibilityUpperBound(str, Enum):
     CLOSED_UPPER = "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"
     HUBER_DENSITY_BUCKET_CLOSED_UPPER = "HUBER_DENSITY_BUCKET_CLOSED_UPPER"
+    HUBER_DENSITY_MIDPOINT_CELL_CLOSED_UPPER = (
+        "HUBER_DENSITY_MIDPOINT_CELL_CLOSED_UPPER"
+    )
 
 
 class SelectionCertificateAuthority(str, Enum):
@@ -201,6 +208,25 @@ class HuberDensitySelectionIntervalCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class HuberDensityMidpointSelectionIntervalCertificateV1:
+    """Именованная ячейка `(2H+1)/(2q) < u <= (2H+3)/(2q)` политики Density B.
+
+    Знаменатель границ — `2q`, а не `q`: границы ячеек стоят на НЕЧЁТНЫХ
+    кратных `pi/(2q)`, ровно посередине между старыми границами Density A.
+    Поэтому поворот `k*pi/q` (в частности `pi/2` при чётном `q`) лежит СТРОГО
+    внутри ячейки, и возмущение до полуполосы `pi/(2q)` счёт не меняет.
+    Нижняя ячейка `H=0` начинается от нуля, а не от `1/(2q)`.
+    """
+
+    q: int
+    cell_hidden_edge_count: int
+    lower_bound_kind: IntervalBoundKind
+    lower_bound_numerator: int
+    upper_bound_kind: IntervalBoundKind
+    upper_bound_numerator: int
+
+
+@dataclass(frozen=True, slots=True)
 class AngularProfileSelectionCertificateV1:
     certificate_id: SelectionCertificateId
     decal_request_id: DecalRequestId
@@ -221,6 +247,7 @@ class AngularProfileSelectionCertificateV1:
     selection_interval_certificate: (
         SelectionIntervalCertificateV1
         | HuberDensitySelectionIntervalCertificateV1
+        | HuberDensityMidpointSelectionIntervalCertificateV1
     )
     certificate_authority: SelectionCertificateAuthority
     regression_fixture_id: AngularRegressionFixtureId | None

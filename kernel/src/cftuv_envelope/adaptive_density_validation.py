@@ -16,9 +16,11 @@ from .contracts.envelopes import (
 )
 from .contracts.events import InitialFrontFeatureKind
 from .ids import HiddenSupportId
-from .contracts.request import AngularProfileSelectionPolicyId
 from .numeric import ExactRatioV1
-from ._density_policy import huber_density_value_contract
+from ._density_policy import (
+    huber_density_value_contract,
+    is_huber_density_policy,
+)
 
 
 _LIFT_PREDICATES = frozenset(
@@ -51,8 +53,7 @@ def adaptive_density_effective_hidden_count(
         type(lift) is EvaluationGeometrySubturnCountLiftV1
         and lift.lift_law
         is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
-        and selection.selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        and is_huber_density_policy(selection.selection_policy_id)
         and q_contract is not None
         and lift.source_selection_certificate_id
         == selection.certificate_id

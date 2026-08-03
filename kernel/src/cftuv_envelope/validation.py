@@ -44,7 +44,6 @@ from .contracts.envelopes import (
     EnvelopeSpecVariant,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
-    HuberDensitySelectionIntervalCertificateV1,
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
@@ -88,6 +87,7 @@ from .contracts.request import (
 )
 from ._density_policy import (
     angular_request_policy_mismatches,
+    huber_density_certificate_bounds,
     selection_certificate_contract_error,
 )
 from .contracts.seeds import (
@@ -1654,29 +1654,20 @@ def validate_cross_contract_references(
                     )
                     upper_proven = ratio_upper <= k + Decimal(1)
                 else:
-                    interval = certificate.selection_interval_certificate
-                    if (
-                        type(interval)
-                        is HuberDensitySelectionIntervalCertificateV1
-                    ):
-                        lower = Fraction(
-                            interval.lower_bound_numerator,
-                            interval.q,
-                        )
-                        upper = Fraction(
-                            interval.upper_bound_numerator,
-                            interval.q,
-                        )
+                    bounds = huber_density_certificate_bounds(
+                        certificate.selection_interval_certificate
+                    )
+                    if bounds is None:
+                        lower_proven = upper_proven = False
+                    else:
+                        lower, upper = bounds
                         actual_lower = Fraction(delta.lower)
-                        actual_upper = Fraction(delta.upper)
                         lower_proven = actual_lower > lower or (
                             actual_lower == lower
                             and delta.lower_kind
                             is IntervalEndpointKind.OPEN
                         )
-                        upper_proven = actual_upper <= upper
-                    else:
-                        lower_proven = upper_proven = False
+                        upper_proven = Fraction(delta.upper) <= upper
                 if not lower_proven or not upper_proven:
                     _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, NamedOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN.value)
 

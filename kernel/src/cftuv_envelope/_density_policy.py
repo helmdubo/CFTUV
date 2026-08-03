@@ -1,6 +1,8 @@
-"""Замкнутые внутренние policy/numeric authority Huber Density A."""
+"""Замкнутые внутренние policy/numeric authority Huber Density A и B."""
 
 from __future__ import annotations
+
+from fractions import Fraction
 
 from mpmath import iv
 import sympy as sp
@@ -8,6 +10,7 @@ import sympy as sp
 from .contracts.envelopes import (
     AdmissibilityUpperBound,
     AngularProfileSelectionCertificateV1,
+    HuberDensityMidpointSelectionIntervalCertificateV1,
     HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     MinimalityLowerBound,
@@ -21,6 +24,84 @@ from .contracts.request import (
     MaxSubturnValueId,
 )
 from .numeric import ExactAngleSymbol
+
+
+# Одна таблица «политика Density -> её parameter id». Никакой другой модуль не
+# перечисляет плотностные политики списком: расхождение перечней было бы
+# молчаливым отказом целой политики на одной из ступеней.
+HUBER_DENSITY_PARAMETER_IDS = {
+    AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1: (
+        MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_A_V1
+    ),
+    AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_B_V1: (
+        MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_B_V1
+    ),
+}
+
+
+def is_huber_density_policy(policy_id) -> bool:
+    """Идёт ли запрос по одной из плотностных политик (A или B)."""
+
+    return policy_id in HUBER_DENSITY_PARAMETER_IDS
+
+
+def is_midpoint_density_policy(policy_id) -> bool:
+    """Стоят ли границы счётных ячеек на серединах (закон B)."""
+
+    return (
+        policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_B_V1
+    )
+
+
+def density_cell_threshold_turn(
+    hidden_count: int,
+    q: int,
+    *,
+    midpoint: bool,
+) -> Fraction:
+    """Верхняя граница ячейки счёта `H` в долях `pi` — ОДИН закон обеих ступеней.
+
+    Закон A: `theta <= (H+1)*pi/q` — жёсткий потолок подповорота `pi/q`.
+    Закон B: `theta <= (2H+3)*pi/(2q)` — та же ячейка, сдвинутая на полполосы,
+    так что её СЕРЕДИНА `(H+1)*pi/q` даёт подповорот ровно `pi/q`.
+    """
+
+    if midpoint:
+        return Fraction(2 * hidden_count + 3, 2 * q)
+    return Fraction(hidden_count + 1, q)
+
+
+def density_cell_lower_turn(
+    hidden_count: int,
+    q: int,
+    *,
+    midpoint: bool,
+) -> Fraction:
+    """Открытая нижняя граница ячейки счёта `H` в долях `pi`."""
+
+    if not midpoint:
+        return Fraction(hidden_count, q)
+    if hidden_count <= 0:
+        return Fraction(0)
+    return Fraction(2 * hidden_count + 1, 2 * q)
+
+
+def huber_density_certificate_bounds(interval):
+    """Границы ячейки сертификата в долях `pi` — по его собственному тегу."""
+
+    if type(interval) is HuberDensitySelectionIntervalCertificateV1:
+        denominator = interval.q
+    elif (
+        type(interval) is HuberDensityMidpointSelectionIntervalCertificateV1
+    ):
+        denominator = 2 * interval.q
+    else:
+        return None
+    return (
+        Fraction(interval.lower_bound_numerator, denominator),
+        Fraction(interval.upper_bound_numerator, denominator),
+    )
 
 
 class DensityIntervalEnclosureUnsupported(Exception):
@@ -126,17 +207,14 @@ def angular_request_policy_mismatches(
                 "max_subturn_exact_value",
             ),
         )
-    elif (
-        policy
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
-    ):
+    elif policy in HUBER_DENSITY_PARAMETER_IDS:
         value_contract = huber_density_value_contract(
             request.max_subturn_value_id
         )
         checks = (
             (
                 request.max_subturn_parameter_id
-                is MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_A_V1,
+                is HUBER_DENSITY_PARAMETER_IDS[policy],
                 "max_subturn_parameter_id",
             ),
             (value_contract is not None, "max_subturn_value_id"),
@@ -215,6 +293,42 @@ def selection_certificate_contract_error(
             else (
                 "Density A certificate must encode "
                 "(C-1)/q < u <= C/q and H=max(1,C-1)"
+            )
+        )
+    if (
+        certificate.selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_B_V1
+    ):
+        value_contract = huber_density_value_contract(
+            certificate.max_subturn_value_id
+        )
+        cell = getattr(interval, "cell_hidden_edge_count", None)
+        valid = (
+            value_contract is not None
+            and certificate.selection_law
+            is SelectionLaw.HUBER_EMANATED_DENSITY_MIDPOINT_V1
+            and certificate.minimality_lower_bound
+            is MinimalityLowerBound.HUBER_DENSITY_MIDPOINT_CELL_OPEN_LOWER
+            and certificate.admissibility_upper_bound
+            is AdmissibilityUpperBound.HUBER_DENSITY_MIDPOINT_CELL_CLOSED_UPPER
+            and type(interval)
+            is HuberDensityMidpointSelectionIntervalCertificateV1
+            and interval.q == value_contract[0]
+            and 0 <= cell <= interval.q - 1
+            and interval.lower_bound_kind is IntervalBoundKind.OPEN
+            and interval.upper_bound_kind is IntervalBoundKind.CLOSED
+            and interval.lower_bound_numerator
+            == (0 if cell == 0 else 2 * cell + 1)
+            and interval.upper_bound_numerator == 2 * cell + 3
+            and hidden_count == cell
+            and hidden_count <= 5
+        )
+        return (
+            None
+            if valid
+            else (
+                "Density B certificate must encode "
+                "(2H+1)/(2q) < u <= (2H+3)/(2q) and H=cell"
             )
         )
     return "unsupported angular selection policy"

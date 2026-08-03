@@ -49,7 +49,8 @@
         "angular_profile_selection_policy_id": {
           "enum": [
             "MIN_K_FOR_MAX_SUBTURN_V1",
-            "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+            "HUBER_EMANATED_COUNT_DENSITY_A_V1",
+            "HUBER_EMANATED_COUNT_DENSITY_B_V1"
           ],
           "type": "string"
         },
@@ -83,7 +84,8 @@
         "max_subturn_parameter_id": {
           "enum": [
             "LINEAR_REFLEX_MAX_SUBTURN_V1",
-            "LINEAR_REFLEX_DENSITY_A_V1"
+            "LINEAR_REFLEX_DENSITY_A_V1",
+            "LINEAR_REFLEX_DENSITY_B_V1"
           ],
           "type": "string"
         },

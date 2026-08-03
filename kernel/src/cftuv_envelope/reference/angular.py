@@ -25,13 +25,13 @@ from ..contracts.envelopes import (
     HiddenSupportSpecV1,
     StripEnvelopeSpec,
 )
-from ..contracts.request import (
-    AngularProfileSelectionPolicyId,
-)
 from .._density_policy import (
     DensityIntervalEnclosureUnsupported,
+    density_cell_threshold_turn,
     density_interval_enclosure,
     huber_density_value_contract,
+    is_huber_density_policy,
+    is_midpoint_density_policy,
 )
 from ..numeric import ExactRatioV1, LocalLengthV1
 from .common import (
@@ -383,10 +383,10 @@ def _huber_density_interpolated_normals(
     сертифицируют знаки/окна и никогда не подменяют конструкцию числом.
     """
 
-    if count not in range(1, 6):
+    if count not in range(0, 6):
         raise ReferenceGeometryError(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-            "Density A supports only the certified H=1..5 range",
+            "Density supports only the certified H=0..5 range",
         )
     incoming_squared = sp.expand(
         _density_dot_expression(metric, incoming, incoming)
@@ -451,6 +451,12 @@ def _huber_density_interpolated_normals(
     sine_squared = 1 - cosine_squared
     principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
     subturn_count = count + 1
+    if subturn_count == 1:
+        # `H=0` — митрованный угол закона B: доказаны знак поворота, его
+        # строгая принадлежность `(0, pi)` и рациональность норм, а скрытых
+        # направлений строить не из чего. Левая нормаль не выводится, потому
+        # что её единственный потребитель — цикл поворотов ниже.
+        return incoming, outgoing
     ix, iy = metric.density_expressions(incoming)
     lx, ly = metric.density_expressions(
         _density_left_unit_normal(metric, incoming)
@@ -547,13 +553,12 @@ def _ideal_angular_support_data(
         outgoing,
         spec.resolved_hidden_edge_count,
         sector.turn_orientation,
-        huber_density=(
+        huber_density=is_huber_density_policy(
             next(
                 item
                 for item in context.compilation.profile_selection_certificates
                 if item.certificate_id == spec.selection_certificate_id
             ).selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         ),
     )
     support_ids = [incoming_support_id]
@@ -595,51 +600,144 @@ def _lift_probe_spec(spec, hidden_count):
     )
 
 
-def _compare_q5_cos_squared(value: Fraction, numerator: int) -> int:
-    """Сравнить rational value с cos²(n*pi/5) без materialized radical."""
+# Закрытое перечисление cos²(m*pi/n) для КАЖДОГО порога обоих законов ячеек.
+#
+# Тройка `(a, b, c, d)` читается как `(a + b*sqrt(c))/d`; `b == 0` — рацио.
+# Все значения выведены из `cos²x = (1 + cos 2x)/2` и двух известных величин
+# `cos(pi/5) = (1+sqrt5)/4`, `cos(2pi/5) = (sqrt5-1)/4`:
+#   3/4, 1/4  -> cos(3pi/2)=cos(pi/2)=0            -> 1/2
+#   5/6, 1/6  -> cos(5pi/3)=cos(pi/3)=1/2          -> 3/4
+#   2/3, 1/3  -> cos(4pi/3)=cos(2pi/3)=-1/2        -> 1/4
+#   1/2       -> cos(pi)=-1                        -> 0
+#   3/8, 5/8  -> cos(3pi/4)=cos(5pi/4)=-sqrt2/2    -> (2-sqrt2)/4
+#   1/8, 7/8  -> cos(pi/4)=cos(7pi/4)=+sqrt2/2     -> (2+sqrt2)/4
+#   5/12,7/12 -> cos(5pi/6)=cos(7pi/6)=-sqrt3/2    -> (2-sqrt3)/4
+#   1/12,11/12-> cos(pi/6)=cos(11pi/6)=+sqrt3/2    -> (2+sqrt3)/4
+#   3/10,7/10 -> cos(3pi/5)=cos(7pi/5)=-(sqrt5-1)/4 -> (5-sqrt5)/8
+#   1/10,9/10 -> cos(pi/5)=cos(9pi/5)=+(sqrt5+1)/4  -> (5+sqrt5)/8
+#   1/5,4/5   -> ((1+sqrt5)/4)²                    -> (3+sqrt5)/8
+#   2/5,3/5   -> ((sqrt5-1)/4)²                    -> (3-sqrt5)/8
+# Пороги закона A — кратные `1/q`; пороги закона B — НЕЧЁТНЫЕ кратные `1/(2q)`.
+# Вне таблицы — именованный отказ, не молчание.
+_TURN_COS_SQUARED = {
+    (1, 2): (0, 0, 1, 1),
+    (1, 3): (1, 0, 1, 4),
+    (2, 3): (1, 0, 1, 4),
+    (1, 4): (1, 0, 1, 2),
+    (3, 4): (1, 0, 1, 2),
+    (1, 5): (3, 1, 5, 8),
+    (2, 5): (3, -1, 5, 8),
+    (3, 5): (3, -1, 5, 8),
+    (4, 5): (3, 1, 5, 8),
+    (1, 6): (3, 0, 1, 4),
+    (5, 6): (3, 0, 1, 4),
+    (1, 8): (2, 1, 2, 4),
+    (3, 8): (2, -1, 2, 4),
+    (5, 8): (2, -1, 2, 4),
+    (7, 8): (2, 1, 2, 4),
+    (1, 10): (5, 1, 5, 8),
+    (3, 10): (5, -1, 5, 8),
+    (7, 10): (5, -1, 5, 8),
+    (9, 10): (5, 1, 5, 8),
+    (1, 12): (2, 1, 3, 4),
+    (5, 12): (2, -1, 3, 4),
+    (7, 12): (2, -1, 3, 4),
+    (11, 12): (2, 1, 3, 4),
+}
 
-    shifted = 8 * value - 3
-    radical_sign = 1 if numerator in (1, 4) else -1
-    if radical_sign > 0:
-        if shifted < 0:
+
+def _compare_quadratic_constant(value: Fraction, constant) -> int:
+    """Знак `value - (a + b*sqrt(c))/d` без materialized radical.
+
+    Единственная арифметика — рациональная: сравнение `shifted` с `b*sqrt(c)`
+    решается знаком `shifted` и сравнением квадратов. Точно, замкнуто, без
+    приближений — тот же рецепт, которым Density A сравнивала q=5.
+    """
+
+    a, b, c, d = constant
+    shifted = d * value - a
+    if b == 0:
+        return (shifted > 0) - (shifted < 0)
+    squared = shifted * shifted
+    radical = b * b * c
+    if b > 0:
+        if shifted <= 0:
             return -1
-        squared = shifted * shifted
-        return 0 if squared == 5 else 1 if squared > 5 else -1
+        return 0 if squared == radical else 1 if squared > radical else -1
     if shifted >= 0:
         return 1
-    squared = shifted * shifted
-    return 0 if squared == 5 else -1 if squared > 5 else 1
+    return 0 if squared == radical else -1 if squared > radical else 1
 
 
 def _compare_turn_cos_squared(
     value: Fraction,
     threshold_turn: Fraction,
 ) -> int:
-    """Сравнить с cos²(threshold_turn*pi) на закрытом q<=6 наборе."""
+    """Сравнить с cos²(threshold_turn*pi) на закрытом перечислении."""
 
-    reduced = (threshold_turn.numerator, threshold_turn.denominator)
-    rational = {
-        (1, 6): Fraction(3, 4),
-        (5, 6): Fraction(3, 4),
-        (1, 4): Fraction(1, 2),
-        (3, 4): Fraction(1, 2),
-        (1, 3): Fraction(1, 4),
-        (2, 3): Fraction(1, 4),
-        (1, 2): Fraction(0),
-    }.get(reduced)
-    if rational is not None:
-        return (value > rational) - (value < rational)
-    if threshold_turn.denominator == 5:
-        return _compare_q5_cos_squared(value, threshold_turn.numerator)
-    raise ValueError("Density H-lift threshold is outside q<=6")
+    constant = _TURN_COS_SQUARED.get(
+        (threshold_turn.numerator, threshold_turn.denominator)
+    )
+    if constant is None:
+        raise ValueError(
+            "Density cell threshold is outside the sealed cos-squared set: "
+            f"{threshold_turn}"
+        )
+    return _compare_quadratic_constant(value, constant)
 
 
-def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
-    """Проверить theta/(H+1)<=pi/q по sealed signed-cos² рационально."""
+def _turn_at_most(
+    sign: int,
+    cosine_squared: Fraction,
+    threshold_turn: Fraction,
+) -> bool:
+    """Доказать `theta <= threshold_turn*pi` для `theta` в `(0, pi)`.
 
-    threshold_turn = Fraction(hidden_count + 1, lift.max_subturn_q)
+    `cos` строго убывает на `(0, pi)`, поэтому `theta <= t*pi` равносильно
+    `cos theta >= cos(t*pi)`. Знак правой части известен по `t`, и сравнение
+    сводится к знаку `cos theta` плюс сравнение квадратов.
+    """
+
     if threshold_turn >= 1:
         return True
+    if threshold_turn == Fraction(1, 2):
+        return sign >= 0
+    comparison = _compare_turn_cos_squared(cosine_squared, threshold_turn)
+    if threshold_turn < Fraction(1, 2):
+        return sign > 0 and comparison >= 0
+    return sign >= 0 or comparison <= 0
+
+
+def density_count_is_feasible(
+    sign: int,
+    cosine_squared: Fraction,
+    hidden_count: int,
+    q: int,
+    *,
+    midpoint: bool,
+) -> bool:
+    """Осуществим ли счёт `H` при повороте с данным точным signed-cos².
+
+    ОДИН закон для двух ступеней: селекция читает ту же ячейку по
+    сертифицированному интервалу источника, а эта функция решает ту же ячейку
+    в МЕТРИКЕ КАРТЫ — и при компиляции лифта, и при его перепроверке.
+    """
+
+    return _turn_at_most(
+        sign,
+        cosine_squared,
+        density_cell_threshold_turn(hidden_count, q, midpoint=midpoint),
+    )
+
+
+def _lift_count_is_feasible(
+    lift,
+    hidden_count: int,
+    *,
+    midpoint: bool,
+) -> bool:
+    """Проверить ячейку счёта по sealed signed-cos² лифта рационально."""
+
     sign = (
         1
         if lift.evaluation_turn_sign is ExactTurnSignV1.POSITIVE
@@ -647,19 +745,16 @@ def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
         if lift.evaluation_turn_sign is ExactTurnSignV1.NEGATIVE
         else 0
     )
-    if threshold_turn == Fraction(1, 2):
-        return sign >= 0
-    cosine_squared = Fraction(
-        lift.evaluation_turn_cosine_squared.numerator,
-        lift.evaluation_turn_cosine_squared.denominator,
+    return density_count_is_feasible(
+        sign,
+        Fraction(
+            lift.evaluation_turn_cosine_squared.numerator,
+            lift.evaluation_turn_cosine_squared.denominator,
+        ),
+        hidden_count,
+        lift.max_subturn_q,
+        midpoint=midpoint,
     )
-    comparison = _compare_turn_cos_squared(
-        cosine_squared,
-        threshold_turn,
-    )
-    if threshold_turn < Fraction(1, 2):
-        return sign > 0 and comparison >= 0
-    return sign >= 0 or comparison <= 0
 
 
 def _verify_evaluation_subturn_count_lift(
@@ -722,16 +817,18 @@ def _verify_evaluation_subturn_count_lift(
     ):
         raise ValueError("Density evaluation H-lift tag is invalid")
     covectors = _covectors(context.metric, ideal)
+    midpoint = is_midpoint_density_policy(selection.selection_policy_id)
     if not _lift_count_is_feasible(
         lift,
         lift.effective_hidden_edge_count,
+        midpoint=midpoint,
     ):
         raise ValueError("Density lifted H is not exactly feasible")
     for count in (
         lift.source_hidden_edge_count,
         lift.minimality_predecessor_hidden_edge_count,
     ):
-        if _lift_count_is_feasible(lift, count):
+        if _lift_count_is_feasible(lift, count, midpoint=midpoint):
             raise ValueError("Density H-lift minimality witness is false")
     incoming = covectors[0]
     outgoing = covectors[-1]
@@ -817,8 +914,7 @@ def _verify_evaluation_binding_reasons(
     )
     rational_predicate = (
         has_rational_density_support_direction
-        if selection.selection_policy_id
-        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        if is_huber_density_policy(selection.selection_policy_id)
         else has_rational_support_direction
     )
     for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
@@ -954,6 +1050,11 @@ def _angular_support_data_uncached(
                 vector,
             )
         return relation, anchor, support_ids, tuple(normals)
+    if spec.resolved_hidden_edge_count == 0:
+        # Скрытых опор нет — привязывать нечего ни одним законом. Прежде сюда
+        # доходил только legacy K=0; закон B делает `H=0` законным исходом и
+        # плотностной селекции (митрованный угол, поворот в нижней ячейке).
+        return relation, anchor, support_ids, tuple(ideal)
     certificates = tuple(
         (
             hidden_by_ordinal[ordinal].direction_binding
@@ -975,8 +1076,7 @@ def _angular_support_data_uncached(
     )
     try:
         if (
-            selection.selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+            is_huber_density_policy(selection.selection_policy_id)
             and density_contract is not None
         ):
             verify_huber_density_direction_bindings(
@@ -1016,8 +1116,7 @@ def _angular_support_data_uncached(
                     certificate.bound_primitive_integer_vector,
                 )
                 if density_contract is not None
-                and selection.selection_policy_id
-                is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+                and is_huber_density_policy(selection.selection_policy_id)
                 else bound_unit_normal(context.metric, certificate)
             )
     return relation, anchor, support_ids, tuple(normals)

@@ -19,7 +19,7 @@ from ..contracts.metric import (
     CertifiedAffineSupportDirectionV2,
     RationalAffinePlanarMetricV2,
 )
-from ..contracts.request import AngularProfileSelectionPolicyId
+from .._density_policy import is_huber_density_policy
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
@@ -195,9 +195,8 @@ class GeometryContext:
         return vertices
 
     def _density_bounded(self) -> bool:
-        return (
+        return is_huber_density_policy(
             self.compilation.decal_request.angular_profile_selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         )
 
     def _sign(self, expression) -> int:
