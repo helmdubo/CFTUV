@@ -486,3 +486,56 @@ def test_one_owner_key_names_one_seed():
         )
         == "SEED_OWNER_UNIQUE"
     )
+
+
+def test_one_cell_address_names_one_cell():
+    """Два набора кандидатов на один адрес — это выбор, сделанный читателем."""
+
+    cell = next(iter(_complex().cells))
+    twin = ArrivalCellV1(
+        cell.cell_id,
+        (cell.candidates[0],),
+        ArrivalTieResolutionV1.RESOLVED_EXACT,
+    )
+    assert (
+        _refusal(_complex, cells=frozenset({cell, twin})) == "CELL_ID_UNIQUE"
+    )
+
+
+def test_resolved_exact_keeps_exactly_one_candidate():
+    """«Разрешено точно» с двумя выжившими — это неразрешённая ничья."""
+
+    cell = next(iter(_complex().cells))
+    assert (
+        _refusal(
+            _complex,
+            cells=frozenset(
+                {
+                    ArrivalCellV1(
+                        cell.cell_id,
+                        cell.candidates,
+                        ArrivalTieResolutionV1.RESOLVED_EXACT,
+                    )
+                }
+            ),
+        )
+        == "RESOLVED_EXACT_KEEPS_ONE_CANDIDATE"
+    )
+
+
+def test_a_fragment_owner_outside_the_seeds_is_refused():
+    from cftuv_envelope.contracts.surface_arrival import OwnerFragmentV1
+
+    fragment = OwnerFragmentV1(
+        ArrivalOwnerKeyV1("seed:stranger"),
+        TRIANGLE,
+        ArrivalSupportLineV1(1, 0, 0, _rational(1)),
+        _point(0, 0),
+        _point(1, 0),
+        (_place(0, 0), _place(1, 0), _place(1, 1)),
+        _sum(1),
+    )
+    assert (
+        _refusal(_complex, owner_fragments=frozenset({fragment}))
+        == "FRAGMENT_OWNER_IS_NOT_A_SEED"
+    )
