@@ -481,11 +481,18 @@
         },
         "anchor_selection_law": {
           "enum": [
-            "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1"
+            "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1",
+            "EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2"
           ],
           "type": "string"
         },
+        "boundary_cyclic_order_sha256": {
+          "type": "string"
+        },
         "coincident_boundary_occurrence_pair_count": {
+          "type": "integer"
+        },
+        "coincident_projected_vertex_pair_count": {
           "type": "integer"
         },
         "collapsed_boundary_edge_occurrence_count": {
@@ -493,6 +500,12 @@
         },
         "exact_pair_test_count": {
           "type": "integer"
+        },
+        "interior_injectivity_law": {
+          "enum": [
+            "EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1"
+          ],
+          "type": "string"
         },
         "nesting_mismatch_count": {
           "type": "integer"
@@ -503,7 +516,13 @@
         "new_nonadjacent_edge_intersection_count": {
           "type": "integer"
         },
+        "nonsimple_projected_face_count": {
+          "type": "integer"
+        },
         "orientation_mismatch_count": {
+          "type": "integer"
+        },
+        "overlapping_projected_triangle_pair_count": {
           "type": "integer"
         },
         "projected_anchor_vertex_ids": {
@@ -527,14 +546,14 @@
           },
           "type": "array"
         },
-        "projected_cyclic_order_sha256": {
-          "type": "string"
-        },
         "projected_face_orientation_signs": {
           "items": {
             "type": "integer"
           },
           "type": "array"
+        },
+        "projected_face_triangle_count": {
+          "type": "integer"
         },
         "projected_fan_ambiguity_count": {
           "type": "integer"
@@ -575,9 +594,6 @@
         "source_chart_first_axis_negated": {
           "type": "boolean"
         },
-        "source_cyclic_order_sha256": {
-          "type": "string"
-        },
         "source_face_orientation_signs": {
           "items": {
             "type": "integer"
@@ -595,6 +611,12 @@
             "$ref": "#/$defs/SourceVertexId"
           },
           "type": "array"
+        },
+        "triangle_pair_broadphase_test_count": {
+          "type": "integer"
+        },
+        "triangle_pair_exact_test_count": {
+          "type": "integer"
         }
       },
       "required": [
@@ -617,8 +639,7 @@
         "projected_boundary_loop_nesting_depths",
         "orientation_mismatch_count",
         "nesting_mismatch_count",
-        "source_cyclic_order_sha256",
-        "projected_cyclic_order_sha256",
+        "boundary_cyclic_order_sha256",
         "anchor_selection_law",
         "source_anchor_vertex_ids",
         "projected_anchor_vertex_ids",
@@ -627,6 +648,13 @@
         "projected_fan_identity_sha256",
         "source_fan_ambiguity_count",
         "projected_fan_ambiguity_count",
+        "interior_injectivity_law",
+        "coincident_projected_vertex_pair_count",
+        "nonsimple_projected_face_count",
+        "projected_face_triangle_count",
+        "overlapping_projected_triangle_pair_count",
+        "triangle_pair_broadphase_test_count",
+        "triangle_pair_exact_test_count",
         "exact_pair_test_count"
       ],
       "type": "object"

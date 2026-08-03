@@ -64,6 +64,18 @@ class NamedOutcome(str, Enum):
     NEAR_PLANAR_PROJECTION_OUTER_HOLE_NESTING_CHANGED = (
         "NEAR_PLANAR_PROJECTION_OUTER_HOLE_NESTING_CHANGED"
     )
+    # СНЯТ С ПРОИЗВОДСТВА (P0-4-HARDENING), имя оставлено намеренно.
+    # Циклический порядок петли границы — это последовательность
+    # `PhysicalEdgeId` в обходе граней ИСТОЧНИКА. Проекция — отображение
+    # ПОЗИЦИЙ вершин; комбинаторику граней она не трогает вообще, поэтому
+    # входа, на котором «до» и «после» разошлись бы, не существует. Исход,
+    # который нельзя выпустить ни на каком входе, — не отказ, а украшение;
+    # он снят с производства, а не переименован, потому что удаление члена
+    # enum ломает две уже выпущенные схемы неаддитивно.
+    # Геометрическое содержание, которое имя обещало, несут два живых
+    # исхода: `NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED` (система вращения
+    # считается независимо на карте источника и на карте проекции) и
+    # `NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP` (прямая власть по инъективности).
     NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED = (
         "NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED"
     )
@@ -75,4 +87,24 @@ class NamedOutcome(str, Enum):
     )
     NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED = (
         "NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED"
+    )
+    # Две РАЗЛИЧНЫЕ вершины источника совпали в карте проекции. Прежняя
+    # проверка смотрела только вхождения ГРАНИЦЫ, поэтому схлопывание
+    # внутренней вершины проходило молча.
+    NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED = (
+        "NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED"
+    )
+    # Полигон грани в карте проекции не является простым невырожденным
+    # многоугольником: у него нет триангуляции отсечением ушей, то есть его
+    # собственные рёбра пересекаются либо площадь нулевая. Это ровно та
+    # предпосылка теоремы о вложении, которой сертификату не хватало: знак
+    # ПЛОЩАДИ полигона у «бабочки» остаётся положительным.
+    NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE = (
+        "NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE"
+    )
+    # Интерьеры двух треугольников проекции пересеклись по положительной
+    # площади. Прямая власть: инъективность доказана перебором, а не выведена
+    # из предпосылок теоремы.
+    NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP = (
+        "NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP"
     )

@@ -1,0 +1,270 @@
+{
+  "schema": "P0_4_HARDENING_SELF_PROVING_CLAIMS_V1",
+  "base_sha": "6e94f31edd6a1fada57624eca4a60f1576622fcc",
+  "branch": "exec/p0-4-hardening",
+  "verdict_source": "external audit, accepted by the owner",
+  "defect_1_self_proving_cyclic_digest": {
+    "before": "source_cyclic_order_sha256 and projected_cyclic_order_sha256 were both _cyclic_digest(loops) over the SAME topological PhysicalEdgeId walk of the source faces",
+    "why_no_violation_can_be_built": "the projection is a map on vertex POSITIONS; the cyclic sequence of physical edges around a boundary loop is a fact of face incidence, which no position map can permute. The pair could not differ on any input.",
+    "chosen_fork": "removed from the proof claim, kept as a one-sided fingerprint",
+    "field_now": "boundary_cyclic_order_sha256 (single field, recomputed by the validator)",
+    "outcome_now": "NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED retired, enum member kept (removing it would break two released schemas non-additively)",
+    "where_the_geometry_went": [
+      "NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED - rotation system computed independently on the source chart and on the projected chart",
+      "NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP - new direct injectivity authority"
+    ],
+    "executable_demonstration": "test_the_boundary_cyclic_fingerprint_cannot_depend_on_the_projection - two certificates over the same faces and wildly different charts (one folded) carry the identical fingerprint",
+    "tamper_repro": "test_validator_recomputes_the_two_formerly_self_proving_claims[boundary_cyclic_order_sha256]"
+  },
+  "defect_2_self_proving_anchor": {
+    "before": "source_anchor_vertex_ids and projected_anchor_vertex_ids were both _anchor_ids(projected)",
+    "chosen_fork": "independent computation on both sides",
+    "law": "ProjectionAnchorSelectionLawV1.EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2",
+    "source_side": "canonical basis over exact 3D source coordinates BEFORE projection (exact cross product)",
+    "projected_side": "canonical basis of the resolved-plane chart (exact orient2d)",
+    "measured_disagreement": {
+      "method": "every live build_projection_embedding_certificate call across test_embedding_certificates, test_near_planar_policy, test_near_planar_snapshot_validation, test_planar_metric_v2",
+      "on_the_base_fixture_set": {
+        "projection_calls": 61,
+        "full_tuple_mismatches": 18,
+        "prefix_mismatches": 0
+      },
+      "after_the_new_negative_fixtures": {
+        "projection_calls": 73,
+        "full_tuple_mismatches": 25,
+        "prefix_mismatches": 2,
+        "note": "the 2 prefix mismatches are the two deliberate collapse fixtures"
+      },
+      "explanation": "every mismatch on the base fixture set differs only in the THIRD basis vertex: a near-planar projection is entitled to make an almost-collinear triple exactly collinear, which is the point of the projection. Requiring full tuple equality would reject legitimate product fixtures - which is exactly why the previous branch collapsed both sides into one value instead."
+    },
+    "what_remains_a_refusal": "a mismatch of the PREFIX (origin, first). Its only cause is two DISTINCT source vertices landing on one chart point, which is a real injectivity failure.",
+    "negative_fixtures": [
+      "test_projection_anchor_prefix_change_names_a_collapsed_interior_vertex - an INTERIOR vertex collapses, boundary-occurrence injectivity stays silent, the prefix and the new all-vertex injectivity check do not",
+      "test_the_two_anchor_laws_disagree_on_a_live_patch_and_it_is_not_a_refusal - the two tuples differ and the record is still admitted",
+      "test_validator_recomputes_the_two_formerly_self_proving_claims[source_anchor_vertex_ids] - overwriting the source anchor with the OLD self-proving value (a copy of the projected anchor) is rejected by the validator"
+    ]
+  },
+  "defect_3_interior_injectivity": {
+    "before": "boundary and orientation were certified; nothing checked whether the chart covers a point twice",
+    "law": "ProjectionInteriorInjectivityLawV1.EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1",
+    "authority": "exact ear-clipping triangulation of every projected face polygon + AABB broad phase + exact separating-axis test over all triangle pairs",
+    "premises_recorded_on_the_way": [
+      "coincident_projected_vertex_pair_count - ALL vertices, not only boundary occurrences",
+      "nonsimple_projected_face_count - each face polygon must admit an ear-clipped triangulation, i.e. must be a simple non-degenerate polygon",
+      "projected_face_triangle_count, triangle_pair_broadphase_test_count, triangle_pair_exact_test_count - the cost is recorded, not asserted"
+    ],
+    "why_fan_triangulation_was_rejected": "a fan from the first vertex of a legitimate non-convex face produces triangles outside the face and would report a false overlap with its neighbour",
+    "why_ear_clipping_is_a_proof_not_a_heuristic": "by the two-ears theorem every simple polygon with four or more vertices has an ear, so a stalled clip is evidence of non-simplicity",
+    "adversarial_fixture": {
+      "name": "test_projection_names_an_interior_overlap_a_simple_boundary_hides",
+      "shape": "strip of three quads; the two INTERNAL edges b1-t1 and b2-t2 cross, so the middle face is a bowtie",
+      "projected_chart": {
+        "b0": [
+          -20,
+          0
+        ],
+        "b1": [
+          0,
+          0
+        ],
+        "b2": [
+          30,
+          0
+        ],
+        "b3": [
+          50,
+          0
+        ],
+        "t0": [
+          -20,
+          30
+        ],
+        "t1": [
+          16,
+          30
+        ],
+        "t2": [
+          14,
+          31
+        ],
+        "t3": [
+          50,
+          30
+        ]
+      },
+      "old_certificate_result": "projection_violations() == () - EMPTY",
+      "old_certificate_facts": {
+        "source_face_orientation_signs": [
+          1,
+          1,
+          1
+        ],
+        "projected_face_orientation_signs": [
+          1,
+          1,
+          1
+        ],
+        "projected_boundary_loop_orientation_signs": [
+          1
+        ],
+        "boundary_components": "1 -> 1",
+        "new_nonadjacent_edge_intersection_count": 0,
+        "new_nonadjacent_collinear_overlap_count": 0,
+        "orientation_mismatch_count": 0,
+        "nesting_mismatch_count": 0,
+        "fan_identity": "source == projected"
+      },
+      "overlap_witness": "(61/4, 59/2) is strictly inside face q0 AND strictly inside face q2; q0 and q2 share no vertex",
+      "why_the_boundary_test_missed_it": "the crossing edges are INTERNAL; new_nonadjacent_edge_intersection_count scans boundary occurrences only",
+      "why_the_area_sign_missed_it": "a bowtie subtracts its lobes, so the signed area of the middle face stays positive",
+      "new_certificate_result": [
+        "NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE",
+        "NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP"
+      ]
+    },
+    "finding_reported_as_a_discovery": {
+      "statement": "with the FULL premise set - simple pairwise non-crossing boundary loops with correct nesting and orientation PLUS simple positively oriented face polygons - interior overlap is impossible: the covering multiplicity of a point equals the winding number of the oriented boundary about it, which is 0 or 1.",
+      "consequence": "the direct pairwise authority cannot produce a violation that the premise set would not also produce. It was still built, because it derives nothing from that theorem.",
+      "the_gap_that_did_exist": "face-polygon simplicity was NOT a premise the old certificate checked, which is exactly why the adversarial fixture exists and passed"
+    }
+  },
+  "interior_authority_cost": {
+    "method": "square grid patch of quads, exact Fractions, ear clipping + AABB broad phase + exact separating axis",
+    "note": "the certificate was already O(n^2) in boundary pairs, components and nesting before this branch; the column below is the interior authority alone and the full certificate that contains it",
+    "rows": [
+      {
+        "faces": 16,
+        "triangles": 32,
+        "broadphase_pairs": 496,
+        "exact_pairs": 184,
+        "interior_seconds": 0.0072,
+        "certificate_seconds": 0.0191
+      },
+      {
+        "faces": 36,
+        "triangles": 72,
+        "broadphase_pairs": 2556,
+        "exact_pairs": 476,
+        "interior_seconds": 0.0187,
+        "certificate_seconds": 0.0434
+      },
+      {
+        "faces": 64,
+        "triangles": 128,
+        "broadphase_pairs": 8128,
+        "exact_pairs": 904,
+        "interior_seconds": 0.0362,
+        "certificate_seconds": 0.0821
+      },
+      {
+        "faces": 100,
+        "triangles": 200,
+        "broadphase_pairs": 19900,
+        "exact_pairs": 1468,
+        "interior_seconds": 0.0754,
+        "certificate_seconds": 0.1411
+      },
+      {
+        "faces": 144,
+        "triangles": 288,
+        "broadphase_pairs": 41328,
+        "exact_pairs": 2168,
+        "interior_seconds": 0.1301,
+        "certificate_seconds": 0.2069
+      }
+    ],
+    "aabb_pruning_at_288_triangles": "41328 -> 2168 exact tests, 94.8 percent pruned",
+    "live_fixture_cost": "73 projection calls in the four focused suites, 0.027 s of interior work in total, slowest single call 0.0048 s"
+  },
+  "public_api_left_frozen": {
+    "decision": "ProjectionInteriorInjectivityLawV1 is NOT added to the cftuv_envelope facade __all__",
+    "reason": "PUBLIC_API_P0_4_EMBEDDING_CERTIFICATE_V1_SHA256 and the 515-name count are a frozen P0-4 receipt. The law travels inside an already public record, through the already public codec and the regenerated schema, so no integrator loses access. Growing the frozen list is a decision for the owner, not a side effect of this repair.",
+    "open_question": "ProjectionAnchorSelectionLawV1 IS in the facade and its sibling law is not; the asymmetry is deliberate and named here rather than resolved silently."
+  },
+  "schema_blob_audit": {
+    "byte_identical_to_base": {
+      "surface_adjacency_ir_v1.schema.json": "0347b4dd544f3d7e1304a5fa16a3f32125a3dd97",
+      "surface_complete_ir_v1.schema.json": "685024b1c57e66803a7664cac185d0a041812c48",
+      "surface_arrival_complex_v1.schema.json": "2b69185dd93e450b76d205571468e6f164f9e8bb",
+      "surface_metric_descriptor_v2.schema.json": "e4380b4f74a3e6dc2a4a7fef3f57a4f7c1a34e30",
+      "rational_affine_planar_metric_v2.schema.json": "9e51b68fafa366ffa1844af62171a8e4483db0a2",
+      "analysis_snapshot_v1.schema.json": "06e0567b01ab994a89f251217417a145e17a30c3",
+      "decal_request_v1.schema.json": "6e9a0e9c4408d0b27ddf808eb5c6200f37c8d2af",
+      "envelope_debug_scene_v1.schema.json": "e88bcaf8b138db8e81954ab0951f6c20fe62b814",
+      "evaluation_geometry_binding_v1.schema.json": "efa0a701a90a66f83ccee9adfe65bb12f7dcfda5",
+      "evaluation_geometry_binding_v2.schema.json": "78e3776b92515de5f49df121ea060f540e7b715a",
+      "runtime_planar_metric_v1.schema.json": "6788620bc97f7a73f997e8c7d3497f29c39afc5a"
+    },
+    "changed": {
+      "embedding_certified_rational_affine_planar_metric_v1.schema.json": {
+        "base_blob": "681b7c7622de45780ee0f060b48f2a4922f196f8",
+        "current_blob": "e578bff146cb810adafbfd0c19f981ee0041388e",
+        "reason": "the P0-4 wrapper itself: one anchor law value added, the cyclic field pair replaced by one fingerprint, seven interior-injectivity fields added"
+      },
+      "compiled_patch_evaluation_plan_v1.schema.json": {
+        "base_blob": "fa9f596151a4d0728f0d0db64fabcd4d771e17d",
+        "current_blob": "992b6ac3c535aea8e15bb7a63312883fe10da42e",
+        "reason": "additive propagation of three new NamedOutcome members; the only removed line is the trailing comma reflow of the previous last member"
+      },
+      "geometry_batch_v1.schema.json": {
+        "base_blob": "8e4c5e6de51bf3438e30d45bcbdc73b3abe1a611",
+        "current_blob": "34de5322759144750b91149b182bba1d8648547f",
+        "reason": "same additive NamedOutcome propagation"
+      }
+    },
+    "generator_check": [
+      "PYTHONPATH=kernel/src python3 kernel/tools/generate_contract_schemas.py --output kernel/schema --check -> generated-contract-schemas: OK",
+      "PYTHONPATH=kernel/src python3 kernel/tools/generate_surface_contract_schemas.py --output kernel/schema --check -> generated-surface-contract-schemas: OK"
+    ]
+  },
+  "reworked_p0_4_gates": [
+    {
+      "test": "test_projection_names_injection_collapse_crossing_and_overlap_separately",
+      "change": "asserted SOURCE_ANCHOR_IDENTITY_CHANGED is ABSENT; now asserts it is PRESENT",
+      "reason": "the collapse of p1 onto p0 moves the chart's first basis vertex. Under the old self-proving law this outcome was unreachable by construction, so its absence proved nothing."
+    },
+    {
+      "test": "test_projection_rejects_a_mirrored_loop_by_the_orientation_axis",
+      "change": "the two-sided cyclic equality assertion became a single-fingerprint invariance assertion",
+      "reason": "the field pair no longer exists"
+    },
+    {
+      "test": "test_projection_names_a_real_fan_identity_change_with_fixed_boundary",
+      "change": "dropped the two-sided cyclic equality assertion",
+      "reason": "the field pair no longer exists; the fan axis assertion is untouched"
+    },
+    {
+      "test": "test_projection_anchor_law_uses_the_resolved_plane_and_rejects_substitution",
+      "renamed_to": "test_projection_anchor_law_reads_the_source_in_3d_and_the_chart_in_2d",
+      "change": "asserts the new law value and the two now-different anchors; keeps the substitution control",
+      "reason": "the old name described a law that filled one value into two fields"
+    },
+    {
+      "test": "test_projection_identity_claims_each_have_a_named_negative_control",
+      "change": "removed the cyclic control, added three controls for the new outcomes, and asserts explicitly that the cyclic axis has no control and cannot have one",
+      "reason": "a negative control for a claim that cannot fail is theatre"
+    }
+  ],
+  "suite_results": {
+    "kernel_full": {
+      "command": "cd kernel && PYTHONPATH=src:tests python3 -m pytest tests -q",
+      "result": "2774 passed, 2 skipped in 1375.09s (0:22:55)",
+      "note": "the 2 skips are the pre-existing SURFACE_BACKEND_NOT_IMPLEMENTED cases in tests/test_surface_flat_reduction.py; run from the kernel directory, so the known test_isolation failure from the checkout root does not apply"
+    },
+    "host_full": {
+      "command": "python3 -m pytest tests -q (from repo root)",
+      "result": "2 failed, 1245 passed, 5 skipped, 4 deselected in 342.30s",
+      "note": "both failures are the known environmental powershell ones in tests/test_density_field_tools_contract.py; powershell is absent in this container"
+    },
+    "architecture": {
+      "command": "PYTHONPATH=kernel/src python3 -m pytest tests/test_architecture.py -q",
+      "result": "396 passed in 7.23s"
+    },
+    "focused_p0_4_gate": {
+      "command": "cd kernel && PYTHONPATH=src:tests python3 -m pytest tests/test_embedding_certificates.py tests/test_near_planar_policy.py tests/test_near_planar_snapshot_validation.py tests/test_planar_metric_v2.py tests/test_generated_schemas.py tests/test_public_contracts.py -q",
+      "result": "111 passed in 11.85s",
+      "base_for_the_same_six_files": 104,
+      "delta": "+7 new tests in test_embedding_certificates.py (46 -> 53)"
+    }
+  }
+}

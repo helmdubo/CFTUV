@@ -356,10 +356,42 @@ class AffineFrameSelectionLawV1(str, Enum):
 
 
 class ProjectionAnchorSelectionLawV1(str, Enum):
-    """Basis identity for the additive projection-embedding certificate."""
+    """Basis identity for the additive projection-embedding certificate.
+
+    `CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1` назвало ОДИН выбор
+    базиса и записало его в оба поля сертификата. Сравнение двух копий одного
+    числа не может упасть: закон был самодоказательным.
+
+    `EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2` называет ДВА закона:
+    сторона источника — канонический базис по точным трёхмерным координатам
+    (до проекции), сторона проекции — канонический базис карты разрешённой
+    плоскости. Входы разные, предикаты разные, расхождение достижимо.
+
+    Старое значение оставлено читаемым: записи, выпущенные под ним, остаются
+    разбираемыми, а какой закон применялся, видно по полю.
+    """
 
     CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1 = (
         "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1"
+    )
+    EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2 = (
+        "EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2"
+    )
+
+
+class ProjectionInteriorInjectivityLawV1(str, Enum):
+    """Как доказана глобальная инъективность интерьера карты проекции.
+
+    Предпосылочный путь (простая граница, положительная ориентация, согласованные
+    инцидентности, ожидаемая топология носителя) выводит инъективность из
+    теоремы. Этот закон её не выводит, а ПРОВЕРЯЕТ: каждый полигон грани
+    триангулируется отсечением ушей точными предикатами, и все пары
+    треугольников проходят AABB-префильтр и точный тест разделяющей оси.
+    Коробка домена 10-20 м и десятки-сотни треугольников делают O(n^2) дешёвым.
+    """
+
+    EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1 = (
+        "EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1"
     )
 
 
@@ -528,7 +560,30 @@ class SourceSnapEmbeddingCertificateV1:
 
 @dataclass(frozen=True, slots=True)
 class NearPlanarProjectionEmbeddingCertificateV1:
-    """Exact evidence that projection retained the patch boundary embedding."""
+    """Exact evidence that projection retained the patch embedding.
+
+    `boundary_cyclic_order_sha256` — ОДНОСТОРОННИЙ отпечаток комбинаторики
+    границы источника, а не двустороннее клеймо. Прежде здесь стояла пара
+    `source_`/`projected_`, и обе половины считались из одной и той же
+    последовательности `PhysicalEdgeId`: проекция в расчёт не входила, и
+    сравнение не могло упасть ни на каком входе. Отпечаток оставлен, потому
+    что валидатор его пересчитывает — подделанная запись отвергается, — но
+    доказательством сохранения порядка он больше не притворяется.
+
+    `source_anchor_vertex_ids` и `projected_anchor_vertex_ids` теперь
+    считаются РАЗНЫМИ законами из РАЗНЫХ входов (см.
+    `ProjectionAnchorSelectionLawV1`). Их РАВЕНСТВА сертификат не требует:
+    измерено на 61 живом вызове проекции — 18 из них законно выбирают разную
+    третью вершину базиса, потому что near-planar проекция имеет право
+    сделать почти коллинеарную тройку точно коллинеарной. Отказом остаётся
+    расхождение ПРЕФИКСА (origin, first): его может изменить только
+    схлопывание двух различных вершин источника в одну точку карты.
+
+    Поля `*_triangle_*` несут прямую власть по инъективности интерьера:
+    предпосылки теоремы (простая граница, ориентация, вложенность, система
+    вращения) записаны отдельными счётчиками выше, а перекрытие интерьеров
+    доказывается перебором пар, а не выводится из них.
+    """
 
     source_vertex_ids: tuple[SourceVertexId, ...]
     source_chart_dropped_axis: int
@@ -548,8 +603,7 @@ class NearPlanarProjectionEmbeddingCertificateV1:
     projected_boundary_loop_nesting_depths: tuple[int, ...]
     orientation_mismatch_count: int
     nesting_mismatch_count: int
-    source_cyclic_order_sha256: str
-    projected_cyclic_order_sha256: str
+    boundary_cyclic_order_sha256: str
     anchor_selection_law: ProjectionAnchorSelectionLawV1
     source_anchor_vertex_ids: tuple[SourceVertexId, ...]
     projected_anchor_vertex_ids: tuple[SourceVertexId, ...]
@@ -558,6 +612,13 @@ class NearPlanarProjectionEmbeddingCertificateV1:
     projected_fan_identity_sha256: str
     source_fan_ambiguity_count: int
     projected_fan_ambiguity_count: int
+    interior_injectivity_law: ProjectionInteriorInjectivityLawV1
+    coincident_projected_vertex_pair_count: int
+    nonsimple_projected_face_count: int
+    projected_face_triangle_count: int
+    overlapping_projected_triangle_pair_count: int
+    triangle_pair_broadphase_test_count: int
+    triangle_pair_exact_test_count: int
     exact_pair_test_count: int
 
     def __post_init__(self) -> None:
@@ -574,6 +635,12 @@ class NearPlanarProjectionEmbeddingCertificateV1:
             self.resolved_plane_basis_unavailable_count,
             self.source_fan_ambiguity_count,
             self.projected_fan_ambiguity_count,
+            self.coincident_projected_vertex_pair_count,
+            self.nonsimple_projected_face_count,
+            self.projected_face_triangle_count,
+            self.overlapping_projected_triangle_pair_count,
+            self.triangle_pair_broadphase_test_count,
+            self.triangle_pair_exact_test_count,
             self.exact_pair_test_count,
         )
         if any(item < 0 for item in counts):
