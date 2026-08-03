@@ -232,39 +232,36 @@ def _live_level(builder, level):
 
 
 def _required_physical_edge_keys(builder, events) -> set[tuple]:
-    required = set()
-    split_target_keys = set()
-    for event in events:
-        vertex = builder.vertices[event.vertex]
-        edge_ids = [vertex.prev_edge, vertex.next_edge]
-        if event.kind is EventKind.EDGE:
-            peer = builder.vertices[event.peer]
-            edge_ids.extend((peer.prev_edge, peer.next_edge))
-        else:
-            edge_ids.append(event.edge)
-            split_target_keys.add(builder.edges[event.edge].key)
-            for ident in builder._proof_edge_endpoint_ids(event.edge):
-                endpoint = builder.vertices[ident]
-                edge_ids.extend((endpoint.prev_edge, endpoint.next_edge))
-        required.update(builder.edges[ident].key for ident in edge_ids)
-    # K1 is exactly one hop around every live alias of a split-target span.
-    # It hydrates the opposite endpoint ports needed by a rewrite, but does not
-    # walk the LAV recursively.
-    for start in builder.vertices:
-        if not start.alive:
-            continue
-        end = builder.vertices[start.next]
-        if (
-            end.alive
-            and builder.edges[start.next_edge].key in split_target_keys
-        ):
-            required.update(
-                (
-                    builder.edges[start.prev_edge].key,
-                    builder.edges[end.next_edge].key,
-                )
-            )
-    return required
+    """Ключи вхождений, которые обязан нести снимок пакета: ВСЕ живые.
+
+    Плотность здесь — цена правильности, а не недосмотр. Разреженное правило
+    (`K1` вокруг алиасов рассекаемого пролёта) выбирало радиус, а не выводило
+    его: рождение контакта ссылается на плечи ЦЕПИ смерти, а цепь тянется по
+    LAV дальше двух вершин события. На корпусе весов и стен недостающие
+    вхождения оказывались в шести-семи шагах от событий, и пакет отказывал
+    РАЗРЕЖЕННОСТЬЮ, а не геометрией: семь фигур давали
+    SYMBOLIC_SPLIT_OVERLAY_UNRESOLVABLE там, где плотный снимок даёт 17/5/1.
+    Радиус, подобранный под корпус, — эвристика: он зеленеет ровно на тех
+    фигурах, на которых его мерили.
+
+    Обратная оптимизация — законная будущая карточка, но она обязана нести
+    ДОКАЗАТЕЛЬСТВО достаточности своего множества (инвариант «разреженный
+    снимок обязан давать тот же ответ, что плотный» уже выражен тенью
+    `_shadow_collector` в сюите), а не измерение на корпусе.
+
+    `events` в подписи остаётся: он — предмет запроса, и по нему сужают
+    будущие правила; сегодня закон от него не зависит.
+    """
+
+    return {
+        builder.edges[vertex.next_edge].key
+        for vertex in builder.vertices
+        if vertex.alive
+    } | {
+        builder.edges[vertex.prev_edge].key
+        for vertex in builder.vertices
+        if vertex.alive
+    }
 
 
 def _sparse_occurrences(builder, time, required_keys):
