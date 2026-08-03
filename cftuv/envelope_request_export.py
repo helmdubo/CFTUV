@@ -17,6 +17,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
@@ -33,6 +34,7 @@ from .envelope_angle_certificate import (
 )
 from .envelope_debug_profile import (
     ANGULAR_STAGE_COUNTERS,
+    SEAM_PARTITION_COUNTERS,
     EnvelopeDebugProfileBuilderV1,
     EnvelopeDebugTimingV1,
     EnvelopeDomainStage,
@@ -245,6 +247,10 @@ class _HostChainRecord:
     canonical_vertex_ids: tuple[int, ...]
     canonical_edge_ids: tuple[int, ...]
     reversed_from_canonical: bool
+    # Замкнутость ИСХОДНОЙ цепочки, а не куска: после разреза все куски
+    # открыты, но стык последнего с первым остаётся стыком, и без этой памяти
+    # он молча перестал бы быть углом.
+    source_is_closed: bool
 
 
 def _measure(profile, stage: str, patch_domain_id: str | None = None):
@@ -353,6 +359,61 @@ def _canonical_chain(chain) -> tuple[tuple[int, ...], tuple[int, ...], bool]:
     return vertices, edges, False
 
 
+def _exact_source_positions(analysis_bundle) -> dict[int, tuple]:
+    """Позиции источника в точных рационалах ПО ЗАКОНУ ЯДРА.
+
+    `float.as_integer_ratio()` — тот же перевод, которым метрика ядра строит
+    чарт (`planar_metric._fraction_from_float`). `sympy.Rational(str(float))`
+    даёт ДРУГОЙ рационал того же float, и тогда хост объявлял бы прямой ту
+    цепочку, которую закон ядра прямой не считает.
+    """
+
+    return {
+        int(item.vertex_id): tuple(
+            Fraction(*value.as_integer_ratio())
+            for value in _vector3(item.position)
+        )
+        for item in analysis_bundle.patch_surface.vertices
+    }
+
+
+def _exact_kink_vertex_ids(
+    vertex_ids: tuple[int, ...],
+    is_closed: bool,
+    exact_position_by_id: dict[int, tuple],
+) -> frozenset[int]:
+    """Вершины, в которых цепочка ломается ТОЧНО — без порога и без допуска.
+
+    Тест ведётся в 3D. Проекция чарта аффинна, поэтому 3D-коллинеарность
+    ВЛЕЧЁТ коллинеарность чарта: разрез по 3D-излому закрывает оба закона
+    линейности ядра. Обратное неверно — излом, вырожденный в проекции, даёт
+    ЛИШНИЙ разрез; он законен (закон линейности от него не страдает) и
+    посчитан отдельно (`ANGULAR_CUT_CHART_COLLINEAR`), а не спрятан.
+    """
+
+    missing = [item for item in vertex_ids if item not in exact_position_by_id]
+    if missing:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
+            f"host BoundaryChain references unknown source vertex {missing[0]}",
+        )
+    count = len(vertex_ids)
+    found = []
+    for index in range(count) if is_closed else range(1, count - 1):
+        previous = exact_position_by_id[vertex_ids[(index - 1) % count]]
+        anchor = exact_position_by_id[vertex_ids[index]]
+        following = exact_position_by_id[vertex_ids[(index + 1) % count]]
+        left = tuple(a - b for a, b in zip(anchor, previous, strict=True))
+        right = tuple(a - b for a, b in zip(following, anchor, strict=True))
+        if (
+            left[1] * right[2] != left[2] * right[1]
+            or left[2] * right[0] != left[0] * right[2]
+            or left[0] * right[1] != left[1] * right[0]
+        ):
+            found.append(vertex_ids[index])
+    return frozenset(found)
+
+
 def _host_chain_slice(chain) -> _HostChainSlice:
     return _HostChainSlice(
         chain.neighbor_kind,
@@ -435,8 +496,24 @@ def _split_host_chain_slice(
 
 def _normalize_physical_seam_partitions(
     raw_records: tuple[_HostChainRecord, ...],
+    exact_position_by_id: dict[int, tuple],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
 ) -> tuple[_HostChainRecord, ...]:
-    """Apply the exact common refinement declared by both patch-side uses."""
+    """Exact common refinement of both patch-side uses AND of every kink.
+
+    У хоста нет представления излома ВНУТРИ `BoundaryChain`: «прямота» —
+    это отсутствие записи об угле, а не утверждение о геометрии. Изломанный
+    маршрут поэтому объявлялся ядру одной прямой цепочкой, и ядро честно
+    отказывало (`SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR`). Адаптер не
+    изобретает геометрию — он приводит ТОПОЛОГИЮ фактов к форме, которую
+    принимает закон ядра: разрезает цепочку ровно там, где излом есть, тем
+    же точным тестом, каким закон её проверяет. Порога у теста нет.
+
+    Разрез физической цепочки — ОДИН набор вершин на обе стороны шва:
+    тест симметричен относительно направления обхода, поэтому оба
+    `ChainUse` получают побитово тот же набор.
+    """
 
     records_by_pair: dict[tuple[int, int], list[_HostChainRecord]] = {}
     for record in raw_records:
@@ -487,6 +564,8 @@ def _normalize_physical_seam_partitions(
         )
 
     expanded = []
+    kink_chain_uses = 0
+    kink_cut_vertices = 0
     for record in raw_records:
         pair = (
             tuple(
@@ -495,9 +574,17 @@ def _normalize_physical_seam_partitions(
             if record.chain.neighbor_kind is ChainNeighborKind.PATCH
             else None
         )
+        kink_cuts = _exact_kink_vertex_ids(
+            record.canonical_vertex_ids,
+            record.source_is_closed,
+            exact_position_by_id,
+        )
+        if kink_cuts:
+            kink_chain_uses += 1
+            kink_cut_vertices += len(kink_cuts)
         pieces = _split_host_chain_slice(
             record.chain,
-            cut_vertices_by_pair.get(pair, frozenset()),
+            cut_vertices_by_pair.get(pair, frozenset()) | kink_cuts,
         )
         for segment_index, piece in enumerate(pieces):
             vertices, edges, reversed_from_canonical = _canonical_chain(piece)
@@ -512,8 +599,15 @@ def _normalize_physical_seam_partitions(
                     vertices,
                     edges,
                     reversed_from_canonical,
+                    record.source_is_closed,
                 )
             )
+    if profile is not None:
+        # Ноль объявляется, а не подразумевается: «изломов не нашлось» и
+        # «закон не смотрел» иначе — одна пустота.
+        measured = (kink_chain_uses, kink_cut_vertices)
+        for name, value in zip(SEAM_PARTITION_COUNTERS, measured, strict=True):
+            profile.set_counter(name, value)
 
     normalized = []
     for patch_loop in sorted(
@@ -542,6 +636,7 @@ def _normalize_physical_seam_partitions(
                     record.canonical_vertex_ids,
                     record.canonical_edge_ids,
                     record.reversed_from_canonical,
+                    record.source_is_closed,
                 )
             )
     return tuple(normalized)
@@ -569,6 +664,7 @@ def _collect_raw_host_chains(
                         vertices,
                         edges,
                         reversed_from_canonical,
+                        bool(chain_slice.is_closed),
                     )
                 )
     if not records:
@@ -592,7 +688,11 @@ def _collect_host_chains(
         "SEAM_PARTITION_NORMALIZATION",
         patch_domain_id,
     ):
-        return _normalize_physical_seam_partitions(records)
+        return _normalize_physical_seam_partitions(
+            records,
+            _exact_source_positions(analysis_bundle),
+            profile=profile,
+        )
 
 
 def _host_chain_key(
@@ -692,7 +792,11 @@ def build_envelope_topology_debug_scene(
         with _measure(profile, "HOST_CHAIN_COLLECTION"):
             raw_host_chains = _collect_raw_host_chains(analysis_bundle)
         with _measure(profile, "SEAM_PARTITION_NORMALIZATION"):
-            host_chains = _normalize_physical_seam_partitions(raw_host_chains)
+            host_chains = _normalize_physical_seam_partitions(
+                raw_host_chains,
+                _exact_source_positions(analysis_bundle),
+                profile=profile,
+            )
     else:
         revision = topology_export.source_revision_value
         host_chains = topology_export.host_chains
@@ -1075,350 +1179,73 @@ def _source_ids(kernel, revision: str, analysis_bundle: AnalysisBundle):
     return vertex_ids, edge_ids, face_ids, triangle_ids, patch_ids
 
 
-def _exact_frame(
-    kernel,
-    sympy,
-    *,
-    revision: str,
-    patch_id: int,
+def _angular_sites(
     patch,
-    patch_domain_id,
-    patch_vertex_ids: tuple[int, ...],
-    host_vertex_by_id: dict[int, object],
-    kernel_vertex_ids: dict[int, object],
-):
-    scalar = lambda value: sympy.Rational(str(float(value)))
-    if not patch_vertex_ids:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            "PatchDomain has no source vertices",
-            patch_domain_id=patch_domain_id.value,
-        )
+    patch_id: int,
+    normalized_refs_by_source,
+    record_by_ref: dict[tuple[int, int, int], _HostChainRecord],
+    domain_id,
+) -> tuple[tuple, ...]:
+    """Объявленные углы петли И вершины разреза — один перечень мест поворота.
 
-    def dot(left, right):
-        return sympy.factor(sum(a * b for a, b in zip(left, right, strict=True)))
+    Разрез изломанной физической цепочки создаёт стык, которого нет в
+    `loop.corners`: у хоста нет записи об угле внутри `BoundaryChain` —
+    именно это и есть чинимый дефект. Рефлексный стык без углового
+    комплекта превратился бы в ДВА `CapEnvelopeSpec` вместо веера, то есть
+    в тихую потерю; поэтому вершина разреза проходит РОВНО тот же вывод
+    меры, что и объявленный угол, и при недоступности сертифицированной
+    меры даёт именованный отказ, а не колпачки.
 
-    def cross(left, right):
-        return (
-            sympy.factor(left[1] * right[2] - left[2] * right[1]),
-            sympy.factor(left[2] * right[0] - left[0] * right[2]),
-            sympy.factor(left[0] * right[1] - left[1] * right[0]),
-        )
+    Ключ места остаётся тем же целым `corner_index` для объявленных углов:
+    идентичности углов на доменах без изломов обязаны не сдвинуться.
+    """
 
-    def subtract(left, right):
-        return tuple(
-            sympy.factor(a - b)
-            for a, b in zip(left, right, strict=True)
-        )
-
-    def negate(vector):
-        return tuple(-item for item in vector)
-
-    def exact_float(value):
-        value = sympy.factor(value)
-        result = float(value)
-        if not math.isfinite(result) or scalar(result) != value:
-            return None
-        return result
-
-    def exact_float_vector(vector):
-        values = tuple(exact_float(item) for item in vector)
-        if any(item is None for item in values):
-            return None
-        return values
-
-    positions = {
-        vertex_id: tuple(
-            scalar(value)
-            for value in _vector3(host_vertex_by_id[vertex_id].position)
-        )
-        for vertex_id in patch_vertex_ids
-    }
-    source_origin_id = min(patch_vertex_ids)
-    source_origin = positions[source_origin_id]
-
-    raw_normal = None
-    other_vertex_ids = tuple(
-        vertex_id
-        for vertex_id in patch_vertex_ids
-        if vertex_id != source_origin_id
-    )
-    for left_index, left_vertex_id in enumerate(other_vertex_ids):
-        left = subtract(positions[left_vertex_id], source_origin)
-        for right_vertex_id in other_vertex_ids[left_index + 1:]:
-            right = subtract(positions[right_vertex_id], source_origin)
-            candidate = cross(left, right)
-            if any(item != 0 for item in candidate):
-                raw_normal = candidate
-                break
-        if raw_normal is not None:
-            break
-    if raw_normal is None:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} source vertices do not define an exact plane",
-            patch_domain_id=patch_domain_id.value,
-        )
-
-    raw_normal_norm_squared = dot(raw_normal, raw_normal)
-    for vertex_id in patch_vertex_ids:
-        plane_delta = dot(
-            subtract(positions[vertex_id], source_origin),
-            raw_normal,
-        )
-        if plane_delta != 0:
-            signed_distance = float(plane_delta) / math.sqrt(
-                float(raw_normal_norm_squared)
-            )
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                f"host Patch {patch_id} source vertex {vertex_id} is not "
-                "exactly coplanar; signed plane delta="
-                f"{signed_distance!r}",
-                patch_domain_id=patch_domain_id.value,
-            )
-
-    host_axis_u = tuple(scalar(value) for value in _vector3(patch.basis_u))
-    host_axis_v = tuple(scalar(value) for value in _vector3(patch.basis_v))
-    host_normal = tuple(scalar(value) for value in _vector3(patch.normal))
-    orientation_dot = dot(raw_normal, host_normal)
-    if orientation_dot == 0:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} exact plane orientation is not declared",
-            patch_domain_id=patch_domain_id.value,
-        )
-    if orientation_dot < 0:
-        raw_normal = negate(raw_normal)
-
-    normal_length = sympy.sqrt(dot(raw_normal, raw_normal))
-    if normal_length.is_Rational is not True:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} exact plane has no rational unit normal",
-            patch_domain_id=patch_domain_id.value,
-        )
-    normal = tuple(sympy.factor(item / normal_length) for item in raw_normal)
-    normal_values = exact_float_vector(normal)
-    if normal_values is None:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} exact unit normal has no exact public "
-            "float representation",
-            patch_domain_id=patch_domain_id.value,
-        )
-
-    def unit_vector(vector):
-        length_squared = dot(vector, vector)
-        if length_squared == 0:
-            return None
-        length = sympy.sqrt(length_squared)
-        if length.is_Rational is not True:
-            return None
-        result = tuple(sympy.factor(item / length) for item in vector)
-        if exact_float_vector(result) is None:
-            return None
-        return result
-
-    def canonical_direction(vector):
-        for item in vector:
-            if item == 0:
-                continue
-            return vector if item > 0 else negate(vector)
-        return vector
-
-    coordinate_axes = (
-        (sympy.Integer(1), sympy.Integer(0), sympy.Integer(0)),
-        (sympy.Integer(0), sympy.Integer(1), sympy.Integer(0)),
-        (sympy.Integer(0), sympy.Integer(0), sympy.Integer(1)),
-    )
-
-    def signed_axis_index(vector):
-        nonzero = tuple(
-            index for index, value in enumerate(vector) if value != 0
-        )
-        if (
-            len(nonzero) == 1
-            and abs(vector[nonzero[0]]) == 1
-        ):
-            return nonzero[0]
-        return None
-
-    normal_axis_index = signed_axis_index(normal)
-    tangent_candidates = set()
-    if normal_axis_index is not None:
-        for index, coordinate_axis in enumerate(coordinate_axes):
-            if index != normal_axis_index:
-                tangent_candidates.add(coordinate_axis)
-    else:
-        for coordinate_axis in coordinate_axes:
-            projected = tuple(
-                sympy.factor(
-                    component - dot(coordinate_axis, normal) * normal_component
+    sites = []
+    for loop_index, loop in enumerate(patch.boundary_loops):
+        for corner_index, corner in enumerate(loop.corners):
+            refs = tuple(
+                normalized_refs_by_source.get(
+                    (patch_id, loop_index, int(index)), ()
                 )
-                for component, normal_component in zip(
-                    coordinate_axis,
-                    normal,
-                    strict=True,
+                for index in (corner.prev_chain_index, corner.next_chain_index)
+            )
+            if not all(refs):
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                    "BoundaryCorner incident ChainUse references are incomplete",
+                    patch_domain_id=domain_id.value,
                 )
-            )
-            candidate = unit_vector(projected)
-            if candidate is not None:
-                tangent_candidates.add(canonical_direction(candidate))
-        for vertex_id in other_vertex_ids:
-            candidate = unit_vector(
-                subtract(positions[vertex_id], source_origin)
-            )
-            if candidate is not None:
-                tangent_candidates.add(canonical_direction(candidate))
-
-    if not tangent_candidates:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} exact plane has no exact public "
-            "float-valued tangent basis",
-            patch_domain_id=patch_domain_id.value,
-        )
-
-    host_handedness_measure = dot(
-        cross(host_axis_u, host_axis_v),
-        host_normal,
-    )
-    right_handed = host_handedness_measure >= 0
-    basis_candidates = []
-    for canonical_u in tangent_candidates:
-        for axis_u_candidate in (canonical_u, negate(canonical_u)):
-            axis_v_candidate = (
-                cross(normal, axis_u_candidate)
-                if right_handed
-                else cross(axis_u_candidate, normal)
-            )
-            if exact_float_vector(axis_v_candidate) is None:
-                continue
-            alignment = sympy.factor(
-                dot(axis_u_candidate, host_axis_u)
-                + dot(axis_v_candidate, host_axis_v)
-            )
-            basis_candidates.append(
+            sites.append(
                 (
-                    float(alignment),
-                    tuple(str(item) for item in axis_u_candidate),
-                    axis_u_candidate,
-                    axis_v_candidate,
+                    loop_index,
+                    corner_index,
+                    False,
+                    int(corner.vert_index),
+                    refs[0][-1],
+                    refs[1][0],
                 )
             )
-    if not basis_candidates:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} exact plane has no exact public "
-            "float-valued orthonormal basis",
-            patch_domain_id=patch_domain_id.value,
-        )
-    _, _, axis_u, axis_v = max(
-        basis_candidates,
-        key=lambda item: (item[0], item[1]),
-    )
-    axis_u_values = exact_float_vector(axis_u)
-    axis_v_values = exact_float_vector(axis_v)
-    assert axis_u_values is not None
-    assert axis_v_values is not None
-
-    basis_checks = (
-        dot(axis_u, axis_u) - 1,
-        dot(axis_v, axis_v) - 1,
-        dot(normal, normal) - 1,
-        dot(axis_u, axis_v),
-        dot(axis_u, normal),
-        dot(axis_v, normal),
-    )
-    if any(item != 0 for item in basis_checks):
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} derived planar basis is not exactly orthonormal",
-            patch_domain_id=patch_domain_id.value,
-        )
-    cross_uv = cross(axis_u, axis_v)
-    if cross_uv == normal:
-        handedness = kernel.PatchFrameHandedness.RIGHT_HANDED_U_V_NORMAL
-    elif cross_uv == tuple(-item for item in normal):
-        handedness = kernel.PatchFrameHandedness.LEFT_HANDED_U_V_NORMAL
-    else:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} planar basis handedness is not exactly certified",
-            patch_domain_id=patch_domain_id.value,
-        )
-
-    source_origin_values = _vector3(
-        host_vertex_by_id[source_origin_id].position
-    )
-    if normal_axis_index is not None:
-        origin_values = tuple(
-            source_origin_values[index] if index == normal_axis_index else 0.0
-            for index in range(3)
-        )
-    else:
-        origin_values = source_origin_values
-    origin = tuple(scalar(value) for value in origin_values)
-
-    coordinates = []
-    for vertex_id in patch_vertex_ids:
-        position = positions[vertex_id]
-        relative = tuple(
-            value - base for value, base in zip(position, origin, strict=True)
-        )
-        plane_delta = dot(relative, normal)
-        if plane_delta != 0:
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                f"host Patch {patch_id} source vertex {vertex_id} is not "
-                "exactly coplanar; signed plane delta="
-                f"{float(plane_delta)!r}",
-                patch_domain_id=patch_domain_id.value,
+        for source_chain_index in range(len(loop.chains)):
+            refs = normalized_refs_by_source.get(
+                (patch_id, loop_index, source_chain_index), ()
             )
-        exact_x = sympy.factor(dot(relative, axis_u))
-        exact_y = sympy.factor(dot(relative, axis_v))
-        float_x = float(exact_x)
-        float_y = float(exact_y)
-        if (
-            not math.isfinite(float_x)
-            or not math.isfinite(float_y)
-            or scalar(float_x) != exact_x
-            or scalar(float_y) != exact_y
-        ):
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                f"host Patch {patch_id} source vertex {vertex_id} planar "
-                "coordinate has no exact float round-trip",
-                patch_domain_id=patch_domain_id.value,
-            )
-        coordinates.append(
-            kernel.PlanarSourceVertexCoordinateV1(
-                kernel_vertex_ids[vertex_id],
-                kernel.LocalPoint2V1(float_x, float_y),
-            )
-        )
-    certificate = kernel.PlanarityCertificateV1(
-        kernel.PlanarityCertificateId(
-            _typed_value("planarity", revision, patch_id)
-        ),
-        patch_domain_id,
-        kernel.PlanarityLaw.ALL_DOMAIN_SOURCE_VERTICES_ON_CERTIFIED_PLANE_V1,
-        True,
-        kernel.LocalLengthV1(Decimal(0)),
-        kernel.SurfaceMetricAuthority.HOST_ANALYSIS_AUTHORITATIVE_V1,
-    )
-    return kernel.PlanarPatchFrameV1(
-        patch_domain_id,
-        kernel.LocalPoint3V1(*origin_values),
-        kernel.LocalVector3V1(*axis_u_values),
-        kernel.LocalVector3V1(*axis_v_values),
-        kernel.LocalVector3V1(*normal_values),
-        handedness,
-        certificate,
-        kernel.PlanarProjectionLaw.DOT_WITH_AUTHORITATIVE_U_V_BASIS_V1,
-        frozenset(coordinates),
-    )
+            if len(refs) < 2:
+                continue
+            adjacent = list(zip(refs, refs[1:], strict=False))
+            if record_by_ref[refs[0]].source_is_closed:
+                adjacent.append((refs[-1], refs[0]))
+            for incoming_ref, outgoing_ref in adjacent:
+                sites.append(
+                    (
+                        loop_index,
+                        f"cut:{incoming_ref[2]}",
+                        True,
+                        int(record_by_ref[incoming_ref].chain.vert_indices[-1]),
+                        incoming_ref,
+                        outgoing_ref,
+                    )
+                )
+    return tuple(sites)
 
 
 def _build_angular_relations(
@@ -1598,203 +1425,204 @@ def _build_angular_relations(
         # Счётчики заводятся ДО обхода и всегда, даже нулями: «углов не
         # нашлось» и «стадия ничего не смотрела» иначе — одна пустота.
         stage_counters = dict.fromkeys(ANGULAR_STAGE_COUNTERS, 0)
-        for loop_index, loop in enumerate(patch.boundary_loops):
-            for corner_index, corner in enumerate(loop.corners):
-                stage_counters["ANGULAR_CORNERS_CONSIDERED"] += 1
-                prev_source_ref = (
-                    patch_id,
-                    loop_index,
-                    int(corner.prev_chain_index),
+        for (
+            loop_index,
+            corner_index,
+            is_cut_vertex,
+            anchor_vertex_id,
+            prev_ref,
+            next_ref,
+        ) in _angular_sites(
+            patch,
+            patch_id,
+            normalized_refs_by_source,
+            record_by_ref,
+            domain_id,
+        ):
+            stage_counters[
+                "ANGULAR_CUT_VERTICES_CONSIDERED"
+                if is_cut_vertex
+                else "ANGULAR_CORNERS_CONSIDERED"
+            ] += 1
+            if anchor_vertex_id not in vertex_ids:
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                    "BoundaryCorner source vertex is absent from PatchSurfaceIR",
+                    patch_domain_id=domain_id.value,
                 )
-                next_source_ref = (
-                    patch_id,
-                    loop_index,
-                    int(corner.next_chain_index),
-                )
-                if (
-                    prev_source_ref not in normalized_refs_by_source
-                    or next_source_ref not in normalized_refs_by_source
-                ):
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "BoundaryCorner incident ChainUse references are incomplete",
-                        patch_domain_id=domain_id.value,
-                    )
-                prev_ref = normalized_refs_by_source[prev_source_ref][-1]
-                next_ref = normalized_refs_by_source[next_source_ref][0]
-                anchor_vertex_id = int(corner.vert_index)
-                if anchor_vertex_id not in vertex_ids:
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "BoundaryCorner source vertex is absent from PatchSurfaceIR",
-                        patch_domain_id=domain_id.value,
-                    )
-                incoming_normal, incoming_tangent = owner_support(
-                    record_by_ref[prev_ref], anchor_vertex_id
-                )
-                outgoing_normal, outgoing_tangent = owner_support(
-                    record_by_ref[next_ref], anchor_vertex_id
-                )
-                incoming_vector = vector(incoming_normal)
-                outgoing_vector = vector(outgoing_normal)
-                incoming_tangent_vector = vector(incoming_tangent)
-                outgoing_tangent_vector = vector(outgoing_tangent)
-                turn_cross = metric.oriented_cross(
+            incoming_normal, incoming_tangent = owner_support(
+                record_by_ref[prev_ref], anchor_vertex_id
+            )
+            outgoing_normal, outgoing_tangent = owner_support(
+                record_by_ref[next_ref], anchor_vertex_id
+            )
+            incoming_vector = vector(incoming_normal)
+            outgoing_vector = vector(outgoing_normal)
+            incoming_tangent_vector = vector(incoming_tangent)
+            outgoing_tangent_vector = vector(outgoing_tangent)
+            turn_cross = metric.oriented_cross(
+                incoming_tangent_vector,
+                outgoing_tangent_vector,
+            )
+            if turn_cross == 0:
+                if metric.dot_g(
                     incoming_tangent_vector,
                     outgoing_tangent_vector,
-                )
-                if turn_cross == 0:
-                    if metric.dot_g(
-                        incoming_tangent_vector,
-                        outgoing_tangent_vector,
-                    ) > 0:
-                        stage_counters["ANGULAR_COLLINEAR_SKIPPED"] += 1
-                        continue
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "exact 2*pi corner must be Terminal/Junction, not Angular",
-                        patch_domain_id=domain_id.value,
-                    )
-                incoming_interior_side = metric.oriented_cross(
-                    incoming_tangent_vector,
-                    incoming_vector,
-                )
-                outgoing_interior_side = metric.oriented_cross(
-                    outgoing_tangent_vector,
-                    outgoing_vector,
-                )
-                if (
-                    incoming_interior_side == 0
-                    or outgoing_interior_side == 0
-                    or (
-                        incoming_interior_side > 0
-                    ) != (
-                        outgoing_interior_side > 0
-                    )
-                ):
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "BoundaryCorner exact owner-interior sides disagree",
-                        patch_domain_id=domain_id.value,
-                    )
-                is_reflex = (
-                    turn_cross * incoming_interior_side < 0
-                )
-                if not is_reflex:
+                ) > 0:
+                    stage_counters["ANGULAR_COLLINEAR_SKIPPED"] += 1
+                    if is_cut_vertex:
+                        # Излом БЫЛ в 3D, но проекция чарта его вырождает:
+                        # разрез лишний. Он законен — оба закона линейности
+                        # выполняются — но объявлен, а не спрятан.
+                        stage_counters["ANGULAR_CUT_CHART_COLLINEAR"] += 1
                     continue
-                stage_counters["ANGULAR_REFLEX_CORNERS"] += 1
-                cosine, sine = metric.angle_g(
-                    incoming_vector, outgoing_vector
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                    "exact 2*pi corner must be Terminal/Junction, not Angular",
+                    patch_domain_id=domain_id.value,
                 )
-                orientation = (
-                    kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
-                    if turn_cross > 0
-                    else kernel.TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
+            incoming_interior_side = metric.oriented_cross(
+                incoming_tangent_vector,
+                incoming_vector,
+            )
+            outgoing_interior_side = metric.oriented_cross(
+                outgoing_tangent_vector,
+                outgoing_vector,
+            )
+            if (
+                incoming_interior_side == 0
+                or outgoing_interior_side == 0
+                or (
+                    incoming_interior_side > 0
+                ) != (
+                    outgoing_interior_side > 0
                 )
-                try:
-                    # δ выводится из φ уже после канонизации: иначе равенство
-                    # `δ == φ − 1` не доживает до записи (см. модуль меры).
-                    measure = certified_reflex_measure(
-                        kernel, angle_measure, sine, cosine, orientation
-                    )
-                except angle_measure.CertifiedAngleUnavailable as error:
+            ):
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                    "BoundaryCorner exact owner-interior sides disagree",
+                    patch_domain_id=domain_id.value,
+                )
+            is_reflex = (
+                turn_cross * incoming_interior_side < 0
+            )
+            if not is_reflex:
+                continue
+            stage_counters["ANGULAR_REFLEX_CORNERS"] += 1
+            if is_cut_vertex:
+                stage_counters["ANGULAR_CUT_REFLEX_RELATIONS"] += 1
+            cosine, sine = metric.angle_g(
+                incoming_vector, outgoing_vector
+            )
+            orientation = (
+                kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+                if turn_cross > 0
+                else kernel.TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
+            )
+            try:
+                # δ выводится из φ уже после канонизации: иначе равенство
+                # `δ == φ − 1` не доживает до записи (см. модуль меры).
+                measure = certified_reflex_measure(
+                    kernel, angle_measure, sine, cosine, orientation
+                )
+            except angle_measure.CertifiedAngleUnavailable as error:
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                    str(error),
+                    patch_domain_id=domain_id.value,
+                ) from error
+            owner_sector_id = sector_id_by_ref[prev_ref]
+            if owner_sector_id in used_sector_ids:
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED,
+                    "V0 cannot encode two Angular relations through one owner-sector record",
+                    patch_domain_id=domain_id.value,
+                )
+            used_sector_ids.add(owner_sector_id)
+
+            def exact_rational(value):
+                value = sympy.factor(value)
+                if value.is_Rational is not True:
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        str(error),
-                        patch_domain_id=domain_id.value,
-                    ) from error
-                owner_sector_id = sector_id_by_ref[prev_ref]
-                if owner_sector_id in used_sector_ids:
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED,
-                        "V0 cannot encode two Angular relations through one owner-sector record",
+                        "affine support direction is not rational",
                         patch_domain_id=domain_id.value,
                     )
-                used_sector_ids.add(owner_sector_id)
+                return kernel.ExactRationalV1(
+                    int(value.p), int(value.q)
+                )
 
-                def exact_rational(value):
-                    value = sympy.factor(value)
-                    if value.is_Rational is not True:
-                        raise EnvelopeHostAdapterError(
-                            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                            "affine support direction is not rational",
-                            patch_domain_id=domain_id.value,
+            def direction_payload(value):
+                return kernel.CertifiedAffineSupportDirectionV2(
+                    kernel.ExactVector2V1(
+                        exact_rational(value[0]),
+                        exact_rational(value[1]),
+                    ),
+                    frame.reference_metric_id,
+                )
+
+            incoming_use_id = use_id_by_ref[prev_ref]
+            outgoing_use_id = use_id_by_ref[next_ref]
+            angular_sectors.append(
+                kernel.OrientedOwnerSectorV1(
+                    owner_sector_id,
+                    patch_ids[patch_id],
+                    domain_id,
+                    True,
+                    (incoming_use_id, outgoing_use_id),
+                    kernel.SourceSupportRefV1(
+                        incoming_use_id,
+                        launch_id_by_ref[prev_ref],
+                        direction_payload(incoming_normal),
+                    ),
+                    kernel.SourceSupportRefV1(
+                        outgoing_use_id,
+                        launch_id_by_ref[next_ref],
+                        direction_payload(outgoing_normal),
+                    ),
+                    orientation,
+                    kernel.InteriorSelectionLaw.OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS,
+                )
+            )
+            angle_id = kernel.AngleCertificateId(
+                _typed_value(
+                    "angle-certificate",
+                    revision,
+                    patch_id,
+                    loop_index,
+                    corner_index,
+                )
+            )
+            angle_certificates.append(
+                kernel.ReflexAngleCertificateV1(
+                    angle_id,
+                    owner_sector_id,
+                    kernel.AngleMeasureLaw.ORIENTED_OWNER_SECTOR_ANGLE,
+                    kernel.AngleMeasureSource.HOST_ANALYSIS_EXACT_OR_CERTIFIED,
+                    kernel.StrictAngleRangeCertificate.STRICT_PI_LT_PHI_LT_2PI,
+                    kernel.ReflexExcessLaw.DELTA_EQUALS_PHI_MINUS_PI,
+                    measure,
+                    False,
+                )
+            )
+            corner_relations.append(
+                kernel.CornerRelationV1(
+                    kernel.CornerRelationId(
+                        _typed_value(
+                            "corner-relation",
+                            revision,
+                            patch_id,
+                            loop_index,
+                            corner_index,
                         )
-                    return kernel.ExactRationalV1(
-                        int(value.p), int(value.q)
-                    )
-
-                def direction_payload(value):
-                    return kernel.CertifiedAffineSupportDirectionV2(
-                        kernel.ExactVector2V1(
-                            exact_rational(value[0]),
-                            exact_rational(value[1]),
-                        ),
-                        frame.reference_metric_id,
-                    )
-
-                incoming_use_id = use_id_by_ref[prev_ref]
-                outgoing_use_id = use_id_by_ref[next_ref]
-                angular_sectors.append(
-                    kernel.OrientedOwnerSectorV1(
-                        owner_sector_id,
-                        patch_ids[patch_id],
-                        domain_id,
-                        True,
-                        (incoming_use_id, outgoing_use_id),
-                        kernel.SourceSupportRefV1(
-                            incoming_use_id,
-                            launch_id_by_ref[prev_ref],
-                            direction_payload(incoming_normal),
-                        ),
-                        kernel.SourceSupportRefV1(
-                            outgoing_use_id,
-                            launch_id_by_ref[next_ref],
-                            direction_payload(outgoing_normal),
-                        ),
-                        orientation,
-                        kernel.InteriorSelectionLaw.OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS,
-                    )
+                    ),
+                    vertex_ids[anchor_vertex_id],
+                    owner_sector_id,
+                    angle_id,
+                    False,
                 )
-                angle_id = kernel.AngleCertificateId(
-                    _typed_value(
-                        "angle-certificate",
-                        revision,
-                        patch_id,
-                        loop_index,
-                        corner_index,
-                    )
-                )
-                angle_certificates.append(
-                    kernel.ReflexAngleCertificateV1(
-                        angle_id,
-                        owner_sector_id,
-                        kernel.AngleMeasureLaw.ORIENTED_OWNER_SECTOR_ANGLE,
-                        kernel.AngleMeasureSource.HOST_ANALYSIS_EXACT_OR_CERTIFIED,
-                        kernel.StrictAngleRangeCertificate.STRICT_PI_LT_PHI_LT_2PI,
-                        kernel.ReflexExcessLaw.DELTA_EQUALS_PHI_MINUS_PI,
-                        measure,
-                        False,
-                    )
-                )
-                corner_relations.append(
-                    kernel.CornerRelationV1(
-                        kernel.CornerRelationId(
-                            _typed_value(
-                                "corner-relation",
-                                revision,
-                                patch_id,
-                                loop_index,
-                                corner_index,
-                            )
-                        ),
-                        vertex_ids[anchor_vertex_id],
-                        owner_sector_id,
-                        angle_id,
-                        False,
-                    )
-                )
-                stage_counters["ANGULAR_RELATIONS_BUILT"] += 1
+            )
+            stage_counters["ANGULAR_RELATIONS_BUILT"] += 1
         if profile is not None:
             for name, value in sorted(stage_counters.items()):
                 profile.set_counter(name, value, domain_id.value)

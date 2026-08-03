@@ -60,6 +60,7 @@ from cftuv.surface_ir import (  # noqa: E402
     SourceVertex,
     SurfaceTriangle,
 )
+from envelope_fixture_bundles import planar_quad_bundle  # noqa: E402
 from cftuv_envelope import (  # noqa: E402
     DecalRequestCodecV1,
     PlanarityAdmissionLawV1,
@@ -733,20 +734,17 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
     """
 
     evaluation = evaluate_envelope_debug(
-        _single_patch_bundle(combined_chain=True),
+        planar_quad_bundle(),
         frozenset({0}),
         1.0,
     )
-    # Фикстура даёт ещё и `PLANAR_CHAIN_SUPPORT_NOT_LINEAR` (её цепочка гнётся
-    # в вершине 1), и это утверждение — про отсутствие ОТКАЗА ВЫДЕЛЕНИЯ, а не
-    # про пустой список диагностик.
     assert not {
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN,
     } & {item.outcome for item in evaluation.diagnostics}
     assert evaluation.debug_scene is not None
     assert evaluation.request is not None
-    # Цепочка `[0, 1]` выделена целиком, хотя владелец указал только ребро 0.
+    # Цепочка `[0, 4]` выделена целиком, хотя владелец указал только ребро 0.
     chain_edges = {
         _host_edge_number(edge_id)
         for chain in evaluation.snapshot.physical_chains
@@ -758,19 +756,19 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
             if item.chain_use_id in evaluation.request.selected_chain_use_ids
         }
     }
-    assert chain_edges == {0, 1}
+    assert chain_edges == {0, 4}
 
 
 def test_selection_completion_is_counted_and_named_in_the_scene():
-    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _single_patch_bundle(combined_chain=True),
+        planar_quad_bundle(),
         frozenset({0}),
         profile=profile,
     )
 
-    assert scene.selected_physical_edge_ids == (0, 1)
+    assert scene.selected_physical_edge_ids == (0, 4)
     codes = {item.code for item in scene.selection_diagnostics}
     assert SELECTION_COMPLETED_DIAGNOSTIC_CODE in codes
     completed = next(
@@ -778,7 +776,7 @@ def test_selection_completion_is_counted_and_named_in_the_scene():
         for item in scene.selection_diagnostics
         if item.code == SELECTION_COMPLETED_DIAGNOSTIC_CODE
     )
-    assert "[1]" in completed.message
+    assert "[4]" in completed.message
     assert completed.physical_chain_id is not None
     counters = {
         item.name: item.value for item in profile.snapshot().counters
@@ -790,15 +788,15 @@ def test_selection_completion_is_counted_and_named_in_the_scene():
 def test_whole_chain_selection_counts_zero_completion_rather_than_silence():
     """Нулевое дополнение — объявленный ноль, а не отсутствие измерения."""
 
-    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _single_patch_bundle(combined_chain=True),
-        frozenset({0, 1}),
+        planar_quad_bundle(),
+        frozenset({0, 4}),
         profile=profile,
     )
 
-    assert scene.selected_physical_edge_ids == (0, 1)
+    assert scene.selected_physical_edge_ids == (0, 4)
     assert all(
         item.code != SELECTION_COMPLETED_DIAGNOSTIC_CODE
         for item in scene.selection_diagnostics
@@ -854,9 +852,7 @@ def test_kernel_request_still_refuses_a_hand_made_partial_chain():
     не молча доезжать до ядра.
     """
 
-    snapshot = build_envelope_analysis_snapshot(
-        _single_patch_bundle(combined_chain=True)
-    )
+    snapshot = build_envelope_analysis_snapshot(planar_quad_bundle())
     with pytest.raises(Exception) as error:
         build_envelope_decal_request(snapshot, frozenset({0}), 1.0)
     assert error.value.outcome is (
