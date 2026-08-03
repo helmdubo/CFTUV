@@ -502,3 +502,163 @@ def bundle_from_exported_snapshot(snapshot) -> tuple[AnalysisBundle, int]:
         )
     (only_patch_id,) = sorted(domain_by_patch)
     return AnalysisBundle(revision, graph, patch_surface), only_patch_id
+
+
+# --------------------------------------------------------------------------
+# Патч с дырой, чья петля объявлена ОДНОЙ замкнутой цепочкой
+# --------------------------------------------------------------------------
+
+_HOLE_OUTER = (0, 1, 2, 3)
+_HOLE_INNER = (4, 5, 6, 7)
+_HOLE_COORDINATES = {
+    0: (0.0, 0.0, 0.0),
+    1: (10.0, 0.0, 0.0),
+    2: (10.0, 10.0, 0.0),
+    3: (0.0, 10.0, 0.0),
+    4: (3.0, 3.0, 0.0),
+    5: (7.0, 3.0, 0.0),
+    6: (7.0, 7.0, 0.0),
+    7: (3.0, 7.0, 0.0),
+}
+# Кольцо разбито на четыре четырёхугольника: полигон с дырой не выражается
+# одним циклом вершин, а `owner_support` читает именно циклы граней.
+_HOLE_FACES = (
+    (0, (0, 1, 5, 4), (0, 9, 4, 8)),
+    (1, (1, 2, 6, 5), (1, 10, 5, 9)),
+    (2, (2, 3, 7, 6), (2, 11, 6, 10)),
+    (3, (3, 0, 4, 7), (3, 8, 7, 11)),
+)
+_HOLE_EDGES = {
+    0: (0, 1),
+    1: (1, 2),
+    2: (2, 3),
+    3: (3, 0),
+    4: (4, 5),
+    5: (5, 6),
+    6: (6, 7),
+    7: (7, 4),
+    8: (0, 4),
+    9: (1, 5),
+    10: (2, 6),
+    11: (3, 7),
+}
+
+
+def square_hole_bundle():
+    """Кольцо, чья внутренняя петля — ОДНА замкнутая цепочка с четырьмя изломами.
+
+    Такая петля объявлена ядру одним `ChainUse`, и закон линейности отрезка
+    отвергал её именем `PLANAR_CHAIN_SUPPORT_NOT_LINEAR`: у хоста не было
+    чем её разрезать. Стык последнего куска с первым здесь не выродившийся
+    частный случай, а обычный угол дыры — и он обязан нести веер.
+    """
+
+    revision = SourceRevision("v0-hole", "sha256:v0-hole")
+    graph = PatchGraph(source_revision=revision)
+
+    def chain(vertices, edges, *, closed=False):
+        return BoundaryChain(
+            vert_indices=list(vertices),
+            vert_cos=[Vector(_HOLE_COORDINATES[item]) for item in vertices],
+            edge_indices=list(edges),
+            side_face_indices=[0 for _ in edges],
+            side_face_normals=[Vector((0, 0, 1)) for _ in edges],
+            is_closed=closed,
+        )
+
+    outer_chains = [
+        chain(
+            (_HOLE_OUTER[index], _HOLE_OUTER[(index + 1) % 4]),
+            (index,),
+        )
+        for index in range(4)
+    ]
+    outer = BoundaryLoop(
+        vert_indices=list(_HOLE_OUTER),
+        vert_cos=[Vector(_HOLE_COORDINATES[item]) for item in _HOLE_OUTER],
+        edge_indices=[0, 1, 2, 3],
+        side_face_indices=[0, 0, 0, 0],
+        kind=LoopKind.OUTER,
+        chains=outer_chains,
+        corners=[
+            BoundaryCorner(
+                vert_index=item.vert_indices[-1],
+                vert_co=Vector(_HOLE_COORDINATES[item.vert_indices[-1]]),
+                prev_chain_index=index,
+                next_chain_index=(index + 1) % 4,
+            )
+            for index, item in enumerate(outer_chains)
+        ],
+    )
+    hole = BoundaryLoop(
+        vert_indices=list(_HOLE_INNER),
+        vert_cos=[Vector(_HOLE_COORDINATES[item]) for item in _HOLE_INNER],
+        edge_indices=[4, 5, 6, 7],
+        side_face_indices=[0, 0, 0, 0],
+        kind=LoopKind.HOLE,
+        chains=[chain(_HOLE_INNER, (4, 5, 6, 7), closed=True)],
+        corners=[],
+    )
+    graph.add_node(
+        PatchNode(
+            patch_id=0,
+            face_indices=[0, 1, 2, 3],
+            centroid=Vector((5, 5, 0)),
+            normal=Vector((0, 0, 1)),
+            basis_u=Vector((1.0, 0.0, 0.0)),
+            basis_v=Vector((0.0, 1.0, 0.0)),
+            patch_type=PatchType.FLOOR,
+            world_facing=WorldFacing.UP,
+            boundary_loops=[outer, hole],
+        )
+    )
+    triangles = []
+    for face_id, cycle, edges in _HOLE_FACES:
+        for offset in range(2):
+            corner = (cycle[0], cycle[offset + 1], cycle[offset + 2])
+            physical = (
+                edges[offset + 1] if offset == 0 else edges[offset + 1],
+                edges[offset + 2] if offset == 1 else None,
+                edges[offset] if offset == 0 else None,
+            )
+            triangles.append(
+                SurfaceTriangle(
+                    len(triangles), face_id, corner, physical, (0.0, 0.0, 1.0)
+                )
+            )
+    surface = PatchSurfaceIR(
+        revision,
+        vertices=tuple(
+            SourceVertex(item, _HOLE_COORDINATES[item])
+            for item in sorted(_HOLE_COORDINATES)
+        ),
+        edges=tuple(
+            SourceEdge(
+                edge_id,
+                _HOLE_EDGES[edge_id],
+                tuple(
+                    face_id
+                    for face_id, _, cycle in _HOLE_FACES
+                    if edge_id in cycle
+                ),
+            )
+            for edge_id in sorted(_HOLE_EDGES)
+        ),
+        faces=tuple(
+            SourceFace(
+                face_id,
+                0,
+                cycle,
+                edges,
+                (0.0, 0.0, 1.0),
+                tuple(
+                    item.triangle_id
+                    for item in triangles
+                    if item.source_face_id == face_id
+                ),
+            )
+            for face_id, cycle, edges in _HOLE_FACES
+        ),
+        triangles=tuple(triangles),
+    )
+    return AnalysisBundle(revision, graph, surface)

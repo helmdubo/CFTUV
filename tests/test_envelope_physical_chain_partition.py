@@ -50,6 +50,7 @@ from envelope_fixture_bundles import (  # noqa: E402
     host_exported_snapshot_paths,
     host_number,
     planar_quad_bundle,
+    square_hole_bundle,
     u_route_bundle,
     u_route_positions,
 )
@@ -546,3 +547,78 @@ def test_every_declared_counter_is_published_even_as_zero():
     for name in (*SEAM_PARTITION_COUNTERS, "ANGULAR_CUT_VERTICES_CONSIDERED",
                  "ANGULAR_CUT_CHART_COLLINEAR", "ANGULAR_CUT_REFLEX_RELATIONS"):
         assert published[name] == 0
+
+
+def test_a_closed_chain_is_cut_around_the_cycle_including_the_wrap():
+    """Замкнутая цепочка режется ПО КРУГУ, и стык последнего куска с первым
+    не теряется.
+
+    До этой карточки ветка разреза замкнутой цепочки включалась только на
+    швах, объявленных обеими сторонами по-разному, и на изломах не работала
+    вовсе. Замкнутая цепочка с изломами — это, например, целая петля HOLE,
+    объявленная одним `ChainUse`: закон линейности отрезка отвергал её
+    именем `PLANAR_CHAIN_SUPPORT_NOT_LINEAR`, и разрезать её было нечем.
+    """
+
+    from cftuv.envelope_request_export import (
+        _HostChainSlice,
+        _split_host_chain_slice,
+    )
+    from cftuv.model import ChainNeighborKind
+
+    square = {
+        0: (Fraction(0), Fraction(0), Fraction(0)),
+        1: (Fraction(4), Fraction(0), Fraction(0)),
+        2: (Fraction(4), Fraction(3), Fraction(0)),
+        3: (Fraction(0), Fraction(3), Fraction(0)),
+    }
+    cuts = _exact_kink_vertex_ids((0, 1, 2, 3), True, square)
+    assert cuts == frozenset({0, 1, 2, 3})
+
+    pieces = _split_host_chain_slice(
+        _HostChainSlice(
+            ChainNeighborKind.MESH_BORDER, -1, True, (0, 1, 2, 3), (0, 1, 2, 3)
+        ),
+        cuts,
+    )
+    assert [item.vert_indices for item in pieces] == [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+    ]
+    assert all(not item.is_closed for item in pieces)
+
+
+def test_a_hole_loop_declared_as_one_closed_chain_reaches_exact():
+    """Замкнутая петля дыры доезжает до EXACT, и стык обхода несёт веер.
+
+    Четыре угла дыры рефлексны по отношению к материалу патча, и стык
+    последнего куска с первым — такой же угол, как три остальных. Потеряйся
+    он, и владелец получил бы два колпачка вместо веера ровно в одном из
+    четырёх углов — то есть тихую потерю, найти которую можно только глазами.
+    """
+
+    profile = EnvelopeDebugProfileBuilderV1("v0-hole", "EXACT")
+    snapshot = build_envelope_analysis_snapshot(
+        square_hole_bundle(), profile=profile
+    )
+    counters = _counters(profile)
+    assert counters["SEAM_PARTITION_KINK_CHAIN_USES"] == 1
+    assert counters["SEAM_PARTITION_KINK_CUT_VERTICES"] == 4
+    assert counters["ANGULAR_CUT_REFLEX_RELATIONS"] == 4
+
+    hole_chains = {
+        tuple(host_number(item) for item in chain.ordered_source_vertex_ids)
+        for chain in snapshot.physical_chains
+        if set(host_number(item) for item in chain.ordered_source_vertex_ids)
+        <= {4, 5, 6, 7}
+    }
+    assert hole_chains == {(4, 5), (5, 6), (6, 7), (4, 7)}
+    assert all(not chain.is_closed for chain in snapshot.physical_chains)
+
+    result = _compile(snapshot, {4, 5, 6, 7})
+    assert result.outcome is kernel.ReferenceOutcome.EXACT
+    kinds = [type(item).__name__ for item in result.compilation.envelope_specs]
+    assert kinds.count("AngularEnvelopeSpec") == 4
+    assert kinds.count("CapEnvelopeSpec") == 0
