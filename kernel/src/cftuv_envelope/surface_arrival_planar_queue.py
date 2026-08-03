@@ -54,7 +54,6 @@ from fractions import Fraction
 import json
 
 from .contracts.metric import ExactPoint2V1, ExactRationalV1
-from .contracts.surface_metric_v2 import SurfaceMetricPrecisionTierV1
 from .contracts.surface_arrival import (
     PLANAR_DIRECT_PATH_HISTORY,
     SURFACE_ARRIVAL_COMPLEX_V1_SCHEMA,
@@ -91,6 +90,7 @@ from .contracts.surface_arrival import (
     arrival_metric_digest,
     exact_rational,
 )
+from .contracts.surface_metric_v2 import SurfaceMetricPrecisionTierV1
 from .ids import LawId, PatchDomainId, SourceRevision
 from .wavefront.event_time import EventPointV1, EventTimeV1, SupportLineV1
 from .wavefront.events import EventKind
@@ -607,6 +607,7 @@ def rebuild_skeleton_node(event: ArrivalEventV1) -> SkeletonNodeV1:
 
 __all__ = (
     "PLANAR_CHART_CELL_PREFIX",
+    "PLANAR_QUEUE_PRECISION_TIER",
     "build_planar_queue_arrival_complex",
     "chart_digest",
     "edge_key_of",
