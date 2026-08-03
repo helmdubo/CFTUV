@@ -1,0 +1,734 @@
+{
+ "schema": "cftuv.fan_diag.seeds_owners.v1",
+ "scale": 32768,
+ "S1_fan_seeds": {
+  "fan_count": 12,
+  "hidden_edges_per_fan": [
+   1
+  ],
+  "all_pairs_mirror_equal": true,
+  "all_anchors_mirror_exact": true,
+  "rows": [
+   {
+    "pier": "A|B",
+    "doubled_axis": -936211,
+    "anchor_right_window": [
+     -454179,
+     747431
+    ],
+    "anchor_left_window": [
+     -482032,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "B|C",
+    "doubled_axis": -1077113,
+    "anchor_right_window": [
+     -524630,
+     747431
+    ],
+    "anchor_left_window": [
+     -552483,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "C|D",
+    "doubled_axis": -1218015,
+    "anchor_right_window": [
+     -595081,
+     747431
+    ],
+    "anchor_left_window": [
+     -622934,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "D|E",
+    "doubled_axis": -1358917,
+    "anchor_right_window": [
+     -665532,
+     747431
+    ],
+    "anchor_left_window": [
+     -693385,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "E|F",
+    "doubled_axis": -1499820,
+    "anchor_right_window": [
+     -735984,
+     747431
+    ],
+    "anchor_left_window": [
+     -763836,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   }
+  ]
+ },
+ "S2_ownership_ties": {
+  "ambiguous_span_count_direct": 17,
+  "ambiguous_span_count_mirrored": 17,
+  "forced_owner_count_direct": 30,
+  "ambiguous_set_is_mirror_covariant": false,
+  "ambiguous_spans_by_support_line": [
+   {
+    "line_class": [
+     -1,
+     0,
+     382040
+    ],
+    "edges": 2
+   },
+   {
+    "line_class": [
+     0,
+     1,
+     663128
+    ],
+    "edges": 7
+   },
+   {
+    "line_class": [
+     0,
+     1,
+     747431
+    ],
+    "edges": 6
+   },
+   {
+    "line_class": [
+     1,
+     0,
+     -411580
+    ],
+    "edges": 2
+   }
+  ],
+  "tie_break_rule": {
+   "kernel": "НЕТ правила: cftuv_envelope/wavefront/bridge.py::_match_by_line_class перечисляет пролёты в ambiguous и НЕ кладёт их в forced_owner; wavefront/conveyor.py::_region_coverage делает owner_names.get(face.owner, ''), то есть у грани ничьей envelope_spec_id ПУСТОЙ",
+   "host": "cftuv/envelope_queue_export.py::merge_same_chain_faces: primary = min(block, key=lambda item: item.owner) — лексикографический минимум решёточного пролёта (x0,y0,x1,y1); палитра слоёв берётся у primary (_palette/slot_of), пустой spec_id даёт слот 0",
+   "mirror_covariance_of_host_rule": "НЕТ: min по (x0,y0,...) при отражении u -> S-u меняет порядок на обратный, поэтому primary слитого блока перескакивает на противоположный конец блока"
+  },
+  "ambiguous_spans": [
+   [
+    -819593,
+    663128,
+    -806435,
+    663128
+   ],
+   [
+    -806435,
+    747431,
+    -763836,
+    747431
+   ],
+   [
+    -763836,
+    663128,
+    -735984,
+    663128
+   ],
+   [
+    -735984,
+    747431,
+    -693385,
+    747431
+   ],
+   [
+    -693385,
+    663128,
+    -665532,
+    663128
+   ],
+   [
+    -665532,
+    747431,
+    -622934,
+    747431
+   ],
+   [
+    -622934,
+    663128,
+    -595081,
+    663128
+   ],
+   [
+    -595081,
+    747431,
+    -552483,
+    747431
+   ],
+   [
+    -552483,
+    663128,
+    -524630,
+    663128
+   ],
+   [
+    -524630,
+    747431,
+    -482032,
+    747431
+   ],
+   [
+    -482032,
+    663128,
+    -454179,
+    663128
+   ],
+   [
+    -454179,
+    747431,
+    -411580,
+    747431
+   ],
+   [
+    -411580,
+    663128,
+    -382040,
+    663128
+   ],
+   [
+    -411580,
+    676282,
+    -411580,
+    663128
+   ],
+   [
+    -411580,
+    747431,
+    -411580,
+    676282
+   ],
+   [
+    -382040,
+    663128,
+    -382040,
+    682836
+   ],
+   [
+    -382040,
+    682836,
+    -382040,
+    777234
+   ]
+  ]
+ },
+ "S3_orphan_nodes": {
+  "collinear_route_vertices": [
+   {
+    "loop_index": 0,
+    "point": [
+     -608239,
+     777234
+    ],
+    "point_metres": [
+     -18.561981201171875,
+     23.71929931640625
+    ]
+   },
+   {
+    "loop_index": 1,
+    "point": [
+     -678690,
+     777234
+    ],
+    "point_metres": [
+     -20.71197509765625,
+     23.71929931640625
+    ]
+   },
+   {
+    "loop_index": 2,
+    "point": [
+     -749141,
+     777234
+    ],
+    "point_metres": [
+     -22.861968994140625,
+     23.71929931640625
+    ]
+   },
+   {
+    "loop_index": 28,
+    "point": [
+     -411580,
+     676282
+    ],
+    "point_metres": [
+     -12.5604248046875,
+     20.63848876953125
+    ]
+   },
+   {
+    "loop_index": 31,
+    "point": [
+     -382040,
+     682836
+    ],
+    "point_metres": [
+     -11.658935546875,
+     20.8385009765625
+    ]
+   },
+   {
+    "loop_index": 33,
+    "point": [
+     -467336,
+     777234
+    ],
+    "point_metres": [
+     -14.261962890625,
+     23.71929931640625
+    ]
+   },
+   {
+    "loop_index": 34,
+    "point": [
+     -537787,
+     777234
+    ],
+    "point_metres": [
+     -16.411956787109375,
+     23.71929931640625
+    ]
+   }
+  ],
+  "collinear_route_vertex_count": 7,
+  "rows": [
+   {
+    "pier": "A|B",
+    "kind": "SPLIT",
+    "x_exact": [
+     [
+      1,
+      [
+       -467336,
+       1
+      ]
+     ]
+    ],
+    "y_exact": [
+     [
+      1,
+      [
+       820194,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       -42960,
+       1
+      ]
+     ]
+    ],
+    "x_lattice": -467336.0,
+    "y_lattice": 759439.3853604519,
+    "x_metres": -14.261962890625,
+    "y_metres": 23.17625077393957,
+    "time": [
+     [
+      42960,
+      1
+     ],
+     [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ]
+    ],
+    "converging_vertices": 1,
+    "distance_from_pier_axis_lattice": 769.5,
+    "distance_from_pier_axis_metres": 0.0234832763671875
+   },
+   {
+    "pier": "B|C",
+    "kind": "SPLIT",
+    "x_exact": [
+     [
+      1,
+      [
+       -537787,
+       1
+      ]
+     ]
+    ],
+    "y_exact": [
+     [
+      1,
+      [
+       820194,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       -42960,
+       1
+      ]
+     ]
+    ],
+    "x_lattice": -537787.0,
+    "y_lattice": 759439.3853604519,
+    "x_metres": -16.411956787109375,
+    "y_metres": 23.17625077393957,
+    "time": [
+     [
+      42960,
+      1
+     ],
+     [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ]
+    ],
+    "converging_vertices": 1,
+    "distance_from_pier_axis_lattice": 769.5,
+    "distance_from_pier_axis_metres": 0.0234832763671875
+   },
+   {
+    "pier": "C|D",
+    "kind": "SPLIT",
+    "x_exact": [
+     [
+      1,
+      [
+       -608239,
+       1
+      ]
+     ]
+    ],
+    "y_exact": [
+     [
+      1,
+      [
+       820195,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       -42961,
+       1
+      ]
+     ]
+    ],
+    "x_lattice": -608239.0,
+    "y_lattice": 759438.9711468895,
+    "x_metres": -18.561981201171875,
+    "y_metres": 23.17623813314482,
+    "time": [
+     [
+      42961,
+      1
+     ],
+     [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ]
+    ],
+    "converging_vertices": 1,
+    "distance_from_pier_axis_lattice": 768.5,
+    "distance_from_pier_axis_metres": 0.0234527587890625
+   },
+   {
+    "pier": "D|E",
+    "kind": "SPLIT",
+    "x_exact": [
+     [
+      1,
+      [
+       -678690,
+       1
+      ]
+     ]
+    ],
+    "y_exact": [
+     [
+      1,
+      [
+       820195,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       -42961,
+       1
+      ]
+     ]
+    ],
+    "x_lattice": -678690.0,
+    "y_lattice": 759438.9711468895,
+    "x_metres": -20.71197509765625,
+    "y_metres": 23.17623813314482,
+    "time": [
+     [
+      42961,
+      1
+     ],
+     [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ]
+    ],
+    "converging_vertices": 1,
+    "distance_from_pier_axis_lattice": 768.5,
+    "distance_from_pier_axis_metres": 0.0234527587890625
+   },
+   {
+    "pier": "E|F",
+    "kind": "SPLIT",
+    "x_exact": [
+     [
+      1,
+      [
+       -749141,
+       1
+      ]
+     ]
+    ],
+    "y_exact": [
+     [
+      1,
+      [
+       820194,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       -42960,
+       1
+      ]
+     ]
+    ],
+    "x_lattice": -749141.0,
+    "y_lattice": 759439.3853604519,
+    "x_metres": -22.861968994140625,
+    "y_metres": 23.17625077393957,
+    "time": [
+     [
+      42960,
+      1
+     ],
+     [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ]
+    ],
+    "converging_vertices": 1,
+    "distance_from_pier_axis_lattice": 769.0,
+    "distance_from_pier_axis_metres": 0.023468017578125
+   }
+  ]
+ },
+ "S4_dissolved_counterfactual": {
+  "vertex_count": 28,
+  "outcome": "EXACT",
+  "node_count": 33,
+  "face_count": 40,
+  "fan_count": 12,
+  "semantic_digest": "2b3be2a73880edbf3c43afecfb2c20441718b737f573975a2f3ebf1dc49269be",
+  "signed_double_area_unchanged": true,
+  "piers": [
+   {
+    "pier": "A|B",
+    "nodes_in_band": 5,
+    "band_is_mirror_symmetric": true,
+    "orphans": 0
+   },
+   {
+    "pier": "B|C",
+    "nodes_in_band": 5,
+    "band_is_mirror_symmetric": true,
+    "orphans": 0
+   },
+   {
+    "pier": "C|D",
+    "nodes_in_band": 5,
+    "band_is_mirror_symmetric": true,
+    "orphans": 0
+   },
+   {
+    "pier": "D|E",
+    "nodes_in_band": 5,
+    "band_is_mirror_symmetric": true,
+    "orphans": 0
+   },
+   {
+    "pier": "E|F",
+    "nodes_in_band": 5,
+    "band_is_mirror_symmetric": true,
+    "orphans": 0
+   }
+  ],
+  "all_piers_mirror_symmetric": true
+ }
+}

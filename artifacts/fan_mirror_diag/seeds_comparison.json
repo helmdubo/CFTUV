@@ -1,0 +1,374 @@
+{
+ "schema": "cftuv.fan_diag.seeds_comparison.v1",
+ "scale": 32768,
+ "density": "Fan Density 1 -> HUBER_EMANATED_COUNT_DENSITY_A_V1, max_subturn pi/3, hidden count H=1 на каждый вогнутый угол",
+ "recipe": "chamfered_standard.right_angle_fans (сумма ПРИВЕДЁННЫХ нормалей соседних рёбер, q=|n|^2); для точного прямого угла совпадает с reference/angular._interpolated_normals при count=1",
+ "reflex_count_on_lattice": 12,
+ "reflex_vertices_on_lattice": [
+  30,
+  29,
+  24,
+  23,
+  15,
+  14,
+  19,
+  18,
+  3,
+  2,
+  8,
+  7
+ ],
+ "reflex_count_before_snap": 15,
+ "reflex_vertices_before_snap": [
+  13,
+  12,
+  30,
+  29,
+  24,
+  23,
+  15,
+  14,
+  19,
+  18,
+  3,
+  2,
+  8,
+  7,
+  1
+ ],
+ "fan_seeds": [
+  {
+   "name": "angular-spec:v30",
+   "point_exact": [
+    "-806435/32768",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v29",
+   "point_exact": [
+    "-1527673/65536",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v24",
+   "point_exact": [
+    "-2943935/131072",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v23",
+   "point_exact": [
+    "-2773541/131072",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v15",
+   "point_exact": [
+    "-1331065/65536",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v14",
+   "point_exact": [
+    "-311467/16384",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v19",
+   "point_exact": [
+    "-2380325/131072",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v18",
+   "point_exact": [
+    "-8839725/524288",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v3",
+   "point_exact": [
+    "-8394081/524288",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v2",
+   "point_exact": [
+    "-7712505/524288",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v8",
+   "point_exact": [
+    "-7266861/524288",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     -1,
+     1,
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "angular-spec:v7",
+   "point_exact": [
+    "-6585285/524288",
+    "5979451/262144"
+   ],
+   "supports": [
+    [
+     1,
+     1,
+     "2"
+    ]
+   ]
+  }
+ ],
+ "mirror_pairs": {
+  "fan_count": 12,
+  "hidden_edges_per_fan": [
+   1
+  ],
+  "all_pairs_mirror_equal": true,
+  "all_anchors_mirror_exact": true,
+  "rows": [
+   {
+    "pier": "A|B",
+    "doubled_axis": -936211,
+    "anchor_right_window": [
+     -454179,
+     747431
+    ],
+    "anchor_left_window": [
+     -482032,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "B|C",
+    "doubled_axis": -1077113,
+    "anchor_right_window": [
+     -524630,
+     747431
+    ],
+    "anchor_left_window": [
+     -552483,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "C|D",
+    "doubled_axis": -1218015,
+    "anchor_right_window": [
+     -595081,
+     747431
+    ],
+    "anchor_left_window": [
+     -622934,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "D|E",
+    "doubled_axis": -1358917,
+    "anchor_right_window": [
+     -665532,
+     747431
+    ],
+    "anchor_left_window": [
+     -693385,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   },
+   {
+    "pier": "E|F",
+    "doubled_axis": -1499820,
+    "anchor_right_window": [
+     -735984,
+     747431
+    ],
+    "anchor_left_window": [
+     -763836,
+     747431
+    ],
+    "anchor_mirror_exact": true,
+    "anchor_gap_lattice_steps": 0,
+    "supports_right": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_left": [
+     [
+      "1",
+      "1",
+      "2"
+     ]
+    ],
+    "supports_mirror_equal": true,
+    "hidden_edge_count_right": 1,
+    "hidden_edge_count_left": 1
+   }
+  ]
+ }
+}

@@ -1,0 +1,230 @@
+{
+ "schema": "cftuv.fan_diag.verdict.v1",
+ "card": "FAN-MIRROR-DIAG",
+ "object": "wall 2.001 (artifacts/field_snapshots/wall_2_001_snapshot.json)",
+ "reproduced_without_blender": true,
+ "kernel_run": {
+  "bridge_outcome": "EXACT",
+  "edges": 35,
+  "laws": 35,
+  "fans": 12,
+  "hidden_edges_per_fan": 1,
+  "skeleton_outcome": "EXACT",
+  "skeleton_nodes": 40,
+  "faces": 47,
+  "coverage_outcome": "EXACT",
+  "field_reference": {
+   "fans": 12,
+   "skeleton_nodes": 45,
+   "faces": 47,
+   "ambiguous_owner_spans": 23
+  },
+  "matches_field": {
+   "fans": true,
+   "faces": true,
+   "skeleton_nodes": false,
+   "ambiguous_owner_spans": false
+  },
+  "flat_top_edge_variant": {
+   "why": "у полевого домена верхняя кромка ТОЧНО коллинеарна; в слепке меша её две высоты различаются на 3.8e-06 м (binary64-шум)",
+   "how": "верхние вершины приведены к одной точной высоте ДО моста",
+   "ambiguous_owner_spans": 23,
+   "forced_owner_entries": 24,
+   "fans": 12,
+   "pre_snap_reflex_count": 12,
+   "matches_field_ambiguous_23": true
+  },
+  "uniform_weighted_fronts": {
+   "w_squared_tried": [
+    "1/4",
+    "1",
+    "9/4"
+   ],
+   "outcome": "EXACT во всех трёх",
+   "nodes": 40,
+   "faces": 47,
+   "ambiguous_owner_spans": 17,
+   "conclusion": "однородный вес — подобие по времени: ни числа, ни зеркальность не двигает. Полевые NON_UNIT_SPEED_LAWS=35 расхождения 45 vs 40 не объясняют, если вес однороден",
+   "mirror_through_the_bridge_still_broken": {
+    "nodes_differing": 9,
+    "of_total": 40,
+    "cause": "снап внутри моста (вердикт b), а не вес"
+   }
+  }
+ },
+ "verdicts": {
+  "a_seeding": {
+   "name": "FAN_SEEDING_IS_MIRROR_EXACT",
+   "guilty": false,
+   "evidence": {
+    "fan_count": 12,
+    "hidden_edges_per_fan": 1,
+    "all_pairs_supports_mirror_equal": true,
+    "all_anchors_mirror_exact": true,
+    "support_normal": "(1, 1) с q = 2 у каждой из 12 опор; образ (-1, 1) при u -> S-u совпадает с опорой партнёра точно, без допуска"
+   }
+  },
+  "b_snap": {
+   "name": "GRID_SNAP_LAW_IS_NOT_MIRROR_COVARIANT",
+   "guilty": true,
+   "evidence": {
+    "law": "robust/grid.py::snap_value = floor(v*scale + 1/2) (HALF_UP)",
+    "window_width_in_lattice_steps_exact": "85197/2 = 42598.5 у 5 окон из 6 — ровно на границе округления",
+    "pier_width_in_lattice_steps_exact": "111411/4 = 27852.75",
+    "window_widths_after_snap": [
+     42598,
+     42599
+    ],
+    "pier_widths_after_snap": [
+     27853,
+     27853,
+     27853,
+     27853,
+     27852
+    ],
+    "counterexample_vertices_scale_32768": [
+     15,
+     17,
+     31,
+     29
+    ],
+    "gap_lattice_steps": 1,
+    "gap_metres": 3.0517578125e-05,
+    "snap_then_mirror_vs_mirror_then_snap": {
+     "vertices_differing": 4,
+     "skeleton_nodes_differing": 9,
+     "of_total_nodes": 40
+    },
+    "window_pairs_with_broken_axis": [
+     "A<->B",
+     "A<->C",
+     "A<->D",
+     "B<->E",
+     "B<->F",
+     "C<->E",
+     "C<->F",
+     "D<->E",
+     "D<->F"
+    ],
+    "through_the_bridge_at_any_uniform_weight": {
+     "nodes_differing": 9,
+     "of_total": 40
+    }
+   }
+  },
+  "c_environment": {
+   "name": "FIGURE_IS_NOT_GLOBALLY_MIRROR_SYMMETRIC_AND_THE_ROUTE_CARRIES_OFF_AXIS_COLLINEAR_VERTICES",
+   "guilty": true,
+   "evidence": {
+    "global_mirror_axes": [],
+    "figure_is_globally_mirror_symmetric": false,
+    "collinear_route_vertices": 7,
+    "collinear_route_vertices_list": [
+     0,
+     1,
+     12,
+     13,
+     22,
+     33,
+     34
+    ],
+    "top_edge_T_vertex_offset_from_pier_axis_metres": 0.0234832763671875,
+    "orphan_nodes_per_pier": 1,
+    "orphan_kind": "SPLIT",
+    "dissolving_them_restores_the_mirror": true,
+    "dissolved_run": {
+     "vertices": 28,
+     "nodes": 33,
+     "faces": 40,
+     "all_piers_mirror_symmetric": true,
+     "area_unchanged": true
+    }
+   }
+  },
+  "d_order": {
+   "name": "QUEUE_IS_ORDER_INVARIANT_AND_MIRROR_EQUIVARIANT_ON_THIS_FIGURE",
+   "guilty": false,
+   "evidence": {
+    "start_vertex_rotations_tried": 34,
+    "digest_stable": true,
+    "node_sets_stable": true,
+    "whole_figure_mirror_nodes_match": true,
+    "simultaneous_groups": 7,
+    "largest_simultaneous_group": 12,
+    "nodes_in_simultaneous_groups": 34,
+    "note": "одновременные группы ЕСТЬ и они крупные (12 и 8 событий на одно точное время), но на ЭТОЙ фигуре они не дают порядковой зависимости: и прокрутка старта, и отражение дают побитово тот же набор узлов"
+   }
+  },
+  "e_ownership_ties": {
+   "name": "OWNERSHIP_TIES_ARE_UNRESOLVED_IN_THE_KERNEL_AND_RESOLVED_NON_COVARIANTLY_IN_THE_HOST",
+   "guilty": "partly",
+   "evidence": {
+    "ambiguous_spans_in_this_run": 17,
+    "ambiguous_spans_in_field": 23,
+    "why_the_difference": "у поля верхняя кромка точно коллинеарна и её 6 рёбер тоже попадают в один класс (17 + 6 = 23); у нас дорешёточная кромка имеет binary64-шум 3.8e-06 м и распадается на 6 отдельных классов",
+    "spans_by_support_line": [
+     {
+      "line_class": [
+       -1,
+       0,
+       382040
+      ],
+      "edges": 2
+     },
+     {
+      "line_class": [
+       0,
+       1,
+       663128
+      ],
+      "edges": 7
+     },
+     {
+      "line_class": [
+       0,
+       1,
+       747431
+      ],
+      "edges": 6
+     },
+     {
+      "line_class": [
+       1,
+       0,
+       -411580
+      ],
+      "edges": 2
+     }
+    ],
+    "kernel_tie_break": "НЕТ правила: cftuv_envelope/wavefront/bridge.py::_match_by_line_class перечисляет пролёты в ambiguous и НЕ кладёт их в forced_owner; wavefront/conveyor.py::_region_coverage делает owner_names.get(face.owner, ''), то есть у грани ничьей envelope_spec_id ПУСТОЙ",
+    "host_tie_break": "cftuv/envelope_queue_export.py::merge_same_chain_faces: primary = min(block, key=lambda item: item.owner) — лексикографический минимум решёточного пролёта (x0,y0,x1,y1); палитра слоёв берётся у primary (_palette/slot_of), пустой spec_id даёт слот 0",
+    "host_rule_is_mirror_covariant": false,
+    "ambiguous_set_is_mirror_covariant_under_exact_reflection": false,
+    "note": "разметка ничьих сама по себе структурна и переносится отражением; ломает её тот же half-up снап (вердикт b). В ядре ничья НЕ разрешается вовсе: envelope_spec_id грани ничьей — пустая строка",
+    "ambiguous_spans_in_this_run_flat_top": 23
+   }
+  }
+ },
+ "named_gaps": [
+  {
+   "name": "HOST_CHART_FRAME_UNAVAILABLE_WITHOUT_BLENDER",
+   "detail": "начало и базис хостовой карты патча не выводятся из слепка меша; взята карта (u, v) = (object y, object z) без переноса. Сдвиг начала на 1/4 шага решётки меняет число узлов 40 -> 43 и число вееров 12 -> 15, поэтому ровно полевые 45 узлов этой картой не воспроизводятся; сетка сдвигов 16 значений по u и 2 по v даёт 40 узлов и 12 вееров везде, кроме совместного сдвига (u,v) на 1/4 шага — там 43 узла и 15 вееров"
+  },
+  {
+   "name": "HOST_WEIGHTED_ARRIVAL_LAWS_NOT_REPRODUCED",
+   "detail": "поле сообщает NON_UNIT_SPEED_LAWS=35; прогон сделан с единичной скоростью. Однородный вес — подобие по времени и зеркальности не меняет; неоднородный не проверялся"
+  }
+ ],
+ "artifacts": [
+  "fixture_wall_2_001_lattice_16384.json",
+  "fixture_wall_2_001_lattice_32768.json",
+  "mirror_input_32768.json",
+  "nodes_comparison.json",
+  "probes.json",
+  "queue_run.json",
+  "seeds_comparison.json",
+  "seeds_owners.json",
+  "snap_law.json",
+  "verdict.json"
+ ]
+}

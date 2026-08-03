@@ -1,0 +1,1297 @@
+{
+ "schema": "cftuv.fan_diag.mirror_input.v1",
+ "scale": 32768,
+ "window_count": 6,
+ "windows": [
+  {
+   "loop_indices": [
+    5,
+    7,
+    8,
+    9
+   ],
+   "corner_vertices": [
+    10,
+    7,
+    8,
+    11
+   ],
+   "u_outer_side": -411580,
+   "u_other_side": -454179,
+   "u_left": -454179,
+   "u_right": -411580,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42599,
+   "height_lattice": 84303,
+   "u_left_exact": "-7266861/524288",
+   "u_right_exact": "-6585285/524288",
+   "width_exact": "85197/65536",
+   "label": "A"
+  },
+  {
+   "loop_indices": [
+    10,
+    11,
+    12,
+    13
+   ],
+   "corner_vertices": [
+    4,
+    2,
+    3,
+    5
+   ],
+   "u_outer_side": -482032,
+   "u_other_side": -524630,
+   "u_left": -524630,
+   "u_right": -482032,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42598,
+   "height_lattice": 84303,
+   "u_left_exact": "-8394081/524288",
+   "u_right_exact": "-7712505/524288",
+   "width_exact": "85197/65536",
+   "label": "B"
+  },
+  {
+   "loop_indices": [
+    14,
+    15,
+    16,
+    17
+   ],
+   "corner_vertices": [
+    20,
+    18,
+    19,
+    21
+   ],
+   "u_outer_side": -552483,
+   "u_other_side": -595081,
+   "u_left": -595081,
+   "u_right": -552483,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42598,
+   "height_lattice": 84303,
+   "u_left_exact": "-2380325/131072",
+   "u_right_exact": "-8839725/524288",
+   "width_exact": "681575/524288",
+   "label": "C"
+  },
+  {
+   "loop_indices": [
+    18,
+    19,
+    20,
+    21
+   ],
+   "corner_vertices": [
+    16,
+    14,
+    15,
+    17
+   ],
+   "u_outer_side": -622934,
+   "u_other_side": -665532,
+   "u_left": -665532,
+   "u_right": -622934,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42598,
+   "height_lattice": 84303,
+   "u_left_exact": "-1331065/65536",
+   "u_right_exact": "-311467/16384",
+   "width_exact": "85197/65536",
+   "label": "D"
+  },
+  {
+   "loop_indices": [
+    22,
+    23,
+    24,
+    25
+   ],
+   "corner_vertices": [
+    25,
+    23,
+    24,
+    26
+   ],
+   "u_outer_side": -693385,
+   "u_other_side": -735984,
+   "u_left": -735984,
+   "u_right": -693385,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42599,
+   "height_lattice": 84303,
+   "u_left_exact": "-2943935/131072",
+   "u_right_exact": "-2773541/131072",
+   "width_exact": "85197/65536",
+   "label": "E"
+  },
+  {
+   "loop_indices": [
+    26,
+    27,
+    28,
+    29
+   ],
+   "corner_vertices": [
+    31,
+    29,
+    30,
+    32
+   ],
+   "u_outer_side": -763836,
+   "u_other_side": -806435,
+   "u_left": -806435,
+   "u_right": -763836,
+   "v_bottom": 663128,
+   "v_top": 747431,
+   "width_lattice": 42599,
+   "height_lattice": 84303,
+   "u_left_exact": "-806435/32768",
+   "u_right_exact": "-1527673/65536",
+   "width_exact": "85197/65536",
+   "label": "F"
+  }
+ ],
+ "window_widths_lattice": [
+  42598,
+  42599
+ ],
+ "window_widths_exact": [
+  "681575/524288",
+  "85197/65536"
+ ],
+ "windows_congruent_after_snap": false,
+ "windows_congruent_before_snap": false,
+ "global_mirror_axes_doubled": [],
+ "figure_is_globally_mirror_symmetric": false,
+ "window_pairs": [
+  {
+   "pair": "A<->B",
+   "doubled_axis": -936211,
+   "axis_gap_lattice_steps": -1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 31
+  },
+  {
+   "pair": "A<->C",
+   "doubled_axis": -1006662,
+   "axis_gap_lattice_steps": -1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "-1/524288",
+   "axis_gap_before_snap_lattice_steps": -0.0625,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 27
+  },
+  {
+   "pair": "A<->D",
+   "doubled_axis": -1077113,
+   "axis_gap_lattice_steps": -1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 23
+  },
+  {
+   "pair": "A<->E",
+   "doubled_axis": -1147564,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 15
+  },
+  {
+   "pair": "A<->F",
+   "doubled_axis": -1218015,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 15
+  },
+  {
+   "pair": "B<->C",
+   "doubled_axis": -1077113,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "-1/524288",
+   "axis_gap_before_snap_lattice_steps": -0.0625,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 23
+  },
+  {
+   "pair": "B<->D",
+   "doubled_axis": -1147564,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 15
+  },
+  {
+   "pair": "B<->E",
+   "doubled_axis": -1218015,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 15
+  },
+  {
+   "pair": "B<->F",
+   "doubled_axis": -1288466,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 23
+  },
+  {
+   "pair": "C<->D",
+   "doubled_axis": -1218015,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "1/524288",
+   "axis_gap_before_snap_lattice_steps": 0.0625,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 15
+  },
+  {
+   "pair": "C<->E",
+   "doubled_axis": -1288466,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "1/524288",
+   "axis_gap_before_snap_lattice_steps": 0.0625,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 23
+  },
+  {
+   "pair": "C<->F",
+   "doubled_axis": -1358917,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "1/524288",
+   "axis_gap_before_snap_lattice_steps": 0.0625,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 27
+  },
+  {
+   "pair": "D<->E",
+   "doubled_axis": -1358917,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 27
+  },
+  {
+   "pair": "D<->F",
+   "doubled_axis": -1429368,
+   "axis_gap_lattice_steps": 1,
+   "window_maps_exactly": false,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 31
+  },
+  {
+   "pair": "E<->F",
+   "doubled_axis": -1499820,
+   "axis_gap_lattice_steps": 0,
+   "window_maps_exactly": true,
+   "axis_gap_before_snap_exact": "0",
+   "axis_gap_before_snap_lattice_steps": 0.0,
+   "whole_figure_symmetric": false,
+   "whole_figure_unmatched": 27
+  }
+ ],
+ "piers": [
+  {
+   "pier": "A|B",
+   "doubled_axis": -936211,
+   "axis_gap_lattice_steps": -1,
+   "pier_width_lattice": -27853,
+   "inner_top_corner_pair": {
+    "right_window_inner_top": [
+     -454179,
+     747431
+    ],
+    "left_window_inner_top": [
+     -482032,
+     747431
+    ]
+   },
+   "two_windows_map_exactly": false,
+   "bands": [
+    {
+     "radius_lattice": 10648,
+     "radius_metres": 0.324951171875,
+     "band_nodes": 1,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -467336,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 21299,
+     "radius_metres": 0.649993896484375,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -467336,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 31949,
+     "radius_metres": 0.975006103515625,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -467336,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 42598,
+     "radius_metres": 1.29998779296875,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -467336,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 63897,
+     "radius_metres": 1.949981689453125,
+     "band_nodes": 10,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -524630,
+       663128
+      ],
+      [
+       -524630,
+       747431
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -411580,
+       663128
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -411580,
+       747431
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 1000000000,
+     "radius_metres": null,
+     "band_nodes": 35,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -819593,
+       663128
+      ],
+      [
+       -819592,
+       777234
+      ],
+      [
+       -806435,
+       663128
+      ],
+      [
+       -806435,
+       747431
+      ],
+      [
+       -763836,
+       663128
+      ],
+      [
+       -763836,
+       747431
+      ],
+      [
+       -749141,
+       777234
+      ],
+      [
+       -735984,
+       663128
+      ],
+      [
+       -735984,
+       747431
+      ],
+      [
+       -693385,
+       663128
+      ],
+      [
+       -693385,
+       747431
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -665532,
+       663128
+      ],
+      [
+       -665532,
+       747431
+      ],
+      [
+       -622934,
+       663128
+      ],
+      [
+       -622934,
+       747431
+      ],
+      [
+       -608239,
+       777234
+      ],
+      [
+       -595081,
+       663128
+      ],
+      [
+       -595081,
+       747431
+      ],
+      [
+       -552483,
+       663128
+      ],
+      [
+       -552483,
+       747431
+      ],
+      [
+       -537787,
+       777234
+      ],
+      [
+       -524630,
+       663128
+      ],
+      [
+       -524630,
+       747431
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -411580,
+       663128
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -411580,
+       747431
+      ],
+      [
+       -382040,
+       663128
+      ],
+      [
+       -382040,
+       682836
+      ],
+      [
+       -382040,
+       777234
+      ]
+     ]
+    }
+   ],
+   "symmetry_radius_lattice": 0
+  },
+  {
+   "pier": "B|C",
+   "doubled_axis": -1077113,
+   "axis_gap_lattice_steps": 0,
+   "pier_width_lattice": -27853,
+   "inner_top_corner_pair": {
+    "right_window_inner_top": [
+     -524630,
+     747431
+    ],
+    "left_window_inner_top": [
+     -552483,
+     747431
+    ]
+   },
+   "two_windows_map_exactly": true,
+   "bands": [
+    {
+     "radius_lattice": 10648,
+     "radius_metres": 0.324951171875,
+     "band_nodes": 1,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -537787,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 21299,
+     "radius_metres": 0.649993896484375,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -537787,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 31949,
+     "radius_metres": 0.975006103515625,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -537787,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 42598,
+     "radius_metres": 1.29998779296875,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -537787,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 63897,
+     "radius_metres": 1.949981689453125,
+     "band_nodes": 9,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -537787,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 1000000000,
+     "radius_metres": null,
+     "band_nodes": 35,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -819593,
+       663128
+      ],
+      [
+       -819592,
+       777234
+      ],
+      [
+       -806435,
+       663128
+      ],
+      [
+       -806435,
+       747431
+      ],
+      [
+       -763836,
+       663128
+      ],
+      [
+       -763836,
+       747431
+      ],
+      [
+       -749141,
+       777234
+      ],
+      [
+       -735984,
+       663128
+      ],
+      [
+       -735984,
+       747431
+      ],
+      [
+       -693385,
+       663128
+      ],
+      [
+       -693385,
+       747431
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -665532,
+       663128
+      ],
+      [
+       -665532,
+       747431
+      ],
+      [
+       -608239,
+       777234
+      ],
+      [
+       -537787,
+       777234
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -411580,
+       663128
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -411580,
+       747431
+      ],
+      [
+       -382040,
+       663128
+      ],
+      [
+       -382040,
+       682836
+      ],
+      [
+       -382040,
+       777234
+      ]
+     ]
+    }
+   ],
+   "symmetry_radius_lattice": 0
+  },
+  {
+   "pier": "C|D",
+   "doubled_axis": -1218015,
+   "axis_gap_lattice_steps": 0,
+   "pier_width_lattice": -27853,
+   "inner_top_corner_pair": {
+    "right_window_inner_top": [
+     -595081,
+     747431
+    ],
+    "left_window_inner_top": [
+     -622934,
+     747431
+    ]
+   },
+   "two_windows_map_exactly": true,
+   "bands": [
+    {
+     "radius_lattice": 10648,
+     "radius_metres": 0.324951171875,
+     "band_nodes": 1,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -608239,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 21299,
+     "radius_metres": 0.649993896484375,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -608239,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 31949,
+     "radius_metres": 0.975006103515625,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -608239,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 42598,
+     "radius_metres": 1.29998779296875,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -608239,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 63897,
+     "radius_metres": 1.949981689453125,
+     "band_nodes": 9,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -608239,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 1000000000,
+     "radius_metres": null,
+     "band_nodes": 35,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -819593,
+       663128
+      ],
+      [
+       -819592,
+       777234
+      ],
+      [
+       -749141,
+       777234
+      ],
+      [
+       -735984,
+       663128
+      ],
+      [
+       -735984,
+       747431
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -608239,
+       777234
+      ],
+      [
+       -537787,
+       777234
+      ],
+      [
+       -482032,
+       663128
+      ],
+      [
+       -482032,
+       747431
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -382040,
+       663128
+      ],
+      [
+       -382040,
+       682836
+      ],
+      [
+       -382040,
+       777234
+      ]
+     ]
+    }
+   ],
+   "symmetry_radius_lattice": 0
+  },
+  {
+   "pier": "D|E",
+   "doubled_axis": -1358917,
+   "axis_gap_lattice_steps": 1,
+   "pier_width_lattice": -27853,
+   "inner_top_corner_pair": {
+    "right_window_inner_top": [
+     -665532,
+     747431
+    ],
+    "left_window_inner_top": [
+     -693385,
+     747431
+    ]
+   },
+   "two_windows_map_exactly": false,
+   "bands": [
+    {
+     "radius_lattice": 10648,
+     "radius_metres": 0.324951171875,
+     "band_nodes": 1,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -678690,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 21299,
+     "radius_metres": 0.649993896484375,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -678690,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 31949,
+     "radius_metres": 0.975006103515625,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -678690,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 42598,
+     "radius_metres": 1.29998779296875,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -678690,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 63897,
+     "radius_metres": 1.949981689453125,
+     "band_nodes": 9,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -735984,
+       663128
+      ],
+      [
+       -735984,
+       747431
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -622934,
+       663128
+      ],
+      [
+       -622934,
+       747431
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 1000000000,
+     "radius_metres": null,
+     "band_nodes": 35,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -819593,
+       663128
+      ],
+      [
+       -819592,
+       777234
+      ],
+      [
+       -806435,
+       663128
+      ],
+      [
+       -806435,
+       747431
+      ],
+      [
+       -749141,
+       777234
+      ],
+      [
+       -735984,
+       663128
+      ],
+      [
+       -735984,
+       747431
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -622934,
+       663128
+      ],
+      [
+       -622934,
+       747431
+      ],
+      [
+       -608239,
+       777234
+      ],
+      [
+       -552483,
+       663128
+      ],
+      [
+       -552483,
+       747431
+      ],
+      [
+       -537787,
+       777234
+      ],
+      [
+       -524630,
+       663128
+      ],
+      [
+       -524630,
+       747431
+      ],
+      [
+       -482032,
+       663128
+      ],
+      [
+       -482032,
+       747431
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -454179,
+       663128
+      ],
+      [
+       -454179,
+       747431
+      ],
+      [
+       -411580,
+       663128
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -411580,
+       747431
+      ],
+      [
+       -382040,
+       663128
+      ],
+      [
+       -382040,
+       682836
+      ],
+      [
+       -382040,
+       777234
+      ]
+     ]
+    }
+   ],
+   "symmetry_radius_lattice": 0
+  },
+  {
+   "pier": "E|F",
+   "doubled_axis": -1499820,
+   "axis_gap_lattice_steps": 0,
+   "pier_width_lattice": -27852,
+   "inner_top_corner_pair": {
+    "right_window_inner_top": [
+     -735984,
+     747431
+    ],
+    "left_window_inner_top": [
+     -763836,
+     747431
+    ]
+   },
+   "two_windows_map_exactly": true,
+   "bands": [
+    {
+     "radius_lattice": 10648,
+     "radius_metres": 0.324951171875,
+     "band_nodes": 1,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -749141,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 21299,
+     "radius_metres": 0.649993896484375,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -749141,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 31949,
+     "radius_metres": 0.975006103515625,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -749141,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 42598,
+     "radius_metres": 1.29998779296875,
+     "band_nodes": 5,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -749141,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 63897,
+     "radius_metres": 1.949981689453125,
+     "band_nodes": 9,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -749141,
+       777234
+      ]
+     ]
+    },
+    {
+     "radius_lattice": 1000000000,
+     "radius_metres": null,
+     "band_nodes": 35,
+     "symmetric": false,
+     "unmatched": [
+      [
+       -819593,
+       663128
+      ],
+      [
+       -819592,
+       777234
+      ],
+      [
+       -749141,
+       777234
+      ],
+      [
+       -678690,
+       777234
+      ],
+      [
+       -665532,
+       663128
+      ],
+      [
+       -665532,
+       747431
+      ],
+      [
+       -622934,
+       663128
+      ],
+      [
+       -622934,
+       747431
+      ],
+      [
+       -608239,
+       777234
+      ],
+      [
+       -595081,
+       663128
+      ],
+      [
+       -595081,
+       747431
+      ],
+      [
+       -552483,
+       663128
+      ],
+      [
+       -552483,
+       747431
+      ],
+      [
+       -537787,
+       777234
+      ],
+      [
+       -524630,
+       663128
+      ],
+      [
+       -524630,
+       747431
+      ],
+      [
+       -482032,
+       663128
+      ],
+      [
+       -482032,
+       747431
+      ],
+      [
+       -467336,
+       777234
+      ],
+      [
+       -454179,
+       663128
+      ],
+      [
+       -454179,
+       747431
+      ],
+      [
+       -411580,
+       663128
+      ],
+      [
+       -411580,
+       676282
+      ],
+      [
+       -411580,
+       747431
+      ],
+      [
+       -382040,
+       663128
+      ],
+      [
+       -382040,
+       682836
+      ],
+      [
+       -382040,
+       777234
+      ]
+     ]
+    }
+   ],
+   "symmetry_radius_lattice": 0
+  }
+ ]
+}
