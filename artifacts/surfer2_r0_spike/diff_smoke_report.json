@@ -1,0 +1,1574 @@
+{
+  "tolerance_model": {
+    "relative": 1e-05,
+    "floor": 1e-09,
+    "reason": "SkeletonDCEL::write_obj печатает to_double без setprecision -> 6 значащих цифр"
+  },
+  "cases": {
+    "axis_square_8": {
+      "scale": 8,
+      "tolerance_used": 8e-05,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          8,
+          0
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 5,
+      "surfer_interior_nodes_geometric": [
+        [
+          4.0,
+          4.0,
+          4.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          4.0,
+          4.0,
+          4.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 4
+        }
+      ],
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "ell_12": {
+      "scale": 12,
+      "tolerance_used": 0.00012000000000000002,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          12,
+          0
+        ],
+        [
+          12,
+          6
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          0,
+          12
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 9,
+      "surfer_interior_nodes_geometric": [
+        [
+          3.0,
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          9.0,
+          3.0
+        ],
+        [
+          9.0,
+          3.0,
+          3.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          3.0,
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          9.0,
+          3.0
+        ],
+        [
+          9.0,
+          3.0,
+          3.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3.0,
+          "y": 9.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "matched": 3,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "right_triangle_12": {
+      "scale": 12,
+      "tolerance_used": 0.00012000000000000002,
+      "max_residual_relative": 1.145198808745936e-07,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          12,
+          0
+        ],
+        [
+          0,
+          12
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": -11,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 4,
+      "surfer_interior_nodes_geometric": [
+        [
+          3.51472,
+          3.51472,
+          3.51472
+        ]
+      ],
+      "surfer_interior_nodes_component0": [],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": "n/a: surfer --component=0 rc=-11",
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3.5147186257614296,
+          "y": 3.5147186257614296,
+          "t": 3.51471862576143,
+          "converging": 3
+        }
+      ],
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 1.3742385704951232e-06
+    },
+    "diamond_6": {
+      "scale": 6,
+      "tolerance_used": 6.000000000000001e-05,
+      "max_residual_relative": 1.1451988083758617e-07,
+      "input_points": [
+        [
+          0,
+          -6
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          0,
+          6
+        ],
+        [
+          -6,
+          0
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 5,
+      "surfer_interior_nodes_geometric": [
+        [
+          0.0,
+          0.0,
+          4.24264
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          0.0,
+          0.0,
+          4.24264
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 0.0,
+          "y": 0.0,
+          "t": 4.242640687119285,
+          "converging": 4
+        }
+      ],
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 6.87119285025517e-07
+    },
+    "staircase": {
+      "scale": 12,
+      "tolerance_used": 0.00012000000000000002,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          12,
+          0
+        ],
+        [
+          12,
+          4
+        ],
+        [
+          8,
+          4
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          4,
+          12
+        ],
+        [
+          0,
+          12
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 13,
+      "surfer_interior_nodes_geometric": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          2.0,
+          10.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0,
+          4.0
+        ],
+        [
+          6.0,
+          2.0,
+          2.0
+        ],
+        [
+          10.0,
+          2.0,
+          2.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          2.0,
+          10.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0,
+          4.0
+        ],
+        [
+          6.0,
+          2.0,
+          2.0
+        ],
+        [
+          10.0,
+          2.0,
+          2.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 4,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.0,
+          "y": 10.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 10.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 4
+        }
+      ],
+      "matched": 5,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "u_shape": {
+      "scale": 16,
+      "tolerance_used": 0.00016,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          16,
+          0
+        ],
+        [
+          16,
+          12
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          11,
+          5
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          0,
+          9
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 14,
+      "surfer_interior_nodes_geometric": [
+        [
+          2.5,
+          2.5,
+          2.5
+        ],
+        [
+          2.5,
+          6.5,
+          2.5
+        ],
+        [
+          13.5,
+          2.5,
+          2.5
+        ],
+        [
+          13.5,
+          9.5,
+          2.5
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          2.5,
+          2.5,
+          2.5
+        ],
+        [
+          2.5,
+          6.5,
+          2.5
+        ],
+        [
+          13.5,
+          2.5,
+          2.5
+        ],
+        [
+          13.5,
+          9.5,
+          2.5
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [
+        [
+          8.0,
+          8.0,
+          3.0
+        ],
+        [
+          8.0,
+          12.0,
+          3.0
+        ]
+      ],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 5,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2.5,
+          "y": 2.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 13.5,
+          "y": 2.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.5,
+          "y": 6.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 13.5,
+          "y": 9.5,
+          "t": 2.5,
+          "converging": 2
+        }
+      ],
+      "matched": 4,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "double_notch": {
+      "scale": 20,
+      "tolerance_used": 0.0002,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          20,
+          0
+        ],
+        [
+          20,
+          10
+        ],
+        [
+          14,
+          10
+        ],
+        [
+          14,
+          4
+        ],
+        [
+          11,
+          4
+        ],
+        [
+          11,
+          9
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          0,
+          8
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 26,
+      "surfer_interior_nodes_geometric": [
+        [
+          1.0,
+          2.0,
+          1.0
+        ],
+        [
+          1.0,
+          7.0,
+          1.0
+        ],
+        [
+          1.5,
+          1.5,
+          1.5
+        ],
+        [
+          6.5,
+          1.5,
+          1.5
+        ],
+        [
+          8.0,
+          3.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          3.0
+        ],
+        [
+          9.0,
+          2.0,
+          2.0
+        ],
+        [
+          16.0,
+          2.0,
+          2.0
+        ],
+        [
+          17.0,
+          3.0,
+          3.0
+        ],
+        [
+          17.0,
+          7.0,
+          3.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          1.0,
+          2.0,
+          1.0
+        ],
+        [
+          1.0,
+          7.0,
+          1.0
+        ],
+        [
+          1.5,
+          1.5,
+          1.5
+        ],
+        [
+          6.5,
+          1.5,
+          1.5
+        ],
+        [
+          8.0,
+          3.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          3.0
+        ],
+        [
+          9.0,
+          2.0,
+          2.0
+        ],
+        [
+          16.0,
+          2.0,
+          2.0
+        ],
+        [
+          17.0,
+          3.0,
+          3.0
+        ],
+        [
+          17.0,
+          7.0,
+          3.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [
+        [
+          3.5,
+          4.5,
+          1.5
+        ],
+        [
+          3.5,
+          9.5,
+          1.5
+        ],
+        [
+          12.5,
+          5.5,
+          1.5
+        ],
+        [
+          12.5,
+          10.5,
+          1.5
+        ]
+      ],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 13,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 1.0,
+          "y": 2.0,
+          "t": 1.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1.0,
+          "y": 7.0,
+          "t": 1.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.5,
+          "y": 1.5,
+          "t": 1.5,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1.5,
+          "y": 1.5,
+          "t": 1.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 9.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 16.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 8.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 8.0,
+          "y": 6.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 17.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 17.0,
+          "y": 7.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "comb_3": {
+      "scale": 48,
+      "tolerance_used": 0.00048000000000000007,
+      "max_residual_relative": 6.705861359534993e-07,
+      "input_points": [
+        [
+          0,
+          0
+        ],
+        [
+          48,
+          0
+        ],
+        [
+          48,
+          10
+        ],
+        [
+          42,
+          4
+        ],
+        [
+          36,
+          10
+        ],
+        [
+          30,
+          4
+        ],
+        [
+          24,
+          10
+        ],
+        [
+          18,
+          4
+        ],
+        [
+          12,
+          10
+        ],
+        [
+          0,
+          10
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 19,
+      "surfer_interior_nodes_geometric": [
+        [
+          5.0,
+          5.0,
+          5.0
+        ],
+        [
+          9.92893,
+          5.0,
+          5.0
+        ],
+        [
+          18.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          24.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          30.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          36.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          42.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          45.0711,
+          2.92893,
+          2.92893
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          5.0,
+          5.0,
+          5.0
+        ],
+        [
+          9.92893,
+          5.0,
+          5.0
+        ],
+        [
+          18.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          24.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          30.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          36.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          42.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          45.0711,
+          2.92893,
+          2.92893
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [
+        [
+          18.0,
+          24.4853,
+          14.4853
+        ]
+      ],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 9,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 18.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923804,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 30.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923804,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 42.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923804,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 45.071067811865476,
+          "y": 2.928932188134525,
+          "t": 2.9289321881345245,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 24.0,
+          "y": 4.14213562373095,
+          "t": 4.142135623730951,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 36.0,
+          "y": 4.14213562373095,
+          "t": 4.142135623730951,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 5.0,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.928932188134524,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        }
+      ],
+      "matched": 8,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 3.2188134525767964e-05
+    },
+    "cross_4x4": {
+      "scale": 20,
+      "tolerance_used": 0.0002,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          4,
+          0
+        ],
+        [
+          8,
+          0
+        ],
+        [
+          8,
+          4
+        ],
+        [
+          18,
+          4
+        ],
+        [
+          18,
+          8
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          8,
+          20
+        ],
+        [
+          4,
+          20
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          4,
+          4
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 17,
+      "surfer_interior_nodes_geometric": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          2.0,
+          2.0
+        ],
+        [
+          6.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          18.0,
+          2.0
+        ],
+        [
+          16.0,
+          6.0,
+          2.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          2.0,
+          2.0
+        ],
+        [
+          6.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          18.0,
+          2.0
+        ],
+        [
+          16.0,
+          6.0,
+          2.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 2,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 4
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 6.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 6.0,
+          "y": 18.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 16.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        }
+      ],
+      "matched": 5,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "cross_6x4": {
+      "scale": 20,
+      "tolerance_used": 0.0002,
+      "max_residual_relative": 0.0,
+      "input_points": [
+        [
+          4,
+          0
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          10,
+          4
+        ],
+        [
+          18,
+          4
+        ],
+        [
+          18,
+          8
+        ],
+        [
+          10,
+          8
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          4,
+          20
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          4,
+          4
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 19,
+      "surfer_interior_nodes_geometric": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          6.0,
+          2.0
+        ],
+        [
+          7.0,
+          3.0,
+          3.0
+        ],
+        [
+          7.0,
+          6.0,
+          3.0
+        ],
+        [
+          7.0,
+          17.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          2.0
+        ],
+        [
+          16.0,
+          6.0,
+          2.0
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          6.0,
+          2.0
+        ],
+        [
+          7.0,
+          3.0,
+          3.0
+        ],
+        [
+          7.0,
+          6.0,
+          3.0
+        ],
+        [
+          7.0,
+          17.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          2.0
+        ],
+        [
+          16.0,
+          6.0,
+          2.0
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 6,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 8.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 16.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 7.0,
+          "y": 6.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 7.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 7.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.0
+    },
+    "star_9_7": {
+      "scale": 3901,
+      "tolerance_used": 0.03901,
+      "max_residual_relative": 1.175659072773829e-06,
+      "input_points": [
+        [
+          3901,
+          0
+        ],
+        [
+          1901,
+          1596
+        ],
+        [
+          442,
+          2507
+        ],
+        [
+          -1120,
+          1940
+        ],
+        [
+          -3197,
+          1163
+        ],
+        [
+          -3664,
+          -1334
+        ],
+        [
+          -1179,
+          -2041
+        ],
+        [
+          388,
+          -2198
+        ],
+        [
+          1608,
+          -1349
+        ]
+      ],
+      "surfer_rc": {
+        "all": 0,
+        "c0": 0,
+        "c1": 0
+      },
+      "surfer_vertices_total_all_components": 16,
+      "surfer_interior_nodes_geometric": [
+        [
+          -1684.19,
+          -108.256,
+          1720.73
+        ],
+        [
+          -803.467,
+          -72.6566,
+          1995.98
+        ],
+        [
+          -397.671,
+          -19.9917,
+          2088.83
+        ],
+        [
+          -184.467,
+          6.6196,
+          2136.57
+        ],
+        [
+          199.503,
+          205.586,
+          2080.56
+        ],
+        [
+          605.355,
+          215.694,
+          1857.03
+        ],
+        [
+          921.272,
+          211.526,
+          1693.24
+        ]
+      ],
+      "surfer_interior_nodes_component0": [
+        [
+          -1684.19,
+          -108.256,
+          1720.73
+        ],
+        [
+          -803.467,
+          -72.6566,
+          1995.98
+        ],
+        [
+          -397.671,
+          -19.9917,
+          2088.83
+        ],
+        [
+          -184.467,
+          6.6196,
+          2136.57
+        ],
+        [
+          199.503,
+          205.586,
+          2080.56
+        ],
+        [
+          605.355,
+          215.694,
+          1857.03
+        ],
+        [
+          921.272,
+          211.526,
+          1693.24
+        ]
+      ],
+      "surfer_exterior_nodes_component1": [],
+      "interior_selection_methods_agree": true,
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 20,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 921.2721872027533,
+          "y": 211.52606478203492,
+          "t": 1693.2442335825538,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -1684.1937960053806,
+          "y": -108.25551141831465,
+          "t": 1720.7267848391446,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 605.3546025504231,
+          "y": 215.69431693065013,
+          "t": 1857.0290139912438,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -803.4671598626829,
+          "y": -72.65663014128884,
+          "t": 1995.9754385754313,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 199.50319613519338,
+          "y": 205.5860908842693,
+          "t": 2080.555413753957,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -397.6711053541307,
+          "y": -19.991700616036603,
+          "t": 2088.8327603946823,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -184.4665430422836,
+          "y": 6.619597434341929,
+          "t": 2136.566347984725,
+          "converging": 3
+        }
+      ],
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual": 0.004586246042890707
+    }
+  }
+}
