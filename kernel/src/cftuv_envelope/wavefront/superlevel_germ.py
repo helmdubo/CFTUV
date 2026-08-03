@@ -64,7 +64,12 @@ def target_ends(incident) -> frozenset:
 
 
 def incident_ends(incident, vertices, *, edge_kind) -> frozenset:
-    """Полный набор концов, который инцидент приносит в свой локус."""
+    """Полный набор концов, который инцидент приносит в свой локус.
+
+    `edge_kind` передаётся, а не импортируется: модуль зародыша говорит только
+    о концах и лучах и словаря событий не знает. Вид события в КЛЮЧ не входит —
+    он нужен здесь ровно для того, чтобы понять, откуда брать второй порт.
+    """
 
     ends = port_ends(vertices[incident.event.vertex])
     if incident.event.kind is edge_kind:
