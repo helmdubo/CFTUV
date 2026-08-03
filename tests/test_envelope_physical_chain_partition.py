@@ -11,6 +11,7 @@ seam-маршрут поэтому объявлялся ядру одной пр
 from __future__ import annotations
 
 from fractions import Fraction
+import json
 import math
 import sys
 from pathlib import Path
@@ -43,6 +44,7 @@ from cftuv.envelope_topology_export import (  # noqa: E402
 )
 
 from envelope_fixture_bundles import (  # noqa: E402
+    SEM_CLB_CASE_ROOT,
     U_ROUTE,
     bundle_from_exported_snapshot,
     host_exported_snapshot_paths,
@@ -64,6 +66,32 @@ FIELD_CASE = (
 # Цепочка, прямая в источнике и изломанная НА РЕШЁТКЕ: её разрезать нельзя,
 # иначе привязка `ChainStraightEvaluationGeometryBindingV2` теряет предмет.
 LATTICE_BENT_CHAIN_ID = "host-v0:physical-chain:722892ff0c5479743b66eacc"
+
+# Перепись разрезов по корпусу, замороженная числом. Ноль означает «закон
+# смотрел и не нашёл», а не «закон не включался»; шесть разрезов на
+# `patch_001`/`patch_006` — вырожденные проекцией 3D-изломы порядка 1e-5°
+# (домены и без них дают EXACT), они объявлены здесь, а не растворены в
+# «примерно ноль».
+EXPECTED_CUTS_BY_FIXTURE = {
+    "building_001_single_edge_patch_000_named_outcome_v1": 1,
+    "building_002_single_edge_patch_000_named_outcome_v1": 0,
+    "building_003_single_edge_patch_000_named_outcome_v1": 0,
+    "building_all_seams_patch_001_lost_resolved_v1": 1,
+    "building_all_seams_patch_006_lost_resolved_v1": 5,
+    "building_all_seams_patch_011_lost_resolved_v1": 0,
+    "building_all_seams_patch_105_lost_resolved_v1": 0,
+    "building_002_full_selection_v1": 0,
+    "building_002_point_contact_v1": 0,
+    "building_002_weighted_normals_v1": 0,
+    "building_patch10_density4_v1": 0,
+}
+# Из них подлинными изломами ЧАРТА — теми, на которых ядро и отказывает —
+# является ровно один во всём корпусе.
+EXPECTED_CHART_KINKS = {
+    "building_001_single_edge_patch_000_named_outcome_v1": [
+        ("host-v0:physical-chain:9d42cda796feb85637960858", 5)
+    ],
+}
 
 
 def _counters(profile) -> dict[str, float]:
@@ -175,6 +203,22 @@ def test_u_route_field_anchor_compiles_and_covers_every_turn():
     концах маршрута.
     """
 
+    # Фикстура — это ЯКОРЬ, а не его пересказ: координаты читаются из слепка
+    # владельца, и здесь проверяется, что читается именно тот маршрут.
+    position = u_route_positions()
+    route = [position[item] for item in U_ROUTE]
+    steps = [
+        tuple(b - a for a, b in zip(start, end, strict=True))
+        for start, end in zip(route, route[1:])
+    ]
+    lengths = [math.dist((0.0, 0.0, 0.0), step) for step in steps]
+    assert [round(item, 2) for item in lengths] == [3.38, 0.08, 1.72, 0.08, 3.38]
+    for incoming, outgoing in zip(steps, steps[1:]):
+        cosine = sum(
+            a * b for a, b in zip(incoming, outgoing, strict=True)
+        ) / (math.dist((0.0, 0.0, 0.0), incoming) * math.dist((0.0, 0.0, 0.0), outgoing))
+        assert round(math.degrees(math.acos(cosine)), 3) == 45.0
+
     profile = EnvelopeDebugProfileBuilderV1("walls.001", "EXACT")
     snapshot = build_envelope_analysis_snapshot(u_route_bundle(), profile=profile)
     counters = _counters(profile)
@@ -281,11 +325,13 @@ def test_kink_law_never_fires_where_the_chart_is_already_linear(path: Path):
     }
 
     chart_kinks = []
+    cut_total = 0
     for chain in snapshot.physical_chains:
         vertices = [host_number(item) for item in chain.ordered_source_vertex_ids]
         cuts = _exact_kink_vertex_ids(
             tuple(vertices), bool(chain.is_closed), positions
         )
+        cut_total += len(cuts)
         for index in range(1, len(vertices) - 1):
             if vertices[index] not in cuts:
                 continue
@@ -298,12 +344,47 @@ def test_kink_law_never_fires_where_the_chart_is_already_linear(path: Path):
             if left[0] * right[1] != left[1] * right[0]:
                 chart_kinks.append((chain.physical_chain_id.value, vertices[index]))
 
-    expected = (
-        [("host-v0:physical-chain:9d42cda796feb85637960858", 5)]
-        if path.parent.name.startswith("building_001_single_edge")
-        else []
+    assert cut_total == EXPECTED_CUTS_BY_FIXTURE[path.parent.name]
+    assert chart_kinks == EXPECTED_CHART_KINKS.get(path.parent.name, [])
+
+
+@pytest.mark.parametrize(
+    "case",
+    sorted(SEM_CLB_CASE_ROOT.iterdir()),
+    ids=lambda case: case.name,
+)
+def test_no_domain_of_the_corpus_loses_its_outcome_to_the_law(case: Path):
+    """N1. Ни один домен корпуса не теряет исход; ровно один его получает.
+
+    Это и есть предметный смысл «регрессионного нуля»: закон не имеет права
+    ухудшить ни одного домена, который и без него доезжал до EXACT, — включая
+    два домена, где он делает ЛИШНИЕ разрезы по вырожденным проекцией
+    3D-изломам.
+    """
+
+    frozen = kernel.AnalysisSnapshotCodecV1.loads(
+        (case / "analysis_snapshot.json").read_bytes()
     )
-    assert chart_kinks == expected
+    manifest = json.loads((case / "manifest.json").read_text(encoding="utf-8"))
+    (domain,) = frozen.patch_domains
+    before = kernel.compile_reference_envelopes(
+        frozen,
+        kernel.DecalRequestCodecV1.loads((case / "decal_request.json").read_bytes()),
+        domain.patch_domain_id,
+    ).outcome
+    after = _compile(
+        _reexport(frozen),
+        manifest["effective_domain_physical_edge_ids"],
+        float(manifest["requested_alpha"]),
+    ).outcome
+
+    assert after is kernel.ReferenceOutcome.EXACT
+    if case.name.startswith("building_001_single_edge"):
+        assert before is (
+            kernel.ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR
+        )
+    else:
+        assert before is kernel.ReferenceOutcome.EXACT
 
 
 def test_clean_domain_bytes_do_not_move_when_the_law_finds_no_kink(monkeypatch):
