@@ -1,0 +1,1057 @@
+{
+  "$defs": {
+    "ArrivalCandidateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalCandidateV1"
+        },
+        "arrival_law": {
+          "enum": [
+            "PARALLEL_OFFSET_V1",
+            "RADIAL_FROM_STATION_V1",
+            "STATIONARY_BOUNDARY_V1"
+          ],
+          "type": "string"
+        },
+        "domain": {
+          "$ref": "#/$defs/ArrivalDomainV1"
+        },
+        "owner_key": {
+          "$ref": "#/$defs/ArrivalOwnerKeyV1"
+        },
+        "path_history_key": {
+          "$ref": "#/$defs/ArrivalPathHistoryKeyV1"
+        },
+        "precision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactArrivalPrecisionV1"
+            },
+            {
+              "$ref": "#/$defs/CertifiedArrivalPrecisionV1"
+            }
+          ]
+        },
+        "station_witnesses": {
+          "items": {
+            "$ref": "#/$defs/StationWitnessV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "owner_key",
+        "path_history_key",
+        "arrival_law",
+        "station_witnesses",
+        "domain",
+        "precision"
+      ],
+      "type": "object"
+    },
+    "ArrivalCellId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ArrivalCellId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ArrivalCellV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalCellV1"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/ArrivalCandidateV1"
+          },
+          "type": "array"
+        },
+        "cell_id": {
+          "$ref": "#/$defs/ArrivalCellId"
+        },
+        "tie_resolution": {
+          "enum": [
+            "RESOLVED_EXACT",
+            "MULTIWAY_PRESERVED",
+            "UNDECIDED_FAIL_CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "cell_id",
+        "candidates",
+        "tie_resolution"
+      ],
+      "type": "object"
+    },
+    "ArrivalCounterV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalCounterV1"
+        },
+        "name": {
+          "$ref": "#/$defs/LawId"
+        },
+        "value": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ArrivalDomainV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalDomainV1"
+        },
+        "half_planes": {
+          "items": {
+            "$ref": "#/$defs/BarycentricHalfPlaneV1"
+          },
+          "type": "array"
+        },
+        "law": {
+          "enum": [
+            "WHOLE_CELL_V1",
+            "BARYCENTRIC_REGION_V1"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "law",
+        "half_planes"
+      ],
+      "type": "object"
+    },
+    "ArrivalEventV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalEventV1"
+        },
+        "converging_vertices": {
+          "type": "integer"
+        },
+        "incidences": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/ArrivalOwnerKeyV1"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/LawId"
+        },
+        "kinds": {
+          "items": {
+            "$ref": "#/$defs/LawId"
+          },
+          "type": "array"
+        },
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/ArrivalOwnerKeyV1"
+          },
+          "type": "array"
+        },
+        "place": {
+          "$ref": "#/$defs/ExactAlgebraicPointV1"
+        },
+        "time": {
+          "$ref": "#/$defs/ExactAlgebraicTimeV1"
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "time",
+        "place",
+        "participants",
+        "converging_vertices",
+        "kinds",
+        "incidences"
+      ],
+      "type": "object"
+    },
+    "ArrivalMetricDigestValue": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ArrivalMetricDigestValue"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ArrivalOwnerKeyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ArrivalOwnerKeyV1"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ArrivalPathHistoryKeyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ArrivalPathHistoryKeyV1"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ArrivalProofObligationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalProofObligationV1"
+        },
+        "cause": {
+          "$ref": "#/$defs/LawId"
+        },
+        "disposition": {
+          "enum": [
+            "OBSERVED",
+            "DISCHARGED_BY_PROVEN_SAME_TIME_EVENT",
+            "UNPROVEN_FALLBACK_APPLIED",
+            "EVENT_ACCEPTED_WITH_UNPROVEN_SPAN",
+            "SURVIVED_PAST_EVENT_TIME",
+            "UNSUPPORTED_EVENT_KIND_DROPPED"
+          ],
+          "type": "string"
+        },
+        "event_kind": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LawId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "$ref": "#/$defs/ExactAlgebraicTimeV1"
+        },
+        "participant_edge_keys": {
+          "items": {
+            "$ref": "#/$defs/ArrivalOwnerKeyV1"
+          },
+          "type": "array"
+        },
+        "target_edge_keys": {
+          "items": {
+            "$ref": "#/$defs/ArrivalOwnerKeyV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "cause",
+        "disposition",
+        "level",
+        "participant_edge_keys",
+        "target_edge_keys",
+        "event_kind"
+      ],
+      "type": "object"
+    },
+    "ArrivalSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalSeedV1"
+        },
+        "kind": {
+          "enum": [
+            "PARALLEL_SEGMENT",
+            "DIRECTIONAL_PARALLEL",
+            "POINT",
+            "BOUNDARY_CONDITION"
+          ],
+          "type": "string"
+        },
+        "owner_key": {
+          "$ref": "#/$defs/ArrivalOwnerKeyV1"
+        },
+        "station_interval": {
+          "$ref": "#/$defs/SeedStationIntervalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "owner_key",
+        "station_interval"
+      ],
+      "type": "object"
+    },
+    "ArrivalSupportLineV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ArrivalSupportLineV1"
+        },
+        "a": {
+          "type": "integer"
+        },
+        "b": {
+          "type": "integer"
+        },
+        "c": {
+          "type": "integer"
+        },
+        "q": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "a",
+        "b",
+        "c",
+        "q"
+      ],
+      "type": "object"
+    },
+    "BarycentricHalfPlaneV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BarycentricHalfPlaneV1"
+        },
+        "bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "w0": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "w1": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "w2": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "w0",
+        "w1",
+        "w2",
+        "bound"
+      ],
+      "type": "object"
+    },
+    "CertifiedArrivalPrecisionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedArrivalPrecisionV1"
+        },
+        "enclosure": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "named_epsilon": {
+          "$ref": "#/$defs/NamedEpsilonV1"
+        }
+      },
+      "required": [
+        "$type",
+        "enclosure",
+        "named_epsilon"
+      ],
+      "type": "object"
+    },
+    "CertifiedDecimalIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedDecimalIntervalV1"
+        },
+        "absolute_error_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "upper_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "lower",
+        "upper",
+        "lower_kind",
+        "upper_kind",
+        "absolute_error_bound"
+      ],
+      "type": "object"
+    },
+    "CutLocusPointV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CutLocusPointV1"
+        },
+        "owner_keys": {
+          "items": {
+            "$ref": "#/$defs/ArrivalOwnerKeyV1"
+          },
+          "type": "array"
+        },
+        "place": {
+          "$ref": "#/$defs/ExactAlgebraicPointV1"
+        },
+        "time": {
+          "$ref": "#/$defs/ExactAlgebraicTimeV1"
+        }
+      },
+      "required": [
+        "$type",
+        "place",
+        "time",
+        "owner_keys"
+      ],
+      "type": "object"
+    },
+    "ExactAlgebraicPointV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactAlgebraicPointV1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactAlgebraicSumV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactAlgebraicSumV1"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/ExactRadicalTermV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "ExactAlgebraicTimeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactAlgebraicTimeV1"
+        },
+        "dividend": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "divisor": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        }
+      },
+      "required": [
+        "$type",
+        "dividend",
+        "divisor"
+      ],
+      "type": "object"
+    },
+    "ExactArrivalPrecisionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactArrivalPrecisionV1"
+        }
+      },
+      "required": [
+        "$type"
+      ],
+      "type": "object"
+    },
+    "ExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactRadicalTermV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRadicalTermV1"
+        },
+        "coefficient": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "radicand": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "radicand",
+        "coefficient"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "LawId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LawId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "NamedEpsilonV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NamedEpsilonV1"
+        },
+        "absolute_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/LawId"
+        }
+      },
+      "required": [
+        "$type",
+        "name",
+        "absolute_bound"
+      ],
+      "type": "object"
+    },
+    "OwnerFragmentV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "OwnerFragmentV1"
+        },
+        "cell_id": {
+          "$ref": "#/$defs/ArrivalCellId"
+        },
+        "contour": {
+          "items": {
+            "$ref": "#/$defs/ExactAlgebraicPointV1"
+          },
+          "type": "array"
+        },
+        "doubled_area": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        },
+        "owner_key": {
+          "$ref": "#/$defs/ArrivalOwnerKeyV1"
+        },
+        "span_end": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "span_start": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "support": {
+          "$ref": "#/$defs/ArrivalSupportLineV1"
+        }
+      },
+      "required": [
+        "$type",
+        "owner_key",
+        "cell_id",
+        "support",
+        "span_start",
+        "span_end",
+        "contour",
+        "doubled_area"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PlanarChartRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PlanarChartRefV1"
+        },
+        "chart_digest": {
+          "$ref": "#/$defs/ArrivalMetricDigestValue"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "source_revision",
+        "patch_domain_id",
+        "chart_digest"
+      ],
+      "type": "object"
+    },
+    "SeedStationIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SeedStationIntervalV1"
+        },
+        "end": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "start": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        }
+      },
+      "required": [
+        "$type",
+        "start",
+        "end"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "StationWitnessV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "StationWitnessV1"
+        },
+        "kind": {
+          "enum": [
+            "SEED_SPAN_CONTACT",
+            "SIDE_CROSSING",
+            "CONE_VERTEX",
+            "CUT_LOCUS_CONTACT"
+          ],
+          "type": "string"
+        },
+        "place": {
+          "$ref": "#/$defs/ExactAlgebraicPointV1"
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "place"
+      ],
+      "type": "object"
+    },
+    "SurfaceAdjacencyDigestValue": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SurfaceAdjacencyDigestValue"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SurfaceAdjacencyRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceAdjacencyRefV1"
+        },
+        "adjacency_digest": {
+          "$ref": "#/$defs/SurfaceAdjacencyDigestValue"
+        },
+        "scope": {
+          "enum": [
+            "FULL_SOURCE_MESH",
+            "REQUEST_SCOPED_PATCH_SET"
+          ],
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "source_revision",
+        "scope",
+        "adjacency_digest"
+      ],
+      "type": "object"
+    },
+    "SurfaceArrivalComplexV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceArrivalComplexV1"
+        },
+        "adjacency_ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceAdjacencyRefV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alpha_horizon": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "backend": {
+          "enum": [
+            "PLANAR_QUEUE",
+            "DEVELOPABLE_UNFOLD",
+            "POLYHEDRAL_WINDOW",
+            "MULTILABEL_FMM"
+          ],
+          "type": "string"
+        },
+        "cell_law": {
+          "enum": [
+            "MESH_TRIANGLE_V1",
+            "PLANAR_SINGLE_CHART_REGION_V1"
+          ],
+          "type": "string"
+        },
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/ArrivalCellV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "counters": {
+          "items": {
+            "$ref": "#/$defs/ArrivalCounterV1"
+          },
+          "type": "array"
+        },
+        "cut_locus": {
+          "items": {
+            "$ref": "#/$defs/CutLocusPointV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "domain_doubled_area": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/ArrivalEventV1"
+          },
+          "type": "array"
+        },
+        "front_outcome": {
+          "enum": [
+            "EXACT",
+            "LEVEL_BUDGET_EXHAUSTED",
+            "MULTIWAY_SPLIT_UNPROVEN",
+            "WAVEFRONT_LEFT_UNRESOLVED"
+          ],
+          "type": "string"
+        },
+        "metric_ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceMetricRefV1"
+            },
+            {
+              "$ref": "#/$defs/PlanarChartRefV1"
+            }
+          ]
+        },
+        "named_epsilon": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NamedEpsilonV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner_fragments": {
+          "items": {
+            "$ref": "#/$defs/OwnerFragmentV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "ownership_outcome": {
+          "$ref": "#/$defs/LawId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "precision_tier": {
+          "enum": [
+            "REFERENCE_EXACT_SMALL",
+            "REFERENCE_CERTIFIED",
+            "RUNTIME_APPROXIMATE"
+          ],
+          "type": "string"
+        },
+        "proof_obligations": {
+          "items": {
+            "$ref": "#/$defs/ArrivalProofObligationV1"
+          },
+          "type": "array"
+        },
+        "proof_status": {
+          "enum": [
+            "COMPLETE",
+            "INCOMPLETE"
+          ],
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "seeds": {
+          "items": {
+            "$ref": "#/$defs/ArrivalSeedV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "patch_domain_id",
+        "source_revision",
+        "backend",
+        "metric_ref",
+        "adjacency_ref",
+        "cell_law",
+        "alpha_horizon",
+        "seeds",
+        "cells",
+        "cut_locus",
+        "owner_fragments",
+        "events",
+        "domain_doubled_area",
+        "front_outcome",
+        "ownership_outcome",
+        "proof_status",
+        "proof_obligations",
+        "precision_tier",
+        "named_epsilon",
+        "counters"
+      ],
+      "type": "object"
+    },
+    "SurfaceMetricRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceMetricRefV1"
+        },
+        "adjacency_ref": {
+          "$ref": "#/$defs/SurfaceAdjacencyRefV1"
+        },
+        "metric_digest": {
+          "$ref": "#/$defs/ArrivalMetricDigestValue"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "surface_regime": {
+          "enum": [
+            "INTRINSIC_PATCH_SURFACE",
+            "PLANAR",
+            "DEVELOPABLE",
+            "GENERAL_CURVED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "source_revision",
+        "patch_domain_id",
+        "surface_regime",
+        "metric_digest",
+        "adjacency_ref"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.surface_arrival_complex.v1",
+  "$ref": "#/$defs/SurfaceArrivalComplexV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfaceArrivalComplexV1"
+}
