@@ -2,7 +2,7 @@
  "schema": "P0_2B_FINISH_GERM_QUOTIENT_RECEIPT_V1",
  "branch": "exec/p0-2b-finish",
  "base": "origin/claude/kernel-audit-exact-proof-at8d23 (2777153) + merge origin/exec/p0-2b-superlevel-transaction (270cb0e)",
- "status": "GATES_GREEN_TWO_NAMED_ROOTS_REMAIN",
+ "status": "STAGE_2: КОРНИ 1,2,4-ДИСПОЗИЦИЯ И ПРОТИВОРЕЧИВЫЙ ТЕСТ ЗАКРЫТЫ; КОРЕНЬ 3 ВСКРЫЛ ПЯТЫЙ — СТОП",
  "step_1_reproduction": {
   "command": "PYTHONPATH=src:tests python3 -m pytest tests -q  (из каталога kernel)",
   "result": "88 failed, 2775 passed, 2 skipped (2013 s)",
@@ -116,8 +116,8 @@
    "faces": 8,
    "semantic_digest": "1e96e075b63a08fd5439b4262e3acd554dd55a305013a5f7c648ac4d4653f737"
   },
-  "field_001_006_011": "НЕ достигнуто — второй корень, см. open_roots.composer_inverted_span",
-  "p0_3_refreeze": "НЕ ВЫПОЛНЕНА СОЗНАТЕЛЬНО — см. open_roots.sparse_hydration: корпус весов и стен всё ещё регрессирован, перезаморозка благословила бы регрессию"
+  "field_001_006_011": "НЕ достигнуто: корень 3 (ориентация) их не закрывает — см. stage_2.root_3_orientation",
+  "p0_3_refreeze": "НЕ ВЫПОЛНЕНА: корень 2 закрыт, но корень 3 открыт и вскрыл пятый (хиральность) — перезаморозка сейчас заморозила бы хиральную вершину"
  },
  "stage_2": {
   "root_2_hydration": {
@@ -346,13 +346,13 @@
    "evidence": "все 10 случаев корпуса 63, ушедшие в UNRESOLVABLE, вернулись; распределение исходов совпало с 4cf9d5a и с аудит-базой"
   },
   "sparse_hydration": {
-   "status": "ОТКРЫТ — назван, не чинен",
+   "status": "ЗАКРЫТ на этапе 2 плотной гидратацией",
    "symptom": "SYMBOLIC_SPLIT_OVERLAY_UNRESOLVABLE (6 фигур) и SYMBOLIC_F0_OVERLAY_UNRESOLVABLE (1 фигура) на корпусе весов и стен",
    "decisive_measurement": "если _required_physical_edge_keys заменить на ПЛОТНОЕ множество ключей всех рёбер, корпус 23 возвращается ровно к числам 4cf9d5a: 17 EXACT / 5 UNRESOLVED / 1 UNRESOLVABLE, а корпус 63 не двигается (46/17). Значит корень — само разреженное правило снимка, введённое wip-коммитом, а не геометрия.",
    "why_not_repaired_here": "инвариант «разреженный снимок обязан давать тот же ответ, что плотный» — предмет отдельной карточки: расширение на ОДИН LAV-шаг вокруг каждого задетого порта возвращает только 1 из 7 фигур, а недостающие вхождения принадлежат портам в 6–7 шагах. Подбор радиуса — эвристика; её здесь не делаю (стандарт предшественника: REVERTED_AS_UNAUTHORIZED_HEURISTIC)."
   },
   "composer_inverted_span": {
-   "status": "ОТКРЫТ — назван, не чинен",
+   "status": "ОТКРЫТ; на этапе 2 найден источник знака и доказано, что закон ориентации его не закрывает",
    "symptom": "SYMBOLIC_POSTSTATE_SPAN_INVERTED на полевых patch_006 и patch_011; patch_001 остаётся WAVEFRONT_LEFT_UNRESOLVED",
    "localised": "patch_011, t=5750847/1024: symbolic fixed point СХОДИТСЯ за две генерации, но в финальном overlay пара (JUNCTION, BIRTH) на общей опоре (3500492,-1757056,3287000,-1543564) стоит в обратном порядке — birth_length<0 при orientation_sign=+1. Зеркальная ей пара на опоре (3291836,-1566788,3422908,-1697860) получила orientation_sign=-1 и классифицирована OPENING. Различие даёт _span_orientation: она берёт направление из occurrence листа, когда len(occurrence)==3, и из source_span иначе.",
    "not_the_germ_quotient": "случаи красные и на 4cf9d5a, то есть ДО wip-слоя symbolic-композиции; quotient их не касается",
