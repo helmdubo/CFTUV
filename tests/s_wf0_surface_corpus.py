@@ -137,7 +137,7 @@ def surface_ir_for(fixture) -> PatchSurfaceIRV1:
 def positions_for(fixture) -> dict:
     """Точные рациональные позиции: `Fraction(float)` без единого округления."""
 
-    revision, mint = _identity(fixture.key.replace("/", "-"))
+    _revision, mint = _identity(fixture.key.replace("/", "-"))
     used = sorted({int(value) for face in fixture.faces for value in face})
     return {
         mint["vertex"](index): tuple(
