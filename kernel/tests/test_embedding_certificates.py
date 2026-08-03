@@ -308,7 +308,15 @@ def test_projection_names_injection_collapse_crossing_and_overlap_separately():
     failures = set(projection_violations(certificate))
     assert NamedOutcome.NEAR_PLANAR_PROJECTION_BOUNDARY_INJECTIVITY_VIOLATED in failures
     assert NamedOutcome.NEAR_PLANAR_PROJECTION_NONZERO_BOUNDARY_EDGE_COLLAPSED in failures
-    assert NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED not in failures
+    # ПЕРЕРАБОТАННОЕ КЛЕЙМО (P0-4-HARDENING). Прежде якорь считался один раз
+    # из проекции и записывался в обе половины, поэтому схлопывание p1 на p0
+    # не могло сдвинуть «источник»: исход по определению отсутствовал. Теперь
+    # сторона источника читает трёхмерные позиции ДО проекции и держит p1, а
+    # карта берёт первую отличную точку — p2. Расхождение префикса и есть
+    # схлопывание, и называется оно именно так.
+    assert certificate.source_anchor_vertex_ids[:2] == vertices[:2]
+    assert certificate.projected_anchor_vertex_ids[:2] == (vertices[0], vertices[2])
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED in failures
 
     overlap = dict(projected)
     overlap[vertices[3]], overlap[vertices[4]] = _point(-1, 0)[:2], _point(1, 0)[:2]
@@ -403,8 +411,16 @@ def test_projection_rejects_a_mirrored_loop_by_the_orientation_axis():
         expected_orientation_sign=1,
     )
     failures = set(projection_violations(certificate))
-    assert certificate.source_cyclic_order_sha256 == (
-        certificate.projected_cyclic_order_sha256
+    # Зеркало меняет ориентацию и не меняет комбинаторику: отпечаток границы
+    # обязан остаться тем же. Он и есть односторонний факт источника.
+    assert certificate.boundary_cyclic_order_sha256 == (
+        build_projection_embedding_certificate(
+            before=before,
+            projected={vertex: point[:2] for vertex, point in before.items()},
+            faces=(_face("mirror", vertices),),
+            normal=_point(0, 0, 1),
+            expected_orientation_sign=1,
+        ).boundary_cyclic_order_sha256
     )
     assert NamedOutcome.NEAR_PLANAR_PROJECTION_LOOP_ORIENTATION_CHANGED in failures
 
@@ -435,13 +451,21 @@ def test_projection_names_a_real_fan_identity_change_with_fixed_boundary():
         expected_orientation_sign=1,
     )
     failures = set(projection_violations(certificate))
-    assert certificate.source_cyclic_order_sha256 == (
-        certificate.projected_cyclic_order_sha256
-    )
     assert NamedOutcome.NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED in failures
 
 
-def test_projection_anchor_law_uses_the_resolved_plane_and_rejects_substitution():
+def test_projection_anchor_law_reads_the_source_in_3d_and_the_chart_in_2d():
+    """ПЕРЕРАБОТАННОЕ КЛЕЙМО: якорь перестал быть одним числом в двух полях.
+
+    Прежний закон заполнял обе половины результатом `_anchor_ids(projected)`,
+    и тест ниже проверял подстановку в поле, а не вычисление. Теперь стороны
+    считаются из разных входов: источник — точным трёхмерным векторным
+    произведением ДО проекции, карта — `orient2d` после. На этом же входе они
+    законно расходятся третьей вершиной: тройка (a0,a1,a2) не коллинеарна в
+    3D и точно коллинеарна в карте. Это не отказ — это то, ради чего проекция
+    и существует, — поэтому сравнивается только префикс.
+    """
+
     vertices = _ids("anchor", 4)
     before = {
         vertices[0]: _point(0, 0, 0),
@@ -464,23 +488,78 @@ def test_projection_anchor_law_uses_the_resolved_plane_and_rejects_substitution(
     )
     assert certificate.anchor_selection_law is (
         ProjectionAnchorSelectionLawV1.
-        CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1
+        EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2
     )
-    resolved_anchor = (
+    assert certificate.source_anchor_vertex_ids == (
+        vertices[0],
+        vertices[1],
+        vertices[2],
+    )
+    assert certificate.projected_anchor_vertex_ids == (
         vertices[0],
         vertices[1],
         vertices[3],
     )
-    assert certificate.source_anchor_vertex_ids == resolved_anchor
-    assert certificate.projected_anchor_vertex_ids == resolved_anchor
     assert projection_violations(certificate) == ()
     forged = replace(
         certificate,
-        projected_anchor_vertex_ids=tuple(reversed(resolved_anchor)),
+        projected_anchor_vertex_ids=tuple(
+            reversed(certificate.projected_anchor_vertex_ids)
+        ),
     )
     assert set(projection_violations(forged)) == {
         NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED
     }
+
+
+def test_projection_anchor_prefix_change_names_a_collapsed_interior_vertex():
+    """Негативная фикстура дефекта «самодоказательный якорь».
+
+    Старый код не мог выпустить этот отказ ни на каком входе: обе половины
+    были одним `_anchor_ids(projected)`. Здесь схлопывается ВНУТРЕННЯЯ
+    вершина, поэтому проверка совпадений по вхождениям ГРАНИЦЫ молчит, а
+    префикс якоря и новая проверка инъективности по всем вершинам — нет.
+    """
+
+    # Порядок ID выбран так, чтобы центр был ВТОРЫМ каноническим кандидатом:
+    # префикс якоря — это (origin, first), и схлопывание обязано его сдвинуть.
+    outer = tuple(SourceVertexId(name) for name in ("cv0", "cv2", "cv3", "cv4"))
+    center = SourceVertexId("cv1")
+    faces = tuple(
+        _face_with_edges(
+            f"collapse-{index}",
+            (outer[index], outer[(index + 1) % 4], center),
+            (
+                f"cb{index}",
+                f"cr{(index + 1) % 4}",
+                f"cr{index}",
+            ),
+        )
+        for index in range(4)
+    )
+    before = {
+        outer[0]: _point(0, 0),
+        outer[1]: _point(4, 0),
+        outer[2]: _point(4, 4),
+        outer[3]: _point(0, 4),
+        center: _point(2, 2),
+    }
+    projected = {vertex: point[:2] for vertex, point in before.items()}
+    projected[center] = projected[outer[0]]
+    certificate = build_projection_embedding_certificate(
+        before=before,
+        projected=projected,
+        faces=faces,
+        normal=_point(0, 0, 1),
+        expected_orientation_sign=1,
+    )
+    failures = set(projection_violations(certificate))
+    assert certificate.coincident_boundary_occurrence_pair_count == 0
+    assert certificate.coincident_projected_vertex_pair_count == 1
+    assert certificate.source_anchor_vertex_ids[1] == center
+    assert certificate.projected_anchor_vertex_ids[1] != center
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED in failures
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED in failures
 
 
 def test_projection_anchor_law_rejects_an_unknown_literal_through_the_codec():
@@ -662,10 +741,6 @@ def test_projection_identity_claims_each_have_a_named_negative_control():
             NamedOutcome.NEAR_PLANAR_PROJECTION_BOUNDARY_COMPONENT_COUNT_CHANGED,
         ),
         (
-            replace(certificate, projected_cyclic_order_sha256="forged"),
-            NamedOutcome.NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED,
-        ),
-        (
             replace(certificate, projected_anchor_vertex_ids=tuple(reversed(vertices))),
             NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED,
         ),
@@ -673,9 +748,198 @@ def test_projection_identity_claims_each_have_a_named_negative_control():
             replace(certificate, projected_fan_identity_sha256="forged"),
             NamedOutcome.NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED,
         ),
+        (
+            replace(certificate, coincident_projected_vertex_pair_count=1),
+            NamedOutcome.NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED,
+        ),
+        (
+            replace(certificate, nonsimple_projected_face_count=1),
+            NamedOutcome.NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE,
+        ),
+        (
+            replace(certificate, overlapping_projected_triangle_pair_count=1),
+            NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP,
+        ),
     )
     for forged, expected in controls:
         assert expected in projection_violations(forged)
+    # ПЕРЕРАБОТАННОЕ КЛЕЙМО: у циклического порядка негативного контроля нет
+    # и быть не может — поле стало односторонним отпечатком комбинаторики
+    # источника, а не парой, которую можно рассогласовать.
+    assert not hasattr(certificate, "projected_cyclic_order_sha256")
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED not in (
+        projection_violations(replace(certificate, boundary_cyclic_order_sha256="forged"))
+    )
+
+
+def _tongue_strip():
+    """Простая граница, положительные площади ВСЕХ граней, перекрытие внутри.
+
+    Полоса из трёх четырёхугольников. Внутренние рёбра b1-t1 и b2-t2
+    пересекаются, поэтому средняя грань — «бабочка»: её лепестки вычитаются,
+    и знак ПЛОЩАДИ остаётся положительным. Пересекающиеся рёбра внутренние,
+    а проверка новых пересечений смотрит только вхождения ГРАНИЦЫ, поэтому
+    прежний сертификат этот вход пропускал целиком. При этом крайние грани
+    q0 и q2 не имеют общих вершин и накрывают одну и ту же точку карты.
+    """
+
+    names = ("b0", "b1", "b2", "b3", "t0", "t1", "t2", "t3")
+    chart = {
+        "b0": (-20, 0),
+        "b1": (0, 0),
+        "b2": (30, 0),
+        "b3": (50, 0),
+        "t0": (-20, 30),
+        "t1": (16, 30),
+        "t2": (14, 31),
+        "t3": (50, 30),
+    }
+    vertex = {name: SourceVertexId(f"tongue-{name}") for name in names}
+    before = {
+        vertex[name]: _point(*chart[name]) for name in names
+    }
+    projected = {
+        vertex[name]: (Fraction(chart[name][0]), Fraction(chart[name][1]))
+        for name in names
+    }
+    faces = (
+        _face_with_edges(
+            "tongue-q0",
+            (vertex["b0"], vertex["b1"], vertex["t1"], vertex["t0"]),
+            ("tongue-b0b1", "tongue-b1t1", "tongue-t1t0", "tongue-t0b0"),
+        ),
+        _face_with_edges(
+            "tongue-q1",
+            (vertex["b1"], vertex["b2"], vertex["t2"], vertex["t1"]),
+            ("tongue-b1b2", "tongue-b2t2", "tongue-t2t1", "tongue-b1t1"),
+        ),
+        _face_with_edges(
+            "tongue-q2",
+            (vertex["b2"], vertex["b3"], vertex["t3"], vertex["t2"]),
+            ("tongue-b2b3", "tongue-b3t3", "tongue-t3t2", "tongue-b2t2"),
+        ),
+    )
+    return before, projected, faces
+
+
+def test_projection_names_an_interior_overlap_a_simple_boundary_hides():
+    """Негативная фикстура дефекта «инъективность интерьера не проверялась».
+
+    До этой ветки `projection_violations` на этом входе возвращал ПУСТОЙ
+    кортеж: граница проста, компонент один, вложенность та же, ориентации
+    всех граней и петли положительны, система вращения совпадает. И при этом
+    точка (61/4, 59/2) лежит строго внутри и q0, и q2.
+    """
+
+    before, projected, faces = _tongue_strip()
+    certificate = build_projection_embedding_certificate(
+        before=before,
+        projected=projected,
+        faces=faces,
+        normal=_point(0, 0, 1),
+        expected_orientation_sign=1,
+    )
+    assert certificate.projected_face_orientation_signs == (1, 1, 1)
+    assert certificate.source_face_orientation_signs == (1, 1, 1)
+    assert certificate.projected_boundary_loop_orientation_signs == (1,)
+    assert certificate.source_boundary_component_count == 1
+    assert certificate.projected_boundary_component_count == 1
+    assert certificate.new_nonadjacent_edge_intersection_count == 0
+    assert certificate.new_nonadjacent_collinear_overlap_count == 0
+    assert certificate.orientation_mismatch_count == 0
+    assert certificate.nesting_mismatch_count == 0
+    assert certificate.coincident_projected_vertex_pair_count == 0
+    assert certificate.source_fan_identity_sha256 == (
+        certificate.projected_fan_identity_sha256
+    )
+
+    failures = set(projection_violations(certificate))
+    assert certificate.nonsimple_projected_face_count == 1
+    assert certificate.overlapping_projected_triangle_pair_count > 0
+    assert certificate.triangle_pair_exact_test_count <= (
+        certificate.triangle_pair_broadphase_test_count
+    )
+    assert failures == {
+        NamedOutcome.NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE,
+        NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP,
+    }
+
+
+def test_interior_overlap_is_not_the_same_counter_as_face_simplicity():
+    """Прямая власть и предпосылка — разные величины, а не одна под двумя именами.
+
+    Обе грани здесь простые и положительно ориентированные, вложенная лежит
+    строго внутри объемлющей: `nonsimple` равен нулю, перекрытие — нет.
+    """
+
+    outer = _ids("nested-outer", 4)
+    inner = _ids("nested-inner", 4)
+    positions = {
+        **dict(
+            zip(outer, (_point(0, 0), _point(4, 0), _point(4, 4), _point(0, 4)), strict=True)
+        ),
+        **dict(
+            zip(inner, (_point(1, 1), _point(3, 1), _point(3, 3), _point(1, 3)), strict=True)
+        ),
+    }
+    certificate = build_projection_embedding_certificate(
+        before=positions,
+        projected={vertex: point[:2] for vertex, point in positions.items()},
+        faces=(_face("nested-outer", outer), _face("nested-inner", inner)),
+        normal=_point(0, 0, 1),
+        expected_orientation_sign=1,
+    )
+    assert certificate.nonsimple_projected_face_count == 0
+    assert certificate.projected_face_triangle_count == 4
+    assert certificate.overlapping_projected_triangle_pair_count > 0
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP in (
+        projection_violations(certificate)
+    )
+
+
+def test_the_boundary_cyclic_fingerprint_cannot_depend_on_the_projection():
+    """Исполняемое доказательство дефекта «самодоказательный дайджест».
+
+    Прежде это поле было парой `source_`/`projected_`, и обе половины
+    считались из ОДНОЙ последовательности `PhysicalEdgeId`. Ниже строятся два
+    сертификата на одних гранях и РАЗНЫХ картах — вплоть до сложенной. Пока
+    комбинаторика граней та же, отпечаток тот же: входа, на котором прежнее
+    сравнение упало бы, не существует. Поэтому пара снята с клейма, а не
+    «починена независимым вычислением».
+    """
+
+    before, projected, faces = _tongue_strip()
+    folded = build_projection_embedding_certificate(
+        before=before,
+        projected=projected,
+        faces=faces,
+        normal=_point(0, 0, 1),
+        expected_orientation_sign=1,
+    )
+    unfolded = dict(projected)
+    for name, point in (("t1", (14, 30)), ("t2", (16, 31))):
+        unfolded[SourceVertexId(f"tongue-{name}")] = (
+            Fraction(point[0]),
+            Fraction(point[1]),
+        )
+    flat = build_projection_embedding_certificate(
+        before=before,
+        projected=unfolded,
+        faces=faces,
+        normal=_point(0, 0, 1),
+        expected_orientation_sign=1,
+    )
+    assert flat.boundary_cyclic_order_sha256 == folded.boundary_cyclic_order_sha256
+    assert flat != folded
+    assert flat.projected_face_triangle_count != (
+        folded.projected_face_triangle_count
+    )
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP in (
+        projection_violations(folded)
+    )
+    assert NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP not in (
+        projection_violations(flat)
+    )
 
 
 def test_cyclic_and_fan_rotation_laws_reject_permutation_and_reflection():
@@ -797,6 +1061,109 @@ def test_bent_slope_preserves_rotation_system_and_exact_3d_source_anchors(grid_l
         vertex_ids[0],
         vertex_ids[1],
         vertex_ids[2],
+    )
+
+
+def _slope_patch():
+    """Тот же скат, что в снимочной фикстуре: три ряда, два столбца.
+
+    Ближний ряд v00 v01 v02 коллинеарен в КАРТЕ точно и неколлинеарен в 3D на
+    величину округления binary64. Именно здесь два якорных закона законно
+    выбирают разную третью вершину.
+    """
+
+    slope = -0.4525 / 0.8918
+    rows = (0.0, 0.9137, 1.8271)
+    vertex_ids = tuple(SourceVertexId(f"v{index:02d}") for index in range(6))
+    vertices = tuple(
+        SourceVertexV1(
+            vertex_id=vertex_ids[column * len(rows) + row],
+            position=LocalPoint3V1(x, y, slope * y),
+        )
+        for column, x in enumerate((0.0, 3.3125))
+        for row, y in enumerate(rows)
+    )
+    faces = (
+        _face_with_edges(
+            "slope-f0",
+            (vertex_ids[0], vertex_ids[1], vertex_ids[4], vertex_ids[3]),
+            ("slope-ea", "slope-eb", "slope-ec", "slope-ed"),
+        ),
+        _face_with_edges(
+            "slope-f1",
+            (vertex_ids[1], vertex_ids[2], vertex_ids[5], vertex_ids[4]),
+            ("slope-ee", "slope-ef", "slope-eg", "slope-eb"),
+        ),
+    )
+    record = build_embedding_certified_rational_affine_planar_metric(
+        source_revision=SourceRevision("revision"),
+        patch_domain_id=PatchDomainId("domain"),
+        owner_patch_id=PatchId("patch"),
+        source_vertices=vertices,
+        source_faces=faces,
+        planarity_policy=PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+    )
+    return record, vertices, faces, vertex_ids
+
+
+def test_the_two_anchor_laws_disagree_on_a_live_patch_and_it_is_not_a_refusal():
+    """Негативный контроль самодоказательности: расхождение вообще достижимо.
+
+    Под прежним законом обе половины были одним `_anchor_ids(projected)`, и
+    этот кортеж не мог отличаться ни на каком входе. Здесь он отличается, и
+    отказом это не является: карта законно берёт v03, потому что тройка
+    (v00, v01, v02) коллинеарна в карте точно.
+    """
+
+    record, vertices, faces, vertex_ids = _slope_patch()
+    projection = record.near_planar_projection_embedding_certificate
+    assert projection.source_anchor_vertex_ids == vertex_ids[:3]
+    assert projection.projected_anchor_vertex_ids == (
+        vertex_ids[0],
+        vertex_ids[1],
+        vertex_ids[3],
+    )
+    assert projection.source_anchor_vertex_ids != (
+        projection.projected_anchor_vertex_ids
+    )
+    assert projection_violations(projection) == ()
+    assert _validate_wrapper(record, vertices, faces) == ()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("source_anchor_vertex_ids", "boundary_cyclic_order_sha256"),
+)
+def test_validator_recomputes_the_two_formerly_self_proving_claims(field):
+    """Tamper-репро в стиле `validator_hardening.json` для обоих дефектов.
+
+    Подмена `source_anchor_vertex_ids` на СТАРОЕ самодоказательное значение —
+    копию якоря проекции — теперь отвергается: сторона источника считается из
+    трёхмерных позиций до проекции. Подмена отпечатка границы отвергается
+    так же, хотя клеймом он больше не является: валидатор пересчитывает его.
+    """
+
+    record, vertices, faces, _ = _slope_patch()
+    projection = record.near_planar_projection_embedding_certificate
+    tampered = {
+        "source_anchor_vertex_ids": projection.projected_anchor_vertex_ids,
+        "boundary_cyclic_order_sha256": "0" * 64,
+    }[field]
+    assert getattr(projection, field) != tampered
+    forged = replace(
+        record,
+        near_planar_projection_embedding_certificate=replace(
+            projection, **{field: tampered}
+        ),
+    )
+    decoded = EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.loads(
+        EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.dumps(forged)
+    )
+    issues = _validate_wrapper(decoded, vertices, faces)
+    assert any(
+        "projection embedding certificate differs from exact recomputation"
+        in item.message
+        for item in issues
     )
 
 

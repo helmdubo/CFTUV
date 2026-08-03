@@ -18,6 +18,7 @@ from .contracts.metric import (
     GridSnappingLawV1,
     NearPlanarProjectionEmbeddingCertificateV1,
     ProjectionAnchorSelectionLawV1,
+    ProjectionInteriorInjectivityLawV1,
     SourceSnapEmbeddingCertificateV1,
 )
 from .outcomes import NamedOutcome
@@ -266,6 +267,16 @@ def _canonical_cycle(values):
 
 
 def _cyclic_digest(loops) -> str:
+    """Отпечаток комбинаторики границы. ОДНОСТОРОННИЙ намеренно.
+
+    Читается только `loops` — обход граней ИСТОЧНИКА. Позиции сюда не входят,
+    и войти не могут: цикл `PhysicalEdgeId` вокруг петли есть факт связности
+    граней, а проекция двигает точки. Поэтому пары `source_`/`projected_`
+    здесь больше нет: две копии одного числа доказывали только собственное
+    равенство. Отпечаток остаётся привязкой записи к источнику — валидатор
+    пересчитывает его и отвергает подделку.
+    """
+
     records = sorted(
         _canonical_cycle(tuple(edge.edge_id.value for edge in loop))
         for loop in loops
@@ -371,6 +382,8 @@ def _source_chart(before, normal, faces, expected_sign):
 
 
 def _anchor_ids(positions):
+    """Канонический базис КАРТЫ проекции: точный `orient2d` по двум координатам."""
+
     vertex_ids = tuple(sorted(positions, key=lambda item: item.value))
     origin = vertex_ids[0]
     first = next(
@@ -388,6 +401,49 @@ def _anchor_ids(positions):
         None,
     )
     return (origin, first) if second is None else (origin, first, second)
+
+
+def _source_anchor_ids(positions):
+    """Канонический базис ИСТОЧНИКА: точное трёхмерное векторное произведение.
+
+    Читает только позиции ДО проекции. Именно это делает якорную ось
+    двусторонней: прежде оба поля сертификата заполнялись одним результатом
+    `_anchor_ids(projected)`, и «источник» не участвовал в расчёте.
+    """
+
+    vertex_ids = tuple(sorted(positions, key=lambda item: item.value))
+    origin = vertex_ids[0]
+    first = next(
+        (item for item in vertex_ids[1:] if positions[item] != positions[origin]),
+        None,
+    )
+    if first is None:
+        return (origin,)
+    base = _sub(positions[first], positions[origin])
+    second = next(
+        (
+            item
+            for item in vertex_ids[1:]
+            if any(_cross3(base, _sub(positions[item], positions[origin])))
+        ),
+        None,
+    )
+    return (origin, first) if second is None else (origin, first, second)
+
+
+def _anchor_prefix_mismatch(source_anchor, projected_anchor) -> int:
+    """Расхождение ПРЕФИКСА (origin, first) двух независимых якорных законов.
+
+    Третий элемент сравнивать нельзя: near-planar проекция вправе сделать
+    почти коллинеарную тройку точно коллинеарной, и карта тогда законно
+    берёт следующую вершину. Измерено на живых фикстурах: 18 вызовов из 61
+    расходятся ровно так и ровно там. Префикс же может разойтись только если
+    две РАЗЛИЧНЫЕ вершины источника попали в одну точку карты — а это
+    настоящий отказ инъективности, а не смена номера базисной вершины.
+    """
+
+    prefix = min(2, len(source_anchor), len(projected_anchor))
+    return int(source_anchor[:prefix] != projected_anchor[:prefix])
 
 
 def _corner_degenerated(positions, corner) -> bool:
@@ -557,6 +613,175 @@ def _nesting_depths(loops, positions) -> tuple[tuple[int, ...], int]:
     return tuple(depths), tests
 
 
+def _in_closed_triangle(corner, point) -> bool:
+    left, vertex, right = corner
+    return (
+        orient2d(left, vertex, point) >= 0
+        and orient2d(vertex, right, point) >= 0
+        and orient2d(right, left, point) >= 0
+    )
+
+
+def _first_ear(cycle):
+    count = len(cycle)
+    for index in range(count):
+        corner = (cycle[index - 1], cycle[index], cycle[(index + 1) % count])
+        if orient2d(*corner) <= 0:
+            continue
+        blocked = ((index - 1) % count, index, (index + 1) % count)
+        if not any(
+            _in_closed_triangle(corner, cycle[other])
+            for other in range(count)
+            if other not in blocked
+        ):
+            return index
+    return None
+
+
+def _ear_clipped_triangles(points):
+    """Точная триангуляция ОДНОГО полигона грани отсечением ушей.
+
+    Возвращает `None`, когда полигон не является простым невырожденным
+    многоугольником. Это не ограничение метода, а доказательство: по теореме
+    о двух ушах у всякого простого многоугольника с четырьмя и более
+    вершинами ухо есть, поэтому застрявшее отсечение означает, что рёбра
+    грани пересекаются или площадь нулевая.
+
+    Веерная триангуляция от первой вершины здесь не годится: у невыпуклой,
+    но совершенно законной грани её треугольники вылезают наружу и дают
+    ложное перекрытие с соседом.
+
+    Ухо блокирует ЛЮБАЯ чужая вершина в ЗАМКНУТОМ треугольнике, а не только
+    рефлексная строго внутри. Правило строже классического намеренно: его
+    отказ именованный и виден, а послабление ради экзотического полигона с
+    коллинеарной вершиной покупалось бы риском ПРОПУСТИТЬ «бабочку» —
+    молчаливым пропуском, ровно тем, из-за которого эта карточка и заведена.
+    """
+
+    if len(points) < 3:
+        return None
+    area = _signed_twice_area(points)
+    if area == 0:
+        return None
+    cycle = list(points if area > 0 else tuple(reversed(points)))
+    triangles = []
+    while len(cycle) > 3:
+        index = _first_ear(cycle)
+        if index is None:
+            return None
+        triangles.append(
+            (cycle[index - 1], cycle[index], cycle[(index + 1) % len(cycle)])
+        )
+        cycle.pop(index)
+    if orient2d(*cycle) <= 0:
+        return None
+    triangles.append(tuple(cycle))
+    return tuple(triangles)
+
+
+def _bounding_box(triangle):
+    xs = tuple(point[0] for point in triangle)
+    ys = tuple(point[1] for point in triangle)
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _boxes_disjoint(left, right) -> bool:
+    return (
+        left[2] < right[0]
+        or right[2] < left[0]
+        or left[3] < right[1]
+        or right[3] < left[1]
+    )
+
+
+def _separating_edge(triangle, other) -> bool:
+    return any(
+        all(
+            orient2d(triangle[index], triangle[(index + 1) % 3], point) <= 0
+            for point in other
+        )
+        for index in range(3)
+    )
+
+
+def _triangle_interiors_overlap(left, right) -> bool:
+    """Точный тест перекрытия интерьеров двух CCW-треугольников.
+
+    Разделяющая ось для выпуклых многоугольников: интерьеры не пересекаются
+    по положительной площади тогда и только тогда, когда есть ребро одного
+    из них, по нестрого внешнюю сторону которого лежит весь другой. Общее
+    ребро и общая вершина такую ось дают, поэтому соседние грани исключать
+    из перебора не нужно — их пересечение нулевой площади.
+    """
+
+    return not (
+        _separating_edge(left, right) or _separating_edge(right, left)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectionInteriorFacts:
+    coincident_vertex_pairs: int
+    nonsimple_faces: int
+    triangle_count: int
+    overlapping_pairs: int
+    broadphase_tests: int
+    exact_tests: int
+    pair_tests: int
+
+
+def _interior_facts(faces, projected) -> _ProjectionInteriorFacts:
+    """Прямая власть по инъективности интерьера триангулированной проекции.
+
+    Предпосылочный путь доказывает вложение из простой границы, ориентации,
+    вложенности и системы вращения. У него есть дыра, которую эти счётчики
+    закрывают с двух сторон. Знак ПЛОЩАДИ полигона у самопересекающейся
+    «бабочки» остаётся положительным (лепестки вычитаются, а не отменяются),
+    поэтому связка граней с положительными площадями и простой границей
+    может покрывать одну точку дважды: сумма степеней по границе остаётся
+    единицей, потому что третья грань покрывает ту же точку со знаком минус.
+    Симплексность граней и перебор пар треугольников закрывают именно это.
+    """
+
+    vertex_ids = tuple(sorted(projected, key=lambda item: item.value))
+    coincidences = 0
+    pair_tests = 0
+    for index, left in enumerate(vertex_ids):
+        for right in vertex_ids[index + 1 :]:
+            pair_tests += 1
+            if projected[left] == projected[right]:
+                coincidences += 1
+    triangles: list[tuple] = []
+    nonsimple = 0
+    for face in faces:
+        clipped = _ear_clipped_triangles(
+            tuple(projected[item] for item in face.vertex_cycle)
+        )
+        if clipped is None:
+            nonsimple += 1
+            continue
+        triangles.extend(clipped)
+    boxes = tuple(_bounding_box(item) for item in triangles)
+    broadphase = exact = overlaps = 0
+    for index in range(len(triangles)):
+        for other in range(index + 1, len(triangles)):
+            broadphase += 1
+            if _boxes_disjoint(boxes[index], boxes[other]):
+                continue
+            exact += 1
+            if _triangle_interiors_overlap(triangles[index], triangles[other]):
+                overlaps += 1
+    return _ProjectionInteriorFacts(
+        coincidences,
+        nonsimple,
+        len(triangles),
+        overlaps,
+        broadphase,
+        exact,
+        pair_tests + broadphase + exact,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _ProjectionOrientationFacts:
     source_face_signs: tuple[int, ...]
@@ -676,8 +901,7 @@ def build_projection_embedding_certificate(
         loops, projected
     )
     pair_tests += projected_component_tests
-    source_cyclic = _cyclic_digest(loops)
-    projected_cyclic = _cyclic_digest(loops)
+    boundary_cyclic = _cyclic_digest(loops)
     source_fan, source_fan_pair_tests, source_fan_ambiguities = _fan_digest(
         faces, source_chart
     )
@@ -685,9 +909,14 @@ def build_projection_embedding_certificate(
         _fan_digest(faces, projected)
     )
     pair_tests += source_fan_pair_tests + projected_fan_pair_tests
+    interior = _interior_facts(faces, projected)
+    pair_tests += interior.pair_tests
     source_ids = tuple(sorted(before, key=lambda item: item.value))
+    source_anchor = _source_anchor_ids(before)
     resolved_anchor = _anchor_ids(projected)
-    anchor_law = ProjectionAnchorSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1
+    anchor_law = (
+        ProjectionAnchorSelectionLawV1.EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2
+    )
     return NearPlanarProjectionEmbeddingCertificateV1(
         source_vertex_ids=source_ids,
         source_chart_dropped_axis=dropped_axis,
@@ -707,21 +936,47 @@ def build_projection_embedding_certificate(
         projected_boundary_loop_nesting_depths=orientation.projected_depths,
         orientation_mismatch_count=orientation.orientation_mismatches,
         nesting_mismatch_count=orientation.nesting_mismatches,
-        source_cyclic_order_sha256=source_cyclic,
-        projected_cyclic_order_sha256=projected_cyclic,
+        boundary_cyclic_order_sha256=boundary_cyclic,
         anchor_selection_law=anchor_law,
-        source_anchor_vertex_ids=resolved_anchor,
+        source_anchor_vertex_ids=source_anchor,
         projected_anchor_vertex_ids=resolved_anchor,
         resolved_plane_basis_unavailable_count=int(len(resolved_anchor) != 3),
         source_fan_identity_sha256=source_fan,
         projected_fan_identity_sha256=projected_fan,
         source_fan_ambiguity_count=source_fan_ambiguities,
         projected_fan_ambiguity_count=projected_fan_ambiguities,
+        interior_injectivity_law=(
+            ProjectionInteriorInjectivityLawV1.
+            EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1
+        ),
+        coincident_projected_vertex_pair_count=interior.coincident_vertex_pairs,
+        nonsimple_projected_face_count=interior.nonsimple_faces,
+        projected_face_triangle_count=interior.triangle_count,
+        overlapping_projected_triangle_pair_count=interior.overlapping_pairs,
+        triangle_pair_broadphase_test_count=interior.broadphase_tests,
+        triangle_pair_exact_test_count=interior.exact_tests,
         exact_pair_test_count=pair_tests,
     )
 
 
 def projection_violations(certificate):
+    """Именованные отказы проекции. Каждый обязан быть достижим на каком-то входе.
+
+    Снято с производства два клейма, у которых нарушение построить нельзя:
+
+    * `NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED` — обе половины считались
+      из одной комбинаторики граней источника (см. `_cyclic_digest`).
+    * равенство якорных троек целиком — обе половины были одним
+      `_anchor_ids(projected)`, а после развязки законов их третий элемент
+      законно расходится на 18 живых вызовах из 61. Осталось расхождение
+      префикса, у которого причина ровно одна — схлопывание вершин.
+
+    Добавлены три отказа, у которых нарушение построено и записано:
+    совпадение ЛЮБЫХ двух вершин карты (прежде смотрели только границу),
+    несимплексность полигона грани и прямое перекрытие интерьеров
+    треугольников.
+    """
+
     checks = (
         (
             certificate.coincident_boundary_occurrence_pair_count,
@@ -753,13 +1008,10 @@ def projection_violations(certificate):
             NamedOutcome.NEAR_PLANAR_PROJECTION_OUTER_HOLE_NESTING_CHANGED,
         ),
         (
-            certificate.source_cyclic_order_sha256
-            != certificate.projected_cyclic_order_sha256,
-            NamedOutcome.NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED,
-        ),
-        (
-            certificate.source_anchor_vertex_ids
-            != certificate.projected_anchor_vertex_ids,
+            _anchor_prefix_mismatch(
+                certificate.source_anchor_vertex_ids,
+                certificate.projected_anchor_vertex_ids,
+            ),
             NamedOutcome.NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED,
         ),
         (
@@ -772,6 +1024,18 @@ def projection_violations(certificate):
             or certificate.source_fan_ambiguity_count
             or certificate.projected_fan_ambiguity_count,
             NamedOutcome.NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED,
+        ),
+        (
+            certificate.coincident_projected_vertex_pair_count,
+            NamedOutcome.NEAR_PLANAR_PROJECTION_VERTEX_INJECTIVITY_VIOLATED,
+        ),
+        (
+            certificate.nonsimple_projected_face_count,
+            NamedOutcome.NEAR_PLANAR_PROJECTION_FACE_POLYGON_NOT_SIMPLE,
+        ),
+        (
+            certificate.overlapping_projected_triangle_pair_count,
+            NamedOutcome.NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP,
         ),
     )
     return tuple(outcome for failed, outcome in checks if failed)
