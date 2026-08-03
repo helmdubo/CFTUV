@@ -1,0 +1,268 @@
+{
+  "schema": "P0_2B_TARGETED_BUNDLE_FAILURE_CLASSIFICATION_V1",
+  "authority_status": "REJECTED_TERMINAL_EARLY_RETIREMENT_VARIANT",
+  "current_decision_baseline": false,
+  "superseded_by": "q07_terminal_certificate_scope_receipt_v1.json",
+  "product_head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "ratchet_edits_allowed": false,
+  "commit_push_allowed": false,
+  "targeted_bundle": {
+    "command": "python -m pytest kernel/tests/test_wavefront_superlevel_transaction.py kernel/tests/test_wavefront_degenerate_event.py kernel/tests/test_sem_clb_02_chain_straight_regression.py kernel/tests/test_wavefront_proof_obligations.py kernel/tests/test_wavefront_same_time_closure.py kernel/tests/test_wavefront_weighted_wall_differential.py tests/test_architecture.py -q",
+    "result": {
+      "passed": 638,
+      "failed": 45,
+      "duration_seconds": 362.31
+    },
+    "focused_failure_replay": {
+      "passed": 145,
+      "failed": 45,
+      "duration_seconds": 38.05
+    }
+  },
+  "failure_nodeids": [
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::axis_rectangle]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::ell]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::comb_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::comb_4]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::hole_1]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::holes_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::cross]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::staircase]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::u_shape]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[named::double_notch]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edge_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edge_1]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edge_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edge_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edges_0_1]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edges_1_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edges_2_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_edges_3_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edge_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edge_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edge_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edge_5]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edges_0_1]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edges_2_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edges_4_5]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_source_edges_5_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_2]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_5]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_6]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edge_7]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_0_1]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_2_3]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_3_4]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_4_5]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_6_7]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_source_edges_7_0]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::rect_12x8_source_bottom_at_double_speed]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_all_sources_bottom_at_double_speed]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::staircase_all_sources_bottom_at_double_speed]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_p0_geometry_and_existing_counter_oracle[partial_source::ell_12_all_sources_mixed_speeds_at_the_reflex_vertex]",
+    "kernel/tests/test_wavefront_proof_obligations.py::test_observed_debt_has_discharge_and_survival_lifecycles",
+    "kernel/tests/test_wavefront_same_time_closure.py::test_transaction_preserves_the_accepted_63_case_oracle",
+    "kernel/tests/test_wavefront_weighted_wall_differential.py::test_post_p0_2b_absolute_projection_digests_are_frozen"
+  ],
+  "accepted_63_case_oracle_classification": {
+    "case_count": 63,
+    "outcome_changed": 0,
+    "semantic_digest_changed": 0,
+    "canonical_node_semantic_projection_changed": 0,
+    "legacy_counter_maps_changed": 42,
+    "canonical_proof_projection_changed": 53,
+    "proof_status_changed": 1,
+    "proof_status_transition": {
+      "case_id": "partial_source::staircase_source_edges_3_4",
+      "old": "INCOMPLETE",
+      "current": "COMPLETE"
+    },
+    "new_proof_causes": [],
+    "new_proof_dispositions": [],
+    "new_refusal_counter_names": [],
+    "new_debt_types": []
+  },
+  "terminal_cycle_correlation": {
+    "terminal_cycles_all_63": 74,
+    "cases_with_terminal_cycles": 39,
+    "expected_proof_aggregate": {
+      "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 4,
+      "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 5,
+      "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 191,
+      "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 14
+    },
+    "current_proof_aggregate": {
+      "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 4,
+      "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 5,
+      "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 39,
+      "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 7
+    },
+    "explanation": {
+      "terminal_retirement_removed_discharged_observations": 148,
+      "two_discharged_observations_per_terminal_cycle": true,
+      "additional_discharged_observations_removed_by_born_affected_scheduling_exclusion": 4,
+      "survived_observations_removed_by_born_affected_scheduling_exclusion": 7
+    }
+  },
+  "terminal_cycles_by_changed_case": {
+    "named::axis_rectangle": 1,
+    "named::ell": 2,
+    "named::comb_2": 1,
+    "named::comb_4": 1,
+    "named::hole_1": 4,
+    "named::holes_2": 7,
+    "named::cross": 4,
+    "named::staircase": 2,
+    "named::u_shape": 3,
+    "named::double_notch": 5,
+    "partial_source::rect_12x8_source_edge_0": 1,
+    "partial_source::rect_12x8_source_edge_1": 1,
+    "partial_source::rect_12x8_source_edge_2": 1,
+    "partial_source::rect_12x8_source_edge_3": 1,
+    "partial_source::rect_12x8_source_edges_0_1": 1,
+    "partial_source::rect_12x8_source_edges_1_2": 1,
+    "partial_source::rect_12x8_source_edges_2_3": 1,
+    "partial_source::rect_12x8_source_edges_3_0": 1,
+    "partial_source::ell_12_source_edge_0": 2,
+    "partial_source::ell_12_source_edge_2": 1,
+    "partial_source::ell_12_source_edge_3": 1,
+    "partial_source::ell_12_source_edge_5": 2,
+    "partial_source::ell_12_source_edges_0_1": 1,
+    "partial_source::ell_12_source_edges_2_3": 2,
+    "partial_source::ell_12_source_edges_4_5": 1,
+    "partial_source::ell_12_source_edges_5_0": 2,
+    "partial_source::staircase_source_edge_0": 3,
+    "partial_source::staircase_source_edge_2": 1,
+    "partial_source::staircase_source_edge_3": 0,
+    "partial_source::staircase_source_edge_5": 1,
+    "partial_source::staircase_source_edge_6": 0,
+    "partial_source::staircase_source_edge_7": 3,
+    "partial_source::staircase_source_edges_0_1": 2,
+    "partial_source::staircase_source_edges_2_3": 1,
+    "partial_source::staircase_source_edges_3_4": 0,
+    "partial_source::staircase_source_edges_4_5": 1,
+    "partial_source::staircase_source_edges_6_7": 2,
+    "partial_source::staircase_source_edges_7_0": 2,
+    "partial_source::rect_12x8_source_bottom_at_double_speed": 1,
+    "partial_source::ell_12_all_sources_bottom_at_double_speed": 2,
+    "partial_source::staircase_all_sources_bottom_at_double_speed": 3,
+    "partial_source::ell_12_all_sources_mixed_speeds_at_the_reflex_vertex": 2
+  },
+  "counter_and_proof_delta_rules": {
+    "standard_terminal_rule": "For every changed case with terminal_cycles > 0, refused_no_rule_triple_always_concurrent and NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT each decrease by 2 * terminal_cycles.",
+    "standard_terminal_rule_exception": {
+      "case_id": "named::cross",
+      "terminal_cycles": 4,
+      "each_actual_delta": -12,
+      "terminal_explained_delta": -8,
+      "additional_scheduling_delta": -4
+    },
+    "zero_terminal_scheduling_cases": {
+      "partial_source::staircase_source_edge_3": {
+        "refused_no_rule_triple_always_concurrent": -2,
+        "split_candidates_examined": -2,
+        "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": -2
+      },
+      "partial_source::staircase_source_edge_6": {
+        "refused_filter_event_in_the_past": -1,
+        "refused_no_rule_triple_always_concurrent": -3,
+        "split_candidates_examined": -4,
+        "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": -3
+      },
+      "partial_source::staircase_source_edges_3_4": {
+        "refused_no_rule_triple_always_concurrent": -2,
+        "split_candidates_examined": -2,
+        "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": -2
+      }
+    },
+    "additional_legacy_counter_deltas": {
+      "named::cross": {
+        "refused_filter_event_in_the_past": -8,
+        "split_candidates_examined": -16
+      },
+      "named::double_notch": {
+        "discarded_stale_candidates": -2,
+        "refused_filter_beyond_trace": -1,
+        "refused_filter_event_in_the_past": -1,
+        "refused_filter_triple_never_concurrent": -4,
+        "split_candidates_beyond_trace": -1,
+        "split_candidates_examined": -8
+      },
+      "partial_source::staircase_source_edge_0": {
+        "discarded_stale_candidates": -1,
+        "refused_filter_triple_never_concurrent": -1,
+        "split_candidates_examined": -2
+      },
+      "partial_source::staircase_source_edge_2": {
+        "refused_filter_event_in_the_past": -1,
+        "refused_filter_triple_never_concurrent": -1,
+        "split_candidates_examined": -2
+      },
+      "partial_source::staircase_source_edge_5": {
+        "refused_filter_event_in_the_past": -1,
+        "refused_filter_triple_never_concurrent": -1,
+        "split_candidates_examined": -2
+      },
+      "partial_source::staircase_source_edge_7": {
+        "discarded_stale_candidates": -1,
+        "refused_filter_triple_never_concurrent": -1,
+        "split_candidates_examined": -2
+      },
+      "partial_source::staircase_all_sources_bottom_at_double_speed": {
+        "discarded_stale_candidates": -1,
+        "refused_filter_triple_never_concurrent": -1,
+        "split_candidates_examined": -2
+      }
+    }
+  },
+  "lifecycle_positive_channel": {
+    "natural_cross_discharge_old_current": [20, 8],
+    "injected_positive_test": "kernel/tests/test_wavefront_superlevel_transaction.py::test_ridge_death_discharges_only_nonempty_observed_identity",
+    "injected_positive_test_result_in_targeted_bundle": "PASSED",
+    "conclusion": "The explicit OBSERVED -> discharged lifecycle channel still exists; the natural cross incidence count changed and remains an AUTH question."
+  },
+  "p0_3_independent_current_vs_4cf_classification": {
+    "case_count": 23,
+    "motorcycle_equals_exhaustive_on_all_nine_axes": true,
+    "unchanged_cases": [
+      "rect_full_q_65_64"
+    ],
+    "geometry_coverage_and_node_projection_changed_cases": [
+      "cross_full_q_1/4",
+      "cross_full_q_1",
+      "cross_full_q_4",
+      "cross_full_q_65/64",
+      "several_collinear_incidences",
+      "search_pruning_witness"
+    ],
+    "node_projection_changed_coverage_stable_cases": [
+      "cross_source_and_walls_q_1/4",
+      "cross_source_and_walls_q_1",
+      "cross_source_and_walls_q_4",
+      "cross_source_and_walls_q_65/64",
+      "collinear_moving_source_and_wall"
+    ],
+    "proof_only_changed_cases": [
+      "rect_source_and_walls_q_65_64",
+      "ell_full_q_65_64",
+      "ell_source_and_walls_q_65_64",
+      "staircase_full_q_65_64",
+      "staircase_source_and_walls_q_65_64",
+      "weighted_vertex_fan",
+      "weighted_holes_1",
+      "weighted_holes_2",
+      "mirror_direct",
+      "mirror_reflected",
+      "same_time_weighted_collapse"
+    ],
+    "correctness_blocker": "Terminal early-retirement suppresses same-time events that the prior fixed-point processed. The 63-case semantic preservation does not authorize this P0-3 geometry drift. Do not refresh the P0-3 absolute receipt before Q07 or product refinement."
+  },
+  "disposition": {
+    "q06": "Still required for provisional patch006 digest, field105 levels, and prime/weighted absolute projections.",
+    "q07": "Required for terminal early-retirement and born-vs-affected scheduling semantics because P0-3 product geometry changes and one 63-case proof status changes.",
+    "next_action": "STOP. Preserve dirty provisional edits; no further ratchet, commit, push, full suite, or absolute receipt refresh before external authority."
+  }
+}

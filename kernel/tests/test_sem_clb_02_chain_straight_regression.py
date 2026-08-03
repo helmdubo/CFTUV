@@ -57,28 +57,29 @@ EXPECTED_K_SEQUENCES = {
 EXPECTED_PUBLIC_WAVEFRONT = {
     "building_all_seams_patch_001_lost_resolved_v1": {
         "sliding_seed_count": 4,
-        "skeleton_levels": 223,
+        "skeleton_levels": 182,
         "node_count": 62,
         "face_count": 54,
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_006_lost_resolved_v1": {
         "sliding_seed_count": 5,
-        "skeleton_levels": 266,
+        "skeleton_levels": 230,
         "node_count": 73,
         "face_count": 63,
         "born_zero_refusal_count": 26,
     },
     "building_all_seams_patch_011_lost_resolved_v1": {
         "sliding_seed_count": 3,
-        "skeleton_levels": 218,
+        "skeleton_levels": 170,
         "node_count": 62,
         "face_count": 54,
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_105_lost_resolved_v1": {
         "sliding_seed_count": 1,
-        "skeleton_levels": 13,
+        # AUTH_PENDING_Q06: локальный targeted ratchet, не для commit/push.
+        "skeleton_levels": 12,
         "node_count": 6,
         "face_count": 8,
         "born_zero_refusal_count": 1,
@@ -562,14 +563,19 @@ def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
     assert observed_universes == [
         EXPECTED_PATCH006_SKELETON_PRIME_UNIVERSE
     ]
-    assert event_calls == 5265
-    assert coordinate_divisions == 10530
-    assert pick_iterations == 18344
-    assert support_checks == 31830
+    # Sparse superlevel snapshot is byte-equivalent to the eager oracle; the
+    # old exact count remains a hard upper bound, while the new count freezes
+    # the factual cost of the query-oriented implementation.
+    assert event_calls == 4921
+    assert event_calls <= 5265
+    assert coordinate_divisions == 9842
+    assert pick_iterations == 16922
+    assert support_checks == 29722
     assert incomplete_picks == 0
     assert incomplete_supports == 0
+    # AUTH_PENDING_Q06: digest подтверждён shadow/field, но ещё не принят.
     assert semantic_digest(region.skeleton) == (
-        "d2e21b47e48bae7fbeb411f418fa216e9ae478b4523468a090ca869ea82e9280"
+        "5ad37463bd362b89fcf1fb85ecfaf215df02acb46535861dc6e092a6b8b3a8fb"
     )
 
 

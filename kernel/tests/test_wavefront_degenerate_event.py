@@ -38,6 +38,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from fractions import Fraction
 
 import pytest
@@ -53,6 +54,7 @@ from cftuv_envelope.wavefront.event_time import (
     sliding_time,
 )
 from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+from cftuv_envelope.wavefront.events import EventKind
 from cftuv_envelope.wavefront.polygon import LoopV1, PolygonV1
 from cftuv_envelope.wavefront.skeleton import (
     CandidateRefusal,
@@ -128,7 +130,7 @@ def test_the_required_straight_seed_case_is_exact_in_both_search_modes(
     _assert_exact_straight_seed_case(
         ((0, 0), (3, 0), (6, 0), (6, 4), (0, 4)),
         split_search,
-        expected_levels=3,
+        expected_levels=2,
         expected_nodes=3,
         expected_faces=5,
         expected_doubled_area=48,
@@ -156,7 +158,7 @@ def test_scaled_raw_q_still_has_one_exact_physical_seed_speed(
     _assert_exact_straight_seed_case(
         points,
         split_search,
-        expected_levels=4,
+        expected_levels=3,
         expected_nodes=2,
         expected_faces=5,
         expected_doubled_area=48,
@@ -168,7 +170,9 @@ def _levels_until(polygon, limit: Fraction):
 
     Возвращает сам построитель и список описаний уровней. Стенд ведёт цикл сам,
     а не читает `SkeletonV1`, потому что вопрос среза — про УРОВЕНЬ, а готовый
-    результат уровней уже не помнит.
+    результат уровней уже не помнит. Исторический `_close_short_lavs` здесь
+    вызывается после каждого снятого packet намеренно: это стенд сырого queue
+    scheduling, а не копия fixed-point boundary из `_Builder.run`.
     """
 
     builder = skeleton_module._Builder(polygon)
@@ -186,6 +190,7 @@ def _levels_until(polygon, limit: Fraction):
             {
                 "time": low,
                 "events": len(level),
+                "unique_events": len(set(level)),
                 "kinds": tuple(sorted(kinds.items())),
                 "points": len(
                     {
@@ -255,10 +260,9 @@ def test_the_arms_of_a_cross_collapse_in_one_level_of_six_simultaneous_events():
     рукавов. Числа записаны, потому что «несколько событий» и «шесть событий в
     четырёх точках» — разные утверждения.
 
-    Уровень того же времени снимается не один раз: применение рождает новых
-    кандидатов на ТОМ ЖЕ времени. До починки таких заходов было четыре
-    (6, 8, 2, 2 события) — ровно потому, что разрезы плодили отрезки нулевой
-    длины и те схлопывались следующими заходами. Теперь их два.
+    До атомарной транзакции после шести живых событий снимался ещё один пакет
+    из двух уже stale EDGE-кандидатов. Он не менял ни LAV, ни узлы, ни грани;
+    frozen transaction не воспроизводит служебное stale-поколение.
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
@@ -268,8 +272,9 @@ def test_the_arms_of_a_cross_collapse_in_one_level_of_six_simultaneous_events():
     assert first["events"] == 6
     assert first["kinds"] == (("EDGE", 2), ("SPLIT", 4))
     assert first["points"] == 4
-    assert [level["time"] for level in levels] == [Fraction(TALL, 2)] * 2
-    assert [level["events"] for level in levels] == [6, 2]
+    assert [level["time"] for level in levels] == [Fraction(TALL, 2)]
+    assert [level["events"] for level in levels] == [6]
+    assert [level["unique_events"] for level in levels] == [6]
 
 
 def test_every_split_of_that_level_is_a_meeting_of_vertices_not_a_cut():
@@ -370,21 +375,46 @@ def test_the_ridge_crossing_is_the_meeting_of_the_two_sliding_vertices():
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
-    _, levels = _levels_until(figure, Fraction(WIDE, 2))
-    walls = [level for level in levels if level["time"] == Fraction(WIDE, 2)]
-    assert walls[0]["events"] == 6
-    assert walls[0]["kinds"] == (("EDGE", 2), ("SPLIT", 4))
-
-    skeleton = build_skeleton(figure)
-    assert skeleton.outcome is SkeletonOutcome.EXACT
     ridge_x = SqrtSumV1.rational(Fraction(4) + Fraction(WIDE, 2))
-    on_ridge = sorted(
-        node.point.y.as_rational()
-        for node in skeleton.nodes
-        if (node.point.x - ridge_x).is_zero
-    )
-    assert on_ridge == [3, 6, 17]
-    assert skeleton.counter("vertex_meeting_events") == 3
+    expected = {
+        SplitSearch.MOTORCYCLE: (6, 52),
+        SplitSearch.EXHAUSTIVE: (14, 60),
+    }
+    for split_search, (event_count, examined_count) in expected.items():
+        builder = skeleton_module._Builder(figure, split_search)
+        levels = []
+        while len(builder.queue):
+            level = builder.queue.pop_level()
+            low, _ = level[0].time.enclosure()
+            if low > Fraction(WIDE, 2):
+                break
+            builder.now = level[0].time
+            levels.append((low, level))
+            builder._apply_level(level)
+            if builder.refusal is not None:
+                break
+            builder._close_short_lavs()
+        walls = [level for low, level in levels if low == Fraction(WIDE, 2)]
+        assert len(walls) == 1
+        assert len(walls[0]) == event_count
+        assert len(set(walls[0])) == event_count
+        assert Counter(event.kind for event in walls[0]) == Counter(
+            {
+                EventKind.EDGE: 2,
+                EventKind.SPLIT: event_count - 2,
+            }
+        )
+
+        skeleton = build_skeleton(figure, split_search=split_search)
+        assert skeleton.outcome is SkeletonOutcome.EXACT
+        assert skeleton.counter("split_candidates_examined") == examined_count
+        on_ridge = sorted(
+            node.point.y.as_rational()
+            for node in skeleton.nodes
+            if (node.point.x - ridge_x).is_zero
+        )
+        assert on_ridge == [3, 6, 17]
+        assert skeleton.counter("vertex_meeting_events") == 3
 
 
 def test_a_square_block_puts_every_event_of_the_cross_into_one_single_point():

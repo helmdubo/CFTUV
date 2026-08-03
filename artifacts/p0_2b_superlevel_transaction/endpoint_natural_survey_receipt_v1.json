@@ -1,0 +1,60 @@
+{
+  "schema": "P0_2B_ENDPOINT_NATURAL_SURVEY_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "scope": {
+    "pure_split_closure_observation": true,
+    "endpoint_effects_committed": false,
+    "product_integration": false,
+    "search_modes": ["MOTORCYCLE", "EXHAUSTIVE"],
+    "corpus_groups": {
+      "corpus63": 63,
+      "p0_3": 23
+    }
+  },
+  "method": {
+    "packet_precondition": "plan_split_materialization(snapshot).plans is nonempty",
+    "empty_terminal_packets": "skipped because no active symbolic leaf overlay exists",
+    "endpoint_detection": "same-time pure split candidate has at_start or at_end",
+    "multi_arm_check": "group by exact point and shared emitter endpoint or family resources, then count frozen-overlay boundary arms"
+  },
+  "coverage": {
+    "corpus63_motorcycle": {
+      "packets": 316,
+      "empty_terminal_packets_skipped": 153,
+      "pure_overlays_examined": 163
+    },
+    "corpus63_exhaustive": {
+      "packets": 319,
+      "empty_terminal_packets_skipped": 156,
+      "pure_overlays_examined": 163
+    },
+    "p0_3_motorcycle": {
+      "packets": 208,
+      "empty_terminal_packets_skipped": 75,
+      "pure_overlays_examined": 133
+    },
+    "p0_3_exhaustive": {
+      "packets": 211,
+      "empty_terminal_packets_skipped": 78,
+      "pure_overlays_examined": 133
+    }
+  },
+  "result": {
+    "survey_exceptions": 0,
+    "natural_endpoint_records": 0,
+    "natural_endpoint_contacts": 0,
+    "named_cases": [],
+    "natural_multi_arm_components": 0,
+    "ray_bijection_policy_required_by_survey": false
+  },
+  "invalid_attempt_excluded": {
+    "included_as_evidence": false,
+    "root_cause": "survey tried to build an overlay for empty terminal materialization plans and hit plans[0]",
+    "correction": "explicit nonempty-plan precondition followed by a full rerun with zero exceptions"
+  },
+  "interpretation_limit": "Zero is evidence only for these two corpora, two search modes, and the observed pure packets. It is not a product-wide incidence claim and must not justify deleting endpoint semantics.",
+  "status": "SURVEY_VALID_SYNTHETIC_ENDPOINT_GATE_REQUIRED"
+}

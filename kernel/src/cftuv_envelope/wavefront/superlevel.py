@@ -112,6 +112,7 @@ class SuperlevelSnapshotV1:
     vertices: tuple[_VertexSnapshot, ...]
     unsupported: tuple[CandidateEventV1, ...]
     stale_candidates: int
+    duplicate_live_owner_edge_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +197,7 @@ class SuperlevelComponentPlanV1:
     ] = ()
     existing_port_rewrites: tuple[tuple[int, tuple, tuple], ...] = ()
     birth_components: tuple[tuple[tuple, ...], ...] = ()
+    terminal_birth_cycles: tuple[tuple[tuple, ...], ...] = ()
 
 
 def _event_point_key(event: CandidateEventV1) -> tuple:
@@ -236,10 +238,19 @@ def _vertex_snapshot(
 
 
 def _port_identity(vertex: _VertexSnapshot) -> tuple:
+    """Hydration-invariant identity of an existing moving-line junction.
+
+    Exact endpoint coordinates are deliberately excluded: a sparse line port
+    may acquire either endpoint later when an interior contact grows K1/K2.
+    The two owner-distinct source edge keys stay invariant across that
+    hydration.  Multiple live aliases of the same ordered pair are rejected by
+    the symbolic overlay's unique-ref admission instead of being distinguished
+    with a runtime id.
+    """
+
     return (
-        vertex.point_key,
-        vertex.prev_occurrence,
-        vertex.next_occurrence,
+        None if vertex.prev_occurrence is None else vertex.prev_occurrence[0],
+        None if vertex.next_occurrence is None else vertex.next_occurrence[0],
     )
 
 
@@ -336,58 +347,123 @@ def _incident(
     )
 
 
-def collect_superlevel_snapshot(
-    builder, level: tuple[CandidateEventV1, ...]
-) -> SuperlevelSnapshotV1:
-    """Снять live incidences без правки LAV, proof ledger и очереди."""
-
-    time = level[0].time if level else ZERO_TIME
-    point_keys = []
-    for vertex in builder.vertices:
-        if not vertex.alive:
-            point_keys.append(None)
-            continue
-        point = builder._position(vertex, time)
-        point_keys.append(
-            None if point is None else (point.x.terms, point.y.terms)
-        )
-    occurrences = {}
-    for vertex in builder.vertices:
-        if not vertex.alive:
-            continue
-        end = builder.vertices[vertex.next]
-        if not end.alive:
-            continue
-        occurrences[vertex.next_edge] = (
-            builder.edges[vertex.next_edge].key,
-            point_keys[vertex.ident],
-            point_keys[end.ident],
-        )
-    vertices = tuple(
-        _vertex_snapshot(builder, vertex, point_keys[vertex.ident], occurrences)
-        for vertex in builder.vertices
-    )
-    incidents = []
+def _live_level(builder, level):
+    live = []
     unsupported = []
     stale = 0
     for event in level:
         if event.kind not in {EventKind.SPLIT, EventKind.EDGE}:
             unsupported.append(event)
             continue
-        live = (
+        is_live = (
             builder._edge_event_is_live(event)
             if event.kind is EventKind.EDGE
             else builder._split_is_live(event)
         )
-        if not live:
+        if is_live:
+            live.append(event)
+        else:
             stale += 1
+    return tuple(live), tuple(unsupported), stale
+
+
+def _required_physical_edge_keys(builder, events) -> set[tuple]:
+    required = set()
+    split_target_keys = set()
+    for event in events:
+        vertex = builder.vertices[event.vertex]
+        edge_ids = [vertex.prev_edge, vertex.next_edge]
+        if event.kind is EventKind.EDGE:
+            peer = builder.vertices[event.peer]
+            edge_ids.extend((peer.prev_edge, peer.next_edge))
+        else:
+            edge_ids.append(event.edge)
+            split_target_keys.add(builder.edges[event.edge].key)
+            for ident in builder._proof_edge_endpoint_ids(event.edge):
+                endpoint = builder.vertices[ident]
+                edge_ids.extend((endpoint.prev_edge, endpoint.next_edge))
+        required.update(builder.edges[ident].key for ident in edge_ids)
+    # K1 is exactly one hop around every live alias of a split-target span.
+    # It hydrates the opposite endpoint ports needed by a rewrite, but does not
+    # walk the LAV recursively.
+    for start in builder.vertices:
+        if not start.alive:
             continue
-        incidents.append(_incident(builder, event, vertices))
+        end = builder.vertices[start.next]
+        if (
+            end.alive
+            and builder.edges[start.next_edge].key in split_target_keys
+        ):
+            required.update(
+                (
+                    builder.edges[start.prev_edge].key,
+                    builder.edges[end.next_edge].key,
+                )
+            )
+    return required
+
+
+def _sparse_occurrences(builder, time, required_keys):
+    span_starts = []
+    point_vertex_ids = set()
+    live_owner_counts: dict[int, int] = {}
+    for vertex in builder.vertices:
+        if not vertex.alive:
+            continue
+        end = builder.vertices[vertex.next]
+        if not end.alive:
+            continue
+        live_owner_counts[vertex.next_edge] = (
+            live_owner_counts.get(vertex.next_edge, 0) + 1
+        )
+        if builder.edges[vertex.next_edge].key in required_keys:
+            span_starts.append((vertex, end))
+            point_vertex_ids.update((vertex.ident, end.ident))
+    point_keys = [None] * len(builder.vertices)
+    for ident in sorted(point_vertex_ids):
+        point = builder._position(builder.vertices[ident], time)
+        point_keys[ident] = (
+            None if point is None else (point.x.terms, point.y.terms)
+        )
+    occurrences = {
+        start.next_edge: (
+            builder.edges[start.next_edge].key,
+            point_keys[start.ident],
+            point_keys[end.ident],
+        )
+        for start, end in span_starts
+    }
+    duplicate_owner_ids = tuple(
+        sorted(
+            edge_id
+            for edge_id, count in live_owner_counts.items()
+            if count != 1
+        )
+    )
+    return point_keys, occurrences, duplicate_owner_ids
+
+
+def collect_superlevel_snapshot(
+    builder, level: tuple[CandidateEventV1, ...]
+) -> SuperlevelSnapshotV1:
+    """Снять только queried physical-edge incidences из frozen prestate."""
+
+    time = level[0].time if level else ZERO_TIME
+    live, unsupported, stale = _live_level(builder, level)
+    required_keys = _required_physical_edge_keys(builder, live)
+    point_keys, occurrences, duplicate_owner_ids = _sparse_occurrences(
+        builder, time, required_keys
+    )
+    vertices = tuple(
+        _vertex_snapshot(builder, vertex, point_keys[vertex.ident], occurrences)
+        for vertex in builder.vertices
+    )
     return SuperlevelSnapshotV1(
-        incidents=tuple(incidents),
+        incidents=tuple(_incident(builder, event, vertices) for event in live),
         vertices=vertices,
-        unsupported=tuple(unsupported),
+        unsupported=unsupported,
         stale_candidates=stale,
+        duplicate_live_owner_edge_ids=duplicate_owner_ids,
     )
 
 
@@ -575,12 +651,41 @@ def _edge_contact_plans(
             for ident in dead
             for edge_id in (vertices[ident].prev_edge, vertices[ident].next_edge)
         }
+        boundary_endpoints = set()
+        for chain in chains:
+            head, tail = vertices[chain[0]], vertices[chain[-1]]
+            boundary_endpoints.update(
+                (
+                    (head.prev_occurrence, head.ident, "END"),
+                    (tail.next_occurrence, tail.ident, "START"),
+                )
+            )
         local_splits = tuple(
-            incident
-            for incident in splits
-            if incident.point_key == point_key
-            and incident.event.vertex in dead
-            and incident.event.edge in incident_edges
+            dict.fromkeys(
+                incident
+                for incident in splits
+                if incident.point_key == point_key
+                and incident.event.vertex in dead
+                and incident.event.edge in incident_edges
+                and incident.met_adjacent
+                and incident.met_vertex_id is not None
+                and (
+                    (
+                        incident.target_occurrence,
+                        incident.met_vertex_id,
+                        "END",
+                    )
+                    in boundary_endpoints
+                    and incident.target_end_id == incident.met_vertex_id
+                    or (
+                        incident.target_occurrence,
+                        incident.met_vertex_id,
+                        "START",
+                    )
+                    in boundary_endpoints
+                    and incident.target_start_id == incident.met_vertex_id
+                )
+            )
         )
         absorbed.update(incident.event for incident in local_splits)
         if local_splits and len(chains) != 1:
@@ -640,6 +745,12 @@ def _edge_contact_plans(
 def _reconnect_snapshot(
     meeting: tuple[int, ...], vertices: tuple[_VertexSnapshot, ...]
 ) -> tuple[tuple[int, int], ...] | None:
+    if len(meeting) == 2:
+        # Два несоседних exact-time порта имеют единственную cross-пару.
+        # Совпавшие входящие/исходящие лучи не создают выбора: выбор лучей
+        # нужен только multi-port компоненту с тремя и более вершинами.
+        first, second = meeting
+        return ((first, second), (second, first))
     incoming: dict[tuple[int, int], list[int]] = {}
     outgoing: dict[tuple[int, int], list[int]] = {}
     for ident in meeting:
@@ -648,9 +759,6 @@ def _reconnect_snapshot(
         outgoing.setdefault(vertex.outgoing_ray, []).append(ident)
     if len(incoming) != len(meeting) or len(outgoing) != len(meeting):
         return None
-    if len(meeting) == 2:
-        first, second = meeting
-        return ((first, second), (second, first))
     pairs = []
     for ray in sorted(set(incoming) & set(outgoing)):
         pairs.append((incoming.pop(ray)[0], outgoing.pop(ray)[0]))
@@ -692,10 +800,13 @@ def _meeting_plans(
             )
         )
         touches_self = any(
-            vertices[ident].prev in meeting or vertices[ident].next in meeting
+            vertices[ident].prev in meeting
+            or vertices[ident].next in meeting
             for ident in meeting
         )
-        pairs = None if touches_self else _reconnect_snapshot(meeting, vertices)
+        pairs = (
+            None if touches_self else _reconnect_snapshot(meeting, vertices)
+        )
         if pairs is None:
             cuts.extend(incidents)
             fallbacks.extend(incident.event for incident in incidents)
@@ -838,6 +949,15 @@ def _split_cut_plans(
                 (span_start, *points), (*points, span_end)
             )
         )
+        # Эта транзакция принимает только настоящий interior cut. Endpoint,
+        # нулевой, повторный или неизменённый prestate occurrence остаётся
+        # fail-closed: отдельного доказанного правила для него здесь нет.
+        if (
+            any(left == right for _, left, right in segment_occurrences)
+            or len(set(segment_occurrences)) != len(segment_occurrences)
+            or target_occurrence in segment_occurrences
+        ):
+            return (), 0, False
         births = []
         final_birth_ports = []
         for index, item in enumerate(ordered):
@@ -859,9 +979,8 @@ def _split_cut_plans(
             if left is None or right is None:
                 return (), 0, False
             births.extend((left, right))
-            # Segment ports уже принадлежат poststate разреза. Даже когда
-            # endpoint-cut оставляет последний segment геометрически равным
-            # prestate target, повторно переписывать этот порт нельзя.
+            # Interior segment ports уже принадлежат poststate разреза, поэтому
+            # повторно переписывать их через target occurrence нельзя.
             final_birth_ports.extend(
                 ((left.key, False, True), (right.key, True, False))
             )
@@ -1035,21 +1154,27 @@ def _wire_births(
     for vertex in vertices:
         if not vertex.alive or vertex.ident in dead:
             continue
-        if vertex.prev_occurrence is None or vertex.next_occurrence is None:
-            continue
-        prev_occurrence = _rewritten_occurrence(
-            vertex.prev_occurrence, prev_rewrites
+        prev_occurrence = (
+            None
+            if vertex.prev_occurrence is None
+            else _rewritten_occurrence(vertex.prev_occurrence, prev_rewrites)
         )
-        next_occurrence = _rewritten_occurrence(
-            vertex.next_occurrence, next_rewrites
+        next_occurrence = (
+            None
+            if vertex.next_occurrence is None
+            else _rewritten_occurrence(vertex.next_occurrence, next_rewrites)
         )
         reference = VertexReferenceV1(existing=vertex.ident)
-        starts.setdefault(next_occurrence, []).append(reference)
-        ends.setdefault(prev_occurrence, []).append(reference)
+        if next_occurrence is not None:
+            starts.setdefault(next_occurrence, []).append(reference)
+        if prev_occurrence is not None:
+            ends.setdefault(prev_occurrence, []).append(reference)
         if (
             prev_occurrence != vertex.prev_occurrence
             or next_occurrence != vertex.next_occurrence
         ):
+            if prev_occurrence is None or next_occurrence is None:
+                return rewritten, (), (), (), False
             rewrites.append((vertex.ident, prev_occurrence, next_occurrence))
     for birth in rewritten:
         reference = VertexReferenceV1(birth_key=birth.key)
@@ -1062,13 +1187,62 @@ def _wire_births(
         successors = ends.get(birth.next_occurrence, [])
         if len(predecessors) != 1 or len(successors) != 1:
             return rewritten, (), (), (), False
-        wiring.append((birth.key, predecessors[0], successors[0]))
+        predecessor, successor = predecessors[0], successors[0]
+        wiring.append((birth.key, predecessor, successor))
     return (
         rewritten,
         tuple(sorted(wiring, key=lambda item: repr(item[0]))),
         tuple(sorted(rewrites)),
         components,
         True,
+    )
+
+
+def _terminal_two_birth_cycles(
+    births: tuple[BoundaryBirthV1, ...],
+    components: tuple[tuple[tuple, ...], ...],
+    wiring: tuple[
+        tuple[tuple, VertexReferenceV1, VertexReferenceV1], ...
+    ],
+) -> tuple[tuple[tuple, ...], ...]:
+    """Доказать fully-born reciprocal two-cycle без existing anchors."""
+
+    births_by_key = {birth.key: birth for birth in births}
+    wiring_by_key = {
+        key: (predecessor, successor)
+        for key, predecessor, successor in wiring
+    }
+    terminal = []
+    for component in components:
+        if len(component) != 2 or len(set(component)) != 2:
+            continue
+        first, second = component
+        if (
+            births_by_key[second].next_occurrence
+            != births_by_key[first].prev_occurrence
+        ):
+            continue
+        reciprocal = True
+        for key, other in ((first, second), (second, first)):
+            predecessor, successor = wiring_by_key[key]
+            if (
+                predecessor.existing is not None
+                or successor.existing is not None
+                or predecessor.birth_key != other
+                or successor.birth_key != other
+            ):
+                reciprocal = False
+                break
+        if reciprocal:
+            terminal.append(component)
+    return tuple(terminal)
+
+
+def _composed_initial_plans(contacts, split_cuts, vertices):
+    from .symbolic_initial_composition import compose_edge_split_overlap
+
+    return compose_edge_split_overlap(
+        contacts, split_cuts, vertices, birth_factory=_birth
     )
 
 
@@ -1103,6 +1277,12 @@ def _planned_component(
     split_cuts, dropped, cuts_valid = _split_cut_plans(
         cuts, vertices
     )
+    (
+        contacts,
+        split_cuts,
+        composed_contact_cut_overlap,
+        composition_valid,
+    ) = _composed_initial_plans(contacts, split_cuts, vertices)
     contact_dead = {
         ident for contact in contacts for ident in contact.dead_vertex_ids
     }
@@ -1116,9 +1296,12 @@ def _planned_component(
         valid
         and unique_incidents
         and cuts_valid
+        and composition_valid
         and not contact_dead.intersection(meeting_dead)
         and not meeting_dead.intersection(cut_dead)
-        and not contact_dead.intersection(cut_dead)
+        and contact_dead.intersection(cut_dead)
+        == composed_contact_cut_overlap
+        and (not composed_contact_cut_overlap or not meetings)
     )
     dead = contact_dead | meeting_dead | cut_dead
     raw_births = tuple(
@@ -1140,6 +1323,14 @@ def _planned_component(
         vertices,
         split_cuts,
     )
+    terminal_birth_cycles = _terminal_two_birth_cycles(
+        births,
+        birth_components,
+        birth_wiring,
+    )
+    # Диагностический witness, не authority на retirement: reciprocal ports
+    # не исключают внешний same-time incident на новом occurrence в другой
+    # точке. Такой cycle обязан остаться live до полного exact-time fixed point.
     valid = valid and ports_valid
     chains = _snapshot_chains(dead, vertices)
     if contacts:
@@ -1172,6 +1363,7 @@ def _planned_component(
         birth_wiring=birth_wiring,
         existing_port_rewrites=existing_port_rewrites,
         birth_components=birth_components,
+        terminal_birth_cycles=terminal_birth_cycles,
         suppressed_candidates=0,
         **base,
     )
@@ -1218,6 +1410,67 @@ def _record_unresolvable(builder, plan: SuperlevelComponentPlanV1) -> None:
         participant_edge_keys=plan.participants,
         target_edge_keys=plan.target_participants,
         level=plan.time,
+        event_kind=EventKind.MULTIWAY,
+    )
+
+
+def _record_duplicate_live_owner(builder, snapshot, level) -> None:
+    edge_ids = snapshot.duplicate_live_owner_edge_ids
+    vertex_ids = tuple(
+        sorted(
+            vertex.ident
+            for vertex in snapshot.vertices
+            if vertex.alive and vertex.next_edge in edge_ids
+        )
+    )
+    participants = builder._edge_keys(*edge_ids)
+    builder.counters["superlevel_unresolvable_components"] += 1
+    builder.refusal = SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE
+    builder._record_obligation(
+        cause=ProofObligationBranch.SUPERLEVEL_COMPONENT_UNRESOLVABLE,
+        disposition=(
+            ProofObligationDisposition.SUPERLEVEL_COMPONENT_UNRESOLVABLE
+        ),
+        vertex_ids=vertex_ids,
+        participant_edge_keys=participants,
+        target_edge_keys=participants,
+        level=level[0].time if level else ZERO_TIME,
+        event_kind=EventKind.MULTIWAY,
+    )
+
+
+def _record_symbolic_unresolvable(builder, snapshot, reason: str) -> None:
+    """Record a coordinator refusal with the complete frozen packet identity."""
+
+    vertex_ids = tuple(sorted(
+        vertex.ident for vertex in snapshot.vertices if vertex.alive
+    ))
+    participants = tuple(sorted({
+        participant
+        for incident in snapshot.incidents
+        for participant in incident.participants
+    }))
+    targets = tuple(sorted({
+        participant
+        for incident in snapshot.incidents
+        for participant in incident.target_participants
+    }))
+    builder.counters["superlevel_unresolvable_components"] += 1
+    reason_counter = f"superlevel_unresolvable_reason::{reason}"
+    builder.counters[reason_counter] = builder.counters.get(reason_counter, 0) + 1
+    builder.refusal = SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE
+    builder._record_obligation(
+        cause=ProofObligationBranch.SUPERLEVEL_COMPONENT_UNRESOLVABLE,
+        disposition=(
+            ProofObligationDisposition.SUPERLEVEL_COMPONENT_UNRESOLVABLE
+        ),
+        vertex_ids=vertex_ids,
+        participant_edge_keys=participants,
+        target_edge_keys=targets,
+        level=(
+            snapshot.incidents[0].event.time
+            if snapshot.incidents else ZERO_TIME
+        ),
         event_kind=EventKind.MULTIWAY,
     )
 
@@ -1324,7 +1577,7 @@ def _emit_component_nodes(builder, plan) -> None:
 
 
 def _record_fallbacks(builder, plans) -> None:
-    from .skeleton import CandidateRefusal
+    from .candidate_refusal import CandidateRefusal
 
     for plan in plans:
         for event in plan.proof_fallbacks:
@@ -1379,11 +1632,13 @@ def _existing_edges_by_occurrence(snapshot, plans):
     for vertex in snapshot.vertices:
         if vertex.alive and vertex.next_occurrence is not None:
             grouped.setdefault(vertex.next_occurrence, set()).add(vertex.next_edge)
-    if any(len(grouped.get(occurrence, ())) != 1 for occurrence in required):
-        return None
-    return {
-        occurrence: next(iter(grouped[occurrence])) for occurrence in required
-    }
+    resolved = {}
+    for occurrence in required:
+        owners = grouped.get(occurrence, set())
+        if len(owners) != 1:
+            return None
+        resolved[occurrence] = next(iter(owners))
+    return resolved
 
 
 def _commit_prestate(snapshot, plans):
@@ -1495,9 +1750,11 @@ def _commit_plans(builder, plans, edge_by_occurrence) -> None:
                 edge_seeds.append(predecessor)
 
     for vertex in sorted(
-        _unique_vertices(born), key=lambda item: _seed_key(builder, item)
+        (vertex for vertex in _unique_vertices(born) if vertex.alive),
+        key=lambda item: _seed_key(builder, item),
     ):
         builder._enqueue_for(vertex)
+    born_vertex_ids = frozenset(vertex.ident for vertex in born)
     for vertex in sorted(
         _unique_vertices(edge_seeds), key=lambda item: _seed_key(builder, item)
     ):
@@ -1513,7 +1770,12 @@ def _commit_plans(builder, plans, edge_by_occurrence) -> None:
     for _, edge in sorted(
         unique_affected.values(), key=lambda item: repr(item[0])
     ):
-        builder._enqueue_splits_against(edge)
+        # Born vertices уже полностью посеяны через `_enqueue_for`; повторный
+        # affected-edge scan обязан искать только внешние reflex vertices.
+        builder._enqueue_splits_against(
+            edge,
+            excluded_vertex_ids=born_vertex_ids,
+        )
 
 
 def apply_superlevel_transaction(
@@ -1522,28 +1784,62 @@ def apply_superlevel_transaction(
     """Plan/validate всё на frozen prestate, затем atomically commit deltas."""
 
     snapshot = collect_superlevel_snapshot(builder, level)
-    plans = plan_superlevel_components(snapshot)
-    unresolved = tuple(
-        plan
-        for plan in plans
-        if plan.resolution is SuperlevelResolution.UNRESOLVABLE
+    builder.counters["discarded_stale_candidates"] += (
+        snapshot.stale_candidates
     )
-    if unresolved:
-        for plan in unresolved:
-            _record_unresolvable(builder, plan)
-        return
-
-    builder.counters["discarded_stale_candidates"] += snapshot.stale_candidates
     for event in snapshot.unsupported:
         _record_unsupported(builder, event)
-    edge_by_occurrence = _commit_prestate(snapshot, plans)
-    if edge_by_occurrence is None:
-        _record_unresolvable(builder, plans[0])
+    if snapshot.duplicate_live_owner_edge_ids:
+        _record_duplicate_live_owner(builder, snapshot, level)
         return
-    _commit_plans(builder, plans, edge_by_occurrence)
-    builder.counters["superlevel_contact_junction_resolutions"] += sum(
-        len(plan.births) for plan in plans
+    if not snapshot.incidents:
+        return
+
+    from .symbolic_runtime_commit import (
+        materialize_symbolic_runtime_commit,
+        plan_symbolic_runtime_commit,
     )
+    from .symbolic_superlevel_coordinator import (
+        plan_symbolic_superlevel_closure,
+    )
+
+    # Число живых frozen ports ограничивает число причинных поколений; запас
+    # покрывает interior births, не превращая исчерпание в последовательный
+    # fallback. Любое исчерпание остаётся именованным отказом coordinator.
+    budget = max(8, 2 * len(snapshot.vertices) + len(snapshot.incidents))
+    closure = plan_symbolic_superlevel_closure(
+        builder,
+        snapshot,
+        outer_budget=budget,
+        junction_budget=budget,
+    )
+    plans = (
+        () if closure.materialization is None
+        else closure.materialization.plans
+    )
+    if closure.unresolved_reason is not None or not plans:
+        _record_symbolic_unresolvable(
+            builder,
+            snapshot,
+            closure.unresolved_reason
+            or "SYMBOLIC_SUPERLEVEL_MATERIALIZATION_UNAVAILABLE",
+        )
+        return
+    commit, reason = plan_symbolic_runtime_commit(builder, snapshot, closure)
+    if reason is not None or commit is None:
+        _record_symbolic_unresolvable(
+            builder,
+            snapshot,
+            reason or "SYMBOLIC_RUNTIME_COMMIT_PLAN_UNAVAILABLE",
+        )
+        return
+    commit_reason = materialize_symbolic_runtime_commit(
+        builder, snapshot, commit
+    )
+    if commit_reason is not None:
+        _record_symbolic_unresolvable(
+            builder, snapshot, commit_reason
+        )
 
 
 def has_same_time_residual(queue: EventQueueV1, now: EventTimeV1) -> bool:

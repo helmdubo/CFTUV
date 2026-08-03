@@ -15,7 +15,7 @@ from .event_time import EventTimeV1
 from .events import EventKind
 
 if TYPE_CHECKING:
-    from .skeleton import CandidateRefusal
+    from .candidate_refusal import CandidateRefusal
 
 
 class ProofObligationDisposition(str, Enum):

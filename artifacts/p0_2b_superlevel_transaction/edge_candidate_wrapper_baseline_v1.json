@@ -1,0 +1,25 @@
+{
+  "groups": {
+    "corpus_63::EXHAUSTIVE": {
+      "candidate_query_count": 862,
+      "case_count": 63,
+      "sha256": "b3fd62816af5de9981ff4f1f53586581f15b01b0860b9dd8e80513cb98d07515"
+    },
+    "corpus_63::MOTORCYCLE": {
+      "candidate_query_count": 862,
+      "case_count": 63,
+      "sha256": "8c802cbea441aa84cbdff5fa456848e2af663df1831fc5d11c0cafdb2b19204f"
+    },
+    "p0_3_23::EXHAUSTIVE": {
+      "candidate_query_count": 539,
+      "case_count": 23,
+      "sha256": "aed71f354d108007159c731eac3a48efcdaa0c04f0db6d62195e50a1028694be"
+    },
+    "p0_3_23::MOTORCYCLE": {
+      "candidate_query_count": 539,
+      "case_count": 23,
+      "sha256": "cd6332c73bcb0ddb085ee380d608886510459832e07ec9f5770d64f3d8b30a41"
+    }
+  },
+  "schema": "P0_2B_EDGE_WRAPPER_BASELINE_V1"
+}
