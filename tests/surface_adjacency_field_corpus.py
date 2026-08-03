@@ -57,10 +57,27 @@ def field_snapshot_paths() -> tuple[Path, ...]:
     return tuple(FIXTURE_ROOT / name for name in FIELD_SNAPSHOT_NAMES)
 
 
+# Единственный замороженный снапшот со старой (положительно отмасштабированной,
+# неканоничной) нормалью плоскости. Байты полевого свидетельства не
+# переписываются; читатель проходит закатное окно совместимости P0-4 и
+# СВЕРЯЕТ счётчик хитов: у легаси-фикстуры ровно 1, у остальных ровно 0.
+# Новая неканоничная фикстура этим окном не пролезет.
+LEGACY_POSITIVE_SCALED_SNAPSHOTS = frozenset({"building_patch10_density4_v1"})
+
+
 def load_snapshot(folder: Path):
-    return kernel.AnalysisSnapshotCodecV1.loads(
+    loaded = kernel.AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
         (folder / "analysis_snapshot.json").read_bytes()
     )
+    expected_hits = 1 if folder.name in LEGACY_POSITIVE_SCALED_SNAPSHOTS else 0
+    actual_hits = loaded.compatibility_receipt.positive_scaled_normal_compat_hits
+    if actual_hits != expected_hits:
+        raise AssertionError(
+            "positive-scaled compatibility hits diverge from the frozen "
+            f"allowlist: {folder.name} expected {expected_hits}, got "
+            f"{actual_hits}"
+        )
+    return loaded.record
 
 
 def load_edge_face_counts(folder: Path):

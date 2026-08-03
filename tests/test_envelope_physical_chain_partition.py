@@ -43,6 +43,7 @@ from cftuv.envelope_topology_export import (  # noqa: E402
     build_envelope_topology_export,
 )
 
+from surface_adjacency_field_corpus import load_snapshot  # noqa: E402
 from envelope_fixture_bundles import (  # noqa: E402
     SEM_CLB_CASE_ROOT,
     U_ROUTE,
@@ -119,9 +120,8 @@ def _compile(snapshot, selected_edge_ids, alpha=0.3):
 
 
 def _field_snapshot():
-    return kernel.AnalysisSnapshotCodecV1.loads(
-        (FIELD_CASE / "analysis_snapshot.json").read_bytes()
-    )
+    # Через окно совместимости P0-4: сверка хитов — власть общего загрузчика.
+    return load_snapshot(FIELD_CASE)
 
 
 # --------------------------------------------------------------------------
@@ -307,7 +307,7 @@ def test_kink_law_never_fires_where_the_chart_is_already_linear(path: Path):
     отдельным счётчиком; цепочек, прямых в 3D, закон не трогает.
     """
 
-    snapshot = kernel.AnalysisSnapshotCodecV1.loads(path.read_bytes())
+    snapshot = load_snapshot(path.parent)
     bundle, _ = bundle_from_exported_snapshot(snapshot)
     positions = _exact_source_positions(bundle)
     frame = next(iter(snapshot.surface_metric_descriptors))

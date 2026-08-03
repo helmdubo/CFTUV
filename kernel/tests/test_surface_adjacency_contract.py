@@ -77,11 +77,29 @@ FIELD_SNAPSHOTS = (
 )
 
 
+# Единственная замороженная фикстура со старой (положительно
+# отмасштабированной) нормалью плоскости: байты полевого свидетельства не
+# переписываются, читатель проходит закатное окно совместимости P0-4, и
+# счётчик хитов сверяется с этим списком. Новой неканоничной фикстуре
+# окно не светит.
+LEGACY_POSITIVE_SCALED_SNAPSHOTS = frozenset({"building_patch10_density4_v1"})
+
+
+def _legacy_hits(name: str) -> int:
+    return 1 if name.rsplit("/", 1)[-1] in LEGACY_POSITIVE_SCALED_SNAPSHOTS else 0
+
+
 def _load(name: str):
     folder = FIXTURE_ROOT / name
-    return kernel.AnalysisSnapshotCodecV1.loads(
+    loaded = kernel.AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
         (folder / "analysis_snapshot.json").read_bytes()
     )
+    hits = loaded.compatibility_receipt.positive_scaled_normal_compat_hits
+    assert hits == _legacy_hits(name), (
+        f"{name}: positive-scaled compatibility hits {hits} diverge from "
+        f"the frozen allowlist expectation {_legacy_hits(name)}"
+    )
+    return loaded.record
 
 
 def _table(surface, scope=SurfaceAdjacencyScopeV1.FULL_SOURCE_MESH, **kwargs):
@@ -527,18 +545,36 @@ def test_sunset_ratchet_counts_the_snapshots_that_still_need_the_compat_path():
 
 @pytest.mark.parametrize("name", FIELD_SNAPSHOTS)
 def test_field_snapshot_bytes_and_digest_do_not_move(name: str):
-    """Обёртка не трогает снапшот. Свойство проверяется, а не обещается."""
+    """Обёртка не трогает снапшот. Свойство проверяется, а не обещается.
+
+    После P0-4 у свойства две ветви. Канонические фикстуры проходят кодек
+    байт-в-байт, как и раньше. Единственная легаси-фикстура (см.
+    LEGACY_POSITIVE_SCALED_SNAPSHOTS) канонизируется ПРИ ЧТЕНИИ по
+    именованному окну совместимости — её байты на диске неприкосновенны,
+    а свойство кодека становится идемпотентностью: повторное чтение
+    канонической формы не тратит окно и воспроизводит те же байты.
+    Чтение смежности не мутирует снапшот в обеих ветвях.
+    """
 
     folder = FIXTURE_ROOT / name
     raw = (folder / "analysis_snapshot.json").read_bytes()
-    snapshot = kernel.AnalysisSnapshotCodecV1.loads(raw)
-    assert kernel.AnalysisSnapshotCodecV1.dumps(snapshot) == raw
+    snapshot = _load(name)
+    canonical = kernel.AnalysisSnapshotCodecV1.dumps(snapshot)
+    if _legacy_hits(name) == 0:
+        assert canonical == raw
+    else:
+        reread = kernel.AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
+            canonical
+        )
+        hits = reread.compatibility_receipt.positive_scaled_normal_compat_hits
+        assert hits == 0, "каноническая форма не имеет права тратить окно"
+        assert kernel.AnalysisSnapshotCodecV1.dumps(reread.record) == canonical
     read_surface_adjacency(
         snapshot.surface_ir, scope=SurfaceAdjacencyScopeV1.FULL_SOURCE_MESH
     )
-    assert kernel.AnalysisSnapshotCodecV1.dumps(snapshot) == raw
+    assert kernel.AnalysisSnapshotCodecV1.dumps(snapshot) == canonical
     assert snapshot_digest(snapshot).sha256_hex == snapshot_digest(
-        kernel.AnalysisSnapshotCodecV1.loads(raw)
+        _load(name)
     ).sha256_hex
 
 
