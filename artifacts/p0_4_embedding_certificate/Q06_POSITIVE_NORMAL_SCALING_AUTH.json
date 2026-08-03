@@ -1,6 +1,6 @@
 {
   "schema": "P0_4_Q06_POSITIVE_NORMAL_SCALING_AUTH_V1",
-  "status": "REPAIR_AWAITING_REPEAT_ADVERSARIAL_ACCEPTANCE",
+  "status": "ACCEPT_TO_PUSH",
   "frozen_fixture": {
     "fixture_id": "building_patch10_density4_v1",
     "path": "kernel/fixtures/building_patch10_density4_v1/analysis_snapshot.json",
@@ -108,5 +108,14 @@
     "v2_builder_bytes": "131 calls; 760027 bytes; receipt 005d502711e2fd0c31463dad91ab4dfb94d2e7ae489e975834a47520602e1453",
     "fixture_survey": "136 passed; 131/131 ADMITTED; 0 findings"
   },
-  "lead_recommendation": "B is confined to the explicit receipt-bearing read boundary; ordinary codecs and validators remain fail-closed. Repeat adversarial acceptance is required before push."
+  "post_boundary_repair_acceptance": {
+    "verified_head": "def910016128fad19f054f68da85415f6262cdf9",
+    "host_full_suite": "1043 passed, 3 skipped, 4 deselected in 84.21s",
+    "kernel_full_suite": "2221 passed in 1169.82s",
+    "repeat_adversarial_verdict": "ACCEPT_TO_PUSH",
+    "sole_policy_injection": "loads_with_compatibility_receipt",
+    "forged_positive_scale": "c=7/3 rejects on strict paths and returns primitive with hit=1 only on the receipt path",
+    "negative_and_n_plus_one": "named rejection confirmed"
+  },
+  "lead_recommendation": "B is confined to the explicit receipt-bearing read boundary; ordinary codecs and validators remain fail-closed. Independent repeat adversarial review authorizes push."
 }

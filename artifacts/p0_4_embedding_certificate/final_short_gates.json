@@ -72,7 +72,7 @@
   "validator_hardening": {
     "command": "PYTHONPATH=kernel/src python -m pytest -q kernel/tests/test_embedding_certificates.py",
     "result": "46 passed in 1.25s",
-    "independent_audit": "REPEAT_PENDING_AFTER_Q06_BOUNDARY_REPAIR"
+    "independent_audit": "ACCEPT_TO_PUSH"
   },
   "q06_boundary_repair": {
     "law": "compatibility is available only through loads_with_compatibility_receipt",
@@ -87,8 +87,17 @@
     "wavefront_tracked_diff_count": 0
   },
   "independent_full_suites": {
-    "host": "1043 passed, 3 skipped, 4 deselected in 85.15s",
-    "kernel": "2221 passed in 1051.40s"
+    "verified_head": "def910016128fad19f054f68da85415f6262cdf9",
+    "scope": "post-boundary-repair",
+    "host": "1043 passed, 3 skipped, 4 deselected in 84.21s",
+    "kernel": "2221 passed in 1169.82s"
   },
-  "status": "REPAIR_AWAITING_REPEAT_ADVERSARIAL_ACCEPTANCE"
+  "repeat_adversarial_acceptance": {
+    "verdict": "ACCEPT_TO_PUSH",
+    "policy_injection": "loads_with_compatibility_receipt only",
+    "positive_scale_control": "forged c=7/3 rejects on strict paths; receipt path returns primitive with hit=1",
+    "negative_and_n_plus_one": "rejected under their named dispositions"
+  },
+  "status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "push_authorization": "ACCEPT_TO_PUSH"
 }
