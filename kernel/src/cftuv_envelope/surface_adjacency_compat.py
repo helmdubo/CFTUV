@@ -218,6 +218,25 @@ def _links(vertex_id, triangle_ids, records, opposites):
     return links, reasons
 
 
+def _unavailable_reason(reasons) -> VertexFanUnavailableReasonV1:
+    """Причина неупорядоченного веера по объявленному старшинству.
+
+    `MESH_BOUNDARY` в этот список не входит НАМЕРЕННО: край меша веер не
+    ломает, он его только размыкает. Веер, не сложившийся при одних лишь
+    краевых сторонах, — защемлённая вершина («бабочка»), то есть
+    немногообразие, и называется им, а не краем.
+    """
+
+    for candidate in (
+        VertexFanUnavailableReasonV1.NON_MANIFOLD_FAN,
+        VertexFanUnavailableReasonV1.OUTSIDE_REQUESTED_SCOPE,
+        VertexFanUnavailableReasonV1.HOST_DECLARED_UNKNOWN,
+    ):
+        if candidate.value in reasons:
+            return candidate
+    return VertexFanUnavailableReasonV1.NON_MANIFOLD_FAN
+
+
 def _fans(surface, records, opposites) -> frozenset:
     fans = []
     for vertex_id, incident in _incidence(surface).items():
@@ -232,11 +251,7 @@ def _fans(surface, records, opposites) -> frozenset:
             fans.append(
                 VertexFanUnavailableV1(
                     vertex_id=vertex_id,
-                    reason=(
-                        VertexFanUnavailableReasonV1.NON_MANIFOLD_FAN
-                        if "NON_MANIFOLD_FAN" in reasons or not reasons
-                        else VertexFanUnavailableReasonV1(sorted(reasons)[0])
-                    ),
+                    reason=_unavailable_reason(reasons),
                 )
             )
             continue

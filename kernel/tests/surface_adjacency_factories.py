@@ -127,6 +127,17 @@ def non_manifold_fin():
     return triangulated_surface([(0, 1, 2), (1, 0, 3), (0, 1, 4)])
 
 
+def bowtie_pinch():
+    """Два треугольника, встречающиеся ТОЛЬКО в одной вершине.
+
+    Ни одна сторона не общая, поэтому склеек нет вовсе — а веер вершины 0 всё
+    равно не складывается: он распадается на две несвязные половины. Это
+    защемление, а не край, и называться оно обязано немногообразием.
+    """
+
+    return triangulated_surface([(0, 1, 2), (0, 3, 4)])
+
+
 def three_coincident_components():
     """Три РАЗДЕЛЬНЫХ треугольника с совпадающими позициями.
 
@@ -154,6 +165,7 @@ def coincident_positions():
 __all__ = (
     "PATCH",
     "REVISION",
+    "bowtie_pinch",
     "coincident_positions",
     "edge",
     "face",

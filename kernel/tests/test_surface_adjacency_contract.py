@@ -48,6 +48,7 @@ from cftuv_envelope.surface_adjacency_compat import (
 from surface_adjacency_factories import (
     PATCH,
     REVISION,
+    bowtie_pinch,
     edge,
     flipped_quad,
     non_manifold_fin,
@@ -74,6 +75,7 @@ FIELD_SNAPSHOTS = (
     "sem_clb_02_lost_domains_v1/cases/building_all_seams_patch_011_lost_resolved_v1",
     "sem_clb_02_lost_domains_v1/cases/building_all_seams_patch_105_lost_resolved_v1",
 )
+
 
 def _load(name: str):
     folder = FIXTURE_ROOT / name
@@ -370,6 +372,27 @@ def test_n10_three_coincident_components_are_not_glued_by_endpoints():
     )
     assert len(table.vertex_fans) == 9
     assert all(isinstance(fan, VertexFanV1) for fan in table.vertex_fans)
+
+
+def test_a_pinched_vertex_is_named_non_manifold_not_a_mesh_boundary():
+    """Веер, распавшийся при одних лишь краевых сторонах, — защемление."""
+
+    surface = bowtie_pinch()
+    table = _table(surface)
+    validate_surface_adjacency(table, surface)
+    unavailable = {
+        fan.vertex_id: fan.reason
+        for fan in table.vertex_fans
+        if isinstance(fan, VertexFanUnavailableV1)
+    }
+    assert unavailable == {
+        vertex(0): VertexFanUnavailableReasonV1.NON_MANIFOLD_FAN
+    }
+    assert all(
+        isinstance(side.opposite, SideBoundaryV1)
+        and side.opposite.reason is SideBoundaryReasonV1.MESH_BOUNDARY
+        for side in table.triangle_sides
+    )
 
 
 def test_vertex_fan_order_is_the_declared_canonical_one():
