@@ -168,6 +168,39 @@ def test_only_domains_short_of_coverage_count_as_refused():
     ]
 
 
+def test_console_receipt_prefix_matches_resolved_stages(capsys):
+    """`QUEUE_RESOLVED: EXACT` в консоли печатается как RESOLVED, не REJECTED.
+
+    Полевой факт, которым это оплачено: на walls.001 домен стены построился
+    (EXACT, Resolved 1/2), но в консоли его строка начиналась с «REJECTED» —
+    успех, объявленный отказом. Числа покрытия из сообщения расписки при
+    этом обязаны остаться на экране.
+    """
+
+    from cftuv.envelope_debug_renderer import _print_profile
+
+    snapshot = _profile_with(
+        "QUEUE",
+        _receipt("domain-a", EnvelopeDomainStage.QUEUE_RESOLVED),
+        _receipt("domain-b", EnvelopeDomainStage.QUEUE_PREPARE_REJECTED),
+    )
+    capsys.readouterr()
+    _print_profile(snapshot)
+    printed = capsys.readouterr().out
+
+    lines = [line.strip() for line in printed.splitlines()]
+    resolved = [line for line in lines if line.startswith("RESOLVED ")]
+    rejected = [line for line in lines if line.startswith("REJECTED ")]
+    assert len(resolved) == 1
+    assert "QUEUE_RESOLVED" in resolved[0]
+    assert "domain-a"[-24:] in resolved[0]
+    assert len(rejected) == 1
+    assert "QUEUE_PREPARE_REJECTED" in rejected[0]
+    assert "domain-b"[-24:] in rejected[0]
+    # Сообщение расписки успеха (числа покрытия) не потеряно печатью.
+    assert lines[lines.index(resolved[0]) + 1] == "measured"
+
+
 def test_topology_only_build_refuses_nothing():
     """`TOPOLOGY_READY` на топологическом прогоне — успех, а не отказ.
 

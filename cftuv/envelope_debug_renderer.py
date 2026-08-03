@@ -943,6 +943,9 @@ def _print_profile(profile) -> None:
     )
     # «Resolved 6/7» само по себе не говорит ни какой домен упал, ни почему.
     # Именованный отказ, который надо искать в JSON, — это почти тихий отказ.
+    # Префикс — по ENVELOPE_DEBUG_RESOLVED_STAGES, как в refused_receipts:
+    # QUEUE_RESOLVED печатается ради чисел покрытия в сообщении, но подпись
+    # «REJECTED» на исходе EXACT — это успех, объявленный отказом.
     for receipt in sorted(
         (
             item
@@ -951,8 +954,13 @@ def _print_profile(profile) -> None:
         ),
         key=lambda item: item.patch_domain_id,
     ):
+        verdict = (
+            "RESOLVED"
+            if receipt.stage in ENVELOPE_DEBUG_RESOLVED_STAGES
+            else "REJECTED"
+        )
         print(
-            f"  REJECTED {_domain_text(receipt.patch_domain_id)} "
+            f"  {verdict} {_domain_text(receipt.patch_domain_id)} "
             f"{receipt.stage.value}: {receipt.outcome}"
         )
         print(f"    {receipt.message}")
