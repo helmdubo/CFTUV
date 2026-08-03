@@ -899,6 +899,9 @@
           "type": "array",
           "uniqueItems": true
         },
+        "domain_doubled_area": {
+          "$ref": "#/$defs/ExactAlgebraicSumV1"
+        },
         "events": {
           "items": {
             "$ref": "#/$defs/ArrivalEventV1"
@@ -997,6 +1000,7 @@
         "cut_locus",
         "owner_fragments",
         "events",
+        "domain_doubled_area",
         "front_outcome",
         "ownership_outcome",
         "proof_status",

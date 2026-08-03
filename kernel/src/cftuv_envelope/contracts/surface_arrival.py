@@ -596,6 +596,14 @@ class ArrivalCounterV1:
 class SurfaceArrivalComplexV1:
     """Предвычисленный комплекс прибытия до `alpha_horizon`.
 
+    `domain_doubled_area` — удвоенная площадь ОБЛАСТИ, а не суммы фрагментов.
+    Поля два, а не одно, потому что это два разных утверждения: сколько было и
+    сколько роздано. Совпадение их — доказуемое свойство ответа (граница 3
+    планарного сборщика), и записывать вместо него одно число значило бы
+    объявить свойство определением и лишить себя возможности заметить потерю
+    клина. Комплекс, не знающий площади своей области, не может сказать, что
+    он ничего не потерял.
+
     В union `SurfaceMetricDescriptorV1` и в фасад `cftuv_envelope` НЕ входит:
     проводка транспорта — отдельная карточка после интеграционной вершины, до
     неё замороженные дайджесты фасада не двигаются вовсе.
@@ -614,6 +622,7 @@ class SurfaceArrivalComplexV1:
     cut_locus: frozenset[CutLocusPointV1]
     owner_fragments: frozenset[OwnerFragmentV1]
     events: tuple[ArrivalEventV1, ...]
+    domain_doubled_area: ExactAlgebraicSumV1
     front_outcome: SkeletonOutcome
     ownership_outcome: LawId
     proof_status: ProofStatus
