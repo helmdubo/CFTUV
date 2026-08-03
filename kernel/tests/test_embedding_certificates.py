@@ -896,8 +896,21 @@ def test_positive_scaled_normal_is_read_only_compatibility(near):
             ),
         ),
     )
-    assert validate_rational_affine_planar_metric(forged.metric) == ()
-    assert _validate_wrapper(forged, vertices, faces) == ()
+    direct_issues = (
+        *validate_rational_affine_planar_metric(forged.metric),
+        *_validate_wrapper(forged, vertices, faces),
+    )
+    assert any(
+        "POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED" in item.message
+        for item in direct_issues
+    )
+    with pytest.raises(
+        ContractCodecError,
+        match="POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED",
+    ):
+        EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.loads(
+            canonical_json_bytes(forged)
+        )
     loaded = (
         EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.
         loads_with_compatibility_receipt(canonical_json_bytes(forged))
@@ -905,11 +918,13 @@ def test_positive_scaled_normal_is_read_only_compatibility(near):
     assert loaded.compatibility_receipt.positive_scaled_normal_compat_hits == 1
     assert loaded.record.metric.planarity_certificate.exact_plane_normal == normal
     assert _validate_wrapper(loaded.record, vertices, faces) == ()
-    rewritten = (
-        EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.
-        loads_with_compatibility_receipt(
-            EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.dumps(forged)
-        )
+    with pytest.raises(
+        ContractCodecError,
+        match="POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED",
+    ):
+        EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.dumps(forged)
+    rewritten = EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.loads_with_compatibility_receipt(
+        EmbeddingCertifiedRationalAffinePlanarMetricCodecV1.dumps(loaded.record)
     )
     assert rewritten.compatibility_receipt.positive_scaled_normal_compat_hits == 0
     assert rewritten.record.metric.planarity_certificate.exact_plane_normal == normal
@@ -1009,7 +1024,9 @@ def test_positive_scaled_fixture_ratchet_rejects_n_plus_one_atomically():
         Path(__file__).parents[1]
         / "fixtures/building_patch10_density4_v1/analysis_snapshot.json"
     )
-    snapshot = AnalysisSnapshotCodecV1.loads(fixture.read_bytes())
+    snapshot = AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
+        fixture.read_bytes()
+    ).record
     metric = next(iter(snapshot.surface_metric_descriptors))
     normal = metric.planarity_certificate.exact_plane_normal
 

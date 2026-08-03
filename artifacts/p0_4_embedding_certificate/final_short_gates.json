@@ -71,8 +71,15 @@
   },
   "validator_hardening": {
     "command": "PYTHONPATH=kernel/src python -m pytest -q kernel/tests/test_embedding_certificates.py",
-    "result": "46 passed in 1.24s",
-    "independent_audit": "ACCEPT"
+    "result": "46 passed in 1.25s",
+    "independent_audit": "REPEAT_PENDING_AFTER_Q06_BOUNDARY_REPAIR"
+  },
+  "q06_boundary_repair": {
+    "law": "compatibility is available only through loads_with_compatibility_receipt",
+    "ordinary_boundaries": "loads, dumps, and direct validators reject a raw positive-scaled DTO",
+    "patch10_product_reads": "3 passed in 4.40s; both read sites assert compatibility hit=1",
+    "near_planar": "31 passed in 0.29s",
+    "schema_public": "9 passed in 0.14s"
   },
   "diff_hygiene": {
     "command": "git diff --check",
@@ -83,5 +90,5 @@
     "host": "1043 passed, 3 skipped, 4 deselected in 85.15s",
     "kernel": "2221 passed in 1051.40s"
   },
-  "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+  "status": "REPAIR_AWAITING_REPEAT_ADVERSARIAL_ACCEPTANCE"
 }

@@ -1,6 +1,6 @@
 {
   "schema": "P0_4_Q06_POSITIVE_NORMAL_SCALING_AUTH_V1",
-  "status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "status": "REPAIR_AWAITING_REPEAT_ADVERSARIAL_ACCEPTANCE",
   "frozen_fixture": {
     "fixture_id": "building_patch10_density4_v1",
     "path": "kernel/fixtures/building_patch10_density4_v1/analysis_snapshot.json",
@@ -8,7 +8,8 @@
     "sha256": "ae2cd427ea4eb4f5140c1c938703a71a7ddadbcf7d7bc43e548f0391a41aaaa4",
     "git_blob_base_2851e85": "11252cee398cfae762898ad4e4ce83944ae7cdb6",
     "git_blob_current": "11252cee398cfae762898ad4e4ce83944ae7cdb6",
-    "codec_roundtrip_byte_identical": true,
+    "ordinary_codec_rejects_raw": true,
+    "compat_load_then_dump_byte_identical": false,
     "last_fixture_commit": "cf8f0c11b05342bbeea3375233b2bb0312e76541"
   },
   "metric_identity": {
@@ -92,19 +93,20 @@
   },
   "binding_implementation": {
     "shared_exact_scale_law": "one Fraction c is derived from a nonzero canonical component and every declared component must equal c times P",
-    "read_boundary": "loads and loads_with_compatibility_receipt either return a fully primitive record or raise a named ContractCodecError; no partial normalization escapes",
-    "writer_boundary": "dumps canonicalizes the one admitted legacy-positive DTO and never reproduces legacy bytes",
+    "read_boundary": "only loads_with_compatibility_receipt admits the one positive-scaled legacy occurrence, returns a fully primitive record, and reports hit=1; ordinary loads rejects the raw DTO",
+    "writer_boundary": "dumps rejects a raw positive-scaled DTO; it serializes only the primitive record returned by the explicit compatibility read boundary",
+    "direct_validation_boundary": "generic and full recomputation validators reject a raw positive-scaled DTO as POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED",
     "negative_scale": "NEGATIVE_NORMAL_SCALE_FORBIDDEN_BY_WIRE_POLICY",
     "facts_basis": "generic and full recomputation gates share classify_metric_normal_wire; all downstream facts use recomputed canonical P",
     "positive_scaled_normal_compat_hits": 1,
     "positive_scaled_fixtures_remaining": 1,
     "ratchet_law": "only decreases; zero rejects every positive-scaled alias",
     "n_plus_one": "atomically rejected as POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED",
-    "frozen_fixture_compile": "EXACT",
-    "targeted_tests": "46 embedding passed; 2 patch10 gates passed; 31 near-planar gates passed",
+    "frozen_fixture_compile": "EXACT after receipt-bearing read with asserted hit=1",
+    "targeted_tests": "46 embedding passed; 3 patch10 gates passed; 31 near-planar gates passed",
     "architecture": "374 passed",
     "v2_builder_bytes": "131 calls; 760027 bytes; receipt 005d502711e2fd0c31463dad91ab4dfb94d2e7ae489e975834a47520602e1453",
     "fixture_survey": "136 passed; 131/131 ADMITTED; 0 findings"
   },
-  "lead_recommendation": "B accepted only as a positive-only legacy wire allowlist; it is not an embedding/orientation law and not full restoration of the former reader contract."
+  "lead_recommendation": "B is confined to the explicit receipt-bearing read boundary; ordinary codecs and validators remain fail-closed. Repeat adversarial acceptance is required before push."
 }

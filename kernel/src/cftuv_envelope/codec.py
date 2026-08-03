@@ -26,6 +26,7 @@ from ._metric_wire import (
     MetricNormalWireDispositionV1,
     MetricWireCompatibilityReceiptV1,
     canonicalize_metric_wire_record,
+    positive_scaled_normal_compatibility_policy,
 )
 
 
@@ -257,18 +258,14 @@ class ContractCodecV1(Generic[T]):
             raise ContractCodecError(
                 f"{cls.__name__} expects {cls.root_type.__name__}, got {type(record).__name__}"
             )
-        # Legacy positive scaling is read-compatible only as an INPUT
-        # representation.  Even when the caller constructed such a DTO by
-        # hand, this writer emits the primitive form and never reproduces the
-        # historical wire bytes.
+        # Writer side is strict: compatibility exists only on the explicit
+        # receipt-bearing read boundary below.
         canonical, receipt = canonicalize_metric_wire_record(record)
         _require_accepted_metric_normal_wire(receipt)
         return canonical_json_bytes(canonical)
 
     @classmethod
-    def loads_with_compatibility_receipt(
-        cls, payload: bytes | str
-    ) -> ContractCodecLoadResultV1[T]:
+    def _decode_record(cls, payload: bytes | str) -> T:
         text = payload.decode("utf-8") if isinstance(payload, bytes) else payload
         try:
             data = json.loads(text, parse_constant=_reject_constant)
@@ -277,13 +274,26 @@ class ContractCodecV1(Generic[T]):
         record = _decode_as(data, cls.root_type)
         if type(record) is not cls.root_type:
             raise ContractCodecError("decoded root type mismatch")
-        canonical, receipt = canonicalize_metric_wire_record(record)
+        return record
+
+    @classmethod
+    def loads_with_compatibility_receipt(
+        cls, payload: bytes | str
+    ) -> ContractCodecLoadResultV1[T]:
+        record = cls._decode_record(payload)
+        canonical, receipt = canonicalize_metric_wire_record(
+            record,
+            policy=positive_scaled_normal_compatibility_policy(),
+        )
         _require_accepted_metric_normal_wire(receipt)
         return ContractCodecLoadResultV1(canonical, receipt)
 
     @classmethod
     def loads(cls, payload: bytes | str) -> T:
-        return cls.loads_with_compatibility_receipt(payload).record
+        record = cls._decode_record(payload)
+        canonical, receipt = canonicalize_metric_wire_record(record)
+        _require_accepted_metric_normal_wire(receipt)
+        return canonical
 
 
 def _require_accepted_metric_normal_wire(

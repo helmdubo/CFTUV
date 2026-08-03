@@ -1740,10 +1740,12 @@ def test_deepest_green_field_authority_stays_far_below_the_work_cap(
 
 
 def _patch10_inputs():
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
+        (_PATCH10 / "analysis_snapshot.json").read_bytes()
+    )
+    assert snapshot.compatibility_receipt.positive_scaled_normal_compat_hits == 1
     return (
-        kernel.AnalysisSnapshotCodecV1.loads(
-            (_PATCH10 / "analysis_snapshot.json").read_bytes()
-        ),
+        snapshot.record,
         kernel.DecalRequestCodecV1.loads(
             (_PATCH10 / "decal_request.json").read_bytes()
         ),

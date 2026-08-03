@@ -25,10 +25,14 @@
   "host_suite_started": false,
   "resolution": {
     "law": "POSITIVE_ONLY_LEGACY_NORMAL_WIRE_ALLOWLIST",
+    "boundary": "loads_with_compatibility_receipt only; ordinary loads, dumps, and direct validators reject raw positive-scaled DTOs",
     "positive_scaled_fixtures_remaining": 1,
     "downstream_form": "CANONICAL_PRIMITIVE",
+    "product_fixture_reads": "patch10 call sites assert positive_scaled_normal_compat_hits == 1",
+    "post_repair_targeted": "46 embedding; 3 patch10; 31 near-planar; 374 architecture; 9 schema/public passed",
     "kernel_full_suite": "2221 passed in 1051.40s",
-    "host_full_suite": "1043 passed, 3 skipped, 4 deselected in 85.15s"
+    "host_full_suite": "1043 passed, 3 skipped, 4 deselected in 85.15s",
+    "full_suite_scope_note": "full-suite receipts predate the explicit-boundary repair; repeat adversarial acceptance is pending"
   },
   "wavefront_invariant_started_after_red": false,
   "commit_created": false,

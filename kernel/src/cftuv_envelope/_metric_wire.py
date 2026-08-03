@@ -117,7 +117,7 @@ def classify_metric_normal_wire(
 ) -> MetricNormalWireFactsV1:
     """Classify one exact shared scale without a float or component shortcut."""
 
-    active_policy = policy or positive_scaled_normal_compatibility_policy()
+    active_policy = policy or PositiveScaledNormalCompatibilityPolicyV1(0)
     declared = tuple(Fraction(item) for item in declared)
     basis_normal = tuple(Fraction(item) for item in basis_normal)
     if not any(basis_normal):
@@ -230,12 +230,16 @@ def _canonicalized_metric(metric, facts):
     return replace(metric, planarity_certificate=certificate)
 
 
-def canonicalize_metric_wire_record(record):
+def canonicalize_metric_wire_record(
+    record,
+    *,
+    policy: PositiveScaledNormalCompatibilityPolicyV1 | None = None,
+):
     """Canonicalize supported metric carriers and return an immutable receipt."""
 
     dispositions = []
     hits = 0
-    ratchet = positive_scaled_normal_compatibility_policy()
+    ratchet = policy or PositiveScaledNormalCompatibilityPolicyV1(0)
 
     def canonical_metric(metric):
         nonlocal hits
