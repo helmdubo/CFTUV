@@ -1001,13 +1001,14 @@ def _composed_initial_plans(contacts, split_cuts, vertices, ledger=None):
     )
 
 
-def _planned_component(
-    component: tuple[SuperlevelIncidentV1, ...],
-    vertices: tuple[_VertexSnapshot, ...],
-    base: dict,
-    ledger: SuperlevelGermLedgerV1 | None = None,
-) -> SuperlevelComponentPlanV1:
-    kinds = base["event_kinds"]
+def _component_stages(component, vertices, ledger):
+    """Три пути пакета и их совместность на одном frozen prestate.
+
+    Возвращает планы, множество умирающих портов и один флаг: пути обязаны
+    делить умирающие порты только там, где композиция это ДОКАЗАЛА. Любое
+    другое пересечение — неоднозначность, а не выбор.
+    """
+
     geometric_events: dict[tuple, set[CandidateEventV1]] = {}
     for incident in component:
         geometric_events.setdefault(_incident_sort_key(incident), set()).add(
@@ -1061,7 +1062,33 @@ def _planned_component(
         == composed_contact_cut_overlap
         and (not composed_contact_cut_overlap or not meetings)
     )
-    dead = contact_dead | meeting_dead | cut_dead
+    return (
+        contacts,
+        meetings,
+        split_cuts,
+        fallbacks,
+        dropped,
+        contact_dead | meeting_dead | cut_dead,
+        valid,
+    )
+
+
+def _planned_component(
+    component: tuple[SuperlevelIncidentV1, ...],
+    vertices: tuple[_VertexSnapshot, ...],
+    base: dict,
+    ledger: SuperlevelGermLedgerV1 | None = None,
+) -> SuperlevelComponentPlanV1:
+    kinds = base["event_kinds"]
+    (
+        contacts,
+        meetings,
+        split_cuts,
+        fallbacks,
+        dropped,
+        dead,
+        valid,
+    ) = _component_stages(component, vertices, ledger)
     raw_births = tuple(
         birth for contact in contacts for birth in contact.births
     ) + tuple(
