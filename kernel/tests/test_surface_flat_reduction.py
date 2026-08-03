@@ -701,6 +701,75 @@ def test_a_candidate_whose_owner_is_not_a_seed_is_refused():
     )
 
 
+def _case_with_obligations() -> str:
+    for name in BY_NAME:
+        if _columns(name)[3].proof_obligations:
+            return name
+    raise AssertionError("в корпусе нет ни одного доказательного долга")
+
+
+@pytest.mark.parametrize(
+    "mutation,expected",
+    (
+        ("drop_event", {"node_record", "times_points", "participants"}),
+        ("drop_obligation", {"proof_obligations"}),
+        ("fake_domain_area", {"face_areas", "coverage"}),
+    ),
+)
+def test_every_axis_can_be_broken_and_therefore_checks_something(
+    mutation, expected
+):
+    """Ось, которую нельзя сломать, не проверяет ничего.
+
+    Девять зелёных осей доказывают полноту записи только если КАЖДАЯ из них
+    падает от порчи именно своей части комплекса. Здесь порча вносится
+    поимённо, и множество упавших осей объявлено.
+    """
+
+    name = _case_with_obligations()
+    polygon, skeleton, _partition, complex_ = _columns(name)
+    if mutation == "drop_event":
+        mutilated = replace(complex_, events=complex_.events[:-1])
+    elif mutation == "drop_obligation":
+        mutilated = replace(
+            complex_, proof_obligations=complex_.proof_obligations[:-1]
+        )
+    else:
+        mutilated = replace(
+            complex_, domain_doubled_area=ExactAlgebraicSumV1(())
+        )
+    reference = _reading(polygon, skeleton)
+    restored = _reading_from_complex(mutilated)
+    broken = {axis for axis in AXES if reference[axis] != restored[axis]}
+    assert broken == expected, (mutation, sorted(broken))
+
+
+def _case_with_a_branching_cut_locus() -> str:
+    for name in BY_NAME:
+        if len(_columns(name)[3].cut_locus) > 1:
+            return name
+    raise AssertionError("в корпусе нет ни одного ветвящегося cut locus")
+
+
+def test_the_cut_locus_axis_falls_when_a_meeting_point_is_dropped():
+    name = _case_with_a_branching_cut_locus()
+    _polygon, skeleton, partition, complex_ = _columns(name)
+    victim = min(
+        complex_.cut_locus,
+        key=lambda item: tuple(owner.value for owner in item.owner_keys),
+    )
+    mutilated = replace(
+        complex_,
+        cut_locus=frozenset(
+            item for item in complex_.cut_locus if item is not victim
+        ),
+    )
+    reference = _extra_reference(partition, skeleton)
+    restored = _extra_from_complex(mutilated)
+    broken = {axis for axis in EXTRA_AXES if reference[axis] != restored[axis]}
+    assert broken == {"cut_locus"}, sorted(broken)
+
+
 def test_a_fragment_pointing_at_an_undeclared_cell_is_refused():
     planar = _planar_complex()
     victim = min(planar.owner_fragments, key=lambda item: item.owner_key.value)
