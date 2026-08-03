@@ -3,6 +3,7 @@
   "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 22b85e7",
   "harness": "artifacts/perf_prepare_diag (headless, без Blender); env.py сделан переносимым (корень выводится из положения файла)",
   "machine_note": "4 ядра, параллельно шёл прогон соседней сессии; абсолютные секунды сопоставимы только внутри этой таблицы",
+  "environment_note": "scratchpad делится с соседней сессией: файл лога с общим именем был перезаписан её прогоном (её дерево несёт test_wavefront_superlevel_transaction.py, которого в этом дереве нет — по этому и опознано). Итоговая сюита прогонялась в отдельной копии дерева с уникальным именем лога.",
 
   "walls_012_density_0": {
     "script": "artifacts/perf_prepare_diag/density_sweep.py 0",
@@ -104,6 +105,7 @@
   "suites": {
     "kernel_after_p1_p2": "2767 passed, 2 skipped (SURFACE_BACKEND_NOT_IMPLEMENTED) за 982 s",
     "kernel_after_p1_p2_and_cap": "2767 passed, 2 skipped за 1306 s (те же тесты; прогон нёс счётчик подготовки)",
+    "kernel_final_on_the_committed_tree": "2778 passed, 2 skipped за 1088 s (2767 + 11 новых тестов); прогон в отдельной копии дерева, md5 всех kernel/src и kernel/tests до и после прогона совпал",
     "host": "1245 passed, 5 skipped, 2 failed — оба падения известные средовые (powershell отсутствует)",
     "architecture": "396 passed",
     "corpus_63": "test_wavefront_proof_obligations / partial_source / motorcycle_graph — 508 passed, дайджесты не сдвинулись",
