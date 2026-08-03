@@ -1,0 +1,36 @@
+{
+  "schema": "P0_4_PHYSICAL_EDGE_IDENTITY_FINDING_V1",
+  "affected_tests_before_fixture_correction": [
+    "test_the_product_skirt_budget_governs_both_grid_laws",
+    "test_the_product_budget_admits_roof_curvature_and_still_refuses_real_bends",
+    "test_a_tilted_but_exactly_planar_patch_passes_the_metric",
+    "test_the_plane_normal_is_written_in_canonical_primitive_form"
+  ],
+  "old_fixture": {
+    "faces": 3,
+    "physical_edge_ids": 12,
+    "shared_endpoint_pairs_with_distinct_edge_ids": 2,
+    "endpoint_inference": {
+      "boundary_occurrences": 8,
+      "source_components": 1,
+      "projected_components": 1,
+      "coincident_boundary_occurrence_pairs": 0
+    },
+    "physical_id_inference_before_fail_closed_loop_validation": {
+      "boundary_occurrences": 12,
+      "source_components": 3,
+      "projected_components": 1,
+      "coincident_boundary_occurrence_pairs": 4
+    },
+    "exact_topology_classification": "NON_MANIFOLD_BOUNDARY_PINCH"
+  },
+  "authorized_fixture_correction": {
+    "identity": "PhysicalEdgeId",
+    "shared_internal_physical_edge_ids": 2,
+    "boundary_occurrences": 8,
+    "source_components": 1,
+    "projected_components": 1,
+    "coincident_boundary_occurrence_pairs": 0
+  },
+  "negative_control": "test_projection_names_three_disconnected_components_merging_to_one"
+}

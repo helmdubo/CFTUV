@@ -1,0 +1,110 @@
+{
+  "schema": "P0_4_Q06_POSITIVE_NORMAL_SCALING_AUTH_V1",
+  "status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "frozen_fixture": {
+    "fixture_id": "building_patch10_density4_v1",
+    "path": "kernel/fixtures/building_patch10_density4_v1/analysis_snapshot.json",
+    "bytes": 121390,
+    "sha256": "ae2cd427ea4eb4f5140c1c938703a71a7ddadbcf7d7bc43e548f0391a41aaaa4",
+    "git_blob_base_2851e85": "11252cee398cfae762898ad4e4ce83944ae7cdb6",
+    "git_blob_current": "11252cee398cfae762898ad4e4ce83944ae7cdb6",
+    "codec_roundtrip_byte_identical": true,
+    "last_fixture_commit": "cf8f0c11b05342bbeea3375233b2bb0312e76541"
+  },
+  "metric_identity": {
+    "patch_domain_id": "host-v0:patch-domain:a04cb4107c2c9815432e3c44",
+    "certificate_type": "ExactSourcePlaneCertificateV1",
+    "declared_normal_N": ["0", "9776251/4194304", "0"],
+    "basis_cross_A_x_B": ["0", "9776251/4194304", "0"],
+    "canonical_primitive_P": ["0", "1", "0"],
+    "positive_scale_c": "9776251/4194304",
+    "proof": {
+      "c_positive": true,
+      "c_nonzero": true,
+      "N_equals_c_times_P": true,
+      "A_x_B_equals_N": true,
+      "cross_N_P": ["0", "0", "0"],
+      "dot_N_P": "9776251/4194304"
+    }
+  },
+  "semantic_invariance": {
+    "plane_membership": "d dot N = c times (d dot P), hence the zero set is identical because c is nonzero",
+    "orthogonal_projection": "p-((p-o) dot N)/(N dot N) N equals p-((p-o) dot P)/(P dot P) P after substituting N=cP",
+    "residual_squared": "((d dot N)^2)/(N dot N) equals ((d dot P)^2)/(P dot P)",
+    "orientation": "not an authority of this compatibility rule; chart_orientation is the separate unchanged orientation field",
+    "embedding": "all source coordinates, topology, affine coordinates, Gram data, and projected positions are unchanged; therefore every exact embedding predicate receives identical inputs",
+    "fixture_specific_projection_axis": "not present: the frozen certificate is exact, not NearPlanarProjectionCertificateV1",
+    "fixture_specific_residual_axis": "not present on ExactSourcePlaneCertificateV1",
+    "fixture_specific_additive_embedding_axis": "not present in frozen RationalAffinePlanarMetricV2 bytes",
+    "in_memory_primitive_migration": {
+      "metric_changed_fields": ["planarity_certificate"],
+      "certificate_changed_fields": ["exact_plane_normal"],
+      "validator_issues": 0,
+      "compile_outcome": "EXACT",
+      "compile_diagnostics": 0
+    }
+  },
+  "byte_effect_of_fixture_migration": {
+    "frozen_metric_v2_sha256": "ff87e9506348462df9217ca7240402ac6ede600697c583b5d03aeb527c393404",
+    "frozen_metric_v2_bytes": 10174,
+    "primitive_metric_v2_sha256": "5999629ac062de58c5129a56a08599b17deb15b01c84b832cbcf3f75361a238f",
+    "primitive_metric_v2_bytes": 10162,
+    "byte_identical": false
+  },
+  "pre_p0_4_contract_evidence": {
+    "base_sha": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+    "validator_source": "kernel/src/cftuv_envelope/validation_metric.py:331-342",
+    "validator_rule": "reject only when both normals are nonzero and their exact cross product is nonzero; the comment explicitly says reader-side canonicality is not required",
+    "scale_invariance_test_contract": "kernel/tests/test_near_planar_snapshot_validation.py:18-26",
+    "builder_source": "kernel/src/cftuv_envelope/planar_metric.py:178-181",
+    "builder_rule": "writer canonicalizes the Newell normal with canonical_primitive_normal",
+    "builder_test": "kernel/tests/test_near_planar_policy.py:590-603",
+    "frozen_fixture_acceptance_on_base": "1 passed in 0.81s: test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap"
+  },
+  "options": {
+    "A_migrate_frozen_v2_fixture": {
+      "action": "rewrite only exact_plane_normal from N to P in the frozen analysis snapshot",
+      "advantages": [
+        "one canonical wire representation matches current builder output",
+        "strict reader can reject every nonprimitive representation"
+      ],
+      "costs": [
+        "changes the frozen analysis snapshot SHA256 and Git blob",
+        "changes RationalAffinePlanarMetricV2 bytes despite identical geometry",
+        "requires an explicit fixture migration record and downstream digest refresh"
+      ]
+    },
+    "B_accept_exact_positive_scaling": {
+      "action": "reader accepts declared N iff N=cP for one exact rational c>0, where P is the canonical primitive A cross B normal",
+      "advantages": [
+        "preserves frozen V2 fixture bytes and historical field evidence",
+        "restores the one observed legacy positive-scaled fixture without restoring the broader pre-P0-4 reader contract",
+        "is exactly invariant for plane membership, projection, residual, and embedding inputs"
+      ],
+      "required_rejections": [
+        "N=(0,0,0)",
+        "nonparallel N",
+        "negative proportional scale",
+        "basis A cross B equal to zero"
+      ],
+      "writer_rule": "builder continues emitting canonical primitive P; acceptance of legacy positive scale does not weaken writer canonicality"
+    }
+  },
+  "binding_implementation": {
+    "shared_exact_scale_law": "one Fraction c is derived from a nonzero canonical component and every declared component must equal c times P",
+    "read_boundary": "loads and loads_with_compatibility_receipt either return a fully primitive record or raise a named ContractCodecError; no partial normalization escapes",
+    "writer_boundary": "dumps canonicalizes the one admitted legacy-positive DTO and never reproduces legacy bytes",
+    "negative_scale": "NEGATIVE_NORMAL_SCALE_FORBIDDEN_BY_WIRE_POLICY",
+    "facts_basis": "generic and full recomputation gates share classify_metric_normal_wire; all downstream facts use recomputed canonical P",
+    "positive_scaled_normal_compat_hits": 1,
+    "positive_scaled_fixtures_remaining": 1,
+    "ratchet_law": "only decreases; zero rejects every positive-scaled alias",
+    "n_plus_one": "atomically rejected as POSITIVE_SCALED_COMPATIBILITY_EXHAUSTED",
+    "frozen_fixture_compile": "EXACT",
+    "targeted_tests": "46 embedding passed; 2 patch10 gates passed; 31 near-planar gates passed",
+    "architecture": "374 passed",
+    "v2_builder_bytes": "131 calls; 760027 bytes; receipt 005d502711e2fd0c31463dad91ab4dfb94d2e7ae489e975834a47520602e1453",
+    "fixture_survey": "136 passed; 131/131 ADMITTED; 0 findings"
+  },
+  "lead_recommendation": "B accepted only as a positive-only legacy wire allowlist; it is not an embedding/orientation law and not full restoration of the former reader contract."
+}

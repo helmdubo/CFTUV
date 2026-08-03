@@ -27,6 +27,7 @@ from .contracts.metric import (
     ExactSourcePlaneCertificateV1,
     ExactSourceVertexCoordinateV2,
     ExactVector3V1,
+    EmbeddingCertifiedRationalAffinePlanarMetricV1,
     GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
@@ -41,6 +42,11 @@ from .contracts.metric import (
     RuntimePredicateFilterLawV1,
     RuntimePredicateResultV1,
 )
+from ._embedding import (
+    build_projection_embedding_certificate,
+    patch_plane_normal as _embedding_patch_plane_normal,
+    projection_violation,
+)
 from .contracts.surface import SourceFaceV1
 from .ids import (
     LineageId,
@@ -52,7 +58,7 @@ from .ids import (
     SourceRevision,
     SourceVertexId,
 )
-from .numeric import LocalPoint3V1, canonical_primitive_normal
+from .numeric import LocalPoint3V1
 from .outcomes import NamedOutcome
 from .source_grid import resolve_source_grid
 
@@ -147,38 +153,10 @@ _COORDINATE_ULP_MULTIPLIER = 64
 # тремя константами выше.
 
 
-def _newell_normal(positions, faces):
-    """Нормаль Ньюэлла по ВСЕМ полигонам патча — собственная плоскость патча.
-
-    Почему Ньюэлл, а не векторное произведение затравочной тройки вершин:
-    тройка не управляет своей обусловленностью. У ската, выдавленного вдоль
-    одной оси, первые два независимых вектора в порядке сортировки id идут
-    ВДОЛЬ склона и почти коллинеарны; их произведение вырождается, и нормаль
-    схлопывается на ось выдавливания. Замерено на полевом скате (нормаль
-    (0,−0.4525,−0.8918), габарит 3.3125, хранение вершин float32): невязка к
-    такой плоскости 3.312 — то есть ВЕСЬ габарит патча — при бюджете 3.31e-07,
-    тогда как к плоскости Ньюэлла та же невязка 1.84e-08. Ньюэлл суммирует
-    вклад каждого ребра каждого полигона, поэтому вырождение одной тройки его
-    не двигает, а на точно планарном входе он точен.
-    """
-
-    x = y = z = Fraction(0)
-    for face in faces:
-        cycle = face.vertex_cycle
-        count = len(cycle)
-        for index in range(count):
-            head = positions[cycle[index]]
-            tail = positions[cycle[(index + 1) % count]]
-            x += (head[1] - tail[1]) * (head[2] + tail[2])
-            y += (head[2] - tail[2]) * (head[0] + tail[0])
-            z += (head[0] - tail[0]) * (head[1] + tail[1])
-    return (x, y, z)
-
-
 def patch_plane_normal(positions, faces):
-    """Собственная плоскость патча: Ньюэлл плюс каноническая примитивная форма."""
+    """Собственная плоскость: общий exact Newell-закон builder/validator."""
 
-    return canonical_primitive_normal(_newell_normal(positions, faces))
+    return _embedding_patch_plane_normal(positions, faces)
 
 
 def _plane_anchor(positions, required_ids):
@@ -452,26 +430,20 @@ def _planarity_certificate(
     )
 
 
-def build_rational_affine_planar_metric(
-    *,
-    source_revision: SourceRevision,
-    patch_domain_id: PatchDomainId,
-    owner_patch_id: PatchId,
-    source_vertices: Iterable[SourceVertexV1],
-    source_faces: Iterable[SourceFaceV1],
-    source_lineage: frozenset[LineageId] = frozenset(),
-    planarity_policy: PlanarityAdmissionLawV1 = (
-        PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
-    ),
-    grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
-) -> RationalAffinePlanarMetricV2:
-    """Build the canonical exact chart from stable source identities.
+@dataclass(frozen=True, slots=True)
+class _AffineFrameFacts:
+    origin_id: SourceVertexId
+    origin: tuple
+    basis_a_id: SourceVertexId
+    basis_a: tuple
+    basis_b_id: SourceVertexId
+    basis_b: tuple
+    gram: tuple
+    inverse: tuple
+    coordinates: dict
 
-    Blender binary64 coordinates are interpreted as their exact IEEE-754
-    rational values.  No fit, residual budget, snapping or normalization is
-    performed.
-    """
 
+def _source_scope(*, owner_patch_id, source_vertices, source_faces):
     vertex_by_id = {
         item.vertex_id: item
         for item in source_vertices
@@ -485,17 +457,11 @@ def build_rational_affine_planar_metric(
     )
     required_ids = tuple(
         sorted(
-            {
-                vertex_id
-                for face in faces
-                for vertex_id in face.vertex_cycle
-            },
+            {vertex_id for face in faces for vertex_id in face.vertex_cycle},
             key=lambda item: item.value,
         )
     )
-    if len(required_ids) < 3 or any(
-        item not in vertex_by_id for item in required_ids
-    ):
+    if len(required_ids) < 3 or any(item not in vertex_by_id for item in required_ids):
         raise ValueError(
             "exact affine metric requires at least three total source vertices"
         )
@@ -503,51 +469,35 @@ def build_rational_affine_planar_metric(
         vertex_id: _point3(vertex_by_id[vertex_id].position)
         for vertex_id in required_ids
     }
-    # Привязка ИСТОЧНИКА идёт здесь и только здесь: базис, матрица Грама и все
-    # углы обязаны считаться уже от привязанных координат, иначе восстановленное
-    # отношение живёт в позициях, а метрика по-прежнему несёт шум.
-    grid_facts = resolve_source_grid(
-        positions=positions, faces=faces, snapping_law=grid_policy
-    )
-    positions = grid_facts.positions
-    normal, near_planar_facts = _resolve_patch_plane(
-        positions=positions,
-        faces=faces,
-        required_ids=required_ids,
-        planarity_policy=planarity_policy,
-        grid_certificate=grid_facts.certificate,
-    )
+    return faces, required_ids, positions
+
+
+def _affine_frame(positions, required_ids) -> _AffineFrameFacts:
     origin_id = required_ids[0]
     origin = positions[origin_id]
     candidates = tuple(
-        (
-            vertex_id,
-            _sub3(positions[vertex_id], origin),
-        )
+        (vertex_id, _sub3(positions[vertex_id], origin))
         for vertex_id in required_ids[1:]
     )
-    first = next(
-        (vector for _, vector in candidates if any(vector)),
+    first_pair = next(
+        ((vertex_id, vector) for vertex_id, vector in candidates if any(vector)),
         None,
     )
-    if first is None:
+    if first_pair is None:
         raise ValueError("source vertices do not define a non-zero basis A")
-    second = next(
+    first_id, first = first_pair
+    second_pair = next(
         (
-            vector
-            for _, vector in candidates
+            (vertex_id, vector)
+            for vertex_id, vector in candidates
             if any(_cross3(first, vector))
         ),
         None,
     )
-    if second is None:
-        raise ValueError(
-            "source vertices do not define linearly independent A/B"
-        )
-
-    g00 = _dot3(first, first)
-    g01 = _dot3(first, second)
-    g11 = _dot3(second, second)
+    if second_pair is None:
+        raise ValueError("source vertices do not define linearly independent A/B")
+    second_id, second = second_pair
+    g00, g01, g11 = _dot3(first, first), _dot3(first, second), _dot3(second, second)
     determinant = g00 * g11 - g01 * g01
     if determinant <= 0:
         raise ValueError("exact affine Gram matrix is not positive definite")
@@ -555,52 +505,129 @@ def build_rational_affine_planar_metric(
         (g11 / determinant, -g01 / determinant),
         (-g01 / determinant, g00 / determinant),
     )
-    coordinates: dict[SourceVertexId, tuple[Fraction, Fraction]] = {}
+    coordinates = {}
     for vertex_id in required_ids:
         relative = _sub3(positions[vertex_id], origin)
-        rhs_a = _dot3(first, relative)
-        rhs_b = _dot3(second, relative)
+        rhs_a, rhs_b = _dot3(first, relative), _dot3(second, relative)
         u = inverse[0][0] * rhs_a + inverse[0][1] * rhs_b
         v = inverse[1][0] * rhs_a + inverse[1][1] * rhs_b
-        reconstructed = _add3(
-            origin,
-            _add3(_scale3(first, u), _scale3(second, v)),
-        )
+        reconstructed = _add3(origin, _add3(_scale3(first, u), _scale3(second, v)))
         if reconstructed != positions[vertex_id]:
-            raise ValueError(
-                f"exact affine reconstruction failed for {vertex_id}"
-            )
+            raise ValueError(f"exact affine reconstruction failed for {vertex_id}")
         coordinates[vertex_id] = (u, v)
+    return _AffineFrameFacts(
+        origin_id,
+        origin,
+        first_id,
+        first,
+        second_id,
+        second,
+        ((g00, g01), (g01, g11)),
+        inverse,
+        coordinates,
+    )
 
-    orientation_sign = None
+
+def _chart_orientation(coordinates, faces):
+    signs = []
     for face in faces:
         cycle = tuple(coordinates[item] for item in face.vertex_cycle)
         twice_area = sum(
             (
-                cycle[index][0]
-                * cycle[(index + 1) % len(cycle)][1]
-                - cycle[index][1]
-                * cycle[(index + 1) % len(cycle)][0]
+                cycle[index][0] * cycle[(index + 1) % len(cycle)][1]
+                - cycle[index][1] * cycle[(index + 1) % len(cycle)][0]
                 for index in range(len(cycle))
             ),
             Fraction(0),
         )
-        if twice_area:
-            orientation_sign = 1 if twice_area > 0 else -1
-            break
+        signs.append((twice_area > 0) - (twice_area < 0))
+    orientation_sign = next((item for item in signs if item), None)
     if orientation_sign is None:
         raise ValueError("owner Patch has no non-degenerate oriented face")
-    chart_orientation = (
+    orientation = (
         AffineChartOrientationV1.COORDINATE_CCW_MATCHES_OWNER_PATCH
         if orientation_sign > 0
         else AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
+    return orientation_sign, orientation
+
+
+def _projection_embedding(
+    *, near_planar_facts, snapped, faces, frame, normal, sign, enforce_embedding
+):
+    if near_planar_facts is None:
+        return None
+    certificate = build_projection_embedding_certificate(
+        before=snapped,
+        projected=frame.coordinates,
+        faces=faces,
+        normal=normal,
+        expected_orientation_sign=sign,
+    )
+    outcome = projection_violation(certificate)
+    if enforce_embedding and outcome is not None:
+        raise PlanarMetricAdmissionError(
+            outcome,
+            "near-planar projection did not preserve the embedding: "
+            f"{certificate!r}",
+        )
+    return certificate
+
+
+def _build_embedding_certified_metric(
+    *,
+    source_revision: SourceRevision,
+    patch_domain_id: PatchDomainId,
+    owner_patch_id: PatchId,
+    source_vertices: Iterable[SourceVertexV1],
+    source_faces: Iterable[SourceFaceV1],
+    source_lineage: frozenset[LineageId] = frozenset(),
+    planarity_policy: PlanarityAdmissionLawV1 = (
+        PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+    ),
+    grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+    enforce_embedding: bool = True,
+) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    faces, required_ids, positions = _source_scope(
+        owner_patch_id=owner_patch_id,
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+    )
+    # Привязка ИСТОЧНИКА идёт здесь и только здесь: базис, матрица Грама и все
+    # углы обязаны считаться уже от привязанных координат, иначе восстановленное
+    # отношение живёт в позициях, а метрика по-прежнему несёт шум.
+    grid_facts = resolve_source_grid(
+        positions=positions,
+        faces=faces,
+        snapping_law=grid_policy,
+        enforce_embedding=enforce_embedding,
+    )
+    positions = grid_facts.positions
+    snapped_positions = dict(positions)
+    normal, near_planar_facts = _resolve_patch_plane(
+        positions=positions,
+        faces=faces,
+        required_ids=required_ids,
+        planarity_policy=planarity_policy,
+        grid_certificate=grid_facts.certificate,
+    )
+    try:
+        frame = _affine_frame(positions, required_ids)
+    except ValueError as error:
+        if near_planar_facts is not None:
+            raise PlanarMetricAdmissionError(
+                NamedOutcome.NEAR_PLANAR_PROJECTION_RESOLVED_PLANE_BASIS_UNAVAILABLE,
+                "resolved near-planar projection does not define a canonical "
+                f"source-vertex basis: {error}",
+            ) from error
+        raise
+    orientation_sign, chart_orientation = _chart_orientation(frame.coordinates, faces)
     metric_id = ReferenceMetricId(
         _stable_id(
             "reference-metric",
             source_revision.value,
             patch_domain_id.value,
-            origin_id.value,
+            frame.origin_id.value,
             *(item.value for item in required_ids),
         )
     )
@@ -611,22 +638,93 @@ def build_rational_affine_planar_metric(
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
     )
-    return _metric_record(
+    metric = _metric_record(
         metric_id=metric_id,
         patch_domain_id=patch_domain_id,
         source_revision=source_revision,
-        origin=origin,
-        first=first,
-        second=second,
-        gram=((g00, g01), (g01, g11)),
-        inverse=inverse,
+        origin=frame.origin,
+        first=frame.basis_a,
+        second=frame.basis_b,
+        gram=frame.gram,
+        inverse=frame.inverse,
         required_ids=required_ids,
-        coordinates=coordinates,
+        coordinates=frame.coordinates,
         chart_orientation=chart_orientation,
         certificate=certificate,
         source_lineage=source_lineage,
         grid_certificate=grid_facts.certificate,
     )
+    projection_embedding = _projection_embedding(
+        near_planar_facts=near_planar_facts,
+        snapped=snapped_positions,
+        faces=faces,
+        frame=frame,
+        normal=normal,
+        sign=orientation_sign,
+        enforce_embedding=enforce_embedding,
+    )
+    return EmbeddingCertifiedRationalAffinePlanarMetricV1(
+        metric=metric,
+        source_snap_embedding_certificate=(
+            grid_facts.source_snap_embedding_certificate
+        ),
+        near_planar_projection_embedding_certificate=projection_embedding,
+    )
+
+
+def build_embedding_certified_rational_affine_planar_metric(
+    *,
+    source_revision: SourceRevision,
+    patch_domain_id: PatchDomainId,
+    owner_patch_id: PatchId,
+    source_vertices: Iterable[SourceVertexV1],
+    source_faces: Iterable[SourceFaceV1],
+    source_lineage: frozenset[LineageId] = frozenset(),
+    planarity_policy: PlanarityAdmissionLawV1 = (
+        PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+    ),
+    grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    """Build the unchanged V2 metric together with both embedding proofs."""
+
+    return _build_embedding_certified_metric(
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        owner_patch_id=owner_patch_id,
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+        source_lineage=source_lineage,
+        planarity_policy=planarity_policy,
+        grid_policy=grid_policy,
+    )
+
+
+def build_rational_affine_planar_metric(
+    *,
+    source_revision: SourceRevision,
+    patch_domain_id: PatchDomainId,
+    owner_patch_id: PatchId,
+    source_vertices: Iterable[SourceVertexV1],
+    source_faces: Iterable[SourceFaceV1],
+    source_lineage: frozenset[LineageId] = frozenset(),
+    planarity_policy: PlanarityAdmissionLawV1 = (
+        PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+    ),
+    grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+) -> RationalAffinePlanarMetricV2:
+    """Build byte-compatible V2 after both additive embedding gates pass."""
+
+    return _build_embedding_certified_metric(
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        owner_patch_id=owner_patch_id,
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+        source_lineage=source_lineage,
+        planarity_policy=planarity_policy,
+        grid_policy=grid_policy,
+        enforce_embedding=True,
+    ).metric
 
 
 def _metric_record(

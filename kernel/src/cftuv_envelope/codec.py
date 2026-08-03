@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import types
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Generic, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -22,6 +22,11 @@ from .contracts import (
     tessellation,
 )
 from .ids import OpaqueId
+from ._metric_wire import (
+    MetricNormalWireDispositionV1,
+    MetricWireCompatibilityReceiptV1,
+    canonicalize_metric_wire_record,
+)
 
 
 T = TypeVar("T")
@@ -29,6 +34,12 @@ T = TypeVar("T")
 
 class ContractCodecError(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class ContractCodecLoadResultV1(Generic[T]):
+    record: T
+    compatibility_receipt: MetricWireCompatibilityReceiptV1
 
 
 _PUBLIC_MODULES = (
@@ -246,10 +257,18 @@ class ContractCodecV1(Generic[T]):
             raise ContractCodecError(
                 f"{cls.__name__} expects {cls.root_type.__name__}, got {type(record).__name__}"
             )
-        return canonical_json_bytes(record)
+        # Legacy positive scaling is read-compatible only as an INPUT
+        # representation.  Even when the caller constructed such a DTO by
+        # hand, this writer emits the primitive form and never reproduces the
+        # historical wire bytes.
+        canonical, receipt = canonicalize_metric_wire_record(record)
+        _require_accepted_metric_normal_wire(receipt)
+        return canonical_json_bytes(canonical)
 
     @classmethod
-    def loads(cls, payload: bytes | str) -> T:
+    def loads_with_compatibility_receipt(
+        cls, payload: bytes | str
+    ) -> ContractCodecLoadResultV1[T]:
         text = payload.decode("utf-8") if isinstance(payload, bytes) else payload
         try:
             data = json.loads(text, parse_constant=_reject_constant)
@@ -258,7 +277,30 @@ class ContractCodecV1(Generic[T]):
         record = _decode_as(data, cls.root_type)
         if type(record) is not cls.root_type:
             raise ContractCodecError("decoded root type mismatch")
-        return record
+        canonical, receipt = canonicalize_metric_wire_record(record)
+        _require_accepted_metric_normal_wire(receipt)
+        return ContractCodecLoadResultV1(canonical, receipt)
+
+    @classmethod
+    def loads(cls, payload: bytes | str) -> T:
+        return cls.loads_with_compatibility_receipt(payload).record
+
+
+def _require_accepted_metric_normal_wire(
+    receipt: MetricWireCompatibilityReceiptV1,
+) -> None:
+    accepted = {
+        MetricNormalWireDispositionV1.CANONICAL_PRIMITIVE,
+        MetricNormalWireDispositionV1.POSITIVE_SCALED_COMPATIBILITY_APPLIED,
+    }
+    rejected = next(
+        (item for item in receipt.dispositions if item not in accepted),
+        None,
+    )
+    if rejected is not None:
+        raise ContractCodecError(
+            f"{rejected.value}: planar-normal wire record rejected"
+        )
 
 
 class AnalysisSnapshotCodecV1(ContractCodecV1[analysis.AnalysisSnapshotV1]):
@@ -299,6 +341,12 @@ class RationalAffinePlanarMetricCodecV2(
     ContractCodecV1[metric.RationalAffinePlanarMetricV2]
 ):
     root_type = metric.RationalAffinePlanarMetricV2
+
+
+class EmbeddingCertifiedRationalAffinePlanarMetricCodecV1(
+    ContractCodecV1[metric.EmbeddingCertifiedRationalAffinePlanarMetricV1]
+):
+    root_type = metric.EmbeddingCertifiedRationalAffinePlanarMetricV1
 
 
 class RuntimePlanarMetricCodecV1(

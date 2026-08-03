@@ -1,0 +1,36 @@
+{
+  "schema": "P0_4_FULL_SUITE_STOP_V1",
+  "status": "RESOLVED_BY_AUTH_Q06",
+  "authoritative_command": "cwd=kernel; PYTHONPATH=src;tests; python -m pytest -q tests",
+  "result": "3 failed, 2209 passed in 1259.25s",
+  "named_fixture": "building_patch10_density4_v1",
+  "patch_domain_id": "host-v0:patch-domain:a04cb4107c2c9815432e3c44",
+  "root_finding": {
+    "certificate_type": "ExactSourcePlaneCertificateV1",
+    "declared_exact_plane_normal": ["0", "9776251/4194304", "0"],
+    "basis_cross": ["0", "9776251/4194304", "0"],
+    "canonical_primitive_normal": ["0", "1", "0"],
+    "validator_issues": [
+      "plane normal must use the canonical primitive representation",
+      "plane normal must equal the canonical normal of the A/B basis"
+    ],
+    "interpretation": "The frozen descriptor records the raw A cross B scale instead of the contract's canonical primitive plane normal. It is parallel and nonzero, but not canonical. P0-4 does not silently grandfather or rewrite it."
+  },
+  "downstream_failures": [
+    "test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap: REFERENCE_INPUT_CONTRACT_INVALID instead of EXACT",
+    "test_patch10_density_four_domain_passes_the_bridge_on_its_mirrored_chart: PLAN_IS_NOT_COMPILED instead of EXACT",
+    "test_the_corpus_reaches_the_conveyor_without_a_single_straight_vertex[building_patch10_density4_v1]: no domain loops because the plan was not compiled"
+  ],
+  "targeted_reproduction": "1 failed in 0.34s",
+  "host_suite_started": false,
+  "resolution": {
+    "law": "POSITIVE_ONLY_LEGACY_NORMAL_WIRE_ALLOWLIST",
+    "positive_scaled_fixtures_remaining": 1,
+    "downstream_form": "CANONICAL_PRIMITIVE",
+    "kernel_full_suite": "2221 passed in 1051.40s",
+    "host_full_suite": "1043 passed, 3 skipped, 4 deselected in 85.15s"
+  },
+  "wavefront_invariant_started_after_red": false,
+  "commit_created": false,
+  "push_performed": false
+}

@@ -534,6 +534,14 @@ __all__ = (
     "TessellationDigestEquivalence",
     "TessellationPlanV1",
     "TessellationPlan",
+    "ProjectionAnchorSelectionLawV1",
+    "SourceSnapEmbeddingCertificateV1",
+    "NearPlanarProjectionEmbeddingCertificateV1",
+    "EmbeddingCertifiedRationalAffinePlanarMetricV1",
+    "EMBEDDING_CERTIFIED_RATIONAL_AFFINE_PLANAR_METRIC_SCHEMA_V1",
+    "EmbeddingCertifiedRationalAffinePlanarMetricCodecV1",
+    "build_embedding_certified_rational_affine_planar_metric",
+    "validate_embedding_certified_rational_affine_planar_metric",
 )
 
 _EXPORT_RANGES = (
@@ -585,6 +593,10 @@ _EXPORT_RANGES = (
     (499, 505, "cftuv_envelope.contracts.tessellation"),
     (505, 506, "cftuv_envelope.contracts.plan"),
     (506, 507, "cftuv_envelope.contracts.tessellation"),
+    (507, 512, "cftuv_envelope.contracts.metric"),
+    (512, 513, "cftuv_envelope.codec"),
+    (513, 514, "cftuv_envelope.planar_metric"),
+    (514, 515, "cftuv_envelope.validation_metric"),
 )
 
 _EXPORTS = {
@@ -614,6 +626,7 @@ _PRIVATE_MODULES = {
 }
 
 _CHILD_MODULE_NAMES = (
+    "_embedding",
     "adaptive_density_validation",
     "canonical",
     "codec",

@@ -22,6 +22,9 @@ REFERENCE_PLANAR_METRIC_SCHEMA_V2 = (
     "cftuv.envelope.rational_affine_planar_metric.v2"
 )
 RUNTIME_PLANAR_METRIC_SCHEMA_V1 = "cftuv.envelope.runtime_planar_metric.v1"
+EMBEDDING_CERTIFIED_RATIONAL_AFFINE_PLANAR_METRIC_SCHEMA_V1 = (
+    "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1"
+)
 
 
 class PlanarityAdmissionLawV1(str, Enum):
@@ -352,6 +355,14 @@ class AffineFrameSelectionLawV1(str, Enum):
     )
 
 
+class ProjectionAnchorSelectionLawV1(str, Enum):
+    """Basis identity for the additive projection-embedding certificate."""
+
+    CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1 = (
+        "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1"
+    )
+
+
 class AffineReconstructionLawV1(str, Enum):
     O_PLUS_U_A_PLUS_V_B_V1 = "O_PLUS_U_A_PLUS_V_B_V1"
 
@@ -466,6 +477,126 @@ class ExactSourcePlaneCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceSnapEmbeddingCertificateV1:
+    """Exact evidence that source-grid snapping preserved the source embedding.
+
+    Counts are deliberately recorded instead of one aggregate ``valid`` bit:
+    the validator recomputes every count from the source positions, face
+    cycles, and declared grid law.  A zero therefore names the exact property
+    proved by the record and cannot hide a different failed predicate.
+    """
+
+    snapping_law: GridSnappingLawV1
+    source_vertex_ids: tuple[SourceVertexId, ...]
+    source_vertex_count: int
+    source_edge_count: int
+    intended_right_corner_count: int
+    newly_coincident_vertex_pair_count: int
+    collapsed_nonzero_source_edge_count: int
+    new_nonadjacent_edge_intersection_count: int
+    unclassifiable_source_corner_count: int
+    unchanged_unclassifiable_source_corner_count: int
+    degenerated_intended_right_corner_count: int
+    exact_pair_test_count: int
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.source_vertex_count,
+            self.source_edge_count,
+            self.intended_right_corner_count,
+            self.newly_coincident_vertex_pair_count,
+            self.collapsed_nonzero_source_edge_count,
+            self.new_nonadjacent_edge_intersection_count,
+            self.unclassifiable_source_corner_count,
+            self.unchanged_unclassifiable_source_corner_count,
+            self.degenerated_intended_right_corner_count,
+            self.exact_pair_test_count,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("source-snap embedding counts must be non-negative")
+        if (
+            self.unchanged_unclassifiable_source_corner_count
+            > self.unclassifiable_source_corner_count
+        ):
+            raise ValueError(
+                "unchanged unclassifiable corners are a subset of all "
+                "unclassifiable source corners"
+            )
+        if self.source_vertex_count != len(self.source_vertex_ids):
+            raise ValueError("source-snap vertex count disagrees with its IDs")
+
+
+@dataclass(frozen=True, slots=True)
+class NearPlanarProjectionEmbeddingCertificateV1:
+    """Exact evidence that projection retained the patch boundary embedding."""
+
+    source_vertex_ids: tuple[SourceVertexId, ...]
+    source_chart_dropped_axis: int
+    source_chart_first_axis_negated: bool
+    source_boundary_occurrence_count: int
+    source_boundary_component_count: int
+    projected_boundary_component_count: int
+    coincident_boundary_occurrence_pair_count: int
+    collapsed_boundary_edge_occurrence_count: int
+    new_nonadjacent_edge_intersection_count: int
+    new_nonadjacent_collinear_overlap_count: int
+    source_face_orientation_signs: tuple[int, ...]
+    projected_face_orientation_signs: tuple[int, ...]
+    source_boundary_loop_orientation_signs: tuple[int, ...]
+    projected_boundary_loop_orientation_signs: tuple[int, ...]
+    source_boundary_loop_nesting_depths: tuple[int, ...]
+    projected_boundary_loop_nesting_depths: tuple[int, ...]
+    orientation_mismatch_count: int
+    nesting_mismatch_count: int
+    source_cyclic_order_sha256: str
+    projected_cyclic_order_sha256: str
+    anchor_selection_law: ProjectionAnchorSelectionLawV1
+    source_anchor_vertex_ids: tuple[SourceVertexId, ...]
+    projected_anchor_vertex_ids: tuple[SourceVertexId, ...]
+    resolved_plane_basis_unavailable_count: int
+    source_fan_identity_sha256: str
+    projected_fan_identity_sha256: str
+    source_fan_ambiguity_count: int
+    projected_fan_ambiguity_count: int
+    exact_pair_test_count: int
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.source_boundary_occurrence_count,
+            self.source_boundary_component_count,
+            self.projected_boundary_component_count,
+            self.coincident_boundary_occurrence_pair_count,
+            self.collapsed_boundary_edge_occurrence_count,
+            self.new_nonadjacent_edge_intersection_count,
+            self.new_nonadjacent_collinear_overlap_count,
+            self.orientation_mismatch_count,
+            self.nesting_mismatch_count,
+            self.resolved_plane_basis_unavailable_count,
+            self.source_fan_ambiguity_count,
+            self.projected_fan_ambiguity_count,
+            self.exact_pair_test_count,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("projection embedding counts must be non-negative")
+        if self.source_chart_dropped_axis not in (0, 1, 2):
+            raise ValueError("source chart dropped axis must be 0, 1, or 2")
+        source_loop_count = len(self.source_boundary_loop_orientation_signs)
+        projected_loop_count = len(self.projected_boundary_loop_orientation_signs)
+        if source_loop_count != len(self.source_boundary_loop_nesting_depths):
+            raise ValueError("source loop signs and nesting depths disagree")
+        if projected_loop_count != len(self.projected_boundary_loop_nesting_depths):
+            raise ValueError("projected loop signs and nesting depths disagree")
+        signs = (
+            *self.source_face_orientation_signs,
+            *self.projected_face_orientation_signs,
+            *self.source_boundary_loop_orientation_signs,
+            *self.projected_boundary_loop_orientation_signs,
+        )
+        if any(item not in (-1, 0, 1) for item in signs):
+            raise ValueError("embedding orientation signs must be -1, 0, or 1")
+
+
+@dataclass(frozen=True, slots=True)
 class NearPlanarProjectionCertificateV1:
     """Запись о том, что вход был спроецирован, и на сколько он отклонялся.
 
@@ -544,6 +675,45 @@ class RationalAffinePlanarMetricV2:
     )
     source_lineage: frozenset[LineageId]
     grid_certificate: IntegerGridCertificateV1
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    """Additive carrier for an unchanged V2 metric and embedding evidence."""
+
+    metric: RationalAffinePlanarMetricV2
+    source_snap_embedding_certificate: SourceSnapEmbeddingCertificateV1
+    near_planar_projection_embedding_certificate: (
+        NearPlanarProjectionEmbeddingCertificateV1 | None
+    )
+
+    def __post_init__(self) -> None:
+        snap = self.source_snap_embedding_certificate
+        if snap.snapping_law is not self.metric.grid_certificate.snapping_law:
+            raise ValueError("snap embedding law differs from the V2 metric")
+        source_ids = tuple(
+            sorted(
+                self.metric.planarity_certificate.source_vertex_ids,
+                key=lambda item: item.value,
+            )
+        )
+        if snap.source_vertex_ids != source_ids:
+            raise ValueError("snap embedding vertices differ from the V2 metric")
+        projection = self.near_planar_projection_embedding_certificate
+        planarity = self.metric.planarity_certificate
+        projected = (
+            planarity.projected_source_vertex_ids
+            if type(planarity) is NearPlanarProjectionCertificateV1
+            else frozenset()
+        )
+        if bool(projected) is (projection is None):
+            raise ValueError(
+                "projection embedding is required exactly when vertices moved"
+            )
+        if projection is not None and projection.source_vertex_ids != source_ids:
+            raise ValueError(
+                "projection embedding vertices differ from the V2 metric"
+            )
 
 
 @dataclass(frozen=True, slots=True)

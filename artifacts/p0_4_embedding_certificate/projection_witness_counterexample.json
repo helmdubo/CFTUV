@@ -1,0 +1,39 @@
+{
+  "schema": "P0_4_PROJECTION_WITNESS_COUNTEREXAMPLE_V1",
+  "fixture": "test_the_product_budget_admits_roof_curvature_and_still_refuses_real_bends",
+  "bend": "1/100",
+  "both_grid_laws": [
+    "SOURCE_ONLY_GRID_SNAP_V1",
+    "UNSNAPPED_EXACT_V1"
+  ],
+  "preserved_axes": {
+    "boundary_injectivity": true,
+    "nonzero_boundary_edges": true,
+    "nonadjacent_intersections": true,
+    "collinear_overlaps": true,
+    "face_orientation_signs": [1, 1, 1],
+    "boundary_loop_orientation_signs": [1],
+    "boundary_component_count": 1,
+    "outer_hole_nesting": true
+  },
+  "current_witness_findings": [
+    "NEAR_PLANAR_PROJECTION_CYCLIC_ORDER_CHANGED",
+    "NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED",
+    "NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED"
+  ],
+  "current_anchor_ids": {
+    "dominant_axis_source_chart": ["v00", "v01", "v04"],
+    "projected_chart": ["v00", "v01", "v02"]
+  },
+  "exact_3d_canonical_source_anchor_ids": ["v00", "v01", "v02"],
+  "diagnosis": {
+    "anchor": "dominant-axis source chart hides exact binary64 3D non-collinearity; the normative source-frame law and projected frame both select v02",
+    "cyclic_and_fan": "turn-sign pairwise determinants encode convexity at degree-two straight-chain vertices, which is stronger than rotation-system cyclic order and can flip without an edge-order crossing"
+  },
+  "proposed_authorized_law": {
+    "source_anchor": "exact 3D CANONICAL_SOURCE_VERTEX_BASIS_V1 selection",
+    "boundary_cyclic_order": "canonical cyclic PhysicalEdgeId occurrence sequence; orientation remains a separate certificate axis",
+    "fan_identity": "cyclic angular sequence of incident PhysicalEdgeId rays modulo rotation; degree at most two is topologically trivial; same-direction collinear groups are explicit"
+  },
+  "expected_result_under_proposed_law": "ADMITTED with all embedding axes preserved"
+}

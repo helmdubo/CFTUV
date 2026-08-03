@@ -13,6 +13,7 @@ from cftuv_envelope import (
     DecalRequestV1,
     EnvelopeDebugSceneV1,
     EvaluationGeometryBindingV1,
+    EmbeddingCertifiedRationalAffinePlanarMetricV1,
     GeometryBatchV1,
     RationalAffinePlanarMetricV2,
     RuntimePlanarMetricV1,
@@ -48,6 +49,11 @@ SCHEMAS = (
         RationalAffinePlanarMetricV2,
         "cftuv.envelope.rational_affine_planar_metric.v2",
         "rational_affine_planar_metric_v2.schema.json",
+    ),
+    (
+        EmbeddingCertifiedRationalAffinePlanarMetricV1,
+        "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1",
+        "embedding_certified_rational_affine_planar_metric_v1.schema.json",
     ),
     (
         RuntimePlanarMetricV1,

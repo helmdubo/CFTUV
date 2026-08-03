@@ -10,6 +10,7 @@ from cftuv_envelope import (
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
+    EmbeddingCertifiedRationalAffinePlanarMetricV1,
     EvaluationGeometryBindingV1,
     GeometryBatchV1,
     HiddenSupportDirectionLaw,
@@ -55,6 +56,10 @@ def test_checked_in_schemas_are_generated_from_public_types():
         "rational_affine_planar_metric_v2.schema.json": (
             RationalAffinePlanarMetricV2,
             "cftuv.envelope.rational_affine_planar_metric.v2",
+        ),
+        "embedding_certified_rational_affine_planar_metric_v1.schema.json": (
+            EmbeddingCertifiedRationalAffinePlanarMetricV1,
+            "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1",
         ),
         "runtime_planar_metric_v1.schema.json": (
             RuntimePlanarMetricV1,
