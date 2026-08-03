@@ -91,6 +91,37 @@
     "p0_3_refreeze": "НЕ ВЫПОЛНЕНА СОЗНАТЕЛЬНО — см. open_roots.sparse_hydration: корпус весов и стен всё ещё регрессирован, перезаморозка благословила бы регрессию"
   },
 
+  "suites": {
+    "kernel_before": "88 failed, 2775 passed, 2 skipped",
+    "kernel_after_extraction": "88 failed, 2775 passed, 2 skipped — множество упавших ПОТЕСТОВО идентично",
+    "kernel_after_germ_quotient": "59 failed, 2804 passed, 2 skipped (43 мин)",
+    "kernel_fixed": 29,
+    "kernel_fixed_by_file": {
+      "test_wavefront_superlevel_transaction.py": 11,
+      "test_wavefront_proof_obligations.py": 4,
+      "test_wavefront_faces.py": 4,
+      "test_wavefront_degenerate_event.py": 4,
+      "test_wavefront_vertex_fan.py": 3,
+      "test_wavefront_same_time_closure.py": 2,
+      "test_wavefront_partial_source.py": 1,
+      "test_generated_schemas.py": 1
+    },
+    "kernel_remaining_by_file": {
+      "test_wavefront_proof_obligations.py": 38,
+      "test_wavefront_superlevel_transaction.py": 9,
+      "test_sem_clb_02_chain_straight_regression.py": 5,
+      "test_wavefront_differential.py": 2,
+      "test_wavefront_weighted_wall_differential.py": 1,
+      "test_wavefront_same_time_closure.py": 1,
+      "test_wavefront_partial_source.py": 1,
+      "test_wavefront_degenerate_event.py": 1,
+      "test_surface_flat_reduction.py": 1
+    },
+    "kernel_new_failures": 1,
+    "kernel_new_failure_named": "test_wavefront_superlevel_transaction.py::test_mixed_edge_chain_and_interior_split_compose_unique_ports — см. questions_for_the_principal Q6",
+    "host": "2 failed, 1289 passed, 5 skipped — оба падения контейнерные (powershell отсутствует); test_architecture.py 440 passed"
+  },
+
   "corpus_transitions": {
     "note": "90 случаев на одной вершине: 63 named+partial, 23 weighted (P0-3), 4 полевых",
     "merge_head_red_to_germ_head": {
@@ -179,6 +210,7 @@
     "Q2. Перезаморозку абсолютных дайджестов P0-3 НЕ делаю: 7 из 23 фигур корпуса весов и стен всё ещё UNRESOLVABLE против 17/5/1 на 4cf9d5a. Переснять эталон сейчас — заморозить регрессию. Подтвердите: перезаморозка после закрытия корня sparse_hydration.",
     "Q3. E-1 из Q-10-ADD (неназванное правило _dedupe_by_vertex «резать лексикографически меньшее») этой карточкой не тронуто: поглощение SPLIT теперь идёт по зародышу, но _dedupe_split_incidents со своим лексикографическим порядком остался как был. Нужен ли тест-долг на него в этой поставке или он идёт с P0-2d?",
     "Q4. Снят предикат поглощения, решавший тождество рантаймовым edge id (`event.edge in incident_edges`). Это расширяет поглощение на близнецов того же исходного ребра. Измерено: на 90 случаях сдвинулась ОДНА фигура (weighted::weighted_vertex_fan, и она остаётся красной по второму корню). Подтвердите, что снятие рантаймового тождества — правильная сторона развилки.",
-    "Q5. 37 из 63 случаев расходятся с замороженным оракулом 852059a только по счётчикам конвейера кандидатов при полностью совпавших outcome и semantic_digest. Что власть: сделать пересев кандидатов в symbolic_runtime_commit побитово равным _commit_plans, или перезаморозить delta_receipt_v2 на новой вершине? Подгонку счётчиков под оракул я не делал."
+    "Q5. 37 из 63 случаев расходятся с замороженным оракулом 852059a только по счётчикам конвейера кандидатов при полностью совпавших outcome и semantic_digest. Что власть: сделать пересев кандидатов в symbolic_runtime_commit побитово равным _commit_plans, или перезаморозить delta_receipt_v2 на новой вершине? Подгонку счётчиков под оракул я не делал.",
+    "Q6. ПРЯМОЕ ПРОТИВОРЕЧИЕ С ЗАПИСАННОЙ ВЛАСТЬЮ, решать принципалу. Ворота wip-коммита `test_mixed_edge_chain_and_interior_split_compose_unique_ports` последним блоком строят `wrong_endpoint = replace(endpoint_incident, target_end_id=4)` — инцидент, ГЕОМЕТРИЧЕСКИ тождественный поглощаемому, отличающийся ТОЛЬКО рантаймовым id встреченной вершины, — и требуют, чтобы он поглощён НЕ был. AUTH Q-10-ADD и сама карточка P0-2b требуют обратного: тождество выводится из геометрии (ключ вхождения + примитивный луч), «runtime id не разрешает ничью». Исполнить оба требования нельзя. Я исполнил записанную власть (германа), тест остаётся красным и назван здесь. Варианты: (a) снять последний блок этих ворот как заявление, отменённое Q-10-ADD; (b) отменить Q-10-ADD в этой части. Сам я ни того, ни другого не делал."
   ]
 }
