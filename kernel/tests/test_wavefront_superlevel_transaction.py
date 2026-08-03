@@ -3731,10 +3731,37 @@ def test_mixed_edge_chain_and_interior_split_compose_unique_ports():
     }
     assert len(plan.birth_wiring) == 2
 
-    wrong_endpoint = replace(endpoint_incident, target_end_id=4)
-    contacts, remaining, valid = superlevel_module._edge_contact_plans(
-        (edge_incident,), (wrong_endpoint, split_incident), vertices
+    # ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ по AUTH Q-10-ADD: рантаймовый id ничью не
+    # разрешает. Инцидент, отличающийся ТОЛЬКО `target_end_id` — рантаймовым
+    # номером встреченной вершины, — несёт ТОТ ЖЕ зародыш (то же каноническое
+    # время, ту же точку, тот же набор концов), а значит обязан дать ТОТ ЖЕ
+    # исход. Разный исход означал бы, что ответ зависит от нумерации вершин,
+    # то есть от порядка применения, — ровно то, ради чего заведена
+    # транзакция.
+    #
+    # SUPERSEDED: до Q-10-ADD этот блок требовал обратного — что
+    # `target_end_id=4` ВЫВОДИТ инцидент из поглощения (`wrong_endpoint in
+    # remaining`). То ожидание описывало предикат поглощения, который решал
+    # тождество рантаймовым id (`met_adjacent` + boundary endpoint +
+    # принадлежность рантаймового edge id). Q-10-ADD отменил этот предикат
+    # нормативно: тождество — канонический t, каноническая точка и
+    # канонический НАБОР КОНЦОВ, где конец = (ключ вхождения, примитивный
+    # целочисленный луч). Старое ожидание сохранено здесь прозой, потому что
+    # тест не должен молча поменять смысл.
+    same_germ = replace(endpoint_incident, target_end_id=4)
+    baseline = superlevel_module._edge_contact_plans(
+        (edge_incident,), (endpoint_incident, split_incident), vertices
     )
-    assert valid
-    assert contacts[0].events == (edge_event,)
-    assert wrong_endpoint in remaining
+    renumbered = superlevel_module._edge_contact_plans(
+        (edge_incident,), (same_germ, split_incident), vertices
+    )
+    assert baseline[2] and renumbered[2]
+    assert renumbered[0][0].events == baseline[0][0].events
+    assert renumbered[0][0].births == baseline[0][0].births
+    assert renumbered[0][0].chains == baseline[0][0].chains
+    assert tuple(item.event for item in renumbered[1]) == tuple(
+        item.event for item in baseline[1]
+    )
+    # Настоящий interior-разрез поглощён НЕ был ни в одном из прогонов: его
+    # рассекаемое вхождение не плечо этого локуса.
+    assert split_incident.event not in renumbered[0][0].events
