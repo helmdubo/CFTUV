@@ -37,6 +37,7 @@ from cftuv_envelope.ids import (
     PatchDomainId,
     PatchId,
     PhysicalChainId,
+    PhysicalEdgeId,
     SourceFaceId,
     SourceRevision,
     SourceVertexId,
@@ -306,6 +307,10 @@ def _slope_patch(*, bend: float = 0.0, width: float = 3.3125):
     порядке сортировки id идёт вдоль склона и почти коллинеарна, поэтому её
     векторное произведение вырождается и «плоскость кадра» схлопывается на ось
     выдавливания — на ось X.
+
+    Connected patch shares internal edges by ID: нормативная identity здесь
+    ``PhysicalEdgeId``, а не совпадение endpoint-ов, которое не различает
+    физические multiedges.
     """
 
     rows = (0.0, 0.9137, 1.8271, 2.7)
@@ -335,8 +340,11 @@ def _slope_patch(*, bend: float = 0.0, width: float = 3.3125):
                 face_id=SourceFaceId(f"f{row}"),
                 patch_id=PatchId("p0"),
                 vertex_cycle=cycle,
-                edge_cycle=tuple(
-                    PhysicalChainId(f"e{row}{side}") for side in range(4)
+                edge_cycle=(
+                    PhysicalEdgeId(f"slope:left:{row}"),
+                    PhysicalEdgeId(f"slope:cross:{row + 1}"),
+                    PhysicalEdgeId(f"slope:right:{row}"),
+                    PhysicalEdgeId(f"slope:cross:{row}"),
                 ),
                 polygon_normal=LocalPoint3V1(0.0, 1.0, 2.0),
                 triangle_ids=(),

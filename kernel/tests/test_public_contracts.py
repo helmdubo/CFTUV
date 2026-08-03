@@ -51,8 +51,21 @@ from cftuv_envelope import (
 # records и selection certificate остаются отдельными типами.
 # DENS-PROJECTIVE-CHART добавляет tagged atlas/piece/pole-ownership только
 # для окон, пересекающих coordinate poles; single-chart V2 остаётся отдельным.
-PUBLIC_API_DENS_PROJECTIVE_CHART_V1_SHA256 = (
-    "76a2d58e54d158b2a38065450086ebd4feb3222d1caa8d054e914b6419fd9064"
+# P0-4 добавляет два embedding-сертификата, отдельный wrapper/codec/schema и
+# два entrypoint-а; прежний RationalAffinePlanarMetricV2 остаётся неизменным.
+PUBLIC_API_P0_4_EMBEDDING_CERTIFICATE_V1_SHA256 = (
+    "36a104dce066d8a7893a1406f6d53f7bb06696cba38f8cd03fe102380ec48ea2"
+)
+
+P0_4_ADDITIVE_PUBLIC_NAMES = (
+    "ProjectionAnchorSelectionLawV1",
+    "SourceSnapEmbeddingCertificateV1",
+    "NearPlanarProjectionEmbeddingCertificateV1",
+    "EmbeddingCertifiedRationalAffinePlanarMetricV1",
+    "EMBEDDING_CERTIFIED_RATIONAL_AFFINE_PLANAR_METRIC_SCHEMA_V1",
+    "EmbeddingCertifiedRationalAffinePlanarMetricCodecV1",
+    "build_embedding_certified_rational_affine_planar_metric",
+    "validate_embedding_certified_rational_affine_planar_metric",
 )
 
 
@@ -104,7 +117,14 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_DENS_PROJECTIVE_CHART_V1_SHA256
+    assert digest == PUBLIC_API_P0_4_EMBEDDING_CERTIFICATE_V1_SHA256
+
+
+def test_p0_4_public_growth_is_additive_and_names_every_new_surface():
+    assert len(cftuv_envelope.__all__) == 515
+    assert cftuv_envelope.__all__[-len(P0_4_ADDITIVE_PUBLIC_NAMES) :] == (
+        P0_4_ADDITIVE_PUBLIC_NAMES
+    )
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

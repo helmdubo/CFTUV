@@ -353,9 +353,15 @@ def _loops_of(fixture: str):
     """Петли всех доменов фикстуры — перехватом `_region_loops`."""
 
     folder = FIXTURE_ROOT / fixture
-    snapshot = AnalysisSnapshotCodecV1.loads(
-        (folder / "analysis_snapshot.json").read_bytes()
-    )
+    snapshot_bytes = (folder / "analysis_snapshot.json").read_bytes()
+    if fixture == "building_patch10_density4_v1":
+        loaded = AnalysisSnapshotCodecV1.loads_with_compatibility_receipt(
+            snapshot_bytes
+        )
+        assert loaded.compatibility_receipt.positive_scaled_normal_compat_hits == 1
+        snapshot = loaded.record
+    else:
+        snapshot = AnalysisSnapshotCodecV1.loads(snapshot_bytes)
     request = DecalRequestCodecV1.loads((folder / "decal_request.json").read_bytes())
 
     captured: list = []

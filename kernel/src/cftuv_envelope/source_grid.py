@@ -39,6 +39,11 @@ from .contracts.metric import (
     GridSnappingLawV1,
     GridWindowOutcomeV1,
     IntegerGridCertificateV1,
+    SourceSnapEmbeddingCertificateV1,
+)
+from ._embedding import (
+    build_source_snap_embedding_certificate,
+    source_snap_violation,
 )
 from .reference.angle_measure import (
     CertifiedAngleUnavailable,
@@ -76,6 +81,13 @@ class SourceGridFactsV1:
 
     positions: dict
     certificate: IntegerGridCertificateV1
+    source_snap_embedding_certificate: SourceSnapEmbeddingCertificateV1
+
+
+@dataclass(frozen=True, slots=True)
+class IntendedRightCornerFactsV1:
+    intended: tuple
+    unclassifiable: tuple
 
 
 def _rational(value: Fraction | int) -> ExactRationalV1:
@@ -162,7 +174,7 @@ def _corner_pair(positions, corner):
     return _dot(left, right), squared_sine
 
 
-def intended_right_corners(positions, faces) -> tuple:
+def intended_right_corner_facts(positions, faces) -> IntendedRightCornerFactsV1:
     """Углы, которые объявленная авторская ошибка числит задуманно прямыми.
 
     Это классификация угла, а не порог в геометрии: она ничего не округляет и
@@ -177,17 +189,27 @@ def intended_right_corners(positions, faces) -> tuple:
     """
 
     result = []
+    unclassifiable = []
     bound = AUTHOR_ANGULAR_ERROR * AUTHOR_ANGULAR_ERROR
     for corner in _corners(faces):
         pair = _corner_pair(positions, corner)
         if pair is None:
+            unclassifiable.append(corner)
             continue
         cosine, squared_sine = pair
         if cosine == 0:
             continue
         if cosine * cosine <= bound * squared_sine:
             result.append(corner)
-    return tuple(result)
+    return IntendedRightCornerFactsV1(
+        intended=tuple(result), unclassifiable=tuple(unclassifiable)
+    )
+
+
+def intended_right_corners(positions, faces) -> tuple:
+    """Compatibility view over the classified intended-corner facts."""
+
+    return intended_right_corner_facts(positions, faces).intended
 
 
 def restored_right_corners(positions, corners) -> int:
@@ -311,6 +333,7 @@ def resolve_source_grid(
     faces,
     snapping_law: GridSnappingLawV1,
     search_order: GridScaleSearchOrderV1 = GRID_SCALE_SEARCH_ORDER,
+    enforce_embedding: bool = True,
 ):
     """Окно шага, выбор масштаба законом, привязка и сертификат — или отказ.
 
@@ -336,7 +359,8 @@ def resolve_source_grid(
         decal_detail=DECAL_DETAIL,
     )
     outcome = _WINDOW_OUTCOMES[window.outcome]
-    intended = intended_right_corners(positions, faces)
+    corner_facts = intended_right_corner_facts(positions, faces)
+    intended = corner_facts.intended
     step = None if window.grid is None else Fraction(1, window.grid.scale)
     facts = {
         "window_outcome": outcome,
@@ -353,15 +377,20 @@ def resolve_source_grid(
         "intended_right_corners": len(intended),
     }
     if not snapping_law.snaps_source:
-        return SourceGridFactsV1(
-            positions=positions,
-            certificate=IntegerGridCertificateV1(
+        certificate = IntegerGridCertificateV1(
                 snapping_law=snapping_law,
                 restored_right_corners=restored_right_corners(positions, intended),
                 search_order=search_order,
                 scale_trials=(),
                 **facts,
-            ),
+            )
+        return _source_grid_result(
+            before=positions,
+            after=positions,
+            faces=faces,
+            corner_facts=corner_facts,
+            certificate=certificate,
+            enforce_embedding=enforce_embedding,
         )
     if window.grid is None:
         raise _refusal(outcome.value, extent, window)
@@ -375,15 +404,51 @@ def resolve_source_grid(
     facts["window_step"] = _rational(Fraction(1, grid.scale))
     facts["source_scale"] = grid.scale
     facts["magnitude_bound"] = grid.magnitude_bound
-    return SourceGridFactsV1(
-        positions=snapped,
-        certificate=IntegerGridCertificateV1(
+    certificate = IntegerGridCertificateV1(
             snapping_law=snapping_law,
             restored_right_corners=trials[-1].restored_right_corners,
             search_order=search_order,
             scale_trials=trials,
             **facts,
-        ),
+        )
+    return _source_grid_result(
+        before=positions,
+        after=snapped,
+        faces=faces,
+        corner_facts=corner_facts,
+        certificate=certificate,
+        enforce_embedding=enforce_embedding,
+    )
+
+
+def _source_grid_result(
+    *, before, after, faces, corner_facts, certificate, enforce_embedding
+):
+    embedding = build_source_snap_embedding_certificate(
+        before=before,
+        after=after,
+        faces=faces,
+        intended_corners=corner_facts.intended,
+        unclassifiable_corners=corner_facts.unclassifiable,
+        snapping_law=certificate.snapping_law,
+    )
+    outcome = source_snap_violation(embedding)
+    if enforce_embedding and outcome is not None:
+        raise _embedding_refusal(outcome, embedding)
+    return SourceGridFactsV1(
+        positions=after,
+        certificate=certificate,
+        source_snap_embedding_certificate=embedding,
+    )
+
+
+def _embedding_refusal(outcome, certificate):
+    from .planar_metric import PlanarMetricAdmissionError
+
+    return PlanarMetricAdmissionError(
+        outcome,
+        "source snap did not preserve the embedding: "
+        f"{certificate!r}",
     )
 
 

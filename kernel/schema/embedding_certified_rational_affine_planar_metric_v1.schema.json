@@ -1,0 +1,882 @@
+{
+  "$defs": {
+    "EmbeddingCertifiedRationalAffinePlanarMetricV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EmbeddingCertifiedRationalAffinePlanarMetricV1"
+        },
+        "metric": {
+          "$ref": "#/$defs/RationalAffinePlanarMetricV2"
+        },
+        "near_planar_projection_embedding_certificate": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NearPlanarProjectionEmbeddingCertificateV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_snap_embedding_certificate": {
+          "$ref": "#/$defs/SourceSnapEmbeddingCertificateV1"
+        }
+      },
+      "required": [
+        "$type",
+        "metric",
+        "source_snap_embedding_certificate",
+        "near_planar_projection_embedding_certificate"
+      ],
+      "type": "object"
+    },
+    "ExactMatrix2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactMatrix2V1"
+        },
+        "m00": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m01": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m10": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m11": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "m00",
+        "m01",
+        "m10",
+        "m11"
+      ],
+      "type": "object"
+    },
+    "ExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactPoint3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint3V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "z": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "ExactSourcePlaneCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactSourcePlaneCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law"
+      ],
+      "type": "object"
+    },
+    "ExactSourceVertexCoordinateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactSourceVertexCoordinateV2"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "ExactVector3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactVector3V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "z": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "GridScaleTrialV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GridScaleTrialV1"
+        },
+        "outcome": {
+          "enum": [
+            "RELATIONS_RESTORED",
+            "RELATIONS_NOT_RESTORED"
+          ],
+          "type": "string"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "scale",
+        "step",
+        "restored_right_corners",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "IntegerGridCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntegerGridCertificateV1"
+        },
+        "author_angular_error": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "decal_detail": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "intended_right_corners": {
+          "type": "integer"
+        },
+        "magnitude_bound": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale_trials": {
+          "items": {
+            "$ref": "#/$defs/GridScaleTrialV1"
+          },
+          "type": "array"
+        },
+        "search_order": {
+          "enum": [
+            "FINEST_ADMISSIBLE_FIRST_V1",
+            "COARSEST_ADMISSIBLE_FIRST_V1"
+          ],
+          "type": "string"
+        },
+        "snapping_law": {
+          "enum": [
+            "UNSNAPPED_EXACT_V1",
+            "SOURCE_ONLY_GRID_SNAP_V1",
+            "INTEGER_GRID_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "source_scale": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_lower_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "window_outcome": {
+          "enum": [
+            "WINDOW_AVAILABLE",
+            "GRID_WINDOW_CLOSED",
+            "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+          ],
+          "type": "string"
+        },
+        "window_step": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_upper_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "snapping_law",
+        "window_outcome",
+        "patch_extent",
+        "author_angular_error",
+        "decal_detail",
+        "window_lower_bound",
+        "window_upper_bound",
+        "window_step",
+        "source_scale",
+        "magnitude_bound",
+        "intended_right_corners",
+        "restored_right_corners",
+        "search_order",
+        "scale_trials"
+      ],
+      "type": "object"
+    },
+    "LineageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LineageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "NearPlanarProjectionCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NearPlanarProjectionCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "coordinate_ulp_multiplier": {
+          "type": "integer"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "max_coordinate_ulp": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "max_residual_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "minimum_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planar_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "projected_source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "relative_extent_factor": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget_law": {
+          "enum": [
+            "RELATIVE_EXTENT_OR_ULP_V1",
+            "GRID_STEP_CELL_V1",
+            "PRODUCT_SKIRT_ABSOLUTE_V1"
+          ],
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "source_revision",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law",
+        "residual_budget_law",
+        "relative_extent_factor",
+        "minimum_extent",
+        "coordinate_ulp_multiplier",
+        "max_coordinate_ulp",
+        "planar_extent",
+        "residual_budget",
+        "max_residual_squared",
+        "projected_source_vertex_ids"
+      ],
+      "type": "object"
+    },
+    "NearPlanarProjectionEmbeddingCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NearPlanarProjectionEmbeddingCertificateV1"
+        },
+        "anchor_selection_law": {
+          "enum": [
+            "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1"
+          ],
+          "type": "string"
+        },
+        "coincident_boundary_occurrence_pair_count": {
+          "type": "integer"
+        },
+        "collapsed_boundary_edge_occurrence_count": {
+          "type": "integer"
+        },
+        "exact_pair_test_count": {
+          "type": "integer"
+        },
+        "nesting_mismatch_count": {
+          "type": "integer"
+        },
+        "new_nonadjacent_collinear_overlap_count": {
+          "type": "integer"
+        },
+        "new_nonadjacent_edge_intersection_count": {
+          "type": "integer"
+        },
+        "orientation_mismatch_count": {
+          "type": "integer"
+        },
+        "projected_anchor_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "projected_boundary_component_count": {
+          "type": "integer"
+        },
+        "projected_boundary_loop_nesting_depths": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "projected_boundary_loop_orientation_signs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "projected_cyclic_order_sha256": {
+          "type": "string"
+        },
+        "projected_face_orientation_signs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "projected_fan_ambiguity_count": {
+          "type": "integer"
+        },
+        "projected_fan_identity_sha256": {
+          "type": "string"
+        },
+        "resolved_plane_basis_unavailable_count": {
+          "type": "integer"
+        },
+        "source_anchor_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "source_boundary_component_count": {
+          "type": "integer"
+        },
+        "source_boundary_loop_nesting_depths": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "source_boundary_loop_orientation_signs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "source_boundary_occurrence_count": {
+          "type": "integer"
+        },
+        "source_chart_dropped_axis": {
+          "type": "integer"
+        },
+        "source_chart_first_axis_negated": {
+          "type": "boolean"
+        },
+        "source_cyclic_order_sha256": {
+          "type": "string"
+        },
+        "source_face_orientation_signs": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "source_fan_ambiguity_count": {
+          "type": "integer"
+        },
+        "source_fan_identity_sha256": {
+          "type": "string"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_ids",
+        "source_chart_dropped_axis",
+        "source_chart_first_axis_negated",
+        "source_boundary_occurrence_count",
+        "source_boundary_component_count",
+        "projected_boundary_component_count",
+        "coincident_boundary_occurrence_pair_count",
+        "collapsed_boundary_edge_occurrence_count",
+        "new_nonadjacent_edge_intersection_count",
+        "new_nonadjacent_collinear_overlap_count",
+        "source_face_orientation_signs",
+        "projected_face_orientation_signs",
+        "source_boundary_loop_orientation_signs",
+        "projected_boundary_loop_orientation_signs",
+        "source_boundary_loop_nesting_depths",
+        "projected_boundary_loop_nesting_depths",
+        "orientation_mismatch_count",
+        "nesting_mismatch_count",
+        "source_cyclic_order_sha256",
+        "projected_cyclic_order_sha256",
+        "anchor_selection_law",
+        "source_anchor_vertex_ids",
+        "projected_anchor_vertex_ids",
+        "resolved_plane_basis_unavailable_count",
+        "source_fan_identity_sha256",
+        "projected_fan_identity_sha256",
+        "source_fan_ambiguity_count",
+        "projected_fan_ambiguity_count",
+        "exact_pair_test_count"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PlanarityCertificateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PlanarityCertificateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RationalAffinePlanarMetricV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RationalAffinePlanarMetricV2"
+        },
+        "chart_orientation": {
+          "enum": [
+            "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+            "COORDINATE_CW_MATCHES_OWNER_PATCH"
+          ],
+          "type": "string"
+        },
+        "exact_basis_a": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "exact_basis_b": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "exact_gram_matrix": {
+          "$ref": "#/$defs/ExactMatrix2V1"
+        },
+        "exact_inverse_gram_matrix": {
+          "$ref": "#/$defs/ExactMatrix2V1"
+        },
+        "exact_origin": {
+          "$ref": "#/$defs/ExactPoint3V1"
+        },
+        "exact_source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/ExactSourceVertexCoordinateV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "frame_selection_law": {
+          "enum": [
+            "CANONICAL_SOURCE_VERTEX_BASIS_V1"
+          ],
+          "type": "string"
+        },
+        "grid_certificate": {
+          "$ref": "#/$defs/IntegerGridCertificateV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planarity_certificate": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/NearPlanarProjectionCertificateV1"
+            }
+          ]
+        },
+        "reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "source_lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "reference_metric_id",
+        "patch_domain_id",
+        "source_revision",
+        "exact_origin",
+        "exact_basis_a",
+        "exact_basis_b",
+        "exact_gram_matrix",
+        "exact_inverse_gram_matrix",
+        "exact_source_vertex_coordinates",
+        "chart_orientation",
+        "frame_selection_law",
+        "planarity_certificate",
+        "source_lineage",
+        "grid_certificate"
+      ],
+      "type": "object"
+    },
+    "ReferenceMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ReferenceMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceSnapEmbeddingCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SourceSnapEmbeddingCertificateV1"
+        },
+        "collapsed_nonzero_source_edge_count": {
+          "type": "integer"
+        },
+        "degenerated_intended_right_corner_count": {
+          "type": "integer"
+        },
+        "exact_pair_test_count": {
+          "type": "integer"
+        },
+        "intended_right_corner_count": {
+          "type": "integer"
+        },
+        "new_nonadjacent_edge_intersection_count": {
+          "type": "integer"
+        },
+        "newly_coincident_vertex_pair_count": {
+          "type": "integer"
+        },
+        "snapping_law": {
+          "enum": [
+            "UNSNAPPED_EXACT_V1",
+            "SOURCE_ONLY_GRID_SNAP_V1",
+            "INTEGER_GRID_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "source_edge_count": {
+          "type": "integer"
+        },
+        "source_vertex_count": {
+          "type": "integer"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "unchanged_unclassifiable_source_corner_count": {
+          "type": "integer"
+        },
+        "unclassifiable_source_corner_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "snapping_law",
+        "source_vertex_ids",
+        "source_vertex_count",
+        "source_edge_count",
+        "intended_right_corner_count",
+        "newly_coincident_vertex_pair_count",
+        "collapsed_nonzero_source_edge_count",
+        "new_nonadjacent_edge_intersection_count",
+        "unclassifiable_source_corner_count",
+        "unchanged_unclassifiable_source_corner_count",
+        "degenerated_intended_right_corner_count",
+        "exact_pair_test_count"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1",
+  "$ref": "#/$defs/EmbeddingCertifiedRationalAffinePlanarMetricV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EmbeddingCertifiedRationalAffinePlanarMetricV1"
+}
