@@ -90,3 +90,26 @@ def test_hidden_support_tag_schemas_reject_the_other_tags_direction_law():
     assert bound_law not in legacy_values
     assert legacy_law not in bound_values
 
+
+
+def test_checked_in_surface_schemas_match_their_generator():
+    """Схемы поверхности — не обещание генератора, а сверенные байты.
+
+    Генератор `kernel/tools/generate_surface_contract_schemas.py` умеет
+    `--check` с самого S0, но его никто не звал: проверка, которую надо не
+    забыть запустить, — это слух. Здесь она становится частью прогона, и
+    расхождение файла с типом падает сразу, а не на приёмке.
+    """
+
+    import sys
+
+    sys.path.insert(0, str(SCHEMA_ROOT.parent / "tools"))
+    try:
+        from generate_surface_contract_schemas import rendered_schemas
+    finally:
+        sys.path.pop(0)
+
+    for filename, content in rendered_schemas().items():
+        path = SCHEMA_ROOT / filename
+        assert path.is_file(), filename
+        assert path.read_text(encoding="utf-8") == content, filename
