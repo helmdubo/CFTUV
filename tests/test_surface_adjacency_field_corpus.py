@@ -39,16 +39,20 @@ from surface_adjacency_field_corpus import (
 )
 
 
-# Полные меши корпуса: payload покрывает мешь целиком, и объявление
-# `FULL_SOURCE_MESH` для них правдиво. Остальные восемь — срезы; число ниже
-# ДОКАЗЫВАЕТСЯ прогоном, а не берётся на веру.
+# Полные меши корпуса: `host_mesh.json` ДОКАЗЫВАЕТ, что payload покрывает мешь
+# целиком, и объявление `FULL_SOURCE_MESH` для них правдиво.
 FULL_MESH_SNAPSHOTS = frozenset(
     {
-        "building_patch10_density4_v1",
         "sem_clb_02_lost_domains_v1/cases/building_001_single_edge_patch_000_named_outcome_v1",
         "sem_clb_02_lost_domains_v1/cases/building_003_single_edge_patch_000_named_outcome_v1",
     }
 )
+
+# Фикстура без приложенного полного меша. N-4 на ней ничего не доказывает и
+# ничего не отвергает — доказывать нечем, и это записано, а не спрятано в
+# зелёном прогоне: `HOST_DECLARED_UNKNOWN` под честным скоупом здесь и есть
+# ответ хоста, у которого отняли bmesh.
+UNPROVABLE_SCOPE_SNAPSHOTS = frozenset({"building_patch10_density4_v1"})
 
 
 def _host_table(folder, snapshot, *, scope):
@@ -146,10 +150,17 @@ def test_only_the_host_can_name_the_boundary_of_a_request(field_case):
 
 
 def test_n4_the_host_refuses_a_slice_declared_as_a_full_mesh(field_case):
-    """N-4: восемь срезов корпуса отвергаются, три полных меша проходят."""
+    """N-4: восемь срезов корпуса отвергаются, два полных меша проходят.
+
+    Отвергает ХОСТ, и только он может: доказательство — число граней ПОЛНОГО
+    меша при ребре, которого в снапшоте нет вовсе.
+    """
 
     folder, snapshot = field_case
     name = "/".join(folder.parts[folder.parts.index("fixtures") + 1 :])
+    if name in UNPROVABLE_SCOPE_SNAPSHOTS:
+        assert load_edge_face_counts(folder) is None
+        pytest.skip("полный меш не приложен: N-4 доказывать нечем")
     if name in FULL_MESH_SNAPSHOTS:
         host = _host_table(folder, snapshot, scope="FULL_SOURCE_MESH")
         reader = read_surface_adjacency(
@@ -162,9 +173,17 @@ def test_n4_the_host_refuses_a_slice_declared_as_a_full_mesh(field_case):
     assert caught.value.reason == "SURFACE_ADJACENCY_SCOPE_DECLARATION_INVALID"
 
 
-def test_full_mesh_snapshots_are_exactly_three():
-    assert len(FULL_MESH_SNAPSHOTS) == 3
+def test_the_scope_split_of_the_corpus_is_two_one_and_eight():
+    assert len(FULL_MESH_SNAPSHOTS) == 2
+    assert len(UNPROVABLE_SCOPE_SNAPSHOTS) == 1
     assert FULL_MESH_SNAPSHOTS <= set(FIELD_SNAPSHOT_NAMES)
+    assert UNPROVABLE_SCOPE_SNAPSHOTS <= set(FIELD_SNAPSHOT_NAMES)
+    assert not FULL_MESH_SNAPSHOTS & UNPROVABLE_SCOPE_SNAPSHOTS
+    assert (
+        len(FIELD_SNAPSHOT_NAMES)
+        - len(FULL_MESH_SNAPSHOTS)
+        - len(UNPROVABLE_SCOPE_SNAPSHOTS)
+    ) == 8
 
 
 def test_diagonals_of_the_corpus_never_carry_a_physical_edge_id(field_case):
