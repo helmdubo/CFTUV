@@ -5,8 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-WT = Path("/tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-perfdiag")
 HERE = Path(__file__).resolve().parent
+# Корень дерева выводится из положения самого файла (artifacts/perf_prepare_diag/env.py),
+# иначе харнесс воспроизводится только в том worktree, где его написали.
+WT = HERE.parents[1]
 
 for entry in (str(WT), str(WT / "kernel" / "src"), str(WT / "kernel" / "tests"), str(WT / "tests"), str(HERE)):
     if entry not in sys.path:
