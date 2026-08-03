@@ -503,6 +503,11 @@ def test_angular_stage_counters_separate_zero_output_from_no_corners():
         "ANGULAR_COLLINEAR_SKIPPED": 1,
         "ANGULAR_REFLEX_CORNERS": 1,
         "ANGULAR_RELATIONS_BUILT": 1,
+        # Фикстура не несёт изломанных физических цепочек: числа стадии
+        # разреза объявлены нулями, а не отсутствуют.
+        "ANGULAR_CUT_VERTICES_CONSIDERED": 0,
+        "ANGULAR_CUT_CHART_COLLINEAR": 0,
+        "ANGULAR_CUT_REFLEX_RELATIONS": 0,
     }
     assert len(snapshot.corner_relations) == 1
 

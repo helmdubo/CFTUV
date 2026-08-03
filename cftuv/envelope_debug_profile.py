@@ -169,6 +169,22 @@ ANGULAR_STAGE_COUNTERS = (
     "ANGULAR_COLLINEAR_SKIPPED",
     "ANGULAR_REFLEX_CORNERS",
     "ANGULAR_RELATIONS_BUILT",
+    # Вершины разреза изломанной физической цепочки: у хоста нет записи об
+    # угле ВНУТРИ `BoundaryChain`, поэтому такой стык не значится в
+    # `loop.corners` и без своих чисел был бы неотличим от его отсутствия.
+    "ANGULAR_CUT_VERTICES_CONSIDERED",
+    # Излом, вырожденный проекцией чарта: разрез сделан в 3D и оказался
+    # лишним. Законно (линейность от него не страдает) и объявлено.
+    "ANGULAR_CUT_CHART_COLLINEAR",
+    "ANGULAR_CUT_REFLEX_RELATIONS",
+)
+
+
+# Стадия разбиения физических цепочек. Ноль — объявленный ноль: домен без
+# изломов обязан давать здесь нули и байт-в-байт прежний снапшот.
+SEAM_PARTITION_COUNTERS = (
+    "SEAM_PARTITION_KINK_CHAIN_USES",
+    "SEAM_PARTITION_KINK_CUT_VERTICES",
 )
 
 
@@ -294,6 +310,7 @@ class EnvelopeDebugProfileBuilderV1:
 
 __all__ = (
     "ANGULAR_STAGE_COUNTERS",
+    "SEAM_PARTITION_COUNTERS",
     "ENVELOPE_DEBUG_PROFILE_SCHEMA_V1",
     "EnvelopeDebugCounterV1",
     "EnvelopeDebugProfileBuilderV1",

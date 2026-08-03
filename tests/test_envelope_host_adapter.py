@@ -182,6 +182,94 @@ def _single_patch_bundle(*, approximate_frame: bool = False, combined_chain: boo
     return AnalysisBundle(revision, graph, surface)
 
 
+def _collinear_chain_bundle():
+    """Патч с многорёберной цепочкой, которая ПРЯМАЯ на самом деле.
+
+    `combined_chain=True` даёт цепочку `[0, 1, 2]`, которая гнётся на 90° в
+    вершине 1: с тех пор как экспортёр режет физические цепочки по точному
+    излому, она перестала быть многорёберной, и дополнение частичного
+    выделения на ней больше не проверяется. Здесь ребро 0 поделено
+    КОЛЛИНЕАРНОЙ вершиной 4 — цепочка `[0, 4, 1]` остаётся одной, и предмет
+    тех тестов сохраняется.
+    """
+
+    revision = SourceRevision("v0-collinear", "sha256:v0-collinear")
+    graph = PatchGraph(source_revision=revision)
+    coordinates = {
+        0: (0.0, 0.0, 0.0),
+        4: (2.0, 0.0, 0.0),
+        1: (4.0, 0.0, 0.0),
+        2: (4.0, 3.0, 0.0),
+        3: (0.0, 3.0, 0.0),
+    }
+
+    def chain(vertices, edges):
+        return BoundaryChain(
+            vert_indices=list(vertices),
+            vert_cos=[Vector(coordinates[item]) for item in vertices],
+            edge_indices=list(edges),
+            side_face_indices=[0 for _ in edges],
+            side_face_normals=[Vector((0, 0, 1)) for _ in edges],
+        )
+
+    loop = BoundaryLoop(
+        vert_indices=[0, 4, 1, 2, 3],
+        vert_cos=[Vector(coordinates[item]) for item in (0, 4, 1, 2, 3)],
+        edge_indices=[0, 4, 1, 2, 3],
+        side_face_indices=[0, 0, 0, 0, 0],
+        kind=LoopKind.OUTER,
+        chains=[
+            chain((0, 4, 1), (0, 4)),
+            chain((1, 2), (1,)),
+            chain((2, 3), (2,)),
+            chain((3, 0), (3,)),
+        ],
+    )
+    graph.add_node(
+        PatchNode(
+            patch_id=0,
+            face_indices=[0],
+            centroid=Vector((2, 1.5, 0)),
+            normal=Vector((0, 0, 1)),
+            basis_u=Vector((1.0, 0.0, 0.0)),
+            basis_v=Vector((0.0, 1.0, 0.0)),
+            patch_type=PatchType.FLOOR,
+            world_facing=WorldFacing.UP,
+            boundary_loops=[loop],
+        )
+    )
+    surface = PatchSurfaceIR(
+        revision,
+        vertices=tuple(
+            SourceVertex(vertex_id, coordinates[vertex_id])
+            for vertex_id in sorted(coordinates)
+        ),
+        edges=(
+            SourceEdge(0, (0, 4), (0,)),
+            SourceEdge(1, (1, 2), (0,)),
+            SourceEdge(2, (2, 3), (0,)),
+            SourceEdge(3, (3, 0), (0,)),
+            SourceEdge(4, (4, 1), (0,)),
+        ),
+        faces=(
+            SourceFace(
+                0,
+                0,
+                (0, 4, 1, 2, 3),
+                (0, 4, 1, 2, 3),
+                (0.0, 0.0, 1.0),
+                (0, 1, 2),
+            ),
+        ),
+        triangles=(
+            SurfaceTriangle(0, 0, (0, 4, 1), (4, None, 0), (0.0, 0.0, 1.0)),
+            SurfaceTriangle(1, 0, (0, 1, 2), (1, None, None), (0.0, 0.0, 1.0)),
+            SurfaceTriangle(2, 0, (0, 2, 3), (2, 3, None), (0.0, 0.0, 1.0)),
+        ),
+    )
+    return AnalysisBundle(revision, graph, surface)
+
+
 def _two_patch_seam_bundle():
     revision = SourceRevision("v0-seam", "sha256:v0-seam")
     graph = PatchGraph(source_revision=revision)
@@ -733,20 +821,17 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
     """
 
     evaluation = evaluate_envelope_debug(
-        _single_patch_bundle(combined_chain=True),
+        _collinear_chain_bundle(),
         frozenset({0}),
         1.0,
     )
-    # Фикстура даёт ещё и `PLANAR_CHAIN_SUPPORT_NOT_LINEAR` (её цепочка гнётся
-    # в вершине 1), и это утверждение — про отсутствие ОТКАЗА ВЫДЕЛЕНИЯ, а не
-    # про пустой список диагностик.
     assert not {
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN,
     } & {item.outcome for item in evaluation.diagnostics}
     assert evaluation.debug_scene is not None
     assert evaluation.request is not None
-    # Цепочка `[0, 1]` выделена целиком, хотя владелец указал только ребро 0.
+    # Цепочка `[0, 4]` выделена целиком, хотя владелец указал только ребро 0.
     chain_edges = {
         _host_edge_number(edge_id)
         for chain in evaluation.snapshot.physical_chains
@@ -758,19 +843,19 @@ def test_partial_chain_selection_is_completed_to_the_whole_chain():
             if item.chain_use_id in evaluation.request.selected_chain_use_ids
         }
     }
-    assert chain_edges == {0, 1}
+    assert chain_edges == {0, 4}
 
 
 def test_selection_completion_is_counted_and_named_in_the_scene():
-    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-collinear", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _single_patch_bundle(combined_chain=True),
+        _collinear_chain_bundle(),
         frozenset({0}),
         profile=profile,
     )
 
-    assert scene.selected_physical_edge_ids == (0, 1)
+    assert scene.selected_physical_edge_ids == (0, 4)
     codes = {item.code for item in scene.selection_diagnostics}
     assert SELECTION_COMPLETED_DIAGNOSTIC_CODE in codes
     completed = next(
@@ -778,7 +863,7 @@ def test_selection_completion_is_counted_and_named_in_the_scene():
         for item in scene.selection_diagnostics
         if item.code == SELECTION_COMPLETED_DIAGNOSTIC_CODE
     )
-    assert "[1]" in completed.message
+    assert "[4]" in completed.message
     assert completed.physical_chain_id is not None
     counters = {
         item.name: item.value for item in profile.snapshot().counters
@@ -790,15 +875,15 @@ def test_selection_completion_is_counted_and_named_in_the_scene():
 def test_whole_chain_selection_counts_zero_completion_rather_than_silence():
     """Нулевое дополнение — объявленный ноль, а не отсутствие измерения."""
 
-    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+    profile = EnvelopeDebugProfileBuilderV1("v0-collinear", "TOPOLOGY")
 
     scene = build_envelope_topology_debug_scene(
-        _single_patch_bundle(combined_chain=True),
-        frozenset({0, 1}),
+        _collinear_chain_bundle(),
+        frozenset({0, 4}),
         profile=profile,
     )
 
-    assert scene.selected_physical_edge_ids == (0, 1)
+    assert scene.selected_physical_edge_ids == (0, 4)
     assert all(
         item.code != SELECTION_COMPLETED_DIAGNOSTIC_CODE
         for item in scene.selection_diagnostics
@@ -854,9 +939,7 @@ def test_kernel_request_still_refuses_a_hand_made_partial_chain():
     не молча доезжать до ядра.
     """
 
-    snapshot = build_envelope_analysis_snapshot(
-        _single_patch_bundle(combined_chain=True)
-    )
+    snapshot = build_envelope_analysis_snapshot(_collinear_chain_bundle())
     with pytest.raises(Exception) as error:
         build_envelope_decal_request(snapshot, frozenset({0}), 1.0)
     assert error.value.outcome is (
