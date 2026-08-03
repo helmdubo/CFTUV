@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import gcd
 
-from .event_time import EventPointV1, EventTimeV1, ZERO_TIME
+from .event_time import EventTimeV1, ZERO_TIME
 from .events import CandidateEventV1, EventKind
 
 

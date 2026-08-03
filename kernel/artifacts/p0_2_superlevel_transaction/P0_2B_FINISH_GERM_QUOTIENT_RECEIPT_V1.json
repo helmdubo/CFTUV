@@ -1,0 +1,184 @@
+{
+  "schema": "P0_2B_FINISH_GERM_QUOTIENT_RECEIPT_V1",
+  "branch": "exec/p0-2b-finish",
+  "base": "origin/claude/kernel-audit-exact-proof-at8d23 (2777153) + merge origin/exec/p0-2b-superlevel-transaction (270cb0e)",
+  "status": "GATES_GREEN_TWO_NAMED_ROOTS_REMAIN",
+
+  "step_1_reproduction": {
+    "command": "PYTHONPATH=src:tests python3 -m pytest tests -q  (из каталога kernel)",
+    "result": "88 failed, 2775 passed, 2 skipped (2013 s)",
+    "predicted_86_matched_exactly": {
+      "test_wavefront_proof_obligations.py": 42,
+      "test_wavefront_superlevel_transaction.py": 19,
+      "test_wavefront_degenerate_event.py": 5,
+      "test_sem_clb_02_chain_straight_regression.py": 5,
+      "test_wavefront_faces.py": 4,
+      "test_wavefront_vertex_fan.py": 3,
+      "test_wavefront_same_time_closure.py": 3,
+      "test_wavefront_partial_source.py": 2,
+      "test_wavefront_differential.py": 2,
+      "test_wavefront_weighted_wall_differential.py": 1
+    },
+    "two_extra_named": {
+      "test_generated_schemas.py::test_checked_in_surface_schemas_match_their_generator": {
+        "cause": "МЕХАНИЧЕСКОЕ СЛЕДСТВИЕ СЛИЯНИЯ, не регрессия: exec-сторона добавила член SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE, аудит-сторона добавила сверку схем с генератором; схемы аудит-стороны новее этого члена не знали.",
+        "disposition": "перегенерировано собственным генератором репозитория (kernel/tools/generate_surface_contract_schemas.py --output schema); diff — ровно два добавленных члена enum"
+      },
+      "test_surface_flat_reduction.py::test_the_gate_runs_on_a_named_non_empty_corpus_of_three_families": {
+        "cause": "ТОТ ЖЕ КОРЕНЬ, что и 86: тест утверждает множество front_outcome по корпусу 86 = {EXACT, WAVEFRONT_LEFT_UNRESOLVED}; лишний член множества — SUPERLEVEL_COMPONENT_UNRESOLVABLE.",
+        "disposition": "зеленеет вместе с корнем; часть корпуса (веса и стены) остаётся красной по второму корню — см. open_roots"
+      }
+    }
+  },
+
+  "step_2_extraction": {
+    "module": "kernel/src/cftuv_envelope/wavefront/superlevel_snapshot.py",
+    "moved": [
+      "_VertexSnapshot", "SuperlevelIncidentV1", "SuperlevelSnapshotV1",
+      "_event_point_key", "_time_key", "_direction", "_vertex_snapshot",
+      "_port_identity", "_incident", "_incident_sort_key", "_live_level",
+      "_required_physical_edge_keys", "_sparse_occurrences",
+      "collect_superlevel_snapshot"
+    ],
+    "superlevel_py_lines": "1998 -> 1686 (+339 в новом модуле)",
+    "proof_of_neutrality": "полная kernel-сюита после выемки: 88 failed, 2775 passed, 2 skipped — множество упавших тестов ПОТЕСТОВО ИДЕНТИЧНО прогону до выемки (diff пуст)"
+  },
+
+  "step_3_germ_ledger": {
+    "module": "kernel/src/cftuv_envelope/wavefront/superlevel_germ.py",
+    "key": "GermKeyV1(канонический time_key, канонический point_key, канонический НАБОР КОНЦОВ)",
+    "end": "(ключ вхождения, примитивный целочисленный луч ОТ точки контакта вдоль этого вхождения)",
+    "ray_source": "_direction(line)/gcd из frozen prestate (_VertexSnapshot.incoming_ray/outgoing_ray и новый SuperlevelIncidentV1.target_ray), НЕ из ключа вхождения: у скрытой опоры веера ключ вырожден (x, y, x, y, ordinal)",
+    "event_kind_in_key": false,
+    "scope": "весь superlevel-пакет (один вызов plan_superlevel_components), не processing unit",
+    "scope_honesty": "Q-10-ADD требует скоуп «весь superlevel (self.now)». Реализованный скоуп — один ПАКЕТ этого superlevel: леджер заводится в plan_superlevel_components и покрывает ВСЕ компоненты пакета (это и есть требование «не юнитовый»). Superlevel, который дренируется несколькими пакетами при одном self.now, получает по леджеру на пакет. На измеренном корпусе разницы нет: все ворота зелены, корпус 63 восстановлен, cross и patch105 не сдвинулись. Общий леджер на self.num потребовал бы тождества зародыша ЧЕРЕЗ уже совершённый коммит (повтор ключа означал бы переиспользование рантаймовой вершины) — это граница атомарности, названная самим Q-10-ADD, и она не входит в объём этой карточки.",
+    "single_door": "_birth — все три пути (контакт рёбер / разрез / встреча вершин) идут через него и через леджер",
+    "bijection_uniqueness_after_quotient": "_wire_births факторизует по ключу зародыша ДО _decompose_birth_function",
+    "fold": "нагрузка (replaces) объединением; один ключ с двумя РАЗНЫМИ представителями остаётся fail-closed",
+    "removed_predicate": "прежнее поглощение SPLIT в _edge_contact_plans (met_adjacent + boundary endpoint + принадлежность рантаймового edge id) решало тождество рантаймовым id близнеца — снято как порядковая зависимость",
+
+    "diagnosed_defect_on_the_gate_figure": {
+      "case": "ell_12_source_edges_0_1",
+      "packet": "t=6, точка (6,6), компонента из 4 инцидентов (2 EDGE + 2 endpoint-SPLIT), вершины 1,2,3 стоят в одной точке, вхождения k1 и k2 вырождены в точку",
+      "before": "контакт рёбер планировал рождение (k0-конец -> k3-начало) и хоронил цепь (1,2,3); встреча вершин (1,3) планировала ТО ЖЕ рождение вторым объектом плюс фантомное (k2 -> k1); _decompose_birth_function видел два рождения с одним ключом -> ports_valid=False -> SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "after": "оба SPLIT поглощены локусом (все их концы лежат в наборе концов локуса), рождение одно, компонента разрешается как BOUNDARY_PORT_PAIRING"
+    }
+  },
+
+  "step_4_acceptance": {
+    "five_product_gates": {
+      "outcome": "EXACT (5/5)",
+      "coverage_sha256_matches_frozen_anchor": true,
+      "values": {
+        "ell_12_source_edges_0_1": ["dfcd1e1eed4f0991b326c2362ba4521b993c1b09283a18cda198b740a3d1e922", "018a5a576ad485ff864ab6729577ac525e28db8e1e975293b37c6a413a0b2e98", "5137ff2996c83b2dd1eab12ad240e3c910fdb74f152b909cff62cf8dbf461026"],
+        "ell_12_source_edges_4_5": ["9f6c130f24fa59b402255de2e9a3e5408899530b8454d03af45412d0d00d8108", "bbdb7fbee231a7c13d8dd2f9dd1222277f5a8007ba0d8bc6f185ad7de693512b", "c621290d02ff43bac9dabc36ad5c9d40e4b65f93bc1a3bf5fad50477098a725d"],
+        "ell_12_source_without_the_reflex_pair": ["fd20bd7950b754b64792133452091e1b0a929dd30754fdfcd1fc9b3935e4027d", "74cb5696b1b61d2b210481a72b089d5bc190cd9e5dc85b728dd93462e1f5cda1", "169ad2910f66dbb44328a21dcdd66c79de53d7755372955db73e3fef80bd5154"],
+        "staircase_source_edges_0_1": ["a6497bccf935014c358b8a0e3c19377f7d8f8e65f3b25e5d36f47b9b61e6cf86", "8aaa05830557a093fa9e0d9c8c2d4d25003ff5c2881a743fcdc2f0baa2e02ad7", "4b2d5d50deb6e3956c5cc51f6f293be8763fb0b701a5b04088e282ec39d07b27"],
+        "staircase_source_edges_6_7": ["bf30d3e8cc7be59a9ff72ebaae19a66c3a7bdff045b0da6fb51c5fc4a90d30b1", "cc8e7b99ae786af02cd94bef74a26ee12042b82a5944caa282bf1e25db176c40", "24b11d705594f4ac8c6a638d1a1d41afd59a326323d0551e8220dbcb9d299d34"]
+      }
+    },
+    "one_union_incidence_component_node": "5/5 (по одному mixed union-узлу на фигуру, participants и incidences совпали)",
+    "cross_unmoved": {
+      "outcome": "EXACT", "nodes": 7, "faces": 12,
+      "semantic_digest": "a5205821ef102efb12752307e917214b535e60a8379f938d481fc19aadbc74cf",
+      "node_projection_anchor_test": "passed"
+    },
+    "patch105_unmoved": {
+      "outcome": "EXACT", "levels": 12, "nodes": 6, "faces": 8,
+      "semantic_digest": "1e96e075b63a08fd5439b4262e3acd554dd55a305013a5f7c648ac4d4653f737"
+    },
+    "field_001_006_011": "НЕ достигнуто — второй корень, см. open_roots.composer_inverted_span",
+    "p0_3_refreeze": "НЕ ВЫПОЛНЕНА СОЗНАТЕЛЬНО — см. open_roots.sparse_hydration: корпус весов и стен всё ещё регрессирован, перезаморозка благословила бы регрессию"
+  },
+
+  "corpus_transitions": {
+    "note": "90 случаев на одной вершине: 63 named+partial, 23 weighted (P0-3), 4 полевых",
+    "merge_head_red_to_germ_head": {
+      "EXACT -> EXACT": 58,
+      "WAVEFRONT_LEFT_UNRESOLVED -> WAVEFRONT_LEFT_UNRESOLVED": 13,
+      "SUPERLEVEL_COMPONENT_UNRESOLVABLE -> EXACT": 5,
+      "SUPERLEVEL_COMPONENT_UNRESOLVABLE -> WAVEFRONT_LEFT_UNRESOLVED": 5,
+      "SUPERLEVEL_COMPONENT_UNRESOLVABLE -> SUPERLEVEL_COMPONENT_UNRESOLVABLE": 9
+    },
+    "corpus_63": {
+      "audit_base_2777153": {"EXACT": 46, "WAVEFRONT_LEFT_UNRESOLVED": 17},
+      "p0_2b_4cf9d5a": {"EXACT": 46, "WAVEFRONT_LEFT_UNRESOLVED": 17},
+      "merge_head_red": {"EXACT": 41, "WAVEFRONT_LEFT_UNRESOLVED": 12, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 10},
+      "germ_head": {"EXACT": 46, "WAVEFRONT_LEFT_UNRESOLVED": 17},
+      "byte_identical_to_4cf9d5a": "58 из 63; пять расходятся ТОЛЬКО числом levels (транзакция сливает уровни) и один — статусом proof INCOMPLETE -> COMPLETE; дайджест, узлы и грани совпадают"
+    },
+    "corpus_23_weighted": {
+      "audit_base_2777153": {"EXACT": 18, "WAVEFRONT_LEFT_UNRESOLVED": 5},
+      "p0_2b_4cf9d5a": {"EXACT": 17, "WAVEFRONT_LEFT_UNRESOLVED": 5, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 1},
+      "merge_head_red": {"EXACT": 16, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 7},
+      "germ_head": {"EXACT": 16, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 7}
+    },
+    "field_4": {
+      "audit_base_2777153": {"EXACT": 4},
+      "p0_2b_4cf9d5a": {"EXACT": 1, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 3},
+      "merge_head_red": {"EXACT": 1, "WAVEFRONT_LEFT_UNRESOLVED": 1, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 2},
+      "germ_head": {"EXACT": 1, "WAVEFRONT_LEFT_UNRESOLVED": 1, "SUPERLEVEL_COMPONENT_UNRESOLVABLE": 2}
+    }
+  },
+
+  "frozen_transaction_oracle_differential": {
+    "oracle": "artifacts/p0_2b_superlevel_transaction/delta_receipt_v2.json (заморожен коммитом 852059a, 63 случая: outcome + semantic_digest + proof_status + 36 legacy-счётчиков)",
+    "self_check_at_4cf9d5a": "0 расхождений из 63 — оракул есть ровно это дерево",
+    "at_merge_head_red": {
+      "cases_diverging": 39,
+      "axes": {"legacy_counters": 39, "outcome": 10, "semantic_digest": 10, "proof_status": 9},
+      "distinct_counters": 17
+    },
+    "at_germ_head": {
+      "cases_diverging": 37,
+      "axes": {"legacy_counters": 37, "outcome": 0, "semantic_digest": 0, "proof_status": 1},
+      "distinct_counters": 8,
+      "counters": {
+        "refused_filter_triple_never_concurrent": 21,
+        "discarded_stale_candidates": 16,
+        "coincident_split_targets": 7,
+        "split_candidates_examined": 5,
+        "refused_no_rule_triple_always_concurrent": 4,
+        "refused_filter_span_does_not_collapse": 4,
+        "refused_filter_event_in_the_past": 3,
+        "refused_filter_point_outside_front": 1
+      }
+    },
+    "reading": "СЕМАНТИКА восстановлена полностью: outcome и semantic_digest совпадают с замороженным оракулом на ВСЕХ 63 случаях (было 10 расхождений на каждой оси). Остаток — бухгалтерия конвейера кандидатов: wip-слой symbolic_runtime_commit пересевает кандидатов иначе, чем _commit_plans, и считает отказы/протухшие другим числом при ТОМ ЖЕ ответе."
+  },
+
+  "open_roots": {
+    "note": "ИЗМЕРЕНИЕМ ОПРОВЕРГНУТА посылка карточки «86 падений ОДНОГО корня»: корней четыре, quotient закрывает первый целиком.",
+    "germ_quotient": {
+      "status": "ЗАКРЫТ",
+      "evidence": "все 10 случаев корпуса 63, ушедшие в UNRESOLVABLE, вернулись; распределение исходов совпало с 4cf9d5a и с аудит-базой"
+    },
+    "sparse_hydration": {
+      "status": "ОТКРЫТ — назван, не чинен",
+      "symptom": "SYMBOLIC_SPLIT_OVERLAY_UNRESOLVABLE (6 фигур) и SYMBOLIC_F0_OVERLAY_UNRESOLVABLE (1 фигура) на корпусе весов и стен",
+      "decisive_measurement": "если _required_physical_edge_keys заменить на ПЛОТНОЕ множество ключей всех рёбер, корпус 23 возвращается ровно к числам 4cf9d5a: 17 EXACT / 5 UNRESOLVED / 1 UNRESOLVABLE, а корпус 63 не двигается (46/17). Значит корень — само разреженное правило снимка, введённое wip-коммитом, а не геометрия.",
+      "why_not_repaired_here": "инвариант «разреженный снимок обязан давать тот же ответ, что плотный» — предмет отдельной карточки: расширение на ОДИН LAV-шаг вокруг каждого задетого порта возвращает только 1 из 7 фигур, а недостающие вхождения принадлежат портам в 6–7 шагах. Подбор радиуса — эвристика; её здесь не делаю (стандарт предшественника: REVERTED_AS_UNAUTHORIZED_HEURISTIC)."
+    },
+    "composer_inverted_span": {
+      "status": "ОТКРЫТ — назван, не чинен",
+      "symptom": "SYMBOLIC_POSTSTATE_SPAN_INVERTED на полевых patch_006 и patch_011; patch_001 остаётся WAVEFRONT_LEFT_UNRESOLVED",
+      "localised": "patch_011, t=5750847/1024: symbolic fixed point СХОДИТСЯ за две генерации, но в финальном overlay пара (JUNCTION, BIRTH) на общей опоре (3500492,-1757056,3287000,-1543564) стоит в обратном порядке — birth_length<0 при orientation_sign=+1. Зеркальная ей пара на опоре (3291836,-1566788,3422908,-1697860) получила orientation_sign=-1 и классифицирована OPENING. Различие даёт _span_orientation: она берёт направление из occurrence листа, когда len(occurrence)==3, и из source_span иначе.",
+      "not_the_germ_quotient": "случаи красные и на 4cf9d5a, то есть ДО wip-слоя symbolic-композиции; quotient их не касается",
+      "predecessor_record": "P0_2BC_Q10_LATENT_SPLIT_STOP_RECEIPT_V1 назвал это «downstream of the latent-contact/composer defect» и запросил решение принципала (option_a / option_b)"
+    },
+    "candidate_pipeline_counters": {
+      "status": "ОТКРЫТ — назван, не чинен",
+      "symptom": "37 из 63 случаев расходятся с замороженным оракулом 852059a ТОЛЬКО по legacy-счётчикам (восемь имён, все из конвейера кандидатов); outcome и semantic_digest совпадают везде",
+      "cause": "wip-коммит заменил путь коммита (_commit_plans -> materialize_symbolic_runtime_commit): пересев кандидатов после мутации идёт другим порядком и другим множеством, отсюда другое число отказов фильтров и протухших кандидатов при том же ответе",
+      "why_not_repaired_here": "счётчики заморожены как якорь каноничности P0-2b; выбор между «сделать пересев побитово тем же» и «перезаморозить оракул» — власть принципала, а не исполнителя. Подгонять счётчики под оракул post factum запрещено тем же правилом, что и подгонку предиката."
+    }
+  },
+
+  "questions_for_the_principal": [
+    "Q1. Посылка карточки «86 падений одного корня» опровергнута измерением: корней три. Quotient Q-10-ADD закрыл первый (все ворота продукта, корпус 63 восстановлен байт-в-байт по исходам). Второй (разреженная гидратация снимка) и третий (ориентация пролёта в композиторе) — отдельные корни. Оформлять их карточками P0-2e (hydration invariance) и P0-2d (composer/orientation), или довешивать на этот стек?",
+    "Q2. Перезаморозку абсолютных дайджестов P0-3 НЕ делаю: 7 из 23 фигур корпуса весов и стен всё ещё UNRESOLVABLE против 17/5/1 на 4cf9d5a. Переснять эталон сейчас — заморозить регрессию. Подтвердите: перезаморозка после закрытия корня sparse_hydration.",
+    "Q3. E-1 из Q-10-ADD (неназванное правило _dedupe_by_vertex «резать лексикографически меньшее») этой карточкой не тронуто: поглощение SPLIT теперь идёт по зародышу, но _dedupe_split_incidents со своим лексикографическим порядком остался как был. Нужен ли тест-долг на него в этой поставке или он идёт с P0-2d?",
+    "Q4. Снят предикат поглощения, решавший тождество рантаймовым edge id (`event.edge in incident_edges`). Это расширяет поглощение на близнецов того же исходного ребра. Измерено: на 90 случаях сдвинулась ОДНА фигура (weighted::weighted_vertex_fan, и она остаётся красной по второму корню). Подтвердите, что снятие рантаймового тождества — правильная сторона развилки.",
+    "Q5. 37 из 63 случаев расходятся с замороженным оракулом 852059a только по счётчикам конвейера кандидатов при полностью совпавших outcome и semantic_digest. Что власть: сделать пересев кандидатов в symbolic_runtime_commit побитово равным _commit_plans, или перезаморозить delta_receipt_v2 на новой вершине? Подгонку счётчиков под оракул я не делал."
+  ]
+}
