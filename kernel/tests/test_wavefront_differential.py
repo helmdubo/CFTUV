@@ -936,7 +936,15 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
             node.kinds if node.kind is EventKind.MULTIWAY else (node.kind,)
         )
     )
-    assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 6})
+    # 6/6 -> 10/6 после quotient Q-10-ADD, и единица измерения тут изменилась,
+    # а не ответ. Счётчик считает НЕ события, а узлы, у которых данный вид
+    # присутствует среди `kinds`; до факторизации все 12 узлов были чистыми
+    # (6 EDGE + 6 SPLIT, ни одного MULTIWAY), теперь четыре бывших чистых SPLIT
+    # стали MULTIWAY(EDGE, SPLIT) — в них вошёл EDGE-инцидент ТОГО ЖЕ локуса.
+    # Это ровно предмет карточки (`test_main_product_has_one_union_incidence_
+    # component_node`), а не потеря событий: число узлов не двинулось (12),
+    # дайджест обоих путей поиска совпал, грани и площадь ниже не двинулись.
+    assert kinds == Counter({EventKind.EDGE: 10, EventKind.SPLIT: 6})
 
     partition = build_faces(polygon, by_trace)
     assert partition.outcome is FaceOutcome.EXACT, partition.detail

@@ -69,6 +69,19 @@ _FIELD_CASES = (
     "building_all_seams_patch_011_lost_resolved_v1",
     "building_all_seams_patch_105_lost_resolved_v1",
 )
+#: Терминал конвейера на полевом случае. Честный именованный отказ — такая же
+#: приёмка, как EXACT, и закрепляется он ТАК ЖЕ строго: имя, а не «не EXACT».
+#: Ценность теневой сверки от терминала не зависит и на отказном пути даже
+#: выше: равенство разреженного и плотного снимков обязано держаться и там,
+#: где фронт не закрылся, иначе отказ был бы артефактом снимка.
+#: Корень отказа и открытый счёт зеркальной чётности имён — в записи поставки
+#: P0-2B-FINISH в `DECISIONS.md`.
+_FIELD_TERMINAL = {
+    "building_all_seams_patch_001_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
+    "building_all_seams_patch_006_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
+    "building_all_seams_patch_011_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
+    "building_all_seams_patch_105_lost_resolved_v1": "EXACT",
+}
 _PRODUCT_AXIS_CASES = (
     "ell_12_source_edges_0_1",
     "ell_12_source_edges_4_5",
@@ -512,7 +525,7 @@ def test_sparse_shadow_matches_eager_on_sem_clb_field_both_modes(
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    assert prepared.outcome.value == "EXACT", prepared.detail
+    assert prepared.outcome.value == _FIELD_TERMINAL[case_name], prepared.detail
     (region,) = prepared.regions
     polygon = region.bridge.polygon
     assert polygon is not None
