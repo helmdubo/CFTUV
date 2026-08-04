@@ -1346,11 +1346,21 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
                 (leaf.family.participant_keys, leaf.occurrence)
                 for leaf in split.overlay.spans
             ), key=repr))
+            # Дайджест проекции переснят: "не этим числом". Сдвиг дала плотная
+            # гидратация — в F0 больше нет line-only портов, и множество живых
+            # вершин overlay стало полным. Предмет теста при этом ПРОВЕРЕН, а не
+            # ослаблен: цикл идёт по прямому и развёрнутому пакету, и обе
+            # стороны обязаны дать ОДНО и то же число — стабильность под
+            # перестановками и есть утверждение.
             assert hashlib.sha256(repr(geometry_projection).encode()).hexdigest() == (
-                "e3cda2ac2ef39e24a83ef5f31ed9c9a0ceabdb1ac5df490525b6466894b0f7af"
+                "cd72b1fc91830d68cbee219e8c8172dcd8d022d04974a5df58065a37077dbca8"
             )
+            # Та же пересъёмка и по той же причине, только адреснее: проекция
+            # листьев несёт САМО вхождение вместе с концами, а плотная
+            # гидратация как раз концы и заполнила. Стабильность под
+            # перестановками проверяется тем же циклом.
             assert hashlib.sha256(repr(leaf_projection).encode()).hexdigest() == (
-                "6ff44ce5fd5f300c45bdc247cf0944162901949647399025a1aa03f634a419bf"
+                "3a21d9b0703fa2918890a2e0c03e5b68a22083dac0f9bace2e42914ab5be9571"
             )
             assert all(
                 len(vertex.ref.key) == 2
@@ -2762,9 +2772,17 @@ def test_real_e2_s4_packets_use_one_permutation_free_junction_batch(monkeypatch)
                     leaf.occurrence for leaf in raw.spans
                     if None not in leaf.occurrence[1:]
                 }
+                # Прежде здесь стояло `any(None in leaf.occurrence[1:])` —
+                # свидетель РАЗРЕЖЕННОСТИ снимка: хотя бы один пролёт F0
+                # оставался line-only, без вычисленных концов. Плотная
+                # гидратация упразднила это по закону: снимок пакета несёт
+                # ПОЛНОЕ множество ключей живых вхождений, и негидратированных
+                # пролётов не остаётся ни одного. Свидетель снят, а утверждение
+                # усилено обратным: множества совпадают ЦЕЛИКОМ, без остатка в
+                # line-only.
                 assert raw_exact == exact
-                assert any(
-                    None in leaf.occurrence[1:] for leaf in raw.spans
+                assert all(
+                    None not in leaf.occurrence[1:] for leaf in raw.spans
                 )
                 post = old_split.plan_symbolic_split_fixed_point(
                     builder, snapshot, budget=1
@@ -2783,9 +2801,16 @@ def test_real_e2_s4_packets_use_one_permutation_free_junction_batch(monkeypatch)
     for case_name, polygon in cases.items():
         for search in SplitSearch:
             build_skeleton(polygon, split_search=search)
+    # У `cross` было по ДВА пакета на путь поиска, стало по одному, и это
+    # ровно предмет карточки, а не потеря событий: до quotient один и тот же
+    # локус предъявлялся дважды и дренировался двумя пакетами; после
+    # факторизации локус один — и пакет один. Число пакетов у остальных фигур
+    # не двинулось, а главное утверждение теста («батч один и от перестановок
+    # не зависит», `projections[0] == projections[1]` выше) проверяется на
+    # КАЖДОМ пакете и не ослаблено.
     assert Counter((name, search) for name, search, _ in rows) == Counter({
-        ("cross", "MOTORCYCLE"): 2,
-        ("cross", "EXHAUSTIVE"): 2,
+        ("cross", "MOTORCYCLE"): 1,
+        ("cross", "EXHAUSTIVE"): 1,
         ("u_shape", "MOTORCYCLE"): 1,
         ("u_shape", "EXHAUSTIVE"): 1,
         ("staircase", "MOTORCYCLE"): 1,
@@ -3519,16 +3544,27 @@ def test_duplicate_birth_port_or_key_refuses_without_symbolic_wiring_leak():
 
 
 def test_reciprocal_birth_cycle_remains_live_through_commit(monkeypatch):
-    original = superlevel_module._commit_plans
+    # ДВЕРЬ ПЕРЕЕХАЛА, свойство осталось. Коммит идёт не через `_commit_plans`,
+    # а через `materialize_symbolic_runtime_commit`; наблюдатель перенесён на
+    # неё. Предмет прежний: терминальный взаимный двухрождённый цикл обязан
+    # ПЕРЕЖИТЬ коммит живым и взаимно связанным.
+    from cftuv_envelope.wavefront import (
+        symbolic_runtime_commit as runtime_module,
+    )
+
+    original = runtime_module.materialize_symbolic_runtime_commit
     observations = []
 
-    def observed_commit(builder, plans, edge_by_occurrence):
+    def observed_commit(builder, snapshot, plan):
         first_new = len(builder.vertices)
         ridges_before = builder.counters["ridges"]
-        terminal_count = sum(len(plan.terminal_birth_cycles) for plan in plans)
-        original(builder, plans, edge_by_occurrence)
+        terminal_count = sum(
+            len(component.terminal_birth_cycles)
+            for component in plan.closure.materialization.plans
+        )
+        reason = original(builder, snapshot, plan)
         if not terminal_count:
-            return
+            return reason
         born = builder.vertices[first_new:]
         terminal = [
             vertex
@@ -3550,9 +3586,18 @@ def test_reciprocal_birth_cycle_remains_live_through_commit(monkeypatch):
             )
         )
 
-    monkeypatch.setattr(superlevel_module, "_commit_plans", observed_commit)
+        return reason
+
+    monkeypatch.setattr(
+        runtime_module,
+        "materialize_symbolic_runtime_commit",
+        observed_commit,
+    )
     skeleton = build_skeleton(_CORPUS["axis_rectangle"])
     assert skeleton.outcome is SkeletonOutcome.EXACT
+    # Свидетель обязан быть непустым: наблюдатель, который никого не поймал,
+    # свойства не проверяет.
+    assert observations
     assert observations == [(1, 2, 0, True, True)]
     assert skeleton.counter("ridges") == 1
 
