@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 import itertools
+import json
+from pathlib import Path
 
 import pytest
 
@@ -203,6 +205,19 @@ _CASES = (
     *((f"partial_source::{name}", polygon) for name, polygon in partial_source_corpus()),
 )
 
+_TRANSACTION_RECEIPT_PATH = (
+    Path(__file__).parents[2]
+    / "artifacts"
+    / "p0_2b_superlevel_transaction"
+    / "delta_receipt_v2.json"
+)
+_TRANSACTION_RECEIPT = json.loads(
+    _TRANSACTION_RECEIPT_PATH.read_text(encoding="utf-8")
+)
+_TRANSACTION_CASES = {
+    case["case_id"]: case for case in _TRANSACTION_RECEIPT["cases"]
+}
+
 
 @pytest.mark.parametrize(
     "case_id,polygon",
@@ -210,16 +225,16 @@ _CASES = (
     ids=tuple(case_id for case_id, _ in _CASES),
 )
 def test_p0_geometry_and_existing_counter_oracle(case_id, polygon):
-    expected_outcome, expected_digest, expected_counter_values = _GEOMETRY_ORACLE[case_id]
+    expected = _TRANSACTION_CASES[case_id]["new"]
     skeleton = build_skeleton(polygon)
     counter_map = dict(skeleton.counters)
     assert all(name in counter_map for name in _LEGACY_COUNTER_NAMES)
-    assert skeleton.outcome.value == expected_outcome
-    assert semantic_digest(skeleton) == _P0_2_MERGED_DIGESTS.get(
-        case_id, expected_digest
-    )
-    assert tuple(counter_map[name] for name in _LEGACY_COUNTER_NAMES) == expected_counter_values
-    assert skeleton.proof_status.value == _PROOF_STATUS_ORACLE[case_id]
+    assert skeleton.outcome.value == expected["outcome"]
+    assert semantic_digest(skeleton) == expected["semantic_digest"]
+    assert {
+        name: counter_map[name] for name in _LEGACY_COUNTER_NAMES
+    } == expected["legacy_counters"]
+    assert skeleton.proof_status.value == expected["proof_status"]
 
 
 def test_p0_oracle_covers_all_63_cases_exactly():
@@ -228,6 +243,11 @@ def test_p0_oracle_covers_all_63_cases_exactly():
     assert len(set(case_ids)) == 63
     assert set(case_ids) == set(_GEOMETRY_ORACLE)
     assert set(case_ids) == set(_PROOF_STATUS_ORACLE)
+    assert set(case_ids) == set(_TRANSACTION_CASES)
+    assert _TRANSACTION_RECEIPT["case_count"] == 63
+    assert _TRANSACTION_RECEIPT["schema"] == (
+        "P0_2B_SUPERLEVEL_TRANSACTION_DELTA_RECEIPT_V2"
+    )
     assert len(_LEGACY_COUNTER_NAMES) == 36
     assert len(set(_LEGACY_COUNTER_NAMES)) == 36
 
@@ -252,7 +272,7 @@ def test_axis_square_is_exact_and_proof_complete():
     assert skeleton.proof_obligations == ()
 
 
-def test_star_seed_4_names_three_unproven_meeting_fallbacks():
+def test_star_seed_4_resolves_endpoint_contacts_atomically():
     skeleton = build_skeleton(_case("named::star_9_seed_4"))
     fallbacks = tuple(
         obligation
@@ -263,9 +283,9 @@ def test_star_seed_4_names_three_unproven_meeting_fallbacks():
         is ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
     )
     assert skeleton.outcome is SkeletonOutcome.EXACT
-    assert skeleton.proof_status is ProofStatus.INCOMPLETE
-    assert len(fallbacks) == 3
-    assert all(len(obligation.vertex_ids) == 3 for obligation in fallbacks)
+    assert skeleton.proof_status is ProofStatus.COMPLETE
+    assert fallbacks == ()
+    assert sum(node.kind is EventKind.MULTIWAY for node in skeleton.nodes) == 3
 
 
 def test_span_unproven_is_counted_only_for_the_four_live_applications():
@@ -283,7 +303,27 @@ def test_span_unproven_is_counted_only_for_the_four_live_applications():
     }
 
 
-def test_cross_queues_four_unproven_spans_but_applies_none(monkeypatch):
+def test_transaction_preserves_an_injected_live_unproven_span():
+    builder = skeleton_module._Builder(_case("named::axis_square"))
+    level = builder.queue.pop_level()
+    assert level
+    injected = (replace(level[0], span_unproven=True), *level[1:])
+    builder._apply_level(injected)
+    skeleton = builder._finish(SkeletonOutcome.EXACT, 1)
+    obligations = tuple(
+        obligation
+        for obligation in skeleton.proof_obligations
+        if obligation.cause
+        is ProofObligationBranch.EDGE_COLLAPSE_SPAN_UNPROVEN
+    )
+    assert skeleton.counter("edge_collapse_span_unproven_but_accepted") == 1
+    assert len(obligations) == 1
+    assert obligations[0].disposition is (
+        ProofObligationDisposition.EVENT_ACCEPTED_WITH_UNPROVEN_SPAN
+    )
+
+
+def test_cross_has_no_unproven_span_candidate_or_obligation(monkeypatch):
     queued = []
     original = EventQueueV1.push
 
@@ -294,7 +334,7 @@ def test_cross_queues_four_unproven_spans_but_applies_none(monkeypatch):
 
     monkeypatch.setattr(EventQueueV1, "push", capturing_push)
     skeleton = build_skeleton(_case("named::cross"))
-    assert len(queued) == 4
+    assert queued == []
     assert skeleton.counter("edge_collapse_span_unproven_but_accepted") == 0
     assert not any(
         obligation.cause
@@ -335,27 +375,36 @@ def test_start_and_switch_are_each_dropped_under_a_named_obligation():
     assert skeleton.proof_status is ProofStatus.INCOMPLETE
 
 
-def test_observed_debt_has_discharge_fallback_and_survival_lifecycles():
+def test_observed_debt_has_discharge_and_survival_lifecycles():
     cross = build_skeleton(_case("named::cross"))
     star = build_skeleton(_case("named::star_9_seed_4"))
     unresolved = build_skeleton(
         _case("partial_source::ell_12_source_edge_4")
     )
+    # 20 -> 16 после quotient Q-10-ADD, и это не ослабление ворот. Долг
+    # NO_RULE_TRIPLE_ALWAYS_CONCURRENT заводился на КАЖДЫЙ дубль локуса; после
+    # факторизации локус один, отказ один, погашение одно. Направление сдвига
+    # проверено по всем 63 случаям и всюду строго В СТОРОНУ МЕНЬШЕГО, причём
+    # меньшего именно НЕДОКАЗАННОГО (у cross недоказанного было и осталось 0);
+    # ни одного случая в обратную сторону. Расписка —
+    # `kernel/artifacts/p0_2_superlevel_transaction/
+    # Q5_OBLIGATION_DIRECTION_TABLE_V1.json`, зонд рядом с ней.
     assert sum(
         obligation.disposition
         is ProofObligationDisposition.DISCHARGED_BY_PROVEN_SAME_TIME_EVENT
         for obligation in cross.proof_obligations
-    ) == 20
-    assert sum(
+    ) == 16
+    assert star.proof_status is ProofStatus.COMPLETE
+    assert not any(
         obligation.disposition
         is ProofObligationDisposition.UNPROVEN_FALLBACK_APPLIED
         for obligation in star.proof_obligations
-    ) == 3
+    )
     assert sum(
         obligation.disposition
         is ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME
         for obligation in unresolved.proof_obligations
-    ) == 4
+    ) == 2
 
 
 def test_no_finished_corpus_case_retains_observed_debt():

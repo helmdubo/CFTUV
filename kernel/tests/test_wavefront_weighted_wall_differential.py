@@ -5,14 +5,16 @@ from __future__ import annotations
 from collections import Counter
 from fractions import Fraction
 from functools import cache
+import hashlib
 import json
 from math import gcd
+from pathlib import Path
 
 import pytest
 
 from cftuv_envelope.wavefront.coverage import coverage_at
 from cftuv_envelope.wavefront.digest import node_record
-from cftuv_envelope.wavefront.event_time import SupportLineV1
+from cftuv_envelope.wavefront.event_time import EventTimeV1, SupportLineV1
 from cftuv_envelope.wavefront.faces import build_faces, fan_edge_key
 from cftuv_envelope.wavefront.polygon import PolygonOutcome, PolygonRejected
 from cftuv_envelope.wavefront.skeleton import SplitSearch, build_skeleton
@@ -38,6 +40,86 @@ AXES = (
     "proof_status",
     "proof_obligations",
 )
+ABSOLUTE_DIGEST_RECEIPT = (
+    Path(__file__).parents[2]
+    / "artifacts"
+    / "kernel_audit_exact_proof"
+    / "p0_3_post_p0_2b_absolute_digests.json"
+)
+
+
+def _canonical_json(value) -> str:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+
+
+def _typed_canonical(value):
+    """Типизированный JSON без repr/runtime identity и неоднозначных ключей."""
+
+    if isinstance(value, Counter):
+        entries = [
+            {
+                "key": _typed_canonical(key),
+                "count": _typed_canonical(count),
+            }
+            for key, count in value.items()
+        ]
+        entries.sort(key=lambda entry: _canonical_json(entry["key"]))
+        return {"type": "counter", "entries": entries}
+    if isinstance(value, Fraction):
+        return {
+            "type": "fraction",
+            "numerator": value.numerator,
+            "denominator": value.denominator,
+        }
+    if isinstance(value, EventTimeV1):
+        canonical = value.canonical()
+        return {
+            "type": "event_time_v1",
+            "dividend": _typed_canonical(canonical.dividend),
+            "divisor_terms": _typed_canonical(canonical.divisor.terms),
+        }
+    if isinstance(value, tuple):
+        return {
+            "type": "tuple",
+            "items": [_typed_canonical(item) for item in value],
+        }
+    if isinstance(value, list):
+        return {
+            "type": "list",
+            "items": [_typed_canonical(item) for item in value],
+        }
+    if isinstance(value, dict):
+        entries = [
+            {
+                "key": _typed_canonical(key),
+                "value": _typed_canonical(item),
+            }
+            for key, item in value.items()
+        ]
+        entries.sort(key=lambda entry: _canonical_json(entry["key"]))
+        return {"type": "dict", "entries": entries}
+    if value is None:
+        return {"type": "none"}
+    if isinstance(value, bool):
+        return {"type": "bool", "value": value}
+    if isinstance(value, int):
+        return {"type": "int", "value": value}
+    if isinstance(value, str):
+        return {"type": "str", "value": value}
+    raise TypeError(f"P0_3_ABSOLUTE_DIGEST_TYPE_UNSUPPORTED: {type(value)!r}")
+
+
+def _projection_sha256(reading) -> str:
+    encoded = _canonical_json(_typed_canonical(reading)).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _digest_map_sha256(digests) -> str:
+    return hashlib.sha256(
+        _canonical_json(digests).encode("utf-8")
+    ).hexdigest()
 
 
 def _point(point):
@@ -249,7 +331,7 @@ def test_q_grid_and_special_families_are_facts_of_the_inputs():
     )
 
 
-def test_the_corpus_covers_every_required_family_without_absolute_digests():
+def test_the_corpus_covers_every_required_family():
     features = Counter(feature for case in CORPUS for feature in case.features)
     assert len(CORPUS) == len(BY_NAME) == 23
     assert {"q_grid", "full_source", "source_and_walls"} <= set(features)
@@ -257,6 +339,26 @@ def test_the_corpus_covers_every_required_family_without_absolute_digests():
         features
     )
     assert set(AXES) == set(_readings(CORPUS[0].name)[SplitSearch.MOTORCYCLE])
+
+
+def test_post_p0_2b_absolute_projection_digests_are_frozen():
+    receipt = json.loads(ABSOLUTE_DIGEST_RECEIPT.read_text(encoding="utf-8"))
+    assert receipt["schema"] == (
+        "cftuv.p0_3.post_p0_2b_absolute_digests.v1"
+    )
+    assert receipt["projection_schema"] == "TYPED_CANONICAL_JSON_V1"
+    expected = receipt["case_projection_sha256"]
+    assert set(expected) == set(BY_NAME)
+    computed = {}
+    for name in BY_NAME:
+        readings = _readings(name)
+        by_search = {
+            search.value: _projection_sha256(reading)
+            for search, reading in readings.items()
+        }
+        assert set(by_search.values()) == {expected[name]}, (name, by_search)
+        computed[name] = expected[name]
+    assert _digest_map_sha256(computed) == receipt["corpus_sha256"]
 
 
 def test_the_constructed_weighted_case_really_has_a_multi_vertex_collapse():

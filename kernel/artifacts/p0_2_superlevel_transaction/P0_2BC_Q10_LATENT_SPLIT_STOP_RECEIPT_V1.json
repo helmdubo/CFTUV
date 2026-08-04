@@ -1,0 +1,128 @@
+{
+  "schema": "P0_2BC_Q10_LATENT_SPLIT_STOP_RECEIPT_V1",
+  "status": "STOP_REVIEWER_AUTH_REQUIRED",
+  "parent_head": "4cf9d5a",
+  "scope": "stacked P0-2b + P0-2c",
+  "summary": "The exact affine newborn-span law is implemented and locally verified, but field_building_002_patch_006 exposes a distinct latent-contact/once-only composition defect. No heuristic exclusion is authorized.",
+  "primary_witness": {
+    "case": "field_building_002_patch_006_lost_resolved_v1",
+    "first_divergent_time": "96960715/512",
+    "frozen_packet": {
+      "event_count": 4,
+      "kind": "SPLIT",
+      "unique_exact_point_hashes": [
+        "eaacb24b",
+        "8a21771d"
+      ]
+    },
+    "latent_contact": {
+      "exact_point": [
+        "-6397133",
+        "37765"
+      ],
+      "point_hash": "079578fc",
+      "participants": [
+        ["-6779272", "161944", "-6526113", "-91215"],
+        ["-6526113", "-91215", "-6254984", "-362344"],
+        ["-6037720", "-63688", "-6128120", "26712"]
+      ],
+      "initial_overlay_target_classification": "NONPOINT_JUNCTION_OUTSIDE_LAW",
+      "runtime_emitter_count": 1,
+      "motorcycle_trace": null
+    },
+    "once_only_evidence": {
+      "generated_kind": "EDGE",
+      "generated_count": 4,
+      "shared_point_hash": "744a5c85",
+      "finding": "generations 1 through 3 repeat the same exact (time, point, participants) identity while only symbolic references change"
+    },
+    "downstream_affine_guard": {
+      "time": "104923251/512",
+      "classification": "INVERTED",
+      "count": 2,
+      "finding": "P0-2c correctly fails closed; this is downstream of the latent-contact/composer defect"
+    }
+  },
+  "diagnostic_experiments": {
+    "speculative_prospective_duplicate_filter": {
+      "committed": false,
+      "result": {
+        "outcome": "EXACT",
+        "levels": 241,
+        "nodes": 74,
+        "digest": "be2d5bf79c47b295bc3d5152d41565e4e8ba5aa9d50fc688034a6993616ee07f",
+        "proof_status": "INCOMPLETE",
+        "junction_resolutions": 88,
+        "face_failure": "FACE_CHAIN_DOES_NOT_CLOSE"
+      },
+      "disposition": "REVERTED_AS_UNAUTHORIZED_HEURISTIC"
+    },
+    "disable_all_latent_discovery_control": {
+      "product_recommendation": false,
+      "result": {
+        "outcome": "EXACT",
+        "levels": 241,
+        "nodes": 73,
+        "faces": 63,
+        "digest": "5ad37463bd362b89fcf1fb85ecfaf215df02acb46535861dc6e092a6b8b3a8fb",
+        "proof_status": "COMPLETE",
+        "junction_resolutions": 83
+      },
+      "finding": "matches the provisional transaction digest, but blanket exclusion is illegal"
+    }
+  },
+  "counterexample_to_simple_filtering": {
+    "case": "cross_full_q_1",
+    "time": "8",
+    "initial_overlay": "one latent contact against a nonpoint target",
+    "trace_by_mode": {
+      "MOTORCYCLE": true,
+      "EXHAUSTIVE": null
+    },
+    "final_affine_classifications": {
+      "OPENING": 2,
+      "CLOSING_WITH_FUTURE_EVENT": 1
+    },
+    "conclusion": "newborn, nonpoint, trace, and terminal predicates cannot lawfully exclude the patch006 contact"
+  },
+  "accepted_baseline_trace": {
+    "case": "field_building_002_patch_006_lost_resolved_v1",
+    "time": "96960715/512",
+    "packet_1": "four SPLIT events at point hashes eaacb24b and 8a21771d",
+    "packet_2": "one EDGE event at point hash 8a21771d",
+    "latent_point_079578fc_present": false
+  },
+  "implemented_slice": {
+    "law": "exact affine newborn-span classification by value and slope at birth",
+    "dispositions": [
+      "OPENING",
+      "CLOSING_WITH_FUTURE_EVENT",
+      "INVERTED",
+      "NONPOINT_JUNCTION_OUTSIDE_LAW",
+      "AFFINE_CLASSIFICATION_UNPROVEN"
+    ],
+    "runtime_policy": "classify changed poststate adjacencies before mutation; require an exact future event for closing spans; fail closed for inverted or ambiguous spans",
+    "lineage_note": "disconnected sibling intervals of one root edge are ordered by exact occurrence because a valid EDGE event may remove the middle interval"
+  },
+  "forbidden_shortcuts": [
+    "time clamping",
+    "E > 0 filtering",
+    "blanket exclusion of newborn or nonpoint contacts",
+    "motorcycle-trace authority",
+    "accepting current EXACT field cases as UNRESOLVABLE",
+    "weakening the affine fail-closed guard"
+  ],
+  "reviewer_decision_required": {
+    "question": "May the stacked delivery add a narrow component-level causal quotient / once-only ContactJunction rule, or must that repair become P0-2d while this branch remains unmergeable?",
+    "option_a": "authorize the narrow once-only component rule in the stacked delivery, with patch006 and cross as mandatory gates",
+    "option_b": "split the composer repair into P0-2d and keep P0-2b+P0-2c unmergeable",
+    "lead_recommendation": "option_a only if the rule is derived from exact component identity and proves cross unchanged; otherwise option_b"
+  },
+  "verification_snapshot": {
+    "focused_p0_2c": "10 passed",
+    "d_harness": "12 passed; 180 configurations and zero order mismatches in the last full run",
+    "corpus_63_mode_differential": "zero semantic mismatches between P0-2c enabled and disabled",
+    "p0_3_mode_differential": "23 of 23 with zero semantic mismatches",
+    "note": "The full field and repository suites are not green; this is deliberately a STOP handoff, not an acceptance receipt."
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "schema": "P0_2B_Q08_CROSS_GATE_RADIUS_RECEIPT_V1",
+  "base_head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "worktree_state": "DIRTY_AUTHORIZED_Q08_DRAFT",
+  "case": "cross_full_q_1",
+  "reason": "SYMBOLIC_POSTSTATE_EDGE_EVENT_IN_THE_PAST",
+  "authority_status": "REVIEWER_PRODUCT_DECISION_REQUIRED",
+  "predicate_variants": {
+    "A_OR": {
+      "predicate": "E<T OR E<birth(vertex) OR E<birth(peer)",
+      "outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "semantic_digest": "5eb1fe9cbd5ac879390a6c955fbc7bf1b396bb47eb63d8b0df8b7f003c9aa2ea",
+      "levels": 1,
+      "nodes": 0,
+      "proof": "INCOMPLETE",
+      "reason_counter": 1,
+      "first_level": "8",
+      "witness_event_times": ["-144", "0"]
+    },
+    "B_NONNEGATIVE_AND": {
+      "predicate": "E.sign>=0 AND E<T AND E<birth(vertex) AND E<birth(peer)",
+      "outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "semantic_digest": "5eb1fe9cbd5ac879390a6c955fbc7bf1b396bb47eb63d8b0df8b7f003c9aa2ea",
+      "levels": 1,
+      "nodes": 0,
+      "proof": "INCOMPLETE",
+      "reason_counter": 1,
+      "first_level": "8",
+      "witness_event_times": ["0"]
+    },
+    "C_POSITIVE_AND": {
+      "predicate": "E.sign>0 AND E<T AND E<birth(vertex) AND E<birth(peer)",
+      "outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "semantic_digest": "a113422020675e534211a09a02ae9485b09a882e5f4d2e236620044617ebb29d",
+      "levels": 3,
+      "nodes": 5,
+      "proof": "INCOMPLETE",
+      "reason_counter": 1,
+      "first_level": "16",
+      "witness_event_times": ["32/3"]
+    },
+    "DISABLED": {
+      "outcome": "EXACT",
+      "semantic_digest": "b5d9189c46bd71cc76dad37252072cf08d17cc43fc16b271b8bd90449e2c416f",
+      "levels": 11,
+      "nodes": 12,
+      "proof": "INCOMPLETE",
+      "reason_counter": 0
+    }
+  },
+  "exact_witnesses": {
+    "A_t8_negative": {
+      "event_time": "-144",
+      "event_point": [[[-8, 1]], [[44, 1]]],
+      "now": "8",
+      "births": ["0", "8"],
+      "predicate_results": [true, true, true],
+      "vertex_ref_kind": "EXISTING",
+      "vertex_ref_repr_sha256": "21af44bff18d5ede02d0304902ae07da5b9f72df7f07fa70084477e50035fd90",
+      "peer_ref_kind": "JUNCTION",
+      "peer_ref_repr_sha256": "7723c5d12e9f82009e477c398c2abd9f603ece3b811fb3f5784b5cae54ee699b",
+      "participant_edge_keys": [[10, 20, 4, 20], [4, 20, 4, 8], [4, 8, 0, 8]],
+      "participant_family_repr_sha256": [
+        "3d5ec2e727bb587b330622fc51d5eacde8a07e8218dc2ac4b06d661b2ef85299",
+        "32bbd3f8fbf1eaefd8b53342ca1a44154901b094c2592998049a571f27bb73fa",
+        "70c638be09dbe24d8affb3b30305ed72575e017aa119b0cfb146e539132222e4"
+      ]
+    },
+    "B_t8_zero": {
+      "event_time": "0",
+      "event_point": [[[4, 1]], [[8, 1]]],
+      "now": "8",
+      "births": ["8", "8"],
+      "predicate_results": [true, true, true],
+      "vertex_ref_kind": "JUNCTION",
+      "vertex_ref_repr_sha256": "7723c5d12e9f82009e477c398c2abd9f603ece3b811fb3f5784b5cae54ee699b",
+      "peer_ref_kind": "BIRTH",
+      "peer_ref_repr_sha256": "ba933b46645ac65c1ea65e620725c49cbe2c7780def822fa568f1a5d4da4216d",
+      "participant_edge_keys": [[4, 20, 4, 8], [4, 8, 0, 8], [4, 4, 4, 0]],
+      "participant_family_repr_sha256": [
+        "32bbd3f8fbf1eaefd8b53342ca1a44154901b094c2592998049a571f27bb73fa",
+        "70c638be09dbe24d8affb3b30305ed72575e017aa119b0cfb146e539132222e4",
+        "1cb3dd9d6875e286aeef923e0a26254f7692879175c25d5bb764e8b3839847d0"
+      ]
+    },
+    "C_t16_positive": {
+      "event_time": "32/3",
+      "event_point": [[[22, 3]], [[16, 3]]],
+      "now": "16",
+      "births": ["12", "16"],
+      "predicate_results": [true, true, true],
+      "vertex_ref_kind": "EXISTING",
+      "vertex_ref_repr_sha256": "e109843d0da841504760d0b6659ba11cc0fab4bb872fa818e69e587cff81c9f6",
+      "peer_ref_kind": "JUNCTION",
+      "peer_ref_repr_sha256": "2a151ffcd9d25c30352b56ced50457d23243ed5b348f7568a510ccac664d1e58",
+      "participant_edge_keys": [[4, 8, 0, 8], [10, 0, 10, 4], [10, 4, 18, 4]],
+      "participant_family_repr_sha256": [
+        "8a32530dfc7109671e71934a5a7bfd6c6cafbb9a523e13a3566167fd00cd53e9",
+        "ca1f19b74fc2dfa9b34b78f50eaf41f8bc6176d396f67b54bc2af2d438ec8a51",
+        "ecbec8432c2639cc35759580e527765f3540b32b78fcb2abcf970646af21d4d5"
+      ]
+    }
+  },
+  "decision_boundary": "Ref kind or symbolic stage is not an authorized narrowing. C still rejects an accepted EXACT case at t=16, so Q08 product authority remains pending."
+}

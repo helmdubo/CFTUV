@@ -1,0 +1,67 @@
+{
+  "schema": "P0_2B_EDGE_GENERATIONAL_FIXED_POINT_GATE_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "scope": {
+    "product_integration": false,
+    "runtime_materialization": false,
+    "pure_symbolic_replay": true,
+    "new_slice": "kernel/src/cftuv_envelope/wavefront/symbolic_edge_fixed_point.py",
+    "new_slice_lines": 234
+  },
+  "algorithm": {
+    "discovery": "all immediate exact-time EDGE contacts from one frozen pre-generation overlay",
+    "component_connectivity": "same exact time and point plus shared vertex or leaf resources",
+    "component_delta": "dead refs, unique surviving incoming and outgoing arms, optional stable EDGE_JUNCTION birth",
+    "component_application": "validate disjoint delta resources, then apply all deltas to one clone",
+    "causal_replay": "rebuild from initial overlay plus ordered prior generations on every iteration",
+    "order_policy": "sorting serializes stable disjoint deltas only and never resolves a competing component"
+  },
+  "cross_full_q_1_t8_gate": {
+    "split_scaffold_added": 1,
+    "generation_sizes": [1, 1, 1],
+    "cumulative_contacts": 3,
+    "contact_points": ["14/3,6", "14/3,6", "14/3,6"],
+    "residual_immediate_contacts": 0,
+    "packet_orders": 2,
+    "overlay_vertex_and_binding_orders_per_packet": 2,
+    "all_generation_traces_equal": true,
+    "all_final_signatures_equal": true,
+    "trace_repr_sha256": "95f26fb3b12efc3db528ec8457de764f5c372ec8356383cdf44122f864b06fd9",
+    "final_signature_repr_sha256": "898aa5468dc0cd469a5eeaefd10c105d2f05135f71f53bd784e7a49f99b7d09d"
+  },
+  "synthetic_component_gate": {
+    "contacts_in_one_component": 2,
+    "contact_orders": 2,
+    "overlay_dict_orders": 2,
+    "net_delta_and_signature_equal": true,
+    "unique_port_pairing": true,
+    "geometric_tie_break_policy_used": false
+  },
+  "fail_closed_gates": [
+    {
+      "condition": "component has multiple surviving incoming or outgoing arms",
+      "reason": "SYMBOLIC_EDGE_PORT_MATCHING_AMBIGUOUS",
+      "input_overlay_mutated": false
+    },
+    {
+      "condition": "multiple active vertices claim the same leaf start or end",
+      "reason": "SYMBOLIC_EDGE_SPAN_OWNER_AMBIGUOUS",
+      "apply_propagates_reason": true,
+      "input_overlay_mutated": false
+    }
+  ],
+  "validation": [
+    {
+      "command": "python -m pytest -q -p no:cacheprovider kernel/tests/test_wavefront_superlevel_transaction.py::test_split_family_normal_form_materializes_comb_2_once kernel/tests/test_wavefront_superlevel_transaction.py::test_cross_t8_edge_generations_are_stable_under_permutations kernel/tests/test_wavefront_superlevel_transaction.py::test_same_generation_edge_component_is_one_order_free_delta kernel/tests/test_wavefront_superlevel_transaction.py::test_ambiguous_edge_component_ports_refuse_without_mutation kernel/tests/test_wavefront_superlevel_transaction.py::test_edge_generation_refuses_duplicate_active_span_owner",
+      "result": "5 passed in 0.31s"
+    },
+    {
+      "command": "python -m pytest -q -p no:cacheprovider tests/test_architecture.py",
+      "result": "386 passed in 2.86s"
+    }
+  ],
+  "status": "PURE_GATE_GREEN_PRODUCT_OFF"
+}

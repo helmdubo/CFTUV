@@ -1,0 +1,160 @@
+{
+  "canonical_types": [
+    "bool",
+    "counter",
+    "dict",
+    "event_time_v1",
+    "fraction",
+    "int",
+    "list",
+    "none",
+    "str",
+    "tuple"
+  ],
+  "case_count": 23,
+  "case_projection_sha256": {
+    "collinear_moving_source_and_wall": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3",
+    "cross_full_q_1": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb",
+    "cross_full_q_1/4": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46",
+    "cross_full_q_4": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130",
+    "cross_full_q_65/64": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850",
+    "cross_source_and_walls_q_1": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a",
+    "cross_source_and_walls_q_1/4": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781",
+    "cross_source_and_walls_q_4": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde",
+    "cross_source_and_walls_q_65/64": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b",
+    "ell_full_q_65_64": "1b83f2fbf3b55b73855a1b702a86ba6464782c51cef0cc51e9eea3eb471befcb",
+    "ell_source_and_walls_q_65_64": "bb4b8b113c594c1f6fb9c02a53407add6f5f2779d96f9212b41e39029020d012",
+    "mirror_direct": "dfcc17fe6e2c05cc0de415c9ffdf136846c8db997e0bfbbf678a3e862b2b357a",
+    "mirror_reflected": "e4a5083d02b5527743f1090513595449591bafaa816d1f59dbe766b4f06d2c48",
+    "rect_full_q_65_64": "4f33a225b2790ae76bb996ebfc8f0d293f5b23d83ac9ed868d70da9823c44468",
+    "rect_source_and_walls_q_65_64": "c62626f19a253a020dd89520520547b49c254cd74f6524eb52609db5e5e2e8e1",
+    "same_time_weighted_collapse": "b14011efddeabf969ee4b4f0d178cc34c10517c37c70e9bbc13c7a6596199b62",
+    "search_pruning_witness": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d",
+    "several_collinear_incidences": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0",
+    "staircase_full_q_65_64": "c2124379ff63675f768156a5690f9298ccaaf1ee8d72995120949b755ccc2494",
+    "staircase_source_and_walls_q_65_64": "495411be578d4911440e49ec96c28372b21068c35c4506002f0cfecdae646c79",
+    "weighted_holes_1": "d6b81d593b061ac522a3fd5759058e5bee382b9b064338d2dc102e9e2bac7c9c",
+    "weighted_holes_2": "77c03c985980d96eb719b91463a0346eb3aaa396b7abda9504515516585f8c9c",
+    "weighted_vertex_fan": "bb32331ff5c24b83ee760a2322d0e72c4a850669edc7ed63425f47de8a69050b"
+  },
+  "corpus_sha256": "418a002053a21b922ce3f8b24b61d4d7c1eee2f01112af1a6c49bf0ff64c3728",
+  "p0_2b_kernel_source_tree": "d87b96e08fc54353ba330689da1895acd114064a",
+  "p0_2b_product_commit": "852059a34062fd5c5dd18b1833c2908904a08362",
+  "p0_3_acceptance_commit": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+  "p0_3_differential_receipt_blob_at_acceptance": "ade0ca7448b305a9a2a565ffd89697260d49693b",
+  "projection_axes": [
+    "outcome",
+    "node_record",
+    "times_points",
+    "participants",
+    "face_owners",
+    "face_areas",
+    "coverage",
+    "proof_status",
+    "proof_obligations"
+  ],
+  "projection_schema": "TYPED_CANONICAL_JSON_V1",
+  "reproduce": "$env:PYTHONPATH='kernel/src;kernel/tests'; python artifacts/kernel_audit_exact_proof/generate_p0_3_post_p0_2b_absolute_digests.py",
+  "runtime_identity_excluded": [
+    "proof_obligation.vertex_ids"
+  ],
+  "schema": "cftuv.p0_3.post_p0_2b_absolute_digests.v1",
+  "search_projection_sha256": {
+    "collinear_moving_source_and_wall": {
+      "EXHAUSTIVE": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3",
+      "MOTORCYCLE": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3"
+    },
+    "cross_full_q_1": {
+      "EXHAUSTIVE": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb",
+      "MOTORCYCLE": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb"
+    },
+    "cross_full_q_1/4": {
+      "EXHAUSTIVE": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46",
+      "MOTORCYCLE": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46"
+    },
+    "cross_full_q_4": {
+      "EXHAUSTIVE": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130",
+      "MOTORCYCLE": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130"
+    },
+    "cross_full_q_65/64": {
+      "EXHAUSTIVE": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850",
+      "MOTORCYCLE": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850"
+    },
+    "cross_source_and_walls_q_1": {
+      "EXHAUSTIVE": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a",
+      "MOTORCYCLE": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a"
+    },
+    "cross_source_and_walls_q_1/4": {
+      "EXHAUSTIVE": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781",
+      "MOTORCYCLE": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781"
+    },
+    "cross_source_and_walls_q_4": {
+      "EXHAUSTIVE": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde",
+      "MOTORCYCLE": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde"
+    },
+    "cross_source_and_walls_q_65/64": {
+      "EXHAUSTIVE": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b",
+      "MOTORCYCLE": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b"
+    },
+    "ell_full_q_65_64": {
+      "EXHAUSTIVE": "1b83f2fbf3b55b73855a1b702a86ba6464782c51cef0cc51e9eea3eb471befcb",
+      "MOTORCYCLE": "1b83f2fbf3b55b73855a1b702a86ba6464782c51cef0cc51e9eea3eb471befcb"
+    },
+    "ell_source_and_walls_q_65_64": {
+      "EXHAUSTIVE": "bb4b8b113c594c1f6fb9c02a53407add6f5f2779d96f9212b41e39029020d012",
+      "MOTORCYCLE": "bb4b8b113c594c1f6fb9c02a53407add6f5f2779d96f9212b41e39029020d012"
+    },
+    "mirror_direct": {
+      "EXHAUSTIVE": "dfcc17fe6e2c05cc0de415c9ffdf136846c8db997e0bfbbf678a3e862b2b357a",
+      "MOTORCYCLE": "dfcc17fe6e2c05cc0de415c9ffdf136846c8db997e0bfbbf678a3e862b2b357a"
+    },
+    "mirror_reflected": {
+      "EXHAUSTIVE": "e4a5083d02b5527743f1090513595449591bafaa816d1f59dbe766b4f06d2c48",
+      "MOTORCYCLE": "e4a5083d02b5527743f1090513595449591bafaa816d1f59dbe766b4f06d2c48"
+    },
+    "rect_full_q_65_64": {
+      "EXHAUSTIVE": "4f33a225b2790ae76bb996ebfc8f0d293f5b23d83ac9ed868d70da9823c44468",
+      "MOTORCYCLE": "4f33a225b2790ae76bb996ebfc8f0d293f5b23d83ac9ed868d70da9823c44468"
+    },
+    "rect_source_and_walls_q_65_64": {
+      "EXHAUSTIVE": "c62626f19a253a020dd89520520547b49c254cd74f6524eb52609db5e5e2e8e1",
+      "MOTORCYCLE": "c62626f19a253a020dd89520520547b49c254cd74f6524eb52609db5e5e2e8e1"
+    },
+    "same_time_weighted_collapse": {
+      "EXHAUSTIVE": "b14011efddeabf969ee4b4f0d178cc34c10517c37c70e9bbc13c7a6596199b62",
+      "MOTORCYCLE": "b14011efddeabf969ee4b4f0d178cc34c10517c37c70e9bbc13c7a6596199b62"
+    },
+    "search_pruning_witness": {
+      "EXHAUSTIVE": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d",
+      "MOTORCYCLE": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d"
+    },
+    "several_collinear_incidences": {
+      "EXHAUSTIVE": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0",
+      "MOTORCYCLE": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0"
+    },
+    "staircase_full_q_65_64": {
+      "EXHAUSTIVE": "c2124379ff63675f768156a5690f9298ccaaf1ee8d72995120949b755ccc2494",
+      "MOTORCYCLE": "c2124379ff63675f768156a5690f9298ccaaf1ee8d72995120949b755ccc2494"
+    },
+    "staircase_source_and_walls_q_65_64": {
+      "EXHAUSTIVE": "495411be578d4911440e49ec96c28372b21068c35c4506002f0cfecdae646c79",
+      "MOTORCYCLE": "495411be578d4911440e49ec96c28372b21068c35c4506002f0cfecdae646c79"
+    },
+    "weighted_holes_1": {
+      "EXHAUSTIVE": "d6b81d593b061ac522a3fd5759058e5bee382b9b064338d2dc102e9e2bac7c9c",
+      "MOTORCYCLE": "d6b81d593b061ac522a3fd5759058e5bee382b9b064338d2dc102e9e2bac7c9c"
+    },
+    "weighted_holes_2": {
+      "EXHAUSTIVE": "77c03c985980d96eb719b91463a0346eb3aaa396b7abda9504515516585f8c9c",
+      "MOTORCYCLE": "77c03c985980d96eb719b91463a0346eb3aaa396b7abda9504515516585f8c9c"
+    },
+    "weighted_vertex_fan": {
+      "EXHAUSTIVE": "bb32331ff5c24b83ee760a2322d0e72c4a850669edc7ed63425f47de8a69050b",
+      "MOTORCYCLE": "bb32331ff5c24b83ee760a2322d0e72c4a850669edc7ed63425f47de8a69050b"
+    }
+  },
+  "searches": [
+    "MOTORCYCLE",
+    "EXHAUSTIVE"
+  ]
+}

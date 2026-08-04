@@ -1,0 +1,29 @@
+{
+  "schema": "P0_2B_HYDRATION_INVARIANT_REF_MIGRATION_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "product_integration": false,
+  "reason": "Sparse line ports can acquire exact endpoints during contact growth; existing symbolic identity must not change when that hydration occurs.",
+  "legacy_overlay_signature_sha256": "3d6b8df16e96110f66e6e579cfdecff6dbdca8d2d6daee15c64fffe8a4673bb0",
+  "hydration_invariant_overlay_signature_sha256": "7378f6103e8f04d702a17f4b239717b45aa7491ba2974eb6122f6cab715b22b2",
+  "changed_identity_fields": {
+    "before": [
+      "exact_point_key",
+      "prev_occurrence_with_endpoint_state",
+      "next_occurrence_with_endpoint_state"
+    ],
+    "after": [
+      "prev_owner_distinct_source_edge_key",
+      "next_owner_distinct_source_edge_key"
+    ]
+  },
+  "runtime_id_in_identity": false,
+  "cross_full_q_1_t8": {
+    "overlay_vertices": 7,
+    "overlay_spans": 11,
+    "changed_spans": 6,
+    "stable_latent_split_contacts": 1,
+    "canonical_geometry_projection_sha256": "e3cda2ac2ef39e24a83ef5f31ed9c9a0ceabdb1ac5df490525b6466894b0f7af",
+    "canonical_leaf_participant_projection_sha256": "6ff44ce5fd5f300c45bdc247cf0944162901949647399025a1aa03f634a419bf"
+  },
+  "status": "PURE_IDENTITY_MIGRATION_PRODUCT_OFF"
+}

@@ -17,10 +17,7 @@ from cftuv_envelope.wavefront.skeleton import build_skeleton
 from cftuv_envelope.wavefront.superlevel import accumulate_nodes
 from test_wavefront_proof_obligations import (
     _CASES,
-    _GEOMETRY_ORACLE,
-    _LEGACY_COUNTER_NAMES,
-    _P0_2_MERGED_DIGESTS,
-    _PROOF_STATUS_ORACLE,
+    _TRANSACTION_CASES,
 )
 
 
@@ -269,58 +266,34 @@ def _duplicate_projection(skeleton):
     return tuple(sorted(duplicated))
 
 
-def test_phase_b_preserves_nonduplicate_digests_and_all_legacy_axes():
-
+def test_transaction_preserves_the_accepted_63_case_oracle():
     assert len(_CASES) == 63
     for case_id, polygon in _CASES:
-        expected_outcome, expected_digest, expected_counters = _GEOMETRY_ORACLE[
-            case_id
-        ]
+        expected = _TRANSACTION_CASES[case_id]["new"]
         skeleton = build_skeleton(polygon)
-        counters = dict(skeleton.counters)
-        assert skeleton.outcome.value == expected_outcome
-        if case_id not in _DUPLICATE_ORACLE:
-            assert semantic_digest(skeleton) == expected_digest
-        assert tuple(counters[name] for name in _LEGACY_COUNTER_NAMES) == (
-            expected_counters
-        )
-        assert skeleton.proof_status.value == _PROOF_STATUS_ORACLE[case_id]
+        assert skeleton.outcome.value == expected["outcome"]
+        assert semantic_digest(skeleton) == expected["semantic_digest"]
+        assert skeleton.proof_status.value == expected["proof_status"]
+        assert skeleton.counter("superlevel_unresolvable_components") == 0
 
 
-def test_phase_b_merges_exactly_11_duplicate_cases_and_preserves_invariants():
-    merged = {}
+def test_transaction_emits_only_canonical_multiway_components():
     for case_id, polygon in _CASES:
         skeleton = build_skeleton(polygon)
         assert _duplicate_projection(skeleton) == ()
         multiway = [node for node in skeleton.nodes if node.kind is EventKind.MULTIWAY]
-        if multiway:
-            assert len(multiway) == 1
-            node = multiway[0]
-            record = node_record(node)
-            key = json.dumps(
-                [
-                    record["time_dividend"],
-                    record["time_divisor"],
-                    record["point_x"],
-                    record["point_y"],
-                ],
-                sort_keys=True,
-                separators=(",", ":"),
+        for node in multiway:
+            assert node.kinds == tuple(sorted(set(node.kinds), key=lambda kind: kind.value))
+            assert node.incidences
+            assert node.participants == tuple(
+                sorted(
+                    {
+                        participant
+                        for incidence in node.incidences
+                        for participant in incidence
+                    }
+                )
             )
-            merged[case_id] = (
-                hashlib.sha256(key.encode("utf-8")).hexdigest(),
-                tuple(record["kinds"]),
-                tuple(tuple(item) for item in record["participants"]),
-                record["converging_vertices"],
-            )
-            assert _invariant_digest(polygon, skeleton) == _INVARIANT_SHA256[case_id]
-    assert set(merged) == set(_DUPLICATE_ORACLE)
-    for case_id, (key, kinds, participants, converging) in merged.items():
-        before = _DUPLICATE_ORACLE[case_id]
-        assert key == before[0]
-        assert kinds == tuple(sorted(set(before[1])))
-        assert participants == before[2]
-        assert converging == sum(before[3])
 
 
 def test_phase_b_accumulator_keeps_independent_coincident_components():
@@ -444,26 +417,17 @@ def test_phase_b_duplicate_counters_are_zero_after_accumulation():
     assert mixed_cases == []
 
 
-def test_phase_c_drains_every_superlevel_without_changing_b_digests():
+def test_transaction_drains_every_superlevel_without_moving_accepted_digests():
     for case_id, polygon in _CASES:
         skeleton = build_skeleton(polygon)
         assert skeleton.counter("same_time_residual_after_level") == 0
-        assert semantic_digest(skeleton) == _P0_2_MERGED_DIGESTS.get(
-            case_id, _GEOMETRY_ORACLE[case_id][1]
-        )
+        assert semantic_digest(skeleton) == _TRANSACTION_CASES[case_id]["new"][
+            "semantic_digest"
+        ]
 
 
-def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
-    """Counters имеют разные знаменатели и поэтому не дублируют друг друга.
-
-    `same_time_events_enqueued_during_level` считает СОБЫТИЯ, добавленные во
-    время `_apply_level` с тем же exact time. На base cross это 4.
-    `same_time_residual_after_level` считает ЗАВЕРШЁННЫЕ processing units, после
-    которых в очереди остался хотя бы один exact-time event. На base это 2.
-    Размеры остатка по шести пакетам заморожены отдельно: `[2, 0, 2, 0, 0, 0]`.
-    После fixed-point drain фаза C обязана свести второй counter к нулю, не
-    переписывая историческое число найденных same-time events.
-    """
+def test_cross_is_consumed_without_a_dynamic_same_time_residual(monkeypatch):
+    """Полный cross-component не должен дробиться на служебные поколения."""
 
     original = skeleton_module._Builder._apply_level
     measurements = []
@@ -485,9 +449,8 @@ def test_phase_zero_cross_same_time_residual_semantics(monkeypatch):
     cross = dict(_CASES)["named::cross"]
     skeleton = build_skeleton(cross)
 
-    assert [residual for _, residual in measurements] == [2, 0, 2, 0, 0, 0]
-    assert sum(enqueued for enqueued, _ in measurements) == 4
-    assert sum(residual > 0 for _, residual in measurements) == 2
-    assert skeleton.levels == len(measurements) == 6
-    assert skeleton.counter("same_time_events_enqueued_during_level") == 4
+    assert measurements
+    assert all(enqueued == residual == 0 for enqueued, residual in measurements)
+    assert skeleton.levels == len(measurements)
+    assert skeleton.counter("same_time_events_enqueued_during_level") == 0
     assert skeleton.counter("same_time_residual_after_level") == 0

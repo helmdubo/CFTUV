@@ -1,0 +1,47 @@
+{
+  "edge": {
+    "corpus_63::EXHAUSTIVE": {
+      "candidate_query_count": 862,
+      "case_count": 63,
+      "sha256": "b3fd62816af5de9981ff4f1f53586581f15b01b0860b9dd8e80513cb98d07515"
+    },
+    "corpus_63::MOTORCYCLE": {
+      "candidate_query_count": 862,
+      "case_count": 63,
+      "sha256": "8c802cbea441aa84cbdff5fa456848e2af663df1831fc5d11c0cafdb2b19204f"
+    },
+    "p0_3_23::EXHAUSTIVE": {
+      "candidate_query_count": 650,
+      "case_count": 23,
+      "sha256": "b15cb1624c713428e7e405361f083f62a1d8983132d94e5b729d73cb3eae6a7e"
+    },
+    "p0_3_23::MOTORCYCLE": {
+      "candidate_query_count": 650,
+      "case_count": 23,
+      "sha256": "3afb30b2dd647099bc0eda06d9c212dc05d6ac465943e1fd495964ccea03ba9d"
+    }
+  },
+  "schema": "P0_2B_CANDIDATE_VIEW_POST_M1_BASELINE_V1",
+  "split": {
+    "corpus_63::EXHAUSTIVE": {
+      "candidate_query_count": 905,
+      "case_count": 63,
+      "sha256": "7a48bf1457f0e7ffeb76a70ec974d689ddb413508c59652f3bdf2ae219ffad92"
+    },
+    "corpus_63::MOTORCYCLE": {
+      "candidate_query_count": 822,
+      "case_count": 63,
+      "sha256": "8c08bf111f28fb55dab0727b43094a51d2f4fe23d7292dd84b836f429153730a"
+    },
+    "p0_3_23::EXHAUSTIVE": {
+      "candidate_query_count": 1759,
+      "case_count": 23,
+      "sha256": "cc98f608b31140d6ec7d3d8c132532657ecd6b9d6e503babc3e05d859755e6c6"
+    },
+    "p0_3_23::MOTORCYCLE": {
+      "candidate_query_count": 1753,
+      "case_count": 23,
+      "sha256": "c87deca48b1a0bbaab684488a53684be5750be6a61b5ba7feadd5da3f509a3af"
+    }
+  }
+}

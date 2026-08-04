@@ -15,7 +15,7 @@ from .event_time import EventTimeV1
 from .events import EventKind
 
 if TYPE_CHECKING:
-    from .skeleton import CandidateRefusal
+    from .candidate_refusal import CandidateRefusal
 
 
 class ProofObligationDisposition(str, Enum):
@@ -29,6 +29,9 @@ class ProofObligationDisposition(str, Enum):
     EVENT_ACCEPTED_WITH_UNPROVEN_SPAN = "EVENT_ACCEPTED_WITH_UNPROVEN_SPAN"
     SURVIVED_PAST_EVENT_TIME = "SURVIVED_PAST_EVENT_TIME"
     UNSUPPORTED_EVENT_KIND_DROPPED = "UNSUPPORTED_EVENT_KIND_DROPPED"
+    SUPERLEVEL_COMPONENT_UNRESOLVABLE = (
+        "SUPERLEVEL_COMPONENT_UNRESOLVABLE"
+    )
 
 
 class ProofStatus(str, Enum):
@@ -39,6 +42,9 @@ class ProofStatus(str, Enum):
 class ProofObligationBranch(str, Enum):
     EDGE_COLLAPSE_SPAN_UNPROVEN = "EDGE_COLLAPSE_SPAN_UNPROVEN"
     UNSUPPORTED_EVENT_KIND = "UNSUPPORTED_EVENT_KIND"
+    SUPERLEVEL_COMPONENT_UNRESOLVABLE = (
+        "SUPERLEVEL_COMPONENT_UNRESOLVABLE"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +81,7 @@ _INCOMPLETE_DISPOSITIONS = frozenset(
         ProofObligationDisposition.EVENT_ACCEPTED_WITH_UNPROVEN_SPAN,
         ProofObligationDisposition.SURVIVED_PAST_EVENT_TIME,
         ProofObligationDisposition.UNSUPPORTED_EVENT_KIND_DROPPED,
+        ProofObligationDisposition.SUPERLEVEL_COMPONENT_UNRESOLVABLE,
     }
 )
 
