@@ -52,7 +52,12 @@ from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
 
-from ..exact_sqrt_sum import _divide_with_prime_universe
+from ..exact_sqrt_sum import (
+    ExactWorkBudgetV1,
+    ExactWorkOperationV1,
+    _divide_with_prime_universe,
+    _named,
+)
 from .sqrt_sum import SqrtSumV1
 
 
@@ -206,9 +211,13 @@ class EventTimeV1:
     divisor: SqrtSumV1
 
     @staticmethod
-    def normalized(dividend: Fraction | int, divisor: SqrtSumV1) -> "EventTimeV1":
+    def normalized(
+        dividend: Fraction | int,
+        divisor: SqrtSumV1,
+        budget: ExactWorkBudgetV1 | None = None,
+    ) -> "EventTimeV1":
         dividend = Fraction(dividend)
-        sign = divisor.sign()
+        sign = divisor.sign(budget=budget)
         if sign == 0:
             raise ZeroDivisorTimeError("знаменатель времени доказанно нулевой")
         if sign < 0:
@@ -248,7 +257,11 @@ class EventTimeV1:
 ZERO_TIME = EventTimeV1(Fraction(0), SqrtSumV1.rational(1))
 
 
-def compare_times(left: EventTimeV1, right: EventTimeV1) -> int:
+def compare_times(
+    left: EventTimeV1,
+    right: EventTimeV1,
+    budget: ExactWorkBudgetV1 | None = None,
+) -> int:
     """Точный знак `left - right`. Ни деления, ни корня, ни порога.
 
     Знаменатели положительны по построению, поэтому знак разности равен знаку
@@ -260,7 +273,7 @@ def compare_times(left: EventTimeV1, right: EventTimeV1) -> int:
     difference = right.divisor.scaled(left.dividend) - left.divisor.scaled(
         right.dividend
     )
-    return difference.sign()
+    return difference.sign(budget=budget)
 
 
 def times_are_equal(left: EventTimeV1, right: EventTimeV1) -> bool:
@@ -273,7 +286,10 @@ def times_are_equal(left: EventTimeV1, right: EventTimeV1) -> bool:
 
 
 def concurrency_time(
-    first: SupportLineV1, second: SupportLineV1, third: SupportLineV1
+    first: SupportLineV1,
+    second: SupportLineV1,
+    third: SupportLineV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
     """Момент, когда три движущиеся прямые сходятся в одной точке.
 
@@ -292,19 +308,25 @@ def concurrency_time(
         + third.c * cofactor_third
     )
     speed = (
-        SqrtSumV1.radical(cofactor_first, first.q)
-        + SqrtSumV1.radical(cofactor_second, second.q)
-        + SqrtSumV1.radical(cofactor_third, third.q)
+        SqrtSumV1.radical(cofactor_first, first.q, budget)
+        + SqrtSumV1.radical(cofactor_second, second.q, budget)
+        + SqrtSumV1.radical(cofactor_third, third.q, budget)
     )
     if speed.is_zero:
         if offset == 0:
             return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
         return None, EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT
-    return EventTimeV1.normalized(-offset, speed), EventTimeOutcome.EXACT
+    return (
+        EventTimeV1.normalized(-offset, speed, budget),
+        EventTimeOutcome.EXACT,
+    )
 
 
 def sliding_point(
-    line: SupportLineV1, along: SqrtSumV1, time: EventTimeV1
+    line: SupportLineV1,
+    along: SqrtSumV1,
+    time: EventTimeV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> "EventPointV1":
     """Точка на движущейся прямой с ЗАКРЕПЛЁННОЙ проекцией вдоль неё.
 
@@ -331,8 +353,13 @@ def sliding_point(
     спрашивают ДЛИНУ НОРМАЛИ.
     """
 
+    _named(budget).spend_exact_position_hydrations(
+        1, operation=ExactWorkOperationV1.EXACT_POSITION, radicand=line.q
+    )
     moving = SqrtSumV1.rational(line.c) + (
-        SqrtSumV1.radical(time.dividend, line.q) / time.divisor
+        SqrtSumV1.radical(time.dividend, line.q, budget).divided_by(
+            time.divisor, budget
+        )
     )
     scale = Fraction(1, line.normal_squared)
     x = (moving.scaled(line.a) + along.scaled(line.b)).scaled(scale)
@@ -341,7 +368,10 @@ def sliding_point(
 
 
 def sliding_time(
-    line: SupportLineV1, along: SqrtSumV1, other: SupportLineV1
+    line: SupportLineV1,
+    along: SqrtSumV1,
+    other: SupportLineV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
     """Когда скользящая точка `line`/`along` окажется на прямой `other`.
 
@@ -369,7 +399,9 @@ def sliding_time(
         + along.scaled(cross)
         - SqrtSumV1.rational(weight * line.c)
     )
-    speed = SqrtSumV1.radical(weight, line.q) - SqrtSumV1.radical(norm, other.q)
+    speed = SqrtSumV1.radical(weight, line.q, budget) - SqrtSumV1.radical(
+        norm, other.q, budget
+    )
     if speed.is_zero:
         if numerator.is_zero:
             return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
@@ -377,7 +409,7 @@ def sliding_time(
     if numerator.is_zero:
         return ZERO_TIME, EventTimeOutcome.EXACT
     return (
-        EventTimeV1.normalized(1, speed / numerator),
+        EventTimeV1.normalized(1, speed.divided_by(numerator, budget), budget),
         EventTimeOutcome.EXACT,
     )
 
@@ -399,7 +431,10 @@ class EventPointV1:
 
 
 def event_point(
-    first: SupportLineV1, second: SupportLineV1, time: EventTimeV1
+    first: SupportLineV1,
+    second: SupportLineV1,
+    time: EventTimeV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> EventPointV1:
     """Пересечение двух движущихся прямых в момент `time`, точно.
 
@@ -407,7 +442,7 @@ def event_point(
     остаётся канонической суммой корней и сравним побитово.
     """
 
-    return _event_point(first, second, time, prime_universe=None)
+    return _event_point(first, second, time, prime_universe=None, budget=budget)
 
 
 def _event_point_with_prime_universe(
@@ -415,6 +450,7 @@ def _event_point_with_prime_universe(
     second: SupportLineV1,
     time: EventTimeV1,
     prime_universe: tuple[int, ...],
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> EventPointV1:
     """Точка события с доказанным локальным базисом примитивных скоростей."""
 
@@ -423,6 +459,7 @@ def _event_point_with_prime_universe(
         second,
         time,
         prime_universe=prime_universe,
+        budget=budget,
     )
 
 
@@ -432,31 +469,41 @@ def _event_point(
     time: EventTimeV1,
     *,
     prime_universe: tuple[int, ...] | None,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> EventPointV1:
     determinant = first.a * second.b - second.a * first.b
     if determinant == 0:
         raise ParallelSupportLinesError("прямые параллельны, точки пересечения нет")
+    # Гидратация точной позиции — объявленная единица работы. Она здесь не
+    # ради счёта факторизаций: марш фронта строит позиции в цикле, и без этой
+    # статьи домен, у которого ВСЕ радикалы уже разложены, мог бы считать
+    # бесконечно, ни разу не тронув ро-Полларда.
+    _named(budget).spend_exact_position_hydrations(
+        1, operation=ExactWorkOperationV1.EXACT_POSITION, radicand=first.q
+    )
     right_first = SqrtSumV1.rational(first.c) * time.divisor + SqrtSumV1.radical(
-        time.dividend, first.q
+        time.dividend, first.q, budget
     )
     right_second = SqrtSumV1.rational(second.c) * time.divisor + SqrtSumV1.radical(
-        time.dividend, second.q
+        time.dividend, second.q, budget
     )
     scale = time.divisor.scaled(determinant)
     x_numerator = right_first.scaled(second.b) - right_second.scaled(first.b)
     y_numerator = right_second.scaled(first.a) - right_first.scaled(second.a)
     if prime_universe is None:
-        x = x_numerator / scale
-        y = y_numerator / scale
+        x = x_numerator.divided_by(scale, budget)
+        y = y_numerator.divided_by(scale, budget)
     else:
         x = _divide_with_prime_universe(
             x_numerator,
             scale,
             prime_universe,
+            budget,
         )
         y = _divide_with_prime_universe(
             y_numerator,
             scale,
             prime_universe,
+            budget,
         )
     return EventPointV1(x, y)

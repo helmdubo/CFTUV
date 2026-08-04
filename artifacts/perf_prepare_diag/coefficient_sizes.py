@@ -127,8 +127,7 @@ def run(name, override, selected, density):
     from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
     from cftuv.envelope_queue_export import build_queue_domain
 
-    ess.squarefree_split.cache_clear()
-    ess.prime_support.cache_clear()
+    ess.reset_factorization_memory()
     stages = {}
 
     FACTORIZATIONS.clear()

@@ -485,6 +485,7 @@ def exact_overlay_view(builder, overlay):
         vertex_state,
         span_state,
         trace_bounds,
+        builder.work_budget,
     )
 
 

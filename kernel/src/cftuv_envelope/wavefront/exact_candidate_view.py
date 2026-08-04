@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import (
     EventPointV1,
     EventTimeOutcome,
@@ -60,10 +61,20 @@ class CandidateSpanStateV1:
 
 @dataclass(frozen=True, slots=True)
 class ExactCandidateViewV1:
+    """Точная геометрия кандидата: чем считать и НА ЧТО это считать.
+
+    `budget` едет здесь по той же причине, что и `prime_universe`: это
+    единственный провод, по которому обе величины транзакции уже доходят до
+    закона кандидата, а второй провод рядом с существующим означал бы два
+    источника истины про одну транзакцию. `None` — прогон без названного
+    бюджета (тесты, эталон); продуктовый путь всегда называет свой.
+    """
+
     prime_universe: tuple[int, ...]
     vertex_state: Callable[[object], CandidateVertexStateV1]
     span_state: Callable[[object], CandidateSpanStateV1]
     trace_bounds: Callable[[object, EventTimeV1], bool | None]
+    budget: ExactWorkBudgetV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +98,11 @@ def position(
             second,
             time,
             view.prime_universe,
+            view.budget,
         )
     if vertex.sliding is None:
         return None
-    return sliding_point(first, vertex.sliding, time)
+    return sliding_point(first, vertex.sliding, time, view.budget)
 
 
 def edge_event_time(
@@ -112,17 +124,20 @@ def edge_event_time(
             view.span_state(vertex.prev_span).line,
             vertex.sliding,
             view.span_state(peer.next_span).line,
+            view.budget,
         )
     if peer.sliding is not None:
         return sliding_time(
             view.span_state(peer.prev_span).line,
             peer.sliding,
             view.span_state(vertex.prev_span).line,
+            view.budget,
         )
     return concurrency_time(
         view.span_state(vertex.prev_span).line,
         view.span_state(vertex.next_span).line,
         view.span_state(peer.next_span).line,
+        view.budget,
     )
 
 
@@ -132,9 +147,13 @@ def is_future(
     *vertex_refs: object,
     now: EventTimeV1,
 ) -> bool:
-    return time.sign >= 0 and compare_times(time, now) >= 0 and all(
-        compare_times(time, view.vertex_state(ref).birth) >= 0
-        for ref in vertex_refs
+    return (
+        time.sign >= 0
+        and compare_times(time, now, view.budget) >= 0
+        and all(
+            compare_times(time, view.vertex_state(ref).birth, view.budget) >= 0
+            for ref in vertex_refs
+        )
     )
 
 
@@ -219,8 +238,8 @@ def span_containment(
     low = _span_bound(view, span, span_ref, time, at_start=True)
     high = _span_bound(view, span, span_ref, time, at_start=False)
     inside = not (
-        (low is not None and (here - low).sign() < 0)
-        or (high is not None and (high - here).sign() < 0)
+        (low is not None and (here - low).sign(budget=view.budget) < 0)
+        or (high is not None and (high - here).sign(budget=view.budget) < 0)
     )
     return SpanContainmentV1(
         inside,
