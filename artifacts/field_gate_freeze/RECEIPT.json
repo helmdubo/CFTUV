@@ -871,5 +871,47 @@
   },
   "architecture": "446 passed (tests/test_architecture.py)",
   "field_release_matrix_alone": "2 failed (красные ворота), 20 passed"
+ },
+ "proof_obligations_by_class": {
+  "wall_2_001_snapshot.json": {
+   "6ce0227": {
+    "proof_status": "INCOMPLETE",
+    "total": 310,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 290,
+     "NO_RULE_MEETING_NOT_RECONNECTABLE / UNPROVEN_FALLBACK_APPLIED": 10,
+     "NO_RULE_JOINT_IS_ANTIPARALLEL / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 10
+    }
+   },
+   "1dbf712": {
+    "proof_status": "INCOMPLETE",
+    "total": 221,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 209,
+     "EDGE_COLLAPSE_SPAN_UNPROVEN / EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 12
+    }
+   }
+  },
+  "walls_012_snapshot.json": {
+   "6ce0227": {
+    "proof_status": "INCOMPLETE",
+    "total": 50,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 46,
+     "NO_RULE_JOINT_IS_ANTIPARALLEL / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1,
+     "NO_RULE_MEETING_NOT_RECONNECTABLE / UNPROVEN_FALLBACK_APPLIED": 3
+    }
+   },
+   "1dbf712": {
+    "proof_status": "INCOMPLETE",
+    "total": 9,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / SURVIVED_PAST_EVENT_TIME": 7,
+     "SUPERLEVEL_COMPONENT_UNRESOLVABLE / SUPERLEVEL_COMPONENT_UNRESOLVABLE": 1,
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1
+    }
+   }
+  },
+  "note": "SkeletonOutcome.EXACT и proof_status НЕЗАВИСИМЫ — это поправка аудитора, и вот она в числах: у 2.001 на ОБЕИХ вершинах скелет EXACT при proof_status INCOMPLETE (310 долгов на 6ce0227, 221 на 1dbf712). Ни одно из двух чисел узлов не подкреплено полным доказательством."
  }
 }
