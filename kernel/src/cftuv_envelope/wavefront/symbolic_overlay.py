@@ -81,7 +81,46 @@ def refreshed_span_bindings(overlay):
     return bindings, None
 
 
+def _consumed_by_locus(vertex) -> bool:
+    """Порт, у которого ОБА плеча схлопнуты ровно в `now`.
+
+    Признак точный и берётся из frozen prestate: пролёт схлопнут, когда его
+    концы СОВПАЛИ. Ни рантаймовых id, ни порядков здесь нет. Такой порт не
+    самостоятельный порт poststate — он внутренность локуса контакта, и его
+    тождество принадлежит зародышу локуса, а не паре ключей вхождений.
+    """
+
+    return all(
+        occurrence is not None
+        and occurrence[1] is not None
+        and occurrence[1] == occurrence[2]
+        for occurrence in (vertex.prev_occurrence, vertex.next_occurrence)
+    )
+
+
 def _existing_ref(vertex) -> JunctionRefV1:
+    """Ссылка на живой порт.
+
+    У ВЫЖИВАЮЩЕГО порта тождество — hydration-инвариантная пара ключей
+    вхождений: она обязана быть одной и той же между итерациями перестроения,
+    потому что ключ контакта называет эмиттера именно ею.
+
+    У ПОТРЕБЛЁННОГО локусом порта такой нужды нет: он не доживает до
+    poststate, между итерациями его никто не называет. Поэтому он несёт полное
+    тождество (точка плюс оба вхождения) — и перестаёт быть неразличимым
+    алиасом выжившего порта с той же парой ключей.
+    """
+
+    if _consumed_by_locus(vertex):
+        return JunctionRefV1(
+            "EXISTING",
+            (
+                "CONSUMED_BY_LOCUS",
+                vertex.point_key,
+                vertex.prev_occurrence,
+                vertex.next_occurrence,
+            ),
+        )
     return JunctionRefV1("EXISTING", base._port_identity(vertex))
 
 
@@ -242,6 +281,15 @@ def _initial_vertices(builder, snapshot, materialization, leaves):
         and vertex.next_occurrence is not None
     }
     refs = {ident: _existing_ref(vertex) for ident, vertex in eligible.items()}
+    # Admission уникальности — только по портам, ПЕРЕЖИВАЮЩИМ пакет. Порт,
+    # оба плеча которого схлопываются в `now`, потребляется локусом контакта;
+    # отказ по неразличимым алиасам остаётся для подлинно выживших.
+    survivors = [
+        ident for ident, vertex in eligible.items()
+        if not _consumed_by_locus(vertex)
+    ]
+    if len({refs[ident] for ident in survivors}) != len(survivors):
+        return None, None
     if len(set(refs.values())) != len(refs):
         return None, None
     vertices = {}
