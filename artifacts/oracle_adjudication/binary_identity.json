@@ -1,0 +1,9 @@
+{
+ "outcome": "EXACT",
+ "path": "/tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/surfer2/src/build/cc/surfer",
+ "sha256": "25641a91901e261453c14dfd3a9138fb04a8c439bb4bac90faaebccc3a7a31ad",
+ "sha256_expected": "25641a91901e261453c14dfd3a9138fb04a8c439bb4bac90faaebccc3a7a31ad",
+ "banner": "[SURF] VERSION                1.99-c42f9a7f-RELEASE",
+ "banner_expected": "[SURF] VERSION                1.99-c42f9a7f-RELEASE",
+ "detail": ""
+}

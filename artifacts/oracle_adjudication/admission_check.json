@@ -1,0 +1,20 @@
+{
+ "purpose": "Официальный допуск через уже объявленную границу пересечения моделей (tools/surfer2_oracle.py:rings_of_polygon), не переизобретённую здесь.",
+ "snapshot": "artifacts/field_snapshots/wall_2_001_snapshot.json",
+ "alpha": 0.254,
+ "density": 0,
+ "records": [
+  {
+   "region_id": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1",
+   "domain_id": "host-v0:patch-domain:90ce55618b55029b728c31e7",
+   "skeleton_nodes_kernel": 49,
+   "vertex_fans_count": 12,
+   "vertex_fan_supports_all_speed_zero": false,
+   "loop_edge_count": 35,
+   "loop_edges_with_zero_speed": 0,
+   "AdmissionOutcome": "SURFER2_MODEL_HAS_NO_VERTEX_FAN",
+   "detail": "12 вееров: рёбра нулевой длины во входе GraphML не выразимы (узел не повторяется)",
+   "rings_produced": 0
+  }
+ ]
+}
