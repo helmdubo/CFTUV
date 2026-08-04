@@ -1,0 +1,42 @@
+{
+  "harness_dir": "/tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/wt-fieldstable/artifacts/perf_prepare_diag",
+  "snapshot": "wall_2_001_snapshot.json",
+  "alpha": 0.45,
+  "density_raw": "0",
+  "bundle_seconds": 0.1012,
+  "num_domains": 1,
+  "domains": [
+    {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "detail": "",
+      "prepare_ms": 2297.3,
+      "coverage_ms": 1270.2,
+      "contour_ms": 103.7,
+      "total_ms": 3740.8,
+      "counters": {
+        "CONVEYOR_ARRIVAL_LAWS": 35,
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 28,
+        "CONVEYOR_RATIONAL_VERTEX_FANS": 12,
+        "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
+        "CONVEYOR_MITERED_CORNERS": 0,
+        "CONVEYOR_BOUND_FAN_DIRECTIONS": 12,
+        "CONVEYOR_FAN_SUPPORTS": 12,
+        "CONVEYOR_DOMAIN_REGIONS": 1,
+        "CONVEYOR_LATTICE_SCALE": 32768,
+        "CONVEYOR_FAN_EDGES": 12,
+        "CONVEYOR_DOMAIN_EDGES": 35,
+        "CONVEYOR_SOURCE_EDGES": 35,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 23,
+        "CONVEYOR_WEIGHTED_SOURCE_EDGES": 35,
+        "CONVEYOR_SKELETON_NODES": 45,
+        "CONVEYOR_FACES": 47
+      },
+      "faces": 45,
+      "lattice_scale": 32768,
+      "patch_id": 0,
+      "domain_id": "host-v0:patch-domain:90ce55618b55029b728c31e7"
+    }
+  ]
+}

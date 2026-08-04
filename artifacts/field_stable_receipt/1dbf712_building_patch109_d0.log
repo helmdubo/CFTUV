@@ -1,0 +1,5 @@
+bundle built in 0.22s, patches=122
+domains carrying selected edges: 1
+    {"patch_id": 109, "faces": 4, "boundary_edges": 10, "loops": 1, "selected_edges": 10, "out_of_plane_m": 0.00994}
+stage_domain_inputs: 0.09s, domains=122
+{"patch_id": 109, "faces": 4, "boundary_edges": 10, "loops": 1, "selected_edges": 10, "out_of_plane_m": 0.00994, "domain_id": "869ee218a62daf55e4d13373", "host_export_s": 0.87, "queue_s": 1.95, "prepare_s": 1.53, "coverage_s": 0.28, "contour_s": 0.05, "outcome": "EXACT", "coverage_outcome": "EXACT", "detail": "", "factorization_s": 0.0, "factorization_calls": 60, "radicand_bits_max": 227, "counters": {"CONVEYOR_LATTICE_SCALE": 131072, "CONVEYOR_DOMAIN_EDGES": 10, "CONVEYOR_SOURCE_EDGES": 10, "CONVEYOR_WALL_EDGES": 0, "CONVEYOR_SKELETON_NODES": 10, "CONVEYOR_FACES": 12}}
