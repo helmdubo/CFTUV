@@ -1166,7 +1166,10 @@ def prepare_conveyor(
                 region, reading, lattice, binding_residual, clock, budget
             )
         except ExactCanonicalizationWorkBudgetExhausted as exhausted:
-            clock.add("SKELETON", time.perf_counter())
+            # Строки времени у этого отказа нет намеренно: `_prepare_region`
+            # ставит её сама на выходе, а выхода тут не было. Ноль секунд был
+            # бы измерением, которого не делали, — а расход НАЗВАН счётчиками
+            # бюджета ниже, и он воспроизводим, в отличие от секунды.
             return _refused(
                 ConveyorOutcome.EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED,
                 str(exhausted),
