@@ -1,0 +1,315 @@
+{
+ "snapshot": "walls_012_snapshot.json",
+ "sha256": "994f98aec820f9a1db27c2dc1257f29ba423a0287df1aaa08190c5ddb290a78b",
+ "alpha": 0.254,
+ "density": 0,
+ "domain_id": "host-v0:patch-domain:cafa51b596c2cf8ea16b580b",
+ "region_id": "sparse-patch-domain-region:80c21ed61a70595286af7b2d",
+ "conveyor_outcome": "SKELETON_DID_NOT_CLOSE",
+ "conveyor_detail": "sparse-patch-domain-region:80c21ed61a70595286af7b2d: SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+ "skeleton_outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+ "skeleton_nodes": 2,
+ "skeleton_counters": {
+  "coincident_split_targets": 0,
+  "discarded_stale_candidates": 1,
+  "duplicate_exact_time_point_nodes": 0,
+  "edge_collapse_span_unproven_but_accepted": 0,
+  "edge_events": 2,
+  "mixed_kind_exact_time_point_nodes": 0,
+  "motorcycle_march_steps": 27,
+  "motorcycle_trace_crashes": 0,
+  "motorcycle_trace_pairs": 0,
+  "motorcycle_traces": 2,
+  "motorcycle_unbounded_traces": 0,
+  "motorcycle_wall_crashes": 2,
+  "motorcycle_wall_tests": 114,
+  "multi_participant_nodes": 0,
+  "peaks": 0,
+  "refused_filter_beyond_trace": 13,
+  "refused_filter_edge_is_own": 16,
+  "refused_filter_event_in_the_past": 55,
+  "refused_filter_point_outside_front": 13,
+  "refused_filter_solo_vertex": 0,
+  "refused_filter_span_does_not_collapse": 0,
+  "refused_filter_span_is_born_zero": 2,
+  "refused_filter_triple_never_concurrent": 39,
+  "refused_no_rule_joint_is_antiparallel": 0,
+  "refused_no_rule_joint_is_codirectional": 0,
+  "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
+  "refused_no_rule_meeting_not_reconnectable": 0,
+  "refused_no_rule_span_vanished": 0,
+  "refused_no_rule_triple_always_concurrent": 8,
+  "resting_steiner_vertices": 0,
+  "ridges": 0,
+  "same_time_events_enqueued_during_level": 0,
+  "same_time_residual_after_level": 0,
+  "split_candidates_beyond_trace": 13,
+  "split_candidates_examined": 126,
+  "split_events": 1,
+  "split_search_exhaustive_segments": 0,
+  "split_search_exhaustive_vertices": 5,
+  "start_events": 0,
+  "superlevel_contact_junction_resolutions": 2,
+  "superlevel_unresolvable_components": 1,
+  "superlevel_unresolvable_reason::SYMBOLIC_INTERIOR_SPLIT_CONTACT_METADATA_CONFLICT": 1,
+  "switch_events": 0,
+  "unsupported_event_kind_dropped": 0,
+  "vertex_meeting_events": 0
+ },
+ "levels": [
+  {
+   "time": {
+    "dividend": [
+     54009791773895779436434365,
+     1024
+    ],
+    "divisor": [
+     [
+      289615238697188253740039047616843361,
+      [
+       1,
+       1
+      ]
+     ]
+    ]
+   },
+   "time_approx": 98008.07102497996,
+   "size": 1,
+   "event_kinds": [
+    "EDGE"
+   ],
+   "event_points": [
+    "{\"x\": [[1, [-20678133, 1]]], \"y\": [[1, [65538, 1]]]}"
+   ],
+   "event_points_approx": [
+    [
+     -20678133.0,
+     65538.0
+    ]
+   ],
+   "nodes_before": 0,
+   "alive_before": 14,
+   "nodes_after": 1,
+   "alive_after": 13,
+   "refusal": null
+  },
+  {
+   "time": {
+    "dividend": [
+     149527894716044753438543366142699,
+     11032576
+    ],
+    "divisor": [
+     [
+      2852179969732232078393414670,
+      [
+       -1,
+       1
+      ]
+     ],
+     [
+      289615238697188253740039047616843361,
+      [
+       5537067,
+       21548
+      ]
+     ]
+    ]
+   },
+   "time_approx": 98008.09370925918,
+   "size": 3,
+   "event_kinds": [
+    "EDGE",
+    "SPLIT",
+    "SPLIT"
+   ],
+   "event_points": [
+    "{\"x\": [[1, [-30593177902287652998484766561006251131380682761436, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [2211017634503221992, 1069047077733938223413820548587757171516699]]], \"y\": [[1, [96963091075975195740093877473136848798120564696, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [-7007676840557712, 1069047077733938223413820548587757171516699]]]}",
+    "{\"x\": [[1, [-30593177902287652998484766561006251131380682761436, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [2211017634503221992, 1069047077733938223413820548587757171516699]]], \"y\": [[1, [96963091075975195740093877473136848798120564696, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [-7007676840557712, 1069047077733938223413820548587757171516699]]]}",
+    "{\"x\": [[1, [-30593177902287652998484766561006251131380682761436, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [2211017634503221992, 1069047077733938223413820548587757171516699]]], \"y\": [[1, [96963091075975195740093877473136848798120564696, 1069047077733938223413820548587757171516699]], [91781642526815506900563972915875936851719077636758763923278430, [-7007676840557712, 1069047077733938223413820548587757171516699]]]}"
+   ],
+   "event_points_approx": [
+    [
+     -8803189.489,
+     27901.138
+    ],
+    [
+     -8803189.489,
+     27901.138
+    ],
+    [
+     -8803189.489,
+     27901.138
+    ]
+   ],
+   "nodes_before": 1,
+   "alive_before": 13,
+   "nodes_after": 2,
+   "alive_after": 12,
+   "refusal": null
+  },
+  {
+   "time": {
+    "dividend": [
+     27004906770869927717301939,
+     512
+    ],
+    "divisor": [
+     [
+      289615238697188253740039047616843361,
+      [
+       1,
+       1
+      ]
+     ]
+    ]
+   },
+   "time_approx": 98008.11052567673,
+   "size": 1,
+   "event_kinds": [
+    "EDGE"
+   ],
+   "event_points": [
+    "{\"x\": [], \"y\": []}"
+   ],
+   "event_points_approx": [
+    [
+     0,
+     0
+    ]
+   ],
+   "nodes_before": 2,
+   "alive_before": 12,
+   "nodes_after": 2,
+   "alive_after": 12,
+   "refusal": null
+  },
+  {
+   "time": {
+    "dividend": [
+     788450753657112,
+     1
+    ],
+    "divisor": [
+     [
+      35415780824258511981,
+      [
+       1,
+       1
+      ]
+     ]
+    ]
+   },
+   "time_approx": 132487.883415169,
+   "size": 4,
+   "event_kinds": [
+    "SPLIT",
+    "SPLIT",
+    "SPLIT",
+    "SPLIT"
+   ],
+   "event_points": [
+    "{\"x\": [[1, [10346739, 1]]], \"y\": []}",
+    "{\"x\": [[1, [3735552, 1]], [389073310811192455212940941500738395230148374, [229376, 484015671264866330407]]], \"y\": []}",
+    "{\"x\": [[1, [4894509, 1]]], \"y\": []}",
+    "{\"x\": [[1, [7662956, 1]], [11223575631041889772314128816867057444855129030, [-32768, 484015671264866330407]]], \"y\": []}"
+   ],
+   "event_points_approx": [
+    [
+     490694.254,
+     0
+    ],
+    [
+     4894509.0,
+     0
+    ],
+    [
+     10346739.0,
+     0
+    ],
+    [
+     13083241.369,
+     0
+    ]
+   ],
+   "nodes_before": 2,
+   "alive_before": 12,
+   "nodes_after": 2,
+   "alive_after": 12,
+   "refusal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE"
+  }
+ ],
+ "merge_conflicts": [
+  {
+   "key_time": "(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),))",
+   "key_point": "(((1, Fraction(32768, 1)),), ())",
+   "emitter": "JunctionRefV1(kind='EXISTING', key=((0, 0, 32768, 0), (32768, 0, 4894509, 0)))",
+   "family": "SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),))",
+   "participants": [
+    [
+     0,
+     0,
+     32768,
+     0
+    ],
+    [
+     0,
+     32768,
+     -5444244,
+     32768
+    ],
+    [
+     32768,
+     0,
+     4894509,
+     0
+    ]
+   ],
+   "differing_fields": [
+    "leaf"
+   ],
+   "first": {
+    "leaf": "SegmentRefV1(family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), start=None, end=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(10346739, 1)),), ()), emitter_key=((4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0))), occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(10346739, 1)),), ())))"
+   },
+   "second": {
+    "leaf": "SegmentRefV1(family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), start=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(10346739, 1)),), ()), emitter_key=((4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0))), end=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(4894509, 1)),), ()), emitter_key=((32768, 0, 4894509, 0), (4894509, 0, 10346739, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (32768, 0, 4894509, 0), (4894509, 0, 10346739, 0))), occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(10346739, 1)),), ()), (((1, Fraction(4894509, 1)),), ())))"
+   }
+  },
+  {
+   "key_time": "(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),))",
+   "key_point": "(((1, Fraction(32768, 1)),), ())",
+   "emitter": "JunctionRefV1(kind='EXISTING', key=((0, 0, 32768, 0), (32768, 0, 4894509, 0)))",
+   "family": "SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),))",
+   "participants": [
+    [
+     0,
+     0,
+     32768,
+     0
+    ],
+    [
+     0,
+     32768,
+     -5444244,
+     32768
+    ],
+    [
+     32768,
+     0,
+     4894509,
+     0
+    ]
+   ],
+   "differing_fields": [
+    "leaf"
+   ],
+   "first": {
+    "leaf": "SegmentRefV1(family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), start=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(10346739, 1)),), ()), emitter_key=((4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (4894509, 0, 10346739, 0), (10346739, 0, 20661128, 0))), end=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(4894509, 1)),), ()), emitter_key=((32768, 0, 4894509, 0), (4894509, 0, 10346739, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (32768, 0, 4894509, 0), (4894509, 0, 10346739, 0))), occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(10346739, 1)),), ()), (((1, Fraction(4894509, 1)),), ())))"
+   },
+   "second": {
+    "leaf": "SegmentRefV1(family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), start=SplitContactKeyV1(time_key=(Fraction(788450753657112, 1), ((35415780824258511981, Fraction(1, 1)),)), point_key=(((1, Fraction(4894509, 1)),), ()), emitter_key=((32768, 0, 4894509, 0), (4894509, 0, 10346739, 0)), family=SpanFamilyRefV1(occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(3735552, 1)), (389073310811192455212940941500738395230148374, Fraction(229376, 484015671264866330407))), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())), participant_keys=((0, 32768, -5444244, 32768),)), participants=((0, 32768, -5444244, 32768), (32768, 0, 4894509, 0), (4894509, 0, 10346739, 0))), end=None, occurrence=((0, 32768, -5444244, 32768), (((1, Fraction(4894509, 1)),), ()), (((1, Fraction(7662956, 1)), (11223575631041889772314128816867057444855129030, Fraction(-32768, 484015671264866330407))), ())))"
+   }
+  }
+ ],
+ "conflict_site": "kernel/src/cftuv_envelope/wavefront/superlevel_fixed_point.py:merge_symbolic_split_contacts"
+}
