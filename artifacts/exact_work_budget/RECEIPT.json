@@ -1,0 +1,243 @@
+{
+  "card": "EXACT-WORK-BUDGET",
+  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 821995f",
+  "branch": "exec/exact-work-budget",
+  "harness": "artifacts/perf_prepare_diag (headless, без Blender) + artifacts/exact_work_budget/{field_gate,measure_units}.py",
+  "machine_note": "один контейнер, 4 ядра; абсолютные секунды сопоставимы только внутри этой расписки",
+  "why_the_ceiling_was_measured_on_6ce0227": "Вершина аудит-ветки несёт две полевые регрессии (walls.012 обрывается на 2 узлах вместо 12; wall 2.001 жуёт подготовку 15.3-15.9 s против 3.0 s). Потолок, снятый там, унаследовал бы ЦЕНУ РЕГРЕССИИ и объявил бы её нормой здорового домена. Модули, которые считают работу, на обеих вершинах ПОБИТОВО одинаковы (git diff --quiet 6ce0227 821995f -- exact_sqrt_sum.py event_time.py motorcycle.py coverage.py -> пусто), поэтому счётчик переносится без правки семантики.",
+  "work_units_by_domain_6ce0227": {
+    "building_d0_a045:patch109": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 281,
+      "EXACT_WORK_GCD_OPERATIONS": 2504,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
+      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
+      "EXACT_WORK_SPENT": 13651,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.732
+    },
+    "building_d0_a045:patch121": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 18,
+      "EXACT_WORK_GCD_OPERATIONS": 348,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
+      "EXACT_WORK_SPENT": 8772,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.112
+    },
+    "wall_2_001_d0_a0254:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2894,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 34,
+      "EXACT_WORK_SPENT": 24508,
+      "outcome": "EXACT/EXACT",
+      "seconds": 2.962
+    },
+    "wall_2_001_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2894,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 34,
+      "EXACT_WORK_SPENT": 24508,
+      "outcome": "EXACT/EXACT",
+      "seconds": 3.022
+    },
+    "walls_012_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 295,
+      "EXACT_WORK_GCD_OPERATIONS": 5055,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
+      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
+      "EXACT_WORK_SPENT": 554580,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.278
+    },
+    "walls_012_d1_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 294,
+      "EXACT_WORK_GCD_OPERATIONS": 847,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
+      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
+      "EXACT_WORK_SPENT": 33665,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.766
+    }
+  },
+  "work_units_by_domain_tip_821995f": {
+    "building_d0_a045:patch109": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 677,
+      "EXACT_WORK_GCD_OPERATIONS": 2504,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
+      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
+      "EXACT_WORK_SPENT": 14047,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.448
+    },
+    "building_d0_a045:patch121": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
+      "EXACT_WORK_GCD_OPERATIONS": 348,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
+      "EXACT_WORK_SPENT": 8807,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.208
+    },
+    "wall_2_001_d0_a0254:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 32876,
+      "leaked_unbudgeted": 0,
+      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 15.322
+    },
+    "wall_2_001_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 32876,
+      "leaked_unbudgeted": 0,
+      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 15.465
+    },
+    "walls_012_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 377,
+      "EXACT_WORK_GCD_OPERATIONS": 5055,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
+      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
+      "EXACT_WORK_SPENT": 554662,
+      "leaked_unbudgeted": 0,
+      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 1.231
+    },
+    "walls_012_d1_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 376,
+      "EXACT_WORK_GCD_OPERATIONS": 847,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
+      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
+      "EXACT_WORK_SPENT": 33747,
+      "leaked_unbudgeted": 0,
+      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 0.89
+    }
+  },
+  "chosen_cap": {
+    "constant": "_EXACT_CANONICALIZATION_WORK_CAP = 1 << 23 (8 388 608)",
+    "site": "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+    "worst_measured_healthy_domain": "walls.012 density 0 — 554 580 единиц (6ce0227)",
+    "margin_over_worst_healthy": 15.1,
+    "lower_bound_control": "walls.012 density 1 — 33 747 единиц; до PERF-CANON-1 этот вход не возвращался 900+ s. Запас 249x.",
+    "upper_bound_control": "цена самого потолка: 532 нс на шаг орбиты Брента при 246 битах (максимум радиканда walls.012) -> 4.47 s на полный потолок. Полевой случай владельца — десять минут без исхода.",
+    "why_not_2_22": "запас всего 7.6x, а здоровые домены расходятся в 63 раза уже внутри измеренной пятёрки (8 772…554 580)",
+    "why_not_2_24": "8.9 s на потолке; на меше в 122 домена патология перестала бы отличаться от зависания",
+    "what_it_cuts": "ро-Поллард находит делитель p за ~1.18*sqrt(p) шагов, значит 2^23 — делители примерно до 2^45. Простые крупнее рождаются из near-planar проекции, поднимающей знаменатели метрики (REPORT.txt §3): это патология входа, и правильный ответ на неё — именованный отказ"
+  },
+  "per_unit_price_measured": {
+    "68_bit_modulus_ns_per_step": 222.6,
+    "128_bit_modulus_ns_per_step": 329.0,
+    "246_bit_modulus_ns_per_step": 532.5,
+    "cap_price_seconds_at_246_bits": 4.47
+  },
+  "field_gate_bit_for_bit": {
+    "script": "artifacts/exact_work_budget/field_gate.py",
+    "domains": [
+      "walls.012 d0 patch0",
+      "wall 2.001 d0 patch0",
+      "building patch109",
+      "building patch121"
+    ],
+    "fingerprint": "исходы обеих ступеней, деталь, ВСЕ счётчики подготовки, semantic_digest скелета каждого региона, число граней покрытия, lattice_scale",
+    "divergences": 0,
+    "note": "счётчики EXACT_WORK_* исключены из сверки как НОВЫЕ статьи расписки; приёмка требует того же ОТВЕТА, а не того же списка счётчиков"
+  },
+  "no_work_escapes_the_budget": {
+    "measure": "leaked_unbudgeted = UNBUDGETED_WORK.spent после домена с названным бюджетом",
+    "field_runs": 6,
+    "leaked": 0,
+    "kernel_corpus": "test_exact_work_budget.py::test_no_exact_work_escapes_the_named_budget_of_a_transaction — 8 фигур корпуса, ноль на каждой",
+    "detector_can_fail": "test_the_leak_detector_itself_can_fail — безбюджетный squarefree_split даёт ненулевую телеметрию"
+  },
+  "perf_canon_1_gain_preserved": {
+    "why_asked": "замена lru_cache на явные словари не имеет права съесть выигрыш PERF-CANON-1",
+    "where": "6ce0227, тот же харнесс, три повтора каждой ветки",
+    "walls_012_d0_sum_ms": {
+      "lru_cache": [
+        1264.6,
+        1237.0,
+        1284.1
+      ],
+      "dicts_plus_accounting": [
+        1203.8,
+        1321.7,
+        1172.2
+      ],
+      "verdict": "среднее 1261.9 против 1232.6 мс — разница внутри разброса самой ветки (47 и 150 мс), просадки нет"
+    },
+    "building_patch109_prepare_s": {
+      "lru_cache": 0.48,
+      "recorded_in_perf_canon_1_receipt": 0.51
+    },
+    "building_patch121_prepare_s": {
+      "lru_cache": 0.06,
+      "recorded_in_perf_canon_1_receipt": 0.06
+    },
+    "note": "выигрыш PERF-CANON-1 мерился от 6918 мс; обе ветки здесь в режиме ПОСЛЕ, то есть 7x сохранён целиком"
+  },
+  "localization_beyond_this_card": {
+    "claim": "обе полевые регрессии вершины лежат ВНЕ модулей точной арифметики",
+    "method": "git diff --quiet 6ce0227 821995f -- <файл>",
+    "identical": [
+      "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+      "kernel/src/cftuv_envelope/wavefront/event_time.py",
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py",
+      "kernel/src/cftuv_envelope/wavefront/coverage.py"
+    ],
+    "differing_or_new": [
+      "kernel/src/cftuv_envelope/wavefront/superlevel*.py",
+      "kernel/src/cftuv_envelope/wavefront/symbolic_*.py",
+      "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py (новый после 6ce0227)",
+      "kernel/src/cftuv_envelope/wavefront/skeleton.py"
+    ],
+    "independent_confirmation_by_work_units": "wall 2.001 на вершине тратит 32 876 единиц точной работы за 15.3 s, на 6ce0227 — 24 508 единиц за 3.0 s. Работа выросла на треть, а время в пять раз: лишние 12 секунд НЕ канонизация. Счётчик даёт этому числовое подтверждение, а не догадку."
+  },
+  "named_open_accounts": [
+    {
+      "id": "Q-FACES-SIGN-OUTSIDE-THE-BUDGET",
+      "text": "wavefront/faces.py вызывает SqrtSumV1.sign() четырьмя местами мимо бюджета: файл принадлежит следующей карточке (FACE-CONTINUATION) и этой карточкой не трогался. Цена дыры измерена, а не оценена: ветка сопряжения, единственная в sign(), которая способна факторизовать, на ВСЕХ полевых прогонах закрывается нулём — SIGN_COUNTS.closed_by_conjugation = 0 (PERF-PREPARE-DIAG REPORT.txt §2а, обе колонки, все три стадии). Протяжка бюджета через faces.py — один параметр в build_faces и четыре аргумента в вызовах sign()."
+    },
+    {
+      "id": "Q-WORK-BUDGET-PER-MESH",
+      "text": "Кап — на ОДИН домен. Меш из 122 доменов, у которого патологичен каждый, потратит 122 потолка. Нужен ли бюджет на весь запрос сверх доменного — вопрос владельца, а не ядра: ответ зависит от того, что владелец хочет видеть на плохом меше — частичный результат по здоровым доменам или отказ целиком."
+    },
+    {
+      "id": "Q-CAP-VS-NEAR-PLANAR-ROOT",
+      "text": "Кап отказывает там, где корень — near-planar проекция, поднимающая знаменатели метрики (REPORT.txt §3, Р3/Р4). Отказ по бюджету назовёт СЛЕДСТВИЕ (работа кончилась), а не ПРИЧИНУ (кадр чарта плох). Это честно, но владельцу полезнее вторая формулировка; она приедет вместе с законом выбора кадра чарта, а не отсюда."
+    }
+  ]
+}
