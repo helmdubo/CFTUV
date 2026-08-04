@@ -900,6 +900,75 @@
       ],
       "type": "object"
     },
+    "CanonicalAngleRestorationCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CanonicalAngleRestorationCertificateV1"
+        },
+        "canonical_reflex_excess_over_pi": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "canonical_relation": {
+          "enum": [
+            "CANONICAL_REFLEX_EXCESS_PI_OVER_2"
+          ],
+          "type": "string"
+        },
+        "corner_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "deviation_upper_bound_radians": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reflex_angle_certificate_id": {
+          "$ref": "#/$defs/AngleCertificateId"
+        },
+        "restoration_law": {
+          "enum": [
+            "AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1"
+          ],
+          "type": "string"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_reflex_excess_over_pi": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "tolerance_policy_id": {
+          "enum": [
+            "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
+          ],
+          "type": "string"
+        },
+        "tolerance_radians": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "restoration_law",
+        "selection_certificate_id",
+        "corner_relation_id",
+        "reflex_angle_certificate_id",
+        "canonical_relation",
+        "canonical_reflex_excess_over_pi",
+        "source_reflex_excess_over_pi",
+        "deviation_upper_bound_radians",
+        "tolerance_radians",
+        "tolerance_policy_id",
+        "proven_predicates"
+      ],
+      "type": "object"
+    },
     "CapEnvelopeSpec": {
       "additionalProperties": false,
       "properties": {
@@ -1208,6 +1277,13 @@
           "type": "array",
           "uniqueItems": true
         },
+        "canonical_angle_restorations": {
+          "items": {
+            "$ref": "#/$defs/CanonicalAngleRestorationCertificateV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "envelope_instances": {
           "items": {
             "$ref": "#/$defs/EnvelopeInstanceV1"
@@ -1409,7 +1485,8 @@
         "geometry_batch_provenance",
         "named_outcomes",
         "front_reading_declarations",
-        "self_contact_pair_declarations"
+        "self_contact_pair_declarations",
+        "canonical_angle_restorations"
       ],
       "type": "object"
     },
@@ -2218,6 +2295,26 @@
       "properties": {
         "$type": {
           "const": "ExactRatioV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
         },
         "denominator": {
           "type": "integer"

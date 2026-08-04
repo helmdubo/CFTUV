@@ -20,6 +20,10 @@ from ..contracts.metric import (
     RationalAffinePlanarMetricV2,
 )
 from ..contracts.request import AngularProfileSelectionPolicyId
+from .._canonical_angle import (
+    canonical_angle_restoration_error,
+    canonical_reflex_excess_restoration,
+)
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
@@ -55,6 +59,80 @@ class ReferenceGeometryError(ValueError):
 def stable_id(kind: str, *parts: object) -> str:
     payload = "\x1f".join((kind, *(str(part) for part in parts))).encode("utf-8")
     return f"{kind}:{sha256(payload).hexdigest()[:24]}"
+
+
+def verify_canonical_angle_restorations(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> None:
+    """Записи восстановления обязаны следовать из сырых углов снапшота.
+
+    Проверяются ОБЕ стороны, и это важно: запись, которой нет там, где закон
+    её требует, — такая же подделка, как запись там, где закон её запрещает.
+    Односторонняя проверка позволяла бы снять восстановление у одного угла
+    стены и получить обратно расщеплённый счёт, ничего при этом не нарушив.
+    """
+
+    restorations = compilation.canonical_angle_restorations
+    recorded = {}
+    for record in restorations:
+        if record.selection_certificate_id in recorded:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+                "two canonical angle restorations for one selection certificate",
+            )
+        recorded[record.selection_certificate_id] = record
+    angles = {
+        item.certificate_id: item
+        for item in compilation.analysis_snapshot.reflex_angle_certificates
+    }
+    for selection in sorted(
+        compilation.profile_selection_certificates,
+        key=lambda item: item.certificate_id.value,
+    ):
+        angle = angles.get(selection.reflex_angle_certificate_id)
+        payload = getattr(angle, "measure_payload", None)
+        interval = getattr(payload, "reflex_excess_over_pi", None)
+        record = recorded.pop(selection.certificate_id, None)
+        if interval is None:
+            if record is not None:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+                    "canonical angle restoration cites an angle without a "
+                    f"certified measure: {selection.certificate_id}",
+                )
+            continue
+        expected = canonical_reflex_excess_restoration(interval)
+        if (expected is None) != (record is None):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+                "canonical angle restoration record contradicts the law for "
+                f"{selection.certificate_id}: "
+                + ("recorded but not restorable" if expected is None else "restorable but not recorded"),
+            )
+        if record is None:
+            continue
+        error = canonical_angle_restoration_error(record, interval)
+        if error is not None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+                f"{error}: {selection.certificate_id}",
+            )
+        if (
+            record.corner_relation_id != selection.corner_relation_id
+            or record.reflex_angle_certificate_id
+            != selection.reflex_angle_certificate_id
+        ):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+                "canonical angle restoration differs from its selection "
+                f"certificate: {selection.certificate_id}",
+            )
+    if recorded:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+            "canonical angle restoration has no selection certificate: "
+            + ", ".join(sorted(item.value for item in recorded)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +178,7 @@ class GeometryContext:
         density_exact_memo: _DensityExactMemo | None = None,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
+        verify_canonical_angle_restorations(compilation)
         from .evaluation_geometry import (
             EvaluationGeometryBindingInvalid,
             verify_evaluation_geometry_binding,

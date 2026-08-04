@@ -53,8 +53,15 @@ from cftuv_envelope import (
 # для окон, пересекающих coordinate poles; single-chart V2 остаётся отдельным.
 # P0-4 добавляет два embedding-сертификата, отдельный wrapper/codec/schema и
 # два entrypoint-а; прежний RationalAffinePlanarMetricV2 остаётся неизменным.
-PUBLIC_API_P0_4_EMBEDDING_CERTIFICATE_V1_SHA256 = (
-    "36a104dce066d8a7893a1406f6d53f7bb06696cba38f8cd03fe102380ec48ea2"
+# Прежнее закрепление среза P0-4:
+# 36a104dce066d8a7893a1406f6d53f7bb06696cba38f8cd03fe102380ec48ea2.
+# DENSITY-CANONICAL-RESTORATION добавляет ЧЕТЫРЕ имени: символ канонического
+# отношения, закон восстановления, имя допуска намерения вместе с его
+# категорией и сам сертификат. Сертификат селекции при этом НЕ расширен — иначе
+# сдвинулись бы байты каждого угла корпуса, включая точные, где ничего не
+# менялось; восстановления живут отдельной коллекцией плана.
+PUBLIC_API_DENSITY_CANONICAL_RESTORATION_V1_SHA256 = (
+    "3d0371468591724de4b09caeebfece7e209359c562e8aff6257ca66271d58217"
 )
 
 P0_4_ADDITIVE_PUBLIC_NAMES = (
@@ -117,14 +124,32 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_P0_4_EMBEDDING_CERTIFICATE_V1_SHA256
+    assert digest == PUBLIC_API_DENSITY_CANONICAL_RESTORATION_V1_SHA256
 
 
-def test_p0_4_public_growth_is_additive_and_names_every_new_surface():
-    assert len(cftuv_envelope.__all__) == 515
-    assert cftuv_envelope.__all__[-len(P0_4_ADDITIVE_PUBLIC_NAMES) :] == (
-        P0_4_ADDITIVE_PUBLIC_NAMES
-    )
+DENSITY_CANONICAL_RESTORATION_ADDITIVE_PUBLIC_NAMES = (
+    "CanonicalReflexAngleRelationV1",
+    "CanonicalAngleRestorationLawV1",
+    "AngleTolerancePolicyIdV1",
+    "CanonicalAngleRestorationCertificateV1",
+)
+
+
+def test_public_growth_is_additive_and_names_every_new_surface():
+    """Рост публичного API идёт хвостом и каждый срез назван поимённо.
+
+    Проверяются ДВА последних среза, а не только новый: если новый блок
+    вытеснил бы предыдущий, «аддитивность» осталась бы верной побуквенно и
+    ложной по смыслу.
+    """
+
+    latest = DENSITY_CANONICAL_RESTORATION_ADDITIVE_PUBLIC_NAMES
+    assert len(cftuv_envelope.__all__) == 519
+    assert cftuv_envelope.__all__[-len(latest) :] == latest
+    previous = cftuv_envelope.__all__[
+        -len(latest) - len(P0_4_ADDITIVE_PUBLIC_NAMES) : -len(latest)
+    ]
+    assert previous == P0_4_ADDITIVE_PUBLIC_NAMES
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

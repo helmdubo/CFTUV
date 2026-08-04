@@ -542,6 +542,10 @@ __all__ = (
     "EmbeddingCertifiedRationalAffinePlanarMetricCodecV1",
     "build_embedding_certified_rational_affine_planar_metric",
     "validate_embedding_certified_rational_affine_planar_metric",
+    "CanonicalReflexAngleRelationV1",
+    "CanonicalAngleRestorationLawV1",
+    "AngleTolerancePolicyIdV1",
+    "CanonicalAngleRestorationCertificateV1",
 )
 
 _EXPORT_RANGES = (
@@ -597,6 +601,7 @@ _EXPORT_RANGES = (
     (512, 513, "cftuv_envelope.codec"),
     (513, 514, "cftuv_envelope.planar_metric"),
     (514, 515, "cftuv_envelope.validation_metric"),
+    (515, 519, "cftuv_envelope.contracts.envelopes"),
 )
 
 _EXPORTS = {

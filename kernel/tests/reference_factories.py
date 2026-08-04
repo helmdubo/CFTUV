@@ -906,8 +906,31 @@ def _full_capabilities() -> frozenset[AnalysisCapability]:
     )
 
 
-def angular_snapshot(hidden_count: int) -> tuple[AnalysisSnapshotV1, DecalRequestV1]:
-    if hidden_count not in (0, 1, 2):
+# Полевой класс угла, ради которого существует восстановление канонического
+# отношения: авторский прямой угол, увезённый шумом моделирования на 1.5e-6 рад
+# от π/2. Нормаль исходящей опоры и есть источник этого числа: `cos δ` равен её
+# x-компоненте после нормировки, поэтому `δ/π - 1/2 = arcsin(1.5e-6)/π`.
+# Слепок поля (`artifacts/field_snapshots/wall_2_001_corner_angles.json`) даёт
+# по стене 1.10e-6, 1.47e-6 и 2.87e-6 рад — фигура сидит ровно в этом классе.
+NEAR_RIGHT_ANGLE = "near-right-angle"
+
+_ANGULAR_CASES = {
+    0: ((3 / 5, -4 / 5), (-4.0, -3.0), ("0.20", "0.30")),
+    1: ((-7 / 25, -24 / 25), (-4.8, 1.4), ("0.50", "0.60")),
+    2: ((-117 / 125, -44 / 125), (-1.76, 4.68), ("0.80", "0.90")),
+    NEAR_RIGHT_ANGLE: (
+        (-1.5e-6, -1.0),
+        (-5.0, 7.5e-6),
+        (
+            "0.500000477464829275327908684",
+            "0.500000477464829275327908685",
+        ),
+    ),
+}
+
+
+def angular_snapshot(hidden_count) -> tuple[AnalysisSnapshotV1, DecalRequestV1]:
+    if hidden_count not in _ANGULAR_CASES:
         raise ValueError(hidden_count)
     revision = SourceRevision(f"angular-k{hidden_count}")
     patch_id = PatchId("patch")
@@ -915,17 +938,8 @@ def angular_snapshot(hidden_count: int) -> tuple[AnalysisSnapshotV1, DecalReques
     anchor_id = SourceVertexId("anchor")
     incoming_far_id = SourceVertexId("incoming-far")
     outgoing_far_id = SourceVertexId("outgoing-far")
-    outgoing_normal = {
-        0: (3 / 5, -4 / 5),
-        1: (-7 / 25, -24 / 25),
-        2: (-117 / 125, -44 / 125),
-    }[hidden_count]
+    outgoing_normal, outgoing_far, _case_bounds = _ANGULAR_CASES[hidden_count]
     outgoing_tangent = (outgoing_normal[1], -outgoing_normal[0])
-    outgoing_far = {
-        0: (-4.0, -3.0),
-        1: (-4.8, 1.4),
-        2: (-1.76, 4.68),
-    }[hidden_count]
     coordinates = {
         incoming_far_id: (0.0, 5.0),
         anchor_id: (0.0, 0.0),
@@ -1077,7 +1091,7 @@ def angular_snapshot(hidden_count: int) -> tuple[AnalysisSnapshotV1, DecalReques
         turn_orientation=TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION,
         interior_selection_law=InteriorSelectionLaw.OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS,
     )
-    bounds = {0: ("0.20", "0.30"), 1: ("0.50", "0.60"), 2: ("0.80", "0.90")}[hidden_count]
+    bounds = _case_bounds
     angle_id = AngleCertificateId("angle")
     angle_certificate = ReflexAngleCertificateV1(
         angle_id,

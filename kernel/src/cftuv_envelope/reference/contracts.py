@@ -7,6 +7,7 @@ from enum import Enum
 
 from ..contracts.envelopes import (
     AngularProfileSelectionCertificateV1,
+    CanonicalAngleRestorationCertificateV1,
     EnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
@@ -89,6 +90,12 @@ class ReferenceOutcome(str, Enum):
         "PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED"
     )
     ANGULAR_PROFILE_SELECTION_UNCERTAIN = "ANGULAR_PROFILE_SELECTION_UNCERTAIN"
+    # Растяжка против подделанной компиляции: собственный путь ядра такой
+    # записи не строит, поэтому исход до хоста не доходит и имени в
+    # `EnvelopeDebugHostOutcome` не заводит — заведённое было бы мёртвым.
+    REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID = (
+        "REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID"
+    )
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"
@@ -179,6 +186,13 @@ class ReferenceEnvelopeCompilationV1:
     ] = frozenset()
     evaluation_geometry_binding: EvaluationGeometryBinding | None = None
     diagnostics: tuple[ReferenceEvaluationDiagnosticV1, ...] = ()
+    # Восстановления канонического авторского угла, применённые ДО селектора.
+    # Отдельная коллекция, а не поле сертификата селекции: сертификат селекции
+    # — замороженная запись закона счёта, и добавление поля в неё сдвинуло бы
+    # дайджест каждого угла корпуса, включая точные, где ничего не менялось.
+    canonical_angle_restorations: frozenset[
+        CanonicalAngleRestorationCertificateV1
+    ] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

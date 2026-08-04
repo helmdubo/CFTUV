@@ -35,6 +35,7 @@ from ..outcomes import NamedOutcome
 from .coverage import InteractionDeclarationV1, RawCoverageRef, ResolvedCoverageRef
 from .envelopes import (
     AngularProfileSelectionCertificateV1,
+    CanonicalAngleRestorationCertificateV1,
     EnvelopeInstanceV1,
     EnvelopeSpec,
 )
@@ -326,6 +327,13 @@ class CompiledPatchEvaluationPlanV1:
     ] = frozenset()
     self_contact_pair_declarations: frozenset[
         SelfContactPairDeclarationV1
+    ] = frozenset()
+    # Восстановления канонического авторского угла, применённые ДО селектора
+    # плотности. Пустое множество означает «ни один угол плана не
+    # восстанавливался», а не «поле не заполнили»: проверяющий обязан
+    # доказывать счёт по сырому углу всюду, где записи нет.
+    canonical_angle_restorations: frozenset[
+        CanonicalAngleRestorationCertificateV1
     ] = frozenset()
 
 

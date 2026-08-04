@@ -80,6 +80,11 @@ from ..contracts.request import (
     AngularProfileSelectionPolicyId,
     DecalRequestV1,
 )
+from .._canonical_angle import (
+    CanonicalAngleRestorationV1,
+    build_canonical_angle_restoration_certificate,
+    selector_reflex_excess_interval,
+)
 from .._density_policy import huber_density_value_contract
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
@@ -196,7 +201,18 @@ def _at_most(interval, threshold: Fraction) -> bool:
 
 
 def _resolve_hidden_edge_count(measure: CertifiedReflexAngleMeasureV1) -> int | None:
-    interval = measure.reflex_excess_over_pi
+    """Закон счёта на СЫРОЙ мере. Селектор ходит дверью, а не сюда.
+
+    Шов оставлен нарочно: он и есть то, что карточка обещала не менять, и
+    заморожен регрессией на сырых числах (`test_angle_measure_certificate`).
+    """
+
+    return _resolve_hidden_edge_count_interval(measure.reflex_excess_over_pi)
+
+
+def _resolve_hidden_edge_count_interval(interval) -> int | None:
+    """Прежний legacy-закон; принимает любую Fraction-совместимую оболочку."""
+
     for hidden_count in range(3):
         lower = Fraction(hidden_count, 3)
         upper = Fraction(hidden_count + 1, 3)
@@ -210,7 +226,12 @@ def _resolve_huber_density_bucket(
     measure: CertifiedReflexAngleMeasureV1,
     q: int,
 ) -> int | None:
-    """Доказать единственный `C` для `(C-1)/q < u <= C/q`."""
+    """Доказать единственный `C` для `(C-1)/q < u <= C/q` на СЫРОЙ мере.
+
+    Тот же шов, что и у legacy-закона: матрица границ ячеек заморожена на
+    сырых числах (`test_density_selection_policy`), и восстановление её не
+    касается — оно происходит выше, у двери селектора.
+    """
 
     return _resolve_huber_density_bucket_interval(
         measure.reflex_excess_over_pi,
@@ -240,12 +261,24 @@ class _ResolvedAngularProfileSelection:
         | HuberDensitySelectionIntervalCertificateV1
     )
     regression_fixture_id: AngularRegressionFixtureId | None
+    canonical_restoration: CanonicalAngleRestorationV1 | None
 
 
 def _resolve_angular_profile_selection(request, measure):
+    """Единственная дверь сырого углового факта в закон счёта.
+
+    Восстановление канонического отношения стоит ЗДЕСЬ, а не у каждого
+    закона по отдельности: тогда «одна реализация на все плотности d0–d4 и на
+    legacy-закон» — свойство структуры, а не обещание. Ниже этой строки сырого
+    числа больше нет: обе ветви читают `interval`.
+    """
+
+    interval, canonical_restoration = selector_reflex_excess_interval(
+        measure.reflex_excess_over_pi
+    )
     policy = request.angular_profile_selection_policy_id
     if policy is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1:
-        hidden_count = _resolve_hidden_edge_count(measure)
+        hidden_count = _resolve_hidden_edge_count_interval(interval)
         if hidden_count is None:
             return None
         return _ResolvedAngularProfileSelection(
@@ -266,6 +299,7 @@ def _resolve_angular_profile_selection(request, measure):
                 if hidden_count == 1
                 else None
             ),
+            canonical_restoration,
         )
     density_contract = huber_density_value_contract(
         request.max_subturn_value_id
@@ -276,7 +310,10 @@ def _resolve_angular_profile_selection(request, measure):
         or density_contract is None
     ):
         return None
-    bucket_c = _resolve_huber_density_bucket(measure, density_contract[0])
+    bucket_c = _resolve_huber_density_bucket_interval(
+        interval,
+        density_contract[0],
+    )
     if bucket_c is None:
         return None
     hidden_count = max(1, bucket_c - 1)
@@ -294,6 +331,30 @@ def _resolve_angular_profile_selection(request, measure):
             bucket_c,
         ),
         None,
+        canonical_restoration,
+    )
+
+
+def _canonical_restoration_record(
+    resolved_selection,
+    relation,
+    angle_certificate,
+    selection_id,
+) -> tuple:
+    """Запись восстановления там и только там, где селектор его применил."""
+
+    if resolved_selection.canonical_restoration is None:
+        return ()
+    return (
+        build_canonical_angle_restoration_certificate(
+            resolved_selection.canonical_restoration,
+            selection_certificate_id=selection_id,
+            corner_relation_id=relation.corner_relation_id,
+            reflex_angle_certificate_id=relation.reflex_angle_certificate_id,
+            source_interval=(
+                angle_certificate.measure_payload.reflex_excess_over_pi
+            ),
+        ),
     )
 
 
@@ -534,7 +595,21 @@ def _evaluation_density_spec(
     selection,
     q: int,
 ):
-    """Вернуть H_effective и отдельную точную власть lift, если нужна."""
+    """Вернуть H_effective и отдельную точную власть lift, если нужна.
+
+    Лифт видит УЖЕ КАНОНИЧЕСКИЙ факт — через `selection`: исходный счёт лифта
+    равен счёту сертификата селекции, а тот построен на канонической доле π.
+    Сам предикат осуществимости остаётся прежним и считается по фактической
+    evaluation-геометрии: жёсткая гарантия `подшаг <= pi/q` НЕ меняется.
+
+    Замер, который это подпирает (`test_canonical_angle_restoration`): если
+    заставить лифт признать канонический счёт осуществимым, ординальное окно
+    веера у угла 90.0000015° при q=4 становится пустым
+    (`positive full-fan termination width is not proven`) и патч отвергается
+    целиком. То есть гарантия здесь не формальность, а условие существования
+    веера; переносить её с сырых опор на канонический факт — смена власти, а
+    не исполнение этой карточки.
+    """
 
     from .angular import _ideal_angular_support_data
 
@@ -1370,7 +1445,7 @@ def compile_reference_envelopes(
     components = set()
     component_by_use_sector = {}
     sector_id_by_use = {}
-    selection_certificates = set()
+    selection_certificates, canonical_angle_restorations = set(), set()
     specs_by_id = {}
     provenance_by_spec_id = {}
     strip_ids_by_use = {}
@@ -1482,6 +1557,7 @@ def compile_reference_envelopes(
         selection_id = SelectionCertificateId(
             _stable_value("profile-selection", request.decal_request_id, relation.corner_relation_id)
         )
+        canonical_angle_restorations.update(_canonical_restoration_record(resolved_selection, relation, angle_certificate, selection_id))
         selection = AngularProfileSelectionCertificateV1(
             certificate_id=selection_id,
             decal_request_id=request.decal_request_id,
@@ -1804,6 +1880,7 @@ def compile_reference_envelopes(
         seeds=frozenset(seeds),
         front_components=frozenset(components),
         profile_selection_certificates=frozenset(selection_certificates),
+        canonical_angle_restorations=frozenset(canonical_angle_restorations),
         envelope_specs=all_specs,
         initial_front_spec=InitialFrontSpec(
             decal_request_id=request.decal_request_id,
