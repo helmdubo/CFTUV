@@ -60,8 +60,14 @@ from cftuv_envelope import (
 # категорией и сам сертификат. Сертификат селекции при этом НЕ расширен — иначе
 # сдвинулись бы байты каждого угла корпуса, включая точные, где ничего не
 # менялось; восстановления живут отдельной коллекцией плана.
+# Прежнее закрепление того же среза (только восстановление счёта):
+# 3d0371468591724de4b09caeebfece7e209359c562e8aff6257ca66271d58217.
+# Продолжение той же карточки переносит гарантию подшага на восстановленный
+# угол и добавляет ДВА имени: закон гарантии (оба его значения — старое и
+# новое — названы в одном перечислении, чтобы разница была читаемой) и запись
+# власти канонического веера. Прежние records не расширены ни одним полем.
 PUBLIC_API_DENSITY_CANONICAL_RESTORATION_V1_SHA256 = (
-    "3d0371468591724de4b09caeebfece7e209359c562e8aff6257ca66271d58217"
+    "ce36b3edfb2a59512cfce691b3a63208ac9d5d4e73142bf4e51fb646cc463cf7"
 )
 
 P0_4_ADDITIVE_PUBLIC_NAMES = (
@@ -132,6 +138,8 @@ DENSITY_CANONICAL_RESTORATION_ADDITIVE_PUBLIC_NAMES = (
     "CanonicalAngleRestorationLawV1",
     "AngleTolerancePolicyIdV1",
     "CanonicalAngleRestorationCertificateV1",
+    "SubturnGuaranteeLawV1",
+    "CanonicalSubturnFanAuthorityV1",
 )
 
 
@@ -144,7 +152,7 @@ def test_public_growth_is_additive_and_names_every_new_surface():
     """
 
     latest = DENSITY_CANONICAL_RESTORATION_ADDITIVE_PUBLIC_NAMES
-    assert len(cftuv_envelope.__all__) == 519
+    assert len(cftuv_envelope.__all__) == 521
     assert cftuv_envelope.__all__[-len(latest) :] == latest
     previous = cftuv_envelope.__all__[
         -len(latest) - len(P0_4_ADDITIVE_PUBLIC_NAMES) : -len(latest)

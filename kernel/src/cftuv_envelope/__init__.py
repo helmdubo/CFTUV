@@ -546,6 +546,8 @@ __all__ = (
     "CanonicalAngleRestorationLawV1",
     "AngleTolerancePolicyIdV1",
     "CanonicalAngleRestorationCertificateV1",
+    "SubturnGuaranteeLawV1",
+    "CanonicalSubturnFanAuthorityV1",
 )
 
 _EXPORT_RANGES = (
@@ -601,7 +603,7 @@ _EXPORT_RANGES = (
     (512, 513, "cftuv_envelope.codec"),
     (513, 514, "cftuv_envelope.planar_metric"),
     (514, 515, "cftuv_envelope.validation_metric"),
-    (515, 519, "cftuv_envelope.contracts.envelopes"),
+    (515, 521, "cftuv_envelope.contracts.envelopes"),
 )
 
 _EXPORTS = {

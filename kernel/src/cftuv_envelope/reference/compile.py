@@ -83,6 +83,7 @@ from ..contracts.request import (
 from .._canonical_angle import (
     CanonicalAngleRestorationV1,
     build_canonical_angle_restoration_certificate,
+    build_canonical_subturn_fan_authority,
     selector_reflex_excess_interval,
 )
 from .._density_policy import huber_density_value_contract
@@ -333,6 +334,42 @@ def _resolve_angular_profile_selection(request, measure):
         None,
         canonical_restoration,
     )
+
+
+def _canonical_fan_authorities(compilation, context, specs) -> frozenset:
+    """Записать власть канонического веера там, где она сработала.
+
+    Наблюдение снимается с контекста, а не пересчитывается: сырой веер уже
+    построен и проверен один раз, второй проход был бы и дороже, и вторым
+    вычислением одного и того же.
+    """
+
+    restorations = {
+        item.selection_certificate_id: item
+        for item in compilation.canonical_angle_restorations
+    }
+    authorities = set()
+    for spec in specs:
+        if not isinstance(spec, AngularEnvelopeSpec):
+            continue
+        key = spec.envelope_spec_id.value
+        if not context.canonical_subturn_fan.get(key):
+            continue
+        selection = next(
+            item
+            for item in compilation.profile_selection_certificates
+            if item.certificate_id == spec.selection_certificate_id
+        )
+        contract = huber_density_value_contract(selection.max_subturn_value_id)
+        authorities.add(
+            build_canonical_subturn_fan_authority(
+                restorations[selection.certificate_id],
+                envelope_spec_id=spec.envelope_spec_id,
+                hidden_count=spec.resolved_hidden_edge_count,
+                q=contract[0],
+            )
+        )
+    return frozenset(authorities)
 
 
 def _canonical_restoration_record(
@@ -704,10 +741,14 @@ def _attach_direction_bindings(
             ),
             None,
         )
+    # Транзакция ВЫВОДА направлений: власть канонического веера здесь ещё не
+    # записана — её как раз выводят. Требовать её тут значило бы требовать
+    # результат до его получения.
     context = GeometryContext.build(
         compilation,
         frame,
         require_certified_bound_supports=False,
+        require_canonical_fan_authority=False,
         density_exact_memo=density_exact_memo,
     )
     source_context = GeometryContext.build(
@@ -715,6 +756,7 @@ def _attach_direction_bindings(
         frame,
         require_evaluation_binding=False,
         require_certified_bound_supports=False,
+        require_canonical_fan_authority=False,
         density_exact_memo=density_exact_memo,
     )
     changed_specs = set(compilation.envelope_specs)
@@ -953,6 +995,11 @@ def _attach_direction_bindings(
     updated = replace(
         compilation,
         envelope_specs=frozenset(changed_specs),
+        canonical_subturn_fan_authorities=_canonical_fan_authorities(
+            compilation,
+            context,
+            changed_specs,
+        ),
     )
     updated = _synchronize_effective_hidden_support_records(
         compilation,

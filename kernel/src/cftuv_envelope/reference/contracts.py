@@ -8,6 +8,7 @@ from enum import Enum
 from ..contracts.envelopes import (
     AngularProfileSelectionCertificateV1,
     CanonicalAngleRestorationCertificateV1,
+    CanonicalSubturnFanAuthorityV1,
     EnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
@@ -95,6 +96,9 @@ class ReferenceOutcome(str, Enum):
     # `EnvelopeDebugHostOutcome` не заводит — заведённое было бы мёртвым.
     REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID = (
         "REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID"
+    )
+    REFERENCE_CANONICAL_SUBTURN_FAN_INVALID = (
+        "REFERENCE_CANONICAL_SUBTURN_FAN_INVALID"
     )
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
@@ -192,6 +196,11 @@ class ReferenceEnvelopeCompilationV1:
     # дайджест каждого угла корпуса, включая точные, где ничего не менялось.
     canonical_angle_restorations: frozenset[
         CanonicalAngleRestorationCertificateV1
+    ] = frozenset()
+    # Власть канонического подшага — по спеке, то есть по углу И плотности:
+    # один и тот же угол при разных q попадает под неё не одинаково.
+    canonical_subturn_fan_authorities: frozenset[
+        CanonicalSubturnFanAuthorityV1
     ] = frozenset()
 
 

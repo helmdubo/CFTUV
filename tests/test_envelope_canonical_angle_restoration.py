@@ -301,3 +301,240 @@ def test_host_measure_of_a_field_corner_feeds_the_same_restoration():
     assert (
         measure.phi_over_pi.lower - 1 == measure.reflex_excess_over_pi.lower
     )
+
+
+# --- Полевой веер: гарантия подшага на ВОССТАНОВЛЕННОМ угле -----------------
+#
+# Ворота цели глазами: у вершин 6 и 28 ВЫПУЩЕННЫЙ веер обязан совпасть с
+# точными близнецами по счёту, числу опор и способу построения лучей. Меряется
+# та самая функция, которой конвейер строит веер
+# (`reference.angular._interpolated_normals`), на РЕАЛЬНЫХ опорах стены и в
+# карте стены: плоскость `x = const`, поэтому чарт — это (y, z) с единичным
+# Грамом, ровно как у фигуры ядра.
+#
+# Двухветочный закон здесь ПОВТОРЁН, а не вызван: у закона одна реализация в
+# `reference.angular._canonical_subturn_fan_or_source`, и она проверена на
+# уровне компиляции в `kernel/tests/test_canonical_angle_restoration.py`.
+# Здесь проверяется ИСХОД на полевых числах, поэтому решение выражено теми же
+# двумя предикатами ядра, что и в законе.
+
+
+def _wall_chart():
+    """Метрика карты стены и опоры каждого угла петли обхода."""
+
+    import sympy as sp
+    from cftuv_envelope.reference.metric import ExactPlanarMetric
+    from cftuv_envelope.reference.planar_types import ExactPlanarVector
+
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "kernel" / "tests"))
+    import reference_factories as factories
+
+    snapshot, _ = factories.angular_snapshot(1)
+    metric = ExactPlanarMetric.from_descriptor(
+        next(iter(snapshot.surface_metric_descriptors))
+    )
+    # Единичный Грам — это и есть карта плоскости `x = const`.
+    assert metric.gram == ((1, 0), (0, 1))
+
+    mesh = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    angles = json.loads(ANGLES_PATH.read_text(encoding="utf-8"))
+    positions = [
+        tuple(Fraction(value) for value in vertex)
+        for vertex in mesh["raw"]["vertices"]
+    ]
+    loop = angles["loop_order"]
+    recorded = {item["vertex"]: item for item in angles["corners"]}
+
+    def vector(first: Fraction, second: Fraction):
+        return ExactPlanarVector.from_values(
+            sp.Rational(first.numerator, first.denominator),
+            sp.Rational(second.numerator, second.denominator),
+        )
+
+    corners = []
+    for index, vertex in enumerate(loop):
+        if vertex not in recorded:
+            continue
+        previous = loop[index - 1]
+        following = loop[(index + 1) % len(loop)]
+        incoming = (
+            positions[vertex][1] - positions[previous][1],
+            positions[vertex][2] - positions[previous][2],
+        )
+        outgoing = (
+            positions[following][1] - positions[vertex][1],
+            positions[following][2] - positions[vertex][2],
+        )
+        # Опора перпендикулярна хорде; поворот на +90° в карте — один и тот же
+        # для обеих, поэтому поворот МЕЖДУ опорами равен повороту между хордами.
+        incoming_normal = vector(-incoming[1], incoming[0])
+        outgoing_normal = vector(-outgoing[1], outgoing[0])
+        turn = metric.oriented_cross(incoming_normal, outgoing_normal)
+        orientation = (
+            kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+            if sp.sign(turn) > 0
+            else kernel.TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
+        )
+        corners.append(
+            (
+                vertex,
+                recorded[vertex]["exact_vs_90"],
+                incoming_normal,
+                outgoing_normal,
+                orientation,
+            )
+        )
+    return metric, tuple(corners)
+
+
+def _emitted_fan_shape(metric, corner, hidden_count, q):
+    """`(профиль рациональности лучей, профиль подшагов, закон)` одного веера."""
+
+    from cftuv_envelope.reference.angular import _interpolated_normals
+    from cftuv_envelope.reference.adaptive_density_fan import _subturn
+    from cftuv_envelope.reference.compile import (
+        _density_ideal_is_subturn_feasible,
+    )
+    from cftuv_envelope.reference.direction_binding import (
+        has_rational_density_support_direction,
+    )
+
+    _, _, incoming, outgoing, orientation = corner
+    source = _interpolated_normals(
+        metric, incoming, outgoing, hidden_count, orientation, huber_density=True
+    )
+    restoration = canonical_reflex_excess_restoration(
+        _excess_of(metric, incoming, outgoing)
+    )
+    if _density_ideal_is_subturn_feasible(metric, source, q):
+        law, ideal = "SOURCE", source
+    elif restoration is None:
+        law, ideal = "SOURCE", source
+    else:
+        law = "CANONICAL"
+        ideal = _interpolated_normals(
+            metric,
+            incoming,
+            outgoing,
+            hidden_count,
+            orientation,
+            huber_density=True,
+            canonical_excess_over_pi=restoration.canonical_excess_over_pi,
+        )
+    rational = tuple(
+        has_rational_density_support_direction(metric, item) for item in ideal
+    )
+    subturns = tuple(
+        _subturn(metric, ideal[index], ideal[index + 1], q)
+        for index in range(len(ideal) - 1)
+    )
+    return rational, subturns, law, len(ideal)
+
+
+def _excess_of(metric, incoming, outgoing):
+    """Заверенный рефлексный избыток пары опор — тем же путём, что у хоста."""
+
+    import sympy as sp
+
+    cosine = metric.dot_g(incoming, outgoing)
+    cross = metric.oriented_cross(incoming, outgoing)
+    _, excess = reflex_angle_intervals_over_pi(abs(cross), cosine)
+    del sp
+    return excess
+
+
+_HIDDEN_COUNT_BY_Q = {2: 1, 3: 1, 4: 1, 5: 2, 6: 2}
+
+
+@pytest.mark.parametrize(
+    ("density", "density_name", "symbol_name", "q"),
+    _DENSITIES,
+)
+def test_field_emitted_fan_of_6_and_28_matches_the_exact_twins(
+    density,
+    density_name,
+    symbol_name,
+    q,
+):
+    """ГЛАВНОЕ ВОРОТО: выпущенный веер, а не только сертификат селекции.
+
+    Сравнивается ДВА уровня, и разница между ними названа, а не замазана.
+
+    1. Продуктовый — счёт сегментов и число опор. Он обязан совпадать с
+       точными близнецами на КАЖДОЙ плотности: это и есть то, на что смотрел
+       владелец («на одинаковых 270° разный счёт»).
+
+    2. Построение лучей. Оно совпадает там, где порог тугой (`2*(H+1) == q`,
+       то есть d2 и d4) — ровно там, где дефект и жил, и ровно там, где новая
+       власть включается. При нетугом пороге (d0, d1, d3) старый закон
+       проходит на сырых опорах у ОБОИХ углов, обещание не расходится, и
+       менять построение не на что: луч остаётся сырым, байты прежние.
+    """
+
+    metric, corners = _wall_chart()
+    hidden_count = _HIDDEN_COUNT_BY_Q[q]
+    shapes = {}
+    for corner in corners:
+        vertex, kind = corner[0], corner[1]
+        rational, subturns, law, support_count = _emitted_fan_shape(
+            metric, corner, hidden_count, q
+        )
+        shapes[vertex] = (kind, rational, support_count, law)
+    twin_counts = {
+        item[2] for item in shapes.values() if item[0] == "EXACTLY_90"
+    }
+    twin_profiles = {
+        item[1] for item in shapes.values() if item[0] == "EXACTLY_90"
+    }
+    assert len(twin_counts) == len(twin_profiles) == 1
+    tight = 2 * (hidden_count + 1) == q
+    for vertex in (6, 28):
+        kind, rational, support_count, law = shapes[vertex]
+        assert kind == "ABOVE_90"
+        assert support_count == next(iter(twin_counts)), (density, q, vertex)
+        if tight:
+            assert law == "CANONICAL", (density, q, vertex)
+            assert rational == next(iter(twin_profiles)), (density, q, vertex)
+        else:
+            assert law == "SOURCE", (density, q, vertex)
+
+
+@pytest.mark.parametrize(
+    ("density", "density_name", "symbol_name", "q"),
+    _DENSITIES,
+)
+def test_field_below_canonical_corner_stays_on_the_source_law(
+    density,
+    density_name,
+    symbol_name,
+    q,
+):
+    """Вершина 27 и 25 точных углов новой власти НЕ получают."""
+
+    metric, corners = _wall_chart()
+    hidden_count = _HIDDEN_COUNT_BY_Q[q]
+    for corner in corners:
+        vertex, kind = corner[0], corner[1]
+        if kind == "ABOVE_90":
+            continue
+        *_, law, _ = _emitted_fan_shape(metric, corner, hidden_count, q)
+        assert law == "SOURCE", (density, q, vertex, kind)
+
+
+def test_field_canonical_law_fires_exactly_where_the_threshold_is_tight():
+    """Цена названа: новая власть включается только при `2*(H+1) == q`."""
+
+    metric, corners = _wall_chart()
+    fired = {}
+    for _, _, _, q in ((0, 0, 0, item) for item in (2, 3, 4, 5, 6)):
+        hidden_count = _HIDDEN_COUNT_BY_Q[q]
+        fired[q] = {
+            corner[0]
+            for corner in corners
+            if _emitted_fan_shape(metric, corner, hidden_count, q)[2]
+            == "CANONICAL"
+        }
+    assert fired[2] == set() and fired[3] == set() and fired[5] == set()
+    assert fired[4] == {6, 28}
+    assert fired[6] == {6, 28}

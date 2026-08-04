@@ -36,15 +36,16 @@
 берёт исходный счёт из сертификата селекции, то есть из канонического факта, и
 дайджесты идут оттуда же.
 
-ГДЕ КАНОНИЗАЦИЯ ЗАКАНЧИВАЕТСЯ, и это ИЗМЕРЕНО, а не предположено. Предикат
-осуществимости подшага (`подшаг <= pi/q`) остаётся на ФАКТИЧЕСКОЙ геометрии
-опор: у угла 90.0000015° при q=4 канонический счёт H=1 требует подшага
-pi/4 + 7.5e-7, ординальное окно веера при этом пусто
+ГДЕ КАНОНИЗАЦИЯ ЗАКАНЧИВАЕТСЯ — решением владельца ОНА НЕ ЗАКАНЧИВАЕТСЯ НА
+СЧЁТЕ. Гарантия подшага держится на ВОССТАНОВЛЕННОМ угле
+(`SubturnGuaranteeLawV1.SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1`), потому
+что иначе обещание «канонические 90° всегда дают один счёт» невыполнимо при
+чётном q: у угла 90.0000015° равношаговый веер при H=1 требует подшага
+pi/4 + 7.5e-7, ординальное окно бинарной привязки при этом пусто
 (`positive full-fan termination width is not proven`), и патч отвергается
-целиком. Поэтому при чётном q лифт карты по-прежнему поднимает счёт у углов,
-ушедших ВЫШЕ канонического; углы ниже канонического и точные близнецы уже
-совпадают. Перенос гарантии с сырых опор на канонический факт — смена власти
-владельца, а не исполнение этой карточки; развилка вынесена в отчёт числом.
+целиком — измерено. Новый закон применяется ТОЛЬКО там, где старый отказал;
+где старый проходит, не меняется ни байта. Полное обязательство нового
+закона — в докстринге `SubturnGuaranteeLawV1`.
 
 АРИФМЕТИКА ТОЧНАЯ. Допуск объявлен в радианах, а мера приходит в долях π,
 поэтому сравнение требует π. Вместо оценки берётся ДОКАЗАННАЯ рациональная
@@ -64,6 +65,8 @@ from .contracts.envelopes import (
     CanonicalAngleRestorationCertificateV1,
     CanonicalAngleRestorationLawV1,
     CanonicalReflexAngleRelationV1,
+    CanonicalSubturnFanAuthorityV1,
+    SubturnGuaranteeLawV1,
 )
 from .contracts.metric import ExactRationalV1
 from .numeric import ExactRatioV1, IntervalEndpointKind
@@ -114,6 +117,26 @@ CANONICAL_ANGLE_RESTORATION_LAW = (
 CANONICAL_ANGLE_TOLERANCE_POLICY_ID = (
     AngleTolerancePolicyIdV1.AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1
 )
+
+CANONICAL_SUBTURN_FAN_LAW = (
+    SubturnGuaranteeLawV1.SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1
+)
+
+CANONICAL_SUBTURN_FAN_PREDICATES = frozenset(
+    {
+        "SOURCE_EQUAL_SUBTURN_FAN_VIOLATES_GUARANTEE_ON_SOURCE_SUPPORTS",
+        "CANONICAL_SUBTURN_IS_EXACTLY_WITHIN_MAX_SUBTURN",
+        "CANONICAL_RAYS_ARE_EXACT_ORDINAL_ROTATIONS_OF_THE_INCOMING_SUPPORT",
+        "RESIDUAL_IS_BOUNDED_BY_THE_AUTHORING_INTENT_TOLERANCE",
+    }
+)
+
+# Знаменатели, для которых точный поворот на `pi/n` вообще существует в
+# принятой машинерии (`_exact_q_trig`). Канонический подшаг прямого угла —
+# `pi/(2(H+1))`, а закон плотности даёт `H` в {1, 2}, поэтому попадаем в 4 и 6
+# и ни разу не выходим за набор. Выход за него — именованный отказ, а не
+# приближение: тогда точного поворота нет и веер строить не из чего.
+CANONICAL_ROTATION_DENOMINATORS = frozenset({2, 3, 4, 5, 6})
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,6 +324,116 @@ def canonical_angle_restoration_error(
     return None
 
 
+def canonical_subturn_over_pi(
+    canonical_excess_over_pi: Fraction,
+    hidden_count: int,
+) -> Fraction:
+    """Каноническая доля π в ОДНОМ подшаге равношагового веера."""
+
+    return Fraction(canonical_excess_over_pi, hidden_count + 1)
+
+
+def canonical_subturn_is_within_max_subturn(
+    canonical_excess_over_pi: Fraction,
+    hidden_count: int,
+    q: int,
+) -> bool:
+    """`u*pi/(H+1) <= pi/q` — целочисленно и точно, без единого порога."""
+
+    return canonical_excess_over_pi * q <= hidden_count + 1
+
+
+def canonical_rotation_denominator(
+    canonical_excess_over_pi: Fraction,
+    hidden_count: int,
+) -> int | None:
+    """Знаменатель точного поворота или `None` — «повернуть нечем».
+
+    Луч ординала `j` ставится поворотом входящей опоры на `j` шагов по
+    `pi/n`. Это возможно ровно тогда, когда канонический подшаг равен `pi/n` с
+    целым `n` из принятого набора: числитель доли обязан быть единицей, иначе
+    шаг не является одним поворотом.
+    """
+
+    subturn = canonical_subturn_over_pi(canonical_excess_over_pi, hidden_count)
+    if subturn.numerator != 1:
+        return None
+    denominator = subturn.denominator
+    if denominator not in CANONICAL_ROTATION_DENOMINATORS:
+        return None
+    return denominator
+
+
+def build_canonical_subturn_fan_authority(
+    restoration_certificate: CanonicalAngleRestorationCertificateV1,
+    *,
+    envelope_spec_id,
+    hidden_count: int,
+    q: int,
+) -> CanonicalSubturnFanAuthorityV1:
+    canonical = Fraction(
+        restoration_certificate.canonical_reflex_excess_over_pi.numerator,
+        restoration_certificate.canonical_reflex_excess_over_pi.denominator,
+    )
+    subturn = canonical_subturn_over_pi(canonical, hidden_count)
+    return CanonicalSubturnFanAuthorityV1(
+        guarantee_law=CANONICAL_SUBTURN_FAN_LAW,
+        envelope_spec_id=envelope_spec_id,
+        selection_certificate_id=(
+            restoration_certificate.selection_certificate_id
+        ),
+        canonical_relation=restoration_certificate.canonical_relation,
+        canonical_reflex_excess_over_pi=(
+            restoration_certificate.canonical_reflex_excess_over_pi
+        ),
+        hidden_edge_count=hidden_count,
+        max_subturn_q=q,
+        canonical_subturn_over_pi=_ratio(subturn),
+        raw_residual_upper_bound_radians=(
+            restoration_certificate.deviation_upper_bound_radians
+        ),
+        proven_predicates=CANONICAL_SUBTURN_FAN_PREDICATES,
+    )
+
+
+def canonical_subturn_fan_authority_error(
+    authority: CanonicalSubturnFanAuthorityV1,
+    restoration_certificate,
+) -> str | None:
+    """Пересчитать власть канонического веера и сравнить с записью."""
+
+    if type(authority) is not CanonicalSubturnFanAuthorityV1:
+        return "canonical subturn fan authority has a foreign type"
+    if authority.guarantee_law is not CANONICAL_SUBTURN_FAN_LAW:
+        return "canonical subturn fan authority names another guarantee law"
+    if authority.proven_predicates != CANONICAL_SUBTURN_FAN_PREDICATES:
+        return "canonical subturn fan predicate set is not the declared one"
+    if restoration_certificate is None:
+        return (
+            "canonical subturn fan authority stands on an angle without a "
+            "proven canonical restoration"
+        )
+    expected = build_canonical_subturn_fan_authority(
+        restoration_certificate,
+        envelope_spec_id=authority.envelope_spec_id,
+        hidden_count=authority.hidden_edge_count,
+        q=authority.max_subturn_q,
+    )
+    if authority != expected:
+        return "canonical subturn fan authority does not follow from its restoration"
+    canonical = Fraction(
+        authority.canonical_reflex_excess_over_pi.numerator,
+        authority.canonical_reflex_excess_over_pi.denominator,
+    )
+    if not canonical_subturn_is_within_max_subturn(
+        canonical,
+        authority.hidden_edge_count,
+        authority.max_subturn_q,
+    ):
+        return "canonical subturn exceeds the declared maximum subturn"
+    return None
+
+
 def canonical_selection_interval(certificate, source_interval):
     """`(интервал_для_доказательства, ошибка|None)` для проверяющего план.
 
@@ -358,6 +491,14 @@ def canonical_restoration_reference_errors(restorations, certificate_by_id):
 
 __all__ = (
     "CANONICAL_ANGLE_RESTORATION_LAW",
+    "CANONICAL_ROTATION_DENOMINATORS",
+    "CANONICAL_SUBTURN_FAN_LAW",
+    "CANONICAL_SUBTURN_FAN_PREDICATES",
+    "build_canonical_subturn_fan_authority",
+    "canonical_rotation_denominator",
+    "canonical_subturn_fan_authority_error",
+    "canonical_subturn_is_within_max_subturn",
+    "canonical_subturn_over_pi",
     "CANONICAL_ANGLE_RESTORATION_PREDICATES",
     "CANONICAL_ANGLE_TOLERANCE_POLICY_ID",
     "CANONICAL_REFLEX_EXCESS_RELATIONS",
