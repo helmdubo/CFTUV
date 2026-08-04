@@ -1247,11 +1247,26 @@ def test_split_family_normal_form_materializes_comb_2_once(monkeypatch):
             captured.append((result, reverse))
         return result
 
+    # ДВЕРЬ ПЕРЕЕХАЛА. Материализацию сплит-семейства зовёт координатор
+    # символического замыкания, и зовёт он имя, ВВЕЗЁННОЕ в его модуль при
+    # импорте, — подмена в `superlevel_closure` до него не доходит. Свидетель
+    # перенесён на действующую дверь; предмет прежний: семейство собирается
+    # ОДИН раз и от порядка инцидентов не зависит.
+    from cftuv_envelope.wavefront import (
+        symbolic_superlevel_coordinator as coordinator_module,
+    )
+
     monkeypatch.setattr(
         closure_module, "plan_split_materialization", observed
     )
+    monkeypatch.setattr(
+        coordinator_module, "plan_split_materialization", observed
+    )
     skeleton = build_skeleton(polygon)
 
+    # Свидетель непустой: наблюдатель, который никого не поймал, свойства не
+    # проверяет.
+    assert captured
     assert len(captured) == 1
     forward, backward = captured[0]
     assert forward == backward

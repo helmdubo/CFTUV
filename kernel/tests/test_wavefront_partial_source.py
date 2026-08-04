@@ -897,8 +897,63 @@ TOUCHING_STAYS_LEGITIMATE = {
     "holes_2": {"vertex_meeting_events": 4},
     "cross": {"vertex_meeting_events": 3},
     "u_shape": {"vertex_meeting_events": 2},
-    "double_notch": {"coincident_split_targets": 2},
+    # Свидетель у `double_notch` СМЕНИЛСЯ, а явление осталось. Прежним был
+    # `coincident_split_targets` — счётчик СНЯТЫХ дублей: касание опознавалось
+    # по тому, что два split-кандидата одной вершины целились в совпавшие цели
+    # и один отбрасывался. После quotient Q-10-ADD дубль поглощается локусом
+    # раньше, снимать нечего, и счётчик обнулился — не потому, что касания нет,
+    # а потому, что он мерил бухгалтерию снятия. Само касание проверяется ниже
+    # ПО КНИГЕ СОБЫТИЙ: germ-леджер обязан материализовать зародыши в точке
+    # касания, а скелет — нести там SPLIT-узел.
+    "double_notch": {"split_events": 4},
 }
+
+#: Локусы касания у `double_notch`: у движущегося ребра отрезок фронта в этот
+#: момент сжимается в точку, и локус предъявляется леджеру ДВАЖДЫ — по
+#: зародышу на каждую сторону разреза.
+TOUCHING_GERM_LOCI = {"double_notch": 4}
+
+
+@pytest.mark.parametrize("name", sorted(TOUCHING_GERM_LOCI))
+def test_touching_materialises_germs_in_the_book_of_events(name, monkeypatch):
+    """Касание опознаётся по КНИГЕ СОБЫТИЙ, а не по счётчику снятых дублей.
+
+    Germ-леджер и есть каноническая книга: зародыш — локус контакта, и касание
+    обязано его породить. Проверка сильнее прежнего счётчика сразу двумя
+    сторонами: локус назван ТОЧКОЙ и ВРЕМЕНЕМ, а не суммой, и рядом стоит узел
+    скелета в той же точке — то есть событие не только предъявлено, но и
+    материализовано.
+    """
+
+    from cftuv_envelope.wavefront import superlevel_germ as germ_module
+    from cftuv_envelope.wavefront.events import EventKind
+
+    presented = []
+    original = germ_module.SuperlevelGermLedgerV1.materialize
+
+    def observed(self, key, germ, *, fold):
+        presented.append((key.time_key[0], key.point_key))
+        return original(self, key, germ, fold=fold)
+
+    monkeypatch.setattr(
+        germ_module.SuperlevelGermLedgerV1, "materialize", observed
+    )
+    skeleton = build_skeleton(dict(CORPUS)[name])
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    # Свидетель непустой: леджер, который никого не поймал, ничего не проверяет.
+    assert presented
+
+    twice = {
+        locus for locus in presented if presented.count(locus) > 1
+    }
+    assert len(twice) == TOUCHING_GERM_LOCI[name]
+    split_loci = {
+        (node.time.canonical().dividend, (node.point.x.terms, node.point.y.terms))
+        for node in skeleton.nodes
+        if node.kind is EventKind.SPLIT
+    }
+    # Каждый локус касания несёт узел скелета в ТОЙ ЖЕ точке и в ТО ЖЕ время.
+    assert twice == split_loci
 
 
 @pytest.mark.parametrize("name", sorted(TOUCHING_STAYS_LEGITIMATE))

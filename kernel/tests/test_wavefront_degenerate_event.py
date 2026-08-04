@@ -376,11 +376,20 @@ def test_the_ridge_crossing_is_the_meeting_of_the_two_sliding_vertices():
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
     ridge_x = SqrtSumV1.rational(Fraction(4) + Fraction(WIDE, 2))
+    # ПРЕДЪЯВЛЕНО и РАЗЛИЧНЫХ — теперь два разных числа, и это измерение, а не
+    # послабление. Очередь предъявляет пакет стены с ДУБЛЯМИ: по два
+    # EDGE-события, описывающих один локус. Раньше они поглощались молча ещё до
+    # того, как пакет становился виден; после quotient Q-10-ADD дубль виден в
+    # пакете и снимается факторизацией. Число РАЗЛИЧНЫХ событий не двинулось
+    # (6 и 14) — то есть событий не прибавилось и не убыло, изменилась только
+    # видимость дубля.
     expected = {
-        SplitSearch.MOTORCYCLE: (6, 52),
-        SplitSearch.EXHAUSTIVE: (14, 60),
+        SplitSearch.MOTORCYCLE: (8, 6, 52),
+        SplitSearch.EXHAUSTIVE: (16, 14, 60),
     }
-    for split_search, (event_count, examined_count) in expected.items():
+    for split_search, (
+        presented_count, event_count, examined_count
+    ) in expected.items():
         builder = skeleton_module._Builder(figure, split_search)
         levels = []
         while len(builder.queue):
@@ -396,14 +405,17 @@ def test_the_ridge_crossing_is_the_meeting_of_the_two_sliding_vertices():
             builder._close_short_lavs()
         walls = [level for low, level in levels if low == Fraction(WIDE, 2)]
         assert len(walls) == 1
-        assert len(walls[0]) == event_count
+        assert len(walls[0]) == presented_count
         assert len(set(walls[0])) == event_count
-        assert Counter(event.kind for event in walls[0]) == Counter(
+        # Дубли — ровно EDGE, и ровно два: состав РАЗЛИЧНЫХ событий не
+        # двинулся ни на одно.
+        assert Counter(event.kind for event in set(walls[0])) == Counter(
             {
                 EventKind.EDGE: 2,
                 EventKind.SPLIT: event_count - 2,
             }
         )
+        assert presented_count - event_count == 2
 
         skeleton = build_skeleton(figure, split_search=split_search)
         assert skeleton.outcome is SkeletonOutcome.EXACT
