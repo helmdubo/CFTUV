@@ -1,0 +1,922 @@
+{
+ "card": "FIELD-GATE-FREEZE",
+ "schema": "cftuv.field_gate_freeze.receipt.v1",
+ "date": "2026-08-04",
+ "branch": "exec/field-gate-freeze",
+ "vertex_under_test": "821995f9ae3e70b599471259851c15dcd4de70b8",
+ "vertex_under_test_named": "1dbf712 (RELEASE CANDIDATE, REJECTED_FIELD_GATE) + 821995f",
+ "comparison_vertex": "6ce0227 (до слияния транзакции одновременного уровня)",
+ "field_run": {
+  "reported_by": "владелец, вершина 7e3c5fa",
+  "mesh": "2.001 (плоская стена с оконными вырезами, симметрия)",
+  "fan_density": 0,
+  "alpha": 0.254,
+  "lattice": 32768,
+  "domain": "host-v0:patch-domain:90ce55618b55029b728c31e7",
+  "skeleton": "EXACT",
+  "skeleton_nodes": 49,
+  "conveyor_faces": 0,
+  "preparation_outcome": "FACES_DID_NOT_ASSEMBLE",
+  "region": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1",
+  "face_outcome": "FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE",
+  "queue_prepare_ms": 19362,
+  "previous_run_same_mesh": {
+   "skeleton": "EXACT",
+   "skeleton_nodes": 45,
+   "conveyor_faces": 47,
+   "coverage": "EXACT",
+   "chains": 33,
+   "laws": 35,
+   "fans": 12,
+   "ties": 23,
+   "lattice": 32768
+  }
+ },
+ "reproduction_gate": {
+  "blender_free": true,
+  "harness": [
+   "artifacts/perf_prepare_diag/env.py",
+   "artifacts/perf_prepare_diag/snapshot_bmesh.py",
+   "artifacts/perf_prepare_diag/run_domain.py",
+   "artifacts/perf_prepare_diag/big_scene.py",
+   "artifacts/field_gate_freeze/field_route.py"
+  ],
+  "matched": {
+   "domain_id": true,
+   "region_id": true,
+   "skeleton_outcome": true,
+   "skeleton_nodes_49": true,
+   "conveyor_faces_0": true,
+   "face_outcome_FACE_CHAIN_DOES_NOT_CLOSE": true,
+   "arrival_laws_35": true,
+   "rational_vertex_fans_12": true,
+   "ambiguous_owner_edges_23": true,
+   "lattice_32768": true
+  },
+  "prepare_ms_field_vs_here": [
+   19362,
+   15465.7
+  ],
+  "prepare_ms_note": "поле 19362 мс против 15466-20035 мс здесь: разброс машины, не расхождение исхода; исход, домен и все счётчики совпали побитово"
+ },
+ "locus_certificate_45_vs_49": {
+  "loci_6ce0227": 45,
+  "loci_1dbf712": 49,
+  "anchor_loci": 37,
+  "anchor_loci_byte_identical": 28,
+  "anchor_loci_recomposed": 9,
+  "removed": 8,
+  "added": 12,
+  "net": 4,
+  "participants_agree_on_every_anchor": true,
+  "multiway_nodes": 13,
+  "multiway_with_repeated_incidences": 4,
+  "all_repeats_are_one_distinct_incidence": true,
+  "every_multiway_folds_to_one_union_incidence": true,
+  "verdict": "СМЕШАННЫЙ: (б) доказана на кратности, (а) — на смене траектории; (в) не доказана",
+  "verdict_detail": "Посылка вопроса «четыре новых локуса» ОПРОВЕРГНУТА замером: разница не аддитивна. Снято 8 локусов, добавлено 12, нетто +4. (б) ДОКАЗАНА для четырёх узлов (по одному на оконный вырез): MULTIWAY с четырьмя incidences, все четыре ПОБИТОВО одинаковы — один контакт, эмитированный четырежды (одна эмиссия из split_cut плана компонента, три — later-nodes замыкания). Кратность граням НЕ вредит: face_chain группирует по точке. (а) ДОКАЗАНА для остальных: 12 добавленных и 8 снятых локусов лежат в РАЗНЫХ точных (t, точка) — траектория изменилась, а не удвоилась. (в) НЕ ДОКАЗАНА: ни один добавленный локус не выглядит чисто служебной записью — у всех троек participants из настоящих рёбер-источников и вееров."
+ },
+ "face_failure_evidence": {
+  "artifact": "artifacts/field_gate_freeze/face_assembly_evidence.json",
+  "production_reports": "CONVEYOR_FACES 0",
+  "actually_assembled": 35,
+  "actually_failed": 12,
+  "fronts_total": 47,
+  "detail_dropped_by_conveyor": "ребро (-9213, 8558) -> (-52583, 32768): 1 участников в трёх и более точках из 5: [(-65536, 32768, -22166, 8558)]",
+  "failed_owners": [
+   {
+    "owner": [
+     -9213,
+     8558,
+     -52583,
+     32768
+    ],
+    "why": "1 участников в трёх и более точках из 5: [(-65536, 32768, -22166, 8558)]"
+   },
+   {
+    "owner": [
+     -65536,
+     32768,
+     -22166,
+     8558
+    ],
+    "why": "1 участников в трёх и более точках из 3: [(-9213, 8558, -52583, 32768)]"
+   },
+   {
+    "owner": [
+     -41981,
+     8558,
+     -85351,
+     32768
+    ],
+    "why": "1 участников в трёх и более точках из 5: [(-98308, 32768, -54938, 8558)]"
+   },
+   {
+    "owner": [
+     -98308,
+     32768,
+     -54938,
+     8558
+    ],
+    "why": "1 участников в трёх и более точках из 3: [(-41981, 8558, -85351, 32768)]"
+   },
+   {
+    "owner": [
+     -74753,
+     8558,
+     -118123,
+     32768
+    ],
+    "why": "1 участников в трёх и более точках из 5: [(-131076, 32768, -87706, 8558)]"
+   },
+   {
+    "owner": [
+     -131076,
+     32768,
+     -87706,
+     8558
+    ],
+    "why": "1 участников в трёх и более точках из 3: [(-74753, 8558, -118123, 32768)]"
+   },
+   {
+    "owner": [
+     23559,
+     8558,
+     -19811,
+     32768
+    ],
+    "why": "1 участников в трёх и более точках из 5: [(-32768, 32768, 10602, 8558)]"
+   },
+   {
+    "owner": [
+     -32768,
+     32768,
+     10602,
+     8558
+    ],
+    "why": "1 участников в трёх и более точках из 3: [(23559, 8558, -19811, 32768)]"
+   },
+   {
+    "owner": [
+     -74753,
+     8558,
+     -74753,
+     8558,
+     1
+    ],
+    "why": "концов цепочки 2 и 1, нужно по 1"
+   },
+   {
+    "owner": [
+     -41981,
+     8558,
+     -41981,
+     8558,
+     1
+    ],
+    "why": "концов цепочки 2 и 1, нужно по 1"
+   },
+   {
+    "owner": [
+     -9213,
+     8558,
+     -9213,
+     8558,
+     1
+    ],
+    "why": "концов цепочки 2 и 1, нужно по 1"
+   },
+   {
+    "owner": [
+     23559,
+     8558,
+     23559,
+     8558,
+     1
+    ],
+    "why": "концов цепочки 2 и 1, нужно по 1"
+   }
+  ]
+ },
+ "walls_012_break": {
+  "artifact": "artifacts/field_gate_freeze/walls_012_break.json",
+  "skeleton_outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+  "skeleton_nodes": 2,
+  "levels_applied": 4,
+  "refusal_reason": "SYMBOLIC_INTERIOR_SPLIT_CONTACT_METADATA_CONFLICT",
+  "refusal_site": "kernel/src/cftuv_envelope/wavefront/superlevel_fixed_point.py:merge_symbolic_split_contacts",
+  "merge_conflicts": 2,
+  "conflict_differing_fields": [
+   "leaf"
+  ]
+ },
+ "snapshots": [
+  {
+   "snapshot": "wall_2_001_snapshot.json",
+   "object_name": "2.001",
+   "sha256": "13f1e455993955e80196d44a20d01caa43b5c6e0b759e6149d8902f96135a8ea",
+   "alpha": 0.254,
+   "density": 0,
+   "mesh": {
+    "vertices": 35,
+    "edges": 48,
+    "faces": 14,
+    "selected_edges": 35
+   },
+   "domains": [
+    {
+     "patch_id": 0,
+     "domain_id": "host-v0:patch-domain:90ce55618b55029b728c31e7",
+     "region_id": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1",
+     "stage": "QUEUE",
+     "lattice_scale": 32768,
+     "arrival_laws": 35,
+     "rational_vertex_fans": 12,
+     "ambiguous_owner_edges": 23,
+     "source_edges": 35,
+     "wall_edges": 0,
+     "owner_specs": [
+      "angular-spec:045c4e0eb040c44e7c41afb8",
+      "angular-spec:080c1c8bdd3e2c209452b87c",
+      "angular-spec:239819946d8660b92ae790bb",
+      "angular-spec:4261d2adad5f93a64f9bdc90",
+      "angular-spec:5729ed0ae73278e85ffec0f0",
+      "angular-spec:62b571cc6a16523822a6320c",
+      "angular-spec:94b473b732fac5fbe71ea83d",
+      "angular-spec:c12c505930ba052d77d180ae",
+      "angular-spec:d660b18c7b73e27e06fd2ee4",
+      "angular-spec:dba2a5a869039dccbb06d264",
+      "angular-spec:e48953a3642a63d9e759c482",
+      "angular-spec:f25bf1821d9eafe619415ce9",
+      "strip-spec:06247a475a5d51858e2a77f2",
+      "strip-spec:146d384b82631604b346787c",
+      "strip-spec:17a70f90ded8174d2b39c5f9",
+      "strip-spec:1e1ab88e32c0161316497658",
+      "strip-spec:27ac87a7c5b7028e49e564bd",
+      "strip-spec:325c19742d1ce29036d54870",
+      "strip-spec:95a09ed3092c1d551deefbbe",
+      "strip-spec:a945e2378533e8f10e8b10bc",
+      "strip-spec:c03e35541f0a619abe9a2147",
+      "strip-spec:c61a5f160f3fe1b0b157169f",
+      "strip-spec:da10f41959833430a93a5ed0",
+      "strip-spec:eb934c419781b7836f90cbb1"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 45,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 310,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 47,
+      "covered_faces": 45,
+      "detail": "",
+      "total_ms": 2894.3
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "FACES_DID_NOT_ASSEMBLE",
+      "coverage_outcome": "PREPARATION_IS_NOT_EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 49,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 221,
+      "face_outcome": "FACE_CHAIN_DOES_NOT_CLOSE",
+      "conveyor_faces": 0,
+      "covered_faces": 0,
+      "detail": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE",
+      "face_detail": "ребро (-9213, 8558) -> (-52583, 32768): 1 участников в трёх и более точках из 5: [(-65536, 32768, -22166, 8558)]",
+      "total_ms": 15349.7
+     },
+     "loci": {
+      "anchor_loci": 37,
+      "loci_6ce0227": 45,
+      "loci_1dbf712": 49,
+      "only_6ce0227": 8,
+      "only_1dbf712": 12,
+      "participants_agree_on_all_anchors": true
+     }
+    }
+   ]
+  },
+  {
+   "snapshot": "walls_012_snapshot.json",
+   "object_name": "walls.012",
+   "sha256": "994f98aec820f9a1db27c2dc1257f29ba423a0287df1aaa08190c5ddb290a78b",
+   "alpha": 0.254,
+   "density": 0,
+   "mesh": {
+    "vertices": 12,
+    "edges": 15,
+    "faces": 4,
+    "selected_edges": 3
+   },
+   "domains": [
+    {
+     "patch_id": 0,
+     "domain_id": "host-v0:patch-domain:cafa51b596c2cf8ea16b580b",
+     "region_id": "sparse-patch-domain-region:80c21ed61a70595286af7b2d",
+     "stage": "QUEUE",
+     "lattice_scale": 32768,
+     "arrival_laws": 3,
+     "rational_vertex_fans": 2,
+     "ambiguous_owner_edges": 0,
+     "source_edges": 3,
+     "wall_edges": 9,
+     "owner_specs": [
+      "angular-spec:ada14e597e4a901af6be6362",
+      "angular-spec:f26854a3c7101ac5a3e47f6a",
+      "strip-spec:2ed5b39cc69dfa7cebdfe303",
+      "strip-spec:5f51909b02c4f2912c77f246",
+      "strip-spec:9c349d5070b0ae6e6a1bcebc"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 12,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 50,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 5,
+      "covered_faces": 5,
+      "detail": "",
+      "total_ms": 1143.9
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "SKELETON_DID_NOT_CLOSE",
+      "coverage_outcome": "PREPARATION_IS_NOT_EXACT",
+      "skeleton_outcome": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "skeleton_nodes": 2,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 9,
+      "face_outcome": null,
+      "conveyor_faces": 0,
+      "covered_faces": 0,
+      "detail": "sparse-patch-domain-region:80c21ed61a70595286af7b2d: SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+      "face_detail": null,
+      "total_ms": 1313.0
+     },
+     "loci": {
+      "anchor_loci": 2,
+      "loci_6ce0227": 12,
+      "loci_1dbf712": 2,
+      "only_6ce0227": 10,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    }
+   ]
+  },
+  {
+   "snapshot": "walls_001_u_route_snapshot.json",
+   "object_name": "walls.001",
+   "sha256": "05efd77b0cf4e55c940cbbfbaaf9aaafc716bae60b2d1beeb5966852957e97ef",
+   "alpha": 0.254,
+   "density": 0,
+   "mesh": {
+    "vertices": 16,
+    "edges": 21,
+    "faces": 6,
+    "selected_edges": 5
+   },
+   "domains": [
+    {
+     "patch_id": 0,
+     "domain_id": "host-v0:patch-domain:120901db80b70b6927f754e6",
+     "region_id": "sparse-patch-domain-region:62fe89d4b6d928b8278dc19e",
+     "stage": "QUEUE",
+     "lattice_scale": 16384,
+     "arrival_laws": 5,
+     "rational_vertex_fans": 4,
+     "ambiguous_owner_edges": 0,
+     "source_edges": 5,
+     "wall_edges": 5,
+     "owner_specs": [
+      "angular-spec:0f5d00f0bbb76142b236f821",
+      "angular-spec:5202760c1296502cb88f0825",
+      "angular-spec:621956b14cfebe70e06af87b",
+      "angular-spec:e155ed46a01bd2fec8aefaea",
+      "strip-spec:4783979dcb0b5fc15492d15c",
+      "strip-spec:89f67a30a639e645ab8e5b65",
+      "strip-spec:af3d9bf88e260ac577b08fae",
+      "strip-spec:c369280055efd6b038f1464d",
+      "strip-spec:f95948753390e01dd46712d8"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 12,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 68,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 9,
+      "covered_faces": 9,
+      "detail": "",
+      "total_ms": 506.1
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 12,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 8,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 9,
+      "covered_faces": 9,
+      "detail": "",
+      "face_detail": "",
+      "total_ms": 1136.3
+     },
+     "loci": {
+      "anchor_loci": 12,
+      "loci_6ce0227": 12,
+      "loci_1dbf712": 12,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    },
+    {
+     "patch_id": 1,
+     "domain_id": "host-v0:patch-domain:eb64fc8b4eaaabe6c70159ff",
+     "region_id": null,
+     "stage": "HOST_EXPORT",
+     "lattice_scale": null,
+     "arrival_laws": null,
+     "rational_vertex_fans": null,
+     "ambiguous_owner_edges": null,
+     "source_edges": null,
+     "wall_edges": null,
+     "owner_specs": null,
+     "6ce0227": {
+      "preparation_outcome": "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+      "coverage_outcome": null,
+      "skeleton_outcome": null,
+      "skeleton_nodes": null,
+      "skeleton_proof_status": null,
+      "skeleton_obligations": null,
+      "face_outcome": null,
+      "conveyor_faces": null,
+      "covered_faces": null,
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=1.178496e+01 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1, grid_step=6.103516e-05); vertices=['host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:10', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:11', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:12', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:13', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:14', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:15', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:8', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:9']",
+      "total_ms": null
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+      "coverage_outcome": null,
+      "skeleton_outcome": null,
+      "skeleton_nodes": null,
+      "skeleton_proof_status": null,
+      "skeleton_obligations": null,
+      "face_outcome": null,
+      "conveyor_faces": null,
+      "covered_faces": null,
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=1.178496e+01 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1, grid_step=6.103516e-05); vertices=['host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:10', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:11', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:12', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:13', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:14', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:15', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:8', 'host-vertex:host-source:b07b4c3406c8eaab0f8ff72c00534dab3dee8f4a566d3f6f8025184003a4da8d:walls.001:9']",
+      "face_detail": null,
+      "total_ms": null
+     },
+     "loci": {
+      "anchor_loci": 0,
+      "loci_6ce0227": 0,
+      "loci_1dbf712": 0,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    }
+   ]
+  },
+  {
+   "snapshot": "building_full_snapshot.json",
+   "object_name": "building",
+   "sha256": "5ade93d94890203a9b7c9924b862bd76d74bf7abc8fbcb28f4950f5a6e4b71ec",
+   "alpha": 0.45,
+   "density": 0,
+   "mesh": {
+    "vertices": 332,
+    "edges": 688,
+    "faces": 312,
+    "selected_edges": 458
+   },
+   "domains": [
+    {
+     "patch_id": 17,
+     "domain_id": "host-v0:patch-domain:77e0b8c76791034d905695e3",
+     "region_id": "sparse-patch-domain-region:938965b2cd2cb0c33efdd191",
+     "stage": "QUEUE",
+     "lattice_scale": 262144,
+     "arrival_laws": 18,
+     "rational_vertex_fans": 9,
+     "ambiguous_owner_edges": 6,
+     "source_edges": 18,
+     "wall_edges": 0,
+     "owner_specs": [
+      "angular-spec:23f3cad9a1478dfeb48abd35",
+      "angular-spec:38862dfc4eea2935c712ae08",
+      "angular-spec:3f53ec42b9ac41de8d6d5f63",
+      "angular-spec:42caa19d8b331a51f9445140",
+      "angular-spec:94c746ad5e18629042d7ba2c",
+      "angular-spec:ab67fe8a4e608c0088216453",
+      "angular-spec:afe1103ab8246fb2affab43a",
+      "angular-spec:d8b100165071f4394d3b78c3",
+      "angular-spec:e58f48df23aaf4d5abdcea19",
+      "strip-spec:02b5acd3067adf46e500cde1",
+      "strip-spec:08daf956aa7873fbc498af12",
+      "strip-spec:0ceb3a5047c3aa0a58a80eca",
+      "strip-spec:0fcb42c8ef08c445f11e8410",
+      "strip-spec:43e6b6e4cbf22c04e201a695",
+      "strip-spec:517c5ea3a13792edc7479ced",
+      "strip-spec:5d6d3a507fa0d0b83f52bac3",
+      "strip-spec:6cb4ecea74c9173ec519f95f",
+      "strip-spec:9184816609045bb0a80d975d",
+      "strip-spec:ce3cbe2961a201be94252866",
+      "strip-spec:e604af9734494f5baab52a94",
+      "strip-spec:fa95210776ece1e6c1644beb"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 29,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 205,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 27,
+      "covered_faces": 23,
+      "detail": "",
+      "total_ms": 3456.8
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 29,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 55,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 27,
+      "covered_faces": 23,
+      "detail": "",
+      "face_detail": "",
+      "total_ms": 14833.4
+     },
+     "loci": {
+      "anchor_loci": 29,
+      "loci_6ce0227": 29,
+      "loci_1dbf712": 29,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    },
+    {
+     "patch_id": 89,
+     "domain_id": "host-v0:patch-domain:2a7adbbc7bb2225fe14832f6",
+     "region_id": null,
+     "stage": "HOST_EXPORT",
+     "lattice_scale": null,
+     "arrival_laws": null,
+     "rational_vertex_fans": null,
+     "ambiguous_owner_edges": null,
+     "source_edges": null,
+     "wall_edges": null,
+     "owner_specs": null,
+     "6ce0227": {
+      "preparation_outcome": "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+      "coverage_outcome": null,
+      "skeleton_outcome": null,
+      "skeleton_nodes": null,
+      "skeleton_proof_status": null,
+      "skeleton_obligations": null,
+      "face_outcome": null,
+      "conveyor_faces": null,
+      "covered_faces": null,
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=3.573965e-04 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1, grid_step=2.441406e-04); vertices=['host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:242', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:244', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:296', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:300', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:33', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:34', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:40', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:41', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:44', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:46', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:48', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:7', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:9']",
+      "total_ms": null
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+      "coverage_outcome": null,
+      "skeleton_outcome": null,
+      "skeleton_nodes": null,
+      "skeleton_proof_status": null,
+      "skeleton_obligations": null,
+      "face_outcome": null,
+      "conveyor_faces": null,
+      "covered_faces": null,
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=3.573965e-04 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1, grid_step=2.441406e-04); vertices=['host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:242', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:244', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:296', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:300', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:33', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:34', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:40', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:41', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:44', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:46', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:48', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:7', 'host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:9']",
+      "face_detail": null,
+      "total_ms": null
+     },
+     "loci": {
+      "anchor_loci": 0,
+      "loci_6ce0227": 0,
+      "loci_1dbf712": 0,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    },
+    {
+     "patch_id": 91,
+     "domain_id": "host-v0:patch-domain:c688d7794c0b8566b53aa5c3",
+     "region_id": "sparse-patch-domain-region:ca8cc6d266902379fdf089d0",
+     "stage": "QUEUE",
+     "lattice_scale": 65536,
+     "arrival_laws": 4,
+     "rational_vertex_fans": 0,
+     "ambiguous_owner_edges": 0,
+     "source_edges": 4,
+     "wall_edges": 0,
+     "owner_specs": [
+      "strip-spec:572aa28806a1581b72d04197",
+      "strip-spec:7136d8cdebb567e00ac4fe02",
+      "strip-spec:947c3bda8b350d772267b730",
+      "strip-spec:e9177912b1c717f54dc5d15d"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 2,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 3,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 4,
+      "covered_faces": 4,
+      "detail": "",
+      "total_ms": 13.0
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 2,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 2,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 4,
+      "covered_faces": 4,
+      "detail": "",
+      "face_detail": "",
+      "total_ms": 17.2
+     },
+     "loci": {
+      "anchor_loci": 2,
+      "loci_6ce0227": 2,
+      "loci_1dbf712": 2,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    },
+    {
+     "patch_id": 109,
+     "domain_id": "host-v0:patch-domain:869ee218a62daf55e4d13373",
+     "region_id": "sparse-patch-domain-region:5cfa8356422a2b13fb08f46a",
+     "stage": "QUEUE",
+     "lattice_scale": 131072,
+     "arrival_laws": 10,
+     "rational_vertex_fans": 2,
+     "ambiguous_owner_edges": 5,
+     "source_edges": 10,
+     "wall_edges": 0,
+     "owner_specs": [
+      "angular-spec:ab79ac1255bd796d097bbf5d",
+      "angular-spec:b0103f532a09f9302edb1c1c",
+      "strip-spec:382b077f230efa6978913cc6",
+      "strip-spec:4397961e63481cc8e6ee8491",
+      "strip-spec:85e8ce4a73fc995557475157",
+      "strip-spec:92e796dcfba1164f9191684e",
+      "strip-spec:c8cd305f531130759d8b0d41"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 10,
+      "skeleton_proof_status": "INCOMPLETE",
+      "skeleton_obligations": 46,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 12,
+      "covered_faces": 11,
+      "detail": "",
+      "total_ms": 775.9
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 10,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 13,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 12,
+      "covered_faces": 11,
+      "detail": "",
+      "face_detail": "",
+      "total_ms": 1381.0
+     },
+     "loci": {
+      "anchor_loci": 10,
+      "loci_6ce0227": 10,
+      "loci_1dbf712": 10,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    },
+    {
+     "patch_id": 121,
+     "domain_id": "host-v0:patch-domain:f8326e7e6bb9f7b909af6804",
+     "region_id": "sparse-patch-domain-region:a21209e26139c567e506780a",
+     "stage": "QUEUE",
+     "lattice_scale": 262144,
+     "arrival_laws": 4,
+     "rational_vertex_fans": 0,
+     "ambiguous_owner_edges": 0,
+     "source_edges": 4,
+     "wall_edges": 0,
+     "owner_specs": [
+      "strip-spec:318682d2ea63bce8d2fa56d3",
+      "strip-spec:3e4871db19ddecc78d424d18",
+      "strip-spec:8bcb717bd9106c7c030b248d",
+      "strip-spec:debc32cd3f8430a1ffed1f98"
+     ],
+     "6ce0227": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 2,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 0,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 4,
+      "covered_faces": 4,
+      "detail": "",
+      "total_ms": 105.7
+     },
+     "1dbf712_field_rejected": {
+      "preparation_outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "skeleton_outcome": "EXACT",
+      "skeleton_nodes": 2,
+      "skeleton_proof_status": "COMPLETE",
+      "skeleton_obligations": 0,
+      "face_outcome": "EXACT",
+      "conveyor_faces": 4,
+      "covered_faces": 4,
+      "detail": "",
+      "face_detail": "",
+      "total_ms": 203.9
+     },
+     "loci": {
+      "anchor_loci": 2,
+      "loci_6ce0227": 2,
+      "loci_1dbf712": 2,
+      "only_6ce0227": 0,
+      "only_1dbf712": 0,
+      "participants_agree_on_all_anchors": true
+     }
+    }
+   ]
+  }
+ ],
+ "red_gates": [
+  {
+   "test": "tests/test_field_release_matrix.py::test_wall_2_001_faces_and_coverage_are_exact",
+   "state": "RED",
+   "reason": "FACES_DID_NOT_ASSEMBLE / FACE_CHAIN_DOES_NOT_CLOSE"
+  },
+  {
+   "test": "tests/test_field_release_matrix.py::test_walls_012_is_exact",
+   "state": "RED",
+   "reason": "SKELETON_DID_NOT_CLOSE / SUPERLEVEL_COMPONENT_UNRESOLVABLE"
+  }
+ ],
+ "green_gates": [
+  "test_wall_2_001_route_reproduces_the_field_datum",
+  "test_wall_2_001_ownership_covers_every_source_edge",
+  "test_anchor_loci_survive_with_their_participants (6 параметров)",
+  "test_walls_012_anchor_loci_survive",
+  "test_walls_001_door_domain_builds",
+  "test_walls_001_slope_domain_refuses_by_the_field_name",
+  "test_building_domain_is_exact_or_an_approved_named_refusal (5 патчей)",
+  "test_building_route_finishes_within_the_work_cap",
+  "test_building_route_declares_its_blender_substitution",
+  "test_red_gates_are_not_suppressed",
+  "test_snapshot_inputs_are_the_frozen_field_bytes"
+ ],
+ "named_skips": [
+  {
+   "what": "walls.001, домен-склон eb64fc8b4eaaabe6c70159ff",
+   "why": "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED на стадии HOST_EXPORT — тот же именованный отказ, что в полевом профиле владельца; полный маршрут для этого домена не начинается вовсе, и это факт входа, а не пропуск теста"
+  },
+  {
+   "what": "building: 117 из 122 патчей",
+   "why": "в ворота взяты 5 названных доменов (17/89/91/109/121); полный обход всех патчей не завершается в бюджете ворот. Полевая жалоба «building висит» на ЭТИХ пяти НЕ воспроизведена — счёт остаётся открытым"
+  },
+  {
+   "what": "детерминированный ExactWorkBudgetV1",
+   "why": "кап ворот — wall-clock в подпроцессе; бюджет в единицах работы — следующая карточка порядка работ, подменять её секундомером эти ворота не вправе"
+  }
+ ],
+ "forbidden_zones_untouched": [
+  "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+  "kernel/src/cftuv_envelope/wavefront/faces.py",
+  "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py"
+ ],
+ "declared_boundaries_on_the_working_vertex": {
+  "why_it_matters": "Единственный имеющийся сертификат правильности разбиения существует ТОЛЬКО на 6ce0227: на 1dbf712 он не достигается, потому что сборка падает раньше. Это НЕ доказательство, что 45 верно, а 49 нет — но это асимметрия свидетельств, и она в пользу 45.",
+  "vertex": "6ce0227",
+  "faces": 47,
+  "face_outcome": "EXACT",
+  "every_contour_is_simple": true,
+  "every_face_is_positive": true,
+  "area_reproduces_polygon": true,
+  "area_defect_terms": [],
+  "polygon_doubled_area": 7581694374,
+  "on_1dbf712": "недостижимо: check_declared_boundaries вызывается ПОСЛЕ сборки всех граней, а сборка отказывает на FACE_CHAIN_DOES_NOT_CLOSE"
+ },
+ "trajectory_change_named": {
+  "per_window": "У каждого из четырёх оконных вырезов ДВА веера (скрытые опоры двух вогнутых углов на y=8558) и две наклонные стороны A и B. На 6ce0227 два веера встречаются ДРУГ С ДРУГОМ дважды — на B (t≈14531) и на нижнем ребре (t≈18089). На 1dbf712 они не встречаются друг с другом НИ РАЗУ: вместо этого каждый веер порознь встречается с ребром A (t≈13924 на B, t≈16905 на нижнем, t≈22373 на нижнем). То есть ребро A переживает момент, в который прежде поглощалось.",
+  "consequence_for_faces": "У owner A в одно точное время t≈13923.8425 оказывается ТРИ точки, и во всех трёх сидит партнёр B: place 0 (узел 4, EDGE), place 1 (узел 5, MULTIWAY, четыре одинаковых incidence), place 2 (узел 6, SPLIT — добавленный). face_chain отвергает: у одной пары рёбер дуга обязана быть одна."
+ },
+ "blender_free_substitutions": [
+  {
+   "snapshot": "building_full_snapshot.json",
+   "substitution": "HOST_MULTI_LOOP_UV_CLASSIFICATION_SUBSTITUTED_BY_NESTING",
+   "why": "классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне через временный bpy.ops.uv.unwrap; без Blender шага не существует. Подставлен другой модульный путь того же файла (_classify_multi_loop_patches_by_nesting), объявленный в продакшне диагностическим. Подмена едет в ответе маршрута и проверяется тестом test_building_route_declares_its_blender_substitution."
+  },
+  {
+   "snapshot": "wall_2_001_snapshot.json / walls_012 / walls_001",
+   "substitution": null,
+   "why": "патчи однопетлевые — измерен продакшн-путь целиком"
+  }
+ ],
+ "suites_on_this_vertex": {
+  "host": {
+   "command": "python3 -m pytest tests (из корня)",
+   "result": "4 failed, 1334 passed, 5 skipped, 4 deselected (331 s)",
+   "failures": [
+    "tests/test_density_field_tools_contract.py::test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument — СРЕДОВОЕ (powershell отсутствует в контейнере), было и в базе",
+    "tests/test_density_field_tools_contract.py::test_field_cycle_missing_density_is_named_failure — то же средовое",
+    "tests/test_field_release_matrix.py::test_wall_2_001_faces_and_coverage_are_exact — КРАСНЫЕ ВОРОТА карточки, намеренно",
+    "tests/test_field_release_matrix.py::test_walls_012_is_exact — КРАСНЫЕ ВОРОТА карточки, намеренно"
+   ],
+   "sverkh_sredovogo_i_krasnykh_vorot": 0
+  },
+  "architecture": "446 passed (tests/test_architecture.py)",
+  "field_release_matrix_alone": "2 failed (красные ворота), 20 passed",
+  "kernel": {
+   "command": "PYTHONPATH=src:tests python3 -m pytest . (из каталога kernel)",
+   "result": "2972 passed, 2 skipped, 0 failed (3068 s)",
+   "note": "карточка не тронула kernel/src ни строкой (git diff по kernel/, cftuv/, tools/ — пусто), поэтому число совпадает с базой ветки; прогон сделан из каталога kernel, где test_isolation зелёный (из корня чекаута он падает средово)"
+  }
+ },
+ "proof_obligations_by_class": {
+  "wall_2_001_snapshot.json": {
+   "6ce0227": {
+    "proof_status": "INCOMPLETE",
+    "total": 310,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 290,
+     "NO_RULE_MEETING_NOT_RECONNECTABLE / UNPROVEN_FALLBACK_APPLIED": 10,
+     "NO_RULE_JOINT_IS_ANTIPARALLEL / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 10
+    }
+   },
+   "1dbf712": {
+    "proof_status": "INCOMPLETE",
+    "total": 221,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 209,
+     "EDGE_COLLAPSE_SPAN_UNPROVEN / EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 12
+    }
+   }
+  },
+  "walls_012_snapshot.json": {
+   "6ce0227": {
+    "proof_status": "INCOMPLETE",
+    "total": 50,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 46,
+     "NO_RULE_JOINT_IS_ANTIPARALLEL / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1,
+     "NO_RULE_MEETING_NOT_RECONNECTABLE / UNPROVEN_FALLBACK_APPLIED": 3
+    }
+   },
+   "1dbf712": {
+    "proof_status": "INCOMPLETE",
+    "total": 9,
+    "by_class": {
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / SURVIVED_PAST_EVENT_TIME": 7,
+     "SUPERLEVEL_COMPONENT_UNRESOLVABLE / SUPERLEVEL_COMPONENT_UNRESOLVABLE": 1,
+     "NO_RULE_TRIPLE_ALWAYS_CONCURRENT / DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1
+    }
+   }
+  },
+  "note": "SkeletonOutcome.EXACT и proof_status НЕЗАВИСИМЫ — это поправка аудитора, и вот она в числах: у 2.001 на ОБЕИХ вершинах скелет EXACT при proof_status INCOMPLETE (310 долгов на 6ce0227, 221 на 1dbf712). Ни одно из двух чисел узлов не подкреплено полным доказательством."
+ }
+}
