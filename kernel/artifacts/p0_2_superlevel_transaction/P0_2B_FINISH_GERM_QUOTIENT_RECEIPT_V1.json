@@ -2,7 +2,7 @@
  "schema": "P0_2B_FINISH_GERM_QUOTIENT_RECEIPT_V1",
  "branch": "exec/p0-2b-finish",
  "base": "origin/claude/kernel-audit-exact-proof-at8d23 (2777153) + merge origin/exec/p0-2b-superlevel-transaction (270cb0e)",
- "status": "STAGE_2: КОРНИ 1,2,4-ДИСПОЗИЦИЯ И ПРОТИВОРЕЧИВЫЙ ТЕСТ ЗАКРЫТЫ; КОРЕНЬ 3 ВСКРЫЛ ПЯТЫЙ — СТОП",
+ "status": "STAGE_3: Q5 ЗАКРЫТ РАСПИСКОЙ; ПЯТЫЙ КОРЕНЬ РАЗОБРАН ДО МЕХАНИЗМА, ВОРОТА 15->0 НЕ ВЗЯТЫ",
  "step_1_reproduction": {
   "command": "PYTHONPATH=src:tests python3 -m pytest tests -q  (из каталога kernel)",
   "result": "88 failed, 2775 passed, 2 skipped (2013 s)",
@@ -373,5 +373,43 @@
   "Q5 (диспозиция снята). Семь счётчиков из восьми мерили машинерию поиска — их ожидание переснимается с распиской «не этим числом» (таблица в stage_2.root_4_counters). Восьмой, refused_no_rule_triple_always_concurrent, мерит содержимое: мы выпускаем МЕНЬШЕ обязательств, чем оракул, и на одной фигуре это переключает proof_status INCOMPLETE -> COMPLETE. Прошу вердикт: считать ли уменьшение недоказанного улучшением и переснять, или это дефект пересева, который надо чинить.",
   "Q6 (закрыт). Противоречивый блок ворот переформулирован под Q-10-ADD, старое ожидание задокументировано как superseded.",
   "Q7 (НОВЫЙ, СТОП). Корень 3 не закрывается законом ориентации: сделанная честной ориентация УХУДШАЕТ корпус (17 -> 11 EXACT) и полевой patch_001, потому что переворот пролёта настоящий, а occurrence-ветка его отмывала. Полевые 001/006/011 требуют починки ДВУХ вещей — источника переворота в композиторе и хиральных тай-брейков (Q3). Прошу решения по обоим; в текущем виде _span_orientation оставлена как есть (не ухудшаю корпус односторонним изменением)."
- ]
+ ],
+ "stage_3": {
+  "suites_at_stage_2_head": {
+   "kernel": "58 failed, 2805 passed, 2 skipped (36 мин)",
+   "host": "2 failed, 1289 passed, 5 skipped — оба падения контейнерные (powershell)",
+   "trajectory": "88 (вершина слияния) -> 59 (germ-quotient) -> 58 (плотная гидратация + переформулированные ворота)"
+  },
+  "q5_closed": {
+   "verdict": "РАСПИСКА, не дефект",
+   "rule_checked": "любой кейс, где долгов стало БОЛЬШЕ, — дефект; таких нет",
+   "table": "kernel/artifacts/p0_2_superlevel_transaction/Q5_OBLIGATION_DIRECTION_TABLE_V1.json",
+   "probe": "kernel/artifacts/p0_2_superlevel_transaction/probe_obligation_direction.py",
+   "cases": [
+    "named::cross — 20 -> 16 обязательств, все NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED; недоказанного 0 -> 0. Зародыш поглотил четыре дубля одного локуса, отказа-долга по ним больше не возникает.",
+    "partial_source::staircase_source_edge_3 — 4 -> 1; недоказанного 3 -> 1 (ушли 2 SURVIVED_PAST_EVENT_TIME и 1 DISCHARGED)",
+    "partial_source::staircase_source_edge_6 — 8 -> 5; недоказанного 8 -> 5 (ушли 3 SURVIVED_PAST_EVENT_TIME)",
+    "partial_source::staircase_source_edges_3_4 — 2 -> 0; недоказанного 2 -> 0 — это и есть единственный сдвиг proof_status INCOMPLETE -> COMPLETE"
+   ],
+   "direction": "во всех четырёх строго МЕНЬШЕ, и строго меньше именно НЕДОКАЗАННОГО; ни одного кейса в обратную сторону на всех 63",
+   "why_the_germ_absorbed_it": "долг NO_RULE_TRIPLE_ALWAYS_CONCURRENT заводится на каждый отказ правила у ОТДЕЛЬНОГО инцидента. Дубли одного локуса до quotient были отдельными инцидентами и каждый заводил свой долг; после quotient локус один, отказ один. Геометрия ответа при этом не сдвинулась: node_records_sha256, outcome и semantic_digest совпали с оракулом на всех 63."
+  },
+  "root_5_chirality": {
+   "status": "РАЗОБРАН ДО МЕХАНИЗМА, ВОРОТА 15 -> 0 НЕ ВЗЯТЫ",
+   "lab_minimum": "weighted_vertex_fan, t=2: F0-overlay отказывает в одной хиральности и строится в зеркальной",
+   "exact_mechanism": "_initial_vertices отказывает условием len(set(refs)) != len(refs): два ЖИВЫХ порта дают один _existing_ref. Оба стоят в одной точке (2,2) и несут одну упорядоченную пару ключей ((0,12,0,0),(0,0,12,0)); различают их только КОНЦЫ вхождений: у вершины 11 плечи (2,8)->(2,2) и (2,2)->(8,2), у вершины 0 ОБА плеча вырождены в точку (2,2)->(2,2).",
+   "why_the_refusal_is_lawful": "Q-10-ADD прямо говорит: «Multiple live aliases of the same ordered pair are rejected by the symbolic overlay's unique-ref admission instead of being distinguished with a runtime id». Отказ по неразличимым алиасам — закон, а не дефект. Дефект в том, что КОНФИГУРАЦИЯ с неразличимыми алиасами возникает только в одной хиральности.",
+   "identity_conflict_named": "_port_identity сегодня обслуживает ДВЕ несовместимые нужды одним значением: (1) устойчивость МЕЖДУ итерациями перестроения (ключи контактов, emitter_key) — требует выбросить концы; (2) единственность СРЕДИ живых портов одного мгновения (overlay ref) — требует концы сохранить. wip выбрал (1), поэтому (2) отказывает.",
+   "measured_experiment": {
+    "change": "_port_identity возвращён к полному (point_key, prev_occurrence, next_occurrence)",
+    "result": "асимметрий 15 -> 9, НО появился новый класс отказа SYMBOLIC_SPLIT_ROOT_REBIND_UNRESOLVABLE (staircase_source_edge_1 в зеркале)",
+    "cause": "_compile_contacts перепривязывает символический контакт к рантайму через _unique_map по _existing_ref; полное тождество меняется между итерациями перестроения, и перепривязка промахивается. То есть нужда (1) действительно ломается — конфликт реален, а не устраним переименованием.",
+    "verdict": "односторонний размен одной асимметрии на другую; не коммитил"
+   },
+   "what_the_repair_needs": "развести две нужды на ДВА значения: устойчивый ключ контакта (пара ключей вхождений) и полное тождество живого порта (концы). Это касается SuperlevelIncidentV1.emitter_key/peer_key, JunctionRefV1('EXISTING', ...), initial_junction_seeds и _compile_contacts разом — то есть смена контракта символического слоя, а не правка предиката. Плюс отдельный вопрос: почему вырожденный порт (оба плеча нулевой длины) вообще доживает до F0 — схлопнувшийся пролёт обязан быть съеден EDGE-событием того же времени, и его выживание само по себе кандидат в дефект генерации кандидатов.",
+   "gate_status": "probe_mirror_covariance: 15 асимметрий из 86 (без изменений на вершине этапа 3); цель 0 не достигнута"
+  },
+  "root_3_orientation_recheck": "проверка «не ушли ли перевороты сами» не проводилась: она осмысленна только ПОСЛЕ починки хиральности, а хиральность не закрыта.",
+  "p0_3_refreeze": "не делалась: вершина всё ещё хиральная."
+ }
 }
