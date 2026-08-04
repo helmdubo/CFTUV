@@ -2,7 +2,7 @@
  "schema": "P0_2B_FINISH_GERM_QUOTIENT_RECEIPT_V1",
  "branch": "exec/p0-2b-finish",
  "base": "origin/claude/kernel-audit-exact-proof-at8d23 (2777153) + merge origin/exec/p0-2b-superlevel-transaction (270cb0e)",
- "status": "STAGE_4: ЗАКОН ПРИМИРЕНИЯ РЕАЛИЗОВАН; ЗОНД ХИРАЛЬНОСТИ ИСПРАВЛЕН — СТРОГИХ АСИММЕТРИЙ 0; КОРЕНЬ 3 ОСТАЁТСЯ",
+ "status": "STAGE_5 (ФИНИШ): P0-3 ПЕРЕЗАМОРОЖЕНА; КОРЕНЬ 3 — ИСТОЧНИК ИЗМЕРЕН И ОКАЗАЛСЯ УЖЕ КАНОНИЧЕСКИМ; ПОЛЕВАЯ ЗЕРКАЛЬНОСТЬ — ОТКРЫТА",
  "step_1_reproduction": {
   "command": "PYTHONPATH=src:tests python3 -m pytest tests -q  (из каталога kernel)",
   "result": "88 failed, 2775 passed, 2 skipped (2013 s)",
@@ -466,6 +466,54 @@
   "p0_3_refreeze": {
    "status": "НЕ СДЕЛАНА — нужен вердикт на новом факте",
    "why": "ворота нехиральности заданы координатором по осям outcome/proof/разрешимость, и они ВЫПОЛНЕНЫ (0). Но абсолютная проекция P0-3 включает node_records, а на СОДЕРЖАТЕЛЬНЫХ осях остаётся 14 асимметрий, из них 10 — в самом корпусе весов и стен. Переснять эталон сейчас значит заморозить представление, зависящее от хиральности. Это новый факт, полученный исправленным зондом уже после выдачи вердикта, поэтому решение возвращаю."
+  }
+ },
+ "stage_5": {
+  "root_3_composer_endpoint_source": {
+   "verdict_applied": "источник концов пролёта обязан выводиться из хода САМОГО пролёта, а не из сортированного порядка",
+   "measurement": "ход пролёта (знак проекции конца минус начала вдоль примитивного луча вхождения) измерен на всех резах корпуса 63 + 23 + 4 полевых: +1 в 138 случаях, 0 в 5, -1 НИ РАЗУ",
+   "conclusion": "сортировка по возрастающей проекции УЖЕ совпадает с ходом каждого рассекаемого пролёта — перевёрнутых порядков в композиторе нет, снимать нечего. Реализация «разложить резы по ходу пролёта» поведения не меняет ни на одной фигуре.",
+   "what_was_tried_and_reverted": "вариант с fail-closed на вырожденном пролёте (run == 0, 5 случаев) УХУДШАЕТ: пять фигур уходят WAVEFRONT_LEFT_UNRESOLVED -> SUPERLEVEL_COMPONENT_UNRESOLVABLE, корпус весов и стен падает до 18/1/4 — ниже запрещённого порога 18/5/0. Не коммичено.",
+   "where_the_reversals_really_come_from": "из ЖИВЫХ пролётов, а не из детей реза: у обычного ребра перевёрнутый occurrence означает подлинно инвертированный пролёт, у скрытой опоры веера направление вообще не задаётся исходным отрезком (ключ вырожден). Именно эти 22 пролёта и отмывает occurrence-ветка _span_orientation.",
+   "honest_source_law_status": "СТОП с трассой, как и предписано: честный закон по-прежнему ухудшает корпус весов и стен 18 -> 11 EXACT и уводит полевой patch_001 в UNRESOLVABLE. Ухудшение ниже 18/5/0 запрещено, поэтому закон не вкручен."
+  },
+  "field_mirror_gate": {
+   "status": "НЕ ВЫПОЛНЕН — новый факт",
+   "probe": "kernel/artifacts/p0_2_superlevel_transaction/probe_field_mirror_covariance.py",
+   "result": "2 из 4 полевых фигур дают РАЗНЫЙ строгий исход у фигуры и её отражения",
+   "detail": [
+    "patch_001: прямая WAVEFRONT_LEFT_UNRESOLVED без отказов; зеркало SUPERLEVEL_COMPONENT_UNRESOLVABLE (SYMBOLIC_POSTSTATE_SPAN_INVERTED)",
+    "patch_006: прямая SUPERLEVEL_COMPONENT_UNRESOLVABLE (SYMBOLIC_POSTSTATE_SPAN_INVERTED); зеркало WAVEFRONT_LEFT_UNRESOLVED",
+    "patch_011: совпало (обе стороны SYMBOLIC_POSTSTATE_SPAN_INVERTED)",
+    "patch_105: совпало (обе стороны EXACT)"
+   ],
+   "why_it_matters": "синтетический корпус из 86 фигур даёт 0 строгих асимметрий, а полевые — 2 из 4. Значит вывод этапа 4 «пятого корня в заявленном виде нет» верен ТОЛЬКО для синтетического корпуса: на полевом классе именованный отказ хиральностью зависит. Требование вердикта «одинаковый в зеркале» на 001 и 006 НЕ выполнено.",
+   "not_repaired": "починка требует закрытия источника переворота, а он же запрещён к ухудшению корпуса — это одна связка, и решать её односторонне я не стал"
+  },
+  "p0_3_refreeze": {
+   "status": "ВЫПОЛНЕНА",
+   "file": "artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
+   "regenerated_by": "artifacts/kernel_audit_exact_proof/generate_p0_3_post_p0_2b_absolute_digests.py",
+   "moved": "12 дайджестов из 23; corpus_sha256 26a9f018 -> 418a0020",
+   "old_number_is_garbage_because": "заморозка 4cf9d5a снята ДО quotient Q-10-ADD, ДО плотной гидратации и ДО закона примирения. Она несла: семь фигур корпуса весов и стен в SUPERLEVEL_COMPONENT_UNRESOLVABLE (сегодня их ноль), дубли одного локуса, посчитанные как отдельные события, и разреженный снимок, отказывавший по недостающим вхождениям. Это не «другое число той же величины», а число другой величины.",
+   "the_new_number_carries_a_caveat": "проекция включает node_records, а те несут ИЗВЕСТНУЮ содержательную хиральность: 14 фигур корпуса дают разные числа узлов у фигуры и её отражения (список ниже), из них 10 — в самом корпусе весов и стен. Отдельная карточка MIRROR-CONTENT-COVARIANCE выдана в очередь; она сдвинет эти числа ЕЩЁ РАЗ, и сдвиг обязан прийти с доказательством, а не с измерением.",
+   "content_chirality_figures": {
+    "named::staircase_source_edge_1": "узлов 2 против 4",
+    "named::staircase_source_edge_6": "узлов 4 против 2",
+    "named::staircase_source_edges_2_3": "узлов 3 против 4",
+    "named::staircase_source_edges_4_5": "узлов 4 против 3",
+    "weighted::cross_full_q_1/4": "узлов 12 против 13",
+    "weighted::cross_full_q_1": "узлов 12 против 13",
+    "weighted::cross_full_q_4": "узлов 12 против 13",
+    "weighted::cross_full_q_65/64": "узлов 12 против 13",
+    "weighted::cross_source_and_walls_q_1/4": "узлов 8 против 6",
+    "weighted::cross_source_and_walls_q_1": "узлов 8 против 6",
+    "weighted::cross_source_and_walls_q_4": "узлов 8 против 6",
+    "weighted::cross_source_and_walls_q_65/64": "узлов 8 против 6",
+    "weighted::several_collinear_incidences": "узлов 12 против 13",
+    "weighted::collinear_moving_source_and_wall": "узлов 3 против 4"
+   },
+   "faces_note": "число граней у всех четырнадцати совпало (у тринадцати оно ноль: разбиение не закрывается по отдельному до-транзакционному дефекту)"
   }
  }
 }
