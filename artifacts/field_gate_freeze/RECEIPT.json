@@ -827,5 +827,21 @@
   "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
   "kernel/src/cftuv_envelope/wavefront/faces.py",
   "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py"
- ]
+ ],
+ "declared_boundaries_on_the_working_vertex": {
+  "why_it_matters": "Единственный имеющийся сертификат правильности разбиения существует ТОЛЬКО на 6ce0227: на 1dbf712 он не достигается, потому что сборка падает раньше. Это НЕ доказательство, что 45 верно, а 49 нет — но это асимметрия свидетельств, и она в пользу 45.",
+  "vertex": "6ce0227",
+  "faces": 47,
+  "face_outcome": "EXACT",
+  "every_contour_is_simple": true,
+  "every_face_is_positive": true,
+  "area_reproduces_polygon": true,
+  "area_defect_terms": [],
+  "polygon_doubled_area": 7581694374,
+  "on_1dbf712": "недостижимо: check_declared_boundaries вызывается ПОСЛЕ сборки всех граней, а сборка отказывает на FACE_CHAIN_DOES_NOT_CLOSE"
+ },
+ "trajectory_change_named": {
+  "per_window": "У каждого из четырёх оконных вырезов ДВА веера (скрытые опоры двух вогнутых углов на y=8558) и две наклонные стороны A и B. На 6ce0227 два веера встречаются ДРУГ С ДРУГОМ дважды — на B (t≈14531) и на нижнем ребре (t≈18089). На 1dbf712 они не встречаются друг с другом НИ РАЗУ: вместо этого каждый веер порознь встречается с ребром A (t≈13924 на B, t≈16905 на нижнем, t≈22373 на нижнем). То есть ребро A переживает момент, в который прежде поглощалось.",
+  "consequence_for_faces": "У owner A в одно точное время t≈13923.8425 оказывается ТРИ точки, и во всех трёх сидит партнёр B: place 0 (узел 4, EDGE), place 1 (узел 5, MULTIWAY, четыре одинаковых incidence), place 2 (узел 6, SPLIT — добавленный). face_chain отвергает: у одной пары рёбер дуга обязана быть одна."
+ }
 }
