@@ -781,45 +781,97 @@ def test_cross_node_projection_is_byte_identical_to_pretransaction_anchor():
     )
 
 
-def test_close_and_proof_wait_for_dynamic_same_time_fixed_point(monkeypatch):
-    original_apply = skeleton_module._Builder._apply_level
-    original_close = skeleton_module._Builder._close_short_lavs
-    original_discharge = (
-        skeleton_module._Builder._discharge_observed_obligations
+def test_superlevel_commit_cannot_enqueue_an_event_at_now(monkeypatch):
+    """Динамический одновременный остаток невозможен ПО ПОСТРОЕНИЮ.
+
+    SUPERSEDED (P0-2B-FINISH): прежние ворота
+    `test_close_and_proof_wait_for_dynamic_same_time_fixed_point` требовали,
+    чтобы каждая из `_DYNAMIC_SAME_TIME_CASES` РОЖДАЛА событие ровно в `now`
+    при применении уровня, и караулили, что `_close_short_lavs` и
+    `_discharge_observed_obligations` ждут неподвижной точки. Носитель исчез
+    вместе с причиной: germ-квотиент (AUTH Q-10-ADD) берёт весь контактный
+    локус одним пакетом, поэтому ни одна фигура корпуса больше не даёт
+    динамического остатка. Караулы при этом стали тавтологией цикла `run`:
+    строка `if not has_same_time_residual(...): break` — единственный выход из
+    внутреннего while, значит остаток при входе в close/discharge невозможен
+    по тексту самого цикла. Ворота для невозможного явления не проверяют
+    ничего, и вместо носителя проверяется ЗАКОН, делающий его невозможным.
+
+    Именованное доказательство (структурное, не измерение на корпусе):
+
+    1. `_Builder._apply_level` — ровно один вызов
+       `apply_superlevel_transaction`; иных мутаций очереди внутри уровня нет.
+    2. У транзакции единственная дверь материализации —
+       `materialize_symbolic_runtime_commit`; все прочие выходы
+       (`_record_unsupported`, `_record_duplicate_live_owner`,
+       `_record_symbolic_unresolvable`, пустые incidents) возвращают
+       управление, не записав в очередь ничего.
+    3. Внутри двери каждый `_enqueue_*` выполняется при подменённой
+       `builder.queue = _FutureQueueV1(original_queue, overlay.time)`, где
+       `overlay.time` — время пакета, то есть `builder.now`; подмена и возврат
+       стоят прямой линией, без ранних `return` между ними.
+    4. `_FutureQueueV1.push` передаёт вниз только `compare_times(...) > 0`.
+
+    Нарушение строится: убрать сравнение в `_FutureQueueV1.push` — падает
+    первая половина; записать в очередь мимо двери — падает вторая.
+    """
+
+    from cftuv_envelope.wavefront import symbolic_runtime_commit as commit_module
+    from cftuv_envelope.wavefront.event_time import EventTimeV1
+    from cftuv_envelope.wavefront import events as events_module
+
+    # (a) Писатель коммита: отказ ровно в `now`, отказ прошлому, пропуск
+    #     строго будущего. Прямая, а не косвенная проверка пункта 4.
+    now = EventTimeV1.normalized(4, SqrtSumV1.rational(1))
+    forwarded = []
+    writer = commit_module._FutureQueueV1(
+        SimpleNamespace(push=forwarded.append), now
     )
-    observed_dynamic = set()
-    active_case = [None]
+    for dividend in (2, 4, 8):
+        writer.push(
+            CandidateEventV1(
+                EventKind.EDGE,
+                EventTimeV1.normalized(dividend, SqrtSumV1.rational(1)),
+                EventPointV1(SqrtSumV1.rational(0), SqrtSumV1.rational(0)),
+                0,
+                -1,
+                -1,
+            )
+        )
+    assert [event.time.dividend for event in forwarded] == [Fraction(8)], (
+        "FUTURE_QUEUE_ADMITTED_A_NON_FUTURE_EVENT"
+    )
+
+    # (б) Настоящий прогон: КАЖДАЯ запись в физическую очередь во время уровня
+    #     строго в будущем, и таких записей не ноль (иначе пункты 1–3
+    #     наблюдались бы вхолостую).
+    original_push = events_module.EventQueueV1.push
+    original_apply = skeleton_module._Builder._apply_level
+    level_now = []
+    admitted = []
+
+    def measured_push(queue, event):
+        if level_now:
+            admitted.append(compare_times(event.time, level_now[-1]))
+        return original_push(queue, event)
 
     def measured_apply(builder, level):
-        original_apply(builder, level)
-        if superlevel_module.has_same_time_residual(builder.queue, builder.now):
-            observed_dynamic.add(active_case[0])
+        level_now.append(builder.now)
+        try:
+            original_apply(builder, level)
+        finally:
+            level_now.pop()
 
-    def guarded_close(builder):
-        assert not superlevel_module.has_same_time_residual(
-            builder.queue, builder.now
-        )
-        original_close(builder)
-
-    def guarded_discharge(builder):
-        assert not superlevel_module.has_same_time_residual(
-            builder.queue, builder.now
-        )
-        original_discharge(builder)
-
+    monkeypatch.setattr(events_module.EventQueueV1, "push", measured_push)
     monkeypatch.setattr(skeleton_module._Builder, "_apply_level", measured_apply)
-    monkeypatch.setattr(
-        skeleton_module._Builder, "_close_short_lavs", guarded_close
-    )
-    monkeypatch.setattr(
-        skeleton_module._Builder,
-        "_discharge_observed_obligations",
-        guarded_discharge,
-    )
-    for name in _DYNAMIC_SAME_TIME_CASES:
-        active_case[0] = name
-        build_skeleton(_CORPUS[name])
-    assert observed_dynamic == set(_DYNAMIC_SAME_TIME_CASES)
+    residual_cases = set()
+    for name in (*_DYNAMIC_SAME_TIME_CASES, "cross"):
+        skeleton = build_skeleton(_CORPUS[name])
+        if skeleton.counter("same_time_residual_after_level"):
+            residual_cases.add(name)
+    assert len(admitted) >= 10, "NO_QUEUE_WRITE_OBSERVED_INSIDE_A_LEVEL"
+    assert set(admitted) == {1}, "QUEUE_WRITE_AT_OR_BEFORE_NOW_INSIDE_A_LEVEL"
+    assert residual_cases == set()
 
 
 def test_symbolic_closure_absorbs_cross_full_q1_t8_before_commit(monkeypatch):
