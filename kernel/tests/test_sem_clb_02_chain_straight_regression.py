@@ -54,8 +54,21 @@ EXPECTED_K_SEQUENCES = {
         (0, 1, 2),
     ),
 }
+#: Терминал полевого случая. EXACT — фронт закрылся; иначе — ЧЕСТНЫЙ
+#: ИМЕНОВАННЫЙ отказ, и он такая же приёмка, как EXACT: тихого исчезновения
+#: нет, геометрия не лжёт. Три случая стоят на отказе по закону живых
+#: переворотов пролёта (`SYMBOLIC_POSTSTATE_SPAN_INVERTED` у 006 и 011,
+#: незакрывшийся фронт у 001) — корень измерен и лежит ВЫШЕ этой карточки:
+#: ход рассекаемого пролёта в композиторе канонический (+1 в 138 замерах,
+#: -1 ни разу), а переворот приходит от живых пролётов. Известный открытый
+#: счёт — зеркальная чётность ИМЁН отказа (001 и 006 меняются именами при
+#: отражении); он вынесен в карточку FIELD-REFUSAL-MIRROR-PARITY, см. запись
+#: поставки P0-2B-FINISH в `DECISIONS.md` и зонд
+#: `kernel/artifacts/p0_2_superlevel_transaction/
+#: probe_field_mirror_covariance.py`.
 EXPECTED_PUBLIC_WAVEFRONT = {
     "building_all_seams_patch_001_lost_resolved_v1": {
+        "terminal": "WAVEFRONT_LEFT_UNRESOLVED",
         "sliding_seed_count": 4,
         "skeleton_levels": 182,
         "node_count": 62,
@@ -63,6 +76,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_006_lost_resolved_v1": {
+        "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
         "sliding_seed_count": 5,
         "skeleton_levels": 230,
         "node_count": 73,
@@ -70,6 +84,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 26,
     },
     "building_all_seams_patch_011_lost_resolved_v1": {
+        "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
         "sliding_seed_count": 3,
         "skeleton_levels": 170,
         "node_count": 62,
@@ -77,6 +92,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_105_lost_resolved_v1": {
+        "terminal": "EXACT",
         "sliding_seed_count": 1,
         # AUTH_PENDING_Q06: локальный targeted ratchet, не для commit/push.
         "skeleton_levels": 12,
@@ -438,8 +454,16 @@ def test_public_wavefront_classifies_exact_straight_seed_vertices(
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    assert prepared.outcome.value == "EXACT", prepared.detail
     (region,) = prepared.regions
+    if expected["terminal"] != "EXACT":
+        # Терминал — именованный отказ. Проверяется он ТАК ЖЕ строго, как
+        # EXACT: имя закреплено, а не «не EXACT».
+        assert prepared.outcome.value == "SKELETON_DID_NOT_CLOSE"
+        assert region.skeleton is not None
+        assert region.skeleton.outcome.value == expected["terminal"]
+        assert not region.is_exact
+        return
+    assert prepared.outcome.value == "EXACT", prepared.detail
     assert region.is_exact
     assert region.bridge.polygon is not None
     assert region.skeleton is not None
