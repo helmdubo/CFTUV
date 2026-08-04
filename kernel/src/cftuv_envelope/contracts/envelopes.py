@@ -199,6 +199,68 @@ class AngleTolerancePolicyIdV1(str, Enum):
     )
 
 
+class SubturnGuaranteeLawV1(str, Enum):
+    """Против КАКИХ опор доказан жёсткий максимум подшага.
+
+    Законов два, и это разные обещания, а не оттенки одного.
+
+    `SUBTURN_ON_SOURCE_SUPPORTS_V1` — исходный и по-прежнему единственный для
+    всех невосстановленных углов: `подшаг <= pi/q` доказан на ФАКТИЧЕСКИХ
+    опорах, равношаговым делением измеренного угла. Их поведение эта карточка
+    не трогает ни байтом.
+
+    `SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1` — новая власть, и она честно
+    слабее на сырых опорах. Обязательство целиком:
+
+    * цель — `pi/q` на КАНОНИЧЕСКОМ угле. Первые `H` лучей веера ставятся
+      точными поворотами на `u_канон * pi / (H + 1)`, и это значение не
+      превосходит `pi/q` целочисленно (`u_канон * q <= H + 1`), без единого
+      сравнения с порогом;
+    * на сырых опорах превышение возникает РОВНО в одном, последнем секторе и
+      равно остатку `δ_сырое - H * u_канон * pi / (H + 1)` минус канонический
+      подшаг, то есть в точности авторскому шуму `Δ <= AUTHOR_ANGULAR_ERROR`
+      (7e-6 рад). Шум не размазывается по вееру и не усиливается: он остаётся
+      там, где и был, — между последним каноническим лучом и сырой опорой;
+    * закон применяется ТОЛЬКО там, где старый отказал: если равношаговый
+      веер сырого угла уже удовлетворяет `подшаг <= pi/q`, ничего не
+      происходит и байты прежние. Это та же форма, что у
+      `EvaluationGeometrySubturnCountLiftV1`: осуществимо — молчим,
+      неосуществимо — именованная власть с записью.
+
+    Почему это смена власти, а не расширение старой: старое обещание
+    буквально ложно на сырых опорах восстановленного угла, и молча
+    переопределять его смыслом «ну почти» — ровно то, от чего предостерегает
+    аудит. Поэтому имя новое, запись отдельная, а старое имя остаётся за
+    старым обещанием.
+    """
+
+    SUBTURN_ON_SOURCE_SUPPORTS_V1 = "SUBTURN_ON_SOURCE_SUPPORTS_V1"
+    SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1 = (
+        "SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalSubturnFanAuthorityV1:
+    """Именованная власть канонического веера — по углу и по плотности.
+
+    Пишется ТОЛЬКО когда старый закон отказал на сырых опорах, поэтому само
+    её присутствие и есть ответ на вопрос «почему этот веер построен иначе».
+    Отсутствие записи означает старый закон и прежние байты.
+    """
+
+    guarantee_law: SubturnGuaranteeLawV1
+    envelope_spec_id: EnvelopeSpecId
+    selection_certificate_id: SelectionCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    hidden_edge_count: int
+    max_subturn_q: int
+    canonical_subturn_over_pi: ExactRatioV1
+    raw_residual_upper_bound_radians: ExactRationalV1
+    proven_predicates: frozenset[str]
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalAngleRestorationCertificateV1:
     """Что именно восстановлено, из чего и на каком основании.

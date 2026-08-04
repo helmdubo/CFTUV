@@ -163,9 +163,19 @@ class GeometryContext:
     source_faces_by_id: dict
     provenance_by_spec_id: dict[str, ReferenceProvenanceV1]
     angular_ideal_cache: dict[object, tuple]
+    # Спеки, чей веер построен КАНОНИЧЕСКИМ подшагом. Наблюдение, а не решение:
+    # закон живёт в `angular._canonical_subturn_fan_or_source`, здесь только
+    # запоминается его исход, чтобы власть можно было записать один раз и не
+    # пересчитывать сырой веер второй раз.
+    canonical_subturn_fan: dict[str, bool]
     angular_support_cache: dict[object, tuple]
     support_segment_cache: dict[tuple[ChainUseId, str], tuple]
     support_geometry_key: tuple
+    # Требовать ли записанную власть канонического веера там, где закон её
+    # применил. Ложно ровно в одном месте — внутри самой транзакции вывода
+    # направлений, где власть ещё НЕ записана, потому что её как раз выводят.
+    # Тот же приём и та же причина, что у `require_certified_bound_supports`.
+    require_canonical_fan_authority: bool = True
 
     @classmethod
     def build(
@@ -175,6 +185,7 @@ class GeometryContext:
         *,
         require_evaluation_binding: bool = True,
         require_certified_bound_supports: bool = True,
+        require_canonical_fan_authority: bool = True,
         density_exact_memo: _DensityExactMemo | None = None,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
@@ -243,12 +254,14 @@ class GeometryContext:
                 for item in compilation.source_provenance
             },
             angular_ideal_cache={},
+            canonical_subturn_fan={},
             angular_support_cache={},
             support_segment_cache=(
                 {}
                 if density_exact_memo is None
                 else density_exact_memo.support_segments
             ),
+            require_canonical_fan_authority=require_canonical_fan_authority,
             support_geometry_key=tuple(
                 sorted(
                     (

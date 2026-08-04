@@ -46,6 +46,10 @@ from cftuv_envelope import (
 from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR
 from cftuv_envelope._canonical_angle import (
     CANONICAL_ANGLE_RESTORATION_PREDICATES,
+    CANONICAL_SUBTURN_FAN_LAW,
+    canonical_rotation_denominator,
+    canonical_subturn_is_within_max_subturn,
+    canonical_subturn_over_pi,
     CANONICAL_REFLEX_EXCESS_RELATIONS,
     PI_RATIONAL_UPPER_BOUND,
     canonical_angle_restoration_error,
@@ -646,3 +650,244 @@ def test_near_right_angle_case_matches_the_field_deviation_class():
         if kind != "EXACTLY_90"
     ]
     assert min(wall) < radians < max(wall)
+
+
+# --- Гарантия подшага на ВОССТАНОВЛЕННОМ угле -------------------------------
+#
+# Решение владельца после измеренной развилки: обещание «канонические 90°
+# всегда дают один счёт» держится, а значит и осуществимость подшага
+# оценивается против канонического угла. Это СМЕНА ВЛАСТИ, поэтому у неё своё
+# имя (`SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1`), своя запись
+# (`CanonicalSubturnFanAuthorityV1`) и своя цена, названная числом.
+
+
+def _density_compile(case, value_id, symbol):
+    snapshot, legacy_request = angular_snapshot(case)
+    return snapshot, compile_reference_envelopes(
+        snapshot,
+        _density_request(legacy_request, value_id, symbol),
+    )
+
+
+def _exact_twin_case():
+    """Точный прямой угол в той же фигуре: нормаль исходящей опоры ровно (0,-1)."""
+
+    rf._ANGULAR_CASES.setdefault(
+        "exact-right-angle",
+        ((0.0, -1.0), (-5.0, 0.0), ("0.5", "0.5")),
+    )
+    return "exact-right-angle"
+
+
+def test_guarantee_law_names_both_promises_separately():
+    """Старое обещание остаётся под старым именем — иначе это тихое расширение."""
+
+    assert {item.value for item in kernel.SubturnGuaranteeLawV1} == {
+        "SUBTURN_ON_SOURCE_SUPPORTS_V1",
+        "SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1",
+    }
+    assert CANONICAL_SUBTURN_FAN_LAW is (
+        kernel.SubturnGuaranteeLawV1.SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1
+    )
+
+
+@pytest.mark.parametrize(("density", "value_id", "symbol", "q"), _DENSITY_VALUES)
+def test_canonical_subturn_is_exactly_within_the_declared_maximum(
+    density,
+    value_id,
+    symbol,
+    q,
+):
+    """Цель нового закона — `pi/q` на каноническом угле, целочисленно."""
+
+    hidden_count = max(1, _resolve_huber_bucket_without_restoration(
+        _CANONICAL_HALF, q
+    ) - 1)
+    assert canonical_subturn_is_within_max_subturn(
+        Fraction(1, 2), hidden_count, q
+    )
+    denominator = canonical_rotation_denominator(Fraction(1, 2), hidden_count)
+    assert denominator is not None and denominator >= q
+    assert canonical_subturn_over_pi(Fraction(1, 2), hidden_count) == Fraction(
+        1, denominator
+    )
+
+
+class _CanonicalHalfInterval:
+    lower = Fraction(1, 2)
+    upper = Fraction(1, 2)
+    lower_kind = IntervalEndpointKind.CLOSED
+    upper_kind = IntervalEndpointKind.CLOSED
+
+
+_CANONICAL_HALF = _CanonicalHalfInterval()
+
+
+@pytest.mark.parametrize(("density", "value_id", "symbol", "q"), _DENSITY_VALUES)
+def test_canonical_fan_authority_is_recorded_only_where_the_source_law_failed(
+    density,
+    value_id,
+    symbol,
+    q,
+):
+    """Форма закона: осуществимо — молчим; неосуществимо — именованная власть.
+
+    «Неосуществимо» — это НЕ «чётное q», а ровно `2*(H+1) == q`: только там
+    канонический подшаг равен `pi/q` впритык, и авторский шум выносит сырой
+    подшаг за порог. При `2*(H+1) > q` (d0, d1, d3) порог не тугой, старый
+    закон проходит на сырых опорах, и власть не пишется вовсе.
+    """
+
+    _, compiled = _density_compile(NEAR_RIGHT_ANGLE, value_id, symbol)
+    if compiled.outcome is not ReferenceOutcome.EXACT:
+        assert q == 6  # ножевая синтетика, см. тест лифта
+        return
+    authorities = compiled.compilation.canonical_subturn_fan_authorities
+    spec = next(
+        item
+        for item in compiled.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+    tight = 2 * (spec.resolved_hidden_edge_count + 1) == q
+    assert tight is (q in (4, 6)), (density, q)
+    if tight:
+        assert len(authorities) == 1, (density, q)
+        authority = next(iter(authorities))
+        assert authority.guarantee_law is CANONICAL_SUBTURN_FAN_LAW
+        assert authority.envelope_spec_id == spec.envelope_spec_id
+        assert authority.max_subturn_q == q
+        assert authority.hidden_edge_count == spec.resolved_hidden_edge_count
+        assert authority.canonical_subturn_over_pi == ExactRatioV1(
+            1, 2 * (spec.resolved_hidden_edge_count + 1)
+        )
+        # Цена названа числом и ограничена допуском намерения.
+        residual = Fraction(
+            authority.raw_residual_upper_bound_radians.numerator,
+            authority.raw_residual_upper_bound_radians.denominator,
+        )
+        assert 0 < residual <= AUTHOR_ANGULAR_ERROR
+    else:
+        assert authorities == frozenset(), (density, q)
+
+
+def test_even_q_fan_of_a_restored_corner_has_the_shape_of_its_exact_twin():
+    """Главное: счёт, число опор и их вид совпадают с точным близнецом."""
+
+    twin = _exact_twin_case()
+    for value_id, symbol, q in (
+        (MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1, ExactAngleSymbol.PI_OVER_4, 4),
+    ):
+        _, restored = _density_compile(NEAR_RIGHT_ANGLE, value_id, symbol)
+        _, exact = _density_compile(twin, value_id, symbol)
+        assert restored.outcome is ReferenceOutcome.EXACT
+        assert exact.outcome is ReferenceOutcome.EXACT
+        shapes = []
+        for compiled in (restored, exact):
+            spec = next(
+                item
+                for item in compiled.compilation.envelope_specs
+                if isinstance(item, AngularEnvelopeSpec)
+            )
+            selection = next(
+                iter(compiled.compilation.profile_selection_certificates)
+            )
+            shapes.append(
+                (
+                    selection.resolved_hidden_edge_count,
+                    spec.resolved_hidden_edge_count,
+                    len(spec.hidden_supports),
+                    frozenset(type(item).__name__ for item in spec.hidden_supports),
+                    getattr(spec, "evaluation_subturn_count_lift", None) is None,
+                    tuple(
+                        sorted(
+                            (item.ordinal, item.turn_fraction)
+                            for item in spec.hidden_supports
+                        )
+                    ),
+                )
+            )
+        assert shapes[0] == shapes[1], (q, shapes)
+
+
+def test_stripping_the_canonical_fan_authority_is_a_named_refusal():
+    """Снятая власть — такая же подделка, как лишняя."""
+
+    from cftuv_envelope.reference.angular import seal_angular_support_cache
+    from cftuv_envelope.reference.validation import (
+        validate_reference_geometry_payload,
+    )
+
+    _, compiled = _density_compile(
+        NEAR_RIGHT_ANGLE,
+        MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1,
+        ExactAngleSymbol.PI_OVER_4,
+    )
+    compilation = compiled.compilation
+    assert len(compilation.canonical_subturn_fan_authorities) == 1
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=True,
+    )
+    assert frame is not None and not diagnostics
+    seal_angular_support_cache(GeometryContext.build(compilation, frame))
+
+    stripped = replace(
+        compilation,
+        canonical_subturn_fan_authorities=frozenset(),
+    )
+    with pytest.raises(ReferenceGeometryError) as error:
+        seal_angular_support_cache(GeometryContext.build(stripped, frame))
+    assert (
+        error.value.outcome
+        is ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID
+    )
+    assert "without its recorded authority" in str(error.value)
+
+
+def test_canonical_fan_authority_on_a_feasible_source_fan_is_a_named_refusal():
+    """Подделка гейта (г): канонический счёт при живой сырой осуществимости."""
+
+    from cftuv_envelope.reference.angular import seal_angular_support_cache
+    from cftuv_envelope.reference.validation import (
+        validate_reference_geometry_payload,
+    )
+
+    _, even = _density_compile(
+        NEAR_RIGHT_ANGLE,
+        MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1,
+        ExactAngleSymbol.PI_OVER_4,
+    )
+    _, odd = _density_compile(
+        NEAR_RIGHT_ANGLE,
+        MaxSubturnValueId.LINEAR_REFLEX_DENSITY_1_V1,
+        ExactAngleSymbol.PI_OVER_3,
+    )
+    assert odd.compilation.canonical_subturn_fan_authorities == frozenset()
+    authority = next(iter(even.compilation.canonical_subturn_fan_authorities))
+    spec = next(
+        item
+        for item in odd.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+    planted = replace(
+        authority,
+        envelope_spec_id=spec.envelope_spec_id,
+        max_subturn_q=3,
+    )
+    forged = replace(
+        odd.compilation,
+        canonical_subturn_fan_authorities=frozenset({planted}),
+    )
+    frame, _ = validate_reference_geometry_payload(
+        forged.analysis_snapshot,
+        forged.plan_key.patch_domain_id,
+        density_bounded=True,
+    )
+    with pytest.raises(ReferenceGeometryError) as error:
+        seal_angular_support_cache(GeometryContext.build(forged, frame))
+    assert (
+        error.value.outcome
+        is ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID
+    )
+    assert "already" in str(error.value)

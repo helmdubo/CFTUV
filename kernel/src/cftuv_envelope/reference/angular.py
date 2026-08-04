@@ -28,6 +28,11 @@ from ..contracts.envelopes import (
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
 )
+from .._canonical_angle import (
+    canonical_rotation_denominator,
+    canonical_subturn_fan_authority_error,
+    canonical_subturn_is_within_max_subturn,
+)
 from .._density_policy import (
     DensityIntervalEnclosureUnsupported,
     density_interval_enclosure,
@@ -138,6 +143,7 @@ def _interpolated_normals(
     orientation: TurnOrientation,
     *,
     huber_density: bool = False,
+    canonical_excess_over_pi=None,
 ) -> tuple[ExactPlanarVector, ...]:
     expected = 1 if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION else -1
     if huber_density:
@@ -147,6 +153,7 @@ def _interpolated_normals(
             outgoing,
             count,
             expected,
+            canonical_excess_over_pi,
         )
     incoming = metric.unit_g(incoming)
     outgoing = metric.unit_g(outgoing)
@@ -374,6 +381,7 @@ def _huber_density_interpolated_normals(
     outgoing: ExactPlanarVector,
     count: int,
     orientation_sign: int,
+    canonical_excess_over_pi=None,
 ) -> tuple[ExactPlanarVector, ...]:
     """Равноугольный веер H=1..5 без generic root solver.
 
@@ -457,7 +465,20 @@ def _huber_density_interpolated_normals(
     )
     hidden = []
     for ordinal in range(1, subturn_count):
-        angle = sp.Rational(ordinal, subturn_count) * principal_turn
+        # Канонический веер: луч ординала ставится ТОЧНЫМ поворотом входящей
+        # опоры на `ordinal * u_канон * pi / (H + 1)`. Формула та же, что у
+        # точного близнеца, — у него `principal_turn` и есть канонический
+        # угол, поэтому и выражение луча выходит буквально то же. Остаток
+        # авторского шума целиком остаётся в ПОСЛЕДНЕМ секторе.
+        angle = (
+            sp.Rational(ordinal, subturn_count) * principal_turn
+            if canonical_excess_over_pi is None
+            else sp.pi
+            * sp.Rational(
+                ordinal * canonical_excess_over_pi.numerator,
+                subturn_count * canonical_excess_over_pi.denominator,
+            )
+        )
         cosine = sp.cos(angle)
         sine = orientation_sign * sp.sin(angle)
         normal = _density_runtime_vector(
@@ -468,6 +489,178 @@ def _huber_density_interpolated_normals(
     # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
     # Поэтому каждая разность соседних ordinal углов строго одного знака.
     return incoming, *hidden, outgoing
+
+
+def _verify_canonical_subturn_fan(context, spec, orientation, ideal, q):
+    """Луч ординала — ТОЧНО `ordinal` поворотов входящей опоры на `pi/n`.
+
+    Проверка сильнее прежней оконной и дешевле её: окно доказывало «подшаг не
+    больше `pi/q`» поиском, а тождество поворота доказывает «подшаг РАВЕН
+    `pi/n`» одним точным сравнением, после чего `n >= q` — целое число.
+    Остаток авторского шума остаётся в последнем секторе и ограничен
+    сертификатом восстановления.
+    """
+
+    from .adaptive_density_fan import _expected_orientation, _rotate_q
+
+    authority = next(
+        item
+        for item in context.compilation.canonical_subturn_fan_authorities
+        if item.envelope_spec_id == spec.envelope_spec_id
+    )
+    hidden_count = spec.resolved_hidden_edge_count
+    canonical = Fraction(
+        authority.canonical_reflex_excess_over_pi.numerator,
+        authority.canonical_reflex_excess_over_pi.denominator,
+    )
+    denominator = canonical_rotation_denominator(canonical, hidden_count)
+    if denominator is None or denominator < q:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+            "canonical subturn is not an exact rotation within pi/q: "
+            f"{spec.envelope_spec_id}",
+        )
+    for support in spec.hidden_supports:
+        if type(support) is not HiddenSupportSpecV1:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                "canonical subturn fan admits only unbound ordinal supports: "
+                f"{support.hidden_support_id}",
+            )
+    expected = _expected_orientation(orientation)
+    for ordinal in range(1, hidden_count + 1):
+        rotated = _rotate_q(
+            context.metric,
+            ideal[ordinal - 1],
+            expected,
+            denominator,
+        )
+        if not _density_directions_agree(context.metric, rotated, ideal[ordinal]):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                "canonical subturn fan ray is not the exact ordinal rotation: "
+                f"{spec.envelope_spec_id} ordinal {ordinal}",
+            )
+
+
+def _density_directions_agree(metric, left, right) -> bool:
+    """Один и тот же ЛУЧ: нулевой cross и положительный dot. Точно."""
+
+    lx, ly = metric.density_expressions(left)
+    rx, ry = metric.density_expressions(right)
+    cross = sp.expand(lx * ry - ly * rx)
+    if _density_exact_sign(cross, metric) != 0:
+        return False
+    return _density_exact_sign(sp.expand(lx * rx + ly * ry), metric) > 0
+
+
+def _canonical_subturn_fan_or_source(
+    context,
+    spec,
+    selection,
+    incoming,
+    outgoing,
+    orientation,
+    source_ideal,
+):
+    """Веер сырого угла, пока он держит гарантию; иначе — канонический.
+
+    Форма закона та же, что у лифта счёта: осуществимо на сырых опорах —
+    ничего не происходит и байты прежние; неосуществимо — включается
+    объявленная власть `SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1`, и она
+    доступна ТОЛЬКО углу с доказанным восстановлением. У угла без
+    восстановления второй ветви нет вовсе, поэтому его отказ остаётся отказом.
+    """
+
+    from .compile import _density_ideal_is_subturn_feasible
+
+    contract = huber_density_value_contract(selection.max_subturn_value_id)
+    if contract is None or spec.resolved_hidden_edge_count < 1:
+        return source_ideal
+    q = contract[0]
+    key = spec.envelope_spec_id.value
+    authority = next(
+        (
+            item
+            for item in context.compilation.canonical_subturn_fan_authorities
+            if item.envelope_spec_id == spec.envelope_spec_id
+        ),
+        None,
+    )
+    restoration = next(
+        (
+            item
+            for item in context.compilation.canonical_angle_restorations
+            if item.selection_certificate_id == selection.certificate_id
+        ),
+        None,
+    )
+    if _density_ideal_is_subturn_feasible(context.metric, source_ideal, q):
+        # Сырой веер держит гарантию — власти канонического подшага здесь быть
+        # не может. Запись при живом старом законе и есть подделка.
+        if authority is not None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                "canonical subturn fan authority stands on a fan that already "
+                f"satisfies the guarantee on source supports: {key}",
+            )
+        context.canonical_subturn_fan[key] = False
+        return source_ideal
+    if restoration is None:
+        if authority is not None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                f"canonical subturn fan authority without a restoration: {key}",
+            )
+        context.canonical_subturn_fan[key] = False
+        return source_ideal
+    canonical = Fraction(
+        restoration.canonical_reflex_excess_over_pi.numerator,
+        restoration.canonical_reflex_excess_over_pi.denominator,
+    )
+    hidden_count = spec.resolved_hidden_edge_count
+    if canonical_rotation_denominator(canonical, hidden_count) is None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+            "canonical subturn is not a single exact rotation: "
+            f"{canonical}/{hidden_count + 1} of pi",
+        )
+    if not canonical_subturn_is_within_max_subturn(canonical, hidden_count, q):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID,
+            "canonical subturn exceeds the declared maximum subturn",
+        )
+    if context.require_canonical_fan_authority:
+        error = canonical_subturn_fan_authority_error(authority, restoration)
+        if authority is None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                "canonical subturn fan is in force without its recorded "
+                f"authority: {key}",
+            )
+        if error is not None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                f"{error}: {key}",
+            )
+        if (
+            authority.hidden_edge_count != hidden_count
+            or authority.max_subturn_q != q
+        ):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                f"canonical subturn fan authority describes another fan: {key}",
+            )
+    context.canonical_subturn_fan[key] = True
+    return _interpolated_normals(
+        context.metric,
+        incoming,
+        outgoing,
+        hidden_count,
+        orientation,
+        huber_density=True,
+        canonical_excess_over_pi=canonical,
+    )
 
 
 def _ideal_angular_support_data(
@@ -541,21 +734,33 @@ def _ideal_angular_support_data(
         sector.ordered_incident_chain_use_ids[-1],
         relation.source_vertex_id,
     )
+    selection = next(
+        item
+        for item in context.compilation.profile_selection_certificates
+        if item.certificate_id == spec.selection_certificate_id
+    )
+    huber_density = (
+        selection.selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    )
     ideal = _interpolated_normals(
         context.metric,
         incoming,
         outgoing,
         spec.resolved_hidden_edge_count,
         sector.turn_orientation,
-        huber_density=(
-            next(
-                item
-                for item in context.compilation.profile_selection_certificates
-                if item.certificate_id == spec.selection_certificate_id
-            ).selection_policy_id
-            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
-        ),
+        huber_density=huber_density,
     )
+    if huber_density:
+        ideal = _canonical_subturn_fan_or_source(
+            context,
+            spec,
+            selection,
+            incoming,
+            outgoing,
+            sector.turn_orientation,
+            ideal,
+        )
     support_ids = [incoming_support_id]
     support_ids.extend(
         hidden_by_ordinal[index].hidden_support_id.value
@@ -974,7 +1179,19 @@ def _angular_support_data_uncached(
         selection.max_subturn_value_id
     )
     try:
-        if (
+        if context.canonical_subturn_fan.get(spec.envelope_spec_id.value):
+            # Под канонической властью ординального ОКНА нет: окно было
+            # способом сказать «подшаг <= pi/q на сырых опорах», а закон
+            # теперь говорит это на каноническом угле — и говорит СИЛЬНЕЕ,
+            # тождеством поворота, которое проверяется точно и без поиска.
+            _verify_canonical_subturn_fan(
+                context,
+                spec,
+                sector.turn_orientation,
+                ideal,
+                density_contract[0],
+            )
+        elif (
             selection.selection_policy_id
             is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
             and density_contract is not None
