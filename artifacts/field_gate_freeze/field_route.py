@@ -257,8 +257,16 @@ def run_domain_record(entry, *, alpha: float):
     }
 
 
-def run_snapshot(name: str, *, alpha: float, density: int, patch_filter=None):
-    """Полный маршрут на слепке. Каждый домен — своя запись, отказ тоже."""
+def run_snapshot(
+    name: str, *, alpha: float, density: int, patch_filter=None,
+    substitutions=(),
+):
+    """Полный маршрут на слепке. Каждый домен — своя запись, отказ тоже.
+
+    `substitutions` едет В ОТВЕТЕ, а не остаётся в голове запускающего:
+    подмена шага, которого без Blender не существует, обязана быть видна
+    читателю расписки рядом с числами, которые она сделала возможными.
+    """
 
     payload, bm, bundle = bundle_from_field_snapshot(SNAPSHOTS / name)
     selected = selected_edge_ids(payload)
@@ -279,6 +287,7 @@ def run_snapshot(name: str, *, alpha: float, density: int, patch_filter=None):
         "sha256": snapshot_sha256(name),
         "alpha": alpha,
         "density": density,
+        "substitutions": list(substitutions),
         "mesh": {
             "vertices": len(bm.verts),
             "edges": len(bm.edges),
@@ -300,9 +309,20 @@ def _main() -> None:
         if len(sys.argv) > 4 and sys.argv[4] not in ("", "-")
         else None
     )
+    substitutions = []
     if name == "building_full_snapshot.json":
-        install_building_substitution()
-    result = run_snapshot(name, alpha=alpha, density=density, patch_filter=patches)
+        # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
+        # через временный UV-unwrap внутри Blender. Без Blender шага НЕ
+        # СУЩЕСТВУЕТ, и подмена другим модульным путём того же файла — не
+        # деталь запуска, а факт, который расписка обязана нести.
+        substitutions.append(install_building_substitution())
+    result = run_snapshot(
+        name,
+        alpha=alpha,
+        density=density,
+        patch_filter=patches,
+        substitutions=substitutions,
+    )
     text = json.dumps(result, ensure_ascii=False, indent=1)
     if len(sys.argv) > 5:
         Path(sys.argv[5]).write_text(text, encoding="utf-8")

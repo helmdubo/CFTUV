@@ -806,6 +806,7 @@
   "test_walls_001_slope_domain_refuses_by_the_field_name",
   "test_building_domain_is_exact_or_an_approved_named_refusal (5 патчей)",
   "test_building_route_finishes_within_the_work_cap",
+  "test_building_route_declares_its_blender_substitution",
   "test_red_gates_are_not_suppressed",
   "test_snapshot_inputs_are_the_frozen_field_bytes"
  ],
@@ -843,5 +844,17 @@
  "trajectory_change_named": {
   "per_window": "У каждого из четырёх оконных вырезов ДВА веера (скрытые опоры двух вогнутых углов на y=8558) и две наклонные стороны A и B. На 6ce0227 два веера встречаются ДРУГ С ДРУГОМ дважды — на B (t≈14531) и на нижнем ребре (t≈18089). На 1dbf712 они не встречаются друг с другом НИ РАЗУ: вместо этого каждый веер порознь встречается с ребром A (t≈13924 на B, t≈16905 на нижнем, t≈22373 на нижнем). То есть ребро A переживает момент, в который прежде поглощалось.",
   "consequence_for_faces": "У owner A в одно точное время t≈13923.8425 оказывается ТРИ точки, и во всех трёх сидит партнёр B: place 0 (узел 4, EDGE), place 1 (узел 5, MULTIWAY, четыре одинаковых incidence), place 2 (узел 6, SPLIT — добавленный). face_chain отвергает: у одной пары рёбер дуга обязана быть одна."
- }
+ },
+ "blender_free_substitutions": [
+  {
+   "snapshot": "building_full_snapshot.json",
+   "substitution": "HOST_MULTI_LOOP_UV_CLASSIFICATION_SUBSTITUTED_BY_NESTING",
+   "why": "классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне через временный bpy.ops.uv.unwrap; без Blender шага не существует. Подставлен другой модульный путь того же файла (_classify_multi_loop_patches_by_nesting), объявленный в продакшне диагностическим. Подмена едет в ответе маршрута и проверяется тестом test_building_route_declares_its_blender_substitution."
+  },
+  {
+   "snapshot": "wall_2_001_snapshot.json / walls_012 / walls_001",
+   "substitution": null,
+   "why": "патчи однопетлевые — измерен продакшн-путь целиком"
+  }
+ ]
 }

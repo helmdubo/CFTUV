@@ -423,6 +423,27 @@ def test_building_domain_is_exact_or_an_approved_named_refusal(patch_id):
     assert record["counters"]["CONVEYOR_FACES"] > 0
 
 
+def test_building_route_declares_its_blender_substitution():
+    """Шаг, которого без Blender НЕ СУЩЕСТВУЕТ, назван в ответе маршрута.
+
+    Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне через
+    временный UV-unwrap внутри Blender. Харнесс подставляет другой модульный
+    путь того же файла — и это обязано быть ВИДНО рядом с числами, которые
+    подмена сделала возможными, иначе безблендерный прогон выдавал бы себя за
+    полный. Три остальных слепка подмен не требуют, и это проверяется тоже:
+    пустой список здесь — утверждение, а не умолчание.
+    """
+
+    assert route(BUILDING)["substitutions"] == [
+        "HOST_MULTI_LOOP_UV_CLASSIFICATION_SUBSTITUTED_BY_NESTING"
+    ]
+    for name in (WALL_2_001, WALLS_012, WALLS_001):
+        assert route(name)["substitutions"] == [], (
+            f"UNDECLARED_SUBSTITUTION: {name} прошёл маршрут с подменой "
+            f"{route(name)['substitutions']}, а полевой прогон владельца — нет."
+        )
+
+
 def test_building_route_finishes_within_the_work_cap():
     """Ни одного зависания: маршрут вернулся, значит кап не сработал.
 
