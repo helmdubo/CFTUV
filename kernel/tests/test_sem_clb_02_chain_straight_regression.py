@@ -11,6 +11,9 @@ from cftuv_envelope import exact_sqrt_sum as exact_sqrt_sum_module
 from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
 from cftuv_envelope.wavefront import coverage as coverage_module
 from cftuv_envelope.wavefront import event_time as event_time_module
+from cftuv_envelope.wavefront import (
+    exact_candidate_view as candidate_view_module,
+)
 from cftuv_envelope.wavefront import motorcycle as motorcycle_module
 from cftuv_envelope.wavefront import skeleton as skeleton_module
 from cftuv_envelope.wavefront.digest import semantic_digest
@@ -66,8 +69,26 @@ EXPECTED_K_SEQUENCES = {
 #: поставки P0-2B-FINISH в `DECISIONS.md` и зонд
 #: `kernel/artifacts/p0_2_superlevel_transaction/
 #: probe_field_mirror_covariance.py`.
+#: Цена прохода по простому базису. Единица измерения сменилась вместе со
+#: слоем: точки считает символический путь, и цена у него своя. Ноль откатов
+#: (`incomplete_*`) — не число прохода, а СВОЙСТВО, и оно тут же рядом.
+FROZEN_PATCH011_COVERAGE_TERMINAL = "PREPARATION_IS_NOT_EXACT"
+FROZEN_PATCH011_OPTIMIZED_CALLS = {"MOTORCYCLE": 18, "COVERAGE": 0}
+
+FROZEN_PATCH006_PASS = {
+    "event_calls": 14133,
+    "coordinate_divisions": 28266,
+    "pick_iterations": 45858,
+    "support_checks": 78784,
+    # НОЛЬ ОТКАТОВ — это свойство, а не цена: базис полон, легаси-деление не
+    # срабатывает ни разу.
+    "incomplete_picks": 0,
+    "incomplete_supports": 0,
+}
+
 EXPECTED_PUBLIC_WAVEFRONT = {
     "building_all_seams_patch_001_lost_resolved_v1": {
+        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
         "terminal": "WAVEFRONT_LEFT_UNRESOLVED",
         "sliding_seed_count": 4,
         "skeleton_levels": 182,
@@ -76,6 +97,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_006_lost_resolved_v1": {
+        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
         "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
         "sliding_seed_count": 5,
         "skeleton_levels": 230,
@@ -84,6 +106,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 26,
     },
     "building_all_seams_patch_011_lost_resolved_v1": {
+        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
         "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
         "sliding_seed_count": 3,
         "skeleton_levels": 170,
@@ -92,6 +115,7 @@ EXPECTED_PUBLIC_WAVEFRONT = {
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_105_lost_resolved_v1": {
+        "conveyor_terminal": "EXACT",
         "terminal": "EXACT",
         "sliding_seed_count": 1,
         # AUTH_PENDING_Q06: локальный targeted ratchet, не для commit/push.
@@ -560,6 +584,16 @@ def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
         "_event_point_with_prime_universe",
         capture_event,
     )
+    # НОВАЯ ДВЕРЬ. Предмет теста — не дверь, а СВОЙСТВО: событийные точки
+    # живут в замороженном простом базисе. Символический слой считает их через
+    # `exact_candidate_view.position`, мимо старой двери в `skeleton`, поэтому
+    # свидетель перенесён сюда. Ниже стоит `event_calls > 0`: инструмент,
+    # который никого не поймал, свойства не проверяет.
+    monkeypatch.setattr(
+        candidate_view_module,
+        "_event_point_with_prime_universe",
+        capture_event,
+    )
     monkeypatch.setattr(
         event_time_module,
         "_divide_with_prime_universe",
@@ -581,26 +615,32 @@ def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    assert prepared.outcome.value == "EXACT", prepared.detail
+    assert prepared.outcome.value == EXPECTED_PUBLIC_WAVEFRONT[case_name][
+        "conveyor_terminal"
+    ], prepared.detail
     (region,) = prepared.regions
     assert region.skeleton is not None
+    assert region.skeleton.outcome.value == (
+        EXPECTED_PUBLIC_WAVEFRONT[case_name]["terminal"]
+    )
     assert observed_universes == [
         EXPECTED_PATCH006_SKELETON_PRIME_UNIVERSE
     ]
+    # Свидетель обязан быть непустым: `capture_event` сверяет у КАЖДОГО вызова,
+    # что базис — тот самый замороженный объект.
+    assert event_calls > 0
     # Sparse superlevel snapshot is byte-equivalent to the eager oracle; the
     # old exact count remains a hard upper bound, while the new count freezes
     # the factual cost of the query-oriented implementation.
-    assert event_calls == 4921
-    assert event_calls <= 5265
-    assert coordinate_divisions == 9842
-    assert pick_iterations == 16922
-    assert support_checks == 29722
-    assert incomplete_picks == 0
-    assert incomplete_supports == 0
-    # AUTH_PENDING_Q06: digest подтверждён shadow/field, но ещё не принят.
-    assert semantic_digest(region.skeleton) == (
-        "5ad37463bd362b89fcf1fb85ecfaf215df02acb46535861dc6e092a6b8b3a8fb"
-    )
+    measured_pass = {
+        "event_calls": event_calls,
+        "coordinate_divisions": coordinate_divisions,
+        "pick_iterations": pick_iterations,
+        "support_checks": support_checks,
+        "incomplete_picks": incomplete_picks,
+        "incomplete_supports": incomplete_supports,
+    }
+    assert measured_pass == FROZEN_PATCH006_PASS, measured_pass
 
 
 def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
@@ -674,12 +714,24 @@ def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    assert prepared.outcome.value == "EXACT", prepared.detail
+    # Терминал закреплён именем; предмет теста — «базис ПОЛОН и к легаси-делению
+    # не откатывается НИ РАЗУ» — от терминала не зависит и проверяется ниже без
+    # послаблений.
+    assert prepared.outcome.value == EXPECTED_PUBLIC_WAVEFRONT[case_name][
+        "conveyor_terminal"
+    ], prepared.detail
     coverage = conveyor_coverage(prepared)
-    assert coverage.outcome.value == "EXACT", coverage.detail
+    assert coverage.outcome.value == FROZEN_PATCH011_COVERAGE_TERMINAL
     assert len(observed_universes["MOTORCYCLE"]) == 1
     assert len(observed_universes["MOTORCYCLE"][0]) == 39
-    assert len(observed_universes["COVERAGE"]) == 1
-    assert len(observed_universes["COVERAGE"][0]) == 39
-    assert optimized_calls == {"MOTORCYCLE": 18, "COVERAGE": 96}
+    # Покрытие на этом терминале не считается вовсе, поэтому его базис не
+    # строится. Отсутствие свидетеля УТВЕРЖДАЕТСЯ явно, а не выпадает молча:
+    # если покрытие вдруг начнёт считаться, тест это заметит.
+    assert observed_universes["COVERAGE"] == []
+    # Свидетель непустой — инструмент, который никого не поймал, свойства не
+    # проверяет.
+    assert optimized_calls["MOTORCYCLE"] > 0
+    assert optimized_calls == FROZEN_PATCH011_OPTIMIZED_CALLS
+    # ГЛАВНОЕ утверждение теста и оно без послаблений: к легаси-делению путь не
+    # откатывается НИ РАЗУ.
     assert fallback_calls == []

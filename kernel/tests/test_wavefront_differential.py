@@ -1006,9 +1006,24 @@ def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
         ),
     )
     assert unit.source_edge_count == report.polygon.source_edge_count
-    assert build_skeleton(unit).outcome is (
-        SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED
-    )
+    # СТАРЫЙ СВИДЕТЕЛЬ СЪЕДЕН ТРАНЗАКЦИЕЙ, и это усиление, а не потеря.
+    # Контроль требовал `WAVEFRONT_LEFT_UNRESOLVED` на единичных скоростях:
+    # доказательством служило то, что БЕЗ весов очередь не досчитывает. После
+    # quotient Q-10-ADD и плотной гидратации она досчитывает и там — обе
+    # геометрии закрываются EXACT.
+    #
+    # Настоящее утверждение контроля от этого не пострадало, а стало острее:
+    # веса покупают не «досчитал / не досчитал», а САМ ОТВЕТ. Проверяется
+    # теперь именно расхождение ответов. Счётом его подменить нельзя и это
+    # измерено: у обеих геометрий 12 узлов и 5 граней, совпадает даже исход
+    # сборщика — различает их ТОЛЬКО дайджест. Равенство дайджестов означало
+    # бы, что вес не доехал до геометрии, и было бы дефектом.
+    weighted_skeleton = build_skeleton(report.polygon)
+    unit_skeleton = build_skeleton(unit)
+    assert weighted_skeleton.outcome is SkeletonOutcome.EXACT
+    assert unit_skeleton.outcome is SkeletonOutcome.EXACT
+    assert len(unit_skeleton.nodes) == len(weighted_skeleton.nodes)
+    assert semantic_digest(unit_skeleton) != semantic_digest(weighted_skeleton)
 
 
 def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
