@@ -75,7 +75,8 @@
             "EXACT_SIGN_PREFILTER",
             "DENSITY_FAN_PREPARATION",
             "DENSITY_MINIMAL_HEIGHT_SEARCH",
-            "EXACT_CANONICALIZATION_MEMORY"
+            "EXACT_CANONICALIZATION_MEMORY",
+            "EXACT_CANONICALIZATION_TRANSACTION"
           ],
           "type": "string"
         },
@@ -137,7 +138,8 @@
             "DENSITY_EXACT_WORK_CAP_V1",
             "FACTORIZATION_MEMO_ENTRIES_V1",
             "KNOWN_PRIME_REGISTRY_ENTRIES_V1",
-            "COPRIME_BASIS_SPLIT_BUDGET_V1"
+            "COPRIME_BASIS_SPLIT_BUDGET_V1",
+            "EXACT_CANONICALIZATION_WORK_CAP_V1"
           ],
           "type": "string"
         },

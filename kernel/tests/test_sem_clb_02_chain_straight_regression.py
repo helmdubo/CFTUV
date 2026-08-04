@@ -555,19 +555,19 @@ def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
     original_pick = exact_sqrt_sum_module._pick_prime_from_universe
     original_support = exact_sqrt_sum_module._support_from_prime_universe
 
-    def capture_build(q_values):
-        universe = original_build(q_values)
+    def capture_build(q_values, budget=None):
+        universe = original_build(q_values, budget)
         observed_universes.append(universe)
         return universe
 
-    def capture_event(first, second, time, prime_universe):
+    def capture_event(first, second, time, prime_universe, budget=None):
         nonlocal event_calls
         event_calls += 1
         assert observed_universes
         assert prime_universe is observed_universes[0]
-        return original_event(first, second, time, prime_universe)
+        return original_event(first, second, time, prime_universe, budget)
 
-    def capture_divide(numerator, denominator, prime_universe):
+    def capture_divide(numerator, denominator, prime_universe, budget=None):
         nonlocal coordinate_depth, coordinate_divisions
         coordinate_divisions += 1
         coordinate_depth += 1
@@ -576,6 +576,7 @@ def test_patch006_skeleton_event_points_use_the_frozen_prime_basis(
                 numerator,
                 denominator,
                 prime_universe,
+                budget,
             )
         finally:
             coordinate_depth -= 1
@@ -673,7 +674,7 @@ def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
     observed_universes = {"MOTORCYCLE": [], "COVERAGE": []}
     optimized_calls = {"MOTORCYCLE": 0, "COVERAGE": 0}
     fallback_calls = []
-    original_legacy = SqrtSumV1.__truediv__
+    original_legacy = SqrtSumV1.divided_by
     original_optimized = (
         exact_sqrt_sum_module._divide_with_prime_universe
     )
@@ -683,31 +684,35 @@ def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
     original_coverage_build = coverage_module._prime_universe_from_q_values
 
     def capture_universe(operation, original):
-        def capture(q_values):
-            universe = original(q_values)
+        def capture(q_values, budget=None):
+            universe = original(q_values, budget)
             observed_universes[operation].append(universe)
             return universe
 
         return capture
 
     def observe_division(operation):
-        def divide(numerator, denominator, prime_universe):
+        def divide(numerator, denominator, prime_universe, budget=None):
             optimized_calls[operation] += 1
 
-            def track_fallback(left, right):
+            # Патчится `divided_by`, а не оператор: откат legacy внутри
+            # `_divide_with_prime_universe` ходит именно им — оператор
+            # третьего аргумента не берёт и бюджет через себя не пустил бы.
+            def track_fallback(left, right, work_budget=None):
                 fallback_calls.append((operation, left, right))
-                return original_legacy(left, right)
+                return original_legacy(left, right, work_budget)
 
             with monkeypatch.context() as local_patch:
                 local_patch.setattr(
                     SqrtSumV1,
-                    "__truediv__",
+                    "divided_by",
                     track_fallback,
                 )
                 return original_optimized(
                     numerator,
                     denominator,
                     prime_universe,
+                    budget,
                 )
 
         return divide

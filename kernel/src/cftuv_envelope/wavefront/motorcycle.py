@@ -704,10 +704,19 @@ def _apply_trace_crash(
     trace = graph.traces[entry.motorcycle]
     if compare_times(entry.time, trace.crash_time, graph.work_budget) >= 0:
         return False
-    hydrated = _as_sqrt_sum(entry.time, prime_universe, graph.work_budget)
+    # ДВА вызова, а не один общий: `_as_sqrt_sum` здесь чистая функция, и
+    # вынести её в переменную было бы ОПТИМИЗАЦИЕЙ, а не учётом. Замороженный
+    # счётчик делений FROZEN_PATCH011_OPTIMIZED_CALLS поймал эту подмену
+    # (18 -> 9), и он прав: карточка обязана добавлять учёт и не трогать путь.
     point = EventPointV1(
-        trace.origin.x + trace.velocity[0] * hydrated,
-        trace.origin.y + trace.velocity[1] * hydrated,
+        trace.origin.x
+        + trace.velocity[0] * _as_sqrt_sum(
+            entry.time, prime_universe, graph.work_budget
+        ),
+        trace.origin.y
+        + trace.velocity[1] * _as_sqrt_sum(
+            entry.time, prime_universe, graph.work_budget
+        ),
     )
     graph.traces[entry.motorcycle] = TraceV1(
         ident=trace.ident,
