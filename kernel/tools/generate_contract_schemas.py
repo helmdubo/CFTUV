@@ -20,6 +20,16 @@ from cftuv_envelope import (
     json_schema_for,
 )
 
+# Реестр допусков намеренно НЕ выведен в корневой фасад: счёт и дайджест
+# публичного `__all__` — замороженная расписка P0-4, а реестровая карточка не
+# двигает поведение и не имеет права двигать эту расписку. Схема при этом
+# нужна: без неё запись реестра — питоновский литерал, который никто извне не
+# может ни прочитать, ни проверить.
+from cftuv_envelope.contracts.tolerance_policy import (  # noqa: E402
+    TOLERANCE_POLICY_REGISTRY_SCHEMA_V1,
+    TolerancePolicyRegistryV1,
+)
+
 
 SCHEMAS = (
     (AnalysisSnapshotV1, "cftuv.envelope.analysis_snapshot.v1", "analysis_snapshot_v1.schema.json"),
@@ -59,6 +69,11 @@ SCHEMAS = (
         RuntimePlanarMetricV1,
         "cftuv.envelope.runtime_planar_metric.v1",
         "runtime_planar_metric_v1.schema.json",
+    ),
+    (
+        TolerancePolicyRegistryV1,
+        TOLERANCE_POLICY_REGISTRY_SCHEMA_V1,
+        "tolerance_policy_registry_v1.schema.json",
     ),
 )
 

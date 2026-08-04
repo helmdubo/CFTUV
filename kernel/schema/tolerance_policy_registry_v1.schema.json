@@ -1,0 +1,225 @@
+{
+  "$defs": {
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "TolerancePolicyRegistryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TolerancePolicyRegistryV1"
+        },
+        "policies": {
+          "items": {
+            "$ref": "#/$defs/TolerancePolicyV1"
+          },
+          "type": "array"
+        },
+        "registry_law": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "registry_law",
+        "policies"
+      ],
+      "type": "object"
+    },
+    "TolerancePolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TolerancePolicyV1"
+        },
+        "allowed_effect": {
+          "enum": [
+            "ADMIT_OR_REJECT_PROJECTION",
+            "RECOMPUTE_DECLARED_CERTIFICATE_ONLY",
+            "ADMIT_OR_REJECT_GRID_SCALE",
+            "BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED",
+            "REPLACE_MEASURE_WITH_CANONICAL_FACT",
+            "BUILD_FAN_ON_CANONICAL_SUPPORTS",
+            "NARROW_ADMITTED_SET_TOWARD_REFUSAL",
+            "CHOOSE_FAST_OR_EXACT_PATH",
+            "NAMED_REFUSAL_ONLY",
+            "CHANGE_COST_NEVER_THE_ANSWER"
+          ],
+          "type": "string"
+        },
+        "applied_stage": {
+          "enum": [
+            "NEAR_PLANAR_ADMISSION",
+            "NEAR_PLANAR_CERTIFICATE_RECOMPUTATION",
+            "SOURCE_GRID_WINDOW",
+            "SOURCE_GRID_SCALE_SELECTION",
+            "CANONICAL_ANGLE_RESTORATION",
+            "CANONICAL_SUBTURN_FAN_CONSTRUCTION",
+            "EXACT_SIGN_PREFILTER",
+            "DENSITY_FAN_PREPARATION",
+            "DENSITY_MINIMAL_HEIGHT_SEARCH",
+            "EXACT_CANONICALIZATION_MEMORY"
+          ],
+          "type": "string"
+        },
+        "authority": {
+          "type": "string"
+        },
+        "bound_law": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "category": {
+          "enum": [
+            "PRODUCT_ADMISSION",
+            "AUTHORING_INTENT",
+            "STRUCTURAL_QUANTIZATION",
+            "NUMERIC_ERROR_BOUND",
+            "BROAD_PHASE_MARGIN",
+            "UI_HYSTERESIS",
+            "WORK_BUDGET"
+          ],
+          "type": "string"
+        },
+        "changes_topology": {
+          "type": "boolean"
+        },
+        "coordinate_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC",
+            "SOURCE_ANGLE_MEASURE",
+            "NOT_A_COORDINATE"
+          ],
+          "type": "string"
+        },
+        "declaration_sites": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "enum": [
+            "PRODUCT_SKIRT_ABSOLUTE_V1",
+            "NEAR_PLANAR_REPRESENTATION_NOISE_V1",
+            "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1",
+            "AUTHOR_ANGULAR_ERROR_SOURCE_GRID_INTENT_V1",
+            "SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1",
+            "PI_RATIONAL_UPPER_BOUND_V1",
+            "DECAL_DETAIL_V1",
+            "SOURCE_GRID_STEP_V1",
+            "SQRT_SUM_INTERVAL_PREFILTER_V1",
+            "SYMBOLIC_INTERVAL_PREFILTER_V1",
+            "DENSITY_FAN_PREPARATION_WORK_CAP_V1",
+            "DENSITY_EXACT_WORK_CAP_V1",
+            "FACTORIZATION_MEMO_ENTRIES_V1",
+            "KNOWN_PRIME_REGISTRY_ENTRIES_V1",
+            "COPRIME_BASIS_SPLIT_BUDGET_V1"
+          ],
+          "type": "string"
+        },
+        "negative_fixture": {
+          "type": "string"
+        },
+        "positive_fixture": {
+          "type": "string"
+        },
+        "preview_or_final": {
+          "enum": [
+            "FINAL_PRODUCT_PATH",
+            "PREVIEW_ONLY"
+          ],
+          "type": "string"
+        },
+        "scaling_law": {
+          "enum": [
+            "ABSOLUTE_INDEPENDENT_OF_EXTENT",
+            "RELATIVE_TO_PATCH_EXTENT_WITH_FLOOR",
+            "DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL",
+            "NOT_SCALED"
+          ],
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "telemetry_counters": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "units": {
+          "enum": [
+            "METRES",
+            "RADIANS",
+            "RADIANS_PER_HALF_TURN",
+            "DIMENSIONLESS",
+            "EXACT_WORK_UNITS",
+            "MEMO_ENTRIES",
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "$type",
+        "id",
+        "category",
+        "value",
+        "bound_law",
+        "units",
+        "coordinate_space",
+        "scaling_law",
+        "scope",
+        "authority",
+        "applied_stage",
+        "allowed_effect",
+        "changes_topology",
+        "preview_or_final",
+        "telemetry_counters",
+        "declaration_sites",
+        "positive_fixture",
+        "negative_fixture"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.tolerance_policy_registry.v1",
+  "$ref": "#/$defs/TolerancePolicyRegistryV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TolerancePolicyRegistryV1"
+}

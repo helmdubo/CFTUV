@@ -97,6 +97,28 @@ def test_hidden_support_tag_schemas_reject_the_other_tags_direction_law():
 
 
 
+def test_checked_in_contract_schemas_match_their_generator():
+    """`generate_contract_schemas.py --check` — часть прогона, а не памятка.
+
+    Тест выше знает свои десять файлов поимённо и потому не увидит
+    ОДИННАДЦАТОГО: схема, добавленная в генератор и забытая в репозитории,
+    прошла бы мимо. Здесь сверяется весь набор генератора целиком.
+    """
+
+    import sys
+
+    sys.path.insert(0, str(SCHEMA_ROOT.parent / "tools"))
+    try:
+        from generate_contract_schemas import rendered_schemas
+    finally:
+        sys.path.pop(0)
+
+    for filename, content in rendered_schemas().items():
+        path = SCHEMA_ROOT / filename
+        assert path.is_file(), filename
+        assert path.read_text(encoding="utf-8") == content, filename
+
+
 def test_checked_in_surface_schemas_match_their_generator():
     """Схемы поверхности — не обещание генератора, а сверенные байты.
 
