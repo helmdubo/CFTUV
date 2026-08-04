@@ -870,7 +870,12 @@
    "sverkh_sredovogo_i_krasnykh_vorot": 0
   },
   "architecture": "446 passed (tests/test_architecture.py)",
-  "field_release_matrix_alone": "2 failed (красные ворота), 20 passed"
+  "field_release_matrix_alone": "2 failed (красные ворота), 20 passed",
+  "kernel": {
+   "command": "PYTHONPATH=src:tests python3 -m pytest . (из каталога kernel)",
+   "result": "2972 passed, 2 skipped, 0 failed (3068 s)",
+   "note": "карточка не тронула kernel/src ни строкой (git diff по kernel/, cftuv/, tools/ — пусто), поэтому число совпадает с базой ветки; прогон сделан из каталога kernel, где test_isolation зелёный (из корня чекаута он падает средово)"
+  }
  },
  "proof_obligations_by_class": {
   "wall_2_001_snapshot.json": {
