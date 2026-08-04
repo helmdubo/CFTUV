@@ -726,7 +726,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 4,
+          "discarded_stale_candidates": 5,
           "edge_events": 4,
           "motorcycle_march_steps": 2,
           "motorcycle_trace_crashes": 0,
@@ -868,7 +868,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 4,
+          "discarded_stale_candidates": 5,
           "edge_events": 6,
           "motorcycle_march_steps": 4,
           "motorcycle_trace_crashes": 0,
@@ -1307,7 +1307,7 @@
           "peaks": 0,
           "refused_filter_beyond_trace": 12,
           "refused_filter_edge_is_own": 12,
-          "refused_filter_event_in_the_past": 16,
+          "refused_filter_event_in_the_past": 8,
           "refused_filter_point_outside_front": 10,
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
@@ -1318,11 +1318,11 @@
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
           "refused_no_rule_meeting_not_reconnectable": 0,
           "refused_no_rule_span_vanished": 0,
-          "refused_no_rule_triple_always_concurrent": 20,
+          "refused_no_rule_triple_always_concurrent": 16,
           "resting_steiner_vertices": 4,
           "ridges": 4,
           "split_candidates_beyond_trace": 12,
-          "split_candidates_examined": 68,
+          "split_candidates_examined": 52,
           "split_events": 0,
           "split_search_exhaustive_segments": 0,
           "split_search_exhaustive_vertices": 2,
@@ -1337,7 +1337,7 @@
         "partition_outcome": "EXACT",
         "partition_sha256": "5ed5213afe09a23388c3372570ec7b8a2d2fd0103e3c5e7a65d5ddff4f7b2f43",
         "proof_counts": {
-          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 20
+          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 16
         },
         "proof_projection_sha256": "726feec13ef2389d5a34e06d00ebb871a8e23be828969e44388493902fc334e1",
         "proof_status": "COMPLETE",
@@ -1719,8 +1719,8 @@
           "d75b7054f53dfe5e89f4448e21b2e82d5e316cf44a474575e037d3a1b7e05d2f"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 2,
-          "discarded_stale_candidates": 10,
+          "coincident_split_targets": 0,
+          "discarded_stale_candidates": 13,
           "edge_events": 6,
           "motorcycle_march_steps": 4,
           "motorcycle_trace_crashes": 1,
@@ -1968,8 +1968,8 @@
           "069e64f058463262a77b95ad28a4b420731706135c41f425126f672836a7c8b2"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 2,
-          "discarded_stale_candidates": 13,
+          "coincident_split_targets": 0,
+          "discarded_stale_candidates": 16,
           "edge_events": 8,
           "motorcycle_march_steps": 8,
           "motorcycle_trace_crashes": 1,
@@ -2217,8 +2217,8 @@
           "ba36bdb164329de2df2d3cd5fadf9981602c91689f440318425e9e1e9248d7f5"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 2,
-          "discarded_stale_candidates": 14,
+          "coincident_split_targets": 0,
+          "discarded_stale_candidates": 15,
           "edge_events": 8,
           "motorcycle_march_steps": 7,
           "motorcycle_trace_crashes": 1,
@@ -2466,8 +2466,8 @@
           "34b1fe3f6562b5cbd4ef1d18d7cd5481a6ee2c6498cf3c3938aea7fb010cd83b"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 2,
-          "discarded_stale_candidates": 14,
+          "coincident_split_targets": 0,
+          "discarded_stale_candidates": 15,
           "edge_events": 8,
           "motorcycle_march_steps": 7,
           "motorcycle_trace_crashes": 1,
@@ -2663,7 +2663,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 13,
+          "discarded_stale_candidates": 16,
           "edge_events": 7,
           "motorcycle_march_steps": 4,
           "motorcycle_trace_crashes": 0,
@@ -2805,7 +2805,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 11,
+          "discarded_stale_candidates": 13,
           "edge_events": 6,
           "motorcycle_march_steps": 3,
           "motorcycle_trace_crashes": 0,
@@ -2944,7 +2944,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 12,
+          "discarded_stale_candidates": 15,
           "edge_events": 7,
           "motorcycle_march_steps": 0,
           "motorcycle_trace_crashes": 0,
@@ -3081,7 +3081,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 12,
+          "discarded_stale_candidates": 16,
           "edge_events": 7,
           "motorcycle_march_steps": 0,
           "motorcycle_trace_crashes": 0,
@@ -3378,7 +3378,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 15,
+          "discarded_stale_candidates": 20,
           "edge_events": 7,
           "motorcycle_march_steps": 9,
           "motorcycle_trace_crashes": 2,
@@ -3574,7 +3574,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 12,
+          "discarded_stale_candidates": 13,
           "edge_events": 7,
           "motorcycle_march_steps": 3,
           "motorcycle_trace_crashes": 0,
@@ -4866,7 +4866,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 8,
+          "refused_filter_triple_never_concurrent": 9,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -5060,9 +5060,9 @@
           "refused_filter_event_in_the_past": 0,
           "refused_filter_point_outside_front": 0,
           "refused_filter_solo_vertex": 0,
-          "refused_filter_span_does_not_collapse": 1,
+          "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 9,
+          "refused_filter_triple_never_concurrent": 10,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -5205,7 +5205,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 8,
+          "refused_filter_triple_never_concurrent": 9,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -5346,7 +5346,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 8,
+          "refused_filter_triple_never_concurrent": 9,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -5542,7 +5542,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 2,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 7,
+          "refused_filter_triple_never_concurrent": 8,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
@@ -5895,7 +5895,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 5,
+          "refused_filter_triple_never_concurrent": 6,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -6105,7 +6105,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 5,
+          "refused_filter_triple_never_concurrent": 6,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -6454,7 +6454,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 5,
+          "refused_filter_triple_never_concurrent": 6,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -6947,7 +6947,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 20,
+          "refused_filter_triple_never_concurrent": 22,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -7125,7 +7125,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 2,
+          "discarded_stale_candidates": 1,
           "edge_events": 2,
           "motorcycle_march_steps": 32,
           "motorcycle_trace_crashes": 0,
@@ -7141,7 +7141,7 @@
           "refused_filter_event_in_the_past": 0,
           "refused_filter_point_outside_front": 1,
           "refused_filter_solo_vertex": 0,
-          "refused_filter_span_does_not_collapse": 1,
+          "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
           "refused_filter_triple_never_concurrent": 21,
           "refused_no_rule_joint_is_antiparallel": 0,
@@ -7153,7 +7153,7 @@
           "resting_steiner_vertices": 0,
           "ridges": 0,
           "split_candidates_beyond_trace": 0,
-          "split_candidates_examined": 16,
+          "split_candidates_examined": 14,
           "split_events": 1,
           "split_search_exhaustive_segments": 0,
           "split_search_exhaustive_vertices": 2,
@@ -7286,7 +7286,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 19,
+          "refused_filter_triple_never_concurrent": 20,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -7477,21 +7477,21 @@
           "refused_filter_beyond_trace": 0,
           "refused_filter_edge_is_own": 6,
           "refused_filter_event_in_the_past": 3,
-          "refused_filter_point_outside_front": 2,
+          "refused_filter_point_outside_front": 1,
           "refused_filter_solo_vertex": 0,
-          "refused_filter_span_does_not_collapse": 1,
+          "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 21,
+          "refused_filter_triple_never_concurrent": 22,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
           "refused_no_rule_meeting_not_reconnectable": 0,
           "refused_no_rule_span_vanished": 0,
-          "refused_no_rule_triple_always_concurrent": 3,
+          "refused_no_rule_triple_always_concurrent": 0,
           "resting_steiner_vertices": 0,
           "ridges": 0,
           "split_candidates_beyond_trace": 0,
-          "split_candidates_examined": 22,
+          "split_candidates_examined": 18,
           "split_events": 1,
           "split_search_exhaustive_segments": 0,
           "split_search_exhaustive_vertices": 2,
@@ -7506,9 +7506,7 @@
         "partition_outcome": "SKELETON_IS_NOT_EXACT",
         "partition_sha256": "2c339155a77efa446e0ceca981ec3b59235b96da795ba97a8c8987b9be01c75f",
         "proof_counts": {
-          "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1,
-          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1,
-          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
+          "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
         },
         "proof_projection_sha256": "04bcdb1019940ee132403725482bce766b0d0dd1df8707f0f978c5f603e7e879",
         "proof_status": "INCOMPLETE",
@@ -7675,12 +7673,12 @@
           "peaks": 0,
           "refused_filter_beyond_trace": 0,
           "refused_filter_edge_is_own": 4,
-          "refused_filter_event_in_the_past": 2,
+          "refused_filter_event_in_the_past": 3,
           "refused_filter_point_outside_front": 2,
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 2,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 16,
+          "refused_filter_triple_never_concurrent": 18,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
@@ -7825,7 +7823,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 19,
+          "refused_filter_triple_never_concurrent": 20,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -8016,22 +8014,22 @@
           "peaks": 0,
           "refused_filter_beyond_trace": 0,
           "refused_filter_edge_is_own": 6,
-          "refused_filter_event_in_the_past": 5,
+          "refused_filter_event_in_the_past": 6,
           "refused_filter_point_outside_front": 1,
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 4,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 21,
+          "refused_filter_triple_never_concurrent": 22,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 2,
           "refused_no_rule_meeting_not_reconnectable": 0,
           "refused_no_rule_span_vanished": 0,
-          "refused_no_rule_triple_always_concurrent": 6,
+          "refused_no_rule_triple_always_concurrent": 3,
           "resting_steiner_vertices": 0,
           "ridges": 0,
           "split_candidates_beyond_trace": 0,
-          "split_candidates_examined": 25,
+          "split_candidates_examined": 21,
           "split_events": 3,
           "split_search_exhaustive_segments": 0,
           "split_search_exhaustive_vertices": 3,
@@ -8047,7 +8045,7 @@
         "partition_sha256": "2c339155a77efa446e0ceca981ec3b59235b96da795ba97a8c8987b9be01c75f",
         "proof_counts": {
           "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 2,
-          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 6
+          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 3
         },
         "proof_projection_sha256": "6dd22543a165e2e1fe02fb66245df575f85557e7a22a8aa7b36f8dd65d328e06",
         "proof_status": "INCOMPLETE",
@@ -8147,8 +8145,8 @@
           "8d14e5c4878e3bc4f02d74bb4ab8bde5060c86b9bd017a8cd8f508c836dd0c41"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 1,
-          "discarded_stale_candidates": 1,
+          "coincident_split_targets": 0,
+          "discarded_stale_candidates": 2,
           "edge_events": 4,
           "motorcycle_march_steps": 32,
           "motorcycle_trace_crashes": 0,
@@ -8355,7 +8353,7 @@
           "4b2d5d50deb6e3956c5cc51f6f293be8763fb0b701a5b04088e282ec39d07b27"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 1,
+          "coincident_split_targets": 0,
           "discarded_stale_candidates": 1,
           "edge_events": 4,
           "motorcycle_march_steps": 32,
@@ -8374,7 +8372,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 15,
+          "refused_filter_triple_never_concurrent": 17,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -8584,7 +8582,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 14,
+          "refused_filter_triple_never_concurrent": 15,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -8760,7 +8758,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 1,
+          "discarded_stale_candidates": 0,
           "edge_events": 3,
           "motorcycle_march_steps": 17,
           "motorcycle_trace_crashes": 0,
@@ -8776,9 +8774,9 @@
           "refused_filter_event_in_the_past": 6,
           "refused_filter_point_outside_front": 1,
           "refused_filter_solo_vertex": 0,
-          "refused_filter_span_does_not_collapse": 1,
+          "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 10,
+          "refused_filter_triple_never_concurrent": 11,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -8988,17 +8986,17 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 14,
+          "refused_filter_triple_never_concurrent": 15,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
           "refused_no_rule_meeting_not_reconnectable": 0,
           "refused_no_rule_span_vanished": 0,
-          "refused_no_rule_triple_always_concurrent": 2,
+          "refused_no_rule_triple_always_concurrent": 0,
           "resting_steiner_vertices": 2,
           "ridges": 0,
           "split_candidates_beyond_trace": 2,
-          "split_candidates_examined": 20,
+          "split_candidates_examined": 18,
           "split_events": 1,
           "split_search_exhaustive_segments": 0,
           "split_search_exhaustive_vertices": 1,
@@ -9012,11 +9010,9 @@
         "partition_geometric_projection_sha256": "2c339155a77efa446e0ceca981ec3b59235b96da795ba97a8c8987b9be01c75f",
         "partition_outcome": "SKELETON_IS_NOT_EXACT",
         "partition_sha256": "2c339155a77efa446e0ceca981ec3b59235b96da795ba97a8c8987b9be01c75f",
-        "proof_counts": {
-          "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
-        },
+        "proof_counts": {},
         "proof_projection_sha256": "29f5bbacfe6ce10517ea92043e98e2068aecc77e477673741755735e5827117c",
-        "proof_status": "INCOMPLETE",
+        "proof_status": "COMPLETE",
         "semantic_digest": "48222049c872136756e174463afd1305cc21c541520125ec71761061cb0c9c9f",
         "state_trace_sha256": "616794868749b22f56745a15c39d140fbd7c0d348f647b21fed814aea574efeb",
         "topology_trace_sha256": "f0c8ade29134c4d3f1563dd0cff5ab7dfd0ea5391ba3ce92bf4bf63bdbd9bd2b"
@@ -9186,7 +9182,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 2,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 8,
+          "refused_filter_triple_never_concurrent": 10,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
@@ -9400,7 +9396,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 14,
+          "refused_filter_triple_never_concurrent": 15,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -9589,7 +9585,7 @@
           "24b11d705594f4ac8c6a638d1a1d41afd59a326323d0551e8220dbcb9d299d34"
         ],
         "legacy_counters": {
-          "coincident_split_targets": 1,
+          "coincident_split_targets": 0,
           "discarded_stale_candidates": 1,
           "edge_events": 4,
           "motorcycle_march_steps": 32,
@@ -10391,7 +10387,7 @@
         ],
         "legacy_counters": {
           "coincident_split_targets": 0,
-          "discarded_stale_candidates": 5,
+          "discarded_stale_candidates": 6,
           "edge_events": 4,
           "motorcycle_march_steps": 2,
           "motorcycle_trace_crashes": 0,
@@ -10409,7 +10405,7 @@
           "refused_filter_solo_vertex": 0,
           "refused_filter_span_does_not_collapse": 0,
           "refused_filter_span_is_born_zero": 0,
-          "refused_filter_triple_never_concurrent": 14,
+          "refused_filter_triple_never_concurrent": 15,
           "refused_no_rule_joint_is_antiparallel": 0,
           "refused_no_rule_joint_is_codirectional": 0,
           "refused_no_rule_joint_is_codirectional_at_different_speeds": 0,
@@ -10834,6 +10830,856 @@
     "old_total": 420
   },
   "reproduce": "$env:PYTHONPATH='kernel/src;kernel/tests'; python artifacts/p0_2b_superlevel_transaction/generate_delta_receipt.py",
+  "restamp_p0_2b_finish": {
+    "answer_content_counters": [
+      "refused_no_rule_triple_always_concurrent"
+    ],
+    "answer_content_receipt": "kernel/artifacts/p0_2_superlevel_transaction/Q5_OBLIGATION_DIRECTION_TABLE_V1.json",
+    "axes_that_did_not_move": [
+      "outcome",
+      "semantic_digest",
+      "node_records_sha256"
+    ],
+    "cases_restamped": 37,
+    "detail": {
+      "named::comb_2": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            4,
+            5
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::comb_4": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            4,
+            5
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::cross": {
+        "legacy_counters": {
+          "refused_filter_event_in_the_past": [
+            16,
+            8
+          ],
+          "refused_no_rule_triple_always_concurrent": [
+            20,
+            16
+          ],
+          "split_candidates_examined": [
+            68,
+            52
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 20
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 16
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::double_notch": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            2,
+            0
+          ],
+          "discarded_stale_candidates": [
+            10,
+            13
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 11
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 11
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::field_building_002_scale_1024": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            2,
+            0
+          ],
+          "discarded_stale_candidates": [
+            14,
+            15
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::field_building_002_scale_256": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            2,
+            0
+          ],
+          "discarded_stale_candidates": [
+            14,
+            15
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::field_building_002_scale_64": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            2,
+            0
+          ],
+          "discarded_stale_candidates": [
+            13,
+            16
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 3
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_0": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            13,
+            16
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_1": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            11,
+            13
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_2": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            12,
+            15
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_3": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            12,
+            16
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_4": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            15,
+            20
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "named::star_9_seed_5": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            12,
+            13
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edge_0": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            8,
+            9
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edge_1": {
+        "legacy_counters": {
+          "refused_filter_span_does_not_collapse": [
+            1,
+            0
+          ],
+          "refused_filter_triple_never_concurrent": [
+            9,
+            10
+          ]
+        },
+        "proof_counts": [
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
+          },
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edge_2": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            8,
+            9
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edge_3": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            8,
+            9
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edge_4": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            7,
+            8
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 1
+          },
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 1
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edges_0_1": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            5,
+            6
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edges_1_2": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            5,
+            6
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::ell_12_source_edges_3_4": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            5,
+            6
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_all_sources_bottom_at_double_speed": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            5,
+            6
+          ],
+          "refused_filter_triple_never_concurrent": [
+            14,
+            15
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_0": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            20,
+            22
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_1": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            2,
+            1
+          ],
+          "refused_filter_span_does_not_collapse": [
+            1,
+            0
+          ],
+          "split_candidates_examined": [
+            16,
+            14
+          ]
+        },
+        "proof_counts": [
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
+          },
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_2": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            19,
+            20
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_3": {
+        "legacy_counters": {
+          "refused_filter_point_outside_front": [
+            2,
+            1
+          ],
+          "refused_filter_span_does_not_collapse": [
+            1,
+            0
+          ],
+          "refused_filter_triple_never_concurrent": [
+            21,
+            22
+          ],
+          "refused_no_rule_triple_always_concurrent": [
+            3,
+            0
+          ],
+          "split_candidates_examined": [
+            22,
+            18
+          ]
+        },
+        "proof_counts": [
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
+          },
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_4": {
+        "legacy_counters": {
+          "refused_filter_event_in_the_past": [
+            2,
+            3
+          ],
+          "refused_filter_triple_never_concurrent": [
+            16,
+            18
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
+          },
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_5": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            19,
+            20
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_6": {
+        "legacy_counters": {
+          "refused_filter_event_in_the_past": [
+            5,
+            6
+          ],
+          "refused_filter_triple_never_concurrent": [
+            21,
+            22
+          ],
+          "refused_no_rule_triple_always_concurrent": [
+            6,
+            3
+          ],
+          "split_candidates_examined": [
+            25,
+            21
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 2,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 6
+          },
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 2,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 3
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edge_7": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            1,
+            0
+          ],
+          "discarded_stale_candidates": [
+            1,
+            2
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 6
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_0_1": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            1,
+            0
+          ],
+          "refused_filter_triple_never_concurrent": [
+            15,
+            17
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_1_2": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            14,
+            15
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_2_3": {
+        "legacy_counters": {
+          "discarded_stale_candidates": [
+            1,
+            0
+          ],
+          "refused_filter_span_does_not_collapse": [
+            1,
+            0
+          ],
+          "refused_filter_triple_never_concurrent": [
+            10,
+            11
+          ]
+        },
+        "proof_counts": [
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          },
+          {
+            "EDGE_COLLAPSE_SPAN_UNPROVEN|EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_3_4": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            14,
+            15
+          ],
+          "refused_no_rule_triple_always_concurrent": [
+            2,
+            0
+          ],
+          "split_candidates_examined": [
+            20,
+            18
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 2
+          },
+          {}
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_4_5": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            8,
+            10
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 1
+          },
+          {
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS|SURVIVED_PAST_EVENT_TIME": 1,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 2,
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": 1
+          }
+        ],
+        "proof_status": [
+          "INCOMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_5_6": {
+        "legacy_counters": {
+          "refused_filter_triple_never_concurrent": [
+            14,
+            15
+          ]
+        },
+        "proof_counts": [
+          {},
+          {}
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      },
+      "partial_source::staircase_source_edges_6_7": {
+        "legacy_counters": {
+          "coincident_split_targets": [
+            1,
+            0
+          ]
+        },
+        "proof_counts": [
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          },
+          {
+            "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 4
+          }
+        ],
+        "proof_status": [
+          "COMPLETE",
+          "COMPLETE"
+        ]
+      }
+    },
+    "law": "счётчики считают содержимое ответа, не поиск",
+    "old_block_untouched": true,
+    "schema": "P0_2B_FINISH_COUNTER_RESTAMP_V1",
+    "search_machinery_counters": [
+      "coincident_split_targets",
+      "discarded_stale_candidates",
+      "refused_filter_event_in_the_past",
+      "refused_filter_point_outside_front",
+      "refused_filter_span_does_not_collapse",
+      "refused_filter_triple_never_concurrent",
+      "split_candidates_examined"
+    ]
+  },
   "schema": "P0_2B_SUPERLEVEL_TRANSACTION_DELTA_RECEIPT_V2",
   "summary": {
     "canonical_proof_projection": 50,

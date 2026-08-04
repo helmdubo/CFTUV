@@ -381,11 +381,19 @@ def test_observed_debt_has_discharge_and_survival_lifecycles():
     unresolved = build_skeleton(
         _case("partial_source::ell_12_source_edge_4")
     )
+    # 20 -> 16 после quotient Q-10-ADD, и это не ослабление ворот. Долг
+    # NO_RULE_TRIPLE_ALWAYS_CONCURRENT заводился на КАЖДЫЙ дубль локуса; после
+    # факторизации локус один, отказ один, погашение одно. Направление сдвига
+    # проверено по всем 63 случаям и всюду строго В СТОРОНУ МЕНЬШЕГО, причём
+    # меньшего именно НЕДОКАЗАННОГО (у cross недоказанного было и осталось 0);
+    # ни одного случая в обратную сторону. Расписка —
+    # `kernel/artifacts/p0_2_superlevel_transaction/
+    # Q5_OBLIGATION_DIRECTION_TABLE_V1.json`, зонд рядом с ней.
     assert sum(
         obligation.disposition
         is ProofObligationDisposition.DISCHARGED_BY_PROVEN_SAME_TIME_EVENT
         for obligation in cross.proof_obligations
-    ) == 20
+    ) == 16
     assert star.proof_status is ProofStatus.COMPLETE
     assert not any(
         obligation.disposition
