@@ -856,5 +856,20 @@
    "substitution": null,
    "why": "патчи однопетлевые — измерен продакшн-путь целиком"
   }
- ]
+ ],
+ "suites_on_this_vertex": {
+  "host": {
+   "command": "python3 -m pytest tests (из корня)",
+   "result": "4 failed, 1334 passed, 5 skipped, 4 deselected (331 s)",
+   "failures": [
+    "tests/test_density_field_tools_contract.py::test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument — СРЕДОВОЕ (powershell отсутствует в контейнере), было и в базе",
+    "tests/test_density_field_tools_contract.py::test_field_cycle_missing_density_is_named_failure — то же средовое",
+    "tests/test_field_release_matrix.py::test_wall_2_001_faces_and_coverage_are_exact — КРАСНЫЕ ВОРОТА карточки, намеренно",
+    "tests/test_field_release_matrix.py::test_walls_012_is_exact — КРАСНЫЕ ВОРОТА карточки, намеренно"
+   ],
+   "sverkh_sredovogo_i_krasnykh_vorot": 0
+  },
+  "architecture": "446 passed (tests/test_architecture.py)",
+  "field_release_matrix_alone": "2 failed (красные ворота), 20 passed"
+ }
 }
