@@ -7,6 +7,10 @@ from fractions import Fraction
 from math import gcd
 
 from .adaptive_density_validation import adaptive_density_effective_hidden_count, adaptive_density_structure_errors, angular_hidden_feature_id_sets
+from ._canonical_angle import (
+    canonical_restoration_reference_errors,
+    canonical_selection_interval,
+)
 from .canonical import geometry_batch_semantic_digest
 from .contracts.analysis import (
     ANALYSIS_SNAPSHOT_SCHEMA_V1,
@@ -44,7 +48,6 @@ from .contracts.envelopes import (
     EnvelopeSpecVariant,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
-    HuberDensitySelectionIntervalCertificateV1,
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
@@ -79,7 +82,6 @@ from .contracts.plan import (
 from .contracts.request import (
     DECAL_REQUEST_SCHEMA_V1,
     AngularProfileFamilyId,
-    AngularProfileSelectionPolicyId,
     BoundaryPolicyId,
     CapPolicyId,
     DecalRequestV1,
@@ -89,6 +91,7 @@ from .contracts.request import (
 from ._density_policy import (
     angular_request_policy_mismatches,
     selection_certificate_contract_error,
+    selection_interval_proof_error,
 )
 from .contracts.seeds import (
     CapSeedV1,
@@ -1197,6 +1200,15 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                 contract_error,
             )
 
+    _require_refs(
+        issues,
+        _check_unique(issues, plan.canonical_angle_restorations, "selection_certificate_id", "canonical_angle_restorations"),
+        certificate_ids,
+        ("canonical_angle_restorations", "selection_certificate_id"),
+    )
+    for selection_id, message in canonical_restoration_reference_errors(plan.canonical_angle_restorations, certificate_by_id):
+        _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, ("canonical_angle_restorations", str(selection_id)), message)
+
     spec_by_id = {spec.envelope_spec_id: spec for spec in plan.envelope_specs}
     for spec in plan.envelope_specs:
         path = ("envelope_specs", str(spec.envelope_spec_id))
@@ -1615,6 +1627,10 @@ def validate_cross_contract_references(
             ):
                 _issue(issues, ValidationCode.CROSS_CONTRACT_MISMATCH, path, "FrontComponent differs from its FrontSeed")
 
+        restoration_by_selection = {
+            item.selection_certificate_id: item
+            for item in plan.canonical_angle_restorations
+        }
         for certificate in plan.angular_profile_selection_certificates:
             path = ("plans", str(plan.evaluation_plan_id), "angular_profile_selection_certificates", str(certificate.certificate_id))
             relation = corner_by_id.get(certificate.corner_relation_id)
@@ -1640,45 +1656,20 @@ def validate_cross_contract_references(
             if angle is not None and angle.owner_sector_id != certificate.owner_sector_id:
                 _issue(issues, ValidationCode.CROSS_CONTRACT_MISMATCH, path, "selection certificate angle differs from owner sector")
             if angle is not None and isinstance(angle.measure_payload, CertifiedReflexAngleMeasureV1):
-                delta = angle.measure_payload.reflex_excess_over_pi
-                if (
-                    certificate.selection_policy_id
-                    is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1
-                ):
-                    ratio_lower = delta.lower * Decimal(3)
-                    ratio_upper = delta.upper * Decimal(3)
-                    k = Decimal(certificate.resolved_hidden_edge_count)
-                    lower_proven = ratio_lower > k or (
-                        ratio_lower == k
-                        and delta.lower_kind is IntervalEndpointKind.OPEN
-                    )
-                    upper_proven = ratio_upper <= k + Decimal(1)
-                else:
-                    interval = certificate.selection_interval_certificate
-                    if (
-                        type(interval)
-                        is HuberDensitySelectionIntervalCertificateV1
-                    ):
-                        lower = Fraction(
-                            interval.lower_bound_numerator,
-                            interval.q,
-                        )
-                        upper = Fraction(
-                            interval.upper_bound_numerator,
-                            interval.q,
-                        )
-                        actual_lower = Fraction(delta.lower)
-                        actual_upper = Fraction(delta.upper)
-                        lower_proven = actual_lower > lower or (
-                            actual_lower == lower
-                            and delta.lower_kind
-                            is IntervalEndpointKind.OPEN
-                        )
-                        upper_proven = actual_upper <= upper
-                    else:
-                        lower_proven = upper_proven = False
-                if not lower_proven or not upper_proven:
-                    _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, NamedOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN.value)
+                # Восстановление канонического угла — ИМЕНОВАННОЕ изменение
+                # входа счёта, поэтому проверяющий доказывает счёт по тому же
+                # факту, что и селектор: запись восстановления сперва
+                # пересчитывается по СЫРОМУ углу снапшота, и только доказанная
+                # запись подменяет число. Записи нет — доказывается сырое.
+                delta, restoration_error = canonical_selection_interval(
+                    restoration_by_selection.get(certificate.certificate_id),
+                    angle.measure_payload.reflex_excess_over_pi,
+                )
+                if restoration_error is not None:
+                    _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, path + ("canonical_angle_restoration",), restoration_error)
+                proof_error = selection_interval_proof_error(certificate, delta)
+                if proof_error is not None:
+                    _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, proof_error)
 
         for spec in plan.envelope_specs:
             path = ("plans", str(plan.evaluation_plan_id), "envelope_specs", str(spec.envelope_spec_id))

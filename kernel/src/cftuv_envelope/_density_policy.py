@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from mpmath import iv
 import sympy as sp
 
@@ -20,7 +22,8 @@ from .contracts.request import (
     MaxSubturnParameterId,
     MaxSubturnValueId,
 )
-from .numeric import ExactAngleSymbol
+from .numeric import ExactAngleSymbol, IntervalEndpointKind
+from .outcomes import NamedOutcome
 
 
 class DensityIntervalEnclosureUnsupported(Exception):
@@ -218,3 +221,41 @@ def selection_certificate_contract_error(
             )
         )
     return "unsupported angular selection policy"
+
+
+def selection_interval_proof_error(certificate, interval) -> str | None:
+    """Доказать счёт сертификата селекции по ДАННОМУ угловому интервалу.
+
+    Интервал приходит извне намеренно: у восстановленного угла проверяющий
+    обязан доказывать счёт по канонической доле π, а не по сырому числу, и
+    подмена принимается ровно одна — та, что уже доказана сертификатом
+    восстановления. Здесь остаётся только закон счёта, тот же самый.
+
+    Годится любая Fraction-совместимая оболочка: и `Decimal`-интервал
+    снапшота, и вырожденный рациональный канонический факт.
+    """
+
+    lower = Fraction(interval.lower)
+    upper = Fraction(interval.upper)
+    lower_open = interval.lower_kind is IntervalEndpointKind.OPEN
+    if (
+        certificate.selection_policy_id
+        is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1
+    ):
+        k = Fraction(certificate.resolved_hidden_edge_count)
+        proven = (lower * 3 > k or (lower * 3 == k and lower_open)) and (
+            upper * 3 <= k + 1
+        )
+    else:
+        cell = certificate.selection_interval_certificate
+        if type(cell) is not HuberDensitySelectionIntervalCertificateV1:
+            proven = False
+        else:
+            floor = Fraction(cell.lower_bound_numerator, cell.q)
+            ceiling = Fraction(cell.upper_bound_numerator, cell.q)
+            proven = (
+                lower > floor or (lower == floor and lower_open)
+            ) and upper <= ceiling
+    if proven:
+        return None
+    return NamedOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN.value

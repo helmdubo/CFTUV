@@ -31,6 +31,7 @@ from ..ids import (
     TerminalRelationId,
 )
 from ..numeric import CertifiedDecimalIntervalV1, ExactRatioV1
+from .metric import ExactRationalV1
 from .request import (
     AngularProfileFamilyId,
     AngularProfileSelectionPolicyId,
@@ -163,6 +164,66 @@ class AdmissibilityUpperBound(str, Enum):
 
 class SelectionCertificateAuthority(str, Enum):
     EXACT_OR_CERTIFIED_ANGLE_COMPARISON = "EXACT_OR_CERTIFIED_ANGLE_COMPARISON"
+
+
+class CanonicalReflexAngleRelationV1(str, Enum):
+    """Каноническое авторское отношение, выраженное символом, а не числом.
+
+    Значение символа — точная доля π, которую несёт рефлексный избыток
+    `u = δ/π`. Множество намеренно минимально: оплачен полем ровно прямой
+    угол (интерьер 270°, поворот π/2, `u = 1/2`). Граница расширения —
+    в `_canonical_angle.CANONICAL_REFLEX_EXCESS_RELATIONS`.
+    """
+
+    CANONICAL_REFLEX_EXCESS_PI_OVER_2 = "CANONICAL_REFLEX_EXCESS_PI_OVER_2"
+
+
+class CanonicalAngleRestorationLawV1(str, Enum):
+    AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1 = (
+        "AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1"
+    )
+
+
+class AngleTolerancePolicyIdV1(str, Enum):
+    """Имя допуска И его категории одним значением.
+
+    Категория `AUTHORING_INTENT` означает: эпсилон применяется У ДВЕРИ, на
+    стадии восстановления задуманного отношения, и дальше все решения идут по
+    канонизированному факту. Типизированный реестр допусков
+    (`TolerancePolicyV1`) — отдельная карточка; когда он появится, это имя
+    станет его ключом, а не самостоятельным перечислением.
+    """
+
+    AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
+        "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalAngleRestorationCertificateV1:
+    """Что именно восстановлено, из чего и на каком основании.
+
+    Восстановление — ИМЕНОВАННОЕ изменение входа селектора, а не молчаливое
+    округление, поэтому запись обязана позволять перепроверить решение целиком:
+    сырой интервал (`source_reflex_excess_over_pi`) записан рядом с
+    канонической долей, а `deviation_upper_bound_radians` — доказанная сверху
+    величина отклонения в радианах, которую допуск обязан покрывать.
+
+    Подделка ловится сверкой этих полей с сырым углом снапшота: запись,
+    которой не соответствует угол, отвергается именованным исходом.
+    """
+
+    restoration_law: CanonicalAngleRestorationLawV1
+    selection_certificate_id: SelectionCertificateId
+    corner_relation_id: CornerRelationId
+    reflex_angle_certificate_id: AngleCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    source_reflex_excess_over_pi: CertifiedDecimalIntervalV1
+    deviation_upper_bound_radians: ExactRationalV1
+    tolerance_radians: ExactRationalV1
+    tolerance_policy_id: AngleTolerancePolicyIdV1
+    proven_predicates: frozenset[str]
 
 
 class IntervalBoundKind(str, Enum):

@@ -33,6 +33,7 @@ from math import isqrt
 
 import sympy as sp
 
+from ._authoring_intent import AUTHOR_ANGULAR_ERROR, DECAL_DETAIL
 from .contracts.metric import (
     ExactRationalV1,
     GridScaleSearchOrderV1,
@@ -54,12 +55,10 @@ from .robust.grid import GridSpecV1, snap_value
 from .robust.snapping import GridWindowOutcome, grid_window_for_patch
 
 
-# Решение владельца, `DECISIONS.md` за 2026-07-25. Деталей мельче сантиметра в
-# игровом пространстве нет; максимальный габарит — 100 м. Шаг берётся у НИЖНЕЙ
-# границы, поэтому деталь на него не влияет вовсе — она двигает только точку,
-# в которой окно закрывается.
-DECAL_DETAIL = Fraction(1, 100)
-AUTHOR_ANGULAR_ERROR = Fraction(7, 10**6)
+# Обе величины — объявленное авторское намерение, и живут они в листе
+# (`_authoring_intent`): тот же допуск читает восстановление канонического угла
+# перед селектором плотности, а прямой импорт между этими модулями даёт цикл.
+# Имена здесь сохранены: они уже стоят в сертификате решётки и в тестах.
 
 # Объявленный порядок перебора масштабов внутри окна. Не параметр входа и не
 # настройка: одно значение на всё ядро, записываемое в каждый сертификат.
