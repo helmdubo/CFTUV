@@ -92,10 +92,9 @@ def main():
             prepared, domain = run_queue_domain(
                 patch_id, domain_id, snapshot, request, alpha_text
             )
-            charged = tuple(
-                (name, value)
-                for name, value in prepared.counters
-                if name.startswith("EXACT_WORK_")
+            charged = (
+                () if prepared.work_budget is None
+                else prepared.work_budget.counters()
             )
             return (
                 f"{domain.preparation_outcome}/{domain.coverage_outcome}",

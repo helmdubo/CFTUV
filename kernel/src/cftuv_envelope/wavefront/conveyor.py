@@ -1192,8 +1192,12 @@ def prepare_conveyor(
         regions=regions,
         lattice=lattice,
         law_names=tuple(law.name for law in laws),
-        counters=_preparation_counters(regions, reading, lattice)
-        + budget.counters(),
+        # Счётчики подготовки — утверждение о ГЕОМЕТРИИ домена, и три теста
+        # фиксируют их состав целиком. Работа бюджета туда не идёт: цена и
+        # геометрия — разные величины, и слить их значило бы привязать
+        # замороженное утверждение о домене к закону оплаты. Расход доступен
+        # через `work_budget`, а на отказе — ещё и в счётчиках и в детали.
+        counters=_preparation_counters(regions, reading, lattice),
         timings=clock.timings(),
         detail=detail,
         compilation=compilation,
