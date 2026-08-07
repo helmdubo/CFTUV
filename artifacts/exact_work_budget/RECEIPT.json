@@ -2,7 +2,7 @@
   "card": "EXACT-WORK-BUDGET",
   "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 7a11636 (перебазировано с 821995f)",
   "branch": "exec/exact-work-budget",
-  "harness": "artifacts/perf_prepare_diag (headless, без Blender) + artifacts/exact_work_budget/{field_gate,measure_units}.py",
+  "harness": "artifacts/perf_prepare_diag (headless, без Blender) + artifacts/exact_work_budget/{field_gate,measure_units,unit_price,unbudgeted_sites}.py",
   "machine_note": "один контейнер, 4 ядра; абсолютные секунды сопоставимы только внутри этой расписки",
   "why_the_ceiling_was_measured_on_6ce0227": "Вершина аудит-ветки несёт две полевые регрессии (walls.012 обрывается на 2 узлах вместо 12; wall 2.001 жуёт подготовку 15.3-15.9 s против 3.0 s). Потолок, снятый там, унаследовал бы ЦЕНУ РЕГРЕССИИ и объявил бы её нормой здорового домена. Модули, которые считают работу, на обеих вершинах ПОБИТОВО одинаковы (git diff --quiet 6ce0227 821995f -- exact_sqrt_sum.py event_time.py motorcycle.py coverage.py -> пусто), поэтому счётчик переносится без правки семантики.",
   "work_units_by_domain_6ce0227": {
