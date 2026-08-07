@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from .event_time import compare_times
 from .exact_candidate_view import (
     CandidateSpanStateV1,
     CandidateVertexStateV1,
@@ -413,6 +414,38 @@ def build_symbolic_overlay(
     )
 
 
+def _born_place(overlay, ref):
+    """Место порта в `now`, если он в `now` и РОДИЛСЯ, иначе `None`.
+
+    ПРОДОЛЖЕНИЕ ЗАКОНА ПРИМИРЕНИЯ НА КОНЦЫ ПРОЛЁТА. Закон сказал: admission
+    уникальности — только про порты, ПЕРЕЖИВАЮЩИЕ пакет; порт, потреблённый
+    локусом, несёт ПОЛНОЕ тождество, потому что до poststate он не доживает и
+    парой ключей вхождений его никто не называет. То же самое верно про его
+    МЕСТО. Порт, рождённый локусом ровно в `now`, стоит на двух СОВПАВШИХ
+    антипараллельных прямых: пересечения у них нет, скольжения тоже нет
+    (нормали противонаправлены), и закон движения честно отвечает «места нет».
+    Но у пакета место этого порта ЕСТЬ и оно точное — это сам локус, точка его
+    рождения. Спрашивать закон движения о том, что уже названо локусом, — та же
+    ошибка, что называть потреблённый порт неразличимым алиасом выжившего.
+
+    Признак точный и по содержимому пакета: время рождения совпало с `now`.
+    Ни рантаймовых id, ни порядков, ни вида события здесь нет.
+
+    ПОЧЕМУ НЕ `occurrence` ЛИСТА. `occurrence` — это ИМЯ листа, снятое в
+    frozen prestate, а не его протяжённость внутри пакета: лист, который сам не
+    режется, получает новый конец от контакта на СОСЕДНЕМ пролёте, и этот конец
+    законно уходит за прежнее имя (измерено: `cross_full_q_*` теряет по два
+    узла, если считать имя протяжённостью).
+    """
+
+    vertex = overlay.vertices.get(ref)
+    if vertex is None or vertex.point is None:
+        return None
+    if compare_times(vertex.birth, overlay.time) != 0:
+        return None
+    return vertex.point
+
+
 def exact_overlay_view(builder, overlay):
     def vertex_state(ref):
         vertex = overlay.vertices[ref]
@@ -436,6 +469,9 @@ def exact_overlay_view(builder, overlay):
             runtime.span,
             binding.start,
             binding.end,
+            overlay.time,
+            _born_place(overlay, binding.start),
+            _born_place(overlay, binding.end),
         )
 
     def trace_bounds(ref, time):

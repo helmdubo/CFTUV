@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.wavefront.coverage import coverage_at
 from cftuv_envelope.wavefront.digest import node_record
 from cftuv_envelope.wavefront.event_time import EventTimeV1, SupportLineV1
@@ -341,7 +342,110 @@ def test_the_corpus_covers_every_required_family():
     assert set(AXES) == set(_readings(CORPUS[0].name)[SplitSearch.MOTORCYCLE])
 
 
+#: Одиннадцать фигур, чья абсолютная проекция переснята 2026-08-05, и ровно
+#: они. Причина одна на всех — закон места рождённого порта
+#: (`symbolic_overlay._born_place`): пролёт, чей конец РОДИЛСЯ локусом на двух
+#: совпавших антипараллельных прямых, перестал быть неограниченным, и вместе с
+#: ним исчезли контакты ВНЕ пролёта. Шесть из одиннадцати — те, где ремонт
+#: виден снаружи и модельно-независимо (см.
+#: `test_born_place_repair_closes_the_cross_family_faces`).
+#: Ключи — имена, значения — АБСОЛЮТНЫЕ проекции ДО ремонта (вершина 0bbf6e4).
+#: Они здесь не для истории: возвращение любого из этих чисел означает, что
+#: закон места рождённого порта отменён, и это утверждение фальсифицируемо.
+_BORN_PLACE_PRE_REPAIR_SHA256 = {
+    'collinear_moving_source_and_wall':
+        'ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3',
+    'cross_full_q_1':
+        '302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb',
+    'cross_full_q_1/4':
+        '1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46',
+    'cross_full_q_4':
+        '0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130',
+    'cross_full_q_65/64':
+        '4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850',
+    'cross_source_and_walls_q_1':
+        '6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a',
+    'cross_source_and_walls_q_1/4':
+        '8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781',
+    'cross_source_and_walls_q_4':
+        '428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde',
+    'cross_source_and_walls_q_65/64':
+        'c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b',
+    'search_pruning_witness':
+        'f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d',
+    'several_collinear_incidences':
+        '5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0',
+}
+_BORN_PLACE_RESHOT_CASES = frozenset(_BORN_PLACE_PRE_REPAIR_SHA256)
+#: Шесть фигур, у которых сборка граней ДО правки отказывала
+#: `FACE_CHAIN_DOES_NOT_CLOSE` с полным дефектом площади, а после правки
+#: закрывается с НУЛЕВЫМ дефектом. Это внешний сертификат: он не спрашивает
+#: ядро, какая траектория правильная, он проверяет площадь.
+_BORN_PLACE_FACE_REPAIR = {
+    "cross_full_q_1": 12,
+    "cross_full_q_1/4": 12,
+    "cross_full_q_4": 12,
+    "cross_full_q_65/64": 12,
+    "search_pruning_witness": 12,
+    "several_collinear_incidences": 12,
+}
+
+
+def test_born_place_repair_closes_the_cross_family_faces():
+    """Расписка «не этим числом» к пересъёмке 2026-08-05, исполняемая.
+
+    До закона места рождённого порта эти шесть фигур давали EXACT-скелет, у
+    которого НЕ СОБИРАЛИСЬ грани: `FACE_CHAIN_DOES_NOT_CLOSE`, ноль граней и
+    дефект площади во весь многоугольник (кресты -336, `search_pruning_witness`
+    -272, `several_collinear_incidences` -262). После правки каждая собирает
+    двенадцать граней с дефектом РОВНО ноль и `proof_status` COMPLETE.
+
+    Поэтому сдвиг абсолютных проекций — не «другое число», а починка: судья
+    здесь не ядро, а площадь.
+    """
+
+    for name, expected_faces in _BORN_PLACE_FACE_REPAIR.items():
+        polygon = BY_NAME[name].polygon
+        for search, skeleton in _results(name).items():
+            partition = build_faces(polygon, skeleton)
+            defect = (
+                partition.doubled_area
+                - SqrtSumV1.rational(partition.polygon_doubled_area)
+            )
+            assert (
+                name,
+                search,
+                partition.outcome.value,
+                len(partition.faces),
+                defect.terms,
+                skeleton.proof_status.value,
+            ) == (
+                name,
+                search,
+                "EXACT",
+                expected_faces,
+                (),
+                "COMPLETE",
+            )
+
+
 def test_post_p0_2b_absolute_projection_digests_are_frozen():
+    """ПЕРЕЗАМОРОЗКА 2026-08-05, и она сделана ПОСЛЕДНЕЙ.
+
+    Сдвинулись ровно одиннадцать проекций (`_BORN_PLACE_RESHOT_CASES`) из
+    двадцати трёх; остальные двенадцать — байт в байт. Ось `outcome` не
+    сдвинулась НИ У ОДНОЙ фигуры: терминал каждой остался прежним, поехали
+    узлы (`node_record`, `times_points`, `participants`,
+    `proof_obligations`), а у шести — ещё грани, покрытие и `proof_status`
+    INCOMPLETE -> COMPLETE. Причина одна и названа выше; внешнее
+    подтверждение, что это ремонт, — в
+    `test_born_place_repair_closes_the_cross_family_faces`.
+
+    Корпус имён и частичных источников (63 фигуры) при этом НЕ ДВИНУЛСЯ:
+    outcome, semantic_digest и node_records там побитово прежние — это
+    отдельно держит оракул `test_p0_geometry_and_existing_counter_oracle`.
+    """
+
     receipt = json.loads(ABSOLUTE_DIGEST_RECEIPT.read_text(encoding="utf-8"))
     assert receipt["schema"] == (
         "cftuv.p0_3.post_p0_2b_absolute_digests.v1"
@@ -359,6 +463,16 @@ def test_post_p0_2b_absolute_projection_digests_are_frozen():
         assert set(by_search.values()) == {expected[name]}, (name, by_search)
         computed[name] = expected[name]
     assert _digest_map_sha256(computed) == receipt["corpus_sha256"]
+    # Расписка пересъёмки, исполняемая: имена сдвинувшихся — факты корпуса,
+    # шесть починенных граней — их подмножество, а прежние числа обязаны
+    # остаться прежними. Возврат любого из них означает отмену закона места
+    # рождённого порта, и тогда эти ворота падают именованно.
+    assert _BORN_PLACE_RESHOT_CASES <= set(BY_NAME)
+    assert set(_BORN_PLACE_FACE_REPAIR) <= _BORN_PLACE_RESHOT_CASES
+    assert not (
+        set(_BORN_PLACE_PRE_REPAIR_SHA256.values())
+        & set(expected.values())
+    )
 
 
 def test_the_constructed_weighted_case_really_has_a_multi_vertex_collapse():

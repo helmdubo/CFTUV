@@ -72,14 +72,22 @@ EXPECTED_K_SEQUENCES = {
 #: Цена прохода по простому базису. Единица измерения сменилась вместе со
 #: слоем: точки считает символический путь, и цена у него своя. Ноль откатов
 #: (`incomplete_*`) — не число прохода, а СВОЙСТВО, и оно тут же рядом.
-FROZEN_PATCH011_COVERAGE_TERMINAL = "PREPARATION_IS_NOT_EXACT"
-FROZEN_PATCH011_OPTIMIZED_CALLS = {"MOTORCYCLE": 18, "COVERAGE": 0}
+FROZEN_PATCH011_COVERAGE_TERMINAL = "EXACT"
+FROZEN_PATCH011_OPTIMIZED_CALLS = {"MOTORCYCLE": 18, "COVERAGE": 96}
 
+# ПЕРЕСЪЁМКА 2026-08-04, «НЕ ЭТИМ ЧИСЛОМ». Терминал patch011 переехал с
+# именованного отказа на EXACT (закон места рождённого порта,
+# symbolic_overlay._born_place), поэтому покрытие ТЕПЕРЬ СЧИТАЕТСЯ — и
+# числа прохода выросли ровно потому, что прогон доходит до конца, а не
+# обрывается отказом. Предмет обоих тестов — «базис полон и к легаси-делению
+# не откатывается НИ РАЗУ» — НЕ СДВИНУЛСЯ: `incomplete_picks` и
+# `incomplete_supports` остались нулями (измерено: при пересъёмке эти два
+# ключа единственные, что не изменились).
 FROZEN_PATCH006_PASS = {
-    "event_calls": 14133,
-    "coordinate_divisions": 28266,
-    "pick_iterations": 45858,
-    "support_checks": 78784,
+    "event_calls": 22407,
+    "coordinate_divisions": 44814,
+    "pick_iterations": 78832,
+    "support_checks": 138678,
     # НОЛЬ ОТКАТОВ — это свойство, а не цена: базис полон, легаси-деление не
     # срабатывает ни разу.
     "incomplete_picks": 0,
@@ -87,29 +95,45 @@ FROZEN_PATCH006_PASS = {
 }
 
 EXPECTED_PUBLIC_WAVEFRONT = {
+    # ПЕРЕСЪЁМКА 2026-08-04, «НЕ ЭТИМ ЧИСЛОМ». Три полевых патча стояли
+    # именованными отказами не потому, что их геометрия недостижима, а
+    # потому что порт, РОЖДЁННЫЙ локусом ровно в `now`, спрашивал о своём
+    # месте закон движения — тот честно отвечал «места нет» на двух
+    # совпавших антипараллельных прямых. Закон примирения продолжен на
+    # концы пролёта (symbolic_overlay._born_place): место такого порта
+    # называет сам локус. Доказательство, что переехало НЕ число, а
+    # предмет: `node_count`, `face_count`, `born_zero_refusal_count` и
+    # `sliding_seed_count` НЕ СДВИНУЛИСЬ НИ НА ЕДИНИЦУ у всех четырёх
+    # случаев; сдвинулись только терминал (отказ → EXACT) и `skeleton_levels`
+    # — прогон, обрывавшийся отказом, теперь доходит до конца.
+    # patch006 при этом попал в числа, измеренные ещё при консервации стека
+    # как ПРАВИЛЬНЫЙ ответ (241 уровень, 73 узла, 63 грани, COMPLETE) —
+    # тогда они достигались снятием latent-discovery, то есть без законного
+    # механизма; теперь достигнуты законом. `proof_status` всех четырёх —
+    # COMPLETE (было INCOMPLETE), покрытие EXACT.
     "building_all_seams_patch_001_lost_resolved_v1": {
-        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
-        "terminal": "WAVEFRONT_LEFT_UNRESOLVED",
+        "conveyor_terminal": "EXACT",
+        "terminal": "EXACT",
         "sliding_seed_count": 4,
-        "skeleton_levels": 182,
+        "skeleton_levels": 197,
         "node_count": 62,
         "face_count": 54,
         "born_zero_refusal_count": 22,
     },
     "building_all_seams_patch_006_lost_resolved_v1": {
-        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
-        "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+        "conveyor_terminal": "EXACT",
+        "terminal": "EXACT",
         "sliding_seed_count": 5,
-        "skeleton_levels": 230,
+        "skeleton_levels": 241,
         "node_count": 73,
         "face_count": 63,
         "born_zero_refusal_count": 26,
     },
     "building_all_seams_patch_011_lost_resolved_v1": {
-        "conveyor_terminal": "SKELETON_DID_NOT_CLOSE",
-        "terminal": "SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+        "conveyor_terminal": "EXACT",
+        "terminal": "EXACT",
         "sliding_seed_count": 3,
-        "skeleton_levels": 170,
+        "skeleton_levels": 202,
         "node_count": 62,
         "face_count": 54,
         "born_zero_refusal_count": 22,
@@ -724,10 +748,14 @@ def test_patch011_prime_basis_is_complete_and_never_falls_back(monkeypatch):
     assert coverage.outcome.value == FROZEN_PATCH011_COVERAGE_TERMINAL
     assert len(observed_universes["MOTORCYCLE"]) == 1
     assert len(observed_universes["MOTORCYCLE"][0]) == 39
-    # Покрытие на этом терминале не считается вовсе, поэтому его базис не
-    # строится. Отсутствие свидетеля УТВЕРЖДАЕТСЯ явно, а не выпадает молча:
-    # если покрытие вдруг начнёт считаться, тест это заметит.
-    assert observed_universes["COVERAGE"] == []
+    # ПЕРЕСЪЁМКА 2026-08-04. Прежняя строка утверждала ОТСУТСТВИЕ базиса
+    # покрытия — «на отказном терминале покрытие не считается вовсе» — и
+    # прямо обещала заметить, если покрытие начнёт считаться. Оно начало:
+    # терминал переехал на EXACT. Утверждение перевёрнуто на своё истинное
+    # содержание, а предмет теста сохранён: базис покрытия ПОЛОН и к
+    # легаси-делению не откатывается ни разу (ноль ниже).
+    assert len(observed_universes["COVERAGE"]) == 1
+    assert len(observed_universes["COVERAGE"][0]) == 39
     # Свидетель непустой — инструмент, который никого не поймал, свойства не
     # проверяет.
     assert optimized_calls["MOTORCYCLE"] > 0

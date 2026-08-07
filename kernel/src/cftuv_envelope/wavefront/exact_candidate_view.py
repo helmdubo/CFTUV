@@ -29,10 +29,33 @@ class CandidateVertexStateV1:
 
 @dataclass(frozen=True, slots=True)
 class CandidateSpanStateV1:
+    """Пролёт фронта, как его видит закон кандидатов.
+
+    Четыре первых поля — рантаймовый вид: концы названы ВЕРШИНАМИ, и где они
+    стоят, спрашивается у закона движения.
+
+    `frozen_instant`/`frozen_start`/`frozen_end` — места концов, которые
+    ИЗВЕСТНЫ ПАКЕТУ ТОЧНО в это самое мгновение и потому не выводятся из
+    движения. Заполняет их символьный слой: порт, рождённый локусом ровно в
+    `frozen_instant`, стоит в точке этого локуса. Без них закон движения на
+    таком порту отвечает «места нет» — у двух СОВПАВШИХ антипараллельных прямых
+    нет ни пересечения, ни скольжения, — и граница пролёта молча исчезает. А
+    пролёт без обеих границ содержит ЛЮБУЮ точку: так рождается контакт вне
+    пролёта (`walls.012`, четыре SPLIT в одном точном времени).
+
+    Поля необязательные: рантаймовый вид их не заполняет и работает ровно как
+    раньше. Заполненные действуют ТОЛЬКО в `frozen_instant` (см.
+    `span_containment`) и ТОЛЬКО там, где закон движения промолчал: где он
+    отвечает, ответ его.
+    """
+
     line: SupportLineV1
     source_span: tuple[int, ...]
     start_vertex: object | None
     end_vertex: object | None
+    frozen_instant: EventTimeV1 | None = None
+    frozen_start: EventPointV1 | None = None
+    frozen_end: EventPointV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +173,39 @@ def collapsing_span(
     return high - low
 
 
+def _span_bound(
+    view: ExactCandidateViewV1,
+    span: CandidateSpanStateV1,
+    span_ref: object,
+    time: EventTimeV1,
+    *,
+    at_start: bool,
+) -> SqrtSumV1 | None:
+    """Проекция СВОЕГО конца пролёта; молчание закона движения — не «нет границы».
+
+    Сначала спрашивается закон движения — где он отвечает, ответ его, и ничего
+    здесь не меняется. Молчит он ровно у порта, чьи два плеча легли на одну
+    прямую противонаправленно: пересечения нет, скольжения нет. Раньше это
+    молчание читалось как «границы нет», то есть пролёт объявлялся
+    НЕОГРАНИЧЕННЫМ и содержал любую точку плоскости. Если такой порт РОДИЛСЯ в
+    этом же мгновении, молчания нет по существу: пакет знает его место точно —
+    это точка локуса, и она приходит сюда как `frozen_start`/`frozen_end`.
+    """
+
+    vertex = span.start_vertex if at_start else span.end_vertex
+    bound = span_end(view, vertex, span_ref, time, at_start=at_start)
+    if bound is not None:
+        return bound
+    place = span.frozen_start if at_start else span.frozen_end
+    if (
+        place is None
+        or span.frozen_instant is None
+        or compare_times(time, span.frozen_instant) != 0
+    ):
+        return None
+    return place.x.scaled(span.line.b) - place.y.scaled(span.line.a)
+
+
 def span_containment(
     view: ExactCandidateViewV1,
     span_ref: object,
@@ -160,12 +216,8 @@ def span_containment(
     if span.start_vertex is None or span.end_vertex is None:
         return SpanContainmentV1(False, False, False)
     here = point.x.scaled(span.line.b) - point.y.scaled(span.line.a)
-    low = span_end(
-        view, span.start_vertex, span_ref, time, at_start=True
-    )
-    high = span_end(
-        view, span.end_vertex, span_ref, time, at_start=False
-    )
+    low = _span_bound(view, span, span_ref, time, at_start=True)
+    high = _span_bound(view, span, span_ref, time, at_start=False)
     inside = not (
         (low is not None and (here - low).sign() < 0)
         or (high is not None and (high - here).sign() < 0)
