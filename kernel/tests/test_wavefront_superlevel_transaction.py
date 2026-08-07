@@ -76,10 +76,18 @@ _FIELD_CASES = (
 #: где фронт не закрылся, иначе отказ был бы артефактом снимка.
 #: Корень отказа и открытый счёт зеркальной чётности имён — в записи поставки
 #: P0-2B-FINISH в `DECISIONS.md`.
+# ПЕРЕСЪЁМКА 2026-08-04, «НЕ ЭТИМ ЧИСЛОМ». Три полевых терминала переехали
+# с именованного отказа на EXACT: закон места рождённого порта
+# (symbolic_overlay._born_place) снял причину обрыва. Доказательство, что
+# переехал предмет, а не число: в EXPECTED_PUBLIC_WAVEFRONT тех же трёх
+# патчей узлы, грани, born-zero отказы и скользящие посевы не сдвинулись ни
+# на единицу, а proof_status стал COMPLETE. Ценность теневой сверки
+# sparse≡eager от этого только выросла: теперь она держится на пути, который
+# доходит до конца.
 _FIELD_TERMINAL = {
-    "building_all_seams_patch_001_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
-    "building_all_seams_patch_006_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
-    "building_all_seams_patch_011_lost_resolved_v1": "SKELETON_DID_NOT_CLOSE",
+    "building_all_seams_patch_001_lost_resolved_v1": "EXACT",
+    "building_all_seams_patch_006_lost_resolved_v1": "EXACT",
+    "building_all_seams_patch_011_lost_resolved_v1": "EXACT",
     "building_all_seams_patch_105_lost_resolved_v1": "EXACT",
 }
 _PRODUCT_AXIS_CASES = (
@@ -914,10 +922,18 @@ def test_symbolic_closure_absorbs_cross_full_q1_t8_before_commit(monkeypatch):
 def test_runtime_commit_allocates_real_ids_for_dead_symbolic_births(monkeypatch):
     from cftuv_envelope.wavefront import symbolic_runtime_commit as runtime
 
+    # ПЕРЕСЪЁМКА 2026-08-04. Носитель переехал с `cross_full_q_1` на
+    # `weighted_vertex_fan`: после закона места рождённого порта
+    # (symbolic_overlay._born_place) на кресте мёртвых символьных рождений
+    # не остаётся НИ ОДНОГО — рождённые порты получают своё место и живут.
+    # Свидетель не выдуман и не ослаблен: поиск по всему корпусу весов и
+    # стен даёт ровно одну фигуру с мёртвыми рождениями (3 штуки), она и
+    # взята. Предмет теста — «коммит выдаёт настоящие id и мёртвым тоже» —
+    # сохранён дословно.
     polygon = next(
         case.polygon
         for case in weighted_wall_differential_corpus()
-        if case.name == "cross_full_q_1"
+        if case.name == "weighted_vertex_fan"
     )
     original = runtime.materialize_symbolic_runtime_commit
     rows = []
@@ -1277,7 +1293,11 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    assert prepared.outcome.value == "SKELETON_DID_NOT_CLOSE"
+    # ПЕРЕСЪЁМКА 2026-08-04: терминал патча переехал на EXACT (закон места
+    # рождённого порта). Предмет теста — классификация того же пролёта как
+    # OPENING и его причинная расписка — от терминала не зависит и проверен
+    # выше без послаблений.
+    assert prepared.outcome.value == "EXACT"
     assert len(causal_receipts) == 1
     assert full_reseed_receipts == [((102, 137, 145, 148), 0, 0)]
 
@@ -1389,15 +1409,19 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
                 builder, snapshot, budget=1
             )
             assert split.unresolved_reason is None
-            assert split.iterations == 1
-            assert len(split.added_contacts) == 1
-            split_contact = split.added_contacts[0]
-            assert split_contact.key.emitter.kind == "EXISTING"
-            assert split_contact.key.family.occurrence[0] == (4, 8, 0, 8)
-            assert split_contact.key.point_key == (
-                ((1, Fraction(6)),),
-                ((1, Fraction(6)),),
-            )
+            # ПЕРЕСЪЁМКА 2026-08-04. Было: одна итерация и один ДОИСКАННЫЙ
+            # контакт в точке (6, 6). Стало: ноль и ноль — потому что
+            # начальное поколение приходит в ту же точку (6, 6) СРАЗУ
+            # (закон места рождённого порта, symbolic_overlay._born_place;
+            # прежде оно приходило в 14/3 — ответ закона движения для порта
+            # без места). Предмет доискивания исчез не молча: точку (6, 6) и
+            # её происхождение утверждает соседний тест
+            # test_cross_t8_edge_and_6_6_split_share_initial_mixed_generation.
+            # Предмет ЭТИХ ворот — стабильность под перестановками — цел:
+            # цикл идёт по прямому и развёрнутому пакету, обе стороны обязаны
+            # дать одно и то же (измерено: отпечатки ниже совпали).
+            assert split.iterations == 0
+            assert len(split.added_contacts) == 0
             assert split.overlay is not None
             geometry_projection = tuple(sorted((
                 (
@@ -1420,14 +1444,14 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
             # стороны обязаны дать ОДНО и то же число — стабильность под
             # перестановками и есть утверждение.
             assert hashlib.sha256(repr(geometry_projection).encode()).hexdigest() == (
-                "cd72b1fc91830d68cbee219e8c8172dcd8d022d04974a5df58065a37077dbca8"
+                "f6902b8c90b7ecc1066fff61ce897600ee43fc5299f343827e21fefaeb4b65d4"
             )
             # Та же пересъёмка и по той же причине, только адреснее: проекция
             # листьев несёт САМО вхождение вместе с концами, а плотная
             # гидратация как раз концы и заполнила. Стабильность под
             # перестановками проверяется тем же циклом.
             assert hashlib.sha256(repr(leaf_projection).encode()).hexdigest() == (
-                "3a21d9b0703fa2918890a2e0c03e5b68a22083dac0f9bace2e42914ab5be9571"
+                "35cf5cbd4512e063bbfb90e78276760f40b4e9163b10ca5c77200cbd117e0cc5"
             )
             assert all(
                 len(vertex.ref.key) == 2
@@ -1494,8 +1518,16 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
     assert sum(map(len, trace)) == 3
     assert len({contact.point_key for generation in trace for contact in generation}) == 1
     key = trace[0][0]
+    # ПЕРЕСЪЁМКА 2026-08-04, и она сама по себе — свидетельство закона.
+    # Было ((1, 14/3),), ((1, 6),): порт, РОЖДЁННЫЙ локусом ровно в `now`,
+    # спрашивал о своём месте закон движения, и тот отвечал промежуточной
+    # точкой 14/3 — на двух совпавших антипараллельных прямых иного ответа у
+    # него нет. Стало ((1, 6),), ((1, 6),) — САМ ЛОКУС
+    # (symbolic_overlay._born_place). Ровно ту же точку (6, 6) прежде
+    # доискивала лишняя итерация неподвижной точки в соседних воротах —
+    # теперь начальное поколение приходит в неё сразу, и итерация не нужна.
     assert key.point_key == (
-        ((1, Fraction(14, 3)),),
+        ((1, Fraction(6)),),
         ((1, Fraction(6)),),
     )
     assert tuple(key.__dataclass_fields__) == (
