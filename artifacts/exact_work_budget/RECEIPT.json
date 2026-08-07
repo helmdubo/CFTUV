@@ -398,5 +398,25 @@
         "seconds": 0.502
       }
     }
+  },
+  "suites_on_the_tip": {
+    "tip": "exec/exact-work-budget поверх origin/claude/kernel-audit-exact-proof-at8d23 @ 7a11636",
+    "kernel": "из каталога kernel, PYTHONPATH=src:tests: 3016 passed, 2 skipped, 0 failed за 43:14. Оба пропуска — SURFACE_BACKEND_NOT_IMPLEMENTED (half_sphere, fold_near_smooth), они не мои.",
+    "host": "из корня: 1335 passed, 5 skipped, 4 failed за 5:23. Все четыре объявлены заранее.",
+    "host_failures": {
+      "environmental_two": [
+        "tests/test_density_field_tools_contract.py::test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument",
+        "tests/test_density_field_tools_contract.py::test_field_cycle_missing_density_is_named_failure"
+      ],
+      "environmental_reason": "FileNotFoundError: 'powershell' — в контейнере его нет",
+      "intentionally_red_two": [
+        "tests/test_field_release_matrix.py::test_wall_2_001_faces_and_coverage_are_exact",
+        "tests/test_field_release_matrix.py::test_walls_012_is_exact"
+      ],
+      "intentionally_red_reason": "знамёна ремонта заморозки полевых ворот: FACE_CHAIN_DOES_NOT_CLOSE у 2.001 и SUPERLEVEL_COMPONENT_UNRESOLVABLE (2 узла вместо 12) у walls.012. Чинит ветка exec/walls012-split-contact, не эта."
+    },
+    "architecture": "tests/test_architecture.py: 446 passed",
+    "tolerance_registry": "kernel/tests/test_tolerance_policy_registry.py: 58 passed",
+    "card_own_file": "kernel/tests/test_exact_work_budget.py: 41 passed"
   }
 }
