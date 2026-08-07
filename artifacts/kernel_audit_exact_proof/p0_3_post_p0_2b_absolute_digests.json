@@ -13,15 +13,15 @@
   ],
   "case_count": 23,
   "case_projection_sha256": {
-    "collinear_moving_source_and_wall": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3",
-    "cross_full_q_1": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb",
-    "cross_full_q_1/4": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46",
-    "cross_full_q_4": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130",
-    "cross_full_q_65/64": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850",
-    "cross_source_and_walls_q_1": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a",
-    "cross_source_and_walls_q_1/4": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781",
-    "cross_source_and_walls_q_4": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde",
-    "cross_source_and_walls_q_65/64": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b",
+    "collinear_moving_source_and_wall": "cbcca31abaf7e7f0fa92076acb05e775f177352ae5ecd09d600e6aef10b076b7",
+    "cross_full_q_1": "299523eb7130739dc644afa54bf37b724256f4f4d2a6bd7dc604dd55386b4c8d",
+    "cross_full_q_1/4": "616251f323e2370c24e06c188ef7da4fd30d7d7c1ddd1d7ae3f7ab8827790e21",
+    "cross_full_q_4": "2abcd3800d43de1c7eaf0bbdf4a66c867800c15416f2abb198eee40aab62733b",
+    "cross_full_q_65/64": "2bcf74db778a42c522e0f5710e816f3862cc3fc4153ea3746755a3334e3106c6",
+    "cross_source_and_walls_q_1": "967562c7c20e028538e36d16c49a39eaba4ecbb550c4587e9bc8d9a210859541",
+    "cross_source_and_walls_q_1/4": "a83c1a960d0b84cb93990eec2245c8075402ddb47a5515f15f860a4d575d365f",
+    "cross_source_and_walls_q_4": "bca865454826ce6ad639c050c4d7a2c0ae7b1f1980c02982637fe0e58d84b115",
+    "cross_source_and_walls_q_65/64": "e32c999b5d8784a51f2bb45f38c22fcb066a54a58a6c9b9bdeeb3a50c3dc59de",
     "ell_full_q_65_64": "1b83f2fbf3b55b73855a1b702a86ba6464782c51cef0cc51e9eea3eb471befcb",
     "ell_source_and_walls_q_65_64": "bb4b8b113c594c1f6fb9c02a53407add6f5f2779d96f9212b41e39029020d012",
     "mirror_direct": "dfcc17fe6e2c05cc0de415c9ffdf136846c8db997e0bfbbf678a3e862b2b357a",
@@ -29,15 +29,15 @@
     "rect_full_q_65_64": "4f33a225b2790ae76bb996ebfc8f0d293f5b23d83ac9ed868d70da9823c44468",
     "rect_source_and_walls_q_65_64": "c62626f19a253a020dd89520520547b49c254cd74f6524eb52609db5e5e2e8e1",
     "same_time_weighted_collapse": "b14011efddeabf969ee4b4f0d178cc34c10517c37c70e9bbc13c7a6596199b62",
-    "search_pruning_witness": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d",
-    "several_collinear_incidences": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0",
+    "search_pruning_witness": "3b4b68e3ef86492241a6c9da496b9f1a6a65979345a5c019da374be6f39a44c8",
+    "several_collinear_incidences": "bf82cbcc93a186185ad8d7f1032c2a007a25cc2783de8fb65ac93ed4dfc22165",
     "staircase_full_q_65_64": "c2124379ff63675f768156a5690f9298ccaaf1ee8d72995120949b755ccc2494",
     "staircase_source_and_walls_q_65_64": "495411be578d4911440e49ec96c28372b21068c35c4506002f0cfecdae646c79",
     "weighted_holes_1": "d6b81d593b061ac522a3fd5759058e5bee382b9b064338d2dc102e9e2bac7c9c",
     "weighted_holes_2": "77c03c985980d96eb719b91463a0346eb3aaa396b7abda9504515516585f8c9c",
     "weighted_vertex_fan": "bb32331ff5c24b83ee760a2322d0e72c4a850669edc7ed63425f47de8a69050b"
   },
-  "corpus_sha256": "418a002053a21b922ce3f8b24b61d4d7c1eee2f01112af1a6c49bf0ff64c3728",
+  "corpus_sha256": "a68551208f6ef9a56ddf83ec3a7e064c1cc272f38af1dba3ccf0f4696e62600b",
   "p0_2b_kernel_source_tree": "d87b96e08fc54353ba330689da1895acd114064a",
   "p0_2b_product_commit": "852059a34062fd5c5dd18b1833c2908904a08362",
   "p0_3_acceptance_commit": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
@@ -61,40 +61,40 @@
   "schema": "cftuv.p0_3.post_p0_2b_absolute_digests.v1",
   "search_projection_sha256": {
     "collinear_moving_source_and_wall": {
-      "EXHAUSTIVE": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3",
-      "MOTORCYCLE": "ae586eedec7e41786c4e1d9869faec088bce6513940b945bf3f570a53e2ec1a3"
+      "EXHAUSTIVE": "cbcca31abaf7e7f0fa92076acb05e775f177352ae5ecd09d600e6aef10b076b7",
+      "MOTORCYCLE": "cbcca31abaf7e7f0fa92076acb05e775f177352ae5ecd09d600e6aef10b076b7"
     },
     "cross_full_q_1": {
-      "EXHAUSTIVE": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb",
-      "MOTORCYCLE": "302903ccebe8671bd99967490bf4b35e19a79aaf9adb2ddcf089e04753a0b9bb"
+      "EXHAUSTIVE": "299523eb7130739dc644afa54bf37b724256f4f4d2a6bd7dc604dd55386b4c8d",
+      "MOTORCYCLE": "299523eb7130739dc644afa54bf37b724256f4f4d2a6bd7dc604dd55386b4c8d"
     },
     "cross_full_q_1/4": {
-      "EXHAUSTIVE": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46",
-      "MOTORCYCLE": "1c867b49e3754d241cd42d4dd4ef85a067639c6ee52576fe9f6e5fc4cf91fa46"
+      "EXHAUSTIVE": "616251f323e2370c24e06c188ef7da4fd30d7d7c1ddd1d7ae3f7ab8827790e21",
+      "MOTORCYCLE": "616251f323e2370c24e06c188ef7da4fd30d7d7c1ddd1d7ae3f7ab8827790e21"
     },
     "cross_full_q_4": {
-      "EXHAUSTIVE": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130",
-      "MOTORCYCLE": "0bec2cd5df7940b01d6d71cf4dcd5c863c5e3eb9c768a51c2f9ae55fd7bd8130"
+      "EXHAUSTIVE": "2abcd3800d43de1c7eaf0bbdf4a66c867800c15416f2abb198eee40aab62733b",
+      "MOTORCYCLE": "2abcd3800d43de1c7eaf0bbdf4a66c867800c15416f2abb198eee40aab62733b"
     },
     "cross_full_q_65/64": {
-      "EXHAUSTIVE": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850",
-      "MOTORCYCLE": "4b7a18d78d13c968c69aa200436077a88af6d9558e76e81fda588bbd58491850"
+      "EXHAUSTIVE": "2bcf74db778a42c522e0f5710e816f3862cc3fc4153ea3746755a3334e3106c6",
+      "MOTORCYCLE": "2bcf74db778a42c522e0f5710e816f3862cc3fc4153ea3746755a3334e3106c6"
     },
     "cross_source_and_walls_q_1": {
-      "EXHAUSTIVE": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a",
-      "MOTORCYCLE": "6472add9a33a117a084a59300afbfbe537a986371358b5bdc3c04739cecbd19a"
+      "EXHAUSTIVE": "967562c7c20e028538e36d16c49a39eaba4ecbb550c4587e9bc8d9a210859541",
+      "MOTORCYCLE": "967562c7c20e028538e36d16c49a39eaba4ecbb550c4587e9bc8d9a210859541"
     },
     "cross_source_and_walls_q_1/4": {
-      "EXHAUSTIVE": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781",
-      "MOTORCYCLE": "8614e1a5400a5c9e5c7132ed9b0049c6c68ac26b9c379a01c3ba0ed30fa9d781"
+      "EXHAUSTIVE": "a83c1a960d0b84cb93990eec2245c8075402ddb47a5515f15f860a4d575d365f",
+      "MOTORCYCLE": "a83c1a960d0b84cb93990eec2245c8075402ddb47a5515f15f860a4d575d365f"
     },
     "cross_source_and_walls_q_4": {
-      "EXHAUSTIVE": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde",
-      "MOTORCYCLE": "428db43f4ae6d0aea5e23ca461ea5d44a16c1f8ab165a53d9db8049563c4fcde"
+      "EXHAUSTIVE": "bca865454826ce6ad639c050c4d7a2c0ae7b1f1980c02982637fe0e58d84b115",
+      "MOTORCYCLE": "bca865454826ce6ad639c050c4d7a2c0ae7b1f1980c02982637fe0e58d84b115"
     },
     "cross_source_and_walls_q_65/64": {
-      "EXHAUSTIVE": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b",
-      "MOTORCYCLE": "c02b46f7e222ded0c60e8b67fc62e74bad01f6736c7cd2ea1ab61014cec4479b"
+      "EXHAUSTIVE": "e32c999b5d8784a51f2bb45f38c22fcb066a54a58a6c9b9bdeeb3a50c3dc59de",
+      "MOTORCYCLE": "e32c999b5d8784a51f2bb45f38c22fcb066a54a58a6c9b9bdeeb3a50c3dc59de"
     },
     "ell_full_q_65_64": {
       "EXHAUSTIVE": "1b83f2fbf3b55b73855a1b702a86ba6464782c51cef0cc51e9eea3eb471befcb",
@@ -125,12 +125,12 @@
       "MOTORCYCLE": "b14011efddeabf969ee4b4f0d178cc34c10517c37c70e9bbc13c7a6596199b62"
     },
     "search_pruning_witness": {
-      "EXHAUSTIVE": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d",
-      "MOTORCYCLE": "f3da2a67968ae2e3a426ec2712418e5ebef1ac7335cbc6340af64a81c05d577d"
+      "EXHAUSTIVE": "3b4b68e3ef86492241a6c9da496b9f1a6a65979345a5c019da374be6f39a44c8",
+      "MOTORCYCLE": "3b4b68e3ef86492241a6c9da496b9f1a6a65979345a5c019da374be6f39a44c8"
     },
     "several_collinear_incidences": {
-      "EXHAUSTIVE": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0",
-      "MOTORCYCLE": "5f2c0d7825f10f5ae7cfaac83f0572a7097b549423a71195612649ea80dd2fb0"
+      "EXHAUSTIVE": "bf82cbcc93a186185ad8d7f1032c2a007a25cc2783de8fb65ac93ed4dfc22165",
+      "MOTORCYCLE": "bf82cbcc93a186185ad8d7f1032c2a007a25cc2783de8fb65ac93ed4dfc22165"
     },
     "staircase_full_q_65_64": {
       "EXHAUSTIVE": "c2124379ff63675f768156a5690f9298ccaaf1ee8d72995120949b755ccc2494",
