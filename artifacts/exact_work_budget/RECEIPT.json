@@ -136,7 +136,8 @@
     "field_runs": 6,
     "leaked": 0,
     "kernel_corpus": "test_exact_work_budget.py::test_no_exact_work_escapes_the_named_budget_of_a_transaction — 8 фигур корпуса, ноль на каждой",
-    "detector_can_fail": "test_the_leak_detector_itself_can_fail — безбюджетный squarefree_split даёт ненулевую телеметрию"
+    "detector_can_fail": "test_the_leak_detector_itself_can_fail — безбюджетный squarefree_split даёт ненулевую телеметрию",
+    "but_the_guarantee_is_measured_not_structural": "Ноль утёкших единиц — ФАКТ ПРОГОНА, а не свойство кода. `sign()` зовётся мимо бюджета из ДЕВЯТИ мест, 16 801 раз на трёх полевых доменах (unbudgeted_sites.py). Ни один из этих вызовов не заплатил ни единицы: все закрылись оболочкой или рациональным путём, до сопряжения не дошёл ни один. Но структурно дверь открыта, и это ИМЕНОВАННЫЙ СЧЁТ, а не умолчание."
   },
   "perf_canon_1_gain_preserved": {
     "why_asked": "замена lru_cache на явные словари не имеет права съесть выигрыш PERF-CANON-1",
@@ -183,8 +184,25 @@
   },
   "named_open_accounts": [
     {
-      "id": "Q-FACES-SIGN-OUTSIDE-THE-BUDGET",
-      "text": "wavefront/faces.py вызывает SqrtSumV1.sign() четырьмя местами мимо бюджета: файл принадлежит следующей карточке (FACE-CONTINUATION) и этой карточкой не трогался. Цена дыры измерена, а не оценена: ветка сопряжения, единственная в sign(), которая способна факторизовать, на ВСЕХ полевых прогонах закрывается нулём — SIGN_COUNTS.closed_by_conjugation = 0 (PERF-PREPARE-DIAG REPORT.txt §2а, обе колонки, все три стадии). Протяжка бюджета через faces.py — один параметр в build_faces и четыре аргумента в вызовах sign()."
+      "id": "Q-EXACT-WORK-OUTSIDE-THE-BUDGET",
+      "supersedes": "Q-FACES-SIGN-OUTSIDE-THE-BUDGET",
+      "why_renamed": "Прежнее имя было УЖЕ, чем правда, и это выяснилось измерением, а не чтением: `faces.py` на трёх полевых доменах не сделал НИ ОДНОГО вызова `sign()` — его места мёртвые на пройденных путях, — зато безбюджетных мест оказалось девять, и главное из них не в faces.py.",
+      "sites": [
+        "kernel/src/cftuv_envelope/wavefront/event_time.py:276",
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:271",
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:273",
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:481",
+        "kernel/src/cftuv_envelope/wavefront/poststate_span.py:141",
+        "kernel/src/cftuv_envelope/wavefront/poststate_span.py:142",
+        "kernel/src/cftuv_envelope/wavefront/poststate_span.py:73",
+        "kernel/src/cftuv_envelope/wavefront/superlevel.py:562",
+        "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:83"
+      ],
+      "largest_hole": "wavefront/event_time.py:276 (`compare_times`): 32 701 вызов, из них 15 462 БЕЗ бюджета. Бюджет теряется не здесь, а у вызывающих `compare_times` — motorcycle.py:189, events.py:96 и :130, skeleton.py:763, symbolic_superlevel_coordinator.py:168. Чинить надо там, а не в подписи `sign()`.",
+      "measured_cost": "16 801 безбюджетный вызов, 0 единиц заплачено",
+      "why_zero": "Единственная ветка `sign()`, способная факторизовать, — сопряжение, и она на всех полевых прогонах закрывается нулём (SIGN_COUNTS.closed_by_conjugation = 0, PERF-PREPARE-DIAG REPORT.txt §2а). Оболочка и рациональный путь работы не покупают.",
+      "what_it_means_for_the_promise": "Обещание «любой долгий расчёт кончится именованным отказом» держится на ЭТОМ измерении, а не на структуре кода. Домен, у которого сопряжение всё-таки открылось бы в одном из девяти мест, ушёл бы в счёт мимо капа. Закрывается протяжкой бюджета в `compare_times` у пяти вызывающих плюс восемь оставшихся мест; файлы superlevel*/symbolic_* принадлежат параллельной ветке и этой карточкой не трогались.",
+      "script": "artifacts/exact_work_budget/unbudgeted_sites.py"
     },
     {
       "id": "Q-WORK-BUDGET-PER-MESH",
@@ -193,6 +211,10 @@
     {
       "id": "Q-CAP-VS-NEAR-PLANAR-ROOT",
       "text": "Кап отказывает там, где корень — near-planar проекция, поднимающая знаменатели метрики (REPORT.txt §3, Р3/Р4). Отказ по бюджету назовёт СЛЕДСТВИЕ (работа кончилась), а не ПРИЧИНУ (кадр чарта плох). Это честно, но владельцу полезнее вторая формулировка; она приедет вместе с законом выбора кадра чарта, а не отсюда."
+    },
+    {
+      "id": "Q-CEILING-IS-ANCHORED-TO-6ce0227",
+      "text": "Худший ЗДОРОВЫЙ домен померен на 6ce0227, потому что на вершине walls.012 и wall 2.001 сломаны. Когда exec/walls012-split-contact починит их, потолок обязан быть ПЕРЕМЕРЕН на починенной вершине: если ремонт сделает здоровый walls.012 дороже 554 580 единиц, запас 15.1x придётся пересчитать. Это не дефект капа, это срок годности его обоснования."
     }
   ],
   "work_units_by_domain_tip_7a11636": {
