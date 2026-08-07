@@ -11,6 +11,14 @@
 Счёт идёт в `UNBUDGETED_WORK`: на этой вершине скелет бюджета не называет,
 поэтому вся работа домена попадает в телеметрию неоплаченного. Это ровно тот
 же счётчик и те же статьи, что у транзакционного бюджета.
+
+Прогон:
+    python3 ../exact_work_budget/measure_units.py <куда.json> [потолок]
+из каталога `artifacts/perf_prepare_diag`. Второй аргумент занижает объявленный
+потолок — это НЕГАТИВНЫЕ ворота карточки В ПОЛЕ, а не только на корпусе: на
+здоровых доменах заниженный кап обязан дать ИМЕНОВАННЫЙ отказ с полной деталью
+вместо ответа. Проверка, у которой нельзя построить нарушение, не проверяет
+ничего.
 """
 
 from __future__ import annotations
@@ -28,7 +36,7 @@ def _measure(label, run):
     canon.reset_factorization_memory()
     canon.reset_unbudgeted_work()
     started = time.perf_counter()
-    outcome, charged = run()
+    outcome, charged, detail = run()
     seconds = time.perf_counter() - started
     # Транзакционный бюджет, если ветка его называет; иначе телеметрия
     # неоплаченного. Обе величины — один и тот же счётчик и те же статьи.
@@ -36,6 +44,10 @@ def _measure(label, run):
     row["seconds"] = round(seconds, 3)
     row["outcome"] = outcome
     row["leaked_unbudgeted"] = canon.UNBUDGETED_WORK.spent
+    # Деталь нужна ровно негативным воротам: у отказа по бюджету она несёт
+    # стадию, операцию, ширину радиканда и все шесть счётчиков. У здорового
+    # домена она пустая, и пустота — тоже утверждение.
+    row["detail"] = detail
     print(label, json.dumps(row, ensure_ascii=False), flush=True)
     return label, row
 
@@ -98,12 +110,30 @@ def main():
             # обязан это пережить, иначе «здоровый домен» померить нечем.
             named = getattr(prepared, "work_budget", None)
             charged = () if named is None else named.counters()
+            if not charged:
+                # ОТКАЗ несёт свой расход в счётчиках подготовки и в детали —
+                # так объявлено в `prepare_conveyor`. Читаем оттуда, иначе
+                # негативные ворота показывали бы нули там, где расход как раз
+                # и есть смысл прочитать.
+                charged = tuple(
+                    (name, value)
+                    for name, value in prepared.counters
+                    if name.startswith("EXACT_WORK_")
+                )
             return (
                 f"{domain.preparation_outcome}/{domain.coverage_outcome}",
                 charged,
+                domain.detail,
             )
 
         return run
+
+    if len(sys.argv) > 2:
+        # Потолок правится ПРЯМО В МОДУЛЕ, потому что хост зовёт
+        # `prepare_conveyor` без бюджета и штатный кап читается по имени в
+        # момент вызова. Второй провод «занижённый кап» через хост завёл бы в
+        # продуктовый путь параметр, нужный только воротам.
+        canon._EXACT_CANONICALIZATION_WORK_CAP = int(sys.argv[2])
 
     results = {}
     plans = [
