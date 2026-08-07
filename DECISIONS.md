@@ -6471,3 +6471,17 @@ INCOMPLETE → COMPLETE. Корпус 63 (имена + частичные ист
 на `weighted_vertex_fan` (EXACT → WAVEFRONT_LEFT_UNRESOLVED). Значит
 «лежать внутри пролёта» и «пролёт схлопнулся» — разные вопросы, и второй
 требует собственной карточки с собственным доказательством.
+
+**2026-08-05** — BORN-PLACE-CONSISTENCY, ЧИСЛА СЮИТ НА ВЕРШИНЕ ветки
+`exec/walls012-split-contact`. Kernel из каталога `kernel`
+(PYTHONPATH=src:tests): **2974 passed, 2 skipped, НОЛЬ падений** (54:49;
+оба пропуска — `SURFACE_BACKEND_NOT_IMPLEMENTED` на `half_sphere` и
+`fold_near_smooth`). Host из корня: **1337 passed, 2 failed, 5 skipped**
+— оба падения средовые (`FileNotFoundError: 'powershell'` в
+`test_density_field_tools_contract`), сверх них ноль; архитектура в этом
+же прогоне зелёная. Полевая матрица `tests/test_field_release_matrix.py`
+— **22/22**: оба знамени ремонта
+(`test_wall_2_001_faces_and_coverage_are_exact`,
+`test_walls_012_is_exact`) зелёные, страж `test_red_gates_are_not_
+suppressed` на месте и ничего не заглушено. Ветка НЕ слита — приёмка за
+принципалом.
