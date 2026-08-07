@@ -1138,12 +1138,38 @@ def test_runtime_commit_rejects_in_range_wrong_physical_edge(monkeypatch):
 
 
 def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
+    """ПЕРЕНАЦЕЛИВАНИЕ 2026-08-05: носитель переехал вместе с причиной.
+
+    Прежний носитель — `building_all_seams_patch_001_lost_resolved_v1`,
+    пролёт с участниками (49, 45, 25). После закона места рождённого порта
+    (`symbolic_overlay._born_place`) патч 001 доходит до EXACT, и ТОГО
+    патологического пролёта в нём больше нет: `causal_receipts` пустеет, а
+    вместе с ним пустеет и расписка полного пересева — она снималась только
+    на терминале WAVEFRONT_LEFT_UNRESOLVED, которого у патча 001 больше нет.
+
+    Носитель не выдуман и не ослаблен. Поиск прогнан по ВСЕМ семи полевым
+    кейсам `sem_clb_02_lost_domains_v1` и по корпусам имён, частичных
+    источников и весов со стенами; конъюнкция «OPENING + точное EDGE-событие
+    в ПРОШЛОМ» жива в восьми местах: полевые 001 (47, 52, 24), 006 (0, 1, 36),
+    011 (49, 36, 32) и (26, 47, 52), 002 (11, 0, 3) и (11, 0, 9), 003
+    (11, 0, 9), плюс `field_building_002_scale_256/1024`, `weighted_holes_2`
+    и зеркальная пара `mirror_direct`/`mirror_reflected` в корпусах.
+
+    Взят `building_002_single_edge_patch_000_named_outcome_v1`, потому что он
+    ЕДИНСТВЕННЫЙ несёт ОБА свидетеля этих ворот сразу: и конъюнкцию Q-08, и
+    нерешённый терминал, на котором проверяется четвёртое отрицательное
+    утверждение Q-08 (полный однократный пересев остаётся пустым). Предмет
+    ворот сохранён дословно; переехали только числа и ориентация пролёта
+    (`orientation_sign` +1 вместо -1: у нового носителя рождением оказался
+    ВТОРОЙ конец пролёта, а не первый, — см. проверку видов ссылок ниже).
+    """
+
     from cftuv_envelope.wavefront import symbolic_runtime_commit as runtime
     from cftuv_envelope.wavefront.poststate_span import (
         PoststateSpanDisposition,
     )
 
-    case_name = "building_all_seams_patch_001_lost_resolved_v1"
+    case_name = "building_002_single_edge_patch_000_named_outcome_v1"
     root = (
         Path(__file__).parents[1]
         / "fixtures"
@@ -1158,10 +1184,10 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         (root / "decal_request.json").read_bytes()
     )
     (domain,) = snapshot.patch_domains
-    raw_extra = (-100088, 1159360, -219120, 1193292)
-    edge_49 = (-85508, 517564, -51032, 507740)
-    edge_45 = (-60168, 615468, -60168, 615468, 1)
-    edge_25 = (-33500, 140620, -119984, 527392)
+    raw_extra = (232392, -39678, 20371, 21074)
+    edge_0 = (469074, -101640, 212020, -27984)
+    edge_3 = (20371, 21074, 0, 32768)
+    edge_11 = (583056, -167068, 469074, -101640)
     original_plan = runtime.plan_symbolic_runtime_commit
     causal_receipts = []
 
@@ -1174,7 +1200,7 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
             )
             if {
                 by_key.get(key) for key in item.participant_edge_keys
-            } == {49, 45, 25}
+            } == {11, 0, 3}
         )
         plan, reason = original_plan(builder, frozen, closure)
         if not classifications:
@@ -1185,7 +1211,7 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         assert affine.disposition is PoststateSpanDisposition.OPENING
         assert affine.birth_length.sign() > 0
         assert affine.slope.sign() > 0
-        assert affine.orientation_sign == -1
+        assert affine.orientation_sign == 1
         assert reason is None and plan is not None
 
         # Q-08's exact past event remains a diagnostic consequence, not an
@@ -1197,21 +1223,21 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         )
         raw = next(
             incident for incident in raw_edges
-            if (incident.event.vertex, incident.event.peer) == (140, 123)
+            if (incident.event.vertex, incident.event.peer) == (12, 3)
         )
-        assert (raw.event.vertex, raw.event.peer) == (140, 123)
-        assert set(raw.participants) == {raw_extra, edge_49, edge_45}
+        assert (raw.event.vertex, raw.event.peer) == (12, 3)
+        assert set(raw.participants) == {raw_extra, edge_0, edge_3}
         past = next(
             item
             for item in runtime.changed_poststate_past_edge_events(
                 builder, frozen, closure.overlay
             )
             if {by_key.get(key) for key in item.participant_edge_keys}
-            == {49, 45, 25}
+            == {11, 0, 3}
         )
         assert set(raw.participants) != set(past.participant_edge_keys)
         assert set(past.participant_edge_keys) == {
-            edge_49, edge_45, edge_25
+            edge_11, edge_0, edge_3
         }
         assert compare_times(raw.event.time, past.event_time) > 0
         assert past.event_point is not None
@@ -1222,8 +1248,11 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         assert past.event_time.sign < 0
         assert past.vertex_ref == classification.vertex_ref
         assert past.peer_ref == classification.peer_ref
-        assert past.vertex_ref.kind == "BIRTH"
-        assert past.peer_ref.kind == "EXISTING"
+        # У нового носителя рождением оказался ВТОРОЙ конец пролёта; сама
+        # конъюнкция от порядка концов не зависит, но записана она числом,
+        # а не «одним из двух».
+        assert past.vertex_ref.kind == "EXISTING"
+        assert past.peer_ref.kind == "BIRTH"
         assert compare_times(past.event_time, past.now) < 0
         assert compare_times(past.event_time, past.vertex_birth) < 0
         assert compare_times(past.event_time, past.peer_birth) < 0
@@ -1249,7 +1278,7 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
                 range(len(builder.vertices), len(shadow.vertices)),
             )
         }
-        born_id = born_ids[classification.vertex_ref]
+        born_id = born_ids[classification.peer_ref]
         assert born_id in enqueued_for
         shadow.queue = EventQueueV1()
         shadow._enqueue_edge_event(shadow.vertices[born_id])
@@ -1293,13 +1322,12 @@ def test_poststate_past_edge_symptom_is_classified_as_opening(monkeypatch):
         request,
         patch_domain_id=domain.patch_domain_id,
     )
-    # ПЕРЕСЪЁМКА 2026-08-04: терминал патча переехал на EXACT (закон места
-    # рождённого порта). Предмет теста — классификация того же пролёта как
-    # OPENING и его причинная расписка — от терминала не зависит и проверен
-    # выше без послаблений.
-    assert prepared.outcome.value == "EXACT"
+    # Терминал нового носителя — именованный отказ, и это ровно то состояние,
+    # на котором четвёртое отрицательное утверждение Q-08 вообще наблюдаемо:
+    # без нерешённого фронта полный пересев проверять не на чем.
+    assert prepared.outcome.value == "SKELETON_DID_NOT_CLOSE"
     assert len(causal_receipts) == 1
-    assert full_reseed_receipts == [((102, 137, 145, 148), 0, 0)]
+    assert full_reseed_receipts == [((4, 5, 6, 7, 8, 16), 0, 0)]
 
 
 def test_split_family_normal_form_materializes_comb_2_once(monkeypatch):
@@ -1373,8 +1401,31 @@ def test_split_family_normal_form_materializes_comb_2_once(monkeypatch):
     )
 
 
-def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
-    """Первое EDGE-поколение наблюдается без выбора порядка свёртки."""
+def test_cross_t8_split_closure_is_stable_and_names_its_terminal_cycle(
+    monkeypatch,
+):
+    """Замыкание разрезов наблюдается без выбора порядка свёртки.
+
+    ПЕРЕИМЕНОВАНИЕ 2026-08-05, было
+    `test_cross_t8_edge_generations_are_stable_under_permutations`.
+    EDGE-поколений на этом пакете больше НЕТ, и это не ослабление: прежние три
+    поколения по одному контакту висели на разрезе В ТОЧКЕ (6, 6), который
+    лежал ВНЕ пролёта, который резал (арифметика — в
+    `test_cross_t8_edge_and_split_share_one_mixed_generation_inside_the_span`).
+    Закон места рождённого порта его снял вместе с причиной.
+
+    Исчезновение НЕ молчаливое, и ровно это здесь и проверяется: единственная
+    оставшаяся новорождённая смежность — взаимный двуугольник из двух рождений
+    на СОВПАВШИХ антипараллельных прямых, и закон EDGE отвечает про него
+    ИМЕНОВАННЫМ отказом `NO_RULE_TRIPLE_ALWAYS_CONCURRENT` в обе стороны.
+    Такой цикл принадлежит терминальному сертификату, а не закону поколений.
+
+    Сам предмет ворот — стабильность под перестановками — цел и проверяется
+    тем же циклом по прямому и развёрнутому пакету и по двум порядкам обхода
+    overlay. Перенесённая часть (цепочка EDGE-поколений, форма ключа контакта,
+    отсутствие runtime id) живёт на НОВОМ носителе — см.
+    `test_weighted_vertex_fan_edge_generations_are_stable_under_permutations`.
+    """
 
     from cftuv_envelope.wavefront import (
         superlevel_fixed_point as split_fixed_point,
@@ -1382,7 +1433,12 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
     from cftuv_envelope.wavefront import symbolic_edge_closure
     from cftuv_envelope.wavefront import symbolic_edge_fixed_point
     from cftuv_envelope.wavefront import symbolic_split_endpoint
-    from cftuv_envelope.wavefront.symbolic_overlay import SymbolicOverlayV1
+    from cftuv_envelope.wavefront.candidate_law import evaluate_edge_candidate
+    from cftuv_envelope.wavefront.candidate_refusal import CandidateRefusal
+    from cftuv_envelope.wavefront.symbolic_overlay import (
+        SymbolicOverlayV1,
+        exact_overlay_view,
+    )
 
     polygon = next(
         case.polygon
@@ -1477,24 +1533,57 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
                 assert symbolic_edge_fixed_point.overlay_signature(
                     endpoint.overlay
                 ) == symbolic_edge_fixed_point.overlay_signature(overlay)
-                contacts = (
+                # ПЕРЕСЪЁМКА 2026-08-05, «не этим числом». Было: один
+                # немедленный контакт и три поколения по одному. Стало НОЛЬ —
+                # и ноль ИМЕНОВАННЫЙ, а не молчаливый.
+                assert (
                     symbolic_edge_closure.discover_symbolic_edge_contacts(
                         builder, endpoint.overlay
                     )
+                    == ()
                 )
-                assert len(contacts) == 1
                 fixed = symbolic_edge_fixed_point.plan_symbolic_edge_generations(
                     builder, endpoint.overlay, budget=3
                 )
                 assert fixed.unresolved_reason is None
                 assert fixed.overlay is not None
-                assert tuple(len(item.contacts) for item in fixed.generations) == (
-                    1,
-                    1,
-                    1,
+                assert fixed.generations == ()
+                assert symbolic_edge_fixed_point.overlay_signature(
+                    fixed.overlay
+                ) == symbolic_edge_fixed_point.overlay_signature(
+                    endpoint.overlay
                 )
-                assert not symbolic_edge_closure.discover_symbolic_edge_contacts(
-                    builder, fixed.overlay
+                # Единственный взаимный двуугольник из двух рождений отвечает
+                # ИМЕНОВАННЫМ отказом в обе стороны: его два ребра лежат на
+                # одной прямой противонаправленно, тройка всегда конкурентна.
+                view = exact_overlay_view(builder, endpoint.overlay)
+                cycles = tuple(
+                    (ref, vertex.next)
+                    for ref, vertex in endpoint.overlay.vertices.items()
+                    if vertex.alive
+                    and vertex.next is not None
+                    and endpoint.overlay.vertices[vertex.next].next == ref
+                )
+                assert len(cycles) == 2
+                assert {
+                    endpoint.overlay.vertices[ref].ref.kind
+                    for pair in cycles
+                    for ref in pair
+                } == {"BIRTH"}
+                refusals = tuple(
+                    effect.reason
+                    for first, second in cycles
+                    for effect in evaluate_edge_candidate(
+                        view,
+                        first,
+                        second,
+                        now=endpoint.overlay.time,
+                        same_vertex=False,
+                    ).effects
+                )
+                assert refusals == (
+                    CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
+                    CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
                 )
                 captured.append(
                     (
@@ -1503,6 +1592,21 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
                             for item in fixed.generations
                         ),
                         symbolic_edge_fixed_point.overlay_signature(fixed.overlay),
+                        tuple(sorted(
+                            {
+                                (
+                                    endpoint.overlay.vertices[
+                                        ref
+                                    ].prev_leaf.occurrence,
+                                    endpoint.overlay.vertices[
+                                        ref
+                                    ].next_leaf.occurrence,
+                                )
+                                for pair in cycles
+                                for ref in pair
+                            },
+                            key=repr,
+                        )),
                     )
                 )
         raise _GateReached
@@ -1514,21 +1618,158 @@ def test_cross_t8_edge_generations_are_stable_under_permutations(monkeypatch):
         build_skeleton(polygon)
 
     assert captured and all(result == captured[0] for result in captured)
+    trace, _, cycle_leaves = captured[0]
+    assert trace == ()
+    # Двуугольник назван побитово: те же два вхождения в обе стороны — сегмент
+    # разрезанного ребра (0, 4) -> (4, 4) от (2, 6) до (14/3, 6) и пролёт
+    # ребра (4, 8) -> (0, 8) от (14/3, 6) до (2, 6).
+    assert cycle_leaves == (
+        (
+            (
+                (0, 4, 4, 4),
+                (((1, Fraction(2)),), ((1, Fraction(6)),)),
+                (((1, Fraction(14, 3)),), ((1, Fraction(6)),)),
+            ),
+            (
+                (4, 8, 0, 8),
+                (((1, Fraction(14, 3)),), ((1, Fraction(6)),)),
+                (((1, Fraction(2)),), ((1, Fraction(6)),)),
+            ),
+        ),
+        (
+            (
+                (4, 8, 0, 8),
+                (((1, Fraction(14, 3)),), ((1, Fraction(6)),)),
+                (((1, Fraction(2)),), ((1, Fraction(6)),)),
+            ),
+            (
+                (0, 4, 4, 4),
+                (((1, Fraction(2)),), ((1, Fraction(6)),)),
+                (((1, Fraction(14, 3)),), ((1, Fraction(6)),)),
+            ),
+        ),
+    )
+
+
+def test_weighted_vertex_fan_edge_generations_are_stable_under_permutations(
+    monkeypatch,
+):
+    """EDGE-поколения наблюдаются без выбора порядка свёртки.
+
+    НОВЫЙ НОСИТЕЛЬ 2026-08-05 для части, снятой с `cross_full_q_1` вместе с
+    её причиной (разрез вне пролёта). Носитель не выдуман: поиск по всему
+    корпусу имён, частичных источников и весов со стенами даёт ровно пять
+    пакетов, где `discover_symbolic_edge_contacts` вообще что-то находит, и
+    единственный с БОЛЕЕ ЧЕМ одним контактом — `weighted_vertex_fan` в
+    t = 192/65 (пакет из семи EDGE). Предмет ворот перенесён дословно:
+    контакты, поколения, достижение неподвижной точки, форма ключа без
+    runtime id и совпадение всех четырёх перестановок.
+    """
+
+    from cftuv_envelope.wavefront import (
+        superlevel_fixed_point as split_fixed_point,
+    )
+    from cftuv_envelope.wavefront import symbolic_edge_closure
+    from cftuv_envelope.wavefront import symbolic_edge_fixed_point
+    from cftuv_envelope.wavefront import symbolic_split_endpoint
+    from cftuv_envelope.wavefront.symbolic_overlay import SymbolicOverlayV1
+
+    polygon = next(
+        case.polygon
+        for case in weighted_wall_differential_corpus()
+        if case.name == "weighted_vertex_fan"
+    )
+    original = superlevel_module.apply_superlevel_transaction
+    captured = []
+
+    class _GateReached(Exception):
+        pass
+
+    def observed(builder, level):
+        if superlevel_module._time_key(level[0].time) != (
+            Fraction(192), ((65, Fraction(1)),)
+        ):
+            return original(builder, level)
+        assert tuple(event.kind for event in level) == (EventKind.EDGE,) * 7
+        snapshots = (
+            superlevel_module.collect_superlevel_snapshot(builder, level),
+            superlevel_module.collect_superlevel_snapshot(
+                builder, tuple(reversed(level))
+            ),
+        )
+        for snapshot in snapshots:
+            split = split_fixed_point.plan_symbolic_split_fixed_point(
+                builder, snapshot, budget=1
+            )
+            assert split.unresolved_reason is None
+            assert split.iterations == 0
+            assert split.added_contacts == ()
+            assert split.overlay is not None
+            overlays = (
+                split.overlay,
+                SymbolicOverlayV1(
+                    dict(reversed(tuple(split.overlay.vertices.items()))),
+                    dict(reversed(tuple(split.overlay.spans.items()))),
+                    set(split.overlay.changed),
+                    split.overlay.time,
+                ),
+            )
+            for overlay in overlays:
+                endpoint = symbolic_split_endpoint.plan_endpoint_generations(
+                    builder, overlay, budget=1
+                )
+                assert endpoint.unresolved_reason is None
+                assert endpoint.generations == ()
+                assert symbolic_edge_fixed_point.overlay_signature(
+                    endpoint.overlay
+                ) == symbolic_edge_fixed_point.overlay_signature(overlay)
+                contacts = (
+                    symbolic_edge_closure.discover_symbolic_edge_contacts(
+                        builder, endpoint.overlay
+                    )
+                )
+                assert len(contacts) == 2
+                fixed = symbolic_edge_fixed_point.plan_symbolic_edge_generations(
+                    builder, endpoint.overlay, budget=3
+                )
+                assert fixed.unresolved_reason is None
+                assert fixed.overlay is not None
+                assert tuple(
+                    len(item.contacts) for item in fixed.generations
+                ) == (2,)
+                assert not symbolic_edge_closure.discover_symbolic_edge_contacts(
+                    builder, fixed.overlay
+                )
+                captured.append(
+                    (
+                        tuple(
+                            tuple(contact.key for contact in item.contacts)
+                            for item in fixed.generations
+                        ),
+                        symbolic_edge_fixed_point.overlay_signature(
+                            fixed.overlay
+                        ),
+                    )
+                )
+        raise _GateReached
+
+    monkeypatch.setattr(
+        superlevel_module, "apply_superlevel_transaction", observed
+    )
+    with pytest.raises(_GateReached):
+        build_skeleton(polygon)
+
+    assert len(captured) == 4
+    assert all(result == captured[0] for result in captured)
     trace, _ = captured[0]
-    assert sum(map(len, trace)) == 3
-    assert len({contact.point_key for generation in trace for contact in generation}) == 1
+    assert sum(map(len, trace)) == 2
+    assert len({
+        contact.point_key for generation in trace for contact in generation
+    }) == 1
     key = trace[0][0]
-    # ПЕРЕСЪЁМКА 2026-08-04, и она сама по себе — свидетельство закона.
-    # Было ((1, 14/3),), ((1, 6),): порт, РОЖДЁННЫЙ локусом ровно в `now`,
-    # спрашивал о своём месте закон движения, и тот отвечал промежуточной
-    # точкой 14/3 — на двух совпавших антипараллельных прямых иного ответа у
-    # него нет. Стало ((1, 6),), ((1, 6),) — САМ ЛОКУС
-    # (symbolic_overlay._born_place). Ровно ту же точку (6, 6) прежде
-    # доискивала лишняя итерация неподвижной точки в соседних воротах —
-    # теперь начальное поколение приходит в неё сразу, и итерация не нужна.
     assert key.point_key == (
-        ((1, Fraction(6)),),
-        ((1, Fraction(6)),),
+        ((1, Fraction(2)),),
+        ((1, Fraction(2)),),
     )
     assert tuple(key.__dataclass_fields__) == (
         "time_key",
@@ -2647,7 +2888,45 @@ def test_trace_bound_authority_changes_signature_and_candidate_view():
     ).trace_bounds(ref, ZERO_TIME) is False
 
 
-def test_cross_t8_edge_and_6_6_split_share_initial_mixed_generation(monkeypatch):
+def _span_projection(line, point_key):
+    """Проекция точки на несущую прямую — та же, что у `span_containment`."""
+
+    return (
+        SqrtSumV1(point_key[0]).scaled(line.b)
+        - SqrtSumV1(point_key[1]).scaled(line.a)
+    )
+
+
+def test_cross_t8_edge_and_split_share_one_mixed_generation_inside_the_span(
+    monkeypatch,
+):
+    """РАЗРЕЗ ЛЕЖИТ ВНУТРИ ПРОЛЁТА, КОТОРЫЙ РЕЖЕТ.
+
+    ПЕРЕФОРМУЛИРОВКА 2026-08-05 вместо
+    `test_cross_t8_edge_and_6_6_split_share_initial_mixed_generation`.
+    Прежние ворота требовали, чтобы среди разрезов начального смешанного
+    поколения был разрез в точке (6, 6). Такого разреза НЕТ и быть не должно:
+    он был симптомом той самой поломки, которую закрыл закон места рождённого
+    порта (`symbolic_overlay._born_place`), и вот его арифметика.
+
+    В `now` на прямой `y = 6` стоят два пролёта. Пролёт исходного ребра
+    `(4, 8) -> (0, 8)` идёт от (14/3, 6) до (2, 6); пролёт исходного ребра
+    `(0, 4) -> (4, 4)` идёт от (2, 6) до (6, 6). Вогнутый порт с вхождениями
+    ((0, 4, 4, 4), (4, 4, 4, 0)) стоит в (6, 6) — это ДАЛЬНИЙ конец ВТОРОГО
+    пролёта. Разрез первого пролёта в (14/3, 6) рождает порт, оба плеча
+    которого легли на одну прямую противонаправленно; закон движения о его
+    месте молчит. Пока молчание читалось как «границы нет», пролёт ребра
+    `(4, 8) -> (0, 8)` объявлялся НЕОГРАНИЧЕННЫМ и содержал любую точку своей
+    прямой — включая (6, 6). Отсюда и брался «разрез в (6, 6)»: контакт ВНЕ
+    пролёта. Он убивал живой вогнутый порт (dead ids шли четвёркой вместо
+    тройки) и разворачивал три лишних поколения неподвижной точки.
+
+    Проверяемое утверждение вместо снятого числа — общий закон: точка каждого
+    разреза лежит СТРОГО ВНУТРИ проекции пролёта, который он режет. Прежний
+    (6, 6) его нарушал на 16/3 единиц проекции, и арифметика этого нарушения
+    записана ниже числами, а не прозой.
+    """
+
     from cftuv_envelope.wavefront import symbolic_superlevel_coordinator as outer
 
     polygon = next(
@@ -2691,13 +2970,75 @@ def test_cross_t8_edge_and_6_6_split_share_initial_mixed_generation(monkeypatch)
             ]
             assert len(mixed_plans) == 1
             plan = mixed_plans[0]
-            cut_points = {
-                superlevel_module._event_point_key(event)
-                for cut in plan.split_cuts for event in cut.events
-            }
-            assert (
-                ((1, Fraction(6)),), ((1, Fraction(6)),)
-            ) in cut_points
+            # Закон, а не число: разрез внутри своего пролёта. Он общий, он
+            # падал бы на прежнем (6, 6), и он не знает про эту фигуру.
+            for cut in plan.split_cuts:
+                line = builder.edges[cut.edge_id].line
+                low, high = (
+                    _span_projection(line, key)
+                    for key in cut.target_occurrence[1:]
+                )
+                for event in cut.events:
+                    here = _span_projection(
+                        line, superlevel_module._event_point_key(event)
+                    )
+                    assert (here - low).sign() * (high - here).sign() > 0
+            # На кресте таких разрезов ровно один, и он — настоящий локус
+            # события: вогнутый порт вошёл в пролёт ребра (0, 4) -> (4, 4).
+            assert tuple(
+                (
+                    cut.target_occurrence[0],
+                    tuple(
+                        superlevel_module._event_point_key(event)
+                        for event in cut.events
+                    ),
+                )
+                for cut in plan.split_cuts
+            ) == (
+                (
+                    (0, 4, 4, 4),
+                    ((((1, Fraction(14, 3)),), ((1, Fraction(6)),)),),
+                ),
+            )
+            # Арифметика снятого фантома. Пролёт ребра (4, 8) -> (0, 8)
+            # проецируется в [-56/3, -8]; точка (6, 6) даёт -24 и лежит вне
+            # него на 16/3. Прежде она объявлялась внутренним разрезом ЭТОГО
+            # пролёта; теперь на этом семействе разрезов нет вовсе.
+            phantom_edge = next(
+                edge for edge in builder.edges if edge.key == (4, 8, 0, 8)
+            )
+            phantom = tuple(
+                _span_projection(phantom_edge.line, key)
+                for key in (
+                    (((1, Fraction(14, 3)),), ((1, Fraction(6)),)),
+                    (((1, Fraction(2)),), ((1, Fraction(6)),)),
+                    (((1, Fraction(6)),), ((1, Fraction(6)),)),
+                )
+            )
+            assert tuple(item.terms for item in phantom) == (
+                ((1, Fraction(-56, 3)),),
+                ((1, Fraction(-8)),),
+                ((1, Fraction(-24)),),
+            )
+            assert (phantom[2] - phantom[0]).terms == ((1, Fraction(-16, 3)),)
+            assert all(
+                cut.target_occurrence[0] != (4, 8, 0, 8)
+                for cut in plan.split_cuts
+            )
+            # Живой вогнутый порт в (6, 6) переживает пакет. Прежний фантом
+            # его убивал: dead ids были (8, 9, 10, 11) вместо (8, 9, 10).
+            assert any(
+                vertex.alive
+                and vertex.ref.kind == "EXISTING"
+                and vertex.ref.key == ((0, 4, 4, 4), (4, 4, 4, 0))
+                for vertex in fixed.overlay.vertices.values()
+            )
+            # Нулевой площади двуугольник из двух рождений на совпавших
+            # антипараллельных прямых назван терминальным циклом, а не
+            # разобран лишним разрезом.
+            assert tuple(
+                len(cycle) for cycle in plan.terminal_birth_cycles
+            ) == (2,)
             assert any(
                 contact.point_key == (
                     ((1, Fraction(2)),), ((1, Fraction(6)),)
@@ -2708,6 +3049,7 @@ def test_cross_t8_edge_and_6_6_split_share_initial_mixed_generation(monkeypatch)
                 not generation.interior_contacts
                 for generation in fixed.junction.generations
             )
+            assert fixed.canonical_batch_count == 1
             results.append((
                 fixed.materialization,
                 outer.overlay_signature(fixed.overlay),
