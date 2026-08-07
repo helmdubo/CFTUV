@@ -1,6 +1,6 @@
 {
   "card": "EXACT-WORK-BUDGET",
-  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 821995f",
+  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 7a11636 (перебазировано с 821995f)",
   "branch": "exec/exact-work-budget",
   "harness": "artifacts/perf_prepare_diag (headless, без Blender) + artifacts/exact_work_budget/{field_gate,measure_units}.py",
   "machine_note": "один контейнер, 4 ядра; абсолютные секунды сопоставимы только внутри этой расписки",
@@ -14,8 +14,9 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 19,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
       "EXACT_WORK_SPENT": 13651,
+      "leaked_unbudgeted": 13651,
       "outcome": "EXACT/EXACT",
-      "seconds": 0.732
+      "seconds": 0.654
     },
     "building_d0_a045:patch121": {
       "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 18,
@@ -25,8 +26,9 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 15,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
       "EXACT_WORK_SPENT": 8772,
+      "leaked_unbudgeted": 8772,
       "outcome": "EXACT/EXACT",
-      "seconds": 0.112
+      "seconds": 0.107
     },
     "wall_2_001_d0_a0254:patch0": {
       "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2894,
@@ -36,8 +38,9 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 16,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 34,
       "EXACT_WORK_SPENT": 24508,
+      "leaked_unbudgeted": 24508,
       "outcome": "EXACT/EXACT",
-      "seconds": 2.962
+      "seconds": 2.55
     },
     "wall_2_001_d0_a045:patch0": {
       "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2894,
@@ -47,8 +50,9 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 16,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 34,
       "EXACT_WORK_SPENT": 24508,
+      "leaked_unbudgeted": 24508,
       "outcome": "EXACT/EXACT",
-      "seconds": 3.022
+      "seconds": 2.562
     },
     "walls_012_d0_a045:patch0": {
       "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 295,
@@ -58,8 +62,9 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 20,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
       "EXACT_WORK_SPENT": 554580,
+      "leaked_unbudgeted": 554580,
       "outcome": "EXACT/EXACT",
-      "seconds": 1.278
+      "seconds": 0.874
     },
     "walls_012_d1_a045:patch0": {
       "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 294,
@@ -69,103 +74,52 @@
       "EXACT_WORK_POLLARD_ATTEMPTS": 18,
       "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
       "EXACT_WORK_SPENT": 33665,
+      "leaked_unbudgeted": 33665,
       "outcome": "EXACT/EXACT",
-      "seconds": 0.766
-    }
-  },
-  "work_units_by_domain_tip_821995f": {
-    "building_d0_a045:patch109": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 677,
-      "EXACT_WORK_GCD_OPERATIONS": 2504,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
-      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
-      "EXACT_WORK_SPENT": 14047,
-      "leaked_unbudgeted": 0,
-      "outcome": "EXACT/EXACT",
-      "seconds": 1.448
-    },
-    "building_d0_a045:patch121": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
-      "EXACT_WORK_GCD_OPERATIONS": 348,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
-      "EXACT_WORK_SPENT": 8807,
-      "leaked_unbudgeted": 0,
-      "outcome": "EXACT/EXACT",
-      "seconds": 0.208
-    },
-    "wall_2_001_d0_a0254:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
-      "EXACT_WORK_GCD_OPERATIONS": 12546,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
-      "EXACT_WORK_SPENT": 32876,
-      "leaked_unbudgeted": 0,
-      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 15.322
-    },
-    "wall_2_001_d0_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
-      "EXACT_WORK_GCD_OPERATIONS": 12546,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
-      "EXACT_WORK_SPENT": 32876,
-      "leaked_unbudgeted": 0,
-      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 15.465
-    },
-    "walls_012_d0_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 377,
-      "EXACT_WORK_GCD_OPERATIONS": 5055,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
-      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
-      "EXACT_WORK_SPENT": 554662,
-      "leaked_unbudgeted": 0,
-      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 1.231
-    },
-    "walls_012_d1_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 376,
-      "EXACT_WORK_GCD_OPERATIONS": 847,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
-      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
-      "EXACT_WORK_SPENT": 33747,
-      "leaked_unbudgeted": 0,
-      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 0.89
+      "seconds": 0.638
     }
   },
   "chosen_cap": {
     "constant": "_EXACT_CANONICALIZATION_WORK_CAP = 1 << 23 (8 388 608)",
     "site": "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
-    "worst_measured_healthy_domain": "walls.012 density 0 — 554 580 единиц (6ce0227)",
+    "worst_measured_healthy_domain": "walls.012 density 0 — 554 580 единиц (6ce0227, перемерено после отката)",
     "margin_over_worst_healthy": 15.1,
-    "lower_bound_control": "walls.012 density 1 — 33 747 единиц; до PERF-CANON-1 этот вход не возвращался 900+ s. Запас 249x.",
-    "upper_bound_control": "цена самого потолка: 532 нс на шаг орбиты Брента при 246 битах (максимум радиканда walls.012) -> 4.47 s на полный потолок. Полевой случай владельца — десять минут без исхода.",
+    "lower_bound_control": "walls.012 density 1 — 33 665 единиц на 6ce0227 (33 747 на вершине; разница в 82 единицы — гидратации позиций нового слоя superlevel, к канонизации отношения не имеющие). До PERF-CANON-1 этот вход не возвращался 900+ s. Запас 249x.",
+    "upper_bound_control": "цена самого потолка, снятая БОЕВЫМ путём (unit_price.py: `_rho_factors` на полусоставном числе заданной ширины, секунды делятся на потраченные единицы): 453-501 нс на единицу при радиканде 246 бит -> 3.8-4.2 s на полный потолок. Полевой случай владельца — десять минут без исхода.",
+    "why_the_price_is_not_measured_by_a_bare_loop": "Голый `y = (y*y + c) % n` на этой машине даёт 330 нс при 246 битах, то есть вдвое дешевле реальной единицы: пакетный gcd, произведение разностей и раунды Миллера—Рабина входят в ту же единицу и в ту же секунду. Считать по голому циклу значило бы объявить потолок дешевле, чем он есть.",
     "why_not_2_22": "запас всего 7.6x, а здоровые домены расходятся в 63 раза уже внутри измеренной пятёрки (8 772…554 580)",
-    "why_not_2_24": "8.9 s на потолке; на меше в 122 домена патология перестала бы отличаться от зависания",
+    "why_not_2_24": "8.4 s на потолке; на меше в 122 домена патология перестала бы отличаться от зависания",
     "what_it_cuts": "ро-Поллард находит делитель p за ~1.18*sqrt(p) шагов, значит 2^23 — делители примерно до 2^45. Простые крупнее рождаются из near-planar проекции, поднимающей знаменатели метрики (REPORT.txt §3): это патология входа, и правильный ответ на неё — именованный отказ"
   },
   "per_unit_price_measured": {
-    "68_bit_modulus_ns_per_step": 222.6,
-    "128_bit_modulus_ns_per_step": 329.0,
-    "246_bit_modulus_ns_per_step": 532.5,
-    "cap_price_seconds_at_246_bits": 4.47
+    "script": "artifacts/exact_work_budget/unit_price.py",
+    "method": "секунды `_rho_factors` делятся на потраченные единицы бюджета; делитель ~2^30 один и тот же на всех ширинах, меняется только ширина модуля",
+    "68_bit_radicand_ns_per_unit": [
+      205.7,
+      185.5,
+      191.2
+    ],
+    "128_bit_radicand_ns_per_unit": [
+      281.4,
+      254.7,
+      254.3
+    ],
+    "246_bit_radicand_ns_per_unit": [
+      500.8,
+      455.3,
+      453.2
+    ],
+    "cap_price_seconds_at_246_bits": [
+      4.2,
+      3.82,
+      3.8
+    ],
+    "bare_loop_246_bits_ns_per_step": 330.4,
+    "note": "три повтора; в обосновании взята САМАЯ ДОРОГАЯ строка, то есть худший случай для аргумента 'потолок не превращается в зависание'"
   },
   "field_gate_bit_for_bit": {
     "script": "artifacts/exact_work_budget/field_gate.py",
+    "compared": "вершина аудит-ветки 7a11636 (бюджета нет) против exec/exact-work-budget (бюджет протянут)",
     "domains": [
       "walls.012 d0 patch0",
       "wall 2.001 d0 patch0",
@@ -174,7 +128,8 @@
     ],
     "fingerprint": "исходы обеих ступеней, деталь, ВСЕ счётчики подготовки, semantic_digest скелета каждого региона, число граней покрытия, lattice_scale",
     "divergences": 0,
-    "note": "счётчики EXACT_WORK_* исключены из сверки как НОВЫЕ статьи расписки; приёмка требует того же ОТВЕТА, а не того же списка счётчиков"
+    "sha256_of_the_whole_fingerprint_file": "497a48b38a859e232a4dba02df36b5348db5c6618051e8b6e9c50dcc075167a7",
+    "note": "совпал не только каждый ключ, но и весь файл целиком; счётчики EXACT_WORK_* в отпечаток не входят — это НОВЫЕ статьи расписки, а приёмка требует того же ОТВЕТА"
   },
   "no_work_escapes_the_budget": {
     "measure": "leaked_unbudgeted = UNBUDGETED_WORK.spent после домена с названным бюджетом",
@@ -239,5 +194,90 @@
       "id": "Q-CAP-VS-NEAR-PLANAR-ROOT",
       "text": "Кап отказывает там, где корень — near-planar проекция, поднимающая знаменатели метрики (REPORT.txt §3, Р3/Р4). Отказ по бюджету назовёт СЛЕДСТВИЕ (работа кончилась), а не ПРИЧИНУ (кадр чарта плох). Это честно, но владельцу полезнее вторая формулировка; она приедет вместе с законом выбора кадра чарта, а не отсюда."
     }
-  ]
+  ],
+  "work_units_by_domain_tip_7a11636": {
+    "building_d0_a045:patch109": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 677,
+      "EXACT_WORK_GCD_OPERATIONS": 2504,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
+      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
+      "EXACT_WORK_SPENT": 14047,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.244
+    },
+    "building_d0_a045:patch121": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
+      "EXACT_WORK_GCD_OPERATIONS": 348,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
+      "EXACT_WORK_SPENT": 8807,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.178
+    },
+    "wall_2_001_d0_a0254:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 32876,
+      "leaked_unbudgeted": 0,
+      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 13.429
+    },
+    "wall_2_001_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 32876,
+      "leaked_unbudgeted": 0,
+      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 13.326
+    },
+    "walls_012_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 377,
+      "EXACT_WORK_GCD_OPERATIONS": 5055,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
+      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
+      "EXACT_WORK_SPENT": 554662,
+      "leaked_unbudgeted": 0,
+      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 1.157
+    },
+    "walls_012_d1_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 376,
+      "EXACT_WORK_GCD_OPERATIONS": 847,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
+      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
+      "EXACT_WORK_SPENT": 33747,
+      "leaked_unbudgeted": 0,
+      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+      "seconds": 0.72
+    }
+  },
+  "remeasured_after_the_common_subexpression_rollback": {
+    "what_was_rolled_back": "_apply_trace_crash в wavefront/motorcycle.py: вынесенный в переменную общий `_as_sqrt_sum` возвращён двумя отдельными вызовами. Замороженный счётчик делений FROZEN_PATCH011_OPTIMIZED_CALLS поймал подмену (18 -> 9), и он прав: карточка обязана добавлять учёт и не трогать путь.",
+    "why_it_had_to_be_remeasured": "Обоснование потолка стоит на ЧИСЛЕ ЕДИНИЦ здорового домена. Откат вернул работу на путь, значит число могло сдвинуться, и объявлять его прежним без прогона значило бы заявить, а не измерить.",
+    "result": "СОВПАЛО ДО ЕДИНИЦЫ на всех шести полевых прогонах — и на 6ce0227, и на вершине. Ни один из шести счётчиков не сдвинулся.",
+    "why_zero_units": "Восстановленный вызов бьёт в память канонизации. Статья `radical_materializations` платится за ПРОМАХ памяти, а не за вызов, поэтому дубликат стоит секунды и ноль единиц. Это свойство закона оплаты, а не совпадение: любая чисто повторная канонизация того же радиканда бесплатна по бюджету и небесплатна по времени.",
+    "consequence_for_the_ceiling": "Ни одна из двух измеренных границ не сдвинулась: худший здоровый домен остался 554 580 единиц, нижний контроль — 33 665."
+  },
+  "determinism": {
+    "field": "два полных прогона measure_units.py на вершине: 0 расхождений по всем шести счётчикам на всех шести доменах (секунды расходятся и в отпечаток не входят)",
+    "kernel": "test_exact_work_budget.py::test_the_same_input_spends_the_same_units_twice и ::test_work_units_are_deterministic_across_a_memory_reset"
+  }
 }

@@ -92,10 +92,12 @@ def main():
             prepared, domain = run_queue_domain(
                 patch_id, domain_id, snapshot, request, alpha_text
             )
-            charged = (
-                () if prepared.work_budget is None
-                else prepared.work_budget.counters()
-            )
+            # `getattr`, а не точка: этот же файл считает единицы и на
+            # 6ce0227, где поля `work_budget` у подготовки ещё нет. Там весь
+            # расход законно уходит в телеметрию неоплаченного, и харнесс
+            # обязан это пережить, иначе «здоровый домен» померить нечем.
+            named = getattr(prepared, "work_budget", None)
+            charged = () if named is None else named.counters()
             return (
                 f"{domain.preparation_outcome}/{domain.coverage_outcome}",
                 charged,
