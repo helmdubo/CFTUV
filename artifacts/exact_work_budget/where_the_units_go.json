@@ -1,6 +1,6 @@
 {
   "wall_2_001_snapshot.json:d0:patch0": {
-    "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+    "outcome": "EXACT/EXACT",
     "phases": {
       "PREPARE/BEFORE_THE_MARCH": {
         "by_article": {
@@ -23,22 +23,22 @@
       },
       "PREPARE/DURING_THE_MARCH": {
         "by_article": {
-          "exact_position_hydrations": 9631,
+          "exact_position_hydrations": 5103,
           "radical_materializations": 1
         },
         "by_operation": {
-          "EXACT_POSITION": 9631,
+          "EXACT_POSITION": 5103,
           "PRIME_SUPPORT": 1
         },
-        "units": 9632
+        "units": 5104
       }
     },
-    "share_before_the_march": 0.70702,
+    "share_before_the_march": 0.81995,
     "units_before_the_march": 23244,
-    "units_during_the_march": 9632
+    "units_during_the_march": 5104
   },
   "walls_012_snapshot.json:d0:patch0": {
-    "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+    "outcome": "EXACT/EXACT",
     "phases": {
       "PREPARE/BEFORE_THE_MARCH": {
         "by_article": {
@@ -61,20 +61,20 @@
       },
       "PREPARE/DURING_THE_MARCH": {
         "by_article": {
-          "exact_position_hydrations": 221
+          "exact_position_hydrations": 556
         },
         "by_operation": {
-          "EXACT_POSITION": 221
+          "EXACT_POSITION": 556
         },
-        "units": 221
+        "units": 556
       }
     },
-    "share_before_the_march": 0.9996,
+    "share_before_the_march": 0.999,
     "units_before_the_march": 554441,
-    "units_during_the_march": 221
+    "units_during_the_march": 556
   },
   "walls_012_snapshot.json:d1:patch0": {
-    "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
+    "outcome": "EXACT/EXACT",
     "phases": {
       "PREPARE/BEFORE_THE_MARCH": {
         "by_article": {
@@ -97,16 +97,16 @@
       },
       "PREPARE/DURING_THE_MARCH": {
         "by_article": {
-          "exact_position_hydrations": 221
+          "exact_position_hydrations": 556
         },
         "by_operation": {
-          "EXACT_POSITION": 221
+          "EXACT_POSITION": 556
         },
-        "units": 221
+        "units": 556
       }
     },
-    "share_before_the_march": 0.99345,
+    "share_before_the_march": 0.98369,
     "units_before_the_march": 33526,
-    "units_during_the_march": 221
+    "units_during_the_march": 556
   }
 }

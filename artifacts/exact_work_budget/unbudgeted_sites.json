@@ -1,108 +1,140 @@
 {
   "outcomes": {
-    "wall_2_001_snapshot.json:d0:patch0": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
-    "walls_012_snapshot.json:d0:patch0": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
-    "walls_012_snapshot.json:d1:patch0": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT"
+    "wall_2_001_snapshot.json:d0:patch0": "EXACT/EXACT",
+    "walls_012_snapshot.json:d0:patch0": "EXACT/EXACT",
+    "walls_012_snapshot.json:d1:patch0": "EXACT/EXACT"
   },
   "sites": {
+    "kernel/src/cftuv_envelope/wavefront/coverage.py:138": {
+      "calls": 562,
+      "unbudgeted_callers": {
+        "kernel/src/cftuv_envelope/wavefront/coverage.py:138": 281
+      },
+      "units_charged_without_budget": 0,
+      "with_budget": 281,
+      "without_budget": 281
+    },
     "kernel/src/cftuv_envelope/wavefront/event_time.py:220": {
-      "calls": 15158,
+      "calls": 7998,
       "unbudgeted_callers": {},
       "units_charged_without_budget": 0,
-      "with_budget": 15158,
+      "with_budget": 7998,
       "without_budget": 0
     },
     "kernel/src/cftuv_envelope/wavefront/event_time.py:276": {
-      "calls": 32701,
+      "calls": 95322,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/events.py:130": 4003,
-        "kernel/src/cftuv_envelope/wavefront/events.py:144": 233,
-        "kernel/src/cftuv_envelope/wavefront/events.py:96": 1951,
-        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:189": 4772,
+        "kernel/src/cftuv_envelope/wavefront/events.py:130": 5047,
+        "kernel/src/cftuv_envelope/wavefront/events.py:144": 263,
+        "kernel/src/cftuv_envelope/wavefront/events.py:96": 1987,
+        "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:222": 520,
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:189": 2308,
         "kernel/src/cftuv_envelope/wavefront/motorcycle.py:288": 155,
         "kernel/src/cftuv_envelope/wavefront/motorcycle.py:642": 9,
-        "kernel/src/cftuv_envelope/wavefront/skeleton.py:698": 96,
-        "kernel/src/cftuv_envelope/wavefront/skeleton.py:763": 2820,
-        "kernel/src/cftuv_envelope/wavefront/superlevel.py:1660": 120,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_edge_closure.py:85": 178,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:334": 57,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:335": 57,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:336": 57,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:583": 139,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_split_endpoint.py:72": 326,
-        "kernel/src/cftuv_envelope/wavefront/symbolic_superlevel_coordinator.py:168": 489
+        "kernel/src/cftuv_envelope/wavefront/skeleton.py:698": 112,
+        "kernel/src/cftuv_envelope/wavefront/skeleton.py:763": 2539,
+        "kernel/src/cftuv_envelope/wavefront/superlevel.py:1660": 196,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_edge_closure.py:85": 170,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_overlay.py:444": 71824,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:334": 85,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:335": 85,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:336": 85,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:583": 167,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_split_endpoint.py:72": 118,
+        "kernel/src/cftuv_envelope/wavefront/symbolic_superlevel_coordinator.py:168": 177
       },
       "units_charged_without_budget": 0,
-      "with_budget": 17239,
-      "without_budget": 15462
+      "with_budget": 9475,
+      "without_budget": 85847
     },
-    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:189": {
-      "calls": 2354,
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:241": {
+      "calls": 1507,
       "unbudgeted_callers": {},
       "units_charged_without_budget": 0,
-      "with_budget": 2354,
+      "with_budget": 1507,
       "without_budget": 0
     },
-    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:190": {
-      "calls": 1185,
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:242": {
+      "calls": 737,
       "unbudgeted_callers": {},
       "units_charged_without_budget": 0,
-      "with_budget": 1185,
+      "with_budget": 737,
       "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/faces.py:308": {
+      "calls": 57,
+      "unbudgeted_callers": {
+        "kernel/src/cftuv_envelope/wavefront/faces.py:308": 57
+      },
+      "units_charged_without_budget": 0,
+      "with_budget": 0,
+      "without_budget": 57
+    },
+    "kernel/src/cftuv_envelope/wavefront/faces.py:427": {
+      "calls": 712,
+      "unbudgeted_callers": {
+        "kernel/src/cftuv_envelope/wavefront/faces.py:449": 324,
+        "kernel/src/cftuv_envelope/wavefront/faces.py:450": 324,
+        "kernel/src/cftuv_envelope/wavefront/faces.py:452": 32,
+        "kernel/src/cftuv_envelope/wavefront/faces.py:453": 32
+      },
+      "units_charged_without_budget": 0,
+      "with_budget": 0,
+      "without_budget": 712
     },
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:271": {
-      "calls": 639,
+      "calls": 492,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 639
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 492
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 639
+      "without_budget": 492
     },
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:273": {
-      "calls": 379,
+      "calls": 292,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 379
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 292
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 379
+      "without_budget": 292
     },
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:481": {
-      "calls": 112,
+      "calls": 92,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:384": 112
+        "kernel/src/cftuv_envelope/wavefront/motorcycle.py:384": 92
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 112
+      "without_budget": 92
     },
     "kernel/src/cftuv_envelope/wavefront/poststate_span.py:141": {
-      "calls": 65,
+      "calls": 85,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 65
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 85
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 65
+      "without_budget": 85
     },
     "kernel/src/cftuv_envelope/wavefront/poststate_span.py:142": {
-      "calls": 65,
+      "calls": 85,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 65
+        "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 85
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 65
+      "without_budget": 85
     },
     "kernel/src/cftuv_envelope/wavefront/poststate_span.py:73": {
-      "calls": 65,
+      "calls": 85,
       "unbudgeted_callers": {
-        "kernel/src/cftuv_envelope/wavefront/poststate_span.py:131": 65
+        "kernel/src/cftuv_envelope/wavefront/poststate_span.py:131": 85
       },
       "units_charged_without_budget": 0,
       "with_budget": 0,
-      "without_budget": 65
+      "without_budget": 85
     },
     "kernel/src/cftuv_envelope/wavefront/superlevel.py:562": {
       "calls": 7,
@@ -124,7 +156,10 @@
     }
   },
   "sites_with_unbudgeted_calls": [
+    "kernel/src/cftuv_envelope/wavefront/coverage.py:138",
     "kernel/src/cftuv_envelope/wavefront/event_time.py:276",
+    "kernel/src/cftuv_envelope/wavefront/faces.py:308",
+    "kernel/src/cftuv_envelope/wavefront/faces.py:427",
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:271",
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:273",
     "kernel/src/cftuv_envelope/wavefront/motorcycle.py:481",
@@ -134,6 +169,6 @@
     "kernel/src/cftuv_envelope/wavefront/superlevel.py:562",
     "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:83"
   ],
-  "unbudgeted_calls": 16801,
+  "unbudgeted_calls": 88042,
   "units_charged_without_budget": 0
 }

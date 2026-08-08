@@ -1,6 +1,6 @@
 {
   "card": "EXACT-WORK-BUDGET",
-  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ 7a11636 (перебазировано с 821995f)",
+  "base": "origin/claude/kernel-audit-exact-proof-at8d23 @ ede9916 (починка места рождённого порта слита)",
   "branch": "exec/exact-work-budget",
   "harness": "artifacts/perf_prepare_diag (headless, без Blender) + artifacts/exact_work_budget/{field_gate,measure_units,unit_price,unbudgeted_sites}.py",
   "machine_note": "один контейнер, 4 ядра; абсолютные секунды сопоставимы только внутри этой расписки",
@@ -82,9 +82,9 @@
   "chosen_cap": {
     "constant": "_EXACT_CANONICALIZATION_WORK_CAP = 1 << 23 (8 388 608)",
     "site": "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
-    "worst_measured_healthy_domain": "walls.012 density 0 — 554 580 единиц (6ce0227, перемерено после отката)",
-    "margin_over_worst_healthy": 15.1,
-    "lower_bound_control": "walls.012 density 1 — 33 665 единиц на 6ce0227 (33 747 на вершине; разница в 82 единицы — гидратации позиций нового слоя superlevel, к канонизации отношения не имеющие). До PERF-CANON-1 этот вход не возвращался 900+ s. Запас 249x.",
+    "worst_measured_healthy_domain": "walls.012 density 0 — 554 997 единиц на ПОЧИНЕННОЙ вершине ede9916 (было 554 580 на 6ce0227)",
+    "margin_over_worst_healthy": 15.11,
+    "lower_bound_control": "walls.012 density 1 — 34 082 единицы на починенной вершине. До PERF-CANON-1 этот вход не возвращался 900+ s. Запас 246x.",
     "upper_bound_control": "цена самого потолка, снятая БОЕВЫМ путём (unit_price.py: `_rho_factors` на полусоставном числе заданной ширины, секунды делятся на потраченные единицы): 453-501 нс на единицу при радиканде 246 бит -> 3.8-4.2 s на полный потолок. Полевой случай владельца — десять минут без исхода.",
     "why_the_price_is_not_measured_by_a_bare_loop": "Голый `y = (y*y + c) % n` на этой машине даёт 330 нс при 246 битах, то есть вдвое дешевле реальной единицы: пакетный gcd, произведение разностей и раунды Миллера—Рабина входят в ту же единицу и в ту же секунду. Считать по голому циклу значило бы объявить потолок дешевле, чем он есть.",
     "why_not_2_22": "запас всего 7.6x, а здоровые домены расходятся в 63 раза уже внутри измеренной пятёрки (8 772…554 580)",
@@ -119,7 +119,7 @@
   },
   "field_gate_bit_for_bit": {
     "script": "artifacts/exact_work_budget/field_gate.py",
-    "compared": "вершина аудит-ветки 7a11636 (бюджета нет) против exec/exact-work-budget (бюджет протянут)",
+    "compared": "вершина аудит-ветки ede9916 (бюджета нет) против exec/exact-work-budget (бюджет протянут), ВСЕ ЧЕТЫРЕ ДОМЕНА ТЕПЕРЬ EXACT",
     "domains": [
       "walls.012 d0 patch0",
       "wall 2.001 d0 patch0",
@@ -128,7 +128,7 @@
     ],
     "fingerprint": "исходы обеих ступеней, деталь, ВСЕ счётчики подготовки, semantic_digest скелета каждого региона, число граней покрытия, lattice_scale",
     "divergences": 0,
-    "sha256_of_the_whole_fingerprint_file": "497a48b38a859e232a4dba02df36b5348db5c6618051e8b6e9c50dcc075167a7",
+    "sha256_of_the_whole_fingerprint_file": "9883df7f733d05ddb4337f6dc8b3b6c59450410e40d752e47e270fb5da06ea5c",
     "note": "совпал не только каждый ключ, но и весь файл целиком; счётчики EXACT_WORK_* в отпечаток не входят — это НОВЫЕ статьи расписки, а приёмка требует того же ОТВЕТА"
   },
   "no_work_escapes_the_budget": {
@@ -188,7 +188,10 @@
       "supersedes": "Q-FACES-SIGN-OUTSIDE-THE-BUDGET",
       "why_renamed": "Прежнее имя было УЖЕ, чем правда, и это выяснилось измерением, а не чтением: `faces.py` на трёх полевых доменах не сделал НИ ОДНОГО вызова `sign()` — его места мёртвые на пройденных путях, — зато безбюджетных мест оказалось девять, и главное из них не в faces.py.",
       "sites": [
+        "kernel/src/cftuv_envelope/wavefront/coverage.py:138",
         "kernel/src/cftuv_envelope/wavefront/event_time.py:276",
+        "kernel/src/cftuv_envelope/wavefront/faces.py:308",
+        "kernel/src/cftuv_envelope/wavefront/faces.py:427",
         "kernel/src/cftuv_envelope/wavefront/motorcycle.py:271",
         "kernel/src/cftuv_envelope/wavefront/motorcycle.py:273",
         "kernel/src/cftuv_envelope/wavefront/motorcycle.py:481",
@@ -199,11 +202,24 @@
         "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:83"
       ],
       "largest_hole": "wavefront/event_time.py:276 (`compare_times`): 32 701 вызов, из них 15 462 БЕЗ бюджета. Бюджет теряется не здесь, а у вызывающих `compare_times` — motorcycle.py:189, events.py:96 и :130, skeleton.py:763, symbolic_superlevel_coordinator.py:168. Чинить надо там, а не в подписи `sign()`.",
-      "measured_cost": "16 801 безбюджетный вызов, 0 единиц заплачено",
+      "measured_cost": "88 042 безбюджетных вызова на трёх ЗДОРОВЫХ полевых доменах, 0 единиц заплачено",
       "why_zero": "Единственная ветка `sign()`, способная факторизовать, — сопряжение, и она на всех полевых прогонах закрывается нулём (SIGN_COUNTS.closed_by_conjugation = 0, PERF-PREPARE-DIAG REPORT.txt §2а). Оболочка и рациональный путь работы не покупают.",
       "what_it_means_for_the_promise": "Обещание «любой долгий расчёт кончится именованным отказом» держится на ЭТОМ измерении, а не на структуре кода. Домен, у которого сопряжение всё-таки открылось бы в одном из девяти мест, ушёл бы в счёт мимо капа. Закрывается протяжкой бюджета в `compare_times` у пяти вызывающих плюс восемь оставшихся мест; файлы superlevel*/symbolic_* принадлежат параллельной ветке и этой карточкой не трогались.",
       "script": "artifacts/exact_work_budget/unbudgeted_sites.py",
-      "verdict": "ПРИНЯТ координатором: карточка сдана в своём объёме (контракт, протяжка, измеренный потолок, именованный отказ), а обещание владельцу формулируется честно — кап держит ИЗМЕРЕННЫЙ ГОРЯЧИЙ ПУТЬ, девять мест вне бюджета с измеренным нулём цены. Закрывать их надо СТРУКТУРНО: архитектурным тестом «вызов sign() вне бюджетного контекста запрещён», а НЕ повторным измерением — второй прогон доказал бы то же самое про тот же день. Это следующая карточка."
+      "verdict": "ПРИНЯТ координатором: карточка сдана в своём объёме (контракт, протяжка, измеренный потолок, именованный отказ), а обещание владельцу формулируется честно — кап держит ИЗМЕРЕННЫЙ ГОРЯЧИЙ ПУТЬ, девять мест вне бюджета с измеренным нулём цены. Закрывать их надо СТРУКТУРНО: архитектурным тестом «вызов sign() вне бюджетного контекста запрещён», а НЕ повторным измерением — второй прогон доказал бы то же самое про тот же день. Это следующая карточка.",
+      "the_hole_grew_with_the_repair": {
+        "before_the_repair": "9 мест, 16 801 вызов — но домены были СЛОМАНЫ и обрывались рано",
+        "after_the_repair": "12 мест, 88 042 вызова — рост в 5.2 раза",
+        "new_sites": [
+          "wavefront/coverage.py:138",
+          "wavefront/faces.py:308",
+          "wavefront/faces.py:427"
+        ],
+        "biggest_contributor": "symbolic_overlay.py:444 — 71 824 безбюджетных `compare_times`, это НОВЫЙ код починки (слой замороженного места). Рядом exact_candidate_view.py:222, ещё 520: `_span_bound` сверяет время с `frozen_instant` мимо бюджета, хотя `view.budget` у него в руках.",
+        "units_charged": 0
+      },
+      "my_previous_finding_was_wrong_and_here_is_why": "Я записал: «`faces.py` не сделал НИ ОДНОГО вызова — его места мёртвые на пройденных путях», и переименовал счёт, сочтя прежнее имя ошибочным. Это была ТА ЖЕ ОШИБКА, что поймал координатор: вывод сделан на данных, снятых на СЛОМАННЫХ доменах. Они обрывались до сборки граней, поэтому faces.py и молчал. На здоровых доменах faces.py зовёт `sign()` мимо бюджета 769 раз (строки 308 и 427). Прежнее имя Q-FACES-SIGN-OUTSIDE-THE-BUDGET было ВЕРНЫМ по адресу и лишь неполным по охвату; моя правка была верна по охвату и неверна по выводу о faces.py. Имя оставляю расширенным, но утверждение о мёртвых местах снято как опровергнутое.",
+      "what_this_says_about_the_verdict": "Вердикт «закрывать структурно, архитектурным тестом» подтверждён экспериментом, которого никто не заказывал: дыра выросла в 5.2 раза от ОДНОЙ чужой правки, не касавшейся бюджета. Измерение ловит дыру только на тех путях, которые прогон прошёл сегодня; тест «вызов sign() вне бюджетного контекста запрещён» ловил бы её в момент написания строки."
     },
     {
       "id": "Q-WORK-BUDGET-PER-MESH",
@@ -221,86 +237,6 @@
       "verdict": "ПРИНЯТ и переведён в обязательный шаг порядка слияний: сначала exec/walls012-split-contact, потом эта ветка, и между ними — перемер."
     }
   ],
-  "work_units_by_domain_tip_7a11636": {
-    "building_d0_a045:patch109": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 677,
-      "EXACT_WORK_GCD_OPERATIONS": 2504,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
-      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
-      "EXACT_WORK_SPENT": 14047,
-      "detail": "",
-      "leaked_unbudgeted": 0,
-      "outcome": "EXACT/EXACT",
-      "seconds": 1.267
-    },
-    "building_d0_a045:patch121": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
-      "EXACT_WORK_GCD_OPERATIONS": 348,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
-      "EXACT_WORK_SPENT": 8807,
-      "detail": "",
-      "leaked_unbudgeted": 0,
-      "outcome": "EXACT/EXACT",
-      "seconds": 0.188
-    },
-    "wall_2_001_d0_a0254:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
-      "EXACT_WORK_GCD_OPERATIONS": 12546,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
-      "EXACT_WORK_SPENT": 32876,
-      "detail": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE",
-      "leaked_unbudgeted": 0,
-      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 13.24
-    },
-    "wall_2_001_d0_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 11261,
-      "EXACT_WORK_GCD_OPERATIONS": 12546,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
-      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
-      "EXACT_WORK_SPENT": 32876,
-      "detail": "sparse-patch-domain-region:2c9f74554f43ff5023f8b8a1: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE",
-      "leaked_unbudgeted": 0,
-      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 13.301
-    },
-    "walls_012_d0_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 377,
-      "EXACT_WORK_GCD_OPERATIONS": 5055,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
-      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
-      "EXACT_WORK_SPENT": 554662,
-      "detail": "sparse-patch-domain-region:80c21ed61a70595286af7b2d: SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE",
-      "leaked_unbudgeted": 0,
-      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 1.129
-    },
-    "walls_012_d1_a045:patch0": {
-      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 376,
-      "EXACT_WORK_GCD_OPERATIONS": 847,
-      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
-      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
-      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
-      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
-      "EXACT_WORK_SPENT": 33747,
-      "detail": "sparse-patch-domain-region:80c21ed61a70595286af7b2d: SkeletonOutcome.SUPERLEVEL_COMPONENT_UNRESOLVABLE",
-      "leaked_unbudgeted": 0,
-      "outcome": "SKELETON_DID_NOT_CLOSE/PREPARATION_IS_NOT_EXACT",
-      "seconds": 0.728
-    }
-  },
   "remeasured_after_the_common_subexpression_rollback": {
     "what_was_rolled_back": "_apply_trace_crash в wavefront/motorcycle.py: вынесенный в переменную общий `_as_sqrt_sum` возвращён двумя отдельными вызовами. Замороженный счётчик делений FROZEN_PATCH011_OPTIMIZED_CALLS поймал подмену (18 -> 9), и он прав: карточка обязана добавлять учёт и не трогать путь.",
     "why_it_had_to_be_remeasured": "Обоснование потолка стоит на ЧИСЛЕ ЕДИНИЦ здорового домена. Откат вернул работу на путь, значит число могло сдвинуться, и объявлять его прежним без прогона значило бы заявить, а не измерить.",
@@ -309,7 +245,7 @@
     "consequence_for_the_ceiling": "Ни одна из двух измеренных границ не сдвинулась: худший здоровый домен остался 554 580 единиц, нижний контроль — 33 665."
   },
   "determinism": {
-    "field": "три полных прогона measure_units.py на вершине: 0 расхождений по всем шести счётчикам на всех шести доменах (секунды расходятся и в отпечаток не входят). Третий прогон сделан уже новым харнессом с чтением расхода отказа — счётчики не сдвинулись.",
+    "field": "два полных прогона measure_units.py на починенной вершине: 0 расхождений по всем шести счётчикам на всех шести доменах",
     "kernel": "test_exact_work_budget.py::test_the_same_input_spends_the_same_units_twice и ::test_work_units_are_deterministic_across_a_memory_reset"
   },
   "negative_gate_in_the_field": {
@@ -334,7 +270,7 @@
         "detail": "",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT/EXACT",
-        "seconds": 1.169
+        "seconds": 1.416
       },
       "building_d0_a045:patch121": {
         "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
@@ -347,7 +283,7 @@
         "detail": "",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT/EXACT",
-        "seconds": 0.17
+        "seconds": 0.204
       },
       "wall_2_001_d0_a0254:patch0": {
         "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
@@ -360,7 +296,7 @@
         "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=13 cap=20000 spent=20012 modular_squarings=7122 gcd_operations=12540 miller_rabin_rounds=336 pollard_attempts=14 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:90ce55618b55029b728c31e7 superlevel=",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
-        "seconds": 0.1
+        "seconds": 0.098
       },
       "wall_2_001_d0_a045:patch0": {
         "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
@@ -373,7 +309,7 @@
         "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=13 cap=20000 spent=20012 modular_squarings=7122 gcd_operations=12540 miller_rabin_rounds=336 pollard_attempts=14 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:90ce55618b55029b728c31e7 superlevel=",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
-        "seconds": 0.169
+        "seconds": 0.166
       },
       "walls_012_d0_a045:patch0": {
         "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
@@ -386,7 +322,7 @@
         "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=POLLARD_RHO_BRENT radicand_bits=91 cap=20000 spent=20049 modular_squarings=19011 gcd_operations=978 miller_rabin_rounds=53 pollard_attempts=7 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:cafa51b596c2cf8ea16b580b superlevel=",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
-        "seconds": 0.717
+        "seconds": 0.725
       },
       "walls_012_d1_a045:patch0": {
         "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
@@ -399,29 +335,26 @@
         "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=65 cap=20000 spent=20018 modular_squarings=19203 gcd_operations=752 miller_rabin_rounds=56 pollard_attempts=7 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:cafa51b596c2cf8ea16b580b superlevel=",
         "leaked_unbudgeted": 0,
         "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
-        "seconds": 0.502
+        "seconds": 0.476
       }
-    }
+    },
+    "on_the_repaired_tip": "воспроизведено: walls.012 d0/d1 и wall 2.001 (обе alpha) отказывают именем при капе 20 000, building 109/121 отвечают EXACT/EXACT теми же счётчиками"
   },
   "suites_on_the_tip": {
-    "tip": "exec/exact-work-budget поверх origin/claude/kernel-audit-exact-proof-at8d23 @ 7a11636",
-    "kernel": "из каталога kernel, PYTHONPATH=src:tests: 3016 passed, 2 skipped, 0 failed за 43:14. Оба пропуска — SURFACE_BACKEND_NOT_IMPLEMENTED (half_sphere, fold_near_smooth), они не мои.",
-    "host": "из корня: 1335 passed, 5 skipped, 4 failed за 5:23. Все четыре объявлены заранее.",
+    "tip": "exec/exact-work-budget поверх origin/claude/kernel-audit-exact-proof-at8d23 @ ede9916",
+    "kernel": "из каталога kernel, PYTHONPATH=src:tests: 3018 passed, 2 skipped, 0 failed за 55:50. Оба пропуска — SURFACE_BACKEND_NOT_IMPLEMENTED (half_sphere, fold_near_smooth), не мои.",
+    "host": "из корня: 1337 passed, 5 skipped, 2 failed за 4:26.",
     "host_failures": {
       "environmental_two": [
         "tests/test_density_field_tools_contract.py::test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument",
         "tests/test_density_field_tools_contract.py::test_field_cycle_missing_density_is_named_failure"
       ],
       "environmental_reason": "FileNotFoundError: 'powershell' — в контейнере его нет",
-      "intentionally_red_two": [
-        "tests/test_field_release_matrix.py::test_wall_2_001_faces_and_coverage_are_exact",
-        "tests/test_field_release_matrix.py::test_walls_012_is_exact"
-      ],
-      "intentionally_red_reason": "знамёна ремонта заморозки полевых ворот: FACE_CHAIN_DOES_NOT_CLOSE у 2.001 и SUPERLEVEL_COMPONENT_UNRESOLVABLE (2 узла вместо 12) у walls.012. Чинит ветка exec/walls012-split-contact, не эта."
+      "previously_red_field_gates": "ЗЕЛЁНЫЕ. test_wall_2_001_faces_and_coverage_are_exact и test_walls_012_is_exact проходят; вся полевая матрица 22/22."
     },
+    "field_release_matrix": "tests/test_field_release_matrix.py: 22 passed",
     "architecture": "tests/test_architecture.py: 446 passed",
-    "tolerance_registry": "kernel/tests/test_tolerance_policy_registry.py: 58 passed",
-    "card_own_file": "kernel/tests/test_exact_work_budget.py: 41 passed"
+    "agrees_with_the_coordinator": "координатор назвал на слитой вершине kernel 2974/0 и host 1337 + 2 контейнерных; host сходится точно, kernel у меня больше на файл карточки и её 41 тест"
   },
   "deferred_until_the_split_contact_merge": {
     "state": "ВЕТКА ЗАПАРКОВАНА. Ждём сигнала координатора, ничего не трогаем.",
@@ -450,5 +383,119 @@
     "what_actually_dominates": "У walls.012 d0 из 554 662 единиц 545 328 — операция POLLARD_RHO_BRENT ДО марша, то есть 98.3% всего домена: одна кампания факторизации радикандов, вытекающих из скоростей полигона, оплаченная до того, как применён первый уровень фронта. Марш добавляет 221 единицу.",
     "script": "artifacts/exact_work_budget/where_the_units_go.py",
     "rows": "artifacts/exact_work_budget/where_the_units_go.json"
+  },
+  "work_units_by_domain_repaired_ede9916": {
+    "building_d0_a045:patch109": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 677,
+      "EXACT_WORK_GCD_OPERATIONS": 2504,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
+      "EXACT_WORK_MODULAR_SQUARINGS": 10422,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 19,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
+      "EXACT_WORK_SPENT": 14047,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.417
+    },
+    "building_d0_a045:patch121": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 53,
+      "EXACT_WORK_GCD_OPERATIONS": 348,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8184,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 15,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
+      "EXACT_WORK_SPENT": 8807,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 0.195
+    },
+    "wall_2_001_d0_a0254:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 6733,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 28348,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 11.438
+    },
+    "wall_2_001_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 6733,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 28348,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 11.496
+    },
+    "walls_012_d0_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 712,
+      "EXACT_WORK_GCD_OPERATIONS": 5055,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 304,
+      "EXACT_WORK_MODULAR_SQUARINGS": 548891,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 20,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 15,
+      "EXACT_WORK_SPENT": 554997,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.512
+    },
+    "walls_012_d1_a045:patch0": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 711,
+      "EXACT_WORK_GCD_OPERATIONS": 847,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 278,
+      "EXACT_WORK_MODULAR_SQUARINGS": 32210,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 18,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 18,
+      "EXACT_WORK_SPENT": 34082,
+      "detail": "",
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 1.077
+    }
+  },
+  "remeasure_after_the_repair": {
+    "why": "шаг (б) порядка слияний: потолок обязан быть перемерен на ПОЧИНЕННЫХ доменах, потому что до ремонта walls.012 и wall 2.001 были сломаны",
+    "all_six_domains_are_now_exact": true,
+    "table_units": {
+      "walls.012 d0": "6ce0227 554 580 -> сломано 554 662 -> ПОЧИНЕНО 554 997 (+0.08% к 6ce0227)",
+      "walls.012 d1": "6ce0227  33 665 -> сломано  33 747 -> ПОЧИНЕНО  34 082 (+1.24% к 6ce0227)",
+      "wall 2.001 d0": "6ce0227  24 508 -> сломано  32 876 -> ПОЧИНЕНО  28 348 (+15.67% к 6ce0227)",
+      "building 109": "6ce0227  13 651 -> ПОЧИНЕНО 14 047 (+2.90%)",
+      "building 121": "6ce0227   8 772 -> ПОЧИНЕНО  8 807 (+0.40%)"
+    },
+    "the_single_fact_that_explains_the_whole_table": "У КАЖДОГО домена вся дельта к 6ce0227 — это ГИДРАТАЦИИ ТОЧНЫХ ПОЗИЦИЙ, до единицы: building 109 +396/+396, building 121 +35/+35, walls.012 d0 и d1 +417/+417, wall 2.001 +3 840/+3 839 (единственная лишняя единица — материализация радикала, 34 -> 35). Счётчики факторизации (modular_squarings, gcd, раунды Миллера—Рабина, попытки Полларда) на всех шести доменах ПОБИТОВО РАВНЫ значениям 6ce0227. Кампания факторизации есть функция радикандов полигона, и ремонт её не тронул ни на единицу.",
+    "phase_split_before_and_after_the_repair": "Расход ДО марша не сдвинулся ни на единицу: walls.012 d0 554 441 -> 554 441, wall 2.001 23 244 -> 23 244. Изменился ТОЛЬКО марш: walls.012 221 -> 556 (обход теперь доходит до конца, 12 узлов вместо 2 — он стал ДЛИННЕЕ и потому дороже), wall 2.001 9 632 -> 5 104 (снят фантомный разрез — лишние поколения исчезли). Доля до марша: walls.012 d0 99.90%, d1 98.37%, wall 2.001 82.00%.",
+    "limitation_of_the_phase_probe": "На 6ce0227 разделитель фаз НЕ РАБОТАЕТ: поле `superlevel` пишет моя инструментовка в skeleton.py, которой там нет, а портировать skeleton.py нельзя — он там ДРУГОЙ по существу. Прогон пробы на 6ce0227 показывает «100% до марша», и это АРТЕФАКТ отсутствующей инструментовки, а не факт. Файл с этим прогоном не сохранён намеренно, чтобы его нельзя было прочесть как свидетельство."
+  },
+  "verdict_on_each_expectation": {
+    "1_walls_012_stays_put": {
+      "d0": "ПОДТВЕРДИЛОСЬ: +0.08% при пороге новости 1%.",
+      "d1": "ПОРОГ ПРЕВЫШЕН: +1.24% при моём же пороге 1%. Не переписываю порог задним числом.",
+      "why_it_is_not_a_refutation_of_the_mechanism": "Дельта у обеих плотностей — ОДНА И ТА ЖЕ АБСОЛЮТНАЯ величина, +417 гидратаций, а счётчики факторизации побитово равны. То есть это не рост, зависящий от длины обхода, а постоянная добавка нового слоя замороженного места. У d1 база в 16 раз меньше, поэтому та же добавка даёт 1.24% вместо 0.08%.",
+      "what_i_got_wrong_in_the_gate_itself": "Порог был выбран ОТНОСИТЕЛЬНЫЙ и повешен в том числе на d1 — нижний контроль с маленькой базой. Правильный порог для такой величины — абсолютный (или относительный, но только на домене-потолке d0). Ворото сработало и поймало мою же небрежность в его формулировке."
+    },
+    "2_wall_2_001_must_fall": {
+      "result": "УПАЛО, НО НЕ ДО ЦЕЛИ: 32 876 -> 28 348 (-13.8%), цель 24 508 не достигнута, остаток +3 840 (+15.67%).",
+      "where_the_residual_sits": "Остаток на 100% гидратации позиций (+3 839 из +3 840). Марш подешевел 9 632 -> 5 104, то есть фантомные поколения действительно сняты.",
+      "why_i_do_not_declare_it_fine": "Прочие домены платят ту же статью много меньше: building 109 +396, building 121 +35, walls.012 +417, а 2.001 +3 839 — на порядок больше. Списать это на «цена нового слоя» я не могу: у меня нет измерения, которое отделило бы законную цену слоя от остатка регрессии. По вашему же критерию это НОВОСТЬ ДЛЯ ВАС, а не повод двигать литерал.",
+      "independent_signal_the_counter_gives": "Секунды: 6ce0227 2.6 s, сломано 13.3 s, ПОЧИНЕНО 11.5 s. Работа выросла к 6ce0227 на 15.7%, а время в 4.4 раза. Значит лишние ~9 секунд — НЕ точная канонизация; счётчик это доказывает числом, а не догадкой. Это тот же приём, которым до ремонта была локализована регрессия."
+    },
+    "3_healthy_walls_012_vs_the_cap": {
+      "result": "НЕ НАСТУПИЛО, разговора не требуется: 554 997 против потолка 8 388 608.",
+      "margin_over_worst_healthy": 15.115,
+      "margin_over_lower_bound_control": 246.1,
+      "literal_unchanged": "1 << 23 остаётся; ни одна из двух границ не потребовала пересчёта"
+    }
   }
 }
