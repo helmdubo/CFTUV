@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..exact_sqrt_sum import ExactWorkBudgetV1
+from .exact_identity import ExactIdentityKeyV1
 from .event_time import (
     EventPointV1,
     EventTimeOutcome,
@@ -18,6 +19,12 @@ from .event_time import (
     sliding_time,
 )
 from .sqrt_sum import SqrtSumV1
+
+
+#: Часовой отсутствия записи в памяти мест. `None` — ЗАКОННОЕ значение памяти
+#: («места нет у этой конфигурации»), поэтому отличить промах от него обязан
+#: отдельный объект, а не ложность.
+_PLACE_ABSENT = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +97,49 @@ class PositionMemoV1:
 
     def admits(self, prime_universe: tuple[int, ...]) -> bool:
         return prime_universe == self.prime_universe
+
+    def clear(self) -> None:
+        self.entries.clear()
+
+
+@dataclass(frozen=True, slots=True)
+class SpanStateMemoV1:
+    """Память состояния пролёта ОДНОГО символьного наложения.
+
+    ЧТО ИЗМЕРЕНО. `exact_overlay_view.span_state` пересобирается на КАЖДЫЙ
+    вопрос: она читает связку пролёта, рантаймовое ребро и — дважды — место
+    рождения конца, а `_born_place` внутри спрашивает `compare_times`, то есть
+    ЗНАК точной величины. На wall 2.001 density 0 таких вопросов 26 124 при
+    2 401 РАЗЛИЧНОЙ паре (наложение, лист): один и тот же пролёт пересобирается
+    в среднем одиннадцать раз подряд, и каждая пересборка даёт побитово тот же
+    объект.
+
+    ПОЧЕМУ КЛЮЧ — ОДИН ЛИСТ, А НЕ ТРОЙКА (время, вхождение, поколение).
+    Чертёж карточки требовал поколения в ключе, потому что между поколениями
+    одного времени топология меняется и новый пролёт может унаследовать тот же
+    ключ владельца. Здесь поколение не в ключе, а В ВЛАДЕНИИ: память рождается
+    вместе с ВИДОМ, а вид создаётся заново из конкретного наложения и не
+    переживает ни одной его мутации (все пять мест, где вид строится, читают
+    наложение и не пишут в него). Тождество поколения, вынесенное из ключа во
+    владельца, — та же дисциплина, что у `PositionMemoV1` с `prime_universe`, и
+    она СИЛЬНЕЕ ключа: унаследовать чужую запись невозможно не потому, что ключ
+    её отличит, а потому, что записи из чужого поколения в этом словаре нет.
+
+    `owner`/`instant` — не украшение: `admits` делает утверждение «эта память
+    принадлежит этому наложению в это мгновение» исполняемым, и подстановка
+    чужого наложения молча старым ответом не отвечает.
+    """
+
+    owner: object
+    instant: object
+    entries: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.entries is None:
+            object.__setattr__(self, "entries", {})
+
+    def admits(self, owner: object, instant: object) -> bool:
+        return owner is self.owner and instant is self.instant
 
     def clear(self) -> None:
         self.entries.clear()
@@ -176,10 +226,16 @@ def position(
     memo = view.position_memo
     if memo is None or not memo.admits(view.prime_universe):
         return _hydrate_position(view, first, second, vertex.sliding, time)
-    key = (first, second, vertex.sliding, time)
+    key = ExactIdentityKeyV1((first, second, vertex.sliding, time))
     entries = memo.entries
-    if key in entries:
-        return entries[key]
+    # Один вопрос вместо двух. `in` плюс `[]` — это ДВА хэша одного ключа, а
+    # ключ несёт `q` прямой, закон скольжения и время, то есть модульные
+    # обратные по числу коэффициентов. Часовой нужен именно потому, что
+    # ЗАКОННЫЙ ответ памяти бывает `None` («места нет»), и `get(key)` без
+    # часового превратил бы попадание в промах.
+    cached = entries.get(key, _PLACE_ABSENT)
+    if cached is not _PLACE_ABSENT:
+        return cached
     place = _hydrate_position(view, first, second, vertex.sliding, time)
     entries[key] = place
     return place

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .candidate_law import evaluate_edge_candidate
 from .event_time import compare_times
+from .exact_identity import exact_point_key
 from . import superlevel as base
 from .superlevel_closure import SegmentRefV1, SpanFamilyRefV1
 from .symbolic_overlay import (
@@ -37,7 +38,7 @@ class SymbolicEdgeContactV1:
 
 
 def _point_key(point):
-    return (point.x.terms, point.y.terms)
+    return exact_point_key(point)
 
 
 def _participants(*leaves):

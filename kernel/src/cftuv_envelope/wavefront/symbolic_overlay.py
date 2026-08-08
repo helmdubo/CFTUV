@@ -9,8 +9,10 @@ from .exact_candidate_view import (
     CandidateSpanStateV1,
     CandidateVertexStateV1,
     ExactCandidateViewV1,
+    SpanStateMemoV1,
     sliding_projection,
 )
+from .exact_identity import ExactIdentityModeV1, identity_mode
 from . import superlevel as base
 from .superlevel_closure import (
     SegmentRefV1,
@@ -448,6 +450,16 @@ def _born_place(overlay, ref, budget=None):
 
 def exact_overlay_view(builder, overlay):
     budget = getattr(builder, "work_budget", None)
+    # Память состояния пролёта живёт РОВНО столько, сколько этот вид. Вид
+    # строится из конкретного наложения и за свою жизнь его не меняет — это
+    # проверено по всем пяти местам, где вид создаётся, — поэтому «поколение»
+    # чертежа здесь не часть ключа, а сам факт владения. В режиме старого
+    # представления памяти нет вовсе: это эталонная сторона теневой сверки.
+    span_memo = (
+        None
+        if identity_mode() is ExactIdentityModeV1.LEGACY_TUPLE
+        else SpanStateMemoV1(overlay, overlay.time)
+    )
 
     def vertex_state(ref):
         vertex = overlay.vertices[ref]
@@ -464,9 +476,13 @@ def exact_overlay_view(builder, overlay):
         )
 
     def span_state(leaf):
+        if span_memo is not None and span_memo.admits(overlay, overlay.time):
+            cached = span_memo.entries.get(leaf)
+            if cached is not None:
+                return cached
         binding = overlay.spans[leaf]
         runtime = builder.edges[binding.physical_edge_id]
-        return CandidateSpanStateV1(
+        state = CandidateSpanStateV1(
             runtime.line,
             runtime.span,
             binding.start,
@@ -475,6 +491,9 @@ def exact_overlay_view(builder, overlay):
             _born_place(overlay, binding.start, budget),
             _born_place(overlay, binding.end, budget),
         )
+        if span_memo is not None and span_memo.admits(overlay, overlay.time):
+            span_memo.entries[leaf] = state
+        return state
 
     def trace_bounds(ref, time):
         trace = overlay.vertices[ref].trace
