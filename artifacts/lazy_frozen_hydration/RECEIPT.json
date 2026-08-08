@@ -34,6 +34,28 @@
     "building_patch_121_d0": [53, 19, 19]
   },
   "other_five_budget_articles": "ПОБИТОВО РАВНЫ прежним на всех шести доменах во всех трёх состояниях: modular_squarings, gcd_operations, miller_rabin_rounds, pollard_attempts, radical_materializations",
+  "the_one_frozen_number_that_moved": {
+    "where": "kernel/tests/test_sem_clb_02_chain_straight_regression.py :: FROZEN_PATCH006_PASS",
+    "what_it_is": "не дайджест и не ответ, а ЦЕНА ПРОХОДА — собственный докстринг словаря называет её 'the factual cost of the query-oriented implementation'",
+    "moved": {
+      "event_calls": [22407, 6393],
+      "coordinate_divisions": [44814, 12786],
+      "pick_iterations": [78832, 21908],
+      "support_checks": [138678, 38548]
+    },
+    "did_not_move": {
+      "incomplete_picks": 0,
+      "incomplete_supports": 0,
+      "_note": "это два СВОЙСТВА, а не цена: базис полон, легаси-деление не срабатывает ни разу. pytest даже не показал их среди расхождений."
+    },
+    "proof_it_is_cost_and_not_answer": [
+      "ответ проверяется ВЫШЕ по тому же тесту и прошёл: терминал конвейера, терминал скелета, тождество замороженного простого базиса",
+      "структурное отношение сохранилось до единицы: coordinate_divisions ровно вдвое больше event_calls и до пересъёмки (44 814 = 2*22 407), и после (12 786 = 2*6 393)",
+      "СОСЕДНЯЯ заморозка FROZEN_PATCH011_OPTIMIZED_CALLS {MOTORCYCLE 18, COVERAGE 96} НЕ СДВИНУЛАСЬ — память мест не трогает ни граф мотоциклов (он зовёт event_point мимо position), ни покрытие (чистая функция разбиения). Эффект локализован в марше фронта, как и объявлено.",
+      "побитовое равенство ленивого и плотного ответов на ЭТОЙ ЖЕ фикстуре проверяется прогоном: test_lazy_hydration_shadow.py, полевая часть 4/4"
+    ],
+    "verified": "2 passed за 170 с — пересъёмленный patch006 и нетронутый patch011"
+  },
   "a_b_same_process_dense_vs_lazy": {
     "_note": "плотный и ленивый режимы подряд в одном процессе; ответы сверены и совпали",
     "_columns": ["единицы dense", "единицы lazy", "секунды dense", "секунды lazy"],
