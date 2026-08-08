@@ -238,11 +238,11 @@
     "2_answers_and_budget_articles": "measure_units.py на 259ec3a и на вершине: 0 расхождений по шести статьям на шести доменах, исходы EXACT/EXACT, leaked_unbudgeted 0",
     "3_frozen_digests_and_prices": "kernel/tests/test_sem_clb_02_chain_straight_regression.py — 10 passed за 144 с; FROZEN_PATCH006_PASS и FROZEN_PATCH011_OPTIMIZED_CALLS НЕ ДВИНУЛИСЬ, EXPECTED_PUBLIC_WAVEFRONT не двинулся; пересъёмки не потребовалось",
     "4_counter_gates": "Fraction.__hash__ 2 943 335 -> 59 143; builtins.pow 2 907 108 -> 59 631 при 5.761 s -> 0.106 s собственного времени профиля (в старом представлении pow — самая дорогая функция прогона, в новом её нет в первой восьмёрке); пересборки span_state 30 634 -> 2 401 на 2.001 d0 и 2 639 -> 383 на walls.012 d0, что ТОЧНО равно числу различных пар (вид, лист)",
-    "5_budget_not_weakened": "потолок 1<<23 не тронут; unbudgeted_sites.py — 0 мест / 0 вызовов / 0 единиц; tests/test_architecture.py 450 passed; kernel/tests/test_exact_work_budget_coverage.py + test_isolation.py 24 passed",
+    "5_budget_not_weakened": "потолок 1<<23 не тронут; unbudgeted_sites.py — 0 мест / 0 вызовов / 0 единиц; tests/test_architecture.py 450 passed (статический сторож бюджета видит новый модуль и не поднял ни одного нарушения); kernel/tests/test_exact_work_budget_coverage.py + test_isolation.py 24 passed. НЕГАТИВНЫЕ ворота в поле: заниженный кап 20 000 по-прежнему даёт ИМЕНОВАННЫЙ отказ с полной деталью на walls.012 d0/d1 и на 2.001 обеих альф, при нетронутых EXACT/EXACT у building 109/121",
     "6_suites": {
       "architecture": "450 passed",
       "field_release_matrix": "22 passed за 22 с",
-      "host_full": "PENDING",
+      "host_full": "1341 passed, 5 skipped, 2 failed, 4 deselected за 281 с — оба падения средовые powershell (test_density_field_tools_contract.py), ровно объявленные, не регрессия",
       "kernel_full": "PENDING"
     },
     "7_receipt": "artifacts/exact_identity_intern/RECEIPT.json"
