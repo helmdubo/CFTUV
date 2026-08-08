@@ -155,7 +155,8 @@ def _coverage_axes(partition) -> dict:
     return rows
 
 
-def _observable(polygon, *, dense: bool, search: SplitSearch) -> dict:
+def _observable(polygon, *, dense: bool, search: SplitSearch,
+                coverage: bool) -> dict:
     """Всё, что о фигуре можно наблюдать снаружи, одним словарём."""
 
     skeleton = build_skeleton(
@@ -164,17 +165,35 @@ def _observable(polygon, *, dense: bool, search: SplitSearch) -> dict:
     axes = {"skeleton": _skeleton_axes(skeleton)}
     partition = build_faces(polygon, skeleton)
     axes["faces"] = _partition_axes(partition)
-    axes["coverage"] = _coverage_axes(partition)
+    if coverage:
+        axes["coverage"] = _coverage_axes(partition)
     return axes
 
 
-def _assert_shadow(label, polygon) -> str:
-    """Ленивый и плотный ответы совпадают на ОБОИХ режимах поиска разрезов."""
+def _assert_shadow(label, polygon, *, coverage: bool = True) -> str:
+    """Ленивый и плотный ответы совпадают на ОБОИХ режимах поиска разрезов.
+
+    `coverage=False` — только для полевых многоугольников, и это не послабление
+    ворот, а снятие ЛИШНЕЙ работы. `coverage_at` — чистая функция пары
+    (разбиение, alpha): гидратации она не видит вовсе, в её подпись строитель не
+    входит. Разбиения здесь уже сверены ЦЕЛИКОМ — каждая грань, каждая её
+    точка, каждая точная площадь и невязка площади, — поэтому равенство
+    покрытий из них СЛЕДУЕТ, а не проверяется заново. Считать его на полевом
+    домене при произвольной alpha стоит дорого и, что важнее, БЕЗ БЮДЖЕТА:
+    знак `a*x + b*y - c - alpha*sqrt(q)` умеет уходить в факторизацию, и
+    ворота стали бы ждать её без потолка. Настоящее полевое покрытие
+    сравнивается там, где у него есть и alpha домена, и бюджет:
+    `artifacts/lazy_frozen_hydration/ab_field.py` и полевая релиз-матрица.
+    """
 
     outcomes = []
     for search in SplitSearch:
-        lazy = _observable(polygon, dense=False, search=search)
-        dense = _observable(polygon, dense=True, search=search)
+        lazy = _observable(
+            polygon, dense=False, search=search, coverage=coverage
+        )
+        dense = _observable(
+            polygon, dense=True, search=search, coverage=coverage
+        )
         assert lazy == dense, (label, search.value)
         outcomes.append(lazy["skeleton"]["outcome"])
     return outcomes[0]
@@ -257,9 +276,12 @@ def test_lazy_matches_dense_on_long_death_chains(name, polygon):
 
 
 # --------------------------------------------------------------------------
-# Поле. Здесь сверяется не только скелет, но и ВЕСЬ конвейер подготовки:
-# `prepare_conveyor` гоняется обоими режимами, и сравниваются его исход,
-# деталь, счётчики и грани каждого региона.
+# Поле. Форма ворот та же, что у уже существующей полевой тени
+# (`test_wavefront_superlevel_transaction.py`): конвейер поднимается ОДИН раз —
+# он даёт многоугольник региона и стоит дорого, — а сверяются оба режима на
+# этом многоугольнике. Гонять `prepare_conveyor` дважды значило бы удвоить
+# самую дорогую часть ворот, ничего не добавив к сверяемым осям: гидратация
+# живёт в марше фронта, а не в мосте законов прихода.
 # --------------------------------------------------------------------------
 
 
@@ -281,40 +303,16 @@ def _field_inputs(case_name):
     return snapshot, request, domain.patch_domain_id
 
 
-def _prepared_axes(prepared) -> dict:
-    rows = {
-        "outcome": prepared.outcome.value,
-        "detail": prepared.detail,
-        "counters": [list(item) for item in prepared.counters],
-        "law_names": list(prepared.law_names),
-        "regions": [],
-    }
-    for region in prepared.regions:
-        row = {
-            "region_id": repr(region.region_id),
-            "bridge_outcome": repr(region.bridge_outcome),
-            "skeleton_outcome": repr(region.skeleton_outcome),
-            "face_outcome": repr(region.face_outcome),
-        }
-        if region.skeleton is not None:
-            row["skeleton"] = _skeleton_axes(region.skeleton)
-        if region.partition is not None:
-            row["faces"] = _partition_axes(region.partition)
-            row["coverage"] = _coverage_axes(region.partition)
-        rows["regions"].append(row)
-    return rows
-
-
 @pytest.mark.parametrize("case_name", _FIELD_CASES)
 def test_lazy_matches_dense_on_the_field_fixtures(case_name):
     snapshot, request, domain_id = _field_inputs(case_name)
-    lazy = prepare_conveyor(
-        snapshot, request, patch_domain_id=domain_id, dense_hydration=False
+    prepared = prepare_conveyor(
+        snapshot, request, patch_domain_id=domain_id
     )
-    dense = prepare_conveyor(
-        snapshot, request, patch_domain_id=domain_id, dense_hydration=True
-    )
-    assert _prepared_axes(lazy) == _prepared_axes(dense), case_name
+    (region,) = prepared.regions
+    polygon = region.bridge.polygon
+    assert polygon is not None, (case_name, prepared.detail)
+    _assert_shadow(case_name, polygon, coverage=False)
 
 
 # --------------------------------------------------------------------------

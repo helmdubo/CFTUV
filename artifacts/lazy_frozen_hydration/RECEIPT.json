@@ -1,0 +1,67 @@
+{
+  "card": "LAZY-FROZEN-HYDRATION",
+  "base": "25cba48",
+  "what_changed": {
+    "position_memo": "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py — PositionMemoV1, ключ (prev-прямая, next-прямая, скольжение, t); prime_universe держится памятью и проверяется admits",
+    "memo_owner": "kernel/src/cftuv_envelope/wavefront/skeleton.py — _Builder._position_memo, чистится при СМЕНЕ ТОЧНОГО ВРЕМЕНИ, едет в вид тем же проводом, что prime_universe и work_budget",
+    "overlay_wire": "kernel/src/cftuv_envelope/wavefront/symbolic_overlay.py — exact_overlay_view отдаёт ТУ ЖЕ память, второго словаря нет",
+    "snapshot_law": "kernel/src/cftuv_envelope/wavefront/superlevel_snapshot.py — _required_physical_edge_keys возвращает ПУСТО у пакета без живых кандидатов; у пакета с живым кандидатом множество прежнее ПОЛНОЕ",
+    "dense_mode": "build_skeleton(dense_hydration=True) и prepare_conveyor(dense_hydration=True) — эталонная сторона теневой сверки",
+    "shadow_gate": "kernel/tests/test_lazy_hydration_shadow.py"
+  },
+  "numeric_target": {
+    "declared": "wall 2.001 density 0: 24 508 единиц и ~2.6 с",
+    "units_reached": true,
+    "units_after": 23954,
+    "units_margin_below_target": 554,
+    "seconds_reached": false
+  },
+  "units_by_domain_density_0": {
+    "_columns": ["до карточки", "только память мест", "память + ленивость снимка"],
+    "wall_2_001_d0_alpha_0.45": [28348, 24030, 23954],
+    "wall_2_001_d0_alpha_0.254": [28348, 24030, 23954],
+    "walls_012_d0": [554997, 554573, 554555],
+    "walls_012_d1": [34082, 33658, 33640],
+    "building_patch_109_d0": [14047, 13638, 13616],
+    "building_patch_121_d0": [8807, 8773, 8773]
+  },
+  "position_hydrations_by_domain": {
+    "_columns": ["до карточки", "только память мест", "память + ленивость снимка"],
+    "wall_2_001_d0": [6733, 2415, 2339],
+    "walls_012_d0": [712, 288, 270],
+    "walls_012_d1": [711, 287, 269],
+    "building_patch_109_d0": [677, 268, 246],
+    "building_patch_121_d0": [53, 19, 19]
+  },
+  "other_five_budget_articles": "ПОБИТОВО РАВНЫ прежним на всех шести доменах во всех трёх состояниях: modular_squarings, gcd_operations, miller_rabin_rounds, pollard_attempts, radical_materializations",
+  "a_b_same_process_dense_vs_lazy": {
+    "_note": "плотный и ленивый режимы подряд в одном процессе; ответы сверены и совпали",
+    "_columns": ["единицы dense", "единицы lazy", "секунды dense", "секунды lazy"],
+    "wall_2_001_d0": [28348, 24030, 18.36, 16.35],
+    "walls_012_d0": [554997, 554573, 2.40, 2.08],
+    "walls_012_d1": [34082, 33658, 1.62, 1.40],
+    "building_patch_109_d0": [14047, 13638, 2.36, 1.71],
+    "building_patch_121_d0": [8807, 8773, 0.30, 0.22],
+    "answers_agree_everywhere": true
+  },
+  "where_the_remaining_seconds_are": {
+    "question": "единицы вернулись к мишени, секунды нет — куда ушёл остаток",
+    "measurement": "artifacts/lazy_frozen_hydration/where_the_seconds_go.py — три прогона 2.001 в одном процессе",
+    "lazy_seconds": 15.95,
+    "lazy_with_cached_fraction_hash_seconds": 7.473,
+    "lazy_control_seconds": 17.176,
+    "units_identical_in_all_three": 24030,
+    "answers_identical_in_all_three": true,
+    "verdict": "8.5-9.7 с из ~16 — ЦЕНА ТОЖДЕСТВА ТОЧНЫХ ВЕЛИЧИН, а не гидратации: ключи вхождений и портов суть кортежи с Fraction внутри, и каждый словарный вопрос про них считает модульную инверсию (Fraction.__hash__ -> pow). Профиль: 2 944 267 вызовов Fraction.__hash__, 2 944 823 вызова builtins.pow, 12.2 с из 31.8 с профилированного прогона.",
+    "why_not_fixed_here": "снять её значит сменить ПРЕДСТАВЛЕНИЕ точных величин в ключах тождества (Fraction -> пара целых) либо кэшировать хэш у самой величины — то есть тронуть закон тождества портов и семейств пролётов. Карточке это запрещено: обратная оптимизация допускается только с доказательством достаточности, а не подгонкой. Счёт назван и передан: Q-EXACT-VALUE-IDENTITY-COSTS-A-MODULAR-INVERSE."
+  },
+  "dependency_closure_measurement": {
+    "question": "сколько платит ленивость СВЕРХ памяти мест",
+    "wall_2_001_d0_packets": 77,
+    "packets_abandoned_before_the_symbolic_layer": 59,
+    "sweep_hydrations": 623,
+    "sweep_hydrations_in_abandoned_packets": 76,
+    "verdict": "у пакета, который РЕШАЕТ, замыкание зависимостей равно ВСЕМУ живому фронту: тождество порта требует обоих концов обоих его плеч (_consumed_by_locus, _leaf_bindings, _initial_vertices читают вхождения каждой живой вершины). Поэтому «по требованию» и «всё» совпадают по МНОЖЕСТВУ и расходятся по ЧИСЛУ ВЫЧИСЛЕНИЙ. Ленивость сверх памяти стоит ровно 76 единиц на 2.001 — измерено, а не оценено."
+  },
+  "machine_note": "секунды сняты на машине, где параллельно шли до пяти чужих pytest-процессов на четырёх ядрах (load 6.5). Отношения внутри одного процесса (A/B и контрфакт) от этого не страдают, абсолютные секунды завышены: тот же 2.001 в первом тихом прогоне дал 11.6 с там, где под нагрузкой 17.4 с."
+}
