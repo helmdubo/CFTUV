@@ -714,3 +714,91 @@ def test_binary_evidence_is_declared_binary():
         assert f"{suffix}" in declared, (
             f"{suffix} не объявлен в .gitattributes."
         )
+
+
+# --------------------------------------------------------------------------
+# Точная работа мимо бюджета: хостовая половина запрета
+# --------------------------------------------------------------------------
+
+# Правило — общее с ядром и живёт ОДНИМ модулем
+# (`kernel/tests/exact_work_budget_ban.py`). Здесь оно только применяется к
+# `cftuv/`: адаптер хоста тоже зовёт точную арифметику ядра, и ровно там
+# нашлись два последних места из дыры BUDGET-COVERAGE-STRUCTURAL — усечение
+# контуров для картинки (`coverage_at` без счёта, 281 вызов `sign` на трёх
+# полевых доменах) и проверка простоты слитого контура (`contour_crossings`,
+# 36 вызовов). Без этой проверки хост может открыть дыру заново, а ядро об
+# этом не узнает: его сюита `cftuv/` не читает.
+#
+# Разбираются ТОЛЬКО модули хоста, действительно трогающие ядро. Причина
+# измерена, а не гигиеническая: правило ловит вызов по ИМЕНИ, а в словаре
+# хоста `normalized` — это `mathutils.Vector.normalized`, и на всём пакете имя
+# совпадает шестьдесят раз при трёх настоящих кандидатах. Список исключений из
+# шестидесяти строк шума не проверял бы ничего.
+_HOST_EXACT_WORK_EXEMPTIONS: dict[tuple[str, str], tuple[int, str]] = {
+    # `mathutils.Vector.normalized()` в отрисовке отладки — совпадение имени с
+    # `EventTimeV1.normalized`, к точной арифметике отношения не имеет.
+    ("cftuv/envelope_debug_renderer.py", "normalized"): (
+        3,
+        "RECEIVER_IS_NOT_A_SQRT_SUM",
+    ),
+}
+
+
+@cache
+def _exact_work_budget_ban():
+    """Общее правило запрета, загруженное из `kernel/tests` по пути.
+
+    Именно по пути, а не импортом пакета: хостовая сюита не имеет права
+    зависеть от того, лежит ли `kernel/tests` на `sys.path`, а копия правила
+    рядом разошлась бы с оригиналом.
+    """
+
+    import importlib.util
+
+    path = REPO_ROOT / "kernel" / "tests" / "exact_work_budget_ban.py"
+    spec = importlib.util.spec_from_file_location(
+        "_exact_work_budget_ban", path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_host_adapter_never_calls_exact_arithmetic_without_a_budget():
+    """Хост, зовущий ядро, обязан называть бюджет — иначе счёт без исхода.
+
+    Нарушение здесь СТРОИТСЯ ровно так же, как в ядре: проверка правила на
+    заведомо нарушающем фрагменте живёт в
+    `kernel/tests/test_exact_work_budget_coverage.py`, и это тот же самый код.
+    """
+
+    ban = _exact_work_budget_ban()
+    grouped: dict[tuple[str, str], list[int]] = {}
+    for path in _python_files(HOST_PACKAGE):
+        source = _source_text(path)
+        if "cftuv_envelope" not in source:
+            continue
+        module = str(path.relative_to(REPO_ROOT))
+        for _, name, lineno in ban.unbudgeted_sites_in_source(source, module):
+            grouped.setdefault((module, name), []).append(lineno)
+
+    offenders = sorted(
+        f"{module}:{sorted(lines)} -> {name}"
+        for (module, name), lines in grouped.items()
+        if len(lines) > _HOST_EXACT_WORK_EXEMPTIONS.get((module, name), (0,))[0]
+    )
+    assert not offenders, (
+        "адаптер хоста зовёт точную арифметику ядра без названного бюджета:\n"
+        + "\n".join(offenders)
+        + "\n\nНазовите бюджет в вызове (у экспорта он свой, stage=EXPORT) "
+        "либо заведите место в _HOST_EXACT_WORK_EXEMPTIONS с причиной из "
+        "kernel/tests/exact_work_budget_ban.EXEMPTION_REASONS."
+    )
+
+
+def test_host_exact_work_exemptions_name_a_registered_reason():
+    """Исключение хоста ссылается на общий словарь причин, а не на свои слова."""
+
+    reasons = _exact_work_budget_ban().EXEMPTION_REASONS
+    for key, (_, reason) in _HOST_EXACT_WORK_EXEMPTIONS.items():
+        assert reason in reasons, (key, reason)
