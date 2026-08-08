@@ -66,7 +66,12 @@ def test_factorization_vectors_reconstruct_exactly(value, expected):
     ),
 )
 def test_pollard_rho_returns_a_deterministic_proper_divisor(composite):
-    observed = [exact_sqrt_sum_module._pollard_rho(composite) for _ in range(4)]
+    observed = [
+        exact_sqrt_sum_module._pollard_rho(
+            composite, exact_sqrt_sum_module.unlimited_reference_budget()
+        )
+        for _ in range(4)
+    ]
     assert observed == [observed[0]] * 4
     divisor = observed[0]
     assert 1 < divisor < composite
@@ -90,6 +95,7 @@ def test_batched_brent_replays_a_zero_product_from_its_checkpoint(monkeypatch):
         2,
         6,
         batch_size=2,
+        budget=exact_sqrt_sum_module.unlimited_reference_budget(),
     )
     batch_failure = calls.index((0, 9, 9))
     recovered = calls.index((6, 9, 3))
@@ -104,9 +110,9 @@ def test_prime_universe_deduplicates_q_and_keeps_rational_radicals_exact(
     calls = []
     original = exact_sqrt_sum_module._factorize
 
-    def tracking_factorize(value):
+    def tracking_factorize(value, budget=None):
         calls.append(value)
-        return original(value)
+        return original(value, budget)
 
     monkeypatch.setattr(exact_sqrt_sum_module, "_factorize", tracking_factorize)
     universe = exact_sqrt_sum_module._prime_universe_from_q_values(
@@ -229,15 +235,17 @@ def test_prime_universe_miss_restarts_legacy_on_whole_original_operands(
         + SqrtSumV1.radical(1, 2)
         + SqrtSumV1.radical(1, 3)
     )
-    original = SqrtSumV1.__truediv__
-    expected = original(numerator, denominator)
+    # Патчится `divided_by`, а не оператор: именно им ходит откат legacy —
+    # оператор третьего аргумента не принимает и бюджет через себя не пустил бы.
+    original = SqrtSumV1.divided_by
+    expected = original(numerator, denominator, None)
     calls = []
 
-    def tracking_legacy(left, right):
+    def tracking_legacy(left, right, budget=None):
         calls.append((left, right))
-        return original(left, right)
+        return original(left, right, budget)
 
-    monkeypatch.setattr(SqrtSumV1, "__truediv__", tracking_legacy)
+    monkeypatch.setattr(SqrtSumV1, "divided_by", tracking_legacy)
     actual = exact_sqrt_sum_module._divide_with_prime_universe(
         numerator,
         denominator,
@@ -259,7 +267,7 @@ def test_rational_prime_universe_division_never_picks_or_falls_back(monkeypatch)
         "_pick_prime_from_universe",
         forbidden,
     )
-    monkeypatch.setattr(SqrtSumV1, "__truediv__", forbidden)
+    monkeypatch.setattr(SqrtSumV1, "divided_by", forbidden)
     assert exact_sqrt_sum_module._divide_with_prime_universe(
         numerator,
         denominator,
@@ -373,9 +381,9 @@ def test_event_point_distinguishes_legacy_none_from_certified_empty_basis(
     observed_universes = []
     original = event_time_module._divide_with_prime_universe
 
-    def capture(numerator, denominator, prime_universe):
+    def capture(numerator, denominator, prime_universe, budget=None):
         observed_universes.append(prime_universe)
-        return original(numerator, denominator, prime_universe)
+        return original(numerator, denominator, prime_universe, budget)
 
     monkeypatch.setattr(
         event_time_module,

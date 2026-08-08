@@ -92,9 +92,9 @@ def test_motorcycle_prime_universe_includes_a_fan_only_factor(monkeypatch):
     observed_q = []
     original = motorcycle_module._prime_universe_from_q_values
 
-    def capture(q_values):
+    def capture(q_values, budget=None):
         observed_q.append(q_values)
-        return original(q_values)
+        return original(q_values, budget)
 
     monkeypatch.setattr(
         motorcycle_module,

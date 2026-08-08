@@ -150,9 +150,9 @@ def test_basis_of_the_field_universe_removes_the_expensive_factorizations():
         calls = []
         original = canon._pollard_rho
 
-        def counting(value):
+        def counting(value, budget):
             calls.append(value)
-            return original(value)
+            return original(value, budget)
 
         canon._pollard_rho = counting
         try:

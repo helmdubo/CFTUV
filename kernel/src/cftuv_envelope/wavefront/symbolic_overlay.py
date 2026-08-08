@@ -485,6 +485,11 @@ def exact_overlay_view(builder, overlay):
         vertex_state,
         span_state,
         trace_bounds,
+        # Строитель здесь duck-typed: символьные тесты подставляют
+        # `SimpleNamespace` с ровно теми полями, которые читает overlay.
+        # Требовать от него бюджет значило бы заставить каждый такой дубль
+        # знать про кап работы, к которому overlay отношения не имеет.
+        getattr(builder, "work_budget", None),
     )
 
 

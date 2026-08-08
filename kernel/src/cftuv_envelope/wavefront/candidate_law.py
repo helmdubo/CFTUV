@@ -109,8 +109,8 @@ def evaluate_edge_candidate(
     peer = view.vertex_state(peer_ref)
     if (
         span is not None
-        and compare_times(time, vertex.birth) == 0
-        and compare_times(time, peer.birth) == 0
+        and compare_times(time, vertex.birth, view.budget) == 0
+        and compare_times(time, peer.birth, view.budget) == 0
     ):
         return refuse(CandidateRefusal.FILTER_SPAN_IS_BORN_ZERO)
     point = position(view, vertex_ref, time)
@@ -151,9 +151,11 @@ def evaluate_split_candidate(
     second = view.span_state(vertex.next_span).line
     target = view.span_state(target_ref).line
     if vertex.sliding is None:
-        time, outcome = concurrency_time(first, second, target)
+        time, outcome = concurrency_time(first, second, target, view.budget)
     else:
-        time, outcome = sliding_time(first, vertex.sliding, target)
+        time, outcome = sliding_time(
+            first, vertex.sliding, target, view.budget
+        )
     if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
         return refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
     if outcome is not EventTimeOutcome.EXACT or time is None:
@@ -161,9 +163,9 @@ def evaluate_split_candidate(
             CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT,
             needs_identity=True,
         )
-    if time.sign <= 0 or compare_times(time, vertex.birth) <= 0:
+    if time.sign <= 0 or compare_times(time, vertex.birth, view.budget) <= 0:
         return refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
-    if compare_times(time, now) < 0:
+    if compare_times(time, now, view.budget) < 0:
         return refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
     bounded = view.trace_bounds(vertex_ref, time)
     if bounded is False:

@@ -67,7 +67,7 @@ from fractions import Fraction
 from functools import cmp_to_key
 from math import gcd
 
-from ..exact_sqrt_sum import _prime_universe_from_q_values
+from ..exact_sqrt_sum import ExactWorkBudgetV1, _prime_universe_from_q_values
 from .event_time import (
     ZERO_TIME,
     _event_point_with_prime_universe,
@@ -224,10 +224,19 @@ def build_skeleton(
     polygon: PolygonV1,
     *,
     split_search: SplitSearch = SplitSearch.MOTORCYCLE,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> SkeletonV1:
-    """Скелет области как последовательность событий по возрастанию времени."""
+    """Скелет области как последовательность событий по возрастанию времени.
 
-    return _Builder(polygon, split_search).run()
+    `work_budget` — бюджет ТОЧНОЙ РАБОТЫ транзакции, не путать с `level_budget`
+    в этом же модуле: тот считает уровни фронта, этот — модульные возведения,
+    gcd и материализации радикалов. Уровней может быть мало, а работы на них
+    бесконечно много: полевой случай владельца — домен из четырёх граней,
+    считающий десять минут. `None` — прогон без названного бюджета, поведение
+    прежнее побитово.
+    """
+
+    return _Builder(polygon, split_search, work_budget=work_budget).run()
 
 
 class _Builder:
@@ -237,11 +246,15 @@ class _Builder:
         self,
         polygon: PolygonV1,
         split_search: SplitSearch = SplitSearch.MOTORCYCLE,
+        *,
+        work_budget: ExactWorkBudgetV1 | None = None,
     ) -> None:
         self.polygon = polygon
+        self.work_budget = work_budget
         self._prime_universe = _prime_universe_from_q_values(
             tuple(speed for _, _, speed in polygon.edges())
-            + tuple(line.q for _, _, line in polygon.fan_edges())
+            + tuple(line.q for _, _, line in polygon.fan_edges()),
+            work_budget,
         )
         self.split_search = split_search
         self.edges: list[_Edge] = []
@@ -563,7 +576,7 @@ class _Builder:
 
         if self.split_search is not SplitSearch.MOTORCYCLE:
             return
-        self.graph = build_motorcycle_graph(self.polygon)
+        self.graph = build_motorcycle_graph(self.polygon, self.work_budget)
         self.index = TraceCandidateIndexV1.covering(self.polygon, self.graph)
         for line_key, ident in self.line_id.items():
             self.index.register_line(
@@ -635,6 +648,7 @@ class _Builder:
             vertex_state,
             span_state,
             trace_bounds,
+            self.work_budget,
         )
 
     def _enqueue_for(self, vertex: _Vertex) -> None:
@@ -949,6 +963,8 @@ class _Builder:
             self.now = level[0].time
             while level:
                 levels += 1
+                if self.work_budget is not None:
+                    self.work_budget.superlevel = str(levels)
                 self._apply_level(level)
                 self.counters["same_time_events_enqueued_during_level"] += (
                     self.queue._count_at_time(self.now)

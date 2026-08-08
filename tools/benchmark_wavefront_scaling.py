@@ -42,9 +42,8 @@ import time
 from cftuv_envelope.wavefront.skeleton import SplitSearch, build_skeleton
 from cftuv_envelope.wavefront.sqrt_sum import (
     SIGN_COUNTS,
-    prime_support,
+    reset_factorization_memory,
     reset_sign_counts,
-    squarefree_split,
 )
 
 import wavefront_corpus
@@ -56,8 +55,7 @@ TRIKI_SECONDS = {42: 0.0084, 128: 0.1288, 256: 0.5455, 512: 2.6185, 1024: 100.89
 
 
 def _fresh() -> None:
-    squarefree_split.cache_clear()
-    prime_support.cache_clear()
+    reset_factorization_memory()
     reset_sign_counts()
 
 

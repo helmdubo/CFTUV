@@ -197,13 +197,13 @@ def test_coverage_builds_one_partition_wide_prime_universe(monkeypatch):
     original_build = coverage_module._prime_universe_from_q_values
     original_divide = coverage_module._divide_with_prime_universe
 
-    def capture_build(q_values):
+    def capture_build(q_values, budget=None):
         built_from.append(q_values)
-        return original_build(q_values)
+        return original_build(q_values, budget)
 
-    def capture_divide(numerator, denominator, prime_universe):
+    def capture_divide(numerator, denominator, prime_universe, budget=None):
         used_universes.append(prime_universe)
-        return original_divide(numerator, denominator, prime_universe)
+        return original_divide(numerator, denominator, prime_universe, budget)
 
     monkeypatch.setattr(
         coverage_module,

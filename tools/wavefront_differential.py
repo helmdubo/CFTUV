@@ -83,8 +83,7 @@ BENCH_EXACT = "EXACT"
 def reset_caches() -> None:
     """Свежие значения: между точками кеши радикалов сбрасываются."""
 
-    sqrt_sum_module.squarefree_split.cache_clear()
-    sqrt_sum_module.prime_support.cache_clear()
+    sqrt_sum_module.reset_factorization_memory()
     sqrt_sum_module.reset_sign_counts()
 
 

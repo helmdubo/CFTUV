@@ -75,6 +75,11 @@ from ..contracts.request import (
     AngularProfileSelectionPolicyId,
     DecalRequestV1,
 )
+from ..exact_sqrt_sum import (
+    ExactCanonicalizationWorkBudgetExhausted,
+    ExactWorkBudgetV1,
+    exact_work_budget,
+)
 from ..ids import PatchDomainId
 from ..interactions.arrival import (
     ANGULAR_PROFILE_NORMAL_SPEED,
@@ -170,6 +175,14 @@ class ConveyorOutcome(str, Enum):
     # стоит на эффективной alpha, поэтому двух alpha ему мало не бывает.
     SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN = (
         "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN"
+    )
+    # Точная канонизация исчерпала объявленный бюджет работы. Это НЕ «не
+    # получилось»: домен назван, стадия названа, потраченная работа сосчитана,
+    # и разбор свипов группирует такие домены по (исход, деталь). До этого
+    # исхода тот же вход просто не возвращался — десять минут в поле без
+    # единого имени, что прямо нарушало п.4 AGENTS.md.
+    EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED = (
+        "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED"
     )
 
 
@@ -311,6 +324,11 @@ class ConveyorPreparationV1:
     context: GeometryContext | None = None
     domain: object | None = None
     requested_alpha: LocalLengthV1 | None = None
+    # Бюджет точной работы ТРАНЗАКЦИИ ДОМЕНА. Он переживает подготовку и
+    # продолжает тратиться на покрытии: обе ступени считают одну и ту же
+    # геометрию, и обнуление на границе сделало бы кап границей стадии, а не
+    # домена. `None` — прогон без названного бюджета.
+    work_budget: ExactWorkBudgetV1 | None = None
 
     def counter(self, name: str) -> int:
         return dict(self.counters).get(name, 0)
@@ -925,6 +943,7 @@ def _prepare_region(
     lattice: GridSpecV1,
     binding_residual: Fraction,
     clock: _Clock,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[PreparedRegionV1 | None, str | None]:
     started = time.perf_counter()
     loops, issue = _region_loops(region)
@@ -968,7 +987,7 @@ def _prepare_region(
         return prepared, None
 
     started = time.perf_counter()
-    skeleton = build_skeleton(report.polygon)
+    skeleton = build_skeleton(report.polygon, work_budget=work_budget)
     clock.add("SKELETON", started)
     if skeleton.outcome is not SkeletonOutcome.EXACT:
         return (
@@ -1112,6 +1131,7 @@ def prepare_conveyor(
     request: DecalRequestV1,
     *,
     patch_domain_id: PatchDomainId | None = None,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> ConveyorPreparationV1:
     """Alpha-независимая подготовка очереди для домена плана.
 
@@ -1137,12 +1157,25 @@ def prepare_conveyor(
     laws = reading.laws
     # Всё, что уже известно про законы и вееры, переживает любой поздний отказ.
     law_counters: Counters = _law_counters(reading)
+    budget = _domain_work_budget(work_budget, compilation)
 
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
-        prepared, issue = _prepare_region(
-            region, reading, lattice, binding_residual, clock
-        )
+        try:
+            prepared, issue = _prepare_region(
+                region, reading, lattice, binding_residual, clock, budget
+            )
+        except ExactCanonicalizationWorkBudgetExhausted as exhausted:
+            # Строки времени у этого отказа нет намеренно: `_prepare_region`
+            # ставит её сама на выходе, а выхода тут не было. Ноль секунд был
+            # бы измерением, которого не делали, — а расход НАЗВАН счётчиками
+            # бюджета ниже, и он воспроизводим, в отличие от секунды.
+            return _refused(
+                ConveyorOutcome.EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED,
+                str(exhausted),
+                clock,
+                law_counters + budget.counters(),
+            )
         if prepared is None:
             return _refused(
                 ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL,
@@ -1159,6 +1192,11 @@ def prepare_conveyor(
         regions=regions,
         lattice=lattice,
         law_names=tuple(law.name for law in laws),
+        # Счётчики подготовки — утверждение о ГЕОМЕТРИИ домена, и три теста
+        # фиксируют их состав целиком. Работа бюджета туда не идёт: цена и
+        # геометрия — разные величины, и слить их значило бы привязать
+        # замороженное утверждение о домене к закону оплаты. Расход доступен
+        # через `work_budget`, а на отказе — ещё и в счётчиках и в детали.
         counters=_preparation_counters(regions, reading, lattice),
         timings=clock.timings(),
         detail=detail,
@@ -1166,7 +1204,27 @@ def prepare_conveyor(
         context=context,
         domain=domain,
         requested_alpha=normalize_requested_alpha(request.requested_alpha),
+        work_budget=budget,
     )
+
+
+def _domain_work_budget(
+    work_budget: ExactWorkBudgetV1 | None,
+    compilation,
+) -> ExactWorkBudgetV1:
+    """Бюджет транзакции домена: свой, если вызывающий назвал, иначе штатный.
+
+    Идентичность домена кладётся в бюджет ЗДЕСЬ и один раз: отказ обязан
+    называть, у какого домена кончилась работа, а ниже по конвейеру эта
+    идентичность уже не видна — там только полигон на решётке.
+    """
+
+    if work_budget is not None:
+        return work_budget.at_stage("PREPARE")
+    domain_id = ""
+    if compilation is not None:
+        domain_id = str(compilation.plan_key.patch_domain_id)
+    return exact_work_budget(stage="PREPARE", domain_id=domain_id)
 
 
 def _density_transaction_memo(request):
@@ -1343,9 +1401,10 @@ def _region_coverage(
     region: PreparedRegionV1,
     lattice_alpha: Fraction,
     instance_ids: dict[str, str],
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> ConveyorRegionCoverageV1:
     owner_names = dict(region.owner_by_edge)
-    covered = coverage_at(region.partition, lattice_alpha)
+    covered = coverage_at(region.partition, lattice_alpha, work_budget)
     faces = tuple(
         ConveyorFaceCoverageV1(
             region_id=region.region_id,
@@ -1512,10 +1571,24 @@ def conveyor_coverage(
         )
 
     started = time.perf_counter()
-    regions = tuple(
-        _region_coverage(region, lattice_alpha, instance_ids)
-        for region in prepared.regions
-    )
+    budget = prepared.work_budget
+    if budget is not None:
+        budget.at_stage("COVERAGE")
+    try:
+        regions = tuple(
+            _region_coverage(region, lattice_alpha, instance_ids, budget)
+            for region in prepared.regions
+        )
+    except ExactCanonicalizationWorkBudgetExhausted as exhausted:
+        clock.add("COVERAGE_CLIP", started)
+        return _empty_coverage(
+            ConveyorOutcome.EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED,
+            str(exhausted),
+            prepared,
+            alpha_fraction,
+            lattice_alpha,
+            clock,
+        )
     clock.add("COVERAGE_CLIP", started)
 
     total = SqrtSumV1.zero()

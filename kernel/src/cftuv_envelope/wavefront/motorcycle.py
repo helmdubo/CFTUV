@@ -64,6 +64,7 @@ from .event_time import (
 )
 from .polygon import PolygonV1
 from ..exact_sqrt_sum import (
+    ExactWorkBudgetV1,
     _divide_with_prime_universe,
     _prime_universe_from_q_values,
 )
@@ -132,7 +133,9 @@ def walls_of(polygon: PolygonV1) -> tuple[WallV1, ...]:
 
 
 def bisector_velocity(
-    left: SupportLineV1, right: SupportLineV1
+    left: SupportLineV1,
+    right: SupportLineV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[SqrtSumV1, SqrtSumV1] | None:
     """`dp/dt` вершины, стоящей на стыке двух движущихся прямых.
 
@@ -147,10 +150,12 @@ def bisector_velocity(
         return None
     scale = Fraction(1, determinant)
     x = (
-        SqrtSumV1.radical(right.b, left.q) - SqrtSumV1.radical(left.b, right.q)
+        SqrtSumV1.radical(right.b, left.q, work_budget)
+        - SqrtSumV1.radical(left.b, right.q, work_budget)
     ).scaled(scale)
     y = (
-        SqrtSumV1.radical(left.a, right.q) - SqrtSumV1.radical(right.a, left.q)
+        SqrtSumV1.radical(left.a, right.q, work_budget)
+        - SqrtSumV1.radical(right.a, left.q, work_budget)
     ).scaled(scale)
     return x, y
 
@@ -293,6 +298,14 @@ class MotorcycleGraphV1:
     wall_index: CellIndexV1
     traces: dict[int, TraceV1]
     counters: dict[str, int]
+    # Бюджет точной работы транзакции. Поле, а не параметр каждого метода:
+    # марш живёт внутри графа и вызывается из скелета уже после того, как граф
+    # построен, поэтому провод по методам пришлось бы вести через `trace_for`,
+    # `_march`, `_march_steps` и `_wall_hit` ради одного значения, которое у
+    # них общее. Имя `work_budget`, а не `budget`: `march_budget` в этом же
+    # модуле — граница ЧИСЛА ШАГОВ, и две разные величины с одним именем
+    # читались бы как одна.
+    work_budget: ExactWorkBudgetV1 | None = None
     _next_ident: itertools.count = field(default_factory=itertools.count)
 
     def counter(self, name: str) -> int:
@@ -336,7 +349,7 @@ class MotorcycleGraphV1:
         весь пройденный участок.
         """
 
-        velocity = bisector_velocity(left, right)
+        velocity = bisector_velocity(left, right, self.work_budget)
         zero = (SqrtSumV1.zero(), SqrtSumV1.zero())
         blank = _blank_trace(ident, left, right, start_time, origin)
         if velocity is None:
@@ -363,7 +376,8 @@ class MotorcycleGraphV1:
                 self.counters["motorcycle_wall_tests"] += 1
                 hit = self._wall_hit(left, right, start_time, self.walls[wall_ident])
                 if hit is not None and (
-                    best is None or compare_times(hit[0], best[0]) < 0
+                    best is None
+                    or compare_times(hit[0], best[0], self.work_budget) < 0
                 ):
                     best = hit
             self.counters["motorcycle_march_steps"] += 1
@@ -397,12 +411,14 @@ class MotorcycleGraphV1:
         start_time: EventTimeV1,
         wall: WallV1,
     ) -> tuple[EventTimeV1, EventPointV1, int] | None:
-        time, outcome = concurrency_time(left, right, wall.line)
+        time, outcome = concurrency_time(
+            left, right, wall.line, self.work_budget
+        )
         if outcome is not EventTimeOutcome.EXACT or time is None:
             return None
-        if compare_times(time, start_time) <= 0:
+        if compare_times(time, start_time, self.work_budget) <= 0:
             return None
-        point = event_point(left, right, time)
+        point = event_point(left, right, time, self.work_budget)
         if not _projection_is_inside(point, wall):
             return None
         return time, point, wall.ident
@@ -505,12 +521,16 @@ def polygon_box(polygon: PolygonV1) -> tuple[int, int, int, int]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def build_motorcycle_graph(polygon: PolygonV1) -> MotorcycleGraphV1:
+def build_motorcycle_graph(
+    polygon: PolygonV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
+) -> MotorcycleGraphV1:
     """Граф трасс всех reflex-вершин входа, с крушениями о стены и о трассы."""
 
     prime_universe = _prime_universe_from_q_values(
         tuple(speed for _, _, speed in polygon.edges())
-        + tuple(line.q for _, _, line in polygon.fan_edges())
+        + tuple(line.q for _, _, line in polygon.fan_edges()),
+        work_budget,
     )
     walls = walls_of(polygon)
     x_min, y_min, x_max, y_max = polygon_box(polygon)
@@ -525,6 +545,7 @@ def build_motorcycle_graph(polygon: PolygonV1) -> MotorcycleGraphV1:
         grid=grid,
         wall_index=wall_index,
         traces={},
+        work_budget=work_budget,
         counters={
             "motorcycle_traces": 0,
             "motorcycle_wall_tests": 0,
@@ -667,7 +688,9 @@ def _drain_crashes(
             settled[entry.motorcycle] = entry.time
             continue
         peer = settled.get(entry.target)
-        if peer is not None and compare_times(peer, entry.peer_time) < 0:
+        if peer is not None and compare_times(
+            peer, entry.peer_time, graph.work_budget
+        ) < 0:
             continue
         if _apply_trace_crash(graph, entry, prime_universe):
             settled[entry.motorcycle] = entry.time
@@ -679,13 +702,21 @@ def _apply_trace_crash(
     prime_universe: tuple[int, ...],
 ) -> bool:
     trace = graph.traces[entry.motorcycle]
-    if compare_times(entry.time, trace.crash_time) >= 0:
+    if compare_times(entry.time, trace.crash_time, graph.work_budget) >= 0:
         return False
+    # ДВА вызова, а не один общий: `_as_sqrt_sum` здесь чистая функция, и
+    # вынести её в переменную было бы ОПТИМИЗАЦИЕЙ, а не учётом. Замороженный
+    # счётчик делений FROZEN_PATCH011_OPTIMIZED_CALLS поймал эту подмену
+    # (18 -> 9), и он прав: карточка обязана добавлять учёт и не трогать путь.
     point = EventPointV1(
         trace.origin.x
-        + trace.velocity[0] * _as_sqrt_sum(entry.time, prime_universe),
+        + trace.velocity[0] * _as_sqrt_sum(
+            entry.time, prime_universe, graph.work_budget
+        ),
         trace.origin.y
-        + trace.velocity[1] * _as_sqrt_sum(entry.time, prime_universe),
+        + trace.velocity[1] * _as_sqrt_sum(
+            entry.time, prime_universe, graph.work_budget
+        ),
     )
     graph.traces[entry.motorcycle] = TraceV1(
         ident=trace.ident,
@@ -709,6 +740,7 @@ def _apply_trace_crash(
 def _as_sqrt_sum(
     time: EventTimeV1,
     prime_universe: tuple[int, ...],
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> SqrtSumV1:
     """Значение времени как сумма корней. Одно деление, и только здесь."""
 
@@ -716,6 +748,7 @@ def _as_sqrt_sum(
         SqrtSumV1.rational(time.dividend),
         time.divisor,
         prime_universe,
+        work_budget,
     )
 
 
@@ -742,13 +775,17 @@ def _trace_pairs(graph: MotorcycleGraphV1, live: dict[int, TraceV1]):
             if (ident, other) in seen:
                 continue
             seen.add((ident, other))
-            times = _meeting_times(live[ident], live[other])
+            times = _meeting_times(
+                live[ident], live[other], graph.work_budget
+            )
             if times is not None:
                 yield ident, other, times[0], times[1]
 
 
 def _meeting_times(
-    first: TraceV1, second: TraceV1
+    first: TraceV1,
+    second: TraceV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[EventTimeV1, EventTimeV1] | None:
     """Времена, в которые каждая трасса приходит в пересечение биссектрис.
 
@@ -757,19 +794,23 @@ def _meeting_times(
     даёт время одним делением на каждую сторону.
     """
 
-    at_first = _arrival(first, second)
-    at_second = _arrival(second, first)
+    at_first = _arrival(first, second, work_budget)
+    at_second = _arrival(second, first, work_budget)
     if at_first is None or at_second is None:
         return None
     if (
-        compare_times(at_first, first.start_time) <= 0
-        or compare_times(at_second, second.start_time) <= 0
+        compare_times(at_first, first.start_time, work_budget) <= 0
+        or compare_times(at_second, second.start_time, work_budget) <= 0
     ):
         return None
     return at_first, at_second
 
 
-def _arrival(rider: TraceV1, host: TraceV1) -> EventTimeV1 | None:
+def _arrival(
+    rider: TraceV1,
+    host: TraceV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
+) -> EventTimeV1 | None:
     """Время, в которое `rider` пересекает несущую прямую трассы `host`."""
 
     normal_x, normal_y = host.velocity[1], -host.velocity[0]
@@ -780,7 +821,9 @@ def _arrival(rider: TraceV1, host: TraceV1) -> EventTimeV1 | None:
     dividend = offset - (normal_x * rider.origin.x + normal_y * rider.origin.y)
     if dividend.is_zero:
         return None
-    return EventTimeV1.normalized(1, divisor / dividend)
+    return EventTimeV1.normalized(
+        1, divisor.divided_by(dividend, work_budget), work_budget
+    )
 
 
 # --------------------------------------------------------------------------

@@ -114,6 +114,7 @@ class TolerancePolicyIdV1(str, Enum):
     FACTORIZATION_MEMO_ENTRIES_V1 = "FACTORIZATION_MEMO_ENTRIES_V1"
     KNOWN_PRIME_REGISTRY_ENTRIES_V1 = "KNOWN_PRIME_REGISTRY_ENTRIES_V1"
     COPRIME_BASIS_SPLIT_BUDGET_V1 = "COPRIME_BASIS_SPLIT_BUDGET_V1"
+    EXACT_CANONICALIZATION_WORK_CAP_V1 = "EXACT_CANONICALIZATION_WORK_CAP_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -172,6 +173,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     DENSITY_FAN_PREPARATION = "DENSITY_FAN_PREPARATION"
     DENSITY_MINIMAL_HEIGHT_SEARCH = "DENSITY_MINIMAL_HEIGHT_SEARCH"
     EXACT_CANONICALIZATION_MEMORY = "EXACT_CANONICALIZATION_MEMORY"
+    EXACT_CANONICALIZATION_TRANSACTION = "EXACT_CANONICALIZATION_TRANSACTION"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -815,6 +817,64 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_exact_canonicalization_memory.py"
             "::test_memory_reset_returns_the_same_answers_again"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.EXACT_CANONICALIZATION_WORK_CAP_V1,
+        category=TolerancePolicyCategoryV1.WORK_BUDGET,
+        value=_rational(1 << 23),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.EXACT_WORK_UNITS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.NOT_A_COORDINATE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Точная работа ОДНОЙ транзакции домена — подготовки и покрытия "
+            "вместе. Единицы только детерминированные (модульные возведения, "
+            "gcd, раунды Миллера—Рабина, попытки Полларда, материализации "
+            "канонических радикалов, гидратации точных позиций); wall-clock "
+            "запрещён, потому что секунда есть свойство машины, а не входа. "
+            "До капа факторизация радиканда с большим простым делителем "
+            "уходила в счёт без исхода — полевые десять минут без имени. "
+            "Превышение не меняет ни одного ответа: оно превращает "
+            "бесконечный счёт в именованный отказ. Литерал ограничен с двух "
+            "сторон измерением: снизу — walls.012 density 1, вход, который до "
+            "PERF-CANON-1 не возвращался 900+ s (запас 249x); сверху — цена "
+            "самого потолка, 4.5 s на радиканде полевой ширины 246 бит. Запас "
+            "над худшим измеренным ЗДОРОВЫМ доменом (walls.012 d0, 554 580 "
+            "единиц на 6ce0227) — 15.1x."
+        ),
+        authority=(
+            "exact_sqrt_sum._EXACT_CANONICALIZATION_WORK_CAP и "
+            "ExactWorkBudgetV1; именованный отказ "
+            "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED, доезжающий до "
+            "ConveyorOutcome одноимённым членом; DECISIONS.md 2026-08-04 "
+            "(открытый счёт Q-FACTORIZATION-WORK-BUDGET приёмки PERF-CANON-1)"
+        ),
+        applied_stage=(
+            TolerancePolicyAppliedStageV1.EXACT_CANONICALIZATION_TRANSACTION
+        ),
+        allowed_effect=TolerancePolicyAllowedEffectV1.NAMED_REFUSAL_ONLY,
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "EXACT_WORK_MODULAR_SQUARINGS",
+            "EXACT_WORK_GCD_OPERATIONS",
+            "EXACT_WORK_MILLER_RABIN_ROUNDS",
+            "EXACT_WORK_POLLARD_ATTEMPTS",
+            "EXACT_WORK_RADICAL_MATERIALIZATIONS",
+            "EXACT_WORK_EXACT_POSITION_HYDRATIONS",
+            "EXACT_WORK_SPENT",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.exact_sqrt_sum._EXACT_CANONICALIZATION_WORK_CAP",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_exact_work_budget.py"
+            "::test_the_budget_does_not_move_a_single_answer"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_exact_work_budget.py"
+            "::test_a_lowered_cap_turns_endless_factorization_into_a_named_refusal"
         ),
     ),
     TolerancePolicyV1(

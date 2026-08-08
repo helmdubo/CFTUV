@@ -36,6 +36,7 @@ from fractions import Fraction
 
 from .event_time import SupportLineV1
 from ..exact_sqrt_sum import (
+    ExactWorkBudgetV1,
     _divide_with_prime_universe,
     _prime_universe_from_q_values,
 )
@@ -103,14 +104,19 @@ class CoverageV1:
         ).sign() >= 0
 
 
-def _value(line: SupportLineV1, point: Point, alpha: Fraction) -> SqrtSumV1:
+def _value(
+    line: SupportLineV1,
+    point: Point,
+    alpha: Fraction,
+    budget: ExactWorkBudgetV1 | None = None,
+) -> SqrtSumV1:
     """`a*x + b*y - c - alpha*sqrt(q)`. Ноль — на самом фронте, точно."""
 
     return (
         point[0].scaled(line.a)
         + point[1].scaled(line.b)
         - SqrtSumV1.rational(line.c)
-        - SqrtSumV1.radical(alpha, line.q)
+        - SqrtSumV1.radical(alpha, line.q, budget)
     )
 
 
@@ -120,6 +126,7 @@ def clip_to_halfplane(
     alpha: Fraction,
     *,
     prime_universe: tuple[int, ...] | None = None,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[Point, ...]:
     """Сазерленд—Хоџмен по `a*x + b*y - c <= alpha*sqrt(q)`, точно.
 
@@ -127,8 +134,8 @@ def clip_to_halfplane(
     полуплоскость выпукла, а грань скелета односвязна.
     """
 
-    values = [_value(line, point, alpha) for point in points]
-    signs = [value.sign() for value in values]
+    values = [_value(line, point, alpha, budget) for point in points]
+    signs = [value.sign(budget=budget) for value in values]
     if all(sign <= 0 for sign in signs):
         return points
     if all(sign >= 0 for sign in signs):
@@ -147,12 +154,13 @@ def clip_to_halfplane(
         # Точка пересечения: t = v0 / (v0 - v1), деление точное.
         divisor = values[current] - values[following]
         share = (
-            values[current] / divisor
+            values[current].divided_by(divisor, budget)
             if prime_universe is None
             else _divide_with_prime_universe(
                 values[current],
                 divisor,
                 prime_universe,
+                budget,
             )
         )
         x0, y0 = points[current]
@@ -188,7 +196,9 @@ def _line_of(face: FaceV1) -> SupportLineV1:
 
 
 def coverage_at(
-    partition: FacePartitionV1, alpha: Fraction
+    partition: FacePartitionV1,
+    alpha: Fraction,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> CoverageV1:
     """Покрытие к моменту alpha по граням скелета, с точной площадью."""
 
@@ -214,7 +224,7 @@ def coverage_at(
 
     face_lines = tuple(_line_of(face) for face in partition.faces)
     prime_universe = _prime_universe_from_q_values(
-        tuple(line.q for line in face_lines)
+        tuple(line.q for line in face_lines), work_budget
     )
     covered: list[FaceCoverageV1] = []
     total = SqrtSumV1.zero()
@@ -224,6 +234,7 @@ def coverage_at(
             line,
             alpha,
             prime_universe=prime_universe,
+            budget=work_budget,
         )
         doubled = doubled_shoelace(clipped) if len(clipped) >= 3 else (
             SqrtSumV1.zero()
