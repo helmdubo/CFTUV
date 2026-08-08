@@ -1335,14 +1335,15 @@ def test_split_family_normal_form_materializes_comb_2_once(monkeypatch):
     original = closure_module.plan_split_materialization
     captured = []
 
-    def observed(snapshot):
-        result = original(snapshot)
+    def observed(snapshot, budget=None):
+        result = original(snapshot, budget)
         if any(len(family.contacts) > 1 for family in result.families):
             reverse = original(
                 replace(
                     snapshot,
                     incidents=tuple(reversed(snapshot.incidents)),
-                )
+                ),
+                budget,
             )
             captured.append((result, reverse))
         return result
