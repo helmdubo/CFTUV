@@ -6,6 +6,34 @@
       "moved": false,
       "worst_healthy_domain": 554997
     },
+    "corpus_63": {
+      "compared": "outcome + semantic_digest + число узлов у КАЖДОЙ из 63",
+      "divergences": 0,
+      "note": "снято обеими сторонами: база 25cba48 в отдельном worktree против ветки; файлы совпали побайтно",
+      "outcomes": {
+        "EXACT": 46,
+        "WAVEFRONT_LEFT_UNRESOLVED": 17,
+        "прочее": 0
+      },
+      "where": "test_wavefront_superlevel_transaction._CORPUS (63 фигуры)"
+    },
+    "corpus_weighted_wall": {
+      "compared": "outcome + semantic_digest + число узлов; у EXACT ещё исход разбиения, число граней, исход покрытия и ТОЧНАЯ УДВОЕННАЯ ПЛОЩАДЬ покрытия коэффициентами",
+      "cross_included": [
+        "cross_full_q_1",
+        "cross_full_q_1/4",
+        "cross_full_q_4",
+        "cross_full_q_65/64",
+        "cross_source_and_walls_q_*"
+      ],
+      "divergences": 0,
+      "outcomes": {
+        "EXACT": 18,
+        "WAVEFRONT_LEFT_UNRESOLVED": 5,
+        "прочее": 0
+      },
+      "where": "test_wavefront_weighted_wall_differential.CORPUS (23 случая)"
+    },
     "determinism": {
       "divergences": 0,
       "domains": 6,
