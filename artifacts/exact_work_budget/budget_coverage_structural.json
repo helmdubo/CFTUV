@@ -135,6 +135,12 @@
   },
   "harness": "artifacts/perf_prepare_diag + artifacts/exact_work_budget/{unbudgeted_sites,field_gate,measure_units}.py",
   "machine_note": "один контейнер, 4 ядра, делённые с параллельным исполнителем; абсолютные секунды сопоставимы только внутри этой расписки",
+  "suites_on_the_branch": {
+    "architecture": "448 passed (446 на вершине + 2 новые)",
+    "field_release_matrix": "22/22",
+    "host": "1339 passed / 5 skipped / 4 deselected при ДВУХ средовых падениях (`powershell` отсутствует в контейнере — те же два, что на вершине). +2 к вершине — ровно две новые проверки архитектуры.",
+    "kernel": "см. отдельную запись — прогон на ветке"
+  },
   "the_ban": {
     "dynamic": {
       "truediv_calls_on_the_corpus": 0,
