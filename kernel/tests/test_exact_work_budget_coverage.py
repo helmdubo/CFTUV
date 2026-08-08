@@ -255,8 +255,16 @@ def test_the_ban_catches_a_new_site_inside_a_frozen_module():
 # --------------------------------------------------------------------------
 
 
+UNBUDGETED_EXACT_WORK = "UNBUDGETED_EXACT_WORK_OUTSIDE_A_NAMED_BUDGET"
+
+
 class UnbudgetedExactWorkError(AssertionError):
-    """Дорогая точная операция вызвана вне бюджетного контекста."""
+    """Дорогая точная операция вызвана вне бюджетного контекста.
+
+    Имя, а не голое падение: по правилу проекта (AGENTS.md п.4) исход
+    называется, иначе его нельзя ни сгруппировать в разборе, ни отличить от
+    любого другого `AssertionError` в логе прогона.
+    """
 
 
 class _Guard:
@@ -272,15 +280,23 @@ class _Guard:
     Поэтому он ДОПОЛНЯЕТ запрет, а не заменяет его.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, strict: bool = False) -> None:
+        # `strict` — та самая форма из постановки: не собрать список, а
+        # ПОДНЯТЬ ИМЕНОВАННУЮ ОШИБКУ на первом же вызове вне бюджета. Собирать
+        # удобнее для отчёта (видны все места сразу), поднимать — честнее для
+        # доказательства, что сторож действительно останавливает счёт.
+        self.strict = strict
         self.violations: list[str] = []
         self._restore: list[tuple[object, str, object]] = []
 
     def _blame(self, operation: str, depth: int) -> None:
         frame = sys._getframe(depth + 1)
-        self.violations.append(
-            f"{operation} @ {frame.f_code.co_filename}:{frame.f_lineno}"
-        )
+        where = f"{operation} @ {frame.f_code.co_filename}:{frame.f_lineno}"
+        self.violations.append(where)
+        if self.strict:
+            raise UnbudgetedExactWorkError(
+                f"{UNBUDGETED_EXACT_WORK} operation={operation} at={where}"
+            )
 
     def __enter__(self) -> "_Guard":
         guard = self
@@ -407,3 +423,33 @@ def test_the_truediv_exemption_is_static_only():
         for violation in guard.violations
         if violation.startswith("truediv")
     ]
+
+
+def test_the_guard_raises_a_named_error_and_stops_the_count():
+    """Строгий сторож не копит список, а ОСТАНАВЛИВАЕТ счёт именем.
+
+    Форма из постановки карточки: вызов вне бюджета поднимает именованную
+    ошибку. Доказано построенным нарушением — и тем, что имя стоит в тексте,
+    а не выводится из типа исключения.
+    """
+
+    value = SqrtSumV1.radical(1, 2, exact_work_budget(stage="T")) - SqrtSumV1.radical(
+        1, 3, exact_work_budget(stage="T")
+    )
+    with _Guard(strict=True):
+        with pytest.raises(UnbudgetedExactWorkError) as raised:
+            value.sign()
+
+    assert UNBUDGETED_EXACT_WORK in str(raised.value)
+    assert "operation=sign" in str(raised.value)
+
+
+def test_the_strict_guard_lets_a_paid_transaction_finish():
+    """И он же молчит на оплаченной транзакции — иначе запрещал бы работу."""
+
+    reset_factorization_memory()
+    with _Guard(strict=True) as guard:
+        budget = _run_one_domain("comb")
+
+    assert not guard.violations
+    assert budget.spent > 0
