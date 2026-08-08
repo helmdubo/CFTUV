@@ -685,8 +685,8 @@ def test_staircase_3_4_names_the_t4_mixed_component(monkeypatch):
     observed = []
     packets = []
 
-    def measured(snapshot):
-        components = planner(snapshot)
+    def measured(snapshot, budget=None):
+        components = planner(snapshot, budget)
         observed.extend(components)
         return components
 
@@ -2205,7 +2205,10 @@ def test_endpoint_start_end_aliases_have_one_stable_junction_delta(monkeypatch):
         vertices=[SimpleNamespace(reflex=True, sliding=None)]
     )
     point = vertices[refs["B"]].point
-    monkeypatch.setattr(endpoint, "exact_overlay_view", lambda *args: None)
+    monkeypatch.setattr(
+        endpoint, "exact_overlay_view",
+        lambda *args: SimpleNamespace(budget=None),
+    )
     results = []
     for target, at_start, at_end in (
         (start_leaf, True, False),
@@ -2858,7 +2861,7 @@ def test_trace_bound_authority_changes_signature_and_candidate_view():
     class _Trace:
         crash_time: object | None
 
-        def bounds_time(self, time):
+        def bounds_time(self, time, budget=None):
             if self.crash_time is None:
                 return False
             return self.crash_time.canonical() == time.canonical()
