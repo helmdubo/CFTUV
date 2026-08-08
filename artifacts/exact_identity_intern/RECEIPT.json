@@ -1,0 +1,434 @@
+{
+  "base": "259ec3a",
+  "budget_articles_bitwise_equal_to_base": {
+    "diffs": [],
+    "domains": [
+      "building_d0_a045:patch109",
+      "building_d0_a045:patch121",
+      "wall_2_001_d0_a0254:patch0",
+      "wall_2_001_d0_a045:patch0",
+      "walls_012_d0_a045:patch0",
+      "walls_012_d1_a045:patch0"
+    ],
+    "leaked_unbudgeted": {
+      "building_d0_a045:patch109": 0,
+      "building_d0_a045:patch121": 0,
+      "wall_2_001_d0_a0254:patch0": 0,
+      "wall_2_001_d0_a045:patch0": 0,
+      "walls_012_d0_a045:patch0": 0,
+      "walls_012_d1_a045:patch0": 0
+    },
+    "outcomes": {
+      "building_d0_a045:patch109": "EXACT/EXACT",
+      "building_d0_a045:patch121": "EXACT/EXACT",
+      "wall_2_001_d0_a0254:patch0": "EXACT/EXACT",
+      "wall_2_001_d0_a045:patch0": "EXACT/EXACT",
+      "walls_012_d0_a045:patch0": "EXACT/EXACT",
+      "walls_012_d1_a045:patch0": "EXACT/EXACT"
+    },
+    "spent_by_domain": {
+      "building_d0_a045:patch109": 13616,
+      "building_d0_a045:patch121": 8773,
+      "wall_2_001_d0_a0254:patch0": 23954,
+      "wall_2_001_d0_a045:patch0": 23954,
+      "walls_012_d0_a045:patch0": 554555,
+      "walls_012_d1_a045:patch0": 33640
+    },
+    "tool": "artifacts/exact_work_budget/measure_units.py"
+  },
+  "card": "EXACT-IDENTITY-INTERN",
+  "closes": [
+    "Q-EXACT-VALUE-IDENTITY-COSTS-A-MODULAR-INVERSE",
+    "Q-OVERLAY-SPAN-STATE-IS-RECOMPUTED"
+  ],
+  "counters_not_seconds": {
+    "_why": "Ворота карточки стоят на счётчиках: секунда — свойство машины, а не входа (урок ошибки №19 в DECISIONS).",
+    "fraction_hash_calls_wall_2_001_d0": {
+      "after": 59143,
+      "before": 2943335
+    },
+    "profile_wall_2_001_d0": {
+      "cached": {
+        "Fraction.__hash__": {
+          "calls": 59143,
+          "cumtime": 0.185
+        },
+        "builtins.pow": {
+          "calls": 59631,
+          "tottime": 0.106
+        },
+        "outcome": "EXACT/EXACT",
+        "profiled_total_tottime": 12.104,
+        "top_by_tottime": [
+          {
+            "calls": 1619690,
+            "site": "fractions.py:62:__new__",
+            "tottime": 1.224
+          },
+          {
+            "calls": 521144,
+            "site": "fractions.py:484:_mul",
+            "tottime": 1.049
+          },
+          {
+            "calls": 395687,
+            "site": "fractions.py:452:_add",
+            "tottime": 0.881
+          },
+          {
+            "calls": 952560,
+            "site": "fractions.py:357:forward",
+            "tottime": 0.605
+          },
+          {
+            "calls": 1982448,
+            "site": "~:0:<built-in method math.gcd>",
+            "tottime": 0.506
+          },
+          {
+            "calls": 2077301,
+            "site": "~:0:<built-in method builtins.isinstance>",
+            "tottime": 0.299
+          },
+          {
+            "calls": 24915,
+            "site": "exact_sqrt_sum.py:1061:__mul__",
+            "tottime": 0.265
+          },
+          {
+            "calls": 1732209,
+            "site": "~:0:<built-in method __new__ of type object at 0x928000>",
+            "tottime": 0.229
+          }
+        ],
+        "units": 23954
+      },
+      "legacy": {
+        "Fraction.__hash__": {
+          "calls": 2906569,
+          "cumtime": 8.997
+        },
+        "builtins.pow": {
+          "calls": 2907108,
+          "tottime": 5.761
+        },
+        "outcome": "EXACT/EXACT",
+        "profiled_total_tottime": 24.893,
+        "top_by_tottime": [
+          {
+            "calls": 2907108,
+            "site": "~:0:<built-in method builtins.pow>",
+            "tottime": 5.761
+          },
+          {
+            "calls": 2906569,
+            "site": "fractions.py:645:__hash__",
+            "tottime": 2.516
+          },
+          {
+            "calls": 2131711,
+            "site": "fractions.py:62:__new__",
+            "tottime": 1.674
+          },
+          {
+            "calls": 655648,
+            "site": "fractions.py:484:_mul",
+            "tottime": 1.321
+          },
+          {
+            "calls": 1073942,
+            "site": "~:0:<built-in method builtins.hash>",
+            "tottime": 1.22
+          },
+          {
+            "calls": 490345,
+            "site": "fractions.py:452:_add",
+            "tottime": 1.077
+          },
+          {
+            "calls": 1181722,
+            "site": "fractions.py:357:forward",
+            "tottime": 0.752
+          },
+          {
+            "calls": 2415475,
+            "site": "~:0:<built-in method math.gcd>",
+            "tottime": 0.581
+          }
+        ],
+        "units": 23954
+      }
+    },
+    "span_state_rebuilds_wall_2_001_d0": {
+      "_note": "измерено пробой до правки; память ограничивает пересборки числом различных листов вида — ворота на этом стоят в test_the_span_state_memo_bounds_rebuilds_by_distinct_leaves",
+      "distinct_view_leaf_pairs": 2401,
+      "questions_through_the_view": 26124
+    },
+    "top_callers_after": [
+      {
+        "calls": 36766,
+        "site": "<dataclass>/exact_identity.py:70:__hash__"
+      },
+      {
+        "calls": 11562,
+        "site": "exact_identity.py:70:__hash__"
+      },
+      {
+        "calls": 1544,
+        "site": "envelope_queue_export.py:439:_skeleton_segments"
+      },
+      {
+        "calls": 772,
+        "site": "envelope_queue_export.py:441:_skeleton_segments"
+      },
+      {
+        "calls": 769,
+        "site": "<dataclass>/superlevel.py:1022:_component_stages"
+      }
+    ],
+    "top_callers_before": [
+      {
+        "calls": 935861,
+        "site": "<dataclass>/symbolic_overlay.py:467:span_state"
+      },
+      {
+        "calls": 819181,
+        "site": "<dataclass>/symbolic_overlay.py:441:_born_place"
+      },
+      {
+        "calls": 79999,
+        "site": "<dataclass>/symbolic_overlay.py:453:vertex_state"
+      },
+      {
+        "calls": 48312,
+        "site": "symbolic_overlay.py:175:_occurrences"
+      },
+      {
+        "calls": 48312,
+        "site": "symbolic_overlay.py:214:_leaf_bindings"
+      }
+    ]
+  },
+  "gates": {
+    "1_shadow_old_vs_new": "kernel/tests/test_exact_identity_shadow.py — 103 passed (96 синтетика за 61 с + 7 полевых за 265 с): корпус 63, корпус весов и стен 23 с утверждённым присутствием отказов, четыре звёздчатых с длинными цепочками смертей, четыре полевые фикстуры sem_clb. Оси — общий shadow_axes.py.",
+    "1b_lazy_shadow_after_axes_refactor": "kernel/tests/test_lazy_hydration_shadow.py — 94 passed (синтетика) на общих осях",
+    "2_answers_and_budget_articles": "measure_units.py на 259ec3a и на вершине: 0 расхождений по шести статьям на шести доменах, исходы EXACT/EXACT, leaked_unbudgeted 0",
+    "3_frozen_digests_and_prices": "kernel/tests/test_sem_clb_02_chain_straight_regression.py — 10 passed за 144 с; FROZEN_PATCH006_PASS и FROZEN_PATCH011_OPTIMIZED_CALLS НЕ ДВИНУЛИСЬ, EXPECTED_PUBLIC_WAVEFRONT не двинулся; пересъёмки не потребовалось",
+    "4_counter_gates": "Fraction.__hash__ 2 943 335 -> 59 143; builtins.pow 2 907 108 -> 59 631 (профиль); пересборки span_state ограничены числом различных листов вида (исполняемая проверка в теневых воротах)",
+    "5_budget_not_weakened": "потолок 1<<23 не тронут; unbudgeted_sites.py — 0 мест / 0 вызовов / 0 единиц; tests/test_architecture.py 450 passed; kernel/tests/test_exact_work_budget_coverage.py + test_isolation.py 24 passed",
+    "6_suites": {
+      "architecture": "450 passed",
+      "field_release_matrix": "22 passed за 22 с",
+      "host_full": "PENDING",
+      "kernel_full": "PENDING"
+    },
+    "7_receipt": "artifacts/exact_identity_intern/RECEIPT.json"
+  },
+  "reproduce": {
+    "hash_addresses": "cd artifacts/perf_prepare_diag && PYTHONPATH=. python3 ../exact_identity_intern/hash_callers.py <out.json> wall_2_001_snapshot.json 0 0.45",
+    "host_suite": "python3 -m pytest tests -q",
+    "kernel_suite": "cd kernel && PYTHONPATH=src:tests python3 -m pytest tests -q",
+    "profile": "cd artifacts/perf_prepare_diag && PYTHONPATH=. python3 ../exact_identity_intern/profile_modular_inverses.py <out.json>",
+    "seconds_ab": "cd artifacts/perf_prepare_diag && PYTHONPATH=. python3 ../exact_identity_intern/ab_identity.py <out.json> [--only=<метка>] [--patches=1]",
+    "shadow_gate": "cd kernel && PYTHONPATH=src:tests python3 -m pytest tests/test_exact_identity_shadow.py -q",
+    "unbudgeted": "cd artifacts/perf_prepare_diag && PYTHONPATH=. python3 ../exact_work_budget/unbudgeted_sites.py <out.json>",
+    "units": "cd artifacts/perf_prepare_diag && PYTHONPATH=. python3 ../exact_work_budget/measure_units.py <out.json>"
+  },
+  "seconds_reported_not_gated": {
+    "_machine": "четыре ядра, параллельно шёл чужой полный прогон pytest; внутри одного процесса три замера подряд с контролем дрейфа",
+    "building_patch1_d0_alpha_0.45": {
+      "answers_agree_in_all_runs": true,
+      "cached_seconds": [
+        18.437,
+        18.527,
+        18.276
+      ],
+      "drift_control_span_seconds": 0.497,
+      "legacy_control_seconds": [
+        54.855,
+        55.095,
+        55.276
+      ],
+      "legacy_seconds": [
+        55.448,
+        55.987,
+        55.282
+      ],
+      "speedup_on_means": 3.02,
+      "units_identical_in_all_runs": 38807
+    },
+    "six_domains_base_vs_tip": {
+      "building_d0_a045:patch109": [
+        1.406,
+        0.843
+      ],
+      "building_d0_a045:patch121": [
+        0.203,
+        0.12
+      ],
+      "wall_2_001_d0_a0254:patch0": [
+        11.765,
+        4.507
+      ],
+      "wall_2_001_d0_a045:patch0": [
+        11.838,
+        4.644
+      ],
+      "walls_012_d0_a045:patch0": [
+        1.676,
+        1.297
+      ],
+      "walls_012_d1_a045:patch0": [
+        1.111,
+        0.851
+      ]
+    },
+    "wall_2_001_d0_alpha_0.45": {
+      "answers_agree_in_all_runs": true,
+      "cached_seconds": [
+        4.449,
+        4.362,
+        4.427
+      ],
+      "drift_control_span_seconds": 0.413,
+      "legacy_control_seconds": [
+        11.429,
+        11.456,
+        11.402
+      ],
+      "legacy_seconds": [
+        11.771,
+        11.886,
+        11.87
+      ],
+      "speedup_on_means": 2.68,
+      "units_identical_in_all_runs": 23954
+    }
+  },
+  "unbudgeted_work": {
+    "outcomes": {
+      "wall_2_001_snapshot.json:d0:patch0": "EXACT/EXACT",
+      "walls_012_snapshot.json:d0:patch0": "EXACT/EXACT",
+      "walls_012_snapshot.json:d1:patch0": "EXACT/EXACT"
+    },
+    "sites": {
+      "kernel/src/cftuv_envelope/wavefront/coverage.py:144": {
+        "calls": 562,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 562,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/event_time.py:220": {
+        "calls": 7998,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 7998,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/event_time.py:276": {
+        "calls": 29832,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 29832,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:377": {
+        "calls": 1507,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 1507,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:378": {
+        "calls": 737,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 737,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/faces.py:322": {
+        "calls": 57,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 57,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/faces.py:448": {
+        "calls": 712,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 712,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:282": {
+        "calls": 492,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 492,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:284": {
+        "calls": 292,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 292,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:498": {
+        "calls": 92,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 92,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:142": {
+        "calls": 85,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 85,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:143": {
+        "calls": 85,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 85,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:74": {
+        "calls": 85,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 85,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/superlevel.py:565": {
+        "calls": 7,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 7,
+        "without_budget": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:85": {
+        "calls": 7,
+        "unbudgeted_callers": {},
+        "units_charged_without_budget": 0,
+        "with_budget": 7,
+        "without_budget": 0
+      }
+    },
+    "sites_with_unbudgeted_calls": [],
+    "unbudgeted_calls": 0,
+    "units_charged_without_budget": 0
+  },
+  "what_changed": {
+    "identity_key": "kernel/src/cftuv_envelope/wavefront/exact_identity.py — ExactIdentityKeyV1: подтип tuple, запоминающий свой хэш; repr, ==, <, индексация и ЗНАЧЕНИЕ хэша совпадают с голым кортежем до бита, поэтому старое и новое представления равны друг другу, а не эквивалентны по смыслу",
+    "legacy_mode": "exact_identity.legacy_identity() — старое представление и отсутствие памяти пролёта одним переключателем; эталонная сторона теневой сверки",
+    "position_memo_single_lookup": "exact_candidate_view.position — один словарный вопрос вместо двух (`in` плюс `[]`), часовой _PLACE_ABSENT, потому что None есть ЗАКОННОЕ значение памяти",
+    "shadow_gate": "kernel/tests/test_exact_identity_shadow.py",
+    "shared_axes": "kernel/tests/shadow_axes.py — оси наблюдаемого ответа теперь ОДНИ на обе теневые сверки ядра",
+    "span_state_memo": "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py — SpanStateMemoV1; создаётся в symbolic_overlay.exact_overlay_view и живёт ровно столько, сколько вид. Поколение вынесено из ключа во владельца: наложение за жизнь вида не меняется, мутирующие места работают на клоне",
+    "where_keys_are_built": "superlevel_snapshot._event_point_key / _time_key / _sparse_occurrences (точка, время и ВХОЖДЕНИЕ), плюс четыре места, где ключ точки собирался руками: symbolic_edge_closure, symbolic_split_endpoint, superlevel_fixed_point, symbolic_superlevel_coordinator"
+  }
+}

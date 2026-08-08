@@ -1,0 +1,41 @@
+{
+  "wall_2_001_snapshot.json:d0:a0.45:patch0": {
+    "answers_agree": true,
+    "cached": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2339,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 23954,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 4.362
+    },
+    "legacy": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2339,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 23954,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 11.886
+    },
+    "legacy_control": {
+      "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 2339,
+      "EXACT_WORK_GCD_OPERATIONS": 12546,
+      "EXACT_WORK_MILLER_RABIN_ROUNDS": 488,
+      "EXACT_WORK_MODULAR_SQUARINGS": 8530,
+      "EXACT_WORK_POLLARD_ATTEMPTS": 16,
+      "EXACT_WORK_RADICAL_MATERIALIZATIONS": 35,
+      "EXACT_WORK_SPENT": 23954,
+      "leaked_unbudgeted": 0,
+      "outcome": "EXACT/EXACT",
+      "seconds": 11.456
+    }
+  }
+}
