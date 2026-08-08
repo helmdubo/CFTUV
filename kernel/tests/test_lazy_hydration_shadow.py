@@ -156,43 +156,48 @@ def _coverage_axes(partition) -> dict:
 
 
 def _observable(polygon, *, dense: bool, search: SplitSearch,
-                coverage: bool) -> dict:
+                downstream: bool) -> dict:
     """Всё, что о фигуре можно наблюдать снаружи, одним словарём."""
 
     skeleton = build_skeleton(
         polygon, split_search=search, dense_hydration=dense
     )
     axes = {"skeleton": _skeleton_axes(skeleton)}
-    partition = build_faces(polygon, skeleton)
-    axes["faces"] = _partition_axes(partition)
-    if coverage:
+    if downstream:
+        partition = build_faces(polygon, skeleton)
+        axes["faces"] = _partition_axes(partition)
         axes["coverage"] = _coverage_axes(partition)
     return axes
 
 
-def _assert_shadow(label, polygon, *, coverage: bool = True) -> str:
+def _assert_shadow(label, polygon, *, downstream: bool = True) -> str:
     """Ленивый и плотный ответы совпадают на ОБОИХ режимах поиска разрезов.
 
-    `coverage=False` — только для полевых многоугольников, и это не послабление
-    ворот, а снятие ЛИШНЕЙ работы. `coverage_at` — чистая функция пары
-    (разбиение, alpha): гидратации она не видит вовсе, в её подпись строитель не
-    входит. Разбиения здесь уже сверены ЦЕЛИКОМ — каждая грань, каждая её
-    точка, каждая точная площадь и невязка площади, — поэтому равенство
-    покрытий из них СЛЕДУЕТ, а не проверяется заново. Считать его на полевом
-    домене при произвольной alpha стоит дорого и, что важнее, БЕЗ БЮДЖЕТА:
-    знак `a*x + b*y - c - alpha*sqrt(q)` умеет уходить в факторизацию, и
-    ворота стали бы ждать её без потолка. Настоящее полевое покрытие
-    сравнивается там, где у него есть и alpha домена, и бюджет:
-    `artifacts/lazy_frozen_hydration/ab_field.py` и полевая релиз-матрица.
+    ЧТО СРАВНИВАЕТСЯ ВСЕГДА — скелет: исход, semantic_digest, узлы, уровни,
+    счётчики, статус доказательства и его ДОЛГИ. Гидратация живёт РОВНО здесь:
+    ни `build_faces`, ни `coverage_at` строителя в подписи не имеют и о режиме
+    гидратации не знают. Поэтому равенство скелетов ВЛЕЧЁТ равенство граней,
+    площадей и покрытия — это вывод, а не допущение.
+
+    `downstream` (грани, площади, покрытие на четырёх alpha) считается
+    ДОПОЛНИТЕЛЬНО на синтетических корпусах: там он дёшев, и вывод выше
+    предъявляется прогоном, а не только рассуждением. На ПОЛЕВЫХ
+    многоугольниках он выключен, и это цена, а не послабление: `coverage_at`
+    зовётся здесь БЕЗ БЮДЖЕТА, знак `a*x + b*y - c - alpha*sqrt(q)` умеет
+    уходить в факторизацию, и одна полевая фикстура не вернулась за 25 минут —
+    ворота ждали бы её без потолка. Настоящие полевые грани, площади и
+    покрытие сравниваются там, где у них есть и alpha домена, и бюджет:
+    `artifacts/lazy_frozen_hydration/ab_field.py` (пять полевых доменов,
+    ответы совпали) и полевая релиз-матрица `tests/test_field_release_matrix.py`.
     """
 
     outcomes = []
     for search in SplitSearch:
         lazy = _observable(
-            polygon, dense=False, search=search, coverage=coverage
+            polygon, dense=False, search=search, downstream=downstream
         )
         dense = _observable(
-            polygon, dense=True, search=search, coverage=coverage
+            polygon, dense=True, search=search, downstream=downstream
         )
         assert lazy == dense, (label, search.value)
         outcomes.append(lazy["skeleton"]["outcome"])
@@ -312,7 +317,7 @@ def test_lazy_matches_dense_on_the_field_fixtures(case_name):
     (region,) = prepared.regions
     polygon = region.bridge.polygon
     assert polygon is not None, (case_name, prepared.detail)
-    _assert_shadow(case_name, polygon, coverage=False)
+    _assert_shadow(case_name, polygon, downstream=False)
 
 
 # --------------------------------------------------------------------------
