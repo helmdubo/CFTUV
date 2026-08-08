@@ -66,6 +66,10 @@
         "building patch121"
       ]
     },
+    "patch105_and_adjacency": {
+      "result": "61 passed",
+      "where": "kernel/tests/test_sem_clb_02_chain_straight_regression.py (включая test_patch105_has_the_sole_exact_named_clamp) + test_surface_adjacency_contract.py"
+    },
     "the_new_export_budget": {
       "spent_on_wall_2_001_d0": 0,
       "spent_on_walls_012_d0": 0,
