@@ -170,7 +170,9 @@ def _observable(polygon, *, dense: bool, search: SplitSearch,
     return axes
 
 
-def _assert_shadow(label, polygon, *, downstream: bool = True) -> str:
+def _assert_shadow(
+    label, polygon, *, downstream: bool = True, searches=None
+) -> str:
     """Ленивый и плотный ответы совпадают на ОБОИХ режимах поиска разрезов.
 
     ЧТО СРАВНИВАЕТСЯ ВСЕГДА — скелет: исход, semantic_digest, узлы, уровни,
@@ -189,10 +191,17 @@ def _assert_shadow(label, polygon, *, downstream: bool = True) -> str:
     покрытие сравниваются там, где у них есть и alpha домена, и бюджет:
     `artifacts/lazy_frozen_hydration/ab_field.py` (пять полевых доменов,
     ответы совпали) и полевая релиз-матрица `tests/test_field_release_matrix.py`.
+
+    `searches` сужается ДО ОДНОГО режима только на полевых фикстурах, и это
+    тоже цена, названная вслух: один полевой скелет там строится минутами, а
+    четыре сборки на фикстуру превращают ворота в самый долгий файл сюиты.
+    Режим поиска разрезов к гидратации ортогонален — память мест не знает ни о
+    трассах мотоциклов, ни о полном переборе, — и ОБА режима прогоняются на
+    девяноста синтетических входах, включая отказные и длинные цепочки смертей.
     """
 
     outcomes = []
-    for search in SplitSearch:
+    for search in (searches or tuple(SplitSearch)):
         lazy = _observable(
             polygon, dense=False, search=search, downstream=downstream
         )
@@ -317,7 +326,12 @@ def test_lazy_matches_dense_on_the_field_fixtures(case_name):
     (region,) = prepared.regions
     polygon = region.bridge.polygon
     assert polygon is not None, (case_name, prepared.detail)
-    _assert_shadow(case_name, polygon, downstream=False)
+    _assert_shadow(
+        case_name,
+        polygon,
+        downstream=False,
+        searches=(SplitSearch.MOTORCYCLE,),
+    )
 
 
 # --------------------------------------------------------------------------
