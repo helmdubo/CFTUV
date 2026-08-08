@@ -7305,8 +7305,9 @@ superlevel_fixed_point, symbolic_superlevel_coordinator и два в
 symbolic_runtime_commit), и все они наложение только читают, а ЧЕТЫРЕ
 мутирующих места (`apply_component_deltas`, `apply_edge_generation`,
 `apply_endpoint_generation`, `plan_mixed_generations`) работают на клоне,
-причём `clone_overlay`/`_clone` пересоздают и словари, и сами вершины. Унаследовать чужую запись невозможно не потому, что
-ключ её отличит, а потому что записи из чужого поколения в этом словаре НЕТ.
+причём `clone_overlay`/`_clone` пересоздают и словари, и сами вершины.
+Унаследовать чужую запись невозможно не потому, что ключ её отличит, а потому
+что записи из чужого поколения в этом словаре НЕТ.
 Та же дисциплина, что у `PositionMemoV1` с `prime_universe`; `admits(owner,
 instant)` делает её исполняемой. ИЗМЕРЕНО СЧЁТОМ КОНСТРУКЦИЙ
 `CandidateSpanStateV1`, а не рассуждением: 2.001 d0 — 30 634 -> 2 401
