@@ -48,21 +48,19 @@ from cftuv_envelope.wavefront.faces import build_faces
 from cftuv_envelope.wavefront.polygon import PolygonV1
 from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, build_skeleton
 
-from test_wavefront_motorcycle_graph import CORPUS
-
-
-KERNEL_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
-
-
-# Правило запрета живёт в отдельном модуле: им же пользуется хостовая сюита
-# (`tests/test_architecture.py`), которая ядро импортировать не вправе.
-from exact_work_budget_ban import (  # noqa: E402
+# Правило запрета живёт отдельным модулем: тем же пользуется хостовая сюита
+# (`tests/test_architecture.py`), которой ядро импортировать нельзя.
+from exact_work_budget_ban import (
     CHARGED_EXACT_SURFACE,
     EXEMPTION_REASONS,
     _grouped,
     scan_tree,
     unbudgeted_sites_in_source,
 )
+from test_wavefront_motorcycle_graph import CORPUS
+
+
+KERNEL_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
 
 # (модуль относительно kernel/src, имя вызова) -> (число мест, причина).
@@ -145,6 +143,30 @@ def test_the_frozen_exemption_list_does_not_grow():
         if len(grouped.get((module, name), ())) > frozen
     )
     assert not grown, "\n".join(grown)
+
+
+def test_every_name_of_the_charged_surface_exists_in_the_kernel():
+    """Имя в поверхности обязано быть настоящим — иначе запрет пуст в этой строке.
+
+    Список составлен вручную, и опечатка в нём не падает сама: она просто
+    перестаёт что-либо запрещать, и молча. Проверка ищет каждое имя как
+    `def`/атрибут в исходнике ядра; ни одно из них не должно исчезнуть при
+    переименовании.
+    """
+
+    declared = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(KERNEL_SOURCE_ROOT.rglob("*.py"))
+    )
+    missing = sorted(
+        name
+        for name in CHARGED_EXACT_SURFACE
+        if f"def {name}(" not in declared
+    )
+    assert not missing, (
+        "поверхность называет то, чего в ядре нет — запрет в этих строках "
+        f"пуст: {missing}"
+    )
 
 
 def test_every_frozen_exemption_names_a_registered_reason():
