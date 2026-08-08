@@ -486,19 +486,24 @@ def _face_area_text(value) -> str:
     )
 
 
-def _covered_contours(region, lattice_alpha: Fraction):
+def _covered_contours(region, lattice_alpha: Fraction, work_budget=None):
     """Усечённые по времени контуры граней региона, в порядке разбиения.
 
     Тот же вызов, которым `conveyor_coverage` считал площадь, поэтому порядок
     и владельцы совпадают с `ConveyorRegionCoverageV1.faces` по построению, а
     не по совпадению чисел.
+
+    `work_budget` — бюджет ЭКСПОРТА, а не домена. Домен к этому моменту уже
+    ответил, и подмешивать перерисовку в его счёт значило бы разрешить
+    картинке превратить состоявшийся ответ в отказ. Свой бюджет держит второе
+    обещание: экспорт тоже конечен и кончается ИМЕНЕМ, а не счётом.
     """
 
     from cftuv_envelope.wavefront.coverage import coverage_at
 
     if region.partition is None:
         return ()
-    return coverage_at(region.partition, lattice_alpha).faces
+    return coverage_at(region.partition, lattice_alpha, work_budget).faces
 
 
 def undirected_span(owner) -> tuple[tuple[int, int], tuple[int, int]] | None:
@@ -757,7 +762,7 @@ def _union_contour(faces):
     return tuple(directed[edge] for edge in walk), shared
 
 
-def merge_same_chain_faces(faces):
+def merge_same_chain_faces(faces, work_budget=None):
     """Грани одной цепи на одной прямой — одним контуром. Точно и с числами.
 
     Возвращает `(грани, EnvelopeQueueMergeStatsV1)`. Порядок сохраняется:
@@ -797,7 +802,7 @@ def merge_same_chain_faces(faces):
             positions = [members[index] for index in component]
             block = [group[index] for index in component]
             contour, shared = _union_contour(block)
-            if contour is None or contour_crossings(contour):
+            if contour is None or contour_crossings(contour, work_budget):
                 unresolved += 1
                 continue
             total = block[0].doubled_area
@@ -868,6 +873,18 @@ def build_queue_domain(
 ) -> EnvelopeQueueDomainV1:
     """Домен очереди -> неизменяемая запись хоста. Ни одного тихого исхода."""
 
+    # Точная работа ЭКСПОРТА оплачивается своим счётом. Экспорт пересчитывает
+    # два точных предиката поверх уже полученного ответа домена (усечение
+    # контуров и простота слитого контура), и без названного бюджета обе
+    # величины уходили в счёт без исхода — та самая дыра, которую закрывает
+    # BUDGET-COVERAGE-STRUCTURAL. Бюджет ОТДЕЛЬНЫЙ от доменного намеренно:
+    # домен уже ответил, и его потолок не должен зависеть от того, рисуем мы
+    # картинку или нет.
+    from cftuv_envelope.exact_sqrt_sum import exact_work_budget
+
+    export_budget = exact_work_budget(
+        stage="EXPORT", domain_id=str(patch_domain_id)
+    )
     scale = _lattice_scale(prepared)
     coverage_by_region = {
         item.region_id: item for item in coverage.regions
@@ -906,7 +923,9 @@ def build_queue_domain(
         segments.extend(_wall_segments(region, scale))
         if covered is None:
             continue
-        contours = _covered_contours(region, coverage.lattice_alpha)
+        contours = _covered_contours(
+            region, coverage.lattice_alpha, export_budget
+        )
         spans = chain_by_region.get(region.region_id, {})
         covered_faces: list[EnvelopeQueueCoveredFaceV1] = []
         for index, named in enumerate(covered.faces):
@@ -930,7 +949,7 @@ def build_queue_domain(
                     ),
                 )
             )
-        merged, stats = merge_same_chain_faces(covered_faces)
+        merged, stats = merge_same_chain_faces(covered_faces, export_budget)
         merge_stats = merge_stats + stats
         faces.extend(_projected_face(item, scale) for item in merged)
     contour_seconds = time.perf_counter() - contour_started

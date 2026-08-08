@@ -33,8 +33,8 @@ class SymbolicMixedGenerationV1:
     deltas: tuple[SymbolicComponentDeltaV1, ...]
 
 
-def _contact_compare(first, second):
-    sign = (first.projection - second.projection).sign()
+def _contact_compare(first, second, budget=None):
+    sign = (first.projection - second.projection).sign(budget=budget)
     if sign:
         return sign
     if first.key == second.key:
@@ -42,7 +42,7 @@ def _contact_compare(first, second):
     return -1 if repr(first.key) < repr(second.key) else 1
 
 
-def _expand_target_leaves(overlay, contacts):
+def _expand_target_leaves(overlay, contacts, budget=None):
     result = clone_overlay(overlay)
     children_by_contact = {}
     grouped = {}
@@ -54,7 +54,12 @@ def _expand_target_leaves(overlay, contacts):
         binding = result.spans.get(leaf)
         if binding is None or binding.start is None or binding.end is None:
             return None, None, "SYMBOLIC_INTERIOR_SPLIT_TARGET_STALE"
-        ordered = tuple(sorted(group, key=cmp_to_key(_contact_compare)))
+        ordered = tuple(sorted(
+            group,
+            key=cmp_to_key(
+                lambda first, second: _contact_compare(first, second, budget)
+            ),
+        ))
         if len({item.key for item in ordered}) != len(ordered):
             return None, None, "SYMBOLIC_INTERIOR_SPLIT_CONTACT_DUPLICATE"
         for first, second in zip(ordered, ordered[1:]):
@@ -155,7 +160,9 @@ def _translated_junction_contacts(overlay, contacts):
 
 
 def normalize_mixed_generation(builder, overlay, junction, interior):
-    expanded, children, reason = _expand_target_leaves(overlay, interior)
+    expanded, children, reason = _expand_target_leaves(
+        overlay, interior, getattr(builder, "work_budget", None)
+    )
     if reason is not None:
         return None, None, reason
     interior_deltas, reason = _interior_deltas(expanded, interior, children)

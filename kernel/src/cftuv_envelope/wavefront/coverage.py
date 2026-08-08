@@ -30,7 +30,7 @@ alpha (в поле `bf6` — 1/4). Сравнивать «до конца» с �
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
 
@@ -80,6 +80,12 @@ class CoverageV1:
     doubled_area: SqrtSumV1
     polygon_doubled_area: int
     detail: str = ""
+    # Бюджет транзакции — по той же причине, что у `FacePartitionV1`: обе
+    # объявленные границы покрытия спрашиваются СВОЙСТВАМИ, а у свойства нет
+    # аргумента. Из тождества покрытия исключён: цена ответа — не ответ.
+    work_budget: ExactWorkBudgetV1 | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def doubled_area_of(self, owner: EdgeKey) -> SqrtSumV1:
         for face in self.faces:
@@ -101,7 +107,7 @@ class CoverageV1:
 
         return (
             SqrtSumV1.rational(self.polygon_doubled_area) - self.doubled_area
-        ).sign() >= 0
+        ).sign(budget=self.work_budget) >= 0
 
 
 def _value(
@@ -247,4 +253,5 @@ def coverage_at(
         tuple(covered),
         total,
         partition.polygon_doubled_area,
+        work_budget=work_budget,
     )

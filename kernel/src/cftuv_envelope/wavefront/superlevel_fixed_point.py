@@ -170,7 +170,10 @@ def _latent_contact(builder, overlay, emitter, leaf):
         now=overlay.time,
     )
     candidate = decision.candidate
-    if candidate is None or compare_times(candidate.time, overlay.time) != 0:
+    budget = getattr(builder, "work_budget", None)
+    if candidate is None or compare_times(
+        candidate.time, overlay.time, budget
+    ) != 0:
         return None, None
     if candidate.at_start or candidate.at_end:
         return None, "SYMBOLIC_SPLIT_ENDPOINT_JUNCTION_REQUIRED"
@@ -224,7 +227,9 @@ def plan_symbolic_split_fixed_point(builder, snapshot, *, budget: int):
         working = replace(
             snapshot, incidents=(*snapshot.incidents, *compiled)
         )
-        materialization = plan_split_materialization(working)
+        materialization = plan_split_materialization(
+            working, getattr(builder, "work_budget", None)
+        )
         if materialization.unresolved_reason is not None:
             return SymbolicSplitClosureV1(
                 materialization, None, tuple(contacts), iteration,

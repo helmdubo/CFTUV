@@ -996,7 +996,7 @@ def _prepare_region(
         )
 
     started = time.perf_counter()
-    partition = build_faces(report.polygon, skeleton)
+    partition = build_faces(report.polygon, skeleton, work_budget)
     clock.add("FACES", started)
     return _with_skeleton(prepared, skeleton, partition), None
 

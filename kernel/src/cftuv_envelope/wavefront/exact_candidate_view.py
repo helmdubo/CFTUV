@@ -219,7 +219,7 @@ def _span_bound(
     if (
         place is None
         or span.frozen_instant is None
-        or compare_times(time, span.frozen_instant) != 0
+        or compare_times(time, span.frozen_instant, view.budget) != 0
     ):
         return None
     return place.x.scaled(span.line.b) - place.y.scaled(span.line.a)

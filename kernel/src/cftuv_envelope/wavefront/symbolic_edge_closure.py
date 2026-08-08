@@ -82,7 +82,7 @@ def discover_symbolic_edge_contacts(
         candidate = decision.candidate
         if (
             candidate is None
-            or compare_times(candidate.time, overlay.time) != 0
+            or compare_times(candidate.time, overlay.time, view.budget) != 0
         ):
             continue
         key = SymbolicEdgeContactKeyV1(

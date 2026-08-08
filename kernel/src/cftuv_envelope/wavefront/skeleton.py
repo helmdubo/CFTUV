@@ -259,7 +259,7 @@ class _Builder:
         self.split_search = split_search
         self.edges: list[_Edge] = []
         self.vertices: list[_Vertex] = []
-        self.queue = EventQueueV1()
+        self.queue = EventQueueV1(work_budget=work_budget)
         self.edge_start: dict[int, int] = {}
         self.edge_end: dict[int, int] = {}
         self.nodes: list[SkeletonNodeV1] = []
@@ -641,7 +641,11 @@ class _Builder:
 
         def trace_bounds(ident, time):
             trace = self.traces.get(ident)
-            return None if trace is None else trace.bounds_time(time)
+            return (
+                None
+                if trace is None
+                else trace.bounds_time(time, self.work_budget)
+            )
 
         return ExactCandidateViewV1(
             self._prime_universe,
@@ -695,7 +699,9 @@ class _Builder:
             ),
         )
         for effect in decision.effects:
-            assert compare_times(effect.evaluation_level, self.now) == 0
+            assert compare_times(
+                effect.evaluation_level, self.now, self.work_budget
+            ) == 0
             identity = effect.proof_identity
             self._refuse(
                 effect.reason,
@@ -760,7 +766,9 @@ class _Builder:
             ),
         )
         for effect in decision.effects:
-            assert compare_times(effect.evaluation_level, self.now) == 0
+            assert compare_times(
+                effect.evaluation_level, self.now, self.work_budget
+            ) == 0
             for name, increment in effect.counter_deltas:
                 self.counters[name] += increment
             identity = effect.proof_identity
@@ -1327,7 +1335,7 @@ class _Builder:
                 key=cmp_to_key(
                     lambda left, right: (
                         _project(line, left.point) - _project(line, right.point)
-                    ).sign()
+                    ).sign(budget=self.work_budget)
                 ),
             )
             ordered.append((edge_id, group))

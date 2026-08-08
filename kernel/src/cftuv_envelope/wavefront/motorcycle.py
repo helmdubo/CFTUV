@@ -177,16 +177,23 @@ class TraceV1:
     crash_target: int
     reach: Fraction | None
 
-    def bounds_time(self, time: EventTimeV1) -> bool:
+    def bounds_time(
+        self, time: EventTimeV1, budget: ExactWorkBudgetV1 | None = None
+    ) -> bool:
         """ТЕОРЕМА 2.11 в исполняемой форме: событие не позже крушения.
 
         Трасса без крушения не ограничивает НИЧЕГО и говорит об этом прямо:
         `False` здесь означает «я не могу поручиться», а не «события нет».
+
+        `budget` — бюджет транзакции спрашивающего. Трасса — замороженная
+        запись, своего счёта у неё нет и быть не должно: она переживает
+        транзакцию, а бюджет — нет. Поэтому счёт приходит от того, кто задаёт
+        вопрос, и сравнение времён оплачивает ЕГО домен.
         """
 
         if self.crash_time is None:
             return False
-        return compare_times(time, self.crash_time) <= 0
+        return compare_times(time, self.crash_time, budget) <= 0
 
     def box(self) -> tuple[int, int, int, int] | None:
         """Целочисленная рамка трассы, округлённая НАРУЖУ. Только для сетки."""
@@ -260,7 +267,11 @@ def march_budget(grid: CellGridV1) -> int:
     return 2 * (grid.columns + grid.rows) + 8
 
 
-def _projection_is_inside(point: EventPointV1, wall: WallV1) -> bool:
+def _projection_is_inside(
+    point: EventPointV1,
+    wall: WallV1,
+    budget: ExactWorkBudgetV1 | None = None,
+) -> bool:
     """Точка лежит внутри отрезка стены. Проекция на направление, точный знак."""
 
     dx = wall.end[0] - wall.start[0]
@@ -268,9 +279,9 @@ def _projection_is_inside(point: EventPointV1, wall: WallV1) -> bool:
     here = point.x.scaled(dx) + point.y.scaled(dy)
     low = dx * wall.start[0] + dy * wall.start[1]
     high = dx * wall.end[0] + dy * wall.end[1]
-    if (here - SqrtSumV1.rational(low)).sign() < 0:
+    if (here - SqrtSumV1.rational(low)).sign(budget=budget) < 0:
         return False
-    return (SqrtSumV1.rational(high) - here).sign() >= 0
+    return (SqrtSumV1.rational(high) - here).sign(budget=budget) >= 0
 
 
 @dataclass(order=False, slots=True)
@@ -283,9 +294,12 @@ class _CrashEntry:
     target: int
     peer_time: EventTimeV1 | None
     sequence: int
+    # Бюджет транзакции — в записи, по той же причине, что у `_QueueEntry` в
+    # `events.py`: `__lt__` — оператор кучи, аргумента для счёта у него нет.
+    budget: ExactWorkBudgetV1 | None = None
 
     def __lt__(self, other: "_CrashEntry") -> bool:
-        order = compare_times(self.time, other.time)
+        order = compare_times(self.time, other.time, self.budget)
         return order < 0 if order else False
 
 
@@ -381,7 +395,9 @@ class MotorcycleGraphV1:
                 ):
                     best = hit
             self.counters["motorcycle_march_steps"] += 1
-            if best is not None and _reaches(origin, velocity, best[1], far):
+            if best is not None and _reaches(
+                origin, velocity, best[1], far, self.work_budget
+            ):
                 return _crashed_trace(
                     ident, left, right, start_time, origin, velocity, best
                 )
@@ -419,7 +435,7 @@ class MotorcycleGraphV1:
         if compare_times(time, start_time, self.work_budget) <= 0:
             return None
         point = event_point(left, right, time, self.work_budget)
-        if not _projection_is_inside(point, wall):
+        if not _projection_is_inside(point, wall, self.work_budget):
             return None
         return time, point, wall.ident
 
@@ -469,6 +485,7 @@ def _reaches(
     velocity: tuple[SqrtSumV1, SqrtSumV1],
     point: EventPointV1,
     offset: Fraction,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> bool:
     """Точка не дальше, чем луч уходит за `offset`. Квадраты, без корней."""
 
@@ -478,7 +495,7 @@ def _reaches(
     reach = (velocity[0] * velocity[0] + velocity[1] * velocity[1]).scaled(
         offset * offset
     )
-    return (reach - travelled).sign() >= 0
+    return (reach - travelled).sign(budget=budget) >= 0
 
 
 # --------------------------------------------------------------------------
@@ -635,11 +652,12 @@ def _resolve_trace_crashes(
                 trace.crash_target,
                 None,
                 next(counter),
+                graph.work_budget,
             ),
         )
     for first, second, at_first, at_second in _trace_pairs(graph, live):
         graph.counters["motorcycle_trace_pairs"] += 1
-        order = compare_times(at_first, at_second)
+        order = compare_times(at_first, at_second, graph.work_budget)
         if order >= 0:
             heapq.heappush(
                 heap,
@@ -650,6 +668,7 @@ def _resolve_trace_crashes(
                     second,
                     at_second,
                     next(counter),
+                    graph.work_budget,
                 ),
             )
         if order <= 0:
@@ -662,6 +681,7 @@ def _resolve_trace_crashes(
                     first,
                     at_first,
                     next(counter),
+                    graph.work_budget,
                 ),
             )
     _drain_crashes(graph, heap, prime_universe)

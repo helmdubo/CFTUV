@@ -414,7 +414,7 @@ def build_symbolic_overlay(
     )
 
 
-def _born_place(overlay, ref):
+def _born_place(overlay, ref, budget=None):
     """Место порта в `now`, если он в `now` и РОДИЛСЯ, иначе `None`.
 
     ПРОДОЛЖЕНИЕ ЗАКОНА ПРИМИРЕНИЯ НА КОНЦЫ ПРОЛЁТА. Закон сказал: admission
@@ -441,12 +441,14 @@ def _born_place(overlay, ref):
     vertex = overlay.vertices.get(ref)
     if vertex is None or vertex.point is None:
         return None
-    if compare_times(vertex.birth, overlay.time) != 0:
+    if compare_times(vertex.birth, overlay.time, budget) != 0:
         return None
     return vertex.point
 
 
 def exact_overlay_view(builder, overlay):
+    budget = getattr(builder, "work_budget", None)
+
     def vertex_state(ref):
         vertex = overlay.vertices[ref]
         sliding = vertex.sliding
@@ -470,15 +472,15 @@ def exact_overlay_view(builder, overlay):
             binding.start,
             binding.end,
             overlay.time,
-            _born_place(overlay, binding.start),
-            _born_place(overlay, binding.end),
+            _born_place(overlay, binding.start, budget),
+            _born_place(overlay, binding.end, budget),
         )
 
     def trace_bounds(ref, time):
         trace = overlay.vertices[ref].trace
         if trace is None:
             return None
-        return trace.bounds_time(time)
+        return trace.bounds_time(time, budget)
 
     return ExactCandidateViewV1(
         builder._prime_universe,
@@ -489,7 +491,7 @@ def exact_overlay_view(builder, overlay):
         # `SimpleNamespace` с ровно теми полями, которые читает overlay.
         # Требовать от него бюджет значило бы заставить каждый такой дубль
         # знать про кап работы, к которому overlay отношения не имеет.
-        getattr(builder, "work_budget", None),
+        budget,
     )
 
 
