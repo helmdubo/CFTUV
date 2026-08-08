@@ -69,7 +69,9 @@ def discover_endpoint_contacts(builder, overlay):
             )
             candidate = decision.candidate
             if (candidate is None
-                    or compare_times(candidate.time, overlay.time) != 0
+                    or compare_times(
+                        candidate.time, overlay.time, view.budget
+                    ) != 0
                     or not (candidate.at_start or candidate.at_end)):
                 continue
             endpoints = {

@@ -31,6 +31,7 @@ from enum import Enum
 import heapq
 import itertools
 
+from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import EventPointV1, EventTimeV1, compare_times
 
 
@@ -91,9 +92,17 @@ class CandidateEventV1:
 class _QueueEntry:
     event: CandidateEventV1
     sequence: int
+    # Бюджет точной работы транзакции, которой принадлежит очередь. Он лежит
+    # В ЗАПИСИ, а не приходит аргументом, ровно потому, что `__lt__` — оператор
+    # кучи: третьего аргумента у него нет и быть не может, а `compare_times`
+    # внутри него способен уйти в сопряжение по простому и оттуда в
+    # ро-Полларда. Запись — единственное место, куда бюджет здесь пролезает.
+    # `None` остаётся допустимым: очередь, собранная стендом без транзакции,
+    # по-прежнему работает, и её работа уходит в телеметрию неоплаченного.
+    budget: ExactWorkBudgetV1 | None = None
 
     def __lt__(self, other: "_QueueEntry") -> bool:
-        order = compare_times(self.event.time, other.event.time)
+        order = compare_times(self.event.time, other.event.time, self.budget)
         if order:
             return order < 0
         # Одинаковое время — строгого порядка между ними НЕТ. Возврат False
@@ -110,9 +119,16 @@ class EventQueueV1:
     _counter: itertools.count = field(default_factory=itertools.count)
     pushed: int = 0
     popped: int = 0
+    # Бюджет транзакции, внутри которой живёт очередь. Ставится тем, кто её
+    # завёл (`_Builder`), и раздаётся каждой записи при `push`: сравнение в
+    # куче обязано быть оплачено тем же счётом, что и всё остальное в домене.
+    work_budget: ExactWorkBudgetV1 | None = None
 
     def push(self, event: CandidateEventV1) -> None:
-        heapq.heappush(self._heap, _QueueEntry(event, next(self._counter)))
+        heapq.heappush(
+            self._heap,
+            _QueueEntry(event, next(self._counter), self.work_budget),
+        )
         self.pushed += 1
 
     def __len__(self) -> int:
@@ -127,7 +143,8 @@ class EventQueueV1:
         """Сколько queued events имеют данное exact time. Только telemetry."""
 
         return sum(
-            compare_times(entry.event.time, time) == 0 for entry in self._heap
+            compare_times(entry.event.time, time, self.work_budget) == 0
+            for entry in self._heap
         )
 
     def pop_level(self) -> tuple[CandidateEventV1, ...]:
@@ -141,7 +158,9 @@ class EventQueueV1:
             return ()
         head = heapq.heappop(self._heap)
         level = [head.event]
-        while self._heap and compare_times(self._heap[0].event.time, head.event.time) == 0:
+        while self._heap and compare_times(
+            self._heap[0].event.time, head.event.time, self.work_budget
+        ) == 0:
             level.append(heapq.heappop(self._heap).event)
         self.popped += len(level)
         return tuple(level)

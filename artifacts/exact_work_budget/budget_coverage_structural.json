@@ -1,0 +1,297 @@
+{
+  "answers_did_not_move": {
+    "ceiling": {
+      "headroom": "15.1x",
+      "literal": "1 << 23",
+      "moved": false,
+      "worst_healthy_domain": 554997
+    },
+    "corpus_63": {
+      "compared": "outcome + semantic_digest + число узлов у КАЖДОЙ из 63",
+      "divergences": 0,
+      "note": "снято обеими сторонами: база 25cba48 в отдельном worktree против ветки; файлы совпали побайтно",
+      "outcomes": {
+        "EXACT": 46,
+        "WAVEFRONT_LEFT_UNRESOLVED": 17,
+        "прочее": 0
+      },
+      "where": "test_wavefront_superlevel_transaction._CORPUS (63 фигуры)"
+    },
+    "corpus_weighted_wall": {
+      "compared": "outcome + semantic_digest + число узлов; у EXACT ещё исход разбиения, число граней, исход покрытия и ТОЧНАЯ УДВОЕННАЯ ПЛОЩАДЬ покрытия коэффициентами",
+      "cross_included": [
+        "cross_full_q_1",
+        "cross_full_q_1/4",
+        "cross_full_q_4",
+        "cross_full_q_65/64",
+        "cross_source_and_walls_q_*"
+      ],
+      "divergences": 0,
+      "outcomes": {
+        "EXACT": 18,
+        "WAVEFRONT_LEFT_UNRESOLVED": 5,
+        "прочее": 0
+      },
+      "where": "test_wavefront_weighted_wall_differential.CORPUS (23 случая)"
+    },
+    "determinism": {
+      "divergences": 0,
+      "domains": 6,
+      "runs": 2
+    },
+    "field_gate": {
+      "divergences": 0,
+      "domains": [
+        "walls.012 d0 patch0",
+        "wall 2.001 d0 patch0",
+        "building patch109",
+        "building patch121"
+      ],
+      "note": "совпал не ключ за ключом, а ВЕСЬ ФАЙЛ целиком",
+      "script": "artifacts/exact_work_budget/field_gate.py",
+      "sha256_base_25cba48": "23c3c35cc7035be0e438335336ee89a447c3905ef794a8199ea81cf207dd9354",
+      "sha256_branch": "23c3c35cc7035be0e438335336ee89a447c3905ef794a8199ea81cf207dd9354"
+    },
+    "negative_gate": {
+      "cap": 20000,
+      "refused_by_name": [
+        "walls.012 d0",
+        "walls.012 d1",
+        "wall 2.001 d0 a0.45",
+        "wall 2.001 d0 a0.254"
+      ],
+      "same_as_the_tip": true,
+      "still_exact": [
+        "building patch109",
+        "building patch121"
+      ]
+    },
+    "patch105_and_adjacency": {
+      "result": "61 passed",
+      "where": "kernel/tests/test_sem_clb_02_chain_straight_regression.py (включая test_patch105_has_the_sole_exact_named_clamp) + test_surface_adjacency_contract.py"
+    },
+    "the_new_export_budget": {
+      "spent_on_wall_2_001_d0": 0,
+      "spent_on_walls_012_d0": 0,
+      "spent_on_walls_012_d1": 0,
+      "stage": "EXPORT",
+      "why_it_still_matters": "потолок у него теперь ЕСТЬ; до карточки экспорт мог считать сколько угодно",
+      "why_zero": "экспорт считает поверх уже прогретой памяти канонизации: усечение контуров не рождает ни одного нового радиканда, а гидратацию позиций clip не покупает вовсе"
+    },
+    "work_units": {
+      "counters": 6,
+      "divergences": 0,
+      "domains": 6,
+      "meaning": "протяжка НЕ добавила доменной транзакции ни одной единицы. Причина названа и проверяема: до карточки units_charged_without_budget уже равнялось нулю — все 88 042 безбюджетных вызова закрывались рациональной проверкой или целочисленной оболочкой, то есть НЕ ПЛАТИЛИ. Протяжка перевела их из телеметрии неоплаченного в названный счёт, где они стоят столько же — ноль.",
+      "reference": "artifacts/exact_work_budget/units_repaired_tip.json"
+    }
+  },
+  "base": "claude/kernel-audit-exact-proof-at8d23 @ 25cba48 (кап работы слит, merge cec327c)",
+  "branch": "exec/budget-coverage",
+  "card": "BUDGET-COVERAGE-STRUCTURAL",
+  "frozen_exemptions": {
+    "OPERATOR_HAS_NO_THIRD_ARGUMENT": {
+      "kept_honest_by": "динамический сторож меряет деления оператором на всём корпусе и требует нуля (измерено 0)",
+      "legitimate": true,
+      "sites": 1,
+      "where": "exact_sqrt_sum.SqrtSumV1.__truediv__",
+      "why": "питоновский оператор третьего аргумента не принимает; именованный путь `divided_by` рядом есть"
+    },
+    "RECEIVER_IS_NOT_A_SQRT_SUM": {
+      "legitimate": true,
+      "sites": 20,
+      "where": [
+        "reference/adaptive_density_atlas.py sign (9) — свободная функция reference.angular.exact_sign, переданная как sign=",
+        "reference/direction_binding.py radical (2) + sign (5) — башенное поле _TowerField/_TowerValue",
+        "reference/direction_window_exact.py sign (4) — собственный sign башенного значения"
+      ],
+      "why": "совпадение ИМЕНИ; запрет сознательно избыточно широк — ложное срабатывание стоит строки, пропуск стоит зависания"
+    },
+    "REFERENCE_ARRANGEMENT_NOT_THREADED_YET": {
+      "legitimate": false,
+      "measured": {
+        "harness": "шесть файлов тестов эталонного слоя (test_direction_binding, test_direction_binding_exact_window, test_planar_metric_v2, test_near_planar_policy, test_reference_arrangement_history, test_angle_measure_certificate)",
+        "note": "полевой инструмент карточки этих мест НЕ ВИДИТ: три полевых домена по точному арранжементу не ходят — ещё одно доказательство, что измерение защищает только пройденное",
+        "unbudgeted_divided_by_calls": 1310,
+        "unbudgeted_radical_calls": 96,
+        "unbudgeted_sign_calls": 13340,
+        "unbudgeted_truediv_sites": [
+          "reference/arrangement.py:337",
+          "reference/arrangement.py:422"
+        ]
+      },
+      "sites": 15,
+      "what_it_really_is": "ИЗМЕРЕННАЯ открытая дыра, названная числом и замороженная, а не законное исключение",
+      "where": [
+        "reference/arrangement.py sign (13)",
+        "reference/angular.py sign (1)",
+        "reference/planar_types.py radical (1)"
+      ],
+      "why_not_in_this_card": "это не передача уже имеющегося счёта, а заведение транзакции в слое, где её нет вовсе: arrangement.py — 1 568 строк мелких чистых предикатов"
+    },
+    "host": {
+      "RECEIVER_IS_NOT_A_SQRT_SUM": {
+        "sites": 3,
+        "where": "cftuv/envelope_debug_renderer.py normalized — mathutils.Vector.normalized, совпадение имени с EventTimeV1.normalized"
+      }
+    },
+    "total_sites": 36
+  },
+  "harness": "artifacts/perf_prepare_diag + artifacts/exact_work_budget/{unbudgeted_sites,field_gate,measure_units}.py",
+  "machine_note": "один контейнер, 4 ядра, делённые с параллельным исполнителем; абсолютные секунды сопоставимы только внутри этой расписки",
+  "suites_on_the_branch": {
+    "architecture": "448 passed (446 на вершине + 2 новые)",
+    "field_release_matrix": "22/22",
+    "host": "1339 passed / 5 skipped / 4 deselected при ДВУХ средовых падениях (`powershell` отсутствует в контейнере — те же два, что на вершине). +2 к вершине — ровно две новые проверки архитектуры.",
+    "kernel": "см. отдельную запись — прогон на ветке"
+  },
+  "the_ban": {
+    "dynamic": {
+      "truediv_calls_on_the_corpus": 0,
+      "violations_on_the_corpus": 0,
+      "what": "перехват sign/radical/divided_by/__truediv__ НА ОБЪЕКТЕ, весь корпус скелетов под сторожем",
+      "where": "test_exact_work_budget_coverage.py::_Guard",
+      "why_dynamic": "статический разбор слеп к оператору `/`, к алиасу и к компаратору, собранному из cmp_to_key"
+    },
+    "static": {
+      "calls_examined_in_kernel_src": 149,
+      "surface_size": 22,
+      "what": "обход AST всего kernel/src и тех модулей cftuv/, что трогают ядро; каждый вызов дорогой поверхности обязан назвать бюджет; `budget=None` за бюджет не считается",
+      "where": "kernel/tests/exact_work_budget_ban.py (правило) + kernel/tests/test_exact_work_budget_coverage.py (ядро) + tests/test_architecture.py (хост)",
+      "why_static": "оно ловит место, до которого сегодня не доходит ни один тест — то есть ровно тот класс регрессии, который вырастил дыру в 5.2 раза молча"
+    },
+    "the_violation_is_constructible": {
+      "on_the_real_tree": "в kernel/src/.../wavefront/events.py дописана функция `compare_times(left, right)` без счёта; ворота упали с адресом `cftuv_envelope/wavefront/events.py:[212] -> compare_times`; строка убрана, сюита снова зелёная",
+      "synthetic": [
+        "новое место (compare_times без счёта + sign без счёта) — поймано обоими именами",
+        "то же место с бюджетом — пропущено",
+        "sign(budget=None) — поймано",
+        "лишний sign() внутри УЖЕ замороженного модуля — число мест выросло за замороженное",
+        "динамический сторож: sign / `/` / компаратор — три класса"
+      ]
+    }
+  },
+  "the_hole_closed": {
+    "after": {
+      "calls": 0,
+      "sites": 0,
+      "units": 0
+    },
+    "before": {
+      "calls": 88042,
+      "sites": 12,
+      "units": 0
+    },
+    "domains": [
+      "walls.012 d0",
+      "walls.012 d1",
+      "wall 2.001 d0"
+    ],
+    "per_site": {
+      "kernel/src/cftuv_envelope/wavefront/coverage.py:138": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/coverage.py:138": 281
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 281,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/event_time.py:276": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/events.py:130": 5047,
+          "kernel/src/cftuv_envelope/wavefront/motorcycle.py:189": 2308,
+          "kernel/src/cftuv_envelope/wavefront/skeleton.py:763": 2539,
+          "kernel/src/cftuv_envelope/wavefront/symbolic_overlay.py:444": 71824
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 85847,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/faces.py:308": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/faces.py:308": 57
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 57,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/faces.py:427": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/faces.py:449": 324,
+          "kernel/src/cftuv_envelope/wavefront/faces.py:450": 324,
+          "kernel/src/cftuv_envelope/wavefront/faces.py:452": 32,
+          "kernel/src/cftuv_envelope/wavefront/faces.py:453": 32
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 712,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:271": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 492
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 492,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:273": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/motorcycle.py:422": 292
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 292,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/motorcycle.py:481": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/motorcycle.py:384": 92
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 92,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:141": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 85
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 85,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:142": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/symbolic_runtime_commit.py:282": 85
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 85,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/poststate_span.py:73": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/poststate_span.py:131": 85
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 85,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/superlevel.py:562": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/superlevel.py:640": 7
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 7,
+        "units_charged_without_budget_before": 0
+      },
+      "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:83": {
+        "largest_unbudgeted_callers": {
+          "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:128": 7
+        },
+        "unbudgeted_calls_after": 0,
+        "unbudgeted_calls_before": 7,
+        "units_charged_without_budget_before": 0
+      }
+    },
+    "tool": "artifacts/exact_work_budget/unbudgeted_sites.py",
+    "two_sites_were_not_in_the_kernel_at_all": "coverage.py:138 (281) и faces.py:427 (36 из 712) приходили из ХОСТА: cftuv/envelope_queue_export.py пересчитывает усечённые контуры и простоту слитого контура уже ПОСЛЕ ответа домена. Экспорт получил СВОЙ бюджет (stage=EXPORT), а не доменный: домен ответил, и картинка не вправе превратить его ответ в отказ."
+  }
+}

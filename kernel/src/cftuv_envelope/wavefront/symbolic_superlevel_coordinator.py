@@ -91,7 +91,9 @@ def _rebuild_splits(builder, snapshot, contacts, time, *, f0=None):
         (*retained, *compiled), key=base._incident_sort_key
     ))
     working = replace(port_snapshot, incidents=incidents)
-    materialization = plan_split_materialization(working)
+    materialization = plan_split_materialization(
+        working, getattr(builder, "work_budget", None)
+    )
     if materialization.unresolved_reason is not None:
         return materialization, None, materialization.unresolved_reason
     if any(
@@ -165,7 +167,9 @@ def discover_interior_split_contacts(builder, overlay):
             )
             candidate = decision.candidate
             if (candidate is None
-                    or compare_times(candidate.time, overlay.time) != 0
+                    or compare_times(
+                        candidate.time, overlay.time, view.budget
+                    ) != 0
                     or candidate.at_start or candidate.at_end):
                 continue
             binding = overlay.spans[leaf]

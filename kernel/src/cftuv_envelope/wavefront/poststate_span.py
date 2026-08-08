@@ -35,24 +35,25 @@ def _vertex_velocity(view, vertex_ref):
     first = view.span_state(vertex.prev_span).line
     second = view.span_state(vertex.next_span).line
     determinant = first.a * second.b - second.a * first.b
+    budget = view.budget
     if determinant:
         scale = Fraction(1, determinant)
         return (
             (
-                SqrtSumV1.radical(second.b, first.q)
-                - SqrtSumV1.radical(first.b, second.q)
+                SqrtSumV1.radical(second.b, first.q, budget)
+                - SqrtSumV1.radical(first.b, second.q, budget)
             ).scaled(scale),
             (
-                SqrtSumV1.radical(first.a, second.q)
-                - SqrtSumV1.radical(second.a, first.q)
+                SqrtSumV1.radical(first.a, second.q, budget)
+                - SqrtSumV1.radical(second.a, first.q, budget)
             ).scaled(scale),
         )
     if vertex.sliding is None:
         return None
     scale = Fraction(1, first.normal_squared)
     return (
-        SqrtSumV1.radical(first.a, first.q).scaled(scale),
-        SqrtSumV1.radical(first.b, first.q).scaled(scale),
+        SqrtSumV1.radical(first.a, first.q, budget).scaled(scale),
+        SqrtSumV1.radical(first.b, first.q, budget).scaled(scale),
     )
 
 
@@ -70,7 +71,7 @@ def _span_orientation(view, span_ref):
             - start_x.scaled(span.line.b)
             + start_y.scaled(span.line.a)
         )
-        sign = direction.sign()
+        sign = direction.sign(budget=view.budget)
         if sign:
             return sign
     x0, y0, x1, y1 = span.source_span
@@ -138,8 +139,8 @@ def classify_poststate_span(view, vertex_ref, peer_ref, birth_time):
         )
     birth_length = birth_length.scaled(orientation_sign)
     slope = slope.scaled(orientation_sign)
-    length_sign = birth_length.sign()
-    slope_sign = slope.sign()
+    length_sign = birth_length.sign(budget=view.budget)
+    slope_sign = slope.sign(budget=view.budget)
     if length_sign < 0 or (length_sign == 0 and slope_sign < 0):
         disposition = PoststateSpanDisposition.INVERTED
     elif length_sign == 0 and slope_sign == 0:

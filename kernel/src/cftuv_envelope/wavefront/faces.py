@@ -154,10 +154,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
 
+from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import SupportLineV1
 from .events import EventKind
 from .polygon import PolygonV1, signed_double_area
@@ -281,12 +282,24 @@ class FacePartitionV1:
     doubled_area: SqrtSumV1
     polygon_doubled_area: int
     detail: str = ""
+    # Бюджет точной работы транзакции, построившей разбиение. Поле, а не
+    # аргумент, потому что обе объявленные границы ниже — СВОЙСТВА, а у
+    # свойства аргумента нет; при этом каждая из них зовёт точный предикат
+    # (`orientation`, `sign`), способный уйти в сопряжение. Из тождества
+    # разбиения бюджет исключён (`compare=False`): счёт — это цена ответа, а
+    # не сам ответ, и два одинаковых разбиения обязаны остаться равными.
+    work_budget: ExactWorkBudgetV1 | None = field(
+        default=None, compare=False, repr=False
+    )
 
     @property
     def every_contour_is_simple(self) -> bool:
         """Граница 1: ни один контур не пересекает сам себя трансверсально."""
 
-        return all(not contour_crossings(face.points) for face in self.faces)
+        return all(
+            not contour_crossings(face.points, self.work_budget)
+            for face in self.faces
+        )
 
     @property
     def area_reproduces_polygon(self) -> bool:
@@ -305,7 +318,10 @@ class FacePartitionV1:
     def every_face_is_positive(self) -> bool:
         """Граница 2: площадь каждой грани строго положительна."""
 
-        return all(face.doubled_area.sign() > 0 for face in self.faces)
+        return all(
+            face.doubled_area.sign(budget=self.work_budget) > 0
+            for face in self.faces
+        )
 
     @property
     def area_defect(self) -> SqrtSumV1:
@@ -412,7 +428,12 @@ def line_key(line: SupportLineV1) -> tuple[int, int, int, int]:
 Point = tuple[SqrtSumV1, SqrtSumV1]
 
 
-def orientation(first: Point, second: Point, third: Point) -> int:
+def orientation(
+    first: Point,
+    second: Point,
+    third: Point,
+    budget: ExactWorkBudgetV1 | None = None,
+) -> int:
     """Знак удвоенной ориентированной площади треугольника. ТОЧНО, без порогов.
 
     Тот же самый предикат, что и `doubled_shoelace` на трёх точках, только
@@ -424,11 +445,15 @@ def orientation(first: Point, second: Point, third: Point) -> int:
     return (
         (second[0] - first[0]) * (third[1] - first[1])
         - (second[1] - first[1]) * (third[0] - first[0])
-    ).sign()
+    ).sign(budget=budget)
 
 
 def segments_cross(
-    first_start: Point, first_end: Point, second_start: Point, second_end: Point
+    first_start: Point,
+    first_end: Point,
+    second_start: Point,
+    second_end: Point,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> bool:
     """Два отрезка пересекаются ТРАНСВЕРСАЛЬНО: каждый строго разделяет другой.
 
@@ -446,16 +471,19 @@ def segments_cross(
     """
 
     return (
-        orientation(second_start, second_end, first_start)
-        * orientation(second_start, second_end, first_end)
+        orientation(second_start, second_end, first_start, budget)
+        * orientation(second_start, second_end, first_end, budget)
         < 0
-        and orientation(first_start, first_end, second_start)
-        * orientation(first_start, first_end, second_end)
+        and orientation(first_start, first_end, second_start, budget)
+        * orientation(first_start, first_end, second_end, budget)
         < 0
     )
 
 
-def contour_crossings(points: tuple[Point, ...]) -> tuple[tuple[int, int], ...]:
+def contour_crossings(
+    points: tuple[Point, ...],
+    budget: ExactWorkBudgetV1 | None = None,
+) -> tuple[tuple[int, int], ...]:
     """Пары индексов сегментов замкнутого контура, пересекающихся трансверсально.
 
     Сегмент `k` — это `points[k] -> points[(k + 1) % n]`. Соседние по контуру
@@ -479,6 +507,7 @@ def contour_crossings(points: tuple[Point, ...]) -> tuple[tuple[int, int], ...]:
                 points[(first + 1) % size],
                 points[second],
                 points[(second + 1) % size],
+                budget,
             ):
                 crossings.append((first, second))
     return tuple(crossings)
@@ -625,8 +654,19 @@ def doubled_shoelace(
     return total
 
 
-def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
-    """Грани скелета по правилу СМЕЖНОСТИ, со всеми тремя границами в ответе."""
+def build_faces(
+    polygon: PolygonV1,
+    skeleton: SkeletonV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
+) -> FacePartitionV1:
+    """Грани скелета по правилу СМЕЖНОСТИ, со всеми тремя границами в ответе.
+
+    `work_budget` — бюджет точной работы транзакции. Он кладётся в РАЗБИЕНИЕ, а
+    не расходуется здесь: сама сборка граней точных предикатов не зовёт, их
+    зовут три объявленные границы, и они спрашиваются свойствами. Отказные
+    возвраты ниже бюджета не несут намеренно — у них нет ни одной грани,
+    поэтому ни одна граница на них ничего не считает.
+    """
 
     empty = FacePartitionV1(
         FaceOutcome.EXACT,
@@ -718,6 +758,7 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
             tuple(faces),
             total,
             empty.polygon_doubled_area,
+            work_budget=work_budget,
         )
     )
 
@@ -768,9 +809,9 @@ def check_declared_boundaries(assembled: FacePartitionV1) -> FacePartitionV1:
 
     faces = assembled.faces
     twisted = [
-        (face, contour_crossings(face.points))
+        (face, contour_crossings(face.points, assembled.work_budget))
         for face in faces
-        if contour_crossings(face.points)
+        if contour_crossings(face.points, assembled.work_budget)
     ]
     if twisted:
         where = "; ".join(
@@ -785,7 +826,11 @@ def check_declared_boundaries(assembled: FacePartitionV1) -> FacePartitionV1:
             ),
         )
     if not assembled.every_face_is_positive:
-        guilty = [face for face in faces if face.doubled_area.sign() <= 0]
+        guilty = [
+            face
+            for face in faces
+            if face.doubled_area.sign(budget=assembled.work_budget) <= 0
+        ]
         areas = ", ".join(as_number(face.doubled_area) for face in guilty[:3])
         return replace(
             assembled,

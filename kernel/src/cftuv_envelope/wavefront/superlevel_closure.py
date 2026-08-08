@@ -78,9 +78,11 @@ class SymbolicMaterializationPlanV1:
     unresolved_reason: str | None = None
 
 
-def _contact_compare(first: SplitContactV1, second: SplitContactV1) -> int:
+def _contact_compare(
+    first: SplitContactV1, second: SplitContactV1, budget=None
+) -> int:
     difference = first.projection - second.projection
-    sign = difference.sign()
+    sign = difference.sign(budget=budget)
     if sign:
         return sign
     if first.key == second.key:
@@ -101,7 +103,7 @@ def _event_incident_map(snapshot):
     return resolved
 
 
-def _family_contacts(cut, incident_by_event):
+def _family_contacts(cut, incident_by_event, budget=None):
     incidents = []
     for event in cut.events:
         incident = incident_by_event.get(event)
@@ -125,7 +127,12 @@ def _family_contacts(cut, incident_by_event):
         )
         for incident in incidents
     )
-    ordered = tuple(sorted(contacts, key=cmp_to_key(_contact_compare)))
+    ordered = tuple(sorted(
+        contacts,
+        key=cmp_to_key(
+            lambda first, second: _contact_compare(first, second, budget)
+        ),
+    ))
     if len({contact.key for contact in ordered}) != len(ordered):
         return None, None
     return family, ordered
@@ -187,8 +194,8 @@ def _birth_refs(cut, contacts, segments):
     return tuple(sorted(births, key=lambda birth: repr(birth.key)))
 
 
-def _normal_form(cut, incident_by_event):
-    family, contacts = _family_contacts(cut, incident_by_event)
+def _normal_form(cut, incident_by_event, budget=None):
+    family, contacts = _family_contacts(cut, incident_by_event, budget)
     if family is None:
         return None
     segments = _segment_refs(family, contacts, cut.segment_occurrences)
@@ -212,10 +219,12 @@ def _signature(families):
     )
 
 
-def plan_split_materialization(snapshot) -> SymbolicMaterializationPlanV1:
+def plan_split_materialization(
+    snapshot, budget=None
+) -> SymbolicMaterializationPlanV1:
     """Rebuild split-family leaves once from F0 plus the stable contact set."""
 
-    plans = base.plan_superlevel_components(snapshot)
+    plans = base.plan_superlevel_components(snapshot, budget)
     incident_by_event = _event_incident_map(snapshot)
     if incident_by_event is None:
         return SymbolicMaterializationPlanV1(
@@ -227,7 +236,7 @@ def plan_split_materialization(snapshot) -> SymbolicMaterializationPlanV1:
     families = []
     for plan in plans:
         for cut in plan.split_cuts:
-            normal = _normal_form(cut, incident_by_event)
+            normal = _normal_form(cut, incident_by_event, budget)
             if normal is None:
                 return SymbolicMaterializationPlanV1(
                     plans,

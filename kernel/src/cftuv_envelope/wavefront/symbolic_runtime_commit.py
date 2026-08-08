@@ -292,20 +292,24 @@ def poststate_span_classifications(builder, snapshot, overlay):
 def changed_poststate_past_edge_events(builder, snapshot, overlay):
     """Q-08 conjunction без решения о границе event-time domain."""
 
+    budget = getattr(builder, "work_budget", None)
     return tuple(
         witness
         for witness in changed_poststate_edge_events(
             builder, snapshot, overlay
         )
-        if compare_times(witness.event_time, witness.now) < 0
-        and compare_times(witness.event_time, witness.vertex_birth) < 0
-        and compare_times(witness.event_time, witness.peer_birth) < 0
+        if compare_times(witness.event_time, witness.now, budget) < 0
+        and compare_times(
+            witness.event_time, witness.vertex_birth, budget
+        ) < 0
+        and compare_times(witness.event_time, witness.peer_birth, budget) < 0
     )
 
 
 def _poststate_span_refusal(builder, snapshot, overlay):
     """Q-08 last guard after the affine P0-2c law has classified spans."""
 
+    budget = getattr(builder, "work_budget", None)
     spans = poststate_span_classifications(builder, snapshot, overlay)
     dispositions = {
         witness.classification.disposition for witness in spans
@@ -331,9 +335,11 @@ def _poststate_span_refusal(builder, snapshot, overlay):
         event = exact_events.get((span.vertex_ref, span.peer_ref))
         if (
             event is None
-            or compare_times(event.event_time, event.now) <= 0
-            or compare_times(event.event_time, event.vertex_birth) <= 0
-            or compare_times(event.event_time, event.peer_birth) <= 0
+            or compare_times(event.event_time, event.now, budget) <= 0
+            or compare_times(
+                event.event_time, event.vertex_birth, budget
+            ) <= 0
+            or compare_times(event.event_time, event.peer_birth, budget) <= 0
         ):
             return "SYMBOLIC_POSTSTATE_CLOSING_EVENT_UNPROVEN"
     return None
@@ -580,7 +586,10 @@ class _FutureQueueV1:
         self._now = now
 
     def push(self, event):
-        if compare_times(event.time, self._now) > 0:
+        # Бюджет берётся у обёрнутой очереди: она принадлежит той же
+        # транзакции, и второго счёта у коммита нет.
+        budget = getattr(self._queue, "work_budget", None)
+        if compare_times(event.time, self._now, budget) > 0:
             self._queue.push(event)
 
 

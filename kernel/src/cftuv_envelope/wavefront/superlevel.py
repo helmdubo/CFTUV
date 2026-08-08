@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cmp_to_key
 
+from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import EventPointV1, EventTimeV1, compare_times
 from .events import CandidateEventV1, EventKind, EventQueueV1
 from .proof import (
@@ -556,10 +557,12 @@ def _meeting_plans(
 
 
 def _projection_order(
-    left: SuperlevelIncidentV1, right: SuperlevelIncidentV1
+    left: SuperlevelIncidentV1,
+    right: SuperlevelIncidentV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> int:
     difference = left.target_projection - right.target_projection
-    order = difference.sign()
+    order = difference.sign(budget=budget)
     if order:
         return order
     left_key = (
@@ -625,6 +628,7 @@ def _split_cut_plans(
     vertices: tuple[_VertexSnapshot, ...],
     *,
     ledger: SuperlevelGermLedgerV1 | None = None,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[tuple[SplitCutPlanV1, ...], int, bool]:
     chosen, dropped, valid = _dedupe_split_incidents(splits)
     if not valid:
@@ -637,7 +641,12 @@ def _split_cut_plans(
     plans = []
     for target_occurrence in sorted(grouped, key=repr):
         incidents = grouped[target_occurrence]
-        ordered = tuple(sorted(incidents, key=cmp_to_key(_projection_order)))
+        ordered = tuple(sorted(
+            incidents,
+            key=cmp_to_key(
+                lambda left, right: _projection_order(left, right, budget)
+            ),
+        ))
         first = ordered[0]
         if any(
             incident.event.edge != first.event.edge
@@ -1000,7 +1009,7 @@ def _composed_initial_plans(contacts, split_cuts, vertices, ledger=None):
     )
 
 
-def _component_stages(component, vertices, ledger):
+def _component_stages(component, vertices, ledger, budget=None):
     """Три пути пакета и их совместность на одном frozen prestate.
 
     Возвращает планы, множество умирающих портов и один флаг: пути обязаны
@@ -1033,7 +1042,7 @@ def _component_stages(component, vertices, ledger):
         remaining, vertices, ledger=ledger
     )
     split_cuts, dropped, cuts_valid = _split_cut_plans(
-        cuts, vertices, ledger=ledger
+        cuts, vertices, ledger=ledger, budget=budget
     )
     (
         contacts,
@@ -1077,6 +1086,7 @@ def _planned_component(
     vertices: tuple[_VertexSnapshot, ...],
     base: dict,
     ledger: SuperlevelGermLedgerV1 | None = None,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> SuperlevelComponentPlanV1:
     kinds = base["event_kinds"]
     (
@@ -1087,7 +1097,7 @@ def _planned_component(
         dropped,
         dead,
         valid,
-    ) = _component_stages(component, vertices, ledger)
+    ) = _component_stages(component, vertices, ledger, budget)
     raw_births = tuple(
         birth for contact in contacts for birth in contact.births
     ) + tuple(
@@ -1158,9 +1168,10 @@ def _component_plan(
     component: tuple[SuperlevelIncidentV1, ...],
     vertices: tuple[_VertexSnapshot, ...],
     ledger: SuperlevelGermLedgerV1 | None = None,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> SuperlevelComponentPlanV1:
     base = _component_fields(component)
-    return _planned_component(component, vertices, base, ledger)
+    return _planned_component(component, vertices, base, ledger, budget)
 
 
 def _snapshot_rays(snapshot: SuperlevelSnapshotV1) -> dict:
@@ -1185,6 +1196,7 @@ def _snapshot_rays(snapshot: SuperlevelSnapshotV1) -> dict:
 
 def plan_superlevel_components(
     snapshot: SuperlevelSnapshotV1,
+    budget: ExactWorkBudgetV1 | None = None,
 ) -> tuple[SuperlevelComponentPlanV1, ...]:
     """Построить все component deltas, не меняя ни одного runtime объекта.
 
@@ -1194,7 +1206,7 @@ def plan_superlevel_components(
 
     ledger = SuperlevelGermLedgerV1(_snapshot_rays(snapshot))
     plans = tuple(
-        _component_plan(component, snapshot.vertices, ledger)
+        _component_plan(component, snapshot.vertices, ledger, budget)
         for component in _connected_components(snapshot.incidents)
     )
     return tuple(
@@ -1657,7 +1669,9 @@ def has_same_time_residual(queue: EventQueueV1, now: EventTimeV1) -> bool:
     """Есть ли exact-time packet, который обязан войти в текущий superlevel."""
 
     upcoming = queue.peek_time()
-    return upcoming is not None and compare_times(upcoming, now) == 0
+    return upcoming is not None and compare_times(
+        upcoming, now, queue.work_budget
+    ) == 0
 
 
 def _place_key(node) -> tuple:
