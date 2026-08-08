@@ -159,10 +159,33 @@
         "units": 23954
       }
     },
-    "span_state_rebuilds_wall_2_001_d0": {
-      "_note": "измерено пробой до правки; память ограничивает пересборки числом различных листов вида — ворота на этом стоят в test_the_span_state_memo_bounds_rebuilds_by_distinct_leaves",
-      "distinct_view_leaf_pairs": 2401,
-      "questions_through_the_view": 26124
+    "span_state_rebuilds": {
+      "_note": "считаются конструкции CandidateSpanStateV1 — единственное место, где пролёт собирается заново. Число `cached` совпадает с числом РАЗЛИЧНЫХ пар (вид, лист), измеренным отдельной пробой до правки (2 401 на 2.001), то есть память достигает объявленной границы точно, а не примерно.",
+      "_tool": "artifacts/exact_identity_intern/span_state_rebuilds.py",
+      "wall_2_001_d0": {
+        "cached": {
+          "outcome": "EXACT/EXACT",
+          "span_state_rebuilds": 2401,
+          "units": 23954
+        },
+        "legacy": {
+          "outcome": "EXACT/EXACT",
+          "span_state_rebuilds": 30634,
+          "units": 23954
+        }
+      },
+      "walls_012_d0": {
+        "cached": {
+          "outcome": "EXACT/EXACT",
+          "span_state_rebuilds": 383,
+          "units": 554555
+        },
+        "legacy": {
+          "outcome": "EXACT/EXACT",
+          "span_state_rebuilds": 2639,
+          "units": 554555
+        }
+      }
     },
     "top_callers_after": [
       {
@@ -214,7 +237,7 @@
     "1b_lazy_shadow_after_axes_refactor": "kernel/tests/test_lazy_hydration_shadow.py — 94 passed (синтетика) на общих осях",
     "2_answers_and_budget_articles": "measure_units.py на 259ec3a и на вершине: 0 расхождений по шести статьям на шести доменах, исходы EXACT/EXACT, leaked_unbudgeted 0",
     "3_frozen_digests_and_prices": "kernel/tests/test_sem_clb_02_chain_straight_regression.py — 10 passed за 144 с; FROZEN_PATCH006_PASS и FROZEN_PATCH011_OPTIMIZED_CALLS НЕ ДВИНУЛИСЬ, EXPECTED_PUBLIC_WAVEFRONT не двинулся; пересъёмки не потребовалось",
-    "4_counter_gates": "Fraction.__hash__ 2 943 335 -> 59 143; builtins.pow 2 907 108 -> 59 631 (профиль); пересборки span_state ограничены числом различных листов вида (исполняемая проверка в теневых воротах)",
+    "4_counter_gates": "Fraction.__hash__ 2 943 335 -> 59 143; builtins.pow 2 907 108 -> 59 631 при 5.761 s -> 0.106 s собственного времени профиля (в старом представлении pow — самая дорогая функция прогона, в новом её нет в первой восьмёрке); пересборки span_state 30 634 -> 2 401 на 2.001 d0 и 2 639 -> 383 на walls.012 d0, что ТОЧНО равно числу различных пар (вид, лист)",
     "5_budget_not_weakened": "потолок 1<<23 не тронут; unbudgeted_sites.py — 0 мест / 0 вызовов / 0 единиц; tests/test_architecture.py 450 passed; kernel/tests/test_exact_work_budget_coverage.py + test_isolation.py 24 passed",
     "6_suites": {
       "architecture": "450 passed",
