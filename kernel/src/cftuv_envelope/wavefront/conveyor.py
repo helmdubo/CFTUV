@@ -944,6 +944,7 @@ def _prepare_region(
     binding_residual: Fraction,
     clock: _Clock,
     work_budget: ExactWorkBudgetV1 | None = None,
+    dense_hydration: bool = False,
 ) -> tuple[PreparedRegionV1 | None, str | None]:
     started = time.perf_counter()
     loops, issue = _region_loops(region)
@@ -987,7 +988,11 @@ def _prepare_region(
         return prepared, None
 
     started = time.perf_counter()
-    skeleton = build_skeleton(report.polygon, work_budget=work_budget)
+    skeleton = build_skeleton(
+        report.polygon,
+        work_budget=work_budget,
+        dense_hydration=dense_hydration,
+    )
     clock.add("SKELETON", started)
     if skeleton.outcome is not SkeletonOutcome.EXACT:
         return (
@@ -1132,8 +1137,14 @@ def prepare_conveyor(
     *,
     patch_domain_id: PatchDomainId | None = None,
     work_budget: ExactWorkBudgetV1 | None = None,
+    dense_hydration: bool = False,
 ) -> ConveyorPreparationV1:
     """Alpha-независимая подготовка очереди для домена плана.
+
+    `dense_hydration` — эталонная сторона теневой сверки ленивой гидратации.
+    Он не меняет ни одного ответа по построению (см. `PositionMemoV1`), и
+    ровно это утверждение проверяется прогоном обоих режимов на корпусе и в
+    поле. Продуктовый путь его не называет.
 
     Союз не считается, попарный крой не зовётся, `exact_union` не вызывается ни
     разу.
@@ -1163,7 +1174,8 @@ def prepare_conveyor(
     for region in domain.domain_regions:
         try:
             prepared, issue = _prepare_region(
-                region, reading, lattice, binding_residual, clock, budget
+                region, reading, lattice, binding_residual, clock, budget,
+                dense_hydration,
             )
         except ExactCanonicalizationWorkBudgetExhausted as exhausted:
             # Строки времени у этого отказа нет намеренно: `_prepare_region`

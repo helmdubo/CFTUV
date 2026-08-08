@@ -97,6 +97,7 @@ from .exact_candidate_view import (
     CandidateSpanStateV1,
     CandidateVertexStateV1,
     ExactCandidateViewV1,
+    PositionMemoV1,
     collapsing_span as _exact_collapsing_span,
     edge_event_time as _exact_edge_event_time,
     is_future as _exact_is_future,
@@ -225,6 +226,7 @@ def build_skeleton(
     *,
     split_search: SplitSearch = SplitSearch.MOTORCYCLE,
     work_budget: ExactWorkBudgetV1 | None = None,
+    dense_hydration: bool = False,
 ) -> SkeletonV1:
     """Скелет области как последовательность событий по возрастанию времени.
 
@@ -234,9 +236,20 @@ def build_skeleton(
     бесконечно много: полевой случай владельца — домен из четырёх граней,
     считающий десять минут. `None` — прогон без названного бюджета, поведение
     прежнее побитово.
+
+    `dense_hydration` — ЭТАЛОННЫЙ режим гидратации: каждое точное место
+    считается заново при каждом запросе, как до ленивой памяти. Он существует
+    не как флаг совместимости, а как ВТОРАЯ сторона теневой сверки: ленивый
+    ответ обязан быть побитово равен плотному, и это проверяется прогоном, а
+    не рассуждением (`test_lazy_hydration_shadow.py`).
     """
 
-    return _Builder(polygon, split_search, work_budget=work_budget).run()
+    return _Builder(
+        polygon,
+        split_search,
+        work_budget=work_budget,
+        dense_hydration=dense_hydration,
+    ).run()
 
 
 class _Builder:
@@ -248,6 +261,7 @@ class _Builder:
         split_search: SplitSearch = SplitSearch.MOTORCYCLE,
         *,
         work_budget: ExactWorkBudgetV1 | None = None,
+        dense_hydration: bool = False,
     ) -> None:
         self.polygon = polygon
         self.work_budget = work_budget
@@ -296,6 +310,13 @@ class _Builder:
         # вывернулся, — то есть объявленная граница нарушалась собственным
         # результатом. Найдено тестом, а не рассуждением.
         self.now: EventTimeV1 = ZERO_TIME
+        # Память точных мест текущего superlevel. Владеет ею прогон, а не вид:
+        # вид создаётся заново на каждый запрос, и память в нём не пережила бы
+        # ни одного вопроса. `None` — плотный режим (каждое место считается
+        # заново); он остаётся исполняемым и служит эталоном теневой сверки.
+        self._position_memo: PositionMemoV1 | None = (
+            None if dense_hydration else PositionMemoV1(self._prime_universe)
+        )
         self.counters = {
             "edge_events": 0,
             "split_events": 0,
@@ -649,6 +670,7 @@ class _Builder:
             span_state,
             trace_bounds,
             self.work_budget,
+            self._position_memo,
         )
 
     def _enqueue_for(self, vertex: _Vertex) -> None:
@@ -961,6 +983,14 @@ class _Builder:
                 return self._finish(SkeletonOutcome.LEVEL_BUDGET_EXHAUSTED, levels)
             level = self.queue.pop_level()
             self.now = level[0].time
+            # Граница памяти мест — СМЕНА ТОЧНОГО ВРЕМЕНИ, а не пакет. Весь
+            # exact-time fixed point объявлен одной наблюдаемой границей
+            # (см. ниже), и поколения одного времени спрашивают одни и те же
+            # места. Чистить между ними значило бы считать заново то, что уже
+            # доказано тем же `t`. На правильность граница не влияет: значение
+            # не зависит от возраста записи — только на память.
+            if self._position_memo is not None:
+                self._position_memo.clear()
             while level:
                 levels += 1
                 if self.work_budget is not None:

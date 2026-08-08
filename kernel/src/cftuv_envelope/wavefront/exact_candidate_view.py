@@ -60,6 +60,42 @@ class CandidateSpanStateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class PositionMemoV1:
+    """Память точных мест ОДНОГО superlevel: чистая функция, а не кэш выводов.
+
+    Ключ — не вершина и не рантаймовый id, а РОВНО ТЕ аргументы, от которых
+    `position` зависит: две несущие прямые в порядке (prev, next), закон
+    скольжения и момент `t`. Всё остальное про вершину на ответ не влияет:
+    формула ниже читает только `first`, `second`, `vertex.sliding` и `time`.
+    Поэтому попадание в память возвращает БУКВАЛЬНО то же значение, которое
+    вернул бы пересчёт, и «мемоизация» здесь не эвристика, а тождество.
+
+    `prime_universe` держится ЗДЕСЬ, а не в ключе: базис примитивных скоростей
+    строится один раз на домен и в течение прогона не меняется, поэтому память,
+    принадлежащая прогону, принадлежит и ему. Проверка `admits` делает это
+    утверждение исполняемым: чужой базис память не обслуживает и молча ответ не
+    подменяет.
+
+    Память ОГРАНИЧЕНА superlevel'ом: `clear()` зовётся при смене точного
+    времени. Не ради правильности — значение от возраста записи не зависит, —
+    а ради памяти: у длинного марша иначе копился бы словарь на весь домен.
+    """
+
+    prime_universe: tuple[int, ...]
+    entries: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.entries is None:
+            object.__setattr__(self, "entries", {})
+
+    def admits(self, prime_universe: tuple[int, ...]) -> bool:
+        return prime_universe == self.prime_universe
+
+    def clear(self) -> None:
+        self.entries.clear()
+
+
+@dataclass(frozen=True, slots=True)
 class ExactCandidateViewV1:
     """Точная геометрия кандидата: чем считать и НА ЧТО это считать.
 
@@ -68,6 +104,11 @@ class ExactCandidateViewV1:
     закона кандидата, а второй провод рядом с существующим означал бы два
     источника истины про одну транзакцию. `None` — прогон без названного
     бюджета (тесты, эталон); продуктовый путь всегда называет свой.
+
+    `position_memo` едет тем же проводом и по той же причине. `None` —
+    ПЛОТНЫЙ режим: каждый запрос места считается заново. Он остаётся рабочим
+    путём, а не мёртвым флагом: теневая сверка гоняет им весь корпус и
+    сравнивает ответы побитово с ленивым.
     """
 
     prime_universe: tuple[int, ...]
@@ -75,6 +116,7 @@ class ExactCandidateViewV1:
     span_state: Callable[[object], CandidateSpanStateV1]
     trace_bounds: Callable[[object, EventTimeV1], bool | None]
     budget: ExactWorkBudgetV1 | None = None
+    position_memo: PositionMemoV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,14 +126,20 @@ class SpanContainmentV1:
     at_end: bool
 
 
-def position(
+def _hydrate_position(
     view: ExactCandidateViewV1,
-    vertex_ref: object,
+    first: SupportLineV1,
+    second: SupportLineV1,
+    sliding: SqrtSumV1 | None,
     time: EventTimeV1,
 ) -> EventPointV1 | None:
-    vertex = view.vertex_state(vertex_ref)
-    first = view.span_state(vertex.prev_span).line
-    second = view.span_state(vertex.next_span).line
+    """Место на пересечении двух движущихся прямых — от них одних и от `t`.
+
+    Функция ЧИСТАЯ по своим четырём аргументам плюс `prime_universe`: ни одна
+    строка ниже не читает ни рантаймовый id, ни соседей, ни состояние
+    строителя. Ровно это тождество и делает законной память `PositionMemoV1`.
+    """
+
     if first.a * second.b - second.a * first.b:
         return _event_point_with_prime_universe(
             first,
@@ -100,9 +148,41 @@ def position(
             view.prime_universe,
             view.budget,
         )
-    if vertex.sliding is None:
+    if sliding is None:
         return None
-    return sliding_point(first, vertex.sliding, time, view.budget)
+    return sliding_point(first, sliding, time, view.budget)
+
+
+def position(
+    view: ExactCandidateViewV1,
+    vertex_ref: object,
+    time: EventTimeV1,
+) -> EventPointV1 | None:
+    """Точное место вершины в момент `time`; при первом запросе — считается.
+
+    ЛЕНИВАЯ ГИДРАТАЦИЯ. Место не снимается заранее со всего живого фронта: его
+    спрашивает резолвер, и платится ровно достигнутое замыкание. Повторный
+    вопрос про ту же конфигурацию (те же две прямые, тот же закон скольжения,
+    тот же момент) отвечается памятью superlevel'а — это не приближение и не
+    радиус: пересчёт вернул бы те же самые коэффициенты.
+
+    Память НЕ обслуживает чужой базис примитивных скоростей: `admits`
+    отказывает, и вид считает заново. Молчаливой подмены ответа нет.
+    """
+
+    vertex = view.vertex_state(vertex_ref)
+    first = view.span_state(vertex.prev_span).line
+    second = view.span_state(vertex.next_span).line
+    memo = view.position_memo
+    if memo is None or not memo.admits(view.prime_universe):
+        return _hydrate_position(view, first, second, vertex.sliding, time)
+    key = (first, second, vertex.sliding, time)
+    entries = memo.entries
+    if key in entries:
+        return entries[key]
+    place = _hydrate_position(view, first, second, vertex.sliding, time)
+    entries[key] = place
+    return place
 
 
 def edge_event_time(
