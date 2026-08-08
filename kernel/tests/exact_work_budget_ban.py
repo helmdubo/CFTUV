@@ -156,10 +156,10 @@ def _budget_is_named(node: ast.Call, position: int | None, keywords) -> bool:
             return not (
                 isinstance(value, ast.Constant) and value.value is None
             )
-        if keyword.arg is None:
-            # `**kwargs` — сказать про бюджет нечего, считаем названным, иначе
-            # запрет ловил бы форму записи, а не отсутствие счёта.
-            return True
+    if any(keyword.arg is None for keyword in node.keywords):
+        # `**kwargs` — сказать про бюджет нечего, считаем названным, иначе
+        # запрет ловил бы форму записи, а не отсутствие счёта.
+        return True
     if position is not None and len(node.args) > position:
         value = node.args[position]
         if isinstance(value, ast.Starred):
@@ -174,9 +174,10 @@ def unbudgeted_sites_in_source(
     """Все вызовы дорогой поверхности без названного бюджета в одном файле.
 
     Возвращает кортеж `(модуль, имя вызова, строка)`. Функция — единственное
-    место правила; и боевой обход ядра, и построенные нарушения ниже ходят
-    через неё, поэтому «проверка проверяет то же, что запрещает» здесь не
-    заявление, а следствие устройства.
+    место правила: через неё ходят и боевой обход `kernel/src`, и хостовые
+    ворота в `tests/test_architecture.py`, и построенные нарушения в
+    `test_exact_work_budget_coverage.py`. Поэтому «проверка проверяет ровно
+    то, что запрещает» здесь не заявление, а следствие устройства.
     """
 
     found: list[tuple[str, str, int]] = []
