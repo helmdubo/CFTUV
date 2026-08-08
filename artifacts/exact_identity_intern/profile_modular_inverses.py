@@ -37,13 +37,20 @@ _WATCHED = (
 
 
 def _rows(stats: pstats.Stats) -> dict:
-    watched = {}
+    watched = {"builtins.pow": {"calls": 0, "tottime": 0.0}}
     total = 0.0
+    ranked = []
     for func, (_, _, tottime, cumtime, _) in stats.stats.items():
-        filename, _, name = func
+        filename, lineno, name = func
         calls = stats.stats[func][0]
         total += tottime
-        if name == "<built-in function pow>":
+        ranked.append(
+            (tottime, f"{filename.rsplit('/', 1)[-1]}:{lineno}:{name}", calls)
+        )
+        # Имя встроенной функции в профиле CPython пишется двумя способами в
+        # зависимости от того, как она вызвана; ловим оба, иначе строка `pow`
+        # молча остаётся нулём и расписка утверждает победу, которой не мерила.
+        if name in ("<built-in function pow>", "<built-in method builtins.pow>"):
             watched["builtins.pow"] = {
                 "calls": calls,
                 "tottime": round(tottime, 3),
@@ -54,6 +61,13 @@ def _rows(stats: pstats.Stats) -> dict:
                 "cumtime": round(cumtime, 3),
             }
     watched["profiled_total_tottime"] = round(total, 3)
+    # Куда уходят ОСТАВШИЕСЯ секунды. Без этой строки расписка называла бы
+    # только снятую цену и молчала бы о следующей.
+    ranked.sort(reverse=True)
+    watched["top_by_tottime"] = [
+        {"site": site, "calls": calls, "tottime": round(tottime, 3)}
+        for tottime, site, calls in ranked[:8]
+    ]
     return watched
 
 

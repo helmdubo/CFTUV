@@ -122,7 +122,14 @@ def main() -> None:
     building = (
         tuple(int(item) for item in patches.split(",")) if patches else (109, 121)
     )
-    rows = list(_domains()) + list(_building(building))
+    # Сцена здания поднимается ДОЛГО, поэтому при точечном замере её не трогаем
+    # вовсе: замер секунд, который сначала минуту грузит чужую сцену, мерит
+    # загрузку сцены.
+    rows = []
+    if only is None or "snapshot.json" in only:
+        rows += list(_domains())
+    if only is None or "building" in only:
+        rows += list(_building(building))
     results = {}
     for label, alpha, (patch_id, domain_id, snapshot, request) in rows:
         key = f"{label}:patch{patch_id}"
