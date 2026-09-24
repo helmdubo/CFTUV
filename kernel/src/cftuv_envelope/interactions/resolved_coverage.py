@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from ..reference.arrangement import bound_evaluation_arrangement
 from ..reference.boundary import build_domain_geometry
 from ..reference.common import GeometryContext
 from ..reference.contracts import (
@@ -11,7 +12,7 @@ from ..reference.contracts import (
     RawCoverageResultV1,
     ReferenceEnvelopeCompilationV1,
 )
-from ..reference.validation import validate_reference_geometry_payload
+from ..reference.validation import validate_compilation_geometry_payload
 from .arrival import compile_arrival_models
 from .candidates import generate_interaction_candidates
 from .components import compile_interaction_components
@@ -84,6 +85,26 @@ def resolve_coverage_interactions(
     ),
     raw_coverage: RawCoverageResultV1,
 ) -> InteractionResolutionResultV1:
+    """Выполнить resolver в режиме, объявленном compilation binding."""
+
+    with bound_evaluation_arrangement(
+        compilation.evaluation_geometry_binding is not None
+    ):
+        return _resolve_coverage_interactions(
+            compilation,
+            boundary_resolved_envelopes,
+            raw_coverage,
+        )
+
+
+def _resolve_coverage_interactions(
+    compilation: ReferenceEnvelopeCompilationV1,
+    boundary_resolved_envelopes: (
+        tuple[BoundaryResolvedEnvelopeV1, ...]
+        | frozenset[BoundaryResolvedEnvelopeV1]
+    ),
+    raw_coverage: RawCoverageResultV1,
+) -> InteractionResolutionResultV1:
     """Full-recompute exact EC2.5 resolver for one request/PatchDomain."""
 
     boundary_resolved = tuple(
@@ -127,9 +148,7 @@ def resolve_coverage_interactions(
             candidates=candidates,
             diagnostics=(*arrival_diagnostics, *mutual_diagnostics),
         )
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         diagnostic = InteractionDiagnosticV1(
             InteractionOutcome.INTERACTION_INPUT_CONTRACT_INVALID,

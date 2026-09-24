@@ -1,0 +1,34 @@
+{
+ "purpose": "smoke test: proves oracle binary+harness round-trip works in THIS environment (separate from admissibility of the disputed input)",
+ "input_description": "unit square 8x8, uniform edge weight w=2 (q=4*|d|^2)",
+ "outcome": "EXACT",
+ "rc": 0,
+ "nodes": [
+  {
+   "x": 8.0,
+   "y": 0.0,
+   "t": 0.0
+  },
+  {
+   "x": 0.0,
+   "y": 8.0,
+   "t": 0.0
+  },
+  {
+   "x": 4.0,
+   "y": 4.0,
+   "t": 2.0
+  },
+  {
+   "x": 8.0,
+   "y": 8.0,
+   "t": 0.0
+  },
+  {
+   "x": 0.0,
+   "y": 0.0,
+   "t": 0.0
+  }
+ ],
+ "expected": "square with weight 2 collapses to center (4,4) at t=2.0 (= 4/w)"
+}

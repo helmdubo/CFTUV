@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
+import hashlib
 import sys
 from pathlib import Path
 
@@ -33,6 +35,10 @@ from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPairKind,
     EnvelopeTopologyPathKind,
 )
+from cftuv.envelope_topology_export import (  # noqa: E402
+    SELECTION_COMPLETED_DIAGNOSTIC_CODE,
+    SELECTION_COMPLETION_COUNTERS,
+)
 from cftuv.model import (  # noqa: E402
     BoundaryChain,
     BoundaryCorner,
@@ -45,6 +51,7 @@ from cftuv.model import (  # noqa: E402
     WorldFacing,
 )
 from cftuv.surface_ir import (  # noqa: E402
+    HOST_GRID_POLICY,
     AnalysisBundle,
     PatchSurfaceIR,
     SourceEdge,
@@ -53,7 +60,12 @@ from cftuv.surface_ir import (  # noqa: E402
     SourceVertex,
     SurfaceTriangle,
 )
-from cftuv_envelope import compile_reference_envelopes  # noqa: E402
+from envelope_fixture_bundles import planar_quad_bundle  # noqa: E402
+from cftuv_envelope import (  # noqa: E402
+    DecalRequestCodecV1,
+    PlanarityAdmissionLawV1,
+    compile_reference_envelopes,
+)
 
 
 def _single_patch_bundle(*, approximate_frame: bool = False, combined_chain: bool = False):
@@ -567,6 +579,119 @@ def test_real_analysis_bundle_runs_public_static_pipeline():
     )
 
 
+def test_omitted_density_freezes_legacy_request_bytes_and_identity():
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    request = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    canonical = DecalRequestCodecV1.dumps(request)
+
+    assert request.decal_request_id.value == (
+        "host-v0:decal-request:22a7682ed575e2ead77e6f51"
+    )
+    assert hashlib.sha256(canonical).hexdigest() == (
+        "09163981263697faf3bb367c48a27cf767a4ff5a90bf7fcdc745677c325f9383"
+    )
+
+
+@pytest.mark.parametrize(
+    ("density", "value_id", "symbol"),
+    (
+        (0, "LINEAR_REFLEX_DENSITY_0_V1", "PI_OVER_2"),
+        (1, "LINEAR_REFLEX_DENSITY_1_V1", "PI_OVER_3"),
+        (2, "LINEAR_REFLEX_DENSITY_2_V1", "PI_OVER_4"),
+        (3, "LINEAR_REFLEX_DENSITY_3_V1", "PI_OVER_5"),
+        (4, "LINEAR_REFLEX_DENSITY_4_V1", "PI_OVER_6"),
+    ),
+)
+def test_all_fan_density_values_map_to_the_sealed_kernel_contract(
+    density,
+    value_id,
+    symbol,
+):
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    request = build_envelope_decal_request(
+        snapshot,
+        frozenset({0}),
+        0.25,
+        density=str(density),
+    )
+
+    assert request.angular_profile_selection_policy_id.value == (
+        "HUBER_EMANATED_COUNT_DENSITY_A_V1"
+    )
+    assert request.max_subturn_parameter_id.value == (
+        "LINEAR_REFLEX_DENSITY_A_V1"
+    )
+    assert request.max_subturn_value_id.value == value_id
+    assert request.max_subturn_exact_value.symbol.value == symbol
+
+
+def test_explicit_density_enters_request_identity():
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    legacy = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    requests = tuple(
+        build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
+        for density in range(5)
+    )
+
+    identities = {item.decal_request_id for item in requests}
+    assert len(identities) == 5
+    assert legacy.decal_request_id not in identities
+
+
+@pytest.mark.parametrize(
+    ("density", "error_type"),
+    (
+        (True, TypeError),
+        (1.0, TypeError),
+        (-1, ValueError),
+        (5, ValueError),
+        ("01", ValueError),
+        (" 1 ", ValueError),
+        (object(), TypeError),
+    ),
+)
+def test_noncanonical_fan_density_fails_closed(density, error_type):
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    with pytest.raises(error_type, match="Fan Density"):
+        build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
+
+
+def test_the_declared_grid_policy_reaches_the_metric_certificate():
+    """Политика хоста — не комментарий: она видна в сертификате метрики.
+
+    Без этой проверки `HOST_GRID_POLICY` можно было бы переключить и не
+    заметить, что экспорт его не читает; ровно так однажды «установленная»
+    правка оказалась неустановленной.
+    """
+
+    from cftuv.surface_ir import HOST_GRID_POLICY
+
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    descriptors = [
+        item
+        for item in snapshot.surface_metric_descriptors
+        if hasattr(item, "grid_certificate")
+    ]
+    assert descriptors
+    for descriptor in descriptors:
+        assert descriptor.grid_certificate.snapping_law.value == (
+            HOST_GRID_POLICY.value
+        )
+        # Обе границы окна названы — обе и записаны.
+        assert descriptor.grid_certificate.window_lower_bound.numerator > 0
+        assert descriptor.grid_certificate.window_upper_bound.numerator > 0
+
+
 @pytest.mark.parametrize("hidden_count", (0, 1, 2))
 def test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular(hidden_count):
     snapshot = build_envelope_analysis_snapshot(_reflex_bundle(hidden_count))
@@ -599,14 +724,138 @@ def test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular(hidden_count):
     )
 
 
-def test_partial_chain_selection_fails_named_without_expansion():
+def test_partial_chain_selection_is_completed_to_the_whole_chain():
+    """Частичное выделение цепочки больше не гасит билд, а достраивается.
+
+    Полевой факт, которым это оплачено: на мешах с многорёберными швами
+    (`wall_noise_top`, `sagging_wall`, `CFTUV_D_PERIODIC_CYLINDER`) попадание
+    мышью в одно ребро шва валило ВЕСЬ прогон именованным отказом, и владелец
+    видел warning вместо результата.
+    """
+
     evaluation = evaluate_envelope_debug(
-        _single_patch_bundle(combined_chain=True),
+        planar_quad_bundle(),
         frozenset({0}),
+        1.0,
+    )
+    assert not {
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN,
+    } & {item.outcome for item in evaluation.diagnostics}
+    assert evaluation.debug_scene is not None
+    assert evaluation.request is not None
+    # Цепочка `[0, 4]` выделена целиком, хотя владелец указал только ребро 0.
+    chain_edges = {
+        _host_edge_number(edge_id)
+        for chain in evaluation.snapshot.physical_chains
+        for edge_id in chain.ordered_physical_edge_ids
+        if chain.physical_chain_id
+        in {
+            item.physical_chain_id
+            for item in evaluation.snapshot.chain_uses
+            if item.chain_use_id in evaluation.request.selected_chain_use_ids
+        }
+    }
+    assert chain_edges == {0, 4}
+
+
+def test_selection_completion_is_counted_and_named_in_the_scene():
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
+
+    scene = build_envelope_topology_debug_scene(
+        planar_quad_bundle(),
+        frozenset({0}),
+        profile=profile,
+    )
+
+    assert scene.selected_physical_edge_ids == (0, 4)
+    codes = {item.code for item in scene.selection_diagnostics}
+    assert SELECTION_COMPLETED_DIAGNOSTIC_CODE in codes
+    completed = next(
+        item
+        for item in scene.selection_diagnostics
+        if item.code == SELECTION_COMPLETED_DIAGNOSTIC_CODE
+    )
+    assert "[4]" in completed.message
+    assert completed.physical_chain_id is not None
+    counters = {
+        item.name: item.value for item in profile.snapshot().counters
+    }
+    assert counters["SELECTION_COMPLETED_CHAINS"] == 1
+    assert counters["SELECTION_COMPLETED_EDGES"] == 1
+
+
+def test_whole_chain_selection_counts_zero_completion_rather_than_silence():
+    """Нулевое дополнение — объявленный ноль, а не отсутствие измерения."""
+
+    profile = EnvelopeDebugProfileBuilderV1("v0-quad", "TOPOLOGY")
+
+    scene = build_envelope_topology_debug_scene(
+        planar_quad_bundle(),
+        frozenset({0, 4}),
+        profile=profile,
+    )
+
+    assert scene.selected_physical_edge_ids == (0, 4)
+    assert all(
+        item.code != SELECTION_COMPLETED_DIAGNOSTIC_CODE
+        for item in scene.selection_diagnostics
+    )
+    counters = {
+        item.name: item.value for item in profile.snapshot().counters
+    }
+    for name in SELECTION_COMPLETION_COUNTERS:
+        assert counters[name] == 0
+
+
+def test_edge_outside_every_physical_chain_is_refused_by_its_own_name():
+    """Дополнение НЕВОЗМОЖНО ровно тогда, когда ребро не лежит ни в одной цепочке.
+
+    Внутреннее ребро патча принадлежит поверхности, но не входит ни в одну
+    граничную цепочку: достраивать его не до чего. Это и есть единственный
+    случай, в котором жёсткий отказ на этом слое остаётся достижимым.
+    """
+
+    evaluation = evaluate_envelope_debug(
+        _two_patch_seam_bundle(),
+        frozenset({99}),
         1.0,
     )
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN
+    )
+
+    bundle = _single_patch_bundle()
+    interior = replace(
+        bundle.patch_surface,
+        edges=bundle.patch_surface.edges
+        + (SourceEdge(11, (0, 2), (0,)),),
+    )
+    evaluation = evaluate_envelope_debug(
+        replace(bundle, patch_surface=interior),
+        frozenset({11}),
+        1.0,
+    )
+    assert evaluation.debug_scene is None
+    assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN
+    )
+
+
+def test_kernel_request_still_refuses_a_hand_made_partial_chain():
+    """Отказ V0 на слое запроса ядра остаётся достижимым и остаётся нужным.
+
+    Хост дополняет выделение владельца, но `build_envelope_decal_request` —
+    публичная точка входа: вызывающий подаёт номера рёбер напрямую (так делают
+    инструменты и тесты), и там частичная цепочка обязана называться отказом, а
+    не молча доезжать до ядра.
+    """
+
+    snapshot = build_envelope_analysis_snapshot(planar_quad_bundle())
+    with pytest.raises(Exception) as error:
+        build_envelope_decal_request(snapshot, frozenset({0}), 1.0)
+    assert error.value.outcome is (
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED
     )
 
@@ -658,12 +907,81 @@ def test_affine_metric_uses_canonical_source_vertex_origin_exactly():
     assert evaluation.snapshot is not None
     metric = next(iter(evaluation.snapshot.surface_metric_descriptors))
     exact_origin = metric.exact_origin
-    expected = tuple(value.as_integer_ratio() for value in positions[0])
+    # Начало — вершина источника ТОЧНО, а не подгонка. «Точно» означает
+    # позицию под ОБЪЯВЛЕННЫМ законом решётки, а не сырую binary64: ровно так
+    # эту же сверку делает `validation_metric.position_under_grid_law`
+    # (`DECISIONS.md` за 2026-07-25). Узел пересчитывается здесь заново из
+    # масштаба, который называет сертификат, поэтому проверяется ещё и то, что
+    # метрика привязана к ТОМУ масштабу, который объявляет.
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.grid import GridSpecV1, snap_value
+
+    certificate = metric.grid_certificate
+    raw = tuple(Fraction(*value.as_integer_ratio()) for value in positions[0])
+    if certificate.snapping_law.snaps_source:
+        grid = GridSpecV1(scale=certificate.source_scale)
+        expected_origin = tuple(
+            Fraction(snap_value(item, grid), certificate.source_scale)
+            for item in raw
+        )
+    else:
+        expected_origin = raw
     assert (
-        (exact_origin.x.numerator, exact_origin.x.denominator),
-        (exact_origin.y.numerator, exact_origin.y.denominator),
-        (exact_origin.z.numerator, exact_origin.z.denominator),
-    ) == expected
+        Fraction(exact_origin.x.numerator, exact_origin.x.denominator),
+        Fraction(exact_origin.y.numerator, exact_origin.y.denominator),
+        Fraction(exact_origin.z.numerator, exact_origin.z.denominator),
+    ) == expected_origin
+    # Закон обязан быть тем, который объявил хост, иначе сверка выше
+    # проверяет саму себя.
+    assert certificate.snapping_law.value == HOST_GRID_POLICY.value
+
+
+def test_both_host_paths_export_the_same_grid_certificate():
+    """Кнопка и инструмент приёмки видят ОДИН сертификат решётки.
+
+    Пути различаются ровно двумя необязательными аргументами: кнопочный несёт
+    `topology_export` (собранные цепочки хоста) и заранее нарезанный
+    `analysis_view`, гейтовый оба берёт умолчанием. Замер по карточке
+    GRID-PATH-SPLIT-01 объявил расхождение сертификатов решётки между этими
+    путями; здесь оно проверяется РАВЕНСТВОМ ПОЛЕЙ, а не пересказом.
+
+    Проверка стоит именно на сертификате: окно шага выводится из габарита
+    патча и двух констант ядра (`AUTHOR_ANGULAR_ERROR`, `DECAL_DETAIL`), а
+    политику называет одна `HOST_GRID_POLICY` на один вызов
+    `build_rational_affine_planar_metric`. Ни панель, ни `topology_export` в
+    этот вывод не входят — и если войдут, тест обязан упасть.
+    """
+
+    from cftuv.envelope_topology_export import (
+        build_analysis_bundle_id_view,
+        build_envelope_topology_export,
+    )
+
+    bundle = _single_patch_bundle()
+    topology_export = build_envelope_topology_export(bundle)
+
+    gate_snapshot = build_envelope_analysis_snapshot(
+        bundle,
+        included_patch_ids=frozenset({0}),
+    )
+    button_snapshot = build_envelope_analysis_snapshot(
+        bundle,
+        included_patch_ids=frozenset({0}),
+        topology_export=topology_export,
+        analysis_view=build_analysis_bundle_id_view(bundle, frozenset({0})),
+    )
+
+    gate_metric = next(iter(gate_snapshot.surface_metric_descriptors))
+    button_metric = next(iter(button_snapshot.surface_metric_descriptors))
+
+    assert gate_metric.grid_certificate == button_metric.grid_certificate
+    assert gate_metric.grid_certificate.snapping_law.value == (
+        HOST_GRID_POLICY.value
+    )
+    # Не только сертификат: сама метрика обязана совпасть целиком, иначе
+    # равенство сертификатов означало бы лишь, что расхождение уехало ниже.
+    assert gate_metric == button_metric
 
 
 def test_exact_plane_with_irrational_unit_normal_uses_rational_affine_metric():
@@ -827,7 +1145,7 @@ def test_unselected_nonexact_patch_does_not_block_selected_exact_domain():
     assert len(evaluation.debug_scene.patch_domain_ids) == 1
 
 
-def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
+def _seam_bundle_with_off_plane_vertex(z: float):
     bundle = _two_patch_seam_bundle()
     root = 2.0**-0.5
     bundle.patch_graph.nodes[1].basis_u = Vector((root, root, 0.0))
@@ -835,30 +1153,97 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     surface = replace(
         bundle.patch_surface,
         vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.000001))
+            replace(vertex, position=(4.0, 2.0, z))
             if vertex.vertex_id == 5
             else vertex
             for vertex in bundle.patch_surface.vertices
         ),
     )
-    bundle = AnalysisBundle(
+    return AnalysisBundle(
         bundle.source_revision,
         bundle.patch_graph,
         surface,
         bundle.capabilities,
     )
 
+
+def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
+    """Отклонение за ПРОДУКТОВЫМ допуском по-прежнему отвергается бюджетом.
+
+    Отклонение здесь 5e-2, а не прежние 1e-2, и число сменилось по названной
+    причине: решением владельца от 2026-08-01 допуск кривизны near-planar —
+    `PRODUCT_SKIRT_ABSOLUTE_BUDGET` = 1/80 (1.25 см), потому что цель продукта
+    есть юбка декалей вдоль выбранных seam chains, а не планарность домена.
+    Прежний зонд 1e-2 (1 см) лежит ВНУТРИ нового допуска и обязан теперь
+    строиться — это ровно класс кривых крыш `building.004` (0.15 мм – 1.2 см),
+    ради которых допуск и расширен. Утверждение «1 см отвергается» стало
+    устаревшим не потому, что проверку ослабили, а потому, что владелец сменил
+    цель; зонд поднят выше границы, и проверка держит ровно то же свойство.
+
+    До этого число уже менялось однажды, и та причина в силе: с
+    `HOST_GRID_POLICY = SOURCE_ONLY_GRID_SNAP_V1` вершины источника
+    привязываются ДО проверки планарности, а выбранный на этом патче шаг —
+    1/256, то есть половина ячейки 1.95e-03; всё, что ближе к плоскости,
+    привязка кладёт в неё точно. Соседний тест держит именно этот факт.
+
+    Имя отказа — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`, а не прежнее
+    `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`. Прежде хост сводил все
+    отказы метрики к одному имени, и поле читало «нужна near-planar политика»
+    ровно тогда, когда она уже была включена (`HOST_PLANARITY_POLICY`), а
+    отказал бюджет. Тело сообщения говорило про бюджет, имя — про политику;
+    расходились они всегда, и виновата в этом была не геометрия.
+    """
+
     evaluation = evaluate_envelope_debug(
-        bundle,
+        _seam_bundle_with_off_plane_vertex(0.05),
         frozenset({4}),
         0.25,
     )
 
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
     )
-    assert "EXACT_SOURCE_PLANE_V1 rejected" in evaluation.diagnostics[0].message
+    # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ приходит от
+    # бюджета невязки, а не от требования побитовой компланарности.
+    assert "beyond the declared near-planar budget" in (
+        evaluation.diagnostics[0].message
+    )
+
+
+def test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap():
+    """Новое следствие привязки источника, записанное как факт, а не как побочка.
+
+    Вершина в 1 мкм от плоскости при половине ячейки 1.53e-05 ложится в
+    плоскость ТОЧНО, и патч проходит `EXACT_SOURCE_PLANE_V1` — не «в пределах
+    бюджета», а побитово. Это ровно тот механизм, ради которого решётка и
+    вводилась (задуманное отношение восстанавливается структурно, а не
+    допуском), но у него есть цена, которую видно только отсюда: порогом
+    планарности на практике становится половина ячейки, а она на четыре
+    порядка крупнее бюджета невязки. Прежде этот вход отвергался.
+
+    Тест держит обе стороны: и что отклонение исчезло, и что исчезло оно
+    ТОЧНО, а не было прощено.
+    """
+
+    evaluation = evaluate_envelope_debug(
+        _seam_bundle_with_off_plane_vertex(0.000001),
+        frozenset({4}),
+        0.25,
+    )
+
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    for descriptor in evaluation.snapshot.surface_metric_descriptors:
+        certificate = descriptor.planarity_certificate
+        assert certificate.admission_law is (
+            PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+        )
+        assert certificate.exact is True
+        grid = descriptor.grid_certificate
+        assert grid.snapping_law.snaps_source
+        # Половина ячейки — та величина, которая отклонение и поглотила.
+        assert Fraction(1, 2 * grid.source_scale) > Fraction(1, 10**6)
 
 
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():
@@ -929,11 +1314,26 @@ def test_topology_scene_uses_host_facts_without_loading_exact_kernel(monkeypatch
 
 
 def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
+    """Отклонение 5e-2, а не прежнее 1e-2, по той же причине, что и выше.
+
+    Зонд обязан лежать ЗА действующей границей допуска, иначе тест перестаёт
+    проверять то, ради чего написан, — что отказ ОДНОГО домена не уносит
+    топологию остальных. Границ этих было три, и каждый раз число поднималось
+    вслед за ней:
+
+    * половина ячейки 1.95e-03 (шаг 1/256) съедала прежний 1 мм;
+    * 1e-2 переживало привязку и отвергалось бюджетом ячейки;
+    * решением владельца от 2026-08-01 допуск стал продуктовым —
+      `PRODUCT_SKIRT_ABSOLUTE_BUDGET` = 1/80 (1.25 см), — и 1 см оказался
+      ВНУТРИ него: это класс кривых крыш `building.004`, которые обязаны
+      строиться. 5e-2 лежит за границей и отвергается по-прежнему.
+    """
+
     bundle = _two_patch_seam_bundle()
     surface = replace(
         bundle.patch_surface,
         vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.001))
+            replace(vertex, position=(4.0, 2.0, 0.05))
             if vertex.vertex_id == 5
             else vertex
             for vertex in bundle.patch_surface.vertices
@@ -964,7 +1364,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
         EnvelopeDomainStage.RESOLVED,
     }
     assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED
-    assert "EXACT_SOURCE_PLANE_V1 rejected" in receipts[1].message
+    assert "beyond the declared near-planar budget" in receipts[1].message
     assert any(
         scene.patch_domain_ids
         for scene in evaluation.exact_debug_scenes
@@ -1037,7 +1437,29 @@ def test_exact_profile_exposes_named_stage_timings_and_counters():
         "ARRANGEMENT_PAIR_TESTS",
         "ARRANGEMENT_INTERSECTIONS",
         "ARRANGEMENT_ATOMIC_SEGMENTS",
+        # Выход arrangement и обе стороны клипа. Без них по счётчикам не
+        # отличить «пришло много» от «расплодилось на пересечениях».
+        "ARRANGEMENT_OUTPUT_VERTICES",
+        "ARRANGEMENT_OUTPUT_EDGES",
+        "ARRANGEMENT_OUTPUT_LOOPS",
+        "ARRANGEMENT_OUTPUT_REGIONS",
+        "ENVELOPE_INSTANCES",
+        "ENVELOPE_INSTANCE_SEGMENTS",
+        "CLIP_SEGMENTS_IN",
+        "CLIP_SEGMENTS_OUT",
+        # INTERACTION — самая дорогая стадия в поле.
+        "INTERACTION_COMPONENTS",
+        "INTERACTION_ARRIVAL_MODELS",
+        "INTERACTION_CANDIDATES",
+        "INTERACTION_APPLICATIONS",
+        "INTERACTION_EQUALITY_LOCI",
+        "RESOLVED_REGIONS",
+        "RESOLVED_EDGES",
     } <= counter_names
+    assert {item.patch_domain_id for item in snapshot.counters} != {None}, (
+        "счётчики обязаны быть привязаны к домену: без этого нельзя сравнить "
+        "большой патч с мелким, ради чего они и заведены"
+    )
 
 
 def test_staged_multi_domain_selection_slices_edges_but_keeps_request_identity():
@@ -1127,6 +1549,9 @@ def test_session_reuses_analysis_topology_metric_and_domain_for_alpha_changes():
         "PATCH_METRIC": 1,
         "DOMAIN_GEOMETRY": 1,
         "COMPILED_ENVELOPE": 0,
+        # Движок LEGACY подготовку очереди не строит ни разу — и ноль здесь
+        # утверждение, а не умолчание.
+        "CONVEYOR_PREPARATION": 0,
     }
     assert [
         str(item.domains[0].request.requested_alpha.value)
@@ -1162,6 +1587,107 @@ def test_session_reuses_analysis_topology_metric_and_domain_for_alpha_changes():
         assert "FRAME_ADMISSION" not in stage_names
         assert "ANGULAR_RELATIONS" not in stage_names
         assert "DOMAIN_GEOMETRY_EXPORT" not in stage_names
+
+
+def test_legacy_and_queue_stages_receive_identical_density_policy_fields():
+    bundle = _single_patch_bundle()
+    evaluations = tuple(
+        evaluate_envelope_debug_staged(
+            bundle,
+            frozenset({0}),
+            0.25,
+            engine=engine,
+            density="1",
+        )
+        for engine in ("LEGACY", "QUEUE")
+    )
+    requests = tuple(item.domains[0].request for item in evaluations)
+    assert all(request is not None for request in requests)
+
+    fields = (
+        "angular_profile_selection_policy_id",
+        "max_subturn_parameter_id",
+        "max_subturn_value_id",
+        "max_subturn_exact_value",
+    )
+    assert tuple(getattr(requests[0], name) for name in fields) == tuple(
+        getattr(requests[1], name) for name in fields
+    )
+    assert requests[0].decal_request_id == requests[1].decal_request_id
+
+
+def test_queue_preparation_cache_is_keyed_by_density_and_survives_warm_reset():
+    from cftuv.envelope_debug_session import QueueSessionStateV1
+
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    requests = {
+        density: build_envelope_decal_request(
+            snapshot,
+            frozenset({0}),
+            0.25,
+            density=density,
+        )
+        for density in (1, 4)
+    }
+    controller = EnvelopeDebugSessionController()
+    builds = []
+
+    def prepared(request):
+        return controller.get_conveyor_preparation(
+            "revision",
+            "domain",
+            frozenset({0}),
+            request,
+            lambda: builds.append(object()) or builds[-1],
+        )
+
+    sequence = tuple(prepared(requests[density]) for density in (1, 1, 4, 1))
+    assert sequence[0] is sequence[1] is sequence[3]
+    assert sequence[2] is not sequence[0]
+    assert len(builds) == 2
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 2
+    legacy = build_envelope_decal_request(snapshot, frozenset({0}), 0.25)
+    assert prepared(legacy) is not sequence[0]
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 3
+
+    controller.remember_queue_session(
+        QueueSessionStateV1(
+            "source",
+            object(),
+            (),
+            ((1, "domain", object()),),
+            (),
+            1,
+        )
+    )
+    controller.invalidate_queue_session()
+    assert controller.queue_session is None
+    assert prepared(requests[1]) is sequence[0]
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 3
+
+
+def test_alpha_redraw_refuses_a_stale_density_session():
+    from cftuv.envelope_debug_renderer import update_queue_alpha
+    from cftuv.envelope_debug_session import QueueSessionStateV1
+
+    controller = EnvelopeDebugSessionController()
+    controller.remember_queue_session(
+        QueueSessionStateV1(
+            "source",
+            object(),
+            (),
+            ((1, "domain", object()),),
+            (),
+            1,
+        )
+    )
+
+    assert update_queue_alpha(
+        controller,
+        "source",
+        0.5,
+        density=4,
+    ) == "Fan Density changed; press Build"
 
 
 def test_selection_change_rebuilds_request_but_reuses_source_caches():
@@ -1233,3 +1759,99 @@ def test_source_revision_and_data_replacement_invalidate_all_dependent_caches():
     assert controller.build_counts["TOPOLOGY_EXPORT"] == 3
     assert controller.build_counts["PATCH_METRIC"] == 3
     assert controller.build_counts["DOMAIN_GEOMETRY"] == 3
+
+
+def test_console_profile_shows_counters_for_each_domain(capsys):
+    """Счётчики обязаны быть видны в консоли, а не только в sidecar JSON.
+
+    Приёмка задачи — прогон в Blender: владелец читает консоль. Счётчик,
+    который попал в JSON и не попал на экран, для этого прогона не существует.
+    """
+
+    from cftuv.envelope_debug_renderer import _print_profile
+
+    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "EXACT_REFERENCE")
+    evaluate_envelope_debug_staged(
+        _two_patch_seam_bundle(),
+        frozenset({0, 5}),
+        0.25,
+        profile=profile,
+    )
+    snapshot = profile.snapshot()
+    capsys.readouterr()
+    _print_profile(snapshot)
+    printed = capsys.readouterr().out
+
+    domains = sorted(
+        {
+            item.patch_domain_id
+            for item in snapshot.counters
+            if item.patch_domain_id is not None
+        }
+    )
+    assert len(domains) == 2
+    for domain in domains:
+        # Домен печатается хвостом: у всех общий префикс, и обрезка слева
+        # давала одинаковые строки. Живой след стадий печатает так же.
+        assert domain[-24:] in printed
+    for name in (
+        "ARRANGEMENT_INPUT_SEGMENTS",
+        "ARRANGEMENT_OUTPUT_REGIONS",
+        "CLIP_SEGMENTS_IN",
+        "INTERACTION_CANDIDATES",
+    ):
+        assert name in printed
+    # Сводка масштабирования — то, ради чего счётчики и заведены.
+    assert "Scaling" in printed
+
+
+def test_non_fatal_kernel_diagnostics_reach_the_host_evaluation(monkeypatch):
+    """INFO-диагностика ядра доходит до хоста на УСПЕШНОМ домене.
+
+    Раньше `diagnostics.extend(...)` стоял только в ветках отказа, поэтому
+    именованное событие на разрешившемся домене исчезало молча — печать в
+    рендерере его бы всё равно не увидела.
+
+    Проверяется тракт, а не геометрия: фикстуры INFO-диагностик не порождают, и
+    доказывать проброс полевой случайностью нельзя. Поэтому исход подменяется
+    здесь явно, а тест падает ровно тогда, когда проброс исчезнет.
+    """
+
+    import cftuv_envelope as kernel
+    from dataclasses import replace as _replace
+
+    from cftuv.envelope_request_export import EnvelopeDebugHostSeverity
+
+    original = kernel.resolve_coverage_interactions
+    marker = kernel.InteractionDiagnosticV1(
+        kernel.InteractionOutcome.MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT,
+        kernel.InteractionDiagnosticSeverity.INFO,
+        "probe: multiway meet resolved as one event",
+    )
+
+    def with_marker(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if result.resolved_coverage is None:
+            return result
+        return _replace(result, diagnostics=(*result.diagnostics, marker))
+
+    monkeypatch.setattr(kernel, "resolve_coverage_interactions", with_marker)
+
+    evaluation = evaluate_envelope_debug_staged(
+        _single_patch_bundle(),
+        frozenset({0}),
+        0.25,
+    )
+
+    outcomes = {
+        item.outcome.value if hasattr(item.outcome, "value") else str(item.outcome)
+        for item in evaluation.diagnostics
+    }
+    assert "MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT" in outcomes, (
+        "ненадзорная диагностика ядра не дошла до хоста на успешном домене"
+    )
+    # Severity обязана сохраниться: иначе INFO неотличим от отказа в выводе.
+    assert any(
+        item.severity is not EnvelopeDebugHostSeverity.ERROR
+        for item in evaluation.diagnostics
+    )

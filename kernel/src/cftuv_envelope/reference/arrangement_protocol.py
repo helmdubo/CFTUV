@@ -40,6 +40,11 @@ class ArrangementUnionV2(ArrangementUnionV1):
     max_incident_degree: int
     rotation_comparison_count: int
     face_walk_count: int
+    # Работа локализации точки и длина точных координат. Обе величины ничего не
+    # меняют в ответе и заведены потому, что полевые времена растут в сотни раз
+    # там, где все считаемые входы растут в единицы.
+    point_location_segment_scan_count: int
+    max_coordinate_chars: int
 
 
 class PlanarArrangementBackend(Protocol):

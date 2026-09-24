@@ -1,0 +1,5 @@
+bundle built in 0.20s, patches=122
+domains carrying selected edges: 1
+    {"patch_id": 89, "faces": 5, "boundary_edges": 14, "loops": 1, "selected_edges": 14, "out_of_plane_m": 0.011993}
+stage_domain_inputs: 0.09s, domains=122
+{"patch_id": 89, "faces": 5, "boundary_edges": 14, "loops": 1, "selected_edges": 14, "out_of_plane_m": 0.011993, "domain_id": "2a7adbbc7bb2225fe14832f6", "host_export_s": 0.66, "outcome": "HOST_REJECT:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=3.573965e-04 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLU"}

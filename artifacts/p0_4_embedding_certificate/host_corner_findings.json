@@ -1,0 +1,55 @@
+{
+  "schema": "P0_4_HOST_CORNER_DIAGNOSTICS_RESOLVED_V2",
+  "targeted_fixture_result": "4 passed, 132 deselected in 0.72s",
+  "metric_calls": 5,
+  "pre_resolution_case_receipt_sha256": "7625b1c4986fac76a4cea3ef7ad9ff025d523d2999b30023c798c59b24e8466c",
+  "common_facts": {
+    "snapping_law": "SOURCE_ONLY_GRID_SNAP_V1",
+    "unclassifiable_source_corner_count": 1,
+    "degenerated_intended_right_corner_count": 0,
+    "pre_resolution_outcome": "SOURCE_SNAP_INTENDED_RIGHT_CORNER_DEGENERATED",
+    "post_resolution_outcome": null,
+    "diagnostic_name": "PREEXISTING_UNCLASSIFIABLE_SOURCE_CORNER_UNCHANGED",
+    "diagnostic_count": 5,
+    "before_cross_zero": true,
+    "before_dot_sign": -1,
+    "before_after_positions_equal": true,
+    "diagnosis": "the source face cycle already contains one exact straight intermediate vertex with opposite incident rays; no intended-right corner degenerates during snap"
+  },
+  "cases": [
+    {
+      "test": "test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[0]",
+      "corner_vertex_suffixes": ["2", "3", "4"],
+      "incident_physical_edge_ids": ["host-edge:host-source:sha256:v0-angular-k0:v0-angular-k0:2", "host-edge:host-source:sha256:v0-angular-k0:v0-angular-k0:3"],
+      "left_right_vectors": [["1", "0", "0"], ["-1", "0", "0"]],
+      "positions": [["4", "2", "0"], ["3", "2", "0"], ["2", "2", "0"]]
+    },
+    {
+      "test": "test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[1]",
+      "corner_vertex_suffixes": ["2", "3", "4"],
+      "incident_physical_edge_ids": ["host-edge:host-source:sha256:v0-angular-k1:v0-angular-k1:2", "host-edge:host-source:sha256:v0-angular-k1:v0-angular-k1:3"],
+      "left_right_vectors": [["1", "0", "0"], ["-1", "0", "0"]],
+      "positions": [["4", "2", "0"], ["3", "2", "0"], ["2", "2", "0"]]
+    },
+    {
+      "test": "test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[2]",
+      "corner_vertex_suffixes": ["2", "3", "4"],
+      "incident_physical_edge_ids": ["host-edge:host-source:sha256:v0-angular-k2:v0-angular-k2:2", "host-edge:host-source:sha256:v0-angular-k2:v0-angular-k2:3"],
+      "left_right_vectors": [["1", "0", "0"], ["-1", "0", "0"]],
+      "positions": [["4", "2", "0"], ["3", "2", "0"], ["2", "2", "0"]]
+    },
+    {
+      "test": "test_patch_side_seam_partitions_use_exact_common_refinement::metric-call-1",
+      "incident_physical_edge_ids": ["host-edge:host-source:sha256:v0-seam-partition:v0-seam-partition:1", "host-edge:host-source:sha256:v0-seam-partition:v0-seam-partition:2"],
+      "left_right_vectors": [["0", "-1", "0"], ["0", "1", "0"]],
+      "positions": [["2", "0", "0"], ["2", "1", "0"], ["2", "2", "0"]]
+    },
+    {
+      "test": "test_patch_side_seam_partitions_use_exact_common_refinement::metric-call-2",
+      "incident_physical_edge_ids": ["host-edge:host-source:sha256:v0-seam-partition:v0-seam-partition:2", "host-edge:host-source:sha256:v0-seam-partition:v0-seam-partition:1"],
+      "left_right_vectors": [["0", "1", "0"], ["0", "-1", "0"]],
+      "positions": [["2", "2", "0"], ["2", "1", "0"], ["2", "0", "0"]]
+    }
+  ],
+  "status": "RESOLVED_BY_AUTH_Q05"
+}

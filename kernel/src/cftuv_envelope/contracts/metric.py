@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from fractions import Fraction
 from math import gcd, isfinite
 
 from ..ids import (
@@ -21,15 +22,376 @@ REFERENCE_PLANAR_METRIC_SCHEMA_V2 = (
     "cftuv.envelope.rational_affine_planar_metric.v2"
 )
 RUNTIME_PLANAR_METRIC_SCHEMA_V1 = "cftuv.envelope.runtime_planar_metric.v1"
+EMBEDDING_CERTIFIED_RATIONAL_AFFINE_PLANAR_METRIC_SCHEMA_V1 = (
+    "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1"
+)
 
 
 class PlanarityAdmissionLawV1(str, Enum):
     EXACT_SOURCE_PLANE_V1 = "EXACT_SOURCE_PLANE_V1"
+    # Источник не компланарен побитово, но укладывается в объявленный бюджет
+    # невязки. Вершины проецируются на плоскость ТОЧНО, в рациональных числах:
+    # ниже по конвейеру арифметика остаётся точной, приблизительным является
+    # только выбор входа, и он записан в сертификате.
+    NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
+
+
+class GridSnappingLawV1(str, Enum):
+    """Как координаты источника попали в эту метрику.
+
+    Форма взята с `PlanarityAdmissionLawV1`: закон существует в контракте
+    отдельно от того, какое значение объявляет хост, поэтому переключение
+    политики видно в сертификате, а не только в поведении.
+
+    Привязок в конвейере ДВЕ, и они независимы: вершины ИСТОЧНИКА (до базиса,
+    механизм детерминированный) и точки КОНСТРУКЦИЙ (`offset_support_g`,
+    `segment_intersections` — механизм вероятностный, карточка R1b сама числит
+    его лотереей). Поэтому и законов три, а не два: разрез между ними
+    измерен — на `building.002` привязка одного источника даёт `EXACT` и ту же
+    топологию, а привязка конструкций поверх неё сливает три вычисленные точки
+    и оставляет две висячие полурёбра.
+    """
+
+    # Нынешнее поведение: координаты binary64 читаются как точные дроби и
+    # больше ничем не трогаются.
+    UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
+    # Вершины источника привязаны к целочисленной решётке ДО построения
+    # базиса, конструкции — НЕ привязаны и остаются точными. Восстановленное
+    # задуманное отношение живёт в метрике, а вырождение вычисленных точек
+    # по-прежнему не сливается.
+    SOURCE_ONLY_GRID_SNAP_V1 = "SOURCE_ONLY_GRID_SNAP_V1"
+    # Вершины источника привязаны к целочисленной решётке ДО построения
+    # базиса, поэтому базис, матрица Грама и все углы считаются уже от
+    # привязанных координат; сверх того привязаны и конструкции.
+    INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+
+    @property
+    def snaps_source(self) -> bool:
+        """Двигает ли закон вершины источника до построения базиса."""
+
+        return self is not GridSnappingLawV1.UNSNAPPED_EXACT_V1
+
+    @property
+    def snaps_constructions(self) -> bool:
+        """Двигает ли закон вычисленные точки (`offset_support_g` и пересечения).
+
+        Отдельным свойством, а не сравнением с именем в четырёх местах: разрез
+        между двумя привязками — это то, чем закон `SOURCE_ONLY_GRID_SNAP_V1`
+        отличается от `INTEGER_GRID_SNAP_V1`, и он обязан быть назван один раз.
+        """
+
+        return self is GridSnappingLawV1.INTEGER_GRID_SNAP_V1
+
+
+class GridWindowOutcomeV1(str, Enum):
+    """Существует ли шаг решётки, который чинит вход и не съедает деталь.
+
+    Границ у окна две, поэтому и исходов закрытия два: «границы разошлись» и
+    «между границами нет степени двойки» лечатся разным, и сливать их в один
+    отказ значило бы потерять причину.
+    """
+
+    WINDOW_AVAILABLE = "WINDOW_AVAILABLE"
+    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+
+
+class GridScaleSearchOrderV1(str, Enum):
+    """С какого конца окна перебираются степени двойки.
+
+    Порядок — часть закона, а не деталь реализации: он однозначно определяет,
+    какой масштаб будет выбран, поэтому обязан быть записан рядом с выбором.
+    Два конца окна названы оба, потому что оба осмысленны и замерены; какой из
+    них объявляет ядро — сказано в `source_grid.GRID_SCALE_SEARCH_ORDER`.
+    """
+
+    # От самого МЕЛКОГО допустимого шага (наибольший масштаб) к крупному.
+    FINEST_ADMISSIBLE_FIRST_V1 = "FINEST_ADMISSIBLE_FIRST_V1"
+    # От самого КРУПНОГО допустимого шага (наименьший масштаб) к мелкому.
+    COARSEST_ADMISSIBLE_FIRST_V1 = "COARSEST_ADMISSIBLE_FIRST_V1"
+
+
+class GridScaleTrialOutcomeV1(str, Enum):
+    """Чем кончилась проба одного масштаба. Третьего исхода нет."""
+
+    RELATIONS_RESTORED = "RELATIONS_RESTORED"
+    RELATIONS_NOT_RESTORED = "RELATIONS_NOT_RESTORED"
+
+
+@dataclass(frozen=True, slots=True)
+class GridScaleTrialV1:
+    """Одна проба перебора: что пробовали и что из этого вышло.
+
+    Записывается каждая проба, а не только победившая. Иначе выбор
+    невоспроизводим: по картинке в Blender видно, какая геометрия получилась,
+    но не видно, почему выбран именно этот шаг, — а он выбран потому, что
+    предыдущие пробы отказали, и отказ каждой из них здесь назван числом.
+    """
+
+    scale: int
+    step: ExactRationalV1
+    restored_right_corners: int
+    outcome: GridScaleTrialOutcomeV1
+
+    def __post_init__(self) -> None:
+        if self.scale <= 0 or self.scale & (self.scale - 1):
+            raise ValueError("масштаб пробы — положительная степень двойки")
+        if self.restored_right_corners < 0:
+            raise ValueError("счётчик восстановленных углов неотрицателен")
+        if self.step != ExactRationalV1(1, self.scale):
+            raise ValueError("шаг пробы обязан быть обратным её масштабу")
+
+
+@dataclass(frozen=True, slots=True)
+class IntegerGridCertificateV1:
+    """Решётка домена: обе границы окна, весь перебор и доказательство.
+
+    Записывается ВСЕГДА, в том числе когда привязки не было: тот же вход с
+    другим шагом даёт другой результат, и дайджест обязан их различать.
+
+    `intended_right_corners` — сколько углов патча объявленная авторская
+    ошибка числит задуманно прямыми, не будучи таковыми точно.
+    `restored_right_corners` — сколько из них дают точно рациональную долю π
+    в тех координатах, которые метрика реально несёт. Две названные величины —
+    два поля: расхождение между числом названного и числом измеренного само по
+    себе дефект.
+
+    `window_step` и `source_scale` у всякого закона, который двигает источник
+    (`SOURCE_ONLY_GRID_SNAP_V1`, `INTEGER_GRID_SNAP_V1`), — ВЫБРАННЫЙ
+    перебором шаг, то есть последняя проба в `scale_trials`. При
+    `UNSNAPPED_EXACT_V1` перебора не было, и это первый кандидат окна: шаг,
+    который окно предлагает у своей нижней границы.
+
+    Привязку конструкций сертификат не описывает и описывать не обязан: она
+    происходит ниже, в карте, и её решётка выводится из `window_step`
+    (`source_grid.chart_grid_for`). Два закона со снятой привязкой источника
+    здесь неразличимы намеренно — различие между ними живёт там, где оно
+    действует.
+    """
+
+    snapping_law: GridSnappingLawV1
+    window_outcome: GridWindowOutcomeV1
+    patch_extent: ExactRationalV1
+    author_angular_error: ExactRationalV1
+    decal_detail: ExactRationalV1
+    window_lower_bound: ExactRationalV1
+    window_upper_bound: ExactRationalV1
+    window_step: ExactRationalV1 | None
+    source_scale: int | None
+    magnitude_bound: int | None
+    intended_right_corners: int
+    restored_right_corners: int
+    search_order: GridScaleSearchOrderV1
+    scale_trials: tuple[GridScaleTrialV1, ...]
+
+    def __post_init__(self) -> None:
+        if self.intended_right_corners < 0 or self.restored_right_corners < 0:
+            raise ValueError("угловые счётчики решётки неотрицательны")
+        if self.restored_right_corners > self.intended_right_corners:
+            raise ValueError(
+                "восстановлено не может быть больше, чем задумано прямыми"
+            )
+        for trial in self.scale_trials:
+            if trial.restored_right_corners > self.intended_right_corners:
+                raise ValueError(
+                    "проба восстановила больше углов, чем задумано прямыми"
+                )
+            restored = (
+                trial.restored_right_corners == self.intended_right_corners
+            )
+            if restored is not (
+                trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+            ):
+                raise ValueError(
+                    "исход пробы расходится с её же числом восстановленных"
+                )
+        # Проверки ниже принадлежат привязке ИСТОЧНИКА, а не одному закону:
+        # окно, перебор и доказательство восстановления одинаковы у
+        # `SOURCE_ONLY_GRID_SNAP_V1` и `INTEGER_GRID_SNAP_V1`, потому что
+        # источник они двигают одинаково, а различаются ниже — привязкой
+        # конструкций, которой в этом сертификате нет.
+        if not self.snapping_law.snaps_source:
+            if self.scale_trials:
+                raise ValueError(
+                    "UNSNAPPED_EXACT_V1 не перебирает масштабы: проб быть не может"
+                )
+            return
+        if self.window_outcome is not GridWindowOutcomeV1.WINDOW_AVAILABLE:
+            raise ValueError(
+                f"{self.snapping_law.value} требует открытого окна шага"
+            )
+        if self.window_step is None or self.source_scale is None:
+            raise ValueError("привязка без объявленного шага невозможна")
+        # Сертификат, объявляющий восстановление, обязан ему удовлетворять.
+        # Иначе «привязка сработала» существует как заявление, которого никто
+        # не проверил, — а проверять его больше негде: дальше по конвейеру
+        # исходные координаты уже недоступны.
+        if self.restored_right_corners != self.intended_right_corners:
+            raise ValueError(
+                f"{self.snapping_law.value} не восстановил все задуманно "
+                "прямые углы"
+            )
+        self._check_trials()
+
+    def _check_trials(self) -> None:
+        """Перебор обязан быть тем самым, который объявлен законом.
+
+        Проверяется не «что-то записано», а четыре свойства объявленного
+        закона: перебор непуст, победил ПЕРВЫЙ прошедший, победитель — это и
+        есть выбранный шаг, и все пробы шли объявленным порядком внутри окна.
+        Без этих проверок запись перебора была бы украшением, а не
+        доказательством выбора.
+        """
+
+        if not self.scale_trials:
+            raise ValueError("привязка без записанного перебора невозможна")
+        winner = self.scale_trials[-1]
+        if winner.outcome is not GridScaleTrialOutcomeV1.RELATIONS_RESTORED:
+            raise ValueError("последняя проба перебора обязана быть прошедшей")
+        if winner.scale != self.source_scale or winner.step != self.window_step:
+            raise ValueError("выбранный шаг не совпадает с прошедшей пробой")
+        if any(
+            trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+            for trial in self.scale_trials[:-1]
+        ):
+            raise ValueError(
+                "закон берёт ПЕРВЫЙ прошедший масштаб: прошедшая проба до "
+                "победителя означает, что выбран не он"
+            )
+        scales = [trial.scale for trial in self.scale_trials]
+        descending = (
+            self.search_order is GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1
+        )
+        expected = sorted(scales, reverse=descending)
+        if scales != expected or len(set(scales)) != len(scales):
+            raise ValueError("перебор идёт не тем порядком, который объявлен")
+        for trial in self.scale_trials:
+            if not (
+                self.window_lower_bound.numerator
+                * trial.step.denominator
+                <= trial.step.numerator * self.window_lower_bound.denominator
+                and trial.step.numerator * self.window_upper_bound.denominator
+                <= self.window_upper_bound.numerator * trial.step.denominator
+            ):
+                raise ValueError("проба перебора вышла за границы окна")
+
+
+class NearPlanarResidualBudgetLawV1(str, Enum):
+    """Чем меряется отклонение источника от собственной плоскости.
+
+    Членов ДВА, потому что величин две, и они принадлежат разным законам.
+    Записью от 2026-07-31 бюджет берётся у того закона, который источник
+    ДВИГАЕТ: у привязывающего это ячейка выбранного шага, у
+    `UNSNAPPED_EXACT_V1` — прежний шум представления. Пока член был один,
+    контракт лгал о власти: `_admission_budget` уже брала ячейку у всякого
+    снапнутого домена (полевой default), а сертификат безусловно писал
+    `RELATIVE_EXTENT_OR_ULP_V1`. Число и закон расходились на два порядка —
+    6.10e-05 против 3.31e-07 на полевом скате, — и прочитать по сертификату,
+    чем судили домен, было нельзя. Это класс отказа «декоративная власть/DTO»:
+    поле объявляет закон, которому не подчиняется.
+    """
+
+    # max(relative_extent_factor * max(planar_extent, minimum_extent),
+    #     coordinate_ulp_multiplier * max_coordinate_ulp)
+    # Исследовано в M-R0 как RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1.
+    RELATIVE_EXTENT_OR_ULP_V1 = "RELATIVE_EXTENT_OR_ULP_V1"
+    # Ячейка выбранного шага решётки: `IntegerGridCertificateV1.window_step`.
+    # Осевая решётка сама вносит непланарность — наклонную плоскость она рвёт,
+    # каждая координата садится в свой узел независимо, — и внесённое ею
+    # отклонение ограничено ячейкой шага.
+    GRID_STEP_CELL_V1 = "GRID_STEP_CELL_V1"
+    # АБСОЛЮТНЫЙ ПРОДУКТОВЫЙ ДОПУСК ЮБКИ — решение владельца от 2026-08-01.
+    # Величина принадлежит не решётке и не представлению, а ПРОДУКТУ: цель —
+    # юбка декалей вдоль выбранных seam chains, и планарность домена сама по
+    # себе не является целью. Число живёт в ядре
+    # (`planar_metric.PRODUCT_SKIRT_ABSOLUTE_BUDGET`), сертификат его
+    # повторяет, валидатор сверяет — закон владеет числом, запись его не
+    # выбирает. Два закона выше остаются членами перечисления и остаются
+    # пересчитываемыми: они история и красные контроли, а не действующий
+    # допуск.
+    PRODUCT_SKIRT_ABSOLUTE_V1 = "PRODUCT_SKIRT_ABSOLUTE_V1"
+
+
+PRODUCT_SKIRT_ABSOLUTE_BUDGET = Fraction(1, 80)
+"""Допуск кривизны near-planar: 1/80 единицы сцены = 1.25 см. Точная дробь.
+
+Число живёт рядом со своим ЗАКОНОМ, а не у построителя: им пользуются оба
+конца — построитель, чтобы судить источник, и валидатор, чтобы пересчитать
+записанное. Положить его в `planar_metric` не выйдет и технически: валидатор
+импортировал бы построитель через цикл
+(`planar_metric` -> `source_grid` -> `reference` -> `validation`).
+
+Решение ВЛАДЕЛЬЦА от 2026-08-01, три основания дословно по смыслу:
+
+1. Цель продукта — ЮБКА ДЕКАЛЕЙ вдоль выбранных seam chains. Планарность
+   домена сама по себе не цель и никогда ею не была: она была условием, при
+   котором умеет считать нынешний алгоритм, и это условие приняли за цель.
+2. Кривая или планарная геометрия домена НЕ ВАЖНА для этой цели. Кривые крыши
+   `building.004` отклоняются на 0.15 мм – 1.2 см и обязаны СТРОИТЬСЯ; при
+   прежних допусках (ячейка 6.10e-05, представление 3.31e-07) они отвергались
+   честно и бесполезно — отказ был верен закону и бесполезен продукту.
+3. Допуск поднят СПЕЦИАЛЬНО ВЫШЕ нынешней потребности (1.25 см против
+   наблюдаемых 1.2 см), чтобы искать алгоритм, который ляжет на криволинейные
+   поверхности. Это не послабление ради зелёного цвета, а расширение области,
+   в которой решение ищется.
+
+Число ДРОБЬЮ, а не float: бюджет сравнивается с точным квадратом невязки, и
+двоичное приближение 0.0125 внесло бы в саму границу допуска шум, которого в
+решении владельца нет. 1/80 представимо точно и двоично, и десятично.
+
+Величина АБСОЛЮТНАЯ — в единицах сцены, не доля габарита. Доля означала бы,
+что большой домен вправе быть кривее маленького, а юбке декали габарит патча
+безразличен: допуск на отклонение поверхности от плоскости есть свойство
+поверхности, а не её размера.
+
+Контроль, что допуск не стал дырой: прогиб 0.1035 (10 см) на `building.002`
+patch 10 остаётся отвергнутым — он в 8.3 раза больше этой границы.
+"""
 
 
 class AffineFrameSelectionLawV1(str, Enum):
     CANONICAL_SOURCE_VERTEX_BASIS_V1 = (
         "CANONICAL_SOURCE_VERTEX_BASIS_V1"
+    )
+
+
+class ProjectionAnchorSelectionLawV1(str, Enum):
+    """Basis identity for the additive projection-embedding certificate.
+
+    `CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1` назвало ОДИН выбор
+    базиса и записало его в оба поля сертификата. Сравнение двух копий одного
+    числа не может упасть: закон был самодоказательным.
+
+    `EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2` называет ДВА закона:
+    сторона источника — канонический базис по точным трёхмерным координатам
+    (до проекции), сторона проекции — канонический базис карты разрешённой
+    плоскости. Входы разные, предикаты разные, расхождение достижимо.
+
+    Старое значение оставлено читаемым: записи, выпущенные под ним, остаются
+    разбираемыми, а какой закон применялся, видно по полю.
+    """
+
+    CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1 = (
+        "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1"
+    )
+    EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2 = (
+        "EXACT_SOURCE_3D_BASIS_AND_RESOLVED_PLANE_BASIS_V2"
+    )
+
+
+class ProjectionInteriorInjectivityLawV1(str, Enum):
+    """Как доказана глобальная инъективность интерьера карты проекции.
+
+    Предпосылочный путь (простая граница, положительная ориентация, согласованные
+    инцидентности, ожидаемая топология носителя) выводит инъективность из
+    теоремы. Этот закон её не выводит, а ПРОВЕРЯЕТ: каждый полигон грани
+    триангулируется отсечением ушей точными предикатами, и все пары
+    треугольников проходят AABB-префильтр и точный тест разделяющей оси.
+    Коробка домена 10-20 м и десятки-сотни треугольников делают O(n^2) дешёвым.
+    """
+
+    EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1 = (
+        "EAR_CLIPPED_TRIANGLE_PAIR_EXACT_OVERLAP_V1"
     )
 
 
@@ -147,6 +509,220 @@ class ExactSourcePlaneCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceSnapEmbeddingCertificateV1:
+    """Exact evidence that source-grid snapping preserved the source embedding.
+
+    Counts are deliberately recorded instead of one aggregate ``valid`` bit:
+    the validator recomputes every count from the source positions, face
+    cycles, and declared grid law.  A zero therefore names the exact property
+    proved by the record and cannot hide a different failed predicate.
+    """
+
+    snapping_law: GridSnappingLawV1
+    source_vertex_ids: tuple[SourceVertexId, ...]
+    source_vertex_count: int
+    source_edge_count: int
+    intended_right_corner_count: int
+    newly_coincident_vertex_pair_count: int
+    collapsed_nonzero_source_edge_count: int
+    new_nonadjacent_edge_intersection_count: int
+    unclassifiable_source_corner_count: int
+    unchanged_unclassifiable_source_corner_count: int
+    degenerated_intended_right_corner_count: int
+    exact_pair_test_count: int
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.source_vertex_count,
+            self.source_edge_count,
+            self.intended_right_corner_count,
+            self.newly_coincident_vertex_pair_count,
+            self.collapsed_nonzero_source_edge_count,
+            self.new_nonadjacent_edge_intersection_count,
+            self.unclassifiable_source_corner_count,
+            self.unchanged_unclassifiable_source_corner_count,
+            self.degenerated_intended_right_corner_count,
+            self.exact_pair_test_count,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("source-snap embedding counts must be non-negative")
+        if (
+            self.unchanged_unclassifiable_source_corner_count
+            > self.unclassifiable_source_corner_count
+        ):
+            raise ValueError(
+                "unchanged unclassifiable corners are a subset of all "
+                "unclassifiable source corners"
+            )
+        if self.source_vertex_count != len(self.source_vertex_ids):
+            raise ValueError("source-snap vertex count disagrees with its IDs")
+
+
+@dataclass(frozen=True, slots=True)
+class NearPlanarProjectionEmbeddingCertificateV1:
+    """Exact evidence that projection retained the patch embedding.
+
+    `boundary_cyclic_order_sha256` — ОДНОСТОРОННИЙ отпечаток комбинаторики
+    границы источника, а не двустороннее клеймо. Прежде здесь стояла пара
+    `source_`/`projected_`, и обе половины считались из одной и той же
+    последовательности `PhysicalEdgeId`: проекция в расчёт не входила, и
+    сравнение не могло упасть ни на каком входе. Отпечаток оставлен, потому
+    что валидатор его пересчитывает — подделанная запись отвергается, — но
+    доказательством сохранения порядка он больше не притворяется.
+
+    `source_anchor_vertex_ids` и `projected_anchor_vertex_ids` теперь
+    считаются РАЗНЫМИ законами из РАЗНЫХ входов (см.
+    `ProjectionAnchorSelectionLawV1`). Их РАВЕНСТВА сертификат не требует:
+    измерено на 61 живом вызове проекции — 18 из них законно выбирают разную
+    третью вершину базиса, потому что near-planar проекция имеет право
+    сделать почти коллинеарную тройку точно коллинеарной. Отказом остаётся
+    расхождение ПРЕФИКСА (origin, first): его может изменить только
+    схлопывание двух различных вершин источника в одну точку карты.
+
+    Поля `*_triangle_*` несут прямую власть по инъективности интерьера:
+    предпосылки теоремы (простая граница, ориентация, вложенность, система
+    вращения) записаны отдельными счётчиками выше, а перекрытие интерьеров
+    доказывается перебором пар, а не выводится из них.
+    """
+
+    source_vertex_ids: tuple[SourceVertexId, ...]
+    source_chart_dropped_axis: int
+    source_chart_first_axis_negated: bool
+    source_boundary_occurrence_count: int
+    source_boundary_component_count: int
+    projected_boundary_component_count: int
+    coincident_boundary_occurrence_pair_count: int
+    collapsed_boundary_edge_occurrence_count: int
+    new_nonadjacent_edge_intersection_count: int
+    new_nonadjacent_collinear_overlap_count: int
+    source_face_orientation_signs: tuple[int, ...]
+    projected_face_orientation_signs: tuple[int, ...]
+    source_boundary_loop_orientation_signs: tuple[int, ...]
+    projected_boundary_loop_orientation_signs: tuple[int, ...]
+    source_boundary_loop_nesting_depths: tuple[int, ...]
+    projected_boundary_loop_nesting_depths: tuple[int, ...]
+    orientation_mismatch_count: int
+    nesting_mismatch_count: int
+    boundary_cyclic_order_sha256: str
+    anchor_selection_law: ProjectionAnchorSelectionLawV1
+    source_anchor_vertex_ids: tuple[SourceVertexId, ...]
+    projected_anchor_vertex_ids: tuple[SourceVertexId, ...]
+    resolved_plane_basis_unavailable_count: int
+    source_fan_identity_sha256: str
+    projected_fan_identity_sha256: str
+    source_fan_ambiguity_count: int
+    projected_fan_ambiguity_count: int
+    interior_injectivity_law: ProjectionInteriorInjectivityLawV1
+    coincident_projected_vertex_pair_count: int
+    nonsimple_projected_face_count: int
+    projected_face_triangle_count: int
+    overlapping_projected_triangle_pair_count: int
+    triangle_pair_broadphase_test_count: int
+    triangle_pair_exact_test_count: int
+    exact_pair_test_count: int
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.source_boundary_occurrence_count,
+            self.source_boundary_component_count,
+            self.projected_boundary_component_count,
+            self.coincident_boundary_occurrence_pair_count,
+            self.collapsed_boundary_edge_occurrence_count,
+            self.new_nonadjacent_edge_intersection_count,
+            self.new_nonadjacent_collinear_overlap_count,
+            self.orientation_mismatch_count,
+            self.nesting_mismatch_count,
+            self.resolved_plane_basis_unavailable_count,
+            self.source_fan_ambiguity_count,
+            self.projected_fan_ambiguity_count,
+            self.coincident_projected_vertex_pair_count,
+            self.nonsimple_projected_face_count,
+            self.projected_face_triangle_count,
+            self.overlapping_projected_triangle_pair_count,
+            self.triangle_pair_broadphase_test_count,
+            self.triangle_pair_exact_test_count,
+            self.exact_pair_test_count,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("projection embedding counts must be non-negative")
+        if self.source_chart_dropped_axis not in (0, 1, 2):
+            raise ValueError("source chart dropped axis must be 0, 1, or 2")
+        source_loop_count = len(self.source_boundary_loop_orientation_signs)
+        projected_loop_count = len(self.projected_boundary_loop_orientation_signs)
+        if source_loop_count != len(self.source_boundary_loop_nesting_depths):
+            raise ValueError("source loop signs and nesting depths disagree")
+        if projected_loop_count != len(self.projected_boundary_loop_nesting_depths):
+            raise ValueError("projected loop signs and nesting depths disagree")
+        signs = (
+            *self.source_face_orientation_signs,
+            *self.projected_face_orientation_signs,
+            *self.source_boundary_loop_orientation_signs,
+            *self.projected_boundary_loop_orientation_signs,
+        )
+        if any(item not in (-1, 0, 1) for item in signs):
+            raise ValueError("embedding orientation signs must be -1, 0, or 1")
+
+
+@dataclass(frozen=True, slots=True)
+class NearPlanarProjectionCertificateV1:
+    """Запись о том, что вход был спроецирован, и на сколько он отклонялся.
+
+    Карта N0 требует: ни один солвер не сглаживает и не проецирует молча, и
+    каждая неточная политика записывает масштаб, метод, бюджет невязки и
+    ревизию источника. Проекция здесь точная (рациональная); приблизителен
+    выбор плоскости, и именно он зафиксирован этими полями.
+
+    `max_residual_squared` назван КВАДРАТОМ, потому что квадратом и является:
+    невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень, а
+    корень из рационального в общем случае не представим точно и хранить его
+    было бы нечем. Прежнее имя `max_residual` лгало о величине — читающий
+    сравнивал его с `residual_budget` и получал разницу в квадрат.
+
+    `max_coordinate_ulp` записан затем, чтобы проверяющий мог ПЕРЕСЧИТАТЬ
+    `residual_budget` по объявленному закону, ничего не принимая на веру. У
+    закона ячейки для этого хватает `IntegerGridCertificateV1.window_step`
+    метрики, а закон представления берёт максимум из двух членов, и второй из
+    них — ULP координат ИСТОЧНИКА (до проекции). По самой метрике он
+    невосстановим: карта несёт координаты уже спроецированных позиций.
+    Без этого поля записанное число не проверялось бы вовсе, и «бюджет»
+    остался бы заявлением.
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    admission_law: PlanarityAdmissionLawV1
+    exact: bool
+    exact_plane_normal: ExactVector3V1
+    source_vertex_ids: frozenset[SourceVertexId]
+    reconstruction_law: AffineReconstructionLawV1
+    residual_budget_law: NearPlanarResidualBudgetLawV1
+    relative_extent_factor: ExactRationalV1
+    minimum_extent: ExactRationalV1
+    coordinate_ulp_multiplier: int
+    max_coordinate_ulp: ExactRationalV1
+    planar_extent: ExactRationalV1
+    residual_budget: ExactRationalV1
+    max_residual_squared: ExactRationalV1
+    projected_source_vertex_ids: frozenset[SourceVertexId]
+
+    def __post_init__(self) -> None:
+        if self.exact:
+            raise ValueError(
+                "NearPlanarProjectionCertificateV1 describes a non-exact plane"
+            )
+        if self.admission_law is not PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1:
+            raise ValueError(
+                "NearPlanarProjectionCertificateV1 requires "
+                "NEAR_PLANAR_PROJECTION_V1"
+            )
+        if not self.projected_source_vertex_ids:
+            raise ValueError(
+                "near-planar certificate must name the projected vertices"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class RationalAffinePlanarMetricV2:
     reference_metric_id: ReferenceMetricId
     patch_domain_id: PatchDomainId
@@ -161,8 +737,50 @@ class RationalAffinePlanarMetricV2:
     ]
     chart_orientation: AffineChartOrientationV1
     frame_selection_law: AffineFrameSelectionLawV1
-    planarity_certificate: ExactSourcePlaneCertificateV1
+    planarity_certificate: (
+        ExactSourcePlaneCertificateV1 | NearPlanarProjectionCertificateV1
+    )
     source_lineage: frozenset[LineageId]
+    grid_certificate: IntegerGridCertificateV1
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    """Additive carrier for an unchanged V2 metric and embedding evidence."""
+
+    metric: RationalAffinePlanarMetricV2
+    source_snap_embedding_certificate: SourceSnapEmbeddingCertificateV1
+    near_planar_projection_embedding_certificate: (
+        NearPlanarProjectionEmbeddingCertificateV1 | None
+    )
+
+    def __post_init__(self) -> None:
+        snap = self.source_snap_embedding_certificate
+        if snap.snapping_law is not self.metric.grid_certificate.snapping_law:
+            raise ValueError("snap embedding law differs from the V2 metric")
+        source_ids = tuple(
+            sorted(
+                self.metric.planarity_certificate.source_vertex_ids,
+                key=lambda item: item.value,
+            )
+        )
+        if snap.source_vertex_ids != source_ids:
+            raise ValueError("snap embedding vertices differ from the V2 metric")
+        projection = self.near_planar_projection_embedding_certificate
+        planarity = self.metric.planarity_certificate
+        projected = (
+            planarity.projected_source_vertex_ids
+            if type(planarity) is NearPlanarProjectionCertificateV1
+            else frozenset()
+        )
+        if bool(projected) is (projection is None):
+            raise ValueError(
+                "projection embedding is required exactly when vertices moved"
+            )
+        if projection is not None and projection.source_vertex_ids != source_ids:
+            raise ValueError(
+                "projection embedding vertices differ from the V2 metric"
+            )
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,9 @@
+{
+  "schema": "P0_4_WAVEFRONT_INVARIANT_V1",
+  "base_commit": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+  "wavefront_source_diff_lines": 0,
+  "wavefront_corpus_diff_lines": 0,
+  "proof_obligation_suite": "150 passed in 29.19s",
+  "frozen_oracle_case_count": 63,
+  "status": "BYTE_AUTHORITY_UNCHANGED"
+}

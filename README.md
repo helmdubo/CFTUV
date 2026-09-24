@@ -8,7 +8,7 @@ by chain from a global frontier pool across the whole quilt.
 
 ## Target
 
-- Blender 3.0+
+- Blender 4.1+ (legacy GPENCIL) through 4.5.x (GREASEPENCIL v3)
 - Python 3.10+
 - Hard-surface environment production meshes
 - Trim sheet / tile UV workflows
@@ -27,44 +27,45 @@ Core PatchGraph analysis and UV solve modules remain dependency-free. If the
 wheel is unavailable or a selected component is unsupported, Decal Seams
 fails with a named reason. There is no legacy geometry fallback.
 
-## Repo Layout
+This backend is **frozen**: only field-crash fixes, no new capability. New decal
+work goes into the Blender-free envelope kernel (`kernel/`). See `ROADMAP.md`.
+
+## Layout
 
 ```text
-cftuv/
-├── __init__.py
-├── constants.py
-├── model.py
-├── analysis.py          # facade over analysis_* submodules
-├── analysis_*.py        # topology, boundary, corners, classification, etc.
-├── solve.py             # facade (target: split into solve_* submodules)
-├── debug.py
-├── decals.py
-├── decal_charts.py      # immutable IR для intrinsic strip charts
-├── decal_voronoi.py     # patch-bounded segment Voronoi (`pyvoronoi`)
-├── operators.py
-└── console_debug.py
-
-docs/
-├── cftuv_architecture.md
-└── cftuv_reference.md
+cftuv/     Blender addon: analysis -> solve -> UV, plus the frozen decal backends
+kernel/    Blender-free exact envelope kernel, published as `cftuv-envelope-core`
+tests/     Host test suite (needs pyvoronoi for decal tests)
+tools/     Corpus validators, field gates, benchmarks
 ```
+
+## Tests
+
+```bash
+python3 -m pytest tests                                # host addon
+PYTHONPATH=kernel/src python3 -m pytest kernel/tests   # Blender-free kernel
+```
+
+A clean clone must be green. `tests/blender/` runs only inside Blender.
+`tests/test_architecture.py` holds the project's structural rules in executable
+form — it is the reason `AGENTS.md` can stay short.
 
 ## Documentation
 
-| Document | When to read |
-|----------|-------------|
-| `AGENTS.md` | Always. Self-contained project context for any contributor or AI agent |
-| `docs/cftuv_architecture.md` | When task requires pipeline, IR, or entity model understanding |
-| `docs/cftuv_reference.md` | Lookup: topology invariants, runtime heuristics, regression checklist |
+| File | When to read |
+|------|-------------|
+| `AGENTS.md` | Always. The only mandatory read, ~145 lines |
+| `ROADMAP.md` | Phase plan for collapsing to a single decal engine |
+| `ACCEPTANCE.md` | What the owner checks in Blender before legacy is deleted |
+| `DECISIONS.md` | Why things are the way they are, one line per decision |
 
-Start with `AGENTS.md`. For most tasks, it is sufficient on its own.
+Everything under `docs/` is reference material for a specific task, not required
+reading. How the code works is answered by the code.
 
 ## Validation
 
-Manual and debug-driven:
-
-- Grease Pencil debug layers (Analyze toggle)
-- Console diagnostics (Verbose Console toggle)
-- Regression snapshots (`Save Regression Snapshot`)
-- Scaffold vs UV validation output
-- UV Editor inspection on production meshes
+- Automated: `pytest` (host + kernel), including metamorphic and differential
+  kernel tests
+- In Blender: Grease Pencil debug layers (Analyze toggle), console diagnostics
+  (Verbose Console toggle), regression snapshots, UV Editor inspection on the
+  field mesh set listed in `ACCEPTANCE.md`

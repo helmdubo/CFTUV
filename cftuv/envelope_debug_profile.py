@@ -18,6 +18,12 @@ class EnvelopeDomainStage(str, Enum):
     RAW_REJECTED = "RAW_REJECTED"
     INTERACTION_REJECTED = "INTERACTION_REJECTED"
     RESOLVED = "RESOLVED"
+    # Стадии движка QUEUE. Названы отдельно от RAW/INTERACTION намеренно:
+    # очередь не проходит ни союз, ни попарный крой, и «RAW_REJECTED» на её
+    # отказе означал бы ступень, которой в этом пути нет вовсе.
+    QUEUE_PREPARE_REJECTED = "QUEUE_PREPARE_REJECTED"
+    QUEUE_COVERAGE_REJECTED = "QUEUE_COVERAGE_REJECTED"
+    QUEUE_RESOLVED = "QUEUE_RESOLVED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +84,25 @@ class EnvelopeDebugProfileV1:
             }
             for receipt in self.receipts
         )
+        # QUEUE_RESOLVED засчитывается в те же два столбца, что и RESOLVED:
+        # столбцы называют «домен дошёл до покрытия», а не «каким движком».
+        # Новых ключей не заводится — сводка читается одинаково обоими путями.
         raw = sum(
             receipt.stage
             in {
                 EnvelopeDomainStage.INTERACTION_REJECTED,
                 EnvelopeDomainStage.RESOLVED,
+                EnvelopeDomainStage.QUEUE_COVERAGE_REJECTED,
+                EnvelopeDomainStage.QUEUE_RESOLVED,
             }
             for receipt in self.receipts
         )
         resolved = sum(
-            receipt.stage is EnvelopeDomainStage.RESOLVED
+            receipt.stage
+            in {
+                EnvelopeDomainStage.RESOLVED,
+                EnvelopeDomainStage.QUEUE_RESOLVED,
+            }
             for receipt in self.receipts
         )
         return {
@@ -125,6 +140,80 @@ class EnvelopeDebugProfileV1:
         }
 
 
+# Живой след стадий. Включён по умолчанию: до него длинный прогон было не
+# отличить от зависшего, а именно так и выглядел первый успешный проход
+# центрального патча building.002.
+LIVE_STAGE_TRACE = True
+
+# Только те стадии, которые могут идти долго. Остальные дают доли миллисекунды
+# и превратили бы след в шум.
+LIVE_TRACED_STAGES = frozenset({
+    "ANGULAR_RELATIONS",
+    "COMPILE",
+    "DOMAIN_BUILD",
+    "ENVELOPE_INSTANCE_BUILD",
+    "DOMAIN_CLIP",
+    "RAW_UNION",
+    "INTERACTION",
+    "GP_RENDER",
+    "QUEUE_PREPARE",
+    "QUEUE_COVERAGE",
+})
+
+
+# Стадия ANGULAR_RELATIONS писала только тайминг, поэтому её нулевой выход был
+# неотличим от отсутствия углов: пусто и пусто. Ключи объявлены перечнем, чтобы
+# стадия печатала все четыре числа даже там, где ни одно из них не выросло.
+ANGULAR_STAGE_COUNTERS = (
+    "ANGULAR_CORNERS_CONSIDERED",
+    "ANGULAR_COLLINEAR_SKIPPED",
+    "ANGULAR_REFLEX_CORNERS",
+    "ANGULAR_RELATIONS_BUILT",
+    # Вершины разреза изломанной физической цепочки: у хоста нет записи об
+    # угле ВНУТРИ `BoundaryChain`, поэтому такой стык не значится в
+    # `loop.corners` и без своих чисел был бы неотличим от его отсутствия.
+    "ANGULAR_CUT_VERTICES_CONSIDERED",
+    # Излом, вырожденный проекцией чарта: разрез сделан в 3D и оказался
+    # лишним. Законно (линейность от него не страдает) и объявлено.
+    "ANGULAR_CUT_CHART_COLLINEAR",
+    "ANGULAR_CUT_REFLEX_RELATIONS",
+)
+
+
+# Стадия разбиения физических цепочек. Ноль — объявленный ноль: домен без
+# изломов обязан давать здесь нули и байт-в-байт прежний снапшот.
+SEAM_PARTITION_COUNTERS = (
+    "SEAM_PARTITION_KINK_CHAIN_USES",
+    "SEAM_PARTITION_KINK_CUT_VERTICES",
+)
+
+
+def _counter_total(profile: EnvelopeDebugProfileV1, name: str) -> int:
+    return sum(int(item.value) for item in profile.counters if item.name == name)
+
+
+def stage_summary_text(profile: EnvelopeDebugProfileV1) -> str:
+    """Строка панели: сколько доменов дошло до какой ступени.
+
+    Дополнение выделения дописывается той же строкой, а не остаётся только
+    счётчиком в JSON: владелец нажимает кнопку одним ребром шва, а считается
+    вся цепочка, и молчание об этом читалось бы как «оно так и было выделено».
+    """
+
+    summary = profile.stage_summary()
+    text = (
+        f"Topology: {summary['topology']}/{summary['total']} | "
+        f"Metric: {summary['metric']}/{summary['total']} | "
+        f"Raw: {summary['raw']}/{summary['total']} | "
+        f"Resolved: {summary['resolved']}/{summary['total']}"
+    )
+    chains = _counter_total(profile, "SELECTION_COMPLETED_CHAINS")
+    edges = _counter_total(profile, "SELECTION_COMPLETED_EDGES")
+    if chains or edges:
+        text += f" | Selection completed: {chains} chains, +{edges} edges"
+    return text
+
+
 class EnvelopeDebugProfileBuilderV1:
     """Local mutable collector; published snapshots remain immutable."""
 
@@ -139,15 +228,21 @@ class EnvelopeDebugProfileBuilderV1:
 
     @contextmanager
     def measure(self, stage: str, patch_domain_id: str | None = None):
+        live = LIVE_STAGE_TRACE and stage in LIVE_TRACED_STAGES
+        if live:
+            # Строка печатается ДО работы и не закрывается до её конца. Долгий
+            # прогон при этом читается, а не выглядит зависшим: последняя
+            # незакрытая строка и есть место, где всё стоит.
+            suffix = f" {patch_domain_id[-3:]}" if patch_domain_id else ""
+            print(f"  [CFTUV] {stage}{suffix} ...", end="", flush=True)
         started = time.perf_counter()
         try:
             yield
         finally:
-            self.add_timing(
-                stage,
-                time.perf_counter() - started,
-                patch_domain_id,
-            )
+            elapsed = time.perf_counter() - started
+            if live:
+                print(f" {elapsed * 1000:.1f} ms", flush=True)
+            self.add_timing(stage, elapsed, patch_domain_id)
 
     def add_timing(
         self,
@@ -214,6 +309,8 @@ class EnvelopeDebugProfileBuilderV1:
 
 
 __all__ = (
+    "ANGULAR_STAGE_COUNTERS",
+    "SEAM_PARTITION_COUNTERS",
     "ENVELOPE_DEBUG_PROFILE_SCHEMA_V1",
     "EnvelopeDebugCounterV1",
     "EnvelopeDebugProfileBuilderV1",
@@ -221,4 +318,5 @@ __all__ = (
     "EnvelopeDebugTimingV1",
     "EnvelopeDomainStage",
     "EnvelopeDomainStageReceiptV1",
+    "stage_summary_text",
 )

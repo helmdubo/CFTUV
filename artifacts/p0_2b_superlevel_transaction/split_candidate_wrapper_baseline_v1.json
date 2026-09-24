@@ -1,0 +1,25 @@
+{
+  "groups": {
+    "corpus_63::EXHAUSTIVE": {
+      "candidate_query_count": 905,
+      "case_count": 63,
+      "sha256": "7a48bf1457f0e7ffeb76a70ec974d689ddb413508c59652f3bdf2ae219ffad92"
+    },
+    "corpus_63::MOTORCYCLE": {
+      "candidate_query_count": 822,
+      "case_count": 63,
+      "sha256": "8c08bf111f28fb55dab0727b43094a51d2f4fe23d7292dd84b836f429153730a"
+    },
+    "p0_3_23::EXHAUSTIVE": {
+      "candidate_query_count": 1759,
+      "case_count": 23,
+      "sha256": "cc98f608b31140d6ec7d3d8c132532657ecd6b9d6e503babc3e05d859755e6c6"
+    },
+    "p0_3_23::MOTORCYCLE": {
+      "candidate_query_count": 1753,
+      "case_count": 23,
+      "sha256": "c87deca48b1a0bbaab684488a53684be5750be6a61b5ba7feadd5da3f509a3af"
+    }
+  },
+  "schema": "P0_2B_SPLIT_WRAPPER_BASELINE_V1"
+}

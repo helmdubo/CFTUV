@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 from decimal import Decimal
+from fractions import Fraction
 from typing import Callable
 
 import sympy as sp
@@ -22,6 +23,7 @@ from .arrangement import (
     ExactArrangementRotationSystemUnproven,
     ExactSegmentArrangementBackend,
     ExactTouchingHoleTopologyUnproven,
+    bound_evaluation_arrangement,
     segment_intersections,
 )
 from .boundary import (
@@ -54,7 +56,7 @@ from .planar_types import (
     polygon_signed_area,
 )
 from .strip import evaluate_strip_envelope
-from .validation import validate_reference_geometry_payload
+from .validation import validate_compilation_geometry_payload
 
 
 REFERENCE_ARRANGEMENT_BACKEND = ExactSegmentArrangementBackend()
@@ -91,7 +93,9 @@ def _failure(
     return ReferenceEvaluationResultV1(outcome, None, (*existing, diagnostic))
 
 
-def _normalize_alpha(alpha: LocalLengthV1 | Decimal | int | str) -> LocalLengthV1:
+def normalize_requested_alpha(
+    alpha: LocalLengthV1 | Decimal | int | str,
+) -> LocalLengthV1:
     if isinstance(alpha, LocalLengthV1):
         return alpha
     return LocalLengthV1(Decimal(str(alpha)), MetricSpace.SOURCE_LOCAL_INTRINSIC)
@@ -113,6 +117,37 @@ def _component_ids_for_spec(compilation, spec) -> frozenset[str]:
         )
         return frozenset(item.value for item in strip.front_component_ids)
     return frozenset()
+
+
+def spec_effective_alpha(compilation, spec, resolutions, alpha_value):
+    """Эффективная alpha спеки — одна на все её инцидентные компоненты.
+
+    `None` означает НЕОДНОРОДНЫЙ вектор: у инцидентных компонентов эффективные
+    alpha разные, а одна огибающая с двумя alpha в v1 не доказана. Возвращать
+    здесь «какую-нибудь» из них значило бы выбрать за вызывающего, поэтому
+    отсутствие ответа отличимо от ответа, а имя исхода даёт вызывающий: у
+    полного пути это `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`, у входа очереди —
+    свой одноимённый по смыслу исход.
+
+    Пустое множество компонентов — не ошибка: тогда эффективная alpha равна
+    ЗАПРОШЕННОЙ, потому что резолвер к этой спеке не прикасался.
+
+    Вынесено ради второго вызывающего: вход очереди (`wavefront/conveyor.py`)
+    юбок не строит, но имя экземпляра юбки (`strip_envelope_instance_id`) стоит
+    именно на эффективной alpha, и вывести её вторым способом значило бы
+    получить второе имя для того же экземпляра.
+    """
+
+    effective_values = {
+        resolutions[item].effective_alpha.expression
+        for item in _component_ids_for_spec(compilation, spec)
+        if item in resolutions
+    }
+    if len(effective_values) > 1:
+        return None
+    if effective_values:
+        return ExactScalar(next(iter(effective_values))).as_expr()
+    return sp.Rational(str(alpha_value.value))
 
 
 def _arrangement_regions(arrangement) -> tuple[PlanarRegion, ...]:
@@ -167,6 +202,61 @@ def _emit_telemetry(
         telemetry(stage, time.perf_counter() - started, counters)
     except Exception:
         return
+
+
+def _union_counters(union, input_segments: int) -> dict[str, int | float]:
+    """Наблюдение за arrangement: что пришло, что отсеялось, что получилось.
+
+    `union` может быть None: телеметрия эмитится из `finally`, и стадия,
+    упавшая на точном предикате, обязана оставить хотя бы вход. Стадия без
+    единого числа — это стадия, про которую нечего сказать.
+    """
+
+    counters: dict[str, int | float] = {
+        "ARRANGEMENT_INPUT_SEGMENTS": input_segments,
+        "ARRANGEMENT_ALL_POSSIBLE_PAIRS": (
+            input_segments * (input_segments - 1) // 2
+        ),
+    }
+    if union is None:
+        return counters
+    counters.update(
+        {
+            "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS": (
+                union.broadphase_candidate_pair_count
+            ),
+            "ARRANGEMENT_NARROWPHASE_TESTS": union.narrowphase_test_count,
+            # Совместимый alias: теперь это фактические exact tests,
+            # а не теоретическое число всех пар.
+            "ARRANGEMENT_PAIR_TESTS": union.narrowphase_test_count,
+            "ARRANGEMENT_INTERSECTIONS": union.intersection_count,
+            "ARRANGEMENT_ATOMIC_SEGMENTS": union.atomic_edge_count,
+            "ARRANGEMENT_BRANCH_POINTS": union.branch_point_count,
+            "ARRANGEMENT_MAX_INCIDENT_DEGREE": union.max_incident_degree,
+            "ARRANGEMENT_BOUNDARY_OCCURRENCES": len(
+                union.boundary_vertex_occurrences
+            ),
+            "ARRANGEMENT_POINT_CONTACTS": len(union.point_contacts),
+            "ARRANGEMENT_ROTATION_COMPARISONS": (
+                union.rotation_comparison_count
+            ),
+            "ARRANGEMENT_FACE_WALKS": union.face_walk_count,
+            # Выход arrangement. Вход уже есть выше; без выхода по паре чисел
+            # не отличить «пришло много» от «расплодилось на пересечениях»,
+            # а это разные болезни с разным лечением.
+            "ARRANGEMENT_OUTPUT_VERTICES": len(union.vertices),
+            "ARRANGEMENT_OUTPUT_EDGES": len(union.edges),
+            "ARRANGEMENT_OUTPUT_LOOPS": len(union.loops),
+            "ARRANGEMENT_OUTPUT_REGIONS": len(union.regions),
+            # Две величины, которых не хватило, чтобы объяснить полевые времена
+            # по счётчикам: работа локализации точки и длина точных координат.
+            "ARRANGEMENT_POINT_LOCATION_SCANS": (
+                union.point_location_segment_scan_count
+            ),
+            "ARRANGEMENT_MAX_COORDINATE_CHARS": union.max_coordinate_chars,
+        }
+    )
+    return counters
 
 
 def _region_segment_count(regions: tuple[PlanarRegion, ...]) -> int:
@@ -224,7 +314,56 @@ def _clip_instance_to_domain(
     return replace(instance, regions=regions, exposed_segments=exposed), None
 
 
+# Полоса огибающей обязана быть хотя бы в СТОЛЬКО ячеек решётки.
+#
+# Три ячейки — это уже фигура, различимая на решётке лишь в одном положении;
+# четыре — первое число, при котором полоса имеет внутренность при любом
+# сдвиге относительно сетки. Проверка нужна потому, что `decal_detail`
+# описывает НАМЕРЕНИЕ (самая тонкая деталь, которую рисует декаль), а alpha —
+# то, что запрошено на самом деле, и расходиться они могут: полоса в 2 мм на
+# стометровом патче при шаге 1.95 мм — одна ячейка, то есть уничтожена, а
+# объявленный сантиметр при этом скажет `WINDOW_AVAILABLE`.
+BAND_MINIMUM_CELLS = 4
+
+_NEGATIVE_ALPHA = "reference alpha must be non-negative"
+
+
+def _require_band_against_grid(metric, alpha_value) -> None:
+    """`alpha >= 4 x шаг` либо именованный отказ."""
+
+    if metric.source_step is None:
+        return
+    requested = Fraction(str(alpha_value.value))
+    minimum = BAND_MINIMUM_CELLS * metric.source_step
+    if requested >= minimum:
+        return
+    raise ReferenceGeometryError(
+        ReferenceOutcome.ENVELOPE_BAND_BELOW_GRID_RESOLUTION,
+        "полоса огибающей тоньше четырёх ячеек решётки: "
+        f"alpha={float(requested):.6g}, шаг={float(metric.source_step):.6g}, "
+        f"минимум={float(minimum):.6g}",
+    )
+
+
 def evaluate_reference_raw_coverage(
+    compilation: ReferenceEnvelopeCompilationV1,
+    alpha: LocalLengthV1 | Decimal | int | str,
+    *,
+    telemetry: ReferenceTelemetryCallback | None = None,
+) -> ReferenceEvaluationResultV1:
+    """Выполнить evaluator в режиме, объявленном compilation binding."""
+
+    with bound_evaluation_arrangement(
+        compilation.evaluation_geometry_binding is not None
+    ):
+        return _evaluate_reference_raw_coverage(
+            compilation,
+            alpha,
+            telemetry=telemetry,
+        )
+
+
+def _evaluate_reference_raw_coverage(
     compilation: ReferenceEnvelopeCompilationV1,
     alpha: LocalLengthV1 | Decimal | int | str,
     *,
@@ -233,23 +372,19 @@ def evaluate_reference_raw_coverage(
     """Rebuild one exact request/domain RawCoverage state from scratch."""
 
     try:
-        alpha_value = _normalize_alpha(alpha)
+        alpha_value = normalize_requested_alpha(alpha)
     except (ValueError, ArithmeticError) as exc:
         return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, str(exc))
     if alpha_value.value < 0:
-        return _failure(
-            ReferenceOutcome.REFERENCE_INVALID_ALPHA,
-            "reference alpha must be non-negative",
-        )
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+        return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, _NEGATIVE_ALPHA)
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         return ReferenceEvaluationResultV1(
             payload_diagnostics[0].outcome, None, payload_diagnostics
         )
     try:
         context = GeometryContext.build(compilation, frame)
+        _require_band_against_grid(context.metric, alpha_value)
         stage_started = time.perf_counter()
         domain = build_domain_geometry(context)
         _emit_telemetry(
@@ -287,28 +422,26 @@ def evaluate_reference_raw_coverage(
         instances = []
         boundary_resolved = []
         instance_elapsed = 0.0
+        # Сегменты до и после клипа. Клип — вторая по стоимости стадия в поле,
+        # и без этих двух чисел непонятно, растёт ли она от размера огибающих
+        # или от размера домена, о который их режут.
+        clip_segments_in = 0
+        clip_segments_out = 0
         try:
             for spec in sorted(
                 compilation.envelope_specs,
                 key=lambda item: item.envelope_spec_id.value,
             ):
                 component_ids = _component_ids_for_spec(compilation, spec)
-                effective_values = {
-                    resolutions[item].effective_alpha.expression
-                    for item in component_ids
-                    if item in resolutions
-                }
-                if len(effective_values) > 1:
+                effective = spec_effective_alpha(
+                    compilation, spec, resolutions, alpha_value
+                )
+                if effective is None:
                     return _failure(
                         ReferenceOutcome.SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN,
                         f"{spec.envelope_spec_id} has a non-uniform incident effective-alpha vector",
                         existing=boundary_diagnostics,
                     )
-                effective = (
-                    ExactScalar(next(iter(effective_values))).as_expr()
-                    if effective_values
-                    else sp.Rational(str(alpha_value.value))
-                )
                 stage_started = time.perf_counter()
                 if isinstance(spec, StripEnvelopeSpec):
                     instance = evaluate_strip_envelope(
@@ -329,6 +462,7 @@ def evaluate_reference_raw_coverage(
                 else:  # pragma: no cover - EC1 union is closed and validated.
                     raise TypeError(type(spec).__name__)
                 instance_elapsed += time.perf_counter() - stage_started
+                clip_segments_in += _region_segment_count(instance.regions)
                 if isinstance(spec, AngularEnvelopeSpec) and any(
                     segment_intersections(exposed, barrier.segment)
                     for exposed in instance.exposed_segments
@@ -374,6 +508,7 @@ def evaluate_reference_raw_coverage(
                         f"{spec.envelope_spec_id} would require obstacle bypass",
                         existing=boundary_diagnostics,
                     )
+                clip_segments_out += _region_segment_count(clipped.regions)
                 capacity_outcomes = {
                     item.capacity_outcome
                     for item in component_resolutions
@@ -406,9 +541,19 @@ def evaluate_reference_raw_coverage(
                     telemetry(
                         "ENVELOPE_INSTANCE_BUILD",
                         instance_elapsed,
-                        None,
+                        {
+                            "ENVELOPE_INSTANCES": len(instances),
+                            "ENVELOPE_INSTANCE_SEGMENTS": clip_segments_in,
+                        },
                     )
-                    telemetry("DOMAIN_CLIP", clip_elapsed, None)
+                    telemetry(
+                        "DOMAIN_CLIP",
+                        clip_elapsed,
+                        {
+                            "CLIP_SEGMENTS_IN": clip_segments_in,
+                            "CLIP_SEGMENTS_OUT": clip_segments_out,
+                        },
+                    )
                 except Exception:
                     pass
 
@@ -431,59 +576,14 @@ def evaluate_reference_raw_coverage(
                 reachability_by_instance,
             )
         finally:
-            union_counters = {
-                "ARRANGEMENT_INPUT_SEGMENTS": arrangement_input_segments,
-                "ARRANGEMENT_ALL_POSSIBLE_PAIRS": (
-                    arrangement_input_segments
-                    * (arrangement_input_segments - 1)
-                    // 2
-                ),
-            }
-            if "union" in locals():
-                union_counters.update(
-                    {
-                        "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS": (
-                            union.broadphase_candidate_pair_count
-                        ),
-                        "ARRANGEMENT_NARROWPHASE_TESTS": (
-                            union.narrowphase_test_count
-                        ),
-                        # Совместимый alias: теперь это фактические exact tests,
-                        # а не теоретическое число всех пар.
-                        "ARRANGEMENT_PAIR_TESTS": (
-                            union.narrowphase_test_count
-                        ),
-                        "ARRANGEMENT_INTERSECTIONS": (
-                            union.intersection_count
-                        ),
-                        "ARRANGEMENT_ATOMIC_SEGMENTS": (
-                            union.atomic_edge_count
-                        ),
-                        "ARRANGEMENT_BRANCH_POINTS": (
-                            union.branch_point_count
-                        ),
-                        "ARRANGEMENT_MAX_INCIDENT_DEGREE": (
-                            union.max_incident_degree
-                        ),
-                        "ARRANGEMENT_BOUNDARY_OCCURRENCES": len(
-                            union.boundary_vertex_occurrences
-                        ),
-                        "ARRANGEMENT_POINT_CONTACTS": len(
-                            union.point_contacts
-                        ),
-                        "ARRANGEMENT_ROTATION_COMPARISONS": (
-                            union.rotation_comparison_count
-                        ),
-                        "ARRANGEMENT_FACE_WALKS": (
-                            union.face_walk_count
-                        ),
-                    }
-                )
             _emit_telemetry(
                 telemetry,
                 "RAW_UNION",
                 stage_started,
-                union_counters,
+                _union_counters(
+                    locals().get("union"),
+                    arrangement_input_segments,
+                ),
             )
         result = RawCoverageResultV2(
             schema_version=RAW_COVERAGE_RESULT_SCHEMA_V2,

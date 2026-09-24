@@ -1,0 +1,46 @@
+walls.001: первый полевой профиль интеграционной сборки, 2026-08-03.
+Сборка 10c8fd2 (HOST-NONLINEAR 40dce77 + S0 8054953). Вывод владельца
+verbatim; разбор — записью в DECISIONS.md от 2026-08-03 (полевое
+подтверждение сигнала). Все кэши холодные (первый прогон после установки).
+
+[CFTUV][EnvelopeProfile] walls.001 QUEUE
+  Stage                         Domain                     ms
+  ANALYSIS_BUNDLE               -                            2.489
+  HOST_CHAIN_COLLECTION         -                            0.103
+  SEAM_PARTITION_NORMALIZATION  -                            0.675
+  TOPOLOGY_EXPORT               -                            0.850
+  SELECTION_SCOPE               -                            0.094
+  TOPOLOGY_SCENE                -                            1.171
+  BUNDLE_SLICE                  120901db80b70b6927f754e6     0.003
+  FRAME_ADMISSION               120901db80b70b6927f754e6   388.245
+  ANGULAR_RELATIONS             120901db80b70b6927f754e6    33.391
+  SNAPSHOT_VALIDATION           120901db80b70b6927f754e6   120.418
+  PATCH_METRIC_EXPORT           120901db80b70b6927f754e6   757.831
+  DOMAIN_GEOMETRY_EXPORT        120901db80b70b6927f754e6     0.004
+  SNAPSHOT_EXPORT               120901db80b70b6927f754e6   759.287
+  QUEUE_PREPARE                 120901db80b70b6927f754e6   490.450
+  QUEUE_COVERAGE                120901db80b70b6927f754e6   104.392
+  QUEUE_CONTOUR                 120901db80b70b6927f754e6    13.351
+  DEBUG_SCENE                   120901db80b70b6927f754e6     7.920
+  BUNDLE_SLICE                  eb64fc8b4eaaabe6c70159ff     0.001
+  FRAME_ADMISSION               eb64fc8b4eaaabe6c70159ff     4.005
+  PATCH_METRIC_EXPORT           eb64fc8b4eaaabe6c70159ff     5.998
+  SNAPSHOT_EXPORT               eb64fc8b4eaaabe6c70159ff     6.111
+  GP_RENDER                     -                           76.960
+  SIDECAR_JSON                  -                            3.727
+  Dominant: SNAPSHOT_EXPORT 765.398 ms
+  Receipts: Topology 2/2 | Metric 2/2 | Raw 1/2 | Resolved 1/2
+  REJECTED 120901db80b70b6927f754e6 QUEUE_RESOLVED: EXACT
+    QUEUE coverage: 9 owned faces, prepare 490.7 ms, coverage 104.6 ms
+  REJECTED eb64fc8b4eaaabe6c70159ff QUEUE_PREPARE_REJECTED: NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+    source deviates beyond the declared near-planar budget: max_residual_squared=1.178496e+01 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1, grid_step=6.103516e-05); vertices=[host-vertex:...:walls.001: 8,9,10,11,12,13,14,15]
+  Cache: ANALYSIS_BUNDLE H0/M1 | TOPOLOGY_EXPORT H0/M1 | PATCH_METRIC H0/M2 | DOMAIN_GEOMETRY H0/M1
+  Счётчики (выборка, домен стены):
+    ANGULAR_REFLEX_CORNERS 4 | ANGULAR_RELATIONS_BUILT 4
+    CONVEYOR_ARRIVAL_LAWS 5 | CONVEYOR_WALL_EDGES 5 | CONVEYOR_FAN_EDGES 4
+    CONVEYOR_SKELETON_NODES 12 | CONVEYOR_COVERED_FACES 9
+    CONVEYOR_LATTICE_SCALE 16384
+    SEAM_PARTITION_KINK_CHAIN_USES 5 | SEAM_PARTITION_KINK_CUT_VERTICES 12
+  MESH_EDGES 21 | MESH_FACES 6 | PATCH_COUNT 2 | SELECTED_CHAINS 5
+  Diagnostics (2): (пустые строки)
+Warning: Envelope Debug: 162 strokes, 378 points, 2 domains

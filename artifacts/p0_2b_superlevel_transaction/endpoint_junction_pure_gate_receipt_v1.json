@@ -1,0 +1,81 @@
+{
+  "schema": "P0_2B_ENDPOINT_JUNCTION_PURE_GATE_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "scope": {
+    "product_integration": false,
+    "runtime_materialization": false,
+    "synthetic_endpoint_semantics": true,
+    "natural_survey_receipt": "endpoint_natural_survey_receipt_v1.json"
+  },
+  "shared_topology": {
+    "module": "kernel/src/cftuv_envelope/wavefront/symbolic_component.py",
+    "lines": 103,
+    "sha256": "08efd9f240a02d9b0bb37ef44da39239d332e8d619c6c9e9b235d7f011faa3f0",
+    "dto": "SymbolicComponentDeltaV1",
+    "boundary_law": "terminal 0/0 or unique 1/1 frozen-overlay arms",
+    "used_by": ["EDGE", "ENDPOINT"],
+    "dependency_cycle": false
+  },
+  "endpoint_slice": {
+    "module": "kernel/src/cftuv_envelope/wavefront/symbolic_split_endpoint.py",
+    "lines": 219,
+    "sha256": "3ec9dc4aac6099c43ff49b72fbed4e3d218c9e33d292503746d9b7a5cd913829",
+    "stable_key_fields": [
+      "exact_time_key",
+      "exact_point_key",
+      "emitter_junction_ref",
+      "selected_endpoint_junction_ref",
+      "root_span_family_ref",
+      "stable_participants"
+    ],
+    "side_stored_in_key": false,
+    "side_omission_condition": "at_start and at_end are equivalent only when they select the same endpoint ref",
+    "compiled_as_interior_split": false,
+    "birth_kind": "ENDPOINT_JUNCTION"
+  },
+  "synthetic_positive_gate": {
+    "at_start_variants": 2,
+    "at_end_variants": 2,
+    "vertex_and_span_dict_orders": 2,
+    "selected_endpoint_ref_equal": true,
+    "stable_contact_keys_equal": true,
+    "component_deltas_equal": true,
+    "net_signatures_equal": true,
+    "causal_rebuild_from_initial_overlay": true,
+    "input_overlay_mutated": false
+  },
+  "synthetic_negative_gate": {
+    "condition": "same-point resource component has two incoming and two outgoing frozen-overlay arms",
+    "contact_orders": 2,
+    "overlay_dict_orders": 2,
+    "reason": "SYMBOLIC_ENDPOINT_PORT_MATCHING_AMBIGUOUS",
+    "input_overlay_mutated": false
+  },
+  "edge_regression_gate": {
+    "shared_delta_refactor": true,
+    "existing_edge_tests_passed": 4,
+    "trace_repr_sha256": "95f26fb3b12efc3db528ec8457de764f5c372ec8356383cdf44122f864b06fd9",
+    "final_signature_repr_sha256": "898aa5468dc0cd469a5eeaefd10c105d2f05135f71f53bd784e7a49f99b7d09d",
+    "byte_and_net_change": false
+  },
+  "cross_full_q_1_t8_gate": {
+    "endpoint_generations": 0,
+    "split_overlay_changed": false,
+    "edge_generation_sizes": [1, 1, 1],
+    "edge_residual": 0
+  },
+  "validation": [
+    {
+      "command": "python -m pytest -q -p no:cacheprovider kernel/tests/test_wavefront_superlevel_transaction.py::test_split_family_normal_form_materializes_comb_2_once kernel/tests/test_wavefront_superlevel_transaction.py::test_nested_split_contacts_rebind_to_one_root_family kernel/tests/test_wavefront_superlevel_transaction.py::test_cross_t8_edge_generations_are_stable_under_permutations kernel/tests/test_wavefront_superlevel_transaction.py::test_same_generation_edge_component_is_one_order_free_delta kernel/tests/test_wavefront_superlevel_transaction.py::test_ambiguous_edge_component_ports_refuse_without_mutation kernel/tests/test_wavefront_superlevel_transaction.py::test_edge_generation_refuses_duplicate_active_span_owner kernel/tests/test_wavefront_superlevel_transaction.py::test_endpoint_start_end_aliases_have_one_stable_junction_delta kernel/tests/test_wavefront_superlevel_transaction.py::test_ambiguous_endpoint_ports_refuse_without_mutation",
+      "result": "8 passed in 0.37s"
+    },
+    {
+      "command": "python -m pytest -q -p no:cacheprovider tests/test_architecture.py",
+      "result": "390 passed in 2.98s"
+    }
+  ],
+  "status": "PURE_GATE_GREEN_PRODUCT_COORDINATOR_NOT_WIRED"
+}

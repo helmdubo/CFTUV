@@ -1,0 +1,1501 @@
+{
+  "evaluation": {
+    "diagnostics": [
+      {
+        "construction": null,
+        "envelope_spec_id": null,
+        "front_component_id": null,
+        "message": "exact union boundary is non-manifold at a construction vertex",
+        "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+        "severity": "UNSUPPORTED"
+      }
+    ],
+    "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+    "raw_coverage": null,
+    "rejected_topology": {
+      "rejected_vertices": [
+        {
+          "arrangement_point_id": "raw-vertex:557b57dd58d3928cbbdf89e1",
+          "exact_point": {
+            "$type": "ExactPlanarPoint",
+            "x": {
+              "$type": "ExactScalar",
+              "expression": "Rational(2651330823508, 373821260323)"
+            },
+            "y": {
+              "$type": "ExactScalar",
+              "expression": "Rational(-452766086928, 373821260323)"
+            }
+          },
+          "outgoing_edge_count": 2,
+          "outgoing_edges": [
+            {
+              "construction_certificates": [
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "domain-boundary-support:66ce0841a73a907105e64078"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:52b910a4fe14343720c9fcb4",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "terminal-support:48fc13841dee2c6251edf5ef"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "terminal-support:48fc13841dee2c6251edf5ef"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:f0c6d05d6f427e17254522bf",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:f0c6d05d6f427e17254522bf",
+                    "terminal-support:48fc13841dee2c6251edf5ef"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:52b910a4fe14343720c9fcb4",
+                    "terminal-support:48fc13841dee2c6251edf5ef"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:f0c6d05d6f427e17254522bf",
+                    "terminal-support:48fc13841dee2c6251edf5ef"
+                  ]
+                }
+              ],
+              "edge_id": "raw-edge:126b97ee324d1ffbe27a58cd",
+              "end_vertex_id": "raw-vertex:2e80e8bcf932f8de4270d95d",
+              "provenance": {
+                "$type": "ReferenceProvenanceV1",
+                "boundary_generator": {
+                  "$type": "BoundaryGeneratorProvenanceV1",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1"
+                  ],
+                  "boundary_loop_ids": [],
+                  "physical_chain_ids": [],
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2"
+                  ],
+                  "source_face_ids": [
+                    "host-face:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:0"
+                  ],
+                  "support_ids": [
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                "coverage_contributors": {
+                  "$type": "CoverageContributorProvenanceV1",
+                  "chain_use_ids": [
+                    "host-v0:chain-use:596a60ada6cb215b14c683f0",
+                    "host-v0:chain-use:6d9faa2581ad0c02e518d297"
+                  ],
+                  "envelope_instance_ids": [
+                    "envelope-instance:4bd76ac2dd74396b38f24280"
+                  ],
+                  "envelope_spec_ids": [
+                    "strip-spec:604cbd808ed09c4e0f3f42fc"
+                  ],
+                  "lineage_ids": [
+                    "host-v0:physical-lineage:0c274f55e2ceb69b168c29f6",
+                    "host-v0:physical-lineage:5059b21fe14a005226d55ef4"
+                  ],
+                  "patch_domain_ids": [
+                    "host-v0:patch-domain:bf66337616136188f314fb69"
+                  ]
+                }
+              },
+              "start_vertex_id": "raw-vertex:557b57dd58d3928cbbdf89e1"
+            },
+            {
+              "construction_certificates": [
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "domain-boundary-support:66ce0841a73a907105e64078"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:52b910a4fe14343720c9fcb4"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "terminal-support:8794cebf025f126308b2fdc9"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d5f7d5f340cfb713072322b1",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:2",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:43aa5a6de49ae3ec8fdb1368",
+                    "terminal-support:8794cebf025f126308b2fdc9"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:11"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:8"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:be01e885a8b2c7fc938f17ae",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:be01e885a8b2c7fc938f17ae",
+                    "terminal-support:8794cebf025f126308b2fdc9"
+                  ]
+                }
+              ],
+              "edge_id": "raw-edge:3b9c5e427197bebd976ac02b",
+              "end_vertex_id": "raw-vertex:f19911c7227eb8879cd8ae9d",
+              "provenance": {
+                "$type": "ReferenceProvenanceV1",
+                "boundary_generator": {
+                  "$type": "BoundaryGeneratorProvenanceV1",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "boundary_loop_ids": [
+                    "host-v0:boundary-loop:af3bfa825bda030f284da6ea"
+                  ],
+                  "physical_chain_ids": [
+                    "host-v0:physical-chain:d8aa402faffa2eabbdfe1bf7"
+                  ],
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_face_ids": [
+                    "host-face:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:14"
+                  ],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                "coverage_contributors": {
+                  "$type": "CoverageContributorProvenanceV1",
+                  "chain_use_ids": [
+                    "host-v0:chain-use:596a60ada6cb215b14c683f0",
+                    "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+                  ],
+                  "envelope_instance_ids": [
+                    "envelope-instance:fa766a5674f6c488ab0496ce"
+                  ],
+                  "envelope_spec_ids": [
+                    "strip-spec:8aa64e1283cb9294b7629e9f"
+                  ],
+                  "lineage_ids": [
+                    "host-v0:physical-lineage:5059b21fe14a005226d55ef4",
+                    "host-v0:physical-lineage:a1bbad7cdd4eff879611cfe5"
+                  ],
+                  "patch_domain_ids": [
+                    "host-v0:patch-domain:bf66337616136188f314fb69"
+                  ]
+                }
+              },
+              "start_vertex_id": "raw-vertex:557b57dd58d3928cbbdf89e1"
+            }
+          ]
+        },
+        {
+          "arrangement_point_id": "raw-vertex:f19911c7227eb8879cd8ae9d",
+          "exact_point": {
+            "$type": "ExactPlanarPoint",
+            "x": {
+              "$type": "ExactScalar",
+              "expression": "Rational(232403250106, 373821260323)"
+            },
+            "y": {
+              "$type": "ExactScalar",
+              "expression": "Rational(240403797009, 373821260323)"
+            }
+          },
+          "outgoing_edge_count": 2,
+          "outgoing_edges": [
+            {
+              "construction_certificates": [
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "terminal-support:7f9fb7668b7111e6fe8f1063"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d83cb7a46a08ec334bbacf77",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:6",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:a2f6766745681924f27afdf3",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d83cb7a46a08ec334bbacf77",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:6",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:a2f6766745681924f27afdf3",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d83cb7a46a08ec334bbacf77",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:6",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:a2f6766745681924f27afdf3",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:d83cb7a46a08ec334bbacf77",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:6",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:a2f6766745681924f27afdf3",
+                    "terminal-support:fab0d5b44f3ebe3155715751"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "terminal-support:7f9fb7668b7111e6fe8f1063"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "terminal-support:fab0d5b44f3ebe3155715751"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:10"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:11"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "terminal-support:7f9fb7668b7111e6fe8f1063"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "terminal-support:fab0d5b44f3ebe3155715751"
+                  ]
+                }
+              ],
+              "edge_id": "raw-edge:620f641e8282b0a4d2a8f5af",
+              "end_vertex_id": "raw-vertex:9839b055dbf3c42fe4dcc251",
+              "provenance": {
+                "$type": "ReferenceProvenanceV1",
+                "boundary_generator": {
+                  "$type": "BoundaryGeneratorProvenanceV1",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "boundary_loop_ids": [
+                    "host-v0:boundary-loop:af3bfa825bda030f284da6ea"
+                  ],
+                  "physical_chain_ids": [
+                    "host-v0:physical-chain:0919a9db792d678089755416"
+                  ],
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_face_ids": [
+                    "host-face:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:14"
+                  ],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54"
+                  ]
+                },
+                "coverage_contributors": {
+                  "$type": "CoverageContributorProvenanceV1",
+                  "chain_use_ids": [
+                    "host-v0:chain-use:596a60ada6cb215b14c683f0",
+                    "host-v0:chain-use:b0f5bd8218305496ed2c499f"
+                  ],
+                  "envelope_instance_ids": [
+                    "envelope-instance:68be1b794fa9160504a9e498"
+                  ],
+                  "envelope_spec_ids": [
+                    "strip-spec:f401d2624a4185cb6bbe89aa"
+                  ],
+                  "lineage_ids": [
+                    "host-v0:physical-lineage:5059b21fe14a005226d55ef4",
+                    "host-v0:physical-lineage:e1f91e981295c5b8cbd2baa6"
+                  ],
+                  "patch_domain_ids": [
+                    "host-v0:patch-domain:bf66337616136188f314fb69"
+                  ]
+                }
+              },
+              "start_vertex_id": "raw-vertex:f19911c7227eb8879cd8ae9d"
+            },
+            {
+              "construction_certificates": [
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:source-launch:f09f581d75b35b986282d54c"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:51c0c21a269a56b3bf480e54",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:66ce0841a73a907105e64078",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464"
+                  ],
+                  "event_key": null,
+                  "kind": "BOUNDARY_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:130dd69ada0fc7d3d76b79d6",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:f09f581d75b35b986282d54c",
+                    "host-v0:topological-boundary:85a9da7f0d8a2e132b651a49"
+                  ],
+                  "event_key": null,
+                  "kind": "SUPPORT_BOUNDARY_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3",
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:7"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "domain-boundary-support:c22c2f166fbb079a5aafb9fb",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SOURCE_VERTEX",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [
+                    "host-vertex:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:11"
+                  ],
+                  "support_ids": []
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:130dd69ada0fc7d3d76b79d6",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "source-support:be01e885a8b2c7fc938f17ae",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                },
+                {
+                  "$type": "ConstructionCertificate",
+                  "boundary_constraint_ids": [],
+                  "event_key": null,
+                  "kind": "SUPPORT_SUPPORT_INTERSECTION",
+                  "physical_edge_ids": [],
+                  "source_vertex_ids": [],
+                  "support_ids": [
+                    "moving-support:130dd69ada0fc7d3d76b79d6",
+                    "terminal-support:25d4e115770a92821b7aed98"
+                  ]
+                }
+              ],
+              "edge_id": "raw-edge:fbc5148a3cf6a36189870086",
+              "end_vertex_id": "raw-vertex:234f059d66f839f703340692",
+              "provenance": {
+                "$type": "ReferenceProvenanceV1",
+                "boundary_generator": {
+                  "$type": "BoundaryGeneratorProvenanceV1",
+                  "boundary_constraint_ids": [
+                    "host-v0:source-launch:57dce42a434171bdbe50b464"
+                  ],
+                  "boundary_loop_ids": [],
+                  "physical_chain_ids": [],
+                  "physical_edge_ids": [
+                    "host-edge:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:3"
+                  ],
+                  "source_face_ids": [
+                    "host-face:host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002:14"
+                  ],
+                  "support_ids": [
+                    "source-support:be01e885a8b2c7fc938f17ae"
+                  ]
+                },
+                "coverage_contributors": {
+                  "$type": "CoverageContributorProvenanceV1",
+                  "chain_use_ids": [
+                    "host-v0:chain-use:596a60ada6cb215b14c683f0",
+                    "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+                  ],
+                  "envelope_instance_ids": [
+                    "envelope-instance:fa766a5674f6c488ab0496ce"
+                  ],
+                  "envelope_spec_ids": [
+                    "strip-spec:8aa64e1283cb9294b7629e9f"
+                  ],
+                  "lineage_ids": [
+                    "host-v0:physical-lineage:5059b21fe14a005226d55ef4",
+                    "host-v0:physical-lineage:a1bbad7cdd4eff879611cfe5"
+                  ],
+                  "patch_domain_ids": [
+                    "host-v0:patch-domain:bf66337616136188f314fb69"
+                  ]
+                }
+              },
+              "start_vertex_id": "raw-vertex:f19911c7227eb8879cd8ae9d"
+            }
+          ]
+        }
+      ]
+    },
+    "stage": "RAW_REJECTED"
+  },
+  "fixture_hash": "efbae17746688b517ce40fa71efa85c2ff7b8ba59573ada93fb3758663a70515",
+  "kernel_revision": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
+  "kernel_version": "0.6.0",
+  "mode": "verify",
+  "schema": "cftuv.envelope.building_002_kernel_reproduction.v1",
+  "validation_issues": {
+    "analysis_snapshot": [],
+    "cross_references": [],
+    "decal_request": []
+  }
+}

@@ -1,0 +1,730 @@
+{
+ "source": "artifacts/field_gate_freeze/locus_certificate.json (готовое свидетельство, ядро не перегонялось)",
+ "commits": {
+  "old_trajectory": "6ce0227 (45 skeleton nodes on wall 2.001, до слияния транзакции одновременного уровня)",
+  "new_trajectory": "821995f9ae3e70b599471259851c15dcd4de70b8, потомок 1dbf712 (49 skeleton nodes, RELEASE CANDIDATE REJECTED_FIELD_GATE)"
+ },
+ "counts": {
+  "loci_6ce0227": 45,
+  "loci_1dbf712": 49,
+  "anchor_loci": 37,
+  "anchor_loci_byte_identical": 28,
+  "anchor_loci_recomposed": 9,
+  "removed": 8,
+  "added": 12,
+  "net": 4
+ },
+ "removed_loci_6ce0227_only": [
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 18090.42701488127,
+   "point_float": [
+    -42391.43860210899,
+    5195.14751826079
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -65540,
+     0,
+     -32772,
+     0
+    ],
+    [
+     -54938,
+     8558,
+     -54938,
+     8558,
+     1
+    ],
+    [
+     -41981,
+     8558,
+     -41981,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-65540,0)-(-32772,0))",
+    "FAN(point=(-54938,8558),idx=1)",
+    "FAN(point=(-41981,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 18090.42701488127,
+   "point_float": [
+    23148.561397891004,
+    5195.14751826079
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     0,
+     0,
+     32768,
+     0
+    ],
+    [
+     10602,
+     8558,
+     10602,
+     8558,
+     1
+    ],
+    [
+     23559,
+     8558,
+     23559,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((0,0)-(32768,0))",
+    "FAN(point=(10602,8558),idx=1)",
+    "FAN(point=(23559,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 18088.553863576366,
+   "point_float": [
+    -9620.7377205784,
+    5194.609593017512
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -32772,
+     0,
+     0,
+     0
+    ],
+    [
+     -22166,
+     8558,
+     -22166,
+     8558,
+     1
+    ],
+    [
+     -9213,
+     8558,
+     -9213,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-32772,0)-(0,0))",
+    "FAN(point=(-22166,8558),idx=1)",
+    "FAN(point=(-9213,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 18088.553863576366,
+   "point_float": [
+    -75160.73772057839,
+    5194.609593017512
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -98311,
+     0,
+     -65540,
+     0
+    ],
+    [
+     -87706,
+     8558,
+     -87706,
+     8558,
+     1
+    ],
+    [
+     -74753,
+     8558,
+     -74753,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-98311,0)-(-65540,0))",
+    "FAN(point=(-87706,8558),idx=1)",
+    "FAN(point=(-74753,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 14531.065066130603,
+   "point_float": [
+    -12088.023406137196,
+    6705.248569363288
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -65536,
+     32768,
+     -22166,
+     8558
+    ],
+    [
+     -22166,
+     8558,
+     -22166,
+     8558,
+     1
+    ],
+    [
+     -9213,
+     8558,
+     -9213,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-65536,32768)-(-22166,8558))",
+    "FAN(point=(-22166,8558),idx=1)",
+    "FAN(point=(-9213,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 14531.065066130603,
+   "point_float": [
+    -77628.02340613719,
+    6705.248569363288
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -131076,
+     32768,
+     -87706,
+     8558
+    ],
+    [
+     -87706,
+     8558,
+     -87706,
+     8558,
+     1
+    ],
+    [
+     -74753,
+     8558,
+     -74753,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-131076,32768)-(-87706,8558))",
+    "FAN(point=(-87706,8558),idx=1)",
+    "FAN(point=(-74753,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 14535.552386462921,
+   "point_float": [
+    -44856.91123857946,
+    6704.676423472565
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -98308,
+     32768,
+     -54938,
+     8558
+    ],
+    [
+     -54938,
+     8558,
+     -54938,
+     8558,
+     1
+    ],
+    [
+     -41981,
+     8558,
+     -41981,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-98308,32768)-(-54938,8558))",
+    "FAN(point=(-54938,8558),idx=1)",
+    "FAN(point=(-41981,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "6ce0227_only (removed on new vertex)",
+   "t_float": 14535.552386462921,
+   "point_float": [
+    20683.088761420542,
+    6704.676423472565
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -32768,
+     32768,
+     10602,
+     8558
+    ],
+    [
+     10602,
+     8558,
+     10602,
+     8558,
+     1
+    ],
+    [
+     23559,
+     8558,
+     23559,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-32768,32768)-(10602,8558))",
+    "FAN(point=(10602,8558),idx=1)",
+    "FAN(point=(23559,8558),idx=1)"
+   ]
+  }
+ ],
+ "added_loci_new_vertex_only": [
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 13923.842528593841,
+   "point_float": [
+    -12509.160775814604,
+    6782.67114093778
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -65536,
+     32768,
+     -22166,
+     8558
+    ],
+    [
+     -22166,
+     8558,
+     -22166,
+     8558,
+     1
+    ],
+    [
+     -9213,
+     8558,
+     -52583,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-65536,32768)-(-22166,8558))",
+    "FAN(point=(-22166,8558),idx=1)",
+    "EDGE_DIAGONAL((-9213,8558)-(-52583,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 13923.842528593841,
+   "point_float": [
+    -78049.1607758146,
+    6782.67114093778
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -131076,
+     32768,
+     -87706,
+     8558
+    ],
+    [
+     -87706,
+     8558,
+     -87706,
+     8558,
+     1
+    ],
+    [
+     -74753,
+     8558,
+     -118123,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-131076,32768)-(-87706,8558))",
+    "FAN(point=(-87706,8558),idx=1)",
+    "EDGE_DIAGONAL((-74753,8558)-(-118123,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 13928.142333281125,
+   "point_float": [
+    -45278.178659170066,
+    6782.122903816169
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -98308,
+     32768,
+     -54938,
+     8558
+    ],
+    [
+     -54938,
+     8558,
+     -54938,
+     8558,
+     1
+    ],
+    [
+     -41981,
+     8558,
+     -85351,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-98308,32768)-(-54938,8558))",
+    "FAN(point=(-54938,8558),idx=1)",
+    "EDGE_DIAGONAL((-41981,8558)-(-85351,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 13928.142333281125,
+   "point_float": [
+    20261.821340829938,
+    6782.122903816169
+   ],
+   "kind": "SPLIT",
+   "participants_raw": [
+    [
+     -32768,
+     32768,
+     10602,
+     8558
+    ],
+    [
+     10602,
+     8558,
+     10602,
+     8558,
+     1
+    ],
+    [
+     23559,
+     8558,
+     -19811,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE((-32768,32768)-(10602,8558))",
+    "FAN(point=(10602,8558),idx=1)",
+    "EDGE_DIAGONAL((23559,8558)-(-19811,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 22373.00748508647,
+   "point_float": [
+    -81338.45631958835,
+    6425.004463220515
+   ],
+   "kind": "MULTIWAY",
+   "participants_raw": [
+    [
+     -98311,
+     0,
+     -65540,
+     0
+    ],
+    [
+     -74753,
+     8558,
+     -118123,
+     32768
+    ],
+    [
+     -74753,
+     8558,
+     -74753,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-98311,0)-(-65540,0))",
+    "EDGE_DIAGONAL((-74753,8558)-(-118123,32768))",
+    "FAN(point=(-74753,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 22373.00748508647,
+   "point_float": [
+    -48566.456319588346,
+    6425.004463220515
+   ],
+   "kind": "MULTIWAY",
+   "participants_raw": [
+    [
+     -65540,
+     0,
+     -32772,
+     0
+    ],
+    [
+     -41981,
+     8558,
+     -85351,
+     32768
+    ],
+    [
+     -41981,
+     8558,
+     -41981,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-65540,0)-(-32772,0))",
+    "EDGE_DIAGONAL((-41981,8558)-(-85351,32768))",
+    "FAN(point=(-41981,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 22373.00748508647,
+   "point_float": [
+    -15798.456319588347,
+    6425.004463220515
+   ],
+   "kind": "MULTIWAY",
+   "participants_raw": [
+    [
+     -32772,
+     0,
+     0,
+     0
+    ],
+    [
+     -9213,
+     8558,
+     -52583,
+     32768
+    ],
+    [
+     -9213,
+     8558,
+     -9213,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-32772,0)-(0,0))",
+    "EDGE_DIAGONAL((-9213,8558)-(-52583,32768))",
+    "FAN(point=(-9213,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 22373.00748508647,
+   "point_float": [
+    16973.54368041165,
+    6425.004463220515
+   ],
+   "kind": "MULTIWAY",
+   "participants_raw": [
+    [
+     0,
+     0,
+     32768,
+     0
+    ],
+    [
+     23559,
+     8558,
+     -19811,
+     32768
+    ],
+    [
+     23559,
+     8558,
+     23559,
+     8558,
+     1
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((0,0)-(32768,0))",
+    "EDGE_DIAGONAL((23559,8558)-(-19811,32768))",
+    "FAN(point=(23559,8558),idx=1)"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 16904.71688855035,
+   "point_float": [
+    -75981.78430394757,
+    4854.639302776572
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -98311,
+     0,
+     -65540,
+     0
+    ],
+    [
+     -87706,
+     8558,
+     -87706,
+     8558,
+     1
+    ],
+    [
+     -74753,
+     8558,
+     -118123,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-98311,0)-(-65540,0))",
+    "FAN(point=(-87706,8558),idx=1)",
+    "EDGE_DIAGONAL((-74753,8558)-(-118123,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 16904.71688855035,
+   "point_float": [
+    -10441.784303947567,
+    4854.639302776572
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -32772,
+     0,
+     0,
+     0
+    ],
+    [
+     -22166,
+     8558,
+     -22166,
+     8558,
+     1
+    ],
+    [
+     -9213,
+     8558,
+     -52583,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-32772,0)-(0,0))",
+    "FAN(point=(-22166,8558),idx=1)",
+    "EDGE_DIAGONAL((-9213,8558)-(-52583,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 16907.10761011518,
+   "point_float": [
+    -43212.126226176726,
+    4855.325862092952
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     -65540,
+     0,
+     -32772,
+     0
+    ],
+    [
+     -54938,
+     8558,
+     -54938,
+     8558,
+     1
+    ],
+    [
+     -41981,
+     8558,
+     -85351,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((-65540,0)-(-32772,0))",
+    "FAN(point=(-54938,8558),idx=1)",
+    "EDGE_DIAGONAL((-41981,8558)-(-85351,32768))"
+   ]
+  },
+  {
+   "trajectory": "new_vertex_only (821995f/1dbf712 descendant, added)",
+   "t_float": 16907.10761011518,
+   "point_float": [
+    22327.873773823274,
+    4855.325862092952
+   ],
+   "kind": "EDGE",
+   "participants_raw": [
+    [
+     0,
+     0,
+     32768,
+     0
+    ],
+    [
+     10602,
+     8558,
+     10602,
+     8558,
+     1
+    ],
+    [
+     23559,
+     8558,
+     -19811,
+     32768
+    ]
+   ],
+   "participants_tagged": [
+    "EDGE_BOTTOM((0,0)-(32768,0))",
+    "FAN(point=(10602,8558),idx=1)",
+    "EDGE_DIAGONAL((23559,8558)-(-19811,32768))"
+   ]
+  }
+ ],
+ "reading": "На 6ce0227 (removed): каждый локус несёт ДВА FAN-участника (оба веера одного оконного выреза) плюс ОДНО обычное ребро (EDGE_DIAGONAL при t~14531/14536, EDGE_BOTTOM при t~18089/18090) -- то есть два веера встречаются ДРУГ С ДРУГОМ в одной точке вместе с этим ребром. На новой вершине (added): каждый локус несёт ОДИН FAN-участник плюс ОДНО ребро 'A' (участник вида (x,y,x2,y2) БЕЗ суффикса веера, отличный от EDGE_DIAGONAL/EDGE_BOTTOM выше) -- то есть каждый веер встречается порознь с рёбром A, а не со вторым веером; ребро A доживает до MULTIWAY-события при t~22373."
+}

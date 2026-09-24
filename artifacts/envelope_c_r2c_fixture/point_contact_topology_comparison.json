@@ -1,0 +1,48 @@
+{
+  "comparison": [
+    {
+      "contributors_equal": true,
+      "exact_point": {
+        "x": "Rational(2651330823508, 373821260323)",
+        "y": "Rational(-452766086928, 373821260323)"
+      },
+      "historical_arrangement_point_id": "raw-vertex:557b57dd58d3928cbbdf89e1",
+      "historical_outgoing_edge_count": 2,
+      "participating_chain_use_ids": [
+        "host-v0:chain-use:596a60ada6cb215b14c683f0",
+        "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+        "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+      ],
+      "point_equal": true,
+      "selected_arrangement_point_id": "raw-vertex:c66646c28aac171091c58735",
+      "selected_boundary_occurrence_count": 2
+    },
+    {
+      "contributors_equal": true,
+      "exact_point": {
+        "x": "Rational(232403250106, 373821260323)",
+        "y": "Rational(240403797009, 373821260323)"
+      },
+      "historical_arrangement_point_id": "raw-vertex:f19911c7227eb8879cd8ae9d",
+      "historical_outgoing_edge_count": 2,
+      "participating_chain_use_ids": [
+        "host-v0:chain-use:596a60ada6cb215b14c683f0",
+        "host-v0:chain-use:b0f5bd8218305496ed2c499f",
+        "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+      ],
+      "point_equal": true,
+      "selected_arrangement_point_id": "raw-vertex:cffb305eeb66482c21146b19",
+      "selected_boundary_occurrence_count": 2
+    }
+  ],
+  "contributors_equal": true,
+  "historical_failure": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+  "historical_revision": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
+  "point_contact_count": 2,
+  "point_only_contact_preserved": true,
+  "points_equal": true,
+  "positive_area_overlap_introduced": false,
+  "schema": "cftuv.envelope.building_002_point_contact_topology_comparison.v1",
+  "selected_revision": "c2622d07020338e5231b81f41655fe6c74cdca72",
+  "selected_schema": "cftuv.envelope.raw_coverage_result.v2"
+}

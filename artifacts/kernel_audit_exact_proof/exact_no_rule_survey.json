@@ -1,0 +1,434 @@
+{
+ "cases": {
+  "axis_rectangle": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "axis_square": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "comb_2": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "comb_4": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "cross": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 4,
+    "refused_no_rule_triple_always_concurrent": 16
+   },
+   "outcome": "EXACT"
+  },
+  "diamond": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "double_notch": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 4,
+    "refused_no_rule_triple_always_concurrent": 10
+   },
+   "outcome": "EXACT"
+  },
+  "ell": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_all_sources_bottom_at_double_speed": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_all_sources_mixed_speeds_at_the_reflex_vertex": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edge_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edge_1": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 5
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edge_2": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edge_3": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edge_4": {
+   "no_rule": {
+    "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edge_5": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edges_0_1": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edges_1_2": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edges_2_3": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edges_3_4": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edges_4_5": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edges_5_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "ell_12_source_without_the_reflex_pair": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 5
+   },
+   "outcome": "EXACT"
+  },
+  "field_building_002_scale_1024": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 11
+   },
+   "outcome": "EXACT"
+  },
+  "field_building_002_scale_256": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 11
+   },
+   "outcome": "EXACT"
+  },
+  "field_building_002_scale_64": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 3,
+    "refused_no_rule_triple_always_concurrent": 11
+   },
+   "outcome": "EXACT"
+  },
+  "hole_1": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 4,
+    "refused_no_rule_triple_always_concurrent": 8
+   },
+   "outcome": "EXACT"
+  },
+  "holes_2": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 6,
+    "refused_no_rule_triple_always_concurrent": 24
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_bottom_at_double_speed": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edge_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edge_1": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edge_2": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edge_3": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edges_0_1": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edges_1_2": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edges_2_3": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "rect_12x8_source_edges_3_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "EXACT"
+  },
+  "right_triangle": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "staircase": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 2,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_all_sources_bottom_at_double_speed": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 3,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_source_edge_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 3,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_source_edge_1": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 5
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_2": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_3": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 7
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_4": {
+   "no_rule": {
+    "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 8
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_5": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_6": {
+   "no_rule": {
+    "refused_no_rule_joint_is_codirectional_at_different_speeds": 2,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 11
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edge_7": {
+   "no_rule": {
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_source_edges_0_1": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 3,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_source_edges_1_2": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_2_3": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 7
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_3_4": {
+   "no_rule": {
+    "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 12
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_4_5": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_joint_is_codirectional_at_different_speeds": 1,
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 8
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_5_6": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 2
+   },
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_6_7": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_meeting_not_reconnectable": 2,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  },
+  "staircase_source_edges_7_0": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 1,
+    "refused_no_rule_triple_always_concurrent": 4
+   },
+   "outcome": "EXACT"
+  },
+  "star_9_seed_0": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 5
+   },
+   "outcome": "EXACT"
+  },
+  "star_9_seed_1": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "star_9_seed_2": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "star_9_seed_3": {
+   "no_rule": {},
+   "outcome": "EXACT"
+  },
+  "star_9_seed_4": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 3,
+    "refused_no_rule_triple_always_concurrent": 18
+   },
+   "outcome": "EXACT"
+  },
+  "star_9_seed_5": {
+   "no_rule": {
+    "refused_no_rule_meeting_not_reconnectable": 1,
+    "refused_no_rule_triple_always_concurrent": 5
+   },
+   "outcome": "EXACT"
+  },
+  "u_shape": {
+   "no_rule": {
+    "refused_no_rule_joint_is_antiparallel": 3,
+    "refused_no_rule_triple_always_concurrent": 6
+   },
+   "outcome": "EXACT"
+  }
+ },
+ "exact_with_nonzero_no_rule": 40,
+ "total_cases": 63
+}

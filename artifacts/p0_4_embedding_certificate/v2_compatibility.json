@@ -1,0 +1,37 @@
+{
+  "schema": "P0_4_V2_COMPATIBILITY_V1",
+  "base_commit": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+  "fixture_universe": {
+    "pytest_cases": 136,
+    "metric_calls": 131,
+    "total_encoded_bytes": 760027,
+    "base_case_bytes_receipt_sha256": "005d502711e2fd0c31463dad91ab4dfb94d2e7ae489e975834a47520602e1453",
+    "current_case_bytes_receipt_sha256": "005d502711e2fd0c31463dad91ab4dfb94d2e7ae489e975834a47520602e1453",
+    "byte_differences": 0
+  },
+  "rational_affine_planar_metric_v2_schema": {
+    "base_git_blob": "9e51b68fafa366ffa1844af62171a8e4483db0a2",
+    "current_git_blob": "9e51b68fafa366ffa1844af62171a8e4483db0a2",
+    "byte_identical": true
+  },
+  "unchanged_existing_schema_blobs": {
+    "analysis_snapshot_v1.schema.json": "06e0567b01ab994a89f251217417a145e17a30c3",
+    "decal_request_v1.schema.json": "6e9a0e9c4408d0b27ddf808eb5c6200f37c8d2af",
+    "envelope_debug_scene_v1.schema.json": "e88bcaf8b138db8e81954ab0951f6c20fe62b814",
+    "evaluation_geometry_binding_v1.schema.json": "efa0a701a90a66f83ccee9adfe65bb12f7dcfda5",
+    "evaluation_geometry_binding_v2.schema.json": "78e3776b92515de5f49df121ea060f540e7b715a",
+    "runtime_planar_metric_v1.schema.json": "6788620bc97f7a73f997e8c7d3497f29c39afc5a"
+  },
+  "additive_named_outcome_enum_propagation": {
+    "compiled_patch_evaluation_plan_v1.schema.json": {
+      "base_git_blob": "2f91abb43930b37617a143775d2e1d697bf2c141",
+      "current_git_blob": "fa9f5961517a4d0728f0d0db64fabcd4d771e17d"
+    },
+    "geometry_batch_v1.schema.json": {
+      "base_git_blob": "0e3ed5e523bcc2f7b284fbb8fb3eedea944a0d89",
+      "current_git_blob": "8e4c5e6de51bf3438e30d45bcbdc73b3abe1a611"
+    }
+  },
+  "new_wrapper_schema_git_blob": "681b7c7622de45780ee0f060b48f2a4922f196f8",
+  "final_current_v2_survey": "136 passed in 93.48s; 131 calls; 760027 bytes"
+}

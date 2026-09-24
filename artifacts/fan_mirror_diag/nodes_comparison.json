@@ -1,0 +1,3421 @@
+{
+ "schema": "cftuv.fan_diag.nodes_comparison.v1",
+ "scale": 32768,
+ "base_run": {
+  "outcome": "EXACT",
+  "node_count": 40,
+  "face_count": 47,
+  "fan_count": 12
+ },
+ "dissolved_run": {
+  "outcome": "EXACT",
+  "node_count": 33,
+  "face_count": 40,
+  "fan_count": 12,
+  "vertex_count": 28
+ },
+ "piers": [
+  {
+   "pier": "A|B",
+   "doubled_axis": -936211,
+   "axis_metres": -14.285446166992188,
+   "radius_lattice": 42599,
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -475859.5966002973,
+     "y_lattice": 762332.5,
+     "x_metres": -14.522082415780558,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -993867,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297315
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -468105.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -14.285446166992188,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -468105.5,
+     "y_lattice": 677054.5,
+     "x_metres": -14.285446166992188,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -468105.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -14.285446166992188,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -467336.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -14.261962890625,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -467336,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.5
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -460351.4033997027,
+     "y_lattice": 762332.5,
+     "x_metres": -14.048809918203817,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -878555,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297315
+    }
+   ],
+   "orphans": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -467336.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -14.261962890625,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -467336,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.5
+    }
+   ],
+   "band_is_mirror_symmetric": false
+  },
+  {
+   "pier": "B|C",
+   "doubled_axis": -1077113,
+   "axis_metres": -16.435440063476562,
+   "radius_lattice": 42598,
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -546310.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -16.672076312264934,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1134769,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -538556.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -16.435440063476562,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -538556.5,
+     "y_lattice": 677054.5,
+     "x_metres": -16.435440063476562,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -538556.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -16.435440063476562,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -537787.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -16.411956787109375,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -537787,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.5
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -530802.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -16.19880381468819,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1019457,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "orphans": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -537787.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -16.411956787109375,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -537787,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.5
+    }
+   ],
+   "band_is_mirror_symmetric": false
+  },
+  {
+   "pier": "C|D",
+   "doubled_axis": -1218015,
+   "axis_metres": -18.585433959960938,
+   "radius_lattice": 42598,
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -616761.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -18.82207020874931,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1275671,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -609007.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -18.585433959960938,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -609007.5,
+     "y_lattice": 677054.5,
+     "x_metres": -18.585433959960938,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -609007.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -18.585433959960938,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -608239.0,
+     "y_lattice": 759438.9711468895,
+     "x_metres": -18.561981201171875,
+     "y_metres": 23.17623813314482,
+     "x_exact": [
+      [
+       1,
+       [
+        -608239,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820195,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42961,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42961,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 768.5
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -601253.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -18.348797711172566,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1160359,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "orphans": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -608239.0,
+     "y_lattice": 759438.9711468895,
+     "x_metres": -18.561981201171875,
+     "y_metres": 23.17623813314482,
+     "x_exact": [
+      [
+       1,
+       [
+        -608239,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820195,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42961,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42961,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 768.5
+    }
+   ],
+   "band_is_mirror_symmetric": false
+  },
+  {
+   "pier": "D|E",
+   "doubled_axis": -1358917,
+   "axis_metres": -20.735427856445312,
+   "radius_lattice": 42598,
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -687212.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -20.972064105233684,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1416573,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -679458.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -20.735427856445312,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -679458.5,
+     "y_lattice": 677054.5,
+     "x_metres": -20.735427856445312,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -679458.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -20.735427856445312,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -678690.0,
+     "y_lattice": 759438.9711468895,
+     "x_metres": -20.71197509765625,
+     "y_metres": 23.17623813314482,
+     "x_exact": [
+      [
+       1,
+       [
+        -678690,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820195,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42961,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42961,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 768.5
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -671704.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -20.49879160765694,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1301261,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "orphans": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -678690.0,
+     "y_lattice": 759438.9711468895,
+     "x_metres": -20.71197509765625,
+     "y_metres": 23.17623813314482,
+     "x_exact": [
+      [
+       1,
+       [
+        -678690,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820195,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42961,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42961,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 768.5
+    }
+   ],
+   "band_is_mirror_symmetric": false
+  },
+  {
+   "pier": "E|F",
+   "doubled_axis": -1499820,
+   "axis_metres": -22.88543701171875,
+   "radius_lattice": 42599,
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -757663.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -23.12205800171806,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1557475,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7753.596600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -749910.0,
+     "y_lattice": 753199.3380696077,
+     "x_metres": -22.88543701171875,
+     "y_metres": 22.98581964323754,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        733505,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        13926,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      13926,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -749910.0,
+     "y_lattice": 677054.0,
+     "x_metres": -22.88543701171875,
+     "y_metres": 20.66204833984375,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        677054,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      13926,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -749910.0,
+     "y_lattice": 759120.8551309869,
+     "x_metres": -22.88543701171875,
+     "y_metres": 23.1665300027767,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820963,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -43729,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      43729,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -749141.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -22.861968994140625,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -749141,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -742156.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -22.64881602171944,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1442165,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7753.596600297373
+    }
+   ],
+   "orphans": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -749141.0,
+     "y_lattice": 759439.3853604519,
+     "x_metres": -22.861968994140625,
+     "y_metres": 23.17625077393957,
+     "x_exact": [
+      [
+       1,
+       [
+        -749141,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820194,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -42960,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      42960,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": false,
+     "signed_offset_from_axis_lattice": 769.0
+    }
+   ],
+   "band_is_mirror_symmetric": false
+  }
+ ],
+ "piers_after_dissolving_collinear_route_vertices": [
+  {
+   "pier": "A|B",
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -475859.5966002973,
+     "y_lattice": 762332.5,
+     "x_metres": -14.522082415780558,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -993867,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297315
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -468105.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -14.285446166992188,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -468105.5,
+     "y_lattice": 677054.5,
+     "x_metres": -14.285446166992188,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -468105.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -14.285446166992188,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -936211,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -460351.4033997027,
+     "y_lattice": 762332.5,
+     "x_metres": -14.048809918203817,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -878555,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297315
+    }
+   ],
+   "band_is_mirror_symmetric": true
+  },
+  {
+   "pier": "B|C",
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -546310.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -16.672076312264934,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1134769,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -538556.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -16.435440063476562,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -538556.5,
+     "y_lattice": 677054.5,
+     "x_metres": -16.435440063476562,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -538556.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -16.435440063476562,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1077113,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -530802.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -16.19880381468819,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1019457,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "band_is_mirror_symmetric": true
+  },
+  {
+   "pier": "C|D",
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -616761.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -18.82207020874931,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1275671,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -609007.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -18.585433959960938,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -609007.5,
+     "y_lattice": 677054.5,
+     "x_metres": -18.585433959960938,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -609007.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -18.585433959960938,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1218015,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -601253.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -18.348797711172566,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1160359,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "band_is_mirror_symmetric": true
+  },
+  {
+   "pier": "D|E",
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -687212.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -20.972064105233684,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1416573,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7754.096600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -679458.5,
+     "y_lattice": 753199.5451763889,
+     "x_metres": -20.735427856445312,
+     "y_metres": 22.985825963634916,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1467009,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        27853,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -679458.5,
+     "y_lattice": 677054.5,
+     "x_metres": -20.735427856445312,
+     "y_metres": 20.662063598632812,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1354109,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      27853,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -679458.5,
+     "y_lattice": 759120.6480242057,
+     "x_metres": -20.735427856445312,
+     "y_metres": 23.166523682379324,
+     "x_exact": [
+      [
+       1,
+       [
+        -1358917,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1641927,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -87459,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      87459,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -671704.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -20.49879160765694,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1301261,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7754.096600297373
+    }
+   ],
+   "band_is_mirror_symmetric": true
+  },
+  {
+   "pier": "E|F",
+   "nodes": [
+    {
+     "kind": "SPLIT",
+     "x_lattice": -757663.5966002974,
+     "y_lattice": 762332.5,
+     "x_metres": -23.12205800171806,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1557475,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": -7753.596600297373
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -749910.0,
+     "y_lattice": 753199.3380696077,
+     "x_metres": -22.88543701171875,
+     "y_metres": 22.98581964323754,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        733505,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        13926,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      13926,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -749910.0,
+     "y_lattice": 677054.0,
+     "x_metres": -22.88543701171875,
+     "y_metres": 20.66204833984375,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        677054,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      13926,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 2,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "EDGE",
+     "x_lattice": -749910.0,
+     "y_lattice": 759120.8551309869,
+     "x_metres": -22.88543701171875,
+     "y_metres": 23.1665300027767,
+     "x_exact": [
+      [
+       1,
+       [
+        -749910,
+        1
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        820963,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        -43729,
+        1
+       ]
+      ]
+     ],
+     "time_dividend": [
+      43729,
+      1
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ],
+      [
+       2,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 3,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 0.0
+    },
+    {
+     "kind": "SPLIT",
+     "x_lattice": -742156.4033997026,
+     "y_lattice": 762332.5,
+     "x_metres": -22.64881602171944,
+     "y_metres": 23.264541625976562,
+     "x_exact": [
+      [
+       1,
+       [
+        -1442165,
+        2
+       ]
+      ],
+      [
+       2,
+       [
+        -29803,
+        2
+       ]
+      ]
+     ],
+     "y_exact": [
+      [
+       1,
+       [
+        1524665,
+        2
+       ]
+      ]
+     ],
+     "time_dividend": [
+      29803,
+      2
+     ],
+     "time_divisor": [
+      [
+       1,
+       [
+        1,
+        1
+       ]
+      ]
+     ],
+     "converging_vertices": 1,
+     "has_mirror_partner": true,
+     "signed_offset_from_axis_lattice": 7753.596600297373
+    }
+   ],
+   "band_is_mirror_symmetric": true
+  }
+ ],
+ "simultaneous_groups": {
+  "group_count": 7,
+  "largest_group": 12,
+  "nodes_in_simultaneous_groups": 34,
+  "groups": [
+   {
+    "time_dividend": [
+     29803,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 14901.5,
+    "member_count": 12,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -757663.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -687212.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -742156.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -616761.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -671704.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -546310.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -601253.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -475859.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -530802.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -405407.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -460351.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -804690.631,
+      "y_lattice": 762332.5,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     27853,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 13926.5,
+    "member_count": 8,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -679458.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -609007.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -538556.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -468105.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -679458.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -609007.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -538556.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -468105.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     87459,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 18113.351976,
+    "member_count": 4,
+    "members": [
+     {
+      "kind": "EDGE",
+      "x_lattice": -679458.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -609007.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -538556.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -468105.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     14770,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 14770.0,
+    "member_count": 3,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -396810.0,
+      "y_lattice": 682836.0,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -396810.0,
+      "y_lattice": 753548.934,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -396810.0,
+      "y_lattice": 677898.0,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     42960,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 17794.61464,
+    "member_count": 3,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -749141.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -537787.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -467336.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     13926,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 13926.0,
+    "member_count": 2,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -749910.0,
+      "y_lattice": 753199.338,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -749910.0,
+      "y_lattice": 677054.0,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     42961,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 17795.028853,
+    "member_count": 2,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -678690.0,
+      "y_lattice": 759438.971,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -608239.0,
+      "y_lattice": 759438.971,
+      "converging_vertices": 1
+     }
+    ]
+   }
+  ]
+ }
+}

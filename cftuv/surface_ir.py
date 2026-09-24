@@ -176,6 +176,57 @@ class DecalBackendKind(str, Enum):
     PATCH_VORONOI = "PATCH_VORONOI"
 
 
+class HostPlanarityPolicy(str, Enum):
+    """Какую плоскость хост объявляет ядру для патча.
+
+    Объявляется явно, а не выбирается ядром при отказе: координаты Blender —
+    binary64 без гарантии компланарности, поэтому строгая приёмка отвергала
+    почти любой отредактированный меш.
+    """
+
+    EXACT_SOURCE_PLANE_V1 = "EXACT_SOURCE_PLANE_V1"
+    NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
+
+
+HOST_PLANARITY_POLICY = HostPlanarityPolicy.NEAR_PLANAR_PROJECTION_V1
+
+
+class HostGridPolicy(str, Enum):
+    """Привязывает ли хост вершины источника к целочисленной решётке.
+
+    Объявляется явно по тем же причинам, что и планарность: ядро не выбирает
+    политику за хост, и переключение видно в сертификате метрики, а значит и в
+    дайджесте.
+    """
+
+    UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
+    # Привязывается только источник; конструкции остаются точными.
+    SOURCE_ONLY_GRID_SNAP_V1 = "SOURCE_ONLY_GRID_SNAP_V1"
+    INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+
+
+# Хост запрашивает привязку ИСТОЧНИКА и не запрашивает привязку конструкций.
+# Разрез не выбран, а измерен на `building.002` — единственном полевом меше:
+#
+#   UNSNAPPED_EXACT_V1        EXACT, восстановлено 0 из 3 задуманно прямых
+#   SOURCE_ONLY_GRID_SNAP_V1  EXACT, восстановлено 3 из 3, топология та же
+#                             (3 петли, 3 региона, 2 точечных контакта)
+#   INTEGER_GRID_SNAP_V1      REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN
+#
+# То есть выигрыш даёт привязка источника, а отказ приносит привязка
+# конструкций — `offset_support_g` и `segment_intersections`, то самое слияние
+# вычисленных точек, которое карточка R1b сама числит лотереей, а не
+# механизмом: на полевом меше оно сливает три вычисленные точки и оставляет
+# две висячие полурёбра вместо замкнутой границы.
+#
+# `INTEGER_GRID_SNAP_V1` не удалён: он нужен, когда привязку конструкций
+# починят topology-preserving snap rounding'ом. До тех пор его отказ сторожит
+# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_still_refuses_downstream_of_the_restored_corners`,
+# а выигрыш нового закона —
+# `...::test_the_field_mesh_keeps_its_topology_when_only_the_source_is_snapped`.
+HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
+
+
 class PreviewFailurePolicy(str, Enum):
     CLEAR = "CLEAR"
 
@@ -193,6 +244,10 @@ __all__ = (
     "AnalysisSchemaError",
     "CapacityPolicy",
     "DecalBackendKind",
+    "HOST_GRID_POLICY",
+    "HOST_PLANARITY_POLICY",
+    "HostGridPolicy",
+    "HostPlanarityPolicy",
     "PatchSurfaceIR",
     "PreviewFailurePolicy",
     "SourceEdge",

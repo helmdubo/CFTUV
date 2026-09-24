@@ -1,0 +1,39 @@
+{
+  "schema": "P0_4_EMBEDDING_VALIDATOR_HARDENING_V1",
+  "status": "ACCEPTED_BY_INDEPENDENT_VALIDATOR_AUDIT",
+  "targeted_result": "37 passed in 1.12s",
+  "independent_codec_roundtrip_repros": [
+    {
+      "tamper": "exact_plane_normal=(0,0,0), exact and near-planar records",
+      "before": "0 validation issues",
+      "after": "3 validation issues per record"
+    },
+    {
+      "tamper": "max_residual_squared=max_coordinate_ulp=planar_extent=0",
+      "before": "0 validation issues",
+      "after": "3 validation issues"
+    },
+    {
+      "tamper": "arbitrary reference_metric_id and certificate_id",
+      "before": "0 validation issues",
+      "after": "2 validation issues"
+    }
+  ],
+  "additional_local_codec_control": "A nonprimitive plane normal scaled by 2 is rejected as noncanonical and as different from exact source recomputation.",
+  "recomputed_authority": [
+    "nonzero canonical primitive plane normal",
+    "exact Newell plane normal from snapped source",
+    "planar_extent",
+    "max_coordinate_ulp",
+    "max_residual_squared",
+    "near-planar constants, budget law, and budget value",
+    "reference_metric_id",
+    "planarity certificate_id"
+  ],
+  "required_caller_authority": [
+    "expected_source_revision",
+    "expected_patch_domain_id",
+    "expected_source_lineage"
+  ],
+  "integration_obligation": "Every future product caller must pass source revision, patch domain, and lineage from its own trusted envelope. The wrapper is additive and is not inserted into the existing SurfaceMetricDescriptor union by P0-4."
+}

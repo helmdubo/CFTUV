@@ -1,0 +1,592 @@
+{
+  "A_field": {
+    "variant": "A_field",
+    "outcome": "EXACT",
+    "lattice_scale": 32768,
+    "lattice_alpha": "73728/5",
+    "lattice_alpha_bits": [
+      17,
+      3
+    ],
+    "alpha": "9/20",
+    "laws_total": 5,
+    "laws_rescaled": 5,
+    "law_coefficient_bits": {
+      "as_written": {},
+      "after_rescale": {
+        "count": 40,
+        "max": 142,
+        "median": 11,
+        "min": 0
+      }
+    },
+    "sqrt_sum_q_radicand_bits": {
+      "count": 15,
+      "max": 246,
+      "median": 216,
+      "min": 203
+    },
+    "sqrt_sum_operations": 3,
+    "sign_counts_prepare": {
+      "total": 1353,
+      "closed_rational_zero": 152,
+      "closed_rational_nonzero": 240,
+      "closed_by_enclosure": 961,
+      "closed_by_conjugation": 0
+    },
+    "sign_counts_coverage": {
+      "total": 26,
+      "closed_rational_zero": 0,
+      "closed_rational_nonzero": 0,
+      "closed_by_enclosure": 26,
+      "closed_by_conjugation": 0
+    },
+    "laws": [
+      {
+        "name": "strip-spec:2ed5b39cc69dfa7cebdfe303",
+        "rescaled": true,
+        "normal_x": [
+          0,
+          1
+        ],
+        "normal_y": [
+          1,
+          1
+        ],
+        "constant": [
+          1,
+          1
+        ],
+        "speed_squared": [
+          88,
+          92
+        ]
+      },
+      {
+        "name": "strip-spec:5f51909b02c4f2912c77f246",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          24,
+          16
+        ],
+        "constant": [
+          35,
+          28
+        ],
+        "speed_squared": [
+          140,
+          129
+        ]
+      },
+      {
+        "name": "strip-spec:9c349d5070b0ae6e6a1bcebc",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          23,
+          15
+        ],
+        "speed_squared": [
+          142,
+          131
+        ]
+      },
+      {
+        "name": "angular-spec:ada14e597e4a901af6be6362/hidden-support:59e842d8191114f4893bfec3",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          7,
+          1
+        ],
+        "constant": [
+          7,
+          1
+        ],
+        "speed_squared": [
+          108,
+          95
+        ]
+      },
+      {
+        "name": "angular-spec:f26854a3c7101ac5a3e47f6a/hidden-support:fc494989b48afc56d165f2a5",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          9,
+          1
+        ],
+        "constant": [
+          21,
+          14
+        ],
+        "speed_squared": [
+          114,
+          103
+        ]
+      }
+    ]
+  },
+  "B_v0_flat": {
+    "variant": "B_v0_flat",
+    "outcome": "EXACT",
+    "lattice_scale": 32768,
+    "lattice_alpha": "73728/5",
+    "lattice_alpha_bits": [
+      17,
+      3
+    ],
+    "alpha": "9/20",
+    "laws_total": 5,
+    "laws_rescaled": 4,
+    "law_coefficient_bits": {
+      "as_written": {
+        "count": 8,
+        "max": 15,
+        "median": 7,
+        "min": 0
+      },
+      "after_rescale": {
+        "count": 32,
+        "max": 79,
+        "median": 15,
+        "min": 1
+      }
+    },
+    "sqrt_sum_q_radicand_bits": {
+      "count": 15,
+      "max": 119,
+      "median": 97,
+      "min": 90
+    },
+    "sqrt_sum_operations": 3,
+    "sign_counts_prepare": {
+      "total": 1248,
+      "closed_rational_zero": 140,
+      "closed_rational_nonzero": 315,
+      "closed_by_enclosure": 793,
+      "closed_by_conjugation": 0
+    },
+    "sign_counts_coverage": {
+      "total": 26,
+      "closed_rational_zero": 0,
+      "closed_rational_nonzero": 6,
+      "closed_by_enclosure": 20,
+      "closed_by_conjugation": 0
+    },
+    "laws": [
+      {
+        "name": "strip-spec:1db1ebf50a0bc805cacc5d34",
+        "rescaled": false,
+        "normal_x": [
+          0,
+          1
+        ],
+        "normal_y": [
+          15,
+          13
+        ],
+        "constant": [
+          15,
+          13
+        ],
+        "speed_squared": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "strip-spec:41c83992280d830fce45bb05",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          36,
+          29
+        ],
+        "speed_squared": [
+          79,
+          67
+        ]
+      },
+      {
+        "name": "strip-spec:8492e704511a7bfed20fc13d",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          24,
+          16
+        ],
+        "constant": [
+          24,
+          16
+        ],
+        "speed_squared": [
+          79,
+          67
+        ]
+      },
+      {
+        "name": "angular-spec:49746f089d6407740d68c8bf/hidden-support:8624861414e4263b920768b7",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          7,
+          1
+        ],
+        "constant": [
+          7,
+          1
+        ],
+        "speed_squared": [
+          52,
+          39
+        ]
+      },
+      {
+        "name": "angular-spec:de0f3cf73b438d29b4f62355/hidden-support:6c085471af5fd43904e34b10",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          9,
+          1
+        ],
+        "constant": [
+          22,
+          15
+        ],
+        "speed_squared": [
+          51,
+          39
+        ]
+      }
+    ]
+  },
+  "C_column_straight": {
+    "variant": "C_column_straight",
+    "outcome": "EXACT",
+    "lattice_scale": 32768,
+    "lattice_alpha": "73728/5",
+    "lattice_alpha_bits": [
+      17,
+      3
+    ],
+    "alpha": "9/20",
+    "laws_total": 5,
+    "laws_rescaled": 5,
+    "law_coefficient_bits": {
+      "as_written": {},
+      "after_rescale": {
+        "count": 40,
+        "max": 137,
+        "median": 11,
+        "min": 0
+      }
+    },
+    "sqrt_sum_q_radicand_bits": {
+      "count": 15,
+      "max": 236,
+      "median": 213,
+      "min": 199
+    },
+    "sqrt_sum_operations": 3,
+    "sign_counts_prepare": {
+      "total": 1417,
+      "closed_rational_zero": 176,
+      "closed_rational_nonzero": 240,
+      "closed_by_enclosure": 1001,
+      "closed_by_conjugation": 0
+    },
+    "sign_counts_coverage": {
+      "total": 26,
+      "closed_rational_zero": 0,
+      "closed_rational_nonzero": 0,
+      "closed_by_enclosure": 26,
+      "closed_by_conjugation": 0
+    },
+    "laws": [
+      {
+        "name": "strip-spec:7e9937ccf2d9aa890ef0255b",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          35,
+          28
+        ],
+        "speed_squared": [
+          137,
+          126
+        ]
+      },
+      {
+        "name": "strip-spec:ada5e5bd5d10ec3231eb214f",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          23,
+          15
+        ],
+        "speed_squared": [
+          137,
+          126
+        ]
+      },
+      {
+        "name": "strip-spec:c5bffde41f006f9a1ed25324",
+        "rescaled": true,
+        "normal_x": [
+          0,
+          1
+        ],
+        "normal_y": [
+          1,
+          1
+        ],
+        "constant": [
+          1,
+          1
+        ],
+        "speed_squared": [
+          86,
+          90
+        ]
+      },
+      {
+        "name": "angular-spec:5b24879ef1492d53d8009691/hidden-support:01dfbc2f7fffc9e70c50b6ad",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          7,
+          1
+        ],
+        "constant": [
+          7,
+          1
+        ],
+        "speed_squared": [
+          106,
+          94
+        ]
+      },
+      {
+        "name": "angular-spec:a6064adc5a3ca19326e79f9e/hidden-support:98e38e0f8bdc9f1c85a38302",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          9,
+          1
+        ],
+        "constant": [
+          21,
+          14
+        ],
+        "speed_squared": [
+          113,
+          101
+        ]
+      }
+    ]
+  },
+  "D_both": {
+    "variant": "D_both",
+    "outcome": "EXACT",
+    "lattice_scale": 32768,
+    "lattice_alpha": "73728/5",
+    "lattice_alpha_bits": [
+      17,
+      3
+    ],
+    "alpha": "9/20",
+    "laws_total": 5,
+    "laws_rescaled": 4,
+    "law_coefficient_bits": {
+      "as_written": {
+        "count": 8,
+        "max": 15,
+        "median": 7,
+        "min": 0
+      },
+      "after_rescale": {
+        "count": 32,
+        "max": 79,
+        "median": 15,
+        "min": 1
+      }
+    },
+    "sqrt_sum_q_radicand_bits": {
+      "count": 15,
+      "max": 119,
+      "median": 97,
+      "min": 90
+    },
+    "sqrt_sum_operations": 3,
+    "sign_counts_prepare": {
+      "total": 1354,
+      "closed_rational_zero": 164,
+      "closed_rational_nonzero": 325,
+      "closed_by_enclosure": 865,
+      "closed_by_conjugation": 0
+    },
+    "sign_counts_coverage": {
+      "total": 26,
+      "closed_rational_zero": 0,
+      "closed_rational_nonzero": 6,
+      "closed_by_enclosure": 20,
+      "closed_by_conjugation": 0
+    },
+    "laws": [
+      {
+        "name": "strip-spec:57b6239216ffed068558d8d6",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          23,
+          15
+        ],
+        "speed_squared": [
+          79,
+          67
+        ]
+      },
+      {
+        "name": "strip-spec:b440544db4f13023b43a049d",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          23,
+          15
+        ],
+        "constant": [
+          36,
+          29
+        ],
+        "speed_squared": [
+          79,
+          67
+        ]
+      },
+      {
+        "name": "strip-spec:d228dfb9154b0ad4c20ebc7f",
+        "rescaled": false,
+        "normal_x": [
+          0,
+          1
+        ],
+        "normal_y": [
+          15,
+          13
+        ],
+        "constant": [
+          15,
+          13
+        ],
+        "speed_squared": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "angular-spec:7cd823b2b32697e95191b9db/hidden-support:a86a1c92ade28cd3c9703ecf",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          7,
+          1
+        ],
+        "constant": [
+          7,
+          1
+        ],
+        "speed_squared": [
+          52,
+          39
+        ]
+      },
+      {
+        "name": "angular-spec:f37338633cd6858497e1365b/hidden-support:59f96be5c6d030a148e23603",
+        "rescaled": true,
+        "normal_x": [
+          1,
+          1
+        ],
+        "normal_y": [
+          9,
+          1
+        ],
+        "constant": [
+          22,
+          15
+        ],
+        "speed_squared": [
+          51,
+          39
+        ]
+      }
+    ]
+  }
+}

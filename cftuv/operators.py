@@ -67,6 +67,11 @@ from .decals import (
     remove_decal_preview_object,
 )
 from .decal_gpu_preview import create_controller as create_gpu_preview
+from .envelope_debug_panel import draw_envelope_debug_box
+from .envelope_request_policy import (
+    DEFAULT_ENVELOPE_FAN_DENSITY,
+    ENVELOPE_FAN_DENSITY_ITEMS,
+)
 from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -212,6 +217,66 @@ def _update_envelope_debug_visibility(settings, _context):
         apply_envelope_debug_visibility(source_name, settings)
     except (ImportError, RuntimeError, TypeError, ValueError) as exc:
         print(f"[CFTUV][EnvelopeDebug] Visibility update failed: {exc}")
+
+
+def _update_envelope_debug_alpha(settings, context):
+    """Ползунок alpha на движке QUEUE: покрытие и слои, без единой компиляции.
+
+    Ничего не считает, пока нет тёплой подготовки: без неё ответ «ждём кнопки»,
+    а не «посчитаем сейчас» — подготовка стоит десятки миллисекунд на домен.
+    """
+
+    from .envelope_queue_export import ENVELOPE_DEBUG_ENGINE_QUEUE
+
+    if str(settings.envelope_debug_engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
+        return
+    source_name = str(settings.envelope_debug_source_object).strip()
+    controller = (
+        getattr(
+            context.window_manager,
+            "_cftuv_envelope_debug_session",
+            None,
+        )
+        if context is not None and context.window_manager is not None
+        else None
+    )
+    if not source_name or controller is None:
+        return
+    try:
+        from .envelope_debug_renderer import update_queue_alpha
+
+        status = update_queue_alpha(
+            controller,
+            source_name,
+            float(settings.envelope_debug_alpha),
+            density=settings.envelope_debug_fan_density,
+            settings=settings,
+        )
+    except (ImportError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        settings.envelope_debug_queue_timing = (
+            f"QUEUE alpha update failed: {type(exc).__name__}"
+        )
+        print(f"[CFTUV][EnvelopeDebug] QUEUE alpha update failed: {exc}")
+        return
+    if status is not None:
+        settings.envelope_debug_queue_timing = status
+
+
+def _update_envelope_debug_fan_density(settings, context):
+    """Смена плотности требует Build, но не выбрасывает keyed preparation."""
+
+    controller = (
+        getattr(
+            context.window_manager,
+            "_cftuv_envelope_debug_session",
+            None,
+        )
+        if context is not None and context.window_manager is not None
+        else None
+    )
+    if controller is not None:
+        controller.invalidate_queue_session()
+    settings.envelope_debug_queue_timing = "Fan Density changed; press Build"
 
 
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
@@ -363,11 +428,47 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         ),
     )
     # Exact-planar Envelope diagnostic bridge.
+    envelope_debug_engine: EnumProperty(
+        name="Engine",
+        items=(
+            (
+                "LEGACY",
+                "Legacy: union + interactions",
+                "Exact reference path: raw union, then pairwise interaction "
+                "resolution and ownership",
+            ),
+            (
+                "QUEUE",
+                "Queue: skeleton + owners",
+                "Wavefront conveyor: bridge, straight skeleton, faces and "
+                "owner-tagged coverage without any union",
+            ),
+        ),
+        default="LEGACY",
+        description=(
+            "Which evaluator the staged Envelope debug build runs. LEGACY "
+            "keeps the accepted reference path unchanged"
+        ),
+    )
     envelope_debug_alpha: FloatProperty(
         name="Alpha",
         default=0.25,
         min=0.0,
         description="Exact propagation alpha for a complete selected PhysicalChain",
+        update=_update_envelope_debug_alpha,
+    )
+    envelope_debug_fan_density: EnumProperty(
+        name="Fan Density",
+        items=ENVELOPE_FAN_DENSITY_ITEMS,
+        default=DEFAULT_ENVELOPE_FAN_DENSITY,
+        description=(
+            "Angular fan segment density; higher values create more segments"
+        ),
+        update=_update_envelope_debug_fan_density,
+    )
+    envelope_debug_queue_timing: StringProperty(
+        name="Envelope Queue Timing",
+        default="",
     )
     envelope_debug_source_object: StringProperty(
         name="Envelope Debug Source",
@@ -434,8 +535,18 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         default=True,
         update=_update_envelope_debug_visibility,
     )
+    envelope_debug_show_refused: BoolProperty(
+        name="Refused",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
     envelope_debug_show_labels: BoolProperty(
         name="Labels",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_queue: BoolProperty(
+        name="Queue",
         default=True,
         update=_update_envelope_debug_visibility,
     )
@@ -2182,13 +2293,9 @@ def _envelope_debug_outcome_value(value):
 
 
 def _envelope_stage_summary_text(profile):
-    summary = profile.stage_summary()
-    return (
-        f"Topology: {summary['topology']}/{summary['total']} | "
-        f"Metric: {summary['metric']}/{summary['total']} | "
-        f"Raw: {summary['raw']}/{summary['total']} | "
-        f"Resolved: {summary['resolved']}/{summary['total']}"
-    )
+    from .envelope_debug_profile import stage_summary_text
+
+    return stage_summary_text(profile)
 
 
 def _envelope_runtime_key(value):
@@ -2213,6 +2320,26 @@ def _envelope_debug_session(context):
             controller,
         )
     return controller
+
+
+def _remember_queue_session(
+    controller,
+    source_name,
+    topology_scene,
+    exact_scenes,
+    evaluation,
+    density,
+):
+    from .envelope_debug_session import remember_queue_session
+
+    return remember_queue_session(
+        controller,
+        source_name,
+        topology_scene,
+        exact_scenes,
+        evaluation,
+        density=density,
+    )
 
 
 class _EnvelopeDebugBuildBase:
@@ -2259,6 +2386,8 @@ class _EnvelopeDebugBuildBase:
         settings.envelope_debug_outcome = ""
         settings.envelope_debug_stage_summary = ""
         settings.envelope_debug_domain_status = ""
+        settings.envelope_debug_queue_timing = ""
+        engine = str(settings.envelope_debug_engine)
 
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
@@ -2274,9 +2403,14 @@ class _EnvelopeDebugBuildBase:
 
         profile = EnvelopeDebugProfileBuilderV1(
             source_obj.name,
-            "EXACT_REFERENCE" if self.exact_reference else "TOPOLOGY",
+            (
+                ("EXACT_REFERENCE" if engine == "LEGACY" else engine)
+                if self.exact_reference
+                else "TOPOLOGY"
+            ),
         )
         controller = _envelope_debug_session(context)
+        queue_scene = None
         source_object_key = _envelope_runtime_key(source_obj)
         source_data_key = _envelope_runtime_key(source_obj.data)
         source_bm.faces.ensure_lookup_table()
@@ -2311,10 +2445,18 @@ class _EnvelopeDebugBuildBase:
                     controller=controller,
                     source_object_key=source_object_key,
                     source_data_key=source_data_key,
+                    engine=engine, density=settings.envelope_debug_fan_density,
                 )
                 topology_scene = evaluation.topology_scene
                 exact_scenes = evaluation.exact_debug_scenes
                 receipts = evaluation.receipts
+                queue_scene = _remember_queue_session(
+                    controller,
+                    source_obj.name,
+                    topology_scene,
+                    exact_scenes,
+                    evaluation, settings.envelope_debug_fan_density,
+                )
             else:
                 from .envelope_host_adapter import (
                     build_envelope_topology_debug_scene,
@@ -2351,6 +2493,7 @@ class _EnvelopeDebugBuildBase:
                     source_obj,
                     visibility_by_layer=visibility_from_settings(settings),
                     profile=profile,
+                    queue_scene=queue_scene,
                 )
             else:
                 summary = render_envelope_topology_debug_scene(
@@ -2373,8 +2516,18 @@ class _EnvelopeDebugBuildBase:
         missing = tuple(
             item
             for item in receipts
-            if item.stage is not EnvelopeDomainStage.RESOLVED
+            if item.stage
+            not in {
+                EnvelopeDomainStage.RESOLVED,
+                EnvelopeDomainStage.QUEUE_RESOLVED,
+            }
         )
+        if queue_scene is not None:
+            from .envelope_queue_export import queue_timing_text
+
+            settings.envelope_debug_queue_timing = queue_timing_text(
+                queue_scene
+            )
         if not self.exact_reference:
             settings.envelope_debug_status = (
                 f"Topology built: {summary.stroke_count} strokes"
@@ -2477,6 +2630,7 @@ class HOTSPOTUV_OT_ClearEnvelopeDebug(bpy.types.Operator):
         settings.envelope_debug_outcome = ""
         settings.envelope_debug_stage_summary = ""
         settings.envelope_debug_domain_status = ""
+        settings.envelope_debug_queue_timing = ""
         self.report({"INFO"}, "Envelope Debug cleared")
         return {"FINISHED"}
 
@@ -2589,58 +2743,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         )
 
         # --- Envelope Debug ---
-        layout.separator()
-        envelope_box = layout.box()
-        envelope_box.label(
-            text="Envelope Debug (Staged)",
-            icon="GREASEPENCIL",
-        )
-        envelope_box.label(
-            text="Edit Mode / Edge Select / whole chain",
-            icon="INFO",
-        )
-        envelope_box.prop(s, "envelope_debug_alpha")
-        envelope_box.operator(
-            "hotspotuv.build_envelope_topology_debug",
-            text="Build Topology Debug",
-            icon="OUTLINER_DATA_MESH",
-        )
-        envelope_box.operator(
-            "hotspotuv.build_exact_reference_envelope_debug",
-            text="Build Exact Reference Envelope Debug",
-            icon="PLAY",
-        )
-        row = envelope_box.row(align=True)
-        row.operator(
-            "hotspotuv.clear_envelope_debug",
-            text="Clear Envelope Debug",
-            icon="X",
-        )
-        envelope_box.label(text=s.envelope_debug_status)
-        if s.envelope_debug_stage_summary:
-            envelope_box.label(text=s.envelope_debug_stage_summary)
-        if s.envelope_debug_domain_status:
-            envelope_box.label(text=s.envelope_debug_domain_status)
-        if s.envelope_debug_outcome:
-            envelope_box.label(
-                text=f"Outcome: {s.envelope_debug_outcome}",
-            )
-        visibility = envelope_box.grid_flow(
-            row_major=True,
-            columns=2,
-            even_columns=True,
-            align=True,
-        )
-        visibility.prop(s, "envelope_debug_show_domains")
-        visibility.prop(s, "envelope_debug_show_chains")
-        visibility.prop(s, "envelope_debug_show_supports")
-        visibility.prop(s, "envelope_debug_show_envelopes")
-        visibility.prop(s, "envelope_debug_show_raw")
-        visibility.prop(s, "envelope_debug_show_readings")
-        visibility.prop(s, "envelope_debug_show_equality")
-        visibility.prop(s, "envelope_debug_show_resolved")
-        visibility.prop(s, "envelope_debug_show_diagnostics")
-        visibility.prop(s, "envelope_debug_show_labels")
+        draw_envelope_debug_box(layout, s)
 
         # --- Decals ---
         layout.separator()

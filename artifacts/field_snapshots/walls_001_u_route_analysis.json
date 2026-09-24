@@ -1,0 +1,67 @@
+{
+ "schema": "cftuv.u_route_analysis.v1",
+ "source_snapshot": "walls_001_u_route_snapshot.json",
+ "selected_chain_order": [
+  1,
+  8,
+  9,
+  10,
+  11,
+  0
+ ],
+ "interior_bends": [
+  {
+   "at_vertex": 8,
+   "cross": [
+    "25323461171/137438953472",
+    "0",
+    "0"
+   ],
+   "collinear": false
+  },
+  {
+   "at_vertex": 9,
+   "cross": [
+    "12861280963/137438953472",
+    "0",
+    "0"
+   ],
+   "collinear": false
+  },
+  {
+   "at_vertex": 10,
+   "cross": [
+    "12861280963/137438953472",
+    "0",
+    "0"
+   ],
+   "collinear": false
+  },
+  {
+   "at_vertex": 11,
+   "cross": [
+    "25323461171/137438953472",
+    "0",
+    "0"
+   ],
+   "collinear": false
+  }
+ ],
+ "genuine_bend_count": 4,
+ "per_face_max_residual": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "union_domain_max_residual": 1.8144869880044117,
+ "residual_budget": 0.0125,
+ "verdict": {
+  "declared_straight_chain_not_linear": true,
+  "belt_every_face_exactly_planar": true,
+  "belt_union_nonplanar_factor_over_budget": 145.15895904035293,
+  "developable_fold_chain": true
+ }
+}

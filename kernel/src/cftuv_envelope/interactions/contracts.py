@@ -74,6 +74,12 @@ class InteractionOutcome(str, Enum):
     MULTIWAY_INTERACTION_POLICY_UNPROVEN = (
         "MULTIWAY_INTERACTION_POLICY_UNPROVEN"
     )
+    # Исход, а не отсутствие исхода: одновременная встреча k фронтов
+    # разрешена одним событием. Прежний отказ выше сохранён — он
+    # закрывает случаи, где событие построить не удалось.
+    MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT = (
+        "MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT"
+    )
     INTERACTION_COINCIDENT_ARRIVAL_LAWS_UNPROVEN = (
         "INTERACTION_COINCIDENT_ARRIVAL_LAWS_UNPROVEN"
     )

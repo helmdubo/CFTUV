@@ -1,0 +1,88 @@
+{
+  "schema": "P0_2_PHASE_B_RECEIPT_V1",
+  "base": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
+  "commits": {
+    "snapshot_gate": "bb003b6",
+    "phase_a": "58d2e82",
+    "phase_b": "b42b6fd",
+    "phase_b_incidence_fix": "7338516",
+    "phase_b_schema_hardening": "200af79"
+  },
+  "reachability": {
+    "corpus_cases": 63,
+    "duplicate_cases_before_b": 11,
+    "excess_records_per_case": 1,
+    "mixed_edge_split_cases": 10,
+    "split_split_cases": 1,
+    "cross_same_time_events_enqueued": 4,
+    "cross_residual_event_sizes": [2, 0, 2, 0, 0, 0],
+    "cross_residual_processing_unit_occurrences": 2,
+    "duplicate_cases_after_b": 0,
+    "mixed_kind_cases_after_b": 0
+  },
+  "invariants": {
+    "accumulator_identity": "exact time, exact point, transitive shared-participant incidence component",
+    "independent_components_remain_separate": true,
+    "participants_equal_frozen_pre_card_union": true,
+    "converging_vertices_is_distinct_runtime_id_union_cardinality": true,
+    "merged_kind": "MULTIWAY",
+    "merged_kinds": "unique value-sorted original kinds",
+    "merged_node_record_includes_original_incidences": true,
+    "incidence_union_equals_participants": true,
+    "multiway_metadata_is_strictly_canonical": true,
+    "empty_inner_incidence_rejected": true,
+    "digest_and_faces_share_validator": true,
+    "two_pass_accumulation_preserves_original_incidences": true,
+    "incidence_mutation_changes_semantic_digest": true,
+    "unmerged_node_record_omits_kinds": true,
+    "nonduplicate_digests_byte_equal": 52,
+    "intentional_merged_digest_changes": 11,
+    "proof_projection_byte_equal_for_11": true,
+    "face_partition_byte_equal_for_11": true,
+    "coverage_alphas": ["1/4", "1", "3"],
+    "coverage_byte_equal_for_11": true,
+    "legacy_raw_emission_counters_unchanged": true,
+    "partial_source_summary": [23, 17, 1],
+    "frozen_digests_untouched": true,
+    "named_corpus_duplicate_cases": 0
+  },
+  "production_kind_consumers": [
+    {
+      "consumer": "digest.node_record",
+      "multiway_action": "emit kind and kinds",
+      "named_refusal": "MULTIWAY_NODE_KINDS_UNAVAILABLE"
+    },
+    {
+      "consumer": "faces.build_faces",
+      "multiway_action": "expand original participant incidences",
+      "named_refusal": "MULTIWAY_NODE_INCIDENCE_UNAVAILABLE"
+    },
+    {
+      "consumer": "superlevel.accumulate_nodes",
+      "multiway_action": "flatten original kinds when composing a component"
+    }
+  ],
+  "verification": [
+    {
+      "tests": "same_time_closure, proof_obligations, event_queue, motorcycle_graph",
+      "passed": 358,
+      "seconds": 113.26
+    },
+    {
+      "tests": "faces, coverage",
+      "passed": 185,
+      "seconds": 49.67
+    },
+    {
+      "tests": "same_time_closure and proof_obligations after incidence fix",
+      "passed": 157,
+      "seconds": 36.34
+    }
+  ],
+  "discarded_run": {
+    "reason": "process timeout without pytest verdict",
+    "seconds": 304
+  },
+  "skeleton_py_lines": 1950,
+  "public_skeleton_aliases_preserved": true
+}

@@ -1,0 +1,64 @@
+{
+  "role": "R0 SURFER2-EXACT-ORACLE build receipt",
+  "upstream": {
+    "repo": "https://github.com/cgalab/surfer2",
+    "commit": "c42f9a7f969cd661d060481cd3b8bac2bdfb8dfa",
+    "commit_date": "2021-02-25 10:20:53 +0100",
+    "describe": "c42f9a7f",
+    "submodules": {
+      "surf/easyloggingpp": "82d1ff019f92244c39e34f6ddc443b7dbd005b98",
+      "surf/getopt-for-windows": "76fe2df86f84771775fd2f1a641a09adbce28df7"
+    },
+    "modified": "CLEAN (немодифицированный код)",
+    "license": "GPL-3 — код НЕ копируется в проект, только внешний бинарь"
+  },
+  "cmake": {
+    "command": "cmake -DCMAKE_BUILD_TYPE=Release -DTEST_SUITE=on ..",
+    "build_command": "make -j4 surfer   # цель runtests_cc не собирается, см. blockers",
+    "generated_config_h": {
+      "NT_USE_DOUBLE": "undef  -> ТОЧНОЕ ядро",
+      "CMAKE_BUILD_TYPE": "RELEASE",
+      "SURF_NDEBUG": "defined",
+      "REFINE_TRIANGULATION": "defined",
+      "VERSIONGIT": "1.99-c42f9a7f"
+    },
+    "kernel": "CGAL::Exact_predicates_exact_constructions_kernel_with_sqrt (= CGAL::Simple_cartesian<CORE::Expr>), surf/src/cgaltools.h:23-30",
+    "kernel_evidence": {
+      "nm_CORE_Expr_symbols": 375,
+      "nm_Simple_cartesian_double_symbols": 0,
+      "stats_version_banner": "[SURF] VERSION                1.99-c42f9a7f-RELEASE"
+    }
+  },
+  "toolchain": {
+    "os": "Ubuntu 24.04.4 LTS",
+    "g++": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "cmake": "cmake version 3.28.3",
+    "libcgal-dev": "5.6-1build3",
+    "libgmp-dev": "2:6.3.0+dfsg-2ubuntu6.1",
+    "libmpfr-dev": "4.2.1-1build1.1",
+    "libboost-dev": "1.83.0.1ubuntu2",
+    "libgtest-dev": "1.14.0-1",
+    "libzstd-dev": "1.5.5+dfsg2-2build1.1",
+    "qtbase5-dev": "5.15.13+dfsg-1ubuntu1",
+    "note_mpfr": "libmpfr в бинарь НЕ линкуется: CGAL 5.6 header-only, CORE::Expr считает на GMP. Пакет нужен для конфигурации CGAL.",
+    "note_qt": "Qt нужен ТОЛЬКО чтобы cmake сконфигурировал подкаталог gui (там find_package(Qt5Widgets REQUIRED)); цель surfgui не собиралась."
+  },
+  "binary": {
+    "path": "/tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/surfer2/src/build/cc/surfer",
+    "sha256": "25641a91901e261453c14dfd3a9138fb04a8c439bb4bac90faaebccc3a7a31ad",
+    "size": 1468600,
+    "ldd": "linux-vdso.so.1 (0x00007f62a7028000)\n\tlibboost_iostreams.so.1.83.0 => /lib/x86_64-linux-gnu/libboost_iostreams.so.1.83.0 (0x00007f62a6ee3000)\n\tlibgmp.so.10 => /lib/x86_64-linux-gnu/libgmp.so.10 (0x00007f62a6e5f000)\n\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007f62a6a00000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f62a6d76000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f62a6d48000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f62a6600000)\n\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007f62a6d2a000)\n\tlibbz2.so.1.0 => /lib/x86_64-linux-gnu/libbz2.so.1.0 (0x00007f62a6d16000)\n\tliblzma.so.5 => /lib/x86_64-linux-gnu/liblzma.so.5 (0x00007f62a6ce4000)\n\tlibzstd.so.1 => /lib/x86_64-linux-gnu/libzstd.so.1 (0x00007f62a6946000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f62a702a000)"
+  },
+  "apt_install": [
+    "apt-get update",
+    "apt-get install -y cmake g++ git libcgal-dev libgmp-dev libmpfr-dev libboost-all-dev pkg-config",
+    "apt-get install -y libgtest-dev googletest",
+    "apt-get install -y qtbase5-dev libqt5opengl5-dev libqt5svg5-dev libcgal-qt5-dev",
+    "apt-get install -y libzstd-dev   # boost_iostreams тянет -lzstd при линковке"
+  ],
+  "own_tests": {
+    "surf/runtests (gtest)": "5/5 PASSED (BGLGraphTest.LoadsGraphML, HeapTest x4)",
+    "cc/runtests_cc": "НЕ СОБИРАЕТСЯ на gtest 1.14, см. blockers",
+    "test-data corpus (внешняя замена runtests_cc)": "38/38 rc=0, 2m01s"
+  }
+}

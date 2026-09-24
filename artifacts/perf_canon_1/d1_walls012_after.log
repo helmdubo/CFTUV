@@ -1,0 +1,11 @@
+[    0.50s] host export done
+[    0.50s] COMPILE start
+[    0.95s] LEGACY ordinal=1 q=3 -> cert 0.37s
+[    1.01s] LEGACY ordinal=1 q=3 -> None 0.00s
+[    1.02s] FAN start q=3 windows=1
+[    1.03s] FAN ok D*=433 0.02s
+[    1.04s] COMPILE done 0.53s
+[    1.09s] LEGACY ordinal=1 q=3 -> cert 0.04s
+[    1.11s] SKELETON start
+[    1.23s] SKELETON done 0.12s
+[    1.32s] DONE EXACT / EXACT /  total=0.81s

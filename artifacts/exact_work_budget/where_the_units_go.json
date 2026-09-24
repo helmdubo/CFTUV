@@ -1,0 +1,112 @@
+{
+  "wall_2_001_snapshot.json:d0:patch0": {
+    "outcome": "EXACT/EXACT",
+    "phases": {
+      "PREPARE/BEFORE_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 1630,
+          "gcd_operations": 12546,
+          "miller_rabin_rounds": 488,
+          "modular_squarings": 8530,
+          "pollard_attempts": 16,
+          "radical_materializations": 34
+        },
+        "by_operation": {
+          "COPRIME_BASIS": 12442,
+          "EXACT_POSITION": 1630,
+          "POLLARD_RHO_BRENT": 2472,
+          "PRIMALITY": 6666,
+          "PRIME_SUPPORT": 8,
+          "SQUAREFREE_SPLIT": 26
+        },
+        "units": 23244
+      },
+      "PREPARE/DURING_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 5103,
+          "radical_materializations": 1
+        },
+        "by_operation": {
+          "EXACT_POSITION": 5103,
+          "PRIME_SUPPORT": 1
+        },
+        "units": 5104
+      }
+    },
+    "share_before_the_march": 0.81995,
+    "units_before_the_march": 23244,
+    "units_during_the_march": 5104
+  },
+  "walls_012_snapshot.json:d0:patch0": {
+    "outcome": "EXACT/EXACT",
+    "phases": {
+      "PREPARE/BEFORE_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 156,
+          "gcd_operations": 5055,
+          "miller_rabin_rounds": 304,
+          "modular_squarings": 548891,
+          "pollard_attempts": 20,
+          "radical_materializations": 15
+        },
+        "by_operation": {
+          "COPRIME_BASIS": 839,
+          "EXACT_POSITION": 156,
+          "POLLARD_RHO_BRENT": 545328,
+          "PRIMALITY": 8103,
+          "PRIME_SUPPORT": 7,
+          "SQUAREFREE_SPLIT": 8
+        },
+        "units": 554441
+      },
+      "PREPARE/DURING_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 556
+        },
+        "by_operation": {
+          "EXACT_POSITION": 556
+        },
+        "units": 556
+      }
+    },
+    "share_before_the_march": 0.999,
+    "units_before_the_march": 554441,
+    "units_during_the_march": 556
+  },
+  "walls_012_snapshot.json:d1:patch0": {
+    "outcome": "EXACT/EXACT",
+    "phases": {
+      "PREPARE/BEFORE_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 155,
+          "gcd_operations": 847,
+          "miller_rabin_rounds": 278,
+          "modular_squarings": 32210,
+          "pollard_attempts": 18,
+          "radical_materializations": 18
+        },
+        "by_operation": {
+          "COPRIME_BASIS": 612,
+          "EXACT_POSITION": 155,
+          "POLLARD_RHO_BRENT": 24781,
+          "PRIMALITY": 7960,
+          "PRIME_SUPPORT": 9,
+          "SQUAREFREE_SPLIT": 9
+        },
+        "units": 33526
+      },
+      "PREPARE/DURING_THE_MARCH": {
+        "by_article": {
+          "exact_position_hydrations": 556
+        },
+        "by_operation": {
+          "EXACT_POSITION": 556
+        },
+        "units": 556
+      }
+    },
+    "share_before_the_march": 0.98369,
+    "units_before_the_march": 33526,
+    "units_during_the_march": 556
+  }
+}

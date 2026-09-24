@@ -1,0 +1,307 @@
+{
+  "$defs": {
+    "PatchId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PhysicalEdgeId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalEdgeId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SideBoundaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SideBoundaryV1"
+        },
+        "reason": {
+          "enum": [
+            "MESH_BOUNDARY",
+            "OUTSIDE_REQUESTED_SCOPE",
+            "NON_MANIFOLD_FAN",
+            "HOST_DECLARED_UNKNOWN"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SurfaceAdjacencyIRV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SurfaceAdjacencyIRV1"
+        },
+        "orientation_law": {
+          "enum": [
+            "CONSISTENT_WITH_SOURCE_FACE_CYCLE_V1"
+          ],
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "FULL_SOURCE_MESH",
+            "REQUEST_SCOPED_PATCH_SET"
+          ],
+          "type": "string"
+        },
+        "scope_patch_ids": {
+          "items": {
+            "$ref": "#/$defs/PatchId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "triangle_sides": {
+          "items": {
+            "$ref": "#/$defs/TriangleSideV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "vertex_fans": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/VertexFanV1"
+              },
+              {
+                "$ref": "#/$defs/VertexFanUnavailableV1"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "source_revision",
+        "scope",
+        "scope_patch_ids",
+        "orientation_law",
+        "triangle_sides",
+        "vertex_fans"
+      ],
+      "type": "object"
+    },
+    "SurfaceTriangleId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SurfaceTriangleId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "TriangleSideRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TriangleSideRefV1"
+        },
+        "side_ordinal": {
+          "type": "integer"
+        },
+        "triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_id",
+        "side_ordinal"
+      ],
+      "type": "object"
+    },
+    "TriangleSideV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TriangleSideV1"
+        },
+        "from_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "kind": {
+          "enum": [
+            "SOURCE_EDGE",
+            "FACE_DIAGONAL"
+          ],
+          "type": "string"
+        },
+        "opposite": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TriangleSideRefV1"
+            },
+            {
+              "$ref": "#/$defs/SideBoundaryV1"
+            }
+          ]
+        },
+        "physical_edge_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PhysicalEdgeId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "side": {
+          "$ref": "#/$defs/TriangleSideRefV1"
+        },
+        "to_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "side",
+        "from_vertex_id",
+        "to_vertex_id",
+        "kind",
+        "physical_edge_id",
+        "opposite"
+      ],
+      "type": "object"
+    },
+    "VertexFanUnavailableV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "VertexFanUnavailableV1"
+        },
+        "reason": {
+          "enum": [
+            "NON_MANIFOLD_FAN",
+            "OUTSIDE_REQUESTED_SCOPE",
+            "HOST_DECLARED_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "vertex_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "VertexFanV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "VertexFanV1"
+        },
+        "is_closed": {
+          "type": "boolean"
+        },
+        "ordered_triangle_ids": {
+          "items": {
+            "$ref": "#/$defs/SurfaceTriangleId"
+          },
+          "type": "array"
+        },
+        "vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "vertex_id",
+        "ordered_triangle_ids",
+        "is_closed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.surface_adjacency_ir.v1",
+  "$ref": "#/$defs/SurfaceAdjacencyIRV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SurfaceAdjacencyIRV1"
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 
 from ..ids import (
@@ -29,7 +30,8 @@ from ..ids import (
     SourceVertexId,
     TerminalRelationId,
 )
-from ..numeric import ExactRatioV1
+from ..numeric import CertifiedDecimalIntervalV1, ExactRatioV1
+from .metric import ExactRationalV1
 from .request import (
     AngularProfileFamilyId,
     AngularProfileSelectionPolicyId,
@@ -74,6 +76,43 @@ class HiddenSupportDirectionLaw(str, Enum):
     )
 
 
+class CertifiedBoundHiddenSupportDirectionLawV1(str, Enum):
+    CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1 = (
+        "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
+    )
+
+
+class AdaptiveBoundHiddenSupportDirectionLawV2(str, Enum):
+    ADAPTIVE_MINIMAL_RATIONAL_FAN_V2 = (
+        "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2"
+    )
+
+
+class EvaluationGeometrySubturnCountLiftLawV1(str, Enum):
+    EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1 = (
+        "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+    )
+
+
+class ExactTurnSignV1(str, Enum):
+    NEGATIVE = "NEGATIVE"
+    ZERO = "ZERO"
+    POSITIVE = "POSITIVE"
+
+
+class AdaptiveProjectivePoleOwnershipV1(str, Enum):
+    NONE = "NONE"
+    X_ZERO = "X_ZERO"
+    Y_ZERO = "Y_ZERO"
+
+
+class DirectionBindingReasonV1(str, Enum):
+    SOURCE_DIRECTION_IRRATIONAL = "SOURCE_DIRECTION_IRRATIONAL"
+    EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL = (
+        "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL"
+    )
+
+
 class HiddenSupportScope(str, Enum):
     ANGULAR_ENVELOPE_SPEC_LOCAL = "ANGULAR_ENVELOPE_SPEC_LOCAL"
 
@@ -110,18 +149,143 @@ class AngularRegressionFixtureId(str, Enum):
 
 class SelectionLaw(str, Enum):
     MIN_K_FOR_MAX_SUBTURN = "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
+    HUBER_EMANATED_DENSITY_FLOOR_V1 = "HUBER_EMANATED_DENSITY_FLOOR_V1"
 
 
 class MinimalityLowerBound(str, Enum):
     K_ZERO_OR_STRICT_LOWER = "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"
+    HUBER_DENSITY_BUCKET_OPEN_LOWER = "HUBER_DENSITY_BUCKET_OPEN_LOWER"
 
 
 class AdmissibilityUpperBound(str, Enum):
     CLOSED_UPPER = "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"
+    HUBER_DENSITY_BUCKET_CLOSED_UPPER = "HUBER_DENSITY_BUCKET_CLOSED_UPPER"
 
 
 class SelectionCertificateAuthority(str, Enum):
     EXACT_OR_CERTIFIED_ANGLE_COMPARISON = "EXACT_OR_CERTIFIED_ANGLE_COMPARISON"
+
+
+class CanonicalReflexAngleRelationV1(str, Enum):
+    """Каноническое авторское отношение, выраженное символом, а не числом.
+
+    Значение символа — точная доля π, которую несёт рефлексный избыток
+    `u = δ/π`. Множество намеренно минимально: оплачен полем ровно прямой
+    угол (интерьер 270°, поворот π/2, `u = 1/2`). Граница расширения —
+    в `_canonical_angle.CANONICAL_REFLEX_EXCESS_RELATIONS`.
+    """
+
+    CANONICAL_REFLEX_EXCESS_PI_OVER_2 = "CANONICAL_REFLEX_EXCESS_PI_OVER_2"
+
+
+class CanonicalAngleRestorationLawV1(str, Enum):
+    AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1 = (
+        "AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1"
+    )
+
+
+class AngleTolerancePolicyIdV1(str, Enum):
+    """Имя допуска И его категории одним значением.
+
+    Категория `AUTHORING_INTENT` означает: эпсилон применяется У ДВЕРИ, на
+    стадии восстановления задуманного отношения, и дальше все решения идут по
+    канонизированному факту. Типизированный реестр допусков
+    (`TolerancePolicyV1`) — отдельная карточка; когда он появится, это имя
+    станет его ключом, а не самостоятельным перечислением.
+    """
+
+    AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
+        "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
+    )
+
+
+class SubturnGuaranteeLawV1(str, Enum):
+    """Против КАКИХ опор доказан жёсткий максимум подшага.
+
+    Законов два, и это разные обещания, а не оттенки одного.
+
+    `SUBTURN_ON_SOURCE_SUPPORTS_V1` — исходный и по-прежнему единственный для
+    всех невосстановленных углов: `подшаг <= pi/q` доказан на ФАКТИЧЕСКИХ
+    опорах, равношаговым делением измеренного угла. Их поведение эта карточка
+    не трогает ни байтом.
+
+    `SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1` — новая власть, и она честно
+    слабее на сырых опорах. Обязательство целиком:
+
+    * цель — `pi/q` на КАНОНИЧЕСКОМ угле. Первые `H` лучей веера ставятся
+      точными поворотами на `u_канон * pi / (H + 1)`, и это значение не
+      превосходит `pi/q` целочисленно (`u_канон * q <= H + 1`), без единого
+      сравнения с порогом;
+    * на сырых опорах превышение возникает РОВНО в одном, последнем секторе и
+      равно остатку `δ_сырое - H * u_канон * pi / (H + 1)` минус канонический
+      подшаг, то есть в точности авторскому шуму `Δ <= AUTHOR_ANGULAR_ERROR`
+      (7e-6 рад). Шум не размазывается по вееру и не усиливается: он остаётся
+      там, где и был, — между последним каноническим лучом и сырой опорой;
+    * закон применяется ТОЛЬКО там, где старый отказал: если равношаговый
+      веер сырого угла уже удовлетворяет `подшаг <= pi/q`, ничего не
+      происходит и байты прежние. Это та же форма, что у
+      `EvaluationGeometrySubturnCountLiftV1`: осуществимо — молчим,
+      неосуществимо — именованная власть с записью.
+
+    Почему это смена власти, а не расширение старой: старое обещание
+    буквально ложно на сырых опорах восстановленного угла, и молча
+    переопределять его смыслом «ну почти» — ровно то, от чего предостерегает
+    аудит. Поэтому имя новое, запись отдельная, а старое имя остаётся за
+    старым обещанием.
+    """
+
+    SUBTURN_ON_SOURCE_SUPPORTS_V1 = "SUBTURN_ON_SOURCE_SUPPORTS_V1"
+    SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1 = (
+        "SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalSubturnFanAuthorityV1:
+    """Именованная власть канонического веера — по углу и по плотности.
+
+    Пишется ТОЛЬКО когда старый закон отказал на сырых опорах, поэтому само
+    её присутствие и есть ответ на вопрос «почему этот веер построен иначе».
+    Отсутствие записи означает старый закон и прежние байты.
+    """
+
+    guarantee_law: SubturnGuaranteeLawV1
+    envelope_spec_id: EnvelopeSpecId
+    selection_certificate_id: SelectionCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    hidden_edge_count: int
+    max_subturn_q: int
+    canonical_subturn_over_pi: ExactRatioV1
+    raw_residual_upper_bound_radians: ExactRationalV1
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalAngleRestorationCertificateV1:
+    """Что именно восстановлено, из чего и на каком основании.
+
+    Восстановление — ИМЕНОВАННОЕ изменение входа селектора, а не молчаливое
+    округление, поэтому запись обязана позволять перепроверить решение целиком:
+    сырой интервал (`source_reflex_excess_over_pi`) записан рядом с
+    канонической долей, а `deviation_upper_bound_radians` — доказанная сверху
+    величина отклонения в радианах, которую допуск обязан покрывать.
+
+    Подделка ловится сверкой этих полей с сырым углом снапшота: запись,
+    которой не соответствует угол, отвергается именованным исходом.
+    """
+
+    restoration_law: CanonicalAngleRestorationLawV1
+    selection_certificate_id: SelectionCertificateId
+    corner_relation_id: CornerRelationId
+    reflex_angle_certificate_id: AngleCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    source_reflex_excess_over_pi: CertifiedDecimalIntervalV1
+    deviation_upper_bound_radians: ExactRationalV1
+    tolerance_radians: ExactRationalV1
+    tolerance_policy_id: AngleTolerancePolicyIdV1
+    proven_predicates: frozenset[str]
 
 
 class IntervalBoundKind(str, Enum):
@@ -148,6 +312,18 @@ class SelectionIntervalCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class HuberDensitySelectionIntervalCertificateV1:
+    """Именованная ячейка `(C-1)/q < u <= C/q` политики Density A."""
+
+    q: int
+    bucket_c: int
+    lower_bound_kind: IntervalBoundKind
+    lower_bound_numerator: int
+    upper_bound_kind: IntervalBoundKind
+    upper_bound_numerator: int
+
+
+@dataclass(frozen=True, slots=True)
 class AngularProfileSelectionCertificateV1:
     certificate_id: SelectionCertificateId
     decal_request_id: DecalRequestId
@@ -165,7 +341,10 @@ class AngularProfileSelectionCertificateV1:
     selection_law: SelectionLaw
     minimality_lower_bound: MinimalityLowerBound
     admissibility_upper_bound: AdmissibilityUpperBound
-    selection_interval_certificate: SelectionIntervalCertificateV1
+    selection_interval_certificate: (
+        SelectionIntervalCertificateV1
+        | HuberDensitySelectionIntervalCertificateV1
+    )
     certificate_authority: SelectionCertificateAuthority
     regression_fixture_id: AngularRegressionFixtureId | None
 
@@ -181,6 +360,152 @@ class HiddenSupportSpecV1:
     source_relation_id: CornerRelationId
     owner_sector_id: OwnerSectorId
     selection_certificate_id: SelectionCertificateId
+
+
+@dataclass(frozen=True, slots=True)
+class DirectionBindingCertificateV1:
+    bound_primitive_integer_vector: tuple[int, int]
+    ideal_window_lower_slope_envelope: CertifiedDecimalIntervalV1
+    ideal_window_upper_slope_envelope: CertifiedDecimalIntervalV1
+    certified_window_width_lower_bound: Decimal
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationGeometryDirectionBindingCertificateV1:
+    """Сертификат направления, доказанный на записанной evaluation-геометрии."""
+
+    bound_primitive_integer_vector: tuple[int, int]
+    ideal_window_lower_slope_envelope: CertifiedDecimalIntervalV1
+    ideal_window_upper_slope_envelope: CertifiedDecimalIntervalV1
+    certified_window_width_lower_bound: Decimal
+    proven_predicates: frozenset[str]
+    binding_reason: DirectionBindingReasonV1
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanOrdinalWindowV2:
+    """Рациональная оболочка полного окна и внутренний termination-box."""
+
+    ordinal: int
+    use_x_denominator: bool
+    denominator_sign: int
+    full_lower_slope_envelope: CertifiedDecimalIntervalV1
+    full_upper_slope_envelope: CertifiedDecimalIntervalV1
+    termination_lower_slope: tuple[int, int]
+    termination_upper_slope: tuple[int, int]
+    certified_termination_width: tuple[int, int]
+    admissible_lower_outward: tuple[int, int]
+    admissible_lower_inward: tuple[int, int]
+    admissible_upper_inward: tuple[int, int]
+    admissible_upper_outward: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanProjectiveChartPieceV1:
+    """Один непересекающийся кусок канонического projective-атласа."""
+
+    piece_index: int
+    use_x_denominator: bool
+    denominator_sign: int
+    lower_slope_envelope: CertifiedDecimalIntervalV1
+    upper_slope_envelope: CertifiedDecimalIntervalV1
+    lower_endpoint_included: bool
+    upper_endpoint_included: bool
+    slope_increases_in_ordinal_order: bool
+    pole_ownership: AdaptiveProjectivePoleOwnershipV1
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveRationalFanOrdinalWindowAtlasV1:
+    """Tagged atlas только для окна, пересекающего coordinate-chart poles."""
+
+    ordinal: int
+    pieces: tuple[AdaptiveRationalFanProjectiveChartPieceV1, ...]
+    termination_piece_index: int
+    termination_lower_slope: tuple[int, int]
+    termination_upper_slope: tuple[int, int]
+    certified_termination_width: tuple[int, int]
+    admissible_lower_outward: tuple[int, int]
+    admissible_lower_inward: tuple[int, int]
+    admissible_upper_inward: tuple[int, int]
+    admissible_upper_outward: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveFareyHeightRangeWitnessV2:
+    """Сжатый integer-свидетель всех высот до победителя."""
+
+    first_height: int
+    last_height: int
+    primitive_candidate_counts: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationGeometrySubturnCountLiftV1:
+    """Минимальный evaluation-only подъём H без изменения selection."""
+
+    lift_law: EvaluationGeometrySubturnCountLiftLawV1
+    source_selection_certificate_id: SelectionCertificateId
+    source_hidden_edge_count: int
+    effective_hidden_edge_count: int
+    max_subturn_q: int
+    evaluation_turn_sign: ExactTurnSignV1
+    evaluation_turn_cosine_squared: ExactRatioV1
+    minimality_predecessor_hidden_edge_count: int
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveMinimalRationalFanAuthorityV2:
+    """Единственная sealed-власть всего Density-веера."""
+
+    authority_id: str
+    max_subturn_q: int
+    minimal_common_height: int
+    exhaustive_previous_height: int
+    termination_height_upper_bound: int
+    bound_primitive_integer_vectors: tuple[tuple[int, int], ...]
+    binding_reasons: tuple[DirectionBindingReasonV1 | None, ...]
+    ordinal_windows: tuple[
+        AdaptiveRationalFanOrdinalWindowV2
+        | AdaptiveRationalFanOrdinalWindowAtlasV1,
+        ...,
+    ]
+    previous_height_witness: AdaptiveFareyHeightRangeWitnessV2
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class CertifiedBoundHiddenSupportSpecV1:
+    hidden_support_id: HiddenSupportId
+    ordinal: int
+    turn_fraction: ExactRatioV1
+    direction_law: CertifiedBoundHiddenSupportDirectionLawV1
+    zero_length_at_alpha_zero: bool
+    scope: HiddenSupportScope
+    source_relation_id: CornerRelationId
+    owner_sector_id: OwnerSectorId
+    selection_certificate_id: SelectionCertificateId
+    direction_binding: (
+        DirectionBindingCertificateV1
+        | EvaluationGeometryDirectionBindingCertificateV1
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveBoundHiddenSupportSpecV2:
+    hidden_support_id: HiddenSupportId
+    ordinal: int
+    turn_fraction: ExactRatioV1
+    direction_law: AdaptiveBoundHiddenSupportDirectionLawV2
+    zero_length_at_alpha_zero: bool
+    scope: HiddenSupportScope
+    source_relation_id: CornerRelationId
+    owner_sector_id: OwnerSectorId
+    selection_certificate_id: SelectionCertificateId
+    direction_fan_authority_id: str
+    bound_primitive_integer_vector: tuple[int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,11 +537,24 @@ class AngularEnvelopeSpec:
     profile_family_id: AngularProfileFamilyId
     resolved_hidden_edge_count: int
     subdivision_policy: AngularSubdivisionPolicy
-    hidden_supports: frozenset[HiddenSupportSpecV1]
+    hidden_supports: frozenset[
+        HiddenSupportSpecV1 | CertifiedBoundHiddenSupportSpecV1
+    ]
     incident_front_component_ids: tuple[FrontComponentId, ...]
     all_support_normal_speed: int
     exposure_policy: AngularExposurePolicy
     mixed_alpha_policy: MixedAlphaPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveDensityAngularEnvelopeSpecV2(AngularEnvelopeSpec):
+    """Density Angular spec с одной общей властью рационального веера."""
+
+    hidden_supports: frozenset[AdaptiveBoundHiddenSupportSpecV2]
+    direction_fan_authority: AdaptiveMinimalRationalFanAuthorityV2
+    evaluation_subturn_count_lift: (
+        EvaluationGeometrySubturnCountLiftV1 | None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +591,13 @@ class CapEnvelopeSpec:
     exact_two_pi_handling: ExactTwoPiHandling
 
 
-EnvelopeSpec = StripEnvelopeSpec | AngularEnvelopeSpec | JunctionEnvelopeSpec | CapEnvelopeSpec
+EnvelopeSpec = (
+    StripEnvelopeSpec
+    | AdaptiveDensityAngularEnvelopeSpecV2
+    | AngularEnvelopeSpec
+    | JunctionEnvelopeSpec
+    | CapEnvelopeSpec
+)
 
 
 @dataclass(frozen=True, slots=True)

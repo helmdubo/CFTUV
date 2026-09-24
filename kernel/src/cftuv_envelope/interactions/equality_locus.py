@@ -27,6 +27,7 @@ from ..reference.planar_types import (
     ExactPlanarPoint,
     ExactScalar,
     PlanarRegion,
+    exact_normalize,
     exact_sign,
     point_key,
     points_equal,
@@ -72,9 +73,9 @@ def equality_line(
         raise ValueError("arrival normal speed must be strictly positive")
     left_x, left_y = left.normal.expressions()
     right_x, right_y = right.normal.expressions()
-    normal_x = sp.factor(left_x / left_speed - right_x / right_speed)
-    normal_y = sp.factor(left_y / left_speed - right_y / right_speed)
-    constant = sp.factor(
+    normal_x = exact_normalize(left_x / left_speed - right_x / right_speed)
+    normal_y = exact_normalize(left_y / left_speed - right_y / right_speed)
+    constant = exact_normalize(
         left.source_constant.as_expr() / left_speed
         - right.source_constant.as_expr() / right_speed
     )
@@ -183,7 +184,7 @@ def _parameter(
     px, py = point.expressions()
     dx = ex - sx
     dy = ey - sy
-    return sp.factor(((px - sx) * dx + (py - sy) * dy) / (dx * dx + dy * dy))
+    return exact_normalize(((px - sx) * dx + (py - sy) * dy) / (dx * dx + dy * dy))
 
 
 def _point_in_any_closure(
@@ -222,7 +223,7 @@ def _arrival_value(
 ) -> sp.Expr:
     nx, ny = law.normal.expressions()
     px, py = point.expressions()
-    return sp.factor(
+    return exact_normalize(
         (nx * px + ny * py - law.source_constant.as_expr())
         / law.normal_speed.as_expr()
     )
