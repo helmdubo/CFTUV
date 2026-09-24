@@ -1,0 +1,36 @@
+{
+  "base_sha": "8d93e79b6affca4b5b1032e91b1514d1a21f3b94",
+  "case_count": 63,
+  "case_universe": [
+    "named_corpus",
+    "partial_source_corpus"
+  ],
+  "outcomes": {
+    "EXACT": 46,
+    "WAVEFRONT_LEFT_UNRESOLVED": 17
+  },
+  "projection_fields": [
+    "outcome",
+    "semantic_digest",
+    "complete_sorted_counter_map_sha256",
+    "proof_status",
+    "proof_disposition_counts"
+  ],
+  "projection_sha256": "cf2d03aface1500d17c09ea29b210681fa9c03b640fa0201222024d2da46f634",
+  "proof_dispositions": {
+    "DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": 354,
+    "EVENT_ACCEPTED_WITH_UNPROVEN_SPAN": 4,
+    "SURVIVED_PAST_EVENT_TIME": 26,
+    "UNPROVEN_FALLBACK_APPLIED": 36
+  },
+  "proof_status": {
+    "COMPLETE": 39,
+    "INCOMPLETE": 24
+  },
+  "reproduction": {
+    "cwd": "kernel",
+    "python": "CPython 3.10",
+    "pythonpath": "src;tests"
+  },
+  "schema": "cftuv.p0_3.invariant_baseline.v1"
+}

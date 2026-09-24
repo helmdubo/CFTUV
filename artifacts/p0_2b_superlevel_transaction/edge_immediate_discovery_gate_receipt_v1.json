@@ -1,0 +1,67 @@
+{
+  "schema": "P0_2B_EDGE_IMMEDIATE_DISCOVERY_GATE_RECEIPT_V1",
+  "recorded_on": "2026-08-03",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "base_head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "scope": {
+    "product_integration": false,
+    "materialization": false,
+    "generational_fixed_point": false,
+    "immediate_discovery_only": true,
+    "source_file_lines": 111
+  },
+  "removed_as_unauthorized_order_as_solution": [
+    "_apply_contact",
+    "_rebuild",
+    "plan_symbolic_edge_fixed_point",
+    "SymbolicEdgeClosureV1"
+  ],
+  "authoritative_gate": {
+    "case": "cross_full_q_1",
+    "time": "8",
+    "split_scaffold": {
+      "added_incidents": 1,
+      "event_kind": "SPLIT",
+      "runtime_vertex_for_scaffold_only": 11,
+      "runtime_edge_for_scaffold_only": 8,
+      "iterations": 1,
+      "unresolved_reason": null
+    },
+    "immediate_edge_contacts": 1,
+    "contact_point": ["14/3", "6"],
+    "contact_start_kind": "BIRTH",
+    "contact_end_kind": "BIRTH",
+    "stable_key_repr_sha256": "ac225e0282e93ede68bdd3e17bd852bcfefb5eca89520ed2e23009e673fa6098",
+    "permutations": {
+      "packet_orders": 2,
+      "overlay_binding_orders_per_packet": 2,
+      "total_variants": 4,
+      "all_key_sequences_equal": true
+    },
+    "runtime_identity_in_contact_key": false
+  },
+  "non_authoritative_deleted_resolver_measurement": {
+    "status": "EVIDENCE_ONLY_NOT_A_RESOLUTION_OR_GATE",
+    "cumulative_contacts": 3,
+    "causal_generations": 3,
+    "contacts_per_generation": [1, 1, 1],
+    "all_contact_points": ["14/3,6", "14/3,6", "14/3,6"],
+    "note": "Measured before deleting the sequential resolver. A future slice must rebuild from F0 plus accumulated stable contacts and normalize each same-generation resource component simultaneously."
+  },
+  "validation": [
+    {
+      "command": "python -m pytest -q -p no:cacheprovider kernel/tests/test_wavefront_superlevel_transaction.py::test_cross_t8_discovers_one_stable_immediate_edge_contact",
+      "result": "1 passed in 0.27s"
+    },
+    {
+      "command": "python -m pytest -q -p no:cacheprovider kernel/tests/test_wavefront_superlevel_transaction.py::test_split_family_normal_form_materializes_comb_2_once kernel/tests/test_wavefront_superlevel_transaction.py::test_cross_t8_discovers_one_stable_immediate_edge_contact",
+      "result": "2 passed in 0.28s"
+    },
+    {
+      "command": "python -m pytest -q -p no:cacheprovider tests/test_architecture.py",
+      "result": "384 passed in 2.90s"
+    }
+  ],
+  "next_slice": "Generational fixed point with simultaneous normalization per same-time resource-connected EDGE component; no sorted order as component resolution."
+}

@@ -1,0 +1,524 @@
+{
+  "A_field": {
+    "QUEUE_PREPARE": {
+      "wall_seconds": 4.686,
+      "tag": "QUEUE_PREPARE",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 25,
+          "seconds": 3.8065,
+          "int64": 3,
+          "int128": 5,
+          "bigint": 17,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              10
+            ],
+            [
+              "exact_sqrt_sum.py:squarefree_split",
+              8
+            ],
+            [
+              "exact_sqrt_sum.py:prime_support",
+              7
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 2,
+          "seconds": 1.984,
+          "int64": 0,
+          "int128": 0,
+          "bigint": 2,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "skeleton.py:__init__",
+              1
+            ],
+            [
+              "motorcycle.py:build_motorcycle_graph",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 2316,
+          "seconds": 0.9809,
+          "int64": 1337,
+          "int128": 632,
+          "bigint": 347,
+          "max_operand_bits": 144,
+          "top_callers": []
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 961,
+          "seconds": 0.0193,
+          "int64": 0,
+          "int128": 688,
+          "bigint": 273,
+          "max_operand_bits": 474,
+          "top_callers": [
+            [
+              "event_time.py:compare_times",
+              392
+            ],
+            [
+              "event_time.py:normalized",
+              307
+            ],
+            [
+              "motorcycle.py:_projection_is_inside",
+              132
+            ],
+            [
+              "skeleton.py:_edge_span_contains",
+              65
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:rational_only",
+          "calls": 392,
+          "seconds": 0.0006,
+          "int64": 338,
+          "int128": 52,
+          "bigint": 2,
+          "max_operand_bits": 186,
+          "top_callers": [
+            [
+              "event_time.py:compare_times",
+              338
+            ],
+            [
+              "skeleton.py:_edge_span_contains",
+              20
+            ],
+            [
+              "faces.py:orientation",
+              20
+            ],
+            [
+              "motorcycle.py:_projection_is_inside",
+              11
+            ]
+          ]
+        },
+        {
+          "class": "LATTICE_INT:orient2d",
+          "calls": 36,
+          "seconds": 0.0001,
+          "int64": 36,
+          "int128": 0,
+          "bigint": 0,
+          "max_operand_bits": 49,
+          "top_callers": []
+        }
+      ]
+    },
+    "QUEUE_COVERAGE": {
+      "wall_seconds": 1.1414,
+      "tag": "QUEUE_COVERAGE",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 1,
+          "seconds": 1.0536,
+          "int64": 0,
+          "int128": 0,
+          "bigint": 1,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "coverage.py:coverage_at",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 5,
+          "seconds": 1.0534,
+          "int64": 0,
+          "int128": 0,
+          "bigint": 5,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              5
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 26,
+          "seconds": 0.0004,
+          "int64": 0,
+          "int128": 20,
+          "bigint": 6,
+          "max_operand_bits": 206,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              26
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 32,
+          "seconds": 0.0002,
+          "int64": 6,
+          "int128": 17,
+          "bigint": 9,
+          "max_operand_bits": 144,
+          "top_callers": []
+        }
+      ]
+    },
+    "QUEUE_CONTOUR": {
+      "wall_seconds": 1.0466,
+      "tag": "QUEUE_CONTOUR",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 1,
+          "seconds": 1.0411,
+          "int64": 0,
+          "int128": 0,
+          "bigint": 1,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "coverage.py:coverage_at",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 5,
+          "seconds": 1.0409,
+          "int64": 0,
+          "int128": 0,
+          "bigint": 5,
+          "max_operand_bits": 246,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              5
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 26,
+          "seconds": 0.0004,
+          "int64": 0,
+          "int128": 20,
+          "bigint": 6,
+          "max_operand_bits": 206,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              26
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 32,
+          "seconds": 0.0002,
+          "int64": 6,
+          "int128": 17,
+          "bigint": 9,
+          "max_operand_bits": 144,
+          "top_callers": []
+        }
+      ]
+    }
+  },
+  "B_v0_flat": {
+    "QUEUE_PREPARE": {
+      "wall_seconds": 0.6242,
+      "tag": "QUEUE_PREPARE",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 22,
+          "seconds": 0.0218,
+          "int64": 7,
+          "int128": 15,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              10
+            ],
+            [
+              "exact_sqrt_sum.py:squarefree_split",
+              8
+            ],
+            [
+              "exact_sqrt_sum.py:prime_support",
+              4
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 793,
+          "seconds": 0.0145,
+          "int64": 415,
+          "int128": 354,
+          "bigint": 24,
+          "max_operand_bits": 276,
+          "top_callers": [
+            [
+              "event_time.py:compare_times",
+              332
+            ],
+            [
+              "event_time.py:normalized",
+              200
+            ],
+            [
+              "motorcycle.py:_projection_is_inside",
+              132
+            ],
+            [
+              "skeleton.py:_edge_span_contains",
+              66
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 1887,
+          "seconds": 0.0135,
+          "int64": 1328,
+          "int128": 559,
+          "bigint": 0,
+          "max_operand_bits": 81,
+          "top_callers": []
+        },
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 2,
+          "seconds": 0.0112,
+          "int64": 0,
+          "int128": 2,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "skeleton.py:__init__",
+              1
+            ],
+            [
+              "motorcycle.py:build_motorcycle_graph",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:rational_only",
+          "calls": 455,
+          "seconds": 0.0008,
+          "int64": 377,
+          "int128": 77,
+          "bigint": 1,
+          "max_operand_bits": 130,
+          "top_callers": [
+            [
+              "event_time.py:compare_times",
+              339
+            ],
+            [
+              "event_time.py:normalized",
+              75
+            ],
+            [
+              "faces.py:orientation",
+              20
+            ],
+            [
+              "skeleton.py:_edge_span_contains",
+              13
+            ]
+          ]
+        },
+        {
+          "class": "LATTICE_INT:orient2d",
+          "calls": 36,
+          "seconds": 0.0001,
+          "int64": 36,
+          "int128": 0,
+          "bigint": 0,
+          "max_operand_bits": 49,
+          "top_callers": []
+        }
+      ]
+    },
+    "QUEUE_COVERAGE": {
+      "wall_seconds": 0.0686,
+      "tag": "QUEUE_COVERAGE",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 1,
+          "seconds": 0.0063,
+          "int64": 0,
+          "int128": 1,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "coverage.py:coverage_at",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 5,
+          "seconds": 0.0062,
+          "int64": 0,
+          "int128": 5,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              5
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 20,
+          "seconds": 0.0003,
+          "int64": 16,
+          "int128": 4,
+          "bigint": 0,
+          "max_operand_bits": 112,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              20
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 32,
+          "seconds": 0.0002,
+          "int64": 17,
+          "int128": 15,
+          "bigint": 0,
+          "max_operand_bits": 81,
+          "top_callers": []
+        },
+        {
+          "class": "SQRTSUM_SIGN:rational_only",
+          "calls": 6,
+          "seconds": 0.0,
+          "int64": 6,
+          "int128": 0,
+          "bigint": 0,
+          "max_operand_bits": 54,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              6
+            ]
+          ]
+        }
+      ]
+    },
+    "QUEUE_CONTOUR": {
+      "wall_seconds": 0.0102,
+      "tag": "QUEUE_CONTOUR",
+      "classes": [
+        {
+          "class": "SQRTSUM_CANON:prime_universe",
+          "calls": 1,
+          "seconds": 0.0057,
+          "int64": 0,
+          "int128": 1,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "coverage.py:coverage_at",
+              1
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:factorize",
+          "calls": 5,
+          "seconds": 0.0056,
+          "int64": 0,
+          "int128": 5,
+          "bigint": 0,
+          "max_operand_bits": 119,
+          "top_callers": [
+            [
+              "exact_sqrt_sum.py:_prime_universe_from_q_values",
+              5
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_SIGN:interval_filter",
+          "calls": 20,
+          "seconds": 0.0003,
+          "int64": 16,
+          "int128": 4,
+          "bigint": 0,
+          "max_operand_bits": 112,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              20
+            ]
+          ]
+        },
+        {
+          "class": "SQRTSUM_CANON:radical",
+          "calls": 32,
+          "seconds": 0.0002,
+          "int64": 17,
+          "int128": 15,
+          "bigint": 0,
+          "max_operand_bits": 81,
+          "top_callers": []
+        },
+        {
+          "class": "SQRTSUM_SIGN:rational_only",
+          "calls": 6,
+          "seconds": 0.0,
+          "int64": 6,
+          "int128": 0,
+          "bigint": 0,
+          "max_operand_bits": 54,
+          "top_callers": [
+            [
+              "coverage.py:<listcomp>",
+              6
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}

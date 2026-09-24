@@ -1,0 +1,513 @@
+[
+  {
+    "variant": "A_field",
+    "patch_id": 0,
+    "domain_id": "host-v0:patch-domain:cafa51b596c2cf8ea16b580b",
+    "metric": {
+      "planarity": "NearPlanarProjectionCertificateV1",
+      "near_planar": true,
+      "projected_vertices": 11,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          14,
+          11
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          59,
+          75
+        ],
+        [
+          67,
+          72
+        ],
+        [
+          47,
+          73
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          67,
+          75
+        ],
+        [
+          77,
+          74
+        ],
+        [
+          77,
+          75
+        ]
+      ],
+      "basis_a_len2_float": 0.0004009645270555601,
+      "basis_b_len2_float": 56.263115122006006,
+      "gram_bits": [
+        [
+          76,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          92,
+          86
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          114,
+          101
+        ],
+        [
+          102,
+          97
+        ],
+        [
+          102,
+          97
+        ],
+        [
+          88,
+          92
+        ]
+      ],
+      "gram_condition_float": 482940.3949270955,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 60,
+        "num_bits_median": 46,
+        "den_bits_max": 51,
+        "den_bits_median": 47
+      },
+      "max_residual": 0.01000062559451148,
+      "residual_budget": 0.0125
+    },
+    "compile_outcome": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "compile_seconds": 1.472,
+    "fan_calls": [
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.1315,
+        "outcome": "OK",
+        "D_star": 518,
+        "termination_height_upper_bound": 21976736431,
+        "window_width_floats": [
+          4.5502661562302125e-11,
+          5.119068911437703e-11
+        ],
+        "window_slope_bits": [
+          115,
+          115
+        ]
+      },
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.2197,
+        "outcome": "EXHAUSTED",
+        "detail": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED cap=131072 shell_probes=138947 order_steps=0"
+      }
+    ],
+    "faces": 4,
+    "source_vertices": 12
+  },
+  {
+    "variant": "B_v0_flattened",
+    "patch_id": 0,
+    "domain_id": "host-v0:patch-domain:7db05c347bfdbbd2151739b6",
+    "metric": {
+      "planarity": "ExactSourcePlaneCertificateV1",
+      "near_planar": false,
+      "projected_vertices": 0,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          16,
+          13
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          14,
+          12
+        ],
+        [
+          15,
+          13
+        ]
+      ],
+      "basis_a_len2_float": 0.00040078163146972656,
+      "basis_b_len2_float": 56.26306563615799,
+      "gram_bits": [
+        [
+          11,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          30,
+          25
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          52,
+          39
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          25,
+          29
+        ]
+      ],
+      "gram_condition_float": 483159.0809664121,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 30,
+        "num_bits_median": 14,
+        "den_bits_max": 21,
+        "den_bits_median": 6
+      }
+    },
+    "compile_outcome": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "compile_seconds": 1.079,
+    "fan_calls": [
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.2191,
+        "outcome": "EXHAUSTED",
+        "detail": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED cap=131072 shell_probes=138977 order_steps=0"
+      }
+    ],
+    "faces": 4,
+    "source_vertices": 12
+  },
+  {
+    "variant": "C_column_5_10_6_straightened",
+    "patch_id": 0,
+    "domain_id": "host-v0:patch-domain:ff3000e7948f0312d4666c56",
+    "metric": {
+      "planarity": "NearPlanarProjectionCertificateV1",
+      "near_planar": true,
+      "projected_vertices": 11,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          14,
+          11
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          59,
+          75
+        ],
+        [
+          69,
+          74
+        ],
+        [
+          44,
+          70
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          67,
+          75
+        ],
+        [
+          76,
+          73
+        ],
+        [
+          77,
+          75
+        ]
+      ],
+      "basis_a_len2_float": 0.00040096454843359646,
+      "basis_b_len2_float": 56.2631151268164,
+      "gram_bits": [
+        [
+          76,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          92,
+          86
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          111,
+          98
+        ],
+        [
+          100,
+          96
+        ],
+        [
+          100,
+          96
+        ],
+        [
+          86,
+          90
+        ]
+      ],
+      "gram_condition_float": 482940.3693578508,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 58,
+        "num_bits_median": 43,
+        "den_bits_max": 49,
+        "den_bits_median": 44
+      },
+      "max_residual": 0.010000624525676472,
+      "residual_budget": 0.0125
+    },
+    "compile_outcome": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED",
+    "compile_seconds": 1.404,
+    "fan_calls": [
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.1318,
+        "outcome": "OK",
+        "D_star": 518,
+        "termination_height_upper_bound": 21976734541,
+        "window_width_floats": [
+          4.550266547491695e-11,
+          5.1190692378745225e-11
+        ],
+        "window_slope_bits": [
+          115,
+          115
+        ]
+      },
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.1657,
+        "outcome": "EXHAUSTED",
+        "detail": "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED cap=131072 shell_probes=139588 order_steps=0"
+      }
+    ],
+    "faces": 4,
+    "source_vertices": 12
+  },
+  {
+    "variant": "D_both",
+    "patch_id": 0,
+    "domain_id": "host-v0:patch-domain:ce7e90855aebc062dc28369f",
+    "metric": {
+      "planarity": "ExactSourcePlaneCertificateV1",
+      "near_planar": false,
+      "projected_vertices": 0,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          16,
+          13
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          14,
+          12
+        ],
+        [
+          15,
+          13
+        ]
+      ],
+      "basis_a_len2_float": 0.00040078163146972656,
+      "basis_b_len2_float": 56.26306563615799,
+      "gram_bits": [
+        [
+          11,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          30,
+          25
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          52,
+          39
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          25,
+          29
+        ]
+      ],
+      "gram_condition_float": 483159.0809664121,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 30,
+        "num_bits_median": 14,
+        "den_bits_max": 21,
+        "den_bits_median": 6
+      }
+    },
+    "compile_outcome": "EXACT",
+    "compile_seconds": 0.304,
+    "fan_calls": [
+      {
+        "q": 4,
+        "ideal_count": 3,
+        "seconds": 0.0105,
+        "outcome": "OK",
+        "D_star": 37,
+        "termination_height_upper_bound": 70907,
+        "window_width_floats": [
+          1.4103347424024839e-05
+        ],
+        "window_slope_bits": [
+          115
+        ]
+      },
+      {
+        "q": 4,
+        "ideal_count": 4,
+        "seconds": 0.1231,
+        "outcome": "OK",
+        "D_star": 518,
+        "termination_height_upper_bound": 21981704524,
+        "window_width_floats": [
+          4.549237748917715e-11,
+          5.117908606334286e-11
+        ],
+        "window_slope_bits": [
+          115,
+          115
+        ]
+      }
+    ],
+    "faces": 4,
+    "source_vertices": 12
+  }
+]

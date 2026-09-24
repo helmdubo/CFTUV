@@ -1,0 +1,67 @@
+{
+  "schema": "P0_4_CURRENT_METRIC_FIXTURE_SURVEY_V3",
+  "pytest_result": "136 passed in 93.43s",
+  "pytest_cases_collected": 136,
+  "pytest_exit_code": 0,
+  "successful_metric_builds": 131,
+  "admitted": 131,
+  "named_findings": 0,
+  "case_receipt_sha256": "b9fd1dee3d4be46f0fe219d47366d248ad92ed5fbb2615f05eb1f0d0c0244bca",
+  "resolved_by_law": [
+    {
+      "law": "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1",
+      "calls": 4,
+      "fixture_group": "kernel/tests/test_near_planar_policy.py slope policy fixtures",
+      "previous_3d_anchor_vertex_ids": ["v00", "v01", "v02"],
+      "resolved_plane_anchor_vertex_ids": ["v00", "v01", "v04"],
+      "resolution": "both evidence sides now select basis IDs on the single normative resolved-plane projection"
+    },
+    {
+      "law": "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1",
+      "calls": 11,
+      "fixture_group": "kernel/tests/test_near_planar_snapshot_validation.py",
+      "previous_3d_anchor_vertex_ids": ["v00", "v01", "v02"],
+      "resolved_plane_anchor_vertex_ids": ["v00", "v01", "v03"],
+      "resolution": "both evidence sides now select basis IDs on the single normative resolved-plane projection"
+    }
+  ],
+  "diagnostics": {
+    "PREEXISTING_UNCLASSIFIABLE_SOURCE_CORNER_UNCHANGED": {
+      "count": 5,
+      "maps_to_snap_failure": false,
+      "cases": [
+        "tests/test_envelope_host_adapter.py::test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[0]::metric-call-1",
+        "tests/test_envelope_host_adapter.py::test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[1]::metric-call-1",
+        "tests/test_envelope_host_adapter.py::test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular[2]::metric-call-1",
+        "tests/test_envelope_host_adapter.py::test_patch_side_seam_partitions_use_exact_common_refinement::metric-call-1",
+        "tests/test_envelope_host_adapter.py::test_patch_side_seam_partitions_use_exact_common_refinement::metric-call-2"
+      ]
+    }
+  },
+  "planarity_counts": {
+    "ExactSourcePlaneCertificateV1": 107,
+    "NearPlanarProjectionCertificateV1": 24
+  },
+  "snapping_law_counts": {
+    "INTEGER_GRID_SNAP_V1": 15,
+    "SOURCE_ONLY_GRID_SNAP_V1": 74,
+    "UNSNAPPED_EXACT_V1": 42
+  },
+  "cost_maxima": {
+    "source_vertex_count": 12,
+    "source_edge_count": 14,
+    "boundary_occurrence_count": 8,
+    "source_snap_exact_pair_tests": 136,
+    "projection_exact_pair_tests": 80
+  },
+  "test_paths": [
+    "kernel/tests/test_building_002_point_contact_fixture.py",
+    "kernel/tests/test_grid_wiring.py",
+    "kernel/tests/test_near_planar_policy.py",
+    "kernel/tests/test_near_planar_snapshot_validation.py",
+    "kernel/tests/test_planar_metric_v2.py",
+    "tests/test_envelope_host_adapter.py"
+  ],
+  "legacy_builder_fail_closed_enabled": true,
+  "status": "ADMITTED"
+}

@@ -1,0 +1,69 @@
+{
+ "verdict": "РАСПИСКА",
+ "cases": [
+  {
+   "case": "named::cross",
+   "obligations_before": 20,
+   "obligations_after": 16,
+   "unproven_before": 0,
+   "unproven_after": 0,
+   "shrank": {
+    "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": [
+     20,
+     16
+    ]
+   },
+   "grew": {},
+   "direction": "МЕНЬШЕ"
+  },
+  {
+   "case": "partial_source::staircase_source_edge_3",
+   "obligations_before": 4,
+   "obligations_after": 1,
+   "unproven_before": 3,
+   "unproven_after": 1,
+   "shrank": {
+    "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|DISCHARGED_BY_PROVEN_SAME_TIME_EVENT": [
+     1,
+     0
+    ],
+    "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": [
+     2,
+     0
+    ]
+   },
+   "grew": {},
+   "direction": "МЕНЬШЕ"
+  },
+  {
+   "case": "partial_source::staircase_source_edge_6",
+   "obligations_before": 8,
+   "obligations_after": 5,
+   "unproven_before": 8,
+   "unproven_after": 5,
+   "shrank": {
+    "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": [
+     6,
+     3
+    ]
+   },
+   "grew": {},
+   "direction": "МЕНЬШЕ"
+  },
+  {
+   "case": "partial_source::staircase_source_edges_3_4",
+   "obligations_before": 2,
+   "obligations_after": 0,
+   "unproven_before": 2,
+   "unproven_after": 0,
+   "shrank": {
+    "NO_RULE_TRIPLE_ALWAYS_CONCURRENT|SURVIVED_PAST_EVENT_TIME": [
+     2,
+     0
+    ]
+   },
+   "grew": {},
+   "direction": "МЕНЬШЕ"
+  }
+ ]
+}

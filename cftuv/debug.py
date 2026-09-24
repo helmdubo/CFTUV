@@ -379,6 +379,32 @@ class GreasePencilDebugWriter:
                 ):
                     bpy.data.materials.remove(material)
 
+    @classmethod
+    def attach(cls, object_name, *, material_prefix=ENVELOPE_DEBUG_MATERIAL_PREFIX):
+        """Прицепиться к УЖЕ построенному debug-объекту, не пересоздавая его.
+
+        Полная перерисовка удаляет GP-объект и строит заново. Для ползунка
+        alpha это и дорого, и опасно: удаление объекта из update-callback
+        свойства трогает указатели RNA прямо во время его обработки. Здесь
+        объект остаётся тем же, а переписываются только те слои, которые
+        вызывающий назовёт сам через `ensure_layer`.
+
+        `None` — объекта нет либо он не наш. Это ответ, а не сбой: вызывающий
+        обязан назвать исход, а не молча ничего не нарисовать.
+        """
+
+        gp_obj = bpy.data.objects.get(str(object_name))
+        if not is_gp_debug_object(gp_obj):
+            return None
+        writer = cls.__new__(cls)
+        writer.object_name = str(object_name)
+        writer.material_prefix = str(material_prefix)
+        writer.object = gp_obj
+        writer.data = gp_obj.data
+        writer._frames = {}
+        writer._material_indices = {}
+        return writer
+
     @staticmethod
     def set_layer_visibility(object_name, visibility_by_layer):
         gp_obj = bpy.data.objects.get(str(object_name))

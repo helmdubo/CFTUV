@@ -1,0 +1,12 @@
+{
+  "accepted_exporter_revision": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+  "analysis_mesh_fingerprint_after": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+  "analysis_mesh_fingerprint_before": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+  "analysis_snapshot_byte_equal": true,
+  "analysis_snapshot_sha256": "ca1076a25af312aa7277e84ad624136a0c5fa4e70c73b675f2e8c6d2cc7613d1",
+  "decal_request_byte_equal": true,
+  "decal_request_sha256": "e51a36f44413d3c481a8c88fea5e8f2252528c7ac30fb9036cfb2ed8ca624d75",
+  "generated_mesh_fingerprint": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "schema": "cftuv.envelope.host_export_equality.v1",
+  "source_mesh_unchanged": true
+}

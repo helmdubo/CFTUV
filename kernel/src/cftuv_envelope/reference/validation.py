@@ -17,19 +17,22 @@ from ..contracts.metric import (
     CertifiedAffineSupportDirectionV2,
     RationalAffinePlanarMetricV2,
 )
+from ..contracts.request import AngularProfileSelectionPolicyId
 from ..contracts.surface import SurfacePayloadMode
 from ..ids import PatchDomainId
 from ..numeric import IntervalEndpointKind, LocalPoint3V1
 from ..validation import validate_rational_affine_planar_metric
 from .contracts import (
     ReferenceDiagnosticSeverity,
+    ReferenceEnvelopeCompilationV1,
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
-from .metric import ExactPlanarMetric
+from .metric import ExactPlanarMetric, _DensityExactMemo
 from .planar_types import (
     CertifiedPredicateUndecidable,
     ExactPlanarVector,
+    exact_normalize,
     exact_sign,
 )
 
@@ -43,14 +46,14 @@ def _point3(value) -> tuple[sp.Expr, sp.Expr, sp.Expr]:
 
 
 def _dot3(left, right) -> sp.Expr:
-    return sp.factor(sum(a * b for a, b in zip(left, right, strict=True)))
+    return exact_normalize(sum(a * b for a, b in zip(left, right, strict=True)))
 
 
 def _cross3(left, right) -> tuple[sp.Expr, sp.Expr, sp.Expr]:
     return (
-        sp.factor(left[1] * right[2] - left[2] * right[1]),
-        sp.factor(left[2] * right[0] - left[0] * right[2]),
-        sp.factor(left[0] * right[1] - left[1] * right[0]),
+        exact_normalize(left[1] * right[2] - left[2] * right[1]),
+        exact_normalize(left[2] * right[0] - left[0] * right[2]),
+        exact_normalize(left[0] * right[1] - left[1] * right[0]),
     )
 
 
@@ -97,6 +100,59 @@ def _interval_contains_oriented_support_delta(
     return lower_ok and upper_ok
 
 
+def _density_interval_contains_oriented_support_delta(
+    metric: ExactPlanarMetric,
+    incoming: ExactPlanarVector,
+    outgoing: ExactPlanarVector,
+    orientation: TurnOrientation,
+    interval,
+) -> bool:
+    """Тот же angle-certificate predicate без materialized unit vectors."""
+
+    from .angular import _density_exact_sign
+
+    ix, iy = metric.density_expressions(incoming)
+    ox, oy = metric.density_expressions(outgoing)
+    gram = metric.gram
+    incoming_squared = ix * (gram[0][0] * ix + gram[0][1] * iy) + iy * (
+        gram[1][0] * ix + gram[1][1] * iy
+    )
+    outgoing_squared = ox * (gram[0][0] * ox + gram[0][1] * oy) + oy * (
+        gram[1][0] * ox + gram[1][1] * oy
+    )
+    dot_value = ix * (gram[0][0] * ox + gram[0][1] * oy) + iy * (
+        gram[1][0] * ox + gram[1][1] * oy
+    )
+    cross_value = metric.owner_orientation_sign * (ix * oy - iy * ox)
+    expected_sign = (
+        1
+        if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+        else -1
+    )
+    if (
+        _density_exact_sign(incoming_squared, metric) <= 0
+        or _density_exact_sign(outgoing_squared, metric) <= 0
+        or _density_exact_sign(cross_value, metric) != expected_sign
+    ):
+        return False
+    cosine = dot_value / sp.sqrt(incoming_squared * outgoing_squared)
+    lower_cosine = sp.cos(sp.pi * sp.Rational(str(interval.lower)))
+    upper_cosine = sp.cos(sp.pi * sp.Rational(str(interval.upper)))
+    lower_cmp = _density_exact_sign(cosine - lower_cosine, metric)
+    upper_cmp = _density_exact_sign(cosine - upper_cosine, metric)
+    lower_ok = (
+        lower_cmp <= 0
+        if interval.lower_kind is IntervalEndpointKind.CLOSED
+        else lower_cmp < 0
+    )
+    upper_ok = (
+        upper_cmp >= 0
+        if interval.upper_kind is IntervalEndpointKind.CLOSED
+        else upper_cmp > 0
+    )
+    return lower_ok and upper_ok
+
+
 def _support_direction(payload) -> ExactPlanarVector | None:
     if isinstance(payload, CertifiedPlanarSupportDirectionV1):
         return ExactPlanarVector.from_values(
@@ -121,6 +177,8 @@ def _validate_angle_certificates(
     snapshot: AnalysisSnapshotV1,
     patch_domain_id: PatchDomainId,
     metric: ExactPlanarMetric,
+    *,
+    density_bounded: bool = False,
 ) -> tuple[ReferenceEvaluationDiagnosticV1, ...]:
     sector_by_id = {
         item.owner_sector_id: item
@@ -156,7 +214,12 @@ def _validate_angle_certificates(
         if incoming is None or outgoing is None:
             continue
         try:
-            matches = _interval_contains_oriented_support_delta(
+            predicate = (
+                _density_interval_contains_oriented_support_delta
+                if density_bounded
+                else _interval_contains_oriented_support_delta
+            )
+            matches = predicate(
                 metric,
                 incoming,
                 outgoing,
@@ -176,9 +239,18 @@ def _validate_angle_certificates(
     return ()
 
 
+def _metric_with_density_memo(frame, memo):
+    return ExactPlanarMetric.from_descriptor(
+        frame,
+        density_exact_memo=memo,
+    )
+
+
 def validate_reference_geometry_certificates(
     snapshot: AnalysisSnapshotV1,
     patch_domain_id: PatchDomainId,
+    *, density_bounded: bool = False,
+    density_exact_memo: _DensityExactMemo | None = None,
 ) -> tuple[ReferenceEvaluationDiagnosticV1, ...]:
     """Prove that authoritative planar and angle records describe one geometry."""
 
@@ -212,9 +284,8 @@ def validate_reference_geometry_certificates(
                 ),
             )
         return _validate_angle_certificates(
-            snapshot,
-            patch_domain_id,
-            ExactPlanarMetric.from_descriptor(frame),
+            snapshot, patch_domain_id, _metric_with_density_memo(frame, density_exact_memo),
+            density_bounded=density_bounded,
         )
     origin = _point3(frame.origin)
     axis_u = _point3(frame.axis_u)
@@ -302,14 +373,17 @@ def validate_reference_geometry_certificates(
             )
 
     return _validate_angle_certificates(
-        snapshot,
-        patch_domain_id,
-        ExactPlanarMetric.from_descriptor(frame),
+        snapshot, patch_domain_id, _metric_with_density_memo(frame, density_exact_memo),
+        density_bounded=density_bounded,
     )
 
 
 def validate_reference_geometry_payload(
-    snapshot: AnalysisSnapshotV1, patch_domain_id: PatchDomainId
+    snapshot: AnalysisSnapshotV1,
+    patch_domain_id: PatchDomainId,
+    *,
+    density_bounded: bool = False,
+    density_exact_memo: _DensityExactMemo | None = None,
 ) -> tuple[
     PlanarPatchFrameV1 | RationalAffinePlanarMetricV2 | None,
     tuple[ReferenceEvaluationDiagnosticV1, ...],
@@ -366,8 +440,26 @@ def validate_reference_geometry_payload(
             "v1 reference evaluation requires an exact planarity certificate",
         )
     certificate_diagnostics = validate_reference_geometry_certificates(
-        snapshot, patch_domain_id
+        snapshot,
+        patch_domain_id,
+        density_bounded=density_bounded,
+        density_exact_memo=density_exact_memo,
     )
     if certificate_diagnostics:
         return None, certificate_diagnostics
     return frame, ()
+
+
+def validate_compilation_geometry_payload(
+    compilation: ReferenceEnvelopeCompilationV1,
+):
+    """Validate geometry under the angle authority declared by the request."""
+
+    return validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=(
+            compilation.decal_request.angular_profile_selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
+    )

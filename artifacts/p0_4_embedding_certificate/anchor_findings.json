@@ -1,0 +1,125 @@
+{
+  "schema": "P0_4_ANCHOR_FINDINGS_RESOLVED_V2",
+  "targeted_fixture_result": "16 passed, 120 deselected in 0.34s",
+  "metric_calls": 15,
+  "pre_resolution_case_receipt_sha256": "5460dfc7a7033d15e0d7bd74484df5c76bba884e0f093e15c9c9f190a52b0f7d",
+  "common_facts": {
+    "pre_resolution_projection_outcome": "NEAR_PLANAR_PROJECTION_SOURCE_ANCHOR_IDENTITY_CHANGED",
+    "post_resolution_projection_outcome": null,
+    "resolution_law": "CANONICAL_SOURCE_VERTEX_BASIS_ON_RESOLVED_PLANE_V1",
+    "resolution": "both certificate sides select the canonical basis IDs from the same normative resolved-plane projection",
+    "source_anchor_source_cross_nonzero": true,
+    "source_anchor_projected_orientation": 0,
+    "projected_anchor_projected_orientation": 1,
+    "residual_budget": "1/80",
+    "all_other_embedding_axes": "PRESERVED"
+  },
+  "cases": [
+    {
+      "test": "test_the_product_skirt_budget_governs_both_grid_laws::metric-call-1",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v04"],
+      "max_residual_squared": "227529/2580267752488960"
+    },
+    {
+      "test": "test_the_product_skirt_budget_governs_both_grid_laws::metric-call-2",
+      "grid_law": "UNSNAPPED_EXACT_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v04"],
+      "max_residual_squared": "120911732826698958005426594481/3771023708917972314910531926812586693929262999020411231450169344"
+    },
+    {
+      "test": "test_a_tilted_but_exactly_planar_patch_passes_the_metric::metric-call-1",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v04"],
+      "max_residual_squared": "227529/2580267752488960"
+    },
+    {
+      "test": "test_the_plane_normal_is_written_in_canonical_primitive_form::metric-call-2",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v04"],
+      "max_residual_squared": "227529/2580267752488960"
+    },
+    {
+      "test": "test_the_validator_admits_what_its_own_builder_writes[UNSNAPPED_EXACT_V1]",
+      "grid_law": "UNSNAPPED_EXACT_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "39698104958515008588892156929/3069967960361733091288069835221011490529452107140618240563085312"
+    },
+    {
+      "test": "test_the_validator_admits_what_its_own_builder_writes[SOURCE_ONLY_GRID_SNAP_V1]",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_forged_coordinate_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_certificate_naming_another_domain_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_an_exact_certificate_over_projected_coordinates_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_recorded_residual_above_the_recorded_budget_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_budget_law_that_does_not_reproduce_the_number_is_refused[snapped-claims-representation]",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_budget_law_that_does_not_reproduce_the_number_is_refused[unsnapped-claims-cell]",
+      "grid_law": "UNSNAPPED_EXACT_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "39698104958515008588892156929/3069967960361733091288069835221011490529452107140618240563085312"
+    },
+    {
+      "test": "test_the_product_law_declared_with_a_foreign_number_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_certificate_of_an_unknown_type_is_refused_by_name",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    },
+    {
+      "test": "test_a_projected_vertex_dropped_from_the_certificate_is_refused",
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "source_anchor": ["v00", "v01", "v02"],
+      "projected_anchor": ["v00", "v01", "v03"],
+      "max_residual_squared": "12006225/75618935419961344"
+    }
+  ],
+  "status": "RESOLVED_BY_AUTH_Q04"
+}

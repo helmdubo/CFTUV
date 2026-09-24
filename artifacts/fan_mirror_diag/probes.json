@@ -1,0 +1,746 @@
+{
+ "schema": "cftuv.fan_diag.probes.v1",
+ "scale": 32768,
+ "base": {
+  "node_count": 40,
+  "face_count": 47,
+  "semantic_digest": "e0719c5f9120118d6cca618e7a7eb7b4f7b04d387ccf575f9cbac99020a0271e",
+  "outcome": "EXACT"
+ },
+ "P1_start_vertex_rotation": {
+  "rotations_tried": 34,
+  "digest_stable": true,
+  "node_sets_stable": true,
+  "diverging_shifts": [],
+  "rows": [
+   {
+    "shift": 1,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 2,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 3,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 4,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 5,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 6,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 7,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 8,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 9,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 10,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 11,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 12,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 13,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 14,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 15,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 16,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 17,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 18,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 19,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 20,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 21,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 22,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 23,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 24,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 25,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 26,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 27,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 28,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 29,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 30,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 31,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 32,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 33,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   },
+   {
+    "shift": 34,
+    "outcome": "EXACT",
+    "node_count": 40,
+    "face_count": 47,
+    "digest_matches_base": true,
+    "nodes_match_base": true
+   }
+  ]
+ },
+ "P2_whole_figure_mirror": {
+  "doubled_axis": 0,
+  "outcome": "EXACT",
+  "node_count": 40,
+  "face_count": 47,
+  "nodes_match_reflected_base": true,
+  "only_in_base": [],
+  "only_in_mirror": []
+ },
+ "P3_pier_pair": [
+  {
+   "pier": "A|B",
+   "doubled_axis": -936211,
+   "radius_lattice": 42599,
+   "nodes_in_band": 6,
+   "band_is_mirror_symmetric": false,
+   "nodes_without_mirror_partner": [
+    {
+     "x": -467336.0,
+     "y": 759439.385,
+     "x_metres": -14.261963,
+     "y_metres": 23.176251,
+     "kind": "SPLIT"
+    }
+   ]
+  },
+  {
+   "pier": "B|C",
+   "doubled_axis": -1077113,
+   "radius_lattice": 42598,
+   "nodes_in_band": 6,
+   "band_is_mirror_symmetric": false,
+   "nodes_without_mirror_partner": [
+    {
+     "x": -537787.0,
+     "y": 759439.385,
+     "x_metres": -16.411957,
+     "y_metres": 23.176251,
+     "kind": "SPLIT"
+    }
+   ]
+  },
+  {
+   "pier": "C|D",
+   "doubled_axis": -1218015,
+   "radius_lattice": 42598,
+   "nodes_in_band": 6,
+   "band_is_mirror_symmetric": false,
+   "nodes_without_mirror_partner": [
+    {
+     "x": -608239.0,
+     "y": 759438.971,
+     "x_metres": -18.561981,
+     "y_metres": 23.176238,
+     "kind": "SPLIT"
+    }
+   ]
+  },
+  {
+   "pier": "D|E",
+   "doubled_axis": -1358917,
+   "radius_lattice": 42598,
+   "nodes_in_band": 6,
+   "band_is_mirror_symmetric": false,
+   "nodes_without_mirror_partner": [
+    {
+     "x": -678690.0,
+     "y": 759438.971,
+     "x_metres": -20.711975,
+     "y_metres": 23.176238,
+     "kind": "SPLIT"
+    }
+   ]
+  },
+  {
+   "pier": "E|F",
+   "doubled_axis": -1499820,
+   "radius_lattice": 42599,
+   "nodes_in_band": 6,
+   "band_is_mirror_symmetric": false,
+   "nodes_without_mirror_partner": [
+    {
+     "x": -749141.0,
+     "y": 759439.385,
+     "x_metres": -22.861969,
+     "y_metres": 23.176251,
+     "kind": "SPLIT"
+    }
+   ]
+  }
+ ],
+ "P4_simultaneous_groups": {
+  "group_count": 7,
+  "largest_group": 12,
+  "nodes_in_simultaneous_groups": 34,
+  "groups": [
+   {
+    "time_dividend": [
+     29803,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 14901.5,
+    "member_count": 12,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -757663.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -687212.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -742156.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -616761.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -671704.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -546310.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -601253.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -475859.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -530802.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -405407.597,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -460351.403,
+      "y_lattice": 762332.5,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -804690.631,
+      "y_lattice": 762332.5,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     27853,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 13926.5,
+    "member_count": 8,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -679458.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -609007.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -538556.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -468105.5,
+      "y_lattice": 753199.545,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -679458.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -609007.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -538556.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -468105.5,
+      "y_lattice": 677054.5,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     87459,
+     2
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 18113.351976,
+    "member_count": 4,
+    "members": [
+     {
+      "kind": "EDGE",
+      "x_lattice": -679458.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -609007.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -538556.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -468105.5,
+      "y_lattice": 759120.648,
+      "converging_vertices": 3
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     14770,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 14770.0,
+    "member_count": 3,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -396810.0,
+      "y_lattice": 682836.0,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -396810.0,
+      "y_lattice": 753548.934,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -396810.0,
+      "y_lattice": 677898.0,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     42960,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 17794.61464,
+    "member_count": 3,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -749141.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -537787.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -467336.0,
+      "y_lattice": 759439.385,
+      "converging_vertices": 1
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     13926,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 13926.0,
+    "member_count": 2,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -749910.0,
+      "y_lattice": 753199.338,
+      "converging_vertices": 2
+     },
+     {
+      "kind": "EDGE",
+      "x_lattice": -749910.0,
+      "y_lattice": 677054.0,
+      "converging_vertices": 2
+     }
+    ]
+   },
+   {
+    "time_dividend": [
+     42961,
+     1
+    ],
+    "time_divisor": [
+     [
+      1,
+      [
+       1,
+       1
+      ]
+     ],
+     [
+      2,
+      [
+       1,
+       1
+      ]
+     ]
+    ],
+    "time_float": 17795.028853,
+    "member_count": 2,
+    "members": [
+     {
+      "kind": "SPLIT",
+      "x_lattice": -678690.0,
+      "y_lattice": 759438.971,
+      "converging_vertices": 1
+     },
+     {
+      "kind": "SPLIT",
+      "x_lattice": -608239.0,
+      "y_lattice": 759438.971,
+      "converging_vertices": 1
+     }
+    ]
+   }
+  ]
+ }
+}

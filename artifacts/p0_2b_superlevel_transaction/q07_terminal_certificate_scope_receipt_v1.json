@@ -1,0 +1,166 @@
+{
+  "schema": "P0_2B_Q07_TERMINAL_CERTIFICATE_SCOPE_RECEIPT_V1",
+  "authority_status": "Q07_PRODUCT_REFINEMENT_IN_PROGRESS_NO_RATCHET",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "worktree": "C:\\tmp\\CFTUV-p0-2b-superlevel-transaction",
+  "decision_baseline": {
+    "terminal_cycle_detector": "DIAGNOSTIC_ONLY",
+    "terminal_birth_dead_mark": false,
+    "terminal_occurrence_rescan_skip": false,
+    "terminal_ridge_increment": false,
+    "terminal_counter": false,
+    "born_vertex_duplicate_enqueue_exclusion": true,
+    "commit_allowed": false,
+    "push_allowed": false,
+    "oracle_refresh_allowed": false
+  },
+  "rejected_certificate": {
+    "predicate": "Two newly born vertices have unique reciprocal symbolic ports and no existing anchor or live alias.",
+    "reason": "Reciprocal ports do not exclude a live external same-time incident against a newly materialized occurrence at another exact point.",
+    "witnesses": [
+      {
+        "case_id": "cross_full_q_1",
+        "exact_time": 8,
+        "diagnostic_cycle_birth_vertex_ids": [12, 13],
+        "external_event": "SPLIT(vertex=11,target_edge=8)",
+        "external_point": [6, 6],
+        "downstream": "same-time EDGE cascade",
+        "disposition": "PRODUCT_BEARING_NOT_STALE_NOT_INTERNAL"
+      },
+      {
+        "case_id": "several_collinear_incidences",
+        "exact_time": 48,
+        "disposition": "PRODUCT_BEARING_EXTERNAL_SAME_TIME_INCIDENT"
+      }
+    ],
+    "correct_direction": "Symbolic same-time closure must include latent external incidents against new occurrences in the frozen transaction; reciprocal birth ports alone cannot authorize retirement."
+  },
+  "rejected_variant_p0_3_effect": {
+    "cases_with_partition_face_coverage_node_and_proof_changes": [
+      "cross_full_q_1/4",
+      "cross_full_q_1",
+      "cross_full_q_4",
+      "cross_full_q_65/64",
+      "search_pruning_witness",
+      "several_collinear_incidences"
+    ],
+    "representative_transition": {
+      "old_partition_outcome": "FACE_CHAIN_DOES_NOT_CLOSE",
+      "old_face_count": 0,
+      "old_coverage_outcomes": ["FAIL", "FAIL", "FAIL"],
+      "rejected_variant_partition_outcome": "EXACT",
+      "rejected_variant_face_count": 12,
+      "rejected_variant_coverage_outcomes": ["EXACT", "EXACT", "EXACT"],
+      "old_node_count_range": [11, 12],
+      "rejected_variant_node_count": 10,
+      "proof_status_old_new": ["INCOMPLETE", "COMPLETE"]
+    },
+    "cases_with_node_time_participant_and_proof_changes_but_coverage_stable": [
+      "cross_source_and_walls_q_1/4",
+      "cross_source_and_walls_q_1",
+      "cross_source_and_walls_q_4",
+      "cross_source_and_walls_q_65/64",
+      "collinear_moving_source_and_wall"
+    ],
+    "conclusion": "Early retirement was product-bearing and is rejected, not an oracle ratchet."
+  },
+  "current_p0_3_axis_comparison": {
+    "baseline": "852059a34062fd5c5dd18b1833c2908904a08362",
+    "case_count": 23,
+    "axes": [
+      "outcome",
+      "node_record",
+      "times_points",
+      "participants",
+      "face_owners",
+      "face_areas",
+      "coverage",
+      "proof_status",
+      "proof_obligations"
+    ],
+    "motorcycle_equals_exhaustive_all_cases_all_axes": true,
+    "geometry_or_node_axes_changed_cases": [],
+    "proof_status_changed_cases": [],
+    "proof_obligations_only_changed_cases": [
+      "cross_full_q_1/4",
+      "cross_full_q_1",
+      "cross_full_q_4",
+      "cross_full_q_65/64",
+      "cross_source_and_walls_q_1/4",
+      "cross_source_and_walls_q_1",
+      "cross_source_and_walls_q_4",
+      "cross_source_and_walls_q_65/64",
+      "collinear_moving_source_and_wall",
+      "search_pruning_witness",
+      "several_collinear_incidences",
+      "weighted_vertex_fan"
+    ],
+    "all_nine_axes_unchanged_cases": [
+      "rect_full_q_65_64",
+      "rect_source_and_walls_q_65_64",
+      "ell_full_q_65_64",
+      "ell_source_and_walls_q_65_64",
+      "staircase_full_q_65_64",
+      "staircase_source_and_walls_q_65_64",
+      "weighted_holes_1",
+      "weighted_holes_2",
+      "mirror_direct",
+      "mirror_reflected",
+      "same_time_weighted_collapse"
+    ],
+    "absolute_digest_test_status": "FAILS_BECAUSE_COMPOSITE_DIGEST_INCLUDES_PROOF_OBLIGATIONS",
+    "ratchet_disposition": "STOP_PENDING_AUTH"
+  },
+  "current_63_case_comparison": {
+    "semantic_digest_changed_cases": [],
+    "outcome_changed_cases": [],
+    "legacy_counter_changed_cases": {
+      "named::cross": {
+        "refused_filter_event_in_the_past": -8,
+        "refused_no_rule_triple_always_concurrent": -4,
+        "split_candidates_examined": -16
+      },
+      "partial_source::staircase_source_edge_3": {
+        "refused_no_rule_triple_always_concurrent": -2,
+        "split_candidates_examined": -2
+      },
+      "partial_source::staircase_source_edge_6": {
+        "refused_filter_event_in_the_past": -1,
+        "refused_no_rule_triple_always_concurrent": -3,
+        "split_candidates_examined": -4
+      },
+      "partial_source::staircase_source_edges_3_4": {
+        "refused_no_rule_triple_always_concurrent": -2,
+        "split_candidates_examined": -2
+      }
+    },
+    "proof_status_transition": {
+      "case_id": "partial_source::staircase_source_edges_3_4",
+      "old": "INCOMPLETE",
+      "current": "COMPLETE"
+    },
+    "cross_natural_discharged_observations_old_current": [20, 16],
+    "new_debt_types": [],
+    "new_refusal_types": []
+  },
+  "verification": [
+    {
+      "scope": "terminal direct and diagnostic-only gates",
+      "result": "4 passed, 52 deselected",
+      "duration_seconds": 0.20
+    },
+    {
+      "scope": "counterfactual with both terminal retirement and born-id exclusion disabled",
+      "result": "190 passed",
+      "duration_seconds": 38.32,
+      "note": "Diagnostic only; not the decision baseline because it reintroduces duplicate scheduling."
+    },
+    {
+      "scope": "decision baseline with terminal retirement disabled and born-id exclusion retained",
+      "result": "183 passed, 7 failed",
+      "duration_seconds": 39.34,
+      "failure_classification": "Four 63-case counter/proof cases, lifecycle count, accepted-63 projection, and P0-3 composite proof digest; no semantic or P0-3 geometry/node drift."
+    }
+  ],
+  "next_diagnostic": "Trace whether SEM field 001, 006, and 011 reciprocal-cycle witnesses also have live external same-time hits against new occurrences."
+}

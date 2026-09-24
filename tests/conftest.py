@@ -135,3 +135,35 @@ if "bmesh" not in sys.modules:
 
 if "bpy" not in sys.modules:
     sys.modules["bpy"] = types.ModuleType("bpy")
+
+
+def pyvoronoi_available() -> bool:
+    """Доступна ли опциональная зависимость `pyvoronoi`.
+
+    См. README, раздел «Decal dependency». Ядро анализа и UV-решения от неё
+    не зависит; она нужна только патч-ограниченному segment-Voronoi бэкенду.
+    """
+
+    import importlib.util
+
+    return importlib.util.find_spec("pyvoronoi") is not None
+
+
+def pytest_collection_modifyitems(config, items):
+    """Отсутствие `pyvoronoi` даёт skip, а не красный тест.
+
+    Без этого разработчик без установленного колеса видит падения с текстом
+    вроде `assert 'PYVORONOI_UNAVAILABLE' == 'SINGLE_USE_INTERNAL_SEAM'` и не
+    может отличить отсутствие зависимости от регрессии.
+    """
+
+    if pyvoronoi_available():
+        return
+    import pytest
+
+    skip_marker = pytest.mark.skip(
+        reason="требуется pyvoronoi>=1.2.8 (см. README, «Decal dependency»)"
+    )
+    for item in items:
+        if item.get_closest_marker("requires_pyvoronoi") is not None:
+            item.add_marker(skip_marker)

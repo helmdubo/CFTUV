@@ -1,0 +1,612 @@
+"""Near-planar политика: проекция объявляется, а не случается молча.
+
+Карта N0 требует: ни один солвер не сглаживает и не проецирует по факту
+собственного отказа, и каждая неточная политика записывает масштаб, метод,
+бюджет невязки и ревизию источника.
+
+Найдено при проверке: `planar_metric.py` требовал `_dot3(p - o, n) != 0`, то
+есть побитово точный ноль без допуска. Поэтому ядро отвергало любой патч,
+вершины которого не компланарны в точности — а это практически любой
+повёрнутый, отмасштабированный или отредактированный меш. `building.002`
+проходил только потому, что он осевой с перпендикулярными углами.
+"""
+
+from __future__ import annotations
+
+from fractions import Fraction
+from math import gcd
+
+import pytest
+
+from cftuv_envelope.contracts.analysis import SourceVertexV1
+from cftuv_envelope.contracts.metric import (
+    PRODUCT_SKIRT_ABSOLUTE_BUDGET,
+    ExactSourcePlaneCertificateV1,
+    GridSnappingLawV1,
+    NearPlanarResidualBudgetLawV1,
+    PlanarityAdmissionLawV1,
+)
+from cftuv_envelope.robust.grid import GridSpecV1
+from cftuv_envelope.source_grid import (
+    intended_right_corners,
+    restored_right_corners,
+    snap_positions,
+)
+from cftuv_envelope.contracts.surface import SourceFaceV1
+from cftuv_envelope.ids import (
+    PatchDomainId,
+    PatchId,
+    PhysicalChainId,
+    PhysicalEdgeId,
+    SourceFaceId,
+    SourceRevision,
+    SourceVertexId,
+)
+from cftuv_envelope.numeric import LocalPoint3V1, canonical_primitive_normal
+from cftuv_envelope.outcomes import NamedOutcome
+from cftuv_envelope.planar_metric import (
+    PlanarMetricAdmissionError,
+    build_rational_affine_planar_metric,
+    patch_plane_normal,
+)
+
+
+EXACT = PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+NEAR = PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1
+SOURCE_SNAP = GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1
+
+
+def _unit_quad_metric(off_plane_height: float, policy: PlanarityAdmissionLawV1):
+    """Единичный квад, у которого одна вершина приподнята над плоскостью."""
+
+    vertex_ids = [SourceVertexId(f"v{index}") for index in range(4)]
+    positions = (
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0),
+        (0.0, 1.0, off_plane_height),
+    )
+    vertices = [
+        SourceVertexV1(vertex_id=vertex_id, position=LocalPoint3V1(*position))
+        for vertex_id, position in zip(vertex_ids, positions, strict=True)
+    ]
+    face = SourceFaceV1(
+        face_id=SourceFaceId("f0"),
+        patch_id=PatchId("p0"),
+        vertex_cycle=tuple(vertex_ids),
+        edge_cycle=tuple(PhysicalChainId(f"e{index}") for index in range(4)),
+        polygon_normal=LocalPoint3V1(0.0, 0.0, 1.0),
+        triangle_ids=(),
+    )
+    return build_rational_affine_planar_metric(
+        source_revision=SourceRevision("rev"),
+        patch_domain_id=PatchDomainId("d0"),
+        owner_patch_id=PatchId("p0"),
+        source_vertices=vertices,
+        source_faces=[face],
+        planarity_policy=policy,
+    )
+
+
+def test_exactly_planar_source_is_unaffected_by_the_new_policy():
+    """Прежнее поведение обязано остаться побитово прежним."""
+
+    certificate = _unit_quad_metric(0.0, EXACT).planarity_certificate
+    assert certificate.admission_law is EXACT
+    assert certificate.exact is True
+
+
+def test_near_planar_source_is_still_refused_under_the_exact_policy():
+    """Никакого автоматического сглаживания по факту отказа — карта N0."""
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _unit_quad_metric(1e-12, EXACT)
+    assert (
+        failure.value.outcome
+        is NamedOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
+    )
+
+
+def test_requested_near_planar_policy_admits_and_records_the_projection():
+    certificate = _unit_quad_metric(1e-12, NEAR).planarity_certificate
+    assert certificate.admission_law is NEAR
+    assert certificate.exact is False
+    # Допуск объявляет продуктовая власть — одна на оба закона решётки
+    # (решение владельца от 2026-08-01).
+    assert certificate.residual_budget_law is (
+        NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
+    )
+    # Записан масштаб, метод, бюджет и ревизия источника.
+    assert certificate.source_revision == SourceRevision("rev")
+    assert certificate.planar_extent.numerator > 0
+    assert certificate.residual_budget.numerator > 0
+    assert certificate.coordinate_ulp_multiplier == 64
+    # И поимённо — какие вершины были сдвинуты. Их больше одной, и это следствие
+    # закона плоскости: плоскость патча выводится Ньюэллом по ВСЕМ его
+    # полигонам, поэтому приподнятая вершина наклоняет её целиком, и от
+    # наклонённой плоскости отклоняются и соседи. Прежний закон брал плоскость
+    # трёх первых вершин — те три лежали в ней тождественно, и «сдвинутой»
+    # оказывалась ровно одна. Перечень по-прежнему называет тех, кого
+    # действительно двигали, просто плоскость теперь принадлежит патчу.
+    assert SourceVertexId("v3") in certificate.projected_source_vertex_ids
+    assert certificate.projected_source_vertex_ids <= {
+        SourceVertexId(f"v{index}") for index in range(4)
+    }
+
+
+def test_source_beyond_the_budget_is_refused_by_name():
+    """Это уже не шум представления, а другая геометрия."""
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _unit_quad_metric(0.05, NEAR)
+    assert (
+        failure.value.outcome
+        is NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+    )
+
+
+def test_the_budget_refusal_carries_the_numbers_it_judged_by():
+    """Отказ бюджета обязан нести числа, а не только перечень вершин.
+
+    Прежде печатались одни имена вершин, и поле не могло отличить честный отказ
+    (подлинная кривизна) от неверного бюджета (сравнение с величиной чужого
+    закона) — разбор полевого случая стоил ручного пересчёта Ньюэлла дробями.
+    Замораживается НАЛИЧИЕ каждой величины, из которой сложилось решение: обе
+    сравниваемые (обе — квадраты, и названы квадратами), сам бюджет, закон,
+    который его дал, и шаг решётки, когда бюджет пришёл от ячейки.
+    """
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _unit_quad_metric(0.05, NEAR)
+    message = str(failure.value)
+    for name in (
+        "max_residual_squared=",
+        "residual_budget_squared=",
+        "residual_budget=1.250000e-02",
+        "residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1",
+        "grid_step=none",
+    ):
+        assert name in message, message
+
+    # Снапнутый домен судится ТЕМ ЖЕ продуктовым допуском — власть едина, — но
+    # шаг решётки в сообщении остаётся: он по-прежнему факт прогона.
+    vertices, faces = _slope_patch(bend=0.05)
+    with pytest.raises(PlanarMetricAdmissionError) as snapped:
+        _metric(vertices, faces, SOURCE_SNAP)
+    snapped_message = str(snapped.value)
+    assert "residual_budget_law=PRODUCT_SKIRT_ABSOLUTE_V1" in snapped_message
+    assert "residual_budget=1.250000e-02" in snapped_message, snapped_message
+    assert "grid_step=6.103516e-05" in snapped_message, snapped_message
+
+
+def test_the_product_skirt_budget_governs_both_grid_laws():
+    """Допуск объявляет ПРОДУКТОВАЯ власть, и одна на оба закона решётки.
+
+    Решение владельца от 2026-08-01: цель — юбка декалей вдоль выбранных seam
+    chains, планарность домена сама по себе не цель. Прежде допуск брался у
+    того закона, который источник ДВИГАЕТ (ячейка у привязывающего, шум
+    представления у неподвижного); оба отвечали на вопрос «сколько
+    непланарности внёс конвейер», а продукту нужен ответ на другой — «сколько
+    несёт сама поверхность и сколько юбка готова стерпеть». Кривые крыши
+    `building.004` (0.15 мм – 1.2 см) отвергались обоими законами честно и
+    бесполезно.
+
+    Записанный закон по-прежнему обязан быть ТЕМ, который дал число, — это
+    свойство не отменено, оно лишь получило нового владельца числа.
+    """
+
+    vertices, faces = _slope_patch()
+    for grid_law in (SOURCE_SNAP, GridSnappingLawV1.UNSNAPPED_EXACT_V1):
+        certificate = _metric(vertices, faces, grid_law).planarity_certificate
+        assert certificate.residual_budget_law is (
+            NearPlanarResidualBudgetLawV1.PRODUCT_SKIRT_ABSOLUTE_V1
+        ), grid_law
+        budget = Fraction(
+            certificate.residual_budget.numerator,
+            certificate.residual_budget.denominator,
+        )
+        # Число принадлежит закону, а не записи: ровно 1/80 = 1.25 см.
+        assert budget == PRODUCT_SKIRT_ABSOLUTE_BUDGET == Fraction(1, 80), grid_law
+
+    # Вытесненные законы НЕ удалены: они остаются членами перечисления, потому
+    # что сертификаты, которые их объявляют, обязаны воспроизводить свои числа,
+    # а красные контроли на подмену закона — жить.
+    assert NearPlanarResidualBudgetLawV1.GRID_STEP_CELL_V1
+    assert NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
+
+
+def test_the_product_budget_admits_roof_curvature_and_still_refuses_real_bends():
+    """Граница допуска замерена с обеих сторон, а не объявлена.
+
+    Замер на полевом скате (3 ряда, габарит 3.3125): прогиб 0.01 даёт невязку
+    6.70e-03 — крыши `building.004` такого порядка и обязаны СТРОИТЬСЯ; прогиб
+    0.02 даёт 1.34e-02 и обязан отвергаться. Контроль, что допуск не стал
+    дырой: полевой прогиб 0.1035 (10 см) на `building.002` patch 10 больше
+    границы в 8.3 раза и остаётся отвергнутым.
+    """
+
+    for grid_law in (SOURCE_SNAP, GridSnappingLawV1.UNSNAPPED_EXACT_V1):
+        vertices, faces = _slope_patch(bend=0.01)
+        certificate = _metric(vertices, faces, grid_law).planarity_certificate
+        assert certificate.exact is False, grid_law
+        squared = Fraction(
+            certificate.max_residual_squared.numerator,
+            certificate.max_residual_squared.denominator,
+        )
+        # Невязка ВЫШЕ полуячейки (снап её не съел) и внутри допуска.
+        assert squared > (Fraction(1, 16384) / 2) ** 2, grid_law
+        assert squared <= PRODUCT_SKIRT_ABSOLUTE_BUDGET**2, grid_law
+
+        vertices, faces = _slope_patch(bend=0.02)
+        with pytest.raises(PlanarMetricAdmissionError) as failure:
+            _metric(vertices, faces, grid_law)
+        assert failure.value.outcome is (
+            NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+        ), grid_law
+
+    # Полевой прогиб building.002 patch 10 — вне допуска на порядок.
+    assert Fraction(1035, 10000) > PRODUCT_SKIRT_ABSOLUTE_BUDGET * 8
+
+
+def test_the_recorded_residual_is_named_a_square_because_it_is_one():
+    """Имя поля обязано говорить о величине.
+
+    `max_residual` хранило КВАДРАТ невязки: сравнение идёт в квадратах, чтобы
+    не вводить корень, а корень из рационального в общем случае не представим
+    точно. Читающий сравнивал поле с `residual_budget` и получал разницу в
+    квадрат — на полевом скате 8.8e-11 против 6.1e-05.
+    """
+
+    certificate = _unit_quad_metric(1e-12, NEAR).planarity_certificate
+    squared = Fraction(
+        certificate.max_residual_squared.numerator,
+        certificate.max_residual_squared.denominator,
+    )
+    budget = Fraction(
+        certificate.residual_budget.numerator,
+        certificate.residual_budget.denominator,
+    )
+    assert squared <= budget * budget
+    # Величина именно квадратичная: подъём 1e-12 даёт невязку порядка 1e-13,
+    # а поле — порядка её квадрата.
+    assert squared < Fraction(1, 10**24)
+    assert not hasattr(certificate, "max_residual")
+
+
+def test_projected_source_reconstructs_exactly():
+    """Проекция рациональная, поэтому точность ниже по конвейеру не теряется.
+
+    Построитель проверяет `origin + u*A + v*B == position` точным равенством;
+    если бы проекция вносила приближение, построение упало бы здесь.
+    """
+
+    metric = _unit_quad_metric(1e-12, NEAR)
+    assert len(metric.exact_source_vertex_coordinates) == 4
+
+
+@pytest.mark.parametrize("height", [1e-15, 1e-12, 1e-9, 1e-8])
+def test_budget_admits_representation_noise(height: float):
+    """Шум порядка ULP и мельче обязан приниматься, иначе меши не пройдут."""
+
+    assert _unit_quad_metric(height, NEAR).planarity_certificate.exact is False
+
+
+# --------------------------------------------------------------------------
+# Закон плоскости: плоскость патча выводится из ПАТЧА, а не из трёх его вершин.
+# --------------------------------------------------------------------------
+
+
+SLOPE = -0.4525 / 0.8918
+"""Наклон полевого ската building.002: нормаль (0, −0.4525, −0.8918)."""
+
+
+def _slope_patch(*, bend: float = 0.0, width: float = 3.3125):
+    """Скат, выдавленный вдоль X: два ряда вершин, ТОЧНО одна плоскость.
+
+    Это форма, на которой прежний закон и ломался. Затравочная тройка вершин в
+    порядке сортировки id идёт вдоль склона и почти коллинеарна, поэтому её
+    векторное произведение вырождается и «плоскость кадра» схлопывается на ось
+    выдавливания — на ось X.
+
+    Connected patch shares internal edges by ID: нормативная identity здесь
+    ``PhysicalEdgeId``, а не совпадение endpoint-ов, которое не различает
+    физические multiedges.
+    """
+
+    rows = (0.0, 0.9137, 1.8271, 2.7)
+    vertex_ids = []
+    vertices = []
+    for column, x in enumerate((0.0, width)):
+        for row, y in enumerate(rows):
+            index = column * len(rows) + row
+            vertex_id = SourceVertexId(f"v{index:02d}")
+            vertex_ids.append(vertex_id)
+            height = SLOPE * y + (bend if (column and row) else 0.0)
+            vertices.append(
+                SourceVertexV1(
+                    vertex_id=vertex_id, position=LocalPoint3V1(x, y, height)
+                )
+            )
+    faces = []
+    for row in range(len(rows) - 1):
+        cycle = (
+            vertex_ids[row],
+            vertex_ids[row + 1],
+            vertex_ids[len(rows) + row + 1],
+            vertex_ids[len(rows) + row],
+        )
+        faces.append(
+            SourceFaceV1(
+                face_id=SourceFaceId(f"f{row}"),
+                patch_id=PatchId("p0"),
+                vertex_cycle=cycle,
+                edge_cycle=(
+                    PhysicalEdgeId(f"slope:left:{row}"),
+                    PhysicalEdgeId(f"slope:cross:{row + 1}"),
+                    PhysicalEdgeId(f"slope:right:{row}"),
+                    PhysicalEdgeId(f"slope:cross:{row}"),
+                ),
+                polygon_normal=LocalPoint3V1(0.0, 1.0, 2.0),
+                triangle_ids=(),
+            )
+        )
+    return vertices, faces
+
+
+def _axial_wall():
+    """Осевая стена x = const — весь зелёный корпус полевого меша."""
+
+    vertex_ids = []
+    vertices = []
+    for index, (y, z) in enumerate(
+        ((0.0, 0.0), (0.0, 0.6), (1.7, 0.0), (1.7, 0.6), (3.3125, 0.0), (3.3125, 0.6))
+    ):
+        vertex_id = SourceVertexId(f"w{index:02d}")
+        vertex_ids.append(vertex_id)
+        vertices.append(
+            SourceVertexV1(
+                vertex_id=vertex_id, position=LocalPoint3V1(1.25, y, z)
+            )
+        )
+    faces = [
+        SourceFaceV1(
+            face_id=SourceFaceId(f"g{index}"),
+            patch_id=PatchId("p0"),
+            vertex_cycle=cycle,
+            edge_cycle=tuple(PhysicalChainId(f"h{index}{side}") for side in range(4)),
+            polygon_normal=LocalPoint3V1(1.0, 0.0, 0.0),
+            triangle_ids=(),
+        )
+        for index, cycle in enumerate(
+            (
+                (vertex_ids[0], vertex_ids[2], vertex_ids[3], vertex_ids[1]),
+                (vertex_ids[2], vertex_ids[4], vertex_ids[5], vertex_ids[3]),
+            )
+        )
+    ]
+    return vertices, faces
+
+
+def _metric(vertices, faces, grid_law):
+    return build_rational_affine_planar_metric(
+        source_revision=SourceRevision("rev"),
+        patch_domain_id=PatchDomainId("d0"),
+        owner_patch_id=PatchId("p0"),
+        source_vertices=vertices,
+        source_faces=faces,
+        planarity_policy=NEAR,
+        grid_policy=grid_law,
+    )
+
+
+def _normal_of(metric):
+    vector = metric.planarity_certificate.exact_plane_normal
+    return tuple(
+        Fraction(item.numerator, item.denominator)
+        for item in (vector.x, vector.y, vector.z)
+    )
+
+
+def test_a_tilted_but_exactly_planar_patch_passes_the_metric():
+    """(a) Плоский наклонный патч обязан проходить. Прежде он отвергался.
+
+    Полевой отказ `building.002` был именно этим: патч плоский до float-точности
+    (остаток к СОБСТВЕННОЙ плоскости 3.2e-18 при габарите 3.3125), а мерялся он
+    против плоскости затравочной тройки, где тот же остаток равен 3.312 — всему
+    габариту патча — при бюджете 3.31e-07.
+    """
+
+    vertices, faces = _slope_patch()
+    metric = _metric(vertices, faces, SOURCE_SNAP)
+
+    # Плоскость — собственная плоскость патча, а НЕ ось выдавливания. Прежний
+    # закон схлопывал её ровно на X, потому что затравочная тройка шла вдоль
+    # склона; здесь X — единственная координата нормали, обязанная быть нулём.
+    normal = _normal_of(metric)
+    assert normal[0] == 0, normal
+    assert normal[1] and normal[2], normal
+    # Наклон тот самый, полевой: нормаль (0, −0.4525, −0.8918) даёт отношение
+    # z/y = 1.9708. Совпадение с точностью объявленной правки решётки —
+    # плоскость берётся уже от привязанных координат, и точного отношения тут
+    # быть не может, иначе решётка бы ничего не двигала.
+    assert abs(float(normal[2] / normal[1]) - 0.8918 / 0.4525) < 1e-4
+    assert len(metric.exact_source_vertex_coordinates) == 8
+
+
+def test_a_genuinely_bent_patch_is_still_refused_under_its_own_name():
+    """(b) Подлинная непланарность отвергается, и отвергается СВОИМ именем.
+
+    5 см из плоскости — не шум представления и не сдвиг решётки: после привязки
+    отклонение 1.87e-02 при ячейке 6.10e-05 — в 306 раз больше всего, что
+    объявленная правка геометрии способна внести.
+    """
+
+    vertices, faces = _slope_patch(bend=0.05)
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        _metric(vertices, faces, SOURCE_SNAP)
+
+    assert failure.value.outcome is (
+        NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+    )
+    assert "beyond the declared near-planar budget" in str(failure.value)
+
+
+def test_the_axial_wall_keeps_its_frame_bit_for_bit():
+    """(c) Осевой патч закон плоскости не двигает ВОВСЕ.
+
+    Весь зелёный корпус полевого меша — осевые стены. У них плоскость патча и
+    прежняя плоскость затравочной тройки совпадают по направлению, поэтому
+    новый вывод обязан дать тот же кадр побитово: то же начало, тот же базис,
+    та же матрица Грама, те же координаты карты. Меняется одна запись — форма
+    нормали, — и она каноническая.
+    """
+
+    vertices, faces = _axial_wall()
+    metric = _metric(vertices, faces, SOURCE_SNAP)
+
+    # Контроль — чистая осевая привязка, то есть ровно то, что делал прежний
+    # закон. Совпадение с ней и означает «плоскость не вмешалась»: ни одна
+    # вершина не спроецирована, кадр собран от тех же координат.
+    scale = metric.grid_certificate.source_scale
+    expected = snap_positions(
+        {
+            item.vertex_id: (
+                Fraction(*item.position.x.as_integer_ratio()),
+                Fraction(*item.position.y.as_integer_ratio()),
+                Fraction(*item.position.z.as_integer_ratio()),
+            )
+            for item in vertices
+        },
+        GridSpecV1(scale=scale),
+    )
+    def vector(record):
+        return tuple(
+            Fraction(item.numerator, item.denominator)
+            for item in (record.x, record.y, record.z)
+        )
+
+    origin = vector(metric.exact_origin)
+    assert origin == expected[min(expected, key=lambda item: item.value)]
+
+    # И каждая вершина: `origin + u·A + v·B` обязано дать РОВНО осевую привязку.
+    # Это и есть побитовость кадра — не одно поле, а весь его геометрический
+    # смысл.
+    basis_a = vector(metric.exact_basis_a)
+    basis_b = vector(metric.exact_basis_b)
+    for record in metric.exact_source_vertex_coordinates:
+        u = Fraction(
+            record.domain_coordinate.x.numerator,
+            record.domain_coordinate.x.denominator,
+        )
+        v = Fraction(
+            record.domain_coordinate.y.numerator,
+            record.domain_coordinate.y.denominator,
+        )
+        rebuilt = tuple(
+            origin[axis] + u * basis_a[axis] + v * basis_b[axis]
+            for axis in range(3)
+        )
+        assert rebuilt == expected[record.source_vertex_id], record.source_vertex_id
+
+    # Патч точно планарен, поэтому сертификат ТОЧНЫЙ, а не «в пределах бюджета»,
+    # и перечень спроецированных вершин отсутствует как класс.
+    assert metric.planarity_certificate.exact is True
+    assert isinstance(metric.planarity_certificate, ExactSourcePlaneCertificateV1)
+    assert _normal_of(metric) == (Fraction(1), Fraction(0), Fraction(0))
+
+
+def test_the_restored_right_angles_of_a_tilted_patch_survive_the_projection():
+    """(d) Проекция на плоскость патча не отменяет того, что вернула решётка.
+
+    Это ровно тот риск, который вносит порядок «привязать, затем спроецировать»:
+    привязка делает задуманно прямой угол точным, а проекция потом двигает
+    вершины ещё раз — на величину внесённой самой привязкой непланарности. Если
+    бы восстановление этого не переживало, выигрыш решения владельца 2026-07-25
+    был бы обменян на планарность молча.
+
+    Патч наклонный (плоскость y + 2z = 0), у одной вершины авторская ошибка
+    3e-06 — она и делает четыре угла «задуманно прямыми», не будучи такими
+    точно. Замер: восстановлено 4 из 4 и ДО проекции, и после, на всех
+    масштабах окна.
+    """
+
+    width = 3.3125
+    positions = {}
+    identifiers = []
+    for row, height in enumerate((0.0, 0.6, 1.2)):
+        for column, across in enumerate((0.0, width)):
+            index = row * 2 + column
+            vertex_id = SourceVertexId(f"t{index:02d}")
+            identifiers.append(vertex_id)
+            skew = 3e-06 if (row == 1 and column == 1) else 0.0
+            point = LocalPoint3V1(across + skew, 2.0 * height, -1.0 * height)
+            positions[vertex_id] = tuple(
+                Fraction(*value.as_integer_ratio())
+                for value in (point.x, point.y, point.z)
+            )
+    faces = [
+        SourceFaceV1(
+            face_id=SourceFaceId(f"q{index}"),
+            patch_id=PatchId("p0"),
+            vertex_cycle=cycle,
+            edge_cycle=tuple(PhysicalChainId(f"r{index}{side}") for side in range(4)),
+            polygon_normal=LocalPoint3V1(0.0, 1.0, 2.0),
+            triangle_ids=(),
+        )
+        for index, cycle in enumerate(
+            (
+                (identifiers[0], identifiers[1], identifiers[3], identifiers[2]),
+                (identifiers[2], identifiers[3], identifiers[5], identifiers[4]),
+            )
+        )
+    ]
+
+    intended = intended_right_corners(positions, faces)
+    assert len(intended) == 4, intended
+
+    for scale in (16384, 4096, 2048, 512):
+        snapped = snap_positions(positions, GridSpecV1(scale=scale))
+        before = restored_right_corners(snapped, intended)
+        assert before == len(intended), (scale, before)
+
+        normal = patch_plane_normal(snapped, faces)
+        anchor = snapped[identifiers[0]]
+        squared = sum(item * item for item in normal)
+        projected = {
+            vertex_id: tuple(
+                point[axis]
+                - sum(a * (b - c) for a, b, c in zip(normal, point, anchor))
+                * normal[axis]
+                / squared
+                for axis in range(3)
+            )
+            for vertex_id, point in snapped.items()
+        }
+        # Проекция сделала патч ТОЧНО плоским...
+        assert all(
+            sum(
+                a * (b - c)
+                for a, b, c in zip(normal, projected[vertex_id], projected[identifiers[0]])
+            )
+            == 0
+            for vertex_id in identifiers
+        ), scale
+        # ...и не отняла ни одного восстановленного угла.
+        assert restored_right_corners(projected, intended) == len(intended), scale
+
+
+def test_the_plane_normal_is_written_in_canonical_primitive_form():
+    """Одна плоскость — одна запись, независимо от того, чем её вывели.
+
+    Нормаль задаёт плоскость с точностью до ненулевого множителя. Если её
+    писать «как получилось», один и тот же геометрический факт попадает в
+    дайджест разными числами, и дайджест начинает различать неразличимое.
+    """
+
+    for vertices, faces in (_axial_wall(), _slope_patch()):
+        normal = _normal_of(_metric(vertices, faces, SOURCE_SNAP))
+        assert normal == canonical_primitive_normal(normal)
+        integers = [item.numerator for item in normal]
+        assert all(item.denominator == 1 for item in normal)
+        assert gcd(*(abs(item) for item in integers)) == 1
+        assert next(item for item in integers if item) > 0

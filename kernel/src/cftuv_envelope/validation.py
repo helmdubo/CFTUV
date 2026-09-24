@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
 from fractions import Fraction
+from math import gcd
 
+from .adaptive_density_validation import adaptive_density_effective_hidden_count, adaptive_density_structure_errors, angular_hidden_feature_id_sets
+from ._canonical_angle import (
+    canonical_restoration_reference_errors,
+    canonical_selection_interval,
+)
 from .canonical import geometry_batch_semantic_digest
 from .contracts.analysis import (
     ANALYSIS_SNAPSHOT_SCHEMA_V1,
@@ -39,21 +43,18 @@ from .contracts.coverage import CoverageEffect
 from .contracts.envelopes import (
     AngularEnvelopeSpec,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
+    CertifiedBoundHiddenSupportSpecV1,
     EnvelopeSpecVariant,
+    HiddenSupportDirectionLaw,
+    HiddenSupportSpecV1,
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
 from .contracts.events import EventParticipantKind, InitialFrontFeatureKind
 from .contracts.geometry_batch import GEOMETRY_BATCH_SCHEMA_V1, GeometryBatchV1
 from .contracts.metric import (
-    AffineFrameSelectionLawV1,
-    AffineReconstructionLawV1,
-    ExactMatrix2V1,
-    ExactPoint3V1,
-    ExactRationalV1,
-    ExactVector3V1,
     MetricSemanticIdentityLawV1,
-    PlanarityAdmissionLawV1,
     RuntimeMetricFallbackLawV1,
     RuntimePlanarMetricV1,
     RuntimePredicateFilterLawV1,
@@ -66,18 +67,31 @@ from .contracts.ownership import (
     OwnershipPartitionContractId,
     SilhouetteEffect,
 )
-from .contracts.plan import COMPILED_PLAN_SCHEMA_V1, CompiledPatchEvaluationPlanV1
+from .contracts.plan import (
+    CHAIN_STRAIGHT_EVALUATION_GEOMETRY_BINDING_SCHEMA_V2,
+    COMPILED_PLAN_SCHEMA_V1,
+    EVALUATION_GEOMETRY_BINDING_SCHEMA_V1,
+    ChainStraightAssignmentDispositionV2,
+    ChainStraightEvaluationGeometryBindingLawV2,
+    ChainStraightEvaluationGeometryBindingV2,
+    ChainStraightVertexAuthorityV2,
+    CompiledPatchEvaluationPlanV1,
+    EvaluationGeometryBindingLawV1,
+    EvaluationGeometryBindingV1,
+)
 from .contracts.request import (
     DECAL_REQUEST_SCHEMA_V1,
     AngularProfileFamilyId,
-    AngularProfileSelectionPolicyId,
     BoundaryPolicyId,
     CapPolicyId,
     DecalRequestV1,
     InteractionPolicyId,
-    MaxSubturnParameterId,
-    MaxSubturnValueId,
     OwnershipPolicyId,
+)
+from ._density_policy import (
+    angular_request_policy_mismatches,
+    selection_certificate_contract_error,
+    selection_interval_proof_error,
 )
 from .contracts.seeds import (
     CapSeedV1,
@@ -106,66 +120,25 @@ from .ids import (
     PhysicalEdgeId,
     SemanticDigestValue,
 )
-from .numeric import (
-    ExactAngleSymbol,
-    IntervalEndpointKind,
-    LocalPoint3V1,
-    MetricSpace,
-)
+from .numeric import IntervalEndpointKind, LocalPoint3V1, MetricSpace
 from .outcomes import NamedOutcome
-
-
-class ValidationCode(str, Enum):
-    SCHEMA_VERSION = "SCHEMA_VERSION"
-    CAPABILITY = "CAPABILITY"
-    DUPLICATE_ID = "DUPLICATE_ID"
-    MISSING_REFERENCE = "MISSING_REFERENCE"
-    CROSS_CONTRACT_MISMATCH = "CROSS_CONTRACT_MISMATCH"
-    POLICY_MISMATCH = "POLICY_MISMATCH"
-    ANGULAR_CERTIFICATE = "ANGULAR_CERTIFICATE"
-    SEED_VARIANT_MISMATCH = "SEED_VARIANT_MISMATCH"
-    PLAN_KEY_MISMATCH = "PLAN_KEY_MISMATCH"
-    OWNERSHIP_DECLARATION = "OWNERSHIP_DECLARATION"
-    TESSELLATION_AUTHORITY = "TESSELLATION_AUTHORITY"
-    GEOMETRY_BATCH = "GEOMETRY_BATCH"
-    FORBIDDEN_TOPOLOGY_IDENTITY = "FORBIDDEN_TOPOLOGY_IDENTITY"
-    SURFACE_TOPOLOGY = "SURFACE_TOPOLOGY"
-    SURFACE_METRIC = "SURFACE_METRIC"
-    ROUTE_TOPOLOGY = "ROUTE_TOPOLOGY"
-    TERMINAL_RELATION = "TERMINAL_RELATION"
-    ANGULAR_SELECTION_UNCERTAIN = "ANGULAR_SELECTION_UNCERTAIN"
-    STATION_FACT = "STATION_FACT"
-
-
-@dataclass(frozen=True, slots=True)
-class ValidationIssue:
-    code: ValidationCode
-    path: tuple[str, ...]
-    message: str
-
-
-class ContractValidationError(ValueError):
-    def __init__(self, issues: tuple[ValidationIssue, ...]) -> None:
-        self.issues = issues
-        detail = "; ".join(
-            f"{issue.code.value}@{'.'.join(issue.path)}: {issue.message}"
-            for issue in issues
-        )
-        super().__init__(detail)
-
-
-def raise_for_issues(issues: tuple[ValidationIssue, ...]) -> None:
-    if issues:
-        raise ContractValidationError(issues)
-
-
-def _issue(
-    issues: list[ValidationIssue],
-    code: ValidationCode,
-    path: tuple[str, ...],
-    message: str,
-) -> None:
-    issues.append(ValidationIssue(code, path, message))
+# Словарь проверок и ветка метрики живут в соседях: `validation.py` стоит ровно
+# на своём потолке в `tests/test_architecture.py`, и закон near-planar туда не
+# помещается. Потолок не поднимается — поднятие числа в таблице бюджетов есть
+# заявление о наращивании долга, а не способ найти место.
+from .validation_issues import (
+    ContractValidationError,
+    ValidationCode,
+    ValidationIssue,
+    add_issue as _issue,
+    raise_for_issues,
+)
+from .validation_metric import (
+    expected_source_position,
+    fraction_of as _fraction,
+    fraction_point3 as _fraction_point3,
+    validate_rational_affine_planar_metric,
+)
 
 
 def _values(records: frozenset[object], attribute: str) -> set[OpaqueId]:
@@ -212,150 +185,414 @@ def _interval_strictly_below(interval: object, value: Decimal) -> bool:
     )
 
 
-def _fraction(value: ExactRationalV1) -> Fraction:
-    return Fraction(value.numerator, value.denominator)
-
-
-def _fraction_point3(
-    value: ExactPoint3V1 | ExactVector3V1,
-) -> tuple[Fraction, Fraction, Fraction]:
-    return _fraction(value.x), _fraction(value.y), _fraction(value.z)
-
-
-def _fraction_matrix2(
-    value: ExactMatrix2V1,
-) -> tuple[tuple[Fraction, Fraction], tuple[Fraction, Fraction]]:
-    return (
-        (_fraction(value.m00), _fraction(value.m01)),
-        (_fraction(value.m10), _fraction(value.m11)),
-    )
-
-
-def _fraction_dot3(left, right) -> Fraction:
-    return sum(
-        (a * b for a, b in zip(left, right, strict=True)),
-        Fraction(0),
-    )
-
-
-def _fraction_cross3(left, right):
-    return (
-        left[1] * right[2] - left[2] * right[1],
-        left[2] * right[0] - left[0] * right[2],
-        left[0] * right[1] - left[1] * right[0],
-    )
-
-
-def validate_rational_affine_planar_metric(
-    metric: RationalAffinePlanarMetricV2,
+def validate_evaluation_geometry_binding(
+    binding: EvaluationGeometryBindingV1,
 ) -> tuple[ValidationIssue, ...]:
+    """Проверить самодостаточную запись общей evaluation-геометрии."""
+
     issues: list[ValidationIssue] = []
-    path = ("RationalAffinePlanarMetricV2",)
+    path = ("EvaluationGeometryBindingV1",)
+    if binding.schema_version != EVALUATION_GEOMETRY_BINDING_SCHEMA_V1:
+        _issue(
+            issues,
+            ValidationCode.SCHEMA_VERSION,
+            path + ("schema_version",),
+            "unexpected evaluation-geometry binding schema",
+        )
     if (
-        metric.frame_selection_law
-        is not AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+        binding.binding_law
+        is not EvaluationGeometryBindingLawV1.EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1
     ):
         _issue(
             issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("frame_selection_law",),
-            "unsupported deterministic affine-frame law",
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("binding_law",),
+            "unsupported evaluation-geometry binding law",
         )
-    certificate = metric.planarity_certificate
-    if (
-        certificate.patch_domain_id != metric.patch_domain_id
-        or certificate.admission_law
-        is not PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
-        or certificate.reconstruction_law
-        is not AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1
-        or not certificate.exact
-    ):
+    scale = binding.lattice_scale
+    if type(scale) is not int or scale <= 0 or scale & (scale - 1):
         _issue(
             issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("planarity_certificate",),
-            "metric requires an exact same-domain source-plane certificate",
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("lattice_scale",),
+            "chart-lattice scale must be a positive power of two",
         )
-    basis_a = _fraction_point3(metric.exact_basis_a)
-    basis_b = _fraction_point3(metric.exact_basis_b)
-    normal = _fraction_cross3(basis_a, basis_b)
-    if not any(normal):
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_basis_a", "exact_basis_b"),
-            "affine basis vectors must be linearly independent",
+        return tuple(issues)
+    seen = set()
+    for vertex in binding.source_vertex_coordinates:
+        item_path = path + (
+            "source_vertex_coordinates",
+            vertex.source_vertex_id.value,
         )
-    if _fraction_point3(certificate.exact_plane_normal) != normal:
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("planarity_certificate", "exact_plane_normal"),
-            "plane normal must be the exact A cross B construction",
-        )
-    gram = _fraction_matrix2(metric.exact_gram_matrix)
-    expected_gram = (
-        (
-            _fraction_dot3(basis_a, basis_a),
-            _fraction_dot3(basis_a, basis_b),
-        ),
-        (
-            _fraction_dot3(basis_b, basis_a),
-            _fraction_dot3(basis_b, basis_b),
-        ),
-    )
-    if gram != expected_gram:
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_gram_matrix",),
-            "Gram matrix does not equal the exact A/B dot products",
-        )
-    determinant = gram[0][0] * gram[1][1] - gram[0][1] * gram[1][0]
-    if determinant <= 0:
-        _issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_gram_matrix",),
-            "Gram matrix must be positive definite",
-        )
-    else:
-        inverse = _fraction_matrix2(metric.exact_inverse_gram_matrix)
-        expected_inverse = (
-            (
-                gram[1][1] / determinant,
-                -gram[0][1] / determinant,
-            ),
-            (
-                -gram[1][0] / determinant,
-                gram[0][0] / determinant,
-            ),
-        )
-        if inverse != expected_inverse:
+        if vertex.source_vertex_id in seen:
             _issue(
                 issues,
-                ValidationCode.SURFACE_METRIC,
-                path + ("exact_inverse_gram_matrix",),
-                "inverse Gram matrix is not exact",
+                ValidationCode.DUPLICATE_ID,
+                item_path,
+                "source vertex occurs more than once",
             )
-    coordinate_ids = [
-        item.source_vertex_id
-        for item in metric.exact_source_vertex_coordinates
-    ]
-    if len(coordinate_ids) != len(set(coordinate_ids)):
+        seen.add(vertex.source_vertex_id)
+        for axis, value in (
+            ("x", vertex.domain_coordinate.x),
+            ("y", vertex.domain_coordinate.y),
+        ):
+            if value.numerator * scale % value.denominator:
+                _issue(
+                    issues,
+                    ValidationCode.EVALUATION_GEOMETRY,
+                    item_path + ("domain_coordinate", axis),
+                    "bound coordinate is not a node of the declared chart lattice",
+                )
+    if not seen:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("source_vertex_coordinates",),
+            "evaluation geometry cannot be empty",
+        )
+    return tuple(issues)
+
+
+def validate_chain_straight_evaluation_geometry_binding(
+    binding: ChainStraightEvaluationGeometryBindingV2,
+) -> tuple[ValidationIssue, ...]:
+    """Проверить самодостаточную структуру V2 без доверия записанным offsets."""
+
+    issues: list[ValidationIssue] = []
+    path = ("ChainStraightEvaluationGeometryBindingV2",)
+    if (
+        binding.schema_version
+        != CHAIN_STRAIGHT_EVALUATION_GEOMETRY_BINDING_SCHEMA_V2
+    ):
+        _issue(
+            issues,
+            ValidationCode.SCHEMA_VERSION,
+            path + ("schema_version",),
+            "unexpected chain-straight evaluation-geometry schema",
+        )
+    if (
+        binding.binding_law
+        is not ChainStraightEvaluationGeometryBindingLawV2.EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_CHAIN_STRAIGHT_V2
+    ):
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("binding_law",),
+            "unsupported chain-straight evaluation-geometry law",
+        )
+    base_scale = binding.base_lattice_scale
+    scale = binding.lattice_scale
+    refinement_power = binding.refinement_power
+    scales_valid = (
+        type(base_scale) is int
+        and base_scale > 0
+        and not base_scale & (base_scale - 1)
+        and type(refinement_power) is int
+        and 0 <= refinement_power <= 8
+        and type(scale) is int
+        and scale == base_scale * (1 << refinement_power)
+    )
+    if not scales_valid:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("lattice_scale",),
+            "V2 scales must satisfy S'=S*2^r for r in 0..8",
+        )
+        return tuple(issues)
+
+    coordinates = {
+        item.source_vertex_id: item
+        for item in binding.source_vertex_coordinates
+    }
+    if len(coordinates) != len(binding.source_vertex_coordinates):
         _issue(
             issues,
             ValidationCode.DUPLICATE_ID,
-            path + ("exact_source_vertex_coordinates",),
-            "duplicate source vertex coordinate",
+            path + ("source_vertex_coordinates",),
+            "source vertex occurs more than once",
         )
-    if set(coordinate_ids) != set(certificate.source_vertex_ids):
+    authorities = {
+        item.source_vertex_id: item for item in binding.vertex_authorities
+    }
+    if len(authorities) != len(binding.vertex_authorities):
         _issue(
             issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_source_vertex_coordinates",),
-            "coordinate and planarity-certificate vertex sets differ",
+            ValidationCode.DUPLICATE_ID,
+            path + ("vertex_authorities",),
+            "vertex authority occurs more than once",
         )
+    if not coordinates or coordinates.keys() != authorities.keys():
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("vertex_authorities",),
+            "coordinate and authority identity sets must be equal and non-empty",
+        )
+    for vertex_id, authority in authorities.items():
+        item_path = path + ("vertex_authorities", vertex_id.value)
+        source = (
+            _fraction(authority.source_domain_coordinate.x),
+            _fraction(authority.source_domain_coordinate.y),
+        )
+        base = (
+            _fraction(authority.base_bound_coordinate.x),
+            _fraction(authority.base_bound_coordinate.y),
+        )
+        assigned = (
+            _fraction(authority.assigned_domain_coordinate.x),
+            _fraction(authority.assigned_domain_coordinate.y),
+        )
+        offset = (
+            _fraction(authority.exact_offset_from_source.x),
+            _fraction(authority.exact_offset_from_source.y),
+        )
+        expected_base = tuple(
+            Fraction(item, base_scale) for item in authority.base_bound_node
+        )
+        expected_base_node = tuple(
+            (
+                2 * (value * base_scale).numerator
+                + (value * base_scale).denominator
+            )
+            // (2 * (value * base_scale).denominator)
+            for value in source
+        )
+        expected_assigned = tuple(
+            Fraction(item, scale) for item in authority.assigned_refined_node
+        )
+        coordinate_record = coordinates.get(vertex_id)
+        if (
+            authority.base_bound_node != expected_base_node
+            or base != expected_base
+            or assigned != expected_assigned
+            or offset
+            != tuple(
+                assigned_value - source_value
+                for assigned_value, source_value in zip(
+                    assigned, source, strict=True
+                )
+            )
+            or coordinate_record is None
+            or coordinate_record.domain_coordinate
+            != authority.assigned_domain_coordinate
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path,
+                "vertex authority coordinates, nodes, or offset disagree",
+            )
+        base_authority = authority.authority in (
+            ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1,
+            ChainStraightVertexAuthorityV2.BASE_BOUND_NON_CHAIN_V1,
+        )
+        if base_authority and (
+            assigned != base
+            or authority.assigned_refined_node
+            != tuple(
+                item * (1 << refinement_power)
+                for item in authority.base_bound_node
+            )
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("authority",),
+                "BASE_BOUND authority must preserve the V1 coordinate",
+            )
+
+    chains = {
+        item.physical_chain_id: item
+        for item in binding.straight_chain_bindings
+    }
+    if not chains or len(chains) != len(binding.straight_chain_bindings):
+        _issue(
+            issues,
+            ValidationCode.DUPLICATE_ID,
+            path + ("straight_chain_bindings",),
+            "straight-chain identities must be unique and non-empty",
+        )
+    for chain_id, chain in chains.items():
+        item_path = path + ("straight_chain_bindings", chain_id.value)
+        ordered = chain.ordered_source_vertex_ids
+        if (
+            len(ordered) < 3
+            or len(set(ordered)) != len(ordered)
+            or chain.primitive_direction == (0, 0)
+            or gcd(*map(abs, chain.primitive_direction)) != 1
+            or chain.base_endpoint_span_k <= 0
+            or chain.base_end_node
+            != tuple(
+                start + chain.base_endpoint_span_k * direction
+                for start, direction in zip(
+                    chain.base_start_node,
+                    chain.primitive_direction,
+                    strict=True,
+                )
+            )
+            or chain.refined_endpoint_span_k
+            != chain.base_endpoint_span_k * (1 << refinement_power)
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path,
+                "straight-chain identity, primitive direction, or span is invalid",
+            )
+        assignments = chain.internal_assignments
+        if (
+            tuple(item.ordinal for item in assignments)
+            != tuple(range(1, len(ordered) - 1))
+            or tuple(item.source_vertex_id for item in assignments)
+            != ordered[1:-1]
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("internal_assignments",),
+                "assignments must cover internal vertices in source order",
+            )
+        sequence = (
+            0,
+            *(item.selected_k for item in assignments),
+            chain.refined_endpoint_span_k,
+        )
+        if any(
+            current <= previous
+            for previous, current in zip(sequence, sequence[1:])
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("internal_assignments",),
+                "selected k sequence must be strictly increasing",
+            )
+        for assignment in assignments:
+            assignment_path = item_path + (
+                "internal_assignments",
+                str(assignment.ordinal),
+            )
+            expected_clamped = (
+                assignment.selected_k
+                != assignment.unconstrained_canonical_k
+            )
+            excess_named = (
+                assignment.disposition
+                is ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
+            )
+            expected_dispositions = (
+                {
+                    ChainStraightAssignmentDispositionV2.CLAMPED_WITHIN_HALF_STEP,
+                    ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED,
+                }
+                if assignment.clamped
+                else {
+                    ChainStraightAssignmentDispositionV2.UNCLAMPED_WITHIN_HALF_STEP
+                }
+            )
+            expected_node = tuple(
+                start * (1 << refinement_power)
+                + assignment.selected_k * direction
+                for start, direction in zip(
+                    chain.base_start_node,
+                    chain.primitive_direction,
+                    strict=True,
+                )
+            )
+            authority = authorities.get(assignment.source_vertex_id)
+            if (
+                assignment.physical_chain_id != chain_id
+                or assignment.clamped is not expected_clamped
+                or not assignment.lower_k
+                <= assignment.selected_k
+                <= assignment.upper_k
+                or excess_named and not assignment.clamped
+                or assignment.disposition not in expected_dispositions
+                or assignment.assigned_refined_node != expected_node
+                or authority is None
+                or authority.authority
+                is not ChainStraightVertexAuthorityV2.CHAIN_STRAIGHT_INTERNAL_REFINED_V2
+                or chain_id not in authority.physical_chain_ids
+                or authority.assigned_refined_node
+                != assignment.assigned_refined_node
+                or authority.exact_offset_from_source
+                != assignment.exact_offset_from_source
+            ):
+                _issue(
+                    issues,
+                    ValidationCode.EVALUATION_GEOMETRY,
+                    assignment_path,
+                    "CLAMPED, selected interval, or disposition is inconsistent",
+                )
+        start_authority = authorities.get(ordered[0]) if ordered else None
+        end_authority = authorities.get(ordered[-1]) if ordered else None
+        if (
+            start_authority is None
+            or end_authority is None
+            or start_authority.authority
+            is not ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1
+            or end_authority.authority
+            is not ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1
+            or chain_id not in start_authority.physical_chain_ids
+            or chain_id not in end_authority.physical_chain_ids
+            or start_authority.base_bound_node != chain.base_start_node
+            or end_authority.base_bound_node != chain.base_end_node
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("ordered_source_vertex_ids",),
+                "chain endpoints must retain BASE_BOUND endpoint authority",
+            )
+
+    used_vertex_ids = frozenset(
+        vertex_id
+        for chain in chains.values()
+        for vertex_id in chain.ordered_source_vertex_ids
+    )
+    for vertex_id, authority in authorities.items():
+        is_non_chain = (
+            authority.authority
+            is ChainStraightVertexAuthorityV2.BASE_BOUND_NON_CHAIN_V1
+        )
+        if is_non_chain != (
+            vertex_id not in used_vertex_ids
+            and not authority.physical_chain_ids
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                path + ("vertex_authorities", vertex_id.value, "authority"),
+                "non-chain authority must match straight-chain membership",
+            )
+
+    deficits = binding.previous_refinement_capacity_deficits
+    if refinement_power == 0 and deficits:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("previous_refinement_capacity_deficits",),
+            "r=0 cannot have a previous-refinement witness",
+        )
+    for deficit in deficits:
+        if (
+            deficit.previous_refinement_power != refinement_power - 1
+            or deficit.physical_chain_id not in chains
+            or deficit.exact_deficit
+            != deficit.capacity_required - deficit.previous_endpoint_span_k
+            or deficit.exact_deficit <= 0
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                path
+                + (
+                    "previous_refinement_capacity_deficits",
+                    deficit.physical_chain_id.value,
+                ),
+                "previous-refinement capacity witness is inconsistent",
+            )
     return tuple(issues)
 
 
@@ -612,13 +849,13 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                 )
                 if source is None or not isinstance(source.position, LocalPoint3V1):
                     continue
-                position = tuple(
-                    Fraction(*float(value).as_integer_ratio())
-                    for value in (
-                        source.position.x,
-                        source.position.y,
-                        source.position.z,
-                    )
+                # Ожидание считает ВСЕ законы, которые метрика объявила
+                # двигающими источник: узел решётки, а поверх него — для
+                # названных спроецированными — точную проекцию этого узла на
+                # сертифицированную плоскость. Прежде считался один первый, и
+                # near-planar метрика расходилась с ожиданием ровно на второй.
+                position = expected_source_position(
+                    source.position, vertex_id, descriptor
                 )
                 coordinate = coordinate_by_id[vertex_id]
                 u = _fraction(coordinate.x)
@@ -630,7 +867,7 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                     for index in range(3)
                 )
                 if reconstructed != position:
-                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with source binary64 position")
+                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with the source position the declared grid and planarity laws produce")
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path, "intrinsic metric regime must match a non-planar PatchDomain")
@@ -847,10 +1084,6 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
         (request.schema_version == DECAL_REQUEST_SCHEMA_V1, "schema_version"),
         (request.metric_space is MetricSpace.SOURCE_LOCAL_INTRINSIC, "metric_space"),
         (request.angular_profile_family_id is AngularProfileFamilyId.LINEAR_REFLEX_EQUAL_V1, "angular_profile_family_id"),
-        (request.angular_profile_selection_policy_id is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1, "angular_profile_selection_policy_id"),
-        (request.max_subturn_parameter_id is MaxSubturnParameterId.LINEAR_REFLEX_MAX_SUBTURN_V1, "max_subturn_parameter_id"),
-        (request.max_subturn_value_id is MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1, "max_subturn_value_id"),
-        (request.max_subturn_exact_value.symbol is ExactAngleSymbol.PI_OVER_3, "max_subturn_exact_value"),
         (request.cap_policy_id is CapPolicyId.PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1, "cap_policy_id"),
         (request.boundary_policy_id is BoundaryPolicyId.BOUNDARY_LIMITED_PROPAGATION, "boundary_policy_id"),
         (request.interaction_policy_id is InteractionPolicyId.INTRAPATCH_POLICY_B_V1, "interaction_policy_id"),
@@ -860,6 +1093,13 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
         if not valid:
             code = ValidationCode.SCHEMA_VERSION if field == "schema_version" else ValidationCode.POLICY_MISMATCH
             _issue(issues, code, (field,), "unsupported v1 value")
+    for field in angular_request_policy_mismatches(request):
+        _issue(
+            issues,
+            ValidationCode.POLICY_MISMATCH,
+            (field,),
+            "unsupported angular policy tuple",
+        )
     if not request.selected_chain_use_ids:
         _issue(issues, ValidationCode.MISSING_REFERENCE, ("selected_chain_use_ids",), "at least one ChainUse is required")
     return tuple(issues)
@@ -943,8 +1183,31 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
         interval = certificate.selection_interval_certificate
         if k < 0 or certificate.resolved_subturn_count != k + 1 or certificate.local_profile_support_count != k + 2 or certificate.local_profile_segment_count != k + 2:
             _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, ("angular_profile_selection_certificates", str(certificate.certificate_id)), "k+1/k+2 cardinality law violated")
-        if interval.lower_bound_integer != k or interval.upper_bound_integer != k + 1:
-            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, ("angular_profile_selection_certificates", str(certificate.certificate_id), "selection_interval_certificate"), "certificate must encode open k < ratio <= k+1")
+        certificate_path = (
+            "angular_profile_selection_certificates",
+            str(certificate.certificate_id),
+        )
+        contract_error = selection_certificate_contract_error(certificate)
+        if contract_error is not None:
+            _issue(
+                issues,
+                (
+                    ValidationCode.POLICY_MISMATCH
+                    if contract_error == "unsupported angular selection policy"
+                    else ValidationCode.ANGULAR_CERTIFICATE
+                ),
+                certificate_path + ("selection_interval_certificate",),
+                contract_error,
+            )
+
+    _require_refs(
+        issues,
+        _check_unique(issues, plan.canonical_angle_restorations, "selection_certificate_id", "canonical_angle_restorations"),
+        certificate_ids,
+        ("canonical_angle_restorations", "selection_certificate_id"),
+    )
+    for selection_id, message in canonical_restoration_reference_errors(plan.canonical_angle_restorations, certificate_by_id):
+        _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, ("canonical_angle_restorations", str(selection_id)), message)
 
     spec_by_id = {spec.envelope_spec_id: spec for spec in plan.envelope_specs}
     for spec in plan.envelope_specs:
@@ -957,17 +1220,82 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
             _require_refs(issues, {spec.source_seed_id}, corner_seed_ids, path + ("source_seed_id",))
             _require_refs(issues, {spec.selection_certificate_id}, certificate_ids, path + ("selection_certificate_id",))
             _require_refs(issues, set(spec.incident_front_component_ids), component_ids, path + ("incident_front_component_ids",))
+            for support in spec.hidden_supports:
+                support_path = path + (
+                    "hidden_supports",
+                    str(support.ordinal),
+                    "direction_law",
+                )
+                if (
+                    type(support) is HiddenSupportSpecV1
+                    and support.direction_law
+                    is not HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+                ):
+                    _issue(
+                        issues,
+                        ValidationCode.ANGULAR_CERTIFICATE,
+                        support_path,
+                        "legacy hidden support must declare the oriented owner-sector ordinal subturn law",
+                    )
+                elif (
+                    type(support) is CertifiedBoundHiddenSupportSpecV1
+                    and support.direction_law
+                    is not CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+                ):
+                    _issue(
+                        issues,
+                        ValidationCode.ANGULAR_CERTIFICATE,
+                        support_path,
+                        "bound support must declare the certified rational binding law",
+                    )
             certificate = certificate_by_id.get(spec.selection_certificate_id)
             if certificate is not None:
-                k = certificate.resolved_hidden_edge_count
+                k, lift_errors = adaptive_density_effective_hidden_count(
+                    spec,
+                    certificate,
+                )
+                if lift_errors:
+                    _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("evaluation_subturn_count_lift",), lift_errors[0])
                 if spec.resolved_hidden_edge_count != k or len(spec.hidden_supports) != k:
                     _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path, "spec k must equal selection certificate and hidden support count")
                 expected_ordinals = set(range(1, k + 1))
                 if {item.ordinal for item in spec.hidden_supports} != expected_ordinals:
                     _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports",), "hidden support ordinals must be exactly 1..k")
                 for support in spec.hidden_supports:
-                    if support.turn_fraction.numerator != support.ordinal or support.turn_fraction.denominator != k + 1:
+                    if Fraction(
+                        support.turn_fraction.numerator,
+                        support.turn_fraction.denominator,
+                    ) != Fraction(support.ordinal, k + 1):
                         _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal)), "turn fraction must be ordinal/(k+1)")
+                    if isinstance(support, CertifiedBoundHiddenSupportSpecV1):
+                        binding = support.direction_binding
+                        vector = binding.bound_primitive_integer_vector
+                        if (
+                            len(vector) != 2
+                            or any(type(value) is not int for value in vector)
+                            or vector == (0, 0)
+                            or gcd(abs(vector[0]), abs(vector[1])) != 1
+                        ):
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "bound_primitive_integer_vector"), "bound direction must be a nonzero primitive integer vector")
+                        lower = binding.ideal_window_lower_slope_envelope
+                        upper = binding.ideal_window_upper_slope_envelope
+                        width = binding.certified_window_width_lower_bound
+                        if lower.upper >= upper.lower or width <= 0 or width > upper.lower - lower.upper:
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding"), "certified slope envelopes must be strictly ordered and cover the declared positive width")
+                        expected_predicates = {
+                            "BINDING_MONOTONE",
+                            "BINDING_SUBTURN_LE_DELTA_MAX",
+                            "BINDING_INSIDE_OWN_ORDINAL_WINDOW",
+                        }
+                        if set(binding.proven_predicates) != expected_predicates:
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "proven_predicates"), "direction binding must name exactly the three required predicates")
+            for suffix, error in adaptive_density_structure_errors(spec):
+                _issue(
+                    issues,
+                    ValidationCode.ANGULAR_CERTIFICATE,
+                    path + suffix,
+                    error,
+                )
             if spec.all_support_normal_speed != 1:
                 _issue(issues, ValidationCode.POLICY_MISMATCH, path + ("all_support_normal_speed",), "v1 support speed is UNIT")
         elif isinstance(spec, JunctionEnvelopeSpec):
@@ -987,18 +1315,20 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
 
     if plan.initial_front_spec.decal_request_id != request_id or plan.initial_front_spec.patch_domain_id != domain_id:
         _issue(issues, ValidationCode.PLAN_KEY_MISMATCH, ("initial_front_spec",), "front spec differs from plan key")
+    angular_hidden_ids, angular_feature_ids = angular_hidden_feature_id_sets(plan)
+    if angular_feature_ids != angular_hidden_ids:
+        _issue(issues, ValidationCode.MISSING_REFERENCE, ("initial_front_spec", "support_features"), "angular hidden features must exactly cover all angular supports")
     for feature in plan.initial_front_spec.support_features:
         source = feature.source_id
         if isinstance(source, EnvelopeSpecId):
             _require_refs(issues, {source}, spec_ids, ("initial_front_spec", "support_features"))
         elif isinstance(source, HiddenSupportId):
-            hidden_ids = {
-                support.hidden_support_id
-                for spec in plan.envelope_specs
-                if isinstance(spec, AngularEnvelopeSpec)
-                for support in spec.hidden_supports
-            }
-            _require_refs(issues, {source}, hidden_ids, ("initial_front_spec", "support_features"))
+            _require_refs(
+                issues,
+                {source},
+                angular_hidden_ids,
+                ("initial_front_spec", "support_features"),
+            )
         if feature.kind is InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT and not isinstance(source, HiddenSupportId):
             _issue(issues, ValidationCode.SEED_VARIANT_MISMATCH, ("initial_front_spec",), "angular hidden feature requires HiddenSupportId")
 
@@ -1297,6 +1627,10 @@ def validate_cross_contract_references(
             ):
                 _issue(issues, ValidationCode.CROSS_CONTRACT_MISMATCH, path, "FrontComponent differs from its FrontSeed")
 
+        restoration_by_selection = {
+            item.selection_certificate_id: item
+            for item in plan.canonical_angle_restorations
+        }
         for certificate in plan.angular_profile_selection_certificates:
             path = ("plans", str(plan.evaluation_plan_id), "angular_profile_selection_certificates", str(certificate.certificate_id))
             relation = corner_by_id.get(certificate.corner_relation_id)
@@ -1322,16 +1656,20 @@ def validate_cross_contract_references(
             if angle is not None and angle.owner_sector_id != certificate.owner_sector_id:
                 _issue(issues, ValidationCode.CROSS_CONTRACT_MISMATCH, path, "selection certificate angle differs from owner sector")
             if angle is not None and isinstance(angle.measure_payload, CertifiedReflexAngleMeasureV1):
-                delta = angle.measure_payload.reflex_excess_over_pi
-                ratio_lower = delta.lower * Decimal(3)
-                ratio_upper = delta.upper * Decimal(3)
-                k = Decimal(certificate.resolved_hidden_edge_count)
-                lower_proven = ratio_lower > k or (
-                    ratio_lower == k and delta.lower_kind is IntervalEndpointKind.OPEN
+                # Восстановление канонического угла — ИМЕНОВАННОЕ изменение
+                # входа счёта, поэтому проверяющий доказывает счёт по тому же
+                # факту, что и селектор: запись восстановления сперва
+                # пересчитывается по СЫРОМУ углу снапшота, и только доказанная
+                # запись подменяет число. Записи нет — доказывается сырое.
+                delta, restoration_error = canonical_selection_interval(
+                    restoration_by_selection.get(certificate.certificate_id),
+                    angle.measure_payload.reflex_excess_over_pi,
                 )
-                upper_proven = ratio_upper <= k + Decimal(1)
-                if not lower_proven or not upper_proven:
-                    _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, NamedOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN.value)
+                if restoration_error is not None:
+                    _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, path + ("canonical_angle_restoration",), restoration_error)
+                proof_error = selection_interval_proof_error(certificate, delta)
+                if proof_error is not None:
+                    _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, proof_error)
 
         for spec in plan.envelope_specs:
             path = ("plans", str(plan.evaluation_plan_id), "envelope_specs", str(spec.envelope_spec_id))

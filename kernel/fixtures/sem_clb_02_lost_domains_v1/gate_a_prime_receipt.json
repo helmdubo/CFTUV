@@ -1,0 +1,1693 @@
+{
+  "accepted_kernel_src_product_tree_oid": "000fe75684dbd7dbc57dc782b52b1b569dd1d215",
+  "declared_straight_selection_law": "OPEN_MULTI_VERTEX_PHYSICAL_CHAIN_WITHOUT_DECLARED_INTERNAL_CORNER_V1",
+  "failures": [
+    {
+      "detail": "two or more chain vertices were assigned the same k",
+      "duplicate_assignment_count": 2,
+      "fixture_id": "building_all_seams_patch_001_lost_resolved_v1",
+      "outcome": "STICKY_K",
+      "physical_chain_id": "host-v0:physical-chain:aa767edda128970ba2fdbc5f"
+    },
+    {
+      "detail": "k is not strictly increasing in source chain order",
+      "fixture_id": "building_all_seams_patch_001_lost_resolved_v1",
+      "outcome": "K_NOT_STRICTLY_ORDERED",
+      "physical_chain_id": "host-v0:physical-chain:aa767edda128970ba2fdbc5f"
+    },
+    {
+      "detail": "two or more chain vertices were assigned the same k",
+      "duplicate_assignment_count": 4,
+      "fixture_id": "building_all_seams_patch_006_lost_resolved_v1",
+      "outcome": "STICKY_K",
+      "physical_chain_id": "host-v0:physical-chain:581cc4a95d8751e2582d6f1f"
+    },
+    {
+      "detail": "k is not strictly increasing in source chain order",
+      "fixture_id": "building_all_seams_patch_006_lost_resolved_v1",
+      "outcome": "K_NOT_STRICTLY_ORDERED",
+      "physical_chain_id": "host-v0:physical-chain:581cc4a95d8751e2582d6f1f"
+    },
+    {
+      "detail": "two or more chain vertices were assigned the same k",
+      "duplicate_assignment_count": 2,
+      "fixture_id": "building_all_seams_patch_011_lost_resolved_v1",
+      "outcome": "STICKY_K",
+      "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303"
+    },
+    {
+      "detail": "k is not strictly increasing in source chain order",
+      "fixture_id": "building_all_seams_patch_011_lost_resolved_v1",
+      "outcome": "K_NOT_STRICTLY_ORDERED",
+      "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303"
+    },
+    {
+      "detail": "two or more chain vertices were assigned the same k",
+      "duplicate_assignment_count": 1,
+      "fixture_id": "building_all_seams_patch_105_lost_resolved_v1",
+      "outcome": "STICKY_K",
+      "physical_chain_id": "host-v0:physical-chain:92b4b17a6932c3b76e21f294"
+    },
+    {
+      "detail": "k is not strictly increasing in source chain order",
+      "fixture_id": "building_all_seams_patch_105_lost_resolved_v1",
+      "outcome": "K_NOT_STRICTLY_ORDERED",
+      "physical_chain_id": "host-v0:physical-chain:92b4b17a6932c3b76e21f294"
+    }
+  ],
+  "fixtures": [
+    {
+      "base_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+      "base_binding_reproduced_for_all_vertices": true,
+      "chains": [
+        {
+          "bound_end_node": [
+            -52317,
+            -44810
+          ],
+          "bound_start_node": [
+            -134099,
+            320932
+          ],
+          "consecutive_k_gaps": [
+            1,
+            1
+          ],
+          "endpoint_k_span": 2,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "17556938261/2147483648",
+          "half_line_period_squared_rational_affine_metric": "42609235509264425/9007199254740992",
+          "internal_vertex_count": 1,
+          "lattice_scale": 32768,
+          "line_period_squared_chart_euclidean": "17556938261/536870912",
+          "line_period_squared_rational_affine_metric": "42609235509264425/2251799813685248",
+          "line_period_vector": [
+            "40891/32768",
+            "-182871/32768"
+          ],
+          "min_k_gap": 1,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:623590907830c44f04ea6480",
+          "primitive_direction": [
+            40891,
+            -182871
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 3,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:25",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:36",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:17"
+          ],
+          "strict_k_order": true,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                -134099,
+                320932
+              ],
+              "assigned_coordinate": [
+                "-134099/32768",
+                "80233/8192"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -134099,
+                320932
+              ],
+              "displacement": [
+                "822353/68746379264",
+                "-161347/17186594816"
+              ],
+              "displacement_squared_chart_euclidean": "1092790127153/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "1457245/562949953421312",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "18416915392329741/36833982434244953",
+              "nearest_boundary_margin_k_rational_affine_metric": "8521827602648609/17043694203705770",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "-151649585471/73667964868489906",
+              "projection_k_rational_affine_metric": "-9749602138/8521847101852885",
+              "signed_k_residual_chart_euclidean": "151649585471/73667964868489906",
+              "signed_k_residual_rational_affine_metric": "9749602138/8521847101852885",
+              "source_coordinate": [
+                "-137371535/33567568",
+                "164381669/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:25"
+            },
+            {
+              "assigned_bound_line_node": [
+                -93208,
+                138061
+              ],
+              "assigned_coordinate": [
+                "-11651/4096",
+                "138061/32768"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -103383,
+                183565
+              ],
+              "displacement": [
+                "2668388833/8593297408",
+                "-95465783823/68746379264"
+              ],
+              "displacement_squared_chart_euclidean": "9569415014640831016225/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "2638205406440225/2251799813685248",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "9251577189293748/36833982434244953",
+              "nearest_boundary_margin_k_rational_affine_metric": "21404338396366419/85218471018528850",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "55337136812832449/73667964868489906",
+              "projection_k_rational_affine_metric": "32006786952815422/42609235509264425",
+              "signed_k_residual_chart_euclidean": "18330828055657457/73667964868489906",
+              "signed_k_residual_rational_affine_metric": "10602448556449003/42609235509264425",
+              "source_coordinate": [
+                "-105905751/33567568",
+                "94021981/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:36"
+            },
+            {
+              "assigned_bound_line_node": [
+                -52317,
+                -44810
+              ],
+              "assigned_coordinate": [
+                "-52317/32768",
+                "-22405/16384"
+              ],
+              "assigned_k": 2,
+              "base_bound_node": [
+                -52317,
+                -44810
+              ],
+              "displacement": [
+                "141759/68746379264",
+                "-359817/34373189632"
+              ],
+              "displacement_squared_chart_euclidean": "537968708037/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "4905/70368744177664",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "18416922518694235/36833982434244953",
+              "nearest_boundary_margin_k_rational_affine_metric": "8521814873627341/17043694203705770",
+              "nearest_k_chart_euclidean": 2,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 2,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "147335792340123329/73667964868489906",
+              "projection_k_rational_affine_metric": "17043678089592998/8521847101852885",
+              "signed_k_residual_chart_euclidean": "137396856483/73667964868489906",
+              "signed_k_residual_rational_affine_metric": "16114112772/8521847101852885",
+              "source_coordinate": [
+                "-26796825/16783784",
+                "-11475763/8391892"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:17"
+            }
+          ]
+        },
+        {
+          "bound_end_node": [
+            -52317,
+            -44810
+          ],
+          "bound_start_node": [
+            56760,
+            -75901
+          ],
+          "consecutive_k_gaps": [
+            0,
+            1,
+            0
+          ],
+          "endpoint_k_span": 1,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "6432221105/2147483648",
+          "half_line_period_squared_rational_affine_metric": "576459477773385529/9007199254740992",
+          "internal_vertex_count": 2,
+          "lattice_scale": 32768,
+          "line_period_squared_chart_euclidean": "6432221105/536870912",
+          "line_period_squared_rational_affine_metric": "576459477773385529/2251799813685248",
+          "line_period_vector": [
+            "-109077/32768",
+            "31091/32768"
+          ],
+          "min_k_gap": 0,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:aa767edda128970ba2fdbc5f",
+          "primitive_direction": [
+            -109077,
+            31091
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 4,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:12",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:13",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:15",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:17"
+          ],
+          "strict_k_order": false,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                56760,
+                -75901
+              ],
+              "assigned_coordinate": [
+                "7095/4096",
+                "-75901/32768"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                56760,
+                -75901
+              ],
+              "displacement": [
+                "-60445/8593297408",
+                "1017631/68746379264"
+              ],
+              "displacement_squared_chart_euclidean": "1269403125761/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "1078657/2251799813685248",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "6747270911940312/13494626208320165",
+              "nearest_boundary_margin_k_rational_affine_metric": "576458100165054163/1152918955546771058",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "-84384439541/26989252416640330",
+              "projection_k_rational_affine_metric": "-688804165683/576459477773385529",
+              "signed_k_residual_chart_euclidean": "84384439541/26989252416640330",
+              "signed_k_residual_rational_affine_metric": "688804165683/576459477773385529",
+              "source_coordinate": [
+                "29072615/16783784",
+                "-19438387/8391892"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:12"
+            },
+            {
+              "assigned_bound_line_node": [
+                56760,
+                -75901
+              ],
+              "assigned_coordinate": [
+                "7095/4096",
+                "-75901/32768"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                30173,
+                -68323
+              ],
+              "displacement": [
+                "6972271075/8593297408",
+                "-15898351841/68746379264"
+              ],
+              "displacement_squared_chart_euclidean": "3363961683630254049281/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "34247824166352257/2251799813685248",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "3458107627424717/13494626208320165",
+              "nearest_boundary_margin_k_rational_affine_metric": "295443586167500703/1152918955546771058",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "6578410953470731/26989252416640330",
+              "projection_k_rational_affine_metric": "140507945802942413/576459477773385529",
+              "signed_k_residual_chart_euclidean": "-6578410953470731/26989252416640330",
+              "signed_k_residual_rational_affine_metric": "-140507945802942413/576459477773385529",
+              "source_coordinate": [
+                "3863695/4195946",
+                "-8748773/4195946"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:13"
+            },
+            {
+              "assigned_bound_line_node": [
+                -52317,
+                -44810
+              ],
+              "assigned_coordinate": [
+                "-52317/32768",
+                "-22405/16384"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -23854,
+                -52923
+              ],
+              "displacement": [
+                "-59713814081/68746379264",
+                "8510192247/34373189632"
+              ],
+              "displacement_squared_chart_euclidean": "3855433080423829510597/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "1226600722584361/70368744177664",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "3226020867751987/13494626208320165",
+              "nearest_boundary_margin_k_rational_affine_metric": "275615733724991585/1152918955546771058",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "19946667943824139/26989252416640330",
+              "projection_k_rational_affine_metric": "426037605749188557/576459477773385529",
+              "signed_k_residual_chart_euclidean": "7042584472816191/26989252416640330",
+              "signed_k_residual_rational_affine_metric": "150421872024196972/576459477773385529",
+              "source_coordinate": [
+                "-24436445/33567568",
+                "-27107069/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:15"
+            },
+            {
+              "assigned_bound_line_node": [
+                -52317,
+                -44810
+              ],
+              "assigned_coordinate": [
+                "-52317/32768",
+                "-22405/16384"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -52317,
+                -44810
+              ],
+              "displacement": [
+                "141759/68746379264",
+                "-359817/34373189632"
+              ],
+              "displacement_squared_chart_euclidean": "537968708037/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "4905/70368744177664",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "6747294185766514/13494626208320165",
+              "nearest_boundary_margin_k_rational_affine_metric": "576459374693584993/1152918955546771058",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 3,
+              "projection_k_chart_euclidean": "26989290253427467/26989252416640330",
+              "projection_k_rational_affine_metric": "576459426233485261/576459477773385529",
+              "signed_k_residual_chart_euclidean": "-37836787137/26989252416640330",
+              "signed_k_residual_rational_affine_metric": "51539900268/576459477773385529",
+              "source_coordinate": [
+                "-26796825/16783784",
+                "-11475763/8391892"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:17"
+            }
+          ]
+        },
+        {
+          "bound_end_node": [
+            -64325,
+            301044
+          ],
+          "bound_start_node": [
+            -134099,
+            320932
+          ],
+          "consecutive_k_gaps": [
+            1,
+            1
+          ],
+          "endpoint_k_span": 2,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "1315985905/4294967296",
+          "half_line_period_squared_rational_affine_metric": "14742468897406165/2251799813685248",
+          "internal_vertex_count": 1,
+          "lattice_scale": 32768,
+          "line_period_squared_chart_euclidean": "1315985905/1073741824",
+          "line_period_squared_rational_affine_metric": "14742468897406165/562949953421312",
+          "line_period_vector": [
+            "34887/32768",
+            "-1243/4096"
+          ],
+          "min_k_gap": 1,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:d7be2a8b5e1f627ab900f109",
+          "primitive_direction": [
+            34887,
+            -9944
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 3,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:25",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:113",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:114"
+          ],
+          "strict_k_order": true,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                -134099,
+                320932
+              ],
+              "assigned_coordinate": [
+                "-134099/32768",
+                "80233/8192"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -134099,
+                320932
+              ],
+              "displacement": [
+                "822353/68746379264",
+                "-161347/17186594816"
+              ],
+              "displacement_squared_chart_euclidean": "1092790127153/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "1457245/562949953421312",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "2760832682735799/5521805794141130",
+              "nearest_boundary_margin_k_rational_affine_metric": "14742177159126979/29484937794812330",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "-35107167383/2760902897070565",
+              "projection_k_rational_affine_metric": "-145869139593/14742468897406165",
+              "signed_k_residual_chart_euclidean": "35107167383/2760902897070565",
+              "signed_k_residual_rational_affine_metric": "145869139593/14742468897406165",
+              "source_coordinate": [
+                "-137371535/33567568",
+                "164381669/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:25"
+            },
+            {
+              "assigned_bound_line_node": [
+                -99212,
+                310988
+              ],
+              "assigned_coordinate": [
+                "-24803/8192",
+                "77747/8192"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -91784,
+                308871
+              ],
+              "displacement": [
+                "-3895933439/17186594816",
+                "1110582543/17186594816"
+              ],
+              "displacement_squared_chart_euclidean": "8205845472967356785/147689520684679036928",
+              "displacement_squared_rational_affine_metric": "167078487082385/140737488355328",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "317042879103737/1104361158828226",
+              "nearest_boundary_margin_k_rational_affine_metric": "1692939871647517/5896987558962466",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "669749429569301/552180579414113",
+              "projection_k_rational_affine_metric": "3576270733398091/2948493779481233",
+              "signed_k_residual_chart_euclidean": "-117568850155188/552180579414113",
+              "signed_k_residual_rational_affine_metric": "-627776953916858/2948493779481233",
+              "source_coordinate": [
+                "-94023615/33567568",
+                "158203637/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:113"
+            },
+            {
+              "assigned_bound_line_node": [
+                -64325,
+                301044
+              ],
+              "assigned_coordinate": [
+                "-64325/32768",
+                "75261/8192"
+              ],
+              "assigned_k": 2,
+              "base_bound_node": [
+                -64325,
+                301044
+              ],
+              "displacement": [
+                "-126025/68746379264",
+                "252001/17186594816"
+              ],
+              "displacement_squared_chart_euclidean": "1031954364641/4726064661909729181696",
+              "displacement_squared_rational_affine_metric": "109013/562949953421312",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "2760874056618663/5521805794141130",
+              "nearest_boundary_margin_k_rational_affine_metric": "14742426141060207/29484937794812330",
+              "nearest_k_chart_euclidean": 2,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 2,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "5521820214367081/2760902897070565",
+              "projection_k_rational_affine_metric": "29484916416639351/14742468897406165",
+              "signed_k_residual_chart_euclidean": "-14420225951/2760902897070565",
+              "signed_k_residual_rational_affine_metric": "21378172979/14742468897406165",
+              "source_coordinate": [
+                "-65894525/33567568",
+                "154194623/16783784"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:114"
+            }
+          ]
+        }
+      ],
+      "declared_straight_chain_count": 3,
+      "exact_gram_matrix": [
+        [
+          "13847549/524288",
+          "6386761/1048576"
+        ],
+        [
+          "6386761/1048576",
+          "4217113/2097152"
+        ]
+      ],
+      "excluded_declared_internal_corner_chain_count": 0,
+      "excluded_declared_internal_corner_chains": [],
+      "fixture_hash": "637827b2197fca7414493541769f4282e39ca99b6d44ff6433ccc44233a9b180",
+      "fixture_id": "building_all_seams_patch_001_lost_resolved_v1",
+      "lattice_scale": 32768,
+      "open_multi_vertex_chain_count": 3,
+      "patch_domain_id": "host-v0:patch-domain:1a2857799915f7d485c521c5"
+    },
+    {
+      "base_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+      "base_binding_reproduced_for_all_vertices": true,
+      "chains": [
+        {
+          "bound_end_node": [
+            -781873,
+            -45293
+          ],
+          "bound_start_node": [
+            65536,
+            0
+          ],
+          "consecutive_k_gaps": [
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "endpoint_k_span": 1,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "360076734565/8589934592",
+          "half_line_period_squared_rational_affine_metric": "7205761304433431317/288230376151711744",
+          "internal_vertex_count": 4,
+          "lattice_scale": 65536,
+          "line_period_squared_chart_euclidean": "360076734565/2147483648",
+          "line_period_squared_rational_affine_metric": "7205761304433431317/72057594037927936",
+          "line_period_vector": [
+            "-847409/65536",
+            "-45293/65536"
+          ],
+          "min_k_gap": 0,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:581cc4a95d8751e2582d6f1f",
+          "primitive_direction": [
+            -847409,
+            -45293
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 6,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:116",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:54",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:306",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:308",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:56",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:57"
+          ],
+          "strict_k_order": false,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                65536,
+                0
+              ],
+              "assigned_coordinate": [
+                "1",
+                "0"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                65536,
+                0
+              ],
+              "displacement": [
+                "0",
+                "0"
+              ],
+              "displacement_squared_chart_euclidean": "0",
+              "displacement_squared_rational_affine_metric": "0",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "1/2",
+              "nearest_boundary_margin_k_rational_affine_metric": "1/2",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "0",
+              "projection_k_rational_affine_metric": "0",
+              "signed_k_residual_chart_euclidean": "0",
+              "signed_k_residual_rational_affine_metric": "0",
+              "source_coordinate": [
+                "1",
+                "0"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:116"
+            },
+            {
+              "assigned_bound_line_node": [
+                65536,
+                0
+              ],
+              "assigned_coordinate": [
+                "1",
+                "0"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                3325,
+                -3325
+              ],
+              "displacement": [
+                "33827/35635",
+                "1808/35635"
+              ],
+              "displacement_squared_chart_euclidean": "1147534793/1269853225",
+              "displacement_squared_rational_affine_metric": "9042049/16777216",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "10947358331091743/25662668872447550",
+              "nearest_boundary_margin_k_rational_affine_metric": "6147767096198992661/14411522608866862634",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "941988052566016/12831334436223775",
+              "projection_k_rational_affine_metric": "528997104117219328/7205761304433431317",
+              "signed_k_residual_chart_euclidean": "-941988052566016/12831334436223775",
+              "signed_k_residual_rational_affine_metric": "-528997104117219328/7205761304433431317",
+              "source_coordinate": [
+                "1808/35635",
+                "-1808/35635"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:54"
+            },
+            {
+              "assigned_bound_line_node": [
+                65536,
+                0
+              ],
+              "assigned_coordinate": [
+                "1",
+                "0"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -301751,
+                -19631
+              ],
+              "displacement": [
+                "600530731/107154445",
+                "32097424/107154445"
+              ],
+              "displacement_squared_chart_euclidean": "361667403502830137/11482075083258025",
+              "displacement_squared_rational_affine_metric": "315169009/16777216",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "5137594855315927329/77167645299449782850",
+              "nearest_boundary_margin_k_rational_affine_metric": "959478903772975893/14411522608866862634",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "16723113897204482048/38583822649724891425",
+              "projection_k_rational_affine_metric": "3123141200330227712/7205761304433431317",
+              "signed_k_residual_chart_euclidean": "-16723113897204482048/38583822649724891425",
+              "signed_k_residual_rational_affine_metric": "-3123141200330227712/7205761304433431317",
+              "source_coordinate": [
+                "-493376286/107154445",
+                "-32097424/107154445"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:306"
+            },
+            {
+              "assigned_bound_line_node": [
+                -781873,
+                -45293
+              ],
+              "assigned_coordinate": [
+                "-781873/65536",
+                "-45293/65536"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -415538,
+                -25713
+              ],
+              "displacement": [
+                "-39254384600189/7022473707520",
+                "-2098119514121/7022473707520"
+              ],
+              "displacement_squared_chart_euclidean": "772654407917545329248619181/24657568486404847252275200",
+              "displacement_squared_rational_affine_metric": "1346635629226529557/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "5224273722910248671/77167645299449782850",
+              "nearest_boundary_margin_k_rational_affine_metric": "975661816309968107/14411522608866862634",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 3,
+              "projection_k_chart_euclidean": "21904048186317570048/38583822649724891425",
+              "projection_k_rational_affine_metric": "4090711560371699712/7205761304433431317",
+              "signed_k_residual_chart_euclidean": "16679774463407321377/38583822649724891425",
+              "signed_k_residual_rational_affine_metric": "3115049744061731605/7205761304433431317",
+              "source_coordinate": [
+                "-679424786/107154445",
+                "-42041424/107154445"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:308"
+            },
+            {
+              "assigned_bound_line_node": [
+                -781873,
+                -45293
+              ],
+              "assigned_coordinate": [
+                "-781873/65536",
+                "-45293/65536"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -720573,
+                -42016
+              ],
+              "displacement": [
+                "-6568613405821/7022473707520",
+                "-351116400649/7022473707520"
+              ],
+              "displacement_squared_chart_euclidean": "21634982400968033162152621/24657568486404847252275200",
+              "displacement_squared_rational_affine_metric": "37707240333808405/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "33001617416976928479/77167645299449782850",
+              "nearest_boundary_margin_k_rational_affine_metric": "6163246321201409259/14411522608866862634",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 4,
+              "projection_k_chart_euclidean": "35792720033350909952/38583822649724891425",
+              "projection_k_rational_affine_metric": "6684503812817420288/7205761304433431317",
+              "signed_k_residual_chart_euclidean": "2791102616373981473/38583822649724891425",
+              "signed_k_residual_rational_affine_metric": "521257491616011029/7205761304433431317",
+              "source_coordinate": [
+                "-1178170074/107154445",
+                "-68698576/107154445"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:56"
+            },
+            {
+              "assigned_bound_line_node": [
+                -781873,
+                -45293
+              ],
+              "assigned_coordinate": [
+                "-781873/65536",
+                "-45293/65536"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                -781873,
+                -45293
+              ],
+              "displacement": [
+                "4123623/1404494741504",
+                "-6646581/1404494741504"
+              ],
+              "displacement_squared_chart_euclidean": "30590652817845/986302739456193890091008",
+              "displacement_squared_rational_affine_metric": "117609237/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "7716761336593328711/15433529059889956570",
+              "nearest_boundary_margin_k_rational_affine_metric": "7205759403675184363/14411522608866862634",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 5,
+              "projection_k_chart_euclidean": "7716766126620803072/7716764529944978285",
+              "projection_k_rational_affine_metric": "7205760354054307840/7205761304433431317",
+              "signed_k_residual_chart_euclidean": "-1596675824787/7716764529944978285",
+              "signed_k_residual_rational_affine_metric": "950379123477/7205761304433431317",
+              "source_coordinate": [
+                "-255679895/21430889",
+                "-14811136/21430889"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:57"
+            }
+          ]
+        },
+        {
+          "bound_end_node": [
+            -847409,
+            20243
+          ],
+          "bound_start_node": [
+            -781873,
+            -45293
+          ],
+          "consecutive_k_gaps": [
+            33891,
+            31645
+          ],
+          "endpoint_k_span": 65536,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "1/8589934592",
+          "half_line_period_squared_rational_affine_metric": "1269853225/288230376151711744",
+          "internal_vertex_count": 1,
+          "lattice_scale": 65536,
+          "line_period_squared_chart_euclidean": "1/2147483648",
+          "line_period_squared_rational_affine_metric": "1269853225/72057594037927936",
+          "line_period_vector": [
+            "-1/65536",
+            "1/65536"
+          ],
+          "min_k_gap": 31645,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:fb4c9655d76508039534f4ea",
+          "primitive_direction": [
+            -1,
+            1
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 3,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:57",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:61",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:49"
+          ],
+          "strict_k_order": true,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                -781873,
+                -45293
+              ],
+              "assigned_coordinate": [
+                "-781873/65536",
+                "-45293/65536"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -781873,
+                -45293
+              ],
+              "displacement": [
+                "4123623/1404494741504",
+                "-6646581/1404494741504"
+              ],
+              "displacement_squared_chart_euclidean": "30590652817845/986302739456193890091008",
+              "displacement_squared_rational_affine_metric": "117609237/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "10660685/42861778",
+              "nearest_boundary_margin_k_rational_affine_metric": "13957/71270",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "5385102/21430889",
+              "projection_k_rational_affine_metric": "10839/35635",
+              "signed_k_residual_chart_euclidean": "-5385102/21430889",
+              "signed_k_residual_rational_affine_metric": "-10839/35635",
+              "source_coordinate": [
+                "-255679895/21430889",
+                "-14811136/21430889"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:57"
+            },
+            {
+              "assigned_bound_line_node": [
+                -815764,
+                -11402
+              ],
+              "assigned_coordinate": [
+                "-203941/16384",
+                "-5701/32768"
+              ],
+              "assigned_k": 33891,
+              "base_bound_node": [
+                -815764,
+                -11402
+              ],
+              "displacement": [
+                "-1142881/1755618426880",
+                "-4021633/3511236853760"
+              ],
+              "displacement_squared_chart_euclidean": "21398239907333/12328784243202423626137600",
+              "displacement_squared_rational_affine_metric": "773345/9007199254740992",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "103682703/214308890",
+              "nearest_boundary_margin_k_rational_affine_metric": "30711/71270",
+              "nearest_k_chart_euclidean": 33891,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 33891,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "3631573031366/107154445",
+              "projection_k_rational_affine_metric": "1207708247/35635",
+              "signed_k_residual_chart_euclidean": "-1735871/107154445",
+              "signed_k_residual_rational_affine_metric": "-2462/35635",
+              "source_coordinate": [
+                "-1333812471/107154445",
+                "-18642684/107154445"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:61"
+            },
+            {
+              "assigned_bound_line_node": [
+                -847409,
+                20243
+              ],
+              "assigned_coordinate": [
+                "-847409/65536",
+                "20243/65536"
+              ],
+              "assigned_k": 65536,
+              "base_bound_node": [
+                -847409,
+                20243
+              ],
+              "displacement": [
+                "4123623/1404494741504",
+                "-6646581/1404494741504"
+              ],
+              "displacement_squared_chart_euclidean": "30590652817845/986302739456193890091008",
+              "displacement_squared_rational_affine_metric": "117609237/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "10660685/42861778",
+              "nearest_boundary_margin_k_rational_affine_metric": "13957/71270",
+              "nearest_k_chart_euclidean": 65536,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 65536,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "1404500126606/21430889",
+              "projection_k_rational_affine_metric": "2335386199/35635",
+              "signed_k_residual_chart_euclidean": "-5385102/21430889",
+              "signed_k_residual_rational_affine_metric": "-10839/35635",
+              "source_coordinate": [
+                "-277110784/21430889",
+                "6619753/21430889"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:49"
+            }
+          ]
+        }
+      ],
+      "declared_straight_chain_count": 2,
+      "exact_gram_matrix": [
+        [
+          "12310913/16777216",
+          "-52117167/16777216"
+        ],
+        [
+          "-52117167/16777216",
+          "576653989/8388608"
+        ]
+      ],
+      "excluded_declared_internal_corner_chain_count": 0,
+      "excluded_declared_internal_corner_chains": [],
+      "fixture_hash": "3dba1d823e5aeab2c890e7352d8e08f22187782011f6f98bc3cce507d2c92661",
+      "fixture_id": "building_all_seams_patch_006_lost_resolved_v1",
+      "lattice_scale": 65536,
+      "open_multi_vertex_chain_count": 2,
+      "patch_domain_id": "host-v0:patch-domain:5fe2fd17a3d94034e46e64da"
+    },
+    {
+      "base_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+      "base_binding_reproduced_for_all_vertices": true,
+      "chains": [
+        {
+          "bound_end_node": [
+            545962,
+            -220889
+          ],
+          "bound_start_node": [
+            -643294,
+            392505
+          ],
+          "consecutive_k_gaps": [
+            1,
+            1
+          ],
+          "endpoint_k_span": 2,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "447645508193/4294967296",
+          "half_line_period_squared_rational_affine_metric": "129745251001111237/18014398509481984",
+          "internal_vertex_count": 1,
+          "lattice_scale": 32768,
+          "line_period_squared_chart_euclidean": "447645508193/1073741824",
+          "line_period_squared_rational_affine_metric": "129745251001111237/4503599627370496",
+          "line_period_vector": [
+            "148657/8192",
+            "-306697/32768"
+          ],
+          "min_k_gap": 1,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:72df03a7b10937c5019ee81f",
+          "primitive_direction": [
+            594628,
+            -306697
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 3,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:233",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:206",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:266"
+          ],
+          "strict_k_order": true,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                -643294,
+                392505
+              ],
+              "assigned_coordinate": [
+                "-321647/16384",
+                "392505/32768"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -643294,
+                392505
+              ],
+              "displacement": [
+                "692797/64365477888",
+                "-276585/42910318592"
+              ],
+              "displacement_squared_chart_euclidean": "2608364092861/16571658975002467762176",
+              "displacement_squared_rational_affine_metric": "56277/2251799813685248",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "1758598737937450967/3517201789460335002",
+              "nearest_boundary_margin_k_rational_affine_metric": "129745123488333343/259490502002222474",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "-1078396358267/1758600894730167501",
+              "projection_k_rational_affine_metric": "-63756388947/129745251001111237",
+              "signed_k_residual_chart_euclidean": "1078396358267/1758600894730167501",
+              "signed_k_residual_rational_affine_metric": "63756388947/129745251001111237",
+              "source_coordinate": [
+                "-77124589/3928557",
+                "31371645/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:233"
+            },
+            {
+              "assigned_bound_line_node": [
+                -48666,
+                85808
+              ],
+              "assigned_coordinate": [
+                "-24333/16384",
+                "5363/2048"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                99741,
+                9263
+              ],
+              "displacement": [
+                "-874537874459/193096433664",
+                "6264816637/2681894912"
+              ],
+              "displacement_squared_chart_euclidean": "968277749998548279505177/37286232693755552464896",
+              "displacement_squared_rational_affine_metric": "8081900329721621/4503599627370496",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "2642340520517296663/10551605368381005006",
+              "nearest_boundary_margin_k_rational_affine_metric": "64981428216515829/259490502002222474",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "6592533766027105423/5275802684190502503",
+              "projection_k_rational_affine_metric": "162127162393408941/129745251001111237",
+              "signed_k_residual_chart_euclidean": "-1316731081836602920/5275802684190502503",
+              "signed_k_residual_rational_affine_metric": "-32381911392297704/129745251001111237",
+              "source_coordinate": [
+                "35873849/11785671",
+                "740365/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:206"
+            },
+            {
+              "assigned_bound_line_node": [
+                545962,
+                -220889
+              ],
+              "assigned_coordinate": [
+                "272981/16384",
+                "-220889/32768"
+              ],
+              "assigned_k": 2,
+              "base_bound_node": [
+                545962,
+                -220889
+              ],
+              "displacement": [
+                "-2727661/193096433664",
+                "-378871/42910318592"
+              ],
+              "displacement_squared_chart_euclidean": "41387540129605/149144930775022209859584",
+              "displacement_squared_rational_affine_metric": "13637125/2251799813685248",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "5275798287990865637/10551605368381005006",
+              "nearest_boundary_margin_k_rational_affine_metric": "129744573126472319/259490502002222474",
+              "nearest_k_chart_euclidean": 2,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 2,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "10551607566480823439/5275802684190502503",
+              "projection_k_rational_affine_metric": "259490840939541933/129745251001111237",
+              "signed_k_residual_chart_euclidean": "-2198099818433/5275802684190502503",
+              "signed_k_residual_rational_affine_metric": "-338937319459/129745251001111237",
+              "source_coordinate": [
+                "196366393/11785671",
+                "-17654905/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:266"
+            }
+          ]
+        },
+        {
+          "bound_end_node": [
+            1365414,
+            -704252
+          ],
+          "bound_start_node": [
+            -517923,
+            267134
+          ],
+          "consecutive_k_gaps": [
+            0,
+            1,
+            0
+          ],
+          "endpoint_k_span": 1,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "4490549016565/4294967296",
+          "half_line_period_squared_rational_affine_metric": "5206161287889372445/72057594037927936",
+          "internal_vertex_count": 2,
+          "lattice_scale": 32768,
+          "line_period_squared_chart_euclidean": "4490549016565/1073741824",
+          "line_period_squared_rational_affine_metric": "5206161287889372445/18014398509481984",
+          "line_period_vector": [
+            "1883337/32768",
+            "-485693/16384"
+          ],
+          "min_k_gap": 0,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+          "primitive_direction": [
+            1883337,
+            -971386
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 4,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:232",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231"
+          ],
+          "strict_k_order": false,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                -517923,
+                267134
+              ],
+              "assigned_coordinate": [
+                "-517923/32768",
+                "133567/16384"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                -517923,
+                267134
+              ],
+              "displacement": [
+                "397721/128730955776",
+                "26353/21455159296"
+              ],
+              "displacement_squared_chart_euclidean": "183183295765/16571658975002467762176",
+              "displacement_squared_rational_affine_metric": "3361717/18014398509481984",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "5880458860657139949/11760918515246364470",
+              "nearest_boundary_margin_k_rational_affine_metric": "5206159672441976987/10412322575778744890",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "-198483021143/5880459257623182235",
+              "projection_k_rational_affine_metric": "-807723697729/5206161287889372445",
+              "signed_k_residual_chart_euclidean": "198483021143/5880459257623182235",
+              "signed_k_residual_rational_affine_metric": "807723697729/5206161287889372445",
+              "source_coordinate": [
+                "-62093824/3928557",
+                "21351135/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:232"
+            },
+            {
+              "assigned_bound_line_node": [
+                -517923,
+                267134
+              ],
+              "assigned_coordinate": [
+                "-517923/32768",
+                "133567/16384"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                0,
+                0
+              ],
+              "displacement": [
+                "-517923/32768",
+                "133567/16384"
+              ],
+              "displacement_squared_chart_euclidean": "339604807885/1073741824",
+              "displacement_squared_rational_affine_metric": "393723718565186485/18014398509481984",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "404144292603/1796219606626",
+              "nearest_boundary_margin_k_rational_affine_metric": "468548864181932115/2082464515155748978",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "246982755355/898109803313",
+              "projection_k_rational_affine_metric": "286341696697971187/1041232257577874489",
+              "signed_k_residual_chart_euclidean": "-246982755355/898109803313",
+              "signed_k_residual_rational_affine_metric": "-286341696697971187/1041232257577874489",
+              "source_coordinate": [
+                "0",
+                "0"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128"
+            },
+            {
+              "assigned_bound_line_node": [
+                1365414,
+                -704252
+              ],
+              "assigned_coordinate": [
+                "682707/16384",
+                "-176063/8192"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                877973,
+                -452840
+              ],
+              "displacement": [
+                "2872410609925/193096433664",
+                "-82307158257/10727579648"
+              ],
+              "displacement_squared_chart_euclidean": "10445670441320791730593501/37286232693755552464896",
+              "displacement_squared_rational_affine_metric": "87185930753140565/4503599627370496",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "8509573022181899557/35282755545739093410",
+              "nearest_boundary_margin_k_rational_affine_metric": "2511265319498002017/10412322575778744890",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "13075475397525723131/17641377772869546705",
+              "projection_k_rational_affine_metric": "3858713303693687231/5206161287889372445",
+              "signed_k_residual_chart_euclidean": "4565902375343823574/17641377772869546705",
+              "signed_k_residual_rational_affine_metric": "1347447984195685214/5206161287889372445",
+              "source_coordinate": [
+                "315780608/11785671",
+                "-36194015/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153"
+            },
+            {
+              "assigned_bound_line_node": [
+                1365414,
+                -704252
+              ],
+              "assigned_coordinate": [
+                "682707/16384",
+                "-176063/8192"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                1365414,
+                -704252
+              ],
+              "displacement": [
+                "235781/193096433664",
+                "36623/10727579648"
+              ],
+              "displacement_squared_chart_euclidean": "490155777757/37286232693755552464896",
+              "displacement_squared_rational_affine_metric": "1697621/4503599627370496",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "17641377511141320829/35282755545739093410",
+              "nearest_boundary_margin_k_rational_affine_metric": "5206159553792290401/10412322575778744890",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 3,
+              "projection_k_chart_euclidean": "17641377903733659643/17641377772869546705",
+              "projection_k_rational_affine_metric": "5206160420840831423/5206161287889372445",
+              "signed_k_residual_chart_euclidean": "-130864112938/17641377772869546705",
+              "signed_k_residual_rational_affine_metric": "867048541022/5206161287889372445",
+              "source_coordinate": [
+                "491098624/11785671",
+                "-56288545/2619038"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231"
+            }
+          ]
+        }
+      ],
+      "declared_straight_chain_count": 2,
+      "exact_gram_matrix": [
+        [
+          "106961229/16777216",
+          "50375241/4194304"
+        ],
+        [
+          "50375241/4194304",
+          "96198985/4194304"
+        ]
+      ],
+      "excluded_declared_internal_corner_chain_count": 0,
+      "excluded_declared_internal_corner_chains": [],
+      "fixture_hash": "4d72cc52cefb8fbcbb59e243dd11947a9741ecf7aae7128474d125c7331deb02",
+      "fixture_id": "building_all_seams_patch_011_lost_resolved_v1",
+      "lattice_scale": 32768,
+      "open_multi_vertex_chain_count": 2,
+      "patch_domain_id": "host-v0:patch-domain:46033905eeec0e606564b0ab"
+    },
+    {
+      "base_binding_law": "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1",
+      "base_binding_reproduced_for_all_vertices": true,
+      "chains": [
+        {
+          "bound_end_node": [
+            65536,
+            0
+          ],
+          "bound_start_node": [
+            54063,
+            -54063
+          ],
+          "consecutive_k_gaps": [
+            1,
+            0
+          ],
+          "endpoint_k_span": 1,
+          "half_line_period_parameter": "1/2",
+          "half_line_period_squared_chart_euclidean": "1527218849/8589934592",
+          "half_line_period_squared_rational_affine_metric": "18014398510213009/288230376151711744",
+          "internal_vertex_count": 1,
+          "lattice_scale": 65536,
+          "line_period_squared_chart_euclidean": "1527218849/2147483648",
+          "line_period_squared_rational_affine_metric": "18014398510213009/72057594037927936",
+          "line_period_vector": [
+            "11473/65536",
+            "54063/65536"
+          ],
+          "min_k_gap": 0,
+          "order_direction": "INCREASING_BOUND_START_TO_END",
+          "physical_chain_id": "host-v0:physical-chain:92b4b17a6932c3b76e21f294",
+          "primitive_direction": [
+            11473,
+            54063
+          ],
+          "source_collinear_crosses": [
+            "0",
+            "0",
+            "0"
+          ],
+          "source_vertex_count": 3,
+          "source_vertex_ids": [
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:55",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:189",
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:186"
+          ],
+          "strict_k_order": false,
+          "vertices": [
+            {
+              "assigned_bound_line_node": [
+                54063,
+                -54063
+              ],
+              "assigned_coordinate": [
+                "54063/65536",
+                "-54063/65536"
+              ],
+              "assigned_k": 0,
+              "base_bound_node": [
+                54063,
+                -54063
+              ],
+              "displacement": [
+                "285/225640448",
+                "-285/225640448"
+              ],
+              "displacement_squared_chart_euclidean": "81225/25456805886820352",
+              "displacement_squared_rational_affine_metric": "731025/72057594037927936",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "5258202358957/10516428994214",
+              "nearest_boundary_margin_k_rational_affine_metric": "18014398508750959/36028797020426018",
+              "nearest_k_chart_euclidean": 0,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 0,
+              "ordinal": 0,
+              "projection_k_chart_euclidean": "6069075/5258214497107",
+              "projection_k_rational_affine_metric": "731025/18014398510213009",
+              "signed_k_residual_chart_euclidean": "-6069075/5258214497107",
+              "signed_k_residual_rational_affine_metric": "-731025/18014398510213009",
+              "source_coordinate": [
+                "11361/13772",
+                "-11361/13772"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:55"
+            },
+            {
+              "assigned_bound_line_node": [
+                65536,
+                0
+              ],
+              "assigned_coordinate": [
+                "1",
+                "0"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                63829,
+                -8045
+              ],
+              "displacement": [
+                "2939009/112820224",
+                "13849059/112820224"
+              ],
+              "displacement_squared_chart_euclidean": "100217104543781/6364201471705088",
+              "displacement_squared_rational_affine_metric": "1485961/268435456",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": false,
+              "nearest_boundary_margin_k_chart_euclidean": "3693332643159/10516428994214",
+              "nearest_boundary_margin_k_rational_affine_metric": "238739241758061/679788623026906",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 1,
+              "projection_k_chart_euclidean": "4475773570133/5258214497107",
+              "projection_k_rational_affine_metric": "289316776635757/339894311513453",
+              "signed_k_residual_chart_euclidean": "782440926974/5258214497107",
+              "signed_k_residual_rational_affine_metric": "50577534877696/339894311513453",
+              "source_coordinate": [
+                "109881215/112820224",
+                "-13849059/112820224"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:189"
+            },
+            {
+              "assigned_bound_line_node": [
+                65536,
+                0
+              ],
+              "assigned_coordinate": [
+                "1",
+                "0"
+              ],
+              "assigned_k": 1,
+              "base_bound_node": [
+                65536,
+                0
+              ],
+              "displacement": [
+                "0",
+                "0"
+              ],
+              "displacement_squared_chart_euclidean": "0",
+              "displacement_squared_rational_affine_metric": "0",
+              "exact_cross_with_bound_line": "0",
+              "is_endpoint": true,
+              "nearest_boundary_margin_k_chart_euclidean": "1/2",
+              "nearest_boundary_margin_k_rational_affine_metric": "1/2",
+              "nearest_k_chart_euclidean": 1,
+              "nearest_k_norms_agree": true,
+              "nearest_k_rational_affine_metric": 1,
+              "ordinal": 2,
+              "projection_k_chart_euclidean": "1",
+              "projection_k_rational_affine_metric": "1",
+              "signed_k_residual_chart_euclidean": "0",
+              "signed_k_residual_rational_affine_metric": "0",
+              "source_coordinate": [
+                "1",
+                "0"
+              ],
+              "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:186"
+            }
+          ]
+        }
+      ],
+      "declared_straight_chain_count": 1,
+      "exact_gram_matrix": [
+        [
+          "1228759753/268435456",
+          "-179413475/268435456"
+        ],
+        [
+          "-179413475/268435456",
+          "119425153/268435456"
+        ]
+      ],
+      "excluded_declared_internal_corner_chain_count": 0,
+      "excluded_declared_internal_corner_chains": [],
+      "fixture_hash": "d093d256364beb9ef39d69a5c9db33d536aa436b62b491643d218bd56842989e",
+      "fixture_id": "building_all_seams_patch_105_lost_resolved_v1",
+      "lattice_scale": 65536,
+      "open_multi_vertex_chain_count": 1,
+      "patch_domain_id": "host-v0:patch-domain:7b6b846d35a6643812948b02"
+    }
+  ],
+  "kernel_src_product_tree_oid": "000fe75684dbd7dbc57dc782b52b1b569dd1d215",
+  "nearest_k_norms": [
+    "CHART_EUCLIDEAN",
+    "EXACT_RATIONAL_AFFINE_PLANAR_METRIC_GRAM"
+  ],
+  "nearest_k_tie_policy": "FAIL_CLOSED_AT_EXACT_HALF_LINE_PERIOD",
+  "outcome": "GATE_A_PRIME_REFUSED",
+  "proof_base_revision": "42b70ac4e3fe2f1ebefe22228c20da68644aeeac",
+  "schema": "cftuv.envelope.sem_clb_02_gate_a_prime.v1",
+  "summary": {
+    "all_internal_nearest_k_norms_agree": true,
+    "declared_straight_chain_count": 8,
+    "failure_counters": {
+      "nonzero_cross": 0,
+      "norm_k_disagreements": 0,
+      "order_failures": 4,
+      "reversals": 0,
+      "source_declaration_contradictions": 0,
+      "sticky_k": 9,
+      "ties_chart_euclidean": 0,
+      "ties_rational_affine_metric": 0,
+      "unknown_fixture_form": 0,
+      "unknown_product_tree": 0
+    },
+    "fixture_count": 4,
+    "internal_vertex_count": 13,
+    "max_displacement_squared_chart_euclidean": {
+      "half_line_period_squared_chart_euclidean": "4490549016565/4294967296",
+      "half_line_period_squared_rational_affine_metric": "5206161287889372445/72057594037927936",
+      "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+      "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+      "value": "339604807885/1073741824"
+    },
+    "max_displacement_squared_rational_affine_metric": {
+      "half_line_period_squared_chart_euclidean": "4490549016565/4294967296",
+      "half_line_period_squared_rational_affine_metric": "5206161287889372445/72057594037927936",
+      "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+      "source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+      "value": "393723718565186485/18014398509481984"
+    },
+    "min_k_gap": 0,
+    "min_positive_k_gap": 1,
+    "vertex_count": 29
+  }
+}

@@ -726,7 +726,8 @@
         },
         "admission_law": {
           "enum": [
-            "EXACT_SOURCE_PLANE_V1"
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
           ],
           "type": "string"
         },
@@ -829,6 +830,144 @@
         "x",
         "y",
         "z"
+      ],
+      "type": "object"
+    },
+    "GridScaleTrialV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GridScaleTrialV1"
+        },
+        "outcome": {
+          "enum": [
+            "RELATIONS_RESTORED",
+            "RELATIONS_NOT_RESTORED"
+          ],
+          "type": "string"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "scale",
+        "step",
+        "restored_right_corners",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "IntegerGridCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntegerGridCertificateV1"
+        },
+        "author_angular_error": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "decal_detail": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "intended_right_corners": {
+          "type": "integer"
+        },
+        "magnitude_bound": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale_trials": {
+          "items": {
+            "$ref": "#/$defs/GridScaleTrialV1"
+          },
+          "type": "array"
+        },
+        "search_order": {
+          "enum": [
+            "FINEST_ADMISSIBLE_FIRST_V1",
+            "COARSEST_ADMISSIBLE_FIRST_V1"
+          ],
+          "type": "string"
+        },
+        "snapping_law": {
+          "enum": [
+            "UNSNAPPED_EXACT_V1",
+            "SOURCE_ONLY_GRID_SNAP_V1",
+            "INTEGER_GRID_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "source_scale": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_lower_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "window_outcome": {
+          "enum": [
+            "WINDOW_AVAILABLE",
+            "GRID_WINDOW_CLOSED",
+            "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+          ],
+          "type": "string"
+        },
+        "window_step": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_upper_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "snapping_law",
+        "window_outcome",
+        "patch_extent",
+        "author_angular_error",
+        "decal_detail",
+        "window_lower_bound",
+        "window_upper_bound",
+        "window_step",
+        "source_scale",
+        "magnitude_bound",
+        "intended_right_corners",
+        "restored_right_corners",
+        "search_order",
+        "scale_trials"
       ],
       "type": "object"
     },
@@ -1153,6 +1292,106 @@
         "x",
         "y",
         "z"
+      ],
+      "type": "object"
+    },
+    "NearPlanarProjectionCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NearPlanarProjectionCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "coordinate_ulp_multiplier": {
+          "type": "integer"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "max_coordinate_ulp": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "max_residual_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "minimum_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planar_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "projected_source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "relative_extent_factor": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget_law": {
+          "enum": [
+            "RELATIVE_EXTENT_OR_ULP_V1",
+            "GRID_STEP_CELL_V1",
+            "PRODUCT_SKIRT_ABSOLUTE_V1"
+          ],
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "source_revision",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law",
+        "residual_budget_law",
+        "relative_extent_factor",
+        "minimum_extent",
+        "coordinate_ulp_multiplier",
+        "max_coordinate_ulp",
+        "planar_extent",
+        "residual_budget",
+        "max_residual_squared",
+        "projected_source_vertex_ids"
       ],
       "type": "object"
     },
@@ -1744,11 +1983,21 @@
           ],
           "type": "string"
         },
+        "grid_certificate": {
+          "$ref": "#/$defs/IntegerGridCertificateV1"
+        },
         "patch_domain_id": {
           "$ref": "#/$defs/PatchDomainId"
         },
         "planarity_certificate": {
-          "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/NearPlanarProjectionCertificateV1"
+            }
+          ]
         },
         "reference_metric_id": {
           "$ref": "#/$defs/ReferenceMetricId"
@@ -1778,7 +2027,8 @@
         "chart_orientation",
         "frame_selection_law",
         "planarity_certificate",
-        "source_lineage"
+        "source_lineage",
+        "grid_certificate"
       ],
       "type": "object"
     },

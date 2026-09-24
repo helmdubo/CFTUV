@@ -1,0 +1,115 @@
+{
+ "cases": {
+  "ell_12_source_edges_0_1": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "EXACT"
+  },
+  "ell_12_source_edges_1_2": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edges_3_4": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "ell_12_source_edges_4_5": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "EXACT"
+  },
+  "ell_12_source_without_the_reflex_pair": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "EXACT"
+  },
+  "staircase_source_edges_0_1": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "EXACT"
+  },
+  "staircase_source_edges_1_2": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_2_3": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_3_4": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "SPLIT"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_5_6": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+  },
+  "staircase_source_edges_6_7": {
+   "duplicate_key_count": 1,
+   "kinds": [
+    [
+     "SPLIT",
+     "EDGE"
+    ]
+   ],
+   "outcome": "EXACT"
+  }
+ },
+ "cases_with_duplicates": 11
+}

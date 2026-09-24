@@ -17,6 +17,21 @@ if TYPE_CHECKING:
     from .surface_ir import AnalysisBundle
 
 
+#: Ключ канонической PhysicalChain: замкнутость плюс рёбра и вершины.
+HostChainKey = tuple[bool, tuple[int, ...], tuple[int, ...]]
+
+#: Счётчики дополнения выделения. Объявлены перечнем и пишутся ВСЕГДА, даже
+#: нулями: иначе «выделение не дополнялось» неотличимо от «дополнение не
+#: измерялось» — тот же дефект, который уже лечили счётчиками стадии углов.
+SELECTION_COMPLETION_COUNTERS = (
+    "SELECTION_COMPLETED_CHAINS",
+    "SELECTION_COMPLETED_EDGES",
+)
+
+#: Код диагностики сцены топологии о том, что выделение было дополнено.
+SELECTION_COMPLETED_DIAGNOSTIC_CODE = "PARTIAL_CHAIN_SELECTION_COMPLETED"
+
+
 @dataclass(frozen=True, slots=True)
 class EnvelopeTopologyExportV1:
     """SourceRevision-scoped host topology prepared exactly once."""
@@ -175,6 +190,148 @@ def build_analysis_bundle_id_view(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class EnvelopeSelectionScopeV1:
+    """Выделение владельца, дополненное до полных PhysicalChain.
+
+    `requested_edge_ids` — то, что стояло выделенным во вьюпорте; `edge_ids` —
+    то, чем считает движок. Два поля, а не одно, намеренно: восстановление
+    выделения владельца обязано вернуть ИСХОДНОЕ, и одно поле сделало бы
+    возврат исходного неотличимым от возврата дополненного.
+    """
+
+    requested_edge_ids: frozenset[int]
+    edge_ids: frozenset[int]
+    chain_keys: frozenset[HostChainKey]
+    patch_ids: frozenset[int]
+    #: Цепочки, которые были выделены ЧАСТИЧНО и достроены до полных.
+    completed_chain_keys: tuple[HostChainKey, ...]
+
+    @property
+    def added_edge_ids(self) -> frozenset[int]:
+        return self.edge_ids - self.requested_edge_ids
+
+    @property
+    def completed(self) -> bool:
+        return bool(self.completed_chain_keys)
+
+
+def _complete_selection_to_whole_chains(
+    selected_edges: frozenset[int],
+    chain_groups: Mapping[HostChainKey, list],
+) -> tuple[frozenset[int], tuple[HostChainKey, ...]]:
+    """Дополнить выделение до объединения ПОЛНЫХ задетых цепочек.
+
+    Владелец выделяет рёбра мышью, а не цепочки: на меше, где шов между двумя
+    патчами разбит вершинами на четыре ребра, попадание в одно из них — норма,
+    а не ошибка. Прежний жёсткий отказ гасил при этом ВЕСЬ билд, и владелец
+    видел warning вместо результата.
+    """
+
+    completed = set(selected_edges)
+    completed_keys = []
+    for key in sorted(chain_groups):
+        chain_edges = frozenset(key[1])
+        overlap = selected_edges & chain_edges
+        if not overlap:
+            continue
+        if overlap != chain_edges:
+            completed_keys.append(key)
+        completed.update(chain_edges)
+    return frozenset(completed), tuple(completed_keys)
+
+
+def resolve_selection_scope(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    host_chains: tuple[object, ...],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+) -> EnvelopeSelectionScopeV1:
+    """Разрешить выделение владельца в полные цепочки и домены."""
+
+    from .envelope_request_export import (
+        EnvelopeDebugHostOutcome,
+        EnvelopeHostAdapterError,
+        _group_host_chains,
+        _validate_chain_group_topology,
+    )
+
+    if not selected_physical_edge_ids:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
+            "Envelope debug requires at least one selected physical edge",
+        )
+    requested = frozenset(int(item) for item in selected_physical_edge_ids)
+    known_edges = {
+        int(item.edge_id) for item in analysis_bundle.patch_surface.edges
+    }
+    unknown = requested - known_edges
+    if unknown:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN,
+            "selected physical edges are absent from AnalysisBundle: "
+            f"{sorted(unknown)}",
+        )
+
+    chain_groups = _group_host_chains(host_chains)
+    selected_edges, completed_keys = _complete_selection_to_whole_chains(
+        requested,
+        chain_groups,
+    )
+    if profile is not None:
+        profile.set_counter(
+            "SELECTION_COMPLETED_CHAINS",
+            len(completed_keys),
+        )
+        profile.set_counter(
+            "SELECTION_COMPLETED_EDGES",
+            len(selected_edges - requested),
+        )
+    selected_keys = {
+        key
+        for key in chain_groups
+        if selected_edges & frozenset(key[1])
+    }
+    covered = {edge_id for key in selected_keys for edge_id in key[1]}
+    off_chain = sorted(requested - covered)
+    if off_chain:
+        # Дополнение здесь НЕВОЗМОЖНО: ребро принадлежит поверхности, но не
+        # входит ни в одну граничную цепочку ни одного патча — то есть лежит
+        # внутри патча. Достраивать его не до чего.
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN,
+            "selected physical edges belong to no PhysicalChain and cannot be "
+            f"completed: {off_chain}",
+        )
+
+    selected_patch_ids = frozenset(
+        record.patch_id
+        for key in selected_keys
+        for record in chain_groups[key]
+    )
+    if not selected_patch_ids:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
+            "whole-chain selection resolved to no PatchDomain",
+        )
+
+    # Exact-frame admission is request-scoped, but topology is not guessed.
+    # Every seam touching a selected domain must still have its real counterpart
+    # in the original AnalysisBundle before the opposite unselected domain is
+    # omitted from the evaluation slice.
+    for records in chain_groups.values():
+        if any(record.patch_id in selected_patch_ids for record in records):
+            _validate_chain_group_topology(records)
+    return EnvelopeSelectionScopeV1(
+        requested,
+        selected_edges,
+        frozenset(selected_keys),
+        selected_patch_ids,
+        completed_keys,
+    )
+
+
 def build_envelope_topology_export(
     analysis_bundle: AnalysisBundle,
     *,
@@ -235,10 +392,90 @@ def build_envelope_topology_debug_scene(
     )
 
 
+def stage_domain_inputs(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    topology_export: EnvelopeTopologyExportV1 | None = None,
+):
+    """Сцена топологии плюс адресация доменов одного постадийного прогона.
+
+    Возвращает `(topology_scene, revision, patch_ids, decal_request_id,
+    selected_edges_by_domain)`.
+
+    Общая точка ОБОИХ движков (LEGACY и QUEUE) намеренно: одинаковая нумерация
+    доменов и один `DecalRequestId` — это и есть то, чем их результаты
+    сравнимы. Две разошедшиеся копии этого пролога сделали бы сравнение
+    свойством копии, а не свойством движков.
+    """
+
+    from .envelope_request_export import (
+        _revision_value,
+        _typed_value,
+        build_envelope_topology_debug_scene as _build_scene,
+    )
+    from .envelope_topology_debug import EnvelopeTopologyPathKind
+
+    topology_scene = _build_scene(
+        analysis_bundle,
+        selected_physical_edge_ids,
+        profile=profile,
+        topology_export=topology_export,
+    )
+    revision = _revision_value(analysis_bundle.source_revision)
+    patch_ids = tuple(
+        sorted(
+            int(patch_id)
+            for patch_id in analysis_bundle.patch_graph.nodes
+            if _typed_value("patch-domain", revision, int(patch_id))
+            in topology_scene.patch_domain_ids
+        )
+    )
+    decal_request_id = _typed_value(
+        "decal-request",
+        revision,
+        tuple(
+            sorted(
+                path.physical_chain_id
+                for path in topology_scene.paths
+                if path.kind is EnvelopeTopologyPathKind.SELECTED_SOURCE
+                and path.physical_chain_id is not None
+            )
+        ),
+    )
+    selected_edges_by_domain: dict[str, set[int]] = {
+        domain_id: set()
+        for domain_id in topology_scene.patch_domain_ids
+    }
+    for path in topology_scene.paths:
+        if (
+            path.kind is EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE
+            and path.selected
+            and path.patch_domain_id is not None
+        ):
+            selected_edges_by_domain[path.patch_domain_id].update(
+                path.host_edge_ids
+            )
+    return (
+        topology_scene,
+        revision,
+        patch_ids,
+        decal_request_id,
+        selected_edges_by_domain,
+    )
+
+
 __all__ = (
+    "SELECTION_COMPLETED_DIAGNOSTIC_CODE",
+    "SELECTION_COMPLETION_COUNTERS",
     "AnalysisBundleIdView",
+    "EnvelopeSelectionScopeV1",
     "EnvelopeTopologyExportV1",
+    "HostChainKey",
     "build_analysis_bundle_id_view",
     "build_envelope_topology_debug_scene",
     "build_envelope_topology_export",
+    "resolve_selection_scope",
+    "stage_domain_inputs",
 )

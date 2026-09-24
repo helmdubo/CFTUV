@@ -230,6 +230,7 @@ def _assert_manifold_connected_faces(faces, *, component_count=1):
     assert actual_component_count == component_count
 
 
+@pytest.mark.requires_pyvoronoi
 def test_c7_f2_multiface_bevel_is_one_intrinsic_chart_without_connectors():
     graph, _node, left_edge, _right_edge = _curved_strip_graph(
         5, arc=pi / 3.0
@@ -251,6 +252,7 @@ def test_c7_f2_multiface_bevel_is_one_intrinsic_chart_without_connectors():
     )
 
 
+@pytest.mark.requires_pyvoronoi
 def test_c7_f3_quarter_cylinder_admission_preserves_developable_metric():
     graph, node, left_edge, _right_edge = _curved_strip_graph(16)
     row_size = len(node.mesh_verts) // 2
@@ -299,6 +301,7 @@ def test_c7_f5_dense_fillet_support_stays_proportional_to_strip():
     assert admitted.metrics.triangle_overlap_count == 0
 
 
+@pytest.mark.requires_pyvoronoi
 def test_c7_f6_curved_competition_merges_and_remains_manifold():
     graph, node, left_edge, right_edge = _curved_strip_graph(24)
     row_size = len(node.mesh_verts) // 2
@@ -336,6 +339,7 @@ def test_c7_f6_curved_competition_merges_and_remains_manifold():
         assert all(face.component_kind != "JUNCTION" for face in faces)
 
 
+@pytest.mark.requires_pyvoronoi
 @pytest.mark.parametrize("width", (0.74, 1.27, 1.61))
 def test_c8_5_mixed_backend_junction_closes_both_open_rails(width):
     graph, curved_edge, planar_edge = _mixed_backend_junction_graph()
@@ -466,6 +470,7 @@ def _g1_imprint_records(faces, alpha, source_edge_by_vertices):
     return records
 
 
+@pytest.mark.requires_pyvoronoi
 def test_g1_curved_strip_imprints_crossed_source_folds_with_static_keys():
     graph, _node, left_edge, _right_edge = _curved_strip_graph(
         5, arc=pi / 3.0

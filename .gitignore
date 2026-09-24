@@ -1,5 +1,6 @@
 *.pyc
-.claude/worktrees/serene-knuth/
-.claude/worktrees/goofy-mestorf/
-.claude/worktrees/affectionate-liskov/
-.claude/worktrees/interesting-nightingale/
+
+# Рабочие каталоги субагентов. Раньше здесь перечислялись имена по одному,
+# и каждый новый агент снова всплывал как untracked. Каталог временный:
+# git-worktree живёт только на время запуска и удаляется после него.
+.claude/worktrees/

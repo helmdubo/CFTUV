@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import itertools
 
 import sympy as sp
 
@@ -15,6 +17,7 @@ from cftuv_envelope import (
     FrontComponentId,
     FrontReadingId,
     InteractionCandidateKind,
+    InteractionDiagnosticSeverity,
     InteractionCandidateV1,
     InteractionComponentV1,
     InteractionComponentId,
@@ -306,26 +309,100 @@ def test_two_independent_same_alpha_interactions_are_atomic_not_multiway():
     }
 
 
-def test_triple_meeting_fails_named_without_pair_order():
+def _triple_meeting_models():
     regions = {
         "a": _rectangle("a", 0, 0, 6, 2),
         "b": _rectangle("b", 4, 0, 10, 2),
         "c": _rectangle("c", 4, -5, 6, 1),
     }
-    models = (
+    return (
         _strip_model("a", regions["a"], (1, 0), 0),
         _strip_model("b", regions["b"], (-1, 0), -10),
         _strip_model("c", regions["c"], (0, 1), -5),
     )
+
+
+def test_triple_meeting_is_one_event_not_a_named_refusal():
+    """Три фронта в одной точке — одно событие, а не отказ по осторожности.
+
+    Здесь стоял `MULTIWAY_INTERACTION_POLICY_UNPROVEN` с обоснованием «нет
+    порядко-независимого правила». Правило есть и не новое: каждый фронт
+    удерживает пересечение своих полуплоскостей против остальных, то есть
+    клетку первого прихода. Пересечение полуплоскостей коммутативно, поэтому
+    порядок перебора пар на ответ не влияет.
+    """
+
+    models = _triple_meeting_models()
     components = tuple(_component(name) for name in "abc")
     proofs, diagnostics = prove_mutual_arrivals(
         generate_interaction_candidates(components, models),
         models,
     )
-    assert proofs == ()
-    assert {
+
+    assert len(proofs) == 3
+    assert InteractionOutcome.MULTIWAY_INTERACTION_POLICY_UNPROVEN not in {
         item.outcome for item in diagnostics
-    } == {InteractionOutcome.MULTIWAY_INTERACTION_POLICY_UNPROVEN}
+    }
+    # Событие обязано быть записанным, а не молча разрешённым: по картинке в
+    # Blender должно быть видно, какое решение произвело этот участок.
+    events = [
+        item
+        for item in diagnostics
+        if item.severity is InteractionDiagnosticSeverity.INFO
+        and "multiway meet" in item.message
+    ]
+    assert len(events) == 1
+    assert len(events[0].interaction_component_ids) == 3
+    # Все три пары встречаются на одном alpha — это одно событие, а не три.
+    assert len(
+        {
+            proof.mutual_arrival_certificate.exact_alpha.expression
+            for proof in proofs
+        }
+    ) == 1
+
+
+def test_permutation_invariance_of_multiway_meeting():
+    """Порядок входа не меняет ответ. Без этого теста это заявление, а не свойство.
+
+    Сравнение по дайджесту набора доказательств: идентификаторы кандидатов и
+    точные локусы обязаны совпасть при любой перестановке моделей.
+    """
+
+    baseline = None
+    for permutation in itertools.permutations(_triple_meeting_models()):
+        components = tuple(
+            _component(model.arrival_model_id.value.split(":")[-1])
+            for model in permutation
+        )
+        proofs, diagnostics = prove_mutual_arrivals(
+            generate_interaction_candidates(components, permutation),
+            permutation,
+        )
+        digest = hashlib.sha256(
+            "\n".join(
+                sorted(
+                    "|".join(
+                        (
+                            proof.candidate.candidate_id.value,
+                            proof.mutual_arrival_certificate.exact_alpha.expression,
+                            proof.clipped_locus.line.normal_x.expression,
+                            proof.clipped_locus.line.normal_y.expression,
+                            proof.clipped_locus.line.constant.expression,
+                        )
+                    )
+                    for proof in proofs
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+        assert not [
+            item
+            for item in diagnostics
+            if item.severity is InteractionDiagnosticSeverity.UNSUPPORTED
+        ]
+        if baseline is None:
+            baseline = digest
+        assert digest == baseline, f"перестановка {permutation} дала другой ответ"
 
 
 def test_coincident_fronts_fail_named_and_never_choose_first():

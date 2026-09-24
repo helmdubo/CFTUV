@@ -1,0 +1,23 @@
+{
+  "schema": "P0_2B_UNIFIED_SUPERLEVEL_COORDINATOR_FREEZE_V1",
+  "source_head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "receipt": "artifacts/p0_2b_superlevel_transaction/unified_superlevel_coordinator_gate_receipt_v1.json",
+  "receipt_sha256": "06d234c9cf44901b68330e613a36b6083a1f49efcb09ae74be237e20a5cec420",
+  "independent_checks": {
+    "json_valid": true,
+    "all_recorded_source_hashes_match": true,
+    "real_packet_projection_recalculated": true,
+    "both_search_modes_equal": true,
+    "input_permutation_equal": true,
+    "product_imports_coordinator": false,
+    "targeted_tests": "13 passed, 57 deselected",
+    "architecture_tests": "402 passed"
+  },
+  "frozen_real_projection_sha256": {
+    "cross_t2": "8e1ed2b55e73d47d96e7b3c2e5cf5a82f77ec2ffd4f650845b8ade898cb7cece",
+    "cross_t3": "e41d4b3d978ee532364852a7d42c650f4e3f77977af9c289a65627c5d8ccb05b",
+    "u_shape_t5_2": "ceb1fbed57c7abc5ba9718553d57bcd706713d97b3830cd353873112b659d6af",
+    "staircase_source_edges_3_4_t4": "ce47e8480618a624f553b56462f9416edcc4f555ec924cf99b40353becd01769"
+  },
+  "status": "FROZEN_PRODUCT_OFF"
+}

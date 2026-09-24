@@ -1,0 +1,151 @@
+{
+  "survey": [
+    {
+      "patch_id": 7,
+      "faces": 34,
+      "boundary_edges": 36,
+      "loops": 7,
+      "selected_edges": 36,
+      "out_of_plane_m": 3e-06
+    },
+    {
+      "patch_id": 6,
+      "faces": 16,
+      "boundary_edges": 37,
+      "loops": 7,
+      "selected_edges": 37,
+      "out_of_plane_m": 3e-06
+    },
+    {
+      "patch_id": 1,
+      "faces": 25,
+      "boundary_edges": 32,
+      "loops": 6,
+      "selected_edges": 32,
+      "out_of_plane_m": 1e-06
+    },
+    {
+      "patch_id": 17,
+      "faces": 11,
+      "boundary_edges": 18,
+      "loops": 3,
+      "selected_edges": 18,
+      "out_of_plane_m": 5e-06
+    }
+  ],
+  "runs": [
+    {
+      "patch_id": 7,
+      "faces": 34,
+      "boundary_edges": 36,
+      "loops": 7,
+      "selected_edges": 36,
+      "out_of_plane_m": 3e-06,
+      "domain_id": "a076bd7e0916ece58b2b765d",
+      "host_export_s": 0.56,
+      "queue_s": 10.04,
+      "prepare_s": 8.06,
+      "coverage_s": 1.69,
+      "contour_s": 0.25,
+      "outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "detail": "",
+      "factorization_s": 0.04,
+      "factorization_calls": 115,
+      "radicand_bits_max": 127,
+      "counters": {
+        "CONVEYOR_LATTICE_SCALE": 65536,
+        "CONVEYOR_DOMAIN_EDGES": 36,
+        "CONVEYOR_SOURCE_EDGES": 36,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_SKELETON_NODES": 63,
+        "CONVEYOR_FACES": 60
+      }
+    },
+    {
+      "patch_id": 6,
+      "faces": 16,
+      "boundary_edges": 37,
+      "loops": 7,
+      "selected_edges": 37,
+      "out_of_plane_m": 3e-06,
+      "domain_id": "5fe2fd17a3d94034e46e64da",
+      "host_export_s": 0.45,
+      "queue_s": 16.78,
+      "prepare_s": 14.2,
+      "coverage_s": 2.42,
+      "contour_s": 0.17,
+      "outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "detail": "",
+      "factorization_s": 5.5,
+      "factorization_calls": 162,
+      "radicand_bits_max": 138,
+      "counters": {
+        "CONVEYOR_LATTICE_SCALE": 65536,
+        "CONVEYOR_DOMAIN_EDGES": 37,
+        "CONVEYOR_SOURCE_EDGES": 37,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_SKELETON_NODES": 73,
+        "CONVEYOR_FACES": 63
+      }
+    },
+    {
+      "patch_id": 1,
+      "faces": 25,
+      "boundary_edges": 32,
+      "loops": 6,
+      "selected_edges": 32,
+      "out_of_plane_m": 1e-06,
+      "domain_id": "1a2857799915f7d485c521c5",
+      "host_export_s": 0.13,
+      "queue_s": 13.23,
+      "prepare_s": 10.77,
+      "coverage_s": 2.26,
+      "contour_s": 0.2,
+      "outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "detail": "",
+      "factorization_s": 1.08,
+      "factorization_calls": 207,
+      "radicand_bits_max": 109,
+      "counters": {
+        "CONVEYOR_LATTICE_SCALE": 131072,
+        "CONVEYOR_DOMAIN_EDGES": 32,
+        "CONVEYOR_SOURCE_EDGES": 32,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_SKELETON_NODES": 62,
+        "CONVEYOR_FACES": 54
+      }
+    },
+    {
+      "patch_id": 17,
+      "faces": 11,
+      "boundary_edges": 18,
+      "loops": 3,
+      "selected_edges": 18,
+      "out_of_plane_m": 5e-06,
+      "domain_id": "77e0b8c76791034d905695e3",
+      "host_export_s": 0.15,
+      "queue_s": 11.84,
+      "prepare_s": 11.0,
+      "coverage_s": 0.72,
+      "contour_s": 0.11,
+      "outcome": "EXACT",
+      "coverage_outcome": "EXACT",
+      "detail": "",
+      "factorization_s": 8.4,
+      "factorization_calls": 134,
+      "radicand_bits_max": 147,
+      "counters": {
+        "CONVEYOR_LATTICE_SCALE": 262144,
+        "CONVEYOR_DOMAIN_EDGES": 18,
+        "CONVEYOR_SOURCE_EDGES": 18,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_SKELETON_NODES": 29,
+        "CONVEYOR_FACES": 27
+      }
+    }
+  ],
+  "substitution": "HOST_MULTI_LOOP_UV_CLASSIFICATION_SUBSTITUTED_BY_NESTING"
+}

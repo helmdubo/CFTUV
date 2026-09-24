@@ -12,13 +12,21 @@ from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
 from functools import cmp_to_key, lru_cache
+import re
 from typing import Iterable
 
 import sympy as sp
+from mpmath import iv
+
+from ..exact_sqrt_sum import SqrtSumV1
 
 
 class CertifiedPredicateUndecidable(ValueError):
     """Exact sign/equality could not be proven; tolerance fallback is forbidden."""
+
+
+class ExactQuadraticFieldUnsupported(CertifiedPredicateUndecidable):
+    """Exact scalar is outside the finite quadratic field used by arrangement."""
 
 
 def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> sp.Expr:
@@ -37,14 +45,88 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
     return sp.sympify(value)
 
 
+# Сколько раз пришлось уйти на символьный путь. Ноль означает, что вся
+# арифметика осталась рациональной; рост счётчика — сигнал, что в предикаты
+# протекли радикалы (см. ROADMAP, Фаза 2, пункт «развести предикаты и
+# конструкции»). Только наблюдение, на поведение не влияет.
+SYMBOLIC_FALLBACK_COUNTS = {
+    "canonical": 0,
+    "sign": 0,
+    "normalize": 0,
+    # Сколько раз интервальный фильтр не смог доказать знак и пришлось
+    # разворачивать полный символьный путь.
+    "exact_sign_symbolic": 0,
+}
+
+
+def exact_normalize(value: sp.Expr) -> sp.Expr:
+    """Канонизировать точное значение, не платя за факторизацию числа.
+
+    Заменяет прямые вызовы `sp.factor(...)` по всему evaluator'у. Семантика
+    та же: для рационального результата `factor` возвращает его же, потому что
+    SymPy сокращает дробь и нормализует знак уже при конструировании. Разница
+    только в цене — `factor` запускает полиномиальную факторизацию там, где
+    делить нечего.
+
+    Символьный путь сохранён без изменений: выражения с радикалами
+    (`length_g`, `unit_g`, `angle_g`) по-прежнему проходят через `factor`.
+    """
+
+    if value.is_Rational:
+        return value
+    SYMBOLIC_FALLBACK_COUNTS["normalize"] += 1
+    return sp.factor(value)
+
+
+# srepr рационального числа — это ровно `Integer(n)` или `Rational(p, q)`:
+# составное выражение всегда начинается с имени внешнего узла (`Add(`, `Mul(`,
+# `Pow(`, …), поэтому якорные шаблоны ниже не могут совпасть с чем-то другим.
+_INTEGER_SREPR = re.compile(r"\AInteger\((-?\d+)\)\Z")
+_RATIONAL_SREPR = re.compile(r"\ARational\((-?\d+), (-?\d+)\)\Z")
+
+
+def _rational_srepr(value: sp.Expr) -> str:
+    """`sp.srepr` для рационального, собранный напрямую.
+
+    `sp.srepr` идёт через общий обход дерева и стоит 4.2 мкс; здесь та же
+    строка получается за 0.25 мкс. Эквивалентность проверяется в
+    `kernel/tests/test_exact_numeric_fast_path.py`.
+    """
+
+    if value.is_Integer:
+        return f"Integer({value.p})"
+    return f"Rational({value.p}, {value.q})"
+
+
 def _canonical_expr(value: sp.Expr) -> str:
+    # Рациональное число уже канонично: SymPy нормализует знак и сокращает
+    # дробь при конструировании, поэтому factor(cancel(x)) возвращает ровно x,
+    # а srepr — ту же строку. Замерено на реальных входах evaluator'а: 100%
+    # вызовов приходят сюда с Rational/Integer, и factor на них — чистая
+    # трата (40% времени ядра по профилю).
+    if value.is_Rational:
+        return _rational_srepr(value)
+    SYMBOLIC_FALLBACK_COUNTS["canonical"] += 1
     simplified = sp.factor(sp.cancel(value))
     return sp.srepr(simplified)
 
 
+def _parse_expr_uncached(expression: str) -> sp.Expr:
+    # Обратная сторона `_rational_srepr`: разбор рациональной формы напрямую,
+    # без общего парсера SymPy. Шаблоны якорные, поэтому составное выражение
+    # сюда не проваливается.
+    match = _INTEGER_SREPR.match(expression)
+    if match is not None:
+        return sp.Integer(int(match.group(1)))
+    match = _RATIONAL_SREPR.match(expression)
+    if match is not None:
+        return sp.Rational(int(match.group(1)), int(match.group(2)))
+    return sp.sympify(expression)
+
+
 @lru_cache(maxsize=32768)
 def _parse_expr(expression: str) -> sp.Expr:
-    return sp.sympify(expression)
+    return _parse_expr_uncached(expression)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,12 +141,106 @@ class ExactScalar:
             return value
         return cls(_canonical_expr(_expr(value)))
 
-    def as_expr(self) -> sp.Expr:
-        return _parse_expr(self.expression)
+    def as_expr(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> sp.Expr:
+        if transaction_memo is None:
+            return _parse_expr(self.expression)
+        cached = transaction_memo.get(self.expression)
+        if cached is not None:
+            return cached
+        result = _parse_expr_uncached(self.expression)
+        transaction_memo[self.expression] = result
+        return result
+
+
+class IntervalEnclosureUnsupported(Exception):
+    """Узел выражения, для которого нет интервального правила."""
+
+
+def interval_enclosure(expression: sp.Expr):
+    """Строгая интервальная оболочка выражения при текущей `iv.prec`.
+
+    Каждая операция расширяет интервал наружу, поэтому истинное значение
+    гарантированно лежит внутри результата. Это не оценка и не порог: если
+    оболочка не содержит нуля, знак **доказан**.
+    """
+
+    if expression.is_Integer:
+        return iv.mpf(int(expression))
+    if expression.is_Rational:
+        return iv.mpf(int(expression.p)) / iv.mpf(int(expression.q))
+    if expression.is_Add:
+        total = iv.mpf(0)
+        for term in expression.args:
+            total = total + interval_enclosure(term)
+        return total
+    if expression.is_Mul:
+        product = iv.mpf(1)
+        for term in expression.args:
+            product = product * interval_enclosure(term)
+        return product
+    if expression.is_Pow:
+        base, exponent = expression.args
+        enclosure = interval_enclosure(base)
+        if exponent.is_Integer:
+            return enclosure ** int(exponent)
+        if exponent.is_Rational and exponent.q == 2:
+            root = iv.sqrt(enclosure)
+            return root if exponent.p == 1 else root ** int(exponent.p)
+    raise IntervalEnclosureUnsupported(str(expression))
+
+
+def _certified_interval_sign(expression: sp.Expr, precision: int = 80) -> int | None:
+    """Знак, доказанный интервальной оболочкой, либо None.
+
+    Возвращает результат только когда оболочка целиком лежит по одну сторону
+    от нуля. Настоящий ноль и всё, что оболочка не разделяет, уходит в точный
+    символьный путь без изменений — тождество доказать интервалом нельзя.
+
+    Это тот же приём, которым пользуются промышленные геометрические ядра:
+    дешёвый фильтр отвечает в подавляющем большинстве случаев, точная
+    арифметика остаётся для спорных. Порога здесь нет — есть сертификат.
+    """
+
+    saved = iv.prec
+    iv.prec = precision
+    try:
+        enclosure = interval_enclosure(expression)
+    except (IntervalEnclosureUnsupported, ArithmeticError, ValueError, TypeError):
+        return None
+    finally:
+        iv.prec = saved
+    if enclosure.a > 0:
+        return 1
+    if enclosure.b < 0:
+        return -1
+    return None
 
 
 def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> int:
-    candidate = sp.factor(sp.cancel(_expr(value)))
+    expression = _expr(value)
+    # Знак рационального числа решается сравнением числителя с нулём и не
+    # требует ни факторизации, ни машины предположений SymPy. Это ~99.8%
+    # вызовов в реальном прогоне evaluator'а.
+    if expression.is_Rational:
+        # Знак берётся из числителя напрямую. `expression.is_positive` даёт тот
+        # же ответ, но запускает машину предположений SymPy: на ЕЩЁ НЕ
+        # ВИДЕННОМ числе это 39 мкс против 0.03 мкс у `.p` — 400x. В поле
+        # каждая точка пересечения уникальна, поэтому «ещё не виденное» — это
+        # почти каждый вызов; в микробенчмарке на одном и том же значении
+        # разницы не видно, потому что SymPy кеширует вывод на объекте.
+        # Знаменатель Rational всегда положителен, знак живёт в числителе.
+        return (expression.p > 0) - (expression.p < 0)
+    SYMBOLIC_FALLBACK_COUNTS["sign"] += 1
+    # Сначала пробуем доказать знак дешёвой интервальной оболочкой; точный
+    # символьный путь ниже остаётся для случаев, где оболочка накрывает ноль.
+    certified = _certified_interval_sign(expression)
+    if certified is not None:
+        return certified
+    SYMBOLIC_FALLBACK_COUNTS["exact_sign_symbolic"] += 1
+    candidate = sp.factor(sp.cancel(expression))
     if candidate == 0 or candidate.is_zero is True:
         return 0
     if candidate.is_positive is True:
@@ -87,6 +263,84 @@ def exact_equal(left: ExactScalar | sp.Expr, right: ExactScalar | sp.Expr) -> bo
     return exact_sign(_expr(left) - _expr(right)) == 0
 
 
+@lru_cache(maxsize=32768)
+def exact_quadratic_value(expression: sp.Expr) -> SqrtSumV1:
+    """Строго прочитать SymPy-выражение как конечную сумму квадратных корней.
+
+    Это внутреннее представление предикатов, а не новый публичный контракт:
+    снаружи `ExactScalar` по-прежнему сериализуется прежним canonical `srepr`.
+    Неподдержанное алгебраическое поле не уходит в float или неограниченный
+    `simplify`, а даёт именованный fail-closed исход evaluator'а.
+    """
+
+    if expression.is_Rational:
+        return SqrtSumV1.rational(
+            Fraction(int(expression.p), int(expression.q))
+        )
+    if expression.is_Add:
+        result = SqrtSumV1.zero()
+        for term in expression.args:
+            result += exact_quadratic_value(term)
+        return result
+    if expression.is_Mul:
+        result = SqrtSumV1.rational(1)
+        for factor in expression.args:
+            result *= exact_quadratic_value(factor)
+        return result
+    if expression.is_Pow:
+        base, exponent = expression.args
+        if exponent.is_Integer:
+            power = int(exponent)
+            result = SqrtSumV1.rational(1)
+            factor = exact_quadratic_value(base)
+            for _ in range(abs(power)):
+                result *= factor
+            return (
+                result
+                if power >= 0
+                else SqrtSumV1.rational(1) / result
+            )
+        if (
+            exponent.is_Rational
+            and exponent.q == 2
+            and base.is_Rational
+            and exact_sign(base) >= 0
+        ):
+            power = int(exponent.p)
+            root = SqrtSumV1.radical(
+                1,
+                Fraction(int(base.p), int(base.q)),
+            )
+            result = SqrtSumV1.rational(1)
+            for _ in range(abs(power)):
+                result *= root
+            return (
+                result
+                if power >= 0
+                else SqrtSumV1.rational(1) / result
+            )
+    raise ExactQuadraticFieldUnsupported(
+        "REFERENCE_EXACT_QUADRATIC_FIELD_UNSUPPORTED: "
+        + sp.srepr(expression)
+    )
+
+
+def exact_quadratic_expr(value: SqrtSumV1) -> sp.Expr:
+    """Вернуть точное SymPy-представление без изменения публичного формата."""
+
+    return sp.Add(
+        *(
+            sp.Rational(coefficient.numerator, coefficient.denominator)
+            * (
+                sp.Integer(1)
+                if radicand == 1
+                else sp.sqrt(sp.Integer(radicand))
+            )
+            for radicand, coefficient in value.terms
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ExactPlanarPoint:
     x: ExactScalar
@@ -96,8 +350,14 @@ class ExactPlanarPoint:
     def from_values(cls, x: object, y: object) -> ExactPlanarPoint:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
 
-    def expressions(self) -> tuple[sp.Expr, sp.Expr]:
-        return self.x.as_expr(), self.y.as_expr()
+    def expressions(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> tuple[sp.Expr, sp.Expr]:
+        return (
+            self.x.as_expr(transaction_memo),
+            self.y.as_expr(transaction_memo),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,8 +369,14 @@ class ExactPlanarVector:
     def from_values(cls, x: object, y: object) -> ExactPlanarVector:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
 
-    def expressions(self) -> tuple[sp.Expr, sp.Expr]:
-        return self.x.as_expr(), self.y.as_expr()
+    def expressions(
+        self,
+        transaction_memo: dict[str, sp.Expr] | None = None,
+    ) -> tuple[sp.Expr, sp.Expr]:
+        return (
+            self.x.as_expr(transaction_memo),
+            self.y.as_expr(transaction_memo),
+        )
 
 
 def point_add(point: ExactPlanarPoint, vector: ExactPlanarVector) -> ExactPlanarPoint:
@@ -134,13 +400,13 @@ def vector_scale(vector: ExactPlanarVector, scalar: object) -> ExactPlanarVector
 def dot(left: ExactPlanarVector, right: ExactPlanarVector) -> sp.Expr:
     lx, ly = left.expressions()
     rx, ry = right.expressions()
-    return sp.factor(lx * rx + ly * ry)
+    return exact_normalize(lx * rx + ly * ry)
 
 
 def cross(left: ExactPlanarVector, right: ExactPlanarVector) -> sp.Expr:
     lx, ly = left.expressions()
     rx, ry = right.expressions()
-    return sp.factor(lx * ry - ly * rx)
+    return exact_normalize(lx * ry - ly * rx)
 
 
 def squared_length(vector: ExactPlanarVector) -> sp.Expr:
@@ -272,7 +538,7 @@ def support_intersection(
     c, d = right.normal.expressions()
     e = left.constant.as_expr()
     f = right.constant.as_expr()
-    determinant = sp.factor(a * d - b * c)
+    determinant = exact_normalize(a * d - b * c)
     if exact_sign(determinant) == 0:
         raise ValueError("parallel supports have no unique intersection")
     return ExactPlanarPoint.from_values(
@@ -300,7 +566,7 @@ def polygon_signed_area(points: Iterable[ExactPlanarPoint]) -> sp.Expr:
         sx, sy = start.expressions()
         ex, ey = end.expressions()
         twice_area += sx * ey - sy * ex
-    return sp.factor(twice_area / 2)
+    return exact_normalize(twice_area / 2)
 
 
 def _half(vector: ExactPlanarVector) -> int:

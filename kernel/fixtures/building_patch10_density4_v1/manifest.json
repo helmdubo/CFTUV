@@ -1,0 +1,9 @@
+{
+ "fixture_id": "building_patch10_density4_v1",
+ "object_name": "building",
+ "alpha": "0.18",
+ "seam_edges": 458,
+ "patch_domain_ids": [
+  "host-v0:patch-domain:a04cb4107c2c9815432e3c44"
+ ]
+}

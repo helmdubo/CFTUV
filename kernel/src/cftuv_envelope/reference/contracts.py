@@ -7,11 +7,14 @@ from enum import Enum
 
 from ..contracts.envelopes import (
     AngularProfileSelectionCertificateV1,
+    CanonicalAngleRestorationCertificateV1,
+    CanonicalSubturnFanAuthorityV1,
     EnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.events import InitialFrontSpec
 from ..contracts.plan import (
+    EvaluationGeometryBinding,
     FrontComponentV1,
     FrontReadingDeclarationV1,
     PlanKeyV1,
@@ -63,16 +66,40 @@ class ReferenceOutcome(str, Enum):
     REFERENCE_PLANAR_METRIC_CERTIFICATE_MISMATCH = (
         "REFERENCE_PLANAR_METRIC_CERTIFICATE_MISMATCH"
     )
+    REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID = (
+        "REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID"
+    )
+    REFINEMENT_BUDGET_EXHAUSTED = "REFINEMENT_BUDGET_EXHAUSTED"
+    SOURCE_DECLARED_STRAIGHT_ENDPOINTS_COINCIDE = (
+        "SOURCE_DECLARED_STRAIGHT_ENDPOINTS_COINCIDE"
+    )
+    SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR = (
+        "SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR"
+    )
     REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED = (
         "REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED"
     )
     REFERENCE_INVALID_ALPHA = "REFERENCE_INVALID_ALPHA"
+    # Запрошенная полоса тоньше четырёх ячеек решётки: решётка её уничтожит.
+    # Отказ именованный, а не тихо нарисованный мусор.
+    ENVELOPE_BAND_BELOW_GRID_RESOLUTION = (
+        "ENVELOPE_BAND_BELOW_GRID_RESOLUTION"
+    )
     PHYSICAL_EDGE_PROVENANCE_INCOMPLETE = "PHYSICAL_EDGE_PROVENANCE_INCOMPLETE"
     PLANAR_CHAIN_SUPPORT_NOT_LINEAR = "PLANAR_CHAIN_SUPPORT_NOT_LINEAR"
     PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED = (
         "PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED"
     )
     ANGULAR_PROFILE_SELECTION_UNCERTAIN = "ANGULAR_PROFILE_SELECTION_UNCERTAIN"
+    # Растяжка против подделанной компиляции: собственный путь ядра такой
+    # записи не строит, поэтому исход до хоста не доходит и имени в
+    # `EnvelopeDebugHostOutcome` не заводит — заведённое было бы мёртвым.
+    REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID = (
+        "REFERENCE_CANONICAL_ANGLE_RESTORATION_INVALID"
+    )
+    REFERENCE_CANONICAL_SUBTURN_FAN_INVALID = (
+        "REFERENCE_CANONICAL_SUBTURN_FAN_INVALID"
+    )
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"
@@ -82,6 +109,13 @@ class ReferenceOutcome(str, Enum):
     REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE = (
         "REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE"
     )
+    DENSITY_RATIONAL_AUTHORITY_EXHAUSTED = (
+        "DENSITY_RATIONAL_AUTHORITY_EXHAUSTED"
+    )
+    DENSITY_WINDOW_CHART_UNREPRESENTABLE = (
+        "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
+    )
+    DENSITY_SEALED_FAN_INVALID = "DENSITY_SEALED_FAN_INVALID"
     REFERENCE_ARRANGEMENT_NON_MANIFOLD = "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
     REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN = (
         "REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN"
@@ -154,7 +188,20 @@ class ReferenceEnvelopeCompilationV1:
     self_contact_pair_declarations: frozenset[
         SelfContactPairDeclarationV1
     ] = frozenset()
+    evaluation_geometry_binding: EvaluationGeometryBinding | None = None
     diagnostics: tuple[ReferenceEvaluationDiagnosticV1, ...] = ()
+    # Восстановления канонического авторского угла, применённые ДО селектора.
+    # Отдельная коллекция, а не поле сертификата селекции: сертификат селекции
+    # — замороженная запись закона счёта, и добавление поля в неё сдвинуло бы
+    # дайджест каждого угла корпуса, включая точные, где ничего не менялось.
+    canonical_angle_restorations: frozenset[
+        CanonicalAngleRestorationCertificateV1
+    ] = frozenset()
+    # Власть канонического подшага — по спеке, то есть по углу И плотности:
+    # один и тот же угол при разных q попадает под неё не одинаково.
+    canonical_subturn_fan_authorities: frozenset[
+        CanonicalSubturnFanAuthorityV1
+    ] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

@@ -97,6 +97,7 @@ def evaluate_filtered_runtime_raw_coverage(
     *,
     runtime_metric: RuntimePlanarMetricV1 | None = None,
     reference_metric_build_seconds: float = 0.0,
+    measure_peak_memory: bool = False,
 ) -> RuntimeRawCoverageEvaluationV1:
     """Evaluate with certified candidates and exact semantic construction.
 
@@ -122,14 +123,22 @@ def evaluate_filtered_runtime_raw_coverage(
         telemetry,
     )
 
-    tracemalloc.start()
+    # tracemalloc перехватывает КАЖДУЮ аллокацию, а этот код аллокационный по
+    # природе: замерено 3.75x на exact_union. Платить за это в боевом пути
+    # нельзя, поэтому память меряется только по явной просьбе, а
+    # `peak_memory_bytes = 0` означает «не мерили», а не «нисколько».
+    if measure_peak_memory:
+        tracemalloc.start()
     started = time.perf_counter()
     raw_result = evaluate_reference_raw_coverage(
         compilation, requested_alpha
     )
     raw_seconds = time.perf_counter() - started
-    _, peak_memory = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    if measure_peak_memory:
+        _, peak_memory = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    else:
+        peak_memory = 0
     expressions = []
     if raw_result.raw_coverage is not None:
         expressions.extend(

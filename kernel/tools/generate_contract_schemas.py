@@ -8,13 +8,26 @@ from pathlib import Path
 
 from cftuv_envelope import (
     AnalysisSnapshotV1,
+    ChainStraightEvaluationGeometryBindingV2,
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
+    EvaluationGeometryBindingV1,
+    EmbeddingCertifiedRationalAffinePlanarMetricV1,
     GeometryBatchV1,
     RationalAffinePlanarMetricV2,
     RuntimePlanarMetricV1,
     json_schema_for,
+)
+
+# Реестр допусков намеренно НЕ выведен в корневой фасад: счёт и дайджест
+# публичного `__all__` — замороженная расписка P0-4, а реестровая карточка не
+# двигает поведение и не имеет права двигать эту расписку. Схема при этом
+# нужна: без неё запись реестра — питоновский литерал, который никто извне не
+# может ни прочитать, ни проверить.
+from cftuv_envelope.contracts.tolerance_policy import (  # noqa: E402
+    TOLERANCE_POLICY_REGISTRY_SCHEMA_V1,
+    TolerancePolicyRegistryV1,
 )
 
 
@@ -25,6 +38,16 @@ SCHEMAS = (
         CompiledPatchEvaluationPlanV1,
         "cftuv.envelope.compiled_patch_evaluation_plan.v1",
         "compiled_patch_evaluation_plan_v1.schema.json",
+    ),
+    (
+        EvaluationGeometryBindingV1,
+        "cftuv.envelope.evaluation_geometry_binding.v1",
+        "evaluation_geometry_binding_v1.schema.json",
+    ),
+    (
+        ChainStraightEvaluationGeometryBindingV2,
+        "cftuv.envelope.chain_straight_evaluation_geometry_binding.v2",
+        "evaluation_geometry_binding_v2.schema.json",
     ),
     (GeometryBatchV1, "cftuv.envelope.geometry_batch.v1", "geometry_batch_v1.schema.json"),
     (
@@ -38,9 +61,19 @@ SCHEMAS = (
         "rational_affine_planar_metric_v2.schema.json",
     ),
     (
+        EmbeddingCertifiedRationalAffinePlanarMetricV1,
+        "cftuv.envelope.embedding_certified_rational_affine_planar_metric.v1",
+        "embedding_certified_rational_affine_planar_metric_v1.schema.json",
+    ),
+    (
         RuntimePlanarMetricV1,
         "cftuv.envelope.runtime_planar_metric.v1",
         "runtime_planar_metric_v1.schema.json",
+    ),
+    (
+        TolerancePolicyRegistryV1,
+        TOLERANCE_POLICY_REGISTRY_SCHEMA_V1,
+        "tolerance_policy_registry_v1.schema.json",
     ),
 )
 

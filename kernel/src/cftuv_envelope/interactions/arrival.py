@@ -25,8 +25,11 @@ from ..ids import (
     LineageId,
     SourceSupportId,
 )
-from ..reference.angular import _incident_normal, _interpolated_normals
-from ..reference.arrangement import ExactSegmentArrangementBackend
+from ..reference.angular import angular_support_data
+from ..reference.arrangement import (
+    ExactSegmentArrangementBackend,
+    bound_evaluation_arrangement,
+)
 from ..reference.boundary import build_domain_geometry
 from ..reference.common import GeometryContext, make_segment, stable_id
 from ..reference.contracts import (
@@ -38,7 +41,7 @@ from ..reference.planar_types import (
     ExactScalar,
     exact_sign,
 )
-from ..reference.validation import validate_reference_geometry_payload
+from ..reference.validation import validate_compilation_geometry_payload
 from .contracts import (
     ActiveDomainCertificateV1,
     AngularProfileArrivalModelV1,
@@ -63,6 +66,96 @@ def _line_constant(normal, point) -> ExactScalar:
     nx, ny = normal.expressions()
     px, py = point.expressions()
     return ExactScalar.from_value(nx * px + ny * py)
+
+
+def _density_support_line(context, normal, point):
+    from ..reference.angular import _density_exact_vector, _density_srepr
+
+    nx, ny = context.metric.density_expressions(normal)
+    gram = context.metric.gram
+    covector = _density_exact_vector(
+        gram[0][0] * nx + gram[0][1] * ny,
+        gram[1][0] * nx + gram[1][1] * ny,
+        context.metric,
+    )
+    cx, cy = context.metric.density_expressions(covector)
+    px, py = context.metric.density_expressions(point)
+    return covector, ExactScalar(
+        _density_srepr(cx * px + cy * py, context.metric)
+    )
+
+
+# Скорость фронта Strip. Единица здесь не значение по умолчанию, а запись
+# самого закона `n*p = c + alpha*s`: у Strip параметр `alpha` и есть смещение
+# вдоль ковектора нормали, поэтому `s = 1` тождественно. Константа объявлена
+# затем, чтобы второй путь (`wavefront/conveyor.py`) брал её отсюда, а не
+# вписывал единицу у себя: вписанная единица — это гипотеза о чужом законе.
+STRIP_FRONT_NORMAL_SPEED = ExactScalar.from_value(1)
+
+
+def strip_front_support_line(context: GeometryContext, source):
+    """Несущая прямая фронта опорного сегмента: ковектор нормали и константа.
+
+    Весь геометрический смысл закона прихода Strip — эти две величины; всё
+    остальное в `StripArrivalModelV1` есть идентичность и активность, то есть
+    ответ на вопрос «чей закон» и «где он ещё жив», а не сам закон.
+
+    Разрез сделан ради второго вызывающего. Вход очереди событий строит ТЕ ЖЕ
+    законы, но ему не нужны ни юбки, ни их клип о домен, ни союз: измерено на
+    `building_002_point_contact_v1` — прямая сборка законов 0.8 мс против
+    DOMAIN_CLIP 69 мс плюс RAW_UNION 50 мс плюс 56 мс на активность в
+    `compile_arrival_models`. Копия этих двух строк у второго пути означала бы,
+    что расхождение законов между путями возможно и притом молча.
+    """
+
+    if context._density_bounded():
+        return _density_support_line(
+            context,
+            source.owner_normal,
+            source.start,
+        )
+    normal = context.metric.support_covector_g(source.owner_normal)
+    return normal, _line_constant(normal, source.start)
+
+
+# Скорость фронта скрытой опоры веера. Единица здесь — свойство профиля
+# `LINEAR_REFLEX_EQUAL_V1` (`AngularEnvelopeSpec.all_support_normal_speed`), а
+# не умолчание записи, и объявлена она затем же, зачем `STRIP_FRONT_NORMAL_SPEED`:
+# второй путь обязан взять её отсюда, а не вписать единицу у себя.
+ANGULAR_PROFILE_NORMAL_SPEED = ExactScalar.from_value(1)
+
+
+def angular_hidden_support_lines(
+    context: GeometryContext, spec: AngularEnvelopeSpec
+):
+    """Несущие прямые СКРЫТЫХ опор веера: якорь, ковектор нормали и константа.
+
+    Тот же разрез, что у `strip_front_support_line`, и ровно по той же причине:
+    вход очереди событий строит ТЕ ЖЕ прямые, но ни юбки, ни клипа, ни союза ему
+    не нужно. Направления берутся у общего `angular_support_data`, который
+    перепроверяет plan-authority binding; второй реализации поворота здесь нет.
+
+    Возвращаются ТОЛЬКО скрытые опоры, без входящей и исходящей: те две уже
+    несут собственные Strip-законы своих рёбер, и повторить их здесь значило бы
+    подать очереди по два претендента на одну прямую.
+    """
+
+    relation, anchor, support_ids, normals = angular_support_data(context, spec)
+    hidden = []
+    for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
+        if context._density_bounded():
+            normal, constant = _density_support_line(
+                context,
+                normals[ordinal],
+                anchor,
+            )
+        else:
+            normal = context.metric.support_covector_g(normals[ordinal])
+            constant = _line_constant(normal, anchor)
+        hidden.append(
+            (support_ids[ordinal], normal, constant)
+        )
+    return relation, anchor, tuple(hidden)
 
 
 def _segment_on_front(
@@ -149,45 +242,6 @@ def _front_reading_declaration(
     return matches[0], None
 
 
-def _angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
-    relation = next(
-        item
-        for item in context.snapshot.corner_relations
-        if item.corner_relation_id == spec.source_relation_id
-    )
-    sector = next(
-        item
-        for item in context.snapshot.angular_owner_sectors
-        if item.owner_sector_id == spec.owner_sector_id
-    )
-    anchor = context.points_by_id[relation.source_vertex_id]
-    incoming, incoming_support_id = _incident_normal(
-        context,
-        sector.ordered_incident_chain_use_ids[0],
-        relation.source_vertex_id,
-    )
-    outgoing, outgoing_support_id = _incident_normal(
-        context,
-        sector.ordered_incident_chain_use_ids[-1],
-        relation.source_vertex_id,
-    )
-    normals = _interpolated_normals(
-        context.metric,
-        incoming,
-        outgoing,
-        spec.resolved_hidden_edge_count,
-        sector.turn_orientation,
-    )
-    hidden_by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
-    support_ids = [incoming_support_id]
-    support_ids.extend(
-        hidden_by_ordinal[index].hidden_support_id.value
-        for index in range(1, spec.resolved_hidden_edge_count + 1)
-    )
-    support_ids.append(outgoing_support_id)
-    return relation, anchor, tuple(support_ids), normals
-
-
 def _select_cap_incident_reading(
     *,
     cap_spec_id: EnvelopeSpecId,
@@ -230,11 +284,26 @@ def compile_arrival_models(
     components: tuple[InteractionComponentV1, ...],
     boundary_resolved_envelopes: tuple[BoundaryResolvedEnvelopeV1, ...],
 ) -> tuple[tuple[ArrivalModelV1, ...], tuple[InteractionDiagnosticV1, ...]]:
+    """Компилировать модели в режиме, объявленном compilation binding."""
+
+    with bound_evaluation_arrangement(
+        compilation.evaluation_geometry_binding is not None
+    ):
+        return _compile_arrival_models(
+            compilation,
+            components,
+            boundary_resolved_envelopes,
+        )
+
+
+def _compile_arrival_models(
+    compilation: ReferenceEnvelopeCompilationV1,
+    components: tuple[InteractionComponentV1, ...],
+    boundary_resolved_envelopes: tuple[BoundaryResolvedEnvelopeV1, ...],
+) -> tuple[tuple[ArrivalModelV1, ...], tuple[InteractionDiagnosticV1, ...]]:
     """Build laws from source supports; emitted regions only certify active reach."""
 
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
-    )
+    frame, payload_diagnostics = validate_compilation_geometry_payload(compilation)
     if frame is None:
         return (), (
             InteractionDiagnosticV1(
@@ -363,16 +432,15 @@ def compile_arrival_models(
                         )
                     )
                     continue
-                line_normal = context.metric.support_covector_g(
-                    source.owner_normal
+                line_normal, constant = strip_front_support_line(
+                    context, source
                 )
-                constant = _line_constant(line_normal, source.start)
                 law = ExactFrontArrivalLawV1(
                     law_id=declaration.arrival_law_id,
                     support_id=support_id,
                     normal=line_normal,
                     source_constant=constant,
-                    normal_speed=ExactScalar.from_value(1),
+                    normal_speed=STRIP_FRONT_NORMAL_SPEED,
                 )
                 moved_support_id = stable_id("moving-support", source.support_id)
                 active_boundary = (
@@ -423,7 +491,7 @@ def compile_arrival_models(
             continue
 
         if isinstance(spec, AngularEnvelopeSpec):
-            relation, anchor, support_ids, normals = _angular_support_data(
+            relation, anchor, support_ids, normals = angular_support_data(
                 context, spec
             )
             profile_laws = tuple(
@@ -436,7 +504,7 @@ def compile_arrival_models(
                     source_constant=_line_constant(
                         context.metric.support_covector_g(normal), anchor
                     ),
-                    normal_speed=ExactScalar.from_value(1),
+                    normal_speed=ANGULAR_PROFILE_NORMAL_SPEED,
                 )
                 for ordinal, (support_id, normal) in enumerate(
                     zip(support_ids, normals, strict=True)

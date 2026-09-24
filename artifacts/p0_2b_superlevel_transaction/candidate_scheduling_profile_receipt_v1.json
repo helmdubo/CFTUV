@@ -1,0 +1,122 @@
+{
+  "schema": "P0_2B_CANDIDATE_SCHEDULING_PROFILE_RECEIPT_V1",
+  "fixture": "building_all_seams_patch_006_lost_resolved_v1",
+  "authority_status": {
+    "performance_counts": "FACTUAL_MEASUREMENT",
+    "patch006_semantic_digest": "AUTH_PENDING_Q06",
+    "patch105_level_12": "AUTH_PENDING_Q06",
+    "commit_or_push": "FORBIDDEN_PENDING_AUTH"
+  },
+  "baseline": {
+    "commit": "2851e85053fc1047fc938a51dcc3b5d8dceed88b",
+    "snapshot": "EAGER_ALL_LIVE_LAV_POSITIONS",
+    "outcome": "EXACT",
+    "levels": 266,
+    "node_count": 73,
+    "semantic_digest": "d2e21b47e48bae7fbeb411f418fa216e9ae478b4523468a090ca869ea82e9280",
+    "candidate_pushes": 473,
+    "unique_candidate_keys": 448,
+    "duplicate_exact_candidate_pushes": 25,
+    "split_predicate_calls": 9035,
+    "exact_event_point_calls": 5265,
+    "unscoped_exact_event_point_calls": 371,
+    "enqueue_splits_against": {
+      "method_calls": 111,
+      "split_predicate_calls": 2858,
+      "candidate_pushes": 86,
+      "unique_candidate_keys": 84,
+      "duplicate_exact_candidate_pushes": 2,
+      "rechecked_unchanged_vertex_edge_states": 459
+    }
+  },
+  "transaction_eager": {
+    "commit": "4cf9d5a9238382fc49592dee793a425d352a1943",
+    "working_tree": "DIRTY_AUTHORIZED_P0_2B",
+    "snapshot": "EAGER_ALL_LIVE_LAV_POSITIONS",
+    "outcome": "EXACT",
+    "levels": 230,
+    "node_count": 73,
+    "semantic_digest": "5ad37463bd362b89fcf1fb85ecfaf215df02acb46535861dc6e092a6b8b3a8fb",
+    "candidate_pushes": 391,
+    "unique_candidate_keys": 327,
+    "duplicate_exact_candidate_pushes": 64,
+    "split_predicate_calls": 6732,
+    "exact_event_point_calls": 8481,
+    "unscoped_exact_event_point_calls": 4339,
+    "enqueue_splits_against": {
+      "method_calls": 145,
+      "split_predicate_calls": 3533,
+      "candidate_pushes": 74,
+      "unique_candidate_keys": 58,
+      "duplicate_exact_candidate_pushes": 16,
+      "rechecked_unchanged_vertex_edge_states": 1003
+    }
+  },
+  "transaction_sparse": {
+    "commit": "4cf9d5a9238382fc49592dee793a425d352a1943",
+    "working_tree": "DIRTY_AUTHORIZED_P0_2B",
+    "snapshot": "K0_PLUS_ONE_HOP_K1_PHYSICAL_EDGE_QUERY",
+    "outcome": "EXACT",
+    "levels": 230,
+    "node_count": 73,
+    "semantic_digest": "5ad37463bd362b89fcf1fb85ecfaf215df02acb46535861dc6e092a6b8b3a8fb",
+    "candidate_pushes": 391,
+    "unique_candidate_keys": 327,
+    "duplicate_exact_candidate_pushes": 64,
+    "split_predicate_calls": 6732,
+    "exact_event_point_calls": 4921,
+    "unscoped_exact_event_point_calls": 779,
+    "coordinate_divisions": 9842,
+    "prime_pick_iterations": 16922,
+    "prime_support_checks": 29722,
+    "incomplete_prime_picks": 0,
+    "incomplete_prime_supports": 0,
+    "enqueue_splits_against": {
+      "method_calls": 145,
+      "split_predicate_calls": 3533,
+      "candidate_pushes": 74,
+      "unique_candidate_keys": 58,
+      "duplicate_exact_candidate_pushes": 16,
+      "rechecked_unchanged_vertex_edge_states": 1003
+    }
+  },
+  "classification": {
+    "prime_regression_root": "EAGER_SUPERLEVEL_SNAPSHOT_POSITIONED_EVERY_LIVE_LAV_VERTEX",
+    "eager_to_sparse_exact_event_point_reduction": 3560,
+    "sparse_below_baseline_exact_event_point_calls": 344,
+    "scheduling_and_queue_changed_by_sparse_snapshot": false,
+    "memo_or_queue_dedup_applied": false,
+    "transaction_rechecks_unchanged_existing_vertex_edge_states": true,
+    "recheck_optimization_authorized": false
+  },
+  "equivalence_gates": {
+    "d_schedule_and_input_permutations": "12_PASSED",
+    "named_and_partial_corpus_63_both_split_modes": "PASSED",
+    "p0_3_weighted_wall_corpus_23_both_split_modes": "PASSED",
+    "sem_clb_field_001_006_011_105_both_split_modes": "4_PASSED",
+    "packet_axes": [
+      "incidents",
+      "unsupported",
+      "stale_candidates",
+      "plans_including_rewrites_and_terminal_cycles",
+      "commit_prestate_edge_map"
+    ],
+    "final_axes": [
+      "outcome",
+      "semantic_digest",
+      "nodes",
+      "levels",
+      "counters",
+      "partition",
+      "ownership",
+      "coverage_alpha_1_4_1_3",
+      "proof_status",
+      "proof_obligations"
+    ]
+  },
+  "reproducer": {
+    "path": "artifacts/p0_2b_superlevel_transaction/profile_candidate_scheduling.py",
+    "sha256": "b851636538a7461fd726ec637e55c38b980c8c183b254b84ab349793e7fbcc00",
+    "command": "PYTHONPATH=kernel/src;kernel/tests python artifacts/p0_2b_superlevel_transaction/profile_candidate_scheduling.py"
+  }
+}

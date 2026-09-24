@@ -1,10 +1,28 @@
-"""Blender 4.3 background smoke for the exact-planar Envelope debug bridge."""
+"""Blender 4.3 background smoke for the exact-planar Envelope debug bridge.
+
+Смок гоняет РАБОЧЕЕ ДЕРЕВО, а не установленную копию аддона. Оплачено
+измерением: с `addon_utils.enable` по умолчанию Blender брал `cftuv` и
+`cftuv_envelope` из своего каталога аддонов, там лежала копия месячной
+давности, и смок падал `module 'cftuv_envelope' has no attribute
+'GridSnappingLawV1'` — то есть измерял давность установки, а не состояние ветки.
+Точка входа аддона при этом проверяется по-прежнему: `addon_utils.enable`
+остаётся, ему лишь подставлен путь.
+"""
 
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+for _path in (REPO_ROOT, REPO_ROOT / "kernel" / "src"):
+    if str(_path) in sys.path:
+        sys.path.remove(str(_path))
+    sys.path.insert(0, str(_path))
+for _module_name in tuple(sys.modules):
+    if _module_name == "cftuv" or _module_name.startswith("cftuv"):
+        del sys.modules[_module_name]
 
 import addon_utils
 import bpy
@@ -35,6 +53,9 @@ REQUIRED_LAYERS = {
     "ENV_62_REMOVED_REGIONS",
     "ENV_70_EVENT_ANCHORS",
     "ENV_80_DIAGNOSTICS",
+    # Слой отказа домена создаётся ОБОИМИ движками: METRIC_REJECTED бывает и на
+    # LEGACY, поэтому он в обязательных, а не в наборе очереди.
+    "ENV_93_QUEUE_REFUSED",
     "ENV_LABELS",
 }
 
@@ -89,7 +110,19 @@ def _build_axis_plane():
     return obj
 
 
-def _build_two_patch_seam(*, nonplanar_second_patch=False):
+def _build_two_patch_seam(
+    *,
+    nonplanar_second_patch=False,
+    second_patch_offset=0.001,
+):
+    """Два патча через шов из одного ребра; второй при желании выведен из плоскости.
+
+    Величина отклонения — параметр, а не литерал: после
+    `SOURCE_ONLY_GRID_SNAP_V1` привязка источника кладёт в плоскость ТОЧНО всё,
+    что ближе половины ячейки, поэтому «кривой патч» и «патч, отвергаемый
+    бюджетом планарности» — это два разных числа, а не одно.
+    """
+
     mesh = bpy.data.meshes.new("EnvelopeTwoPatchMesh")
     mesh.from_pydata(
         (
@@ -101,7 +134,7 @@ def _build_two_patch_seam(*, nonplanar_second_patch=False):
             (
                 2.0,
                 1.0,
-                0.001 if nonplanar_second_patch else 0.0,
+                float(second_patch_offset) if nonplanar_second_patch else 0.0,
             ),
         ),
         (),
@@ -122,6 +155,43 @@ def _build_two_patch_seam(*, nonplanar_second_patch=False):
     bpy.context.scene.collection.objects.link(obj)
     _enter_edge_selection(obj, (shared_index,))
     return obj
+
+
+def _build_two_patch_multi_edge_seam():
+    """Два патча, шов между ними разбит вершиной на ДВА коллинеарных ребра.
+
+    Именно эта конфигурация валила билд в поле: владелец попадает мышью в одно
+    ребро шва, а PhysicalChain состоит из двух. Возвращает объект и номера
+    рёбер шва, чтобы тест выделял их по одному, а не угадывал индексы.
+    """
+
+    mesh = bpy.data.meshes.new("EnvelopeMultiEdgeSeamMesh")
+    mesh.from_pydata(
+        tuple(
+            (float(column), float(row), 0.0)
+            for row in range(3)
+            for column in range(3)
+        ),
+        (),
+        (
+            (0, 1, 4, 3),
+            (3, 4, 7, 6),
+            (1, 2, 5, 4),
+            (4, 5, 8, 7),
+        ),
+    )
+    mesh.update()
+    seam_pairs = ({1, 4}, {4, 7})
+    seam_indices = []
+    for edge in mesh.edges:
+        if set(edge.vertices) in seam_pairs:
+            edge.use_seam = True
+            seam_indices.append(edge.index)
+    assert len(seam_indices) == 2, seam_indices
+    obj = bpy.data.objects.new("EnvelopeMultiEdgeSeam", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    _enter_edge_selection(obj, tuple(seam_indices))
+    return obj, tuple(sorted(seam_indices))
 
 
 def _build_axis_plane_with_unselected_tilted_patch():
@@ -486,16 +556,25 @@ def _run_axis_plane_smoke():
     local_positions = tuple(tuple(vertex.co) for vertex in source_obj.data.vertices)
     objects_before = set(bpy.data.objects.keys())
     assert bpy.ops.hotspotuv.build_envelope_debug() == {"FINISHED"}
+    # Ребейзлайн, измеренный на рабочем дереве: четырёхсторонняя встреча в
+    # центре квадрата больше не остаётся недоказанной — ядро разрешает её ОДНИМ
+    # событием и говорит это именем. Прежние ожидания
+    # (`expect_resolved=False` и `MULTIWAY_INTERACTION_POLICY_UNPROVEN`)
+    # описывали состояние до этой работы и держались только тем, что смок
+    # грузил месячную установку вместо дерева.
     gp_obj = _assert_debug_result(
         source_obj,
         1,
-        expect_resolved=False,
+        expect_resolved=True,
     )
     gp_object_name = gp_obj.name
     assert (
         bpy.context.scene.hotspotuv_settings.envelope_debug_outcome
-        == "MULTIWAY_INTERACTION_POLICY_UNPROVEN"
+        == "RESOLVED"
     )
+    assert {
+        item["outcome"] for item in _sidecar_payload(source_obj)["diagnostics"]
+    } == {"MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT"}
     assert tuple(tuple(vertex.co) for vertex in source_obj.data.vertices) == local_positions
     assert set(bpy.data.objects.keys()) - objects_before == {gp_obj.name}
 
@@ -561,7 +640,14 @@ def _run_topology_only_smoke():
 
 def _run_staged_metric_rejection_smoke():
     _reset_scene()
-    source_obj = _build_two_patch_seam(nonplanar_second_patch=True)
+    # 1e-2, а не прежние 1e-3: `SOURCE_ONLY_GRID_SNAP_V1` привязывает вершины
+    # источника ДО проверки планарности, и всё ближе половины ячейки ложится в
+    # плоскость ТОЧНО — на тысячной отвергать стало нечего. Тот же порог держит
+    # `test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap`.
+    source_obj = _build_two_patch_seam(
+        nonplanar_second_patch=True,
+        second_patch_offset=0.01,
+    )
     assert (
         bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
         == {"FINISHED"}
@@ -757,10 +843,13 @@ def _run_patch_scoped_frame_smoke():
     _reset_scene()
     source_obj = _build_axis_plane_with_unselected_tilted_patch()
     assert bpy.ops.hotspotuv.build_envelope_debug() == {"FINISHED"}
+    # Тот же ребейзлайн, что и на осевой плоскости: выбранный патч здесь — та же
+    # четырёхсторонняя встреча, и она теперь разрешается. Утверждение этого
+    # смока — про НЕВЛИЯНИЕ невыбранного наклонного патча на кадр, и оно ниже.
     _assert_debug_result(
         source_obj,
         1,
-        expect_resolved=False,
+        expect_resolved=True,
     )
     assert (
         bpy.context.scene.hotspotuv_settings.envelope_debug_outcome

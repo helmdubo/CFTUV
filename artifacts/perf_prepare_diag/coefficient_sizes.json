@@ -1,0 +1,516 @@
+{
+  "walls_012:A_field:d0": {
+    "variant": "A_field",
+    "density": 0,
+    "metric": {
+      "planarity": "NearPlanarProjectionCertificateV1",
+      "near_planar": true,
+      "projected_vertices": 11,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          14,
+          11
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          59,
+          75
+        ],
+        [
+          67,
+          72
+        ],
+        [
+          47,
+          73
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          67,
+          75
+        ],
+        [
+          77,
+          74
+        ],
+        [
+          77,
+          75
+        ]
+      ],
+      "basis_a_len2_float": 0.0004009645270555601,
+      "basis_b_len2_float": 56.263115122006006,
+      "gram_bits": [
+        [
+          76,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          84,
+          87
+        ],
+        [
+          92,
+          86
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          114,
+          101
+        ],
+        [
+          102,
+          97
+        ],
+        [
+          102,
+          97
+        ],
+        [
+          88,
+          92
+        ]
+      ],
+      "gram_condition_float": 482940.3949270955,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 60,
+        "num_bits_median": 46,
+        "den_bits_max": 51,
+        "den_bits_median": 47
+      },
+      "max_residual": 0.01000062559451148,
+      "residual_budget": 0.0125
+    },
+    "arrival_laws": {},
+    "counters": {
+      "CONVEYOR_ARRIVAL_LAWS": 3,
+      "CONVEYOR_RESCALED_ARRIVAL_LAWS": 5,
+      "CONVEYOR_RATIONAL_VERTEX_FANS": 2,
+      "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
+      "CONVEYOR_MITERED_CORNERS": 0,
+      "CONVEYOR_BOUND_FAN_DIRECTIONS": 2,
+      "CONVEYOR_FAN_SUPPORTS": 2,
+      "CONVEYOR_DOMAIN_REGIONS": 1,
+      "CONVEYOR_LATTICE_SCALE": 32768,
+      "CONVEYOR_FAN_EDGES": 2,
+      "CONVEYOR_DOMAIN_EDGES": 12,
+      "CONVEYOR_SOURCE_EDGES": 3,
+      "CONVEYOR_WALL_EDGES": 9,
+      "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 0,
+      "CONVEYOR_WEIGHTED_SOURCE_EDGES": 3,
+      "CONVEYOR_SKELETON_NODES": 12,
+      "CONVEYOR_FACES": 5
+    },
+    "stages": {
+      "QUEUE_PREPARE": {
+        "seconds": 4.9551,
+        "outcome": "EXACT",
+        "factorization": {
+          "calls": 25,
+          "distinct_radicands": 15,
+          "radicand_bits_max": 246,
+          "radicand_bits_median": 203,
+          "radicand_bits_min": 2,
+          "largest_prime_factor_bits_max": 73,
+          "total_seconds": 4.0693,
+          "worst": [
+            {
+              "bits": 201,
+              "seconds": 0.8148,
+              "largest_prime_bits": 65,
+              "n": "1789695942521755455579271029764900419088644768480592376617301"
+            },
+            {
+              "bits": 243,
+              "seconds": 0.4127,
+              "largest_prime_bits": 73,
+              "n": "8815271257367225442991968805039683217668930429457914371865045504375128064"
+            },
+            {
+              "bits": 243,
+              "seconds": 0.3808,
+              "largest_prime_bits": 73,
+              "n": "8815271257367225442991968805039683217668930429457914371865045504375128064"
+            },
+            {
+              "bits": 243,
+              "seconds": 0.3755,
+              "largest_prime_bits": 73,
+              "n": "8815271257367225442991968805039683217668930429457914371865045504375128064"
+            },
+            {
+              "bits": 203,
+              "seconds": 0.2613,
+              "largest_prime_bits": 39,
+              "n": "6824216720695701361835948836879986852324977009920801928904704"
+            }
+          ]
+        }
+      },
+      "QUEUE_COVERAGE": {
+        "seconds": 1.2179,
+        "outcome": "EXACT",
+        "factorization": {
+          "calls": 5,
+          "distinct_radicands": 5,
+          "radicand_bits_max": 246,
+          "radicand_bits_median": 216,
+          "radicand_bits_min": 203,
+          "largest_prime_factor_bits_max": 73,
+          "total_seconds": 1.1241,
+          "worst": [
+            {
+              "bits": 243,
+              "seconds": 0.411,
+              "largest_prime_bits": 73,
+              "n": "8815271257367225442991968805039683217668930429457914371865045504375128064"
+            },
+            {
+              "bits": 203,
+              "seconds": 0.2782,
+              "largest_prime_bits": 39,
+              "n": "6824216720695701361835948836879986852324977009920801928904704"
+            },
+            {
+              "bits": 216,
+              "seconds": 0.2362,
+              "largest_prime_bits": 40,
+              "n": "86814285812865855333316357428078059036731529663491830546778030080"
+            },
+            {
+              "bits": 246,
+              "seconds": 0.1931,
+              "largest_prime_bits": 65,
+              "n": "79337568822028543179575696065768839636502023975431072989891014190165917696"
+            },
+            {
+              "bits": 206,
+              "seconds": 0.0056,
+              "largest_prime_bits": 36,
+              "n": "73943945978196176332097962847740988835857293794080042659086336"
+            }
+          ]
+        }
+      },
+      "QUEUE_CONTOUR": {
+        "seconds": 0.9949,
+        "faces": 5,
+        "factorization": {
+          "calls": 5,
+          "distinct_radicands": 5,
+          "radicand_bits_max": 246,
+          "radicand_bits_median": 216,
+          "radicand_bits_min": 203,
+          "largest_prime_factor_bits_max": 73,
+          "total_seconds": 0.9893,
+          "worst": [
+            {
+              "bits": 243,
+              "seconds": 0.368,
+              "largest_prime_bits": 73,
+              "n": "8815271257367225442991968805039683217668930429457914371865045504375128064"
+            },
+            {
+              "bits": 203,
+              "seconds": 0.236,
+              "largest_prime_bits": 39,
+              "n": "6824216720695701361835948836879986852324977009920801928904704"
+            },
+            {
+              "bits": 216,
+              "seconds": 0.2018,
+              "largest_prime_bits": 40,
+              "n": "86814285812865855333316357428078059036731529663491830546778030080"
+            },
+            {
+              "bits": 246,
+              "seconds": 0.1797,
+              "largest_prime_bits": 65,
+              "n": "79337568822028543179575696065768839636502023975431072989891014190165917696"
+            },
+            {
+              "bits": 206,
+              "seconds": 0.0039,
+              "largest_prime_bits": 36,
+              "n": "73943945978196176332097962847740988835857293794080042659086336"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "walls_012:B_v0_flat:d0": {
+    "variant": "B_v0_flat",
+    "density": 0,
+    "metric": {
+      "planarity": "ExactSourcePlaneCertificateV1",
+      "near_planar": false,
+      "projected_vertices": 0,
+      "grid_law": "SOURCE_ONLY_GRID_SNAP_V1",
+      "grid_window_step": "ExactRationalV1(numerator=1, denominator=4096)",
+      "origin_bits": [
+        [
+          16,
+          13
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          15,
+          12
+        ]
+      ],
+      "basis_a_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "basis_b_bits": [
+        [
+          0,
+          1
+        ],
+        [
+          14,
+          12
+        ],
+        [
+          15,
+          13
+        ]
+      ],
+      "basis_a_len2_float": 0.00040078163146972656,
+      "basis_b_len2_float": 56.26306563615799,
+      "gram_bits": [
+        [
+          11,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          20,
+          23
+        ],
+        [
+          30,
+          25
+        ]
+      ],
+      "inverse_gram_bits": [
+        [
+          52,
+          39
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          38,
+          34
+        ],
+        [
+          25,
+          29
+        ]
+      ],
+      "gram_condition_float": 483159.0809664121,
+      "chart_coordinates": {
+        "count": 24,
+        "num_bits_max": 30,
+        "num_bits_median": 14,
+        "den_bits_max": 21,
+        "den_bits_median": 6
+      }
+    },
+    "arrival_laws": {},
+    "counters": {
+      "CONVEYOR_ARRIVAL_LAWS": 3,
+      "CONVEYOR_RESCALED_ARRIVAL_LAWS": 4,
+      "CONVEYOR_RATIONAL_VERTEX_FANS": 2,
+      "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
+      "CONVEYOR_MITERED_CORNERS": 0,
+      "CONVEYOR_BOUND_FAN_DIRECTIONS": 2,
+      "CONVEYOR_FAN_SUPPORTS": 2,
+      "CONVEYOR_DOMAIN_REGIONS": 1,
+      "CONVEYOR_LATTICE_SCALE": 32768,
+      "CONVEYOR_FAN_EDGES": 2,
+      "CONVEYOR_DOMAIN_EDGES": 12,
+      "CONVEYOR_SOURCE_EDGES": 3,
+      "CONVEYOR_WALL_EDGES": 9,
+      "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 0,
+      "CONVEYOR_WEIGHTED_SOURCE_EDGES": 3,
+      "CONVEYOR_SKELETON_NODES": 12,
+      "CONVEYOR_FACES": 5
+    },
+    "stages": {
+      "QUEUE_PREPARE": {
+        "seconds": 0.5928,
+        "outcome": "EXACT",
+        "factorization": {
+          "calls": 23,
+          "distinct_radicands": 12,
+          "radicand_bits_max": 119,
+          "radicand_bits_median": 90,
+          "radicand_bits_min": 2,
+          "largest_prime_factor_bits_max": 30,
+          "total_seconds": 0.0219,
+          "worst": [
+            {
+              "bits": 119,
+              "seconds": 0.0046,
+              "largest_prime_bits": 29,
+              "n": "569543276685678568269630036231847936"
+            },
+            {
+              "bits": 119,
+              "seconds": 0.0046,
+              "largest_prime_bits": 29,
+              "n": "569543276685678568269630036231847936"
+            },
+            {
+              "bits": 119,
+              "seconds": 0.0042,
+              "largest_prime_bits": 29,
+              "n": "569543276685678568269630036231847936"
+            },
+            {
+              "bits": 57,
+              "seconds": 0.0041,
+              "largest_prime_bits": 29,
+              "n": "73631899763509921"
+            },
+            {
+              "bits": 119,
+              "seconds": 0.0007,
+              "largest_prime_bits": 30,
+              "n": "569544190775421813663674390517121024"
+            }
+          ]
+        }
+      },
+      "QUEUE_COVERAGE": {
+        "seconds": 0.0616,
+        "outcome": "EXACT",
+        "factorization": {
+          "calls": 5,
+          "distinct_radicands": 5,
+          "radicand_bits_max": 119,
+          "radicand_bits_median": 97,
+          "radicand_bits_min": 90,
+          "largest_prime_factor_bits_max": 30,
+          "total_seconds": 0.0059,
+          "worst": [
+            {
+              "bits": 119,
+              "seconds": 0.0045,
+              "largest_prime_bits": 29,
+              "n": "569543276685678568269630036231847936"
+            },
+            {
+              "bits": 119,
+              "seconds": 0.0006,
+              "largest_prime_bits": 30,
+              "n": "569544190775421813663674390517121024"
+            },
+            {
+              "bits": 90,
+              "seconds": 0.0003,
+              "largest_prime_bits": 26,
+              "n": "623017713634578512708894720"
+            },
+            {
+              "bits": 90,
+              "seconds": 0.0003,
+              "largest_prime_bits": 30,
+              "n": "1058743851089847965433462784"
+            },
+            {
+              "bits": 97,
+              "seconds": 0.0002,
+              "largest_prime_bits": 19,
+              "n": "136447525453349393859780542464"
+            }
+          ]
+        }
+      },
+      "QUEUE_CONTOUR": {
+        "seconds": 0.0116,
+        "faces": 5,
+        "factorization": {
+          "calls": 5,
+          "distinct_radicands": 5,
+          "radicand_bits_max": 119,
+          "radicand_bits_median": 97,
+          "radicand_bits_min": 90,
+          "largest_prime_factor_bits_max": 30,
+          "total_seconds": 0.0055,
+          "worst": [
+            {
+              "bits": 119,
+              "seconds": 0.0042,
+              "largest_prime_bits": 29,
+              "n": "569543276685678568269630036231847936"
+            },
+            {
+              "bits": 119,
+              "seconds": 0.0006,
+              "largest_prime_bits": 30,
+              "n": "569544190775421813663674390517121024"
+            },
+            {
+              "bits": 90,
+              "seconds": 0.0003,
+              "largest_prime_bits": 30,
+              "n": "1058743851089847965433462784"
+            },
+            {
+              "bits": 90,
+              "seconds": 0.0002,
+              "largest_prime_bits": 26,
+              "n": "623017713634578512708894720"
+            },
+            {
+              "bits": 97,
+              "seconds": 0.0002,
+              "largest_prime_bits": 19,
+              "n": "136447525453349393859780542464"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

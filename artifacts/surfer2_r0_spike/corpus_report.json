@@ -1,0 +1,2967 @@
+{
+  "role": "R0 corpus receipt: exact-Surfer2 oracle vs CFTUV wavefront kernel",
+  "produced_by": "tools/surfer2_corpus_run.py",
+  "corpus": [
+    "kernel/tests/wavefront_cases.py::named_corpus",
+    "tools/surfer2_corpus_run.py::weighted_corpus"
+  ],
+  "declared_model_intersection": [
+    "плоский PSLG на целочисленной решётке",
+    "фронт идёт от КАЖДОГО ребра: стен (q = 0) нет",
+    "веса рациональны как евклидова скорость sqrt(q)/|d|",
+    "вееров вогнутых вершин нет: рёбра нулевой длины в GraphML не выразимы",
+    "сравниваются СОБЫТИЯ (t > 0); вершины входа отбрасываются с обеих сторон"
+  ],
+  "binary_identity": {
+    "outcome": "EXACT",
+    "path": "/tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/surfer2/src/build/cc/surfer",
+    "sha256": "25641a91901e261453c14dfd3a9138fb04a8c439bb4bac90faaebccc3a7a31ad",
+    "sha256_expected": "25641a91901e261453c14dfd3a9138fb04a8c439bb4bac90faaebccc3a7a31ad",
+    "banner": "[SURF] VERSION                1.99-c42f9a7f-RELEASE",
+    "banner_expected": "[SURF] VERSION                1.99-c42f9a7f-RELEASE",
+    "detail": ""
+  },
+  "tolerance_model": {
+    "printed_significant_digits": 6,
+    "safety_factor": 2,
+    "half_ulp": 4.9999999999999996e-06,
+    "relative": 9.999999999999999e-06,
+    "floor": 1e-09,
+    "law": "tol(scale) = max(floor, safety_factor * 5e-digits * scale)",
+    "basis": "SkeletonDCEL::write_obj печатает CGAL::to_double без setprecision -> 6 значащих цифр; невязка печати пропорциональна модулю числа, поэтому абсолютного допуска не существует"
+  },
+  "totals": {
+    "cases_total": 25,
+    "cases_admitted": 25,
+    "cases_agreeing": 25,
+    "cases_not_admitted": [],
+    "nodes_matched": 143,
+    "max_residual_abs": 0.044444571241911035,
+    "max_residual_relative": 3.881721839868036e-06,
+    "outcomes": {
+      "NODES_AGREE_WITHIN_TOLERANCE": 25
+    }
+  },
+  "findings": [],
+  "cases": {
+    "axis_square": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "aa588800a046811a5d74d3c10e201314ee58786bc885f848da6f412135108c82",
+        "stderr_tail": "I  event#1 done.  Time is now 4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 8.0,
+      "scale_kernel": 4.0,
+      "scale_printed_observed": 8.0,
+      "tolerance_abs": 7.999999999999999e-05,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 5,
+      "surfer_interior_nodes": [
+        [
+          4.0,
+          4.0,
+          4.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 4
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "axis_rectangle": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "28ca9976f1e6e0cd14f872769faaabc500fb28d5e23e4d2e0d6871225d51671e",
+        "stderr_tail": "I  event#1 done.  Time is now 4\nI  event#2 done.  Time is now 4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 20.0,
+      "scale_kernel": 16.0,
+      "scale_printed_observed": 20.0,
+      "tolerance_abs": 0.00019999999999999998,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 6,
+      "surfer_interior_nodes": [
+        [
+          4.0,
+          4.0,
+          4.0
+        ],
+        [
+          16.0,
+          4.0,
+          4.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 16.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 2,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "right_triangle": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        3
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "0ac46dee6a5c720bda75c003d302c5f4a2b5b870e35127fb11479d0f8428ea25",
+        "stderr_tail": "I  event#1 done.  Time is now 3.51472\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 12.0,
+      "scale_kernel": 3.5147186257614296,
+      "scale_printed_observed": 12.0,
+      "tolerance_abs": 0.00011999999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 4,
+      "surfer_interior_nodes": [
+        [
+          3.51472,
+          3.51472,
+          3.51472
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3.5147186257614296,
+          "y": 3.5147186257614296,
+          "t": 3.5147186257614296,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 1.3742385704951232e-06,
+      "max_residual_relative": 1.145198808745936e-07,
+      "component0_agrees_with_geometric_filter": "n/a: SURFER2_ORACLE_PROCESS_FAILED rc=-11"
+    },
+    "diamond": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "f8fe6c70f69ecdf55ae81b2a30e40d8d9d3f4cf01efd7e0b31f4ea9647da7c20",
+        "stderr_tail": "I  event#1 done.  Time is now 5.65685\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 8.0,
+      "scale_kernel": 5.656854249492381,
+      "scale_printed_observed": 8.0,
+      "tolerance_abs": 7.999999999999999e-05,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 5,
+      "surfer_interior_nodes": [
+        [
+          0.0,
+          0.0,
+          5.65685
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 1,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 0.0,
+          "y": 0.0,
+          "t": 5.656854249492381,
+          "converging": 4
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 1,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 4.24949238020389e-06,
+      "max_residual_relative": 5.311865475254862e-07,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "ell": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        6
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "98ece3cb50a0dc0ec8385b0fd0dead1064acc1a2963ba0d911fccbca571f0fad",
+        "stderr_tail": "I  event#1 done.  Time is now 3\nI  event#2 done.  Time is now 3\nI  event#3 done.  Time is now 3\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 12.0,
+      "scale_kernel": 9.0,
+      "scale_printed_observed": 12.0,
+      "tolerance_abs": 0.00011999999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 9,
+      "surfer_interior_nodes": [
+        [
+          3.0,
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          9.0,
+          3.0
+        ],
+        [
+          9.0,
+          3.0,
+          3.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3.0,
+          "y": 9.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 3,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "comb_2": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        8
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "6ebfcb952a15dd403f52b61a8d5cc29f720867a19c78f0ba227a252c3ac04f30",
+        "stderr_tail": "done.  Time is now 1.65685\nI  event#2 done.  Time is now 1.65685\nI  event#3 done.  Time is now 2.92893\nI  event#4 done.  Time is now 4.14214\nI  event#5 done.  Time is now 5\nI  event#6 done.  Time is now 5\nW Rarely exercised code path: unconstraint case with triangle leaving right now.\nI  event#7 done.  Time is now 0\nI  event#8 done.  Time is now 0\nI  event#9 done.  Time is now 14.4853\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 36.0,
+      "scale_kernel": 33.071067811865476,
+      "scale_printed_observed": 36.0,
+      "tolerance_abs": 0.00035999999999999997,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 15,
+      "surfer_interior_nodes": [
+        [
+          5.0,
+          5.0,
+          5.0
+        ],
+        [
+          9.92893,
+          5.0,
+          5.0
+        ],
+        [
+          18.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          24.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          30.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          33.0711,
+          2.92893,
+          2.92893
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 9,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 18.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 30.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 33.071067811865476,
+          "y": 2.928932188134525,
+          "t": 2.928932188134525,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 24.0,
+          "y": 4.14213562373095,
+          "t": 4.14213562373095,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 5.0,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.928932188134524,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 6,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 3.2188134525767964e-05,
+      "max_residual_relative": 8.94114847937999e-07,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "comb_4": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "7ffb5ed5a2a9118c04eb12a747fbfbc15e23e323a542dc1dada4af3c290f01ec",
+        "stderr_tail": "nomial (of degree 1) has a zero right right now.  Can we catch this sooner?.  at time 0\nW Rarely exercised code path: unconstraint case with triangle leaving right now.\nI  event#12 done.  Time is now 0\nW Rarely exercised code path: unconstraint case with triangle leaving right now.\nI  event#13 done.  Time is now 0\nI  event#14 done.  Time is now 0\nI  event#15 done.  Time is now 14.4853\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 60.0,
+      "scale_kernel": 57.071067811865476,
+      "scale_printed_observed": 60.0,
+      "tolerance_abs": 0.0006,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 23,
+      "surfer_interior_nodes": [
+        [
+          5.0,
+          5.0,
+          5.0
+        ],
+        [
+          9.92893,
+          5.0,
+          5.0
+        ],
+        [
+          18.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          24.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          30.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          36.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          42.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          48.0,
+          4.14214,
+          4.14214
+        ],
+        [
+          54.0,
+          1.65685,
+          1.65685
+        ],
+        [
+          57.0711,
+          2.92893,
+          2.92893
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 9,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 18.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 30.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 42.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 54.0,
+          "y": 1.6568542494923801,
+          "t": 1.6568542494923801,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 57.071067811865476,
+          "y": 2.928932188134525,
+          "t": 2.928932188134525,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 24.0,
+          "y": 4.14213562373095,
+          "t": 4.14213562373095,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 36.0,
+          "y": 4.14213562373095,
+          "t": 4.14213562373095,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 48.0,
+          "y": 4.14213562373095,
+          "t": 4.14213562373095,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 5.0,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.928932188134524,
+          "y": 5.0,
+          "t": 5.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 3.2188134525767964e-05,
+      "max_residual_relative": 5.364689087627994e-07,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "hole_1": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4,
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "baee2f65b279ff59ccf0b119ae4473f4f58e864f1620e522edb755c6939c0a31",
+        "stderr_tail": "laude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/surfer2/src/surf/src/KineticTriangulation.cpp:1596 untested code path: DECL linking.\nW /tmp/claude-0/-home-user-CFTUV/4255c1b9-7873-5749-a1f5-eb79eb899ce6/scratchpad/surfer2/src/surf/src/KineticTriangulation.cpp:1596 untested code path: DECL linking.\nI  event#5 done.  Time is now 3\nI  event#6 done.  Time is now 4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 20.0,
+      "scale_kernel": 17.0,
+      "scale_printed_observed": 20.0,
+      "tolerance_abs": 0.00019999999999999998,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 13,
+      "surfer_interior_nodes": [
+        [
+          3.0,
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          17.0,
+          3.0
+        ],
+        [
+          17.0,
+          3.0,
+          3.0
+        ],
+        [
+          17.0,
+          17.0,
+          3.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 17.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 17.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 4,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true,
+      "ring_component_probe": {
+        "0": {
+          "outcome": "EXACT",
+          "vertices_total": 12,
+          "event_nodes": 4,
+          "event_nodes_in_region": 4,
+          "event_nodes_inside_outer_ring": 4,
+          "reading": "REGION_WITH_HOLES"
+        },
+        "1": {
+          "outcome": "EXACT",
+          "vertices_total": 4,
+          "event_nodes": 0,
+          "event_nodes_in_region": 0,
+          "event_nodes_inside_outer_ring": 0,
+          "reading": "NO_FINITE_EVENT_NODES"
+        },
+        "2": {
+          "outcome": "EXACT",
+          "vertices_total": 5,
+          "event_nodes": 1,
+          "event_nodes_in_region": 0,
+          "event_nodes_inside_outer_ring": 1,
+          "reading": "HOLE_INTERIOR"
+        },
+        "3": {
+          "outcome": "SURFER2_ORACLE_PROCESS_FAILED",
+          "rc": 1
+        }
+      }
+    },
+    "holes_2": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ],
+        [
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4,
+        4,
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "f70bd915c4974caaafd8d3726769708e614e778c6befd68b347b414dbd39ef03",
+        "stderr_tail": "I  event#2 done.  Time is now 3\nI  event#3 done.  Time is now 3\nI  event#4 done.  Time is now 3\nI  event#5 done.  Time is now 3\nI  event#6 done.  Time is now 3\nI  event#7 done.  Time is now 3\nI  event#8 done.  Time is now 3\nI  event#9 done.  Time is now 3\nI  event#10 done.  Time is now 6\nI  event#11 done.  Time is now 6\nI  event#12 done.  Time is now 4\nI  event#13 done.  Time is now 4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 40.0,
+      "scale_kernel": 37.0,
+      "scale_printed_observed": 40.0,
+      "tolerance_abs": 0.00039999999999999996,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 24,
+      "surfer_interior_nodes": [
+        [
+          3.0,
+          3.0,
+          3.0
+        ],
+        [
+          3.0,
+          17.0,
+          3.0
+        ],
+        [
+          17.0,
+          3.0,
+          3.0
+        ],
+        [
+          17.0,
+          17.0,
+          3.0
+        ],
+        [
+          20.0,
+          6.0,
+          6.0
+        ],
+        [
+          20.0,
+          14.0,
+          6.0
+        ],
+        [
+          23.0,
+          3.0,
+          3.0
+        ],
+        [
+          23.0,
+          17.0,
+          3.0
+        ],
+        [
+          37.0,
+          3.0,
+          3.0
+        ],
+        [
+          37.0,
+          17.0,
+          3.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 6,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 37.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 37.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 17.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 23.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 23.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 17.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 20.0,
+          "y": 6.0,
+          "t": 6.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 20.0,
+          "y": 14.0,
+          "t": 6.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true,
+      "ring_component_probe": {
+        "0": {
+          "outcome": "EXACT",
+          "vertices_total": 22,
+          "event_nodes": 10,
+          "event_nodes_in_region": 10,
+          "event_nodes_inside_outer_ring": 10,
+          "reading": "REGION_WITH_HOLES"
+        },
+        "1": {
+          "outcome": "EXACT",
+          "vertices_total": 4,
+          "event_nodes": 0,
+          "event_nodes_in_region": 0,
+          "event_nodes_inside_outer_ring": 0,
+          "reading": "NO_FINITE_EVENT_NODES"
+        },
+        "2": {
+          "outcome": "EXACT",
+          "vertices_total": 5,
+          "event_nodes": 1,
+          "event_nodes_in_region": 0,
+          "event_nodes_inside_outer_ring": 1,
+          "reading": "HOLE_INTERIOR"
+        },
+        "3": {
+          "outcome": "EXACT",
+          "vertices_total": 5,
+          "event_nodes": 1,
+          "event_nodes_in_region": 0,
+          "event_nodes_inside_outer_ring": 1,
+          "reading": "HOLE_INTERIOR"
+        }
+      }
+    },
+    "cross": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "36ea64c4c50bdd0ffc3f63c05b4d11d8bbcdd1360f5c7a4e6e45d45533791f7b",
+        "stderr_tail": "oke collapse: type SPOKE_COLLAPSE(0) at time 2 (component 0)\nI  event#1 done.  Time is now 2\nI compute_flip_event() found a triangle/spoke collapse: type SPOKE_COLLAPSE(1) at time 2 (component 0)\nI  event#2 done.  Time is now 2\nI  event#3 done.  Time is now 2\nI  event#4 done.  Time is now 2\nI  event#5 done.  Time is now 3\nI  event#6 done.  Time is now 3\nI  event#7 done.  Time is now 3\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 20.0,
+      "scale_kernel": 17.0,
+      "scale_printed_observed": 20.0,
+      "tolerance_abs": 0.00019999999999999998,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 19,
+      "surfer_interior_nodes": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          6.0,
+          6.0,
+          2.0
+        ],
+        [
+          7.0,
+          3.0,
+          3.0
+        ],
+        [
+          7.0,
+          6.0,
+          3.0
+        ],
+        [
+          7.0,
+          17.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          2.0
+        ],
+        [
+          16.0,
+          6.0,
+          2.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 6,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 8.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 16.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 7.0,
+          "y": 6.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 7.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 7.0,
+          "y": 17.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "staircase": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        8
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "5c447992c9a09d73e5fe22d0dd2d7b02380f029901e207a58bbe4c1a44c08ac8",
+        "stderr_tail": "I  event#1 done.  Time is now 2\nI  event#2 done.  Time is now 2\nI  event#3 done.  Time is now 2\nI  event#4 done.  Time is now 2\nI  event#5 done.  Time is now 4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 12.0,
+      "scale_kernel": 10.0,
+      "scale_printed_observed": 12.0,
+      "tolerance_abs": 0.00011999999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 13,
+      "surfer_interior_nodes": [
+        [
+          2.0,
+          6.0,
+          2.0
+        ],
+        [
+          2.0,
+          10.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0,
+          4.0
+        ],
+        [
+          6.0,
+          2.0,
+          2.0
+        ],
+        [
+          10.0,
+          2.0,
+          2.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 4,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2.0,
+          "y": 6.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.0,
+          "y": 10.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 10.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.0,
+          "y": 4.0,
+          "t": 4.0,
+          "converging": 4
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 5,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "u_shape": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        8
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "37da310bcc2aba6a1dca15490b29e5ef32e5e9e53cd982519b321eed4e453cad",
+        "stderr_tail": "I  event#1 done.  Time is now 2.5\nI  event#2 done.  Time is now 2.5\nI  event#3 done.  Time is now 2.5\nI  event#4 done.  Time is now 2.5\nI  event#5 done.  Time is now 3\nI  event#6 done.  Time is now 3\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 16.0,
+      "scale_kernel": 13.5,
+      "scale_printed_observed": 16.0,
+      "tolerance_abs": 0.00015999999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 14,
+      "surfer_interior_nodes": [
+        [
+          2.5,
+          2.5,
+          2.5
+        ],
+        [
+          2.5,
+          6.5,
+          2.5
+        ],
+        [
+          13.5,
+          2.5,
+          2.5
+        ],
+        [
+          13.5,
+          9.5,
+          2.5
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 5,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2.5,
+          "y": 2.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 13.5,
+          "y": 2.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.5,
+          "y": 6.5,
+          "t": 2.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 13.5,
+          "y": 9.5,
+          "t": 2.5,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 4,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "double_notch": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "e66af900fcac0cb661f3c482051ca50d4aaa594594ba4c351d1155b28b402d21",
+        "stderr_tail": "one.  Time is now 1.5\nI  event#5 done.  Time is now 2\nI  event#6 done.  Time is now 2\nI  event#7 done.  Time is now 2\nI  event#8 done.  Time is now 3\nI  event#9 done.  Time is now 3\nI  event#10 done.  Time is now 3\nI  event#11 done.  Time is now 3\nI  event#12 done.  Time is now 1.5\nI  event#13 done.  Time is now 1.5\nI  event#14 done.  Time is now 1.5\nI  event#15 done.  Time is now 1.5\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 20.0,
+      "scale_kernel": 17.0,
+      "scale_printed_observed": 20.0,
+      "tolerance_abs": 0.00019999999999999998,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 26,
+      "surfer_interior_nodes": [
+        [
+          1.0,
+          2.0,
+          1.0
+        ],
+        [
+          1.0,
+          7.0,
+          1.0
+        ],
+        [
+          1.5,
+          1.5,
+          1.5
+        ],
+        [
+          6.5,
+          1.5,
+          1.5
+        ],
+        [
+          8.0,
+          3.0,
+          3.0
+        ],
+        [
+          8.0,
+          6.0,
+          3.0
+        ],
+        [
+          9.0,
+          2.0,
+          2.0
+        ],
+        [
+          16.0,
+          2.0,
+          2.0
+        ],
+        [
+          17.0,
+          3.0,
+          3.0
+        ],
+        [
+          17.0,
+          7.0,
+          3.0
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 13,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 1.0,
+          "y": 2.0,
+          "t": 1.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1.0,
+          "y": 7.0,
+          "t": 1.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 6.5,
+          "y": 1.5,
+          "t": 1.5,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1.5,
+          "y": 1.5,
+          "t": 1.5,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 9.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 16.0,
+          "y": 2.0,
+          "t": 2.0,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 8.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 8.0,
+          "y": 6.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 17.0,
+          "y": 3.0,
+          "t": 3.0,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 17.0,
+          "y": 7.0,
+          "t": 3.0,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "field_building_002_scale_64": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "d580165391e9f8461c72d5547f4a5ebbec5c3e058311c72db51031c133c9203c",
+        "stderr_tail": " event#11 done.  Time is now 21.6548\nI  event#12 done.  Time is now 21.9609\nI  event#13 done.  Time is now 21.9787\nI  event#14 done.  Time is now 47.5808\nI  event#15 done.  Time is now 48.0088\nI  event#16 done.  Time is now 54.8538\nI  event#17 done.  Time is now 111.707\nI  event#18 done.  Time is now 111.707\nI  event#19 done.  Time is now 6818.62\nI  event#20 done.  Time is now 14519.4\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 1139.0,
+      "scale_kernel": 1018.1944212811757,
+      "scale_printed_observed": 14519.4,
+      "tolerance_abs": 0.011389999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 27,
+      "surfer_interior_nodes": [
+        [
+          -57.3182,
+          51.502,
+          16.1331
+        ],
+        [
+          -55.0255,
+          56.9261,
+          21.9787
+        ],
+        [
+          -8.6286,
+          43.6289,
+          21.9609
+        ],
+        [
+          6.30154,
+          14.8534,
+          16.0191
+        ],
+        [
+          33.5672,
+          25.7743,
+          16.4058
+        ],
+        [
+          591.636,
+          -133.617,
+          16.721
+        ],
+        [
+          593.527,
+          -129.026,
+          21.6548
+        ],
+        [
+          907.575,
+          -219.009,
+          21.5562
+        ],
+        [
+          954.118,
+          -238.589,
+          15.5378
+        ],
+        [
+          1018.19,
+          -275.357,
+          15.7773
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 23,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 954.1176681230728,
+          "y": -238.58919952691787,
+          "t": 15.537842851839503,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1018.1944212811757,
+          "y": -275.3569433383586,
+          "t": 15.7773303060109,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 6.301542322939788,
+          "y": 14.853418226849367,
+          "t": 16.01912671375527,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -57.318186024898736,
+          "y": 51.50195513287818,
+          "t": 16.13307347263889,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 33.567208337402555,
+          "y": 25.774316079380196,
+          "t": 16.405802251320043,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 591.636057232106,
+          "y": -133.6165837467393,
+          "t": 16.721045251048757,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 907.5751943242664,
+          "y": -219.00882999291298,
+          "t": 21.55616879469753,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 593.5273080378249,
+          "y": -129.0260037201443,
+          "t": 21.65481372420219,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -8.628595070113082,
+          "y": 43.628893817793845,
+          "t": 21.960945834975856,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -55.02545558253357,
+          "y": 56.926107069251984,
+          "t": 21.978706522228357,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004421281175609693,
+      "max_residual_relative": 3.881721839868036e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "field_building_002_scale_256": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "c514e3d8ae94ee0821a1a1155c7510c60478359af2df36489dc91a2152ddde4d",
+        "stderr_tail": "I  event#8 done.  Time is now 87.7274\nI  event#9 done.  Time is now 87.7727\nI  event#10 done.  Time is now 87.7804\nI  event#11 done.  Time is now 87.9704\nI  event#12 done.  Time is now 202.876\nI  event#13 done.  Time is now 203.118\nI  event#14 done.  Time is now 438.979\nI  event#15 done.  Time is now 438.979\nI  event#16 done.  Time is now 29103.1\nI  event#17 done.  Time is now 31787.7\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 4555.0,
+      "scale_kernel": 4073.726568298741,
+      "scale_printed_observed": 31787.7,
+      "tolerance_abs": 0.04554999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 28,
+      "surfer_interior_nodes": [
+        [
+          -230.265,
+          205.335,
+          63.4169
+        ],
+        [
+          -220.707,
+          227.932,
+          87.7727
+        ],
+        [
+          -34.3863,
+          174.54,
+          87.7804
+        ],
+        [
+          24.9341,
+          59.0157,
+          63.5949
+        ],
+        [
+          133.163,
+          103.805,
+          65.9451
+        ],
+        [
+          2327.64,
+          -525.203,
+          65.8817
+        ],
+        [
+          2336.17,
+          -504.923,
+          87.7274
+        ],
+        [
+          3630.49,
+          -875.626,
+          87.9704
+        ],
+        [
+          3818.8,
+          -955.276,
+          63.2831
+        ],
+        [
+          4073.73,
+          -1101.44,
+          63.1053
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 21,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4073.726568298741,
+          "y": -1101.4404990578662,
+          "t": 63.105272430501344,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 3818.7973163063116,
+          "y": -955.276077604567,
+          "t": 63.28311399683457,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -230.2652057746971,
+          "y": 205.33492356237082,
+          "t": 63.416881892228965,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 24.934058032459877,
+          "y": 59.01569005679937,
+          "t": 63.594911821897064,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2327.639938907464,
+          "y": -525.2032703653604,
+          "t": 65.88171928136089,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 133.16337696415854,
+          "y": 103.80529961657238,
+          "t": 65.94505050628666,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2336.1696001573,
+          "y": -504.9226578025264,
+          "t": 87.72744413510291,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -220.7070647103773,
+          "y": 227.93192571328055,
+          "t": 87.77270456441366,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -34.3862850324773,
+          "y": 174.53989401973033,
+          "t": 87.78038366260374,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3630.491067633196,
+          "y": -875.6257914254307,
+          "t": 87.97042628297048,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.003431701259160036,
+      "max_residual_relative": 7.533921534928729e-07,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "field_building_002_scale_1024": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        12
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "4b74b8428c31f02d69fa3e331bc5e562ca0c79795b44cad451c5df8b8d1ed5e5",
+        "stderr_tail": " event#12 done.  Time is now 445.364\nI  event#13 done.  Time is now 829.338\nI  event#14 done.  Time is now 830.021\nI  event#15 done.  Time is now 1018.13\nI  event#16 done.  Time is now 1763.55\nI  event#17 done.  Time is now 1763.55\nI  event#18 done.  Time is now 1763.55\nI  event#19 done.  Time is now 1763.61\nI  event#20 done.  Time is now 2317.27\nI  event#21 done.  Time is now 2491.03\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 18221.0,
+      "scale_kernel": 16293.159540644036,
+      "scale_printed_observed": 21055.3,
+      "tolerance_abs": 0.18220999999999998,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 28,
+      "surfer_interior_nodes": [
+        [
+          -920.419,
+          822.221,
+          254.789
+        ],
+        [
+          -882.593,
+          911.657,
+          351.185
+        ],
+        [
+          -137.662,
+          698.164,
+          351.154
+        ],
+        [
+          100.009,
+          236.463,
+          254.864
+        ],
+        [
+          533.72,
+          414.544,
+          263.451
+        ],
+        [
+          9260.4,
+          -2086.49,
+          263.076
+        ],
+        [
+          9295.13,
+          -2004.5,
+          351.466
+        ],
+        [
+          14521.1,
+          -3502.05,
+          351.426
+        ],
+        [
+          15274.2,
+          -3820.55,
+          252.694
+        ],
+        [
+          16293.2,
+          -4405.56,
+          252.684
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 21,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 16293.159540644036,
+          "y": -4405.563130842915,
+          "t": 252.68399528214096,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 15274.155555428759,
+          "y": -3820.5489114762245,
+          "t": 252.6943428186922,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -920.4190817352219,
+          "y": 822.2210538011749,
+          "t": 254.78921559631323,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 100.00906466024432,
+          "y": 236.46327168431492,
+          "t": 254.86379984401933,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 9260.39715367621,
+          "y": -2086.4938344848165,
+          "t": 263.07597567993497,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 533.719935891556,
+          "y": 414.5443474728393,
+          "t": 263.4506359010412,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -137.66171636200377,
+          "y": 698.1637151722095,
+          "t": 351.15438034055796,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -882.5933362970827,
+          "y": 911.6569857276656,
+          "t": 351.1846477953287,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 14521.097430420283,
+          "y": -3502.0529297928733,
+          "t": 351.42628623935536,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9295.125420994356,
+          "y": -2004.4981439127687,
+          "t": 351.4657737445794,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 10,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.044444571241911035,
+      "max_residual_relative": 2.4391949531810017e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_0": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "3f0e19edbacdd5a240ed97bd92a7d4f75d78dd98f25314f561b46494001e2969",
+        "stderr_tail": "I  event#1 done.  Time is now 2025.64\nI  event#2 done.  Time is now 2126.01\nI  event#3 done.  Time is now 2135.89\nI  event#4 done.  Time is now 2594.73\nI  event#5 done.  Time is now 2647.48\nI  event#6 done.  Time is now 2661.89\nI  event#7 done.  Time is now 2734.14\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 3913.0,
+      "scale_kernel": 2734.1423738303865,
+      "scale_printed_observed": 3913.0,
+      "tolerance_abs": 0.03913,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          -1031.77,
+          196.093,
+          2025.64
+        ],
+        [
+          39.2179,
+          31.0084,
+          2594.73
+        ],
+        [
+          256.803,
+          28.7338,
+          2734.14
+        ],
+        [
+          342.755,
+          -139.462,
+          2661.89
+        ],
+        [
+          357.96,
+          -171.352,
+          2647.48
+        ],
+        [
+          762.052,
+          1213.93,
+          2135.89
+        ],
+        [
+          905.96,
+          -1230.77,
+          2126.01
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 21,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": -1031.766938339544,
+          "y": 196.09331752343627,
+          "t": 2025.6444940655754,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 905.9597871141497,
+          "y": -1230.7683043498032,
+          "t": 2126.0077722017204,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 762.051923991948,
+          "y": 1213.9323285023122,
+          "t": 2135.892217817668,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 39.21786609051141,
+          "y": 31.008384939524905,
+          "t": 2594.7306656092996,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 357.96029858738115,
+          "y": -171.35154985125274,
+          "t": 2647.4839937780075,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 342.75545989506116,
+          "y": -139.4619798065639,
+          "t": 2661.890853301742,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 256.80270197417815,
+          "y": 28.73375596315128,
+          "t": 2734.1423738303865,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004494065575272543,
+      "max_residual_relative": 1.148496185860604e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_1": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "30b8d459ce5d22c35cfdde22637c16e6a72965d776c0b4f525b56550db597607",
+        "stderr_tail": "I  event#1 done.  Time is now 2016.64\nI  event#2 done.  Time is now 2230.74\nI  event#3 done.  Time is now 2297.02\nI  event#4 done.  Time is now 2309.6\nI  event#5 done.  Time is now 2314.05\nI  event#6 done.  Time is now 2418.04\nI  event#7 done.  Time is now 2527.31\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 3816.0,
+      "scale_kernel": 2527.307549564299,
+      "scale_printed_observed": 3816.0,
+      "tolerance_abs": 0.03816,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          -1022.09,
+          -329.584,
+          2230.74
+        ],
+        [
+          -984.352,
+          233.315,
+          2418.04
+        ],
+        [
+          -837.653,
+          113.776,
+          2527.31
+        ],
+        [
+          -50.6959,
+          290.885,
+          2297.02
+        ],
+        [
+          214.215,
+          260.186,
+          2309.6
+        ],
+        [
+          560.015,
+          207.975,
+          2314.05
+        ],
+        [
+          894.177,
+          -148.231,
+          2016.64
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 18,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 894.1765969843216,
+          "y": -148.23121589311944,
+          "t": 2016.6364747068546,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -1022.0856864428015,
+          "y": -329.5836457911913,
+          "t": 2230.739933729242,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -50.695925739078206,
+          "y": 290.88533907622326,
+          "t": 2297.0156299504965,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 214.2151356485624,
+          "y": 260.18614883566687,
+          "t": 2309.602412940137,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 560.0149626006893,
+          "y": 207.97454389393334,
+          "t": 2314.0539374674,
+          "converging": 3
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -984.3519237928112,
+          "y": 233.31524921964944,
+          "t": 2418.0364671644415,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -837.6528996819032,
+          "y": 113.77604950728733,
+          "t": 2527.307549564299,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004370049503449991,
+      "max_residual_relative": 1.1451911696671885e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_2": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "0834cbeca2e4474f2e5f5a2f40cf453066c468b700d94dce965dcb7e5038af3b",
+        "stderr_tail": "I  event#1 done.  Time is now 1998.05\nI  event#2 done.  Time is now 2088.43\nI  event#3 done.  Time is now 2302.7\nI  event#4 done.  Time is now 2336.78\nI  event#5 done.  Time is now 2343.88\nI  event#6 done.  Time is now 2394.3\nI  event#7 done.  Time is now 2449.44\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 3310.0,
+      "scale_kernel": 2449.4350136986986,
+      "scale_printed_observed": 3310.0,
+      "tolerance_abs": 0.0331,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          147.649,
+          -129.06,
+          2343.88
+        ],
+        [
+          281.211,
+          -126.834,
+          2449.44
+        ],
+        [
+          342.7,
+          -383.424,
+          2336.78
+        ],
+        [
+          385.941,
+          104.909,
+          2394.3
+        ],
+        [
+          449.663,
+          342.732,
+          2302.7
+        ],
+        [
+          512.249,
+          -786.338,
+          2088.43
+        ],
+        [
+          691.994,
+          880.353,
+          1998.05
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 19,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 691.9943893637824,
+          "y": 880.3530181131018,
+          "t": 1998.0495962734362,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 512.2493057117857,
+          "y": -786.3378006740014,
+          "t": 2088.4347919130423,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 449.6633254929619,
+          "y": 342.73226297914846,
+          "t": 2302.7001451740925,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 342.69998825500045,
+          "y": -383.4241675198706,
+          "t": 2336.7824093350328,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 147.64935982706572,
+          "y": -129.05974266174766,
+          "t": 2343.8794035118553,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 385.9410281582509,
+          "y": 104.9088821688119,
+          "t": 2394.2998502926025,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 281.21108918766566,
+          "y": -126.83388089029357,
+          "t": 2449.4350136986986,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004986301301414642,
+      "max_residual_relative": 1.5064354384938495e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_3": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "e3486ca58db67c33f3d2d85b483ade4001fa393d64ff56e8dd903b7f183bac8d",
+        "stderr_tail": "I  event#1 done.  Time is now 2285.92\nI  event#2 done.  Time is now 2339.6\nI  event#3 done.  Time is now 2484.75\nI  event#4 done.  Time is now 2540.51\nI  event#5 done.  Time is now 2690.08\nI  event#6 done.  Time is now 2734.25\nI  event#7 done.  Time is now 2734.66\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 3887.0,
+      "scale_kernel": 2734.662804721896,
+      "scale_printed_observed": 3887.0,
+      "tolerance_abs": 0.038869999999999995,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          -159.747,
+          -1292.85,
+          2285.92
+        ],
+        [
+          -44.8771,
+          -806.201,
+          2540.51
+        ],
+        [
+          190.66,
+          -345.626,
+          2690.08
+        ],
+        [
+          279.26,
+          -104.625,
+          2734.25
+        ],
+        [
+          353.814,
+          818.556,
+          2339.6
+        ],
+        [
+          373.486,
+          58.8172,
+          2734.66
+        ],
+        [
+          382.075,
+          576.09,
+          2484.75
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 19,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": -159.7471526101655,
+          "y": -1292.8450575305803,
+          "t": 2285.9158555396716,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 353.81437958292184,
+          "y": 818.5561412090294,
+          "t": 2339.597079913472,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 382.0752880260396,
+          "y": 576.0901079759116,
+          "t": 2484.748792939103,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -44.87710180670802,
+          "y": -806.2009435225929,
+          "t": 2540.5134283047746,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 190.65962946280376,
+          "y": -345.6261255233814,
+          "t": 2690.0770469262543,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 279.2595630322259,
+          "y": -104.62468089105525,
+          "t": 2734.246655969649,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 373.48553561410046,
+          "y": 58.81716142828355,
+          "t": 2734.662804721896,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004942469419574991,
+      "max_residual_relative": 1.2715383122137872e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_4": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "d3170badad3519a8058d58141b6cee8dc5c1599db5bec337acdd58c67bc9fa92",
+        "stderr_tail": "I  event#1 done.  Time is now 1886.9\nI  event#2 done.  Time is now 2051.26\nI  event#3 done.  Time is now 2195.02\nI  event#4 done.  Time is now 2223.66\nI  event#5 done.  Time is now 2268.75\nI  event#6 done.  Time is now 2385.83\nI  event#7 done.  Time is now 2425.73\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 3545.0,
+      "scale_kernel": 2425.7333524274827,
+      "scale_printed_observed": 3545.0,
+      "tolerance_abs": 0.035449999999999995,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          -959.778,
+          -580.458,
+          1886.9
+        ],
+        [
+          -368.313,
+          464.079,
+          2223.66
+        ],
+        [
+          -336.472,
+          402.503,
+          2268.75
+        ],
+        [
+          -222.899,
+          199.608,
+          2425.73
+        ],
+        [
+          -89.4257,
+          197.505,
+          2385.83
+        ],
+        [
+          809.925,
+          101.123,
+          2195.02
+        ],
+        [
+          1045.15,
+          -18.4689,
+          2051.26
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 21,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": -959.7779704695383,
+          "y": -580.4580307264717,
+          "t": 1886.9040045685006,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 1045.1474722331006,
+          "y": -18.468850469097447,
+          "t": 2051.26393350906,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 809.9251735140485,
+          "y": 101.12320064280729,
+          "t": 2195.0249897262634,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -368.31259527434776,
+          "y": 464.07934509036613,
+          "t": 2223.660136845782,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -336.47186197397235,
+          "y": 402.50257754314174,
+          "t": 2268.746360606281,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": -89.42565262417025,
+          "y": 197.5045292036417,
+          "t": 2385.8317023960108,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": -222.8988677024544,
+          "y": 199.60792264254923,
+          "t": 2425.7333524274827,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004989726263374905,
+      "max_residual_relative": 1.407539143406179e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "star_9_seed_5": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        9
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "6c777877f0f528adbe94f348c3771419bfb783644a8ff068fa559a42acbc0946",
+        "stderr_tail": "I  event#1 done.  Time is now 2006.98\nI  event#2 done.  Time is now 2477.76\nI  event#3 done.  Time is now 2492.58\nI  event#4 done.  Time is now 2556.33\nI  event#5 done.  Time is now 2578.79\nI  event#6 done.  Time is now 2580.06\nI  event#7 done.  Time is now 2636.66\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 4094.0,
+      "scale_kernel": 2636.6612575631284,
+      "scale_printed_observed": 4094.0,
+      "tolerance_abs": 0.04094,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 16,
+      "surfer_interior_nodes": [
+        [
+          -102.27,
+          -1310.78,
+          2006.98
+        ],
+        [
+          110.143,
+          120.931,
+          2477.76
+        ],
+        [
+          232.743,
+          71.5556,
+          2580.06
+        ],
+        [
+          305.671,
+          -241.389,
+          2556.33
+        ],
+        [
+          346.092,
+          -101.403,
+          2636.66
+        ],
+        [
+          434.92,
+          -101.743,
+          2578.79
+        ],
+        [
+          564.185,
+          -104.857,
+          2492.58
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 20,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": -102.2696555575597,
+          "y": -1310.7818348982883,
+          "t": 2006.9773023934338,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 110.14344624541103,
+          "y": 120.93125781024762,
+          "t": 2477.761458234485,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 564.1847141819633,
+          "y": -104.85677374056773,
+          "t": 2492.577211229026,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 305.67142027441406,
+          "y": -241.38942810542187,
+          "t": 2556.3305436254104,
+          "converging": 1
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 434.9204637563252,
+          "y": -101.74332931842689,
+          "t": 2578.7879524746263,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 232.74335251850994,
+          "y": 71.55559285577296,
+          "t": 2580.055728175193,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 346.09156305029813,
+          "y": -101.40339986812637,
+          "t": 2636.6612575631284,
+          "converging": 3
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 7,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.004271824806892255,
+      "max_residual_relative": 1.043435468219896e-06,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "weighted_square_8_bottom_w2": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "2",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "7ba06218c78d2aeb724a8315aee679aeb65826b650addd7e33314db4fec113e3",
+        "stderr_tail": "I  event#1 done.  Time is now 2.66667\nI  event#2 done.  Time is now 2.66667\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 8.0,
+      "scale_kernel": 5.333333333333333,
+      "scale_printed_observed": 8.0,
+      "tolerance_abs": 7.999999999999999e-05,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 6,
+      "surfer_interior_nodes": [
+        [
+          2.66667,
+          5.33333,
+          2.66667
+        ],
+        [
+          5.33333,
+          5.33333,
+          2.66667
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.6666666666666665,
+          "y": 5.333333333333333,
+          "t": 2.6666666666666665,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 5.333333333333333,
+          "y": 5.333333333333333,
+          "t": 2.6666666666666665,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 2,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 3.3333333333551707e-06,
+      "max_residual_relative": 4.1666666666939634e-07,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "weighted_square_8_bottom_w3_2": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "3/2",
+          "1",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        4
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "afba558ceb53f18303840c0f7af6dfba6d0b7962246b37876bd203e2ca2d83e5",
+        "stderr_tail": "I  event#1 done.  Time is now 3.2\nI  event#2 done.  Time is now 3.2\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 8.0,
+      "scale_kernel": 4.8,
+      "scale_printed_observed": 8.0,
+      "tolerance_abs": 7.999999999999999e-05,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 6,
+      "surfer_interior_nodes": [
+        [
+          3.2,
+          4.8,
+          3.2
+        ],
+        [
+          4.8,
+          4.8,
+          3.2
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 3,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.EDGE",
+          "x": 3.2,
+          "y": 4.8,
+          "t": 3.2,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 4.8,
+          "y": 4.8,
+          "t": 3.2,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 2,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    },
+    "weighted_ell_12_w3_2_on_two_edges": {
+      "admission": "ADMITTED",
+      "edge_weights": [
+        [
+          "3/2",
+          "1",
+          "1",
+          "3/2",
+          "1",
+          "1"
+        ]
+      ],
+      "ring_sizes": [
+        6
+      ],
+      "surfer": {
+        "outcome": "EXACT",
+        "rc": 0,
+        "stderr_digest": "63a27bd2b1d0c0166e48079fa187872552263011fec9acc9f48ac3a97a9d7248",
+        "stderr_tail": "I  event#1 done.  Time is now 2.4\nI  event#2 done.  Time is now 2.4\nI  event#3 done.  Time is now 2.4\nI  event#4 done.  Time is now 12\nI  event#5 done.  Time is now 12\nI All done.\n",
+        "detail": ""
+      },
+      "scale_input": 12.0,
+      "scale_kernel": 9.6,
+      "scale_printed_observed": 24.0,
+      "tolerance_abs": 0.00011999999999999999,
+      "tolerance_floor_binds": false,
+      "surfer_vertices_total": 11,
+      "surfer_interior_nodes": [
+        [
+          2.4,
+          3.6,
+          2.4
+        ],
+        [
+          2.4,
+          9.6,
+          2.4
+        ],
+        [
+          9.6,
+          3.6,
+          2.4
+        ]
+      ],
+      "surfer_boundary_ambiguous": [],
+      "kernel_outcome": "SkeletonOutcome.EXACT",
+      "kernel_levels": 4,
+      "kernel_nodes": [
+        {
+          "kind": "EventKind.SPLIT",
+          "x": 2.4,
+          "y": 3.6,
+          "t": 2.4,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 2.4,
+          "y": 9.6,
+          "t": 2.4,
+          "converging": 2
+        },
+        {
+          "kind": "EventKind.EDGE",
+          "x": 9.6,
+          "y": 3.6,
+          "t": 2.4,
+          "converging": 2
+        }
+      ],
+      "comparison": "NODES_AGREE_WITHIN_TOLERANCE",
+      "matched": 3,
+      "kernel_only": [],
+      "surfer_only": [],
+      "max_residual_abs": 0.0,
+      "max_residual_relative": 0.0,
+      "component0_agrees_with_geometric_filter": true
+    }
+  }
+}

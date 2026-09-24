@@ -1,0 +1,126 @@
+{
+  "schema": "P0_2B_UNIFIED_SUPERLEVEL_COORDINATOR_GATE_V1",
+  "head": "4cf9d5a9238382fc49592dee793a425d352a1943",
+  "branch": "exec/p0-2b-superlevel-transaction",
+  "product_wiring": false,
+  "materialization": false,
+  "commit_created": false,
+  "initial_edge_binding": {
+    "real_case": "named::cross",
+    "packet": "E2/S4",
+    "unique_post_birth_matches_per_edge": [1, 1],
+    "post_birth_use": "RECEIPT_ONLY",
+    "post_materialization_reapply": {
+      "MOTORCYCLE": "SYMBOLIC_INITIAL_EDGE_BINDING_UNRESOLVABLE",
+      "EXHAUSTIVE": "SYMBOLIC_INITIAL_EDGE_BINDING_UNRESOLVABLE"
+    },
+    "raw_f0_seed_generation_preserved": true
+  },
+  "authority": {
+    "raw_f0_hydration": "REQUESTED_EXACT_OCCURRENCES_PLUS_ONE_HOP_LINE_ONLY_PORTS",
+    "interior_split_rebuild": "F0_PLUS_STABLE_ROOT_FAMILY_CONTACTS",
+    "junction_discovery": "EDGE_AND_ENDPOINT_ON_ONE_OVERLAY",
+    "component_connectivity": "EXACT_TIME_POINT_PLUS_SHARED_DEAD_OR_LEAF_FAMILY_RESOURCE",
+    "component_apply": "ONE_SHARED_DELTA_PER_COMPONENT_SIMULTANEOUS",
+    "endpoint_precedence": false,
+    "edge_precedence": false,
+    "repeat_failure": "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE",
+    "junction_budget_failure": "SYMBOLIC_JUNCTION_GENERATION_BUDGET_EXHAUSTED",
+    "outer_budget_failure": "SYMBOLIC_SUPERLEVEL_OUTER_BUDGET_EXHAUSTED"
+  },
+  "real_permutation_gates": [
+    {
+      "case": "cross",
+      "search": "MOTORCYCLE_AND_EXHAUSTIVE",
+      "time": "2",
+      "input": {"EDGE": 2, "ENDPOINT_SPLIT": 4},
+      "junction_contacts": [{"EDGE": 2, "ENDPOINT": 4}],
+      "component_deltas": [4],
+      "component_rewires": [[1, 1, 2, 2]],
+      "canonical_batch_count": 1,
+      "overlay_signature_sha256": "041848c8cd46ccfc1ad71bf493e0124cb2c48b37a5e0da4bcf4458ef43d7cfd0",
+      "junction_trace_sha256": "fe21056472b12d28d9a76f2efa1c560fa60866195af1566c7cb328b480e833cb",
+      "permutation_projection_sha256": "8e1ed2b55e73d47d96e7b3c2e5cf5a82f77ec2ffd4f650845b8ade898cb7cece"
+    },
+    {
+      "case": "cross",
+      "search": "MOTORCYCLE_AND_EXHAUSTIVE",
+      "time": "3",
+      "input": {"EDGE": 2, "ENDPOINT_SPLIT": 4},
+      "junction_contacts": [{"EDGE": 2, "ENDPOINT": 4}],
+      "component_deltas": [3],
+      "component_rewires": [[1, 1, 2]],
+      "canonical_batch_count": 1,
+      "overlay_signature_sha256": "f40a2e2fbb5a2507439d2741995af5e3ece57cdf06caa9f759965d927d0ec05e",
+      "junction_trace_sha256": "7e7e5fd5152f87164f65c9ecc0f18affc5a870262a4e6e87af73baddc0bf8244",
+      "permutation_projection_sha256": "e41d4b3d978ee532364852a7d42c650f4e3f77977af9c289a65627c5d8ccb05b"
+    },
+    {
+      "case": "u_shape",
+      "search": "MOTORCYCLE_AND_EXHAUSTIVE",
+      "time": "5/2",
+      "input": {"EDGE": 2, "ENDPOINT_SPLIT": 4},
+      "junction_contacts": [{"EDGE": 2, "ENDPOINT": 4}],
+      "component_deltas": [4],
+      "component_rewires": [[1, 1, 2, 2]],
+      "canonical_batch_count": 1,
+      "overlay_signature_sha256": "d7a0ce83c380dcd2309ebf42b29afaf140003f36b2b887eac139df47e0336f81",
+      "junction_trace_sha256": "b9dad0fd47e79717491f7824b28158b2e816808263e4b719b322005f2f093c91",
+      "permutation_projection_sha256": "ceb1fbed57c7abc5ba9718553d57bcd706713d97b3830cd353873112b659d6af"
+    },
+    {
+      "case": "staircase_source_edges_3_4",
+      "search": "MOTORCYCLE_AND_EXHAUSTIVE",
+      "time": "4",
+      "input": {"EDGE": 2, "ENDPOINT_SPLIT": 4},
+      "junction_contacts": [{"EDGE": 2, "ENDPOINT": 6}],
+      "note": "two zero-span targets expose both exact endpoints",
+      "component_deltas": [1],
+      "component_rewires": [[1]],
+      "canonical_batch_count": 1,
+      "overlay_signature_sha256": "f6ffb1e092e4a30818be789c0c296bf6f41196d0d7a4fe7d81a07aee20aefaf3",
+      "junction_trace_sha256": "38dace67a4c791b7ea8196922f919b05f9030ffd1bd5e1961c01c603b69b5c8d",
+      "permutation_projection_sha256": "ce47e8480618a624f553b56462f9416edcc4f555ec924cf99b40353becd01769"
+    }
+  ],
+  "synthetic_gates": {
+    "mixed_endpoint_edge_order_and_overlay_permutation": "PASS",
+    "initial_edge_only_unchanged_overlay": "PASS_ONE_SEED_GENERATION",
+    "outer_f0_rebuild_after_contact_growth": {
+      "rebuild_contact_counts": [0, 1, 1],
+      "outer_iterations": 1,
+      "canonical_batch_count": 2
+    },
+    "stable_contact_set_changed_signature": "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE"
+  },
+  "tests": [
+    {
+      "command": "$env:PYTHONPATH='kernel/src'; python -m pytest -q kernel/tests/test_wavefront_superlevel_transaction.py -k pure_gate_selector",
+      "result": "13 passed, 57 deselected in 0.96s"
+    },
+    {
+      "command": "$env:PYTHONPATH='kernel/src'; python -m pytest -q tests/test_architecture.py",
+      "result": "402 passed in 2.97s"
+    },
+    {
+      "command": "$env:PYTHONPATH='kernel/src'; python -m pytest -q kernel/tests/test_wavefront_superlevel_transaction.py",
+      "result": "65 passed, 4 product-path failures in 74.52s at the pre-final-guard checkpoint",
+      "failures": [
+        "three SEM-CLB field fixtures already return SUPERLEVEL_COMPONENT_UNRESOLVABLE",
+        "old product cross_full_q1 t8 leaves same-time residual"
+      ],
+      "scope_note": "new coordinator remains product-off and is not imported by these failing paths"
+    }
+  ],
+  "sources": [
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_component.py", "loc": 155, "sha256": "fee64a448d0e778393bd5d597494ecdd9d156ff2dbf439aac7470116d64a94e0"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_overlay.py", "loc": 396, "sha256": "fccc32a8c4968374836c82a1fbe798b4373ec2b3ee70d0674bed040dcd625c3b"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_sparse_ports.py", "loc": 29, "sha256": "f438aac5386ba16f2decb50c9d76371b55ac43f2301544c5e6023a4c4f02bda1"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_f0_overlay.py", "loc": 40, "sha256": "37c494acedb31be3de59e5a1b4b9c40ff7af8e7fff8b621d29b6ef5b8a09974e"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_junction_contacts.py", "loc": 130, "sha256": "1e5a7510c4a858f23ba8391210b3529a059f6c7fae77f0689ddf7d3327cddab7"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_junction_normalize.py", "loc": 182, "sha256": "8acf0e857a7a2090d9e731a6e15f4febedcc819bfec3d59134475651b55db369"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_junction_fixed_point.py", "loc": 88, "sha256": "27a82f64288ad6c597601b4975d3e79084fb485d6dcd4a45b79622c9e0dbd22c"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_split_endpoint.py", "loc": 219, "sha256": "e304badbdc41197103d4d650ab2ab1404142c986ca96345d5e02be82e0b58331"},
+    {"path": "kernel/src/cftuv_envelope/wavefront/symbolic_superlevel_coordinator.py", "loc": 233, "sha256": "304486aec48a2ba5058ccf53a5d24d84b883f496e0d3ec37f7311a475b135a5a"}
+  ]
+}

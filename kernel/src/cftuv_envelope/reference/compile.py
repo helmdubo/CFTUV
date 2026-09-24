@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
+from math import gcd
+
+import sympy as sp
 
 from ..contracts.analysis import (
     AnalysisSnapshotV1,
@@ -18,6 +21,9 @@ from ..contracts.analysis import (
     YJunctionRouteTopologyV1,
 )
 from ..contracts.envelopes import (
+    AdaptiveBoundHiddenSupportDirectionLawV2,
+    AdaptiveBoundHiddenSupportSpecV2,
+    AdaptiveDensityAngularEnvelopeSpecV2,
     AdmissibilityUpperBound,
     AngularEnvelopeSpec,
     AngularExposurePolicy,
@@ -26,11 +32,19 @@ from ..contracts.envelopes import (
     AngularSubdivisionPolicy,
     CapClosureLawId,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
+    CertifiedBoundHiddenSupportSpecV1,
+    DirectionBindingReasonV1,
     EffectiveAlphaBindingKind,
+    EvaluationGeometryDirectionBindingCertificateV1,
+    EvaluationGeometrySubturnCountLiftLawV1,
+    EvaluationGeometrySubturnCountLiftV1,
+    ExactTurnSignV1,
     ExactTwoPiHandling,
     HiddenSupportDirectionLaw,
     HiddenSupportScope,
     HiddenSupportSpecV1,
+    HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     JunctionEnvelopeSpec,
     JunctionSupportLawId,
@@ -62,7 +76,17 @@ from ..contracts.plan import (
     PlanKeyV1,
     SelfContactPairDeclarationV1,
 )
-from ..contracts.request import DecalRequestV1
+from ..contracts.request import (
+    AngularProfileSelectionPolicyId,
+    DecalRequestV1,
+)
+from .._canonical_angle import (
+    CanonicalAngleRestorationV1,
+    build_canonical_angle_restoration_certificate,
+    build_canonical_subturn_fan_authority,
+    selector_reflex_excess_interval,
+)
+from .._density_policy import huber_density_value_contract
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
@@ -102,6 +126,33 @@ from .contracts import (
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
+from .direction_binding import (
+    BINDING_SUBTURN_LE_DELTA_MAX,
+    DirectionBindingCertificateUnproven,
+    _certify_k1_recipe_direction_bindings,
+    _verify_k1_recipe_direction_bindings,
+    certify_direction_bindings,
+    certify_adaptive_huber_density_direction_fan,
+    certify_huber_density_bindings_with_adaptive_fallback,
+    has_rational_density_support_direction,
+    has_rational_support_direction,
+    verify_direction_bindings,
+)
+from .metric import _DensityExactMemo
+from .adaptive_density_fan import (
+    AdaptiveDensityFanInvalid,
+    DensityRationalAuthorityExhausted,
+    DensityWindowChartUnrepresentable,
+    _subturn,
+)
+from .evaluation_geometry import (
+    EvaluationGeometryBindingInvalid,
+    EvaluationGeometryRefinementBudgetExhausted,
+    SourceDeclaredStraightChainIsNotLinear,
+    SourceDeclaredStraightEndpointsCoincide,
+    build_evaluation_geometry_binding,
+    verify_evaluation_geometry_binding,
+)
 from .provenance import make_reference_provenance
 from .validation import (
     validate_reference_geometry_certificates,
@@ -127,6 +178,18 @@ def _fraction(value: Decimal) -> Fraction:
     return Fraction(value)
 
 
+def _is_explicit_density(compilation) -> bool:
+    return (
+        compilation.decal_request.angular_profile_selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    )
+
+
+def _exact_ratio(numerator: int, denominator: int) -> ExactRatioV1:
+    value = Fraction(numerator, denominator)
+    return ExactRatioV1(value.numerator, value.denominator)
+
+
 def _strictly_above(interval, threshold: Fraction) -> bool:
     lower = _fraction(interval.lower)
     return lower > threshold or (
@@ -139,7 +202,18 @@ def _at_most(interval, threshold: Fraction) -> bool:
 
 
 def _resolve_hidden_edge_count(measure: CertifiedReflexAngleMeasureV1) -> int | None:
-    interval = measure.reflex_excess_over_pi
+    """Закон счёта на СЫРОЙ мере. Селектор ходит дверью, а не сюда.
+
+    Шов оставлен нарочно: он и есть то, что карточка обещала не менять, и
+    заморожен регрессией на сырых числах (`test_angle_measure_certificate`).
+    """
+
+    return _resolve_hidden_edge_count_interval(measure.reflex_excess_over_pi)
+
+
+def _resolve_hidden_edge_count_interval(interval) -> int | None:
+    """Прежний legacy-закон; принимает любую Fraction-совместимую оболочку."""
+
     for hidden_count in range(3):
         lower = Fraction(hidden_count, 3)
         upper = Fraction(hidden_count + 1, 3)
@@ -147,6 +221,178 @@ def _resolve_hidden_edge_count(measure: CertifiedReflexAngleMeasureV1) -> int | 
         if lower_proven and _at_most(interval, upper):
             return hidden_count
     return None
+
+
+def _resolve_huber_density_bucket(
+    measure: CertifiedReflexAngleMeasureV1,
+    q: int,
+) -> int | None:
+    """Доказать единственный `C` для `(C-1)/q < u <= C/q` на СЫРОЙ мере.
+
+    Тот же шов, что и у legacy-закона: матрица границ ячеек заморожена на
+    сырых числах (`test_density_selection_policy`), и восстановление её не
+    касается — оно происходит выше, у двери селектора.
+    """
+
+    return _resolve_huber_density_bucket_interval(
+        measure.reflex_excess_over_pi,
+        q,
+    )
+
+
+def _resolve_huber_density_bucket_interval(interval, q: int) -> int | None:
+    """Точное ядро селектора; принимает любую Fraction-совместимую оболочку."""
+
+    for bucket_c in range(1, q + 1):
+        lower = Fraction(bucket_c - 1, q)
+        upper = Fraction(bucket_c, q)
+        if _strictly_above(interval, lower) and _at_most(interval, upper):
+            return bucket_c
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedAngularProfileSelection:
+    hidden_count: int
+    selection_law: SelectionLaw
+    minimality_lower_bound: MinimalityLowerBound
+    admissibility_upper_bound: AdmissibilityUpperBound
+    interval_certificate: (
+        SelectionIntervalCertificateV1
+        | HuberDensitySelectionIntervalCertificateV1
+    )
+    regression_fixture_id: AngularRegressionFixtureId | None
+    canonical_restoration: CanonicalAngleRestorationV1 | None
+
+
+def _resolve_angular_profile_selection(request, measure):
+    """Единственная дверь сырого углового факта в закон счёта.
+
+    Восстановление канонического отношения стоит ЗДЕСЬ, а не у каждого
+    закона по отдельности: тогда «одна реализация на все плотности d0–d4 и на
+    legacy-закон» — свойство структуры, а не обещание. Ниже этой строки сырого
+    числа больше нет: обе ветви читают `interval`.
+    """
+
+    interval, canonical_restoration = selector_reflex_excess_interval(
+        measure.reflex_excess_over_pi
+    )
+    policy = request.angular_profile_selection_policy_id
+    if policy is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1:
+        hidden_count = _resolve_hidden_edge_count_interval(interval)
+        if hidden_count is None:
+            return None
+        return _ResolvedAngularProfileSelection(
+            hidden_count,
+            SelectionLaw.MIN_K_FOR_MAX_SUBTURN,
+            MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER,
+            AdmissibilityUpperBound.CLOSED_UPPER,
+            SelectionIntervalCertificateV1(
+                IntervalBoundKind.OPEN,
+                hidden_count,
+                IntervalBoundKind.CLOSED,
+                hidden_count + 1,
+            ),
+            (
+                AngularRegressionFixtureId.K0
+                if hidden_count == 0
+                else AngularRegressionFixtureId.K1
+                if hidden_count == 1
+                else None
+            ),
+            canonical_restoration,
+        )
+    density_contract = huber_density_value_contract(
+        request.max_subturn_value_id
+    )
+    if (
+        policy
+        is not AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        or density_contract is None
+    ):
+        return None
+    bucket_c = _resolve_huber_density_bucket_interval(
+        interval,
+        density_contract[0],
+    )
+    if bucket_c is None:
+        return None
+    hidden_count = max(1, bucket_c - 1)
+    return _ResolvedAngularProfileSelection(
+        hidden_count,
+        SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1,
+        MinimalityLowerBound.HUBER_DENSITY_BUCKET_OPEN_LOWER,
+        AdmissibilityUpperBound.HUBER_DENSITY_BUCKET_CLOSED_UPPER,
+        HuberDensitySelectionIntervalCertificateV1(
+            density_contract[0],
+            bucket_c,
+            IntervalBoundKind.OPEN,
+            bucket_c - 1,
+            IntervalBoundKind.CLOSED,
+            bucket_c,
+        ),
+        None,
+        canonical_restoration,
+    )
+
+
+def _canonical_fan_authorities(compilation, context, specs) -> frozenset:
+    """Записать власть канонического веера там, где она сработала.
+
+    Наблюдение снимается с контекста, а не пересчитывается: сырой веер уже
+    построен и проверен один раз, второй проход был бы и дороже, и вторым
+    вычислением одного и того же.
+    """
+
+    restorations = {
+        item.selection_certificate_id: item
+        for item in compilation.canonical_angle_restorations
+    }
+    authorities = set()
+    for spec in specs:
+        if not isinstance(spec, AngularEnvelopeSpec):
+            continue
+        key = spec.envelope_spec_id.value
+        if not context.canonical_subturn_fan.get(key):
+            continue
+        selection = next(
+            item
+            for item in compilation.profile_selection_certificates
+            if item.certificate_id == spec.selection_certificate_id
+        )
+        contract = huber_density_value_contract(selection.max_subturn_value_id)
+        authorities.add(
+            build_canonical_subturn_fan_authority(
+                restorations[selection.certificate_id],
+                envelope_spec_id=spec.envelope_spec_id,
+                hidden_count=spec.resolved_hidden_edge_count,
+                q=contract[0],
+            )
+        )
+    return frozenset(authorities)
+
+
+def _canonical_restoration_record(
+    resolved_selection,
+    relation,
+    angle_certificate,
+    selection_id,
+) -> tuple:
+    """Запись восстановления там и только там, где селектор его применил."""
+
+    if resolved_selection.canonical_restoration is None:
+        return ()
+    return (
+        build_canonical_angle_restoration_certificate(
+            resolved_selection.canonical_restoration,
+            selection_certificate_id=selection_id,
+            corner_relation_id=relation.corner_relation_id,
+            reflex_angle_certificate_id=relation.reflex_angle_certificate_id,
+            source_interval=(
+                angle_certificate.measure_payload.reflex_excess_over_pi
+            ),
+        ),
+    )
 
 
 def _route_pair_ids(topology) -> frozenset:
@@ -171,6 +417,8 @@ def _physical_endpoint_order(chain_use, chain) -> tuple:
 
 def _attach_front_reading_declarations(
     compilation: ReferenceEnvelopeCompilationV1,
+    *,
+    transaction_context=None,
 ) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
     """Bind every exact source interval to one immutable reading declaration."""
 
@@ -181,17 +429,31 @@ def _attach_front_reading_declarations(
         is not SurfacePayloadMode.FULL_HOST_SURFACE
     ):
         return compilation
-    frame, diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot,
-        compilation.plan_key.patch_domain_id,
-    )
-    if frame is None:
-        return ReferenceCompileResultV1(
-            diagnostics[0].outcome,
-            None,
-            diagnostics,
+    if transaction_context is None:
+        frame, diagnostics = validate_reference_geometry_payload(
+            compilation.analysis_snapshot,
+            compilation.plan_key.patch_domain_id,
+            density_bounded=_is_explicit_density(compilation),
         )
-    context = GeometryContext.build(compilation, frame)
+        if frame is None:
+            return ReferenceCompileResultV1(
+                diagnostics[0].outcome,
+                None,
+                diagnostics,
+            )
+        context = GeometryContext.build(
+            compilation,
+            frame,
+            require_certified_bound_supports=False,
+        )
+    else:
+        # Readings читают только immutable Strip source supports. Их exact
+        # сегменты уже выведены из тех же frame/binding в этой finalize-
+        # транзакции; seal меняет только список Angular authority ids.
+        context = replace(
+            transaction_context,
+            compilation=compilation,
+        )
     declarations = set()
     by_component: dict[FrontComponentId, list[FrontReadingDeclarationV1]] = {}
     try:
@@ -271,6 +533,778 @@ def _attach_front_reading_declarations(
         front_reading_declarations=frozenset(declarations),
         self_contact_pair_declarations=frozenset(),
     )
+
+
+_EVALUATION_SUBTURN_LIFT_PREDICATES = frozenset(
+    {
+        "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
+        "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
+        "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
+        "EFFECTIVE_COUNT_IS_MINIMAL",
+    }
+)
+
+
+def _density_spec_with_hidden_count(
+    spec: AngularEnvelopeSpec,
+    hidden_count: int,
+) -> AngularEnvelopeSpec:
+    """Перестроить только evaluation fan, не меняя selection authority."""
+
+    exemplar = min(spec.hidden_supports, key=lambda item: item.ordinal)
+    supports = frozenset(
+        HiddenSupportSpecV1(
+            hidden_support_id=HiddenSupportId(
+                _stable_value(
+                    "hidden-support",
+                    spec.source_relation_id,
+                    ordinal,
+                )
+            ),
+            ordinal=ordinal,
+            turn_fraction=_exact_ratio(ordinal, hidden_count + 1),
+            direction_law=(
+                HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+            ),
+            zero_length_at_alpha_zero=True,
+            scope=exemplar.scope,
+            source_relation_id=spec.source_relation_id,
+            owner_sector_id=spec.owner_sector_id,
+            selection_certificate_id=spec.selection_certificate_id,
+        )
+        for ordinal in range(1, hidden_count + 1)
+    )
+    return replace(
+        spec,
+        resolved_hidden_edge_count=hidden_count,
+        hidden_supports=supports,
+    )
+
+
+def _density_ideal_is_subturn_feasible(metric, ideal, q: int) -> bool:
+    from .adaptive_density_fan import _covectors
+
+    ideal = _covectors(metric, ideal)
+    # Huber construction is equal-subturn by its ordinal law. Проверка
+    # первого соседства поэтому удостоверяет весь ideal fan; повторять один
+    # и тот же algebraic predicate H+1 раз не добавляет власти.
+    return _subturn(metric, ideal[0], ideal[1], q)
+
+
+def _exact_turn_witness(metric, ideal):
+    from .adaptive_density_fan import _covectors, _dual_dot, _sign
+
+    ideal = _covectors(metric, ideal)
+    incoming = ideal[0]
+    outgoing = ideal[-1]
+    dot = sp.expand(_dual_dot(metric, incoming, outgoing))
+    squared = sp.cancel(
+        dot * dot
+        / (
+            _dual_dot(metric, incoming, incoming)
+            * _dual_dot(metric, outgoing, outgoing)
+        )
+    )
+    if squared.is_Rational is not True:
+        raise DirectionBindingCertificateUnproven(
+            BINDING_SUBTURN_LE_DELTA_MAX
+        )
+    numerator = int(squared.p)
+    denominator = int(squared.q)
+    divisor = gcd(abs(numerator), denominator)
+    sign_value = _sign(dot)
+    sign = (
+        ExactTurnSignV1.POSITIVE
+        if sign_value > 0
+        else ExactTurnSignV1.NEGATIVE
+        if sign_value < 0
+        else ExactTurnSignV1.ZERO
+    )
+    return sign, ExactRatioV1(
+        numerator=numerator // divisor,
+        denominator=denominator // divisor,
+    )
+
+
+def _evaluation_density_spec(
+    context,
+    spec,
+    selection,
+    q: int,
+):
+    """Вернуть H_effective и отдельную точную власть lift, если нужна.
+
+    Лифт видит УЖЕ КАНОНИЧЕСКИЙ факт — через `selection`: исходный счёт лифта
+    равен счёту сертификата селекции, а тот построен на канонической доле π.
+    Сам предикат осуществимости остаётся прежним и считается по фактической
+    evaluation-геометрии: жёсткая гарантия `подшаг <= pi/q` НЕ меняется.
+
+    Замер, который это подпирает (`test_canonical_angle_restoration`): если
+    заставить лифт признать канонический счёт осуществимым, ординальное окно
+    веера у угла 90.0000015° при q=4 становится пустым
+    (`positive full-fan termination width is not proven`) и патч отвергается
+    целиком. То есть гарантия здесь не формальность, а условие существования
+    веера; переносить её с сырых опор на канонический факт — смена власти, а
+    не исполнение этой карточки.
+    """
+
+    from .angular import _ideal_angular_support_data
+
+    source_count = selection.resolved_hidden_edge_count
+    source_spec = _density_spec_with_hidden_count(spec, source_count)
+    *_, source_count_ideal = _ideal_angular_support_data(
+        context,
+        source_spec,
+    )
+    if _density_ideal_is_subturn_feasible(
+        context.metric,
+        source_count_ideal,
+        q,
+    ):
+        return source_spec, None, source_count_ideal
+    predecessor_ideal = source_count_ideal
+    for effective_count in range(source_count + 1, q):
+        candidate_spec = _density_spec_with_hidden_count(
+            spec,
+            effective_count,
+        )
+        *_, candidate_ideal = _ideal_angular_support_data(
+            context,
+            candidate_spec,
+        )
+        if not _density_ideal_is_subturn_feasible(
+            context.metric,
+            candidate_ideal,
+            q,
+        ):
+            predecessor_ideal = candidate_ideal
+            continue
+        sign, cosine_squared = _exact_turn_witness(
+            context.metric,
+            candidate_ideal,
+        )
+        return (
+            candidate_spec,
+            EvaluationGeometrySubturnCountLiftV1(
+                lift_law=(
+                    EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+                ),
+                source_selection_certificate_id=selection.certificate_id,
+                source_hidden_edge_count=source_count,
+                effective_hidden_edge_count=effective_count,
+                max_subturn_q=q,
+                evaluation_turn_sign=sign,
+                evaluation_turn_cosine_squared=cosine_squared,
+                minimality_predecessor_hidden_edge_count=(
+                    effective_count - 1
+                ),
+                proven_predicates=_EVALUATION_SUBTURN_LIFT_PREDICATES,
+            ),
+            candidate_ideal,
+        )
+    del predecessor_ideal
+    raise DirectionBindingCertificateUnproven(
+        BINDING_SUBTURN_LE_DELTA_MAX
+    )
+
+
+def _attach_direction_bindings(
+    compilation: ReferenceEnvelopeCompilationV1,
+    *,
+    density_exact_memo: _DensityExactMemo | None = None,
+) -> tuple[
+    ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1,
+    object | None,
+]:
+    """Сертифицировать фактические hidden directions evaluation-геометрии."""
+
+    from .angular import _ideal_angular_support_data
+    from .common import GeometryContext, ReferenceGeometryError
+
+    if (
+        compilation.analysis_snapshot.surface_ir.payload_mode
+        is not SurfacePayloadMode.FULL_HOST_SURFACE
+    ):
+        return compilation, None
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=_is_explicit_density(compilation),
+        density_exact_memo=density_exact_memo,
+    )
+    if frame is None:
+        return (
+            ReferenceCompileResultV1(
+                diagnostics[0].outcome,
+                None,
+                diagnostics,
+            ),
+            None,
+        )
+    # Транзакция ВЫВОДА направлений: власть канонического веера здесь ещё не
+    # записана — её как раз выводят. Требовать её тут значило бы требовать
+    # результат до его получения.
+    context = GeometryContext.build(
+        compilation,
+        frame,
+        require_certified_bound_supports=False,
+        require_canonical_fan_authority=False,
+        density_exact_memo=density_exact_memo,
+    )
+    source_context = GeometryContext.build(
+        replace(compilation, evaluation_geometry_binding=None),
+        frame,
+        require_evaluation_binding=False,
+        require_certified_bound_supports=False,
+        require_canonical_fan_authority=False,
+        density_exact_memo=density_exact_memo,
+    )
+    changed_specs = set(compilation.envelope_specs)
+    try:
+        for spec in sorted(
+            (
+                item
+                for item in compilation.envelope_specs
+                if isinstance(item, AngularEnvelopeSpec)
+                and item.resolved_hidden_edge_count > 0
+            ),
+            key=lambda item: item.envelope_spec_id.value,
+        ):
+            original_spec = spec
+            sector = next(
+                item
+                for item in context.snapshot.angular_owner_sectors
+                if item.owner_sector_id == spec.owner_sector_id
+            )
+            selection = next(
+                item
+                for item in compilation.profile_selection_certificates
+                if item.certificate_id == spec.selection_certificate_id
+            )
+            density_contract = huber_density_value_contract(
+                selection.max_subturn_value_id
+            )
+            is_density = (
+                selection.selection_policy_id
+                is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+                and density_contract is not None
+            )
+            lift = None
+            if is_density:
+                spec, lift, ideal = _evaluation_density_spec(
+                    context,
+                    spec,
+                    selection,
+                    density_contract[0],
+                )
+                source_spec = _density_spec_with_hidden_count(
+                    spec,
+                    spec.resolved_hidden_edge_count,
+                )
+                *_, source_ideal = _ideal_angular_support_data(
+                    source_context,
+                    source_spec,
+                )
+            else:
+                *_, ideal = _ideal_angular_support_data(context, spec)
+                *_, source_ideal = _ideal_angular_support_data(
+                    source_context,
+                    spec,
+                )
+            rational_predicate = (
+                has_rational_density_support_direction
+                if is_density
+                else has_rational_support_direction
+            )
+            source_is_rational = tuple(
+                rational_predicate(
+                    source_context.metric,
+                    source_ideal[ordinal],
+                )
+                for ordinal in range(
+                    1,
+                    spec.resolved_hidden_edge_count + 1,
+                )
+            )
+            needs_binding = tuple(
+                (
+                    not source_is_rational[ordinal - 1]
+                    or not rational_predicate(
+                        context.metric,
+                        ideal[ordinal],
+                    )
+                )
+                for ordinal in range(
+                    1,
+                    spec.resolved_hidden_edge_count + 1,
+                )
+            )
+            if not any(needs_binding) and lift is None:
+                continue
+            binding_reasons = (
+                tuple(
+                    (
+                        DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL
+                        if not source_rational
+                        else (
+                            DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+                            if needed
+                            else None
+                        )
+                    )
+                    for needed, source_rational in zip(
+                        needs_binding,
+                        source_is_rational,
+                        strict=True,
+                    )
+                )
+                if is_density
+                else ()
+            )
+            authority = None
+            if is_density:
+                if lift is not None:
+                    certificates = (None,) * (
+                        spec.resolved_hidden_edge_count
+                    )
+                    authority = (
+                        certify_adaptive_huber_density_direction_fan(
+                            context.metric,
+                            ideal,
+                            sector.turn_orientation,
+                            density_contract[0],
+                            binding_reasons,
+                        )
+                    )
+                else:
+                    (
+                        certificates,
+                        authority,
+                    ) = certify_huber_density_bindings_with_adaptive_fallback(
+                        context.metric,
+                        ideal,
+                        sector.turn_orientation,
+                        density_contract[0],
+                        binding_reasons,
+                    )
+            elif spec.resolved_hidden_edge_count == 1:
+                certificates = _certify_k1_recipe_direction_bindings(
+                    context.metric,
+                    ideal[0],
+                    ideal[-1],
+                    ideal,
+                    sector.turn_orientation,
+                )
+            else:
+                certificates = certify_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                )
+            if authority is not None:
+                changed_specs.remove(original_spec)
+                changed_specs.add(
+                    _adaptive_density_spec(spec, authority, lift)
+                )
+                continue
+            selected_certificates = tuple(
+                (
+                    _evaluation_geometry_certificate(
+                        certificate,
+                        (
+                            DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL
+                            if not source_rational
+                            else DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+                        ),
+                    )
+                    if (
+                        needed
+                        and certificate is not None
+                        and compilation.evaluation_geometry_binding is not None
+                    )
+                    else certificate if needed else None
+                )
+                for needed, source_rational, certificate in zip(
+                    needs_binding,
+                    source_is_rational,
+                    certificates,
+                    strict=True,
+                )
+            )
+            if is_density:
+                # Сертификаты только что выведены и проверены одной
+                # compile-транзакцией. Независимая проверка сериализованной
+                # записи остаётся обязательной на внешней prepare-границе.
+                pass
+            elif spec.resolved_hidden_edge_count == 1:
+                _verify_k1_recipe_direction_bindings(
+                    context.metric,
+                    ideal[0],
+                    ideal[-1],
+                    ideal,
+                    sector.turn_orientation,
+                    selected_certificates,
+                )
+            else:
+                verify_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                    selected_certificates,
+                )
+            supports = frozenset(
+                _bound_support(support, selected_certificates[support.ordinal - 1])
+                for support in spec.hidden_supports
+            )
+            changed_specs.remove(original_spec)
+            changed_specs.add(replace(spec, hidden_supports=supports))
+    except DirectionBindingCertificateUnproven as exc:
+        return (
+            _failure(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                f"direction binding certificate is not proven: {exc}",
+            ),
+            None,
+        )
+    except DensityRationalAuthorityExhausted as exc:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_RATIONAL_AUTHORITY_EXHAUSTED,
+                str(exc),
+            ),
+            None,
+        )
+    except DensityWindowChartUnrepresentable:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE,
+                ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE.value,
+            ),
+            None,
+        )
+    except AdaptiveDensityFanInvalid as exc:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
+                str(exc),
+            ),
+            None,
+        )
+    except ReferenceGeometryError as exc:
+        return _failure(exc.outcome, str(exc)), None
+    updated = replace(
+        compilation,
+        envelope_specs=frozenset(changed_specs),
+        canonical_subturn_fan_authorities=_canonical_fan_authorities(
+            compilation,
+            context,
+            changed_specs,
+        ),
+    )
+    updated = _synchronize_effective_hidden_support_records(
+        compilation,
+        updated,
+    )
+    return updated, context
+
+
+def _synchronize_effective_hidden_support_records(
+    source,
+    updated,
+):
+    """Синхронизировать только добавленные lift-support identities."""
+
+    old_hidden = {
+        support.hidden_support_id
+        for spec in source.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+        for support in spec.hidden_supports
+    }
+    new_hidden = {
+        support.hidden_support_id
+        for spec in updated.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+        for support in spec.hidden_supports
+    }
+    if old_hidden == new_hidden:
+        return updated
+    old_features = {
+        item
+        for item in updated.initial_front_spec.support_features
+        if item.kind is not InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT
+    }
+    new_features = frozenset(
+        (
+            *old_features,
+            *(
+                InitialFrontFeatureRefV1(
+                    InitialFrontFeatureKind.ANGULAR_HIDDEN_SUPPORT,
+                    hidden_id,
+                )
+                for hidden_id in new_hidden
+            ),
+        )
+    )
+    supports_by_spec = {
+        spec.envelope_spec_id.value: frozenset(
+            item.hidden_support_id.value
+            for item in spec.hidden_supports
+        )
+        for spec in updated.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+    }
+    provenance = frozenset(
+        (
+            replace(
+                item,
+                provenance=replace(
+                    item.provenance,
+                    boundary_generator=replace(
+                        item.provenance.boundary_generator,
+                        support_ids=supports_by_spec[
+                            item.envelope_spec_id
+                        ],
+                    ),
+                ),
+            )
+            if item.envelope_spec_id in supports_by_spec
+            else item
+        )
+        for item in updated.source_provenance
+    )
+    return replace(
+        updated,
+        initial_front_spec=replace(
+            updated.initial_front_spec,
+            support_features=new_features,
+        ),
+        source_provenance=provenance,
+    )
+
+
+def _evaluation_geometry_certificate(certificate, reason):
+    return EvaluationGeometryDirectionBindingCertificateV1(
+        bound_primitive_integer_vector=(
+            certificate.bound_primitive_integer_vector
+        ),
+        ideal_window_lower_slope_envelope=(
+            certificate.ideal_window_lower_slope_envelope
+        ),
+        ideal_window_upper_slope_envelope=(
+            certificate.ideal_window_upper_slope_envelope
+        ),
+        certified_window_width_lower_bound=(
+            certificate.certified_window_width_lower_bound
+        ),
+        proven_predicates=certificate.proven_predicates,
+        binding_reason=reason,
+    )
+
+
+def _bound_support(support, certificate):
+    if certificate is None:
+        return support
+    return CertifiedBoundHiddenSupportSpecV1(
+        hidden_support_id=support.hidden_support_id,
+        ordinal=support.ordinal,
+        turn_fraction=support.turn_fraction,
+        direction_law=(
+            CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        ),
+        zero_length_at_alpha_zero=support.zero_length_at_alpha_zero,
+        scope=support.scope,
+        source_relation_id=support.source_relation_id,
+        owner_sector_id=support.owner_sector_id,
+        selection_certificate_id=support.selection_certificate_id,
+        direction_binding=certificate,
+    )
+
+
+def _adaptive_density_spec(spec, authority, lift):
+    supports = frozenset(
+        AdaptiveBoundHiddenSupportSpecV2(
+            hidden_support_id=support.hidden_support_id,
+            ordinal=support.ordinal,
+            turn_fraction=support.turn_fraction,
+            direction_law=(
+                AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
+            ),
+            zero_length_at_alpha_zero=support.zero_length_at_alpha_zero,
+            scope=support.scope,
+            source_relation_id=support.source_relation_id,
+            owner_sector_id=support.owner_sector_id,
+            selection_certificate_id=support.selection_certificate_id,
+            direction_fan_authority_id=authority.authority_id,
+            bound_primitive_integer_vector=(
+                authority.bound_primitive_integer_vectors[
+                    support.ordinal - 1
+                ]
+            ),
+        )
+        for support in spec.hidden_supports
+    )
+    return AdaptiveDensityAngularEnvelopeSpecV2(
+        envelope_spec_id=spec.envelope_spec_id,
+        source_seed_id=spec.source_seed_id,
+        decal_request_id=spec.decal_request_id,
+        patch_domain_id=spec.patch_domain_id,
+        source_lineage_ids=spec.source_lineage_ids,
+        source_relation_id=spec.source_relation_id,
+        owner_sector_id=spec.owner_sector_id,
+        angle_certificate_id=spec.angle_certificate_id,
+        selection_certificate_id=spec.selection_certificate_id,
+        profile_family_id=spec.profile_family_id,
+        resolved_hidden_edge_count=spec.resolved_hidden_edge_count,
+        subdivision_policy=spec.subdivision_policy,
+        hidden_supports=supports,
+        incident_front_component_ids=spec.incident_front_component_ids,
+        all_support_normal_speed=spec.all_support_normal_speed,
+        exposure_policy=spec.exposure_policy,
+        mixed_alpha_policy=spec.mixed_alpha_policy,
+        direction_fan_authority=authority,
+        evaluation_subturn_count_lift=lift,
+    )
+
+
+def _finalize_compilation(
+    compilation: ReferenceEnvelopeCompilationV1,
+    *,
+    density_exact_memo: _DensityExactMemo | None = None,
+) -> ReferenceCompileResultV1:
+    compiled_with_geometry = _attach_evaluation_geometry(
+        compilation,
+        density_exact_memo=density_exact_memo,
+    )
+    if isinstance(compiled_with_geometry, ReferenceCompileResultV1):
+        return compiled_with_geometry
+    (
+        compiled_with_bindings,
+        transaction_context,
+    ) = _attach_direction_bindings(
+        compiled_with_geometry,
+        density_exact_memo=density_exact_memo,
+    )
+    if isinstance(compiled_with_bindings, ReferenceCompileResultV1):
+        return compiled_with_bindings
+    sealed_geometry = _seal_evaluation_geometry_authority(
+        compiled_with_bindings,
+        density_exact_memo=density_exact_memo,
+    )
+    if isinstance(sealed_geometry, ReferenceCompileResultV1):
+        return sealed_geometry
+    compiled_with_readings = _attach_front_reading_declarations(
+        sealed_geometry,
+        transaction_context=transaction_context,
+    )
+    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
+        return compiled_with_readings
+    return ReferenceCompileResultV1(
+        ReferenceOutcome.EXACT,
+        compiled_with_readings,
+        (),
+    )
+
+
+def _attach_evaluation_geometry(
+    compilation: ReferenceEnvelopeCompilationV1,
+    *,
+    density_exact_memo: _DensityExactMemo | None = None,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Построить общую geometry binding ровно один раз, до обоих consumers."""
+
+    if (
+        compilation.analysis_snapshot.surface_ir.payload_mode
+        is not SurfacePayloadMode.FULL_HOST_SURFACE
+    ):
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=_is_explicit_density(compilation),
+        density_exact_memo=density_exact_memo,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    try:
+        binding = build_evaluation_geometry_binding(compilation, frame)
+    except SourceDeclaredStraightEndpointsCoincide as exc:
+        return _failure(
+            ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_ENDPOINTS_COINCIDE,
+            str(exc),
+        )
+    except SourceDeclaredStraightChainIsNotLinear as exc:
+        return _failure(
+            ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR,
+            str(exc),
+        )
+    except EvaluationGeometryRefinementBudgetExhausted as exc:
+        return _failure(
+            ReferenceOutcome.REFINEMENT_BUDGET_EXHAUSTED,
+            str(exc),
+        )
+    except EvaluationGeometryBindingInvalid as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            str(exc),
+        )
+    return replace(compilation, evaluation_geometry_binding=binding)
+
+
+def _seal_evaluation_geometry_authority(
+    compilation: ReferenceEnvelopeCompilationV1,
+    *,
+    density_exact_memo: _DensityExactMemo | None = None,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Связать evaluation-запись с единственными plan-authority supports."""
+
+    binding = compilation.evaluation_geometry_binding
+    if binding is None:
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+        density_bounded=_is_explicit_density(compilation),
+        density_exact_memo=density_exact_memo,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    bound_ids = frozenset(
+        support.hidden_support_id
+        for spec in compilation.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+        for support in spec.hidden_supports
+        if type(support) in (
+            CertifiedBoundHiddenSupportSpecV1,
+            AdaptiveBoundHiddenSupportSpecV2,
+        )
+    )
+    sealed = replace(
+        compilation,
+        evaluation_geometry_binding=replace(
+            binding,
+            bound_hidden_support_ids=bound_ids,
+        ),
+    )
+    try:
+        verify_evaluation_geometry_binding(
+            sealed.evaluation_geometry_binding,
+            sealed,
+            frame,
+        )
+    except EvaluationGeometryBindingInvalid as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            str(exc),
+        )
+    return sealed
 
 
 def declare_reference_self_contacts(
@@ -360,12 +1394,26 @@ def declare_reference_self_contacts(
     )
 
 
+def _compile_density_memo(request, supplied):
+    if supplied is not None:
+        return supplied
+    if (
+        request.angular_profile_selection_policy_id
+        is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+    ):
+        return _DensityExactMemo()
+    return None
+
+
 def compile_reference_envelopes(
     snapshot: AnalysisSnapshotV1,
     request: DecalRequestV1,
     patch_domain_id: PatchDomainId | None = None,
+    *, _density_exact_memo: _DensityExactMemo | None = None,
 ) -> ReferenceCompileResultV1:
     """Compile immutable seeds/specs for exactly one request/domain plan."""
+
+    density_exact_memo = _compile_density_memo(request, _density_exact_memo)
 
     input_issues = validate_snapshot_request_references(snapshot, request)
     if input_issues:
@@ -416,7 +1464,13 @@ def compile_reference_envelopes(
             "selected PatchDomain is absent from AnalysisSnapshotV1",
         )
     geometry_diagnostics = validate_reference_geometry_certificates(
-        snapshot, patch_domain_id
+        snapshot,
+        patch_domain_id,
+        density_bounded=(
+            request.angular_profile_selection_policy_id
+            is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
+        density_exact_memo=density_exact_memo,
     )
     if geometry_diagnostics:
         return ReferenceCompileResultV1(
@@ -438,7 +1492,7 @@ def compile_reference_envelopes(
     components = set()
     component_by_use_sector = {}
     sector_id_by_use = {}
-    selection_certificates = set()
+    selection_certificates, canonical_angle_restorations = set(), set()
     specs_by_id = {}
     provenance_by_spec_id = {}
     strip_ids_by_use = {}
@@ -537,15 +1591,20 @@ def compile_reference_envelopes(
                 ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
                 f"CornerRelation {relation.corner_relation_id} lacks a certified numeric angle",
             )
-        hidden_count = _resolve_hidden_edge_count(angle_certificate.measure_payload)
-        if hidden_count is None:
+        resolved_selection = _resolve_angular_profile_selection(
+            request,
+            angle_certificate.measure_payload,
+        )
+        if resolved_selection is None:
             return _failure(
                 ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-                f"CornerRelation {relation.corner_relation_id} does not prove a unique k",
+                f"CornerRelation {relation.corner_relation_id} does not prove a unique angular profile",
             )
+        hidden_count = resolved_selection.hidden_count
         selection_id = SelectionCertificateId(
             _stable_value("profile-selection", request.decal_request_id, relation.corner_relation_id)
         )
+        canonical_angle_restorations.update(_canonical_restoration_record(resolved_selection, relation, angle_certificate, selection_id))
         selection = AngularProfileSelectionCertificateV1(
             certificate_id=selection_id,
             decal_request_id=request.decal_request_id,
@@ -560,21 +1619,12 @@ def compile_reference_envelopes(
             resolved_subturn_count=hidden_count + 1,
             local_profile_support_count=hidden_count + 2,
             local_profile_segment_count=hidden_count + 2,
-            selection_law=SelectionLaw.MIN_K_FOR_MAX_SUBTURN,
-            minimality_lower_bound=MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER,
-            admissibility_upper_bound=AdmissibilityUpperBound.CLOSED_UPPER,
-            selection_interval_certificate=SelectionIntervalCertificateV1(
-                lower_bound_kind=IntervalBoundKind.OPEN,
-                lower_bound_integer=hidden_count,
-                upper_bound_kind=IntervalBoundKind.CLOSED,
-                upper_bound_integer=hidden_count + 1,
-            ),
+            selection_law=resolved_selection.selection_law,
+            minimality_lower_bound=resolved_selection.minimality_lower_bound,
+            admissibility_upper_bound=resolved_selection.admissibility_upper_bound,
+            selection_interval_certificate=resolved_selection.interval_certificate,
             certificate_authority=SelectionCertificateAuthority.EXACT_OR_CERTIFIED_ANGLE_COMPARISON,
-            regression_fixture_id=(
-                AngularRegressionFixtureId.K0
-                if hidden_count == 0
-                else AngularRegressionFixtureId.K1 if hidden_count == 1 else None
-            ),
+            regression_fixture_id=resolved_selection.regression_fixture_id,
         )
         selection_certificates.add(selection)
         seed_id = CornerSeedId(
@@ -597,7 +1647,7 @@ def compile_reference_envelopes(
                     _stable_value("hidden-support", relation.corner_relation_id, ordinal)
                 ),
                 ordinal=ordinal,
-                turn_fraction=ExactRatioV1(ordinal, hidden_count + 1),
+                turn_fraction=_exact_ratio(ordinal, hidden_count + 1),
                 direction_law=HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN,
                 zero_length_at_alpha_zero=True,
                 scope=HiddenSupportScope.ANGULAR_ENVELOPE_SPEC_LOCAL,
@@ -877,6 +1927,7 @@ def compile_reference_envelopes(
         seeds=frozenset(seeds),
         front_components=frozenset(components),
         profile_selection_certificates=frozenset(selection_certificates),
+        canonical_angle_restorations=frozenset(canonical_angle_restorations),
         envelope_specs=all_specs,
         initial_front_spec=InitialFrontSpec(
             decal_request_id=request.decal_request_id,
@@ -891,11 +1942,4 @@ def compile_reference_envelopes(
             )
         ),
     )
-    compiled_with_readings = _attach_front_reading_declarations(compilation)
-    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
-        return compiled_with_readings
-    return ReferenceCompileResultV1(
-        ReferenceOutcome.EXACT,
-        compiled_with_readings,
-        (),
-    )
+    return _finalize_compilation(compilation, density_exact_memo=density_exact_memo)

@@ -1,0 +1,15 @@
+{
+  "accepted_exporter_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+  "fixture_hash": "efbae17746688b517ce40fa71efa85c2ff7b8ba59573ada93fb3758663a70515",
+  "fixture_id": "building_002_point_contact_v1",
+  "mode": "export",
+  "selected_chain_use_ids": [
+    "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+    "host-v0:chain-use:b0f5bd8218305496ed2c499f",
+    "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0"
+  ],
+  "source_mesh_fingerprint_after": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_fingerprint_before": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_unchanged": true,
+  "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+}

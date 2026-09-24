@@ -1,0 +1,18 @@
+{
+  "host_exporter_revision": "c2622d07020338e5231b81f41655fe6c74cdca72",
+  "message": "angular ratio is not an exact rational multiple of pi: -(-2*pi + atan(1322120))/pi",
+  "outcome": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+  "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+  "patch_id": 0,
+  "schema": "cftuv.envelope.fix_00_host_export_limitation.v1",
+  "selected_physical_edge_ids": [
+    2,
+    3,
+    7
+  ],
+  "source_mesh_fingerprint_after": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_fingerprint_before": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_unchanged": true,
+  "stage": "COMPILE_REJECTED",
+  "status": "NAMED_LIMITATION_NOT_FIXED_BY_FIX_00"
+}
