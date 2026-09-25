@@ -595,7 +595,7 @@ def test_large_binary_count_does_not_grow():
 
 # Столько документов в дереве после уборки `docs/agent_execution/envelope_v1/`.
 # Число не круглое намеренно: круглое приглашает «ну ещё один до сотни».
-KNOWN_MARKDOWN_COUNT = 100
+KNOWN_MARKDOWN_COUNT = 70
 
 
 def _markdown_in_worktree() -> tuple[str, ...]:
