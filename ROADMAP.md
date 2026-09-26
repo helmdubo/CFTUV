@@ -1604,7 +1604,19 @@ barrier-on-curved; flat reduction — весь planar корпус.
 
 ---
 
-## Фаза 4 — удаление легаси
+## Фаза 4 — удаление легаси ✅ 2026-09-26
+
+**Выполнено** одним коммитом «Фаза 4: удалить legacy decal-конвейеры»
+(`git log --grep='Фаза 4: удалить'`; откат — `git revert` этого коммита).
+Удалено 17 модулей `cftuv/decal*.py` и `decals.py` (34 226 строк), 23 decal-теста,
+две их фикстуры, `tests/test_operators.py` (он проверял только decal-оператор),
+восемь legacy-документов и зависимость `pyvoronoi`. План ниже называл движки и routing-слой, но удалён весь
+legacy-хост: оператор «Decal Seams», decal-свойства сцены, блок панели и
+осиротевшие хвосты общих модулей — без движка они стали бы мёртвым кодом
+(причина — в `DECISIONS.md`, 2026-09-26). До production-адаптера Envelope
+против `GeometryBatchV1` декали строятся только в Envelope debug-режиме.
+
+Исходный план:
 
 Одним коммитом, чтобы откат был одной командой:
 `decal_voronoi.py`, `decal_rails.py`, `decal_rail_geometry.py`, `decal_charts.py`,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from math import pi
 from mathutils import Vector
 from typing import TYPE_CHECKING, Optional
 
@@ -41,13 +40,6 @@ class FrameRole(str, Enum):
     V_FRAME = "V_FRAME"
     STRAIGHTEN = "STRAIGHTEN"
     FREE = "FREE"
-
-
-class CornerJoinMode(str, Enum):
-    """Compile input of the authoritative CornerModel."""
-
-    MITER = "MITER"
-    BEVEL = "BEVEL"
 
 
 class BandMode(str, Enum):
@@ -330,111 +322,6 @@ class UVSettings:
             uv_range_limit=float(settings.uv_range_limit),
             straighten_strips=bool(getattr(settings, 'straighten_strips', False)),
         )
-
-
-@dataclass(frozen=True)
-class _DecalSettingsValues:
-    """Общие значения двух метрически несовместимых settings-типов."""
-
-    width_corner: float = 0.20
-    width_seam: float = 0.15
-    height_trim: float = 0.25
-    offset: float = 0.02
-    uv_length_scale: float = 0.25
-    # Compatibility-only поле старых .blend/scripts. Runtime его игнорирует:
-    # SEAMS всегда использует строгий rail/Patch plan, legacy отключён.
-    seam_network: bool = True
-    # A11/A12 corner-band grammar оставлена как явный experimental path.
-    # Stable default сохраняет A10 collision semantics: разрешённая часть
-    # фронтира больше не перестраивается при последующем росте ширины.
-    dynamic_corner_bands: bool = False
-    # Художественный join только для выпуклого MITER-класса. Reflex/KITE
-    # остаётся собственной семантикой и этим переключателем не подменяется.
-    corner_join_mode: CornerJoinMode = CornerJoinMode.MITER
-    # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
-    # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
-    corner_miter_angle: float = 2.0 * pi / 3.0
-    corner_kite_angle: float = pi / 2.0
-    corner_acute_split_angle: float = pi / 3.0
-    corner_hairpin_angle: float = pi / 6.0
-    corner_apex_limit: float = 8.0
-    chart_distortion_budget: float = 0.02
-
-    def __post_init__(self):
-        object.__setattr__(
-            self,
-            "corner_join_mode",
-            CornerJoinMode(self.corner_join_mode),
-        )
-
-    @property
-    def corner_split_angle(self) -> float:
-        """A11 name; старое поле сохранено для file/script compatibility."""
-
-        return self.corner_acute_split_angle
-
-    @property
-    def corner_miter_limit(self) -> float:
-        """Compatibility alias для старых consumers DecalSettings."""
-
-        return self.corner_apex_limit
-
-
-@dataclass(frozen=True)
-class WorldDecalSettings(_DecalSettingsValues):
-    """Immutable decal request whose dimensions are in world units."""
-
-    @staticmethod
-    def from_blender_settings(settings) -> "WorldDecalSettings":
-        """Build world-unit settings from the Blender PropertyGroup."""
-
-        uv_settings = UVSettings.from_blender_settings(settings)
-        return WorldDecalSettings(
-            width_corner=float(settings.decal_width_corner),
-            width_seam=float(settings.decal_width_seam),
-            height_trim=float(settings.decal_height_trim),
-            offset=float(settings.decal_offset),
-            uv_length_scale=uv_settings.final_scale,
-            seam_network=True,
-            dynamic_corner_bands=bool(
-                getattr(settings, "decal_dynamic_corner_bands", False)
-            ),
-            corner_join_mode=CornerJoinMode(
-                getattr(settings, "decal_corner_join_mode", "MITER")
-            ),
-            corner_miter_angle=float(
-                getattr(
-                    settings,
-                    "decal_corner_miter_angle",
-                    2.0 * pi / 3.0,
-                )
-            ),
-            corner_kite_angle=float(
-                getattr(settings, "decal_corner_kite_angle", pi / 2.0)
-            ),
-            corner_acute_split_angle=float(
-                getattr(settings, "decal_corner_acute_split_angle", pi / 3.0)
-            ),
-            corner_hairpin_angle=float(
-                getattr(settings, "decal_corner_hairpin_angle", pi / 6.0)
-            ),
-            corner_apex_limit=float(
-                getattr(settings, "decal_corner_miter_limit", 8.0)
-            ),
-            chart_distortion_budget=float(
-                getattr(settings, "decal_chart_distortion_budget", 0.02)
-            ),
-        )
-
-
-@dataclass(frozen=True)
-class LocalDecalSettings(_DecalSettingsValues):
-    """Immutable decal request converted into source-local units."""
-
-
-# Public compatibility name for saved scripts/tests. Runtime boundaries use
-# the explicit WorldDecalSettings/LocalDecalSettings types above.
-DecalSettings = WorldDecalSettings
 
 
 @dataclass(frozen=True)

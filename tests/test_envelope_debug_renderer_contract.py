@@ -534,7 +534,7 @@ def test_a_closed_chain_counts_its_closing_span():
     )
 
 
-def test_renderer_does_not_import_legacy_or_production_geometry():
+def test_renderer_does_not_import_production_geometry():
     path = (
         Path(__file__).resolve().parents[1]
         / "cftuv"
@@ -548,10 +548,6 @@ def test_renderer_does_not_import_legacy_or_production_geometry():
         elif isinstance(node, ast.ImportFrom):
             imports.add(node.module or "")
     assert not imports & {
-        "cftuv.decal_voronoi",
-        "cftuv.decals",
-        "decal_voronoi",
-        "decals",
         "cftuv_envelope.contracts.geometry_batch",
         "cftuv_envelope.contracts.ownership",
     }

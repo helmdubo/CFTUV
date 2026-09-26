@@ -43,7 +43,7 @@ CFTUV (Constraint-First Trim UV) — Blender-аддон для полупроц�
 ## Запуск
 
 ```bash
-python3 -m pytest tests              # хост-аддон (нужен pyvoronoi для decal-тестов)
+python3 -m pytest tests              # хост-аддон
 PYTHONPATH=kernel/src python3 -m pytest kernel/tests   # Blender-free ядро
 ```
 
@@ -101,21 +101,19 @@ AnalysisSnapshotV1 (только факты хоста) + DecalRequestV1 (пол
   → GeometryBatch
 ```
 
-**Разделение ролей по сессиям обязательно.** Пишущий ядро не читает
-`cftuv/decal_voronoi.py` и легаси-части `cftuv/decals.py`; разбирающий легаси не
+**Разделение ролей по сессиям обязательно.** Пишущий ядро не читает легаси
+decal-код (удалён в Фазе 4, остался в истории git); разбирающий его историю не
 пишет ядро; пишущий адаптер отображает контракты и не чинит геометрию.
 
 ---
 
 ## Текущее состояние
 
-**Три decal-конвейера живы одновременно:** `PATCH_VORONOI` (`decal_voronoi.py`),
-`RAIL_PLANAR` (`decal_rails.py` + `decal_rail_geometry.py`) и envelope-ядро
-(`kernel/`). Каждая новая возможность стоит втрое.
-
-**Два старых заморожены** (проверяется `test_legacy_decal_engines_do_not_grow`):
-в них допустимы только исправления падений в поле. Все новые возможности идут в
-envelope-ядро. Цель — один движок.
+**Decal-конвейер один — envelope-ядро (`kernel/`).** Легаси `PATCH_VORONOI` и
+`RAIL_PLANAR` удалены в Фазе 4 (2026-09-26) вместе со всем хостом, который их
+обслуживал: оператор «Decal Seams», decal-свойства сцены, блок панели. Возврат
+ловит `test_deleted_legacy_stays_deleted`. До production-адаптера Envelope
+(против `GeometryBatchV1`) декали строятся только в Envelope debug-режиме.
 
 **Очередь проведена в debug-режим и принята глазами (2026-07-28):** движок
 QUEUE — покрытие с владельцами, веера вогнутых вершин (мягкий угол), 13/13 на

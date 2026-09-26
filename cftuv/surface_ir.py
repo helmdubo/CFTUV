@@ -171,11 +171,6 @@ class AnalysisBundle:
         return getattr(self.patch_graph, name)
 
 
-class DecalBackendKind(str, Enum):
-    RAIL_PLANAR = "RAIL_PLANAR"
-    PATCH_VORONOI = "PATCH_VORONOI"
-
-
 class HostPlanarityPolicy(str, Enum):
     """Какую плоскость хост объявляет ядру для патча.
 
@@ -227,29 +222,16 @@ class HostGridPolicy(str, Enum):
 HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
 
 
-class PreviewFailurePolicy(str, Enum):
-    CLEAR = "CLEAR"
-
-
-class CapacityPolicy(str, Enum):
-    SATURATE_PROVEN = "SATURATE_PROVEN"
-    CONTROLLED_RECOMPILE = "CONTROLLED_RECOMPILE"
-    REJECT_UNPROVEN = "REJECT_UNPROVEN"
-
-
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
-    "CapacityPolicy",
-    "DecalBackendKind",
     "HOST_GRID_POLICY",
     "HOST_PLANARITY_POLICY",
     "HostGridPolicy",
     "HostPlanarityPolicy",
     "PatchSurfaceIR",
-    "PreviewFailurePolicy",
     "SourceEdge",
     "SourceFace",
     "SourceRevision",

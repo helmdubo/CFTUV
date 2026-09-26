@@ -7304,3 +7304,17 @@ lazy==dense); ответы побитово; статьи бюджета поб�
 СЧЁТЧИКАХ (модульных обратных на путях тождества → ~0; пересборок
 span_state → ограничено числом различных (t, вхождение, поколение)),
 секунды ЧЕСТНО ДОКЛАДЫВАЮТСЯ, но не гейтуются (урок ошибки №19).
+
+**2026-09-26** — Фаза 4: удалён весь легаси decal-хост, а не только движки и
+routing-слой в `decals.py`, как записано в ROADMAP. Причина: у сессии, modal,
+GPU-превью, transform и geometry не было потребителя, кроме оператора «Decal
+Seams», а у оператора без движка нет смысла; оставленный хост стал бы мёртвым
+кодом (`test_no_orphan_modules_in_host_package`) или обязательством подгонять
+будущий адаптер под контракты легаси-сессии (`DecalGenerationResult`,
+`CapturedDecalRequest`, `DecalSettings`). Production-адаптер Envelope пишется
+заново против `GeometryBatchV1`. Вместе с хостом ушли осиротевшие хвосты общих
+модулей: `DecalSettings`/`LocalDecalSettings`/`CornerJoinMode` (`model.py`),
+`DECAL_*` (`constants.py`), rail-оверлей (`debug.py`), `DecalBackendKind`/
+`CapacityPolicy`/`PreviewFailurePolicy` (`surface_ir.py`) — Envelope не читал
+ни одного из них, проверено поиском ссылок по AST. Проверка полноты из записи
+2026-07-24 выполняется: `grep -c requires_pyvoronoi tests/` == 0.

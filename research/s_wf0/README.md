@@ -7,23 +7,27 @@ production routing. Решение A/B/C принимает пользовате
 
 Нужно проверить, является ли привязка rail к рёбрам меша необходимой частью
 геометрической семантики или артефактом тесселяции на гладкой кривизне.
-Сравниваются четыре независимых семейства:
+Сравниваются три независимых семейства:
 
-1. `CURRENT_RAIL_CHART` — настоящий `compile_decal_rail_plan` для событий и
-   freeze-loci плюс текущий hinge-unroll chart для width/source-s. Это не
-   графовый Dijkstra и не переписанная модель текущего движка.
-2. `HEAT` и `FMM` — geometry-central через pinned `potpourri3d`. Поле
+1. `HEAT` и `FMM` — geometry-central через pinned `potpourri3d`. Поле
    unsigned; owner/source-s восстанавливаются отдельными labeled solves.
    Поле не выбирает join и не материализует topology.
-3. `MMP_EXACT` — `pygeodesic`, точная полиэдральная геодезика от дискретного
+2. `MMP_EXACT` — `pygeodesic`, точная полиэдральная геодезика от дискретного
    множества source-вершин. Источник на фикстурах согласован с рядами query-
    вершин; результат не называется точным расстоянием до произвольной точки
    непрерывного сегмента.
-4. `STRAIGHT_SKELETON_2D` — `py_straight_skeleton` только для простых
+3. `STRAIGHT_SKELETON_2D` — `py_straight_skeleton` только для простых
    планарных polygon-fronts. Неприменимость к T/X-PSLG записывается как
    `unsupported`, а не подменяется distance-field результатом.
 
 Зависимости живут только в отдельном research venv. Аддон их не получает.
+
+Примечание (Фаза 4, 2026-09-26): четвёртое семейство, `CURRENT_RAIL_CHART`
+(легаси `compile_decal_rail_plan` + hinge-unroll chart), удалено из живого
+harness вместе с легаси decal-конвейерами. Его результаты остаются
+зафиксированы как historical evidence в `artifacts/s_wf0/results.json`
+(`SCHEMA` там всё ещё `cftuv.decal_s_wf0_results.v1`); текущий `harness.py`
+их больше не пересчитывает и использует `cftuv.decal_s_wf0_results.v2`.
 
 ## Фикстуры
 
@@ -54,7 +58,9 @@ production routing. Решение A/B/C принимает пользовате
   нормированная на полную длину source-network; ambiguous exact ties исключены.
 - `event_sequence_edit_distance` и `event_alpha_error_max`: сравнение
   детерминированной PL-wavefront sequence (`MERGE`, `BOUNDARY`, `FREEZE`) с
-  MMP; для current rail дополнительно сохраняется нативная RR event sequence.
+  MMP; поле `native_events`/`native_loci` в receipt зарезервировано для метода,
+  который дополнительно материализует собственную native event sequence (ни
+  один из живых `METHODS` сейчас её не заполняет).
 - `cut_freeze_locus_f1`: F1 по canonical mesh-edge keys относительно MMP.
 - `double_cover_count`: chart triangle overlaps плюс неоднозначные внутренние
   покрытия вне канонического cut locus. Сам cut locus double-cover не считается.

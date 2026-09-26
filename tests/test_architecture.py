@@ -226,13 +226,34 @@ DELETED_LEGACY_PATHS = (
     "Hotspot_UV_v2_5_26.py",
     ".tmp_review",
     "cftuv/band_operator.py",
+    # Фаза 4 роадмапа: legacy decal-конвейеры PATCH_VORONOI и RAIL_PLANAR
+    # вместе со всем хостом, который существовал только ради них.
+    "cftuv/decals.py",
+    "cftuv/decal_voronoi.py",
+    "cftuv/decal_rails.py",
+    "cftuv/decal_rail_geometry.py",
+    "cftuv/decal_charts.py",
+    "cftuv/decal_chart_admission.py",
+    "cftuv/decal_chart_measurement.py",
+    "cftuv/decal_chart_parametrization.py",
+    "cftuv/decal_atlas.py",
+    "cftuv/decal_corner_model.py",
+    "cftuv/decal_distance_witness.py",
+    "cftuv/decal_diagram.py",
+    "cftuv/decal_geometry.py",
+    "cftuv/decal_session.py",
+    "cftuv/decal_modal.py",
+    "cftuv/decal_gpu_preview.py",
+    "cftuv/decal_transform.py",
 )
 
 
 def test_deleted_legacy_stays_deleted():
-    """Легаси-монолит и отдельный BAND-оператор удалены и не возвращаются.
+    """Удалённое легаси не возвращается: монолит, BAND-оператор, decal-конвейеры.
 
     `AGENTS.md` требовал этого прозой; правило нарушалось. Теперь оно исполняемое.
+    Decal-конвейеров было три, и каждая возможность стоила втрое; остался один —
+    envelope-ядро. Возвращение старого движка — не откат, а третий конвейер снова.
     """
 
     resurrected = [name for name in DELETED_LEGACY_PATHS if (REPO_ROOT / name).exists()]
@@ -264,8 +285,6 @@ MODULE_LINE_ALLOWANCE = {
     # extraction exact-atlas helpers в sibling `adaptive_density_atlas.py`.
     # Старый single-chart закон оставлен в исходном модуле ради byte-stability.
     "kernel/src/cftuv_envelope/reference/adaptive_density_fan.py": 2200,
-    "cftuv/decal_voronoi.py": 16889,
-    "cftuv/decal_rail_geometry.py": 5583,
     # 3107 -> 3053 (измерение угла ушло в ядро) -> 3070. +17 куплены осознанно:
     # семь счётчиков стадии INTERACTION, самой дорогой в поле (4595 мс из
     # 11.8 с на центральном патче) и единственной, про которую до них нечего
@@ -330,7 +349,11 @@ MODULE_LINE_ALLOWANCE = {
     # `envelope_debug_profile.stage_summary_text`, запоминание тёплой сессии
     # очереди — в `envelope_debug_session.remember_queue_session`. Оператор
     # остался вызывающим, а не владельцем этих правил.
-    "cftuv/operators.py": 3044,
+    # 3044 -> 2018. −1026: Фаза 4 удалила legacy decal-путь целиком — оператор
+    # `HOTSPOTUV_OT_GenerateDecals` («Decal Seams»), пятнадцать decal-свойств
+    # сцены и их блок панели. Число опущено до фактического: строгий лимит
+    # нового кода файл превышает на 18 строк, и запись уйдёт вместе с ними.
+    "cftuv/operators.py": 2018,
     # 2000 -> 2004. +4: проверка нормали плоскости сменила предмет. Прежде
     # валидатор требовал побитового равенства `A × B`, то есть закреплял
     # КОНКРЕТНЫЙ вывод нормали, а не свойство плоскости, и любой другой (лучше
@@ -346,15 +369,12 @@ MODULE_LINE_ALLOWANCE = {
     # затягивается там, где освободилось место, иначе освобождённое место
     # молча превращается в разрешение расти обратно.
     "kernel/src/cftuv_envelope/validation.py": 1772,
-    "cftuv/decals.py": 2823,
-    "cftuv/decal_rails.py": 2486,
 }
 
 
 # Файлы, в которых самая длинная функция превышает NEW_FUNCTION_LINE_LIMIT
 # на момент заморозки.
 FUNCTION_LINE_ALLOWANCE = {
-    "cftuv/decal_voronoi.py": 1815,
     "cftuv/analysis_derived.py": 651,
     "kernel/src/cftuv_envelope/debug_scene.py": 595,
     "tools/validate_envelope_ec0.py": 594,
@@ -368,17 +388,14 @@ FUNCTION_LINE_ALLOWANCE = {
     # `apply_policy_b` подлежит разбиению на этапы конвейера (сбор вкладов,
     # крой, доказательство), и семь строк этого не отменяют.
     "kernel/src/cftuv_envelope/interactions/policy_b.py": 487,
-    "cftuv/decal_rails.py": 445,
     "kernel/src/cftuv_envelope/validation.py": 426,
     # +5: снятие дельты счётчика локализации точки и два поля в union. Плата за
     # то, чтобы следующий полевой прогон отвечал на вопрос, а не ставил его
     # заново; `exact_union` всё равно подлежит разбиению на этапы конвейера.
     "kernel/src/cftuv_envelope/reference/arrangement.py": 413,
-    "cftuv/decal_rail_geometry.py": 392,
     "kernel/src/cftuv_envelope/interactions/mutual_arrival.py": 385,
     "cftuv/frontier_rescue.py": 353,
     "kernel/src/cftuv_envelope/interactions/arrival.py": 344,
-    "cftuv/decals.py": 337,
     "cftuv/analysis_validation.py": 336,
     # −28: словарь счётчиков arrangement вынесен в `_union_counters`.
     "kernel/src/cftuv_envelope/reference/raw_coverage.py": 291,
@@ -402,7 +419,6 @@ FUNCTION_LINE_ALLOWANCE = {
     # в `_accumulate_exact_scenes`. Функция стояла РОВНО на потолке, и слой
     # отказа домена было некуда вызвать.
     "cftuv/envelope_debug_renderer.py": 154,
-    "cftuv/decal_chart_admission.py": 170,
     "kernel/src/cftuv_envelope/interactions/validation.py": 167,
     "cftuv/analysis_boundary_loops.py": 163,
     "tools/benchmark_envelope_metric_models.py": 161,
@@ -421,7 +437,6 @@ FUNCTION_LINE_ALLOWANCE = {
     "cftuv/solve_report_metrics.py": 133,
     "kernel/src/cftuv_envelope/reference/validation.py": 129,
     "cftuv/solve_planning.py": 128,
-    "cftuv/decal_charts.py": 125,
     "kernel/src/cftuv_envelope/interactions/resolved_coverage.py": 122,
     "cftuv/band_spine.py": 122,
     "cftuv/frontier_place.py": 121,
@@ -503,45 +518,7 @@ def test_mandatory_reading_stays_small():
 
 
 # --------------------------------------------------------------------------
-# 5. Заморозка легаси decal-движков
-#
-# В проекте одновременно живы три decal-конвейера: PATCH_VORONOI, RAIL_PLANAR
-# и envelope. Каждая новая возможность стоит втрое. Пока envelope не достиг
-# паритета, два старых движка заморожены: в них допустимы только исправления
-# падений в поле, но не рост.
-#
-# Значения совпадают с MODULE_LINE_ALLOWANCE намеренно — это отдельное
-# утверждение с отдельным смыслом, и оно должно падать со своим сообщением.
-# --------------------------------------------------------------------------
-
-
-FROZEN_LEGACY_ENGINES = {
-    "cftuv/decal_voronoi.py": 16889,
-    "cftuv/decal_rails.py": 2486,
-    "cftuv/decal_rail_geometry.py": 5583,
-    "cftuv/decal_charts.py": 1436,
-    "cftuv/decals.py": 2823,
-}
-
-
-@pytest.mark.parametrize("name, frozen_size", sorted(FROZEN_LEGACY_ENGINES.items()))
-def test_legacy_decal_engines_do_not_grow(name: str, frozen_size: int):
-    """Легаси decal-движки заморожены: только исправления, никаких новых возможностей."""
-
-    path = REPO_ROOT / name
-    if not path.exists():
-        pytest.skip(f"{name} удалён — паритет envelope достигнут")
-    actual = _line_count(path)
-    assert actual <= frozen_size, (
-        f"{name} вырос с {frozen_size} до {actual} строк. "
-        "Легаси-движок заморожен: новые возможности идут в envelope-ядро. "
-        "Исправление падения в поле, которое требует роста, — повод уменьшить "
-        "число здесь после удаления мёртвого кода рядом, а не поднять его."
-    )
-
-
-# --------------------------------------------------------------------------
-# 6. Гигиена репозитория
+# 5. Гигиена репозитория
 # --------------------------------------------------------------------------
 
 
@@ -593,9 +570,10 @@ def test_large_binary_count_does_not_grow():
     )
 
 
-# Столько документов в дереве после уборки `docs/agent_execution/envelope_v1/`.
+# Столько документов в дереве после уборки `docs/agent_execution/envelope_v1/`
+# и восьми документов legacy decal-конвейеров (Фаза 4).
 # Число не круглое намеренно: круглое приглашает «ну ещё один до сотни».
-KNOWN_MARKDOWN_COUNT = 70
+KNOWN_MARKDOWN_COUNT = 62
 
 
 def _markdown_in_worktree() -> tuple[str, ...]:

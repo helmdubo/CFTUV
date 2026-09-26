@@ -53,7 +53,8 @@ CFTUV repo
   `envelope_backend_semantics.md` (EC0), инварианты брифа (§3),
   каталог болезней (§4), wavefront-заметку, контракты
   surface_ir/GeometryBatch и канон-семантику оракула
-  (decal_rails.md — правила, не код), а также обязательные
+  (decal_rails.md — правила, не код; документ удалён в Фазе 4,
+  2026-09-26, история в git), а также обязательные
   `envelope_kernel_pivot_instructions.md`;
 - **чтение КОДА `decal_voronoi.py`/legacy-частей `decals.py` для
   kernel-задач ЗАПРЕЩЕНО** (плохие паттерны не переиспользуются,

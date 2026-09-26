@@ -63,7 +63,7 @@ def _event_rows(payload):
                     "event_index": event_index,
                     "kind": event["kind"],
                     "alpha": event["alpha"],
-                    "source": "CURRENT_RAIL_NATIVE",
+                    "source": "METHOD_NATIVE",
                 }
         skeleton = fixture["straight_skeleton_2d"]
         for event_index, event in enumerate(skeleton.get("events", ())):

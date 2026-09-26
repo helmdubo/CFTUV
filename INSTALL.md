@@ -33,7 +33,7 @@ tools\install_to_blender.bat -WhatIf            :: показать пути и 
 
 | Часть | Что это | Куда |
 |---|---|---|
-| `cftuv/` | сам аддон (панели, операторы, анализ, solve, decals) | папка аддонов Blender |
+| `cftuv/` | сам аддон (панели, операторы, анализ, solve, адаптер envelope) | папка аддонов Blender |
 | `kernel/src/cftuv_envelope/` | Blender-free envelope-ядро | пакеты Python внутри Blender |
 
 Ядро **нельзя** класть внутрь `cftuv/` — оно намеренно ничего не знает про
@@ -67,13 +67,11 @@ python : C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.e
 
 ```powershell
 $py = "C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.exe"
-& $py -m pip install "sympy==1.14.0" "pyvoronoi>=1.2.8"
+& $py -m pip install "sympy==1.14.0"
 ```
 
 - `sympy` — нужен envelope-ядру (и тянет за собой `mpmath`, на котором работает
   интервальный фильтр знака).
-- `pyvoronoi` — нужен только легаси-бэкенду Decal Seams. Если его нет, декали
-  дают именованный отказ `PYVORONOI_UNAVAILABLE`, всё остальное работает.
 
 Если pip ругается на права — запустите PowerShell от администратора либо
 добавьте `--user`.
@@ -92,7 +90,6 @@ $py = "C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.exe
     analysis*.py
     solve*.py
     frontier_*.py
-    decal*.py
     envelope_*.py
     debug.py
     ...

@@ -13,29 +13,12 @@ by chain from a global frontier pool across the whole quilt.
 - Hard-surface environment production meshes
 - Trim sheet / tile UV workflows
 
-## Decal dependency
-
-The patch-bounded Decal Seams backend uses `pyvoronoi` 1.2.8+ (Boost segment
-Voronoi bindings). Install it into Blender's Python environment before using
-interactive seam decals:
-
-```powershell
-& "<path-to-Blender>\4.3\python\bin\python.exe" -m pip install "pyvoronoi>=1.2.8"
-```
-
-Core PatchGraph analysis and UV solve modules remain dependency-free. If the
-wheel is unavailable or a selected component is unsupported, Decal Seams
-fails with a named reason. There is no legacy geometry fallback.
-
-This backend is **frozen**: only field-crash fixes, no new capability. New decal
-work goes into the Blender-free envelope kernel (`kernel/`). See `ROADMAP.md`.
-
 ## Layout
 
 ```text
-cftuv/     Blender addon: analysis -> solve -> UV, plus the frozen decal backends
+cftuv/     Blender addon: analysis -> solve -> UV, plus the envelope debug adapter
 kernel/    Blender-free exact envelope kernel, published as `cftuv-envelope-core`
-tests/     Host test suite (needs pyvoronoi for decal tests)
+tests/     Host test suite
 tools/     Corpus validators, field gates, benchmarks
 ```
 
@@ -55,8 +38,8 @@ form — it is the reason `AGENTS.md` can stay short.
 | File | When to read |
 |------|-------------|
 | `AGENTS.md` | Always. The only mandatory read, ~145 lines |
-| `ROADMAP.md` | Phase plan for collapsing to a single decal engine |
-| `ACCEPTANCE.md` | What the owner checks in Blender before legacy is deleted |
+| `ROADMAP.md` | Phase plan for collapsing to a single decal engine (legacy removed in Phase 4) |
+| `ACCEPTANCE.md` | What the owner checks in Blender |
 | `DECISIONS.md` | Why things are the way they are, one line per decision |
 
 Everything under `docs/` is reference material for a specific task, not required
