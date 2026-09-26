@@ -31,6 +31,13 @@ from cftuv.envelope_debug_profile import (  # noqa: E402
 from cftuv.envelope_debug_session import (  # noqa: E402
     EnvelopeDebugSessionController,
 )
+from cftuv.envelope_queue_export import (  # noqa: E402
+    evaluate_envelope_queue_staged,
+)
+from cftuv.envelope_request_export import (  # noqa: E402
+    METRIC_STAGE_OUTCOMES,
+    EnvelopeHostAdapterError,
+)
 from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPairKind,
     EnvelopeTopologyPathKind,
@@ -273,6 +280,27 @@ def _two_patch_seam_bundle():
         ),
     )
     return AnalysisBundle(revision, graph, surface)
+
+
+def _budget_refused_seam_bundle():
+    """Второй патч шва поднят на 5 см — за `PRODUCT_SKIRT_ABSOLUTE_BUDGET`."""
+
+    bundle = _two_patch_seam_bundle()
+    surface = replace(
+        bundle.patch_surface,
+        vertices=tuple(
+            replace(vertex, position=(4.0, 2.0, 0.05))
+            if vertex.vertex_id == 5
+            else vertex
+            for vertex in bundle.patch_surface.vertices
+        ),
+    )
+    return AnalysisBundle(
+        bundle.source_revision,
+        bundle.patch_graph,
+        surface,
+        bundle.capabilities,
+    )
 
 
 def _mismatched_seam_partition_bundle():
@@ -1329,29 +1357,13 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
       строиться. 5e-2 лежит за границей и отвергается по-прежнему.
     """
 
-    bundle = _two_patch_seam_bundle()
-    surface = replace(
-        bundle.patch_surface,
-        vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.05))
-            if vertex.vertex_id == 5
-            else vertex
-            for vertex in bundle.patch_surface.vertices
-        ),
-    )
-    bundle = AnalysisBundle(
-        bundle.source_revision,
-        bundle.patch_graph,
-        surface,
-        bundle.capabilities,
-    )
     profile = EnvelopeDebugProfileBuilderV1(
         "v0-seam",
         "EXACT_REFERENCE",
     )
 
     evaluation = evaluate_envelope_debug_staged(
-        bundle,
+        _budget_refused_seam_bundle(),
         frozenset({1}),
         0.25,
         profile=profile,
@@ -1374,6 +1386,63 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
     assert summary["metric"] == 1
     assert summary["raw"] == 1
     assert summary["resolved"] in {0, 1}
+
+
+@pytest.mark.parametrize("engine", ("LEGACY", "QUEUE"))
+def test_budget_refusal_lands_on_the_metric_stage_on_both_engines(engine):
+    """Ступень домена — это ГДЕ случился отказ, а не какой движок его встретил.
+
+    QUEUE держал своё двухэлементное множество имён против шести у
+    `METRIC_STAGE_OUTCOMES` и ставил отказ бюджета невязки на
+    `QUEUE_PREPARE_REJECTED`, пока LEGACY на тех же фактах ставил
+    `METRIC_REJECTED`.
+    """
+
+    evaluation = evaluate_envelope_debug_staged(
+        _budget_refused_seam_bundle(),
+        frozenset({1}),
+        0.25,
+        engine=engine,
+        density="1",
+    )
+
+    receipts = {item.patch_id: item for item in evaluation.receipts}
+    assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED, receipts
+    assert receipts[1].outcome == (
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED.value
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    sorted(METRIC_STAGE_OUTCOMES, key=lambda item: item.value),
+    ids=lambda item: item.value,
+)
+def test_queue_puts_every_metric_stage_refusal_on_the_metric_stage(outcome):
+    """Очередь потребляет ВСЁ множество ступени METRIC, а не его подмножество.
+
+    Геометрией достижимо не каждое имя, поэтому отказ подаётся поставщиком
+    снапшота домена — тем же входом, через который его бросает экспорт.
+    """
+
+    def refuse(patch_id, patch_domain_id):
+        raise EnvelopeHostAdapterError(
+            outcome,
+            "probe",
+            patch_domain_id=patch_domain_id,
+        )
+
+    evaluation = evaluate_envelope_queue_staged(
+        _single_patch_bundle(),
+        frozenset({0}),
+        0.25,
+        domain_snapshot_provider=refuse,
+        density="1",
+    )
+
+    (receipt,) = evaluation.receipts
+    assert receipt.stage is EnvelopeDomainStage.METRIC_REJECTED, receipt
+    assert receipt.outcome == outcome.value
 
 
 def test_exact_profile_exposes_named_stage_timings_and_counters():

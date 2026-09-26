@@ -1,13 +1,15 @@
 """Blender 4.3 background smoke: движок QUEUE в Envelope-debug.
 
-Три утверждения, и каждое стоит на числе, а не на виде картинки:
+Четыре утверждения, и каждое стоит на числе, а не на виде картинки:
 
 1. при умолчании (LEGACY) набор слоёв, sidecar и счётчик подготовки очереди
    ТЕ ЖЕ, что были: движок не включается сам;
 2. при QUEUE слои очереди созданы, грани разложены по слоям своих владельцев,
    и соответствие слот -> цвет -> spec_id -> instance_id лежит в sidecar;
 3. смена alpha не пересобирает подготовку — по счётчику кэша сессии, а не по
-   ощущению скорости.
+   ощущению скорости;
+4. отказ бюджета невязки встаёт на ступень METRIC_REJECTED — ту же, что и на
+   LEGACY, — а не на QUEUE_PREPARE_REJECTED.
 
 Прогон: blender --background --factory-startup --python <этот файл>
 Последняя строка при успехе: ENVELOPE_QUEUE_BLENDER_SMOKE_OK
@@ -34,6 +36,7 @@ for module_name in tuple(sys.modules):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_envelope_debug_bridge import (  # noqa: E402
     REQUIRED_LAYERS,
+    _budget_refused_second_patch_offset,
     _build_two_patch_seam,
     _layer_name,
     _reset_scene,
@@ -267,6 +270,30 @@ def _run_density_sequence_keys_preparation_and_invalidates_only_warm_session():
     assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [0, 0]
 
 
+def _run_budget_refusal_lands_on_the_metric_stage():
+    """Отказ бюджета невязки на очереди — ступень METRIC, как и на LEGACY.
+
+    Ступень выбирается по `METRIC_STAGE_OUTCOMES`; своё подмножество имён
+    ставило этот отказ на `QUEUE_PREPARE_REJECTED`.
+    """
+
+    _reset_scene()
+    source_obj = _build_two_patch_seam(
+        nonplanar_second_patch=True,
+        second_patch_offset=_budget_refused_second_patch_offset(),
+    )
+    _settings().envelope_debug_engine = "QUEUE"
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    receipts = json.loads(_gp_object(source_obj)["stage_receipts"])
+    assert sorted((item["stage"], item["outcome"]) for item in receipts) == [
+        ("METRIC_REJECTED", "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"),
+        ("QUEUE_RESOLVED", "EXACT"),
+    ], receipts
+
+
 def _visibility_toggle_hides_only_queue(source_obj):
     settings = _settings()
     settings.envelope_debug_show_queue = False
@@ -297,6 +324,7 @@ def _main():
     _run_repeat_press_hits_the_preparation_cache()
     _run_density_sequence_keys_preparation_and_invalidates_only_warm_session()
     _visibility_toggle_hides_only_queue(source_obj)
+    _run_budget_refusal_lands_on_the_metric_stage()
     print("ENVELOPE_QUEUE_BLENDER_SMOKE_OK")
 
 

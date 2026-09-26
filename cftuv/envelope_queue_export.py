@@ -1513,8 +1513,8 @@ def _queue_domain_evaluation(
 ):
     from .envelope_debug_profile import EnvelopeDomainStage
     from .envelope_request_export import (
+        METRIC_STAGE_OUTCOMES,
         EnvelopeDebugDomainEvaluationV1,
-        EnvelopeDebugHostOutcome,
         EnvelopeHostAdapterError,
         _receipt_for_failure,
     )
@@ -1536,11 +1536,7 @@ def _queue_domain_evaluation(
         diagnostic = exc.diagnostic()
         stage = (
             EnvelopeDomainStage.METRIC_REJECTED
-            if exc.outcome
-            in {
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-            }
+            if exc.outcome in METRIC_STAGE_OUTCOMES
             else EnvelopeDomainStage.QUEUE_PREPARE_REJECTED
         )
         receipt = _receipt_for_failure(patch_id, domain_id, stage, diagnostic)
