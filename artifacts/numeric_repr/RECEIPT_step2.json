@@ -1,0 +1,130 @@
+{
+ "task": "срез 6, шаг 2 — целочисленное ядро SqrtSumV1 (certified_sign/enclosure, __mul__, __add__/__sub__, слитный compare_times/times_are_equal) и прогрев ядра в воркере пула",
+ "commit": {
+  "base_sha": "18d7197",
+  "base_sha_full": "18d7197bf57b8a76fd445b4486af9474af83622f",
+  "tree": "база HEAD + незакоммиченные правки шага 2 (см. files)"
+ },
+ "files": {
+  "kernel/src/cftuv_envelope/exact_sqrt_sum.py": "1307 -> 1444 строк (потолок нового кода 2000): _integer_form, _integer_enclosure, _integer_certified_sign, _scaled_difference_items, _filtered_sign; enclosure/certified_sign/__add__/__sub__/__mul__ на целых",
+  "kernel/src/cftuv_envelope/wavefront/event_time.py": "509 -> 522: compare_times/times_are_equal слитно на целых",
+  "kernel/tests/test_exact_sqrt_sum_integer_kernel.py": "новый, 21 тест против исходных реализаций на Fraction",
+  "cftuv/envelope_queue_export.py": "load_queue_kernel поднимает весь пакет wavefront + source_grid + planar_metric",
+  "tests/test_envelope_domain_pool.py": "+1 тест: первый домен готового воркера не импортирует ни одного модуля ядра"
+ },
+ "items": {
+  "1_certified_sign_enclosure": "целые a_m = c_m*L (L = lcm знаменателей), границы оболочки в целых; enclosure возвращает Fraction(low, L<<bits) — то же значение и тип",
+  "2_mul": "целые числители, слияние по радиканту в dict[int,int], одна нормировка Fraction(n, L1*L2) на результирующий член; сортировка по радиканту как раньше",
+  "3_compare_times": "разность right.divisor*ld - left.divisor*rd в целых без промежуточных SqrtSumV1/Fraction; фильтр (ноль / рациональный ненулевой / оболочка 64 бит); не решил — прежний путь scaled/sub/sign (сопряжение, бюджет, SIGN_COUNTS те же, счётчики до решения не трогаются)",
+  "4_add_sub": "без Fraction(0)-заглушек и промежуточного __neg__; типы коэффициентов повторяют исходный код и для не-Fraction входа",
+  "5_floor_root_cache": "НЕ сделан: isqrt занимает ~1% профиля (0.23 с из 24.6 под cProfile, 358 тыс. вызовов); процессное состояние ради <1% не оправдано (в прототипе -0.64 с лежало в шуме ±1 с)",
+  "6_worker_warmup": "load_queue_kernel: import_module всех модулей пакета wavefront (pkgutil) + source_grid + planar_metric; в чистом интерпретаторе по образцу воркера первый полевой домен до правки импортировал ~20 модулей wavefront, после — 0 модулей cftuv_envelope. Сам воркер уже звал load_queue_kernel до 'ready'; прежняя цена 1.0-1.3 с из измерения относилась к harness ворот (pool_sweep.init_worker, load_queue_kernel не зовёт) — harness не менялся"
+ },
+ "gate": {
+  "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out after.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+  "verdict": "IDENTICAL",
+  "answer_diffs": 0,
+  "repr_only_diffs": 0,
+  "structural_diffs": 0,
+  "rows": 244,
+  "budget_and_sign_counts_vs_baseline": {
+   "run1": {
+    "rows": 244,
+    "budget_article_diffs": 0,
+    "sign_counts_diffs": 0
+   },
+   "run2": {
+    "rows": 244,
+    "budget_article_diffs": 0,
+    "sign_counts_diffs": 0
+   }
+  },
+  "price_changes": "только секунды (seconds, prepare/coverage/host_export, stage_seconds.*); статьи EXACT_WORK_* и SIGN_COUNTS равны на 244/244 строках"
+ },
+ "wall_seconds_per_density": {
+  "baseline_file_18d7197": {
+   "1": {
+    "wall_seconds": 19.142,
+    "sum_domain_seconds": 102.38,
+    "max_domain_seconds": 18.627
+   },
+   "2": {
+    "wall_seconds": 27.754,
+    "sum_domain_seconds": 136.991,
+    "max_domain_seconds": 27.263
+   }
+  },
+  "before_rerun_same_tree_head": {
+   "1": {
+    "wall_seconds": 19.228,
+    "sum_domain_seconds": 103.47,
+    "max_domain_seconds": 18.703
+   },
+   "2": {
+    "wall_seconds": 27.855,
+    "sum_domain_seconds": 137.682,
+    "max_domain_seconds": 27.342
+   }
+  },
+  "after_run1": {
+   "1": {
+    "wall_seconds": 12.634,
+    "sum_domain_seconds": 70.813,
+    "max_domain_seconds": 12.108
+   },
+   "2": {
+    "wall_seconds": 17.676,
+    "sum_domain_seconds": 91.855,
+    "max_domain_seconds": 17.163
+   }
+  },
+  "after_run2": {
+   "1": {
+    "wall_seconds": 12.743,
+    "sum_domain_seconds": 71.133,
+    "max_domain_seconds": 12.227
+   },
+   "2": {
+    "wall_seconds": 17.539,
+    "sum_domain_seconds": 91.922,
+    "max_domain_seconds": 17.023
+   }
+  },
+  "d1_wall_before_after": "19.2 -> 12.6/12.7 с (-34%)",
+  "d2_wall_before_after": "27.9 -> 17.7/17.5 с (-37%)",
+  "note": "стена ограничена самым тяжёлым доменом (patch 6); суммарные секунды доменов: d1 103.5 -> 70.8, d2 137.7 -> 91.9"
+ },
+ "patch7_d2_solo": {
+  "command": "PYTHONSAFEPATH=1 PYTHONPATH=kernel/src python artifacts/numeric_repr/proto_run.py 7 2 none artifacts/numeric_repr/baseline_18d7197.json",
+  "before_seconds": [
+   18.53,
+   18.52
+  ],
+  "after_seconds": [
+   10.83,
+   10.88,
+   10.84,
+   10.86
+  ],
+  "delta": "-41.6%",
+  "prototype_expectation": "18.66 -> ~11.4",
+  "answer_equal": true,
+  "budget_articles_equal": true,
+  "sign_counts_equal": true,
+  "sign_counts": {
+   "total": 162515,
+   "closed_rational_zero": 14763,
+   "closed_rational_nonzero": 33412,
+   "closed_by_enclosure": 114340,
+   "closed_by_conjugation": 0
+  }
+ },
+ "tests": {
+  "kernel_full_suite_6_shards": "3265 passed, 2 skipped, 2 failed (известные Windows-only: test_exact_work_budget_coverage.py::test_no_charged_exact_call_escapes_a_named_budget и ::test_no_frozen_exemption_is_dead — обратные слэши в путях)",
+  "kernel_new_tests": "kernel/tests/test_exact_sqrt_sum_integer_kernel.py: 21 passed (enclosure/certified_sign/add/sub/mul/compare_times/times_are_equal против исходных Fraction-реализаций, типы коэффициентов, repr, порядок, SIGN_COUNTS, бюджет при фолбэке на сопряжение (Pell x-y*sqrt6), огромные целые, нулевые коэффициенты, отрицательный радикант)",
+  "negative_controls": "4 мутации (лишний счётчик, int вместо Fraction, фильтр без фолбэка, сдвиг границы) — каждая роняет тесты",
+  "differential_fuzz_vs_head": "20000 случайных пар против версии HEAD из git: add/sub/mul/enclosure/certified_sign — значение, тип, repr равны",
+  "architecture": "tests/test_architecture.py: 434 passed вместе с пулом, 1 известный Windows-only (test_host_adapter_never_calls_exact_arithmetic_without_a_budget)",
+  "host_pool": "tests/test_envelope_domain_pool.py: 20 passed"
+ }
+}

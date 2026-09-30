@@ -1227,13 +1227,30 @@ def load_queue_kernel() -> None:
     Воркер пула доменов платит импортом (ядро, sympy, mpmath) ДО своего
     «готов», а не на первой задаче: иначе старт пула выглядел бы дешёвым, а
     цена уходила в задачу и в потолок ускорения.
+
+    Пакет `wavefront` ленив (`__getattr__`), а домен подгружает часть модулей
+    (`symbolic_*`, `superlevel_*`, `digest`, ...) изнутри функций, поэтому двух
+    имён выше мало: первый домен каждого воркера платил бы за остальные. Здесь
+    поднимается весь пакет по списку файлов, а не по списку имён, который
+    устаревал бы с каждым новым модулем; `source_grid` и `planar_metric`
+    домен тоже берёт изнутри функций и тянут за собой `angle_measure` и
+    `robust.snapping`.
     """
 
+    from importlib import import_module
+    from pkgutil import iter_modules
+
+    from cftuv_envelope import wavefront
     from cftuv_envelope.exact_sqrt_sum import exact_work_budget  # noqa: F401
     from cftuv_envelope.wavefront import (  # noqa: F401
         conveyor_coverage,
         prepare_conveyor,
     )
+
+    for module in iter_modules(wavefront.__path__):
+        import_module(f"{wavefront.__name__}.{module.name}")
+    import_module("cftuv_envelope.source_grid")
+    import_module("cftuv_envelope.planar_metric")
 
 
 def run_queue_domain(

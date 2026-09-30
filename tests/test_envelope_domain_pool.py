@@ -15,8 +15,10 @@ Blender не нужен: воркер поднимает пакет хоста �
 from __future__ import annotations
 
 import io
+import os
 import pickle
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -685,6 +687,47 @@ def test_a_killed_worker_costs_one_task_and_the_pool_respawns_it():
         assert healed.workers == 2
     finally:
         pool.close()
+
+
+def test_a_ready_worker_imports_no_kernel_module_for_its_first_domain():
+    """До «готов» воркер поднимает всё ядро очереди; первый домен ничего не ждёт.
+
+    Пакет `wavefront` ленив, а домен берёт `symbolic_*`, `superlevel_*` и
+    `source_grid` изнутри функций: с двумя именами в `load_queue_kernel` первый
+    домен каждого воркера платил за них импортом в секундах домена, то есть на
+    критическом пути стены. Проверка — в чистом интерпретаторе, по образцу
+    воркера: `load_queue_kernel`, затем кадр и `solve_task`.
+    """
+
+    script = "\n".join(
+        (
+            "import sys",
+            "from cftuv.envelope_domain_pool import read_frame, solve_task",
+            "from cftuv.envelope_queue_export import load_queue_kernel",
+            "load_queue_kernel()",
+            "before = set(sys.modules)",
+            "result = solve_task(read_frame(sys.stdin.buffer))",
+            "assert result.ok, result.error",
+            "late = sorted(",
+            "    name for name in set(sys.modules) - before",
+            "    if name.startswith('cftuv_envelope')",
+            ")",
+            "print('LATE', late)",
+        )
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        (str(KERNEL_SRC.parents[1]), str(KERNEL_SRC))
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        input=encode_frame(_field_task()),
+        capture_output=True,
+        env=environment,
+        timeout=300,
+    )
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+    assert completed.stdout.decode().strip().endswith("LATE []")
 
 
 def test_shutdown_stops_every_worker_process():

@@ -29,7 +29,7 @@ from bisect import insort
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
-from math import gcd, isqrt
+from math import gcd, isqrt, lcm
 import random
 
 
@@ -957,6 +957,136 @@ def _pick_prime_from_universe(
 
 
 # --------------------------------------------------------------------------
+# Целочисленное ядро знака, оболочки и произведения
+#
+# Набор `c_m = a_m / L` с общим знаменателем `L` — это целые `a_m` и ОДНО
+# положительное число. Оболочка и произведение на них принимают те же
+# решения, что на `Fraction`, без сотен тысяч нормировок по gcd: нормировка
+# остаётся одна на результирующий член. Ничего здесь не приближает и не
+# хранит: хранимые `terms` по-прежнему `Fraction`, `repr` и порядок членов
+# прежние, а счётчики знака и статьи бюджета ведутся ровно там же, где
+# раньше (фильтр, не решивший знак, возвращает `None` и НЕ трогает ни одного
+# счётчика).
+# --------------------------------------------------------------------------
+
+
+def _integer_form(
+    terms: tuple[tuple[int, Fraction], ...],
+) -> tuple[int, list[tuple[int, int]]]:
+    """`(L, [(m, a_m)])`, `c_m = a_m / L`, `L` — наименьший общий знаменатель."""
+
+    common = 1
+    for _, coefficient in terms:
+        denominator = coefficient.denominator
+        if denominator != 1:
+            common = lcm(common, denominator)
+    if common == 1:
+        return 1, [
+            (radicand, coefficient.numerator) for radicand, coefficient in terms
+        ]
+    return common, [
+        (radicand, coefficient.numerator * (common // coefficient.denominator))
+        for radicand, coefficient in terms
+    ]
+
+
+def _integer_enclosure(
+    items: list[tuple[int, int]], bits: int
+) -> tuple[int, int]:
+    """Границы `2^bits * sum a_m*sqrt(m)` на целых: те же `isqrt`, что у `enclosure`."""
+
+    scale = 1 << bits
+    shift = 2 * bits
+    low = high = 0
+    for radicand, numerator in items:
+        if radicand == 1:
+            exact = numerator * scale
+            low += exact
+            high += exact
+            continue
+        floor_root = isqrt(radicand << shift)
+        if numerator > 0:
+            low += numerator * floor_root
+            high += numerator * (floor_root + 1)
+        else:
+            low += numerator * (floor_root + 1)
+            high += numerator * floor_root
+    return low, high
+
+
+def _integer_certified_sign(
+    items: list[tuple[int, int]], bits: int
+) -> int | None:
+    low, high = _integer_enclosure(items, bits)
+    if low > 0:
+        return 1
+    if high < 0:
+        return -1
+    return None
+
+
+def _scaled_difference_items(
+    plus: "SqrtSumV1",
+    plus_factor: Fraction,
+    minus: "SqrtSumV1",
+    minus_factor: Fraction,
+) -> list[tuple[int, int]]:
+    """Ненулевые `(m, a_m)` разности `plus*plus_factor - minus*minus_factor`.
+
+    Величина равна `sum a_m*sqrt(m) / D` при положительном `D`, поэтому знак и
+    ноль читаются из целых `a_m` без единого `Fraction`. Слияние радикандов
+    повторяет `scaled(...) - scaled(...)`: слагаемые `plus` перекрывают друг
+    друга, как в `as_map`, слагаемые `minus` складываются.
+    """
+
+    plus_common, plus_items = _integer_form(plus.terms)
+    minus_common, minus_items = _integer_form(minus.terms)
+    plus_scale = plus_common * plus_factor.denominator
+    minus_scale = minus_common * minus_factor.denominator
+    big = lcm(plus_scale, minus_scale)
+    plus_multiplier = plus_factor.numerator * (big // plus_scale)
+    minus_multiplier = minus_factor.numerator * (big // minus_scale)
+    merged: dict[int, int] = {}
+    for radicand, numerator in plus_items:
+        merged[radicand] = numerator * plus_multiplier
+    for radicand, numerator in minus_items:
+        merged[radicand] = merged.get(radicand, 0) - numerator * minus_multiplier
+    return [(radicand, value) for radicand, value in merged.items() if value]
+
+
+# Одна ширина оболочки на `SqrtSumV1.sign` и `_filtered_sign`: разойдись они,
+# фильтр решал бы не то, что решает `sign` до сопряжения, и счётчики
+# `SIGN_COUNTS` разъехались бы (ответ — нет: фолбэк точный).
+SIGN_FILTER_BITS = 64
+
+
+def _filtered_sign(
+    items: list[tuple[int, int]], filter_bits: int = SIGN_FILTER_BITS
+) -> int | None:
+    """Знак `sum a_m*sqrt(m)`, если его решает то, что `sign` решает ДО сопряжения.
+
+    Счётчики `SIGN_COUNTS` ведутся как у `SqrtSumV1.sign`. `None` — фильтр не
+    доказал знак: счётчики не тронуты, и вызывающий идёт исходным путём, у
+    которого и счёт, и бюджет прежние.
+    """
+
+    if not items:
+        SIGN_COUNTS["total"] += 1
+        SIGN_COUNTS["closed_rational_zero"] += 1
+        return 0
+    if len(items) == 1 and items[0][0] == 1:
+        SIGN_COUNTS["total"] += 1
+        SIGN_COUNTS["closed_rational_nonzero"] += 1
+        numerator = items[0][1]
+        return (numerator > 0) - (numerator < 0)
+    certified = _integer_certified_sign(items, filter_bits)
+    if certified is not None:
+        SIGN_COUNTS["total"] += 1
+        SIGN_COUNTS["closed_by_enclosure"] += 1
+    return certified
+
+
+# --------------------------------------------------------------------------
 # Сама величина
 # --------------------------------------------------------------------------
 
@@ -1043,14 +1173,32 @@ class SqrtSumV1:
     def __add__(self, other: "SqrtSumV1") -> "SqrtSumV1":
         merged = self.as_map()
         for radicand, coefficient in other.terms:
-            merged[radicand] = merged.get(radicand, Fraction(0)) + coefficient
+            old = merged.get(radicand)
+            if old is not None:
+                merged[radicand] = old + coefficient
+            elif type(coefficient) is Fraction:
+                merged[radicand] = coefficient
+            else:
+                merged[radicand] = Fraction(0) + coefficient
         return SqrtSumV1._from_map(merged)
 
     def __neg__(self) -> "SqrtSumV1":
         return SqrtSumV1(tuple((m, -c) for m, c in self.terms))
 
     def __sub__(self, other: "SqrtSumV1") -> "SqrtSumV1":
-        return self + (-other)
+        """`self + (-other)` без промежуточной величины и без `Fraction(0)`."""
+
+        merged = self.as_map()
+        for radicand, coefficient in other.terms:
+            old = merged.get(radicand)
+            if old is not None:
+                merged[radicand] = old - coefficient
+                continue
+            negated = -coefficient
+            if type(negated) is not Fraction:
+                negated = Fraction(0) + negated
+            merged[radicand] = negated
+        return SqrtSumV1._from_map(merged)
 
     def scaled(self, factor: Fraction | int) -> "SqrtSumV1":
         factor = Fraction(factor)
@@ -1065,14 +1213,27 @@ class SqrtSumV1:
         замыкание не требует ни одной новой факторизации.
         """
 
-        merged: dict[int, Fraction] = {}
-        for left_radicand, left_coefficient in self.terms:
-            for right_radicand, right_coefficient in other.terms:
+        if not self.terms or not other.terms:
+            return SqrtSumV1(())
+        left_common, left_items = _integer_form(self.terms)
+        right_common, right_items = _integer_form(other.terms)
+        merged: dict[int, int] = {}
+        for left_radicand, left_numerator in left_items:
+            for right_radicand, right_numerator in right_items:
                 common = gcd(left_radicand, right_radicand)
                 radicand = (left_radicand // common) * (right_radicand // common)
-                value = left_coefficient * right_coefficient * common
-                merged[radicand] = merged.get(radicand, Fraction(0)) + value
-        return SqrtSumV1._from_map(merged)
+                merged[radicand] = (
+                    merged.get(radicand, 0)
+                    + left_numerator * right_numerator * common
+                )
+        denominator = left_common * right_common
+        return SqrtSumV1(
+            tuple(
+                (radicand, Fraction(numerator, denominator))
+                for radicand, numerator in sorted(merged.items())
+                if numerator
+            )
+        )
 
     def __truediv__(self, other: "SqrtSumV1") -> "SqrtSumV1":
         """Деление без названного бюджета. Оператор бюджета принять не может.
@@ -1140,38 +1301,20 @@ class SqrtSumV1:
         пути ниже. Порога в нём нет — есть граница, вычисленная точно.
         """
 
-        scale = 1 << bits
-        low = high = Fraction(0)
-        for radicand, coefficient in self.terms:
-            if radicand == 1:
-                low += coefficient
-                high += coefficient
-                continue
-            floor_root = isqrt(radicand << (2 * bits))
-            lower = Fraction(floor_root, scale)
-            upper = Fraction(floor_root + 1, scale)
-            if coefficient > 0:
-                low += coefficient * lower
-                high += coefficient * upper
-            else:
-                low += coefficient * upper
-                high += coefficient * lower
-        return low, high
+        common, items = _integer_form(self.terms)
+        low, high = _integer_enclosure(items, bits)
+        denominator = common << bits
+        return Fraction(low, denominator), Fraction(high, denominator)
 
     def certified_sign(self, bits: int) -> int | None:
         """Знак, доказанный оболочкой, либо None. Тождества не доказывает."""
 
-        low, high = self.enclosure(bits)
-        if low > 0:
-            return 1
-        if high < 0:
-            return -1
-        return None
+        return _integer_certified_sign(_integer_form(self.terms)[1], bits)
 
     def sign(
         self,
         *,
-        filter_bits: int = 64,
+        filter_bits: int = SIGN_FILTER_BITS,
         budget: "ExactWorkBudgetV1 | None" = None,
     ) -> int:
         """Точный знак. Оболочка — фильтр, сопряжение — решатель.

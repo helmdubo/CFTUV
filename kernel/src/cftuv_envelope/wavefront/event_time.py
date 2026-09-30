@@ -56,7 +56,9 @@ from ..exact_sqrt_sum import (
     ExactWorkBudgetV1,
     ExactWorkOperationV1,
     _divide_with_prime_universe,
+    _filtered_sign,
     _named,
+    _scaled_difference_items,
 )
 from .sqrt_sum import SqrtSumV1
 
@@ -268,8 +270,20 @@ def compare_times(
     `d1*S2 - d2*S1`. Ноль этой величины — рациональная проверка: у `SqrtSumV1`
     представление каноническое, и пустой набор коэффициентов означает ТОЧНОЕ
     равенство времён, а не «достаточно близко».
+
+    Разность считается слитно на целых с общим знаменателем, без промежуточных
+    `SqrtSumV1` и `Fraction`. Оболочка — фильтр: если она знак не доказала,
+    вопрос идёт прежним путём (`scaled`, вычитание, `sign`), у которого и
+    сопряжение, и бюджет, и счётчики знака прежние.
     """
 
+    decided = _filtered_sign(
+        _scaled_difference_items(
+            right.divisor, left.dividend, left.divisor, right.dividend
+        )
+    )
+    if decided is not None:
+        return decided
     difference = right.divisor.scaled(left.dividend) - left.divisor.scaled(
         right.dividend
     )
@@ -279,10 +293,9 @@ def compare_times(
 def times_are_equal(left: EventTimeV1, right: EventTimeV1) -> bool:
     """Точная одновременность — чисто рациональная проверка."""
 
-    difference = right.divisor.scaled(left.dividend) - left.divisor.scaled(
-        right.dividend
+    return not _scaled_difference_items(
+        right.divisor, left.dividend, left.divisor, right.dividend
     )
-    return difference.is_zero
 
 
 def concurrency_time(
