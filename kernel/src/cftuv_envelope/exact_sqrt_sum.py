@@ -1054,6 +1054,68 @@ def _scaled_difference_items(
     return [(radicand, value) for radicand, value in merged.items() if value]
 
 
+def _multiply_integer_items(
+    left: list[tuple[int, int]], right: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Произведение двух `sum a_m*sqrt(m)` на целых; радиканды по возрастанию.
+
+    `sqrt(a)*sqrt(b) = g*sqrt(a*b/g^2)`, `g = gcd(a, b)`. Слияние по радиканду
+    и отброс нулей — те же, что у `SqrtSumV1.__mul__`; общий знаменатель
+    произведения вызывающий собирает сам.
+    """
+
+    merged: dict[int, int] = {}
+    for left_radicand, left_numerator in left:
+        for right_radicand, right_numerator in right:
+            common = gcd(left_radicand, right_radicand)
+            radicand = (left_radicand // common) * (right_radicand // common)
+            merged[radicand] = (
+                merged.get(radicand, 0)
+                + left_numerator * right_numerator * common
+            )
+    return sorted(
+        (radicand, value) for radicand, value in merged.items() if value
+    )
+
+
+def _reduced_form(
+    common: int, items: list[tuple[int, int]]
+) -> tuple[int, list[tuple[int, int]]]:
+    """Тот же набор `(L, a_m)`, сокращённый на общий делитель; значение то же."""
+
+    divisor = gcd(common, *[value for _, value in items])
+    if divisor == 1:
+        return common, items
+    return common // divisor, [(m, value // divisor) for m, value in items]
+
+
+def _scaled_by_reciprocal(
+    numerator_common: int,
+    numerator_items: list[tuple[int, int]],
+    denominator_common: int,
+    denominator_items: list[tuple[int, int]],
+) -> "SqrtSumV1":
+    """`numerator / rational` для рационального знаменателя, по одной дроби."""
+
+    rational = Fraction(
+        denominator_items[0][1] if denominator_items else 0,
+        denominator_common,
+    )
+    factor = Fraction(1) / rational
+    return SqrtSumV1(
+        tuple(
+            (
+                radicand,
+                Fraction(
+                    value * factor.numerator,
+                    numerator_common * factor.denominator,
+                ),
+            )
+            for radicand, value in numerator_items
+        )
+    )
+
+
 # Одна ширина оболочки на `SqrtSumV1.sign` и `_filtered_sign`: разойдись они,
 # фильтр решал бы не то, что решает `sign` до сопряжения, и счётчики
 # `SIGN_COUNTS` разъехались бы (ответ — нет: фолбэк точный).
@@ -1217,21 +1279,13 @@ class SqrtSumV1:
             return SqrtSumV1(())
         left_common, left_items = _integer_form(self.terms)
         right_common, right_items = _integer_form(other.terms)
-        merged: dict[int, int] = {}
-        for left_radicand, left_numerator in left_items:
-            for right_radicand, right_numerator in right_items:
-                common = gcd(left_radicand, right_radicand)
-                radicand = (left_radicand // common) * (right_radicand // common)
-                merged[radicand] = (
-                    merged.get(radicand, 0)
-                    + left_numerator * right_numerator * common
-                )
         denominator = left_common * right_common
         return SqrtSumV1(
             tuple(
                 (radicand, Fraction(numerator, denominator))
-                for radicand, numerator in sorted(merged.items())
-                if numerator
+                for radicand, numerator in _multiply_integer_items(
+                    left_items, right_items
+                )
             )
         )
 
@@ -1354,27 +1408,47 @@ def _divide_with_prime_universe(
     операндах — частично сопряжённые величины никогда не смешиваются с legacy.
     """
 
-    original_numerator = numerator
-    original_denominator = denominator
     if denominator.is_zero:
         return numerator.divided_by(denominator, budget)
+    numerator_common, numerator_items = _integer_form(numerator.terms)
+    denominator_common, denominator_items = _integer_form(denominator.terms)
     while True:
-        rational = denominator.as_rational()
-        if rational is not None:
-            return numerator.scaled(Fraction(1) / rational)
+        if len(denominator_items) <= 1 and all(
+            radicand == 1 for radicand, _ in denominator_items
+        ):
+            return _scaled_by_reciprocal(
+                numerator_common,
+                numerator_items,
+                denominator_common,
+                denominator_items,
+            )
         prime = _pick_prime_from_universe(
-            denominator.as_map(),
+            dict(denominator_items),
             prime_universe,
         )
-        if prime is None:
-            return original_numerator.divided_by(original_denominator, budget)
-        outside, inside = _split_by_prime(denominator.as_map(), prime)
-        root = SqrtSumV1.radical(1, prime, budget)
-        conjugate = SqrtSumV1._from_map(outside) - (
-            SqrtSumV1._from_map(inside) * root
+        # Корень `sqrt(prime)` материализуется здесь и только здесь: промах
+        # памяти `squarefree_split` платит бюджет, как платил `radical(1, p)`.
+        if prime is None or squarefree_split(prime, budget) != (1, prime):
+            return numerator.divided_by(denominator, budget)
+        # `E = A + B*sqrt(p)`, сопряжённое `A - B*sqrt(p)`: члены, делящиеся на
+        # p, меняют знак, а радиканды остаются прежними (`sqrt(k)*sqrt(p)` при
+        # `p` не делящем `k` даёт тот же `k*p`).
+        conjugate = [
+            (radicand, -value if radicand % prime == 0 else value)
+            for radicand, value in denominator_items
+        ]
+        numerator_items = _multiply_integer_items(numerator_items, conjugate)
+        denominator_items = _multiply_integer_items(
+            denominator_items, conjugate
         )
-        numerator = numerator * conjugate
-        denominator = denominator * conjugate
+        numerator_common *= denominator_common
+        denominator_common *= denominator_common
+        numerator_common, numerator_items = _reduced_form(
+            numerator_common, numerator_items
+        )
+        denominator_common, denominator_items = _reduced_form(
+            denominator_common, denominator_items
+        )
 
 
 def _split_by_prime(
