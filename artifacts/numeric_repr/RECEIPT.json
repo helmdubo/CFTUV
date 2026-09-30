@@ -1,0 +1,2361 @@
+{
+ "task": "срез 6, шаг 1 — числовое представление: ворота равенства, атрибуция по местам вызова, выполнимость замен",
+ "commit": {
+  "sha": "e548fb5",
+  "sha_full": "e548fb50b5e14db2d0d9f93942c4de2061b89f40",
+  "tree_clean_at_baseline": true,
+  "note": "Baseline снят на ЧИСТОМ дереве HEAD. Позже в worktree появилась чужая незакоммиченная правка kernel/.../wavefront/conveyor.py (_preparation_outcome добавляет partition.detail к detail отказа) + DECISIONS.md/ROADMAP.md/artifacts/faces_chain_refusal/. Ворота САМИ её поймали: единственное расхождение ANSWER на 244 строках — patch17 d2, ключи detail и fp_meta (compare_wip_vs_baseline.json). После коммита этой правки baseline нужно переснять."
+ },
+ "machine": {
+  "cores_logical": 24,
+  "python": "3.13.1",
+  "sympy": "1.14.0",
+  "workers": 8,
+  "alpha": "0.45"
+ },
+ "gate": {
+  "file": "artifacts/numeric_repr/gate.py",
+  "commands": {
+   "baseline": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out artifacts/numeric_repr/baseline_<sha>.json",
+   "check": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out new.json --baseline artifacts/numeric_repr/baseline_<sha>.json   # код возврата 1 при расхождении ANSWER",
+   "diff_two_files": "python artifacts/numeric_repr/gate.py compare A.json B.json [--json-out r.json]",
+   "negative_controls": "python artifacts/numeric_repr/gate.py selftest baseline.json --live",
+   "subset": "--only 6,7 (сравнение по пересечению); --densities 2",
+   "prototype_shims": "NUMERIC_REPR_SHIMS=sign,compare,mul,addsub,radical,floorcache python gate.py run ..."
+  },
+  "density_passing": "density=<0..4|None> -> build_envelope_decal_request(..., density=...) -> envelope_angular_policy (cftuv/envelope_request_policy.py); alpha 0.45 как в sweep.py; Fan Density 1 и 2 — оба прогоняются",
+  "ANSWER_class": [
+   "исход подготовки/покрытия, detail (в т.ч. текст отказа), lattice_scale, n_regions/faces/segments",
+   "fp_meta, fp_geometry (repr-дайджест regions/faces/segments как в pool_sweep), fp_geometry_value (числово-нормализованный: int и Fraction(n,1) равны)",
+   "fp_structural_counters (CONVEYOR_*), fp_host_counters",
+   "fp_deep_{bridge,skeleton,partition,owners}[_value], fp_deep_lattice: канонический обход ВНУТРЕННОСТЕЙ подготовки (узлы скелета с точными позициями, обязательства, отказы кандидатов, грани, владельцы); ExactWorkBudgetV1 вынут (это цена)",
+   "исключение в домене (EXCEPTION/<тип>) — тоже исход"
+  ],
+  "PRICE_class": [
+   "EXACT_WORK_* (шесть статей + SPENT), leaked_unbudgeted, SIGN_COUNTS, seconds, host_export/prepare/coverage seconds, stage_seconds — перечисляются в compare, но не ошибка"
+  ],
+  "diff_classes": "ANSWER diff (значение) / ANSWER REPR-ONLY (строгий дайджест разошёлся, числовой нет) / STRUCTURAL (набор доменов); любой из них -> MISMATCH",
+  "reproducibility": "повторный прогон на том же дереве: ANSWER IDENTICAL на 244 строках; статьи бюджета равны побитово (PRICE-расхождений по EXACT_WORK_* нет); одиночный процесс даёт те же ответы, что пул",
+  "negative_controls": {
+   "synthetic_on_baseline": "selftest: бит в fp_geometry, бит в fp_deep_skeleton, n_faces+1, смена исхода, пропавший домен — все MISMATCH; изменение ТОЛЬКО цены (секунды, SPENT, GCD, стадии) — IDENTICAL (selftest_output.txt: SELFTEST PASSED)",
+   "live_input_perturbation": "живой домен при alpha 0.5 вместо 0.45 -> расхождение fp_geometry/fp_meta; те же входы -> совпадение",
+   "live_arithmetic_mutation": "шим bad_area (+1e-12 к площади грани) на patch100/103 d2 -> расхождение по 13 ключам (исход уходит в отказ); шим int_types (значение то же, тип int) не меняет ответ, потому что поздние операции нормируют тип обратно — честный пример, что ловится ответ, а не внутренний тип; шим bad_mul (+1e-12 к коэффициенту) зацикливает марш (не завершается) — такие мутации гонять с timeout",
+   "real_detection": "чужая правка conveyor.py ловится как ANSWER diff на patch17 d2 (compare_wip_vs_baseline.json)"
+  }
+ },
+ "baseline": {
+  "file": "baseline_e548fb5.json",
+  "size_bytes": 340944,
+  "summary": {
+   "d1": {
+    "wall_seconds": 27.909,
+    "sum_domain_seconds": 146.145,
+    "max_domain_seconds": 27.367,
+    "outcomes": {
+     "EXACT/EXACT": 121,
+     "HOST_ADMISSION_REFUSED": 1
+    },
+    "top6_by_seconds": [
+     {
+      "patch": 6,
+      "seconds": 27.367,
+      "EXACT_WORK_SPENT": 54994,
+      "faces": 63,
+      "SKELETON_seconds": 21.098
+     },
+     {
+      "patch": 1,
+      "seconds": 26.067,
+      "EXACT_WORK_SPENT": 38858,
+      "faces": 51,
+      "SKELETON_seconds": 21.068
+     },
+     {
+      "patch": 7,
+      "seconds": 20.732,
+      "EXACT_WORK_SPENT": 30924,
+      "faces": 55,
+      "SKELETON_seconds": 16.504
+     },
+     {
+      "patch": 11,
+      "seconds": 20.377,
+      "EXACT_WORK_SPENT": 32665,
+      "faces": 51,
+      "SKELETON_seconds": 15.844
+     },
+     {
+      "patch": 15,
+      "seconds": 16.998,
+      "EXACT_WORK_SPENT": 33581,
+      "faces": 49,
+      "SKELETON_seconds": 12.06
+     },
+     {
+      "patch": 17,
+      "seconds": 7.495,
+      "EXACT_WORK_SPENT": 26584,
+      "faces": 23,
+      "SKELETON_seconds": 4.231
+     }
+    ],
+    "non_exact": {
+     "89": {
+      "outcome": "HOST_ADMISSION_REFUSED",
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=3.573965e-04 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, "
+     }
+    }
+   },
+   "d2": {
+    "wall_seconds": 39.372,
+    "sum_domain_seconds": 199.034,
+    "max_domain_seconds": 38.864,
+    "outcomes": {
+     "EXACT/EXACT": 120,
+     "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT": 1,
+     "HOST_ADMISSION_REFUSED": 1
+    },
+    "top6_by_seconds": [
+     {
+      "patch": 6,
+      "seconds": 38.864,
+      "EXACT_WORK_SPENT": 76617,
+      "faces": 77,
+      "SKELETON_seconds": 31.885
+     },
+     {
+      "patch": 1,
+      "seconds": 37.546,
+      "EXACT_WORK_SPENT": 51496,
+      "faces": 62,
+      "SKELETON_seconds": 31.085
+     },
+     {
+      "patch": 7,
+      "seconds": 29.578,
+      "EXACT_WORK_SPENT": 37161,
+      "faces": 67,
+      "SKELETON_seconds": 24.595
+     },
+     {
+      "patch": 11,
+      "seconds": 29.065,
+      "EXACT_WORK_SPENT": 49028,
+      "faces": 62,
+      "SKELETON_seconds": 23.767
+     },
+     {
+      "patch": 15,
+      "seconds": 24.483,
+      "EXACT_WORK_SPENT": 48746,
+      "faces": 60,
+      "SKELETON_seconds": 18.795
+     },
+     {
+      "patch": 17,
+      "seconds": 8.017,
+      "EXACT_WORK_SPENT": 38174,
+      "faces": 0,
+      "SKELETON_seconds": 6.011
+     }
+    ],
+    "non_exact": {
+     "17": {
+      "outcome": "FACES_DID_NOT_ASSEMBLE/PREPARATION_IS_NOT_EXACT",
+      "detail": "sparse-patch-domain-region:938965b2cd2cb0c33efdd191: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE"
+     },
+     "89": {
+      "outcome": "HOST_ADMISSION_REFUSED",
+      "detail": "source deviates beyond the declared near-planar budget: max_residual_squared=3.573965e-04 > residual_budget_squared=1.562500e-04 (residual_budget=1.250000e-02, "
+     }
+    }
+   }
+  },
+  "wall_seconds_repeat_runs": {
+   "d1": {
+    "baseline": 27.909,
+    "rerun_same_tree": 27.017,
+    "wip_tree": 27.955
+   },
+   "d2": {
+    "baseline": 39.372,
+    "rerun_same_tree": 41.28,
+    "wip_tree": 39.72
+   },
+   "note": "шум стены ±5%; секунды доменов — цена, не ответ"
+  },
+  "gate_runtime": "~70 с на оба density при 8 воркерах (+ старт пула)"
+ },
+ "attribution": {
+  "domains": "patch 6, 1, 7 при Fan Density 2 (три самых тяжёлых по секундам baseline: 38.9 / 37.5 / 29.6 с)",
+  "method": "cProfile + pstats callers; точка входа = функция sympy/fractions/exact_sqrt_sum, вызванная из кода ВНЕ своего пакета; встроенные/служебные вызывающие (sorted, repr, <string>) переносят вес на вызывающих пропорционально времени (до 3 прыжков; для sorted это даёт артефакты — помечено); импорт sympy/ядра вынесен прогревом малым доменом",
+  "files": [
+   "attribution.json",
+   "instrument_p6_d2.json",
+   "instrument_p1_d2.json",
+   "instrument_p7_d2.json",
+   "rational_share_p7_d2.json",
+   "rational_share_p6_d2.json",
+   "rational_share_p1_d2.json"
+  ],
+  "tables": {
+   "combined_domains": "COMBINED_p6_d2+p1_d2+p7_d2",
+   "per_domain_share": {
+    "p6_d2": {
+     "profile_total_seconds": 74.44,
+     "sympy_inclusive_seconds": 9.11,
+     "sympy_share": 0.1224,
+     "fractions_inclusive_seconds": 39.68,
+     "exact_sqrt_sum_public_inclusive_seconds": 40.12,
+     "tottime_bucket_share": {
+      "Fraction/gcd arithmetic": 0.5139,
+      "exact_sqrt_sum": 0.2028,
+      "other": 0.1157,
+      "sympy": 0.1082,
+      "skeleton march": 0.0443,
+      "number theory": 0.0151
+     }
+    },
+    "p1_d2": {
+     "profile_total_seconds": 80.49,
+     "sympy_inclusive_seconds": 8.47,
+     "sympy_share": 0.1053,
+     "fractions_inclusive_seconds": 45.25,
+     "exact_sqrt_sum_public_inclusive_seconds": 36.52,
+     "tottime_bucket_share": {
+      "Fraction/gcd arithmetic": 0.5419,
+      "exact_sqrt_sum": 0.2027,
+      "other": 0.1067,
+      "sympy": 0.0909,
+      "skeleton march": 0.037,
+      "number theory": 0.0207
+     }
+    },
+    "p7_d2": {
+     "profile_total_seconds": 67.56,
+     "sympy_inclusive_seconds": 5.52,
+     "sympy_share": 0.0817,
+     "fractions_inclusive_seconds": 38.2,
+     "exact_sqrt_sum_public_inclusive_seconds": 38.77,
+     "tottime_bucket_share": {
+      "Fraction/gcd arithmetic": 0.5455,
+      "exact_sqrt_sum": 0.2108,
+      "other": 0.1146,
+      "sympy": 0.0736,
+      "skeleton march": 0.0417,
+      "number theory": 0.0137
+     }
+    }
+   },
+   "combined": {
+    "profile_total_seconds": 222.48,
+    "sympy_inclusive_seconds": 23.13,
+    "sympy_by_family_top12": [
+     {
+      "family": "Expr arithmetic",
+      "calls": 389332,
+      "cum_seconds": 17.563,
+      "top_callers": [
+       {
+        "site": "reference/boundary.py:72(_contact_candidates)",
+        "calls": 65942,
+        "cum_seconds": 5.591
+       },
+       {
+        "site": "reference/metric.py:340(dot_g)",
+        "calls": 159156,
+        "cum_seconds": 4.192
+       },
+       {
+        "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+        "calls": 19017,
+        "cum_seconds": 1.624
+       },
+       {
+        "site": "reference/adaptive_density_fan.py:401(_subturn)",
+        "calls": 3348,
+        "cum_seconds": 1.357
+       }
+      ]
+     },
+     {
+      "family": "factor/cancel",
+      "calls": 20286,
+      "cum_seconds": 2.138,
+      "top_callers": [
+       {
+        "site": "reference/planar_types.py:62(exact_normalize)",
+        "calls": 19534,
+        "cum_seconds": 1.883
+       },
+       {
+        "site": "reference/planar_types.py:101(_canonical_expr)",
+        "calls": 188,
+        "cum_seconds": 0.121
+       },
+       {
+        "site": "reference/angular.py:870(_verify_evaluation_subturn_count_lift)",
+        "calls": 72,
+        "cum_seconds": 0.063
+       },
+       {
+        "site": "reference/planar_types.py:222(exact_sign)",
+        "calls": 16,
+        "cum_seconds": 0.05
+       }
+      ]
+     },
+     {
+      "family": "internal genexpr (assumptions/args)",
+      "calls": 601841,
+      "cum_seconds": 1.14,
+      "top_callers": [
+       {
+        "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+        "calls": 99577,
+        "cum_seconds": 0.595
+       },
+       {
+        "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+        "calls": 30592,
+        "cum_seconds": 0.164
+       },
+       {
+        "site": "wavefront/exact_candidate_view.py:282(is_future)",
+        "calls": 214188,
+        "cum_seconds": 0.13
+       },
+       {
+        "site": "exact_sqrt_sum.py:1127(is_rational)",
+        "calls": 116228,
+        "cum_seconds": 0.071
+       }
+      ]
+     },
+     {
+      "family": "cacheit wrapper (Expr op/ctor)",
+      "calls": 22120,
+      "cum_seconds": 0.721,
+      "top_callers": [
+       {
+        "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+        "calls": 1740,
+        "cum_seconds": 0.609
+       },
+       {
+        "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+        "calls": 6826,
+        "cum_seconds": 0.069
+       },
+       {
+        "site": "reference/validation.py:68(_interval_contains_oriented_support_delta)",
+        "calls": 576,
+        "cum_seconds": 0.013
+       },
+       {
+        "site": "reference/angle_measure.py:55(angular_fraction_of_pi)",
+        "calls": 77,
+        "cum_seconds": 0.01
+       }
+      ]
+     },
+     {
+      "family": "Expr compare/convert/hash",
+      "calls": 472506,
+      "cum_seconds": 0.642,
+      "top_callers": [
+       {
+        "site": "<string>:24(__hash__)",
+        "calls": 101493,
+        "cum_seconds": 0.149
+       },
+       {
+        "site": "<string>:22(__hash__)",
+        "calls": 76500,
+        "cum_seconds": 0.112
+       },
+       {
+        "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+        "calls": 88320,
+        "cum_seconds": 0.08
+       },
+       {
+        "site": "_density_policy.py:33(density_interval_enclosure)",
+        "calls": 48894,
+        "cum_seconds": 0.051
+       }
+      ]
+     },
+     {
+      "family": "sqrt",
+      "calls": 6943,
+      "cum_seconds": 0.366,
+      "top_callers": [
+       {
+        "site": "reference/angular.py:332(_density_unit_from_squared)",
+        "calls": 1583,
+        "cum_seconds": 0.199
+       },
+       {
+        "site": "reference/metric.py:362(length_g)",
+        "calls": 3791,
+        "cum_seconds": 0.101
+       },
+       {
+        "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+        "calls": 648,
+        "cum_seconds": 0.047
+       },
+       {
+        "site": "reference/validation.py:103(_density_interval_contains_oriented_support_delta)",
+        "calls": 360,
+        "cum_seconds": 0.012
+       }
+      ]
+     },
+     {
+      "family": "other:__call__",
+      "calls": 445,
+      "cum_seconds": 0.164,
+      "top_callers": [
+       {
+        "site": "reference/angular.py:240(_density_srepr)",
+        "calls": 351,
+        "cum_seconds": 0.155
+       },
+       {
+        "site": "reference/planar_types.py:101(_canonical_expr)",
+        "calls": 94,
+        "cum_seconds": 0.009
+       }
+      ]
+     },
+     {
+      "family": "radsimp",
+      "calls": 728,
+      "cum_seconds": 0.109,
+      "top_callers": [
+       {
+        "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+        "calls": 728,
+        "cum_seconds": 0.109
+       }
+      ]
+     },
+     {
+      "family": "tree access",
+      "calls": 56451,
+      "cum_seconds": 0.081,
+      "top_callers": [
+       {
+        "site": "reference/boundary.py:72(_contact_candidates)",
+        "calls": 8087,
+        "cum_seconds": 0.07
+       },
+       {
+        "site": "reference/planar_types.py:162(interval_enclosure)",
+        "calls": 36851,
+        "cum_seconds": 0.008
+       },
+       {
+        "site": "_density_policy.py:33(density_interval_enclosure)",
+        "calls": 8137,
+        "cum_seconds": 0.002
+       },
+       {
+        "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+        "calls": 126,
+        "cum_seconds": 0.001
+       }
+      ]
+     },
+     {
+      "family": "expand",
+      "calls": 2304,
+      "cum_seconds": 0.079,
+      "top_callers": [
+       {
+        "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+        "calls": 1620,
+        "cum_seconds": 0.073
+       },
+       {
+        "site": "reference/angular.py:351(_density_left_unit_normal)",
+        "calls": 648,
+        "cum_seconds": 0.006
+       },
+       {
+        "site": "reference/compile.py:594(_exact_turn_witness)",
+        "calls": 36,
+        "cum_seconds": 0.0
+       }
+      ]
+     },
+     {
+      "family": "sympify",
+      "calls": 29150,
+      "cum_seconds": 0.05,
+      "top_callers": [
+       {
+        "site": "reference/adaptive_density_fan.py:210(_vector)",
+        "calls": 9624,
+        "cum_seconds": 0.018
+       },
+       {
+        "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+        "calls": 9,
+        "cum_seconds": 0.012
+       },
+       {
+        "site": "reference/angular.py:273(_density_exact_sign)",
+        "calls": 11044,
+        "cum_seconds": 0.011
+       },
+       {
+        "site": "reference/angular.py:103(_density_runtime_vector)",
+        "calls": 5334,
+        "cum_seconds": 0.005
+       }
+      ]
+     },
+     {
+      "family": "other:__sympy__",
+      "calls": 197694,
+      "cum_seconds": 0.025,
+      "top_callers": [
+       {
+        "site": "reference/angular.py:114(<genexpr>)",
+        "calls": 45841,
+        "cum_seconds": 0.006
+       },
+       {
+        "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+        "calls": 35415,
+        "cum_seconds": 0.005
+       },
+       {
+        "site": "wavefront/symbolic_overlay.py:162(<genexpr>)",
+        "calls": 32932,
+        "cum_seconds": 0.004
+       },
+       {
+        "site": "wavefront/superlevel_snapshot.py:82(_vertex_snapshot)",
+        "calls": 29007,
+        "cum_seconds": 0.004
+       }
+      ]
+     }
+    ],
+    "sympy_by_kernel_caller_top20": [
+     {
+      "site": "reference/boundary.py:72(_contact_candidates)",
+      "calls": 89549,
+      "cum_seconds": 5.678,
+      "families": {
+       "Expr arithmetic": 5.591,
+       "tree access": 0.07,
+       "Expr compare/convert/hash": 0.011,
+       "cacheit wrapper (Expr op/ctor)": 0.003,
+       "other:<lambda>": 0.003
+      }
+     },
+     {
+      "site": "reference/metric.py:340(dot_g)",
+      "calls": 159156,
+      "cum_seconds": 4.192,
+      "families": {
+       "Expr arithmetic": 4.192
+      }
+     },
+     {
+      "site": "reference/planar_types.py:62(exact_normalize)",
+      "calls": 19534,
+      "cum_seconds": 1.883,
+      "families": {
+       "factor/cancel": 1.883
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+      "calls": 36307,
+      "cum_seconds": 1.632,
+      "families": {
+       "Expr arithmetic": 1.624,
+       "Expr compare/convert/hash": 0.007
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:401(_subturn)",
+      "calls": 10252,
+      "cum_seconds": 1.36,
+      "families": {
+       "Expr arithmetic": 1.357,
+       "Expr compare/convert/hash": 0.003
+      }
+     },
+     {
+      "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+      "calls": 11024,
+      "cum_seconds": 1.139,
+      "families": {
+       "cacheit wrapper (Expr op/ctor)": 0.609,
+       "Expr arithmetic": 0.41,
+       "expand": 0.073,
+       "sqrt": 0.047
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:249(_slope)",
+      "calls": 703,
+      "cum_seconds": 0.826,
+      "families": {
+       "Expr arithmetic": 0.826
+      }
+     },
+     {
+      "site": "reference/angular.py:258(_density_dot_expression)",
+      "calls": 22005,
+      "cum_seconds": 0.629,
+      "families": {
+       "Expr arithmetic": 0.629
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+      "calls": 99577,
+      "cum_seconds": 0.595,
+      "families": {
+       "internal genexpr (assumptions/args)": 0.595
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:373(_covectors)",
+      "calls": 12132,
+      "cum_seconds": 0.438,
+      "families": {
+       "Expr arithmetic": 0.438
+      }
+     },
+     {
+      "site": "reference/angular.py:332(_density_unit_from_squared)",
+      "calls": 4749,
+      "cum_seconds": 0.387,
+      "families": {
+       "sqrt": 0.199,
+       "Expr arithmetic": 0.188
+      }
+     },
+     {
+      "site": "reference/adaptive_density_atlas.py:253(build_atlas_window_record)",
+      "calls": 168,
+      "cum_seconds": 0.36,
+      "families": {
+       "Expr arithmetic": 0.36,
+       "Expr compare/convert/hash": 0.0
+      }
+     },
+     {
+      "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+      "calls": 4368,
+      "cum_seconds": 0.311,
+      "families": {
+       "Expr arithmetic": 0.193,
+       "radsimp": 0.109,
+       "simplify": 0.004,
+       "cacheit wrapper (Expr op/ctor)": 0.004
+      }
+     },
+     {
+      "site": "reference/planar_types.py:388(point_sub)",
+      "calls": 31418,
+      "cum_seconds": 0.179,
+      "families": {
+       "Expr arithmetic": 0.179
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:520(_rotate_q)",
+      "calls": 1452,
+      "cum_seconds": 0.174,
+      "families": {
+       "Expr arithmetic": 0.174
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+      "calls": 30592,
+      "cum_seconds": 0.164,
+      "families": {
+       "internal genexpr (assumptions/args)": 0.164
+      }
+     },
+     {
+      "site": "interactions/arrival.py:71(_density_support_line)",
+      "calls": 1926,
+      "cum_seconds": 0.163,
+      "families": {
+       "Expr arithmetic": 0.163
+      }
+     },
+     {
+      "site": "reference/adaptive_density_fan.py:191(_oriented_cross)",
+      "calls": 5798,
+      "cum_seconds": 0.157,
+      "families": {
+       "Expr arithmetic": 0.155,
+       "Expr compare/convert/hash": 0.002
+      }
+     },
+     {
+      "site": "reference/angular.py:240(_density_srepr)",
+      "calls": 1283,
+      "cum_seconds": 0.156,
+      "families": {
+       "other:__call__": 0.155,
+       "sympify": 0.001,
+       "Expr compare/convert/hash": 0.0
+      }
+     },
+     {
+      "site": "<string>:24(__hash__)",
+      "calls": 101493,
+      "cum_seconds": 0.149,
+      "families": {
+       "Expr compare/convert/hash": 0.149
+      }
+     }
+    ],
+    "sympy_by_entry_point_top15": [
+     {
+      "entry": "Expr arithmetic | sympy/core/decorators.py:236(_func)",
+      "calls": 83173,
+      "cum_seconds": 10.831
+     },
+     {
+      "entry": "Expr arithmetic | sympy/core/decorators.py:69(__sympifyit_wrapper)",
+      "calls": 250499,
+      "cum_seconds": 5.284
+     },
+     {
+      "entry": "factor/cancel | sympy/polys/polytools.py:6644(factor)",
+      "calls": 20076,
+      "cum_seconds": 1.931
+     },
+     {
+      "entry": "Expr arithmetic | sympy/core/numbers.py:1927(__mul__)",
+      "calls": 20637,
+      "cum_seconds": 1.178
+     },
+     {
+      "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:468(<genexpr>)",
+      "calls": 710,
+      "cum_seconds": 0.758
+     },
+     {
+      "entry": "cacheit wrapper (Expr op/ctor) | sympy/core/cache.py:69(wrapper)",
+      "calls": 22120,
+      "cum_seconds": 0.721
+     },
+     {
+      "entry": "sqrt | sympy/functions/elementary/miscellaneous.py:67(sqrt)",
+      "calls": 6943,
+      "cum_seconds": 0.366
+     },
+     {
+      "entry": "Expr compare/convert/hash | sympy/core/numbers.py:1697(__hash__)",
+      "calls": 139506,
+      "cum_seconds": 0.328
+     },
+     {
+      "entry": "internal genexpr (assumptions/args) | sympy/core/facts.py:633(<genexpr>)",
+      "calls": 448581,
+      "cum_seconds": 0.224
+     },
+     {
+      "entry": "factor/cancel | sympy/polys/polytools.py:7324(cancel)",
+      "calls": 210,
+      "cum_seconds": 0.208
+     },
+     {
+      "entry": "other:__call__ | sympy/printing/printer.py:407(__call__)",
+      "calls": 445,
+      "cum_seconds": 0.164
+     },
+     {
+      "entry": "Expr arithmetic | sympy/core/mul.py:190(__neg__)",
+      "calls": 4783,
+      "cum_seconds": 0.131
+     },
+     {
+      "entry": "Expr compare/convert/hash | sympy/core/basic.py:315(__hash__)",
+      "calls": 188148,
+      "cum_seconds": 0.127
+     },
+     {
+      "entry": "radsimp | sympy/simplify/radsimp.py:766(radsimp)",
+      "calls": 728,
+      "cum_seconds": 0.109
+     },
+     {
+      "entry": "Expr compare/convert/hash | sympy/core/basic.py:497(__eq__)",
+      "calls": 9657,
+      "cum_seconds": 0.095
+     }
+    ],
+    "mpmath_direct_from_kernel": {
+     "cum_seconds": 3.651,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 149586,
+       "cum_seconds": 2.47
+      },
+      {
+       "site": "reference/planar_types.py:195(_certified_interval_sign)",
+       "calls": 102520,
+       "cum_seconds": 0.621
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 31937,
+       "cum_seconds": 0.483
+      },
+      {
+       "site": "reference/angular.py:273(_density_exact_sign)",
+       "calls": 11883,
+       "cum_seconds": 0.07
+      },
+      {
+       "site": "reference/direction_binding.py:1603(_density_decimal_envelope)",
+       "calls": 2448,
+       "cum_seconds": 0.005
+      },
+      {
+       "site": "reference/direction_binding.py:1628(<genexpr>)",
+       "calls": 1632,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "reference/angle_measure.py:180(_enclose_fraction_of_pi)",
+       "calls": 10,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/event_time.py:231(canonical)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    "fractions_inclusive_seconds": 123.13,
+    "fractions_by_operation": [
+     {
+      "op": "forward",
+      "calls": 21137884,
+      "cum_seconds": 88.727
+     },
+     {
+      "op": "__new__",
+      "calls": 10574261,
+      "cum_seconds": 17.031
+     },
+     {
+      "op": "__gt__",
+      "calls": 1995508,
+      "cum_seconds": 5.201
+     },
+     {
+      "op": "__repr__",
+      "calls": 6534895,
+      "cum_seconds": 3.387
+     },
+     {
+      "op": "__neg__",
+      "calls": 2314837,
+      "cum_seconds": 3.317
+     },
+     {
+      "op": "__eq__",
+      "calls": 2496549,
+      "cum_seconds": 1.634
+     },
+     {
+      "op": "__bool__",
+      "calls": 5597213,
+      "cum_seconds": 1.522
+     },
+     {
+      "op": "__hash__",
+      "calls": 846345,
+      "cum_seconds": 1.003
+     },
+     {
+      "op": "__lt__",
+      "calls": 386676,
+      "cum_seconds": 0.932
+     },
+     {
+      "op": "denominator",
+      "calls": 1262270,
+      "cum_seconds": 0.166
+     }
+    ],
+    "fractions_top15_callers": [
+     {
+      "site": "exact_sqrt_sum.py:1061(__mul__)",
+      "calls": 10730331,
+      "cum_seconds": 40.244,
+      "ops": {
+       "forward": [
+        8047209,
+        37.573
+       ],
+       "__new__": [
+        2682403,
+        2.67
+       ],
+       "__eq__": [
+        618,
+        0.001
+       ],
+       "__hash__": [
+        101,
+        0.0
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1135(enclosure)",
+      "calls": 10471382,
+      "cum_seconds": 34.404,
+      "ops": {
+       "forward": [
+        5938278,
+        23.839
+       ],
+       "__new__": [
+        3151709,
+        6.958
+       ],
+       "__gt__": [
+        1381395,
+        3.607
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1059(<genexpr>)",
+      "calls": 3126411,
+      "cum_seconds": 10.913,
+      "ops": {
+       "forward": [
+        3126411,
+        10.913
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1043(__add__)",
+      "calls": 4577936,
+      "cum_seconds": 10.645,
+      "ops": {
+       "forward": [
+        2288657,
+        8.204
+       ],
+       "__new__": [
+        2288657,
+        2.439
+       ],
+       "__eq__": [
+        535,
+        0.001
+       ],
+       "__hash__": [
+        88,
+        0.0
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:986(radical)",
+      "calls": 3653840,
+      "cum_seconds": 6.878,
+      "ops": {
+       "forward": [
+        837742,
+        5.648
+       ],
+       "__new__": [
+        499944,
+        0.712
+       ],
+       "__eq__": [
+        863186,
+        0.317
+       ],
+       "denominator": [
+        1089726,
+        0.146
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1055(scaled)",
+      "calls": 2406882,
+      "cum_seconds": 3.79,
+      "ops": {
+       "__new__": [
+        1203441,
+        3.322
+       ],
+       "__eq__": [
+        1203441,
+        0.468
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1050(<genexpr>)",
+      "calls": 2225088,
+      "cum_seconds": 3.167,
+      "ops": {
+       "__neg__": [
+        2225088,
+        3.167
+       ]
+      }
+     },
+     {
+      "site": "Lib/reprlib.py:15(wrapper)",
+      "calls": 6065813,
+      "cum_seconds": 3.135,
+      "ops": {
+       "__repr__": [
+        6064538,
+        3.135
+       ],
+       "__hash__": [
+        1275,
+        0.0
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1035(<genexpr>)",
+      "calls": 5159373,
+      "cum_seconds": 1.4,
+      "ops": {
+       "__bool__": [
+        5159373,
+        1.4
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1161(certified_sign)",
+      "calls": 527757,
+      "cum_seconds": 1.314,
+      "ops": {
+       "__gt__": [
+        379990,
+        0.962
+       ],
+       "__lt__": [
+        147767,
+        0.353
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1237(_split_by_prime)",
+      "calls": 571480,
+      "cum_seconds": 1.174,
+      "ops": {
+       "forward": [
+        285703,
+        0.855
+       ],
+       "__new__": [
+        285703,
+        0.319
+       ],
+       "__eq__": [
+        64,
+        0.0
+       ],
+       "__hash__": [
+        10,
+        0.0
+       ]
+      }
+     },
+     {
+      "site": "exact_sqrt_sum.py:1171(sign)",
+      "calls": 246844,
+      "cum_seconds": 0.63,
+      "ops": {
+       "__gt__": [
+        123422,
+        0.338
+       ],
+       "__lt__": [
+        123422,
+        0.292
+       ]
+      }
+     },
+     {
+      "site": "wavefront/exact_identity.py:66(__hash__)",
+      "calls": 235840,
+      "cum_seconds": 0.613,
+      "ops": {
+       "__hash__": [
+        235840,
+        0.613
+       ]
+      }
+     },
+     {
+      "site": "_embedding.py:57(_cross3)",
+      "calls": 264870,
+      "cum_seconds": 0.587,
+      "ops": {
+       "forward": [
+        264870,
+        0.587
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:227(sign)",
+      "calls": 191842,
+      "cum_seconds": 0.472,
+      "ops": {
+       "__gt__": [
+        95921,
+        0.25
+       ],
+       "__lt__": [
+        95921,
+        0.222
+       ]
+      }
+     }
+    ],
+    "fraction_repr": {
+     "calls": 6534895,
+     "cum_seconds": 3.387,
+     "top_callers": [
+      {
+       "site": "Lib/reprlib.py:15(wrapper)",
+       "calls": 6064538,
+       "cum_seconds": 3.135
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:185(<lambda>)",
+       "calls": 104683,
+       "cum_seconds": 0.056
+      },
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 91295,
+       "cum_seconds": 0.048
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:163(<lambda>)",
+       "calls": 78570,
+       "cum_seconds": 0.042
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 53007,
+       "cum_seconds": 0.028
+      },
+      {
+       "site": "wavefront/symbolic_split_endpoint.py:65(<lambda>)",
+       "calls": 51823,
+       "cum_seconds": 0.028
+      },
+      {
+       "site": "wavefront/superlevel_snapshot.py:353(_incident_sort_key)",
+       "calls": 39991,
+       "cum_seconds": 0.022
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:431(<lambda>)",
+       "calls": 9327,
+       "cum_seconds": 0.005
+      }
+     ]
+    },
+    "exact_sqrt_sum_public_inclusive_seconds": 115.41,
+    "exact_sqrt_sum_by_function": [
+     {
+      "func": "sign",
+      "calls": 542979,
+      "cum_seconds": 44.505
+     },
+     {
+      "func": "__sub__",
+      "calls": 658271,
+      "cum_seconds": 23.538
+     },
+     {
+      "func": "scaled",
+      "calls": 1136580,
+      "cum_seconds": 18.632
+     },
+     {
+      "func": "radical",
+      "calls": 388686,
+      "cum_seconds": 8.456
+     },
+     {
+      "func": "__mul__",
+      "calls": 75844,
+      "cum_seconds": 7.613
+     },
+     {
+      "func": "divided_by",
+      "calls": 19407,
+      "cum_seconds": 6.727
+     },
+     {
+      "func": "__add__",
+      "calls": 290607,
+      "cum_seconds": 4.239
+     },
+     {
+      "func": "__neg__",
+      "calls": 90120,
+      "cum_seconds": 0.757
+     },
+     {
+      "func": "enclosure",
+      "calls": 8929,
+      "cum_seconds": 0.449
+     },
+     {
+      "func": "rational",
+      "calls": 110224,
+      "cum_seconds": 0.402
+     }
+    ],
+    "exact_sqrt_sum_top10_callers": [
+     {
+      "site": "wavefront/event_time.py:260(compare_times)",
+      "calls": 1574900,
+      "cum_seconds": 52.361,
+      "funcs": {
+       "sign": [
+        393725,
+        29.562
+       ],
+       "scaled": [
+        787450,
+        11.785
+       ],
+       "__sub__": [
+        393725,
+        11.014
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:466(_event_point)",
+      "calls": 442566,
+      "cum_seconds": 11.754,
+      "funcs": {
+       "__mul__": [
+        54366,
+        2.768
+       ],
+       "divided_by": [
+        7638,
+        2.446
+       ],
+       "scaled": [
+        135915,
+        2.143
+       ],
+       "__sub__": [
+        54366,
+        1.984
+       ]
+      }
+     },
+     {
+      "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+      "calls": 214834,
+      "cum_seconds": 11.011,
+      "funcs": {
+       "__sub__": [
+        96015,
+        5.156
+       ],
+       "sign": [
+        30977,
+        4.935
+       ],
+       "scaled": [
+        45608,
+        0.911
+       ],
+       "is_zero": [
+        42234,
+        0.009
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:288(concurrency_time)",
+      "calls": 610182,
+      "cum_seconds": 9.099,
+      "funcs": {
+       "radical": [
+        305091,
+        6.393
+       ],
+       "__add__": [
+        203394,
+        2.682
+       ],
+       "is_zero": [
+        101697,
+        0.023
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:213(normalized)",
+      "calls": 193310,
+      "cum_seconds": 9.078,
+      "funcs": {
+       "sign": [
+        103738,
+        8.324
+       ],
+       "__neg__": [
+        89572,
+        0.753
+       ]
+      }
+     },
+     {
+      "site": "wavefront/exact_candidate_view.py:298(span_end)",
+      "calls": 137802,
+      "cum_seconds": 5.643,
+      "funcs": {
+       "__sub__": [
+        45934,
+        3.044
+       ],
+       "scaled": [
+        91868,
+        2.599
+       ]
+      }
+     },
+     {
+      "site": "wavefront/faces.py:431(orientation)",
+      "calls": 31648,
+      "cum_seconds": 5.28,
+      "funcs": {
+       "__mul__": [
+        7912,
+        3.264
+       ],
+       "__sub__": [
+        19780,
+        1.077
+       ],
+       "sign": [
+        3956,
+        0.939
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:370(sliding_time)",
+      "calls": 110906,
+      "cum_seconds": 3.637,
+      "funcs": {
+       "divided_by": [
+        9196,
+        2.394
+       ],
+       "radical": [
+        20342,
+        0.486
+       ],
+       "__sub__": [
+        20342,
+        0.397
+       ],
+       "__add__": [
+        10171,
+        0.159
+       ]
+      }
+     },
+     {
+      "site": "wavefront/event_time.py:325(sliding_point)",
+      "calls": 27287,
+      "cum_seconds": 2.138,
+      "funcs": {
+       "divided_by": [
+        2099,
+        1.689
+       ],
+       "scaled": [
+        12594,
+        0.228
+       ],
+       "__add__": [
+        4198,
+        0.097
+       ],
+       "radical": [
+        2099,
+        0.057
+       ]
+      }
+     },
+     {
+      "site": "wavefront/faces.py:639(doubled_shoelace)",
+      "calls": 12970,
+      "cum_seconds": 1.008,
+      "funcs": {
+       "__mul__": [
+        6164,
+        0.739
+       ],
+       "__sub__": [
+        3082,
+        0.158
+       ],
+       "__add__": [
+        3082,
+        0.11
+       ],
+       "zero": [
+        642,
+        0.001
+       ]
+      }
+     }
+    ]
+   },
+   "profile_to_real_seconds_factor": {
+    "unprofiled_pool_seconds_sum_p6_p1_p7_d2": 105.99,
+    "profile_total_seconds_sum": 222.48,
+    "note": "cProfile замедляет домен в ~2.1x; доли верны, секунды профиля переводятся умножением на это отношение (оценка, не измерение)."
+   }
+  },
+  "values_and_memo": {
+   "p6_d2": {
+    "first_arg_value_classes": {
+     "_canonical_expr": {
+      "sympy Rational/Integer": 17493,
+      "sympy sqrt-sum (quadratic surd)": 44
+     },
+     "_density_exact_sign": {
+      "sympy Rational/Integer": 2200,
+      "sympy angle/trig": 1015,
+      "sympy sqrt-sum (quadratic surd)": 675
+     },
+     "_density_exact_vector": {
+      "sympy sqrt-sum (quadratic surd)": 55,
+      "sympy Rational/Integer": 22
+     },
+     "_density_srepr": {
+      "sympy sqrt-sum (quadratic surd)": 183,
+      "sympy Rational/Integer": 14
+     },
+     "_expr": {
+      "sympy Rational/Integer": 35019,
+      "sympy sqrt-sum (quadratic surd)": 6438,
+      "sympy angle/trig": 8
+     },
+     "_parse_expr_uncached": {
+      "str(srepr-text)": 2776
+     },
+     "exact_normalize": {
+      "sympy Rational/Integer": 11840,
+      "sympy sqrt-sum (quadratic surd)": 7442
+     },
+     "exact_sign": {
+      "sympy Rational/Integer": 16788,
+      "sympy sqrt-sum (quadratic surd)": 6388,
+      "sympy angle/trig": 8
+     },
+     "interval_enclosure": {
+      "sympy Rational/Integer": 13127,
+      "sympy sqrt-sum (quadratic surd)": 13123,
+      "sympy angle/trig": 20
+     },
+     "sp.cancel": {
+      "sympy sqrt-sum (quadratic surd)": 57,
+      "sympy Rational/Integer": 26,
+      "sympy angle/trig": 8
+     },
+     "sp.expand": {
+      "sympy Rational/Integer": 681,
+      "sympy sqrt-sum (quadratic surd)": 151
+     },
+     "sp.factor": {
+      "sympy sqrt-sum (quadratic surd)": 7486,
+      "sympy Rational/Integer": 58,
+      "sympy angle/trig": 10
+     },
+     "sp.radsimp": {
+      "sympy Rational/Integer": 260
+     },
+     "sp.simplify": {
+      "sympy Rational/Integer": 260
+     },
+     "sp.sqrt": {
+      "sympy Rational/Integer": 2551,
+      "int": 80
+     },
+     "sp.srepr": {
+      "sympy sqrt-sum (quadratic surd)": 171,
+      "sympy Rational/Integer": 10
+     },
+     "sp.sympify": {
+      "sympy Rational/Integer": 4217,
+      "sympy sqrt-sum (quadratic surd)": 2697,
+      "sympy angle/trig": 2617,
+      "int": 582,
+      "str(srepr-text)": 5
+     }
+    },
+    "symbolic_fallback_counts": {
+     "canonical": 44,
+     "sign": 6396,
+     "normalize": 7442,
+     "exact_sign_symbolic": 8
+    },
+    "density_exact_memo": {
+     "expressions": {
+      "hits": 4069,
+      "misses": 220,
+      "sets": 357,
+      "entries_at_end": 355
+     },
+     "dual_dots": {
+      "hits": 647,
+      "misses": 847,
+      "sets": 1694,
+      "entries_at_end": 1483
+     },
+     "crosses": {
+      "hits": 127,
+      "misses": 182,
+      "sets": 364,
+      "entries_at_end": 364
+     },
+     "intervals": {
+      "hits": 4804,
+      "misses": 4412,
+      "sets": 4412,
+      "entries_at_end": 4412
+     },
+     "signs": {
+      "hits": 748,
+      "misses": 3129,
+      "sets": 929,
+      "entries_at_end": 929
+     },
+     "sreprs": {
+      "hits": 60,
+      "misses": 137,
+      "sets": 137,
+      "entries_at_end": 137
+     },
+     "subturns": {
+      "hits": 311,
+      "misses": 340,
+      "sets": 680,
+      "entries_at_end": 680
+     },
+     "support_segments": {
+      "hits": 281,
+      "misses": 64,
+      "sets": 64,
+      "entries_at_end": 64
+     }
+    },
+    "density_exact_memo_key_value_classes": {
+     "expressions": {
+      "keys": {
+       "str(srepr-text)": 355
+      },
+      "values": {
+       "sympy Rational/Integer": 228,
+       "sympy sqrt-sum (quadratic surd)": 127
+      }
+     },
+     "intervals": {
+      "keys": {
+       "sympy Rational/Integer": 496,
+       "sympy sqrt-sum (quadratic surd)": 202,
+       "sympy angle/trig": 1302
+      },
+      "values": {
+       "ivmpf": 1999,
+       "ivmpf_constant": 1
+      }
+     },
+     "signs": {
+      "keys": {
+       "sympy angle/trig": 618,
+       "sympy sqrt-sum (quadratic surd)": 311
+      },
+      "values": {
+       "int": 929
+      }
+     },
+     "sreprs": {
+      "keys": {
+       "sympy Rational/Integer": 10,
+       "sympy sqrt-sum (quadratic surd)": 127
+      },
+      "values": {
+       "str": 137
+      }
+     }
+    },
+    "expression_srepr_len": {
+     "n": 355,
+     "mean": 52.5,
+     "max": 125
+    },
+    "memos_created": 11
+   },
+   "p1_d2": {
+    "first_arg_value_classes": {
+     "_canonical_expr": {
+      "sympy Rational/Integer": 12557,
+      "sympy sqrt-sum (quadratic surd)": 14
+     },
+     "_density_exact_sign": {
+      "sympy Rational/Integer": 1834,
+      "sympy angle/trig": 843,
+      "sympy sqrt-sum (quadratic surd)": 713
+     },
+     "_density_exact_vector": {
+      "sympy sqrt-sum (quadratic surd)": 65
+     },
+     "_density_srepr": {
+      "sympy sqrt-sum (quadratic surd)": 190
+     },
+     "_expr": {
+      "sympy Rational/Integer": 22722,
+      "sympy sqrt-sum (quadratic surd)": 6754
+     },
+     "_parse_expr_uncached": {
+      "str(srepr-text)": 2142
+     },
+     "exact_normalize": {
+      "sympy sqrt-sum (quadratic surd)": 7440,
+      "sympy Rational/Integer": 5897
+     },
+     "exact_sign": {
+      "sympy Rational/Integer": 9567,
+      "sympy sqrt-sum (quadratic surd)": 6740
+     },
+     "interval_enclosure": {
+      "sympy sqrt-sum (quadratic surd)": 13884,
+      "sympy Rational/Integer": 13884
+     },
+     "sp.cancel": {
+      "sympy sqrt-sum (quadratic surd)": 25,
+      "sympy Rational/Integer": 22
+     },
+     "sp.expand": {
+      "sympy Rational/Integer": 583,
+      "sympy sqrt-sum (quadratic surd)": 121
+     },
+     "sp.factor": {
+      "sympy sqrt-sum (quadratic surd)": 7454,
+      "sympy Rational/Integer": 44
+     },
+     "sp.radsimp": {
+      "sympy Rational/Integer": 260
+     },
+     "sp.simplify": {
+      "sympy Rational/Integer": 260
+     },
+     "sp.sqrt": {
+      "sympy Rational/Integer": 1919,
+      "int": 66
+     },
+     "sp.srepr": {
+      "sympy sqrt-sum (quadratic surd)": 146
+     },
+     "sp.sympify": {
+      "sympy Rational/Integer": 3161,
+      "sympy sqrt-sum (quadratic surd)": 2884,
+      "sympy angle/trig": 2141,
+      "int": 502,
+      "str(srepr-text)": 2
+     }
+    },
+    "symbolic_fallback_counts": {
+     "canonical": 14,
+     "sign": 6740,
+     "normalize": 7440,
+     "exact_sign_symbolic": 0
+    },
+    "density_exact_memo": {
+     "expressions": {
+      "hits": 2885,
+      "misses": 212,
+      "sets": 344,
+      "entries_at_end": 344
+     },
+     "dual_dots": {
+      "hits": 585,
+      "misses": 876,
+      "sets": 1752,
+      "entries_at_end": 1534
+     },
+     "crosses": {
+      "hits": 64,
+      "misses": 189,
+      "sets": 378,
+      "entries_at_end": 378
+     },
+     "intervals": {
+      "hits": 4792,
+      "misses": 4195,
+      "sets": 4195,
+      "entries_at_end": 4195
+     },
+     "signs": {
+      "hits": 685,
+      "misses": 2694,
+      "sets": 860,
+      "entries_at_end": 860
+     },
+     "sreprs": {
+      "hits": 58,
+      "misses": 132,
+      "sets": 132,
+      "entries_at_end": 132
+     },
+     "subturns": {
+      "hits": 184,
+      "misses": 349,
+      "sets": 698,
+      "entries_at_end": 698
+     },
+     "support_segments": {
+      "hits": 233,
+      "misses": 52,
+      "sets": 52,
+      "entries_at_end": 52
+     }
+    },
+    "density_exact_memo_key_value_classes": {
+     "expressions": {
+      "keys": {
+       "str(srepr-text)": 344
+      },
+      "values": {
+       "sympy Rational/Integer": 212,
+       "sympy sqrt-sum (quadratic surd)": 132
+      }
+     },
+     "intervals": {
+      "keys": {
+       "sympy Rational/Integer": 514,
+       "sympy sqrt-sum (quadratic surd)": 327,
+       "sympy angle/trig": 1159
+      },
+      "values": {
+       "ivmpf": 1999,
+       "ivmpf_constant": 1
+      }
+     },
+     "signs": {
+      "keys": {
+       "sympy sqrt-sum (quadratic surd)": 325,
+       "sympy angle/trig": 535
+      },
+      "values": {
+       "int": 860
+      }
+     },
+     "sreprs": {
+      "keys": {
+       "sympy sqrt-sum (quadratic surd)": 132
+      },
+      "values": {
+       "str": 132
+      }
+     }
+    },
+    "expression_srepr_len": {
+     "n": 344,
+     "mean": 51.2,
+     "max": 120
+    },
+    "memos_created": 10
+   },
+   "p7_d2": {
+    "first_arg_value_classes": {
+     "_canonical_expr": {
+      "sympy Rational/Integer": 14816,
+      "sympy sqrt-sum (quadratic surd)": 36
+     },
+     "_density_exact_sign": {
+      "sympy Rational/Integer": 1994,
+      "sympy angle/trig": 1276,
+      "sympy sqrt-sum (quadratic surd)": 494
+     },
+     "_density_exact_vector": {
+      "sympy sqrt-sum (quadratic surd)": 52,
+      "sympy Rational/Integer": 20
+     },
+     "_density_srepr": {
+      "sympy sqrt-sum (quadratic surd)": 154,
+      "sympy Rational/Integer": 22
+     },
+     "_expr": {
+      "sympy Rational/Integer": 29570,
+      "sympy sqrt-sum (quadratic surd)": 4768
+     },
+     "_parse_expr_uncached": {
+      "str(srepr-text)": 1917
+     },
+     "exact_normalize": {
+      "sympy Rational/Integer": 10909,
+      "sympy sqrt-sum (quadratic surd)": 4652
+     },
+     "exact_sign": {
+      "sympy Rational/Integer": 14032,
+      "sympy sqrt-sum (quadratic surd)": 4732
+     },
+     "interval_enclosure": {
+      "sympy sqrt-sum (quadratic surd)": 9832,
+      "sympy Rational/Integer": 9832
+     },
+     "sp.cancel": {
+      "sympy sqrt-sum (quadratic surd)": 48,
+      "sympy Rational/Integer": 24
+     },
+     "sp.expand": {
+      "sympy Rational/Integer": 636,
+      "sympy sqrt-sum (quadratic surd)": 132
+     },
+     "sp.factor": {
+      "sympy sqrt-sum (quadratic surd)": 4688,
+      "sympy Rational/Integer": 48
+     },
+     "sp.radsimp": {
+      "sympy Rational/Integer": 208
+     },
+     "sp.simplify": {
+      "sympy Rational/Integer": 208
+     },
+     "sp.sqrt": {
+      "sympy Rational/Integer": 2231,
+      "int": 96
+     },
+     "sp.srepr": {
+      "sympy sqrt-sum (quadratic surd)": 113,
+      "sympy Rational/Integer": 5
+     },
+     "sp.sympify": {
+      "sympy Rational/Integer": 4222,
+      "sympy angle/trig": 3220,
+      "sympy sqrt-sum (quadratic surd)": 2034,
+      "int": 864,
+      "str(srepr-text)": 2
+     }
+    },
+    "symbolic_fallback_counts": {
+     "canonical": 36,
+     "sign": 4732,
+     "normalize": 4652,
+     "exact_sign_symbolic": 0
+    },
+    "density_exact_memo": {
+     "expressions": {
+      "hits": 3101,
+      "misses": 173,
+      "sets": 255,
+      "entries_at_end": 253
+     },
+     "dual_dots": {
+      "hits": 798,
+      "misses": 390,
+      "sets": 780,
+      "entries_at_end": 686
+     },
+     "crosses": {
+      "hits": 204,
+      "misses": 72,
+      "sets": 144,
+      "entries_at_end": 144
+     },
+     "intervals": {
+      "hits": 1685,
+      "misses": 1371,
+      "sets": 1371,
+      "entries_at_end": 1371
+     },
+     "signs": {
+      "hits": 1450,
+      "misses": 2302,
+      "sets": 308,
+      "entries_at_end": 308
+     },
+     "sreprs": {
+      "hits": 94,
+      "misses": 82,
+      "sets": 82,
+      "entries_at_end": 82
+     },
+     "subturns": {
+      "hits": 656,
+      "misses": 148,
+      "sets": 296,
+      "entries_at_end": 296
+     },
+     "support_segments": {
+      "hits": 254,
+      "misses": 55,
+      "sets": 55,
+      "entries_at_end": 55
+     }
+    },
+    "density_exact_memo_key_value_classes": {
+     "expressions": {
+      "keys": {
+       "str(srepr-text)": 253
+      },
+      "values": {
+       "sympy Rational/Integer": 176,
+       "sympy sqrt-sum (quadratic surd)": 77
+      }
+     },
+     "intervals": {
+      "keys": {
+       "sympy Rational/Integer": 268,
+       "sympy sqrt-sum (quadratic surd)": 118,
+       "sympy angle/trig": 985
+      },
+      "values": {
+       "ivmpf": 1370,
+       "ivmpf_constant": 1
+      }
+     },
+     "signs": {
+      "keys": {
+       "sympy sqrt-sum (quadratic surd)": 66,
+       "sympy angle/trig": 242
+      },
+      "values": {
+       "int": 308
+      }
+     },
+     "sreprs": {
+      "keys": {
+       "sympy Rational/Integer": 5,
+       "sympy sqrt-sum (quadratic surd)": 77
+      },
+      "values": {
+       "str": 82
+      }
+     }
+    },
+    "expression_srepr_len": {
+     "n": 253,
+     "mean": 47.0,
+     "max": 123
+    },
+    "memos_created": 10
+   },
+   "rational_share_p7_d2": {
+    "ExactPlanarMetric.dot_g": {
+     "all-Rational": 3556,
+     "has-surd": 2240
+    },
+    "ExactPlanarMetric.oriented_cross": {
+     "all-Rational": 169
+    },
+    "point_sub": {
+     "all-Rational": 5102
+    },
+    "boundary._contact_candidates": {
+     "all-Rational": 525,
+     "has-surd": 560
+    },
+    "point_add": {
+     "all-Rational": 578
+    }
+   },
+   "rational_share_p6_d2": {
+    "ExactPlanarMetric.dot_g": {
+     "all-Rational": 3458,
+     "has-surd": 3606
+    },
+    "ExactPlanarMetric.oriented_cross": {
+     "all-Rational": 173,
+     "has-surd": 6
+    },
+    "point_sub": {
+     "all-Rational": 6307
+    },
+    "boundary._contact_candidates": {
+     "all-Rational": 432,
+     "has-surd": 900
+    },
+    "point_add": {
+     "all-Rational": 588
+    }
+   },
+   "rational_share_p1_d2": {
+    "ExactPlanarMetric.dot_g": {
+     "all-Rational": 1222,
+     "has-surd": 3602
+    },
+    "ExactPlanarMetric.oriented_cross": {
+     "all-Rational": 151,
+     "has-surd": 6
+    },
+    "point_sub": {
+     "all-Rational": 4300
+    },
+    "boundary._contact_candidates": {
+     "has-surd": 899
+    },
+    "point_add": {
+     "all-Rational": 466
+    }
+   }
+  },
+  "value_summary": {
+   "rational": "Expr-арифметика в основном над sp.Rational: exact_sign 59-75% Rational (p1/p6/p7), dot_g 61%, _contact_candidates 48% чисто рациональны; gram/inverse_gram — всегда sp.Rational (из ExactRationalV1) или Integer-единичная",
+   "quadratic_surds": "sqrt-суммы (1-2 радикала, srepr ~50 символов, макс 125): ВСЕ 7 442 вызова sp.factor (exact_normalize), _density_srepr, expressions-memo",
+   "angles": "sin/cos/atan/pi только в Density A: _density_exact_sign (25-34% вызовов), ключи intervals/signs memo (58-72% ключей intervals); в Fraction/SqrtSumV1 не выражаются"
+  },
+  "ExactPlanarMetric": "frozen dataclass: gram/inverse_gram 2x2 sp.Rational (rational всегда), owner_orientation_sign int, chart_grid GridSpecV1, source_step Fraction, _density_exact_memo. Методы dot_g/length_g/unit_g/oriented_cross/owner_normal_g/offset_support_g/angle_g возвращают sp.Expr (127 аннотаций sp.Expr по ядру) — замена типа gram ломает сигнатуры; быстрый путь изнутри сохраняет sp.Expr-интерфейс. Прецедент: snap_exact_quadratic_point/_floor_exact_quadratic уже считают на SqrtSumV1 без SymPy.",
+  "_DensityExactMemo": "8 кэшей (expressions, dual_dots, crosses, intervals, signs, sreprs, subturns, support_segments), на домен 10-11 экземпляров, по сотням записей (expressions 253-355, intervals 1.4-4.4k); попадания: expressions 4069/220, intervals 4804/4412 (contains), signs 748/3129, dual_dots 647/847, sreprs 60/137. Ключи — sp.Expr и srepr-строки; значения expressions — sp.Expr, sreprs — srepr-строки (идентичность ExactScalar). Память ничтожна; цена — хэш sp.Expr (Expr.__hash__ 472k вызовов, 0.64 с проф.). Пиклится пустым."
+ },
+ "digest_dependence_on_sympy_strings": {
+  "conclusion": "ДА, зависит — но только через ExactScalar.expression (= srepr): её нельзя менять без сдвига идентичностей и дайджестов. Путь очереди несёт эту зависимость в ответ: stable_id(..., ExactScalar.from_value(effective_alpha).expression) -> envelope_instance_id в гранях.",
+  "sites": [
+   "reference/planar_types.py: ExactScalar.expression = sp.srepr(sp.factor(sp.cancel(v))) (_canonical_expr) либо сборка `Integer(n)`/`Rational(p, q)` напрямую (_rational_srepr)",
+   "reference/angular.py:248-254 _density_srepr: sp.srepr(expression) БЕЗ factor (структура дерева sympy = строка)",
+   "stable_id(...) хэширует str(part): angular.py:1279, boundary.py:238, cap.py:46, strip.py:43, equality_locus.py:160-164, mutual_arrival.py:142/454-461, policy_b.py:166-183/351-376/620",
+   "point_key(point) = (x.expression, y.expression): ключ и порядок в arrangement.py:956/1091/1222-1247, policy_b.py:153-155/356/376/524, boundary.py:231, domain_geometry.py:191/208",
+   "reference/common.py:269 support_geometry_key = sorted(строки srepr)",
+   "RawCoverageResultV1.semantic_digest = sha256(canonical_json(result)) включает exact_area_expression (srepr); заморожен в kernel/tests/test_building_002_point_contact_fixture.py:260 и test_sem_clb_02_chain_straight_regression.py:509 (402ec97a…); artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
+   "тексты исключений: str(expression)/sp.srepr в IntervalEnclosureUnsupported, CertifiedPredicateUndecidable, ExactQuadraticFieldUnsupported, DensityIntervalEnclosureUnsupported — могут попасть в detail отказа",
+   "kernel/tests/test_exact_numeric_fast_path.py (докстринг): «Строка srepr — идентичность ExactScalar и вход семантических дайджестов»"
+  ],
+  "not_dependent": [
+   "FROZEN_DIGESTS скелета (wavefront/digest.py): JSON из SqrtSumV1/EventTimeV1 — `terms` Fraction, sympy нет",
+   "но: repr(Fraction)/repr(dataclass) — КЛЮЧ СОРТИРОВКИ в ~40 местах wavefront (superlevel*, symbolic_*), и exact_identity.py прямо пишет «repr уходит в дайджест»; формат `Fraction(n, d)` и тип коэффициента (Fraction, не int) заморожены косвенно; замена типа Fraction на другой класс требует побитового repr",
+   "queue-путь после conveyor._read_arrival_law (exact_rational -> Fraction) sympy не содержит: fp_deep_* по скелету/разбиению на всех доменах имеют deep_sympy_nodes=0"
+  ]
+ },
+ "prototypes": {
+  "files": [
+   "proto_shims.py",
+   "proto_run.py",
+   "run_proto_matrix.sh",
+   "run_proto_chain.sh",
+   "pytest_shims.py"
+  ],
+  "idea": "runtime-шимы (методы подменяются в памяти; файлы ядра не правятся): точная та же арифметика на целых; ответ проверяется теми же воротами, замороженные дайджесты — тестами ядра",
+  "chain_patch7_d2_solo": [
+   {
+    "shims": "none",
+    "passes": 3,
+    "seconds_mean": 18.66,
+    "seconds_min": 18.54,
+    "vs_none_pct": 0.0,
+    "step_seconds": null,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign",
+    "passes": 3,
+    "seconds_mean": 15.38,
+    "seconds_min": 15.23,
+    "vs_none_pct": -17.5,
+    "step_seconds": -3.27,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign+compare",
+    "passes": 3,
+    "seconds_mean": 14.28,
+    "seconds_min": 13.9,
+    "vs_none_pct": -23.4,
+    "step_seconds": -1.1,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign+compare+mul",
+    "passes": 3,
+    "seconds_mean": 11.36,
+    "seconds_min": 11.29,
+    "vs_none_pct": -39.1,
+    "step_seconds": -2.92,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign+compare+mul+addsub",
+    "passes": 3,
+    "seconds_mean": 10.79,
+    "seconds_min": 10.71,
+    "vs_none_pct": -42.2,
+    "step_seconds": -0.57,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign+compare+mul+addsub+radical",
+    "passes": 3,
+    "seconds_mean": 10.87,
+    "seconds_min": 10.59,
+    "vs_none_pct": -41.7,
+    "step_seconds": 0.08,
+    "answer_budget_signcounts_equal": true
+   },
+   {
+    "shims": "sign+compare+mul+addsub+radical+floorcache",
+    "passes": 3,
+    "seconds_mean": 10.23,
+    "seconds_min": 9.78,
+    "vs_none_pct": -45.1,
+    "step_seconds": -0.64,
+    "answer_budget_signcounts_equal": true
+   }
+  ],
+  "six_shims_solo_three_domains": {
+   "p1_d2": {
+    "none": {
+     "seconds_solo": 23.86,
+     "SKELETON": 19.51,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    },
+    "six_shims": {
+     "seconds_solo": 14.07,
+     "SKELETON": 10.251,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    }
+   },
+   "p6_d2": {
+    "none": {
+     "seconds_solo": 22.03,
+     "SKELETON": 18.506,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    },
+    "six_shims": {
+     "seconds_solo": 14.12,
+     "SKELETON": 10.429,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    }
+   },
+   "p7_d2": {
+    "none": {
+     "seconds_solo": 17.28,
+     "SKELETON": 14.82,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    },
+    "six_shims": {
+     "seconds_solo": 9.06,
+     "SKELETON": 6.979,
+     "answer_equal": true,
+     "budget_articles_equal": true,
+     "sign_counts_equal": true
+    }
+   }
+  },
+  "full_gate_with_six_shims_vs_unshimmed_same_tree": {
+   "verdict": "IDENTICAL",
+   "answer_diffs": 0,
+   "price_changes_only": [
+    "d1:coverage_seconds",
+    "d1:host_export_seconds",
+    "d1:prepare_seconds",
+    "d1:seconds",
+    "d1:stage_seconds.ARRIVAL_LAWS",
+    "d1:stage_seconds.BRIDGE",
+    "d1:stage_seconds.CHART_LATTICE",
+    "d1:stage_seconds.COVERAGE_CLIP",
+    "d1:stage_seconds.DOMAIN_BUILD",
+    "d1:stage_seconds.EFFECTIVE_ALPHA",
+    "d1:stage_seconds.FACES",
+    "d1:stage_seconds.PLAN_COMPILE",
+    "d1:stage_seconds.SKELETON",
+    "d2:coverage_seconds",
+    "d2:host_export_seconds",
+    "d2:prepare_seconds",
+    "d2:seconds",
+    "d2:stage_seconds.ARRIVAL_LAWS",
+    "d2:stage_seconds.BRIDGE",
+    "d2:stage_seconds.CHART_LATTICE",
+    "d2:stage_seconds.COVERAGE_CLIP",
+    "d2:stage_seconds.DOMAIN_BUILD",
+    "d2:stage_seconds.EFFECTIVE_ALPHA",
+    "d2:stage_seconds.FACES",
+    "d2:stage_seconds.PLAN_COMPILE",
+    "d2:stage_seconds.SKELETON"
+   ],
+   "d1_wall": "27.955 -> 17.838 c (-36%)",
+   "d2_wall": "39.72 -> 24.321 c (-39%)",
+   "d1_sum": "146.73 -> 90.84 c",
+   "d2_sum": "200.21 -> 119.80 c",
+   "d2_heaviest": "patch6 39.2 -> 22.8, patch1 37.7 -> 22.1, patch7 29.8 -> 15.3 c (-42/-41/-49%)",
+   "EXACT_WORK_and_SIGN_COUNTS": "без изменений ни на одном из 244 доменов"
+  },
+  "kernel_tests_with_shims": "см. kernel_tests_frozen_digests"
+ },
+ "kernel_tests_frozen_digests": {
+  "command": "PYTHONSAFEPATH=1 PYTHONPATH=kernel/src;artifacts/numeric_repr NUMERIC_REPR_SHIMS=<6 шимов> python -m pytest -p pytest_shims <файлы>",
+  "files": [
+   "test_wavefront_motorcycle_graph.py (FROZEN_DIGESTS)",
+   "test_exact_work_budget.py",
+   "test_wavefront_proof_obligations.py (_FROZEN_DIGESTS_ORACLE)",
+   "test_wavefront_exact_time.py",
+   "test_wavefront_event_queue.py",
+   "test_wavefront_same_time_closure.py",
+   "test_wavefront_partial_source.py",
+   "test_exact_canonicalization_memory.py",
+   "test_exact_identity_shadow.py",
+   "test_wavefront_weighted_wall_differential.py (абсолютные дайджесты P0-3)"
+  ],
+  "result_unshimmed": "808 passed, 471 с",
+  "result_with_six_shims": "808 passed, 245 с (шимы установлены: stderr плагина подтверждает)",
+  "meaning": "прототипы замен на SqrtSumV1/event_time не сдвигают ни один замороженный дайджест скелета, ни абсолютные дайджесты P0-3; то же должно выдержать настоящее внедрение тех же решений"
+ },
+ "ranked_changes": [
+  {
+   "rank": 1,
+   "change": "SqrtSumV1.certified_sign (и тем самым sign) на целых с общим знаменателем",
+   "call_site": "kernel/src/cftuv_envelope/exact_sqrt_sum.py: SqrtSumV1.certified_sign/enclosure <- sign <- event_time.compare_times (29.6 s проф.), EventTimeV1.normalized (8.3), exact_candidate_view.span_containment (4.9), faces.orientation (0.9)",
+   "replacement": "L = lcm знаменателей коэффициентов; a_m = num*(L/den); границы low/high = sum a*floor_root (+1 для отрицательных), умноженные на положительное L*2^bits; решения `low>0` / `high<0` те же; `Fraction` не создаётся",
+   "profile_share": "sign 44.5 s из 222.5 (20.0%) на 3 доменах; Fraction-операций в enclosure 10.5M",
+   "measured_p7_d2_solo": "18.66 -> 15.38 c (-17.5%, 3 прохода)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -18 c из 106 (по измеренным -17.5%)",
+   "risk_answers": "нет по построению: те же isqrt и те же решения; SIGN_COUNTS и статьи бюджета равны (проверено на 244 строках ворот и прототипом на 808 тестах ядра)",
+   "risk_digests": "нет: хранимые `terms`/`Fraction` не меняются, enclosure() для отчётов остаётся"
+  },
+  {
+   "rank": 2,
+   "change": "SqrtSumV1.__mul__ с накоплением целых числителей и одним нормированием дроби на член",
+   "call_site": "exact_sqrt_sum.py:SqrtSumV1.__mul__ <- _divide_with_prime_universe (40.0 s проф. из 52.3 cum __mul__), divided_by (4.7), faces.orientation (3.3), event_time._event_point (2.8)",
+   "replacement": "int-форма (общий знаменатель) обоих операндов, merge по радиканту на целых, Fraction(n, L1*L2) один раз на результирующий член",
+   "profile_share": "__mul__ 52.3 s (23.5%); 10.7M Fraction-операций в его теле",
+   "measured_p7_d2_solo": "после rank1+3: 14.28 -> 11.36 c (-2.92 c, -15.6%)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -16 c",
+   "risk_answers": "нет: коэффициент остаётся `Fraction` (не int) — repr/сортировка/дайджест; порядок членов сортировкой по радиканту как раньше",
+   "risk_digests": "нет при сохранении типа коэффициента Fraction (repr `Fraction(3, 1)` уходит в ключи сортировки по repr и в дайджесты)"
+  },
+  {
+   "rank": 3,
+   "change": "event_time.compare_times и times_are_equal слитно на целых",
+   "call_site": "wavefront/event_time.py:260 compare_times: 52.4 s проф. (23.5%) — scaled x2 + __sub__ + sign, 393 725 вызовов",
+   "replacement": "разность right.divisor*ld - left.divisor*rd сразу в целых; оболочка 64 бита; при неудаче фильтра — оригинальный путь (сопряжение и бюджет без изменений); SIGN_COUNTS ведутся так же",
+   "profile_share": "compare_times 52.4 s",
+   "measured_p7_d2_solo": "после rank1: 15.38 -> 14.28 c (-1.10 c, -5.9%)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -6 c",
+   "risk_answers": "нет: бюджет передаётся в оригинал на неудаче фильтра; ворота/тесты равны",
+   "risk_digests": "нет"
+  },
+  {
+   "rank": 4,
+   "change": "SqrtSumV1.__add__/__sub__ без Fraction(0)-заглушек и промежуточного __neg__",
+   "call_site": "exact_sqrt_sum.py:__add__ (10.6 s проф. на Fraction), __sub__ через `self + (-other)` (2.2M genexpr-нег)",
+   "replacement": "merge в dict без `get(r, Fraction(0)) + c`; `old - c` напрямую; фильтр нулей по c._numerator",
+   "measured_p7_d2_solo": "-0.57 c (-3.1%)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -3 c",
+   "risk_answers": "нет",
+   "risk_digests": "нет (тип Fraction сохранён)"
+  },
+  {
+   "rank": 5,
+   "change": "кэш floor_root = isqrt(radicand << 128) по радиканту",
+   "call_site": "exact_sqrt_sum.py enclosure / certified_sign (после rank1 isqrt заметен)",
+   "replacement": "dict radicand -> floor_root; чистить в reset_factorization_memory()",
+   "measured_p7_d2_solo": "-0.64 c (-3.4%), шум ±1 c (в одном из проходов -1.6 c)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -3 c",
+   "risk_answers": "нет (чистая функция)",
+   "risk_digests": "нет; НО процессный кэш — под запретом стиля проекта, если не привязан к транзакции домена (тот же лад, что reset_factorization_memory)"
+  },
+  {
+   "rank": 6,
+   "change": "прогрев импортов ядра в воркере пула до первой задачи",
+   "call_site": "воркер пула (cftuv/…pool): первый домен каждого воркера платит 1.0-1.3 c «host_export» за ленивый импорт wavefront+sympy (медиана остальных 0.026 c); тяжёлые домены идут первыми",
+   "replacement": "import cftuv_envelope.wavefront.conveyor в инициализаторе воркера",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -0.9 c на КРИТИЧЕСКОМ пути стены (а не на секундах домена)",
+   "risk_answers": "нет (порядок импорта)",
+   "risk_digests": "нет"
+  },
+  {
+   "rank": 7,
+   "change": "repr как ключ сортировки: symbolic_component.overlay_signature",
+   "call_site": "wavefront/symbolic_component.py:41 overlay_signature: 760 вызовов, 11.7 s проф. (5.3%), 254 705 dataclass-repr; суммарно 6.5M Fraction.__repr__",
+   "replacement": "кэш repr записи вершины на время вызова ИЛИ ключ без repr, если сигнатуры только сравниваются на равенство (аудит: сигнатуры входят в SymbolicSuperlevelClosureV1.signatures)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "до ~ -5 c (5.3% профиля), если ключ допустимо сменить",
+   "risk_answers": "средний: порядок repr-сортировки попадает в tuple, возвращаемый наружу; нужен аудит использования",
+   "risk_digests": "repr Fraction/dataclass ЗАМОРОЖЕН в FROZEN_DIGESTS-путях (superlevel repr-сортировки); менять тип/формат repr нельзя, менять ключ — только после аудита"
+  },
+  {
+   "rank": 8,
+   "change": "рациональные быстрые пути sympy: ExactPlanarMetric.dot_g, boundary._contact_candidates, adaptive_density_fan._dual_dot/_subturn (Fraction + одна sp.Rational)",
+   "call_site": "reference/metric.py:340 dot_g (4.2 s проф.; чисто рациональны 25% вызовов на p1, 49% на p6, 61% на p7), reference/boundary.py:72 _contact_candidates (5.6 s; рациональны 0% на p1, 32% на p6, 48% на p7), adaptive_density_fan.py:174/401 (1.6 + 1.4 s); всего sympy входит в 23.1 s из 222.5 (10.4%), Expr-арифметика 17.6 s из них",
+   "replacement": "при all-Rational входе считать на Fraction и собрать sp.Rational/Integer: srepr результата = `Rational(p, q)`/`Integer(n)` — строка идентичности та же (как _rational_srepr)",
+   "expected_saving_3_heaviest_d2_pool_seconds": "~ -1..-3 c: рациональны лишь 25-49% вызовов dot_g на самых тяжёлых p1/p6 и 0-32% _contact_candidates, иррациональные остаются в sympy; после rank1-5 доля sympy растёт до ~14-19% оставшегося времени (стадии PLAN_COMPILE+EFFECTIVE_ALPHA ~3.5-4 c из 22), но достать её можно лишь частично",
+   "risk_answers": "средний: множества sp.Expr (candidates) итерируются в порядке sympy-хэша, ничья при равных alpha зависит от него; точки/alpha идут в stable_id(...)",
+   "risk_digests": "ВЫСОКИЙ для иррациональных (srepr = идентичность ExactScalar -> stable_id -> envelope_instance_id в ответе, point_key, RawCoverage.semantic_digest, замороженные хэши 402ec97a…/fe440be5…); для рациональных — нулевой при сохранении строки"
+  },
+  {
+   "rank": 9,
+   "change": "замена sp.factor/exact_normalize и интервалов mpmath на SqrtSumV1",
+   "call_site": "planar_types.exact_normalize (sp.factor, 7 442 вызова на домен, все иррациональные, 1.9 s проф.), interval_enclosure/_certified_interval_sign (mpmath, 2.5+0.6 s), _density_exact_sign (углы: sin/cos/atan/pi)",
+   "replacement": "НЕ рекомендуется: результат sp.factor определяет строку srepr (идентичность), углы не выражаются в SqrtSumV1",
+   "expected_saving_3_heaviest_d2_pool_seconds": "<= -2 c",
+   "risk_answers": "высокий",
+   "risk_digests": "высокий (менялись бы ExactScalar.expression и всё, что от них хэшируется)"
+  }
+ ],
+ "compare_wip_vs_baseline_answer_diffs": [
+  {
+   "density": "2",
+   "patch_id": 17,
+   "keys": [
+    "detail",
+    "fp_meta"
+   ],
+   "detail": {
+    "detail": [
+     "sparse-patch-domain-region:938965b2cd2cb0c33efdd191: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE",
+     "sparse-patch-domain-region:938965b2cd2cb0c33efdd191: FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE; ребро (673740, 137852) -> (0, 262144): 1 участников в трёх и более точках из 13: [(0, 262144, 262144, 0)]"
+    ],
+    "fp_meta": [
+     "c1624c9203a0",
+     "56dabb0b14ff"
+    ]
+   }
+  }
+ ]
+}

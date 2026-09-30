@@ -1,0 +1,505 @@
+{
+ "patch_id": 6,
+ "density": 2,
+ "instrumented_wall_seconds": 37.3,
+ "answer_equals_row": {
+  "outcome": "EXACT/EXACT",
+  "detail": "",
+  "lattice_scale": 65536,
+  "n_regions": 1,
+  "n_faces": 77,
+  "n_segments": 169,
+  "fp_meta": "f46a6a59336a",
+  "fp_geometry": "a4389f043514",
+  "fp_geometry_value": "63d8059cda4c",
+  "fp_structural_counters": "2a65e2eb1a51",
+  "fp_host_counters": "23b2628d1e10",
+  "repr_has_address": false,
+  "fp_deep_bridge": "c2da092d3c30",
+  "fp_deep_bridge_value": "83d645ebbc2a",
+  "fp_deep_skeleton": "8e9c8166c882",
+  "fp_deep_skeleton_value": "8c15d88d4cfe",
+  "fp_deep_partition": "d223ff8016be",
+  "fp_deep_partition_value": "775fb29ed6e6",
+  "fp_deep_owners": "cc97427a7d11",
+  "fp_deep_owners_value": "537f5acbfa5e",
+  "fp_deep_lattice": "d518267e8e79",
+  "deep_sympy_nodes": 0,
+  "deep_unstable_repr_nodes": 0
+ },
+ "wrapped_bindings_replaced": 55,
+ "memos_created": 11,
+ "symbolic_fallback_counts": {
+  "canonical": 44,
+  "sign": 6396,
+  "normalize": 7442,
+  "exact_sign_symbolic": 8
+ },
+ "first_arg_value_classes_by_function": {
+  "_canonical_expr": {
+   "sympy Rational/Integer": 17493,
+   "sympy sqrt-sum (quadratic surd)": 44
+  },
+  "_density_exact_sign": {
+   "sympy Rational/Integer": 2200,
+   "sympy angle/trig": 1015,
+   "sympy sqrt-sum (quadratic surd)": 675
+  },
+  "_density_exact_vector": {
+   "sympy sqrt-sum (quadratic surd)": 55,
+   "sympy Rational/Integer": 22
+  },
+  "_density_srepr": {
+   "sympy sqrt-sum (quadratic surd)": 183,
+   "sympy Rational/Integer": 14
+  },
+  "_expr": {
+   "sympy Rational/Integer": 35019,
+   "sympy sqrt-sum (quadratic surd)": 6438,
+   "sympy angle/trig": 8
+  },
+  "_parse_expr_uncached": {
+   "str(srepr-text)": 2776
+  },
+  "exact_normalize": {
+   "sympy Rational/Integer": 11840,
+   "sympy sqrt-sum (quadratic surd)": 7442
+  },
+  "exact_sign": {
+   "sympy Rational/Integer": 16788,
+   "sympy sqrt-sum (quadratic surd)": 6388,
+   "sympy angle/trig": 8
+  },
+  "interval_enclosure": {
+   "sympy Rational/Integer": 13127,
+   "sympy sqrt-sum (quadratic surd)": 13123,
+   "sympy angle/trig": 20
+  },
+  "sp.cancel": {
+   "sympy sqrt-sum (quadratic surd)": 57,
+   "sympy Rational/Integer": 26,
+   "sympy angle/trig": 8
+  },
+  "sp.expand": {
+   "sympy Rational/Integer": 681,
+   "sympy sqrt-sum (quadratic surd)": 151
+  },
+  "sp.factor": {
+   "sympy sqrt-sum (quadratic surd)": 7486,
+   "sympy Rational/Integer": 58,
+   "sympy angle/trig": 10
+  },
+  "sp.radsimp": {
+   "sympy Rational/Integer": 260
+  },
+  "sp.simplify": {
+   "sympy Rational/Integer": 260
+  },
+  "sp.sqrt": {
+   "sympy Rational/Integer": 2551,
+   "int": 80
+  },
+  "sp.srepr": {
+   "sympy sqrt-sum (quadratic surd)": 171,
+   "sympy Rational/Integer": 10
+  },
+  "sp.sympify": {
+   "sympy Rational/Integer": 4217,
+   "sympy sqrt-sum (quadratic surd)": 2697,
+   "sympy angle/trig": 2617,
+   "int": 582,
+   "str(srepr-text)": 5
+  }
+ },
+ "top_kernel_callers_by_function": {
+  "_canonical_expr": [
+   {
+    "site": "reference/planar_types.py:142(from_value)",
+    "calls": 17537
+   }
+  ],
+  "_density_exact_sign": [
+   {
+    "site": "reference/adaptive_density_fan.py:207(_sign)",
+    "calls": 1845
+   },
+   {
+    "site": "reference/angular.py:337(_density_unit_from_squared)",
+    "calls": 571
+   },
+   {
+    "site": "reference/common.py:300(_sign)",
+    "calls": 212
+   },
+   {
+    "site": "reference/direction_binding.py:729(has_rational_density_support_direction)",
+    "calls": 131
+   },
+   {
+    "site": "reference/validation.py:133(_density_interval_contains_oriented_support_delta)",
+    "calls": 130
+   },
+   {
+    "site": "reference/validation.py:134(_density_interval_contains_oriented_support_delta)",
+    "calls": 130
+   }
+  ],
+  "_density_exact_vector": [
+   {
+    "site": "interactions/arrival.py:76(_density_support_line)",
+    "calls": 77
+   }
+  ],
+  "_density_srepr": [
+   {
+    "site": "reference/angular.py:235(scalar)",
+    "calls": 120
+   },
+   {
+    "site": "interactions/arrival.py:84(_density_support_line)",
+    "calls": 77
+   }
+  ],
+  "_expr": [
+   {
+    "site": "reference/planar_types.py:223(exact_sign)",
+    "calls": 23184
+   },
+   {
+    "site": "reference/planar_types.py:142(from_value)",
+    "calls": 17537
+   },
+   {
+    "site": "reference/planar_types.py:396(vector_scale)",
+    "calls": 744
+   }
+  ],
+  "_parse_expr_uncached": [
+   {
+    "site": "reference/planar_types.py:129(_parse_expr)",
+    "calls": 2556
+   },
+   {
+    "site": "reference/planar_types.py:153(as_expr)",
+    "calls": 220
+   }
+  ],
+  "exact_normalize": [
+   {
+    "site": "reference/metric.py:347(dot_g)",
+    "calls": 7064
+   },
+   {
+    "site": "reference/boundary.py:99(_contact_candidates)",
+    "calls": 3049
+   },
+   {
+    "site": "reference/boundary.py:100(_contact_candidates)",
+    "calls": 3049
+   },
+   {
+    "site": "reference/metric.py:366(length_g)",
+    "calls": 1505
+   },
+   {
+    "site": "reference/boundary.py:91(_contact_candidates)",
+    "calls": 1332
+   },
+   {
+    "site": "reference/boundary.py:92(_contact_candidates)",
+    "calls": 1332
+   }
+  ],
+  "exact_sign": [
+   {
+    "site": "reference/boundary.py:97(_contact_candidates)",
+    "calls": 11001
+   },
+   {
+    "site": "reference/boundary.py:101(_contact_candidates)",
+    "calls": 5015
+   },
+   {
+    "site": "reference/metric.py:364(length_g)",
+    "calls": 1505
+   },
+   {
+    "site": "reference/boundary.py:90(_contact_candidates)",
+    "calls": 1332
+   },
+   {
+    "site": "reference/boundary.py:93(_contact_candidates)",
+    "calls": 1332
+   },
+   {
+    "site": "reference/boundary.py:103(_contact_candidates)",
+    "calls": 884
+   }
+  ],
+  "interval_enclosure": [
+   {
+    "site": "reference/planar_types.py:182(interval_enclosure)",
+    "calls": 12800
+   },
+   {
+    "site": "reference/planar_types.py:186(interval_enclosure)",
+    "calls": 6396
+   },
+   {
+    "site": "reference/planar_types.py:210(_certified_interval_sign)",
+    "calls": 6396
+   },
+   {
+    "site": "reference/planar_types.py:177(interval_enclosure)",
+    "calls": 674
+   },
+   {
+    "site": "reference/angle_measure.py:188(_enclose_fraction_of_pi)",
+    "calls": 2
+   },
+   {
+    "site": "reference/angle_measure.py:189(_enclose_fraction_of_pi)",
+    "calls": 2
+   }
+  ],
+  "sp.cancel": [
+   {
+    "site": "reference/planar_types.py:110(_canonical_expr)",
+    "calls": 44
+   },
+   {
+    "site": "reference/compile.py:601(_exact_turn_witness)",
+    "calls": 13
+   },
+   {
+    "site": "reference/angular.py:943(_verify_evaluation_subturn_count_lift)",
+    "calls": 13
+   },
+   {
+    "site": "reference/angular.py:944(_verify_evaluation_subturn_count_lift)",
+    "calls": 13
+   },
+   {
+    "site": "reference/planar_types.py:243(exact_sign)",
+    "calls": 8
+   }
+  ],
+  "sp.expand": [
+   {
+    "site": "reference/angular.py:399(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:402(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:405(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:408(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:440(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:363(_density_left_unit_normal)",
+    "calls": 117
+   }
+  ],
+  "sp.factor": [
+   {
+    "site": "reference/planar_types.py:78(exact_normalize)",
+    "calls": 7442
+   },
+   {
+    "site": "reference/planar_types.py:110(_canonical_expr)",
+    "calls": 44
+   },
+   {
+    "site": "reference/angle_measure.py:58(angular_fraction_of_pi)",
+    "calls": 31
+   },
+   {
+    "site": "reference/angle_measure.py:89(rational_intervals_over_pi)",
+    "calls": 29
+   },
+   {
+    "site": "reference/planar_types.py:243(exact_sign)",
+    "calls": 8
+   }
+  ],
+  "sp.radsimp": [
+   {
+    "site": "wavefront/conveyor.py:456(_rational_after_scaling)",
+    "calls": 260
+   }
+  ],
+  "sp.simplify": [
+   {
+    "site": "wavefront/conveyor.py:459(_rational_after_scaling)",
+    "calls": 260
+   }
+  ],
+  "sp.sqrt": [
+   {
+    "site": "reference/metric.py:366(length_g)",
+    "calls": 1505
+   },
+   {
+    "site": "reference/angular.py:347(_density_unit_from_squared)",
+    "calls": 571
+   },
+   {
+    "site": "reference/validation.py:138(_density_interval_contains_oriented_support_delta)",
+    "calls": 130
+   },
+   {
+    "site": "reference/angular.py:458(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/angular.py:460(_huber_density_interpolated_normals)",
+    "calls": 117
+   },
+   {
+    "site": "reference/adaptive_density_fan.py:508(_exact_q_trig)",
+    "calls": 80
+   }
+  ],
+  "sp.srepr": [
+   {
+    "site": "reference/angular.py:252(_density_srepr)",
+    "calls": 137
+   },
+   {
+    "site": "reference/planar_types.py:111(_canonical_expr)",
+    "calls": 44
+   }
+  ],
+  "sp.sympify": [
+   {
+    "site": "reference/angular.py:279(_density_exact_sign)",
+    "calls": 3890
+   },
+   {
+    "site": "reference/adaptive_density_fan.py:216(_vector)",
+    "calls": 3174
+   },
+   {
+    "site": "reference/angular.py:104(_density_runtime_vector)",
+    "calls": 1930
+   },
+   {
+    "site": "wavefront/conveyor.py:231(exact_rational)",
+    "calls": 768
+   },
+   {
+    "site": "reference/angular.py:246(_density_srepr)",
+    "calls": 197
+   },
+   {
+    "site": "reference/angular.py:232(scalar)",
+    "calls": 154
+   }
+  ]
+ },
+ "density_exact_memo": {
+  "expressions": {
+   "hits": 4069,
+   "misses": 220,
+   "sets": 357,
+   "entries_at_end": 355
+  },
+  "dual_dots": {
+   "hits": 647,
+   "misses": 847,
+   "sets": 1694,
+   "entries_at_end": 1483
+  },
+  "crosses": {
+   "hits": 127,
+   "misses": 182,
+   "sets": 364,
+   "entries_at_end": 364
+  },
+  "intervals": {
+   "hits": 4804,
+   "misses": 4412,
+   "sets": 4412,
+   "entries_at_end": 4412
+  },
+  "signs": {
+   "hits": 748,
+   "misses": 3129,
+   "sets": 929,
+   "entries_at_end": 929
+  },
+  "sreprs": {
+   "hits": 60,
+   "misses": 137,
+   "sets": 137,
+   "entries_at_end": 137
+  },
+  "subturns": {
+   "hits": 311,
+   "misses": 340,
+   "sets": 680,
+   "entries_at_end": 680
+  },
+  "support_segments": {
+   "hits": 281,
+   "misses": 64,
+   "sets": 64,
+   "entries_at_end": 64
+  }
+ },
+ "density_exact_memo_key_value_classes_first_memo": {
+  "expressions": {
+   "keys": {
+    "str(srepr-text)": 355
+   },
+   "values": {
+    "sympy Rational/Integer": 228,
+    "sympy sqrt-sum (quadratic surd)": 127
+   }
+  },
+  "intervals": {
+   "keys": {
+    "sympy Rational/Integer": 496,
+    "sympy sqrt-sum (quadratic surd)": 202,
+    "sympy angle/trig": 1302
+   },
+   "values": {
+    "ivmpf": 1999,
+    "ivmpf_constant": 1
+   }
+  },
+  "signs": {
+   "keys": {
+    "sympy angle/trig": 618,
+    "sympy sqrt-sum (quadratic surd)": 311
+   },
+   "values": {
+    "int": 929
+   }
+  },
+  "sreprs": {
+   "keys": {
+    "sympy Rational/Integer": 10,
+    "sympy sqrt-sum (quadratic surd)": 127
+   },
+   "values": {
+    "str": 137
+   }
+  }
+ },
+ "expression_srepr_len_first_memo": {
+  "n": 355,
+  "mean": 52.5,
+  "max": 125
+ }
+}

@@ -1,0 +1,6427 @@
+{
+ "domains": {
+  "p6_d2": {
+   "pstats": [
+    "p6_d2.pstats"
+   ],
+   "profile_total_seconds": 74.44,
+   "sympy_inclusive_seconds_profiled": 9.11,
+   "sympy_share_of_profile": 0.1224,
+   "sympy_by_family": [
+    {
+     "family": "Expr arithmetic",
+     "calls": 152454,
+     "cum_seconds": 6.884,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 26505,
+       "cum_seconds": 2.445
+      },
+      {
+       "site": "reference/metric.py:340(dot_g)",
+       "calls": 63576,
+       "cum_seconds": 1.742
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+       "calls": 7623,
+       "cum_seconds": 0.575
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:401(_subturn)",
+       "calls": 1360,
+       "cum_seconds": 0.526
+      }
+     ]
+    },
+    {
+     "family": "factor/cancel",
+     "calls": 7749,
+     "cum_seconds": 0.893,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:62(exact_normalize)",
+       "calls": 7442,
+       "cum_seconds": 0.757
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 88,
+       "cum_seconds": 0.057
+      },
+      {
+       "site": "reference/planar_types.py:222(exact_sign)",
+       "calls": 16,
+       "cum_seconds": 0.05
+      },
+      {
+       "site": "reference/angular.py:870(_verify_evaluation_subturn_count_lift)",
+       "calls": 26,
+       "cum_seconds": 0.02
+      }
+     ]
+    },
+    {
+     "family": "internal genexpr (assumptions/args)",
+     "calls": 234852,
+     "cum_seconds": 0.436,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+       "calls": 37720,
+       "cum_seconds": 0.226
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+       "calls": 15564,
+       "cum_seconds": 0.07
+      },
+      {
+       "site": "wavefront/exact_candidate_view.py:282(is_future)",
+       "calls": 90466,
+       "cum_seconds": 0.052
+      },
+      {
+       "site": "exact_sqrt_sum.py:1127(is_rational)",
+       "calls": 43400,
+       "cum_seconds": 0.025
+      }
+     ]
+    },
+    {
+     "family": "cacheit wrapper (Expr op/ctor)",
+     "calls": 8573,
+     "cum_seconds": 0.326,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 636,
+       "cum_seconds": 0.273
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 2771,
+       "cum_seconds": 0.028
+      },
+      {
+       "site": "reference/angle_measure.py:55(angular_fraction_of_pi)",
+       "calls": 31,
+       "cum_seconds": 0.009
+      },
+      {
+       "site": "reference/validation.py:68(_interval_contains_oriented_support_delta)",
+       "calls": 208,
+       "cum_seconds": 0.007
+      }
+     ]
+    },
+    {
+     "family": "Expr compare/convert/hash",
+     "calls": 186592,
+     "cum_seconds": 0.23,
+     "top_callers": [
+      {
+       "site": "<string>:24(__hash__)",
+       "calls": 41096,
+       "cum_seconds": 0.057
+      },
+      {
+       "site": "<string>:22(__hash__)",
+       "calls": 30096,
+       "cum_seconds": 0.042
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 30642,
+       "cum_seconds": 0.028
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 21040,
+       "cum_seconds": 0.019
+      }
+     ]
+    },
+    {
+     "family": "sqrt",
+     "calls": 2631,
+     "cum_seconds": 0.144,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:332(_density_unit_from_squared)",
+       "calls": 571,
+       "cum_seconds": 0.063
+      },
+      {
+       "site": "reference/metric.py:362(length_g)",
+       "calls": 1505,
+       "cum_seconds": 0.047
+      },
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 234,
+       "cum_seconds": 0.024
+      },
+      {
+       "site": "reference/validation.py:103(_density_interval_contains_oriented_support_delta)",
+       "calls": 130,
+       "cum_seconds": 0.006
+      }
+     ]
+    },
+    {
+     "family": "other:__call__",
+     "calls": 181,
+     "cum_seconds": 0.048,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:240(_density_srepr)",
+       "calls": 137,
+       "cum_seconds": 0.044
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 44,
+       "cum_seconds": 0.005
+      }
+     ]
+    },
+    {
+     "family": "expand",
+     "calls": 832,
+     "cum_seconds": 0.036,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 585,
+       "cum_seconds": 0.034
+      },
+      {
+       "site": "reference/angular.py:351(_density_left_unit_normal)",
+       "calls": 234,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "reference/compile.py:594(_exact_turn_witness)",
+       "calls": 13,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "radsimp",
+     "calls": 260,
+     "cum_seconds": 0.03,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 260,
+       "cum_seconds": 0.03
+      }
+     ]
+    },
+    {
+     "family": "tree access",
+     "calls": 21540,
+     "cum_seconds": 0.029,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 3084,
+       "cum_seconds": 0.024
+      },
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 13135,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 3585,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 45,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "sympify",
+     "calls": 10118,
+     "cum_seconds": 0.017,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 5,
+       "cum_seconds": 0.006
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:210(_vector)",
+       "calls": 3174,
+       "cum_seconds": 0.005
+      },
+      {
+       "site": "reference/angular.py:273(_density_exact_sign)",
+       "calls": 3890,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "reference/angular.py:103(_density_runtime_vector)",
+       "calls": 1930,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "is_* / assumptions",
+     "calls": 20,
+     "cum_seconds": 0.014,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:222(exact_sign)",
+       "calls": 20,
+       "cum_seconds": 0.014
+      }
+     ]
+    },
+    {
+     "family": "other:__sympy__",
+     "calls": 75715,
+     "cum_seconds": 0.01,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:114(<genexpr>)",
+       "calls": 16811,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 13429,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:162(<genexpr>)",
+       "calls": 12835,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/superlevel_snapshot.py:82(_vertex_snapshot)",
+       "calls": 12454,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "other:order_key",
+     "calls": 94,
+     "cum_seconds": 0.006,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 56,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 30,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_preorder_traversal",
+     "calls": 1514,
+     "cum_seconds": 0.003,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 738,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 699,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "reference/angular.py:666(_ideal_angular_support_data)",
+       "calls": 13,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/boundary.py:175(resolve_component_alphas)",
+       "calls": 11,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_print",
+     "calls": 136,
+     "cum_seconds": 0.002,
+     "top_callers": [
+      {
+       "site": "host:envelope_queue_export.py:490(_face_area_text)",
+       "calls": 112,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "codec.py:92(_json_sort_key)",
+       "calls": 7,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/common.py:59(stable_id)",
+       "calls": 6,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/compile.py:163(_stable_value)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__str__",
+     "calls": 8,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 8,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "simplify",
+     "calls": 260,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 260,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "other:<lambda>",
+     "calls": 362,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 180,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 107,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 58,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:default_sort_key",
+     "calls": 8,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 5,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__instancecheck__",
+     "calls": 1106,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:663(forward)",
+       "calls": 610,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "Lib/fractions.py:983(_richcmp)",
+       "calls": 300,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 126,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:962(__eq__)",
+       "calls": 34,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:key",
+     "calls": 180,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 107,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 58,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:order_if_multiple_key",
+     "calls": 30,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 10,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_expand_hint_key",
+     "calls": 767,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 455,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 246,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 14,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 13,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:numerator",
+     "calls": 22,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 22,
+       "cum_seconds": 0.0
+      }
+     ]
+    }
+   ],
+   "sympy_by_entry_point_top25": [
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:236(_func)",
+     "calls": 30812,
+     "cum_seconds": 4.268
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:69(__sympifyit_wrapper)",
+     "calls": 100308,
+     "cum_seconds": 2.047
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:6644(factor)",
+     "calls": 7658,
+     "cum_seconds": 0.789
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1927(__mul__)",
+     "calls": 7673,
+     "cum_seconds": 0.464
+    },
+    {
+     "entry": "cacheit wrapper (Expr op/ctor) | sympy/core/cache.py:69(wrapper)",
+     "calls": 8573,
+     "cum_seconds": 0.326
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:468(<genexpr>)",
+     "calls": 306,
+     "cum_seconds": 0.292
+    },
+    {
+     "entry": "sqrt | sympy/functions/elementary/miscellaneous.py:67(sqrt)",
+     "calls": 2631,
+     "cum_seconds": 0.144
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:1697(__hash__)",
+     "calls": 55790,
+     "cum_seconds": 0.129
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:7324(cancel)",
+     "calls": 91,
+     "cum_seconds": 0.104
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/facts.py:633(<genexpr>)",
+     "calls": 176061,
+     "cum_seconds": 0.085
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/mul.py:190(__neg__)",
+     "calls": 1864,
+     "cum_seconds": 0.054
+    },
+    {
+     "entry": "other:__call__ | sympy/printing/printer.py:407(__call__)",
+     "calls": 181,
+     "cum_seconds": 0.048
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:315(__hash__)",
+     "calls": 75171,
+     "cum_seconds": 0.045
+    },
+    {
+     "entry": "expand | sympy/core/function.py:2516(expand)",
+     "calls": 832,
+     "cum_seconds": 0.036
+    },
+    {
+     "entry": "radsimp | sympy/simplify/radsimp.py:766(radsimp)",
+     "calls": 260,
+     "cum_seconds": 0.03
+    },
+    {
+     "entry": "tree access | sympy/core/basic.py:366(compare)",
+     "calls": 3130,
+     "cum_seconds": 0.025
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:2011(__hash__)",
+     "calls": 42972,
+     "cum_seconds": 0.023
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:497(__eq__)",
+     "calls": 3239,
+     "cum_seconds": 0.021
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/operations.py:73(<genexpr>)",
+     "calls": 49465,
+     "cum_seconds": 0.021
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/expr.py:482(<genexpr>)",
+     "calls": 3891,
+     "cum_seconds": 0.017
+    },
+    {
+     "entry": "sympify | sympy/core/sympify.py:124(sympify)",
+     "calls": 10118,
+     "cum_seconds": 0.017
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1907(__sub__)",
+     "calls": 4677,
+     "cum_seconds": 0.016
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:27(<genexpr>)",
+     "calls": 200,
+     "cum_seconds": 0.014
+    },
+    {
+     "entry": "is_* / assumptions | sympy/core/assumptions.py:497(getit)",
+     "calls": 20,
+     "cum_seconds": 0.014
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1938(__rmul__)",
+     "calls": 2740,
+     "cum_seconds": 0.013
+    }
+   ],
+   "sympy_by_kernel_caller_top25": [
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 35933,
+     "cum_seconds": 2.476,
+     "families": {
+      "Expr arithmetic": 2.445,
+      "tree access": 0.024,
+      "Expr compare/convert/hash": 0.005,
+      "cacheit wrapper (Expr op/ctor)": 0.001,
+      "other:<lambda>": 0.001
+     }
+    },
+    {
+     "site": "reference/metric.py:340(dot_g)",
+     "calls": 63576,
+     "cum_seconds": 1.742,
+     "families": {
+      "Expr arithmetic": 1.742
+     }
+    },
+    {
+     "site": "reference/planar_types.py:62(exact_normalize)",
+     "calls": 7442,
+     "cum_seconds": 0.757,
+     "families": {
+      "factor/cancel": 0.757
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+     "calls": 14493,
+     "cum_seconds": 0.577,
+     "families": {
+      "Expr arithmetic": 0.575,
+      "Expr compare/convert/hash": 0.003
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:401(_subturn)",
+     "calls": 4139,
+     "cum_seconds": 0.527,
+     "families": {
+      "Expr arithmetic": 0.526,
+      "Expr compare/convert/hash": 0.001
+     }
+    },
+    {
+     "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+     "calls": 4009,
+     "cum_seconds": 0.481,
+     "families": {
+      "cacheit wrapper (Expr op/ctor)": 0.273,
+      "Expr arithmetic": 0.149,
+      "expand": 0.034,
+      "sqrt": 0.024
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:249(_slope)",
+     "calls": 241,
+     "cum_seconds": 0.343,
+     "families": {
+      "Expr arithmetic": 0.343
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+     "calls": 37720,
+     "cum_seconds": 0.226,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.226
+     }
+    },
+    {
+     "site": "reference/angular.py:258(_density_dot_expression)",
+     "calls": 7929,
+     "cum_seconds": 0.208,
+     "families": {
+      "Expr arithmetic": 0.208
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:373(_covectors)",
+     "calls": 4404,
+     "cum_seconds": 0.149,
+     "families": {
+      "Expr arithmetic": 0.149
+     }
+    },
+    {
+     "site": "reference/angular.py:332(_density_unit_from_squared)",
+     "calls": 1713,
+     "cum_seconds": 0.128,
+     "families": {
+      "Expr arithmetic": 0.065,
+      "sqrt": 0.063
+     }
+    },
+    {
+     "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+     "calls": 1560,
+     "cum_seconds": 0.092,
+     "families": {
+      "Expr arithmetic": 0.06,
+      "radsimp": 0.03,
+      "cacheit wrapper (Expr op/ctor)": 0.001,
+      "simplify": 0.001
+     }
+    },
+    {
+     "site": "reference/planar_types.py:388(point_sub)",
+     "calls": 12614,
+     "cum_seconds": 0.072,
+     "families": {
+      "Expr arithmetic": 0.072
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+     "calls": 15564,
+     "cum_seconds": 0.07,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.07
+     }
+    },
+    {
+     "site": "reference/planar_types.py:222(exact_sign)",
+     "calls": 44,
+     "cum_seconds": 0.064,
+     "families": {
+      "factor/cancel": 0.05,
+      "is_* / assumptions": 0.014,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:520(_rotate_q)",
+     "calls": 480,
+     "cum_seconds": 0.063,
+     "families": {
+      "Expr arithmetic": 0.063
+     }
+    },
+    {
+     "site": "reference/planar_types.py:101(_canonical_expr)",
+     "calls": 132,
+     "cum_seconds": 0.061,
+     "families": {
+      "factor/cancel": 0.057,
+      "other:__call__": 0.005
+     }
+    },
+    {
+     "site": "<string>:24(__hash__)",
+     "calls": 41096,
+     "cum_seconds": 0.057,
+     "families": {
+      "Expr compare/convert/hash": 0.057
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:279(_chart_for_window)",
+     "calls": 120,
+     "cum_seconds": 0.057,
+     "families": {
+      "Expr arithmetic": 0.057
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:191(_oriented_cross)",
+     "calls": 2379,
+     "cum_seconds": 0.056,
+     "families": {
+      "Expr arithmetic": 0.055,
+      "Expr compare/convert/hash": 0.001
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:282(is_future)",
+     "calls": 90466,
+     "cum_seconds": 0.052,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.052
+     }
+    },
+    {
+     "site": "reference/metric.py:362(length_g)",
+     "calls": 1505,
+     "cum_seconds": 0.047,
+     "families": {
+      "sqrt": 0.047
+     }
+    },
+    {
+     "site": "interactions/arrival.py:71(_density_support_line)",
+     "calls": 693,
+     "cum_seconds": 0.045,
+     "families": {
+      "Expr arithmetic": 0.045
+     }
+    },
+    {
+     "site": "reference/angular.py:240(_density_srepr)",
+     "calls": 476,
+     "cum_seconds": 0.044,
+     "families": {
+      "other:__call__": 0.044,
+      "sympify": 0.0,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "<string>:22(__hash__)",
+     "calls": 30096,
+     "cum_seconds": 0.042,
+     "families": {
+      "Expr compare/convert/hash": 0.042
+     }
+    }
+   ],
+   "mpmath_direct_from_kernel": {
+    "cum_seconds": 1.394,
+    "top_callers": [
+     {
+      "site": "reference/planar_types.py:162(interval_enclosure)",
+      "calls": 53178,
+      "cum_seconds": 0.914
+     },
+     {
+      "site": "reference/planar_types.py:195(_certified_interval_sign)",
+      "calls": 36712,
+      "cum_seconds": 0.231
+     },
+     {
+      "site": "_density_policy.py:33(density_interval_enclosure)",
+      "calls": 14080,
+      "cum_seconds": 0.218
+     },
+     {
+      "site": "reference/angular.py:273(_density_exact_sign)",
+      "calls": 5246,
+      "cum_seconds": 0.028
+     },
+     {
+      "site": "reference/direction_binding.py:1603(_density_decimal_envelope)",
+      "calls": 828,
+      "cum_seconds": 0.001
+     },
+     {
+      "site": "reference/angle_measure.py:180(_enclose_fraction_of_pi)",
+      "calls": 10,
+      "cum_seconds": 0.0
+     },
+     {
+      "site": "reference/direction_binding.py:1628(<genexpr>)",
+      "calls": 552,
+      "cum_seconds": 0.0
+     },
+     {
+      "site": "wavefront/event_time.py:231(canonical)",
+      "calls": 1,
+      "cum_seconds": 0.0
+     }
+    ]
+   },
+   "fractions_inclusive_seconds_profiled": 39.68,
+   "fractions_by_operation": [
+    {
+     "op": "forward",
+     "calls": 7811955,
+     "cum_seconds": 27.837
+    },
+    {
+     "op": "__new__",
+     "calls": 4020628,
+     "cum_seconds": 5.816
+    },
+    {
+     "op": "__gt__",
+     "calls": 860983,
+     "cum_seconds": 1.96
+    },
+    {
+     "op": "__repr__",
+     "calls": 2716781,
+     "cum_seconds": 1.173
+    },
+    {
+     "op": "__neg__",
+     "calls": 906572,
+     "cum_seconds": 1.096
+    },
+    {
+     "op": "__eq__",
+     "calls": 990588,
+     "cum_seconds": 0.527
+    },
+    {
+     "op": "__bool__",
+     "calls": 2102630,
+     "cum_seconds": 0.489
+    },
+    {
+     "op": "__lt__",
+     "calls": 158998,
+     "cum_seconds": 0.327
+    },
+    {
+     "op": "__hash__",
+     "calls": 314636,
+     "cum_seconds": 0.321
+    },
+    {
+     "op": "denominator",
+     "calls": 492334,
+     "cum_seconds": 0.056
+    },
+    {
+     "op": "numerator",
+     "calls": 198649,
+     "cum_seconds": 0.024
+    },
+    {
+     "op": "__abs__",
+     "calls": 11870,
+     "cum_seconds": 0.021
+    },
+    {
+     "op": "reverse",
+     "calls": 3331,
+     "cum_seconds": 0.02
+    },
+    {
+     "op": "__ge__",
+     "calls": 2327,
+     "cum_seconds": 0.006
+    }
+   ],
+   "fractions_top15_callers": [
+    {
+     "site": "exact_sqrt_sum.py:1135(enclosure)",
+     "calls": 4570239,
+     "cum_seconds": 13.02,
+     "ops": {
+      "forward": [
+       2602192,
+       9.045
+      ],
+      "__new__": [
+       1367809,
+       2.603
+      ],
+      "__gt__": [
+       600238,
+       1.372
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1061(__mul__)",
+     "calls": 3270491,
+     "cum_seconds": 10.302,
+     "ops": {
+      "forward": [
+       2452767,
+       9.62
+      ],
+      "__new__": [
+       817589,
+       0.681
+      ],
+      "__eq__": [
+       107,
+       0.0
+      ],
+      "__hash__": [
+       27,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1059(<genexpr>)",
+     "calls": 1268885,
+     "cum_seconds": 3.801,
+     "ops": {
+      "forward": [
+       1268885,
+       3.801
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1043(__add__)",
+     "calls": 1775964,
+     "cum_seconds": 3.516,
+     "ops": {
+      "forward": [
+       887908,
+       2.72
+      ],
+      "__new__": [
+       887908,
+       0.796
+      ],
+      "__eq__": [
+       118,
+       0.0
+      ],
+      "__hash__": [
+       30,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:986(radical)",
+     "calls": 1449038,
+     "cum_seconds": 2.326,
+     "ops": {
+      "forward": [
+       330862,
+       1.915
+      ],
+      "__new__": [
+       192593,
+       0.236
+      ],
+      "__eq__": [
+       339191,
+       0.106
+      ],
+      "denominator": [
+       439794,
+       0.05
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1055(scaled)",
+     "calls": 988312,
+     "cum_seconds": 1.383,
+     "ops": {
+      "__new__": [
+       494156,
+       1.217
+      ],
+      "__eq__": [
+       494156,
+       0.167
+      ]
+     }
+    },
+    {
+     "site": "Lib/reprlib.py:15(wrapper)",
+     "calls": 2522937,
+     "cum_seconds": 1.086,
+     "ops": {
+      "__repr__": [
+       2522487,
+       1.085
+      ],
+      "__hash__": [
+       450,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1050(<genexpr>)",
+     "calls": 869573,
+     "cum_seconds": 1.044,
+     "ops": {
+      "__neg__": [
+       869573,
+       1.044
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1161(certified_sign)",
+     "calls": 223219,
+     "cum_seconds": 0.481,
+     "ops": {
+      "__gt__": [
+       163630,
+       0.36
+      ],
+      "__lt__": [
+       59589,
+       0.121
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1035(<genexpr>)",
+     "calls": 1966119,
+     "cum_seconds": 0.455,
+     "ops": {
+      "__bool__": [
+       1966119,
+       0.455
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1237(_split_by_prime)",
+     "calls": 182206,
+     "cum_seconds": 0.322,
+     "ops": {
+      "forward": [
+       91096,
+       0.236
+      ],
+      "__new__": [
+       91096,
+       0.087
+      ],
+      "__eq__": [
+       11,
+       0.0
+      ],
+      "__hash__": [
+       3,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1171(sign)",
+     "calls": 103684,
+     "cum_seconds": 0.227,
+     "ops": {
+      "__gt__": [
+       51842,
+       0.123
+      ],
+      "__lt__": [
+       51842,
+       0.104
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_identity.py:66(__hash__)",
+     "calls": 98579,
+     "cum_seconds": 0.204,
+     "ops": {
+      "__hash__": [
+       98579,
+       0.204
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:227(sign)",
+     "calls": 77042,
+     "cum_seconds": 0.162,
+     "ops": {
+      "__gt__": [
+       38521,
+       0.087
+      ],
+      "__lt__": [
+       38521,
+       0.075
+      ]
+     }
+    },
+    {
+     "site": "_embedding.py:57(_cross3)",
+     "calls": 69255,
+     "cum_seconds": 0.161,
+     "ops": {
+      "forward": [
+       69255,
+       0.161
+      ]
+     }
+    }
+   ],
+   "fraction_repr": {
+    "calls": 2716781,
+    "cum_seconds": 1.173,
+    "top_callers": [
+     {
+      "site": "Lib/reprlib.py:15(wrapper)",
+      "calls": 2522487,
+      "cum_seconds": 1.085
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:185(<lambda>)",
+      "calls": 45161,
+      "cum_seconds": 0.021
+     },
+     {
+      "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+      "calls": 39727,
+      "cum_seconds": 0.018
+     },
+     {
+      "site": "wavefront/symbolic_superlevel_coordinator.py:163(<lambda>)",
+      "calls": 31004,
+      "cum_seconds": 0.014
+     },
+     {
+      "site": "exact_sqrt_sum.py:1032(_from_map)",
+      "calls": 21470,
+      "cum_seconds": 0.01
+     },
+     {
+      "site": "wavefront/symbolic_split_endpoint.py:65(<lambda>)",
+      "calls": 20401,
+      "cum_seconds": 0.009
+     },
+     {
+      "site": "wavefront/superlevel_snapshot.py:353(_incident_sort_key)",
+      "calls": 15825,
+      "cum_seconds": 0.007
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:431(<lambda>)",
+      "calls": 3590,
+      "cum_seconds": 0.002
+     }
+    ]
+   },
+   "exact_sqrt_sum_public_inclusive_seconds_profiled": 40.12,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "sign",
+     "calls": 229586,
+     "cum_seconds": 16.82
+    },
+    {
+     "func": "__sub__",
+     "calls": 261520,
+     "cum_seconds": 8.057
+    },
+    {
+     "func": "scaled",
+     "calls": 470921,
+     "cum_seconds": 6.695
+    },
+    {
+     "func": "radical",
+     "calls": 154927,
+     "cum_seconds": 2.928
+    },
+    {
+     "func": "__mul__",
+     "calls": 29758,
+     "cum_seconds": 2.788
+    },
+    {
+     "func": "__add__",
+     "calls": 116088,
+     "cum_seconds": 1.467
+    },
+    {
+     "func": "divided_by",
+     "calls": 4145,
+     "cum_seconds": 0.773
+    },
+    {
+     "func": "__neg__",
+     "calls": 37112,
+     "cum_seconds": 0.267
+    },
+    {
+     "func": "enclosure",
+     "calls": 3703,
+     "cum_seconds": 0.176
+    },
+    {
+     "func": "rational",
+     "calls": 37190,
+     "cum_seconds": 0.115
+    },
+    {
+     "func": "spend_exact_position_hydrations",
+     "calls": 11120,
+     "cum_seconds": 0.018
+    },
+    {
+     "func": "is_zero",
+     "calls": 60249,
+     "cum_seconds": 0.012
+    },
+    {
+     "func": "zero",
+     "calls": 426,
+     "cum_seconds": 0.001
+    },
+    {
+     "func": "as_rational",
+     "calls": 77,
+     "cum_seconds": 0.0
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:260(compare_times)",
+     "calls": 689804,
+     "cum_seconds": 20.718,
+     "funcs": {
+      "sign": [
+       172451,
+       11.842
+      ],
+      "scaled": [
+       344902,
+       4.594
+      ],
+      "__sub__": [
+       172451,
+       4.282
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:466(_event_point)",
+     "calls": 177416,
+     "cum_seconds": 3.817,
+     "funcs": {
+      "__mul__": [
+       21806,
+       0.949
+      ],
+      "scaled": [
+       54515,
+       0.726
+      ],
+      "__sub__": [
+       21806,
+       0.664
+      ],
+      "divided_by": [
+       2968,
+       0.635
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:288(concurrency_time)",
+     "calls": 257208,
+     "cum_seconds": 3.352,
+     "funcs": {
+      "radical": [
+       128604,
+       2.357
+      ],
+      "__add__": [
+       85736,
+       0.986
+      ],
+      "is_zero": [
+       42868,
+       0.009
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 72890,
+     "cum_seconds": 3.316,
+     "funcs": {
+      "__sub__": [
+       32522,
+       1.527
+      ],
+      "sign": [
+       10328,
+       1.516
+      ],
+      "scaled": [
+       15692,
+       0.271
+      ],
+      "is_zero": [
+       14348,
+       0.003
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:213(normalized)",
+     "calls": 78250,
+     "cum_seconds": 3.102,
+     "funcs": {
+      "sign": [
+       41312,
+       2.836
+      ],
+      "__neg__": [
+       36938,
+       0.266
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 11760,
+     "cum_seconds": 1.975,
+     "funcs": {
+      "__mul__": [
+       2940,
+       1.215
+      ],
+      "__sub__": [
+       7350,
+       0.392
+      ],
+      "sign": [
+       1470,
+       0.368
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 47412,
+     "cum_seconds": 1.661,
+     "funcs": {
+      "__sub__": [
+       15804,
+       0.882
+      ],
+      "scaled": [
+       31608,
+       0.779
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 4859,
+     "cum_seconds": 0.403,
+     "funcs": {
+      "__mul__": [
+       2314,
+       0.293
+      ],
+      "__sub__": [
+       1157,
+       0.064
+      ],
+      "__add__": [
+       1157,
+       0.045
+      ],
+      "zero": [
+       231,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "wavefront/coverage.py:129(clip_to_halfplane)",
+     "calls": 2398,
+     "cum_seconds": 0.339,
+     "funcs": {
+      "__mul__": [
+       448,
+       0.217
+      ],
+      "sign": [
+       830,
+       0.075
+      ],
+      "__sub__": [
+       672,
+       0.03
+      ],
+      "__add__": [
+       448,
+       0.016
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:231(canonical)",
+     "calls": 22251,
+     "cum_seconds": 0.201,
+     "funcs": {
+      "scaled": [
+       12563,
+       0.176
+      ],
+      "rational": [
+       9688,
+       0.025
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "Fraction/gcd arithmetic": 0.5139,
+    "exact_sqrt_sum": 0.2028,
+    "other": 0.1157,
+    "sympy": 0.1082,
+    "skeleton march": 0.0443,
+    "number theory": 0.0151
+   }
+  },
+  "p1_d2": {
+   "pstats": [
+    "p1_d2.pstats"
+   ],
+   "profile_total_seconds": 80.49,
+   "sympy_inclusive_seconds_profiled": 8.47,
+   "sympy_share_of_profile": 0.1053,
+   "sympy_by_family": [
+    {
+     "family": "Expr arithmetic",
+     "calls": 113061,
+     "cum_seconds": 6.417,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 18402,
+       "cum_seconds": 1.902
+      },
+      {
+       "site": "reference/metric.py:340(dot_g)",
+       "calls": 43416,
+       "cum_seconds": 1.303
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:401(_subturn)",
+       "calls": 1396,
+       "cum_seconds": 0.729
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+       "calls": 7884,
+       "cum_seconds": 0.688
+      }
+     ]
+    },
+    {
+     "family": "factor/cancel",
+     "calls": 7633,
+     "cum_seconds": 0.648,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:62(exact_normalize)",
+       "calls": 7440,
+       "cum_seconds": 0.599
+      },
+      {
+       "site": "reference/angular.py:870(_verify_evaluation_subturn_count_lift)",
+       "calls": 22,
+       "cum_seconds": 0.025
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 28,
+       "cum_seconds": 0.019
+      },
+      {
+       "site": "host:envelope_request_export.py:1543(exact_rational)",
+       "calls": 88,
+       "cum_seconds": 0.003
+      }
+     ]
+    },
+    {
+     "family": "internal genexpr (assumptions/args)",
+     "calls": 230743,
+     "cum_seconds": 0.528,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+       "calls": 37799,
+       "cum_seconds": 0.284
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+       "calls": 12274,
+       "cum_seconds": 0.092
+      },
+      {
+       "site": "wavefront/exact_candidate_view.py:282(is_future)",
+       "calls": 87356,
+       "cum_seconds": 0.053
+      },
+      {
+       "site": "exact_sqrt_sum.py:1127(is_rational)",
+       "calls": 45767,
+       "cum_seconds": 0.028
+      }
+     ]
+    },
+    {
+     "family": "cacheit wrapper (Expr op/ctor)",
+     "calls": 6623,
+     "cum_seconds": 0.294,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 528,
+       "cum_seconds": 0.265
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 2140,
+       "cum_seconds": 0.019
+      },
+      {
+       "site": "reference/validation.py:68(_interval_contains_oriented_support_delta)",
+       "calls": 176,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "reference/common.py:180(build)",
+       "calls": 264,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "Expr compare/convert/hash",
+     "calls": 187916,
+     "cum_seconds": 0.225,
+     "top_callers": [
+      {
+       "site": "<string>:24(__hash__)",
+       "calls": 41849,
+       "cum_seconds": 0.058
+      },
+      {
+       "site": "<string>:22(__hash__)",
+       "calls": 32388,
+       "cum_seconds": 0.045
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 40655,
+       "cum_seconds": 0.034
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 20598,
+       "cum_seconds": 0.019
+      }
+     ]
+    },
+    {
+     "family": "sqrt",
+     "calls": 1985,
+     "cum_seconds": 0.157,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:332(_density_unit_from_squared)",
+       "calls": 484,
+       "cum_seconds": 0.097
+      },
+      {
+       "site": "reference/metric.py:362(length_g)",
+       "calls": 1039,
+       "cum_seconds": 0.036
+      },
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 198,
+       "cum_seconds": 0.019
+      },
+      {
+       "site": "reference/validation.py:103(_density_interval_contains_oriented_support_delta)",
+       "calls": 110,
+       "cum_seconds": 0.003
+      }
+     ]
+    },
+    {
+     "family": "other:__call__",
+     "calls": 146,
+     "cum_seconds": 0.071,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:240(_density_srepr)",
+       "calls": 132,
+       "cum_seconds": 0.071
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 14,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "radsimp",
+     "calls": 260,
+     "cum_seconds": 0.044,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 260,
+       "cum_seconds": 0.044
+      }
+     ]
+    },
+    {
+     "family": "expand",
+     "calls": 704,
+     "cum_seconds": 0.03,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 495,
+       "cum_seconds": 0.028
+      },
+      {
+       "site": "reference/angular.py:351(_density_left_unit_normal)",
+       "calls": 198,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "reference/compile.py:594(_exact_turn_witness)",
+       "calls": 11,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "tree access",
+     "calls": 21160,
+     "cum_seconds": 0.029,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 2851,
+       "cum_seconds": 0.025
+      },
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 13884,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 3402,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 54,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "sympify",
+     "calls": 8690,
+     "cum_seconds": 0.014,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:210(_vector)",
+       "calls": 2658,
+       "cum_seconds": 0.005
+      },
+      {
+       "site": "reference/angular.py:273(_density_exact_sign)",
+       "calls": 3390,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 2,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "reference/angular.py:103(_density_runtime_vector)",
+       "calls": 1628,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "other:__sympy__",
+     "calls": 71848,
+     "cum_seconds": 0.008,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 16046,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "reference/angular.py:114(<genexpr>)",
+       "calls": 13658,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:162(<genexpr>)",
+       "calls": 13579,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/symbolic_component.py:28(clone_overlay)",
+       "calls": 8946,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "simplify",
+     "calls": 260,
+     "cum_seconds": 0.002,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 260,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "other:__instancecheck__",
+     "calls": 1242,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:663(forward)",
+       "calls": 810,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "Lib/fractions.py:983(_richcmp)",
+       "calls": 258,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 100,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:962(__eq__)",
+       "calls": 39,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_print",
+     "calls": 65,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "host:envelope_queue_export.py:490(_face_area_text)",
+       "calls": 46,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "codec.py:92(_json_sort_key)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/common.py:59(stable_id)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/compile.py:163(_stable_value)",
+       "calls": 4,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:order_key",
+     "calls": 25,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 15,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 8,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:<lambda>",
+     "calls": 252,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 122,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 79,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 39,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_preorder_traversal",
+     "calls": 448,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 216,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 202,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "_embedding.py:88(_segment_relation3)",
+       "calls": 7,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:666(_ideal_angular_support_data)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:key",
+     "calls": 128,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 79,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 39,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_expand_hint_key",
+     "calls": 570,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 352,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 173,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 10,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 9,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:denominator",
+     "calls": 18,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:numerator",
+     "calls": 18,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      }
+     ]
+    }
+   ],
+   "sympy_by_entry_point_top25": [
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:236(_func)",
+     "calls": 31063,
+     "cum_seconds": 4.201
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:69(__sympifyit_wrapper)",
+     "calls": 67366,
+     "cum_seconds": 1.707
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:6644(factor)",
+     "calls": 7586,
+     "cum_seconds": 0.605
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1927(__mul__)",
+     "calls": 5505,
+     "cum_seconds": 0.433
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:468(<genexpr>)",
+     "calls": 278,
+     "cum_seconds": 0.379
+    },
+    {
+     "entry": "cacheit wrapper (Expr op/ctor) | sympy/core/cache.py:69(wrapper)",
+     "calls": 6623,
+     "cum_seconds": 0.294
+    },
+    {
+     "entry": "sqrt | sympy/functions/elementary/miscellaneous.py:67(sqrt)",
+     "calls": 1985,
+     "cum_seconds": 0.157
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:1697(__hash__)",
+     "calls": 54548,
+     "cum_seconds": 0.117
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/facts.py:633(<genexpr>)",
+     "calls": 171434,
+     "cum_seconds": 0.084
+    },
+    {
+     "entry": "other:__call__ | sympy/printing/printer.py:407(__call__)",
+     "calls": 146,
+     "cum_seconds": 0.071
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:315(__hash__)",
+     "calls": 78155,
+     "cum_seconds": 0.055
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/mul.py:190(__neg__)",
+     "calls": 1873,
+     "cum_seconds": 0.045
+    },
+    {
+     "entry": "radsimp | sympy/simplify/radsimp.py:766(radsimp)",
+     "calls": 260,
+     "cum_seconds": 0.044
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:7324(cancel)",
+     "calls": 47,
+     "cum_seconds": 0.043
+    },
+    {
+     "entry": "expand | sympy/core/function.py:2516(expand)",
+     "calls": 704,
+     "cum_seconds": 0.03
+    },
+    {
+     "entry": "tree access | sympy/core/basic.py:366(compare)",
+     "calls": 2904,
+     "cum_seconds": 0.025
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:2011(__hash__)",
+     "calls": 42719,
+     "cum_seconds": 0.023
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/expr.py:482(<genexpr>)",
+     "calls": 4133,
+     "cum_seconds": 0.021
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:497(__eq__)",
+     "calls": 3168,
+     "cum_seconds": 0.02
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/operations.py:73(<genexpr>)",
+     "calls": 50915,
+     "cum_seconds": 0.02
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:27(<genexpr>)",
+     "calls": 128,
+     "cum_seconds": 0.017
+    },
+    {
+     "entry": "sympify | sympy/core/sympify.py:124(sympify)",
+     "calls": 8690,
+     "cum_seconds": 0.014
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1938(__rmul__)",
+     "calls": 2322,
+     "cum_seconds": 0.012
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1907(__sub__)",
+     "calls": 2950,
+     "cum_seconds": 0.011
+    },
+    {
+     "entry": "other:__sympy__ | sympy/core/basic.py:208(__sympy__)",
+     "calls": 71848,
+     "cum_seconds": 0.008
+    }
+   ],
+   "sympy_by_kernel_caller_top25": [
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 25327,
+     "cum_seconds": 1.932,
+     "families": {
+      "Expr arithmetic": 1.902,
+      "tree access": 0.025,
+      "Expr compare/convert/hash": 0.002,
+      "other:<lambda>": 0.001,
+      "cacheit wrapper (Expr op/ctor)": 0.001
+     }
+    },
+    {
+     "site": "reference/metric.py:340(dot_g)",
+     "calls": 43416,
+     "cum_seconds": 1.303,
+     "families": {
+      "Expr arithmetic": 1.303
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:401(_subturn)",
+     "calls": 4229,
+     "cum_seconds": 0.73,
+     "families": {
+      "Expr arithmetic": 0.729,
+      "Expr compare/convert/hash": 0.001
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+     "calls": 14980,
+     "cum_seconds": 0.69,
+     "families": {
+      "Expr arithmetic": 0.688,
+      "Expr compare/convert/hash": 0.003
+     }
+    },
+    {
+     "site": "reference/planar_types.py:62(exact_normalize)",
+     "calls": 7440,
+     "cum_seconds": 0.599,
+     "families": {
+      "factor/cancel": 0.599
+     }
+    },
+    {
+     "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+     "calls": 3355,
+     "cum_seconds": 0.48,
+     "families": {
+      "cacheit wrapper (Expr op/ctor)": 0.265,
+      "Expr arithmetic": 0.168,
+      "expand": 0.028,
+      "sqrt": 0.019
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:249(_slope)",
+     "calls": 198,
+     "cum_seconds": 0.364,
+     "families": {
+      "Expr arithmetic": 0.364
+     }
+    },
+    {
+     "site": "reference/angular.py:258(_density_dot_expression)",
+     "calls": 6732,
+     "cum_seconds": 0.304,
+     "families": {
+      "Expr arithmetic": 0.304
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+     "calls": 37799,
+     "cum_seconds": 0.284,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.284
+     }
+    },
+    {
+     "site": "reference/angular.py:332(_density_unit_from_squared)",
+     "calls": 1452,
+     "cum_seconds": 0.178,
+     "families": {
+      "sqrt": 0.097,
+      "Expr arithmetic": 0.082
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:373(_covectors)",
+     "calls": 3696,
+     "cum_seconds": 0.159,
+     "families": {
+      "Expr arithmetic": 0.159
+     }
+    },
+    {
+     "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+     "calls": 1560,
+     "cum_seconds": 0.134,
+     "families": {
+      "Expr arithmetic": 0.086,
+      "radsimp": 0.044,
+      "cacheit wrapper (Expr op/ctor)": 0.002,
+      "simplify": 0.002
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+     "calls": 12274,
+     "cum_seconds": 0.092,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.092
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:520(_rotate_q)",
+     "calls": 396,
+     "cum_seconds": 0.077,
+     "families": {
+      "Expr arithmetic": 0.077
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:191(_oriented_cross)",
+     "calls": 2464,
+     "cum_seconds": 0.076,
+     "families": {
+      "Expr arithmetic": 0.075,
+      "Expr compare/convert/hash": 0.001
+     }
+    },
+    {
+     "site": "reference/angular.py:240(_density_srepr)",
+     "calls": 460,
+     "cum_seconds": 0.071,
+     "families": {
+      "other:__call__": 0.071,
+      "sympify": 0.0,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "interactions/arrival.py:71(_density_support_line)",
+     "calls": 585,
+     "cum_seconds": 0.069,
+     "families": {
+      "Expr arithmetic": 0.069
+     }
+    },
+    {
+     "site": "<string>:24(__hash__)",
+     "calls": 41849,
+     "cum_seconds": 0.058,
+     "families": {
+      "Expr compare/convert/hash": 0.058
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:282(is_future)",
+     "calls": 87356,
+     "cum_seconds": 0.053,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.053
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:479(_quarter_turn)",
+     "calls": 924,
+     "cum_seconds": 0.05,
+     "families": {
+      "Expr arithmetic": 0.05,
+      "sqrt": 0.001
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:279(_chart_for_window)",
+     "calls": 99,
+     "cum_seconds": 0.049,
+     "families": {
+      "Expr arithmetic": 0.049
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:219(_inside_ordinal)",
+     "calls": 528,
+     "cum_seconds": 0.047,
+     "families": {
+      "Expr arithmetic": 0.047
+     }
+    },
+    {
+     "site": "<string>:22(__hash__)",
+     "calls": 32388,
+     "cum_seconds": 0.045,
+     "families": {
+      "Expr compare/convert/hash": 0.045
+     }
+    },
+    {
+     "site": "reference/planar_types.py:388(point_sub)",
+     "calls": 8600,
+     "cum_seconds": 0.042,
+     "families": {
+      "Expr arithmetic": 0.042
+     }
+    },
+    {
+     "site": "reference/metric.py:362(length_g)",
+     "calls": 1039,
+     "cum_seconds": 0.036,
+     "families": {
+      "sqrt": 0.036
+     }
+    }
+   ],
+   "mpmath_direct_from_kernel": {
+    "cum_seconds": 1.213,
+    "top_callers": [
+     {
+      "site": "reference/planar_types.py:162(interval_enclosure)",
+      "calls": 56344,
+      "cum_seconds": 0.785
+     },
+     {
+      "site": "_density_policy.py:33(density_interval_enclosure)",
+      "calls": 13569,
+      "cum_seconds": 0.2
+     },
+     {
+      "site": "reference/planar_types.py:195(_certified_interval_sign)",
+      "calls": 38700,
+      "cum_seconds": 0.196
+     },
+     {
+      "site": "reference/angular.py:273(_density_exact_sign)",
+      "calls": 4863,
+      "cum_seconds": 0.03
+     },
+     {
+      "site": "reference/direction_binding.py:1603(_density_decimal_envelope)",
+      "calls": 720,
+      "cum_seconds": 0.001
+     },
+     {
+      "site": "reference/direction_binding.py:1628(<genexpr>)",
+      "calls": 480,
+      "cum_seconds": 0.0
+     }
+    ]
+   },
+   "fractions_inclusive_seconds_profiled": 45.25,
+   "fractions_by_operation": [
+    {
+     "op": "forward",
+     "calls": 7385215,
+     "cum_seconds": 33.223
+    },
+    {
+     "op": "__new__",
+     "calls": 3581779,
+     "cum_seconds": 5.821
+    },
+    {
+     "op": "__gt__",
+     "calls": 594161,
+     "cum_seconds": 1.678
+    },
+    {
+     "op": "__repr__",
+     "calls": 2526580,
+     "cum_seconds": 1.472
+    },
+    {
+     "op": "__neg__",
+     "calls": 720235,
+     "cum_seconds": 1.097
+    },
+    {
+     "op": "__bool__",
+     "calls": 1928197,
+     "cum_seconds": 0.563
+    },
+    {
+     "op": "__eq__",
+     "calls": 742815,
+     "cum_seconds": 0.54
+    },
+    {
+     "op": "__hash__",
+     "calls": 278594,
+     "cum_seconds": 0.444
+    },
+    {
+     "op": "__lt__",
+     "calls": 115284,
+     "cum_seconds": 0.305
+    },
+    {
+     "op": "denominator",
+     "calls": 351239,
+     "cum_seconds": 0.05
+    },
+    {
+     "op": "numerator",
+     "calls": 136198,
+     "cum_seconds": 0.021
+    },
+    {
+     "op": "__abs__",
+     "calls": 8428,
+     "cum_seconds": 0.018
+    },
+    {
+     "op": "reverse",
+     "calls": 1026,
+     "cum_seconds": 0.006
+    },
+    {
+     "op": "__ge__",
+     "calls": 2873,
+     "cum_seconds": 0.006
+    }
+   ],
+   "fractions_top15_callers": [
+    {
+     "site": "exact_sqrt_sum.py:1061(__mul__)",
+     "calls": 4630815,
+     "cum_seconds": 18.043,
+     "ops": {
+      "forward": [
+       3473013,
+       16.85
+      ],
+      "__new__": [
+       1157671,
+       1.193
+      ],
+      "__eq__": [
+       87,
+       0.0
+      ],
+      "__hash__": [
+       44,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1135(enclosure)",
+     "calls": 3092119,
+     "cum_seconds": 10.947,
+     "ops": {
+      "forward": [
+       1720248,
+       7.481
+      ],
+      "__new__": [
+       949457,
+       2.273
+      ],
+      "__gt__": [
+       422414,
+       1.193
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1043(__add__)",
+     "calls": 1428402,
+     "cum_seconds": 3.512,
+     "ops": {
+      "forward": [
+       714159,
+       2.714
+      ],
+      "__new__": [
+       714159,
+       0.799
+      ],
+      "__eq__": [
+       56,
+       0.0
+      ],
+      "__hash__": [
+       28,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1059(<genexpr>)",
+     "calls": 915265,
+     "cum_seconds": 3.438,
+     "ops": {
+      "forward": [
+       915265,
+       3.438
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:986(radical)",
+     "calls": 1107211,
+     "cum_seconds": 2.263,
+     "ops": {
+      "forward": [
+       258567,
+       1.858
+      ],
+      "__new__": [
+       156397,
+       0.234
+      ],
+      "__eq__": [
+       263567,
+       0.106
+      ],
+      "denominator": [
+       321510,
+       0.047
+      ]
+     }
+    },
+    {
+     "site": "Lib/reprlib.py:15(wrapper)",
+     "calls": 2355668,
+     "cum_seconds": 1.37,
+     "ops": {
+      "__repr__": [
+       2355213,
+       1.37
+      ],
+      "__hash__": [
+       455,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1055(scaled)",
+     "calls": 684944,
+     "cum_seconds": 1.14,
+     "ops": {
+      "__new__": [
+       342472,
+       0.995
+      ],
+      "__eq__": [
+       342472,
+       0.145
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1050(<genexpr>)",
+     "calls": 694438,
+     "cum_seconds": 1.051,
+     "ops": {
+      "__neg__": [
+       694438,
+       1.051
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1035(<genexpr>)",
+     "calls": 1761881,
+     "cum_seconds": 0.514,
+     "ops": {
+      "__bool__": [
+       1761881,
+       0.514
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1237(_split_by_prime)",
+     "calls": 237387,
+     "cum_seconds": 0.508,
+     "ops": {
+      "forward": [
+       118687,
+       0.372
+      ],
+      "__new__": [
+       118687,
+       0.137
+      ],
+      "__eq__": [
+       9,
+       0.0
+      ],
+      "__hash__": [
+       4,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1161(certified_sign)",
+     "calls": 146570,
+     "cum_seconds": 0.397,
+     "ops": {
+      "__gt__": [
+       102020,
+       0.28
+      ],
+      "__lt__": [
+       44550,
+       0.116
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_identity.py:66(__hash__)",
+     "calls": 92155,
+     "cum_seconds": 0.313,
+     "ops": {
+      "__hash__": [
+       92155,
+       0.313
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1171(sign)",
+     "calls": 76336,
+     "cum_seconds": 0.213,
+     "ops": {
+      "__gt__": [
+       38168,
+       0.114
+      ],
+      "__lt__": [
+       38168,
+       0.1
+      ]
+     }
+    },
+    {
+     "site": "_embedding.py:57(_cross3)",
+     "calls": 77103,
+     "cum_seconds": 0.166,
+     "ops": {
+      "forward": [
+       77103,
+       0.166
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:227(sign)",
+     "calls": 55748,
+     "cum_seconds": 0.15,
+     "ops": {
+      "__gt__": [
+       27874,
+       0.079
+      ],
+      "__lt__": [
+       27874,
+       0.071
+      ]
+     }
+    }
+   ],
+   "fraction_repr": {
+    "calls": 2526580,
+    "cum_seconds": 1.472,
+    "top_callers": [
+     {
+      "site": "Lib/reprlib.py:15(wrapper)",
+      "calls": 2355213,
+      "cum_seconds": 1.37
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:185(<lambda>)",
+      "calls": 47973,
+      "cum_seconds": 0.029
+     },
+     {
+      "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+      "calls": 33916,
+      "cum_seconds": 0.02
+     },
+     {
+      "site": "wavefront/symbolic_superlevel_coordinator.py:163(<lambda>)",
+      "calls": 24638,
+      "cum_seconds": 0.015
+     },
+     {
+      "site": "exact_sqrt_sum.py:1032(_from_map)",
+      "calls": 16691,
+      "cum_seconds": 0.01
+     },
+     {
+      "site": "wavefront/symbolic_split_endpoint.py:65(<lambda>)",
+      "calls": 16080,
+      "cum_seconds": 0.01
+     },
+     {
+      "site": "wavefront/superlevel_snapshot.py:353(_incident_sort_key)",
+      "calls": 14906,
+      "cum_seconds": 0.009
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:431(<lambda>)",
+      "calls": 3620,
+      "cum_seconds": 0.002
+     }
+    ]
+   },
+   "exact_sqrt_sum_public_inclusive_seconds_profiled": 36.52,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "sign",
+     "calls": 150878,
+     "cum_seconds": 14.173
+    },
+    {
+     "func": "__sub__",
+     "calls": 186596,
+     "cum_seconds": 7.434
+    },
+    {
+     "func": "scaled",
+     "calls": 321776,
+     "cum_seconds": 5.692
+    },
+    {
+     "func": "radical",
+     "calls": 112170,
+     "cum_seconds": 2.675
+    },
+    {
+     "func": "__mul__",
+     "calls": 24154,
+     "cum_seconds": 2.623
+    },
+    {
+     "func": "divided_by",
+     "calls": 5294,
+     "cum_seconds": 2.05
+    },
+    {
+     "func": "__add__",
+     "calls": 85035,
+     "cum_seconds": 1.341
+    },
+    {
+     "func": "__neg__",
+     "calls": 25915,
+     "cum_seconds": 0.242
+    },
+    {
+     "func": "enclosure",
+     "calls": 2609,
+     "cum_seconds": 0.135
+    },
+    {
+     "func": "rational",
+     "calls": 34418,
+     "cum_seconds": 0.13
+    },
+    {
+     "func": "spend_exact_position_hydrations",
+     "calls": 9436,
+     "cum_seconds": 0.018
+    },
+    {
+     "func": "is_zero",
+     "calls": 47648,
+     "cum_seconds": 0.012
+    },
+    {
+     "func": "zero",
+     "calls": 354,
+     "cum_seconds": 0.0
+    },
+    {
+     "func": "as_rational",
+     "calls": 62,
+     "cum_seconds": 0.0
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:260(compare_times)",
+     "calls": 425856,
+     "cum_seconds": 15.363,
+     "funcs": {
+      "sign": [
+       106464,
+       8.853
+      ],
+      "scaled": [
+       212928,
+       3.356
+      ],
+      "__sub__": [
+       106464,
+       3.154
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:466(_event_point)",
+     "calls": 142920,
+     "cum_seconds": 4.535,
+     "funcs": {
+      "divided_by": [
+       2408,
+       1.257
+      ],
+      "__mul__": [
+       17564,
+       0.992
+      ],
+      "scaled": [
+       43910,
+       0.757
+      ],
+      "__sub__": [
+       17564,
+       0.701
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 64904,
+     "cum_seconds": 3.857,
+     "funcs": {
+      "sign": [
+       9539,
+       1.819
+      ],
+      "__sub__": [
+       29175,
+       1.755
+      ],
+      "scaled": [
+       13108,
+       0.28
+      ],
+      "is_zero": [
+       13082,
+       0.003
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:213(normalized)",
+     "calls": 56065,
+     "cum_seconds": 3.138,
+     "funcs": {
+      "sign": [
+       30324,
+       2.898
+      ],
+      "__neg__": [
+       25741,
+       0.24
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:288(concurrency_time)",
+     "calls": 175068,
+     "cum_seconds": 2.906,
+     "funcs": {
+      "radical": [
+       87534,
+       2.044
+      ],
+      "__add__": [
+       58356,
+       0.855
+      ],
+      "is_zero": [
+       29178,
+       0.007
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 43242,
+     "cum_seconds": 2.029,
+     "funcs": {
+      "__sub__": [
+       14414,
+       1.112
+      ],
+      "scaled": [
+       28828,
+       0.917
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 9584,
+     "cum_seconds": 1.894,
+     "funcs": {
+      "__mul__": [
+       2396,
+       1.177
+      ],
+      "__sub__": [
+       5990,
+       0.371
+      ],
+      "sign": [
+       1198,
+       0.346
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:325(sliding_point)",
+     "calls": 8502,
+     "cum_seconds": 0.717,
+     "funcs": {
+      "divided_by": [
+       654,
+       0.593
+      ],
+      "scaled": [
+       3924,
+       0.064
+      ],
+      "__add__": [
+       1308,
+       0.026
+      ],
+      "radical": [
+       654,
+       0.017
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:370(sliding_time)",
+     "calls": 23140,
+     "cum_seconds": 0.312,
+     "funcs": {
+      "radical": [
+       4216,
+       0.099
+      ],
+      "__sub__": [
+       4216,
+       0.08
+      ],
+      "divided_by": [
+       2060,
+       0.066
+      ],
+      "__add__": [
+       2108,
+       0.028
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 3831,
+     "cum_seconds": 0.262,
+     "funcs": {
+      "__mul__": [
+       1818,
+       0.191
+      ],
+      "__sub__": [
+       909,
+       0.042
+      ],
+      "__add__": [
+       909,
+       0.029
+      ],
+      "zero": [
+       195,
+       0.0
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "Fraction/gcd arithmetic": 0.5419,
+    "exact_sqrt_sum": 0.2027,
+    "other": 0.1067,
+    "sympy": 0.0909,
+    "skeleton march": 0.037,
+    "number theory": 0.0207
+   }
+  },
+  "p7_d2": {
+   "pstats": [
+    "p7_d2.pstats"
+   ],
+   "profile_total_seconds": 67.56,
+   "sympy_inclusive_seconds_profiled": 5.52,
+   "sympy_share_of_profile": 0.0817,
+   "sympy_by_family": [
+    {
+     "family": "Expr arithmetic",
+     "calls": 123815,
+     "cum_seconds": 4.261,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 21035,
+       "cum_seconds": 1.243
+      },
+      {
+       "site": "reference/metric.py:340(dot_g)",
+       "calls": 52164,
+       "cum_seconds": 1.148
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+       "calls": 3510,
+       "cum_seconds": 0.362
+      },
+      {
+       "site": "reference/adaptive_density_atlas.py:253(build_atlas_window_record)",
+       "calls": 48,
+       "cum_seconds": 0.36
+      }
+     ]
+    },
+    {
+     "family": "factor/cancel",
+     "calls": 4904,
+     "cum_seconds": 0.597,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:62(exact_normalize)",
+       "calls": 4652,
+       "cum_seconds": 0.527
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 72,
+       "cum_seconds": 0.046
+      },
+      {
+       "site": "reference/angular.py:870(_verify_evaluation_subturn_count_lift)",
+       "calls": 24,
+       "cum_seconds": 0.018
+      },
+      {
+       "site": "host:envelope_request_export.py:1543(exact_rational)",
+       "calls": 96,
+       "cum_seconds": 0.003
+      }
+     ]
+    },
+    {
+     "family": "Expr compare/convert/hash",
+     "calls": 95455,
+     "cum_seconds": 0.185,
+     "top_callers": [
+      {
+       "site": "<string>:24(__hash__)",
+       "calls": 17778,
+       "cum_seconds": 0.032
+      },
+      {
+       "site": "<string>:22(__hash__)",
+       "calls": 13428,
+       "cum_seconds": 0.025
+      },
+      {
+       "site": "wavefront/exact_candidate_view.py:208(position)",
+       "calls": 5341,
+       "cum_seconds": 0.022
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:478(span_state)",
+       "calls": 4586,
+       "cum_seconds": 0.019
+      }
+     ]
+    },
+    {
+     "family": "internal genexpr (assumptions/args)",
+     "calls": 112391,
+     "cum_seconds": 0.156,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+       "calls": 26023,
+       "cum_seconds": 0.077
+      },
+      {
+       "site": "wavefront/exact_candidate_view.py:282(is_future)",
+       "calls": 31050,
+       "cum_seconds": 0.022
+      },
+      {
+       "site": "exact_sqrt_sum.py:1127(is_rational)",
+       "calls": 20136,
+       "cum_seconds": 0.014
+      },
+      {
+       "site": "reference/adaptive_density_atlas.py:688(proven_segment)",
+       "calls": 12423,
+       "cum_seconds": 0.009
+      }
+     ]
+    },
+    {
+     "family": "cacheit wrapper (Expr op/ctor)",
+     "calls": 6924,
+     "cum_seconds": 0.101,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 576,
+       "cum_seconds": 0.07
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 1915,
+       "cum_seconds": 0.021
+      },
+      {
+       "site": "reference/validation.py:68(_interval_contains_oriented_support_delta)",
+       "calls": 192,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "reference/common.py:180(build)",
+       "calls": 288,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "sqrt",
+     "calls": 2327,
+     "cum_seconds": 0.066,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:332(_density_unit_from_squared)",
+       "calls": 528,
+       "cum_seconds": 0.04
+      },
+      {
+       "site": "reference/metric.py:362(length_g)",
+       "calls": 1247,
+       "cum_seconds": 0.018
+      },
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 216,
+       "cum_seconds": 0.005
+      },
+      {
+       "site": "reference/validation.py:103(_density_interval_contains_oriented_support_delta)",
+       "calls": 120,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "other:__call__",
+     "calls": 118,
+     "cum_seconds": 0.044,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:240(_density_srepr)",
+       "calls": 82,
+       "cum_seconds": 0.041
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 36,
+       "cum_seconds": 0.003
+      }
+     ]
+    },
+    {
+     "family": "radsimp",
+     "calls": 208,
+     "cum_seconds": 0.035,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 208,
+       "cum_seconds": 0.035
+      }
+     ]
+    },
+    {
+     "family": "tree access",
+     "calls": 13367,
+     "cum_seconds": 0.021,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 1802,
+       "cum_seconds": 0.018
+      },
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 9832,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 1150,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 24,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "sympify",
+     "calls": 10342,
+     "cum_seconds": 0.019,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:210(_vector)",
+       "calls": 3792,
+       "cum_seconds": 0.008
+      },
+      {
+       "site": "reference/angular.py:273(_density_exact_sign)",
+       "calls": 3764,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 2,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "reference/angular.py:103(_density_runtime_vector)",
+       "calls": 1776,
+       "cum_seconds": 0.002
+      }
+     ]
+    },
+    {
+     "family": "expand",
+     "calls": 768,
+     "cum_seconds": 0.013,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 540,
+       "cum_seconds": 0.011
+      },
+      {
+       "site": "reference/angular.py:351(_density_left_unit_normal)",
+       "calls": 216,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "reference/compile.py:594(_exact_turn_witness)",
+       "calls": 12,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__sympy__",
+     "calls": 49037,
+     "cum_seconds": 0.007,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:114(<genexpr>)",
+       "calls": 14196,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/superlevel_snapshot.py:82(_vertex_snapshot)",
+       "calls": 7519,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:162(<genexpr>)",
+       "calls": 6793,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 6553,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "other:order_key",
+     "calls": 48,
+     "cum_seconds": 0.003,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 24,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 19,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_split_endpoint.py:55(discover_endpoint_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_preorder_traversal",
+     "calls": 857,
+     "cum_seconds": 0.002,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 410,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 386,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "_embedding.py:88(_segment_relation3)",
+       "calls": 15,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:229(_birth_ref)",
+       "calls": 12,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_print",
+     "calls": 82,
+     "cum_seconds": 0.002,
+     "top_callers": [
+      {
+       "site": "host:envelope_queue_export.py:490(_face_area_text)",
+       "calls": 64,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "codec.py:92(_json_sort_key)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/common.py:59(stable_id)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/compile.py:163(_stable_value)",
+       "calls": 4,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "simplify",
+     "calls": 208,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 208,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "other:<lambda>",
+     "calls": 177,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 143,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 2,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 16,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 13,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__instancecheck__",
+     "calls": 565,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:663(forward)",
+       "calls": 331,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:983(_richcmp)",
+       "calls": 133,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 59,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:962(__eq__)",
+       "calls": 22,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:key",
+     "calls": 32,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 16,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 13,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_split_endpoint.py:55(discover_endpoint_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_expand_hint_key",
+     "calls": 218,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 108,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 88,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 6,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_split_endpoint.py:55(discover_endpoint_contacts)",
+       "calls": 4,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:dispatch_iter",
+     "calls": 2,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "_embedding.py:88(_segment_relation3)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:229(_birth_ref)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:denominator",
+     "calls": 18,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:numerator",
+     "calls": 18,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      }
+     ]
+    }
+   ],
+   "sympy_by_entry_point_top25": [
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:236(_func)",
+     "calls": 21298,
+     "cum_seconds": 2.362
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:69(__sympifyit_wrapper)",
+     "calls": 82824,
+     "cum_seconds": 1.531
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:6644(factor)",
+     "calls": 4832,
+     "cum_seconds": 0.537
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1927(__mul__)",
+     "calls": 7459,
+     "cum_seconds": 0.281
+    },
+    {
+     "entry": "cacheit wrapper (Expr op/ctor) | sympy/core/cache.py:69(wrapper)",
+     "calls": 6924,
+     "cum_seconds": 0.101
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:1697(__hash__)",
+     "calls": 28361,
+     "cum_seconds": 0.081
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:468(<genexpr>)",
+     "calls": 125,
+     "cum_seconds": 0.078
+    },
+    {
+     "entry": "sqrt | sympy/functions/elementary/miscellaneous.py:67(sqrt)",
+     "calls": 2327,
+     "cum_seconds": 0.066
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:7324(cancel)",
+     "calls": 72,
+     "cum_seconds": 0.06
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:497(__eq__)",
+     "calls": 3271,
+     "cum_seconds": 0.054
+    },
+    {
+     "entry": "other:__call__ | sympy/printing/printer.py:407(__call__)",
+     "calls": 118,
+     "cum_seconds": 0.044
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/facts.py:633(<genexpr>)",
+     "calls": 76288,
+     "cum_seconds": 0.044
+    },
+    {
+     "entry": "radsimp | sympy/simplify/radsimp.py:766(radsimp)",
+     "calls": 208,
+     "cum_seconds": 0.035
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/mul.py:190(__neg__)",
+     "calls": 1046,
+     "cum_seconds": 0.032
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:315(__hash__)",
+     "calls": 33305,
+     "cum_seconds": 0.025
+    },
+    {
+     "entry": "sympify | sympy/core/sympify.py:124(sympify)",
+     "calls": 10342,
+     "cum_seconds": 0.019
+    },
+    {
+     "entry": "tree access | sympy/core/basic.py:366(compare)",
+     "calls": 1827,
+     "cum_seconds": 0.018
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1907(__sub__)",
+     "calls": 3823,
+     "cum_seconds": 0.016
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1938(__rmul__)",
+     "calls": 3022,
+     "cum_seconds": 0.016
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:2011(__hash__)",
+     "calls": 23768,
+     "cum_seconds": 0.016
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/operations.py:73(<genexpr>)",
+     "calls": 31237,
+     "cum_seconds": 0.015
+    },
+    {
+     "entry": "expand | sympy/core/function.py:2516(expand)",
+     "calls": 768,
+     "cum_seconds": 0.013
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/expr.py:482(<genexpr>)",
+     "calls": 1689,
+     "cum_seconds": 0.011
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1447(__neg__)",
+     "calls": 793,
+     "cum_seconds": 0.008
+    },
+    {
+     "entry": "other:__sympy__ | sympy/core/basic.py:208(__sympy__)",
+     "calls": 49037,
+     "cum_seconds": 0.007
+    }
+   ],
+   "sympy_by_kernel_caller_top25": [
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 28008,
+     "cum_seconds": 1.268,
+     "families": {
+      "Expr arithmetic": 1.243,
+      "tree access": 0.018,
+      "Expr compare/convert/hash": 0.004,
+      "cacheit wrapper (Expr op/ctor)": 0.001,
+      "other:<lambda>": 0.001
+     }
+    },
+    {
+     "site": "reference/metric.py:340(dot_g)",
+     "calls": 52164,
+     "cum_seconds": 1.148,
+     "families": {
+      "Expr arithmetic": 1.148
+     }
+    },
+    {
+     "site": "reference/planar_types.py:62(exact_normalize)",
+     "calls": 4652,
+     "cum_seconds": 0.527,
+     "families": {
+      "factor/cancel": 0.527
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+     "calls": 6834,
+     "cum_seconds": 0.364,
+     "families": {
+      "Expr arithmetic": 0.362,
+      "Expr compare/convert/hash": 0.002
+     }
+    },
+    {
+     "site": "reference/adaptive_density_atlas.py:253(build_atlas_window_record)",
+     "calls": 168,
+     "cum_seconds": 0.36,
+     "families": {
+      "Expr arithmetic": 0.36,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+     "calls": 3660,
+     "cum_seconds": 0.178,
+     "families": {
+      "Expr arithmetic": 0.093,
+      "cacheit wrapper (Expr op/ctor)": 0.07,
+      "expand": 0.011,
+      "sqrt": 0.005
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:373(_covectors)",
+     "calls": 4032,
+     "cum_seconds": 0.13,
+     "families": {
+      "Expr arithmetic": 0.13
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:249(_slope)",
+     "calls": 264,
+     "cum_seconds": 0.118,
+     "families": {
+      "Expr arithmetic": 0.118
+     }
+    },
+    {
+     "site": "reference/angular.py:258(_density_dot_expression)",
+     "calls": 7344,
+     "cum_seconds": 0.117,
+     "families": {
+      "Expr arithmetic": 0.117
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:401(_subturn)",
+     "calls": 1885,
+     "cum_seconds": 0.103,
+     "families": {
+      "Expr arithmetic": 0.102,
+      "Expr compare/convert/hash": 0.001
+     }
+    },
+    {
+     "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+     "calls": 1248,
+     "cum_seconds": 0.085,
+     "families": {
+      "Expr arithmetic": 0.047,
+      "radsimp": 0.035,
+      "simplify": 0.001,
+      "cacheit wrapper (Expr op/ctor)": 0.001
+     }
+    },
+    {
+     "site": "reference/angular.py:332(_density_unit_from_squared)",
+     "calls": 1584,
+     "cum_seconds": 0.081,
+     "families": {
+      "Expr arithmetic": 0.041,
+      "sqrt": 0.04
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+     "calls": 26023,
+     "cum_seconds": 0.077,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.077
+     }
+    },
+    {
+     "site": "reference/planar_types.py:388(point_sub)",
+     "calls": 10204,
+     "cum_seconds": 0.065,
+     "families": {
+      "Expr arithmetic": 0.065
+     }
+    },
+    {
+     "site": "interactions/arrival.py:71(_density_support_line)",
+     "calls": 648,
+     "cum_seconds": 0.049,
+     "families": {
+      "Expr arithmetic": 0.049
+     }
+    },
+    {
+     "site": "reference/planar_types.py:101(_canonical_expr)",
+     "calls": 108,
+     "cum_seconds": 0.049,
+     "families": {
+      "factor/cancel": 0.046,
+      "other:__call__": 0.003
+     }
+    },
+    {
+     "site": "reference/angular.py:240(_density_srepr)",
+     "calls": 346,
+     "cum_seconds": 0.041,
+     "families": {
+      "other:__call__": 0.041,
+      "sympify": 0.0,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:479(_quarter_turn)",
+     "calls": 1344,
+     "cum_seconds": 0.039,
+     "families": {
+      "Expr arithmetic": 0.039,
+      "sqrt": 0.001
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:219(_inside_ordinal)",
+     "calls": 1056,
+     "cum_seconds": 0.037,
+     "families": {
+      "Expr arithmetic": 0.037
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:520(_rotate_q)",
+     "calls": 576,
+     "cum_seconds": 0.033,
+     "families": {
+      "Expr arithmetic": 0.033
+     }
+    },
+    {
+     "site": "<string>:24(__hash__)",
+     "calls": 17778,
+     "cum_seconds": 0.032,
+     "families": {
+      "Expr compare/convert/hash": 0.032
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:279(_chart_for_window)",
+     "calls": 108,
+     "cum_seconds": 0.03,
+     "families": {
+      "Expr arithmetic": 0.03
+     }
+    },
+    {
+     "site": "reference/boundary.py:108(<lambda>)",
+     "calls": 260,
+     "cum_seconds": 0.029,
+     "families": {
+      "Expr arithmetic": 0.029
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:191(_oriented_cross)",
+     "calls": 955,
+     "cum_seconds": 0.026,
+     "families": {
+      "Expr arithmetic": 0.025,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+     "calls": 1917,
+     "cum_seconds": 0.025,
+     "families": {
+      "cacheit wrapper (Expr op/ctor)": 0.021,
+      "sympify": 0.004
+     }
+    }
+   ],
+   "mpmath_direct_from_kernel": {
+    "cum_seconds": 1.045,
+    "top_callers": [
+     {
+      "site": "reference/planar_types.py:162(interval_enclosure)",
+      "calls": 40064,
+      "cum_seconds": 0.772
+     },
+     {
+      "site": "reference/planar_types.py:195(_certified_interval_sign)",
+      "calls": 27108,
+      "cum_seconds": 0.194
+     },
+     {
+      "site": "_density_policy.py:33(density_interval_enclosure)",
+      "calls": 4288,
+      "cum_seconds": 0.065
+     },
+     {
+      "site": "reference/angular.py:273(_density_exact_sign)",
+      "calls": 1774,
+      "cum_seconds": 0.012
+     },
+     {
+      "site": "reference/direction_binding.py:1603(_density_decimal_envelope)",
+      "calls": 900,
+      "cum_seconds": 0.002
+     },
+     {
+      "site": "reference/direction_binding.py:1628(<genexpr>)",
+      "calls": 600,
+      "cum_seconds": 0.0
+     }
+    ]
+   },
+   "fractions_inclusive_seconds_profiled": 38.2,
+   "fractions_by_operation": [
+    {
+     "op": "forward",
+     "calls": 5940714,
+     "cum_seconds": 27.667
+    },
+    {
+     "op": "__new__",
+     "calls": 2971854,
+     "cum_seconds": 5.393
+    },
+    {
+     "op": "__gt__",
+     "calls": 540364,
+     "cum_seconds": 1.563
+    },
+    {
+     "op": "__neg__",
+     "calls": 688030,
+     "cum_seconds": 1.123
+    },
+    {
+     "op": "__repr__",
+     "calls": 1291534,
+     "cum_seconds": 0.741
+    },
+    {
+     "op": "__eq__",
+     "calls": 763146,
+     "cum_seconds": 0.567
+    },
+    {
+     "op": "__bool__",
+     "calls": 1566386,
+     "cum_seconds": 0.471
+    },
+    {
+     "op": "__lt__",
+     "calls": 112394,
+     "cum_seconds": 0.3
+    },
+    {
+     "op": "__hash__",
+     "calls": 253174,
+     "cum_seconds": 0.237
+    },
+    {
+     "op": "denominator",
+     "calls": 418697,
+     "cum_seconds": 0.06
+    },
+    {
+     "op": "numerator",
+     "calls": 198980,
+     "cum_seconds": 0.03
+    },
+    {
+     "op": "__abs__",
+     "calls": 6028,
+     "cum_seconds": 0.013
+    },
+    {
+     "op": "__ge__",
+     "calls": 4487,
+     "cum_seconds": 0.01
+    },
+    {
+     "op": "reverse",
+     "calls": 1474,
+     "cum_seconds": 0.01
+    }
+   ],
+   "fractions_top15_callers": [
+    {
+     "site": "exact_sqrt_sum.py:1061(__mul__)",
+     "calls": 2828921,
+     "cum_seconds": 11.899,
+     "ops": {
+      "forward": [
+       2121429,
+       11.103
+      ],
+      "__new__": [
+       707143,
+       0.795
+      ],
+      "__eq__": [
+       320,
+       0.001
+      ],
+      "__hash__": [
+       29,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1135(enclosure)",
+     "calls": 2809024,
+     "cum_seconds": 10.437,
+     "ops": {
+      "forward": [
+       1615838,
+       7.313
+      ],
+      "__new__": [
+       834443,
+       2.082
+      ],
+      "__gt__": [
+       358743,
+       1.042
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1059(<genexpr>)",
+     "calls": 942261,
+     "cum_seconds": 3.674,
+     "ops": {
+      "forward": [
+       942261,
+       3.674
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1043(__add__)",
+     "calls": 1373533,
+     "cum_seconds": 3.616,
+     "ops": {
+      "forward": [
+       686590,
+       2.771
+      ],
+      "__new__": [
+       686590,
+       0.844
+      ],
+      "__eq__": [
+       324,
+       0.001
+      ],
+      "__hash__": [
+       29,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:986(radical)",
+     "calls": 1097591,
+     "cum_seconds": 2.289,
+     "ops": {
+      "forward": [
+       248313,
+       1.875
+      ],
+      "__new__": [
+       150954,
+       0.242
+      ],
+      "__eq__": [
+       260428,
+       0.105
+      ],
+      "denominator": [
+       328422,
+       0.049
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1055(scaled)",
+     "calls": 733626,
+     "cum_seconds": 1.267,
+     "ops": {
+      "__new__": [
+       366813,
+       1.11
+      ],
+      "__eq__": [
+       366813,
+       0.157
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1050(<genexpr>)",
+     "calls": 661077,
+     "cum_seconds": 1.073,
+     "ops": {
+      "__neg__": [
+       661077,
+       1.073
+      ]
+     }
+    },
+    {
+     "site": "Lib/reprlib.py:15(wrapper)",
+     "calls": 1187151,
+     "cum_seconds": 0.68,
+     "ops": {
+      "__repr__": [
+       1186790,
+       0.679
+      ],
+      "__hash__": [
+       361,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1161(certified_sign)",
+     "calls": 157968,
+     "cum_seconds": 0.437,
+     "ops": {
+      "__gt__": [
+       114340,
+       0.321
+      ],
+      "__lt__": [
+       43628,
+       0.116
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1035(<genexpr>)",
+     "calls": 1431373,
+     "cum_seconds": 0.431,
+     "ops": {
+      "__bool__": [
+       1431373,
+       0.431
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1237(_split_by_prime)",
+     "calls": 151876,
+     "cum_seconds": 0.343,
+     "ops": {
+      "forward": [
+       75920,
+       0.248
+      ],
+      "__new__": [
+       75920,
+       0.095
+      ],
+      "__eq__": [
+       33,
+       0.0
+      ],
+      "__hash__": [
+       3,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "_embedding.py:57(_cross3)",
+     "calls": 118512,
+     "cum_seconds": 0.261,
+     "ops": {
+      "forward": [
+       118512,
+       0.261
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1171(sign)",
+     "calls": 66824,
+     "cum_seconds": 0.19,
+     "ops": {
+      "__gt__": [
+       33412,
+       0.101
+      ],
+      "__lt__": [
+       33412,
+       0.088
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:227(sign)",
+     "calls": 59052,
+     "cum_seconds": 0.159,
+     "ops": {
+      "__gt__": [
+       29526,
+       0.084
+      ],
+      "__lt__": [
+       29526,
+       0.075
+      ]
+     }
+    },
+    {
+     "site": "_embedding.py:54(<genexpr>)",
+     "calls": 45378,
+     "cum_seconds": 0.113,
+     "ops": {
+      "forward": [
+       45378,
+       0.113
+      ]
+     }
+    }
+   ],
+   "fraction_repr": {
+    "calls": 1291534,
+    "cum_seconds": 0.741,
+    "top_callers": [
+     {
+      "site": "Lib/reprlib.py:15(wrapper)",
+      "calls": 1186790,
+      "cum_seconds": 0.679
+     },
+     {
+      "site": "wavefront/symbolic_superlevel_coordinator.py:163(<lambda>)",
+      "calls": 21046,
+      "cum_seconds": 0.012
+     },
+     {
+      "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+      "calls": 17891,
+      "cum_seconds": 0.011
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:185(<lambda>)",
+      "calls": 15332,
+      "cum_seconds": 0.009
+     },
+     {
+      "site": "exact_sqrt_sum.py:1032(_from_map)",
+      "calls": 14632,
+      "cum_seconds": 0.009
+     },
+     {
+      "site": "wavefront/symbolic_split_endpoint.py:65(<lambda>)",
+      "calls": 14027,
+      "cum_seconds": 0.008
+     },
+     {
+      "site": "wavefront/superlevel_snapshot.py:353(_incident_sort_key)",
+      "calls": 9054,
+      "cum_seconds": 0.005
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:431(<lambda>)",
+      "calls": 2072,
+      "cum_seconds": 0.001
+     }
+    ]
+   },
+   "exact_sqrt_sum_public_inclusive_seconds_profiled": 38.77,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "sign",
+     "calls": 162515,
+     "cum_seconds": 13.511
+    },
+    {
+     "func": "__sub__",
+     "calls": 210155,
+     "cum_seconds": 8.047
+    },
+    {
+     "func": "scaled",
+     "calls": 343883,
+     "cum_seconds": 6.245
+    },
+    {
+     "func": "divided_by",
+     "calls": 9968,
+     "cum_seconds": 3.904
+    },
+    {
+     "func": "radical",
+     "calls": 121589,
+     "cum_seconds": 2.854
+    },
+    {
+     "func": "__mul__",
+     "calls": 21932,
+     "cum_seconds": 2.202
+    },
+    {
+     "func": "__add__",
+     "calls": 89484,
+     "cum_seconds": 1.432
+    },
+    {
+     "func": "__neg__",
+     "calls": 27093,
+     "cum_seconds": 0.248
+    },
+    {
+     "func": "rational",
+     "calls": 38616,
+     "cum_seconds": 0.157
+    },
+    {
+     "func": "enclosure",
+     "calls": 2617,
+     "cum_seconds": 0.138
+    },
+    {
+     "func": "spend_exact_position_hydrations",
+     "calls": 8726,
+     "cum_seconds": 0.017
+    },
+    {
+     "func": "is_zero",
+     "calls": 59909,
+     "cum_seconds": 0.014
+    },
+    {
+     "func": "zero",
+     "calls": 389,
+     "cum_seconds": 0.001
+    },
+    {
+     "func": "as_rational",
+     "calls": 67,
+     "cum_seconds": 0.0
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:260(compare_times)",
+     "calls": 459240,
+     "cum_seconds": 16.279,
+     "funcs": {
+      "sign": [
+       114810,
+       8.866
+      ],
+      "scaled": [
+       229620,
+       3.835
+      ],
+      "__sub__": [
+       114810,
+       3.578
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 77040,
+     "cum_seconds": 3.838,
+     "funcs": {
+      "__sub__": [
+       34318,
+       1.874
+      ],
+      "sign": [
+       11110,
+       1.6
+      ],
+      "scaled": [
+       16808,
+       0.36
+      ],
+      "is_zero": [
+       14804,
+       0.003
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:466(_event_point)",
+     "calls": 122230,
+     "cum_seconds": 3.401,
+     "funcs": {
+      "__mul__": [
+       14996,
+       0.827
+      ],
+      "scaled": [
+       37490,
+       0.66
+      ],
+      "__sub__": [
+       14996,
+       0.619
+      ],
+      "divided_by": [
+       2262,
+       0.554
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:370(sliding_time)",
+     "calls": 78260,
+     "cum_seconds": 3.223,
+     "funcs": {
+      "divided_by": [
+       6350,
+       2.307
+      ],
+      "radical": [
+       14382,
+       0.353
+      ],
+      "__sub__": [
+       14382,
+       0.29
+      ],
+      "__add__": [
+       7191,
+       0.122
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:288(concurrency_time)",
+     "calls": 177906,
+     "cum_seconds": 2.841,
+     "funcs": {
+      "radical": [
+       88953,
+       1.992
+      ],
+      "__add__": [
+       59302,
+       0.841
+      ],
+      "is_zero": [
+       29651,
+       0.007
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:213(normalized)",
+     "calls": 58995,
+     "cum_seconds": 2.838,
+     "funcs": {
+      "sign": [
+       32102,
+       2.591
+      ],
+      "__neg__": [
+       26893,
+       0.247
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 47148,
+     "cum_seconds": 1.953,
+     "funcs": {
+      "__sub__": [
+       15716,
+       1.05
+      ],
+      "scaled": [
+       31432,
+       0.902
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 10304,
+     "cum_seconds": 1.411,
+     "funcs": {
+      "__mul__": [
+       2576,
+       0.872
+      ],
+      "__sub__": [
+       6440,
+       0.315
+      ],
+      "sign": [
+       1288,
+       0.224
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:325(sliding_point)",
+     "calls": 15964,
+     "cum_seconds": 1.315,
+     "funcs": {
+      "divided_by": [
+       1228,
+       1.023
+      ],
+      "scaled": [
+       7368,
+       0.148
+      ],
+      "__add__": [
+       2456,
+       0.064
+      ],
+      "__sub__": [
+       1228,
+       0.038
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 4280,
+     "cum_seconds": 0.343,
+     "funcs": {
+      "__mul__": [
+       2032,
+       0.254
+      ],
+      "__sub__": [
+       1016,
+       0.052
+      ],
+      "__add__": [
+       1016,
+       0.036
+      ],
+      "zero": [
+       216,
+       0.0
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "Fraction/gcd arithmetic": 0.5455,
+    "exact_sqrt_sum": 0.2108,
+    "other": 0.1146,
+    "sympy": 0.0736,
+    "skeleton march": 0.0417,
+    "number theory": 0.0137
+   }
+  },
+  "COMBINED_p6_d2+p1_d2+p7_d2": {
+   "pstats": [
+    "p6_d2.pstats",
+    "p1_d2.pstats",
+    "p7_d2.pstats"
+   ],
+   "profile_total_seconds": 222.48,
+   "sympy_inclusive_seconds_profiled": 23.13,
+   "sympy_share_of_profile": 0.104,
+   "sympy_by_family": [
+    {
+     "family": "Expr arithmetic",
+     "calls": 389332,
+     "cum_seconds": 17.563,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 65942,
+       "cum_seconds": 5.591
+      },
+      {
+       "site": "reference/metric.py:340(dot_g)",
+       "calls": 159156,
+       "cum_seconds": 4.192
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+       "calls": 19017,
+       "cum_seconds": 1.624
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:401(_subturn)",
+       "calls": 3348,
+       "cum_seconds": 1.357
+      }
+     ]
+    },
+    {
+     "family": "factor/cancel",
+     "calls": 20286,
+     "cum_seconds": 2.138,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:62(exact_normalize)",
+       "calls": 19534,
+       "cum_seconds": 1.883
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 188,
+       "cum_seconds": 0.121
+      },
+      {
+       "site": "reference/angular.py:870(_verify_evaluation_subturn_count_lift)",
+       "calls": 72,
+       "cum_seconds": 0.063
+      },
+      {
+       "site": "reference/planar_types.py:222(exact_sign)",
+       "calls": 16,
+       "cum_seconds": 0.05
+      }
+     ]
+    },
+    {
+     "family": "internal genexpr (assumptions/args)",
+     "calls": 601841,
+     "cum_seconds": 1.14,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+       "calls": 99577,
+       "cum_seconds": 0.595
+      },
+      {
+       "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+       "calls": 30592,
+       "cum_seconds": 0.164
+      },
+      {
+       "site": "wavefront/exact_candidate_view.py:282(is_future)",
+       "calls": 214188,
+       "cum_seconds": 0.13
+      },
+      {
+       "site": "exact_sqrt_sum.py:1127(is_rational)",
+       "calls": 116228,
+       "cum_seconds": 0.071
+      }
+     ]
+    },
+    {
+     "family": "cacheit wrapper (Expr op/ctor)",
+     "calls": 22120,
+     "cum_seconds": 0.721,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 1740,
+       "cum_seconds": 0.609
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 6826,
+       "cum_seconds": 0.069
+      },
+      {
+       "site": "reference/validation.py:68(_interval_contains_oriented_support_delta)",
+       "calls": 576,
+       "cum_seconds": 0.013
+      },
+      {
+       "site": "reference/angle_measure.py:55(angular_fraction_of_pi)",
+       "calls": 77,
+       "cum_seconds": 0.01
+      }
+     ]
+    },
+    {
+     "family": "Expr compare/convert/hash",
+     "calls": 472506,
+     "cum_seconds": 0.642,
+     "top_callers": [
+      {
+       "site": "<string>:24(__hash__)",
+       "calls": 101493,
+       "cum_seconds": 0.149
+      },
+      {
+       "site": "<string>:22(__hash__)",
+       "calls": 76500,
+       "cum_seconds": 0.112
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 88320,
+       "cum_seconds": 0.08
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 48894,
+       "cum_seconds": 0.051
+      }
+     ]
+    },
+    {
+     "family": "sqrt",
+     "calls": 6943,
+     "cum_seconds": 0.366,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:332(_density_unit_from_squared)",
+       "calls": 1583,
+       "cum_seconds": 0.199
+      },
+      {
+       "site": "reference/metric.py:362(length_g)",
+       "calls": 3791,
+       "cum_seconds": 0.101
+      },
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 648,
+       "cum_seconds": 0.047
+      },
+      {
+       "site": "reference/validation.py:103(_density_interval_contains_oriented_support_delta)",
+       "calls": 360,
+       "cum_seconds": 0.012
+      }
+     ]
+    },
+    {
+     "family": "other:__call__",
+     "calls": 445,
+     "cum_seconds": 0.164,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:240(_density_srepr)",
+       "calls": 351,
+       "cum_seconds": 0.155
+      },
+      {
+       "site": "reference/planar_types.py:101(_canonical_expr)",
+       "calls": 94,
+       "cum_seconds": 0.009
+      }
+     ]
+    },
+    {
+     "family": "radsimp",
+     "calls": 728,
+     "cum_seconds": 0.109,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 728,
+       "cum_seconds": 0.109
+      }
+     ]
+    },
+    {
+     "family": "tree access",
+     "calls": 56451,
+     "cum_seconds": 0.081,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 8087,
+       "cum_seconds": 0.07
+      },
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 36851,
+       "cum_seconds": 0.008
+      },
+      {
+       "site": "_density_policy.py:33(density_interval_enclosure)",
+       "calls": 8137,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 126,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "expand",
+     "calls": 2304,
+     "cum_seconds": 0.079,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+       "calls": 1620,
+       "cum_seconds": 0.073
+      },
+      {
+       "site": "reference/angular.py:351(_density_left_unit_normal)",
+       "calls": 648,
+       "cum_seconds": 0.006
+      },
+      {
+       "site": "reference/compile.py:594(_exact_turn_witness)",
+       "calls": 36,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "sympify",
+     "calls": 29150,
+     "cum_seconds": 0.05,
+     "top_callers": [
+      {
+       "site": "reference/adaptive_density_fan.py:210(_vector)",
+       "calls": 9624,
+       "cum_seconds": 0.018
+      },
+      {
+       "site": "reference/planar_types.py:114(_parse_expr_uncached)",
+       "calls": 9,
+       "cum_seconds": 0.012
+      },
+      {
+       "site": "reference/angular.py:273(_density_exact_sign)",
+       "calls": 11044,
+       "cum_seconds": 0.011
+      },
+      {
+       "site": "reference/angular.py:103(_density_runtime_vector)",
+       "calls": 5334,
+       "cum_seconds": 0.005
+      }
+     ]
+    },
+    {
+     "family": "other:__sympy__",
+     "calls": 197694,
+     "cum_seconds": 0.025,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:114(<genexpr>)",
+       "calls": 45841,
+       "cum_seconds": 0.006
+      },
+      {
+       "site": "wavefront/symbolic_sparse_ports.py:10(with_line_ports)",
+       "calls": 35415,
+       "cum_seconds": 0.005
+      },
+      {
+       "site": "wavefront/symbolic_overlay.py:162(<genexpr>)",
+       "calls": 32932,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "wavefront/superlevel_snapshot.py:82(_vertex_snapshot)",
+       "calls": 29007,
+       "cum_seconds": 0.004
+      }
+     ]
+    },
+    {
+     "family": "is_* / assumptions",
+     "calls": 20,
+     "cum_seconds": 0.014,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:222(exact_sign)",
+       "calls": 20,
+       "cum_seconds": 0.014
+      }
+     ]
+    },
+    {
+     "family": "other:order_key",
+     "calls": 167,
+     "cum_seconds": 0.011,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 96,
+       "cum_seconds": 0.006
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 56,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_preorder_traversal",
+     "calls": 2822,
+     "cum_seconds": 0.006,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 1362,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 1283,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "_embedding.py:88(_segment_relation3)",
+       "calls": 38,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:666(_ideal_angular_support_data)",
+       "calls": 27,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_print",
+     "calls": 283,
+     "cum_seconds": 0.005,
+     "top_callers": [
+      {
+       "site": "host:envelope_queue_export.py:490(_face_area_text)",
+       "calls": 222,
+       "cum_seconds": 0.004
+      },
+      {
+       "site": "codec.py:92(_json_sort_key)",
+       "calls": 18,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/common.py:59(stable_id)",
+       "calls": 16,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/compile.py:163(_stable_value)",
+       "calls": 14,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "simplify",
+     "calls": 728,
+     "cum_seconds": 0.004,
+     "top_callers": [
+      {
+       "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+       "calls": 728,
+       "cum_seconds": 0.004
+      }
+     ]
+    },
+    {
+     "family": "other:<lambda>",
+     "calls": 794,
+     "cum_seconds": 0.003,
+     "top_callers": [
+      {
+       "site": "reference/boundary.py:72(_contact_candidates)",
+       "calls": 447,
+       "cum_seconds": 0.003
+      },
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 196,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 114,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/superlevel.py:626(_split_cut_plans)",
+       "calls": 7,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__instancecheck__",
+     "calls": 2916,
+     "cum_seconds": 0.003,
+     "top_callers": [
+      {
+       "site": "Lib/fractions.py:663(forward)",
+       "calls": 1749,
+       "cum_seconds": 0.002
+      },
+      {
+       "site": "Lib/fractions.py:983(_richcmp)",
+       "calls": 691,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "Lib/fractions.py:203(__new__)",
+       "calls": 288,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "Lib/fractions.py:962(__eq__)",
+       "calls": 98,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:__str__",
+     "calls": 8,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "reference/planar_types.py:162(interval_enclosure)",
+       "calls": 8,
+       "cum_seconds": 0.001
+      }
+     ]
+    },
+    {
+     "family": "other:default_sort_key",
+     "calls": 8,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 5,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 3,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:key",
+     "calls": 340,
+     "cum_seconds": 0.001,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 196,
+       "cum_seconds": 0.001
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 114,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 7,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 5,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:_expand_hint_key",
+     "calls": 1555,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 898,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 522,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 31,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 25,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:order_if_multiple_key",
+     "calls": 30,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+       "calls": 17,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "exact_sqrt_sum.py:1032(_from_map)",
+       "calls": 10,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "wavefront/symbolic_runtime_commit.py:169(_ordered_lineage)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    },
+    {
+     "family": "other:dispatch_iter",
+     "calls": 2,
+     "cum_seconds": 0.0,
+     "top_callers": [
+      {
+       "site": "reference/angular.py:107(_incident_normal)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:110(<genexpr>)",
+       "calls": 1,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "_embedding.py:88(_segment_relation3)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      },
+      {
+       "site": "reference/angular.py:666(_ideal_angular_support_data)",
+       "calls": 0,
+       "cum_seconds": 0.0
+      }
+     ]
+    }
+   ],
+   "sympy_by_entry_point_top25": [
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:236(_func)",
+     "calls": 83173,
+     "cum_seconds": 10.831
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/decorators.py:69(__sympifyit_wrapper)",
+     "calls": 250499,
+     "cum_seconds": 5.284
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:6644(factor)",
+     "calls": 20076,
+     "cum_seconds": 1.931
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1927(__mul__)",
+     "calls": 20637,
+     "cum_seconds": 1.178
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:468(<genexpr>)",
+     "calls": 710,
+     "cum_seconds": 0.758
+    },
+    {
+     "entry": "cacheit wrapper (Expr op/ctor) | sympy/core/cache.py:69(wrapper)",
+     "calls": 22120,
+     "cum_seconds": 0.721
+    },
+    {
+     "entry": "sqrt | sympy/functions/elementary/miscellaneous.py:67(sqrt)",
+     "calls": 6943,
+     "cum_seconds": 0.366
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:1697(__hash__)",
+     "calls": 139506,
+     "cum_seconds": 0.328
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/facts.py:633(<genexpr>)",
+     "calls": 448581,
+     "cum_seconds": 0.224
+    },
+    {
+     "entry": "factor/cancel | sympy/polys/polytools.py:7324(cancel)",
+     "calls": 210,
+     "cum_seconds": 0.208
+    },
+    {
+     "entry": "other:__call__ | sympy/printing/printer.py:407(__call__)",
+     "calls": 445,
+     "cum_seconds": 0.164
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/mul.py:190(__neg__)",
+     "calls": 4783,
+     "cum_seconds": 0.131
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:315(__hash__)",
+     "calls": 188148,
+     "cum_seconds": 0.127
+    },
+    {
+     "entry": "radsimp | sympy/simplify/radsimp.py:766(radsimp)",
+     "calls": 728,
+     "cum_seconds": 0.109
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/basic.py:497(__eq__)",
+     "calls": 9657,
+     "cum_seconds": 0.095
+    },
+    {
+     "entry": "expand | sympy/core/function.py:2516(expand)",
+     "calls": 2304,
+     "cum_seconds": 0.079
+    },
+    {
+     "entry": "tree access | sympy/core/basic.py:366(compare)",
+     "calls": 8213,
+     "cum_seconds": 0.071
+    },
+    {
+     "entry": "Expr compare/convert/hash | sympy/core/numbers.py:2011(__hash__)",
+     "calls": 109688,
+     "cum_seconds": 0.062
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/operations.py:73(<genexpr>)",
+     "calls": 130078,
+     "cum_seconds": 0.055
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/expr.py:482(<genexpr>)",
+     "calls": 10288,
+     "cum_seconds": 0.051
+    },
+    {
+     "entry": "sympify | sympy/core/sympify.py:124(sympify)",
+     "calls": 29150,
+     "cum_seconds": 0.05
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1907(__sub__)",
+     "calls": 11450,
+     "cum_seconds": 0.043
+    },
+    {
+     "entry": "Expr arithmetic | sympy/core/numbers.py:1938(__rmul__)",
+     "calls": 8084,
+     "cum_seconds": 0.041
+    },
+    {
+     "entry": "internal genexpr (assumptions/args) | sympy/core/add.py:27(<genexpr>)",
+     "calls": 360,
+     "cum_seconds": 0.034
+    },
+    {
+     "entry": "other:__sympy__ | sympy/core/basic.py:208(__sympy__)",
+     "calls": 197694,
+     "cum_seconds": 0.025
+    }
+   ],
+   "sympy_by_kernel_caller_top25": [
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 89549,
+     "cum_seconds": 5.678,
+     "families": {
+      "Expr arithmetic": 5.591,
+      "tree access": 0.07,
+      "Expr compare/convert/hash": 0.011,
+      "cacheit wrapper (Expr op/ctor)": 0.003,
+      "other:<lambda>": 0.003
+     }
+    },
+    {
+     "site": "reference/metric.py:340(dot_g)",
+     "calls": 159156,
+     "cum_seconds": 4.192,
+     "families": {
+      "Expr arithmetic": 4.192
+     }
+    },
+    {
+     "site": "reference/planar_types.py:62(exact_normalize)",
+     "calls": 19534,
+     "cum_seconds": 1.883,
+     "families": {
+      "factor/cancel": 1.883
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:174(_dual_dot)",
+     "calls": 36307,
+     "cum_seconds": 1.632,
+     "families": {
+      "Expr arithmetic": 1.624,
+      "Expr compare/convert/hash": 0.007
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:401(_subturn)",
+     "calls": 10252,
+     "cum_seconds": 1.36,
+     "families": {
+      "Expr arithmetic": 1.357,
+      "Expr compare/convert/hash": 0.003
+     }
+    },
+    {
+     "site": "reference/angular.py:378(_huber_density_interpolated_normals)",
+     "calls": 11024,
+     "cum_seconds": 1.139,
+     "families": {
+      "cacheit wrapper (Expr op/ctor)": 0.609,
+      "Expr arithmetic": 0.41,
+      "expand": 0.073,
+      "sqrt": 0.047
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:249(_slope)",
+     "calls": 703,
+     "cum_seconds": 0.826,
+     "families": {
+      "Expr arithmetic": 0.826
+     }
+    },
+    {
+     "site": "reference/angular.py:258(_density_dot_expression)",
+     "calls": 22005,
+     "cum_seconds": 0.629,
+     "families": {
+      "Expr arithmetic": 0.629
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:647(_box_is_feasible)",
+     "calls": 99577,
+     "cum_seconds": 0.595,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.595
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:373(_covectors)",
+     "calls": 12132,
+     "cum_seconds": 0.438,
+     "families": {
+      "Expr arithmetic": 0.438
+     }
+    },
+    {
+     "site": "reference/angular.py:332(_density_unit_from_squared)",
+     "calls": 4749,
+     "cum_seconds": 0.387,
+     "families": {
+      "sqrt": 0.199,
+      "Expr arithmetic": 0.188
+     }
+    },
+    {
+     "site": "reference/adaptive_density_atlas.py:253(build_atlas_window_record)",
+     "calls": 168,
+     "cum_seconds": 0.36,
+     "families": {
+      "Expr arithmetic": 0.36,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "wavefront/conveyor.py:443(_rational_after_scaling)",
+     "calls": 4368,
+     "cum_seconds": 0.311,
+     "families": {
+      "Expr arithmetic": 0.193,
+      "radsimp": 0.109,
+      "simplify": 0.004,
+      "cacheit wrapper (Expr op/ctor)": 0.004
+     }
+    },
+    {
+     "site": "reference/planar_types.py:388(point_sub)",
+     "calls": 31418,
+     "cum_seconds": 0.179,
+     "families": {
+      "Expr arithmetic": 0.179
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:520(_rotate_q)",
+     "calls": 1452,
+     "cum_seconds": 0.174,
+     "families": {
+      "Expr arithmetic": 0.174
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:1012(_legacy_full_fan_valid)",
+     "calls": 30592,
+     "cum_seconds": 0.164,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.164
+     }
+    },
+    {
+     "site": "interactions/arrival.py:71(_density_support_line)",
+     "calls": 1926,
+     "cum_seconds": 0.163,
+     "families": {
+      "Expr arithmetic": 0.163
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:191(_oriented_cross)",
+     "calls": 5798,
+     "cum_seconds": 0.157,
+     "families": {
+      "Expr arithmetic": 0.155,
+      "Expr compare/convert/hash": 0.002
+     }
+    },
+    {
+     "site": "reference/angular.py:240(_density_srepr)",
+     "calls": 1283,
+     "cum_seconds": 0.156,
+     "families": {
+      "other:__call__": 0.155,
+      "sympify": 0.001,
+      "Expr compare/convert/hash": 0.0
+     }
+    },
+    {
+     "site": "<string>:24(__hash__)",
+     "calls": 101493,
+     "cum_seconds": 0.149,
+     "families": {
+      "Expr compare/convert/hash": 0.149
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:279(_chart_for_window)",
+     "calls": 327,
+     "cum_seconds": 0.136,
+     "families": {
+      "Expr arithmetic": 0.136
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:479(_quarter_turn)",
+     "calls": 3388,
+     "cum_seconds": 0.131,
+     "families": {
+      "Expr arithmetic": 0.13,
+      "sqrt": 0.002
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:282(is_future)",
+     "calls": 214188,
+     "cum_seconds": 0.13,
+     "families": {
+      "internal genexpr (assumptions/args)": 0.13
+     }
+    },
+    {
+     "site": "reference/planar_types.py:101(_canonical_expr)",
+     "calls": 282,
+     "cum_seconds": 0.13,
+     "families": {
+      "factor/cancel": 0.121,
+      "other:__call__": 0.009
+     }
+    },
+    {
+     "site": "reference/adaptive_density_fan.py:219(_inside_ordinal)",
+     "calls": 2228,
+     "cum_seconds": 0.122,
+     "families": {
+      "Expr arithmetic": 0.122
+     }
+    }
+   ],
+   "mpmath_direct_from_kernel": {
+    "cum_seconds": 3.651,
+    "top_callers": [
+     {
+      "site": "reference/planar_types.py:162(interval_enclosure)",
+      "calls": 149586,
+      "cum_seconds": 2.47
+     },
+     {
+      "site": "reference/planar_types.py:195(_certified_interval_sign)",
+      "calls": 102520,
+      "cum_seconds": 0.621
+     },
+     {
+      "site": "_density_policy.py:33(density_interval_enclosure)",
+      "calls": 31937,
+      "cum_seconds": 0.483
+     },
+     {
+      "site": "reference/angular.py:273(_density_exact_sign)",
+      "calls": 11883,
+      "cum_seconds": 0.07
+     },
+     {
+      "site": "reference/direction_binding.py:1603(_density_decimal_envelope)",
+      "calls": 2448,
+      "cum_seconds": 0.005
+     },
+     {
+      "site": "reference/direction_binding.py:1628(<genexpr>)",
+      "calls": 1632,
+      "cum_seconds": 0.001
+     },
+     {
+      "site": "reference/angle_measure.py:180(_enclose_fraction_of_pi)",
+      "calls": 10,
+      "cum_seconds": 0.0
+     },
+     {
+      "site": "wavefront/event_time.py:231(canonical)",
+      "calls": 1,
+      "cum_seconds": 0.0
+     }
+    ]
+   },
+   "fractions_inclusive_seconds_profiled": 123.13,
+   "fractions_by_operation": [
+    {
+     "op": "forward",
+     "calls": 21137884,
+     "cum_seconds": 88.727
+    },
+    {
+     "op": "__new__",
+     "calls": 10574261,
+     "cum_seconds": 17.031
+    },
+    {
+     "op": "__gt__",
+     "calls": 1995508,
+     "cum_seconds": 5.201
+    },
+    {
+     "op": "__repr__",
+     "calls": 6534895,
+     "cum_seconds": 3.387
+    },
+    {
+     "op": "__neg__",
+     "calls": 2314837,
+     "cum_seconds": 3.317
+    },
+    {
+     "op": "__eq__",
+     "calls": 2496549,
+     "cum_seconds": 1.634
+    },
+    {
+     "op": "__bool__",
+     "calls": 5597213,
+     "cum_seconds": 1.522
+    },
+    {
+     "op": "__hash__",
+     "calls": 846345,
+     "cum_seconds": 1.003
+    },
+    {
+     "op": "__lt__",
+     "calls": 386676,
+     "cum_seconds": 0.932
+    },
+    {
+     "op": "denominator",
+     "calls": 1262270,
+     "cum_seconds": 0.166
+    },
+    {
+     "op": "numerator",
+     "calls": 533827,
+     "cum_seconds": 0.075
+    },
+    {
+     "op": "__abs__",
+     "calls": 26344,
+     "cum_seconds": 0.053
+    },
+    {
+     "op": "reverse",
+     "calls": 5831,
+     "cum_seconds": 0.036
+    },
+    {
+     "op": "__ge__",
+     "calls": 9687,
+     "cum_seconds": 0.022
+    }
+   ],
+   "fractions_top15_callers": [
+    {
+     "site": "exact_sqrt_sum.py:1061(__mul__)",
+     "calls": 10730331,
+     "cum_seconds": 40.244,
+     "ops": {
+      "forward": [
+       8047209,
+       37.573
+      ],
+      "__new__": [
+       2682403,
+       2.67
+      ],
+      "__eq__": [
+       618,
+       0.001
+      ],
+      "__hash__": [
+       101,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1135(enclosure)",
+     "calls": 10471382,
+     "cum_seconds": 34.404,
+     "ops": {
+      "forward": [
+       5938278,
+       23.839
+      ],
+      "__new__": [
+       3151709,
+       6.958
+      ],
+      "__gt__": [
+       1381395,
+       3.607
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1059(<genexpr>)",
+     "calls": 3126411,
+     "cum_seconds": 10.913,
+     "ops": {
+      "forward": [
+       3126411,
+       10.913
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1043(__add__)",
+     "calls": 4577936,
+     "cum_seconds": 10.645,
+     "ops": {
+      "forward": [
+       2288657,
+       8.204
+      ],
+      "__new__": [
+       2288657,
+       2.439
+      ],
+      "__eq__": [
+       535,
+       0.001
+      ],
+      "__hash__": [
+       88,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:986(radical)",
+     "calls": 3653840,
+     "cum_seconds": 6.878,
+     "ops": {
+      "forward": [
+       837742,
+       5.648
+      ],
+      "__new__": [
+       499944,
+       0.712
+      ],
+      "__eq__": [
+       863186,
+       0.317
+      ],
+      "denominator": [
+       1089726,
+       0.146
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1055(scaled)",
+     "calls": 2406882,
+     "cum_seconds": 3.79,
+     "ops": {
+      "__new__": [
+       1203441,
+       3.322
+      ],
+      "__eq__": [
+       1203441,
+       0.468
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1050(<genexpr>)",
+     "calls": 2225088,
+     "cum_seconds": 3.167,
+     "ops": {
+      "__neg__": [
+       2225088,
+       3.167
+      ]
+     }
+    },
+    {
+     "site": "Lib/reprlib.py:15(wrapper)",
+     "calls": 6065813,
+     "cum_seconds": 3.135,
+     "ops": {
+      "__repr__": [
+       6064538,
+       3.135
+      ],
+      "__hash__": [
+       1275,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1035(<genexpr>)",
+     "calls": 5159373,
+     "cum_seconds": 1.4,
+     "ops": {
+      "__bool__": [
+       5159373,
+       1.4
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1161(certified_sign)",
+     "calls": 527757,
+     "cum_seconds": 1.314,
+     "ops": {
+      "__gt__": [
+       379990,
+       0.962
+      ],
+      "__lt__": [
+       147767,
+       0.353
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1237(_split_by_prime)",
+     "calls": 571480,
+     "cum_seconds": 1.174,
+     "ops": {
+      "forward": [
+       285703,
+       0.855
+      ],
+      "__new__": [
+       285703,
+       0.319
+      ],
+      "__eq__": [
+       64,
+       0.0
+      ],
+      "__hash__": [
+       10,
+       0.0
+      ]
+     }
+    },
+    {
+     "site": "exact_sqrt_sum.py:1171(sign)",
+     "calls": 246844,
+     "cum_seconds": 0.63,
+     "ops": {
+      "__gt__": [
+       123422,
+       0.338
+      ],
+      "__lt__": [
+       123422,
+       0.292
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_identity.py:66(__hash__)",
+     "calls": 235840,
+     "cum_seconds": 0.613,
+     "ops": {
+      "__hash__": [
+       235840,
+       0.613
+      ]
+     }
+    },
+    {
+     "site": "_embedding.py:57(_cross3)",
+     "calls": 264870,
+     "cum_seconds": 0.587,
+     "ops": {
+      "forward": [
+       264870,
+       0.587
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:227(sign)",
+     "calls": 191842,
+     "cum_seconds": 0.472,
+     "ops": {
+      "__gt__": [
+       95921,
+       0.25
+      ],
+      "__lt__": [
+       95921,
+       0.222
+      ]
+     }
+    }
+   ],
+   "fraction_repr": {
+    "calls": 6534895,
+    "cum_seconds": 3.387,
+    "top_callers": [
+     {
+      "site": "Lib/reprlib.py:15(wrapper)",
+      "calls": 6064538,
+      "cum_seconds": 3.135
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:185(<lambda>)",
+      "calls": 104683,
+      "cum_seconds": 0.056
+     },
+     {
+      "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+      "calls": 91295,
+      "cum_seconds": 0.048
+     },
+     {
+      "site": "wavefront/symbolic_superlevel_coordinator.py:163(<lambda>)",
+      "calls": 78570,
+      "cum_seconds": 0.042
+     },
+     {
+      "site": "exact_sqrt_sum.py:1032(_from_map)",
+      "calls": 53007,
+      "cum_seconds": 0.028
+     },
+     {
+      "site": "wavefront/symbolic_split_endpoint.py:65(<lambda>)",
+      "calls": 51823,
+      "cum_seconds": 0.028
+     },
+     {
+      "site": "wavefront/superlevel_snapshot.py:353(_incident_sort_key)",
+      "calls": 39991,
+      "cum_seconds": 0.022
+     },
+     {
+      "site": "wavefront/symbolic_runtime_commit.py:431(<lambda>)",
+      "calls": 9327,
+      "cum_seconds": 0.005
+     }
+    ]
+   },
+   "exact_sqrt_sum_public_inclusive_seconds_profiled": 115.41,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "sign",
+     "calls": 542979,
+     "cum_seconds": 44.505
+    },
+    {
+     "func": "__sub__",
+     "calls": 658271,
+     "cum_seconds": 23.538
+    },
+    {
+     "func": "scaled",
+     "calls": 1136580,
+     "cum_seconds": 18.632
+    },
+    {
+     "func": "radical",
+     "calls": 388686,
+     "cum_seconds": 8.456
+    },
+    {
+     "func": "__mul__",
+     "calls": 75844,
+     "cum_seconds": 7.613
+    },
+    {
+     "func": "divided_by",
+     "calls": 19407,
+     "cum_seconds": 6.727
+    },
+    {
+     "func": "__add__",
+     "calls": 290607,
+     "cum_seconds": 4.239
+    },
+    {
+     "func": "__neg__",
+     "calls": 90120,
+     "cum_seconds": 0.757
+    },
+    {
+     "func": "enclosure",
+     "calls": 8929,
+     "cum_seconds": 0.449
+    },
+    {
+     "func": "rational",
+     "calls": 110224,
+     "cum_seconds": 0.402
+    },
+    {
+     "func": "spend_exact_position_hydrations",
+     "calls": 29282,
+     "cum_seconds": 0.053
+    },
+    {
+     "func": "is_zero",
+     "calls": 167806,
+     "cum_seconds": 0.038
+    },
+    {
+     "func": "zero",
+     "calls": 1169,
+     "cum_seconds": 0.002
+    },
+    {
+     "func": "as_rational",
+     "calls": 206,
+     "cum_seconds": 0.001
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:260(compare_times)",
+     "calls": 1574900,
+     "cum_seconds": 52.361,
+     "funcs": {
+      "sign": [
+       393725,
+       29.562
+      ],
+      "scaled": [
+       787450,
+       11.785
+      ],
+      "__sub__": [
+       393725,
+       11.014
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:466(_event_point)",
+     "calls": 442566,
+     "cum_seconds": 11.754,
+     "funcs": {
+      "__mul__": [
+       54366,
+       2.768
+      ],
+      "divided_by": [
+       7638,
+       2.446
+      ],
+      "scaled": [
+       135915,
+       2.143
+      ],
+      "__sub__": [
+       54366,
+       1.984
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 214834,
+     "cum_seconds": 11.011,
+     "funcs": {
+      "__sub__": [
+       96015,
+       5.156
+      ],
+      "sign": [
+       30977,
+       4.935
+      ],
+      "scaled": [
+       45608,
+       0.911
+      ],
+      "is_zero": [
+       42234,
+       0.009
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:288(concurrency_time)",
+     "calls": 610182,
+     "cum_seconds": 9.099,
+     "funcs": {
+      "radical": [
+       305091,
+       6.393
+      ],
+      "__add__": [
+       203394,
+       2.682
+      ],
+      "is_zero": [
+       101697,
+       0.023
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:213(normalized)",
+     "calls": 193310,
+     "cum_seconds": 9.078,
+     "funcs": {
+      "sign": [
+       103738,
+       8.324
+      ],
+      "__neg__": [
+       89572,
+       0.753
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 137802,
+     "cum_seconds": 5.643,
+     "funcs": {
+      "__sub__": [
+       45934,
+       3.044
+      ],
+      "scaled": [
+       91868,
+       2.599
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 31648,
+     "cum_seconds": 5.28,
+     "funcs": {
+      "__mul__": [
+       7912,
+       3.264
+      ],
+      "__sub__": [
+       19780,
+       1.077
+      ],
+      "sign": [
+       3956,
+       0.939
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:370(sliding_time)",
+     "calls": 110906,
+     "cum_seconds": 3.637,
+     "funcs": {
+      "divided_by": [
+       9196,
+       2.394
+      ],
+      "radical": [
+       20342,
+       0.486
+      ],
+      "__sub__": [
+       20342,
+       0.397
+      ],
+      "__add__": [
+       10171,
+       0.159
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:325(sliding_point)",
+     "calls": 27287,
+     "cum_seconds": 2.138,
+     "funcs": {
+      "divided_by": [
+       2099,
+       1.689
+      ],
+      "scaled": [
+       12594,
+       0.228
+      ],
+      "__add__": [
+       4198,
+       0.097
+      ],
+      "radical": [
+       2099,
+       0.057
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 12970,
+     "cum_seconds": 1.008,
+     "funcs": {
+      "__mul__": [
+       6164,
+       0.739
+      ],
+      "__sub__": [
+       3082,
+       0.158
+      ],
+      "__add__": [
+       3082,
+       0.11
+      ],
+      "zero": [
+       642,
+       0.001
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "Fraction/gcd arithmetic": 0.5336,
+    "exact_sqrt_sum": 0.2052,
+    "other": 0.1121,
+    "sympy": 0.0914,
+    "skeleton march": 0.0409,
+    "number theory": 0.0167
+   }
+  }
+ }
+}

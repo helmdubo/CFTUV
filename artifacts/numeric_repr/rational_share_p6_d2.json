@@ -1,0 +1,26 @@
+{
+ "patch": 6,
+ "density": 2,
+ "wall_seconds": 25.9,
+ "outcome": "EXACT/EXACT",
+ "by_function": {
+  "ExactPlanarMetric.dot_g": {
+   "all-Rational": 3458,
+   "has-surd": 3606
+  },
+  "ExactPlanarMetric.oriented_cross": {
+   "all-Rational": 173,
+   "has-surd": 6
+  },
+  "point_sub": {
+   "all-Rational": 6307
+  },
+  "boundary._contact_candidates": {
+   "all-Rational": 432,
+   "has-surd": 900
+  },
+  "point_add": {
+   "all-Rational": 588
+  }
+ }
+}

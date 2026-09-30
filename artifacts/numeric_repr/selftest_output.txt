@@ -1,0 +1,63 @@
+{
+ "identity": {
+  "want": "IDENTICAL",
+  "got": "IDENTICAL",
+  "ok": true,
+  "answer_diffs": 0,
+  "price_keys": 0
+ },
+ "fingerprint_bit_flip_detected": {
+  "want": "MISMATCH",
+  "got": "MISMATCH",
+  "ok": true,
+  "answer_diffs": 0,
+  "price_keys": 0
+ },
+ "deep_skeleton_bit_flip_detected": {
+  "want": "MISMATCH",
+  "got": "MISMATCH",
+  "ok": true,
+  "answer_diffs": 0,
+  "price_keys": 0
+ },
+ "answer_face_count_detected": {
+  "want": "MISMATCH",
+  "got": "MISMATCH",
+  "ok": true,
+  "answer_diffs": 1,
+  "price_keys": 0
+ },
+ "outcome_change_detected": {
+  "want": "MISMATCH",
+  "got": "MISMATCH",
+  "ok": true,
+  "answer_diffs": 1,
+  "price_keys": 0
+ },
+ "missing_domain_detected": {
+  "want": "MISMATCH",
+  "got": "MISMATCH",
+  "ok": true,
+  "answer_diffs": 0,
+  "price_keys": 0
+ },
+ "price_only_change_is_not_failure": {
+  "want": "IDENTICAL",
+  "got": "IDENTICAL",
+  "ok": true,
+  "answer_diffs": 0,
+  "price_keys": 13
+ },
+ "live": {
+  "patch": 46,
+  "same_inputs_answer_equal": true,
+  "alpha_0.5_answer_differs": true,
+  "differing_keys": [
+   "fp_geometry",
+   "fp_geometry_value",
+   "fp_meta"
+  ],
+  "ok": true
+ }
+}
+SELFTEST PASSED

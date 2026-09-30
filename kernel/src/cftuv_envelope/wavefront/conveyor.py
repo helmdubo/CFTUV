@@ -1048,9 +1048,13 @@ def _preparation_outcome(
                 f"{region.region_id}: {region.skeleton_outcome}",
             )
         if region.face_outcome is not FaceOutcome.EXACT:
+            # Причина отказа живёт в `partition.detail` (числом, а не словом); без неё
+            # хост видел только имя исхода, и диагноз приходилось восстанавливать.
+            detail = "" if region.partition is None else region.partition.detail
             return (
                 ConveyorOutcome.FACES_DID_NOT_ASSEMBLE,
-                f"{region.region_id}: {region.face_outcome}",
+                f"{region.region_id}: {region.face_outcome}"
+                + (f"; {detail}" if detail else ""),
             )
     return ConveyorOutcome.EXACT, ""
 
