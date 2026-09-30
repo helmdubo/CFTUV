@@ -158,6 +158,8 @@ LIVE_TRACED_STAGES = frozenset({
     "GP_RENDER",
     "QUEUE_PREPARE",
     "QUEUE_COVERAGE",
+    # Фаза воркеров пула доменов: одна строка на всю фазу, пока она идёт.
+    "QUEUE_POOL_WALL",
 })
 
 

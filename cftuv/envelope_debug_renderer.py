@@ -933,6 +933,14 @@ def _print_profile(profile) -> None:
             f"  Dominant: {dominant[0]} "
             f"{dominant[1] * 1000.0:.3f} ms"
         )
+    # При пуле доменов секунды стадий — время воркеров, сложенное по доменам,
+    # и настенного времени кнопки не говорят; оно печатается отдельной строкой.
+    pool_wall = profile.stage_totals.get("QUEUE_POOL_WALL")
+    if pool_wall is not None:
+        print(
+            f"  Parallel wall: QUEUE_POOL_WALL {pool_wall * 1000.0:.3f} ms "
+            "(QUEUE_PREPARE/QUEUE_COVERAGE above are summed worker times)"
+        )
     summary = profile.stage_summary()
     print(
         "  Receipts: "

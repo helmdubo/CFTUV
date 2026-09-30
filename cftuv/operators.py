@@ -29,7 +29,6 @@ from .constants import GP_DEBUG_PREFIX
 from .debug import (
     ENVELOPE_DEBUG_GP_PREFIX,
     GreasePencilDebugWriter,
-    apply_layer_visibility,
     clear_visualization,
     create_frontier_visualization,
     create_visualization,
@@ -38,10 +37,8 @@ from .debug import (
     is_gp_debug_object,
 )
 from .envelope_debug_panel import draw_envelope_debug_box
-from .envelope_request_policy import (
-    DEFAULT_ENVELOPE_FAN_DENSITY,
-    ENVELOPE_FAN_DENSITY_ITEMS,
-)
+from .envelope_domain_pool import DEFAULT_POOL_WORKERS
+from .envelope_request_policy import DEFAULT_ENVELOPE_FAN_DENSITY, ENVELOPE_FAN_DENSITY_ITEMS
 from .model import MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -272,6 +269,10 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "Angular fan segment density; higher values create more segments"
         ),
         update=_update_envelope_debug_fan_density,
+    )
+    envelope_debug_workers: IntProperty(
+        name="Workers", default=DEFAULT_POOL_WORKERS, min=0, max=32,
+        description="Queue domain worker processes (0 or 1: sequential)",
     )
     envelope_debug_queue_timing: StringProperty(
         name="Envelope Queue Timing",
@@ -1340,10 +1341,6 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
 # ENVELOPE DEBUG — EXACT PLANAR, STATIC
 # ============================================================
 
-def _envelope_debug_outcome_value(value):
-    return str(value.value) if hasattr(value, "value") else str(value)
-
-
 def _envelope_stage_summary_text(profile):
     from .envelope_debug_profile import stage_summary_text
 
@@ -1498,6 +1495,7 @@ class _EnvelopeDebugBuildBase:
                     source_object_key=source_object_key,
                     source_data_key=source_data_key,
                     engine=engine, density=settings.envelope_debug_fan_density,
+                    workers=settings.envelope_debug_workers,
                 )
                 topology_scene = evaluation.topology_scene
                 exact_scenes = evaluation.exact_debug_scenes
@@ -1577,9 +1575,7 @@ class _EnvelopeDebugBuildBase:
         if queue_scene is not None:
             from .envelope_queue_export import queue_timing_text
 
-            settings.envelope_debug_queue_timing = queue_timing_text(
-                queue_scene
-            )
+            settings.envelope_debug_queue_timing = queue_timing_text(queue_scene, final_profile)
         if not self.exact_reference:
             settings.envelope_debug_status = (
                 f"Topology built: {summary.stroke_count} strokes"
@@ -1978,9 +1974,9 @@ def register():
 
 def unregister():
     from .envelope_debug_session import (
-        unregister_window_manager_session_attribute,
+        shutdown_domain_pool, unregister_window_manager_session_attribute,
     )
-
+    shutdown_domain_pool()  # воркеры пула — подпроцессы: сперва они, затем чистка GP
     if _frontier_replay_frame_handler in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_frontier_replay_frame_handler)
     # Cleanup GP debug objects

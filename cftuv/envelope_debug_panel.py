@@ -18,6 +18,7 @@ def draw_envelope_debug_box(layout, settings) -> None:
     )
     envelope_box.prop(settings, "envelope_debug_engine")
     envelope_box.prop(settings, "envelope_debug_fan_density")
+    envelope_box.prop(settings, "envelope_debug_workers")
     envelope_box.prop(settings, "envelope_debug_alpha")
     envelope_box.operator(
         "hotspotuv.build_envelope_topology_debug",

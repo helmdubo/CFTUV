@@ -247,6 +247,18 @@ class _DensityExactMemo:
         self.subturns: dict[tuple, bool] = {}
         self.support_segments: dict[tuple, tuple] = {}
 
+    def __reduce__(self):
+        # Кэш — не часть значения, и пересылается ПУСТЫМ. Причина не
+        # гигиеническая, а измеренная: `intervals` держит интервалы `mpmath`,
+        # которые не пиклятся, и из-за них не пиклилась вся
+        # `ConveyorPreparationV1` (а с ней не уходила в другой процесс).
+        # Значение памятью не определяется: покрытие пересланной подготовки
+        # при другой alpha побитово то же (`test_conveyor_preparation_pickle`).
+        # `__reduce__`, а не пара `__getstate__`/`__setstate__`: пустое
+        # состояние ложно, и pickle тогда не зовёт `__setstate__` вовсе —
+        # слоты остались бы незаполненными.
+        return (type(self), ())
+
 
 @dataclass(frozen=True, slots=True)
 class ExactPlanarMetric:

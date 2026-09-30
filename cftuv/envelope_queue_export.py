@@ -127,6 +127,17 @@ QUEUE_VISIBILITY_PROPERTY = "envelope_debug_show_queue"
 ENVELOPE_DEBUG_ENGINE_LEGACY = "LEGACY"
 ENVELOPE_DEBUG_ENGINE_QUEUE = "QUEUE"
 
+# Пул доменов (срез PARALLEL-DOMAINS). Счётчики пишутся ВСЕГДА, когда пул
+# заказан, и нулём тоже: «ни одной задачи не упало» и «не измерялось» иначе
+# неотличимы. Стадия `QUEUE_POOL_WALL` — настенное время фазы воркеров; секунды
+# `QUEUE_PREPARE` и `QUEUE_COVERAGE` при пуле — время воркеров, сложенное по
+# доменам.
+POOL_WORKERS = "ENVELOPE_DOMAIN_POOL_WORKERS"
+POOL_DISPATCHED = "ENVELOPE_DOMAIN_POOL_DISPATCHED"
+POOL_TASK_FALLBACK = "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
+POOL_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
+POOL_WALL_STAGE = "QUEUE_POOL_WALL"
+
 # Счётчик переполнения палитры. Девятый владелец получает слот первого, и это
 # должно быть видно числом: молчание здесь означало бы две разные огибающие
 # одного цвета без единого следа о том, что так вышло.
@@ -1210,6 +1221,21 @@ def _queue_receipt(domain: EnvelopeQueueDomainV1):
     )
 
 
+def load_queue_kernel() -> None:
+    """Подгружает ядро очереди заранее.
+
+    Воркер пула доменов платит импортом (ядро, sympy, mpmath) ДО своего
+    «готов», а не на первой задаче: иначе старт пула выглядел бы дешёвым, а
+    цена уходила в задачу и в потолок ускорения.
+    """
+
+    from cftuv_envelope.exact_sqrt_sum import exact_work_budget  # noqa: F401
+    from cftuv_envelope.wavefront import (  # noqa: F401
+        conveyor_coverage,
+        prepare_conveyor,
+    )
+
+
 def run_queue_domain(
     patch_id: int,
     patch_domain_id: str,
@@ -1226,10 +1252,25 @@ def run_queue_domain(
     Возвращает `(ConveyorPreparationV1, EnvelopeQueueDomainV1)`: подготовка
     нужна вызывающему и дальше — её кэширует сессия и по ней же считается
     покрытие при смене alpha.
+
+    КАЖДЫЙ ДОМЕН СЧИТАЕТСЯ С ХОЛОДНОЙ ПАМЯТЬЮ канонизации. Попадание в
+    процессную память разложений возвращается до любой оплаты, поэтому статьи
+    бюджета (`EXACT_WORK_SPENT` и остальные) зависели от истории процесса:
+    поле `building_002` стоило 4408 единиц холодным и 287 тёплым. Бюджет —
+    авторитет отказа, и он не может быть свойством того, какие домены процесс
+    уже видел (в пуле это зависело бы от того, как задачи легли на воркеры).
+    Сброс не меняет ответов, только цену; он стоит одинаково в
+    последовательном и в пуловом пути, поэтому статьи равны по построению.
     """
 
+    from cftuv_envelope.exact_sqrt_sum import (
+        reset_factorization_memory,
+        reset_unbudgeted_work,
+    )
     from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
 
+    reset_factorization_memory()
+    reset_unbudgeted_work()
     started = time.perf_counter()
     with _measure(profile, "QUEUE_PREPARE", patch_domain_id):
         if preparation_provider is None:
@@ -1388,6 +1429,34 @@ def _queue_debug_scene(
             )
 
 
+def _kernel_failure_evaluation(patch_id, domain_id, kernel_failure, profile):
+    from .envelope_debug_profile import EnvelopeDomainStage
+    from .envelope_request_export import (
+        EnvelopeDebugDomainEvaluationV1,
+        _receipt_for_failure,
+    )
+
+    receipt = _receipt_for_failure(
+        patch_id,
+        domain_id,
+        EnvelopeDomainStage.QUEUE_PREPARE_REJECTED,
+        kernel_failure,
+    )
+    profile.set_receipt(receipt)
+    return EnvelopeDebugDomainEvaluationV1(
+        patch_id,
+        domain_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        receipt,
+        (kernel_failure,),
+    )
+
+
 def evaluate_envelope_queue_staged(
     analysis_bundle,
     selected_physical_edge_ids: frozenset[int],
@@ -1397,6 +1466,9 @@ def evaluate_envelope_queue_staged(
     topology_export=None,
     domain_snapshot_provider=None,
     preparation_provider=None,
+    domain_pool=None,
+    preparation_cached=None,
+    preparation_adopter=None,
     density,
 ):
     """Движок QUEUE: подготовка плюс покрытие с владельцами, без союза.
@@ -1405,17 +1477,20 @@ def evaluate_envelope_queue_staged(
     домены нумеруются одинаково и колонки двух движков сравнимы. После пролога
     общего кода нет вовсе: `evaluate_reference_raw_coverage` и
     `resolve_coverage_interactions` здесь не вызываются ни разу.
+
+    С `domain_pool` домены, которых нет в кэше подготовок, считаются воркерами
+    ВМЕСТЕ (фазы A и B: `stage_pool_domains`), а цикл ниже только собирает
+    ответы — прежний последовательный путь остаётся единственным, по которому
+    домен досчитывается при любом отказе пула. `preparation_cached(domain_id,
+    selected_edges, request)` отвечает, есть ли подготовка в кэше сессии, а
+    `preparation_adopter(patch_id, domain_id, selected_edges, request,
+    prepared)` кладёт в него подготовку воркера.
     """
 
-    from .envelope_debug_profile import (
-        EnvelopeDebugProfileBuilderV1,
-        EnvelopeDomainStage,
-    )
+    from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
     from .envelope_request_export import (
-        EnvelopeDebugDomainEvaluationV1,
         EnvelopeDebugStagedEvaluationV1,
         EnvelopeHostAdapterError,
-        _receipt_for_failure,
         _typed_value,
         _load_kernel,
     )
@@ -1446,29 +1521,32 @@ def evaluate_envelope_queue_staged(
         kernel, _ = _load_kernel()
     except EnvelopeHostAdapterError as exc:
         kernel_failure = exc.diagnostic()
+    staged: dict = {}
+    if domain_pool is not None and kernel_failure is None:
+        from .envelope_queue_pool import stage_pool_domains
+
+        staged = stage_pool_domains(
+            domain_pool,
+            analysis_bundle,
+            patch_ids,
+            revision,
+            selected_edges_by_domain,
+            alpha,
+            alpha_text,
+            request_id,
+            density=density,
+            profile=profile,
+            topology_export=topology_export,
+            domain_snapshot_provider=domain_snapshot_provider,
+            preparation_cached=preparation_cached,
+        )
 
     for patch_id in patch_ids:
         domain_id = _typed_value("patch-domain", revision, patch_id)
         if kernel_failure is not None:
-            receipt = _receipt_for_failure(
-                patch_id,
-                domain_id,
-                EnvelopeDomainStage.QUEUE_PREPARE_REJECTED,
-                kernel_failure,
-            )
-            profile.set_receipt(receipt)
             domain_evaluations.append(
-                EnvelopeDebugDomainEvaluationV1(
-                    patch_id,
-                    domain_id,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    receipt,
-                    (kernel_failure,),
+                _kernel_failure_evaluation(
+                    patch_id, domain_id, kernel_failure, profile
                 )
             )
             continue
@@ -1487,11 +1565,49 @@ def evaluate_envelope_queue_staged(
                 topology_export=topology_export,
                 domain_snapshot_provider=domain_snapshot_provider,
                 preparation_provider=preparation_provider,
+                staged=staged.get(domain_id),
+                preparation_adopter=preparation_adopter,
             )
         )
     return EnvelopeDebugStagedEvaluationV1(
         topology_scene,
         tuple(domain_evaluations),
+    )
+
+
+def _queue_refused_inputs_evaluation(patch_id, domain_id, exc, profile):
+    """Домен, чей вход не выгрузился: отказ именован, очередь не запускалась."""
+
+    from .envelope_debug_profile import EnvelopeDomainStage
+    from .envelope_request_export import (
+        EnvelopeDebugDomainEvaluationV1,
+        EnvelopeDebugHostOutcome,
+        _receipt_for_failure,
+    )
+
+    diagnostic = exc.diagnostic()
+    stage = (
+        EnvelopeDomainStage.METRIC_REJECTED
+        if exc.outcome
+        in {
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+        }
+        else EnvelopeDomainStage.QUEUE_PREPARE_REJECTED
+    )
+    receipt = _receipt_for_failure(patch_id, domain_id, stage, diagnostic)
+    profile.set_receipt(receipt)
+    return EnvelopeDebugDomainEvaluationV1(
+        patch_id,
+        domain_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        receipt,
+        (diagnostic,),
     )
 
 
@@ -1510,65 +1626,94 @@ def _queue_domain_evaluation(
     topology_export=None,
     domain_snapshot_provider=None,
     preparation_provider=None,
+    staged=None,
+    preparation_adopter=None,
 ):
-    from .envelope_debug_profile import EnvelopeDomainStage
-    from .envelope_request_export import (
-        EnvelopeDebugDomainEvaluationV1,
-        EnvelopeDebugHostOutcome,
-        EnvelopeHostAdapterError,
-        _receipt_for_failure,
-    )
+    from .envelope_request_export import EnvelopeHostAdapterError
 
-    try:
-        snapshot, request = _queue_snapshot_and_request(
-            analysis_bundle,
+    if staged is not None:
+        inputs = staged.inputs
+    else:
+        try:
+            inputs = _queue_snapshot_and_request(
+                analysis_bundle,
+                patch_id,
+                domain_id,
+                selected_edges,
+                alpha,
+                request_id,
+                density=density,
+                profile=profile,
+                topology_export=topology_export,
+                domain_snapshot_provider=domain_snapshot_provider,
+            )
+        except EnvelopeHostAdapterError as exc:
+            inputs = exc
+    if isinstance(inputs, EnvelopeHostAdapterError):
+        return _queue_refused_inputs_evaluation(
+            patch_id, domain_id, inputs, profile
+        )
+
+    snapshot, request = inputs
+    pooled = None if staged is None else staged.pooled
+    notice = ()
+    if staged is not None:
+        from .envelope_queue_pool import pool_notice
+
+        notice = pool_notice(staged, domain_id)
+    if pooled is None:
+        prepared, queue_domain = run_queue_domain(
+            patch_id,
+            domain_id,
+            snapshot,
+            request,
+            alpha_text,
+            selected_edges=selected_edges,
+            profile=profile,
+            preparation_provider=preparation_provider,
+        )
+    else:
+        from .envelope_queue_pool import adopt_pooled_domain
+
+        prepared, queue_domain = adopt_pooled_domain(
+            pooled,
             patch_id,
             domain_id,
             selected_edges,
-            alpha,
-            request_id,
-            density=density,
-            profile=profile,
-            topology_export=topology_export,
-            domain_snapshot_provider=domain_snapshot_provider,
+            request,
+            profile,
+            preparation_adopter,
         )
-    except EnvelopeHostAdapterError as exc:
-        diagnostic = exc.diagnostic()
-        stage = (
-            EnvelopeDomainStage.METRIC_REJECTED
-            if exc.outcome
-            in {
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-            }
-            else EnvelopeDomainStage.QUEUE_PREPARE_REJECTED
-        )
-        receipt = _receipt_for_failure(patch_id, domain_id, stage, diagnostic)
-        profile.set_receipt(receipt)
-        return EnvelopeDebugDomainEvaluationV1(
-            patch_id,
-            domain_id,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            receipt,
-            (diagnostic,),
-        )
-
-    prepared, queue_domain = run_queue_domain(
+    return _queue_domain_result(
+        kernel,
         patch_id,
         domain_id,
         snapshot,
         request,
-        alpha_text,
-        selected_edges=selected_edges,
-        profile=profile,
-        preparation_provider=preparation_provider,
+        prepared,
+        queue_domain,
+        notice,
+        profile,
     )
+
+
+def _queue_domain_result(
+    kernel,
+    patch_id: int,
+    domain_id: str,
+    snapshot,
+    request,
+    prepared,
+    queue_domain,
+    notice,
+    profile,
+):
+    """Из записи домена — квитанция, счётчики профиля и сцена отладки."""
+
+    from .envelope_request_export import EnvelopeDebugDomainEvaluationV1
+
     diagnostics = list(_queue_diagnostics(queue_domain))
+    diagnostics.extend(notice)
     receipt = _queue_receipt(queue_domain)
     profile.set_receipt(receipt)
     profile.add_timing("QUEUE_CONTOUR", queue_domain.contour_seconds, domain_id)
@@ -1606,12 +1751,44 @@ def _queue_domain_evaluation(
     )
 
 
-def queue_timing_text(scene: EnvelopeQueueSceneV1) -> str:
+def _pool_timing_suffix(profile) -> str:
+    """Что пул сделал с этим прогоном: настенное время либо названный отказ.
+
+    Суммы подготовки и покрытия при пуле — секунды воркеров, сложенные по
+    доменам, и настенного времени кнопки не говорят. Поэтому оно печатается
+    рядом, а отказ пула виден на панели, а не только в консоли.
+    """
+
+    if profile is None:
+        return ""
+    counters = {
+        item.name: item.value
+        for item in profile.counters
+        if item.patch_domain_id is None
+    }
+    parts = []
+    wall = profile.stage_totals.get(POOL_WALL_STAGE)
+    if wall is not None:
+        parts.append(
+            f"pool wall {wall * 1000.0:.0f} ms on "
+            f"{int(counters.get(POOL_WORKERS, 0))} workers "
+            "(times above are per-domain sums)"
+        )
+    if counters.get(POOL_UNAVAILABLE):
+        parts.append("pool unavailable, ran sequentially")
+    fallbacks = int(counters.get(POOL_TASK_FALLBACK, 0))
+    if fallbacks:
+        parts.append(f"pool fallback on {fallbacks} domains")
+    return "".join(f" | {item}" for item in parts)
+
+
+def queue_timing_text(scene: EnvelopeQueueSceneV1, profile=None) -> str:
     """Строка владельцу: цена очереди суммарно и у самого дорогого домена.
 
     Суммы мало: на полевом меше один домен стоит впятеро больше остальных, и по
     одной сумме этого не видно. Полные постадийные числа по каждому домену
-    печатает консольный профиль (`QUEUE_PREPARE` / `QUEUE_COVERAGE`).
+    печатает консольный профиль (`QUEUE_PREPARE` / `QUEUE_COVERAGE`). `profile`
+    — снимок профиля кнопки: по нему дописывается работа пула доменов.
     """
 
     text = (
@@ -1619,8 +1796,9 @@ def queue_timing_text(scene: EnvelopeQueueSceneV1) -> str:
         f"prepare {scene.prepare_seconds * 1000.0:.0f} ms, "
         f"coverage {scene.coverage_seconds * 1000.0:.0f} ms"
     )
+    pool = _pool_timing_suffix(profile)
     if not scene.domains:
-        return text
+        return text + pool
     slowest = max(
         scene.domains,
         key=lambda item: item.prepare_seconds
@@ -1634,7 +1812,7 @@ def queue_timing_text(scene: EnvelopeQueueSceneV1) -> str:
     )
     return (
         f"{text} | slowest {slowest.patch_domain_id[-3:]} "
-        f"{total * 1000.0:.0f} ms"
+        f"{total * 1000.0:.0f} ms{pool}"
     )
 
 
@@ -1652,6 +1830,11 @@ __all__ = (
     "EnvelopeQueueSceneV1",
     "EnvelopeQueueSegmentV1",
     "HOST_CONTOUR_COUNTERS",
+    "POOL_DISPATCHED",
+    "POOL_TASK_FALLBACK",
+    "POOL_UNAVAILABLE",
+    "POOL_WALL_STAGE",
+    "POOL_WORKERS",
     "QUEUE_ENCLOSURE_BITS",
     "QUEUE_LAYER_STYLES",
     "QUEUE_OWNER_COLORS",
@@ -1666,6 +1849,7 @@ __all__ = (
     "build_queue_palette",
     "build_queue_scene",
     "evaluate_envelope_queue_staged",
+    "load_queue_kernel",
     "merge_same_chain_faces",
     "queue_domain_payload",
     "queue_scene_payload",

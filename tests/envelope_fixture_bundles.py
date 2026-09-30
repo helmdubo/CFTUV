@@ -662,3 +662,172 @@ def square_hole_bundle():
         triangles=tuple(triangles),
     )
     return AnalysisBundle(revision, graph, surface)
+
+
+def quad_row_bundle(count: int, *, lifted_corner: float = 0.0):
+    """Ряд из `count` квадратов 2x2; соседние делят шов, патч — свой домен.
+
+    Обобщение `_two_patch_seam_bundle` из `test_envelope_host_adapter`: тот же
+    набор фактов хоста на каждый патч (одна внешняя петля из четырёх цепочек,
+    общий шов с соседом), но число патчей — параметр. Рёбра: нижнее `i`, верхнее
+    `count + i`, вертикальные швы `2 * count + j` (`j` — номер столбца вершин).
+    Выделив нижние рёбра `frozenset(range(count))`, получаешь `count`
+    независимых доменов очереди.
+
+    `lifted_corner` поднимает по нормали правую верхнюю вершину ряда: только
+    последний патч выходит из плоскости, и его домен отказывает на метрике, а
+    остальные остаются точными. Поднимается поверхность (как в
+    `_seam_bundle_with_off_plane_vertex`), а не граф патчей.
+    """
+
+    revision = SourceRevision(f"v0-row-{count}", f"sha256:v0-row-{count}")
+    graph = PatchGraph(source_revision=revision)
+
+    def bottom_vertex(column):
+        return column
+
+    def top_vertex(column):
+        return count + 1 + column
+
+    def seam_edge(column):
+        return 2 * count + column
+
+    coordinates = {}
+    for column in range(count + 1):
+        coordinates[bottom_vertex(column)] = (2.0 * column, 0.0, 0.0)
+        coordinates[top_vertex(column)] = (2.0 * column, 2.0, 0.0)
+
+    def chain(start, end, edge_id, neighbor=-1):
+        return BoundaryChain(
+            vert_indices=[start, end],
+            vert_cos=[Vector(coordinates[start]), Vector(coordinates[end])],
+            edge_indices=[edge_id],
+            side_face_indices=[],
+            side_face_normals=[Vector((0, 0, 1))],
+            neighbor_patch_id=neighbor,
+        )
+
+    for patch_id in range(count):
+        corners = [
+            bottom_vertex(patch_id),
+            bottom_vertex(patch_id + 1),
+            top_vertex(patch_id + 1),
+            top_vertex(patch_id),
+        ]
+        right = patch_id + 1 if patch_id + 1 < count else -1
+        left = patch_id - 1 if patch_id > 0 else -1
+        loop = BoundaryLoop(
+            vert_indices=corners,
+            vert_cos=[Vector(coordinates[item]) for item in corners],
+            edge_indices=[
+                patch_id,
+                seam_edge(patch_id + 1),
+                count + patch_id,
+                seam_edge(patch_id),
+            ],
+            side_face_indices=[patch_id] * 4,
+            kind=LoopKind.OUTER,
+            chains=[
+                chain(corners[0], corners[1], patch_id),
+                chain(corners[1], corners[2], seam_edge(patch_id + 1), right),
+                chain(corners[2], corners[3], count + patch_id),
+                chain(corners[3], corners[0], seam_edge(patch_id), left),
+            ],
+        )
+        graph.add_node(
+            PatchNode(
+                patch_id=patch_id,
+                face_indices=[patch_id],
+                normal=Vector((0, 0, 1)),
+                basis_u=Vector((1, 0, 0)),
+                basis_v=Vector((0, 1, 0)),
+                patch_type=PatchType.FLOOR,
+                world_facing=WorldFacing.UP,
+                boundary_loops=[loop],
+            )
+        )
+
+    positions = dict(coordinates)
+    last_corner = top_vertex(count)
+    positions[last_corner] = (
+        positions[last_corner][0],
+        positions[last_corner][1],
+        float(lifted_corner),
+    )
+    edges = []
+    for patch_id in range(count):
+        edges.append(
+            SourceEdge(
+                patch_id,
+                (bottom_vertex(patch_id), bottom_vertex(patch_id + 1)),
+                (patch_id,),
+            )
+        )
+        edges.append(
+            SourceEdge(
+                count + patch_id,
+                (top_vertex(patch_id), top_vertex(patch_id + 1)),
+                (patch_id,),
+            )
+        )
+    for column in range(count + 1):
+        edges.append(
+            SourceEdge(
+                seam_edge(column),
+                (bottom_vertex(column), top_vertex(column)),
+                tuple(
+                    face
+                    for face in (column - 1, column)
+                    if 0 <= face < count
+                ),
+            )
+        )
+    faces = []
+    triangles = []
+    for patch_id in range(count):
+        b0, b1 = bottom_vertex(patch_id), bottom_vertex(patch_id + 1)
+        t0, t1 = top_vertex(patch_id), top_vertex(patch_id + 1)
+        faces.append(
+            SourceFace(
+                patch_id,
+                patch_id,
+                (b0, b1, t1, t0),
+                (
+                    patch_id,
+                    seam_edge(patch_id + 1),
+                    count + patch_id,
+                    seam_edge(patch_id),
+                ),
+                (0, 0, 1),
+                (2 * patch_id, 2 * patch_id + 1),
+            )
+        )
+        triangles.append(
+            SurfaceTriangle(
+                2 * patch_id,
+                patch_id,
+                (b0, b1, t1),
+                (seam_edge(patch_id + 1), None, patch_id),
+                (0, 0, 1),
+            )
+        )
+        triangles.append(
+            SurfaceTriangle(
+                2 * patch_id + 1,
+                patch_id,
+                (b0, t1, t0),
+                (count + patch_id, seam_edge(patch_id), None),
+                (0, 0, 1),
+            )
+        )
+    surface = PatchSurfaceIR(
+        revision,
+        vertices=tuple(
+            SourceVertex(vertex_id, positions[vertex_id])
+            for vertex_id in sorted(positions)
+        ),
+        edges=tuple(edges),
+        faces=tuple(faces),
+        triangles=tuple(triangles),
+    )
+    return AnalysisBundle(revision, graph, surface)

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Callable, Hashable, TYPE_CHECKING
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
+from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_metric_export import (
     EnvelopeDomainGeometryExportV1,
     EnvelopePatchMetricExportV1,
@@ -428,6 +429,41 @@ class EnvelopeDebugSessionController:
         )
         return geometry
 
+    @staticmethod
+    def _preparation_key(
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        request,
+    ):
+        from .envelope_request_policy import envelope_request_policy_signature
+
+        return (
+            str(source_revision_value),
+            str(patch_domain_id),
+            frozenset(int(item) for item in selected_edge_ids),
+            envelope_request_policy_signature(request),
+        )
+
+    def has_conveyor_preparation(
+        self,
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        request,
+    ) -> bool:
+        """Есть ли подготовка в кэше. Счётчиков не пишет: это вопрос, не сборка."""
+
+        return (
+            self._preparation_key(
+                source_revision_value,
+                patch_domain_id,
+                selected_edge_ids,
+                request,
+            )
+            in self._conveyor_preparation_cache
+        )
+
     def get_conveyor_preparation(
         self,
         source_revision_value: str,
@@ -444,13 +480,11 @@ class EnvelopeDebugSessionController:
         angular policy: геометрия подготовки зависит от плотности веера.
         """
 
-        from .envelope_request_policy import envelope_request_policy_signature
-
-        key = (
-            str(source_revision_value),
-            str(patch_domain_id),
-            frozenset(int(item) for item in selected_edge_ids),
-            envelope_request_policy_signature(request),
+        key = self._preparation_key(
+            source_revision_value,
+            patch_domain_id,
+            selected_edge_ids,
+            request,
         )
         cached = self._conveyor_preparation_cache.get(key)
         if cached is not None:
@@ -496,7 +530,9 @@ class EnvelopeDebugSessionController:
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
         engine: str = "LEGACY",
         density,
+        workers: int = 0,
     ):
+        from .envelope_domain_pool import get_domain_pool
         from .envelope_queue_export import (
             ENVELOPE_DEBUG_ENGINE_QUEUE,
             evaluate_envelope_queue_staged,
@@ -567,6 +603,29 @@ class EnvelopeDebugSessionController:
                 profile=profile,
             )
 
+        def preparation_cached(domain_id, selected_edges, request):
+            return self.has_conveyor_preparation(
+                revision, domain_id, selected_edges, request
+            )
+
+        def preparation_adopter(
+            _patch_id,
+            domain_id,
+            selected_edges,
+            request,
+            prepared,
+        ):
+            # Подготовка воркера входит в кэш тем же путём, что и собранная
+            # здесь: промах со сборкой, счётчики и ключ те же.
+            return self.get_conveyor_preparation(
+                revision,
+                domain_id,
+                selected_edges,
+                request,
+                lambda: prepared,
+                profile=profile,
+            )
+
         return evaluate_envelope_queue_staged(
             analysis_bundle,
             selected_physical_edge_ids,
@@ -575,6 +634,9 @@ class EnvelopeDebugSessionController:
             topology_export=topology_export,
             domain_snapshot_provider=snapshot_provider,
             preparation_provider=preparation_provider,
+            domain_pool=get_domain_pool(workers),
+            preparation_cached=preparation_cached,
+            preparation_adopter=preparation_adopter,
             density=density,
         )
 
@@ -628,8 +690,14 @@ def evaluate_envelope_debug_staged(
     source_data_key: Hashable | None = None,
     engine: str = "LEGACY",
     density=None,
+    workers: int = 0,
 ):
-    """Compatibility entry point with optional persistent session reuse."""
+    """Compatibility entry point with optional persistent session reuse.
+
+    `workers` (>= 2) включает пул доменов движка QUEUE. Он работает только с
+    сессией: кэш подготовок, который пул обходит и пополняет, живёт в
+    контроллере, поэтому без `controller` параметр ничего не меняет.
+    """
 
     if controller is None:
         from .envelope_queue_export import (
@@ -670,6 +738,7 @@ def evaluate_envelope_debug_staged(
         profile=profile,
         engine=engine,
         density=density,
+        workers=workers,
     )
 
 
@@ -726,6 +795,10 @@ def register_window_manager_session_attribute() -> None:
 
 
 def unregister_window_manager_session_attribute() -> None:
+    # Воркеры пула — подпроцессы: снятие аддона обязано их остановить. Первым
+    # делом и до `import bpy`: `operators.unregister` зовёт это же ПЕРЕД чисткой
+    # GP, а здесь — ещё раз, идемпотентно, если вызвали только эту функцию.
+    shutdown_domain_pool()
     import bpy
 
     existing = getattr(
@@ -751,5 +824,6 @@ __all__ = (
     "evaluate_envelope_debug_staged",
     "register_window_manager_session_attribute",
     "remember_queue_session",
+    "shutdown_domain_pool",
     "unregister_window_manager_session_attribute",
 )
