@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .candidate_law import evaluate_split_candidate
 from .event_time import compare_times
+from .exact_identity import exact_point_key
 from . import superlevel as base
 from .superlevel_closure import SpanFamilyRefV1
 from .symbolic_component import (
@@ -85,7 +86,7 @@ def discover_endpoint_contacts(builder, overlay):
             for endpoint in endpoints:
                 key = EndpointContactKeyV1(
                     base._time_key(candidate.time),
-                    (candidate.point.x.terms, candidate.point.y.terms),
+                    exact_point_key(candidate.point),
                     emitter.ref,
                     endpoint,
                     leaf.family,

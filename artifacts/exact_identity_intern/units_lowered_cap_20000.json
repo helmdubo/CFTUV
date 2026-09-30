@@ -1,0 +1,80 @@
+{
+  "building_d0_a045:patch109": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 246,
+    "EXACT_WORK_GCD_OPERATIONS": 2504,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 401,
+    "EXACT_WORK_MODULAR_SQUARINGS": 10422,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 19,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 24,
+    "EXACT_WORK_SPENT": 13616,
+    "detail": "",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT/EXACT",
+    "seconds": 0.876
+  },
+  "building_d0_a045:patch121": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 19,
+    "EXACT_WORK_GCD_OPERATIONS": 348,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 200,
+    "EXACT_WORK_MODULAR_SQUARINGS": 8184,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 15,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 7,
+    "EXACT_WORK_SPENT": 8773,
+    "detail": "",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT/EXACT",
+    "seconds": 0.12
+  },
+  "wall_2_001_d0_a0254:patch0": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
+    "EXACT_WORK_GCD_OPERATIONS": 12540,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 336,
+    "EXACT_WORK_MODULAR_SQUARINGS": 7122,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 14,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 0,
+    "EXACT_WORK_SPENT": 20012,
+    "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=13 cap=20000 spent=20012 modular_squarings=7122 gcd_operations=12540 miller_rabin_rounds=336 pollard_attempts=14 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:90ce55618b55029b728c31e7 superlevel=",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
+    "seconds": 0.118
+  },
+  "wall_2_001_d0_a045:patch0": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
+    "EXACT_WORK_GCD_OPERATIONS": 12540,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 336,
+    "EXACT_WORK_MODULAR_SQUARINGS": 7122,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 14,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 0,
+    "EXACT_WORK_SPENT": 20012,
+    "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=13 cap=20000 spent=20012 modular_squarings=7122 gcd_operations=12540 miller_rabin_rounds=336 pollard_attempts=14 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:90ce55618b55029b728c31e7 superlevel=",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
+    "seconds": 0.193
+  },
+  "walls_012_d0_a045:patch0": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
+    "EXACT_WORK_GCD_OPERATIONS": 978,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 53,
+    "EXACT_WORK_MODULAR_SQUARINGS": 19011,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 7,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 0,
+    "EXACT_WORK_SPENT": 20049,
+    "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=POLLARD_RHO_BRENT radicand_bits=91 cap=20000 spent=20049 modular_squarings=19011 gcd_operations=978 miller_rabin_rounds=53 pollard_attempts=7 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:cafa51b596c2cf8ea16b580b superlevel=",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
+    "seconds": 0.828
+  },
+  "walls_012_d1_a045:patch0": {
+    "EXACT_WORK_EXACT_POSITION_HYDRATIONS": 0,
+    "EXACT_WORK_GCD_OPERATIONS": 752,
+    "EXACT_WORK_MILLER_RABIN_ROUNDS": 56,
+    "EXACT_WORK_MODULAR_SQUARINGS": 19203,
+    "EXACT_WORK_POLLARD_ATTEMPTS": 7,
+    "EXACT_WORK_RADICAL_MATERIALIZATIONS": 0,
+    "EXACT_WORK_SPENT": 20018,
+    "detail": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED stage=PREPARE operation=PRIMALITY radicand_bits=65 cap=20000 spent=20018 modular_squarings=19203 gcd_operations=752 miller_rabin_rounds=56 pollard_attempts=7 radical_materializations=0 exact_position_hydrations=0 domain=host-v0:patch-domain:cafa51b596c2cf8ea16b580b superlevel=",
+    "leaked_unbudgeted": 0,
+    "outcome": "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED/PREPARATION_IS_NOT_EXACT",
+    "seconds": 0.55
+  }
+}

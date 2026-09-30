@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from .candidate_law import evaluate_split_candidate
 from .event_time import compare_times
 from .events import EventKind
+from .exact_identity import exact_point_key
 from . import superlevel as base
 from .superlevel_closure import SpanFamilyRefV1, plan_split_materialization
 from .superlevel_fixed_point import (
@@ -182,7 +183,7 @@ def discover_interior_split_contacts(builder, overlay):
             )
             key = SymbolicSplitContactKeyV1(
                 base._time_key(candidate.time),
-                (candidate.point.x.terms, candidate.point.y.terms),
+                exact_point_key(candidate.point),
                 emitter.ref, leaf.family,
                 _participants(emitter.prev_leaf, emitter.next_leaf, leaf),
             )

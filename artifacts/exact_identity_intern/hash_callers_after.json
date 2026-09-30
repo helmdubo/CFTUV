@@ -1,0 +1,109 @@
+{
+  "wall_2_001_snapshot.json:d0:a0.45:patch0": {
+    "fraction_hash_calls": 59143,
+    "outcome": "EXACT/EXACT",
+    "seconds_with_counting_hash": 4.787,
+    "top_callers": [
+      {
+        "calls": 36766,
+        "site": "<dataclass>/exact_identity.py:70:__hash__"
+      },
+      {
+        "calls": 11562,
+        "site": "exact_identity.py:70:__hash__"
+      },
+      {
+        "calls": 1544,
+        "site": "envelope_queue_export.py:439:_skeleton_segments"
+      },
+      {
+        "calls": 772,
+        "site": "envelope_queue_export.py:441:_skeleton_segments"
+      },
+      {
+        "calls": 769,
+        "site": "<dataclass>/superlevel.py:1022:_component_stages"
+      },
+      {
+        "calls": 769,
+        "site": "<dataclass>/superlevel_closure.py:96:_event_incident_map"
+      },
+      {
+        "calls": 769,
+        "site": "<dataclass>/symbolic_runtime_commit.py:123:<dictcomp>"
+      },
+      {
+        "calls": 687,
+        "site": "faces.py:581:face_chain"
+      },
+      {
+        "calls": 687,
+        "site": "faces.py:588:<listcomp>"
+      },
+      {
+        "calls": 687,
+        "site": "faces.py:635:<genexpr>"
+      },
+      {
+        "calls": 647,
+        "site": "<dataclass>/superlevel_closure.py:102:_event_incident_map"
+      },
+      {
+        "calls": 357,
+        "site": "superlevel.py:1770:accumulate_nodes"
+      },
+      {
+        "calls": 306,
+        "site": "<dataclass>/superlevel.py:443:<genexpr>"
+      },
+      {
+        "calls": 245,
+        "site": "<dataclass>/bridge.py:900:_match_by_line_class"
+      },
+      {
+        "calls": 245,
+        "site": "<dataclass>/bridge.py:747:<genexpr>"
+      },
+      {
+        "calls": 245,
+        "site": "<dataclass>/bridge.py:802:<genexpr>"
+      },
+      {
+        "calls": 244,
+        "site": "<dataclass>/superlevel.py:382:_edge_contact_plans"
+      },
+      {
+        "calls": 164,
+        "site": "envelope_queue_export.py:735:_union_contour"
+      },
+      {
+        "calls": 132,
+        "site": "envelope_queue_export.py:731:_union_contour"
+      },
+      {
+        "calls": 122,
+        "site": "<dataclass>/superlevel.py:592:_dedupe_split_incidents"
+      },
+      {
+        "calls": 122,
+        "site": "<dataclass>/superlevel_closure.py:109:_family_contacts"
+      },
+      {
+        "calls": 105,
+        "site": "bridge.py:860:_match_by_line_class"
+      },
+      {
+        "calls": 105,
+        "site": "bridge.py:865:_match_by_line_class"
+      },
+      {
+        "calls": 105,
+        "site": "bridge.py:868:_match_by_line_class"
+      },
+      {
+        "calls": 105,
+        "site": "envelope_queue_export.py:788:merge_same_chain_faces"
+      }
+    ]
+  }
+}

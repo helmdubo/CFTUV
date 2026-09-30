@@ -12,6 +12,7 @@ from math import gcd
 
 from .event_time import EventTimeV1, ZERO_TIME
 from .events import CandidateEventV1, EventKind
+from .exact_identity import exact_point_key, identity_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +65,12 @@ class SuperlevelSnapshotV1:
     duplicate_live_owner_edge_ids: tuple[int, ...] = ()
 
 def _event_point_key(event: CandidateEventV1) -> tuple:
-    return (event.point.x.terms, event.point.y.terms)
+    return exact_point_key(event.point)
 
 
 def _time_key(time: EventTimeV1) -> tuple:
     canonical = time.canonical()
-    return (canonical.dividend, canonical.divisor.terms)
+    return identity_key((canonical.dividend, canonical.divisor.terms))
 
 
 def _direction(line) -> tuple[int, int]:
@@ -301,14 +302,18 @@ def _sparse_occurrences(builder, time, required_keys):
     point_keys = [None] * len(builder.vertices)
     for ident in sorted(point_vertex_ids):
         point = builder._position(builder.vertices[ident], time)
-        point_keys[ident] = (
-            None if point is None else (point.x.terms, point.y.terms)
-        )
+        point_keys[ident] = None if point is None else exact_point_key(point)
+    # Вхождение — самый спрашиваемый ключ фронта: его хэшируют `overlay.spans`,
+    # `edge_by_occurrence`, `leaves` и множество `_occurrences`. Оно тоже
+    # запоминает свой хэш, и тогда вопрос про вхождение стоит один целочисленный
+    # хэш вместо обхода двух точек с модульным обратным на каждый коэффициент.
     occurrences = {
-        start.next_edge: (
-            builder.edges[start.next_edge].key,
-            point_keys[start.ident],
-            point_keys[end.ident],
+        start.next_edge: identity_key(
+            (
+                builder.edges[start.next_edge].key,
+                point_keys[start.ident],
+                point_keys[end.ident],
+            )
         )
         for start, end in span_starts
     }

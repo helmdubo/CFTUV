@@ -29,27 +29,22 @@
 
 from __future__ import annotations
 
-from fractions import Fraction
-import json
 from pathlib import Path
 
 import pytest
 
 import cftuv_envelope as kernel
 from cftuv_envelope.wavefront import prepare_conveyor
-from cftuv_envelope.wavefront.coverage import coverage_at
-from cftuv_envelope.wavefront.digest import node_record, semantic_digest
 from cftuv_envelope.wavefront.faces import build_faces
 from cftuv_envelope.wavefront.skeleton import SplitSearch, build_skeleton
 from cftuv_envelope.wavefront.exact_candidate_view import PositionMemoV1
 
+# Оси наблюдаемого ответа — общие с теневой сверкой представления тождества
+# (`test_exact_identity_shadow.py`). Один набор на обе сверки: две копии
+# разошлись бы ровно в тот день, когда одну из них дополнят.
+from shadow_axes import coverage_axes, partition_axes, skeleton_axes
 from wavefront_cases import named_corpus, partial_source_corpus, star
 from weighted_wall_differential_cases import weighted_wall_differential_corpus
-
-
-#: Alpha, на которых сверяется покрытие. Ноль и единица — границы, дробь между
-#: ними — общий случай, крупная — фронт, прошедший фигуру насквозь.
-_ALPHAS = (Fraction(0), Fraction(1, 3), Fraction(1), Fraction(4))
 
 _FIELD_CASES = (
     "building_all_seams_patch_001_lost_resolved_v1",
@@ -59,102 +54,6 @@ _FIELD_CASES = (
 )
 
 
-def _sqrt_sum_record(value) -> list:
-    return [
-        [radicand, [coefficient.numerator, coefficient.denominator]]
-        for radicand, coefficient in value.terms
-    ]
-
-
-def _point_record(point) -> list:
-    return [_sqrt_sum_record(point[0]), _sqrt_sum_record(point[1])]
-
-
-def _obligation_record(obligation) -> dict:
-    """Долг доказательства целиком, а не только его число.
-
-    Статус — величина агрегированная, и совпасть он может при РАЗНЫХ долгах.
-    Ворота, сверяющие только статус, пропустили бы подмену одного долга другим,
-    и подмена эта была бы молчаливой.
-    """
-
-    return {
-        name: (
-            value.value if hasattr(value, "value")
-            else repr(value)
-        )
-        for name, value in sorted(vars(obligation).items())
-    } if hasattr(obligation, "__dict__") else {
-        name: (
-            getattr(obligation, name).value
-            if hasattr(getattr(obligation, name), "value")
-            else repr(getattr(obligation, name))
-        )
-        for name in sorted(obligation.__slots__)
-    }
-
-
-def _skeleton_axes(skeleton) -> dict:
-    return {
-        "outcome": skeleton.outcome.value,
-        "semantic_digest": semantic_digest(skeleton),
-        "levels": skeleton.levels,
-        "counters": [list(item) for item in skeleton.counters],
-        "proof_status": skeleton.proof_status.value,
-        "proof_obligations": [
-            _obligation_record(item) for item in skeleton.proof_obligations
-        ],
-        "nodes": sorted(
-            (
-                json.dumps(node_record(node), sort_keys=True)
-                for node in skeleton.nodes
-            )
-        ),
-    }
-
-
-def _partition_axes(partition) -> dict:
-    return {
-        "outcome": partition.outcome.value,
-        "detail": partition.detail,
-        "doubled_area": _sqrt_sum_record(partition.doubled_area),
-        "polygon_doubled_area": partition.polygon_doubled_area,
-        "area_defect": _sqrt_sum_record(partition.area_defect),
-        "faces": [
-            {
-                "owner": repr(face.owner),
-                "source_start": list(face.source_start),
-                "source_end": list(face.source_end),
-                "line": repr(face.line),
-                "doubled_area": _sqrt_sum_record(face.doubled_area),
-                "points": [_point_record(point) for point in face.points],
-            }
-            for face in partition.faces
-        ],
-    }
-
-
-def _coverage_axes(partition) -> dict:
-    rows = {}
-    for alpha in _ALPHAS:
-        covered = coverage_at(partition, alpha)
-        rows[str(alpha)] = {
-            "outcome": covered.outcome.value,
-            "detail": covered.detail,
-            "doubled_area": _sqrt_sum_record(covered.doubled_area),
-            "polygon_doubled_area": covered.polygon_doubled_area,
-            "faces": [
-                {
-                    "owner": repr(face.owner),
-                    "doubled_area": _sqrt_sum_record(face.doubled_area),
-                    "points": [_point_record(point) for point in face.points],
-                }
-                for face in covered.faces
-            ],
-        }
-    return rows
-
-
 def _observable(polygon, *, dense: bool, search: SplitSearch,
                 downstream: bool) -> dict:
     """Всё, что о фигуре можно наблюдать снаружи, одним словарём."""
@@ -162,11 +61,11 @@ def _observable(polygon, *, dense: bool, search: SplitSearch,
     skeleton = build_skeleton(
         polygon, split_search=search, dense_hydration=dense
     )
-    axes = {"skeleton": _skeleton_axes(skeleton)}
+    axes = {"skeleton": skeleton_axes(skeleton)}
     if downstream:
         partition = build_faces(polygon, skeleton)
-        axes["faces"] = _partition_axes(partition)
-        axes["coverage"] = _coverage_axes(partition)
+        axes["faces"] = partition_axes(partition)
+        axes["coverage"] = coverage_axes(partition)
     return axes
 
 

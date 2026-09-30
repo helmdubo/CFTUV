@@ -1,0 +1,109 @@
+{
+  "wall_2_001_snapshot.json:d0:a0.45:patch0": {
+    "fraction_hash_calls": 2943335,
+    "outcome": "EXACT/EXACT",
+    "seconds_with_counting_hash": 17.549,
+    "top_callers": [
+      {
+        "calls": 935861,
+        "site": "<dataclass>/symbolic_overlay.py:467:span_state"
+      },
+      {
+        "calls": 819181,
+        "site": "<dataclass>/symbolic_overlay.py:441:_born_place"
+      },
+      {
+        "calls": 79999,
+        "site": "<dataclass>/symbolic_overlay.py:453:vertex_state"
+      },
+      {
+        "calls": 48312,
+        "site": "symbolic_overlay.py:175:_occurrences"
+      },
+      {
+        "calls": 48312,
+        "site": "symbolic_overlay.py:214:_leaf_bindings"
+      },
+      {
+        "calls": 48312,
+        "site": "symbolic_overlay.py:217:_leaf_bindings"
+      },
+      {
+        "calls": 39312,
+        "site": "<dataclass>/symbolic_overlay.py:77:<dictcomp>"
+      },
+      {
+        "calls": 39312,
+        "site": "<dataclass>/symbolic_overlay.py:78:<dictcomp>"
+      },
+      {
+        "calls": 38732,
+        "site": "<dataclass>/symbolic_edge_closure.py:70:discover_symbolic_edge_contacts"
+      },
+      {
+        "calls": 36766,
+        "site": "<dataclass>/exact_candidate_view.py:181:position"
+      },
+      {
+        "calls": 29484,
+        "site": "symbolic_sparse_ports.py:40:with_line_ports"
+      },
+      {
+        "calls": 25554,
+        "site": "<dataclass>/exact_candidate_view.py:182:position"
+      },
+      {
+        "calls": 23352,
+        "site": "superlevel.py:735:_rewritten_occurrence"
+      },
+      {
+        "calls": 20760,
+        "site": "<dataclass>/symbolic_overlay.py:396:<dictcomp>"
+      },
+      {
+        "calls": 20760,
+        "site": "<dataclass>/symbolic_overlay.py:397:<dictcomp>"
+      },
+      {
+        "calls": 20760,
+        "site": "<dataclass>/symbolic_overlay.py:392:<dictcomp>"
+      },
+      {
+        "calls": 19935,
+        "site": "symbolic_overlay.py:197:_leaf_bindings"
+      },
+      {
+        "calls": 19935,
+        "site": "symbolic_overlay.py:222:<genexpr>"
+      },
+      {
+        "calls": 19656,
+        "site": "symbolic_overlay.py:199:_leaf_bindings"
+      },
+      {
+        "calls": 19656,
+        "site": "superlevel.py:1457:_existing_edges_by_occurrence"
+      },
+      {
+        "calls": 19656,
+        "site": "<dataclass>/symbolic_f0_overlay.py:31:<dictcomp>"
+      },
+      {
+        "calls": 19656,
+        "site": "<dataclass>/symbolic_overlay.py:69:refreshed_span_bindings"
+      },
+      {
+        "calls": 19656,
+        "site": "<dataclass>/symbolic_overlay.py:70:refreshed_span_bindings"
+      },
+      {
+        "calls": 19656,
+        "site": "<dataclass>/symbolic_overlay.py:73:<dictcomp>"
+      },
+      {
+        "calls": 19366,
+        "site": "<dataclass>/symbolic_overlay.py:390:<dictcomp>"
+      }
+    ]
+  }
+}

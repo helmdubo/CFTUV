@@ -1,0 +1,114 @@
+{
+  "wall_2_001_snapshot.json:d0:a0.45:patch0": {
+    "cached": {
+      "Fraction.__hash__": {
+        "calls": 59143,
+        "cumtime": 0.185
+      },
+      "builtins.pow": {
+        "calls": 59631,
+        "tottime": 0.106
+      },
+      "outcome": "EXACT/EXACT",
+      "profiled_total_tottime": 12.104,
+      "top_by_tottime": [
+        {
+          "calls": 1619690,
+          "site": "fractions.py:62:__new__",
+          "tottime": 1.224
+        },
+        {
+          "calls": 521144,
+          "site": "fractions.py:484:_mul",
+          "tottime": 1.049
+        },
+        {
+          "calls": 395687,
+          "site": "fractions.py:452:_add",
+          "tottime": 0.881
+        },
+        {
+          "calls": 952560,
+          "site": "fractions.py:357:forward",
+          "tottime": 0.605
+        },
+        {
+          "calls": 1982448,
+          "site": "~:0:<built-in method math.gcd>",
+          "tottime": 0.506
+        },
+        {
+          "calls": 2077301,
+          "site": "~:0:<built-in method builtins.isinstance>",
+          "tottime": 0.299
+        },
+        {
+          "calls": 24915,
+          "site": "exact_sqrt_sum.py:1061:__mul__",
+          "tottime": 0.265
+        },
+        {
+          "calls": 1732209,
+          "site": "~:0:<built-in method __new__ of type object at 0x928000>",
+          "tottime": 0.229
+        }
+      ],
+      "units": 23954
+    },
+    "legacy": {
+      "Fraction.__hash__": {
+        "calls": 2906569,
+        "cumtime": 8.997
+      },
+      "builtins.pow": {
+        "calls": 2907108,
+        "tottime": 5.761
+      },
+      "outcome": "EXACT/EXACT",
+      "profiled_total_tottime": 24.893,
+      "top_by_tottime": [
+        {
+          "calls": 2907108,
+          "site": "~:0:<built-in method builtins.pow>",
+          "tottime": 5.761
+        },
+        {
+          "calls": 2906569,
+          "site": "fractions.py:645:__hash__",
+          "tottime": 2.516
+        },
+        {
+          "calls": 2131711,
+          "site": "fractions.py:62:__new__",
+          "tottime": 1.674
+        },
+        {
+          "calls": 655648,
+          "site": "fractions.py:484:_mul",
+          "tottime": 1.321
+        },
+        {
+          "calls": 1073942,
+          "site": "~:0:<built-in method builtins.hash>",
+          "tottime": 1.22
+        },
+        {
+          "calls": 490345,
+          "site": "fractions.py:452:_add",
+          "tottime": 1.077
+        },
+        {
+          "calls": 1181722,
+          "site": "fractions.py:357:forward",
+          "tottime": 0.752
+        },
+        {
+          "calls": 2415475,
+          "site": "~:0:<built-in method math.gcd>",
+          "tottime": 0.581
+        }
+      ],
+      "units": 23954
+    }
+  }
+}

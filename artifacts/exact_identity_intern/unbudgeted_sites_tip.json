@@ -1,0 +1,117 @@
+{
+  "outcomes": {
+    "wall_2_001_snapshot.json:d0:patch0": "EXACT/EXACT",
+    "walls_012_snapshot.json:d0:patch0": "EXACT/EXACT",
+    "walls_012_snapshot.json:d1:patch0": "EXACT/EXACT"
+  },
+  "sites": {
+    "kernel/src/cftuv_envelope/wavefront/coverage.py:144": {
+      "calls": 562,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 562,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/event_time.py:220": {
+      "calls": 7998,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 7998,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/event_time.py:276": {
+      "calls": 29832,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 29832,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:377": {
+      "calls": 1507,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 1507,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py:378": {
+      "calls": 737,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 737,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/faces.py:322": {
+      "calls": 57,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 57,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/faces.py:448": {
+      "calls": 712,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 712,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/motorcycle.py:282": {
+      "calls": 492,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 492,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/motorcycle.py:284": {
+      "calls": 292,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 292,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/motorcycle.py:498": {
+      "calls": 92,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 92,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/poststate_span.py:142": {
+      "calls": 85,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 85,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/poststate_span.py:143": {
+      "calls": 85,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 85,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/poststate_span.py:74": {
+      "calls": 85,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 85,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/superlevel.py:565": {
+      "calls": 7,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 7,
+      "without_budget": 0
+    },
+    "kernel/src/cftuv_envelope/wavefront/superlevel_closure.py:85": {
+      "calls": 7,
+      "unbudgeted_callers": {},
+      "units_charged_without_budget": 0,
+      "with_budget": 7,
+      "without_budget": 0
+    }
+  },
+  "sites_with_unbudgeted_calls": [],
+  "unbudgeted_calls": 0,
+  "units_charged_without_budget": 0
+}

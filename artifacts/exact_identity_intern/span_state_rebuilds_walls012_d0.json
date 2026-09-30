@@ -1,0 +1,14 @@
+{
+  "walls_012_snapshot.json:d0:a0.45:patch0": {
+    "cached": {
+      "outcome": "EXACT/EXACT",
+      "span_state_rebuilds": 383,
+      "units": 554555
+    },
+    "legacy": {
+      "outcome": "EXACT/EXACT",
+      "span_state_rebuilds": 2639,
+      "units": 554555
+    }
+  }
+}
