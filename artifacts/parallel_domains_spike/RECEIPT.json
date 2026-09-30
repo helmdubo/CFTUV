@@ -1,0 +1,1179 @@
+{
+ "commit": "2ab17a7414c298ad88a3bbc545230947e9e285af",
+ "machine": {
+  "cpu": "AMD Ryzen 9 5900X 12-Core",
+  "logical_cores": 24,
+  "physical_cores": 12,
+  "python": "3.13.1 system python, multiprocessing spawn"
+ },
+ "route": "artifacts/building_full_sweep/sweep.py per-domain code, alpha 0.45, standard work cap",
+ "baseline": {
+  "sweep_py_wall_seconds_real": 105.8,
+  "sweep_py_sum_domain_seconds": 105.115,
+  "sweep_py_max_domain_seconds": 19.818,
+  "in_process_loop_wall_seconds": 105.533,
+  "domains": 122,
+  "outcomes": {
+   "EXACT/EXACT": 121,
+   "HOST_ADMISSION_REFUSED": 1
+  },
+  "speedup_upper_bound_by_slowest_domain": 5.34
+ },
+ "equality": {
+  "verdict": "IDENTICAL",
+  "compared_against": "sweep.py rows (outcome, six budget articles, EXACT_WORK_SPENT, leaked_unbudgeted, detail) and the in-process reference loop (answer fingerprints of regions/faces/segments/counters/meta and full prepared.counters)",
+  "pool_passes_compared": 31,
+  "domains_per_pass": 122,
+  "in_process_loop_vs_sweep_py_diffs": 0,
+  "mismatches": [],
+  "negative_control_counter_bump_caught": true,
+  "negative_control_fingerprint_bump_caught": true
+ },
+ "pool_by_workers": {
+  "1": {
+   "runs": 2,
+   "cold_wall_samples": [
+    100.075,
+    98.98
+   ],
+   "warm_wall_samples": [
+    92.296
+   ],
+   "cold_wall_median": 99.53,
+   "cold_wall_min": 98.98,
+   "warm_wall_median": 92.3,
+   "warm_wall_min": 92.296,
+   "speedup_cold_median": 1.06,
+   "speedup_cold_best": 1.07,
+   "speedup_warm_best": 1.15,
+   "pool_ready_after_creation_seconds_max": 0.46,
+   "worker_init_seconds_median": 0.32,
+   "worker_init_seconds_max": 0.32,
+   "peak_working_set_mb_per_worker_max": 104.8,
+   "peak_working_set_mb_sum_over_workers_max": 104.8,
+   "patch6_seconds_over_baseline_ratio_samples": [
+    0.95,
+    0.95
+   ],
+   "ideal_makespan_no_contention_with_0p5s_startup": 105.62
+  },
+  "4": {
+   "runs": 5,
+   "cold_wall_samples": [
+    34.527,
+    26.724,
+    30.508,
+    34.511,
+    35.864
+   ],
+   "warm_wall_samples": [
+    29.724,
+    35.658
+   ],
+   "cold_wall_median": 34.51,
+   "cold_wall_min": 26.724,
+   "warm_wall_median": 32.69,
+   "warm_wall_min": 29.724,
+   "speedup_cold_median": 3.07,
+   "speedup_cold_best": 3.96,
+   "speedup_warm_best": 3.56,
+   "pool_ready_after_creation_seconds_max": 0.53,
+   "worker_init_seconds_median": 0.33,
+   "worker_init_seconds_max": 0.35,
+   "peak_working_set_mb_per_worker_max": 98.9,
+   "peak_working_set_mb_sum_over_workers_max": 388.0,
+   "patch6_seconds_over_baseline_ratio_samples": [
+    1.38,
+    0.91,
+    1.17,
+    1.37,
+    1.35
+   ],
+   "ideal_makespan_no_contention_with_0p5s_startup": 26.79
+  },
+  "8": {
+   "runs": 5,
+   "cold_wall_samples": [
+    26.406,
+    21.885,
+    25.339,
+    27.792,
+    26.387
+   ],
+   "warm_wall_samples": [
+    25.75,
+    25.865
+   ],
+   "cold_wall_median": 26.39,
+   "cold_wall_min": 21.885,
+   "warm_wall_median": 25.81,
+   "warm_wall_min": 25.75,
+   "speedup_cold_median": 4.01,
+   "speedup_cold_best": 4.83,
+   "speedup_warm_best": 4.11,
+   "pool_ready_after_creation_seconds_max": 0.59,
+   "worker_init_seconds_median": 0.33,
+   "worker_init_seconds_max": 0.38,
+   "peak_working_set_mb_per_worker_max": 95.8,
+   "peak_working_set_mb_sum_over_workers_max": 734.2,
+   "patch6_seconds_over_baseline_ratio_samples": [
+    1.31,
+    1.08,
+    1.25,
+    1.38,
+    1.31
+   ],
+   "ideal_makespan_no_contention_with_0p5s_startup": 20.32
+  },
+  "16": {
+   "runs": 5,
+   "cold_wall_samples": [
+    28.19,
+    19.868,
+    23.57,
+    24.408,
+    28.031
+   ],
+   "warm_wall_samples": [
+    23.013,
+    25.877
+   ],
+   "cold_wall_median": 24.41,
+   "cold_wall_min": 19.868,
+   "warm_wall_median": 24.45,
+   "warm_wall_min": 23.013,
+   "speedup_cold_median": 4.33,
+   "speedup_cold_best": 5.32,
+   "speedup_warm_best": 4.6,
+   "pool_ready_after_creation_seconds_max": 0.89,
+   "worker_init_seconds_median": 0.46,
+   "worker_init_seconds_max": 0.54,
+   "peak_working_set_mb_per_worker_max": 95.2,
+   "peak_working_set_mb_sum_over_workers_max": 1401.4,
+   "patch6_seconds_over_baseline_ratio_samples": [
+    1.39,
+    0.97,
+    1.16,
+    1.2,
+    1.38
+   ],
+   "ideal_makespan_no_contention_with_0p5s_startup": 20.32
+  },
+  "23": {
+   "runs": 5,
+   "cold_wall_samples": [
+    28.716,
+    25.043,
+    20.93,
+    29.554,
+    28.677
+   ],
+   "warm_wall_samples": [
+    25.216,
+    26.38
+   ],
+   "cold_wall_median": 28.68,
+   "cold_wall_min": 20.93,
+   "warm_wall_median": 25.8,
+   "warm_wall_min": 25.216,
+   "speedup_cold_median": 3.69,
+   "speedup_cold_best": 5.05,
+   "speedup_warm_best": 4.2,
+   "pool_ready_after_creation_seconds_max": 1.22,
+   "worker_init_seconds_median": 0.58,
+   "worker_init_seconds_max": 0.66,
+   "peak_working_set_mb_per_worker_max": 95.4,
+   "peak_working_set_mb_sum_over_workers_max": 1972.6,
+   "patch6_seconds_over_baseline_ratio_samples": [
+    1.41,
+    1.23,
+    1.02,
+    1.45,
+    1.41
+   ],
+   "ideal_makespan_no_contention_with_0p5s_startup": 20.32
+  }
+ },
+ "top10_slowest_domains": [
+  {
+   "patch_id": 6,
+   "seconds_sweep_py": 19.818,
+   "seconds_in_process_loop": 20.105,
+   "host_export_seconds": 0.502,
+   "prepare_seconds": 17.087,
+   "coverage_seconds": 2.361,
+   "work_units_spent": 54868,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 37,
+   "skeleton_nodes": 73,
+   "reflex_rational_vertex_fans": 26,
+   "faces": 63
+  },
+  {
+   "patch_id": 1,
+   "seconds_sweep_py": 19.394,
+   "seconds_in_process_loop": 19.048,
+   "host_export_seconds": 0.314,
+   "prepare_seconds": 16.387,
+   "coverage_seconds": 2.197,
+   "work_units_spent": 38807,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 32,
+   "skeleton_nodes": 62,
+   "reflex_rational_vertex_fans": 22,
+   "faces": 54
+  },
+  {
+   "patch_id": 7,
+   "seconds_sweep_py": 15.109,
+   "seconds_in_process_loop": 15.002,
+   "host_export_seconds": 0.39,
+   "prepare_seconds": 13.201,
+   "coverage_seconds": 1.293,
+   "work_units_spent": 30924,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 36,
+   "skeleton_nodes": 63,
+   "reflex_rational_vertex_fans": 24,
+   "faces": 60
+  },
+  {
+   "patch_id": 11,
+   "seconds_sweep_py": 14.288,
+   "seconds_in_process_loop": 15.007,
+   "host_export_seconds": 0.324,
+   "prepare_seconds": 13.069,
+   "coverage_seconds": 1.49,
+   "work_units_spent": 30933,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 32,
+   "skeleton_nodes": 62,
+   "reflex_rational_vertex_fans": 22,
+   "faces": 54
+  },
+  {
+   "patch_id": 15,
+   "seconds_sweep_py": 11.824,
+   "seconds_in_process_loop": 11.222,
+   "host_export_seconds": 0.228,
+   "prepare_seconds": 9.422,
+   "coverage_seconds": 1.452,
+   "work_units_spent": 33515,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 30,
+   "skeleton_nodes": 56,
+   "reflex_rational_vertex_fans": 20,
+   "faces": 50
+  },
+  {
+   "patch_id": 17,
+   "seconds_sweep_py": 5.051,
+   "seconds_in_process_loop": 5.157,
+   "host_export_seconds": 0.185,
+   "prepare_seconds": 4.139,
+   "coverage_seconds": 0.738,
+   "work_units_spent": 26584,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 18,
+   "skeleton_nodes": 29,
+   "reflex_rational_vertex_fans": 9,
+   "faces": 27
+  },
+  {
+   "patch_id": 19,
+   "seconds_sweep_py": 4.654,
+   "seconds_in_process_loop": 4.859,
+   "host_export_seconds": 0.467,
+   "prepare_seconds": 4.203,
+   "coverage_seconds": 0.15,
+   "work_units_spent": 10312,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 35,
+   "skeleton_nodes": 51,
+   "reflex_rational_vertex_fans": 24,
+   "faces": 59
+  },
+  {
+   "patch_id": 0,
+   "seconds_sweep_py": 3.296,
+   "seconds_in_process_loop": 3.135,
+   "host_export_seconds": 0.897,
+   "prepare_seconds": 1.869,
+   "coverage_seconds": 0.256,
+   "work_units_spent": 11571,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 14,
+   "skeleton_nodes": 24,
+   "reflex_rational_vertex_fans": 8,
+   "faces": 22
+  },
+  {
+   "patch_id": 10,
+   "seconds_sweep_py": 1.953,
+   "seconds_in_process_loop": 2.027,
+   "host_export_seconds": 0.216,
+   "prepare_seconds": 1.384,
+   "coverage_seconds": 0.389,
+   "work_units_spent": 18812,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 12,
+   "skeleton_nodes": 14,
+   "reflex_rational_vertex_fans": 4,
+   "faces": 16
+  },
+  {
+   "patch_id": 109,
+   "seconds_sweep_py": 0.987,
+   "seconds_in_process_loop": 1.02,
+   "host_export_seconds": 0.159,
+   "prepare_seconds": 0.577,
+   "coverage_seconds": 0.253,
+   "work_units_spent": 13616,
+   "outcome": "EXACT/EXACT",
+   "domain_edges": 10,
+   "skeleton_nodes": 10,
+   "reflex_rational_vertex_fans": 2,
+   "faces": 12
+  }
+ ],
+ "bpy": {
+  "note": "workers import only the conftest stub ModuleType('bpy') (no __file__); real bpy never imported",
+  "workers_checked": 257,
+  "all_workers_bpy_is_stub": true
+ },
+ "amdahl": {
+  "top5_domains_seconds_share": 0.765,
+  "top5_domains_seconds": [
+   19.818,
+   19.394,
+   15.109,
+   14.288,
+   11.824
+  ],
+  "note": "domains 6,1,7,11,15 carry ~76% of serial time; once workers >= 5 the wall is the slowest domain (patch6), so more workers do not help"
+ },
+ "blender_bundled_python_3_11": {
+  "interpreter": "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe (standalone, not inside Blender), python 3.11.11",
+  "sequential_in_process_wall_seconds": 144.403,
+  "sequential_slowest_domains_seconds_6_1_7_11_15": [
+   27.269,
+   26.365,
+   21.281,
+   19.997,
+   15.727
+  ],
+  "slowdown_vs_python_3_13_sequential": 1.37,
+  "pool": {
+   "16": {
+    "wall_samples": [
+     40.351,
+     39.852
+    ],
+    "patch6_seconds": [
+     39.376,
+     38.928
+    ],
+    "peak_working_set_mb_per_worker_max": 92.6,
+    "wall_median": 40.1,
+    "speedup_vs_same_python_sequential_median": 3.6
+   },
+   "8": {
+    "wall_samples": [
+     38.639,
+     38.607
+    ],
+    "patch6_seconds": [
+     37.906,
+     37.89
+    ],
+    "peak_working_set_mb_per_worker_max": 92.3,
+    "wall_median": 38.62,
+    "speedup_vs_same_python_sequential_median": 3.74
+   }
+  },
+  "equality_vs_3_13_baseline": "IDENTICAL",
+  "equality_diffs": [],
+  "note": "same pool_sweep.py, psutil absent (ctypes working-set fallback); sympy/mpmath come from the user site-packages of Python311"
+ },
+ "pickle": {
+  "method": "worker = pool_sweep.py --pickle-dir (real ProcessPoolExecutor worker); stripped copy built with dataclasses.replace in pickle_probe.py (product code untouched); consumer = a fresh interpreter (different PYTHONHASHSEED and intern tables) that unpickles and runs conveyor_coverage + build_queue_domain at alpha 0.45 and 0.30; answers compared by fingerprint (geometry, meta, counters) against the producer",
+  "domains_largest_five_by_seconds": {
+   "patch6": {
+    "ConveyorPreparationV1": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0159
+    },
+    "EnvelopeQueueDomainV1_with_preparation": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0145
+    },
+    "EnvelopeQueueDomainV1_light_preparation_None": {
+     "ok": true,
+     "bytes": 48202,
+     "dumps_seconds": 0.0006,
+     "loads_seconds": 0.0006
+    },
+    "preparation_fields_bytes_that_pickle": {
+     "outcome": 80,
+     "regions": 99424,
+     "lattice": 71,
+     "law_names": 1421,
+     "counters": 543,
+     "timings": 207,
+     "detail": 15,
+     "compilation": 150892,
+     "domain": 30179,
+     "requested_alpha": 143,
+     "work_budget": 384
+    },
+    "preparation_fields_that_fail": [
+     "context"
+    ],
+    "failing_object": {
+     "metric": [
+      {
+       "path": "metric._density_exact_memo",
+       "type": "_DensityExactMemo",
+       "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf"
+      }
+     ]
+    },
+    "memo_entries_dropped": {
+     "expressions": 319,
+     "dual_dots": 232,
+     "crosses": 56,
+     "intervals": 1099,
+     "signs": 285,
+     "sreprs": 101,
+     "subturns": 108,
+     "support_segments": 64
+    },
+    "stripped_preparation_(metric._density_exact_memo emptied)": {
+     "ok": true,
+     "bytes": 313385,
+     "dumps_seconds": 0.0169,
+     "fresh_process_loads_seconds_first_includes_module_imports": 0.9318,
+     "fresh_process_loads_seconds_second": 0.0177,
+     "slider_coverage_identical_alpha_0.45": true,
+     "slider_coverage_identical_alpha_0.30": true,
+     "coverage_seconds_consumer_vs_producer_0.45": [
+      2.047,
+      2.164
+     ]
+    }
+   },
+   "patch1": {
+    "ConveyorPreparationV1": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0153
+    },
+    "EnvelopeQueueDomainV1_with_preparation": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.057
+    },
+    "EnvelopeQueueDomainV1_light_preparation_None": {
+     "ok": true,
+     "bytes": 36289,
+     "dumps_seconds": 0.0005,
+     "loads_seconds": 0.0005
+    },
+    "preparation_fields_bytes_that_pickle": {
+     "outcome": 80,
+     "regions": 91033,
+     "lattice": 71,
+     "law_names": 1123,
+     "counters": 543,
+     "timings": 207,
+     "detail": 15,
+     "compilation": 138375,
+     "domain": 26876,
+     "requested_alpha": 143,
+     "work_budget": 384
+    },
+    "preparation_fields_that_fail": [
+     "context"
+    ],
+    "failing_object": {
+     "metric": [
+      {
+       "path": "metric._density_exact_memo",
+       "type": "_DensityExactMemo",
+       "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf"
+      }
+     ]
+    },
+    "memo_entries_dropped": {
+     "expressions": 309,
+     "dual_dots": 244,
+     "crosses": 64,
+     "intervals": 1135,
+     "signs": 250,
+     "sreprs": 98,
+     "subturns": 114,
+     "support_segments": 52
+    },
+    "stripped_preparation_(metric._density_exact_memo emptied)": {
+     "ok": true,
+     "bytes": 285277,
+     "dumps_seconds": 0.019,
+     "fresh_process_loads_seconds_first_includes_module_imports": 0.9873,
+     "fresh_process_loads_seconds_second": 0.0168,
+     "slider_coverage_identical_alpha_0.45": true,
+     "slider_coverage_identical_alpha_0.30": true,
+     "coverage_seconds_consumer_vs_producer_0.45": [
+      2.08,
+      2.331
+     ]
+    }
+   },
+   "patch7": {
+    "ConveyorPreparationV1": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0176
+    },
+    "EnvelopeQueueDomainV1_with_preparation": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0181
+    },
+    "EnvelopeQueueDomainV1_light_preparation_None": {
+     "ok": true,
+     "bytes": 36387,
+     "dumps_seconds": 0.0005,
+     "loads_seconds": 0.0006
+    },
+    "preparation_fields_bytes_that_pickle": {
+     "outcome": 80,
+     "regions": 120946,
+     "lattice": 71,
+     "law_names": 1203,
+     "counters": 543,
+     "timings": 207,
+     "detail": 15,
+     "compilation": 161720,
+     "domain": 30563,
+     "requested_alpha": 143,
+     "work_budget": 384
+    },
+    "preparation_fields_that_fail": [
+     "context"
+    ],
+    "failing_object": {
+     "metric": [
+      {
+       "path": "metric._density_exact_memo",
+       "type": "_DensityExactMemo",
+       "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf"
+      }
+     ]
+    },
+    "memo_entries_dropped": {
+     "expressions": 232,
+     "dual_dots": 410,
+     "crosses": 120,
+     "intervals": 708,
+     "signs": 205,
+     "sreprs": 61,
+     "subturns": 220,
+     "support_segments": 55
+    },
+    "stripped_preparation_(metric._density_exact_memo emptied)": {
+     "ok": true,
+     "bytes": 338623,
+     "dumps_seconds": 0.0191,
+     "fresh_process_loads_seconds_first_includes_module_imports": 0.9612,
+     "fresh_process_loads_seconds_second": 0.0479,
+     "slider_coverage_identical_alpha_0.45": true,
+     "slider_coverage_identical_alpha_0.30": true,
+     "coverage_seconds_consumer_vs_producer_0.45": [
+      1.166,
+      1.644
+     ]
+    }
+   },
+   "patch11": {
+    "ConveyorPreparationV1": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0152
+    },
+    "EnvelopeQueueDomainV1_with_preparation": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0138
+    },
+    "EnvelopeQueueDomainV1_light_preparation_None": {
+     "ok": true,
+     "bytes": 33539,
+     "dumps_seconds": 0.0005,
+     "loads_seconds": 0.0005
+    },
+    "preparation_fields_bytes_that_pickle": {
+     "outcome": 80,
+     "regions": 85006,
+     "lattice": 71,
+     "law_names": 1123,
+     "counters": 543,
+     "timings": 207,
+     "detail": 15,
+     "compilation": 140694,
+     "domain": 26732,
+     "requested_alpha": 143,
+     "work_budget": 384
+    },
+    "preparation_fields_that_fail": [
+     "context"
+    ],
+    "failing_object": {
+     "metric": [
+      {
+       "path": "metric._density_exact_memo",
+       "type": "_DensityExactMemo",
+       "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf"
+      }
+     ]
+    },
+    "memo_entries_dropped": {
+     "expressions": 273,
+     "dual_dots": 362,
+     "crosses": 124,
+     "intervals": 1024,
+     "signs": 278,
+     "sreprs": 83,
+     "subturns": 206,
+     "support_segments": 52
+    },
+    "stripped_preparation_(metric._density_exact_memo emptied)": {
+     "ok": true,
+     "bytes": 278911,
+     "dumps_seconds": 0.0828,
+     "fresh_process_loads_seconds_first_includes_module_imports": 0.9815,
+     "fresh_process_loads_seconds_second": 0.0162,
+     "slider_coverage_identical_alpha_0.45": true,
+     "slider_coverage_identical_alpha_0.30": true,
+     "coverage_seconds_consumer_vs_producer_0.45": [
+      1.238,
+      1.286
+     ]
+    }
+   },
+   "patch15": {
+    "ConveyorPreparationV1": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0168
+    },
+    "EnvelopeQueueDomainV1_with_preparation": {
+     "ok": false,
+     "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf",
+     "seconds": 0.0143
+    },
+    "EnvelopeQueueDomainV1_light_preparation_None": {
+     "ok": true,
+     "bytes": 32157,
+     "dumps_seconds": 0.0007,
+     "loads_seconds": 0.0008
+    },
+    "preparation_fields_bytes_that_pickle": {
+     "outcome": 80,
+     "regions": 77482,
+     "lattice": 71,
+     "law_names": 1119,
+     "counters": 543,
+     "timings": 207,
+     "detail": 15,
+     "compilation": 130293,
+     "domain": 24024,
+     "requested_alpha": 143,
+     "work_budget": 384
+    },
+    "preparation_fields_that_fail": [
+     "context"
+    ],
+    "failing_object": {
+     "metric": [
+      {
+       "path": "metric._density_exact_memo",
+       "type": "_DensityExactMemo",
+       "error": "PicklingError: Can't pickle <class 'mpmath.ctx_iv.ivmpf'>: it's not the same object as mpmath.ctx_iv.ivmpf"
+      }
+     ]
+    },
+    "memo_entries_dropped": {
+     "expressions": 250,
+     "dual_dots": 454,
+     "crosses": 144,
+     "intervals": 1188,
+     "signs": 314,
+     "sreprs": 81,
+     "subturns": 258,
+     "support_segments": 51
+    },
+    "stripped_preparation_(metric._density_exact_memo emptied)": {
+     "ok": true,
+     "bytes": 259203,
+     "dumps_seconds": 0.0159,
+     "fresh_process_loads_seconds_first_includes_module_imports": 0.9226,
+     "fresh_process_loads_seconds_second": 0.0154,
+     "slider_coverage_identical_alpha_0.45": true,
+     "slider_coverage_identical_alpha_0.30": true,
+     "coverage_seconds_consumer_vs_producer_0.45": [
+      1.417,
+      1.502
+     ]
+    }
+   }
+  },
+  "root_cause": "ConveyorPreparationV1.context.metric._density_exact_memo.intervals holds mpmath.ctx_iv.ivmpf (class created dynamically) -> PicklingError. Everything else in the preparation pickles (sympy expressions included). The memo is a per-transaction cache."
+ },
+ "profile": {
+  "method": "cProfile of pool_sweep.compute_domain (host export + prepare + coverage), one fresh process per domain, three run concurrently; buckets by SELF time, builtins (math.gcd, isinstance, ...) attributed to the bucket of their caller",
+  "caveat": "cProfile inflates call-heavy code ~3x (58.6 s profiled vs ~20 s unprofiled for patch6), so Fraction/dunder shares are upper bounds; the ordering is what matters",
+  "domains": {
+   "patch6": {
+    "unprofiled_seconds": 20.105,
+    "unprofiled_prepare_seconds": 17.087,
+    "unprofiled_coverage_seconds": 2.361,
+    "unprofiled_host_export_seconds": 0.502,
+    "profiled_wall_seconds": 58.592,
+    "shape": {
+     "faces": 16,
+     "boundary_loops": 7,
+     "boundary_edges": 37
+    },
+    "counters": {
+     "ARRIVAL_LAWS": 37,
+     "RATIONAL_VERTEX_FANS": 26,
+     "DEGRADED_MITER_CORNERS": 0,
+     "MITERED_CORNERS": 0,
+     "LATTICE_SCALE": 65536,
+     "DOMAIN_EDGES": 37,
+     "SKELETON_NODES": 73,
+     "FACES": 63
+    },
+    "bucket_share_of_tottime": {
+     "Fraction/gcd arithmetic": 0.4929,
+     "exact_sqrt_sum": 0.1945,
+     "number theory": 0.0136,
+     "other": 0.1367,
+     "skeleton march": 0.0449,
+     "sympy": 0.1174
+    },
+    "bucket_seconds_under_cProfile": {
+     "Fraction/gcd arithmetic": 27.764,
+     "exact_sqrt_sum": 10.956,
+     "number theory": 0.767,
+     "other": 7.699,
+     "skeleton march": 2.53,
+     "sympy": 6.611
+    },
+    "top15_tottime": [
+     {
+      "share": 0.067,
+      "ncalls": 4958325,
+      "func": "Lib/fractions.py:663(forward)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0649,
+      "ncalls": 2760544,
+      "func": "Lib/fractions.py:792(_mul)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0634,
+      "ncalls": 5539527,
+      "func": "Lib/fractions.py:334(_from_coprime_ints)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0632,
+      "ncalls": 3310810,
+      "func": "Lib/fractions.py:203(__new__)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0629,
+      "ncalls": 10413171,
+      "func": "~:0(<built-in method math.gcd>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0538,
+      "ncalls": 2017765,
+      "func": "Lib/fractions.py:760(_add)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.033,
+      "ncalls": 9072342,
+      "func": "~:0(<built-in method __new__ of type object at 0x00007FFC6B8D28A0>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0319,
+      "ncalls": 8944604,
+      "func": "~:0(<built-in method builtins.isinstance>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0272,
+      "ncalls": 109635,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1135(enclosure)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0255,
+      "ncalls": 97151,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1061(__mul__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0193,
+      "ncalls": 280329,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1043(__add__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0181,
+      "ncalls": 330094,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1055(scaled)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0176,
+      "ncalls": 1807654,
+      "func": "Lib/fractions.py:422(__repr__)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0136,
+      "ncalls": 441037,
+      "func": "~:0(<built-in method builtins.sorted>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0133,
+      "ncalls": 427650,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1032(_from_map)",
+      "bucket": "exact_sqrt_sum"
+     }
+    ]
+   },
+   "patch1": {
+    "unprofiled_seconds": 19.048,
+    "unprofiled_prepare_seconds": 16.387,
+    "unprofiled_coverage_seconds": 2.197,
+    "unprofiled_host_export_seconds": 0.314,
+    "profiled_wall_seconds": 55.109,
+    "shape": {
+     "faces": 25,
+     "boundary_loops": 6,
+     "boundary_edges": 32
+    },
+    "counters": {
+     "ARRIVAL_LAWS": 32,
+     "RATIONAL_VERTEX_FANS": 22,
+     "DEGRADED_MITER_CORNERS": 0,
+     "MITERED_CORNERS": 0,
+     "LATTICE_SCALE": 131072,
+     "DOMAIN_EDGES": 32,
+     "SKELETON_NODES": 62,
+     "FACES": 54
+    },
+    "bucket_share_of_tottime": {
+     "Fraction/gcd arithmetic": 0.4934,
+     "exact_sqrt_sum": 0.1855,
+     "number theory": 0.0196,
+     "other": 0.1347,
+     "skeleton march": 0.0347,
+     "sympy": 0.132
+    },
+    "bucket_seconds_under_cProfile": {
+     "Fraction/gcd arithmetic": 26.286,
+     "exact_sqrt_sum": 9.883,
+     "number theory": 1.047,
+     "other": 7.176,
+     "skeleton march": 1.85,
+     "sympy": 7.034
+    },
+    "top15_tottime": [
+     {
+      "share": 0.0722,
+      "ncalls": 5194535,
+      "func": "Lib/fractions.py:663(forward)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0708,
+      "ncalls": 10961207,
+      "func": "~:0(<built-in method math.gcd>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0691,
+      "ncalls": 3034687,
+      "func": "Lib/fractions.py:792(_mul)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0609,
+      "ncalls": 5668688,
+      "func": "Lib/fractions.py:334(_from_coprime_ints)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0599,
+      "ncalls": 3545512,
+      "func": "Lib/fractions.py:203(__new__)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0536,
+      "ncalls": 2001208,
+      "func": "Lib/fractions.py:760(_add)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.042,
+      "ncalls": 117035,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1061(__mul__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0336,
+      "ncalls": 9414589,
+      "func": "~:0(<built-in method __new__ of type object at 0x00007FFC6B8D28A0>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0329,
+      "ncalls": 9048733,
+      "func": "~:0(<built-in method builtins.isinstance>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0196,
+      "ncalls": 72505,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1135(enclosure)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0164,
+      "ncalls": 1662207,
+      "func": "Lib/fractions.py:422(__repr__)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0163,
+      "ncalls": 222970,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1043(__add__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0139,
+      "ncalls": 21542,
+      "func": "core/mul.py:205(flatten)",
+      "bucket": "sympy"
+     },
+     {
+      "share": 0.0131,
+      "ncalls": 237446,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1055(scaled)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0128,
+      "ncalls": 417580,
+      "func": "~:0(<built-in method builtins.sorted>)",
+      "bucket": "builtin->callers"
+     }
+    ]
+   },
+   "patch7": {
+    "unprofiled_seconds": 15.002,
+    "unprofiled_prepare_seconds": 13.201,
+    "unprofiled_coverage_seconds": 1.293,
+    "unprofiled_host_export_seconds": 0.39,
+    "profiled_wall_seconds": 43.566,
+    "shape": {
+     "faces": 34,
+     "boundary_loops": 7,
+     "boundary_edges": 36
+    },
+    "counters": {
+     "ARRIVAL_LAWS": 36,
+     "RATIONAL_VERTEX_FANS": 24,
+     "DEGRADED_MITER_CORNERS": 0,
+     "MITERED_CORNERS": 0,
+     "LATTICE_SCALE": 65536,
+     "DOMAIN_EDGES": 36,
+     "SKELETON_NODES": 63,
+     "FACES": 60
+    },
+    "bucket_share_of_tottime": {
+     "Fraction/gcd arithmetic": 0.5161,
+     "exact_sqrt_sum": 0.2025,
+     "number theory": 0.0127,
+     "other": 0.1388,
+     "skeleton march": 0.0415,
+     "sympy": 0.0883
+    },
+    "bucket_seconds_under_cProfile": {
+     "Fraction/gcd arithmetic": 21.732,
+     "exact_sqrt_sum": 8.528,
+     "number theory": 0.535,
+     "other": 5.845,
+     "skeleton march": 1.747,
+     "sympy": 3.717
+    },
+    "top15_tottime": [
+     {
+      "share": 0.073,
+      "ncalls": 8619306,
+      "func": "~:0(<built-in method math.gcd>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0722,
+      "ncalls": 4144508,
+      "func": "Lib/fractions.py:663(forward)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0691,
+      "ncalls": 4621069,
+      "func": "Lib/fractions.py:334(_from_coprime_ints)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0675,
+      "ncalls": 2298728,
+      "func": "Lib/fractions.py:792(_mul)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.066,
+      "ncalls": 2735001,
+      "func": "Lib/fractions.py:203(__new__)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0572,
+      "ncalls": 1652834,
+      "func": "Lib/fractions.py:760(_add)",
+      "bucket": "Fraction/gcd arithmetic"
+     },
+     {
+      "share": 0.0341,
+      "ncalls": 7513483,
+      "func": "~:0(<built-in method __new__ of type object at 0x00007FFC6B8D28A0>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.032,
+      "ncalls": 7089130,
+      "func": "~:0(<built-in method builtins.isinstance>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0308,
+      "ncalls": 79314,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1061(__mul__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0231,
+      "ncalls": 83671,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1135(enclosure)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0204,
+      "ncalls": 240020,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1043(__add__)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0186,
+      "ncalls": 269408,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1055(scaled)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0143,
+      "ncalls": 361090,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1032(_from_map)",
+      "bucket": "exact_sqrt_sum"
+     },
+     {
+      "share": 0.0129,
+      "ncalls": 370905,
+      "func": "~:0(<built-in method builtins.sorted>)",
+      "bucket": "builtin->callers"
+     },
+     {
+      "share": 0.0124,
+      "ncalls": 1271554,
+      "func": "cftuv_envelope/exact_sqrt_sum.py:1035(<genexpr>)",
+      "bucket": "exact_sqrt_sum"
+     }
+    ]
+   }
+  }
+ },
+ "inputs_probe": {
+  "domains_exported": 121,
+  "host_admission_refused": 1,
+  "total_host_export_seconds_all_domains": 5.72,
+  "pickle_bytes_max": 83261,
+  "pickle_bytes_median": 9783,
+  "pickle_dumps_seconds_total": 0.101,
+  "pickle_loads_seconds_total": 0.132,
+  "largest_five": {
+   "patch6": {
+    "export_seconds": 0.3148,
+    "pickle_bytes": 83261,
+    "dumps_seconds": 0.0039,
+    "loads_seconds": 0.0271
+   },
+   "patch7": {
+    "export_seconds": 0.3412,
+    "pickle_bytes": 82894,
+    "dumps_seconds": 0.004,
+    "loads_seconds": 0.004
+   },
+   "patch19": {
+    "export_seconds": 0.3647,
+    "pickle_bytes": 79223,
+    "dumps_seconds": 0.0034,
+    "loads_seconds": 0.0038
+   },
+   "patch1": {
+    "export_seconds": 0.2639,
+    "pickle_bytes": 74584,
+    "dumps_seconds": 0.0035,
+    "loads_seconds": 0.0035
+   },
+   "patch11": {
+    "export_seconds": 0.2998,
+    "pickle_bytes": 73106,
+    "dumps_seconds": 0.003,
+    "loads_seconds": 0.0036
+   }
+  },
+  "roundtrip_answer_check": {
+   "10": {
+    "fingerprints_equal": true
+   },
+   "100": {
+    "fingerprints_equal": true
+   }
+  }
+ }
+}
