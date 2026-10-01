@@ -784,6 +784,14 @@ class NearPlanarWidthDistortionCertificateV1:
     `first_degenerate_triangle_id`, и судья обязан отказать
     `NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE`.
 
+    `folded_triangle_count` — сколько треугольников источника ПРОЕКЦИЯ перевернула
+    (обход проекции треугольника против обхода проекции его грани: знак `n_T·n`
+    против `n_F·n`, точно); `first_folded_triangle_id` и `first_folded_face_id`
+    называют первый по имени. Перевёрнутый треугольник накрывает соседа, и точка
+    карты принадлежала бы двум плоскостям, поэтому судья обязан отказать
+    `NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED`. Квадрат `cos²` знак прячет, а вложение
+    P0-4 проверяет полигоны граней, а не треугольники укладки.
+
     `snapped_source_positions` — позиции, от которых считан сертификат, то есть
     привязанные, но не спроецированные. Это то же 3D, на которое ложится
     декаль при укладке на треугольники источника, поэтому запись
@@ -804,11 +812,28 @@ class NearPlanarWidthDistortionCertificateV1:
     triangles_measured: int
     degenerate_triangle_count: int
     first_degenerate_triangle_id: SurfaceTriangleId | None
+    folded_triangle_count: int
+    first_folded_triangle_id: SurfaceTriangleId | None
+    first_folded_face_id: SourceFaceId | None
     snapped_source_positions: frozenset[SnappedSourcePositionV1]
 
     def __post_init__(self) -> None:
-        if self.triangles_measured < 0 or self.degenerate_triangle_count < 0:
+        if (
+            self.triangles_measured < 0
+            or self.degenerate_triangle_count < 0
+            or self.folded_triangle_count < 0
+        ):
             raise ValueError("width-distortion counts must be non-negative")
+        if (self.first_folded_triangle_id is None) != (
+            self.folded_triangle_count == 0
+        ) or (self.first_folded_triangle_id is None) != (
+            self.first_folded_face_id is None
+        ):
+            raise ValueError(
+                "a folded triangle and its face are named exactly when one was counted"
+            )
+        if self.folded_triangle_count > self.triangles_measured:
+            raise ValueError("a folded triangle is a measured triangle")
         if (self.worst_triangle_id is None) != (self.triangles_measured == 0):
             raise ValueError(
                 "the worst triangle is named exactly when a triangle was measured"

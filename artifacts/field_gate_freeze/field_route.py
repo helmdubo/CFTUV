@@ -39,7 +39,6 @@ conveyor preparation -> skeleton -> faces -> coverage.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import sys
 import time
@@ -62,8 +61,30 @@ STAGE_RAISED = "STAGE_RAISED"
 WORK_CAP_EXCEEDED = "DOMAIN_WORK_CAP_EXCEEDED"
 
 
-PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
-PIN_FRAME_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_FRAME"
+#: Закрепки — ЯВНЫЕ аргументы маршрута, а не переменные окружения: унаследованная
+#: от оболочки переменная молча меняла бы чужой разовый прогон. Неизвестный флаг —
+#: отказ, а не молчаливое игнорирование.
+PIN_LIFT_FLAG = "--pin-lift"
+PIN_FRAME_FLAG = "--pin-frame"
+
+
+def split_pins(argv) -> tuple[list[str], dict[str, str]]:
+    """Позиционные аргументы и закрепки: `--pin-lift ИМЯ`, `--pin-frame ИМЯ`."""
+
+    positional: list[str] = []
+    pins: dict[str, str] = {}
+    items = list(argv)
+    while items:
+        item = items.pop(0)
+        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG):
+            if not items:
+                raise SystemExit(f"{item} needs a policy name")
+            pins[item] = items.pop(0)
+        elif item.startswith("--"):
+            raise SystemExit(f"unknown field_route flag: {item}")
+        else:
+            positional.append(item)
+    return positional, pins
 
 
 def install_lift_pin(law_name: str) -> None:
@@ -324,18 +345,19 @@ def run_snapshot(
 
 
 def _main() -> None:
-    """CLI: `field_route.py <snapshot> <alpha> <density> [patch,patch] [out]`."""
+    """CLI: `field_route.py <snapshot> <alpha> <density> [patch,patch] [out] [--pin-lift N] [--pin-frame N]`."""
 
-    name = sys.argv[1]
-    alpha = float(sys.argv[2])
-    density = int(sys.argv[3])
+    arguments, pins = split_pins(sys.argv[1:])
+    name = arguments[0]
+    alpha = float(arguments[1])
+    density = int(arguments[2])
     patches = (
-        frozenset(int(v) for v in sys.argv[4].split(","))
-        if len(sys.argv) > 4 and sys.argv[4] not in ("", "-")
+        frozenset(int(v) for v in arguments[3].split(","))
+        if len(arguments) > 3 and arguments[3] not in ("", "-")
         else None
     )
     substitutions = []
-    pinned = os.environ.get(PIN_LIFT_ENV)
+    pinned = pins.get(PIN_LIFT_FLAG)
     if pinned:
         # ИМЕНОВАННАЯ ЗАКРЕПКА закона укладки. Ворота математики фронта (walls.012)
         # проверяют ЯДРО на полевой геометрии, а не политику укладки хоста; закон
@@ -344,7 +366,7 @@ def _main() -> None:
         # едет в ответе: прогон без неё — прогон по настоящему закону хоста.
         install_lift_pin(pinned)
         substitutions.append(f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{pinned}")
-    pinned_frame = os.environ.get(PIN_FRAME_ENV)
+    pinned_frame = pins.get(PIN_FRAME_FLAG)
     if pinned_frame:
         # Вторая ИМЕНОВАННАЯ закрепка. Таблица якорных локусов записана в канонических
         # координатах карты; приведённый целочисленный базис (NEAR_PLANAR V2, коммит 4)
@@ -368,8 +390,8 @@ def _main() -> None:
         substitutions=substitutions,
     )
     text = json.dumps(result, ensure_ascii=False, indent=1)
-    if len(sys.argv) > 5:
-        Path(sys.argv[5]).write_text(text, encoding="utf-8")
+    if len(arguments) > 4:
+        Path(arguments[4]).write_text(text, encoding="utf-8")
     print(text)
 
 

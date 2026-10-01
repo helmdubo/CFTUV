@@ -36,9 +36,12 @@ from cftuv_envelope.materialize.domain import materialize_domain as _materialize
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.lift import sqrt_sum_binary64
 from cftuv_envelope.materialize.lift_surface import (
+    AMBIGUOUS,
     CANDIDATES,
     CHART_SNAPPED,
+    COLLAPSED,
     DEGENERATE,
+    EXACT_TIES,
     EXTRAPOLATED,
     EXTRAPOLATION_CELL_BOUND,
     LOCATIONS,
@@ -47,6 +50,7 @@ from cftuv_envelope.materialize.lift_surface import (
     TRIANGLES,
     SurfaceLiftV1,
     _refuse_flipped,
+    _refuse_snapped_boundary,
 )
 from cftuv_envelope.numeric import LocalPoint3V1
 from cftuv_envelope.outcomes import NamedOutcome
@@ -237,6 +241,53 @@ def test_a_point_beyond_the_bound_outside_is_a_named_refusal():
     assert EXTRAPOLATION_CELL_BOUND == 2
 
 
+def test_a_continuation_with_two_candidates_is_counted_and_the_exact_nearer_wins():
+    """Выбор между кандидатами меняет ответ, поэтому он назван и точен.
+
+    Точка `(-1, 1/2)` вне квадрата слева: продолжение допустимо и для `t1` (до
+    ребра `x = 0` ровно 1 ячейка), и для `t0` (до диагонали `1.5/sqrt(2)` = 1.06).
+    Побеждает `t1`, у `t0` — второй допустимый кандидат, и точка считается
+    неоднозначной.
+    """
+
+    bound = two_triangle_lift().bind(budget())
+    triangle, _ = bound.locate(exact(-1, Fraction(1, 2)))
+    assert triangle.name == "t1"
+    counters = dict(bound.counters())
+    assert counters[EXTRAPOLATED] == 1
+    assert counters[AMBIGUOUS] == 1
+    assert counters[EXACT_TIES] == 0
+    assert "continuation_ambiguous_points=1 continuation_exact_ties=0" in bound.note()
+    # Один кандидат — неоднозначности нет: `(5, -1)` допустима только для `t0`.
+    single = two_triangle_lift().bind(budget())
+    assert single.locate(exact(5, -1))[0].name == "t0"
+    assert dict(single.counters())[AMBIGUOUS] == 0
+
+
+def test_an_exact_tie_between_candidates_goes_to_the_lower_name_and_is_counted():
+    """Равенство расстояний решает ТОЧНЫЙ предикат, а не округление float.
+
+    Точка `(-1, sqrt(2) - 1)`: до ребра `x = 0` у `t1` ровно 1, до диагонали у `t0`
+    `(sqrt(2))/sqrt(2)` = 1 — равенство точное, но не рациональное, и сравнение
+    двух float могло бы выбрать любого. Побеждает меньшее имя (`t0`), и это
+    записано как точное равенство.
+    """
+
+    guard = budget()
+    root_two = SqrtSumV1.radical(1, Fraction(2), guard)
+    point = (SqrtSumV1.rational(-1), root_two - SqrtSumV1.rational(1))
+    bound = two_triangle_lift().bind(guard)
+    triangle, _ = bound.locate(point)
+    assert triangle.name == "t0"
+    counters = dict(bound.counters())
+    assert counters[AMBIGUOUS] == 1
+    assert counters[EXACT_TIES] == 1
+    assert "continuation_exact_ties=1" in bound.note()
+    # Тот же результат при повторе: выбор детерминирован.
+    again = two_triangle_lift().bind(budget())
+    assert again.locate(point)[0].name == "t0"
+
+
 def test_an_extended_point_lies_on_the_plane_of_its_triangle():
     """Продолжение — точно в плоскости ближайшего треугольника, а не «примерно рядом»."""
 
@@ -361,6 +412,86 @@ def test_a_snap_that_flips_a_projection_is_a_named_refusal():
     # Сжатие в ноль — не переворот: проекция без площади никого не накрывает.
     collapsed = dict(exact_chart, c=(Fraction(0), Fraction(0)))
     _refuse_flipped(owned, exact_chart, collapsed)
+
+
+def _dart_face():
+    """Невыпуклая «стрела» `A(0,0) B(4,0) C(1,1) D(0,4)`: непримыкающие пары `AB-CD`, `BC-DA`."""
+
+    from cftuv_envelope.contracts.surface import SourceFaceV1
+    from cftuv_envelope.ids import PatchId, PhysicalEdgeId, SourceFaceId, SourceVertexId
+    from cftuv_envelope.numeric import LocalVector3V1
+
+    ids = [SourceVertexId(name) for name in "ABCD"]
+    face = SourceFaceV1(
+        face_id=SourceFaceId("dart"),
+        patch_id=PatchId("p"),
+        vertex_cycle=tuple(ids),
+        edge_cycle=tuple(PhysicalEdgeId(f"dart:e{index}") for index in range(4)),
+        polygon_normal=LocalVector3V1(0.0, 0.0, 1.0),
+        triangle_ids=(),
+    )
+    exact = {
+        ids[0]: (Fraction(0), Fraction(0)),
+        ids[1]: (Fraction(4), Fraction(0)),
+        ids[2]: (Fraction(1), Fraction(1)),
+        ids[3]: (Fraction(0), Fraction(4)),
+    }
+    return face, ids, exact
+
+
+def test_a_snap_that_keeps_the_boundary_simple_is_accepted():
+    face, ids, exact = _dart_face()
+    _refuse_snapped_boundary([face], exact, dict(exact))
+    # Сдвиг в пределах простоты (вершина C на ячейку правее) — не отказ.
+    _refuse_snapped_boundary([face], exact, dict(exact) | {ids[2]: (Fraction(2), Fraction(1))})
+
+
+def test_a_snap_that_makes_boundary_edges_meet_is_a_named_refusal():
+    face, ids, exact = _dart_face()
+    # C уехала за `x = 0`: ребро `BC` пересекает ребро `DA`, до привязки их не было.
+    crossed = dict(exact) | {ids[2]: (Fraction(-1), Fraction(2))}
+    with pytest.raises(MaterializationRefusal) as refusal:
+        _refuse_snapped_boundary([face], exact, crossed)
+    assert (
+        refusal.value.outcome
+        is MaterializationOutcome.SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE
+    )
+    assert "B->C meets D->A" in refusal.value.detail
+    # Ребро, схлопнутое привязкой в точку, — тоже отказ, с именем ребра.
+    collapsed = dict(exact) | {ids[2]: exact[ids[1]]}
+    with pytest.raises(MaterializationRefusal) as refusal:
+        _refuse_snapped_boundary([face], exact, collapsed)
+    assert "B->C collapses to a point" in refusal.value.detail
+
+
+def test_a_boundary_relation_that_existed_before_the_snap_is_not_blamed_on_it():
+    """Касание, которое было ДО привязки, привязка не создавала: отказа нет."""
+
+    face, ids, exact = _dart_face()
+    touching = dict(exact) | {ids[2]: (Fraction(0), Fraction(1))}
+    # И до, и после вершина C лежит на ребре `DA`: отношение прежнее.
+    _refuse_snapped_boundary([face], touching, dict(touching))
+
+
+def test_degenerate_and_collapsed_by_snapping_are_two_named_counters():
+    """`DEGENERATE` — все нулевые проекции карты; `COLLAPSED` — подмножество, обнулённое привязкой."""
+
+    flat = (V00, V10, (8, 0))
+    lift = SurfaceLiftV1.from_triangles(
+        [
+            ("t0", (V00, V10, V11), (P00, P10, P11)),
+            ("t-exact", flat, (P00, P10, P11)),
+            ("t-snapped", flat, (P00, P11, P01)),
+        ],
+        scale=4,
+        collapsed_by_snapping=1,
+    )
+    bound = lift.bind(budget())
+    counters = dict(bound.counters())
+    assert counters[TRIANGLES] == 1
+    assert counters[DEGENERATE] == 2
+    assert counters[COLLAPSED] == 1
+    assert "collapsed_by_snapping=1" in bound.note()
 
 
 # --------------------------------------------------------------------------

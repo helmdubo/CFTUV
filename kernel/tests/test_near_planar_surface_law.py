@@ -455,3 +455,283 @@ def test_a_domain_admitted_for_the_surface_materializes_on_both_laws_when_flat_e
     )
     assert f"extrapolated_points={counted} " in note
     assert near_planar_domain is not None
+
+
+# --------------------------------------------------------------------------
+# Перевёрнутый треугольник: квадрат `cos²` прячет знак, вложение P0-4 смотрит на
+# полигоны граней, а укладка пользуется треугольниками.
+# --------------------------------------------------------------------------
+
+#: Невыпуклый четырёхугольник «стрела» `A(0,0) B(4,0) C(1,1) D(0,4)` с вершиной C,
+#: приподнятой на 2 мм (непланарный, near-planar). Полигон проекции простой и
+#: обходится против часовой, как и исходный: P0-4 его принимает. Диагональ `BD`
+#: режет стрелу на `(A, B, D)` и `(B, C, D)`, и второй треугольник проекция
+#: ПЕРЕВОРАЧИВАЕТ (`n_T·n < 0`) и кладёт поверх первого; диагональ `AC` — законная.
+DART = ((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (1.0, 1.0, 0.002), (0.0, 4.0, 0.0))
+DART_FOLDING = ((0, 1, 3), (1, 2, 3))
+DART_FINE = ((0, 1, 2), (0, 2, 3))
+
+
+def _dart(diagonal, law):
+    ids = [SourceVertexId(f"dart-v{index}") for index in range(4)]
+    vertices = tuple(
+        SourceVertexV1(vertex_id, LocalPoint3V1(*position))
+        for vertex_id, position in zip(ids, DART, strict=True)
+    )
+    face = SourceFaceV1(
+        face_id=SourceFaceId("dart"),
+        patch_id=PATCH,
+        vertex_cycle=tuple(ids),
+        edge_cycle=tuple(PhysicalEdgeId(f"dart:e{index}") for index in range(4)),
+        polygon_normal=LocalVector3V1(0.0, 0.0, 1.0),
+        triangle_ids=(),
+    )
+    triangles = tuple(
+        SurfaceTriangleV1(
+            triangle_id=SurfaceTriangleId(f"dart:t{index}"),
+            source_face_id=face.face_id,
+            vertex_ids=tuple(ids[corner] for corner in corners),
+            physical_edge_ids=(None, None, None),
+            triangle_normal=LocalVector3V1(0.0, 0.0, 1.0),
+        )
+        for index, corners in enumerate(diagonal)
+    )
+    arguments = dict(
+        source_revision=REVISION,
+        patch_domain_id=DOMAIN,
+        owner_patch_id=PATCH,
+        source_vertices=vertices,
+        source_faces=(face,),
+        planarity_policy=NEAR,
+        grid_policy=UNSNAPPED,
+        surface_triangles=triangles,
+        near_planar_lift_law=law,
+    )
+    return arguments
+
+
+def test_a_folded_triangle_of_a_nonplanar_quad_is_refused_by_name_under_the_surface_law():
+    # Законная диагональ проходит оба закона и ничего не переворачивает.
+    fine = build_rational_affine_planar_metric(**_dart(DART_FINE, ON_SURFACE))
+    assert fine.planarity_certificate.width_distortion.folded_triangle_count == 0
+
+    # Перевёрнутая диагональ: σ в порядке (cos² = 0.99999, квадрат прячет знак),
+    # полигон грани проходит P0-4, и отказывает именно переворот.
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        build_rational_affine_planar_metric(**_dart(DART_FOLDING, ON_SURFACE))
+    assert failure.value.outcome is NamedOutcome.NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED
+    text = str(failure.value)
+    for fragment in (
+        "folded_triangles=1 (first=dart:t1 (face dart))",
+        "min_cos_squared=9.999920000e-01 >= threshold=9.611687812e-01",
+    ):
+        assert fragment in text, text
+
+
+def test_the_fold_is_recorded_under_the_plane_law_but_does_not_judge_there():
+    """Под плоскостью укладки нет, и перевёрнутый треугольник никому не мешает: запись."""
+
+    metric = build_rational_affine_planar_metric(**_dart(DART_FOLDING, ON_PLANE))
+    sigma = metric.planarity_certificate.width_distortion
+    assert sigma.folded_triangle_count == 1
+    assert sigma.first_folded_triangle_id.value == "dart:t1"
+    assert sigma.first_folded_face_id.value == "dart"
+    assert validate_rational_affine_planar_metric(metric) == ()
+
+
+def test_the_validator_and_the_admission_follow_the_recorded_fold():
+    metric = build_rational_affine_planar_metric(**_dart(DART_FOLDING, ON_PLANE))
+    # Принятый под поверхностью сертификат с переворотом — замечание валидатора.
+    admitted_as_surface = _with(metric, lift_law=ON_SURFACE)
+    assert any(
+        "NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED" in item.message
+        for item in validate_rational_affine_planar_metric(admitted_as_surface)
+    )
+    # Допуск материализатора: поверхность запрошена, сертификат с переворотом — отказ
+    # по имени, до единицы работы; плоскость запрошена — допуск прежний.
+    certificate = metric.planarity_certificate
+    refusal = _lift_refusal(certificate, ON_SURFACE)
+    assert refusal.outcome is MaterializationOutcome.NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED
+    assert "dart:t1" in refusal.detail
+    assert _lift_refusal(certificate, ON_PLANE) is None
+
+
+def test_the_fold_count_is_recomputed_from_the_source_not_trusted():
+    from cftuv_envelope.validation_metric import validate_width_distortion_recomputation
+
+    arguments = _dart(DART_FOLDING, ON_PLANE)
+    metric = build_rational_affine_planar_metric(**arguments)
+
+    def issues(candidate):
+        return validate_width_distortion_recomputation(
+            candidate,
+            source_vertices=arguments["source_vertices"],
+            source_faces=arguments["source_faces"],
+            surface_triangles=arguments["surface_triangles"],
+            owner_patch_id=PATCH,
+        )
+
+    assert issues(metric) == ()
+    sigma = metric.planarity_certificate.width_distortion
+    hidden = _with(
+        metric,
+        width_distortion=replace(
+            sigma,
+            folded_triangle_count=0,
+            first_folded_triangle_id=None,
+            first_folded_face_id=None,
+        ),
+    )
+    assert [item.message for item in issues(hidden)] == [
+        "width-distortion certificate differs from exact recomputation"
+    ]
+
+
+# --------------------------------------------------------------------------
+# Шов между соседними доменами: подъём на общем ребре источника единственен.
+# --------------------------------------------------------------------------
+
+
+def _roof_pair():
+    """Два соседних near-planar патча кровли; общее ребро источника `S0-S1` при `x = 2`.
+
+    Каждый патч — непланарный квад (вершины выведены из плоскости на доли
+    миллиметра, у патчей РАЗНЫЕ наклоны), поэтому у каждого своя плоскость карты,
+    своя карта и своя привязка к решётке. Общие только 3D-вершины `S0` и `S1`.
+    """
+
+    patch_b = PatchId("surface-law-patch-b")
+    # Патч B наклонён на 8 градусов вокруг общего ребра: другая плоскость карты.
+    run, rise = 2 * math.cos(math.radians(8)), 2 * math.sin(math.radians(8))
+    positions = {
+        "a0": (0.0, 0.0, 0.0011),
+        "s0": (2.0, 0.0, 0.0),
+        "s1": (2.0, 1.0, 0.0003),
+        "a1": (0.0, 1.0, 0.0018),
+        "b0": (2.0 + run, 0.0, rise + 0.0021),
+        "b1": (2.0 + run, 1.0, rise + 0.0034),
+    }
+    ids = {name: SourceVertexId(name) for name in positions}
+    vertices = tuple(
+        SourceVertexV1(ids[name], LocalPoint3V1(*point))
+        for name, point in positions.items()
+    )
+
+    def face(name, patch, names):
+        cycle = tuple(ids[item] for item in names)
+        return SourceFaceV1(
+            face_id=SourceFaceId(name),
+            patch_id=patch,
+            vertex_cycle=cycle,
+            edge_cycle=tuple(
+                PhysicalEdgeId(
+                    "e:" + ":".join(sorted((cycle[i].value, cycle[(i + 1) % 4].value)))
+                )
+                for i in range(4)
+            ),
+            polygon_normal=LocalVector3V1(0.0, 0.0, 1.0),
+            triangle_ids=(),
+        )
+
+    faces = (
+        face("roof-a", PATCH, ("a0", "s0", "s1", "a1")),
+        face("roof-b", patch_b, ("s0", "b0", "b1", "s1")),
+    )
+    triangles = tuple(
+        SurfaceTriangleV1(
+            triangle_id=SurfaceTriangleId(f"{item.face_id.value}:t{index}"),
+            source_face_id=item.face_id,
+            vertex_ids=(
+                item.vertex_cycle[0],
+                item.vertex_cycle[index],
+                item.vertex_cycle[index + 1],
+            ),
+            physical_edge_ids=(None, None, None),
+            triangle_normal=LocalVector3V1(0.0, 0.0, 1.0),
+        )
+        for item in faces
+        for index in (1, 2)
+    )
+    return vertices, faces, triangles, ids, {PATCH: "a", patch_b: "b"}
+
+
+def test_the_lift_on_a_shared_source_edge_is_the_same_from_both_neighbour_domains():
+    """Шов: вершины общего ребра и точки НА ребре поднимаются побитово одинаково.
+
+    Карты соседей разные (две плоскости, две привязки к решётке), а 3D общего
+    ребра у обоих — один и тот же отрезок `S0-S1`: барицентрические веса на ребре
+    зависят только от его концов. Точки покрытия, которые привязка к решётке
+    УВЕЛА с ребра, сюда не входят: их кладёт свой домен (допуск продолжения).
+    """
+
+    from types import SimpleNamespace
+
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1, exact_work_budget
+    from cftuv_envelope.materialize.lift_surface import surface_lift_of
+
+    vertices, faces, triangles, ids, owners = _roof_pair()
+    snapshot = SimpleNamespace(
+        surface_ir=SimpleNamespace(source_faces=faces, surface_triangles=triangles)
+    )
+    scale = 1 << 10
+    guard = exact_work_budget(stage="SEAM_TEST", domain_id="seam")
+    lifts, sigmas, normals = {}, {}, {}
+    for owner in owners:
+        metric = build_rational_affine_planar_metric(
+            source_revision=REVISION,
+            patch_domain_id=DOMAIN,
+            owner_patch_id=owner,
+            source_vertices=vertices,
+            source_faces=faces,
+            planarity_policy=NEAR,
+            grid_policy=UNSNAPPED,
+            surface_triangles=triangles,
+            near_planar_lift_law=ON_SURFACE,
+        )
+        assert type(metric.planarity_certificate) is NearPlanarProjectionCertificateV1
+        normals[owner] = metric.planarity_certificate.exact_plane_normal
+        sigmas[owner] = {
+            item.source_vertex_id: tuple(
+                Fraction(axis.numerator, axis.denominator)
+                for axis in (item.position.x, item.position.y, item.position.z)
+            )
+            for item in metric.planarity_certificate.width_distortion.snapped_source_positions
+        }
+        lifts[owner] = surface_lift_of(metric, snapshot, owner, scale).bind(guard)
+    first, second = tuple(owners)
+    s0, s1 = ids["s0"], ids["s1"]
+    # Общие вершины привязаны к одному и тому же 3D в обоих сертификатах.
+    for shared in (s0, s1):
+        assert sigmas[first][shared] == sigmas[second][shared]
+
+    def chart_of(owner, position):
+        for triangle in lifts[owner]._lift.triangles:
+            for index, corner in enumerate(triangle.corners):
+                if corner == position:
+                    return triangle.chart[index]
+        raise AssertionError("shared vertex missing in the projection")
+
+    ends = {
+        owner: (chart_of(owner, sigmas[owner][s0]), chart_of(owner, sigmas[owner][s1]))
+        for owner in owners
+    }
+    start, end = sigmas[first][s0], sigmas[first][s1]
+    # Плоскости карт РАЗНЫЕ: это два домена, а не один домен, прочитанный дважды.
+    assert normals[first] != normals[second]
+    for parameter in (Fraction(0), Fraction(1, 4), Fraction(1, 2), Fraction(3, 4), Fraction(1)):
+        expected = tuple(
+            (1 - parameter) * start[axis] + parameter * end[axis] for axis in range(3)
+        )
+        lifted = {}
+        for owner in owners:
+            (x0, y0), (x1, y1) = ends[owner]
+            point = (
+                SqrtSumV1.rational((1 - parameter) * x0 + parameter * x1),
+                SqrtSumV1.rational((1 - parameter) * y0 + parameter * y1),
+            )
+            exact = lifts[owner].lift_exact(point)
+            # Точка лежит на ребре источника ТОЧНО, а не «рядом».
+            assert tuple(item.as_rational() for item in exact) == expected
+            lifted[owner] = lifts[owner].lift(point)
+        assert lifted[first] == lifted[second]
+        assert lifted[first] == LocalPoint3V1(*(float(axis) for axis in expected))

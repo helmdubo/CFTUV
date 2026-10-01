@@ -67,8 +67,12 @@ def triangle_cos_squared(corners, normal) -> Fraction | None:
     """`cos²` угла между нормалью треугольника и `normal`; `None` у вырожденного.
 
     Знак нормали треугольника и самой `normal` не входит: наклон меряется
-    квадратом, а перевёрнутый треугольник ловит сертификат вложения проекции
-    (ориентация и перекрытие интерьеров), а не этот.
+    квадратом, и квадрат ПРЯЧЕТ знак. Перевёрнутую проекцию треугольника ловит
+    `triangle_projected_orientation` (сертификат пишет её счёт и называет первый
+    такой треугольник). Вложение проекции P0-4 для этого не годится: оно проверяет
+    ПОЛИГОНЫ граней, а укладка пользуется ТРЕУГОЛЬНИКАМИ источника, и у
+    непланарного квада проекция полигона может быть годной при перевёрнутом
+    треугольнике.
     """
 
     first, second, third = corners
@@ -78,6 +82,37 @@ def triangle_cos_squared(corners, normal) -> Fraction | None:
         return None
     along = _dot(triangle_normal, normal)
     return along * along / (squared * _dot(normal, normal))
+
+
+def _face_normals(faces, snapped):
+    """Удвоенный векторный образ полигона каждой грани по привязанным позициям (Ньюэлл)."""
+
+    result = {}
+    for face in faces:
+        cycle = face.vertex_cycle
+        total = (Fraction(0),) * 3
+        for index, head in enumerate(cycle):
+            cross = _cross(snapped[head], snapped[cycle[(index + 1) % len(cycle)]])
+            total = tuple(a + b for a, b in zip(total, cross, strict=True))
+        result[face.face_id] = total
+    return result
+
+
+def triangle_projected_orientation(corners, normal) -> int:
+    """Знак `n_T·normal`: ориентация ТОЧНОЙ проекции треугольника вдоль `normal`.
+
+    Проекция вдоль нормали убирает из каждого ребра ровно её компоненту, и
+    векторное произведение спроецированных рёбер параллельно `normal` с длиной
+    `n_T·normal/|normal|`, поэтому знак проекции — это знак скалярного
+    произведения, без единой неточной операции. Знак `normal` каноничен (первая
+    ненулевая координата положительна), а не привязан к обходу граней, поэтому
+    сам по себе он ничего не говорит: сравнивается с ориентацией проекции ЕГО
+    ГРАНИ (`n_F·normal`), которую вложение P0-4 приравнивает ориентации карты.
+    """
+
+    first, second, third = corners
+    along = _dot(_cross(_sub(second, first), _sub(third, first)), normal)
+    return (along > 0) - (along < 0)
 
 
 def _unavailable(detail: str):
@@ -126,15 +161,24 @@ def build_width_distortion_certificate(
 
     worst = None
     degenerate = []
+    folded = []
     owned = _owner_triangles(faces, triangles, snapped)
+    face_normals = _face_normals(faces, snapped)
     for item in owned:
-        cos_squared = triangle_cos_squared(
-            tuple(snapped[vertex] for vertex in item.vertex_ids), normal
-        )
+        corners = tuple(snapped[vertex] for vertex in item.vertex_ids)
+        cos_squared = triangle_cos_squared(corners, normal)
         if cos_squared is None:
             degenerate.append(item.triangle_id)
-        elif worst is None or cos_squared < worst[0]:
+            continue
+        if worst is None or cos_squared < worst[0]:
             worst = (cos_squared, item)
+        # Перевёрнут: проекция треугольника обходится против проекции его грани.
+        # Нулевая проекция (плоскость карты ПАРАЛЛЕЛЬНА треугольнику ребром) — не
+        # переворот: её судит бюджет ширины (`cos²` = 0).
+        along_face = _dot(face_normals[item.source_face_id], normal)
+        reference = (along_face > 0) - (along_face < 0)
+        if reference and triangle_projected_orientation(corners, normal) == -reference:
+            folded.append(item)
     return NearPlanarWidthDistortionCertificateV1(
         certificate_id=PlanarityCertificateId(
             _stable_id(
@@ -153,6 +197,9 @@ def build_width_distortion_certificate(
         triangles_measured=len(owned) - len(degenerate),
         degenerate_triangle_count=len(degenerate),
         first_degenerate_triangle_id=degenerate[0] if degenerate else None,
+        folded_triangle_count=len(folded),
+        first_folded_triangle_id=folded[0].triangle_id if folded else None,
+        first_folded_face_id=folded[0].source_face_id if folded else None,
         snapped_source_positions=frozenset(
             SnappedSourcePositionV1(
                 vertex_id,
@@ -169,10 +216,14 @@ def _stable_id(kind: str, *parts: object) -> str:
 
 
 def width_distortion_violations(certificate) -> tuple[NamedOutcome, ...]:
-    """Именованные отказы сертификата. Порядок: вырожденность, затем бюджет.
+    """Именованные отказы сертификата. Порядок: вырожденность, бюджет, переворот.
 
     Вырожденный треугольник отказывает ЗАКРЫТО: его наклон не определён, и
     «пропустить и мерить остальные» было бы тихим исчезновением треугольника.
+    Перевёрнутый — тоже закрыто: его проекция накрывает соседа, и точка карты
+    принадлежала бы двум плоскостям сразу. Он идёт ПОСЛЕ бюджета ширины, чтобы
+    домен, который не прошёл и по ширине, сохранил прежнее имя отказа; счёт и имя
+    первого перевёрнутого треугольника записаны в сертификате в любом случае.
     """
 
     result = []
@@ -191,6 +242,8 @@ def width_distortion_violations(certificate) -> tuple[NamedOutcome, ...]:
         )
         if measured < threshold:
             result.append(NamedOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED)
+    if certificate.folded_triangle_count:
+        result.append(NamedOutcome.NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED)
     return tuple(result)
 
 
@@ -220,14 +273,23 @@ def width_distortion_refusal_text(certificate) -> str:
         if certificate.first_degenerate_triangle_id is None
         else certificate.first_degenerate_triangle_id.value
     )
+    folded = (
+        "none"
+        if certificate.first_folded_triangle_id is None
+        else f"{certificate.first_folded_triangle_id.value} "
+        f"(face {certificate.first_folded_face_id.value})"
+    )
+    threshold = width_distortion_threshold(budget)
     return (
         "near-planar width distortion: "
         f"min_cos_squared={float(measured):.9e} "
-        f"< threshold={float(width_distortion_threshold(budget)):.9e} "
+        f"{'<' if measured < threshold else '>='} "
+        f"threshold={float(threshold):.9e} "
         f"(width_budget={float(budget):.6e}, "
         f"law={certificate.law.value}, "
         f"triangles_measured={certificate.triangles_measured}, "
         f"worst_triangle={worst}); "
         f"degenerate_triangles={certificate.degenerate_triangle_count} "
-        f"(first={degenerate})"
+        f"(first={degenerate}); "
+        f"folded_triangles={certificate.folded_triangle_count} (first={folded})"
     )

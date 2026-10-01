@@ -14,8 +14,17 @@
 совпадает с границей триангуляции. Сдвиг записан (число сдвинутых вершин и
 наибольшее смещение в диагностике), а переворот знака площади какого-либо
 треугольника — именованный отказ `SURFACE_LIFT_CHART_SNAP_FLIPPED_TRIANGLE`:
-сохранение ориентации у всех треугольников при неизменной простой границе и есть
-доказательство, что привязанная триангуляция осталась вложением.
+сохранение ориентации у всех треугольников и ПРОСТАЯ граница после привязки
+(ни одного нового пересечения, касания или схлопнутого ребра границы, точно, на
+тех же предикатах, что и вложение P0-4) — именованный отказ
+`SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE` — и есть доказательство, что
+привязанная триангуляция осталась вложением. Треугольник, чья проекция СХЛОПНУЛАСЬ
+в ноль именно привязкой (до неё площадь была ненулевой), отказа не даёт: у проекции
+без площади нет внутренности, и соседи накрывают всё остальное. Но он назван:
+счётчик `..._COLLAPSED_BY_SNAPPING` и `collapsed_by_snapping` в диагностике;
+`..._DEGENERATE_PROJECTIONS` — ВСЕ треугольники с нулевой площадью в привязанной
+карте, то есть и точно вырожденные (их отвергает бюджет ширины ещё до укладки,
+`cos²` = 0), и схлопнутые привязкой.
 
 ВЫХОД ЗА ТРИАНГУЛЯЦИЮ НЕ БОЛЕЕ ДВУХ ЯЧЕЕК. Полигон покрытия строится из
 ГЕОМЕТРИИ цепей, а не из вершин сетки: вершина полигона на хорде между концами
@@ -47,18 +56,28 @@
 значение подъёма не зависит: барицентрические координаты вдоль ребра зависят
 только от концов ребра, а концы у обоих треугольников одни, поэтому подъём с
 двух сторон равен побитово (один и тот же `SqrtSumV1`, одно округление
-`sqrt_sum_binary64`). Это и есть непрерывность шва между доменами: границы
-домена лежат на рёбрах источника, подъём на ребре единственен.
+`sqrt_sum_binary64`). ШОВ МЕЖДУ ДОМЕНАМИ: вершины общего ребра источника и точки,
+лежащие НА этом ребре, поднимаются в соседних доменах (у каждого своя плоскость и
+своя привязка карты) в побитово одну точку отрезка источника; исполняемо
+(`test_the_lift_on_a_shared_source_edge_is_the_same_from_both_neighbour_domains`).
+Граница прямая: точки покрытия, которые привязка к решётке УВЕЛА с ребра, кладёт
+СВОЙ домен (в пределах ячейки или продолжением), и между соседями у них возможна
+щель порядка ячейки решётки; для вершин и точек на ребре её нет.
 
 ОТКАЗЫ ИМЕНОВАНЫ. Точка вне проекции всей триангуляции — не «ближайший
 треугольник» и не допуск, а `SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION`
 с числами. Исчерпание бюджета — `ExactCanonicalizationWorkBudgetExhausted`,
 которое материализатор называет `EXACT_WORK_BUDGET_EXHAUSTED`.
 
-ИНЪЕКТИВНОСТЬ карты «треугольник -> проекция» обеспечивает сертификат вложения
-проекции P0-4 (`INTERIOR_OVERLAP`, `FACE_POLYGON_NOT_SIMPLE`); здесь она не
-перепроверяется, а вырожденные (нулевой площади) проекции пропускаются со счётом:
-у них нет внутренности, которую можно было бы накрыть.
+ИНЪЕКТИВНОСТЬ карты «треугольник -> проекция». Вложение проекции P0-4 проверяет
+ПОЛИГОНЫ граней, а не треугольники, которыми пользуется укладка: у непланарного
+квада проекция полигона может быть годной при ПЕРЕВЁРНУТОМ треугольнике, и квадрат
+`cos²` знак прячет. Перевёрнутый треугольник накрыл бы соседа, и `locate` выбрал бы
+первого по имени — две плоскости в одной области. Поэтому переворот отказывает
+ЗАРАНЕЕ, на ступени метрики: сертификат σ считает `folded_triangle_count`, судья
+отказывает `NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED` (`_width_distortion`). Здесь
+ориентация не перепроверяется, а вырожденные (нулевой площади) проекции
+пропускаются со счётом: у них нет внутренности, которую можно было бы накрыть.
 
 ОГРАНИЧЕНИЕ. Лежат на поверхности ВЕРШИНЫ меша. Ребро треугольника меша, идущее
 через ребро источника под изломом, остаётся хордой; вставка вершин на пересечении
@@ -71,6 +90,12 @@ import math
 from dataclasses import dataclass
 from fractions import Fraction
 
+from .._embedding import (
+    _NONE,
+    _boundary_occurrences,
+    _nonadjacent_pairs,
+    _segment_relation2,
+)
 from ..contracts.metric import NearPlanarProjectionCertificateV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..numeric import LocalPoint3V1
@@ -84,9 +109,17 @@ CANDIDATES = "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES"
 PREDICATES = "MATERIALIZE_SURFACE_LIFT_PREDICATES"
 ON_EDGE = "MATERIALIZE_SURFACE_LIFT_ON_EDGE_POINTS"
 TRIANGLES = "MATERIALIZE_SURFACE_LIFT_TRIANGLES"
+#: ВСЕ треугольники с нулевой площадью в ПРИВЯЗАННОЙ карте: точно вырожденные и
+#: схлопнутые привязкой вместе. Схлопнутые привязкой — отдельный счёт ниже.
 DEGENERATE = "MATERIALIZE_SURFACE_LIFT_DEGENERATE_PROJECTIONS"
+#: Из них: площадь до привязки была ненулевой, привязка к решётке обнулила её.
+COLLAPSED = "MATERIALIZE_SURFACE_LIFT_COLLAPSED_BY_SNAPPING"
 CHART_SNAPPED = "MATERIALIZE_SURFACE_LIFT_CHART_VERTICES_SNAPPED"
 EXTRAPOLATED = "MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS"
+#: Точек, у которых в допуске продолжения оказалось БОЛЬШЕ ОДНОГО треугольника.
+AMBIGUOUS = "MATERIALIZE_SURFACE_LIFT_CONTINUATION_AMBIGUOUS_CANDIDATES"
+#: Из них — где первые два расстояния РАВНЫ точно, и выбор решило имя треугольника.
+EXACT_TIES = "MATERIALIZE_SURFACE_LIFT_CONTINUATION_EXACT_TIES"
 
 #: Допуск продолжения ближайшего треугольника: на сколько ячеек решётки карты
 #: точка покрытия вправе выйти за привязанную триангуляцию. ДВЕ ячейки: вершина
@@ -151,10 +184,17 @@ class SurfaceLiftV1:
     #: смещение по оси, единицы решётки, дробью): запись, а не молчание.
     snapped_vertices: int = 0
     snap_residual: Fraction = Fraction(0)
+    #: Треугольники, чью ненулевую проекцию привязка к решётке обнулила (подмножество
+    #: `degenerate_projections`; остальные там — точно вырожденные).
+    collapsed_by_snapping: int = 0
 
     @staticmethod
     def from_triangles(
-        items, scale: int, snapped_vertices: int = 0, snap_residual=Fraction(0)
+        items,
+        scale: int,
+        snapped_vertices: int = 0,
+        snap_residual=Fraction(0),
+        collapsed_by_snapping: int = 0,
     ) -> "SurfaceLiftV1":
         """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины)`."""
 
@@ -176,6 +216,7 @@ class SurfaceLiftV1:
             int(scale),
             int(snapped_vertices),
             Fraction(snap_residual),
+            int(collapsed_by_snapping),
         )
 
     def bind(self, budget) -> "BoundSurfaceLiftV1":
@@ -245,6 +286,15 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         key=lambda item: item.triangle_id.value,
     )
     _refuse_flipped(owned, exact, chart)
+    _refuse_snapped_boundary(
+        [
+            face
+            for face in snapshot.surface_ir.source_faces
+            if face.patch_id == owner_patch_id
+        ],
+        exact,
+        chart,
+    )
     return SurfaceLiftV1.from_triangles(
         (
             (
@@ -257,6 +307,12 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         scale,
         len(moved),
         residual,
+        sum(
+            1
+            for item in owned
+            if _twice_area(tuple(exact[vertex] for vertex in item.vertex_ids))
+            and not _twice_area(tuple(chart[vertex] for vertex in item.vertex_ids))
+        ),
     )
 
 
@@ -283,6 +339,41 @@ def _refuse_flipped(owned, exact, chart) -> None:
         )
 
 
+def _refuse_snapped_boundary(faces, exact, chart) -> None:
+    """Привязка не вправе создать новое пересечение границы или схлопнуть её ребро.
+
+    Граница патча (полурёбра, которые встречаются один раз) до привязки простая:
+    это доказано вложением P0-4. После привязки к решётке проверяется ТОЧНО, на тех
+    же предикатах (`_segment_relation2`): пара непримыкающих рёбер, не
+    касавшаяся друг друга до привязки, не вправе пересечься, наложиться или
+    коснуться после неё; ненулевое ребро не вправе схлопнуться в точку.
+    """
+
+    edges = _boundary_occurrences(faces)
+    problems = [
+        f"{edge.start.value}->{edge.end.value} collapses to a point"
+        for edge in edges
+        if chart[edge.start] == chart[edge.end] and exact[edge.start] != exact[edge.end]
+    ]
+    for left, right in _nonadjacent_pairs(edges):
+        ends = (left.start, left.end, right.start, right.end)
+        if any(chart[a] == chart[b] for a, b in ((ends[0], ends[1]), (ends[2], ends[3]))):
+            continue
+        if _segment_relation2(*(chart[item] for item in ends)) == _NONE:
+            continue
+        if _segment_relation2(*(exact[item] for item in ends)) == _NONE:
+            problems.append(
+                f"{left.start.value}->{left.end.value} meets "
+                f"{right.start.value}->{right.end.value}"
+            )
+    if problems:
+        raise MaterializationRefusal(
+            MaterializationOutcome.SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE,
+            f"{len(problems)} boundary relations are created by snapping the "
+            f"chart to the coverage lattice: {'; '.join(problems[:4])}",
+        )
+
+
 def _edge_value(start, end, point) -> SqrtSumV1:
     """Ориентация `(start, end, point)`: `(end - start) x (point - start)` точно."""
 
@@ -306,6 +397,8 @@ class BoundSurfaceLiftV1:
             PREDICATES: 0,
             ON_EDGE: 0,
             EXTRAPOLATED: 0,
+            AMBIGUOUS: 0,
+            EXACT_TIES: 0,
         }
         self._max_outside = 0.0
 
@@ -314,6 +407,7 @@ class BoundSurfaceLiftV1:
             *self._tally.items(),
             (TRIANGLES, len(self._lift.triangles)),
             (DEGENERATE, self._lift.degenerate_projections),
+            (COLLAPSED, self._lift.collapsed_by_snapping),
             (CHART_SNAPPED, self._lift.snapped_vertices),
         )
 
@@ -325,8 +419,11 @@ class BoundSurfaceLiftV1:
             f"chart_vertices_snapped={lift.snapped_vertices} "
             f"snap_residual_cells={float(lift.snap_residual):.6g} "
             f"source_triangles={len(lift.triangles)} "
+            f"collapsed_by_snapping={lift.collapsed_by_snapping} "
             f"extrapolated_points={self._tally[EXTRAPOLATED]} "
-            f"max_outside_cells={self._max_outside:.6g}"
+            f"max_outside_cells={self._max_outside:.6g} "
+            f"continuation_ambiguous_points={self._tally[AMBIGUOUS]} "
+            f"continuation_exact_ties={self._tally[EXACT_TIES]}"
         )
 
     def _window(self, point):
@@ -380,11 +477,15 @@ class BoundSurfaceLiftV1:
         )
 
     def _bounded_values(self, triangle: LiftTriangleV1, point):
-        """Три значения ориентации и расстояние выхода, если оно в пределах допуска."""
+        """`(значения ориентации, квадрат выхода)`, если выход в допуске, иначе `None`.
+
+        Квадрат выхода — наибольший из `e²/|ребро|²` по рёбрам, которые точка
+        нарушает: ТОЧНОЕ `SqrtSumV1`, а не оценка. Им сравниваются кандидаты.
+        """
 
         direction = 1 if triangle.twice_area > 0 else -1
         values = []
-        outside = 0.0
+        outside = None
         for index in range(3):
             start, end = triangle.chart[index], triangle.chart[(index + 1) % 3]
             value = _edge_value(start, end, point)
@@ -395,29 +496,34 @@ class BoundSurfaceLiftV1:
             # Расстояние до прямой ребра `|e| / |ребро|` не больше допуска B
             # тогда и только тогда, когда `e² <= B²·|ребро|²` — точно, без корня.
             length_squared = (end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2
-            gap = SqrtSumV1.rational(
-                EXTRAPOLATION_CELL_BOUND**2 * length_squared
-            ) - value * value
+            square = value * value
+            gap = SqrtSumV1.rational(EXTRAPOLATION_CELL_BOUND**2 * length_squared) - square
             self._tally[PREDICATES] += 1
             if gap.sign(budget=self._budget) < 0:
                 return None
-            low, high = value.enclosure(ENCLOSURE_BITS)
-            outside = max(
-                outside, float(max(abs(low), abs(high))) / math.sqrt(float(length_squared))
-            )
-        return outside, values
+            distance = square.scaled(Fraction(1) / length_squared)
+            if outside is not None:
+                self._tally[PREDICATES] += 1
+            if outside is None or (distance - outside).sign(budget=self._budget) > 0:
+                outside = distance
+        return values, outside
 
     def _nearest(self, point):
         """Ближайший треугольник, который точка превышает не более допуска, либо `None`.
 
-        «Ближайший» — по приближённому расстоянию (оболочка в float): это порядок
-        перебора кандидатов, а не решение; решение — точный предикат допуска.
-        Равенство разрешается порядком имён треугольников.
+        «Ближайший» — по ТОЧНОМУ квадрату выхода (`_bounded_values`), а не по
+        приближённому расстоянию: выбор между кандидатами меняет ответ, и он не
+        вправе зависеть от округления float. Равенство разрешается каноническим
+        порядком имён (треугольники отсортированы по имени, побеждает меньшее);
+        оба случая, «кандидатов больше одного» и «точное равенство», считаются и
+        называются в диагностике батча.
         """
 
         xlow, xhigh, ylow, yhigh = self._window(point)
         margin = float(EXTRAPOLATION_CELL_BOUND)
         best = None
+        admissible = 0
+        tied = False
         for triangle in self._lift.triangles:
             xmin, xmax, ymin, ymax = triangle.box
             if (
@@ -429,11 +535,27 @@ class BoundSurfaceLiftV1:
                 continue
             self._tally[CANDIDATES] += 1
             found = self._bounded_values(triangle, point)
-            if found is not None and (best is None or found[0] < best[0]):
-                best = (found[0], triangle, found[1])
+            if found is None:
+                continue
+            admissible += 1
+            values, outside = found
+            if best is None:
+                best = (outside, triangle, values)
+                continue
+            self._tally[PREDICATES] += 1
+            order = (outside - best[0]).sign(budget=self._budget)
+            if order < 0:
+                best = (outside, triangle, values)
+                tied = False
+            elif order == 0:
+                tied = True
         if best is None:
             return None
-        self._max_outside = max(self._max_outside, best[0])
+        if admissible > 1:
+            self._tally[AMBIGUOUS] += 1
+            self._tally[EXACT_TIES] += int(tied)
+        _, high = best[0].enclosure(ENCLOSURE_BITS)
+        self._max_outside = max(self._max_outside, math.sqrt(float(high)))
         return best[1], best[2]
 
     @staticmethod
