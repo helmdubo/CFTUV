@@ -63,11 +63,23 @@
 неверный путь одной грани проявляется как несовпадение с соседней. На patch 17
 верная комбинация даёт 0 нарушений, три прочие — 12, 24 и 20 (d2).
 
+У границы 4 ДВЕ половины, и ЯДРО ИСПОЛНЯЕТ ОБЕ на каждой комбинации, а не одну
+из них. Первая — `pairing_defects`: парность, выведенная из ключей участников и
+признака «не стена». Вторая — `unpaired_off_boundary`: каждый сегмент, у которого
+в комбинации НЕТ встречного (то есть без парной грани), обязан лежать на ребре
+границы области — отрезок целиком на одном ребре какой-либо петли, точные знаки
+ориентации и скалярного произведения под бюджетом транзакции, допуска нет.
+Первая половина слепа к сегментам без пары: признак «не стена» она берёт на
+веру, и перенос куска между двумя взаимно зажатыми гранями сохраняет и парность,
+и сумму площадей. Вторую половину раньше задавал только тест, а выбор,
+меняющий ответ, не вправе опираться на свойство, проверяемое одним тестом.
+Нарушение второй половины лишает комбинацию допустимости так же, как первой.
+
 Выбор идёт по комбинациям путей всех граней ветки: допустима та, что проходит
-парность И тождество площади (граница 3); каждый критерий по отдельности
-оставляет из четырёх ту же единственную. Ровно одна допустимая — сборка. Больше
-одной либо перебор упёрся в потолок — `FACE_CHAIN_AMBIGUOUS` с числами в
-`detail` (первого годного нет). Ни одной — прежний отказ
+парность, границу области И тождество площади (граница 3); каждый критерий по
+отдельности оставляет из четырёх ту же единственную. Ровно одна допустимая —
+сборка. Больше одной либо перебор упёрся в потолок — `FACE_CHAIN_AMBIGUOUS` с
+числами в `detail` (первого годного нет). Ни одной — прежний отказ
 `FACE_CHAIN_DOES_NOT_CLOSE` с прежним текстом. Счётчики ветки выходят в
 `CONVEYOR_CROWDED_CHAIN_*` и только когда ветка входилась.
 
@@ -872,6 +884,99 @@ def pairing_defects(segments: list[Segment]) -> int:
     )
 
 
+def _dot_sign(
+    origin: Point,
+    toward: Point,
+    point: Point,
+    budget: ExactWorkBudgetV1 | None,
+) -> int:
+    """Знак `(point - origin) . (toward - origin)`: по какую сторону от `origin`."""
+
+    value = SqrtSumV1.zero()
+    for axis in (0, 1):
+        value = value + (point[axis] - origin[axis]) * (toward[axis] - origin[axis])
+    return value.sign(budget=budget)
+
+
+@dataclass(frozen=True, slots=True)
+class RegionBoundaryV1:
+    """Рёбра границы области и точный ответ «отрезок лежит на одном из них».
+
+    Рёбра — ВСЕ рёбра всех петель, стены тоже: сегмент без парной грани есть
+    опорное ребро грани либо дуга вдоль стены, и лежит он на ребре границы.
+    Предикат точный: коллинеарность двумя знаками ориентации и вложенность
+    двумя знаками скалярного произведения (`SqrtSumV1`, под бюджетом
+    транзакции), порогов и допусков нет. Ответ по паре ключей запоминается:
+    одни и те же сегменты стоят во множестве комбинаций, а спрашивать про них
+    точные знаки заново означало бы платить за каждую комбинацию.
+    """
+
+    edges: tuple[tuple[Point, Point], ...]
+    work_budget: ExactWorkBudgetV1 | None = field(default=None, compare=False)
+    memory: dict[tuple[PointKey, PointKey], bool] = field(
+        default_factory=dict, compare=False, repr=False
+    )
+
+    @staticmethod
+    def of(
+        polygon: PolygonV1, work_budget: ExactWorkBudgetV1 | None = None
+    ) -> "RegionBoundaryV1":
+        edges = []
+        for start, end, _ in polygon.edges():
+            if start != end:
+                edges.append(
+                    (
+                        (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
+                        (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
+                    )
+                )
+        return RegionBoundaryV1(tuple(edges), work_budget)
+
+    def holds(self, first: PointKey, second: PointKey) -> bool:
+        """Отрезок `first -> second` целиком лежит на одном ребре границы."""
+
+        known = self.memory.get((first, second))
+        if known is not None:
+            return known
+        ends = tuple(
+            (SqrtSumV1(point[0]), SqrtSumV1(point[1])) for point in (first, second)
+        )
+        budget = self.work_budget
+        answer = False
+        for start, end in self.edges:
+            if any(orientation(start, end, item, budget) for item in ends):
+                continue
+            if all(
+                _dot_sign(start, end, item, budget) >= 0
+                and _dot_sign(end, start, item, budget) >= 0
+                for item in ends
+            ):
+                answer = True
+                break
+        self.memory[(first, second)] = answer
+        return answer
+
+
+def unpaired_off_boundary(
+    segments: list[Segment], boundary: RegionBoundaryV1
+) -> int:
+    """ГРАНИЦА 4, вторая половина: сегменты без парной грани вне границы области.
+
+    Сегмент, встречного которому нет в комбинации, обязан лежать на ребре
+    границы области. `pairing_defects` этого не видит: признак «не стена» она
+    берёт из ключей участников, и неверный путь, чьи сегменты без пары
+    объявлены стеной, прошёл бы молча. Здесь тот же вопрос задан ГЕОМЕТРИЕЙ.
+    Ноль — вторая половина границы держится.
+    """
+
+    present = {(first, second) for first, second, _ in segments}
+    return sum(
+        1
+        for first, second, _ in segments
+        if (second, first) not in present and not boundary.holds(first, second)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _Variant:
     """Один путь head -> tail грани ветки `crowded`: готовая грань и её сегменты."""
@@ -953,12 +1058,14 @@ def settle_crowded(
     fixed_total: SqrtSumV1,
     fixed_segments: list[Segment],
     polygon_doubled_area: int,
+    boundary: RegionBoundaryV1,
 ) -> tuple[tuple[_Variant, ...] | None, tuple[FaceOutcome, str] | None, int]:
     """Выбор комбинации путей по всем граням ветки: (выбор, отказ, число проб).
 
-    Комбинация допустима, когда в ней одновременно выполнены граница 4
-    (`pairing_defects` по ВСЕМ граням области, а не только по ветке) и
-    тождество площади. Ровно одна допустимая — выбор. Несколько либо потолок —
+    Комбинация допустима, когда в ней одновременно выполнены ОБЕ половины
+    границы 4 (`pairing_defects` и `unpaired_off_boundary` по ВСЕМ граням
+    области, а не только по ветке) и тождество площади. Ровно одна допустимая —
+    выбор. Несколько либо потолок —
     `FACE_CHAIN_AMBIGUOUS`. Ни одной — прежний отказ `FACE_CHAIN_DOES_NOT_CLOSE` с
     прежним текстом первой грани ветки и числами перебора в хвосте.
     """
@@ -988,27 +1095,28 @@ def settle_crowded(
             f"пространство {space}",
         ), 0
     polygon_area = SqrtSumV1.rational(polygon_doubled_area)
-    paired = exact = 0
+    paired = bounded = exact = 0
     admissible: list[tuple[_Variant, ...]] = []
     tried = 0
     for combination in product(*(item.variants for item in pending)):
         tried += 1
-        defects = pairing_defects(
-            fixed_segments
-            + [segment for item in combination for segment in item.segments]
-        )
+        every = fixed_segments + [
+            segment for item in combination for segment in item.segments
+        ]
         total = fixed_total
         for item in combination:
             total = total + item.face.doubled_area
-        by_pairing = defects == 0
+        by_pairing = pairing_defects(every) == 0
+        by_boundary = unpaired_off_boundary(every, boundary) == 0
         by_area = (total - polygon_area).is_zero
         paired += by_pairing
+        bounded += by_boundary
         exact += by_area
-        if by_pairing and by_area:
+        if by_pairing and by_boundary and by_area:
             admissible.append(combination)
     tally = (
-        f"комбинаций {tried}, по парности {paired}, по площади {exact}, "
-        f"обеих {len(admissible)}"
+        f"комбинаций {tried}, по парности {paired}, по границе области "
+        f"{bounded}, по площади {exact}, допустимых {len(admissible)}"
     )
     if len(admissible) == 1:
         return admissible[0], None, tried
@@ -1101,8 +1209,11 @@ def _collect_slots(
 
     Возвращает слоты В ПОРЯДКЕ РЁБЕР, список граней ветки, цепочки готовых граней
     (для сегментов границы 4) и первый отказ. Первым в порядке рёбер отказавшее
-    ребро и называется: если ему предшествовала грань ветки, отвечает она, как
-    отвечала до перебора.
+    ребро и называется. Если ему предшествовала грань ветки, ИСХОД прежний
+    (`FACE_CHAIN_DOES_NOT_CLOSE`) и `detail` по-прежнему НАЧИНАЕТСЯ с грани
+    ветки, но дальше в нём стоит собственная причина позднего ребра и его
+    собственный исход: прежний текст прятал её за гранью ветки, и отказ
+    `FACE_HAS_NO_SKELETON_NODE` читался как отказ цепочки.
     """
 
     slots: list[FaceV1 | _CrowdedFace] = []
@@ -1145,7 +1256,11 @@ def _collect_slots(
                 f"ребро {start} -> {end}: {why}",
             )
         if pending:
-            refusal = (FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE, pending[0].why)
+            refusal = (
+                FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE,
+                f"{pending[0].why}; затем отказ другого ребра "
+                f"({refusal[0].value}): {refusal[1]}",
+            )
         return slots, pending, fixed, refusal
     return slots, pending, fixed, None
 
@@ -1157,6 +1272,7 @@ def _resolve_crowded(
     neighbours: dict[EdgeKey, tuple[EdgeKey, EdgeKey]],
     faced: frozenset[EdgeKey],
     polygon_area: int,
+    boundary: RegionBoundaryV1,
 ) -> tuple[list[FaceV1] | None, tuple[FaceOutcome, str] | None, CrowdedChainsV1]:
     """Грани ветки `crowded` заменены выбранными путями: (грани, отказ, счётчики)."""
 
@@ -1172,7 +1288,9 @@ def _resolve_crowded(
                 key, ready[key].points, chain, previous, following, faced
             )
         )
-    chosen, refusal, tried = settle_crowded(pending, total, segments, polygon_area)
+    chosen, refusal, tried = settle_crowded(
+        pending, total, segments, polygon_area, boundary
+    )
     trace = CrowdedChainsV1(
         len(pending),
         sum(item.paths for item in pending),
@@ -1248,7 +1366,8 @@ def build_faces_traced(
     trace = untouched
     if pending:
         resolved, refusal, trace = _resolve_crowded(
-            slots, pending, fixed, neighbours, faced, polygon_area
+            slots, pending, fixed, neighbours, faced, polygon_area,
+            RegionBoundaryV1.of(polygon, work_budget),
         )
         if resolved is None:
             assert refusal is not None
