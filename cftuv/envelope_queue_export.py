@@ -136,6 +136,9 @@ POOL_WORKERS = "ENVELOPE_DOMAIN_POOL_WORKERS"
 POOL_DISPATCHED = "ENVELOPE_DOMAIN_POOL_DISPATCHED"
 POOL_TASK_FALLBACK = "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
 POOL_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
+#: Сколько из отправленных задач — ТОЛЬКО покрытие готовой подготовки из кэша
+#: сессии (подготовку воркеру не считают, её шлют). Остальные — домен целиком.
+POOL_COVERAGE_DISPATCHED = "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED"
 POOL_WALL_STAGE = "QUEUE_POOL_WALL"
 
 # Счётчик переполнения палитры. Девятый владелец получает слот первого, и это
@@ -1285,7 +1288,7 @@ def run_queue_domain(
         reset_factorization_memory,
         reset_unbudgeted_work,
     )
-    from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
+    from cftuv_envelope.wavefront import prepare_conveyor
 
     reset_factorization_memory()
     reset_unbudgeted_work()
@@ -1303,17 +1306,56 @@ def run_queue_domain(
             )
     prepare_seconds = time.perf_counter() - started
 
+    return prepared, cover_prepared(
+        patch_id,
+        patch_domain_id,
+        prepared,
+        alpha_text,
+        prepare_seconds=prepare_seconds,
+        profile=profile,
+    )
+
+
+def cover_prepared(
+    patch_id: int,
+    patch_domain_id: str,
+    prepared,
+    alpha_text: str,
+    *,
+    prepare_seconds: float = 0.0,
+    profile=None,
+    reset_memory: bool = False,
+) -> EnvelopeQueueDomainV1:
+    """Покрытие на готовой подготовке и запись хоста: общий кусок всех путей.
+
+    Его зовут кнопка (`run_queue_domain`), ползунок (`recompute_queue_coverage`)
+    и воркер пула, которому подготовку прислали (`solve_coverage_task`), —
+    поэтому размещение не меняет ответ: код один. `reset_memory` — режим кнопки:
+    память разложений сбрасывается перед доменом, чтобы статьи бюджета не
+    зависели от истории процесса (`run_queue_domain` сбрасывает её сам, до
+    подготовки, и флаг не передаёт; ползунок её не сбрасывает вовсе).
+    """
+
+    from cftuv_envelope.wavefront import conveyor_coverage
+
+    if reset_memory:
+        from cftuv_envelope.exact_sqrt_sum import (
+            reset_factorization_memory,
+            reset_unbudgeted_work,
+        )
+
+        reset_factorization_memory()
+        reset_unbudgeted_work()
     started = time.perf_counter()
     with _measure(profile, "QUEUE_COVERAGE", patch_domain_id):
         coverage = conveyor_coverage(prepared, alpha_text)
     coverage_seconds = time.perf_counter() - started
-
     builder = (
         build_queue_domain
         if coverage.outcome.value == "EXACT"
         else refused_queue_domain
     )
-    return prepared, replace(
+    return replace(
         builder(
             patch_id,
             patch_domain_id,
@@ -1331,40 +1373,43 @@ def recompute_queue_coverage(
     alpha_text: str,
     *,
     profile=None,
+    coverage_pool=None,
 ) -> EnvelopeQueueSceneV1:
     """Лёгкий путь ползунка: только покрытие на ГОТОВЫХ подготовках.
 
     `entries` — `(patch_id, patch_domain_id, prepared)`. Ни `prepare_conveyor`,
     ни компиляция плана здесь не вызываются: подготовка alpha-независима, и это
     измерено ядром побитовым совпадением скелета при 0.25 и 0.5.
+
+    `coverage_pool` (`SliderCoveragePool`) считает покрытие воркерами: домены,
+    которых он не вернул (малая партия, отказ задачи), считаются здесь, тем же
+    `cover_prepared`. Подготовку запись домена берёт у вызывающего: воркеру её
+    не возвращают.
     """
 
-    from cftuv_envelope.wavefront import conveyor_coverage
-
+    entries = tuple(entries)
+    pooled = (
+        {} if coverage_pool is None else coverage_pool.cover(entries, alpha_text)
+    )
     domains = []
     for patch_id, patch_domain_id, prepared in entries:
-        started = time.perf_counter()
-        with _measure(profile, "QUEUE_COVERAGE", patch_domain_id):
-            coverage = conveyor_coverage(prepared, alpha_text)
-        coverage_seconds = time.perf_counter() - started
-        builder = (
-            build_queue_domain
-            if coverage.outcome.value == "EXACT"
-            else refused_queue_domain
-        )
-        domains.append(
-            replace(
-                builder(
+        done = pooled.get(patch_domain_id)
+        if done is None:
+            domains.append(
+                cover_prepared(
                     patch_id,
                     patch_domain_id,
                     prepared,
-                    coverage,
-                    prepare_seconds=0.0,
-                    coverage_seconds=coverage_seconds,
-                ),
-                preparation=prepared,
+                    alpha_text,
+                    profile=profile,
+                )
             )
-        )
+            continue
+        if profile is not None:
+            profile.add_timing(
+                "QUEUE_COVERAGE", done.coverage_seconds, patch_domain_id
+            )
+        domains.append(replace(done, preparation=prepared))
     return build_queue_scene(domains)
 
 
@@ -1485,7 +1530,8 @@ def evaluate_envelope_queue_staged(
     domain_snapshot_provider=None,
     preparation_provider=None,
     domain_pool=None,
-    preparation_cached=None,
+    cached_preparation=None,
+    preparation_blobs=None,
     preparation_adopter=None,
     export_provider=None,
     export_adopter=None,
@@ -1498,14 +1544,12 @@ def evaluate_envelope_queue_staged(
     общего кода нет вовсе: `evaluate_reference_raw_coverage` и
     `resolve_coverage_interactions` здесь не вызываются ни разу.
 
-    С `domain_pool` домены, которых нет в кэше подготовок, считаются воркерами
-    ВМЕСТЕ (фазы A и B: `stage_pool_domains`), а цикл ниже только собирает
+    С `domain_pool` домены считаются воркерами ВМЕСТЕ (фазы A и B:
+    `stage_pool_domains`; хуки кэшей описаны там), а цикл ниже только собирает
     ответы — прежний последовательный путь остаётся единственным, по которому
-    домен досчитывается при любом отказе пула. `preparation_cached(domain_id,
-    selected_edges, request)` отвечает, есть ли подготовка в кэше сессии, а
-    `preparation_adopter(patch_id, domain_id, selected_edges, request,
-    prepared)` кладёт в него подготовку воркера; `export_provider` и
-    `export_adopter` — то же для выгрузки снапшота (`stage_pool_domains`).
+    домен досчитывается при любом отказе пула. `preparation_adopter(patch_id,
+    domain_id, selected_edges, request, prepared)` кладёт в кэш сессии
+    подготовку воркера.
     """
 
     from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -1559,7 +1603,8 @@ def evaluate_envelope_queue_staged(
             profile=profile,
             topology_export=topology_export,
             domain_snapshot_provider=domain_snapshot_provider,
-            preparation_cached=preparation_cached,
+            cached_preparation=cached_preparation,
+            preparation_blobs=preparation_blobs,
             export_provider=export_provider,
             export_adopter=export_adopter,
         )
@@ -1703,9 +1748,11 @@ def _queue_domain_evaluation(
             patch_id,
             domain_id,
             selected_edges,
+            snapshot,
             request,
             profile,
             preparation_adopter,
+            preparation_provider,
         )
     return _queue_domain_result(
         kernel,
@@ -1853,6 +1900,7 @@ __all__ = (
     "EnvelopeQueueSceneV1",
     "EnvelopeQueueSegmentV1",
     "HOST_CONTOUR_COUNTERS",
+    "POOL_COVERAGE_DISPATCHED",
     "POOL_DISPATCHED",
     "POOL_TASK_FALLBACK",
     "POOL_UNAVAILABLE",
@@ -1871,6 +1919,7 @@ __all__ = (
     "build_queue_domain",
     "build_queue_palette",
     "build_queue_scene",
+    "cover_prepared",
     "evaluate_envelope_queue_staged",
     "load_queue_kernel",
     "merge_same_chain_faces",

@@ -8,7 +8,9 @@
 геометрии: он пересылает готовую задачу и возвращает готовый ответ. Задача
 может нести и выгрузку снапшота домена (`DomainTaskV1.export`, см.
 `envelope_export_input`): воркер выгружает `(snapshot, request)` сам, тем же
-кодом, что и хост, и возвращает снапшот вместе с ответом.
+кодом, что и хост, и возвращает снапшот вместе с ответом. Либо только покрытие
+готовой подготовки (`DomainTaskV1.coverage`, см. `envelope_queue_pool`): ей
+воркер получает пикл подготовки и возвращает запись домена без неё.
 
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
@@ -64,6 +66,14 @@ DRAIN_TIMEOUT_SECONDS = 1.0
 #: порядок задач от точности не зависит.
 EXPORT_FRAME_COST_SCALE = 5
 
+#: Во сколько раз кадр «только покрытие» (пикл подготовки) стоит МЕНЬШЕ снапшота
+#: того же размера. Покрытие самого тяжёлого домена `building` — 2 с против ~20 с
+#: полного решения при пикле 357 КБ и снапшоте ~83 КБ, то есть ~1/40 за байт;
+#: округлено до степени двойки, чтобы произведение с длиной кадра было точным.
+#: Нужна только смешанной партии (часть доменов в кэше подготовок, часть нет);
+#: порядок меняет стену, но не ответ.
+COVERAGE_FRAME_COST_DIVISOR = 32
+
 # Запускается как `python -u -c`. Пакет хоста поднимается по файлу под ТЕМ ЖЕ
 # именем, под которым он загружен у родителя: в Blender 4.2+ это
 # `bl_ext.<репозиторий>.<id>`, которого нет ни в каком `sys.path`, и pickle
@@ -99,6 +109,10 @@ class DomainTaskV1:
     `export` (`HostExportInputV1`) — домен, чей снапшот в кэше метрики сессии
     отсутствует: воркер выгружает `(snapshot, request)` сам, и `snapshot` с
     `request` тогда `None`. Иначе оба пришли готовыми из родителя.
+
+    `coverage` (`CoverageInputV1`) — домен, чья подготовка уже лежит в кэше
+    сессии: воркер считает только покрытие и запись хоста, а `snapshot` с
+    `request` тогда `None`.
     """
 
     task_id: int
@@ -109,6 +123,7 @@ class DomainTaskV1:
     alpha_text: str
     selected_edges: frozenset
     export: object | None = None
+    coverage: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,18 +225,22 @@ def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
     Задача с выгрузкой в воркере шлёт лёгкий вход вместо снапшота, и кадр её
     в `EXPORT_FRAME_COST_SCALE` раз меньше: цена приводится к единицам снапшота,
     иначе прогон, где часть доменов в кэше метрики, ставил бы тяжёлый домен с
-    готовым снапшотом перед ещё более тяжёлым, которого кадр прячет.
+    готовым снапшотом перед ещё более тяжёлым, которого кадр прячет. Кадр с
+    пиклом подготовки, наоборот, тяжелее своей работы (`COVERAGE_FRAME_COST_
+    DIVISOR`).
     """
 
     framed = [(task, encode_frame(task)) for task in tasks]
-    framed.sort(
-        key=lambda item: (
-            -len(item[1])
-            * (EXPORT_FRAME_COST_SCALE if item[0].export is not None else 1),
-            item[0].task_id,
-        )
-    )
+    framed.sort(key=lambda item: (-_frame_cost(*item), item[0].task_id))
     return framed
+
+
+def _frame_cost(task: DomainTaskV1, frame: bytes) -> float:
+    if task.export is not None:
+        return len(frame) * EXPORT_FRAME_COST_SCALE
+    if task.coverage is not None:
+        return len(frame) / COVERAGE_FRAME_COST_DIVISOR
+    return float(len(frame))
 
 
 # --------------------------------------------------------------------------
@@ -242,6 +261,10 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
             from .envelope_export_input import solve_exported_task
 
             return solve_exported_task(task)
+        if task.coverage is not None:
+            from .envelope_queue_pool import solve_coverage_task
+
+            return solve_coverage_task(task)
         from .envelope_queue_export import run_queue_domain
 
         prepared, domain = run_queue_domain(
@@ -288,6 +311,8 @@ def worker_main() -> None:
     ).LIVE_STAGE_TRACE = False
     load_queue_kernel()
     load_export_modules()
+    # Склейка покрытия поднимается до «готов», а не на первой задаче.
+    importlib.import_module(".envelope_queue_pool", __package__)
     write_frame(channel, ("ready", os.getpid()))
     while True:
         task = read_frame(source)
@@ -584,6 +609,22 @@ def get_domain_pool(workers: int) -> DomainPool | None:
         return _POOL
 
 
+def peek_domain_pool(workers: int) -> DomainPool | None:
+    """Живой общий пул на `workers` воркеров либо `None`; пул не заводит.
+
+    Ползунок alpha не имеет права стартовать воркеров посреди перетаскивания
+    (старт — секунды): он пользуется пулом, который кнопка уже подняла, и
+    только им. Пул с погибшими воркерами не «живой»: его воскрешает кнопка.
+    """
+
+    requested = int(workers)
+    with _POOL_LOCK:
+        pool = _POOL
+        if pool is None or pool.requested != requested:
+            return None
+        return pool if pool.worker_count else None
+
+
 def shutdown_domain_pool() -> None:
     global _POOL
     with _POOL_LOCK:
@@ -603,6 +644,7 @@ __all__ = (
     "encode_frame",
     "get_domain_pool",
     "order_by_cost",
+    "peek_domain_pool",
     "read_frame",
     "resolve_python_executable",
     "shutdown_domain_pool",
