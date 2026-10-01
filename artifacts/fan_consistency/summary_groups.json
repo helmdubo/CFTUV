@@ -1,0 +1,1127 @@
+{
+ "2/d1": [
+  {
+   "count": 21,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 15,
+    "eval_turn_deg": 89.99958100730242
+   }
+  },
+  {
+   "count": 15,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 23,
+    "eval_turn_deg": 90.00041899269758
+   }
+  },
+  {
+   "count": 12,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 2,
+    "vertex": 85,
+    "eval_turn_deg": -90.0
+   }
+  }
+ ],
+ "2/d2": [
+  {
+   "count": 21,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 24,
+    "eval_turn_deg": 89.99958100730242
+   }
+  },
+  {
+   "count": 15,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=2",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 80,
+    "eval_turn_deg": 90.00041899269758
+   }
+  },
+  {
+   "count": 12,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 2,
+    "vertex": 85,
+    "eval_turn_deg": -90.0
+   }
+  }
+ ],
+ "2/d4": [
+  {
+   "count": 21,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 24,
+    "eval_turn_deg": 89.99958100730242
+   }
+  },
+  {
+   "count": 15,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=2",
+    "specH=3",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 74,
+    "eval_turn_deg": 90.00041899269758
+   }
+  },
+  {
+   "count": 12,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=2",
+    "specH=3",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 2,
+    "vertex": 85,
+    "eval_turn_deg": -90.0
+   }
+  }
+ ],
+ "building.002/d1": [
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~117",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 1
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~128",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 8
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~63",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 2
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~76",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  }
+ ],
+ "building.002/d2": [
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~117",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 1
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~128",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 8
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~63",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 2
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~76",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  }
+ ],
+ "building.002/d4": [
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~117",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 1
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~128",
+    "specH=4",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 8
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~63",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 2
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~76",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  }
+ ],
+ "building/d1": [
+  {
+   "count": 69,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 322,
+    "eval_turn_deg": -90.00035546140842
+   }
+  },
+  {
+   "count": 62,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 4,
+    "eval_turn_deg": -89.99964453859158
+   }
+  },
+  {
+   "count": 36,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 3,
+    "vertex": 38,
+    "eval_turn_deg": 90.0
+   }
+  },
+  {
+   "count": 6,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 311,
+    "eval_turn_deg": -90.02689080589013
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "RAW_BELOW+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 58,
+    "eval_turn_deg": -89.97187113486113
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 105,
+    "vertex": 204
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 155
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~108",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 146
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~72",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 147
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~88",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 271
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~89",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 17,
+    "vertex": 134
+   }
+  }
+ ],
+ "building/d2": [
+  {
+   "count": 69,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=2",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 326,
+    "eval_turn_deg": -90.00050290051436
+   }
+  },
+  {
+   "count": 62,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 4,
+    "eval_turn_deg": -89.99964453859158
+   }
+  },
+  {
+   "count": 36,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 3,
+    "vertex": 38,
+    "eval_turn_deg": 90.0
+   }
+  },
+  {
+   "count": 6,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 311,
+    "eval_turn_deg": -90.02689080589013
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "RAW_BELOW+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 58,
+    "eval_turn_deg": -89.97187113486113
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 105,
+    "vertex": 204
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 155
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~108",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 146
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~72",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 147
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~88",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 271
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~89",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 17,
+    "vertex": 134
+   }
+  }
+ ],
+ "building/d4": [
+  {
+   "count": 69,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=2",
+    "specH=3",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 322,
+    "eval_turn_deg": -90.00035546140842
+   }
+  },
+  {
+   "count": 62,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 327,
+    "eval_turn_deg": -89.99964453859158
+   }
+  },
+  {
+   "count": 36,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_EXACT_90",
+    "selH=2",
+    "specH=3",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 3,
+    "vertex": 120,
+    "eval_turn_deg": 90.0
+   }
+  },
+  {
+   "count": 6,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=3",
+    "specH=3",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 311,
+    "eval_turn_deg": -90.02689080589013
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "RAW_BELOW+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_BELOW_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 6,
+    "vertex": 58,
+    "eval_turn_deg": -89.97187113486113
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 105,
+    "vertex": 204
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 155
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~108",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 146
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~72",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 10,
+    "vertex": 147
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~88",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 11,
+    "vertex": 271
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~89",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 17,
+    "vertex": 134
+   }
+  }
+ ],
+ "building.004/d1": [
+  {
+   "count": 3,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 4,
+    "vertex": 20,
+    "eval_turn_deg": -90.01641027090447
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=1",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 5,
+    "vertex": 24
+   }
+  }
+ ],
+ "building.004/d2": [
+  {
+   "count": 3,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 4,
+    "vertex": 22,
+    "eval_turn_deg": -90.40651049999006
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=2",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 5,
+    "vertex": 24
+   }
+  }
+ ],
+ "building.004/d4": [
+  {
+   "count": 3,
+   "key": [
+    "RAW_ABOVE+NOT_RESTORED",
+    "SRC_NOT_EXACT",
+    "EVAL_ABOVE_90",
+    "selH=3",
+    "specH=3",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 4,
+    "vertex": 22,
+    "eval_turn_deg": -90.40651049999006
+   }
+  },
+  {
+   "count": 2,
+   "key": [
+    "NON_RIGHT",
+    "turn~91",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 11
+   }
+  },
+  {
+   "count": 1,
+   "key": [
+    "NON_RIGHT",
+    "turn~92",
+    "specH=3",
+    "lift=-"
+   ],
+   "example": {
+    "patch": 5,
+    "vertex": 24
+   }
+  }
+ ],
+ "2.001/d1": [
+  {
+   "count": 7,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 30,
+    "eval_turn_deg": -89.99942423344305
+   }
+  },
+  {
+   "count": 5,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 23,
+    "eval_turn_deg": -90.00057576655695
+   }
+  }
+ ],
+ "2.001/d2": [
+  {
+   "count": 7,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=1",
+    "specH=1",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=1",
+    "part_faces=1"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 3,
+    "eval_turn_deg": -89.99942423344305
+   }
+  },
+  {
+   "count": 5,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=1",
+    "specH=2",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 23,
+    "eval_turn_deg": -90.00057576655695
+   }
+  }
+ ],
+ "2.001/d4": [
+  {
+   "count": 7,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_BELOW_90",
+    "selH=2",
+    "specH=2",
+    "lift=-",
+    "canon_auth=N",
+    "cov_faces=2",
+    "part_faces=2"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 29,
+    "eval_turn_deg": -89.99911461373264
+   }
+  },
+  {
+   "count": 5,
+   "key": [
+    "RAW_EXACT_90",
+    "SRC_EXACT_90",
+    "EVAL_ABOVE_90",
+    "selH=2",
+    "specH=3",
+    "lift=EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+    "canon_auth=N",
+    "cov_faces=3",
+    "part_faces=3"
+   ],
+   "example": {
+    "patch": 0,
+    "vertex": 14,
+    "eval_turn_deg": -90.00057576655695
+   }
+  }
+ ]
+}

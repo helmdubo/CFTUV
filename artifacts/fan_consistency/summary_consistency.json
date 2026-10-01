@@ -1,0 +1,248 @@
+{
+ "2/d0": {
+  "H_histogram": {
+   "1": 48
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 15
+   },
+   "EVAL_BELOW_90": {
+    "1": 21
+   },
+   "EVAL_EXACT_90": {
+    "1": 12
+   }
+  },
+  "consistent": true
+ },
+ "2/d1": {
+  "H_histogram": {
+   "1": 48
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 15
+   },
+   "EVAL_BELOW_90": {
+    "1": 21
+   },
+   "EVAL_EXACT_90": {
+    "1": 12
+   }
+  },
+  "consistent": true
+ },
+ "2/d2": {
+  "H_histogram": {
+   "1": 33,
+   "2": 15
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 15
+   },
+   "EVAL_BELOW_90": {
+    "1": 21
+   },
+   "EVAL_EXACT_90": {
+    "1": 12
+   }
+  },
+  "consistent": false
+ },
+ "2/d3": {
+  "H_histogram": {
+   "2": 48
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 15
+   },
+   "EVAL_BELOW_90": {
+    "2": 21
+   },
+   "EVAL_EXACT_90": {
+    "2": 12
+   }
+  },
+  "consistent": true
+ },
+ "2/d4": {
+  "H_histogram": {
+   "2": 21,
+   "3": 27
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "3": 15
+   },
+   "EVAL_BELOW_90": {
+    "2": 21
+   },
+   "EVAL_EXACT_90": {
+    "3": 12
+   }
+  },
+  "consistent": false
+ },
+ "building/d0": {
+  "H_histogram": {
+   "1": 167
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 69
+   },
+   "EVAL_BELOW_90": {
+    "1": 62
+   },
+   "EVAL_EXACT_90": {
+    "1": 36
+   }
+  },
+  "consistent": true
+ },
+ "building/d1": {
+  "H_histogram": {
+   "1": 167
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 69
+   },
+   "EVAL_BELOW_90": {
+    "1": 62
+   },
+   "EVAL_EXACT_90": {
+    "1": 36
+   }
+  },
+  "consistent": true
+ },
+ "building/d2": {
+  "H_histogram": {
+   "1": 98,
+   "2": 69
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 69
+   },
+   "EVAL_BELOW_90": {
+    "1": 62
+   },
+   "EVAL_EXACT_90": {
+    "1": 36
+   }
+  },
+  "consistent": false
+ },
+ "building/d3": {
+  "H_histogram": {
+   "2": 167
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 69
+   },
+   "EVAL_BELOW_90": {
+    "2": 62
+   },
+   "EVAL_EXACT_90": {
+    "2": 36
+   }
+  },
+  "consistent": true
+ },
+ "building/d4": {
+  "H_histogram": {
+   "2": 62,
+   "3": 105
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "3": 69
+   },
+   "EVAL_BELOW_90": {
+    "2": 62
+   },
+   "EVAL_EXACT_90": {
+    "3": 36
+   }
+  },
+  "consistent": false
+ },
+ "2.001/d0": {
+  "H_histogram": {
+   "1": 12
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 5
+   },
+   "EVAL_BELOW_90": {
+    "1": 7
+   }
+  },
+  "consistent": true
+ },
+ "2.001/d1": {
+  "H_histogram": {
+   "1": 12
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "1": 5
+   },
+   "EVAL_BELOW_90": {
+    "1": 7
+   }
+  },
+  "consistent": true
+ },
+ "2.001/d2": {
+  "H_histogram": {
+   "1": 7,
+   "2": 5
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 5
+   },
+   "EVAL_BELOW_90": {
+    "1": 7
+   }
+  },
+  "consistent": false
+ },
+ "2.001/d3": {
+  "H_histogram": {
+   "2": 12
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "2": 5
+   },
+   "EVAL_BELOW_90": {
+    "2": 7
+   }
+  },
+  "consistent": true
+ },
+ "2.001/d4": {
+  "H_histogram": {
+   "2": 7,
+   "3": 5
+  },
+  "by_eval_class": {
+   "EVAL_ABOVE_90": {
+    "3": 5
+   },
+   "EVAL_BELOW_90": {
+    "2": 7
+   }
+  },
+  "consistent": false
+ }
+}
