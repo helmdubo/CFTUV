@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
@@ -25,6 +26,7 @@ from pathlib import Path
 
 from mpmath import atan, mp, mpf, pi as mp_pi
 import pytest
+import sympy as sp
 
 import cftuv_envelope as kernel
 from cftuv_envelope import (
@@ -54,6 +56,12 @@ from cftuv_envelope.reference.compile import (
     _density_ideal_is_subturn_feasible,
     _density_spec_with_hidden_count,
 )
+from cftuv_envelope.reference.direction_binding import (
+    density_support_direction_rationality,
+    has_rational_density_support_direction,
+)
+from cftuv_envelope.reference.metric import ExactPlanarMetric
+from cftuv_envelope.reference.planar_types import ExactPlanarVector
 from cftuv_envelope.reference.subturn_exact_limit import (
     ideal_is_exact_limit_with_irrational_direction,
     turn_is_exactly_at_count_limit,
@@ -516,7 +524,7 @@ def test_verifier_refuses_a_limit_claim_on_a_rational_fan_and_off_the_limit():
         return kernel.EvaluationGeometrySubturnCountLiftV1(**base)
 
     # Угол прямой, предел при H=1 настоящий, но луч 45° рационален.
-    with pytest.raises(ValueError, match="only rational hidden directions"):
+    with pytest.raises(ValueError, match="no provably irrational hidden"):
         verify_exact_limit_lift(context, spec, claim())
     # Предел заявлен не на том счёте: при H=0 поворот 90° не равен pi/4 * 1.
     with pytest.raises(ValueError, match="not exactly at the subturn limit"):
@@ -538,6 +546,142 @@ def test_verifier_refuses_a_limit_claim_on_a_rational_fan_and_off_the_limit():
         )
 
 
+def test_lift_predicate_table_covers_every_law():
+    """Новый закон без своей строки таблицы не может появиться тихо."""
+
+    assert set(EVALUATION_SUBTURN_LIFT_PREDICATES) == set(
+        EvaluationGeometrySubturnCountLiftLawV1
+    )
+    assert all(EVALUATION_SUBTURN_LIFT_PREDICATES.values())
+
+
+def _unit_metric():
+    one, zero = sp.Rational(1), sp.Rational(0)
+    return ExactPlanarMetric(((one, zero), (zero, one)), ((one, zero), (zero, one)), 1)
+
+
+_S2, _S3 = sp.sqrt(2), sp.sqrt(3)
+
+_RATIONALITY = (
+    ((1, 2), True),
+    # Нераскрытая запись того же направления: ratio.is_Rational у SymPy здесь
+    # False (признак класса выражения), значение же — ровно 2.
+    ((1 + _S3, 2 + 2 * _S3), True),
+    ((_S2 + _S3, 2 * _S2 + 2 * _S3), True),
+    ((0, 1), True),
+    ((1, _S3), False),
+    ((1 + _S3, 3), False),
+    ((_S3 / 2, sp.Rational(1, 2)), False),
+    # Вне квадратичного поля: ни «да», ни «нет».
+    ((sp.cos(sp.atan2(1, 2) / 3), 1), None),
+)
+
+
+@pytest.mark.parametrize(("direction", "expected"), _RATIONALITY)
+def test_direction_rationality_is_decided_in_the_exact_quadratic_field(
+    direction, expected
+):
+    """Рациональность решается по ЗНАЧЕНИЮ, а не по виду выражения."""
+
+    vector = ExactPlanarVector.from_values(*direction)
+    result = density_support_direction_rationality(_unit_metric(), vector)
+    assert result is expected
+    # Привязка по-прежнему консервативна: нерешённое не называется рациональным.
+    assert has_rational_density_support_direction(_unit_metric(), vector) is (
+        expected is True
+    )
+
+
+def test_rationality_inverts_a_multi_term_sum_and_never_factorizes():
+    """Обратная сумма из трёх классов и радиканд в 30 знаков: без факторизации.
+
+    Решение «в поле» через `SqrtSumV1` требует бесквадратного разложения, то
+    есть неоплаченной факторизации поля; здесь классы различаются проверкой
+    «произведение — полный квадрат», и счётчик неоплаченной работы не движется.
+    """
+
+    from cftuv_envelope import exact_sqrt_sum
+    from cftuv_envelope.reference.radical_rationality import radical_ratio_is_rational
+
+    inverse = sp.Pow(1 + _S2 + _S3, -1, evaluate=False)
+    assert radical_ratio_is_rational(sp.Mul(3, inverse, evaluate=False), inverse) is True
+    assert radical_ratio_is_rational(_S2 * inverse, inverse) is False
+    spent = exact_sqrt_sum.UNBUDGETED_WORK.radical_materializations
+    big = sp.sqrt(10**30 + 57)
+    assert radical_ratio_is_rational(2 * big + 2 * _S3, big + _S3) is True
+    assert radical_ratio_is_rational(big, _S3) is False
+    assert exact_sqrt_sum.UNBUDGETED_WORK.radical_materializations == spent
+
+
+def test_detector_does_not_fire_on_a_rational_direction_in_disguise():
+    """Тугой веер с рациональными лучами в нераскрытой записи не лифтится.
+
+    Повёрнутый на `(1, 2)` прямой угол при `q = 4`: лучи `(1+sqrt 3, 2+2 sqrt 3)`,
+    `(-1-sqrt 3, 3+3 sqrt 3)` — направления `(1, 2)` и `(-1, 3)`. Структурный
+    признак назвал бы биссектрису иррациональной и поднял счёт зря.
+    """
+
+    metric = _unit_metric()
+    ideal = tuple(
+        ExactPlanarVector.from_values(x, y)
+        for x, y in (
+            (1 + _S3, 2 + 2 * _S3),
+            (-1 - _S3, 3 + 3 * _S3),
+            (-(2 + 2 * _S3), 1 + _S3),
+        )
+    )
+    covectors = _covectors(metric, ideal)
+    assert _subturn_boundary(metric, covectors[0], covectors[1], 4)
+    assert not ideal_is_exact_limit_with_irrational_direction(metric, ideal, 4)
+
+
+def test_detector_fires_on_a_genuinely_irrational_limit_fan():
+    metric = _unit_metric()
+    half = sp.Rational(1, 2)
+    ideal = tuple(
+        ExactPlanarVector.from_values(x, y)
+        for x, y in (
+            (1, 0),
+            (_S3 / 2, half),
+            (half, _S3 / 2),
+            (0, 1),
+        )
+    )
+    covectors = _covectors(metric, ideal)
+    assert _subturn_boundary(metric, covectors[0], covectors[1], 6)
+    assert ideal_is_exact_limit_with_irrational_direction(metric, ideal, 6)
+
+
+def test_verifier_recomputes_the_residual_on_the_geometry_not_on_the_record():
+    """Запись, согласованная сама с собой, но не с геометрией, отвергается.
+
+    Угол чуть ниже 90° (`1e-4`): остаток подшага НЕ нуль. Запись заявляет предел
+    при `H = 2`, `q = 6` со знаком ZERO и `cos^2 = 0` — для неё `turn_is_exactly_at_count_limit`
+    верно, и только пересчёт остатка на веере предшественника её ловит.
+    """
+
+    case = _tilted_right_angle("1e-4", "below-right-angle-1e-4")
+    snapshot, compilation, spec = _synthetic(case, 4)
+    context, _ = _context(snapshot, compilation)
+    selection = next(iter(compilation.profile_selection_certificates))
+    claim = kernel.EvaluationGeometrySubturnCountLiftV1(
+        lift_law=EXACT_LIMIT,
+        source_selection_certificate_id=selection.certificate_id,
+        source_hidden_edge_count=2,
+        effective_hidden_edge_count=3,
+        max_subturn_q=6,
+        evaluation_turn_sign=ExactTurnSignV1.ZERO,
+        evaluation_turn_cosine_squared=ExactRatioV1(0, 1),
+        minimality_predecessor_hidden_edge_count=2,
+        proven_predicates=EVALUATION_SUBTURN_LIFT_PREDICATES[EXACT_LIMIT],
+    )
+    assert turn_is_exactly_at_count_limit(
+        claim.evaluation_turn_sign, Fraction(0), 2, 6
+    )
+    with pytest.raises(ValueError, match="residual is not exactly zero"):
+        verify_exact_limit_lift(context, spec, claim)
+
+
 def _density_1_inputs():
     folder = Path(__file__).resolve().parents[1] / "fixtures" / "building_002_full_selection_v1"
     snapshot = kernel.AnalysisSnapshotCodecV1.loads(
@@ -555,6 +699,30 @@ def _density_1_inputs():
         max_subturn_value_id=MaxSubturnValueId.LINEAR_REFLEX_DENSITY_1_V1,
         max_subturn_exact_value=ExactAngleV1(ExactAngleSymbol.PI_OVER_3),
     )
+
+
+def test_box_refinement_exhaustion_name_survives_an_undecided_limit_hint(monkeypatch):
+    """Подсказка в сообщении не заменяет имя отказа, даже если сама не решена."""
+
+    original = adaptive_density_fan._subturn_boundary
+
+    def undecided(*args, **kwargs):
+        # Не решён только вопрос подсказки в сообщении; остальным вызовам
+        # (признак «на пределе» в компиляции) предикат отвечает как обычно.
+        if sys._getframe(1).f_code.co_name != "_termination_boxes":
+            return original(*args, **kwargs)
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE, "hint"
+        )
+
+    monkeypatch.setattr(
+        adaptive_density_fan, "_box_is_feasible", lambda *args, **kwargs: False
+    )
+    monkeypatch.setattr(adaptive_density_fan, "_subturn_boundary", undecided)
+    snapshot, request = _load("building_patch3", 4)
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED
+    assert "subturn limit: undecided" in result.diagnostics[0].message
 
 
 @pytest.mark.parametrize("route", ("lifted_fan", "binding_fallback"))

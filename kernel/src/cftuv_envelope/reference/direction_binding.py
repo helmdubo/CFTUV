@@ -30,6 +30,7 @@ from .direction_window_exact import (
     _interval_product,
 )
 from .metric import ExactPlanarMetric, _floor_exact
+from .radical_rationality import radical_ratio_is_rational
 from .planar_types import (
     CertifiedPredicateUndecidable,
     ExactPlanarVector,
@@ -714,11 +715,23 @@ def has_rational_support_direction(
     return _primitive_direction(metric.support_covector_g(unit_normal)) is not None
 
 
-def has_rational_density_support_direction(
+def density_support_direction_rationality(
     metric: ExactPlanarMetric,
     unit_normal: ExactPlanarVector,
-) -> bool:
-    """Projective rationality Density-ковектора без materialized factor."""
+) -> bool | None:
+    """Рациональна ли проективная запись Density-ковектора: ТОЧНО или «не решено».
+
+    `True` / `False` — решение в точном поле корней из рациональных
+    (`radical_rationality`, без факторизации и потому без неоплаченной
+    работы), а не по виду выражения: `(1 + sqrt 3, 2 + 2 sqrt 3)` — направление
+    `(1, 2)`, хотя `ratio.is_Rational` у SymPy для него `False` (признак класса
+    выражения, не значения).
+
+    `None` — выражение вне поля (нераскрытый `cos`/`sin` угла, корень из
+    суммы): оно не называется ни рациональным, ни иррациональным. Потребитель,
+    которому нужна ДОКАЗАННАЯ иррациональность (лифт «на пределе»), на `None`
+    не срабатывает.
+    """
 
     from .angular import _density_exact_sign
 
@@ -728,13 +741,18 @@ def has_rational_density_support_direction(
     covector_y = gram[1][0] * x + gram[1][1] * y
     if _density_exact_sign(covector_x, metric) == 0:
         return _density_exact_sign(covector_y, metric) != 0
-    ratio = covector_y / covector_x
-    rationality = ratio.is_Rational
-    if rationality is not None:
-        return rationality is True
-    # `cancel` нужен только когда SymPy не смог доказать класс исходного
-    # exact-отношения; доказанные True/False уже являются той же властью.
-    return sp.cancel(ratio).is_Rational is True
+    if (covector_y / covector_x).is_Rational:
+        return True
+    return radical_ratio_is_rational(covector_y, covector_x)
+
+
+def has_rational_density_support_direction(
+    metric: ExactPlanarMetric,
+    unit_normal: ExactPlanarVector,
+) -> bool:
+    """Доказанно ли направление Density-ковектора рациональным (иначе — привязка)."""
+
+    return density_support_direction_rationality(metric, unit_normal) is True
 
 
 def certify_direction_bindings(

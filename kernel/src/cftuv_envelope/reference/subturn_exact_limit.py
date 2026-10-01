@@ -11,11 +11,14 @@ Ideal-веер Huber равношаговый. Если его подшаг РО
 прежде такой веер доходил до `_termination_boxes`, где ящик вокруг точки
 сжимался 96 раз и отказывал, не называя причины.
 
-Признак — НЕ допуск. Две половины условия (остаток ровно нуль, луч не
-рационален) решаются точной арифметикой, и ни одной из них нельзя заменить
-сравнением «почти». Рациональный веер на пределе — осуществим: его точка
-рациональна, и этот случай признак НЕ срабатывает (`needs_binding` ему не
-нужен, и ответ прежний).
+Признак — НЕ допуск. Две половины условия (остаток ровно нуль, луч
+ДОКАЗАННО иррационален) решаются точной арифметикой, и ни одной из них нельзя
+заменить сравнением «почти». Иррациональность — доказанная в точном
+квадратичном поле (`density_support_direction_rationality`), а не «не похоже
+на дробь»: `(1 + sqrt 3, 2 + 2 sqrt 3)` — направление `(1, 2)`. Луч вне поля
+(`None`) иррациональным не назван, и признак на нём не срабатывает. Рациональный
+веер на пределе — осуществим: его точка рациональна, и этот случай признак НЕ
+срабатывает (`needs_binding` ему не нужен, и ответ прежний).
 
 Следствие для лифта (`_evaluation_density_spec`): счёт на пределе с
 иррациональным лучом считается неосуществимым, и существующий лифт доходит до
@@ -55,7 +58,7 @@ def ideal_is_exact_limit_with_irrational_direction(
     """
 
     from .adaptive_density_fan import _covectors, _subturn_boundary
-    from .direction_binding import has_rational_density_support_direction
+    from .direction_binding import density_support_direction_rationality
 
     if len(ideal) < 3:
         return False
@@ -63,7 +66,7 @@ def ideal_is_exact_limit_with_irrational_direction(
     if not _subturn_boundary(metric, covectors[0], covectors[1], q):
         return False
     return any(
-        not has_rational_density_support_direction(metric, ideal[index])
+        density_support_direction_rationality(metric, ideal[index]) is False
         for index in range(1, len(ideal) - 1)
     )
 
@@ -180,9 +183,12 @@ def verify_exact_limit_lift(
 ) -> None:
     """Независимо проверить обе половины предела на предшествующем счёте.
 
-    Считается по геометрии вычисления контекста, а не по записи: знак и `cos^2`
-    записи сверяются отдельно (общая часть `_verify_evaluation_subturn_count_lift`),
-    а здесь они лишь читаются. Веер предшествующего счёта строится СЫРЫМ
+    ОБЕ половины пересчитываются на веере предшествующего счёта, а не берутся
+    из записи: остаток подшага ровно нуль (`_subturn_boundary`, тот же точный
+    предикат, что у компиляции; память подшагов делает повтор дешёвым) и
+    иррациональность луча, доказанная в точном поле. Знак и `cos^2` записи
+    сверяются отдельно (общая часть `_verify_evaluation_subturn_count_lift`),
+    здесь они читаются лишь как дешёвое предусловие. Веер строится СЫРЫМ
     рецептом без канонической ветви и без записи наблюдений контекста: проба не
     должна менять то, что видит настоящая спека.
 
@@ -190,8 +196,9 @@ def verify_exact_limit_lift(
     у веера с `H' < H_предел` подшаг строго больше `pi/q`.
     """
 
+    from .adaptive_density_fan import _covectors, _subturn_boundary
     from .angular import _incident_normal, _interpolated_normals
-    from .direction_binding import has_rational_density_support_direction
+    from .direction_binding import density_support_direction_rationality
 
     predecessor = lift.minimality_predecessor_hidden_edge_count
     if lift.source_hidden_edge_count > predecessor:
@@ -237,11 +244,19 @@ def verify_exact_limit_lift(
         sector.turn_orientation,
         huber_density=True,
     )
-    if all(
-        has_rational_density_support_direction(context.metric, ideal[index])
+    covectors = _covectors(context.metric, ideal)
+    if not _subturn_boundary(
+        context.metric, covectors[0], covectors[1], lift.max_subturn_q
+    ):
+        raise ValueError(
+            "predecessor fan subturn residual is not exactly zero"
+        )
+    if not any(
+        density_support_direction_rationality(context.metric, ideal[index])
+        is False
         for index in range(1, predecessor + 1)
     ):
         raise ValueError(
-            "predecessor fan at the subturn limit has only rational hidden "
-            "directions"
+            "predecessor fan at the subturn limit has no provably irrational "
+            "hidden direction"
         )
