@@ -1,0 +1,150 @@
+bundle built in 0.15s, patches=122
+cold press: 18.85 s
+{
+ "domains": 121,
+ "blob_bytes_total": 5830038,
+ "blob_bytes_max": 365882,
+ "dump_total_s": 0.595,
+ "load_total_s": 0.634,
+ "coverage_with_host_total_s": 10.35,
+ "coverage_with_host_max_s": 2.05,
+ "warm_other_alpha_total_s": 9.146,
+ "warm_other_alpha_max_s": 1.974,
+ "warm_same_alpha_total_s": 9.075,
+ "warm_same_alpha_max_s": 1.957,
+ "warm_makespan_8_s": 1.957,
+ "ideal_makespan_s": {
+  "2": 5.176,
+  "4": 2.589,
+  "8": 2.05,
+  "12": 2.05
+ },
+ "ideal_makespan_with_load_s": {
+  "8": 2.088
+ },
+ "top": [
+  {
+   "patch": 6,
+   "bytes": 356744,
+   "dump": 0.1479,
+   "load": 0.0375,
+   "coverage_with_host": 2.0501,
+   "warm_other_alpha": 1.9742,
+   "warm_same_alpha": 1.9571
+  },
+  {
+   "patch": 1,
+   "bytes": 321798,
+   "dump": 0.0174,
+   "load": 0.0307,
+   "coverage_with_host": 1.9344,
+   "warm_other_alpha": 1.8861,
+   "warm_same_alpha": 1.8984
+  },
+  {
+   "patch": 15,
+   "bytes": 289606,
+   "dump": 0.0152,
+   "load": 0.0297,
+   "coverage_with_host": 1.3595,
+   "warm_other_alpha": 1.2832,
+   "warm_same_alpha": 1.2955
+  },
+  {
+   "patch": 11,
+   "bytes": 311357,
+   "dump": 0.1586,
+   "load": 0.0295,
+   "coverage_with_host": 1.2216,
+   "warm_other_alpha": 1.1986,
+   "warm_same_alpha": 1.1878
+  },
+  {
+   "patch": 7,
+   "bytes": 365882,
+   "dump": 0.0247,
+   "load": 0.0277,
+   "coverage_with_host": 1.1926,
+   "warm_other_alpha": 1.0972,
+   "warm_same_alpha": 1.1144
+  },
+  {
+   "patch": 10,
+   "bytes": 99670,
+   "dump": 0.0055,
+   "load": 0.0132,
+   "coverage_with_host": 0.3728,
+   "warm_other_alpha": 0.3329,
+   "warm_same_alpha": 0.2786
+  },
+  {
+   "patch": 106,
+   "bytes": 62786,
+   "dump": 0.0038,
+   "load": 0.0148,
+   "coverage_with_host": 0.2851,
+   "warm_other_alpha": 0.0878,
+   "warm_same_alpha": 0.084
+  },
+  {
+   "patch": 0,
+   "bytes": 126903,
+   "dump": 0.0067,
+   "load": 0.0108,
+   "coverage_with_host": 0.2241,
+   "warm_other_alpha": 0.1768,
+   "warm_same_alpha": 0.1812
+  },
+  {
+   "patch": 109,
+   "bytes": 80692,
+   "dump": 0.0046,
+   "load": 0.0225,
+   "coverage_with_host": 0.2129,
+   "warm_other_alpha": 0.1428,
+   "warm_same_alpha": 0.1399
+  },
+  {
+   "patch": 19,
+   "bytes": 258887,
+   "dump": 0.0195,
+   "load": 0.0166,
+   "coverage_with_host": 0.1644,
+   "warm_other_alpha": 0.1546,
+   "warm_same_alpha": 0.1477
+  }
+ ],
+ "median_coverage_s": 0.0039,
+ "by_blob_size_below": {
+  "8000": {
+   "domains": 0,
+   "warm_cost_s": 0,
+   "cold_cost_s": 0
+  },
+  "16000": {
+   "domains": 0,
+   "warm_cost_s": 0,
+   "cold_cost_s": 0
+  },
+  "32000": {
+   "domains": 97,
+   "warm_cost_s": 0.435,
+   "cold_cost_s": 0.74
+  },
+  "64000": {
+   "domains": 107,
+   "warm_cost_s": 0.661,
+   "cold_cost_s": 1.281
+  },
+  "128000": {
+   "domains": 114,
+   "warm_cost_s": 1.474,
+   "cold_cost_s": 2.427
+  },
+  "1000000000": {
+   "domains": 121,
+   "warm_cost_s": 9.075,
+   "cold_cost_s": 10.35
+  }
+ }
+}
