@@ -4,18 +4,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from mathutils import Vector
 from typing import TYPE_CHECKING, Optional
+from .model_enums import ChainNeighborKind, LoopKind, PatchType
 
 if TYPE_CHECKING:
     from .solve_records import QuiltFrontierTelemetry
     from .surface_ir import SourceRevision
-
-
-class PatchType(str, Enum):
-    """Dispatch key for the patch UV strategy."""
-
-    WALL = "WALL"
-    FLOOR = "FLOOR"
-    SLOPE = "SLOPE"
 
 
 class WorldFacing(str, Enum):
@@ -24,13 +17,6 @@ class WorldFacing(str, Enum):
     UP = "UP"
     DOWN = "DOWN"
     SIDE = "SIDE"
-
-
-class LoopKind(str, Enum):
-    """Kind of closed boundary loop."""
-
-    OUTER = "OUTER"
-    HOLE = "HOLE"
 
 
 class FrameRole(str, Enum):
@@ -48,14 +34,6 @@ class BandMode(str, Enum):
     NOT_BAND = "NOT_BAND"
     SOFT_BAND = "SOFT_BAND"
     HARD_BAND = "HARD_BAND"
-
-
-class ChainNeighborKind(str, Enum):
-    """Topology class of a boundary chain neighbor."""
-
-    PATCH = "PATCH"
-    MESH_BORDER = "MESH_BORDER"
-    SEAM_SELF = "SEAM_SELF"
 
 
 class CornerKind(str, Enum):
