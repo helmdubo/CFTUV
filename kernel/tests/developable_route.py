@@ -98,8 +98,11 @@ def developable_domain(parts, route_names, *, alpha="0.2"):
     return snapshot, request
 
 
-def materialize_developable(parts, route_names, *, alpha="0.2"):
-    """`(MaterializationV1, подготовка)` домена-развёртки продуктовым путём ядра."""
+def materialize_developable(parts, route_names, *, alpha="0.2", **kwargs):
+    """`(MaterializationV1, подготовка)` домена-развёртки продуктовым путём ядра.
+
+    `kwargs` — остальные именованные параметры `materialize_domain` (закон топологии).
+    """
 
     from materialize_factories import prepare_and_cover
 
@@ -113,5 +116,6 @@ def materialize_developable(parts, route_names, *, alpha="0.2"):
         coverage,
         request=materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1"),
         near_planar_lift_law=NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1,
+        **kwargs,
     )
     return result, prepared

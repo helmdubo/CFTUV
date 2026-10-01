@@ -291,7 +291,9 @@ def budget(*, cap: int | None = None):
     return exact_work_budget(stage="MATERIALIZE_TEST", domain_id="test", cap=cap)
 
 
-def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
+def assemble_polygon_batch(
+    polygon, alpha, *, plane=None, diagnostics=None, law=None
+):
     """Батч прямо из разбиения многоугольника корпуса: без снапшота и метрики.
 
     Корпус стенда (`wavefront_cases.named_corpus`) — решёточные многоугольники
@@ -301,7 +303,8 @@ def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
     тесселяция, цепи, батч), — те же функции, что у `materialize_domain`.
     Возвращает `(батч, грани с кадрами)` либо `None`, если разбиение не `EXACT`.
     `plane` и `diagnostics` (функция без аргументов) подменяют подъём и запись
-    диагностик — для теста порядка «сначала подъём, потом диагностика».
+    диагностик — для теста порядка «сначала подъём, потом диагностика». `law` —
+    закон топологии (по умолчанию треугольники).
     """
 
     from dataclasses import replace
@@ -310,6 +313,7 @@ def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
 
     from cftuv_envelope.canonical import geometry_batch_semantic_digest
     from cftuv_envelope.contracts.envelopes import StationModelId
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
     from cftuv_envelope.ids import PatchDomainId, SemanticDigestValue, SourceRevision
     from cftuv_envelope.materialize import assemble
     from cftuv_envelope.materialize.coalesce import CoveredFaceV1
@@ -395,8 +399,11 @@ def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
     facts = assemble.station_values(
         frame_faces, cycles, layout, table, lattice_alpha, guard
     )
-    triangles = assemble.tessellate_faces(frame_faces, cycles, guard, reverse=False)
-    positions = assemble.lift_vertices(
+    law = law or DecalTopologyLawV1.TRIANGLES_V1
+    polygons = assemble.tessellate_faces(
+        frame_faces, cycles, guard, reverse=False, law=law
+    )
+    positions, names = assemble.lift_vertices(
         points,
         plane
         or PlaneLiftV1(
@@ -406,11 +413,14 @@ def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
             1,
         ),
     )
+    polygons, _numbers = assemble.settle_topology(
+        frame_faces, cycles, polygons, names, law
+    )
     batch = assemble.assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,
         positions=positions,
-        polygons=triangles,
+        polygons=polygons,
         facts=facts,
         layout=layout,
         scale=1,

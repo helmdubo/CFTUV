@@ -36,6 +36,7 @@ from fractions import Fraction
 
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
+    DecalTopologyLawV1,
     GeometryBatchV1,
     GeometryBoundaryChainV1,
     GeometryFaceV1,
@@ -70,7 +71,7 @@ from .coalesce import point_key
 from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
-from .tessellate import triangulate_exact
+from .tessellate import convex_quad_ring, fan_out, triangulate_exact
 from .uv_law import uv_direct_strip_v1
 from ..wavefront.faces import doubled_shoelace
 
@@ -247,49 +248,141 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget):
     return facts
 
 
-def tessellate_faces(frame_faces, cycles, budget, reverse: bool):
-    """Треугольники каждой грани по КЛЮЧАМ вершин. Не сложилось — отказ."""
+def _closes_the_face(total, frame_face, parts: str) -> None:
+    """Сумма удвоенных площадей частей разбиения равна площади грани: точно, иначе отказ."""
+
+    if not (total - frame_face.face.doubled_area).is_zero:
+        raise MaterializationRefusal(
+            MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
+            f"owner {frame_face.face.owner}: {parts} differ from the face",
+        )
+
+
+def _quad_polygon(keys, ring, reverse: bool):
+    """Четырёхгранья по кольцу против часовой; при `reverse` — обход, сохраняющий первую вершину."""
+
+    first, second, third, fourth = (keys[index] for index in ring)
+    return (first, fourth, third, second) if reverse else (first, second, third, fourth)
+
+
+def _triangle_polygons(frame_face, points, keys, budget, reverse: bool):
+    """Треугольники грани по ключам: отсечение ушей, сумма площадей — точное равенство."""
+
+    triangles = triangulate_exact(points, budget) if len(points) >= 3 else None
+    if triangles is None:
+        raise MaterializationRefusal(
+            MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
+            f"owner {frame_face.face.owner}: {len(points)} contour points",
+        )
+    total = SqrtSumV1.zero()
+    for first, second, third in triangles:
+        total = total + doubled_shoelace(
+            (points[first], points[second], points[third])
+        )
+    _closes_the_face(total, frame_face, "triangle areas")
+    return tuple(
+        (keys[a], keys[c], keys[b]) if reverse else (keys[a], keys[b], keys[c])
+        for a, b, c in triangles
+    )
+
+
+def tessellate_faces(
+    frame_faces,
+    cycles,
+    budget,
+    reverse: bool,
+    law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
+):
+    """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
+
+    Под `TRIANGLES_V1` — только треугольники. Под `QUAD_STRIPS_V1` строго
+    выпуклый четырёхугольник ЛЕНТЫ (не веер) остаётся одной четырёхгранью, и
+    площадь проверяется по контуру целиком; всё остальное — треугольники, как
+    раньше. Подъём вершин здесь не виден: четырёхгранья, чьи вершины лягут на
+    разные треугольники источника, режутся позже (`settle_topology`).
+    """
 
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
         points = tuple(point for _key, point in cycle)
-        triangles = (
-            triangulate_exact(points, budget) if len(points) >= 3 else None
-        )
-        if triangles is None:
-            raise MaterializationRefusal(
-                MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
-                f"owner {frame_face.face.owner}: {len(points)} contour points",
-            )
-        total = SqrtSumV1.zero()
-        for first, second, third in triangles:
-            total = total + doubled_shoelace(
-                (points[first], points[second], points[third])
-            )
-        if not (total - frame_face.face.doubled_area).is_zero:
-            raise MaterializationRefusal(
-                MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
-                f"owner {frame_face.face.owner}: triangle areas differ from the face",
-            )
         keys = tuple(key for key, _point in cycle)
-        result.append(
-            tuple(
-                (keys[a], keys[c], keys[b]) if reverse else (keys[a], keys[b], keys[c])
-                for a, b, c in triangles
-            )
+        ring = (
+            convex_quad_ring(points, budget)
+            if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and not frame_face.is_fan
+            else None
         )
+        if ring is None:
+            result.append(_triangle_polygons(frame_face, points, keys, budget, reverse))
+            continue
+        _closes_the_face(
+            doubled_shoelace(tuple(points[index] for index in ring)),
+            frame_face,
+            "quad areas",
+        )
+        result.append((_quad_polygon(keys, ring, reverse),))
     return result
 
 
-def lift_vertices(points, plane):
-    """`{ключ: позиция}`: каждая вершина поднимается РОВНО ОДИН раз, до сборки батча.
+#: Имена чисел закона топологии (они же ключи счётчиков материализатора).
+QUADS_REFUSED_NOT_CONVEX = "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX"
+QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES = "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"
+MERGED_RUN_FACES_TRIANGULATED = "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED"
 
-    Счётчики подъёма (`LOCATIONS`, `PREDICATES`) считают точки, а не обращения:
-    запись диагностик берётся ПОСЛЕ этого вызова, и подъём не зависит от того,
-    какими гранями вершины потом соберутся.
+
+def settle_topology(frame_faces, cycles, polygons, names, law: DecalTopologyLawV1):
+    """`(грани, числа закона)`: закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1` и счёт того, что закон не взял.
+
+    `names` — `{ключ: имя исходного треугольника, в котором вершина найдена}`
+    (`lift_vertices`; у плоской укладки везде `None`). Подъём барицентрический
+    В НАЙДЕННОМ треугольнике, поэтому четырёхгранья, все четыре вершины которого
+    лежат в ОДНОМ треугольнике источника, — плоское в 3D; иначе оно могло бы
+    изломаться по складке, а Blender разрезал бы его сам, по float, и это было
+    бы безымянное разбиение. Такое четырёхгранье режется каноническим
+    `fan_out` (ровно прежняя тесселяция) и называется счётчиком. Точка на ребре
+    источника получает канонический (первый по имени) треугольник — разрез
+    консервативен, ошибкой он не бывает.
+
+    Остальное, что закон `QUAD_STRIPS_V1` оставил треугольниками, тоже названо:
+    строго невыпуклые (и с плоским углом) четырёхугольники ленты и слитые
+    пробеги — контуры больше четырёх вершин (их разбиение — отдельный срез).
     """
 
-    return {key: plane.lift(point) for key, point in points.items()}
+    refused = merged = split = 0
+    settled = []
+    for frame_face, cycle, face_polygons in zip(frame_faces, cycles, polygons):
+        if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and not frame_face.is_fan:
+            refused += int(len(cycle) == 4 and len(face_polygons) != 1)
+            merged += int(len(cycle) > 4)
+        kept = []
+        for polygon in face_polygons:
+            if len(polygon) == 4 and len({names[key] for key in polygon}) != 1:
+                kept.extend(fan_out(polygon))
+                split += 1
+            else:
+                kept.append(polygon)
+        settled.append(tuple(kept))
+    return settled, (
+        (QUADS_REFUSED_NOT_CONVEX, refused),
+        (QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES, split),
+        (MERGED_RUN_FACES_TRIANGULATED, merged),
+    )
+
+
+def lift_vertices(points, plane):
+    """`({ключ: позиция}, {ключ: имя исходного треугольника})`: подъём ровно ОДИН на вершину.
+
+    Счётчики подъёма (`LOCATIONS`, `PREDICATES`) считают точки, а не обращения:
+    нахождение (`locate`) делается один раз на вершину и отдаёт и позицию, и имя
+    найденного треугольника, поэтому закон топологии не прибавляет к ним ничего
+    (имена нужны только `settle_topology`). Запись диагностик берётся ПОСЛЕ
+    этого вызова. У плоской укладки треугольников источника нет, имя — `None`.
+    """
+
+    lifted = {key: plane.lift_named(point) for key, point in points.items()}
+    return (
+        {key: position for key, (position, _name) in lifted.items()},
+        {key: name for key, (_position, name) in lifted.items()},
+    )
 
 
 def _paths(edges):

@@ -70,6 +70,11 @@ class PlaneLiftV1:
             sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
         )
 
+    def lift_named(self, point):
+        """`(позиция, None)`: плоскость одна на домен, треугольника источника у точки нет."""
+
+        return self.lift(point), None
+
     def counters(self) -> tuple[tuple[str, int], ...]:
         """Подъём на плоскость точки не ищет и бюджета не тратит: счётчиков нет."""
 

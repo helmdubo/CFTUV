@@ -101,6 +101,9 @@ COUNTER_KEYS = (
 TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_FACES_EMITTED",
     "MATERIALIZE_QUADS",
+    "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX",
+    "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
+    "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
@@ -194,9 +197,7 @@ def compute_row(patch_id: int, density, topology: str = "TRIANGLES_V1"):
     counters = dict(result.counters)
     row["counters"] = {key: counters[key] for key in COUNTER_KEYS if key in counters}
     row["topology_counters"] = {
-        key: value
-        for key, value in counters.items()
-        if key in TOPOLOGY_COUNTER_KEYS or key.startswith("MATERIALIZE_QUADS_")
+        key: counters[key] for key in TOPOLOGY_COUNTER_KEYS if key in counters
     }
     row["work_spent"] = counters.get("EXACT_WORK_SPENT", 0)
     row["diagnostics"] = list(result.diagnostics)

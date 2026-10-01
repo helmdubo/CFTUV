@@ -10,24 +10,44 @@
 from __future__ import annotations
 
 import dataclasses
+import pickle
+from collections import Counter
 from fractions import Fraction
+from functools import lru_cache
+from types import SimpleNamespace
 
 import pytest
 
+import cftuv_envelope as kernel
 from cftuv_envelope.contracts.geometry_batch import (
     DecalTopologyLawV1,
     GeometryFaceV1,
 )
+from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
 from cftuv_envelope.ids import PolicyId
+from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.admit import MaterializationOutcome
+from cftuv_envelope.materialize.assemble import settle_topology, tessellate_faces
 from cftuv_envelope.materialize.audit import audit_batch
+from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.domain import materialize_domain
-from cftuv_envelope.materialize.tessellate import fan_out, triangulate_exact
+from cftuv_envelope.materialize.tessellate import (
+    convex_quad_ring,
+    fan_out,
+    triangulate_exact,
+)
 from cftuv_envelope.validation import validate_geometry_batch
+from cftuv_envelope.wavefront.conveyor import ConveyorOutcome
 from cftuv_envelope.wavefront.faces import doubled_shoelace, orientation
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 
+import developable_factories
 import materialize_factories as factories
+from developable_route import materialize_developable
+from wavefront_cases import named_corpus
+
+TRIANGLES = DecalTopologyLawV1.TRIANGLES_V1
+QUADS = DecalTopologyLawV1.QUAD_STRIPS_V1
 
 UV = PolicyId("UV_DIRECT_STRIP_V1")
 NORMAL = (0.0, 0.0, 1.0)
@@ -270,3 +290,484 @@ def test_the_law_is_a_result_field_and_not_a_semantic_record():
         "TOPOLOGY" not in item.value.upper() for item in result.batch.contract_versions
     )
     assert all("TOPOLOGY" not in line.upper() for line in result.diagnostics)
+
+
+# --------------------------------------------------------------------------
+# Строго выпуклый четырёхугольник: предикат закона
+# --------------------------------------------------------------------------
+
+
+def test_a_strictly_convex_quad_gives_its_counter_clockwise_ring_in_both_orientations():
+    ring = ((0, 0), (4, 0), (5, 3), (-1, 2))
+    budget = factories.budget()
+    assert convex_quad_ring(_points(ring), budget) == (0, 1, 2, 3)
+    assert convex_quad_ring(_points(ring[::-1]), budget) == (3, 2, 1, 0)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        # «Стрела»: одна вершина вогнута.
+        ((0, 0), (4, 0), (1, 1), (0, 4)),
+        # Плоский угол: третья вершина лежит на отрезке соседей — не строго.
+        ((0, 0), (2, 0), (4, 0), (2, 3)),
+        # Нулевая площадь.
+        ((0, 0), (1, 0), (2, 0), (3, 0)),
+        # «Бабочка»: самопересечение, повороты разных знаков.
+        ((0, 0), (4, 4), (4, 0), (0, 4)),
+        # Не четыре точки.
+        ((0, 0), (4, 0), (4, 3)),
+        ((0, 0), (4, 0), (5, 2), (4, 4), (0, 3)),
+    ),
+)
+def test_a_contour_that_is_not_strictly_convex_is_not_a_quad(raw):
+    assert convex_quad_ring(_points(raw), factories.budget()) is None
+
+
+# --------------------------------------------------------------------------
+# tessellate_faces: что закон оставляет четырёхгранью
+# --------------------------------------------------------------------------
+
+
+def _frame(points, *, fan=False):
+    """Грань с кадром ровно в том, что читает тесселяция: точки, площадь, признак веера."""
+
+    total = doubled_shoelace(points)
+    if total.sign(budget=factories.budget()) < 0:
+        total = SqrtSumV1.zero() - total
+    keys = tuple(f"k{index}" for index in range(len(points)))
+    frame = SimpleNamespace(
+        is_fan=fan, face=SimpleNamespace(owner=(0, 0, 1, 1), doubled_area=total)
+    )
+    return frame, tuple(zip(keys, points))
+
+
+def _rotation_normal_triangle(triangle):
+    return _rotation_normal(tuple(triangle))
+
+
+@pytest.mark.parametrize("clockwise", (False, True))
+@pytest.mark.parametrize("reverse", (False, True))
+def test_a_quad_fans_back_out_to_exactly_the_triangles_of_the_other_law(clockwise, reverse):
+    raw = ((0, 0), (4, 0), (5, 3), (-1, 2))
+    points = _points(raw[::-1] if clockwise else raw)
+    frame, cycle = _frame(points)
+    budget = factories.budget()
+    quads = tessellate_faces([frame], [cycle], budget, reverse, QUADS)
+    triangles = tessellate_faces([frame], [cycle], budget, reverse, TRIANGLES)
+    assert [len(item) for item in quads[0]] == [4]
+    assert len(triangles[0]) == 2
+    split = fan_out(quads[0][0])
+    assert [_rotation_normal_triangle(item) for item in split] == [
+        _rotation_normal_triangle(item) for item in triangles[0]
+    ]
+
+
+def test_a_fan_face_stays_triangles_even_with_four_points():
+    points = _points(((0, 0), (4, 0), (5, 3), (-1, 2)))
+    frame, cycle = _frame(points, fan=True)
+    result = tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
+    assert [len(item) for item in result[0]] == [3, 3]
+
+
+def test_a_reflex_four_point_strip_stays_triangles_and_is_named():
+    points = _points(((0, 0), (4, 0), (1, 1), (0, 4)))
+    frame, cycle = _frame(points)
+    result = tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
+    assert [len(item) for item in result[0]] == [3, 3]
+    names = {key: None for key, _point in cycle}
+    settled, numbers = settle_topology([frame], [cycle], result, names, QUADS)
+    assert settled == result
+    assert dict(numbers) == {
+        "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX": 1,
+        "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES": 0,
+        "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED": 0,
+    }
+
+
+def test_a_merged_run_is_triangulated_and_counted_under_the_quad_law_only():
+    points = _points(((0, 0), (2, 0), (4, 0), (4, 3), (0, 3)))
+    frame, cycle = _frame(points)
+    for law, expected in ((QUADS, 1), (TRIANGLES, 0)):
+        result = tessellate_faces([frame], [cycle], factories.budget(), False, law)
+        assert [len(item) for item in result[0]] == [3, 3, 3]
+        names = {key: None for key, _point in cycle}
+        numbers = dict(settle_topology([frame], [cycle], result, names, law)[1])
+        assert numbers["MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED"] == expected
+
+
+def test_an_area_that_does_not_close_is_a_named_refusal_for_a_quad_too():
+    points = _points(((0, 0), (4, 0), (5, 3), (-1, 2)))
+    frame, cycle = _frame(points)
+    frame.face.doubled_area = frame.face.doubled_area + SqrtSumV1.rational(Fraction(1))
+    with pytest.raises(MaterializationRefusal) as refusal:
+        tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
+    assert refusal.value.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
+    assert "areas differ" in refusal.value.detail
+
+
+# --------------------------------------------------------------------------
+# Закон QUAD_IN_ONE_SOURCE_TRIANGLE_V1
+# --------------------------------------------------------------------------
+
+
+def _one_quad(names):
+    points = _points(((0, 0), (4, 0), (5, 3), (-1, 2)))
+    frame, cycle = _frame(points)
+    polygons = tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
+    return frame, cycle, polygons, {key: names[index] for index, (key, _p) in enumerate(cycle)}
+
+
+def test_a_quad_with_all_four_vertices_in_one_source_triangle_is_kept():
+    frame, cycle, polygons, names = _one_quad(("t7", "t7", "t7", "t7"))
+    settled, numbers = settle_topology([frame], [cycle], polygons, names, QUADS)
+    assert settled == polygons
+    assert dict(numbers)["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
+
+
+@pytest.mark.parametrize("odd", (0, 1, 2, 3))
+def test_a_quad_with_one_vertex_in_another_source_triangle_is_split_canonically(odd):
+    labels = ["t7"] * 4
+    labels[odd] = "t8"
+    frame, cycle, polygons, names = _one_quad(labels)
+    settled, numbers = settle_topology([frame], [cycle], polygons, names, QUADS)
+    assert settled == [fan_out(polygons[0][0])]
+    assert dict(numbers)["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 1
+
+
+def test_a_plane_names_no_triangles_and_every_quad_stays():
+    frame, cycle, polygons, names = _one_quad((None, None, None, None))
+    assert settle_topology([frame], [cycle], polygons, names, QUADS)[0] == polygons
+
+
+# --------------------------------------------------------------------------
+# Ворота: закон меняет сборку граней и больше ничего
+# --------------------------------------------------------------------------
+
+ON_SURFACE = NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+
+
+def _near_planar_on_surface(alpha):
+    snapshot, request = factories.affine_domain(
+        faces=(factories.SKEW_FACE,),
+        routes=({"name": "source", "points": factories.SKEW_BOTTOM},),
+        alpha=alpha,
+        planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+        lift={3: 0.002},
+        near_planar_lift_law=ON_SURFACE,
+    )
+    prepared, coverage = factories.prepare_and_cover(snapshot, request)
+    return prepared, coverage, prepared.compilation.decal_request
+
+
+def _mirrored(make):
+    """Тот же домен в зеркальной карте: порядок обхода граней разворачивается."""
+
+    def build():
+        prepared, coverage, request = make()
+        frame = prepared.context.frame
+        mirrored = dataclasses.replace(
+            frame,
+            chart_orientation=type(frame.chart_orientation)(
+                "COORDINATE_CW_MATCHES_OWNER_PATCH"
+            ),
+        )
+        context = dataclasses.replace(prepared.context, frame=mirrored)
+        return dataclasses.replace(prepared, context=context), coverage, request
+
+    return build
+
+
+#: Корпус ворот: полевые домены, синтетика, near-planar на плоскости и на
+#: поверхности, зеркальные карты. Развёртки идут отдельной таблицей (`DEVELOPABLE`).
+DOMAINS = {
+    "weighted": lambda: factories.field_domain("building_002_weighted_normals_v1"),
+    "point_contact": lambda: factories.field_domain("building_002_point_contact_v1"),
+    "full_selection": lambda: factories.field_domain("building_002_full_selection_v1"),
+    "two_edge": factories.two_edge_chain_domain,
+    "straight3": factories.straight_chain_domain,
+    "skew": factories.skew_chain_domain,
+    "l_chains": factories.l_chains_domain,
+    "ring": factories.ring_domain,
+    "near_planar": factories.near_planar_domain,
+    "skew_mirrored": _mirrored(factories.skew_chain_domain),
+    "l_chains_mirrored": _mirrored(factories.l_chains_domain),
+    "ring_mirrored": _mirrored(factories.ring_domain),
+    "full_selection_mirrored": _mirrored(
+        lambda: factories.field_domain("building_002_full_selection_v1")
+    ),
+}
+SURFACE = {
+    "near_planar_surface_a0.5": ("0.5",),
+    "near_planar_surface_a1": ("1",),
+    "near_planar_surface_a2": ("2",),
+}
+DEVELOPABLE = {
+    "fold-strip": (developable_factories.fold_strip, ("r0a", "r0b"), "1.5"),
+    "bevel": (lambda: developable_factories.bevel_strip(4), ("r0a", "r0b"), "2.5"),
+    "quarter-cylinder": (developable_factories.quarter_cylinder, ("r0a", "r0b"), "0.8"),
+    "cone-sector": (
+        lambda: developable_factories.cone(8, boundary_apex=True),
+        ("apex", "b0"),
+        "0.5",
+    ),
+}
+ALL_NAMES = (*DOMAINS, *SURFACE, *DEVELOPABLE)
+
+
+@lru_cache(maxsize=None)
+def _both_laws(name):
+    """`(треугольники, четырёхгранья)` одного домена: тот же вход, разные законы."""
+
+    if name in DEVELOPABLE:
+        make, route, alpha = DEVELOPABLE[name]
+        return tuple(
+            materialize_developable(make(), route, alpha=alpha, decal_topology_law=law)[0]
+            for law in (TRIANGLES, QUADS)
+        )
+    if name in SURFACE:
+        prepared, coverage, request = _near_planar_on_surface(*SURFACE[name])
+        request = dataclasses.replace(request, uv_policy_id=UV)
+        extra = {"near_planar_lift_law": ON_SURFACE}
+    else:
+        prepared, coverage, request = DOMAINS[name]()
+        request = dataclasses.replace(request, uv_policy_id=UV)
+        extra = {}
+    return tuple(
+        materialize_domain(
+            prepared, coverage, request=request, decal_topology_law=law, **extra
+        )
+        for law in (TRIANGLES, QUADS)
+    )
+
+
+#: Счётчики, которые считают ГРАНИ и потому зависят от закона (или названы им).
+LAW_COUNTERS = frozenset(
+    (
+        "MATERIALIZE_FACES_EMITTED",
+        "MATERIALIZE_QUADS",
+        "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX",
+        "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
+        "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED",
+        "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
+        "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+        "MATERIALIZE_TRIANGLES_UV_REVERSED",
+    )
+)
+
+
+def _face_view(face):
+    """Грань без точки отсчёта и без номера: цикл ключей, UV по ключам, всё остальное."""
+
+    uv = {fact.vert_key.value: fact.uv for fact in face.uv_facts}
+    cycle = _rotation_normal(tuple(key.value for key in face.ordered_vert_keys))
+    return (
+        cycle,
+        tuple(uv[key] for key in cycle),
+        face.semantic_region_id,
+        face.ownership_claim_id,
+        face.provenance,
+        face.material_id,
+    )
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_quad_law_materializes_and_fans_back_out_to_the_triangle_batch(name):
+    triangles, quads = _both_laws(name)
+    assert triangles.is_materialized and quads.is_materialized, (name, quads.detail)
+    assert validate_geometry_batch(quads.batch) == ()
+    assert audit_batch(quads.batch, NORMAL).problems() == ()
+    back = fan_out_batch(quads.batch)
+    # Те же грани в том же порядке, с теми же UV, с точностью до начала цикла...
+    assert [_face_view(item) for item in back.faces] == [
+        _face_view(item) for item in triangles.batch.faces
+    ]
+    # ...а значит и как множество.
+    assert Counter(_face_view(item) for item in back.faces) == Counter(
+        _face_view(item) for item in triangles.batch.faces
+    )
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_quad_law_changes_no_vertex_no_uv_no_chain_and_no_digest_of_meaning(name):
+    triangles, quads = _both_laws(name)
+    left, right = triangles.batch, quads.batch
+    assert left.vertices == right.vertices
+    assert left.station_facts == right.station_facts
+    assert left.semantic_regions == right.semantic_regions
+    assert left.boundary_chains == right.boundary_chains
+    assert left.interface_chains == right.interface_chains
+    assert left.diagnostics == right.diagnostics
+    assert left.contract_versions == right.contract_versions
+    assert left.semantic_digest == right.semantic_digest
+    assert triangles.vertex_normals == quads.vertex_normals
+    assert triangles.offset_normals_digest == quads.offset_normals_digest
+    assert triangles.diagnostics == quads.diagnostics
+    assert quads.decal_topology_law is QUADS and triangles.decal_topology_law is TRIANGLES
+    # Содержание меняется по построению (там лежат грани), и только если в нём есть четырёхгранья.
+    quad_count = dict(quads.counters)["MATERIALIZE_QUADS"]
+    assert (triangles.content_digest != quads.content_digest) == bool(quad_count)
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_counters_agree_except_the_ones_that_count_faces(name):
+    triangles, quads = _both_laws(name)
+    left, right = dict(triangles.counters), dict(quads.counters)
+    assert left.keys() == right.keys()
+    for key in left:
+        if key in LAW_COUNTERS or key.startswith("EXACT_WORK_"):
+            continue
+        # Подъём (`LOCATIONS`, `PREDICATES`), станции, вершины, цепи, регионы —
+        # побитово те же: закон не прибавляет ни одного нахождения.
+        assert left[key] == right[key], key
+    sizes = Counter(len(face.ordered_vert_keys) for face in quads.batch.faces)
+    assert right["MATERIALIZE_FACES_EMITTED"] == len(quads.batch.faces)
+    assert right["MATERIALIZE_QUADS"] == sizes[4]
+    # Сумма `n - 2` не зависит от диагонали: это то же число, что у закона треугольников.
+    assert right["MATERIALIZE_TRIANGLES"] == sum(
+        (size - 2) * count for size, count in sizes.items()
+    )
+    assert right["MATERIALIZE_TRIANGLES"] == left["MATERIALIZE_TRIANGLES"]
+    # Каждое сохранённое четырёхгранье заменило ровно два треугольника.
+    assert left["MATERIALIZE_FACES_EMITTED"] - right["MATERIALIZE_FACES_EMITTED"] == right[
+        "MATERIALIZE_QUADS"
+    ]
+    assert left["MATERIALIZE_QUADS"] == 0
+    assert set(sizes) <= {3, 4}
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_no_quad_of_the_law_is_non_planar(name):
+    """Четырёхгранья закона плоские в 3D (с точностью до одного округления позиции)."""
+
+    _triangles, quads = _both_laws(name)
+    assert_every_quad_is_planar(quads.batch)
+
+
+def assert_every_quad_is_planar(batch, tolerance=1e-12):
+    position = {item.vert_key: item.position for item in batch.vertices}
+    for face in batch.faces:
+        if len(face.ordered_vert_keys) != 4:
+            continue
+        a, b, c, d = (position[key] for key in face.ordered_vert_keys)
+        ab = (b.x - a.x, b.y - a.y, b.z - a.z)
+        ac = (c.x - a.x, c.y - a.y, c.z - a.z)
+        ad = (d.x - a.x, d.y - a.y, d.z - a.z)
+        normal = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        length = sum(item * item for item in normal) ** 0.5
+        scale = max(sum(item * item for item in ad) ** 0.5, 1e-9)
+        assert abs(sum(n * v for n, v in zip(normal, ad))) / length / scale < tolerance
+
+
+@pytest.mark.parametrize("name", sorted(SURFACE))
+def test_a_quad_across_two_source_triangles_is_split_and_named(name):
+    _triangles, quads = _both_laws(name)
+    counters = dict(quads.counters)
+    assert counters["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 1
+    assert counters["MATERIALIZE_QUADS"] == 0
+    assert all(len(face.ordered_vert_keys) == 3 for face in quads.batch.faces)
+
+
+def test_without_the_law_the_split_quad_would_be_non_planar(monkeypatch):
+    """Отрицательный контроль: проверка плоскостности видит то, от чего закон бережёт."""
+
+    monkeypatch.setattr(
+        domain, "settle_topology", lambda ff, cy, polygons, names, law: (polygons, ())
+    )
+    prepared, coverage, request = _near_planar_on_surface("1")
+    quads = materialize_domain(
+        prepared,
+        coverage,
+        request=dataclasses.replace(request, uv_policy_id=UV),
+        decal_topology_law=QUADS,
+        near_planar_lift_law=ON_SURFACE,
+    )
+    assert quads.is_materialized
+    with pytest.raises(AssertionError):
+        assert_every_quad_is_planar(quads.batch)
+
+
+@pytest.mark.parametrize("name", ("weighted", "point_contact", "full_selection"))
+def test_the_fans_of_the_field_cases_stay_triangles(name):
+    triangles, quads = _both_laws(name)
+    fans = dict(quads.counters)["MATERIALIZE_FAN_FACES"]
+    assert fans == dict(triangles.counters)["MATERIALIZE_FAN_FACES"]
+    if fans:
+        assert any(len(face.ordered_vert_keys) == 3 for face in quads.batch.faces)
+
+
+def test_the_quad_law_over_the_corpus_fans_back_out_to_the_triangle_batch():
+    """Корпус стенда: 22 формы на двух alpha, сборка от разбиения (плоская укладка)."""
+
+    quads_seen = 0
+    for name, polygon in named_corpus():
+        for alpha in (Fraction(1), Fraction(3, 2)):
+            left = factories.assemble_polygon_batch(polygon, alpha, law=TRIANGLES)
+            right = factories.assemble_polygon_batch(polygon, alpha, law=QUADS)
+            assert (left is None) == (right is None), (name, alpha)
+            if left is None:
+                continue
+            batch, _frames = right
+            assert validate_geometry_batch(batch) == (), (name, alpha)
+            assert audit_batch(batch, NORMAL).problems() == (), (name, alpha)
+            assert batch.vertices == left[0].vertices
+            assert batch.semantic_digest == left[0].semantic_digest
+            assert [_face_view(item) for item in fan_out_batch(batch).faces] == [
+                _face_view(item) for item in left[0].faces
+            ], (name, alpha)
+            quads_seen += sum(1 for item in batch.faces if len(item.ordered_vert_keys) == 4)
+    assert quads_seen > 0
+
+
+# --------------------------------------------------------------------------
+# Результат
+# --------------------------------------------------------------------------
+
+#: Золотые содержательные дайджесты закона лент для малых случаев (семантические
+#: те же, что у треугольников, — они в `test_materialize_domain.GOLDEN`). Меняются
+#: ТОЛЬКО осознанно: любое движение — смена состава граней закона.
+GOLDEN_QUADS = {
+    "weighted": "c9393fe09675d97787059d98abd721cd0b1f2a095da6db0d2398b66d1d45e537",
+    "point_contact": "a42d195e02aeca1b9e25b68c0521cb9a54a4a3d4536ba4b1e5515c69bea09fe4",
+    "two_edge": "15c1a2b06d84c9a9030ee6e79e189360b79730601183583e35d7d3b0b9c54840",
+    "straight3": "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
+}
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN_QUADS))
+def test_golden_content_digest_of_the_quad_law(name):
+    _triangles, quads = _both_laws(name)
+    assert quads.content_digest == GOLDEN_QUADS[name]
+
+
+def test_the_quad_result_survives_a_pickle_and_records_its_law():
+    _triangles, quads = _both_laws("full_selection")
+    restored = pickle.loads(pickle.dumps(quads))
+    assert restored == quads and restored.decal_topology_law is QUADS
+
+
+def test_a_refusal_records_the_law_that_was_asked_for():
+    prepared, coverage, request = DOMAINS["skew"]()
+    broken = dataclasses.replace(
+        coverage, outcome=ConveyorOutcome.COVERAGE_DID_NOT_CLOSE
+    )
+    refused = materialize_domain(
+        prepared,
+        broken,
+        request=dataclasses.replace(request, uv_policy_id=UV),
+        decal_topology_law=QUADS,
+    )
+    assert refused.batch is None
+    assert refused.decal_topology_law is QUADS
+
+
+def test_the_quad_law_over_the_weighted_building_has_the_expected_shape():
+    """Полевая стена: 8 треугольников — это 4 четырёхгранья, веера отсутствуют."""
+
+    triangles, quads = _both_laws("weighted")
+    assert len(triangles.batch.faces) == 8 and len(quads.batch.faces) == 4
+    assert dict(quads.counters)["MATERIALIZE_QUADS"] == 4

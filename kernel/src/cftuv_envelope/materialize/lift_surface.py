@@ -610,6 +610,11 @@ class BoundSurfaceLiftV1:
         return self.lift_in(triangle, values)
 
     def lift(self, point) -> LocalPoint3V1:
+        return self.lift_named(point)[0]
+
+    def lift_named(self, point):
+        """`(позиция, имя найденного треугольника)`: нахождение ОДНО, счётчики не растут."""
+
         triangle, values = self.locate(point)
         x, y, z = self.lift_in(triangle, values)
         lifted = LocalPoint3V1(
@@ -623,7 +628,7 @@ class BoundSurfaceLiftV1:
             self._normal_by_position[(lifted.x, lifted.y, lifted.z)] = blend(
                 weights, triangle.normals
             )
-        return lifted
+        return lifted, triangle.name
 
     @property
     def has_offset_normals(self) -> bool:
