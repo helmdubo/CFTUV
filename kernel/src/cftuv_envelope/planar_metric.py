@@ -31,6 +31,7 @@ from .contracts.metric import (
     GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
+    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
     NearPlanarWidthDistortionCertificateV1,
@@ -48,7 +49,11 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
-from ._width_distortion import build_width_distortion_certificate
+from ._width_distortion import (
+    build_width_distortion_certificate,
+    width_distortion_refusal_text,
+    width_distortion_violation,
+)
 from .contracts.surface import SourceFaceV1, SurfaceTriangleV1
 from .ids import (
     LineageId,
@@ -292,7 +297,7 @@ def _budget_refusal_text(
 
 
 def _project_onto_exact_plane(
-    *, grid_certificate, positions, origin, normal, off_plane
+    *, grid_certificate, positions, origin, normal, off_plane, judge_residual=True
 ):
     """Спроецировать отклонившиеся вершины на плоскость — точно, в дробях.
 
@@ -300,7 +305,10 @@ def _project_onto_exact_plane(
     по конвейеру арифметика остаётся точной. Приблизителен только выбор
     плоскости, и он записывается в сертификат.
 
-    Невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень.
+    Невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень. При
+    укладке на треугольники источника (`judge_residual=False`) она ВСЁ РАВНО
+    считается и записывается, но не судит: меш лежит на поверхности, и
+    расстояние до плоскости ему безразлично. Судят искажение ширины и вложение.
     """
 
     normal_squared = _dot3(normal, normal)
@@ -316,7 +324,7 @@ def _project_onto_exact_plane(
         max_ulp=max_ulp,
         grid_certificate=grid_certificate,
     )
-    if max_residual_squared > budget * budget:
+    if judge_residual and max_residual_squared > budget * budget:
         raise PlanarMetricAdmissionError(
             NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
             _budget_refusal_text(
@@ -343,7 +351,13 @@ def _project_onto_exact_plane(
 
 
 def _resolve_patch_plane(
-    *, positions, faces, required_ids, planarity_policy, grid_certificate
+    *,
+    positions,
+    faces,
+    required_ids,
+    planarity_policy,
+    grid_certificate,
+    judge_residual=True,
 ):
     """Плоскость патча и то, что пришлось в неё положить.
 
@@ -380,6 +394,7 @@ def _resolve_patch_plane(
         origin=anchor,
         normal=normal,
         off_plane=off_plane,
+        judge_residual=judge_residual,
     )
 
 
@@ -391,6 +406,7 @@ def _planarity_certificate(
     required_ids,
     near_planar_facts,
     width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None,
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
 ):
     """Сертификат допуска плоскости: точный либо near-planar с записью невязки."""
 
@@ -436,6 +452,7 @@ def _planarity_certificate(
         max_residual_squared=_rational(near_planar_facts.max_residual_squared),
         projected_source_vertex_ids=frozenset(near_planar_facts.projected),
         width_distortion=width_distortion,
+        lift_law=lift_law,
     )
 
 
@@ -593,17 +610,29 @@ def _width_distortion_record(
     normal,
     faces,
     required_ids,
+    judged=False,
 ):
-    """Сертификат искажения ширины: пишется, когда есть что мерить, и не судит.
+    """Сертификат искажения ширины: пишется, когда есть что мерить.
 
     Точная плоскость искажения не имеет (проекция тождественна), поэтому у неё
     записи нет, и байты планарных доменов не двигаются. Вызвавший, не давший
-    треугольников, получает `None` — «не измерялось», а не «измерено хорошо».
+    треугольников, получает `None` — «не измерялось», а не «измерено
+    хорошо». При `judged` (укладка на треугольники источника) запись СУДИТ:
+    вырожденный треугольник и ширина сверх бюджета — именованные отказы с
+    числами, а отсутствие треугольников — дефект входа.
     """
 
-    if near_planar_facts is None or surface_triangles is None:
+    if near_planar_facts is None:
         return None
-    return build_width_distortion_certificate(
+    if surface_triangles is None:
+        if judged:
+            raise PlanarMetricAdmissionError(
+                NamedOutcome.NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE,
+                "lifting onto source triangles needs the surface triangles of "
+                "the owner Patch, and none were given",
+            )
+        return None
+    record = build_width_distortion_certificate(
         source_revision=source_revision,
         patch_domain_id=patch_domain_id,
         snapped=snapped,
@@ -612,6 +641,12 @@ def _width_distortion_record(
         triangles=tuple(surface_triangles),
         required_ids=required_ids,
     )
+    outcome = width_distortion_violation(record) if judged else None
+    if outcome is not None:
+        raise PlanarMetricAdmissionError(
+            outcome, width_distortion_refusal_text(record)
+        )
+    return record
 
 
 def _build_embedding_certified_metric(
@@ -628,6 +663,9 @@ def _build_embedding_certified_metric(
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
     enforce_embedding: bool = True,
     surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     faces, required_ids, positions = _source_scope(
         owner_patch_id=owner_patch_id,
@@ -651,6 +689,9 @@ def _build_embedding_certified_metric(
         required_ids=required_ids,
         planarity_policy=planarity_policy,
         grid_certificate=grid_facts.certificate,
+        judge_residual=(
+            near_planar_lift_law is NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+        ),
     )
     try:
         frame = _affine_frame(positions, required_ids)
@@ -681,6 +722,7 @@ def _build_embedding_certified_metric(
         normal=normal,
         faces=faces,
         required_ids=required_ids,
+        judged=near_planar_lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1,
     )
     certificate = _planarity_certificate(
         source_revision=source_revision,
@@ -689,6 +731,7 @@ def _build_embedding_certified_metric(
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
         width_distortion=width_distortion,
+        lift_law=near_planar_lift_law,
     )
     metric = _metric_record(
         metric_id=metric_id,
@@ -737,6 +780,9 @@ def build_embedding_certified_rational_affine_planar_metric(
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
     surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -750,6 +796,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
         surface_triangles=surface_triangles,
+        near_planar_lift_law=near_planar_lift_law,
     )
 
 
@@ -766,6 +813,9 @@ def build_rational_affine_planar_metric(
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
     surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -780,6 +830,7 @@ def build_rational_affine_planar_metric(
         grid_policy=grid_policy,
         enforce_embedding=True,
         surface_triangles=surface_triangles,
+        near_planar_lift_law=near_planar_lift_law,
     ).metric
 
 

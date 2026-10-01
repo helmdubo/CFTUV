@@ -23,12 +23,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
 from enum import Enum
+from fractions import Fraction
 
 from ..contracts.metric import (
     ExactSourcePlaneCertificateV1,
     NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     RationalAffinePlanarMetricV2,
+)
+from .._width_distortion import (
+    width_distortion_refusal_text,
+    width_distortion_violations,
 )
 from ..ids import PolicyId
 from .uv_law import SUPPORTED_UV_POLICIES
@@ -51,6 +56,13 @@ class MaterializationOutcome(str, Enum):
     # Укладка на треугольники источника запрошена, а у near-planar домена нет
     # сертификата искажения ширины: класть не на что, и считать ширину не из чего.
     SURFACE_LIFT_UNAVAILABLE = "SURFACE_LIFT_UNAVAILABLE"
+    # Имена отказов допуска укладки совпадают с именами исходов ядра и хоста:
+    # одна причина называется одним словом на всех уровнях.
+    NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED = (
+        "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    )
+    NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
     # Точка меша лежит вне проекции ВСЕЙ триангуляции источника: ни один
     # замкнутый треугольник её не накрывает. Не «ближайший треугольник» и не
     # допуск — именованный отказ с числами.
@@ -204,15 +216,55 @@ def admit_domain(
             str(request.uv_policy_id.value),
         )
     effective = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
-    if (
-        planarity is PlanarityKind.NEAR_PLANAR
-        and lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
-    ):
-        if certificate.width_distortion is None:
+    if planarity is PlanarityKind.NEAR_PLANAR:
+        refusal = _lift_refusal(certificate, lift_law)
+        if refusal is not None:
+            return refusal
+        if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+            effective = lift_law
+    return AdmissionV1(None, "", planarity, effective)
+
+
+def _lift_refusal(certificate, requested) -> AdmissionV1 | None:
+    """Закон укладки против сертификата: чем домен ПРИНЯТ, на то и ложится.
+
+    * Запрошена поверхность: нужен годный σ. Судит его и построитель (под
+      `SOURCE_TRIANGLES_V1`), но сертификат мог быть принят под плоскостью, где σ
+      только записан, — поэтому судья здесь свой, до единицы работы.
+    * Запрошена плоскость, а домен принят под поверхностью: невязка плоскости
+      там не судилась и может быть больше бюджета юбки. Класть меш на плоскость
+      с неоценённой невязкой — молча нарушить бюджет, поэтому именованный отказ.
+    """
+
+    sigma = certificate.width_distortion
+    if requested is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        if sigma is None:
             return AdmissionV1(
                 MaterializationOutcome.SURFACE_LIFT_UNAVAILABLE,
                 "the near-planar certificate carries no width-distortion "
                 "record to lift onto source triangles with",
             )
-        effective = lift_law
-    return AdmissionV1(None, "", planarity, effective)
+        failures = width_distortion_violations(sigma)
+        if failures:
+            return AdmissionV1(
+                MaterializationOutcome(failures[0].value),
+                width_distortion_refusal_text(sigma),
+            )
+        return None
+    if certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        residual = _fraction(certificate.max_residual_squared)
+        budget = _fraction(certificate.residual_budget)
+        if residual > budget * budget:
+            return AdmissionV1(
+                MaterializationOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
+                "the domain was admitted for the source-triangle lift, where "
+                "the plane residual does not judge; a lift onto the certified "
+                f"plane needs it within budget: max_residual_squared="
+                f"{float(residual):.6e} > residual_budget_squared="
+                f"{float(budget * budget):.6e}",
+            )
+    return None
+
+
+def _fraction(value):
+    return Fraction(value.numerator, value.denominator)

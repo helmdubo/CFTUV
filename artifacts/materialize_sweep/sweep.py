@@ -73,6 +73,13 @@ COUNTER_KEYS = (
     "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
     "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
     "MATERIALIZE_TRIANGLES_UV_REVERSED",
+    "MATERIALIZE_SURFACE_LIFT_LOCATIONS",
+    "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES",
+    "MATERIALIZE_SURFACE_LIFT_PREDICATES",
+    "MATERIALIZE_SURFACE_LIFT_ON_EDGE_POINTS",
+    "MATERIALIZE_SURFACE_LIFT_TRIANGLES",
+    "MATERIALIZE_SURFACE_LIFT_DEGENERATE_PROJECTIONS",
+    "MATERIALIZE_SURFACE_LIFT_CHART_VERTICES_SNAPPED",
     "STATION_RUNS",
     "STATION_EDGES",
     "STATION_UNNAMED_CHAINS",
@@ -97,6 +104,8 @@ ANSWER_KEYS = (
 def compute_row(patch_id: int, density):
     ctx = pool_sweep._CTX
     canon = ctx["canon"]
+    from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
+    from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
     from cftuv_envelope.materialize.admit import materialization_request
     from cftuv_envelope.materialize.domain import materialize_domain
     from cftuv_envelope.wavefront import conveyor_coverage
@@ -141,7 +150,14 @@ def compute_row(patch_id: int, density):
     row["coverage_again_seconds"] = round(time.perf_counter() - cover_started, 3)
     request = materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1")
     work_started = time.perf_counter()
-    result = materialize_domain(prepared, coverage, request=request)
+    # Закон укладки — ТОТ ЖЕ, что просит кнопка (`produce_domain`): свип обязан
+    # идти продуктовым путём, а не законом по умолчанию ядра.
+    result = materialize_domain(
+        prepared,
+        coverage,
+        request=request,
+        near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
+    )
     row["materialize_seconds"] = round(time.perf_counter() - work_started, 4)
     row["materialization"] = result.outcome.value
     row["detail"] = result.detail[:300]

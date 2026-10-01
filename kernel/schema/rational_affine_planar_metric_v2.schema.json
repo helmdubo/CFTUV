@@ -367,6 +367,13 @@
         "exact_plane_normal": {
           "$ref": "#/$defs/ExactVector3V1"
         },
+        "lift_law": {
+          "enum": [
+            "CERTIFIED_PLANE_V1",
+            "SOURCE_TRIANGLES_V1"
+          ],
+          "type": "string"
+        },
         "max_coordinate_ulp": {
           "$ref": "#/$defs/ExactRationalV1"
         },
@@ -449,7 +456,8 @@
         "residual_budget",
         "max_residual_squared",
         "projected_source_vertex_ids",
-        "width_distortion"
+        "width_distortion",
+        "lift_law"
       ],
       "type": "object"
     },

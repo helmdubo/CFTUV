@@ -833,6 +833,11 @@ class NearPlanarProjectionCertificateV1:
     # Искажение ширины по треугольникам источника (ступень NEAR_PLANAR V2).
     # `None` — «не измерялось»: вызвавший построитель не дал треугольников.
     width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None
+    # Закон укладки, под которым домен ПРИНЯТ. При `SOURCE_TRIANGLES_V1` судят
+    # искажение ширины и вложение проекции, а абсолютная невязка плоскости
+    # (`max_residual_squared` против `residual_budget`) — записанная диагностика,
+    # она может быть больше бюджета; при `CERTIFIED_PLANE_V1` судит невязка.
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
 
     def __post_init__(self) -> None:
         if self.exact:

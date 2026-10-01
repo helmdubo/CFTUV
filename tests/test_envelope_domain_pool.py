@@ -379,7 +379,7 @@ def test_a_task_that_cannot_run_returns_its_trace_instead_of_raising():
 
 
 def test_the_in_process_pool_reproduces_the_sequential_run_exactly():
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile = _direct_run(bundle, pool=None)
     pool = _InProcessPool()
 
@@ -398,7 +398,7 @@ def test_the_in_process_pool_reproduces_the_sequential_run_exactly():
     assert _counter(expected_profile, POOL_WORKERS) is None
     assert POOL_WALL_STAGE in profile.snapshot().stage_totals
     assert POOL_WALL_STAGE not in expected_profile.snapshot().stage_totals
-    assert "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED" in {
+    assert "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in {
         item.outcome for item in evaluation.receipts
     }
 
@@ -674,7 +674,7 @@ def test_a_pooled_domain_is_priced_like_a_sequential_one_on_a_warm_worker():
 def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache(
     _pool_never,
 ):
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
 
     evaluation, profile, controller = _session_run(bundle, workers=2)
@@ -806,7 +806,7 @@ def test_the_worker_export_reproduces_the_parent_export_bit_for_bit():
     from cftuv.envelope_request_export import EnvelopeHostAdapterError
     from cftuv_envelope import codec
 
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     topology, _, patch_ids, request_id, by_domain, _ = _export_inputs(bundle)
     refused = 0
     for patch_id in patch_ids:
@@ -913,7 +913,7 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
     воркеру уже готовым снапшотом.
     """
 
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     calls = _ParentExportCalls(monkeypatch)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
     assert calls.count == ROW
@@ -1006,7 +1006,7 @@ def test_a_failed_export_task_is_named_and_exported_in_the_parent(
 def test_a_refused_domain_whose_worker_died_is_neither_dispatched_nor_fallback(
     monkeypatch,
 ):
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
     # Последний патч ряда — тот, что отказывает на метрике.
     _in_process_session(monkeypatch, _InProcessPool(drop=(ROW - 1,)))
@@ -1078,7 +1078,7 @@ def test_a_metric_stage_refusal_keeps_its_receipt_stage_through_the_worker(
 def test_an_unavailable_pool_exports_in_the_parent_and_names_the_first_domain(
     monkeypatch,
 ):
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
     _in_process_session(
         monkeypatch, DomainPool(2, python_executable="C:/nowhere/python.exe")
@@ -1323,7 +1323,7 @@ def _warm_pair(bundle, *, workers=2, alpha=0.4):
 def test_real_workers_cover_cached_preparations_and_the_warm_press_is_identical(
     _pool_always,
 ):
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     pooled, sequential = _warm_pair(bundle)
 
     warm, warm_profile, _ = _session_run(
@@ -2105,7 +2105,7 @@ def test_real_external_workers_reproduce_the_sequential_run(
     monkeypatch.setattr(
         envelope_worker_python, "read_worker_python", lambda: sys.executable
     )
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
 
     evaluation, profile, controller = _session_run(bundle, workers=2)

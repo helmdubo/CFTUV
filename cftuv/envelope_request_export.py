@@ -21,7 +21,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from .model_enums import ChainNeighborKind, LoopKind, PatchType
-from .surface_ir import HOST_GRID_POLICY, HOST_PLANARITY_POLICY
+from .surface_ir import HOST_GRID_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
@@ -59,25 +59,18 @@ if TYPE_CHECKING:
 class EnvelopeDebugHostOutcome(str, Enum):
     EXACT = "EXACT"
     ENVELOPE_DEBUG_KERNEL_UNAVAILABLE = "ENVELOPE_DEBUG_KERNEL_UNAVAILABLE"
-    ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED = (
-        "ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED"
-    )
-    ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID = (
-        "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID"
-    )
-    ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE = (
-        "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE"
-    )
-    RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
-        "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
-    )
+    ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED = "ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED"
+    ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID = "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID"
+    ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE"
+    RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
     # Отказы метрики выходят каждый под СВОИМ именем. Прежде хост сводил их все
     # к `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`, и поле читало «нужна
     # near-planar политика» ровно тогда, когда она уже была включена, а отказал
     # бюджет. Имя не на ту причину дороже отсутствующего.
-    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = (
-        "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
-    )
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED = "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
+    NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE = "NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE"
     GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
     NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
     NO_GRID_SCALE_RESTORES_RELATIONS = "NO_GRID_SCALE_RESTORES_RELATIONS"
@@ -120,6 +113,9 @@ METRIC_STAGE_OUTCOMES = frozenset(
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
         EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
         EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED,
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE,
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE,
         EnvelopeDebugHostOutcome.GRID_WINDOW_CLOSED,
         EnvelopeDebugHostOutcome.NO_POWER_OF_TWO_STEP_IN_WINDOW,
         EnvelopeDebugHostOutcome.NO_GRID_SCALE_RESTORES_RELATIONS,
@@ -1658,6 +1654,8 @@ def _rational_affine_metric(
 ):
     """Thin host delegation; exact chart construction belongs to the kernel."""
 
+    from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
+
     try:
         return kernel.build_rational_affine_planar_metric(
             source_revision=source_revision,
@@ -1666,6 +1664,7 @@ def _rational_affine_metric(
             source_vertices=source_vertices,
             source_faces=surface_ir.source_faces,
             surface_triangles=surface_ir.surface_triangles,
+            near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(

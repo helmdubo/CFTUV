@@ -222,14 +222,36 @@ class HostGridPolicy(str, Enum):
 HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
 
 
+class HostNearPlanarLiftPolicy(str, Enum):
+    """На какую поверхность хост просит класть меш near-planar домена.
+
+    Объявляется явно, как планарность и решётка: ядро не выбирает политику за
+    хост, и она видна и в сертификате метрики (`lift_law`), и в исходе
+    материализации (`NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES`).
+    """
+
+    CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
+    SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
+
+
+# Хост просит укладку на ТРЕУГОЛЬНИКИ ИСТОЧНИКА (NEAR_PLANAR V2, решение
+# владельца 2026-10-02): меш лежит на поверхности, абсолютная невязка плоскости
+# 1.25 см — записанная диагностика, а судят искажение ширины (2 % относительно)
+# и вложение проекции. Прежний закон остаётся членом перечисления: он нужен
+# отладочным сценам и красным контролям.
+HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_V1
+
+
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
     "HOST_GRID_POLICY",
+    "HOST_NEAR_PLANAR_LIFT_POLICY",
     "HOST_PLANARITY_POLICY",
     "HostGridPolicy",
+    "HostNearPlanarLiftPolicy",
     "HostPlanarityPolicy",
     "PatchSurfaceIR",
     "SourceEdge",

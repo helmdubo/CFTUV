@@ -283,13 +283,19 @@ def _two_patch_seam_bundle():
 
 
 def _budget_refused_seam_bundle():
-    """Второй патч шва поднят на 5 см — за `PRODUCT_SKIRT_ABSOLUTE_BUDGET`."""
+    """Вершина второго патча шва поднята на 1 м — наклон за бюджетом ширины.
+
+    Прежде зонд лежал за абсолютным бюджетом юбки (5 см против 1.25 см). С
+    укладкой на треугольники источника (NEAR_PLANAR V2) невязка плоскости не
+    судит, и 5 см домен принимает; судит искажение ширины, и `min cos²` = 0.90
+    при метре подъёма лежит за порогом 2500/2601.
+    """
 
     bundle = _two_patch_seam_bundle()
     surface = replace(
         bundle.patch_surface,
         vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.05))
+            replace(vertex, position=(4.0, 2.0, 1.0))
             if vertex.vertex_id == 5
             else vertex
             for vertex in bundle.patch_surface.vertices
@@ -1196,47 +1202,69 @@ def _seam_bundle_with_off_plane_vertex(z: float):
 
 
 def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
-    """Отклонение за ПРОДУКТОВЫМ допуском по-прежнему отвергается бюджетом.
+    """Наклон за БЮДЖЕТОМ ШИРИНЫ по-прежнему отвергается — и называется по числам.
 
-    Отклонение здесь 5e-2, а не прежние 1e-2, и число сменилось по названной
-    причине: решением владельца от 2026-08-01 допуск кривизны near-planar —
-    `PRODUCT_SKIRT_ABSOLUTE_BUDGET` = 1/80 (1.25 см), потому что цель продукта
-    есть юбка декалей вдоль выбранных seam chains, а не планарность домена.
-    Прежний зонд 1e-2 (1 см) лежит ВНУТРИ нового допуска и обязан теперь
-    строиться — это ровно класс кривых крыш `building.004` (0.15 мм – 1.2 см),
-    ради которых допуск и расширен. Утверждение «1 см отвергается» стало
-    устаревшим не потому, что проверку ослабили, а потому, что владелец сменил
-    цель; зонд поднят выше границы, и проверка держит ровно то же свойство.
+    NEAR_PLANAR V2 (решение владельца 2026-10-02) сменила, чем судят домен:
+    меш кладётся на треугольники источника, абсолютная невязка плоскости
+    (1.25 см) стала записанной диагностикой, а судит искажение ширины —
+    относительный допуск 1/50 на `cos²` наклона треугольника к плоскости карты.
+    Прежний зонд 5 см лежал за абсолютным бюджетом и обязан теперь СТРОИТЬСЯ
+    (парный тест ниже держит это), а за новой границей лежит подъём на метр:
+    `min cos²` = 0.90 против порога 2500/2601 = 0.9612.
 
-    До этого число уже менялось однажды, и та причина в силе: с
-    `HOST_GRID_POLICY = SOURCE_ONLY_GRID_SNAP_V1` вершины источника
-    привязываются ДО проверки планарности, а выбранный на этом патче шаг —
-    1/256, то есть половина ячейки 1.95e-03; всё, что ближе к плоскости,
-    привязка кладёт в неё точно. Соседний тест держит именно этот факт.
-
-    Имя отказа — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`, а не прежнее
-    `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`. Прежде хост сводил все
-    отказы метрики к одному имени, и поле читало «нужна near-planar политика»
-    ровно тогда, когда она уже была включена (`HOST_PLANARITY_POLICY`), а
-    отказал бюджет. Тело сообщения говорило про бюджет, имя — про политику;
-    расходились они всегда, и виновата в этом была не геометрия.
+    Имя отказа — `NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED`, и тело несёт
+    числа, из которых сложилось решение. Хост объявляет
+    NEAR_PLANAR_PROJECTION_V1, поэтому отказ приходит от сертификата ширины, а
+    не от требования побитовой компланарности.
     """
 
     evaluation = evaluate_envelope_debug(
-        _seam_bundle_with_off_plane_vertex(0.05),
+        _seam_bundle_with_off_plane_vertex(1.0),
         frozenset({4}),
         0.25,
     )
 
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED
     )
-    # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ приходит от
-    # бюджета невязки, а не от требования побитовой компланарности.
-    assert "beyond the declared near-planar budget" in (
-        evaluation.diagnostics[0].message
+    message = evaluation.diagnostics[0].message
+    for fragment in ("min_cos_squared=9.000000000e-01", "threshold=9.611687812e-01"):
+        assert fragment in message, message
+
+
+def test_a_bend_beyond_the_old_absolute_budget_is_now_admitted_and_recorded():
+    """5 см подъёма — за прежним абсолютным бюджетом юбки, но домен строится.
+
+    Невязка плоскости записана (2.5 см > 1.25 см) и НЕ судит: меш ляжет на
+    поверхность, расстояние до плоскости ему безразлично. Судит ширина, и у
+    5 см она в бюджете (`min cos²` = 0.9997). Закон укладки записан в
+    сертификат, поэтому читающий видит, под чем домен принят.
+    """
+
+    from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
+
+    snapshot = build_envelope_analysis_snapshot(_seam_bundle_with_off_plane_vertex(0.05))
+    near = [
+        item.planarity_certificate
+        for item in snapshot.surface_metric_descriptors
+        if type(item.planarity_certificate).__name__
+        == "NearPlanarProjectionCertificateV1"
+    ]
+    assert len(near) == 1
+    certificate = near[0]
+    assert certificate.lift_law.value == HOST_NEAR_PLANAR_LIFT_POLICY.value == "SOURCE_TRIANGLES_V1"
+    residual = Fraction(
+        certificate.max_residual_squared.numerator,
+        certificate.max_residual_squared.denominator,
     )
+    budget = Fraction(
+        certificate.residual_budget.numerator, certificate.residual_budget.denominator
+    )
+    assert residual > budget * budget
+    sigma = certificate.width_distortion
+    assert sigma is not None and sigma.degenerate_triangle_count == 0
+    assert Fraction(sigma.min_cos_squared.numerator, sigma.min_cos_squared.denominator) > Fraction(2500, 2601)
 
 
 def test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap():
@@ -1342,19 +1370,20 @@ def test_topology_scene_uses_host_facts_without_loading_exact_kernel(monkeypatch
 
 
 def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
-    """Отклонение 5e-2, а не прежнее 1e-2, по той же причине, что и выше.
+    """Подъём на метр, а не прежние 5 см, по той же причине, что и выше.
 
     Зонд обязан лежать ЗА действующей границей допуска, иначе тест перестаёт
     проверять то, ради чего написан, — что отказ ОДНОГО домена не уносит
-    топологию остальных. Границ этих было три, и каждый раз число поднималось
+    топологию остальных. Границ этих было четыре, и каждый раз зонд поднимался
     вслед за ней:
 
     * половина ячейки 1.95e-03 (шаг 1/256) съедала прежний 1 мм;
     * 1e-2 переживало привязку и отвергалось бюджетом ячейки;
     * решением владельца от 2026-08-01 допуск стал продуктовым —
-      `PRODUCT_SKIRT_ABSOLUTE_BUDGET` = 1/80 (1.25 см), — и 1 см оказался
-      ВНУТРИ него: это класс кривых крыш `building.004`, которые обязаны
-      строиться. 5e-2 лежит за границей и отвергается по-прежнему.
+      `PRODUCT_SKIRT_ABSOLUTE_BUDGET` = 1/80 (1.25 см), и 1 см оказался внутри;
+    * решением владельца от 2026-10-02 судит не абсолютная невязка, а
+      искажение ширины (2 % относительно): 5 см теперь внутри, граница —
+      наклон ~11.5°, а метр подъёма за ней (`min cos²` = 0.90).
     """
 
     profile = EnvelopeDebugProfileBuilderV1(
@@ -1376,7 +1405,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
         EnvelopeDomainStage.RESOLVED,
     }
     assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED
-    assert "beyond the declared near-planar budget" in receipts[1].message
+    assert "near-planar width distortion" in receipts[1].message
     assert any(
         scene.patch_domain_ids
         for scene in evaluation.exact_debug_scenes
@@ -1409,7 +1438,7 @@ def test_budget_refusal_lands_on_the_metric_stage_on_both_engines(engine):
     receipts = {item.patch_id: item for item in evaluation.receipts}
     assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED, receipts
     assert receipts[1].outcome == (
-        EnvelopeDebugHostOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED.value
+        EnvelopeDebugHostOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED.value
     )
 
 

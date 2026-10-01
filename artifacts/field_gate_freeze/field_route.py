@@ -39,6 +39,7 @@ conveyor preparation -> skeleton -> faces -> coverage.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -59,6 +60,18 @@ from snapshot_bmesh import selected_edge_ids  # noqa: E402
 HOST_REJECT = "HOST_EXPORT_REJECTED"
 STAGE_RAISED = "STAGE_RAISED"
 WORK_CAP_EXCEEDED = "DOMAIN_WORK_CAP_EXCEEDED"
+
+
+PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
+
+
+def install_lift_pin(law_name: str) -> None:
+    """Закрепить закон укладки хоста на время ЭТОГО процесса (подмена константы)."""
+
+    from cftuv import envelope_request_export as export_module
+    from cftuv.surface_ir import HostNearPlanarLiftPolicy
+
+    export_module.HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy(law_name)
 
 
 def snapshot_sha256(name: str) -> str:
@@ -310,6 +323,15 @@ def _main() -> None:
         else None
     )
     substitutions = []
+    pinned = os.environ.get(PIN_LIFT_ENV)
+    if pinned:
+        # ИМЕНОВАННАЯ ЗАКРЕПКА закона укладки. Ворота математики фронта (walls.012)
+        # проверяют ЯДРО на полевой геометрии, а не политику укладки хоста; закон
+        # NEAR_PLANAR V2 отказывает этот домен по ширине (см. DECISIONS 2026-10-03),
+        # и без закрепки сильные ворота перестали бы видеть математику. Закрепка
+        # едет в ответе: прогон без неё — прогон по настоящему закону хоста.
+        install_lift_pin(pinned)
+        substitutions.append(f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{pinned}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ

@@ -35,6 +35,7 @@ from .contracts.metric import (
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
     NEAR_PLANAR_WIDTH_BUDGET,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
+    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
     NearPlanarWidthDistortionLawV1,
@@ -50,7 +51,10 @@ from ._embedding import (
     projection_violations,
     source_snap_violations,
 )
-from ._width_distortion import build_width_distortion_certificate
+from ._width_distortion import (
+    build_width_distortion_certificate,
+    width_distortion_violations,
+)
 from ._metric_wire import (
     classify_metric_normal_wire,
     metric_normal_wire_rejection_message,
@@ -280,7 +284,13 @@ def _check_near_planar_certificate(
             path + ("residual_budget",),
             "recorded residual budget is not what its declared law produces",
         )
-    if fraction_of(certificate.max_residual_squared) > budget * budget:
+    # Невязка судит ТОЛЬКО при укладке на сертифицированную плоскость. Под
+    # `SOURCE_TRIANGLES_V1` она записанная диагностика и может быть больше
+    # бюджета, зато обязан быть в бюджете сертификат искажения ширины.
+    onto_surface = certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+    if not onto_surface and (
+        fraction_of(certificate.max_residual_squared) > budget * budget
+    ):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
@@ -288,6 +298,30 @@ def _check_near_planar_certificate(
             "recorded residual exceeds the recorded budget",
         )
     _check_width_distortion_record(issues, path, metric)
+    if onto_surface:
+        _check_surface_lift_judgement(issues, path, certificate)
+
+
+def _check_surface_lift_judgement(issues, path, certificate) -> None:
+    """Домен, принятый для укладки на поверхность, обязан нести годный σ."""
+
+    sigma = certificate.width_distortion
+    if sigma is None:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("width_distortion",),
+            "a certificate admitted for the source-triangle lift must carry "
+            "the width-distortion record",
+        )
+        return
+    for outcome in width_distortion_violations(sigma):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("width_distortion",),
+            f"admitted for the source-triangle lift, but {outcome.value}",
+        )
 
 
 def _check_width_distortion_record(issues, path, metric) -> None:

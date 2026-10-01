@@ -160,22 +160,26 @@ def _build_two_patch_seam(
 def _budget_refused_second_patch_offset():
     """Подъём второго патча, который near-planar ОТВЕРГАЕТ под действующим законом.
 
-    Выводится из `PRODUCT_SKIRT_ABSOLUTE_BUDGET`, а не пишется литералом.
-    Литерал 1e-2 пережил решение владельца от 2026-08-01 (допуск 1.25 см), тихо
-    лёг внутрь допуска, и оба смока отказа перестали его упражнять, продолжая
-    ждать: домен строился до `RESOLVED`, а утверждение падало на отсутствии
-    стадии, ничего не говоря о причине.
+    Выводится из бюджета ширины `NEAR_PLANAR_WIDTH_BUDGET`, а не пишется
+    литералом. Литерал пережил два решения владельца (допуск 1.25 см 2026-08-01
+    и укладку на поверхность с судом по ширине 2026-10-02), тихо лёг внутрь
+    допуска, и смоки отказа перестали его упражнять, продолжая ждать: домен
+    строился до `RESOLVED`, а утверждение падало на отсутствии стадии.
 
-    Измерено на этом квадре в Blender 4.3: невязка от подобранной плоскости —
-    половина подъёма (3e-2 → 1.50e-2, 5e-2 → 2.50e-2, 1e-1 → 4.99e-2), поэтому
-    граница бюджета лежит около двух бюджетов подъёма, а четыре бюджета дают
-    двукратный запас над ней. Снизу порог держит привязка источника (половина
-    ячейки), сверху — бюджет; это по-прежнему два разных числа.
+    Судит искажение ширины: `cos²` наклона худшего треугольника к плоскости
+    карты не меньше `1/(1+b)²`, то есть наклон не круче `arctg √((1+b)² − 1)` =
+    0.201. На квадре 2×2 приподнятый угол даёт границу на подъёме около
+    трёх тангенсов (измерено хостовым зондом: 0.6 → `min cos²` = 0.9587 — чуть
+    за порогом); шесть тангенсов дают двукратный запас над ней. Невязка
+    плоскости теперь записанная диагностика и порогом не служит.
     """
 
-    from cftuv_envelope.contracts.metric import PRODUCT_SKIRT_ABSOLUTE_BUDGET
+    import math
 
-    return 4 * float(PRODUCT_SKIRT_ABSOLUTE_BUDGET)
+    from cftuv_envelope.contracts.metric import NEAR_PLANAR_WIDTH_BUDGET
+
+    tangent = math.sqrt((1 + float(NEAR_PLANAR_WIDTH_BUDGET)) ** 2 - 1)
+    return 6 * tangent
 
 
 def _build_two_patch_multi_edge_seam():
@@ -687,10 +691,10 @@ def _run_staged_metric_rejection_smoke():
     rejected = [
         item for item in receipts if item["stage"] == "METRIC_REJECTED"
     ]
-    assert rejected[0]["outcome"] == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", (
+    assert rejected[0]["outcome"] == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED", (
         rejected
     )
-    assert "PRODUCT_SKIRT_ABSOLUTE_V1" in rejected[0]["message"], rejected
+    assert "INTRINSIC_WIDTH_RELATIVE_V1" in rejected[0]["message"], rejected
     assert all(
         layer in {_layer_name(item) for item in gp_obj.data.layers}
         for layer in {

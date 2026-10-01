@@ -56,6 +56,7 @@ def with_affine_metric(
     grid_policy=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
     planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
     with_triangles=True,
+    near_planar_lift_law=None,
 ):
     """Снапшот с честной аффинной метрикой вместо его плоского кадра.
 
@@ -76,6 +77,11 @@ def with_affine_metric(
         surface_triangles=(
             snapshot.surface_ir.surface_triangles if with_triangles else None
         ),
+        **(
+            {}
+            if near_planar_lift_law is None
+            else {"near_planar_lift_law": near_planar_lift_law}
+        ),
     )
     return dataclasses.replace(
         snapshot, surface_metric_descriptors=frozenset({metric})
@@ -91,6 +97,7 @@ def affine_domain(
     planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
     lift=None,
     with_triangles=True,
+    near_planar_lift_law=None,
 ):
     """Снапшот и запрос с честной аффинной метрикой вместо плоского кадра.
 
@@ -121,6 +128,7 @@ def affine_domain(
             grid_policy=grid_policy,
             planarity_policy=planarity_policy,
             with_triangles=with_triangles,
+            near_planar_lift_law=near_planar_lift_law,
         ),
         request,
     )

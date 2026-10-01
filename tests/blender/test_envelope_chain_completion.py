@@ -179,9 +179,10 @@ def _run_refused_domain_gets_a_contour_and_a_name():
     # ЧЕМ он отказал. В штрих обязаны попасть оба.
     assert refused_receipts[0]["stage"] == "METRIC_REJECTED", refused_receipts
     # Имя бюджета, а не прежнее сведённое `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`:
-    # хост объявляет near-planar политику, и отказывает ему бюджет невязки.
+    # хост объявляет near-planar политику и укладку на поверхность, и отказывает
+    # ему бюджет ширины (NEAR_PLANAR V2).
     outcome = refused_receipts[0]["outcome"]
-    assert outcome == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", (
+    assert outcome == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED", (
         refused_receipts[0]
     )
 
