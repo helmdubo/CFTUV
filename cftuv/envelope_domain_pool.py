@@ -25,12 +25,29 @@ stdin/stdout воркера. Внутри воркера fd 1 перенапра
 ОТКАЗ НАЗЫВАЕТСЯ. Пул, который не стартовал, бросает `DomainPoolUnavailable` с
 причиной текстом; задача, которая упала или чей воркер умер, возвращается
 записью с `error`. Молча пропавшей задачи нет: вызывающий досчитывает её сам.
+
+ИНТЕРПРЕТАТОР ВОРКЕРОВ. По умолчанию воркер идёт на том же Python, что и
+родитель (во Blender — встроенный), с ПОЛНЫМ `sys.path` родителя. Настройка
+«Worker Python» (`external_python`) отдаёт воркерам внешний CPython: на нём то же
+ядро быстрее (замер в `DECISIONS.md`). Чужой интерпретатор не наследует ни
+stdlib, ни site-packages родителя (они чужой версии): он стартует с `-I -S`, а
+родитель передаёт только каталоги пакетов, которыми пользуется САМ — ядро,
+`sympy`, `mpmath`, — и ставит их ПОСЛЕ собственной stdlib воркера, чтобы ни один
+из них не затенил стандартную библиотеку. Ответ при этом обязан быть тем же, и
+это проверяется, а не предполагается: воркер ПЕРВЫМ кадром (`hello`) называет
+версии Python, `sympy`, `mpmath`, их числовой бэкенд и отпечаток исходников ядра,
+родитель сверяет их со своими, и любое расхождение — именованный исход
+`INTERPRETER_MISMATCH` (`INTERPRETER_UNUSABLE`, если интерпретатор не стартовал
+вовсе). Отвергнутый внешний интерпретатор не отключает пул: воркеры идут на
+встроенном, причина лежит в `PoolInterpreterV1` и доходит до панели.
 """
 
 from __future__ import annotations
 
 import atexit
+import hashlib
 import importlib
+import importlib.util
 import json
 import os
 import pickle
@@ -74,17 +91,47 @@ EXPORT_FRAME_COST_SCALE = 5
 #: порядок меняет стену, но не ответ.
 COVERAGE_FRAME_COST_DIVISOR = 32
 
+#: Внешний интерпретатор воркеров отвергнут, и воркеры идут на встроенном. Имена
+#: исходов — и записи диагностики, и счётчики панели: «не стартовал» и «стартовал,
+#: но отвечал бы не тем же» чинятся по-разному, поэтому и называются по-разному.
+INTERPRETER_UNUSABLE = "ENVELOPE_DOMAIN_POOL_INTERPRETER_UNUSABLE"
+INTERPRETER_MISMATCH = "ENVELOPE_DOMAIN_POOL_INTERPRETER_MISMATCH"
+
+#: Причина отказа внешнему интерпретатору: код — индекс (0 — отказа нет). Коды до
+#: `FIRST_MISMATCH_REASON` — UNUSABLE, начиная с него — MISMATCH. Коды идут в
+#: числовые счётчики профиля (строки в них не кладутся), текст панели берёт их
+#: отсюда, а полный текст причины с числами лежит в диагностике.
+INTERPRETER_REASONS = (
+    "",
+    "path is not a usable Python executable",
+    "worker did not start or did not identify itself",
+    "host cannot locate its kernel, sympy or mpmath",
+    "Python is older than 3.10",
+    "sympy version differs",
+    "mpmath version differs",
+    "numeric backend differs",
+    "kernel source differs",
+)
+FIRST_MISMATCH_REASON = 4
+MIN_EXTERNAL_PYTHON = (3, 10)
+
+#: Пакеты, которые воркер на внешнем интерпретаторе берёт у РОДИТЕЛЯ: чистый
+#: Python, версии у них одни, а побитовое равенство ответа держится на том, что
+#: это те же самые файлы, а не «такая же версия» из чужого site-packages.
+HOST_PACKAGES = ("cftuv_envelope", "sympy", "mpmath")
+
 # Запускается как `python -u -c`. Пакет хоста поднимается по файлу под ТЕМ ЖЕ
 # именем, под которым он загружен у родителя: в Blender 4.2+ это
 # `bl_ext.<репозиторий>.<id>`, которого нет ни в каком `sys.path`, и pickle
-# иначе не нашёл бы классы по `__module__`.
+# иначе не нашёл бы классы по `__module__`. Пути родителя встают ПЕРЕД путями
+# воркера (встроенный интерпретатор: тот же `sys.path`, что и у родителя) либо
+# ПОСЛЕ них (`after_stdlib`: внешний, чьи stdlib и site родитель не знает).
 _BOOTSTRAP = """
 import importlib, importlib.util, json, os, sys
 spec = json.loads(os.environ[{variable!r}])
 parent = [item for item in spec["sys_path"] if item]
-sys.path[:] = parent + [
-    item for item in sys.path if item and item not in parent
-]
+own = [item for item in sys.path if item and item not in parent]
+sys.path[:] = own + parent if spec.get("after_stdlib") else parent + own
 root = spec["package_dir"]
 package = importlib.util.spec_from_file_location(
     spec["package"],
@@ -156,15 +203,42 @@ class DomainTaskResultV1:
 
 
 @dataclass(frozen=True, slots=True)
+class PoolInterpreterV1:
+    """Интерпретатор, на котором РАБОТАЮТ воркеры, и почему не тот, что заказан.
+
+    `external` — воркеры на заказанном внешнем интерпретаторе. Иначе они на
+    встроенном, и если внешний был заказан, `outcome` называет, почему он
+    отвергнут (`INTERPRETER_UNUSABLE` либо `INTERPRETER_MISMATCH`), `reason` —
+    полный текст с числами, `reason_code` — индекс в `INTERPRETER_REASONS`.
+    """
+
+    version: tuple
+    external: bool
+    outcome: str = ""
+    reason: str = ""
+    reason_code: int = 0
+
+    @property
+    def version_code(self) -> int:
+        major, minor, micro = (tuple(self.version) + (0, 0, 0))[:3]
+        return major * 10000 + minor * 100 + micro
+
+    @property
+    def version_text(self) -> str:
+        return ".".join(str(item) for item in self.version)
+
+
+@dataclass(frozen=True, slots=True)
 class DomainPoolRunV1:
     """Итог прогона: ответы по `task_id` и сколько воркеров в нём участвовало.
 
     Задачи, которых в `results` нет, не исполнялись вовсе (все воркеры умерли
-    раньше, чем до них дошла очередь).
+    раньше, чем до них дошла очередь). `interpreter` — на чём шёл прогон.
     """
 
     results: dict
     workers: int
+    interpreter: PoolInterpreterV1 | None = None
 
 
 # --------------------------------------------------------------------------
@@ -292,6 +366,122 @@ def _reply_frame(task_id: int, result: DomainTaskResultV1) -> bytes:
         )
 
 
+# --------------------------------------------------------------------------
+# Тождество окружения: что сверяют родитель и воркер на внешнем интерпретаторе
+# --------------------------------------------------------------------------
+
+
+def kernel_fingerprint(directory: str) -> str:
+    """SHA-256 исходников пакета ядра: относительные имена и байты файлов.
+
+    `__pycache__` не входит: байт-код — следствие исходника и версии Python, а
+    сверяется именно исходник. Читают оба конца по одному и тому же файлу на
+    диске, поэтому окончания строк и права доступа от отпечатка не зависят.
+    """
+
+    digest = hashlib.sha256()
+    for folder, subfolders, files in os.walk(directory):
+        subfolders[:] = sorted(
+            item for item in subfolders if item != "__pycache__"
+        )
+        for name in sorted(files):
+            if name.endswith((".pyc", ".pyo")):
+                continue
+            path = os.path.join(folder, name)
+            relative = os.path.relpath(path, directory).replace(os.sep, "/")
+            digest.update(relative.encode("utf-8") + b"\0")
+            with open(path, "rb") as handle:
+                digest.update(handle.read())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def package_directory(name: str) -> str | None:
+    """Каталог пакета на пути ЭТОГО процесса, не импортируя его; иначе `None`."""
+
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):
+        return None
+    origin = None if spec is None else spec.origin
+    if not origin or not os.path.isfile(origin):
+        return None
+    return os.path.dirname(os.path.abspath(origin))
+
+
+def _module_version(name: str) -> str:
+    try:
+        return str(importlib.import_module(name).__version__)
+    except Exception as exc:  # noqa: BLE001 - отсутствие пакета — тоже факт
+        return f"missing: {type(exc).__name__}"
+
+
+def _numeric_backend() -> str:
+    """Бэкенд арифметики `sympy`/`mpmath` (`python` либо `gmpy`): ответ от него
+    не зависит, а время зависит, и сверка не даёт одному концу быть быстрее
+    другого по причине, о которой никто не знает."""
+
+    names = []
+    for module, attribute in (
+        ("sympy.external.gmpy", "GROUND_TYPES"),
+        ("mpmath.libmp", "BACKEND"),
+    ):
+        try:
+            names.append(str(getattr(importlib.import_module(module), attribute)))
+        except Exception:  # noqa: BLE001 - неизвестное совпадает с неизвестным
+            names.append("unknown")
+    return f"sympy:{names[0]}/mpmath:{names[1]}"
+
+
+def describe_environment() -> dict:
+    """Тождество окружения ЭТОГО процесса: версии, бэкенд, отпечаток ядра."""
+
+    kernel = package_directory("cftuv_envelope")
+    return {
+        "python": tuple(sys.version_info[:3]),
+        "executable": sys.executable,
+        "sympy": _module_version("sympy"),
+        "mpmath": _module_version("mpmath"),
+        "numeric_backend": _numeric_backend(),
+        "kernel_path": kernel or "",
+        "kernel_fingerprint": "" if kernel is None else kernel_fingerprint(kernel),
+        # Откуда загружены пакеты: диагностика, а не предмет сверки (версия не
+        # отличает «те же файлы» от «такой же версии» из чужого каталога).
+        "sympy_path": package_directory("sympy") or "",
+        "mpmath_path": package_directory("mpmath") or "",
+    }
+
+
+def _identity_difference(host: dict, worker: dict) -> tuple[int, str] | None:
+    """Первое расхождение окружений: `(код причины, текст с числами)` либо `None`.
+
+    Версию Python не сравнивают — она различается нарочно, — а требуют от неё
+    минимума. Остальное обязано совпасть: ответ ядра держится на тех же файлах
+    ядра и той же арифметике.
+    """
+
+    try:
+        python = tuple(worker.get("python") or ())
+        too_old = python < MIN_EXTERNAL_PYTHON
+    except TypeError:
+        python, too_old = (), True
+    if too_old:
+        found = ".".join(str(item) for item in python) or "unknown"
+        return 4, f"Python {found} is older than 3.10"
+    for code, key in (
+        (5, "sympy"),
+        (6, "mpmath"),
+        (7, "numeric_backend"),
+        (8, "kernel_fingerprint"),
+    ):
+        if worker.get(key) != host.get(key):
+            return code, (
+                f"{INTERPRETER_REASONS[code]}: worker {worker.get(key)!r}, "
+                f"host {host.get(key)!r}"
+            )
+    return None
+
+
 def worker_main() -> None:
     """Цикл воркера: задача на входе, ответ на выходе, до конца stdin."""
 
@@ -299,6 +489,13 @@ def worker_main() -> None:
     os.dup2(2, 1)
     sys.stdout = sys.stderr
     source = sys.stdin.buffer
+    if json.loads(os.environ.get(SPEC_ENVIRONMENT_VARIABLE) or "{}").get(
+        "handshake"
+    ):
+        # До тяжёлой загрузки ядра: расхождение окружений родитель называет
+        # сразу, а не после секунд импорта (и не как «воркер упал»).
+        identity = {**describe_environment(), "sys_path": list(sys.path)}
+        write_frame(channel, ("hello", identity))
     from .envelope_export_input import load_export_modules
     from .envelope_queue_export import load_queue_kernel
 
@@ -340,6 +537,8 @@ class _Worker:
     def __init__(self, index: int, command, environment) -> None:
         self.index = index
         self.dead = False
+        #: Что воркер назвал о себе в `hello` (внешний интерпретатор), иначе пусто.
+        self.identity: dict = {}
         self._stdout_closed = False
         self._inbox: queue.Queue = queue.Queue()
         self._stderr_tail: deque = deque(maxlen=STDERR_TAIL_LINES)
@@ -466,17 +665,81 @@ def _worker_specification() -> dict:
     }
 
 
-class DomainPool:
-    """Постоянные воркеры: стартуют лениво, живут между нажатиями кнопки."""
+class _InterpreterRejected(RuntimeError):
+    """Заказанный внешний интерпретатор не годится; `code` — индекс причины."""
 
-    def __init__(self, workers: int, *, python_executable: str | None = None):
+    def __init__(self, code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+
+    @property
+    def outcome(self) -> str:
+        if self.code < FIRST_MISMATCH_REASON:
+            return INTERPRETER_UNUSABLE
+        return INTERPRETER_MISMATCH
+
+
+def _checked_identity(host: dict, reply) -> dict:
+    """Тождество воркера из его первого кадра либо отказ интерпретатору."""
+
+    if not (
+        isinstance(reply, tuple)
+        and len(reply) == 2
+        and reply[0] == "hello"
+        and isinstance(reply[1], dict)
+    ):
+        raise _InterpreterRejected(
+            2, f"unexpected first frame {str(reply)[:120]!r}"
+        )
+    difference = _identity_difference(host, reply[1])
+    if difference is not None:
+        raise _InterpreterRejected(*difference)
+    return reply[1]
+
+
+class DomainPool:
+    """Постоянные воркеры: стартуют лениво, живут между нажатиями кнопки.
+
+    `python_executable` — встроенный интерпретатор (по умолчанию `sys.executable`):
+    воркеры на нём наследуют `sys.path` родителя. `external_python` — путь
+    заказанного ВНЕШНЕГО интерпретатора; его воркеры не наследуют ничего, кроме
+    каталогов пакетов хоста (см. докстроку модуля). Отказ внешнему — не отказ
+    пулу: воркеры идут на встроенном, а причина лежит в `interpreter`.
+    """
+
+    def __init__(
+        self,
+        workers: int,
+        *,
+        python_executable: str | None = None,
+        external_python: str | None = None,
+    ):
         self.requested = max(0, int(workers))
         self._python_executable = python_executable
+        self._external_python = str(external_python or "")
         self._workers: list[_Worker] = []
+        self._interpreter: PoolInterpreterV1 | None = None
+        self._rejection: _InterpreterRejected | None = None
 
     @property
     def worker_count(self) -> int:
         return sum(not item.dead for item in self._workers)
+
+    @property
+    def external_python(self) -> str:
+        return self._external_python
+
+    @property
+    def interpreter(self) -> PoolInterpreterV1 | None:
+        """На чём идут воркеры; `None`, пока ни один не стартовал."""
+
+        return self._interpreter
+
+    @property
+    def rejected(self) -> bool:
+        """Внешний интерпретатор заказан, но отвергнут и воркеры на встроенном."""
+
+        return self._rejection is not None
 
     def ensure_started(self) -> None:
         """Доводит число живых воркеров до заказанного либо бросает отказ."""
@@ -485,14 +748,77 @@ class DomainPool:
         missing = self.requested - len(self._workers)
         if missing <= 0:
             return
-        python = resolve_python_executable(self._python_executable)
+        if self._external_python and self._rejection is None:
+            try:
+                self._launch(missing, external=True)
+                return
+            except _InterpreterRejected as rejection:
+                self._rejection = rejection
+                # Выжившие — воркеры внешнего интерпретатора (докомплектация),
+                # а встроенный ответит так же, но не вперемешку с ними.
+                self.close()
+                missing = self.requested
+        try:
+            self._launch(missing, external=False)
+        except DomainPoolUnavailable as exc:
+            if self._rejection is None:
+                raise
+            raise DomainPoolUnavailable(
+                f"external Python rejected ({self._rejection}); "
+                f"bundled Python failed too: {exc}"
+            ) from exc
+
+    def _external_plan(self) -> tuple[str, dict, dict]:
+        """Интерпретатор, спецификация и тождество хоста для внешних воркеров."""
+
+        path = self._external_python
+        if not os.path.isfile(path):
+            raise _InterpreterRejected(1, f"Worker Python is not a file: {path!r}")
+        try:
+            python = resolve_python_executable(path)
+        except DomainPoolUnavailable as exc:
+            raise _InterpreterRejected(1, str(exc)) from exc
+        roots = {name: package_directory(name) for name in HOST_PACKAGES}
+        absent = [name for name, root in roots.items() if root is None]
+        if absent:
+            raise _InterpreterRejected(
+                3, f"host cannot locate {', '.join(absent)} on its own path"
+            )
+        host = describe_environment()
+        if any(str(host[key]).startswith("missing") for key in ("sympy", "mpmath")):
+            raise _InterpreterRejected(
+                3, f"host cannot import sympy/mpmath: {host['sympy']}, {host['mpmath']}"
+            )
+        entries: list[str] = []
+        for name in HOST_PACKAGES:
+            entry = os.path.dirname(roots[name])
+            if entry not in entries:
+                entries.append(entry)
+        specification = {
+            **_worker_specification(),
+            "sys_path": entries,
+            "after_stdlib": True,
+            "handshake": True,
+        }
+        return python, specification, host
+
+    def _launch(self, missing: int, *, external: bool) -> None:
+        """Стартует `missing` воркеров на внешнем либо встроенном интерпретаторе."""
+
+        host: dict = {}
+        flags: list[str] = []
+        if external:
+            python, specification, host = self._external_plan()
+            flags = ["-I", "-S"]
+        else:
+            python = resolve_python_executable(self._python_executable)
+            specification = _worker_specification()
         environment = dict(os.environ)
-        environment[SPEC_ENVIRONMENT_VARIABLE] = json.dumps(
-            _worker_specification()
-        )
-        command = [python, "-u", "-c", _BOOTSTRAP]
+        environment[SPEC_ENVIRONMENT_VARIABLE] = json.dumps(specification)
+        command = [python, *flags, "-u", "-c", _BOOTSTRAP]
         started: list[_Worker] = []
         failures: list[str] = []
+        version = tuple(sys.version_info[:3])
         first_free = max((item.index for item in self._workers), default=-1) + 1
         for offset in range(missing):
             try:
@@ -502,20 +828,39 @@ class DomainPool:
             except OSError as exc:
                 failures.append(f"cannot start {python!r}: {exc}")
                 break
-        for worker in started:
+        for position, worker in enumerate(started):
             try:
                 reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)
+                if external:
+                    identity = _checked_identity(host, reply)
+                    worker.identity = identity
+                    version = tuple(identity["python"])
+                    reply = worker.receive(timeout=READY_TIMEOUT_SECONDS)
                 if not (isinstance(reply, tuple) and reply[:1] == ("ready",)):
                     raise _WorkerGone(f"unexpected first frame {reply!r}")
             except _WorkerGone as exc:
                 failures.append(f"worker failed to start: {exc}")
                 worker.close(grace=0.5)
                 continue
+            except _InterpreterRejected:
+                for pending in started[position:]:
+                    pending.close(grace=0.5)
+                raise
             self._workers.append(worker)
         if not self._workers:
-            raise DomainPoolUnavailable(
-                "; ".join(failures) or "no worker started"
-            )
+            detail = "; ".join(failures) or "no worker started"
+            if external:
+                raise _InterpreterRejected(2, detail)
+            raise DomainPoolUnavailable(detail)
+        self._interpreter = self._describe_interpreter(external, version)
+
+    def _describe_interpreter(self, external: bool, version: tuple):
+        rejection = self._rejection
+        if rejection is None:
+            return PoolInterpreterV1(version, external)
+        return PoolInterpreterV1(
+            version, False, rejection.outcome, str(rejection), rejection.code
+        )
 
     def run(self, tasks) -> DomainPoolRunV1:
         """Считает задачи воркерами, тяжёлые первыми, и собирает ответы."""
@@ -566,7 +911,7 @@ class DomainPool:
             if worker.dead:
                 worker.close(grace=0.5)
         self._workers = [item for item in self._workers if not item.dead]
-        return DomainPoolRunV1(results, len(participants))
+        return DomainPoolRunV1(results, len(participants), self._interpreter)
 
     def close(self) -> None:
         workers, self._workers = self._workers, []
@@ -579,27 +924,35 @@ _POOL_LOCK = threading.Lock()
 _ATEXIT_REGISTERED = False
 
 
-def get_domain_pool(workers: int) -> DomainPool | None:
+def get_domain_pool(workers: int, external_python: str = "") -> DomainPool | None:
     """Общий пул на заданное число воркеров; `None` — параллельность выключена.
 
     Перед сменой размера старый пул закрывается, а при `workers < 2` (0 и 1 —
     последовательный путь) закрывается и тёплый: простаивающие воркеры держат
-    около 100 МБ каждый.
+    около 100 МБ каждый. То же при смене `external_python` (пустая строка —
+    встроенный интерпретатор) и для пула, чей внешний интерпретатор отвергнут:
+    он пересоздаётся при каждом нажатии, чтобы исправленное окружение подхватывалось
+    без перезапуска, а не жило до конца сеанса в устаревшем отказе.
     """
 
     global _POOL, _ATEXIT_REGISTERED
     requested = int(workers)
+    external = str(external_python or "")
     with _POOL_LOCK:
         if requested < MIN_POOL_WORKERS:
             if _POOL is not None:
                 _POOL.close()
                 _POOL = None
             return None
-        if _POOL is not None and _POOL.requested != requested:
+        if _POOL is not None and (
+            _POOL.requested != requested
+            or _POOL.external_python != external
+            or _POOL.rejected
+        ):
             _POOL.close()
             _POOL = None
         if _POOL is None:
-            _POOL = DomainPool(requested)
+            _POOL = DomainPool(requested, external_python=external)
             if not _ATEXIT_REGISTERED:
                 # Страховка сверх `unregister`: воркеры умирают и сами, когда
                 # закрывается труба родителя, но обычный выход не должен ждать
@@ -640,10 +993,18 @@ __all__ = (
     "DomainTaskResultV1",
     "DEFAULT_POOL_WORKERS",
     "DomainTaskV1",
+    "HOST_PACKAGES",
+    "INTERPRETER_MISMATCH",
+    "INTERPRETER_REASONS",
+    "INTERPRETER_UNUSABLE",
     "MIN_POOL_WORKERS",
+    "PoolInterpreterV1",
+    "describe_environment",
     "encode_frame",
     "get_domain_pool",
+    "kernel_fingerprint",
     "order_by_cost",
+    "package_directory",
     "peek_domain_pool",
     "read_frame",
     "resolve_python_executable",

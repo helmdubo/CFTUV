@@ -31,6 +31,12 @@ __reduce__`), а покрытие пересланной подготовки п
 домене; задача, которая упала либо чей воркер умер, — счётчик
 `ENVELOPE_DOMAIN_POOL_TASK_FALLBACK`, строка консоли и диагностика на ЭТОМ
 домене. Ни то ни другое не меняет ответ: домен считается тем же кодом.
+
+Внешний интерпретатор воркеров («Worker Python»), который не прошёл сверку с
+родителем, называется третьим исходом: `ENVELOPE_DOMAIN_POOL_INTERPRETER_UNUSABLE`
+либо `..._INTERPRETER_MISMATCH` — диагностика на первом домене, строка консоли,
+счётчик отката и причина кодом в профиле (хвост панели). Пул при этом работает:
+воркеры идут на встроенном интерпретаторе.
 """
 
 from __future__ import annotations
@@ -42,6 +48,10 @@ from dataclasses import dataclass, replace
 from .envelope_queue_export import (
     POOL_COVERAGE_DISPATCHED,
     POOL_DISPATCHED,
+    POOL_EXTERNAL_PYTHON,
+    POOL_INTERPRETER_FALLBACK,
+    POOL_INTERPRETER_REASON,
+    POOL_PYTHON_VERSION,
     POOL_TASK_FALLBACK,
     POOL_UNAVAILABLE,
     POOL_WALL_STAGE,
@@ -136,13 +146,17 @@ class StagedQueueDomainV1:
     `pooled` — ответ воркера (`DomainTaskResultV1`) либо `None`: домен в кэше,
     пул недоступен или задача упала, и домен считается прежним путём.
     `pool_outcome` и `pool_message` — именованная причина такого «либо»; пусто,
-    когда всё шло как задумано.
+    когда всё шло как задумано. `interpreter_outcome` и `interpreter_message` —
+    отдельная запись о внешнем интерпретаторе воркеров, отвергнутом на этом
+    прогоне: она стоит на первом домене РЯДОМ с ответом воркера, а не вместо него.
     """
 
     inputs: object
     pooled: object | None = None
     pool_outcome: str = ""
     pool_message: str = ""
+    interpreter_outcome: str = ""
+    interpreter_message: str = ""
 
 
 def _pool_reason(error: str) -> str:
@@ -383,6 +397,46 @@ def _record_pool_counters(
     profile.set_counter(POOL_COVERAGE_DISPATCHED, covered)
     profile.set_counter(POOL_TASK_FALLBACK, fallbacks)
     profile.set_counter(POOL_UNAVAILABLE, int(bool(failure)))
+    interpreter = None if run is None else getattr(run, "interpreter", None)
+    profile.set_counter(
+        POOL_PYTHON_VERSION, 0 if interpreter is None else interpreter.version_code
+    )
+    profile.set_counter(
+        POOL_EXTERNAL_PYTHON, int(interpreter is not None and interpreter.external)
+    )
+    profile.set_counter(
+        POOL_INTERPRETER_FALLBACK, int(bool(getattr(interpreter, "outcome", "")))
+    )
+    profile.set_counter(
+        POOL_INTERPRETER_REASON, getattr(interpreter, "reason_code", 0)
+    )
+
+
+def _name_interpreter_fallback(run, tasks, staged) -> None:
+    """Внешний интерпретатор отвергнут: консоль и первый домен называют причину."""
+
+    from .envelope_request_export import EnvelopeHostAdapterError
+
+    interpreter = None if run is None else getattr(run, "interpreter", None)
+    if interpreter is None or not interpreter.outcome:
+        return
+    print(
+        f"[CFTUV][EnvelopeDomainPool] {interpreter.outcome}: {interpreter.reason}; "
+        f"workers run on the bundled Python {interpreter.version_text}",
+        flush=True,
+    )
+    for task in tasks:
+        entry = staged[task.domain_id]
+        if not isinstance(entry.inputs, EnvelopeHostAdapterError):
+            staged[task.domain_id] = replace(
+                entry,
+                interpreter_outcome=interpreter.outcome,
+                interpreter_message=(
+                    f"Worker Python rejected: {interpreter.reason}; "
+                    f"workers run on the bundled Python {interpreter.version_text}"
+                ),
+            )
+            return
 
 
 def _dispatch_to_pool(
@@ -456,6 +510,7 @@ def _dispatch_to_pool(
             pool_outcome=POOL_TASK_FALLBACK,
             pool_message=_note_task_fallback(domain_id, reason),
         )
+    _name_interpreter_fallback(run, tasks, staged)
     _record_pool_counters(profile, run, failure, dispatched, fallbacks, covered)
     return staged
 
@@ -585,20 +640,22 @@ def adopt_pooled_domain(
 def pool_notice(staged, domain_id: str):
     """Именованная причина, по которой домен считался не воркером, — строкой."""
 
-    if staged is None or not staged.pool_outcome:
+    if staged is None:
         return ()
     from .envelope_request_export import (
         EnvelopeDebugHostDiagnosticV1,
         EnvelopeDebugHostSeverity,
     )
 
-    return (
+    return tuple(
         EnvelopeDebugHostDiagnosticV1(
-            staged.pool_outcome,
-            EnvelopeDebugHostSeverity.UNSUPPORTED,
-            staged.pool_message,
-            domain_id,
-        ),
+            outcome, EnvelopeDebugHostSeverity.UNSUPPORTED, message, domain_id
+        )
+        for outcome, message in (
+            (staged.pool_outcome, staged.pool_message),
+            (staged.interpreter_outcome, staged.interpreter_message),
+        )
+        if outcome
     )
 
 

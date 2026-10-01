@@ -56,6 +56,10 @@ from cftuv.envelope_domain_pool import (  # noqa: E402
 from cftuv.envelope_queue_export import (  # noqa: E402
     POOL_COVERAGE_DISPATCHED,
     POOL_DISPATCHED,
+    POOL_EXTERNAL_PYTHON,
+    POOL_INTERPRETER_FALLBACK,
+    POOL_INTERPRETER_REASON,
+    POOL_PYTHON_VERSION,
     POOL_TASK_FALLBACK,
     POOL_UNAVAILABLE,
     POOL_WALL_STAGE,
@@ -83,6 +87,12 @@ POOL_NAMES = (
     POOL_WORKERS,
     POOL_DISPATCHED,
     POOL_COVERAGE_DISPATCHED,
+    POOL_PYTHON_VERSION,
+    POOL_EXTERNAL_PYTHON,
+    POOL_INTERPRETER_FALLBACK,
+    POOL_INTERPRETER_REASON,
+    pool_module.INTERPRETER_MISMATCH,
+    pool_module.INTERPRETER_UNUSABLE,
 )
 
 
@@ -955,7 +965,9 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
 
 
 def _in_process_session(monkeypatch, pool):
-    monkeypatch.setattr(pool_module, "get_domain_pool", lambda workers: pool)
+    monkeypatch.setattr(
+        pool_module, "get_domain_pool", lambda workers, external_python="": pool
+    )
 
 
 @pytest.mark.parametrize("injection", ("fail", "drop"))
@@ -1806,3 +1818,408 @@ def test_a_slider_preparation_that_cannot_be_shipped_is_named_in_a_small_batch(
     assert "pool fallback on 1 domains" in queue_timing_text(
         scene, profile.snapshot()
     )
+
+
+# --------------------------------------------------------------------------
+# 8. Интерпретатор воркеров («Worker Python», срез WORKER-PYTHON)
+# --------------------------------------------------------------------------
+
+
+def _host_entries():
+    """Каталоги пакетов хоста: единственное, что внешний воркер берёт у родителя."""
+
+    entries = []
+    for name in pool_module.HOST_PACKAGES:
+        entry = os.path.dirname(pool_module.package_directory(name))
+        if entry not in entries:
+            entries.append(entry)
+    return entries
+
+
+def _normal(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def test_an_external_worker_inherits_no_path_but_the_host_packages(
+    monkeypatch, tmp_path
+):
+    """Ни stdlib, ни site-packages родителя внешнему воркеру не достаются.
+
+    В `sys.path` родителя подложен «чужой stdlib» с модулем-маркёром: у
+    встроенного воркера он был бы виден, у внешнего — нет. Пакеты хоста (ядро,
+    `sympy`, `mpmath`) стоят ПОСЛЕ stdlib самого воркера, чтобы не затенить её;
+    каталог, из которого загружен сам аддон, не нужен вовсе (пакет поднимается по
+    файлу) и не передаётся.
+    """
+
+    fake = tmp_path / "fake_python311_stdlib"
+    fake.mkdir()
+    (fake / "cftuv_fake_stdlib_marker.py").write_text("VALUE = 1\n")
+    monkeypatch.syspath_prepend(str(fake))
+    assert any(_normal(item) == _normal(fake) for item in sys.path if item)
+    pool = DomainPool(1, external_python=sys.executable)
+    try:
+        pool.ensure_started()
+        identity = pool._workers[0].identity
+        worker_path = [_normal(item) for item in identity["sys_path"]]
+        assert _normal(fake) not in worker_path
+        assert _normal(KERNEL_SRC.parent.parent) not in worker_path
+        assert len(worker_path) == len(set(worker_path))
+        entries = [_normal(item) for item in _host_entries()]
+        assert entries
+        stdlib = worker_path.index(_normal(os.path.dirname(os.__file__)))
+        assert all(worker_path.index(entry) > stdlib for entry in entries)
+        # Позади stdlib стоят ровно пакеты хоста и ничего больше.
+        assert worker_path[worker_path.index(entries[0]) :] == entries
+        assert identity["python"] == tuple(sys.version_info[:3])
+        assert pool.interpreter == pool_module.PoolInterpreterV1(
+            tuple(sys.version_info[:3]), True
+        )
+        assert pool.interpreter.version_code == (
+            sys.version_info[0] * 10000
+            + sys.version_info[1] * 100
+            + sys.version_info[2]
+        )
+        assert not pool.rejected
+    finally:
+        pool.close()
+
+
+def test_the_bundled_worker_keeps_the_whole_parent_path_and_no_handshake():
+    """Встроенный путь не изменился: тот же `sys.path` родителя, ни одного `hello`."""
+
+    specification = pool_module._worker_specification()
+    assert set(specification) == {"sys_path", "package", "package_dir"}
+    assert specification["sys_path"] == [
+        os.path.abspath(item)
+        for item in sys.path
+        if isinstance(item, str) and item
+    ]
+    pool = DomainPool(1)
+    try:
+        pool.ensure_started()
+        assert pool._workers[0].identity == {}
+        assert pool.interpreter == pool_module.PoolInterpreterV1(
+            tuple(sys.version_info[:3]), False
+        )
+        assert not pool.rejected
+    finally:
+        pool.close()
+
+
+@pytest.mark.parametrize(
+    ("key", "code"),
+    (
+        ("sympy", 5),
+        ("mpmath", 6),
+        ("numeric_backend", 7),
+        ("kernel_fingerprint", 8),
+    ),
+)
+def test_a_mismatching_worker_environment_is_named_and_the_pool_falls_back(
+    monkeypatch, key, code
+):
+    """Расхождение окружений — `INTERPRETER_MISMATCH`, а воркеры идут на встроенном."""
+
+    real = pool_module.describe_environment()
+    monkeypatch.setattr(
+        pool_module,
+        "describe_environment",
+        lambda: {**real, key: "0.0.0-not-what-the-worker-runs"},
+    )
+    pool = DomainPool(2, external_python=sys.executable)
+    try:
+        pool.ensure_started()
+        interpreter = pool.interpreter
+        assert pool.worker_count == 2 and pool.rejected
+        assert not interpreter.external
+        assert interpreter.outcome == pool_module.INTERPRETER_MISMATCH
+        assert interpreter.reason_code == code
+        assert pool_module.INTERPRETER_REASONS[code] in interpreter.reason
+        assert "0.0.0-not-what-the-worker-runs" in interpreter.reason
+        assert all(worker.identity == {} for worker in pool._workers)
+    finally:
+        pool.close()
+
+
+def test_an_old_python_is_a_named_mismatch(monkeypatch):
+    host = {
+        "sympy": "1",
+        "mpmath": "1",
+        "numeric_backend": "b",
+        "kernel_fingerprint": "k",
+    }
+    difference = pool_module._identity_difference
+    assert difference(host, {**host, "python": (3, 9, 7)})[0] == 4
+    assert difference(host, {**host, "python": (3, 10, 0)}) is None
+    assert difference(host, {**host, "python": None})[0] == 4
+
+    monkeypatch.setattr(pool_module, "MIN_EXTERNAL_PYTHON", (99, 0))
+    pool = DomainPool(1, external_python=sys.executable)
+    try:
+        pool.ensure_started()
+        assert pool.interpreter.outcome == pool_module.INTERPRETER_MISMATCH
+        assert pool.interpreter.reason_code == 4
+        assert "older than 3.10" in pool.interpreter.reason
+    finally:
+        pool.close()
+
+
+def test_a_mismatch_runs_on_the_bundled_python_and_is_named_everywhere(
+    monkeypatch, capsys
+):
+    """Откат на встроенный: ответ тот же, исход назван диагностикой, консолью и панелью."""
+
+    bundle = quad_row_bundle(ROW)
+    expected, expected_profile = _direct_run(bundle, pool=None)
+    real = pool_module.describe_environment()
+    monkeypatch.setattr(
+        pool_module,
+        "describe_environment",
+        lambda: {**real, "sympy": "0.0.0-not-what-the-worker-runs"},
+    )
+    pool = DomainPool(2, external_python=sys.executable)
+    try:
+        evaluation, profile = _direct_run(bundle, pool=pool)
+    finally:
+        pool.close()
+
+    assert _counter(profile, POOL_INTERPRETER_FALLBACK) == 1
+    assert _counter(profile, POOL_INTERPRETER_REASON) == 5
+    assert _counter(profile, POOL_EXTERNAL_PYTHON) == 0
+    # Откат на встроенный интерпретатор, а не на последовательный путь.
+    assert _counter(profile, POOL_UNAVAILABLE) == 0
+    assert _counter(profile, POOL_WORKERS) == 2
+    assert _counter(profile, POOL_DISPATCHED) == ROW
+    assert _counter(profile, POOL_TASK_FALLBACK) == 0
+    first = evaluation.domains[0]
+    notices = [
+        item
+        for item in evaluation.diagnostics
+        if item.outcome == pool_module.INTERPRETER_MISMATCH
+    ]
+    assert [item.patch_domain_id for item in notices] == [first.patch_domain_id]
+    assert "sympy version differs" in notices[0].message
+    assert "bundled Python" in notices[0].message
+    console = capsys.readouterr().out
+    assert pool_module.INTERPRETER_MISMATCH in console
+    assert _fingerprint(
+        evaluation, profile, skip_scene_of=(first.patch_domain_id,)
+    ) == _fingerprint(
+        expected, expected_profile, skip_scene_of=(first.patch_domain_id,)
+    )
+    text = queue_timing_text(
+        build_queue_scene(evaluation.queue_domains), profile.snapshot()
+    )
+    assert "external Python rejected: sympy version differs" in text
+    assert "(bundled)" in text and "pool wall" in text
+
+
+def test_an_unusable_path_is_named_and_the_pool_falls_back(tmp_path):
+    not_python = tmp_path / "tool.exe"
+    not_python.write_text("x")
+    garbage = tmp_path / "python.exe"
+    garbage.write_text("this is not an executable")
+    for path, fragment in (
+        (str(tmp_path / "nowhere" / "python.exe"), "not a file"),
+        (str(tmp_path), "not a file"),
+        (str(not_python), "not a Python interpreter"),
+        (str(garbage), "cannot start"),
+    ):
+        pool = DomainPool(1, external_python=path)
+        try:
+            pool.ensure_started()
+            interpreter = pool.interpreter
+            assert pool.worker_count == 1 and pool.rejected, path
+            assert not interpreter.external
+            assert interpreter.outcome == pool_module.INTERPRETER_UNUSABLE
+            assert interpreter.reason_code in (1, 2)
+            assert fragment in interpreter.reason, (path, interpreter.reason)
+        finally:
+            pool.close()
+
+
+def test_an_external_worker_that_dies_is_unusable_and_both_failures_are_named(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        pool_module, "_BOOTSTRAP", "import sys\nsys.exit('boom from bootstrap')"
+    )
+    pool = DomainPool(1, external_python=sys.executable)
+
+    with pytest.raises(DomainPoolUnavailable) as caught:
+        pool.ensure_started()
+
+    assert "external Python rejected" in str(caught.value)
+    assert "boom from bootstrap" in str(caught.value)
+    assert "bundled Python failed too" in str(caught.value)
+    assert pool.rejected and pool.worker_count == 0
+    pool.close()
+
+
+def test_a_rejected_or_changed_external_python_gets_a_fresh_pool():
+    shutdown_domain_pool()
+    try:
+        first = get_domain_pool(2, "")
+        assert get_domain_pool(2, "") is first
+        assert get_domain_pool(2) is first
+        other = get_domain_pool(2, "C:/x/python.exe")
+        assert other is not first and other.external_python == "C:/x/python.exe"
+        assert get_domain_pool(2, "C:/x/python.exe") is other
+        other._rejection = pool_module._InterpreterRejected(5, "sympy differs")
+        assert other.rejected
+        assert get_domain_pool(2, "C:/x/python.exe") is not other
+    finally:
+        shutdown_domain_pool()
+
+
+def test_the_interpreter_reaches_the_owner_text_through_numeric_counters():
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+    scene = build_queue_scene(())
+    assert "worker Python" not in queue_timing_text(scene, profile.snapshot())
+    profile.add_timing(POOL_WALL_STAGE, 0.5)
+    profile.set_counter(POOL_WORKERS, 8)
+    profile.set_counter(POOL_PYTHON_VERSION, 31301)
+    profile.set_counter(POOL_EXTERNAL_PYTHON, 1)
+    profile.set_counter(POOL_INTERPRETER_FALLBACK, 0)
+    text = queue_timing_text(scene, profile.snapshot())
+    assert "pool wall 500 ms on 8 workers" in text
+    assert "worker Python 3.13.1 (external)" in text
+    assert "rejected" not in text
+    profile.set_counter(POOL_PYTHON_VERSION, 31111)
+    profile.set_counter(POOL_EXTERNAL_PYTHON, 0)
+    profile.set_counter(POOL_INTERPRETER_FALLBACK, 1)
+    profile.set_counter(POOL_INTERPRETER_REASON, 8)
+    text = queue_timing_text(scene, profile.snapshot())
+    assert "worker Python 3.11.11 (bundled)" in text
+    assert "external Python rejected: kernel source differs" in text
+
+
+def test_real_external_workers_reproduce_the_sequential_run(
+    monkeypatch, _pool_never
+):
+    """Ответ на внешнем интерпретаторе побитово тот же; кнопка берёт путь из настройки."""
+
+    from cftuv import envelope_worker_python
+
+    monkeypatch.setattr(
+        envelope_worker_python, "read_worker_python", lambda: sys.executable
+    )
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    assert _fingerprint(evaluation, profile) == _fingerprint(
+        expected, expected_profile
+    )
+    assert _counter(profile, POOL_EXTERNAL_PYTHON) == 1
+    assert _counter(profile, POOL_INTERPRETER_FALLBACK) == 0
+    assert _counter(
+        profile, POOL_PYTHON_VERSION
+    ) == pool_module.PoolInterpreterV1(
+        tuple(sys.version_info[:3]), True
+    ).version_code
+    assert _counter(profile, POOL_WORKERS) == 2
+    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_TASK_FALLBACK) == 0
+    assert _counter(profile, POOL_UNAVAILABLE) == 0
+    assert controller.build_counts == sequential.build_counts
+    assert "(external)" in queue_timing_text(
+        build_queue_scene(evaluation.queue_domains), profile.snapshot()
+    )
+
+
+def test_the_preference_is_read_cleaned_and_empty_by_default(monkeypatch):
+    from types import SimpleNamespace
+
+    from cftuv import envelope_worker_python as preference
+
+    stub = sys.modules["bpy"]
+    assert preference.read_worker_python() == ""
+    monkeypatch.setattr(stub, "context", SimpleNamespace(), raising=False)
+    assert preference.read_worker_python() == ""
+    addons = {}
+    monkeypatch.setattr(
+        stub,
+        "context",
+        SimpleNamespace(preferences=SimpleNamespace(addons=addons)),
+        raising=False,
+    )
+    assert preference.read_worker_python() == ""
+    addons[preference.__package__] = SimpleNamespace(
+        preferences=SimpleNamespace(worker_python='  "C:/Python313/python.exe" ')
+    )
+    assert preference.read_worker_python() == "C:/Python313/python.exe"
+    addons[preference.__package__].preferences.worker_python = "   "
+    assert preference.read_worker_python() == ""
+
+
+def test_the_preference_is_attached_to_the_registered_class_once(monkeypatch):
+    """Свойство вносится в аннотации класса между его снятием и новой регистрацией."""
+
+    from types import SimpleNamespace
+
+    from cftuv import envelope_worker_python as preference
+
+    class Base:
+        pass
+
+    class Stale(Base):
+        # Сброшенный класс прежней загрузки пакета: тот же `bl_idname`, но не
+        # зарегистрирован; пристёгивать к нему нечего и снимать его нельзя.
+        bl_idname = preference.__package__
+        is_registered = False
+        __annotations__ = {}
+
+    class Preferences(Base):
+        bl_idname = preference.__package__
+        is_registered = True
+        __annotations__ = {"clear_pins_after_phase1": "kept"}
+
+    calls = []
+    stub = sys.modules["bpy"]
+    monkeypatch.setattr(
+        stub, "types", SimpleNamespace(AddonPreferences=Base), raising=False
+    )
+    monkeypatch.setattr(
+        stub,
+        "utils",
+        SimpleNamespace(
+            unregister_class=lambda cls: calls.append("unregister"),
+            register_class=lambda cls: calls.append(
+                ("register", preference.PREFERENCE_NAME in cls.__annotations__)
+            ),
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stub, "props", SimpleNamespace(StringProperty=lambda **kw: kw), raising=False
+    )
+
+    assert preference.install_worker_python_preference() is True
+    assert calls == ["unregister", ("register", True)]
+    assert preference.PREFERENCE_NAME not in Stale.__annotations__
+    declared = Preferences.__annotations__[preference.PREFERENCE_NAME]
+    assert declared["subtype"] == "FILE_PATH" and declared["default"] == ""
+    assert Preferences.__annotations__["clear_pins_after_phase1"] == "kept"
+    assert preference.install_worker_python_preference() is True
+    assert calls == ["unregister", ("register", True)]  # повтор ничего не делает
+
+    # Класс, который не принял свойство, возвращается к прежнему виду.
+    del Preferences.__annotations__[preference.PREFERENCE_NAME]
+    calls.clear()
+    refusals = iter((RuntimeError("refused"), None))
+
+    def register(cls):
+        outcome = next(refusals)
+        calls.append(
+            ("register", preference.PREFERENCE_NAME in cls.__annotations__)
+        )
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(stub.utils, "register_class", register)
+    assert preference.install_worker_python_preference() is False
+    assert calls == ["unregister", ("register", True), ("register", False)]
+    assert preference.PREFERENCE_NAME not in Preferences.__annotations__
