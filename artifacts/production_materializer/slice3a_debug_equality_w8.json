@@ -1,0 +1,338 @@
+{
+ "base_root": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cb",
+ "branch_root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-af4927919012e91a4",
+ "identical": true,
+ "parts": {
+  "alpha:0.25#7": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "154603842589e8ba",
+   "gp_strokes": "97f8b983a8aef671",
+   "queue_domains": "18c73c85f28a7c7c",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "8ac77d215bf812f7",
+   "sidecar": "dd4ee66e35d9b047",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "alpha:0.3#5": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "2467aa3be32eb3bb",
+   "gp_strokes": "abf7090a5936651e",
+   "queue_domains": "29f195dc0199a5cd",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "8ac77d215bf812f7",
+   "sidecar": "86ba4df58adc660f",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "alpha:0.375#4": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "f47891183c25b0c0",
+   "gp_strokes": "737c3bae9fd4b893",
+   "queue_domains": "b7bf5e5d44eed898",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "8ac77d215bf812f7",
+   "sidecar": "9f7adc44d3a172af",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "alpha:0.45#6": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "f9959ca0a3093d73",
+   "gp_strokes": "d60f43b7fda62e7f",
+   "queue_domains": "b260bf4fcac90446",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "8ac77d215bf812f7",
+   "sidecar": "96d809bafd0c1f24",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d1#3": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "826aca3d4b9376f6",
+   "gp_strokes": "884999329a76f78b",
+   "queue_domains": "e88ec7f9686ff950",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "260975fafab4d079",
+   "sidecar": "34843ecdbee6c4e7",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d1#8": {
+   "counters": "405f1f8940bb0efb",
+   "gp_props": "c6de450992b3c30f",
+   "gp_strokes": "97f8b983a8aef671",
+   "queue_domains": "18c73c85f28a7c7c",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "260975fafab4d079",
+   "sidecar": "5eb46ea119a0888f",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d2#0": {
+   "counters": "0654f0b9c6b99553",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "cb79c660165f96dc"
+  },
+  "d2#1": {
+   "counters": "efb5120dc8876d47",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d2#2": {
+   "counters": "efb5120dc8876d47",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "6c2e01346aeb3d31"
+  }
+ },
+ "problems": [],
+ "steps": [
+  {
+   "patch_metric_export_base": 6.239,
+   "patch_metric_export_branch": 6.671,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 16.273,
+   "pool_wall_branch": 15.477,
+   "snapshot_export_base": 0.154,
+   "snapshot_export_branch": 0.15,
+   "step": "d2",
+   "wall_base": 18.244,
+   "wall_branch": 17.402
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 2.859,
+   "pool_wall_branch": 2.888,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.107,
+   "step": "d2",
+   "wall_base": 3.969,
+   "wall_branch": 3.982
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 2.677,
+   "pool_wall_branch": 2.651,
+   "snapshot_export_base": 0.107,
+   "snapshot_export_branch": 0.107,
+   "step": "d2",
+   "wall_base": 3.533,
+   "wall_branch": 3.534
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 9.554,
+   "pool_wall_branch": 9.625,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.106,
+   "step": "d1",
+   "wall_base": 10.489,
+   "wall_branch": 10.332
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 9.554,
+   "pool_wall_branch": 9.625,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.106,
+   "step": "alpha:0.375",
+   "wall_base": 3.494,
+   "wall_branch": 3.394
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 9.554,
+   "pool_wall_branch": 9.625,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.106,
+   "step": "alpha:0.3",
+   "wall_base": 2.996,
+   "wall_branch": 3.034
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 9.554,
+   "pool_wall_branch": 9.625,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.106,
+   "step": "alpha:0.45",
+   "wall_base": 3.012,
+   "wall_branch": 2.957
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 0,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 9.554,
+   "pool_wall_branch": 9.625,
+   "snapshot_export_base": 0.108,
+   "snapshot_export_branch": 0.106,
+   "step": "alpha:0.25",
+   "wall_base": 3.066,
+   "wall_branch": 3.174
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_counters_branch": {
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+    "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+    "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+    "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+   },
+   "pool_wall_base": 2.717,
+   "pool_wall_branch": 2.627,
+   "snapshot_export_base": 0.107,
+   "snapshot_export_branch": 0.107,
+   "step": "d1",
+   "wall_base": 3.634,
+   "wall_branch": 3.589
+  }
+ ],
+ "workers": [
+  8,
+  8
+ ]
+}
