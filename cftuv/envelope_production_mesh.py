@@ -18,17 +18,22 @@
 огибающей внутри домена, `claim:N` батча). Один слот материала `material_name`:
 создаётся, если нет, и НЕ перезаписывается, если есть (владелец мог его настроить).
 
-ВЕРШИНЫ СВАРИВАЮТСЯ ТОЛЬКО ПО СЕМАНТИЧЕСКОМУ КЛЮЧУ БАТЧА и только внутри
-домена: ключ `(домен, vert_key)` — одна вершина. По расстоянию — никогда:
-вершины `src:` лежат на сертифицированной плоскости и снапе решётки, а не на
-исходном мешу, и склейка «по координатам» с исходником или соседним доменом была бы
-ровно тем молчаливым ремонтом, который адаптеру запрещён. У соседних доменов
-смещение идёт вдоль СВОИХ нормалей, поэтому общая исходная вершина у них разная.
-Одна вершина на ключ при разных UV в разных регионах — шов UV, а не дубликат.
+ВЕРШИНЫ СВАРИВАЮТСЯ ТОЛЬКО ПО СЕМАНТИЧЕСКОЙ ССЫЛКЕ БАТЧА. Внутри домена ключ
+`(домен, vert_key)` — одна вершина. МЕЖДУ доменами вершины с одной ссылкой
+`semantic_location_ref = location:src:<id>` (она глобальна: вершина исходника) становятся
+одной вершиной меша, но ТОЛЬКО при ПОБИТОВО равных позициях в батчах — это проверка, а не
+ремонт (закон ядра `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт такие вершины в одну
+позицию хоста); расхождение — счётчик `ADAPTER_WELD_POSITION_MISMATCH`, вершины остаются
+раздельными. Смещение над поверхностью у общей вершины — МИТРА (пересечение сдвинутых
+плоскостей доменов), а не нормаль одного домена: см. `envelope_production_weld`. По
+расстоянию вершины не сливаются никогда. Одна вершина на ключ при разных UV в разных
+регионах — шов UV, а не дубликат; UV остаётся по петле, и ребро между гранями разных доменов
+с разрывным UV помечается швом.
 
 ШВЫ. Интерфейсные цепи батча (общие полурёбра граней разных регионов — изломы
 цепей и границы владения, где станции `(s, r)` разные) помечаются швами Blender
-(`use_seam`): это ровно те рёбра, на которых UV разрывны. Решение хоста, не ядра.
+(`use_seam`): это ровно те рёбра, на которых UV разрывны. Туда же — рёбра сваренной складки
+между доменами, где UV двух граней разные. Решение хоста, не ядра.
 
 ПЕРЕСБОРКА ИДЕМПОТЕНТНА. Свой объект ищется по МАРКЕРУ, а не по имени: имя
 объекта Blender режет до 63 байт и дописывает `.001` при коллизии, поэтому
@@ -60,6 +65,15 @@ import math
 from dataclasses import dataclass
 
 import bpy
+
+from .envelope_production_weld import (
+    COUNTER_WELD_SEAMS_MARKED,
+    OUTCOME_WELD_HALF_EDGE_CONFLICT,
+    DomainVerticesV1,
+    cross_domain_seams,
+    half_edge_conflicts,
+    weld_vertices,
+)
 
 DECAL_OBJECT_SUFFIX = ".CFTUV_Decal"
 DECAL_UV_LAYER = "UVMap"
@@ -119,6 +133,9 @@ class MeshArraysV1:
     #: Закон топологии записанных доменов (`DecalTopologyLawV1.value`); при разных
     #: законах — имена через запятую по возрастанию; пусто, если ничего не записано.
     decal_topology_law: str = ""
+    #: Числа сварки `((имя, значение), ...)`: общие вершины, слитые вершины доменов,
+    #: расхождения позиций, отказы митры, швы складок, конфликты обхода.
+    weld_counters: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +167,8 @@ class ProductionWriteReceiptV1:
     decal_topology_law: str = ""
     quads: int = 0
     triangles: int = 0
+    #: Числа сварки (см. `MeshArraysV1.weld_counters`): в квитанции и в JSON прогона.
+    weld_counters: tuple = ()
 
 
 def decal_object_name(source_name: str) -> str:
@@ -180,8 +199,12 @@ def _claim_ordinals(batch) -> dict[str, int]:
         return {name: index for index, name in enumerate(names)}
 
 
-def _domain_arrays(result, offset: float):
-    """`(позиции, грани, uv, владельцы, швы)` одного домена либо `(None, исход, деталь)`."""
+def _domain_arrays(result):
+    """`(вершины, грани, uv, владельцы, швы)` одного домена либо `(None, исход, деталь)`.
+
+    Вершины — `DomainVerticesV1`: позиция батча, нормаль смещения и ссылка каждой. Смещение
+    здесь не прикладывается: у общей вершины оно митра нескольких доменов (сварка).
+    """
 
     batch = result.batch
     if not batch.faces or not batch.vertices:
@@ -205,7 +228,7 @@ def _domain_arrays(result, offset: float):
             )
     ordered = sorted(batch.vertices, key=lambda item: item.vert_key.value)
     index = {item.vert_key.value: number for number, item in enumerate(ordered)}
-    positions = []
+    positions, normals, refs = [], [], []
     for vertex in ordered:
         point = vertex.position
         if not _finite((point.x, point.y, point.z)):
@@ -213,9 +236,10 @@ def _domain_arrays(result, offset: float):
         shift = vertex_normals.get(vertex.vert_key.value, (nx, ny, nz)) if vertex_normals else (nx, ny, nz)
         if vertex_normals and vertex.vert_key.value not in vertex_normals:
             return None, OUTCOME_NORMAL_MISSING, f"the offset normal of vertex {vertex.vert_key.value} is absent"
-        positions.append(
-            (point.x + offset * shift[0], point.y + offset * shift[1], point.z + offset * shift[2])
-        )
+        positions.append((point.x, point.y, point.z))
+        normals.append(tuple(shift))
+        location = getattr(vertex, "semantic_location_ref", None)
+        refs.append(None if location is None else location.value)
     owners = _claim_ordinals(batch)
     faces, uvs, face_owner = [], [], []
     for face in batch.faces:
@@ -235,7 +259,10 @@ def _domain_arrays(result, offset: float):
         for first, second in zip(keys, keys[1:]):
             if first in index and second in index and first != second:
                 seams.add(tuple(sorted((index[first], index[second]))))
-    return (positions, faces, uvs, face_owner, sorted(seams)), "", ""
+    vertices = DomainVerticesV1(
+        result.patch_id, tuple(positions), tuple(normals), tuple(refs)
+    )
+    return (vertices, faces, uvs, face_owner, sorted(seams)), "", ""
 
 
 def _domain_warnings(result) -> list:
@@ -272,12 +299,16 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
     """Массивы меша по результатам домена. Не-MATERIALIZED домены — в `skipped`.
 
     Домены идут по номеру патча, вершины внутри домена — по ключу батча:
-    порядок не зависит ни от воркера, ни от хеш-порядка множеств батча.
+    порядок не зависит ни от воркера, ни от хеш-порядка множеств батча. Вершины
+    соседних доменов с одной ссылкой `location:src:<id>` и побитово равными
+    позициями сварены в одну (`envelope_production_weld`), смещение над
+    поверхностью — митра общих вершин.
     """
 
-    positions, faces, uvs = [], [], []
-    face_domain, face_owner, seams = [], [], []
+    faces, uvs = [], []
+    face_domain, face_owner = [], []
     domains, skipped, warnings = [], [], []
+    entries = []
     revision = ""
     laws: set[str] = set()
     for result in sorted(results, key=lambda item: (item.patch_id, item.domain_id)):
@@ -286,22 +317,39 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 (result.patch_id, result.domain_id, result.outcome, result.detail)
             )
             continue
-        built, outcome, detail = _domain_arrays(result, float(offset))
+        built, outcome, detail = _domain_arrays(result)
         if built is None:
             skipped.append((result.patch_id, result.domain_id, outcome, detail))
             continue
-        base = len(positions)
-        d_positions, d_faces, d_uvs, d_owner, d_seams = built
-        positions.extend(d_positions)
-        faces.extend(tuple(base + item for item in loop) for loop in d_faces)
-        uvs.extend(d_uvs)
-        face_domain.extend([result.patch_id] * len(d_faces))
-        face_owner.extend(d_owner)
-        seams.extend((base + a, base + b) for a, b in d_seams)
+        entries.append((result, built))
         domains.append(result.patch_id)
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
         revision = revision or result.batch.source_revision.value
+    weld = weld_vertices([built[0] for _result, built in entries], float(offset))
+    seam_pairs: set = set()
+    for (result, built), index in zip(entries, weld.index):
+        _vertices, d_faces, d_uvs, d_owner, d_seams = built
+        faces.extend(tuple(index[item] for item in loop) for loop in d_faces)
+        uvs.extend(d_uvs)
+        face_domain.extend([result.patch_id] * len(d_faces))
+        face_owner.extend(d_owner)
+        seam_pairs.update(tuple(sorted((index[a], index[b]))) for a, b in d_seams)
+    folds = cross_domain_seams(faces, uvs, face_domain)
+    seam_pairs.update(folds)
+    seams = sorted(seam_pairs)
+    positions = list(weld.positions)
+    conflicts = half_edge_conflicts(faces)
+    warnings.extend(weld.warnings)
+    if conflicts:
+        warnings.append(
+            (
+                None,
+                OUTCOME_WELD_HALF_EDGE_CONFLICT,
+                f"{conflicts} directed edges lie in two faces after the weld: "
+                "neighbouring domains wind against each other there",
+            )
+        )
     digest = _arrays_digest(
         {
             "positions": positions,
@@ -325,6 +373,11 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         source_revision=revision,
         digest=digest,
         decal_topology_law=",".join(sorted(item for item in laws if item)),
+        weld_counters=(
+            *weld.counters,
+            (OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),
+            (COUNTER_WELD_SEAMS_MARKED, len(folds)),
+        ),
     )
 
 
@@ -549,6 +602,7 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         decal_topology_law=arrays.decal_topology_law,
         quads=sum(1 for loop in arrays.faces if len(loop) == 4),
         triangles=sum(1 for loop in arrays.faces if len(loop) == 3),
+        weld_counters=arrays.weld_counters,
     )
 
 
@@ -560,6 +614,7 @@ def _blank_arrays(arrays: MeshArraysV1) -> MeshArraysV1:
         seam_edges=(), domains=(), skipped=arrays.skipped, warnings=arrays.warnings,
         source_revision=arrays.source_revision, digest=arrays.digest,
         decal_topology_law=arrays.decal_topology_law,
+        weld_counters=arrays.weld_counters,
     )
 
 
