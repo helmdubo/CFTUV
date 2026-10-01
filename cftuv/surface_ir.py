@@ -285,17 +285,40 @@ class HostCurvatureLadderPolicy(str, Enum):
 HOST_CURVATURE_LADDER_POLICY = HostCurvatureLadderPolicy.NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1
 
 
+class HostDecalTopologyPolicy(str, Enum):
+    """Из каких граней хост просит собрать сетку декали.
+
+    Объявляется явно, как остальные политики: ядро не выбирает закон топологии за
+    хост, и применённый закон виден в исходе материализации
+    (`MaterializationV1.decal_topology_law`), в строке JSON и в квитанции писателя.
+    """
+
+    TRIANGLES_V1 = "TRIANGLES_V1"
+    QUAD_STRIPS_V1 = "QUAD_STRIPS_V1"
+
+
+# Кнопка «Build Decal Mesh» просит ЧЕТЫРЁХГРАННИКИ лент (решение владельца 2026-10-03,
+# вопрос «можно ли сетку декали сделать не триангулированной?»): строго выпуклый
+# четырёхугольник ленты остаётся одной гранью меша, веера и слитые пробеги — треугольники.
+# Сетка вершин, UV, швы и семантический дайджест те же, что у `TRIANGLES_V1` (ворота ядра:
+# разложение граней закона в треугольники даёт прежнюю сетку), поэтому закон возвращается
+# одной строкой, а прежний остаётся членом перечисления для отладочных сцен и сверок.
+HOST_DECAL_TOPOLOGY_POLICY = HostDecalTopologyPolicy.QUAD_STRIPS_V1
+
+
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
     "HOST_CURVATURE_LADDER_POLICY",
+    "HOST_DECAL_TOPOLOGY_POLICY",
     "HOST_GRID_POLICY",
     "HOST_NEAR_PLANAR_FRAME_POLICY",
     "HOST_NEAR_PLANAR_LIFT_POLICY",
     "HOST_PLANARITY_POLICY",
     "HostCurvatureLadderPolicy",
+    "HostDecalTopologyPolicy",
     "HostGridPolicy",
     "HostNearPlanarFramePolicy",
     "HostNearPlanarLiftPolicy",

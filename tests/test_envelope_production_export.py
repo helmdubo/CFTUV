@@ -784,3 +784,131 @@ def test_the_operator_is_register_only_and_names_why_undo_is_dropped():
     assert 'bl_options = {"REGISTER"}' in source
     assert '"UNDO"' not in source.split("class HOTSPOTUV_OT_BuildEnvelopeDecalMesh")[1]
     assert "UNDO_DROPPED_REASON" in source
+
+
+# --------------------------------------------------------------------------
+# Закон топологии декали: политика хоста, пул, строка JSON
+# --------------------------------------------------------------------------
+
+
+def test_the_host_asks_for_quad_strips_and_its_names_are_the_kernels():
+    from cftuv.surface_ir import HOST_DECAL_TOPOLOGY_POLICY, HostDecalTopologyPolicy
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+
+    assert HOST_DECAL_TOPOLOGY_POLICY is HostDecalTopologyPolicy.QUAD_STRIPS_V1
+    assert production.PRODUCTION_TOPOLOGY_LAW == "QUAD_STRIPS_V1"
+    assert {item.value for item in HostDecalTopologyPolicy} == {
+        item.value for item in DecalTopologyLawV1
+    }
+    assert production.PRODUCTION_TOPOLOGY_LAWS == {
+        item.value for item in DecalTopologyLawV1
+    }
+
+
+def _arities(result):
+    return {len(face.ordered_vert_keys) for face in result.batch.faces}
+
+
+def test_a_produced_domain_is_built_under_the_host_topology_law_and_names_it():
+    prepared = _prepared_domain()
+
+    quads = produce_domain(2, "domain", prepared, "0.25")
+    triangles = produce_domain(2, "domain", prepared, "0.25", topology_law="TRIANGLES_V1")
+
+    assert quads.decal_topology_law == "QUAD_STRIPS_V1" and 4 in _arities(quads)
+    assert triangles.decal_topology_law == "TRIANGLES_V1" and _arities(triangles) == {3}
+    # Закон меняет сборку граней и больше ничего: вершины, смысл, число треугольников.
+    assert quads.batch.vertices == triangles.batch.vertices
+    assert quads.batch.semantic_digest == triangles.batch.semantic_digest
+    assert quads.content_digest != triangles.content_digest
+    assert dict(quads.counters)["MATERIALIZE_TRIANGLES"] == dict(triangles.counters)[
+        "MATERIALIZE_TRIANGLES"
+    ]
+    assert dict(quads.counters)["MATERIALIZE_QUADS"] > 0
+    assert quads.normal == triangles.normal
+    assert quads != triangles
+    with pytest.raises(ValueError, match="unknown decal topology law"):
+        produce_domain(2, "domain", prepared, "0.25", topology_law="SOMETHING_ELSE")
+
+
+def test_a_refusal_has_no_topology_law_to_name():
+    refused = produce_domain(
+        0, "d", _prepared_domain(), "0.25", uv_policy_id="ENVELOPE_DEBUG_NO_UV_V1"
+    )
+
+    assert refused.batch is None and refused.decal_topology_law == ""
+
+
+def test_the_pool_task_carries_the_law_and_a_task_of_the_old_shape_still_reads():
+    prepared = _prepared_domain()
+    blob = pickle.dumps(prepared, protocol=5)
+
+    default = ProductionInputV1(blob, PRODUCTION_UV_POLICY)
+    assert default.topology_law == production.PRODUCTION_TOPOLOGY_LAW
+    task = DomainTaskV1(
+        4, 4, "domain", None, None, "0.25", frozenset(), production=default
+    )
+    assert pickle.loads(pickle.dumps(task)) == task
+
+    named = dataclasses.replace(
+        task, production=ProductionInputV1(blob, PRODUCTION_UV_POLICY, "TRIANGLES_V1")
+    )
+    reply = solve_task(named)
+    assert reply.ok and reply.production.decal_topology_law == "TRIANGLES_V1"
+    assert reply.production == produce_domain(
+        4, "domain", prepared, "0.25", topology_law="TRIANGLES_V1"
+    )
+    assert solve_task(task).production.decal_topology_law == "QUAD_STRIPS_V1"
+    bad = dataclasses.replace(
+        task, production=ProductionInputV1(blob, PRODUCTION_UV_POLICY, "SOMETHING_ELSE")
+    )
+    assert not solve_task(bad).ok
+
+
+@pytest.mark.parametrize("law", ("QUAD_STRIPS_V1", "TRIANGLES_V1"))
+def test_the_law_reaches_the_parent_and_the_pool_workers_alike(
+    law, monkeypatch, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    expected, _ = _production(bundle, workers=0, topology_law=law)
+    _in_process_session(monkeypatch, _InProcessPool())
+
+    run, _ = _production(bundle, workers=2, topology_law=law)
+
+    assert [item.placement for item in run.results] == [PLACEMENT_WORKER] * ROW
+    assert _answers(run) == _answers(expected)
+    assert {item.decal_topology_law for item in run.results} == {law}
+    assert {item.decal_topology_law for item in expected.results} == {law}
+    assert (4 in {size for item in run.results for size in _arities(item)}) == (
+        law == "QUAD_STRIPS_V1"
+    )
+
+
+def test_a_press_uses_the_host_law_by_default_and_refuses_an_unknown_one():
+    bundle = quad_row_bundle(ROW)
+
+    run, _ = _production(bundle)
+
+    assert {item.decal_topology_law for item in run.results} == {"QUAD_STRIPS_V1"}
+    with pytest.raises(ValueError, match="unknown decal topology law"):
+        _production(bundle, topology_law="SOMETHING_ELSE")
+
+
+def test_the_json_row_names_the_law_and_its_counters(tmp_path):
+    run, _ = _production(quad_row_bundle(ROW))
+
+    summary = production.export_production_json(run.results, tmp_path, label="row")
+
+    import json
+
+    rows = json.loads(summary.read_text(encoding="utf-8"))["domains"]
+    materialized = [item for item in rows if "batch_file" in item]
+    assert materialized
+    assert {item["decal_topology_law"] for item in materialized} == {"QUAD_STRIPS_V1"}
+    assert all(item["counters"]["MATERIALIZE_QUADS"] > 0 for item in materialized)
+    # Грани закона — треугольники и четырёхгранья: каждое четырёхгранье стоит двух треугольников.
+    assert all(
+        item["counters"]["MATERIALIZE_TRIANGLES"]
+        == item["counters"]["MATERIALIZE_FACES_EMITTED"] + item["counters"]["MATERIALIZE_QUADS"]
+        for item in materialized
+    )

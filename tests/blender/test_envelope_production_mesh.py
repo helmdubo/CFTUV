@@ -17,7 +17,10 @@
 6. ДЛИННОЕ ИМЯ источника (60 символов): Blender режет имя объекта до 63 байт, и
    декаль ищется по маркеру, а не по имени — два нажатия дают один объект;
 7. пропуск ПИСАТЕЛЯ (`ADAPTER_*`) виден в строке статуса, как и отказ пути;
-8. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
+8. ЗАКОН ТОПОЛОГИИ: кнопка просит `QUAD_STRIPS_V1`, поэтому полосы лежат в меше
+   ЧЕТЫРЁХГРАННИКАМИ (грань в 4 петли, без триангуляции Blender), а грани —
+   только из 3 и 4 петель; четырёхгранник плоский (его вершины в одной плоскости);
+9. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
    создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
    нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
    («context is incorrect»), поэтому проверяется именно эта последовательность.
@@ -107,6 +110,26 @@ def _decal_objects():
     ]
 
 
+def _assert_faces_follow_the_quad_strip_law(mesh, *, require_quads):
+    """Грани меша — треугольники и четырёхгранники, и четырёхгранник плоский."""
+
+    sizes = [len(polygon.vertices) for polygon in mesh.polygons]
+    assert set(sizes) <= {3, 4}, sorted(set(sizes))
+    assert len(mesh.loops) == sum(sizes)
+    if require_quads:
+        assert 4 in sizes, sizes
+    quads = 0
+    for polygon in mesh.polygons:
+        if len(polygon.vertices) != 4:
+            continue
+        quads += 1
+        a, b, c, d = (mesh.vertices[index].co for index in polygon.vertices)
+        normal = (b - a).cross(c - a)
+        assert normal.length > 0.0
+        assert abs(normal.normalized().dot(d - a)) < 1e-5, polygon.index
+    return quads
+
+
 def _run_cold_press_builds_one_child_object():
     source = _fresh_scene()
     before = _preparation_builds()
@@ -137,6 +160,9 @@ def _run_cold_press_builds_one_child_object():
     # Ни одной UV вне [0, 1] по v: закон V1 кладёт полосу в единичный квадрат поперёк.
     v_values = [item.uv[1] for item in mesh.uv_layers["UVMap"].data]
     assert min(v_values) >= -1e-6 and max(v_values) <= 1.0 + 1e-6
+    # Закон топологии: полосы — четырёхгранники (в Blender они остались гранями в 4 петли).
+    quads = _assert_faces_follow_the_quad_strip_law(mesh, require_quads=True)
+    print("QUAD_STRIPS observed:", quads, "quads of", len(mesh.polygons), "faces")
     # Исходный объект мешем декаля не тронут.
     assert len(source.data.polygons) == 2
     return source, decal
@@ -383,6 +409,7 @@ def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
     ]
     assert max(distances) <= 0.02 + 1e-5, distances
     assert min(distances) > 0.005, distances
+    _assert_faces_follow_the_quad_strip_law(decal.data, require_quads=False)
     return decal
 
 
