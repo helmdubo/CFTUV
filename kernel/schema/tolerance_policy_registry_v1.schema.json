@@ -63,7 +63,8 @@
             "NARROW_ADMITTED_SET_TOWARD_REFUSAL",
             "CHOOSE_FAST_OR_EXACT_PATH",
             "NAMED_REFUSAL_ONLY",
-            "CHANGE_COST_NEVER_THE_ANSWER"
+            "CHANGE_COST_NEVER_THE_ANSWER",
+            "LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND"
           ],
           "type": "string"
         },
@@ -82,7 +83,8 @@
             "DENSITY_FAN_PREPARATION",
             "DENSITY_MINIMAL_HEIGHT_SEARCH",
             "EXACT_CANONICALIZATION_MEMORY",
-            "EXACT_CANONICALIZATION_TRANSACTION"
+            "EXACT_CANONICALIZATION_TRANSACTION",
+            "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
           ],
           "type": "string"
         },
@@ -150,7 +152,8 @@
             "KNOWN_PRIME_REGISTRY_ENTRIES_V1",
             "COPRIME_BASIS_SPLIT_BUDGET_V1",
             "EXACT_CANONICALIZATION_WORK_CAP_V1",
-            "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1"
+            "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1",
+            "SOURCE_VERTEX_LIFT_BUDGET_V1"
           ],
           "type": "string"
         },

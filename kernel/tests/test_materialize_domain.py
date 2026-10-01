@@ -28,6 +28,7 @@ from cftuv_envelope.materialize.admit import MaterializationOutcome, PlanarityKi
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.lift import PlaneLiftV1
+from cftuv_envelope.materialize.source_lift import source_step_of
 from cftuv_envelope.numeric import LocalVector3V1
 from cftuv_envelope.outcomes import NamedOutcome
 from cftuv_envelope.validation import validate_geometry_batch
@@ -55,18 +56,22 @@ CASES = (
 #: Золотые дайджесты малых случаев. Меняются ТОЛЬКО осознанно: любое их
 #: движение — смена семантики батча (семантический) либо его содержимого
 #: (содержательный, он видит триангуляцию).
+#: 2026-10-03 (DECAL-WELD C2) сдвинулись `weighted`, `point_contact`, `two_edge`: закон
+#: `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт вершины `src:` в позиции хоста и пишет
+#: диагностику; `straight3` не сдвинулся (позиции хоста = подъём). С выключенным законом
+#: батч побитово прежний: `test_materialize_source_lift.test_without_host_positions_...`.
 GOLDEN = {
     "weighted": (
-        "a4360476d7143bb595dc2cfc839d394c270a03a57c05faf3173c0d35fd66175d",
-        "6c9595622c6553df029c39e7de416eb99668d03507cc359ae209fbbdffba3fcb",
+        "0e50edfbb9731bd446d992118af2c9042d89b1d46e6dc50552eb50b1100b4a4f",
+        "ac2634e830d812e2290d65d5a7fb8812a93f00205c1eaf870cb597d91137f3a7",
     ),
     "point_contact": (
-        "13c9760ddaf4789159392c304703f648a4b48e25fdc4290cf2b0521ff36940be",
-        "1df330928f921ffa0274e7345bafe3fedecb5cf12b745a191c503cebc026f90e",
+        "92552bce29581d1353d61bd5dceb62500bdf3d1e6746eca68b85331d39b8de00",
+        "b12b6ef587b6fd19f3434cf37bb1329cc622365ae0bb1efdfac598a472912f7e",
     ),
     "two_edge": (
-        "90759ea94fed3a6102a32fa6bda16a85b83da95dab4ff0c3b0c19a6b555580a0",
-        "15c1a2b06d84c9a9030ee6e79e189360b79730601183583e35d7d3b0b9c54840",
+        "243178d5d8acf76ba274a6bdae8e8f0638d81eabf2f37a62a059f12df22f7b73",
+        "d184f24e9f85eca087ac1404329acc8a777700757c601b53c7d815dcbf10b827",
     ),
     "straight3": (
         "2e9294e7de68f084672b0095c594fcb0da251bc407d5bc3feb1cc13e2f8f43a7",
@@ -639,29 +644,25 @@ def test_every_coverage_face_is_accounted_for_and_none_is_lost(name):
     assert counters["STATION_SKIPS"] == 0
 
 
-@pytest.mark.parametrize("name", CASES)
-def test_the_mesh_area_equals_the_coverage_area_in_square_meters(name):
-    """Дыры в меше нет: площадь треугольников = площадь покрытия, независимо.
-
-    Грань, пропавшая молча, не видна ни валидатору, ни аудиту сетки (её
-    полурёбра становятся «стеной»), зато видна в площади. Мера независима от
-    сборки: покрытие в единицах решётки и Грам домена против 3D-координат меша.
-    """
+def _mesh_and_coverage_area(name):
+    """`(площадь меша, площадь покрытия, сумма периметров граней, подготовка)`, м и м²."""
 
     prepared, coverage, _request = _case(name)
     batch = _run(name).batch
     position = {item.vert_key: item.position for item in batch.vertices}
-    mesh = 0.0
+    mesh = perimeter = 0.0
     for face in batch.faces:
         a, b, c = (position[key] for key in face.ordered_vert_keys)
         ab = (b.x - a.x, b.y - a.y, b.z - a.z)
         ac = (c.x - a.x, c.y - a.y, c.z - a.z)
+        bc = (c.x - b.x, c.y - b.y, c.z - b.z)
         cross = (
             ab[1] * ac[2] - ab[2] * ac[1],
             ab[2] * ac[0] - ab[0] * ac[2],
             ab[0] * ac[1] - ab[1] * ac[0],
         )
         mesh += 0.5 * sum(item * item for item in cross) ** 0.5
+        perimeter += sum(sum(axis * axis for axis in edge) ** 0.5 for edge in (ab, ac, bc))
     gram = prepared.context.frame.exact_gram_matrix
     from cftuv_envelope.planar_metric import fraction_from_exact
 
@@ -673,7 +674,37 @@ def test_the_mesh_area_equals_the_coverage_area_in_square_meters(name):
     expected = (
         0.5 * sqrt_sum_binary64(coverage.doubled_area) * determinant**0.5 / scale**2
     )
+    return mesh, expected, perimeter, prepared
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_the_mesh_area_equals_the_coverage_area_in_square_meters(name, monkeypatch):
+    """Дыры в меше нет: площадь треугольников = площадь покрытия, независимо.
+
+    Грань, пропавшая молча, не видна ни валидатору, ни аудиту сетки (её
+    полурёбра становятся «стеной»), зато видна в площади. Мера независима от
+    сборки: покрытие в единицах решётки и Грам домена против 3D-координат меша.
+    Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` двигает вершины `src:` в позиции хоста,
+    а площадь покрытия считана на узлах решётки, поэтому точное равенство проверяется при
+    выключенном законе (позиций хоста нет), а с законом — ограничением ниже.
+    """
+
+    monkeypatch.setattr(domain, "host_positions_of", lambda snapshot: {})
+    mesh, expected, _perimeter, _prepared = _mesh_and_coverage_area(name)
     assert mesh == pytest.approx(expected, rel=1e-9), name
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_the_lifted_mesh_area_stays_within_the_lift_budget_of_the_coverage_area(name):
+    """Сдвиг вершины на `b` меняет площадь грани не больше чем на `b * периметр / 2`.
+
+    Вершин в треугольнике три, сдвиг каждой не больше бюджета закона (одна ячейка источника):
+    граница `1.5 * b * (сумма периметров)` ловит потерянную грань и допускает ровно подъём.
+    """
+
+    mesh, expected, perimeter, prepared = _mesh_and_coverage_area(name)
+    step = float(source_step_of(prepared.context.frame))
+    assert abs(mesh - expected) <= 1.5 * step * perimeter, (name, mesh, expected)
 
 
 def _refused_by_loss(prepared, coverage, request):

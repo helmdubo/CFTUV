@@ -17,6 +17,7 @@ import pytest
 
 from cftuv_envelope.contracts.metric import DevelopableUnfoldCertificateV1, ExactRationalV1
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1, exact_work_budget
+from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.admit import (
     MaterializationOutcome,
     PlanarityKind,
@@ -30,6 +31,7 @@ from cftuv_envelope.materialize.offset_normal import (
     source_vertex_normals,
 )
 from cftuv_envelope.materialize.frames import MaterializationRefusal
+from cftuv_envelope.materialize.source_lift import source_step_of
 from cftuv_envelope.numeric import LocalPoint3V1
 from cftuv_envelope.outcomes import NamedOutcome
 
@@ -97,6 +99,44 @@ def _distance_to_triangle_surface(point, corners) -> float | None:
     return abs(along)
 
 
+def _point_triangle_distance(point, corners) -> float:
+    """Расстояние от точки до ЗАМКНУТОГО треугольника (Эриксон, 5.1.5): и вне проекции тоже."""
+
+    a, b, c = corners
+    ab, ac, ap = _sub(b, a), _sub(c, a), _sub(point, a)
+    d1, d2 = _dot(ab, ap), _dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        return math.sqrt(_dot(ap, ap))
+    bp = _sub(point, b)
+    d3, d4 = _dot(ab, bp), _dot(ac, bp)
+    if d3 >= 0 and d4 <= d3:
+        return math.sqrt(_dot(bp, bp))
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0 and d1 >= 0 and d3 <= 0:
+        along = d1 / (d1 - d3)
+        offset = tuple(p - along * q for p, q in zip(ap, ab))
+        return math.sqrt(_dot(offset, offset))
+    cp = _sub(point, c)
+    d5, d6 = _dot(ab, cp), _dot(ac, cp)
+    if d6 >= 0 and d5 <= d6:
+        return math.sqrt(_dot(cp, cp))
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0 and d2 >= 0 and d6 <= 0:
+        along = d2 / (d2 - d6)
+        offset = tuple(p - along * q for p, q in zip(ap, ac))
+        return math.sqrt(_dot(offset, offset))
+    va = d3 * d6 - d5 * d4
+    if va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0:
+        along = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        offset = tuple(p - along * q for p, q in zip(bp, _sub(c, b)))
+        return math.sqrt(_dot(offset, offset))
+    scale = 1.0 / (va + vb + vc)
+    v, w = vb * scale, vc * scale
+    closest = tuple(x + v * y + w * z for x, y, z in zip(a, ab, ac))
+    offset = _sub(point, closest)
+    return math.sqrt(_dot(offset, offset))
+
+
 def _surface_distance(point, triangles, positions) -> float:
     return min(
         distance
@@ -123,6 +163,32 @@ def test_the_unfolded_domain_is_materialized_onto_the_source_triangles(materiali
     counters = dict(result.counters)
     assert counters["MATERIALIZE_VERTICES"] >= 4
     positions = _snapped(certificate)
+    triangles = prepared.context.snapshot.surface_ir.surface_triangles
+    worst = max(
+        min(
+            _point_triangle_distance(
+                (vertex.position.x, vertex.position.y, vertex.position.z),
+                tuple(positions[item] for item in triangle.vertex_ids),
+            )
+            for triangle in triangles
+        )
+        for vertex in result.batch.vertices
+    )
+    # Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт вершины `src:` в позиции хоста, а
+    # треугольники сертификата проходят через позиции, привязанные к решётке источника: меш лежит
+    # на поверхности источника с точностью до одной ячейки источника (бюджет закона).
+    assert worst <= float(source_step_of(prepared.context.frame)), (name, worst)
+
+
+def test_without_the_host_lift_the_vertices_lie_exactly_on_the_snapped_triangles(
+    materialized, monkeypatch
+):
+    name, parts, _result, _prepared = materialized
+    make, route, alpha = CASES[name]
+    monkeypatch.setattr(domain, "host_positions_of", lambda snapshot: {})
+    result, prepared = materialize_developable(make(), route, alpha=alpha)
+    assert result.is_materialized, (name, result.outcome, result.detail)
+    positions = _snapped(prepared.context.frame.planarity_certificate)
     worst = max(
         _surface_distance(
             (vertex.position.x, vertex.position.y, vertex.position.z),

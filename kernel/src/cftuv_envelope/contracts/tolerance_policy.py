@@ -123,6 +123,7 @@ class TolerancePolicyIdV1(str, Enum):
     EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1 = (
         "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1"
     )
+    SOURCE_VERTEX_LIFT_BUDGET_V1 = "SOURCE_VERTEX_LIFT_BUDGET_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -189,6 +190,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     DENSITY_MINIMAL_HEIGHT_SEARCH = "DENSITY_MINIMAL_HEIGHT_SEARCH"
     EXACT_CANONICALIZATION_MEMORY = "EXACT_CANONICALIZATION_MEMORY"
     EXACT_CANONICALIZATION_TRANSACTION = "EXACT_CANONICALIZATION_TRANSACTION"
+    SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -212,6 +214,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     CHOOSE_FAST_OR_EXACT_PATH = "CHOOSE_FAST_OR_EXACT_PATH"
     NAMED_REFUSAL_ONLY = "NAMED_REFUSAL_ONLY"
     CHANGE_COST_NEVER_THE_ANSWER = "CHANGE_COST_NEVER_THE_ANSWER"
+    LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND = (
+        "LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND"
+    )
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1117,6 +1122,65 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_evaluation_binding_noise.py"
             "::test_a_short_edge_passes_the_cell_gate_and_is_refused_by_the_angle"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.SOURCE_VERTEX_LIFT_BUDGET_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(1),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=(
+            TolerancePolicyScalingLawV1.DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL
+        ),
+        scope=(
+            "На сколько ЯЧЕЕК ИСТОЧНИКА домена (`grid_certificate.window_step`, "
+            "метры) подъём узла вершины `src:` вправе отстоять от позиции вершины "
+            "исходника, чтобы вершина была положена В ЭТУ ПОЗИЦИЮ (один binary64 на "
+            "вершину во всех доменах — условие сварки меша соседних доменов). Одна "
+            "ячейка: привязка источника двигает точку не больше чем на половину "
+            "ячейки по оси, то есть на `h*sqrt(3)/2 < h`, а решётка карты не крупнее "
+            "(`chart_grid_for`); дальше ячейки расхождение — не шум привязки, а "
+            "другое положение вершины (внутренность объявленной прямой цепи, "
+            "сдвинутая вдоль хорды), и она остаётся на узле под именем "
+            "SOURCE_VERTEX_DISPLACED_BY_LATTICE. Положенная вершина вправе сойти с "
+            "носителя подъёма на величину бюджета: четырёхгранья плоские с точностью "
+            "до одной ячейки, и наибольшее отклонение пишется счётчиком. Контур, "
+            "который положенная вершина перевернула бы, остаётся на узлах под именем "
+            "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION."
+        ),
+        authority=(
+            "materialize.source_lift.SOURCE_VERTEX_LIFT_BUDGET_CELLS; закон "
+            "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1; DECISIONS.md 2026-10-03 "
+            "(DECAL-WELD C2: вершины общей цепи соседних доменов сшиваются по "
+            "семантической ссылке при побитовом равенстве позиций)"
+        ),
+        applied_stage=(
+            TolerancePolicyAppliedStageV1.SOURCE_VERTEX_LIFT_AT_HOST_POSITION
+        ),
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+            "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+            "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE",
+            "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
+            "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.materialize.source_lift.SOURCE_VERTEX_LIFT_BUDGET_CELLS",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_materialize_source_lift.py"
+            "::test_a_vertex_within_the_budget_is_lifted_at_the_exact_host_position"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_materialize_source_lift.py"
+            "::test_a_vertex_beyond_the_budget_stays_and_is_named"
         ),
     ),
 )

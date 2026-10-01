@@ -639,6 +639,18 @@ class BoundSurfaceLiftV1:
     def has_offset_normals(self) -> bool:
         return bool(self._normal_by_position)
 
+    def rebind_position(self, old, new) -> None:
+        """Нормаль смещения вершины, чья позиция стала `new`, — та же, что была у `old`.
+
+        Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` переставляет вершину `src:` в позицию
+        хоста; нормали ищутся по позиции подъёма, и без этого вызова вершина осталась бы без
+        нормали смещения.
+        """
+
+        normal = self._normal_by_position.get((old.x, old.y, old.z))
+        if normal is not None:
+            self._normal_by_position[(new.x, new.y, new.z)] = normal
+
     def offset_normals(self, vertices) -> tuple:
         """`((vert_key, нормаль), ...)` вершин батча по закону `OFFSET_NORMAL_LAW`."""
 

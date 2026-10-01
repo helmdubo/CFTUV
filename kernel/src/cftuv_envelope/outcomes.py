@@ -204,3 +204,15 @@ class NamedOutcome(str, Enum):
     # Острая вогнутая вершина оставлена МИТРОВАННОЙ (веер не записался): мягкого
     # угла в этом месте нет, и меш показывает именно митру.
     DEGRADED_MITER_CORNER_IN_GEOMETRY = "DEGRADED_MITER_CORNER_IN_GEOMETRY"
+    # Закон положения вершины `src:` (`materialize/source_lift`): вершина лежит в ТОЧНОЙ позиции
+    # вершины исходника из снапшота (один binary64 во всех доменах), если подъём узла отстоит от
+    # неё не больше бюджета. Диагностика пишется, только когда хоть одна вершина реально сдвинута;
+    # числа — в читаемой строке, счёт — в счётчиках материализатора.
+    SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1 = "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"
+    # Подъём узла вершины `src:` отстоит от её позиции больше бюджета (внутренность объявленной
+    # прямой цепи, сдвинутая вдоль хорды): вершина остаётся на подъёме, счёт и худшая названы.
+    SOURCE_VERTEX_DISPLACED_BY_LATTICE = "SOURCE_VERTEX_DISPLACED_BY_LATTICE"
+    # Позиция хоста перевернула бы контур грани: вершины контура остались на узлах.
+    SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION = (
+        "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION"
+    )

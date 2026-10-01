@@ -31,6 +31,7 @@ from cftuv_envelope.materialize.assemble import settle_topology, tessellate_face
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.domain import materialize_domain
+from cftuv_envelope.materialize.source_lift import QUAD_OFF_PLANE, _deviation
 from cftuv_envelope.materialize.tessellate import (
     convex_quad_ring,
     fan_out,
@@ -579,10 +580,19 @@ def _both_laws(name):
     )
 
 
+def _both_laws_unlifted(name):
+    """То же, что `_both_laws`, но без закона `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` (позиций хоста нет)."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(domain, "host_positions_of", lambda snapshot: {})
+        return _both_laws.__wrapped__(name)
+
+
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона (или названы им).
 LAW_COUNTERS = frozenset(
     (
         "MATERIALIZE_FACES_EMITTED",
+        "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
         "MATERIALIZE_QUADS",
         "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX",
         "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
@@ -677,10 +687,36 @@ def test_the_counters_agree_except_the_ones_that_count_faces(name):
 
 @pytest.mark.parametrize("name", ALL_NAMES)
 def test_no_quad_of_the_law_is_non_planar(name):
-    """Четырёхгранья закона плоские в 3D (с точностью до одного округления позиции)."""
+    """Четырёхгранья закона плоские в 3D (с точностью до одного округления позиции).
+
+    Это свойство ПОДЪЁМА: вершины лежат на носителе. Закон
+    `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` кладёт вершины `src:` в позиции хоста, и ниже
+    плоскость держится уже только в записанных пределах, поэтому точная проверка идёт при
+    выключенном законе.
+    """
+
+    _triangles, quads = _both_laws_unlifted(name)
+    assert_every_quad_is_planar(quads.batch)
+    assert dict(quads.counters)[QUAD_OFF_PLANE] == 0
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_lifted_quads_are_planar_within_the_recorded_deviation(name):
+    """С законом позиций хоста четырёхгранье плоское в пределах числа, которое закон записал."""
 
     _triangles, quads = _both_laws(name)
-    assert_every_quad_is_planar(quads.batch)
+    position = {item.vert_key: item.position for item in quads.batch.vertices}
+    recorded = dict(quads.counters)[QUAD_OFF_PLANE] * 1e-9
+    measured = max(
+        (
+            _deviation(tuple(position[key] for key in face.ordered_vert_keys))
+            for face in quads.batch.faces
+            if len(face.ordered_vert_keys) == 4
+        ),
+        default=0.0,
+    )
+    # Записано наибольшее отклонение четырёхгранников с подвинутой вершиной, остальные — точно плоские.
+    assert measured <= recorded + 1e-9, (name, measured, recorded)
 
 
 def assert_every_quad_is_planar(batch, tolerance=1e-12):
@@ -770,9 +806,9 @@ def test_the_quad_law_over_the_corpus_fans_back_out_to_the_triangle_batch():
 #: те же, что у треугольников, — они в `test_materialize_domain.GOLDEN`). Меняются
 #: ТОЛЬКО осознанно: любое движение — смена состава граней закона.
 GOLDEN_QUADS = {
-    "weighted": "c9393fe09675d97787059d98abd721cd0b1f2a095da6db0d2398b66d1d45e537",
-    "point_contact": "a42d195e02aeca1b9e25b68c0521cb9a54a4a3d4536ba4b1e5515c69bea09fe4",
-    "two_edge": "15c1a2b06d84c9a9030ee6e79e189360b79730601183583e35d7d3b0b9c54840",
+    "weighted": "61d88c1adce5ad5537917e754c0c6ef01c3a7beb7e87fdbb3775f206f482d89d",
+    "point_contact": "a18d06885f2ae09de58e54807fd921f3eef52f3b7797b7a6b4e9ff5c81815113",
+    "two_edge": "d184f24e9f85eca087ac1404329acc8a777700757c601b53c7d815dcbf10b827",
     "straight3": "f9988c58176be1d6d0dacdc12aaa86efcfc12116c7d8db26aaf3405e0760e7c1",
 }
 
