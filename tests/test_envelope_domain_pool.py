@@ -931,7 +931,7 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
     )
     assert _session_state(controller) == _session_state(sequential)
     stages = {item.stage.value for item in evaluation.receipts}
-    assert stages == {"QUEUE_PREPARE_REJECTED", "QUEUE_RESOLVED"}, stages
+    assert stages == {"METRIC_REJECTED", "QUEUE_RESOLVED"}, stages
     # Стадии выгрузки воркера проиграны в профиль кнопки под теми же именами.
     worker_stages = {"PATCH_METRIC_EXPORT", "FRAME_ADMISSION", "SNAPSHOT_VALIDATION"}
     assert worker_stages <= set(profile.snapshot().stage_totals)
@@ -1015,7 +1015,7 @@ def test_a_refused_domain_whose_worker_died_is_neither_dispatched_nor_fallback(
 
     assert _counter(profile, POOL_DISPATCHED) == ROW - 1
     assert _counter(profile, POOL_TASK_FALLBACK) == 0
-    assert evaluation.receipts[ROW - 1].stage.value == "QUEUE_PREPARE_REJECTED"
+    assert evaluation.receipts[ROW - 1].stage.value == "METRIC_REJECTED"
     assert _fingerprint(evaluation, profile) == _fingerprint(
         expected, expected_profile
     )
@@ -1028,7 +1028,7 @@ def test_a_metric_stage_refusal_keeps_its_receipt_stage_through_the_worker(
     """METRIC_REJECTED и QUEUE_PREPARE_REJECTED различаются исходом отказа.
 
     `quad_row_bundle(lifted_corner=...)` даёт `NEAR_PLANAR_RESIDUAL_BUDGET_
-    EXCEEDED` (ступень очереди), а исход «кадр недоступен» — ступень метрики;
+    EXCEEDED` (ступень метрики по `METRIC_STAGE_OUTCOMES`), как и «кадр недоступен»;
     его нечем вызвать данными ряда, поэтому кадр патча 1 отказывает подменой
     (пул «в процессе» исполняет ту же выгрузку в этом же процессе).
     """

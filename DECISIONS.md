@@ -8053,3 +8053,18 @@ UNDECIDABLE`, patch 89 — near-planar), `building.004` 7/8 (patch 4 —
 ВОРОТА. Равенство ответа (`artifacts/numeric_repr/gate.py`, 122 домена, d1, d2): против `baseline_18d7197.json` единственный ответный дифф — patch 17 на d2 (отказ -> EXACT);
 против прогона на 6be7ccb — IDENTICAL (diffs 0, в том числе отпечатки patch 17 d2); patch 17 на d3, d4 против 6be7ccb IDENTICAL. Наборы: ядро 3551 passed в шести шардах
 (2 известных виндовых падения `test_exact_work_budget_coverage.py`, 2 skipped), хост 991 passed (1 известное виндовое).
+
+**2026-10-02** — ПОЛЕВАЯ ПРИЁМКА ПРИНЯТА (ACCEPTED, 39d2f03): свип настоящей
+кнопки `status=COMPLETE`, паритет с прямыми расписками на всех 9 (меш,
+плотность), штамп = HEAD, сцена не тронута. `building` 121/121 d0/d1 (+ patch 89
+METRIC_REJECTED), 117/121 d4 (4 `PLAN_IS_NOT_COMPILED`); `building.002` 13/13;
+`building.004` 7/8 (patch 4 — отказ по капу работы) в 6.8 / 7.3 / 9.1 с при
+капе 11. Ответы побитово те же, что на 6be7ccb. Следом влиты ветки
+параллельных сессий владельца: ключ модуля в запрете точной арифметики хоста
+через `_relative` и обновлённые Blender-смоки отказа метрики (lucid-pasteur),
+ступень отказа домена QUEUE по `METRIC_STAGE_OUTCOMES` (trusting-hawking —
+перенесено в общий обработчик отказа выгрузки пула; near-planar невязка теперь
+METRIC_REJECTED и в QUEUE), и ядерная половина того же ключа
+(`exact_work_budget_ban.py`: `as_posix`). Итог: хост 1001 passed без единого
+падения на Windows, ядерный тест покрытия бюджета зелёный, все пять Blender-
+смоков (bridge, chain_completion, queue, pool, production) — OK.

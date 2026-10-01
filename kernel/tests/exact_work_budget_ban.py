@@ -199,7 +199,7 @@ def unbudgeted_sites_in_source(
 def scan_tree(root: Path) -> tuple[tuple[str, str, int], ...]:
     found: list[tuple[str, str, int]] = []
     for path in sorted(root.rglob("*.py")):
-        module = str(path.relative_to(root))
+        module = path.relative_to(root).as_posix()
         found.extend(
             unbudgeted_sites_in_source(
                 path.read_text(encoding="utf-8"), module
