@@ -895,9 +895,11 @@ def register_window_manager_session_attribute() -> None:
     """Install the runtime descriptor; no controller is module-global."""
 
     import bpy
+    from .envelope_production_operator import register_production_operator
     from .envelope_worker_python import install_worker_python_preference
 
     install_worker_python_preference()
+    register_production_operator()
     existing = getattr(
         bpy.types.WindowManager,
         WINDOW_MANAGER_SESSION_ATTRIBUTE,
@@ -918,7 +920,9 @@ def unregister_window_manager_session_attribute() -> None:
     # GP, а здесь — ещё раз, идемпотентно, если вызвали только эту функцию.
     shutdown_domain_pool()
     import bpy
+    from .envelope_production_operator import unregister_production_operator
 
+    unregister_production_operator()
     existing = getattr(
         bpy.types.WindowManager,
         WINDOW_MANAGER_SESSION_ATTRIBUTE,

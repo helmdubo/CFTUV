@@ -5,6 +5,34 @@ from __future__ import annotations
 from .envelope_worker_python import draw_worker_python_row
 
 
+def draw_decal_mesh_rows(layout) -> None:
+    """Продуктовый меш: кнопка, настройки и строки статуса (они лежат в сцене).
+
+    Сцена берётся из `bpy.context`: у `draw_envelope_debug_box` контекста нет, а
+    группа настроек оператора (`envelope_production_operator`) — свойство сцены,
+    не `hotspotuv_settings`.
+    """
+
+    import bpy
+
+    mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
+    if mesh_settings is None:
+        return
+    layout.separator()
+    layout.operator(
+        "hotspotuv.build_envelope_decal_mesh",
+        text="Build Decal Mesh",
+        icon="MESH_DATA",
+    )
+    row = layout.row(align=True)
+    row.prop(mesh_settings, "offset")
+    row.prop(mesh_settings, "material_name", text="")
+    if mesh_settings.status:
+        layout.label(text=mesh_settings.status)
+    if mesh_settings.timing:
+        layout.label(text=mesh_settings.timing)
+
+
 def draw_envelope_debug_box(layout, settings) -> None:
     """Рисует диагностическую панель без владения геометрией и исполнением."""
 
@@ -71,6 +99,7 @@ def draw_envelope_debug_box(layout, settings) -> None:
         "envelope_debug_show_queue",
     ):
         visibility.prop(settings, property_name)
+    draw_decal_mesh_rows(envelope_box)
 
 
-__all__ = ("draw_envelope_debug_box",)
+__all__ = ("draw_decal_mesh_rows", "draw_envelope_debug_box")

@@ -17,11 +17,13 @@ NEAR_PLANAR. Реперы такого домена построены по ве
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 
+from ..contracts.metric import AffineChartOrientationV1
 from ..exact_sqrt_sum import SqrtSumV1
-from ..numeric import LocalPoint3V1
+from ..numeric import LocalPoint3V1, LocalVector3V1
 from ..planar_metric import fraction_from_exact
 
 #: Разрядность целочисленной оболочки при переводе `SqrtSumV1` в число. Читать
@@ -86,3 +88,37 @@ def plane_lift_of(descriptor, scale: int) -> PlaneLiftV1:
         basis_b=_triple(descriptor.exact_basis_b),
         scale=int(scale),
     )
+
+
+def plane_normal_binary64(descriptor) -> LocalVector3V1:
+    """Единичная нормаль плоскости домена — той стороны, куда смотрит сетка батча.
+
+    Публичный помощник для хоста: смещение декали над поверхностью (z-fighting)
+    — политика хоста, а направление смещения он не должен выводить из
+    приватных функций отладочной сцены. Нормаль — векторное произведение
+    `a x b` ТОЧНЫХ реперных векторов (рациональных), а знак берётся из
+    ориентации карты: триангуляция идёт против часовой стрелки в координатах
+    карты, и когда карта совпадает с владельцем по часовой
+    (`COORDINATE_CW_MATCHES_OWNER_PATCH`), материализатор разворачивает
+    треугольники, поэтому лицевая сторона — `-(a x b)`. Одно округление на
+    выходе: компоненты и длина переводятся во float по одному разу.
+    """
+
+    a = _triple(descriptor.exact_basis_a)
+    b = _triple(descriptor.exact_basis_b)
+    cross = (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+    mirrored = (
+        descriptor.chart_orientation
+        is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
+    )
+    if mirrored:
+        cross = tuple(-item for item in cross)
+    squared = sum(item * item for item in cross)
+    if not squared:
+        raise ValueError("the plane basis of the domain is degenerate")
+    length = math.sqrt(float(squared))
+    return LocalVector3V1(*(float(item) / length for item in cross))
