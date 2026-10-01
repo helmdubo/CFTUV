@@ -1254,19 +1254,18 @@ def _queue_refused_inputs_evaluation(patch_id, domain_id, exc, profile):
 
     from .envelope_debug_profile import EnvelopeDomainStage
     from .envelope_request_export import (
+        METRIC_STAGE_OUTCOMES,
         EnvelopeDebugDomainEvaluationV1,
-        EnvelopeDebugHostOutcome,
         _receipt_for_failure,
     )
 
     diagnostic = exc.diagnostic()
+    # Ступень отказа — по общему множеству исходов METRIC, тому же, что у
+    # эталонного движка: near-planar бюджет невязки отказывает на METRIC, а
+    # не на подготовке очереди (правка сессии trusting-hawking, 2026-09-26).
     stage = (
         EnvelopeDomainStage.METRIC_REJECTED
-        if exc.outcome
-        in {
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-        }
+        if exc.outcome in METRIC_STAGE_OUTCOMES
         else EnvelopeDomainStage.QUEUE_PREPARE_REJECTED
     )
     receipt = _receipt_for_failure(patch_id, domain_id, stage, diagnostic)
