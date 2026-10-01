@@ -57,6 +57,7 @@ from cftuv_envelope.reference.compile import (
 from cftuv_envelope.reference.contracts import (
     EvaluationBindingNoiseEffectV1,
     EvaluationBindingNoiseLawV1,
+    EvaluationBindingNoiseRefusalV1,
 )
 from cftuv_envelope.reference.planar_types import ExactPlanarVector
 from cftuv_envelope.reference.validation import validate_reference_geometry_payload
@@ -394,6 +395,8 @@ def _record_changes(record):
                 1, 10**30
             )
         },
+        {"edge_direction_sine_squared_bound": ExactRationalV1(1, 10**30)},
+        {"direction_sine_bound": ExactRationalV1(1, 10**6)},
         {"canonical_reflex_excess_over_pi": ExactRatioV1(1, 3)},
         {"max_subturn_q": 3},
         {"source_hidden_edge_count": 7},
@@ -700,23 +703,280 @@ def test_tightness_is_an_integer_equality(canonical, count, q, tight):
     assert canonical_count_is_tight(canonical, count, q) is tight
 
 
-def test_the_lateral_offset_ignores_a_shift_along_the_chain():
-    """Продольный сдвиг вершины вдоль ребра направления не меняет — границе он не нужен."""
+def test_the_edge_noise_ignores_a_shift_along_the_chain_and_measures_the_direction_exactly():
+    """Продольный сдвиг направления не меняет; sin^2 поворота — точное рациональное число."""
 
     gram = (Fraction(1), Fraction(0), Fraction(1))
     source = {"a": (Fraction(0), Fraction(0)), "b": (Fraction(2), Fraction(0))}
     along = {"a": (Fraction(0), Fraction(0)), "b": (Fraction(5, 2), Fraction(0))}
     across = {"a": (Fraction(0), Fraction(0)), "b": (Fraction(2), Fraction(1, 10))}
-    assert noise._lateral_offset_squared(gram, source, along, "a", "b") == 0
-    assert noise._lateral_offset_squared(gram, source, across, "a", "b") == Fraction(1, 100)
+    assert noise._edge_noise(gram, source, along, "a", "b")[:2] == (0, 0)
+    lateral, sine_squared, moved = noise._edge_noise(gram, source, across, "a", "b")
+    assert lateral == Fraction(1, 100)
+    # sin^2 = cross^2 / (|edge|^2 * |edge'|^2) = (1/5)^2 / (4 * 401/100) = 1/401.
+    assert sine_squared == Fraction(1, 401)
+    assert moved == (Fraction(2), Fraction(1, 10))
     skew = (Fraction(2), Fraction(1, 2), Fraction(3))
     # В косой карте: det(G) * cross^2 / |edge|^2, точно, в рациональных числах.
-    assert noise._lateral_offset_squared(skew, source, across, "a", "b") == (
+    assert noise._edge_noise(skew, source, across, "a", "b")[0] == (
         (2 * 3 - Fraction(1, 4)) * (2 * Fraction(1, 10)) ** 2 / (2 * 4)
     )
+    # Вырожденное ребро — не деление на нуль, а отказ.
+    assert noise._edge_noise(gram, source, {"a": source["a"], "b": source["a"]}, "a", "b") is None
 
 
 def test_the_lift_predicate_table_names_the_canonical_limit_law():
     assert CANONICAL_LIFT in EVALUATION_SUBTURN_LIFT_PREDICATES
     assert "SELECTOR_INTERVAL_IS_EXACTLY_CANONICAL" in EVALUATION_SUBTURN_LIFT_PREDICATES[CANONICAL_LIFT]
     assert set(noise.NOISE_PREDICATES) == set(EvaluationBindingNoiseEffectV1)
+
+
+# --------------------------------------------------------------------------
+# 7. Угловая граница применимости: боковой сдвиг в ячейку угол не ограничивает
+# --------------------------------------------------------------------------
+
+
+def _bound_noise(**changes):
+    values = dict(
+        lateral_squared=Fraction(1, 10**6),
+        cell_bound=Fraction(1, 10**5),
+        edge_sine_squared=Fraction(1, 10**9),
+        turn_cosine_squared=Fraction(1, 10**9),
+    )
+    values.update(changes)
+    return noise._BindingNoise(**values)
+
+
+_RIGHT = (object(), Fraction(1, 2))
+REFUSALS = EvaluationBindingNoiseRefusalV1
+
+
+def test_a_short_edge_passes_the_cell_gate_and_is_refused_by_the_angle():
+    """Ребро короче сдвига: боковой сдвиг в ячейке, а поворот направления — нет.
+
+    Раньше это проходило (граница ограничивала только сдвиг). Теперь точное
+    угловое условие отказывает по ИМЕНИ, и счёт решает прежний закон.
+    """
+
+    short_edge = _bound_noise(edge_sine_squared=Fraction(99, 10**4))
+    assert short_edge.lateral_squared <= short_edge.cell_bound
+    assert noise._noise_refusal(short_edge, _RIGHT) is (
+        REFUSALS.EDGE_DIRECTION_NOISE_EXCEEDS_DECLARED_BOUND
+    )
+    assert noise._noise_refusal(_bound_noise(), _RIGHT) is None
+
+
+def test_every_boundary_of_the_law_refuses_by_its_own_name():
+    bound_squared = noise.NOISE_DIRECTION_SINE_BOUND**2
+    assert noise._noise_refusal(
+        _bound_noise(lateral_squared=Fraction(1, 10**4)), _RIGHT
+    ) is REFUSALS.LATERAL_SHIFT_EXCEEDS_ONE_LATTICE_CELL
+    assert noise._noise_refusal(
+        _bound_noise(turn_cosine_squared=bound_squared * 2), _RIGHT
+    ) is REFUSALS.TURN_NOISE_EXCEEDS_DECLARED_BOUND
+    # Граница включительна и точна: равенство проходит, превышение на долю — нет.
+    assert noise._noise_refusal(
+        _bound_noise(edge_sine_squared=bound_squared, turn_cosine_squared=bound_squared),
+        _RIGHT,
+    ) is None
+    assert noise._noise_refusal(
+        _bound_noise(edge_sine_squared=bound_squared + Fraction(1, 10**30)), _RIGHT
+    ) is REFUSALS.EDGE_DIRECTION_NOISE_EXCEEDS_DECLARED_BOUND
+    # Отношение без углового предела: закон не определён.
+    assert noise._noise_refusal(_bound_noise(), (object(), Fraction(1, 3))) is (
+        REFUSALS.CANONICAL_RELATION_HAS_NO_ANGULAR_BOUND
+    )
+
+
+def _measured_ceiling(compilation, snapshot) -> float:
+    """Наибольший синус из измеренных законом на фикстуре (по рёбрам и повороту)."""
+
+    context, _ = _context(snapshot, compilation)
+    selection = next(iter(compilation.profile_selection_certificates))
+    worst = max(
+        max(fact.edge_direction_sine_squared_bound, fact.turn_cosine_squared)
+        for fact in (
+            noise.canonical_noise_fact(context, spec, selection)
+            for spec in _specs(compilation)
+        )
+    )
+    return float(worst) ** 0.5
+
+
+def test_the_declared_bound_decides_exactly_where_the_law_applies(compiled, monkeypatch):
+    """Граница чуть выше измеренного шума — закон работает, чуть ниже — отказ по имени."""
+
+    import math
+
+    snapshot, compilation = compiled("building_patch114", 2)
+    ceiling = _measured_ceiling(compilation, snapshot)
+    above = Fraction(1, math.floor(1 / ceiling))
+    below = Fraction(1, math.ceil(1 / ceiling) + 1)
+    assert below < Fraction(ceiling) < above
+
+    loaded = _load(FIXTURE, "building_patch114", 2)
+    monkeypatch.setattr(noise, "NOISE_DIRECTION_SINE_BOUND", above)
+    applied = compile_reference_envelopes(*loaded)
+    assert len(applied.compilation.evaluation_binding_noise_records) == 1
+    assert applied.compilation.diagnostics == ()
+
+    monkeypatch.setattr(noise, "NOISE_DIRECTION_SINE_BOUND", below)
+    refused = compile_reference_envelopes(*loaded)
+    assert refused.outcome is ReferenceOutcome.EXACT, refused.diagnostics
+    compilation_refused = refused.compilation
+    # Закон не применён: прежний закон на вычислительной геометрии, знак шума решает.
+    assert compilation_refused.evaluation_binding_noise_records == frozenset()
+    assert sorted(
+        spec.resolved_hidden_edge_count for spec in _specs(compilation_refused)
+    ) == [1, 2]
+
+
+def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, monkeypatch):
+    """Молчаливого отката к знаку шума нет: диагностика ядра и счётчик конвейера."""
+
+    import math
+
+    from cftuv_envelope.wavefront import prepare_conveyor
+
+    snapshot, compilation = compiled("building_patch114", 2)
+    ceiling = _measured_ceiling(compilation, snapshot)
+    snapshot_loaded, request = _load(FIXTURE, "building_patch114", 2)
+
+    default = prepare_conveyor(snapshot_loaded, request)
+    assert "CONVEYOR_BINDING_NOISE_LAW_REFUSED" not in dict(default.counters)
+
+    monkeypatch.setattr(
+        noise, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, math.ceil(1 / ceiling) + 1)
+    )
+    refused = compile_reference_envelopes(snapshot_loaded, request)
+    diagnostics = refused.compilation.diagnostics
+    assert len(diagnostics) == 2
+    for item in diagnostics:
+        assert item.outcome is ReferenceOutcome.EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED
+        assert item.message.startswith(
+            EvaluationBindingNoiseRefusalV1.EDGE_DIRECTION_NOISE_EXCEEDS_DECLARED_BOUND.value
+        ) or item.message.startswith(
+            EvaluationBindingNoiseRefusalV1.TURN_NOISE_EXCEEDS_DECLARED_BOUND.value
+        )
+        assert item.envelope_spec_id is not None
+    prepared = prepare_conveyor(snapshot_loaded, request)
+    assert dict(prepared.counters)["CONVEYOR_BINDING_NOISE_LAW_REFUSED"] == 2
+
+
+def test_a_record_is_judged_under_the_declared_bound_not_under_the_one_it_was_written_with(
+    compiled, monkeypatch
+):
+    import math
+
+    snapshot, compilation = compiled("building_patch114", 2)
+    # Запись написана под 1/1000; граница затянута ниже измеренного шума, и закон
+    # к углу больше не применим — проверяющий пересчитывает и отказывает.
+    ceiling = _measured_ceiling(compilation, snapshot)
+    monkeypatch.setattr(
+        noise, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, math.ceil(1 / ceiling) + 1)
+    )
+    error = _refused(snapshot, compilation)
+    assert error.outcome is ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID
+    assert "not in force" in str(error)
+    # И обратно: запись под другой объявленной границей не следует из геометрии.
+    monkeypatch.setattr(noise, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 500))
+    assert "does not follow from the geometry" in str(_refused(snapshot, compilation))
+
+
+def test_missing_source_coordinates_and_corner_vertices_are_named_refusals(compiled):
+    """Без исходных координат закон не угадывает шум и не молчит: причина названа."""
+
+    from types import SimpleNamespace
+
+    snapshot, compilation = compiled("building_patch114", 2)
+    context, _ = _context(snapshot, compilation)
+    spec = _specs(compilation)[0]
+    selection = next(iter(compilation.profile_selection_certificates))
+
+    bare = replace(
+        context,
+        frame=SimpleNamespace(exact_gram_matrix=context.frame.exact_gram_matrix),
+        evaluation_noise_cache={},
+    )
+    outcome = noise.canonical_noise_applicability(bare, spec, selection)
+    assert outcome.fact is None and outcome.canonical is not None
+    assert outcome.refusal is REFUSALS.SOURCE_COORDINATES_UNAVAILABLE
+
+    without_binding = replace(
+        context,
+        compilation=replace(compilation, evaluation_geometry_binding=None),
+        evaluation_noise_cache={},
+    )
+    outcome = noise.canonical_noise_applicability(without_binding, spec, selection)
+    # Привязки нет — шума нет: закону нечем молчать, и отказа тоже нет.
+    assert outcome.fact is None and outcome.refusal is None
+
+    other = replace(context, evaluation_noise_cache={})
+    original = noise._corner_vertices
+    try:
+        noise._corner_vertices = lambda *args: None
+        outcome = noise.canonical_noise_applicability(other, spec, selection)
+    finally:
+        noise._corner_vertices = original
+    assert outcome.refusal is REFUSALS.CORNER_VERTICES_UNAVAILABLE
+
+
+# --------------------------------------------------------------------------
+# 8. Каждый сектор канонического веера
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("density", "count"), ((2, 1), (4, 2)))
+def test_every_sector_of_the_canonical_fan_is_checked_and_a_wide_one_is_caught(
+    compiled, density, count
+):
+    snapshot, compilation = compiled("building_patch114", density)
+    context, _ = _context(snapshot, compilation)
+    spec = _specs(compilation)[0]
+    q = 2 * (count + 1)
+    assert noise.canonical_sectors_hold(
+        context, noise.canonical_ideal(context, spec, count, Fraction(1, 2)), q
+    )
+    # Тот же веер на «канон» 3/5: подшаг 3/10 pi больше pi/4 — сектор шире порога.
+    wide = noise.canonical_ideal(context, spec, count, Fraction(3, 5))
+    assert not noise.canonical_sectors_hold(context, wide, q)
+
+
+@pytest.mark.parametrize("density", (2, 4))
+def test_the_last_sector_exceeds_pi_over_q_by_exactly_the_recorded_turn_noise(
+    compiled, density
+):
+    """Последний сектор канонического веера = `pi/q` + отклонение поворота — числом.
+
+    Первые `H` секторов — точные повороты; последний ведёт к опоре
+    вычислительной геометрии, и его превышение над `pi/q` равно отклонению
+    поворота от прямого угла, чей синус в квадрате — записанный `cos^2`.
+    """
+
+    import math
+
+    snapshot, compilation = compiled("building_patch114", density)
+    context, _ = _context(snapshot, compilation)
+    selection = next(iter(compilation.profile_selection_certificates))
+    q = huber_density_value_contract(selection.max_subturn_value_id)[0]
+    metric = context.metric
+    gram = tuple(tuple(float(item) for item in row) for row in metric.gram)
+
+    def dot(left, right):
+        lx, ly = (float(sp.N(item, 30)) for item in metric.density_expressions(left))
+        rx, ry = (float(sp.N(item, 30)) for item in metric.density_expressions(right))
+        return (
+            lx * (gram[0][0] * rx + gram[0][1] * ry)
+            + ly * (gram[1][0] * rx + gram[1][1] * ry)
+        )
+
+    for spec in _specs(compilation):
+        fact = noise.canonical_noise_fact(context, spec, selection)
+        count = selection.resolved_hidden_edge_count
+        ideal = noise.canonical_ideal(context, spec, count, Fraction(1, 2))
+        cosine = dot(ideal[-2], ideal[-1]) / math.sqrt(
+            dot(ideal[-2], ideal[-2]) * dot(ideal[-1], ideal[-1])
+        )
+        last = math.acos(max(-1.0, min(1.0, cosine)))
+        deviation = math.asin(math.sqrt(float(fact.turn_cosine_squared)))
+        assert abs(abs(last - math.pi / q) - deviation) < 1e-9, (last, deviation)

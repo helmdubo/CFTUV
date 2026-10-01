@@ -2031,6 +2031,96 @@ def _canonical_law_specs(snapshot, request):
     return result.compilation, specs
 
 
+def _emitted_fan_faces_by_spec(prepared):
+    """Сколько граней веера конвейер эмитировал на КАЖДУЮ спеку (по владельцу грани)."""
+
+    from collections import Counter
+
+    nodes = {}
+    for region in prepared.regions:
+        for key, name in region.owner_by_edge:
+            if len(key) == 5:
+                nodes[(key[0], key[1])] = name
+    emitted = Counter()
+    for region in prepared.regions:
+        for face in region.partition.faces:
+            if len(face.owner) == 5:
+                emitted[nodes[(face.owner[0], face.owner[1])]] += 1
+    return emitted
+
+
+@pytest.mark.parametrize(
+    "density, certificates, emitted, laws",
+    (
+        (2, 5, 5, ()),
+        (
+            4,
+            9,
+            12,
+            (
+                "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+                "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1",
+                "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1",
+            ),
+        ),
+    ),
+)
+def test_the_conveyor_emits_the_spec_count_per_fan_under_the_canonical_law(
+    density, certificates, emitted, laws
+):
+    """Тот же закон эмиссии, что у `..._the_lift_owns_the_difference`, на ПРОДУКТОВОМ законе счёта.
+
+    Конвейер эмитит ровно `spec.resolved_hidden_edge_count` граней веера на КАЖДУЮ
+    спеку, а разницу с сертификатами селекции несёт лифт: на d2 лифтов нет
+    (канонический веер держит счёт), на d4 их три — строгий и два предела
+    канонического веера, и сумма разниц равна ровно сумме их лифтов.
+    """
+
+    snapshot, request = _field_inputs(density)
+    result = kernel.compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    selection_by_id = {
+        item.certificate_id: item
+        for item in result.compilation.profile_selection_certificates
+    }
+    specs = tuple(
+        item
+        for item in result.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+    certificate_total = sum(
+        selection_by_id[item.selection_certificate_id].resolved_hidden_edge_count
+        for item in specs
+    )
+    spec_total = sum(item.resolved_hidden_edge_count for item in specs)
+    assert (certificate_total, spec_total) == (certificates, emitted)
+    lifts = sorted(
+        item.evaluation_subturn_count_lift.lift_law.value
+        for item in specs
+        if getattr(item, "evaluation_subturn_count_lift", None) is not None
+    )
+    assert lifts == sorted(laws)
+    assert spec_total - certificate_total == sum(
+        item.evaluation_subturn_count_lift.effective_hidden_edge_count
+        - item.evaluation_subturn_count_lift.source_hidden_edge_count
+        for item in specs
+        if getattr(item, "evaluation_subturn_count_lift", None) is not None
+    )
+
+    prepared = prepare_conveyor(snapshot, request)
+    assert prepared.outcome.value == "EXACT"
+    counters = dict(prepared.counters)
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == spec_total
+    assert counters["CONVEYOR_BOUND_FAN_DIRECTIONS"] <= spec_total
+    assert "CONVEYOR_BINDING_NOISE_LAW_REFUSED" not in counters
+    by_spec = _emitted_fan_faces_by_spec(prepared)
+    for spec in specs:
+        assert by_spec[spec.envelope_spec_id.value] == spec.resolved_hidden_edge_count, (
+            spec.envelope_spec_id
+        )
+    assert sum(by_spec.values()) == spec_total
+
+
 def test_field_density_four_lifts_the_razor_thin_corners_under_the_canonical_law():
     """Продуктовый закон на поле d4: два угла ниже 90 — `H=3` с высотой 5, а не `H=2` с 4492 и 397.
 
