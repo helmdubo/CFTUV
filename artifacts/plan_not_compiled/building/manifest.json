@@ -1,0 +1,17 @@
+{
+ "object_name": "building",
+ "alpha": "0.25",
+ "densities": [
+  2,
+  4
+ ],
+ "selected_edges": 458,
+ "patch_count": 122,
+ "request_id": "host-v0:decal-request:0f9b2855cc0446bd8b0fe2a7",
+ "domains": {
+  "3": "host-v0:patch-domain:02740e90904e90f274ce157a",
+  "19": "host-v0:patch-domain:dd364f739e560bd76555a5b0",
+  "20": "host-v0:patch-domain:6e6625cf1ac9cd018e5b2e5d",
+  "99": "host-v0:patch-domain:a4cccf4c2dfc575d101a726a"
+ }
+}
