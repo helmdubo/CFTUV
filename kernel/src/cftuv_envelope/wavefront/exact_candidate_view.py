@@ -243,6 +243,62 @@ def position(
     return place
 
 
+def concurrency_time_in(
+    view: ExactCandidateViewV1,
+    first: SupportLineV1,
+    second: SupportLineV1,
+    third: SupportLineV1,
+) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+    """`concurrency_time(first, second, third)` через память superlevel'а.
+
+    Закон кандидата спрашивает время одной и той же тройки прямых ПО ДЕСЯТКУ
+    раз: поколения exact-time замыкания и его повтор считают одни и те же пары
+    (вершина, цель). Функция чистая по трём прямым — бюджет в ответ не входит, а
+    повторный вопрос ничего не оплачивает (память разложений уже ответила), —
+    поэтому ответ памяти и пересчёта один, а цена пересчёта — нет. Ключ —
+    идентичность трёх прямых; запись держит сами объекты, и пока она жива,
+    адрес не может достаться другому. Память та же, что у `position`, со
+    своей границей: смена точного времени и чужой базис простых.
+    """
+
+    memo = view.position_memo
+    if memo is None or not memo.admits(view.prime_universe):
+        return concurrency_time(first, second, third, view.budget)
+    key = ("CONCURRENCY", id(first), id(second), id(third))
+    entry = memo.entries.get(key)
+    if entry is None:
+        entry = memo.entries[key] = (
+            first,
+            second,
+            third,
+            concurrency_time(first, second, third, view.budget),
+        )
+    return entry[3]
+
+
+def sliding_time_in(
+    view: ExactCandidateViewV1,
+    line: SupportLineV1,
+    along: SqrtSumV1,
+    other: SupportLineV1,
+) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+    """`sliding_time(line, along, other)` через ту же память, по тем же причинам."""
+
+    memo = view.position_memo
+    if memo is None or not memo.admits(view.prime_universe):
+        return sliding_time(line, along, other, view.budget)
+    key = ("SLIDING", id(line), id(along), id(other))
+    entry = memo.entries.get(key)
+    if entry is None:
+        entry = memo.entries[key] = (
+            line,
+            along,
+            other,
+            sliding_time(line, along, other, view.budget),
+        )
+    return entry[3]
+
+
 def edge_event_time(
     view: ExactCandidateViewV1,
     vertex_ref: object,

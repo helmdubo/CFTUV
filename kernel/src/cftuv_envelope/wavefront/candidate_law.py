@@ -11,15 +11,15 @@ from .event_time import (
     EventTimeOutcome,
     EventTimeV1,
     compare_times,
-    concurrency_time,
-    sliding_time,
 )
 from .exact_candidate_view import (
     ExactCandidateViewV1,
     collapsing_span,
+    concurrency_time_in,
     edge_event_time,
     is_future,
     position,
+    sliding_time_in,
     span_containment,
 )
 
@@ -151,11 +151,9 @@ def evaluate_split_candidate(
     second = view.span_state(vertex.next_span).line
     target = view.span_state(target_ref).line
     if vertex.sliding is None:
-        time, outcome = concurrency_time(first, second, target, view.budget)
+        time, outcome = concurrency_time_in(view, first, second, target)
     else:
-        time, outcome = sliding_time(
-            first, vertex.sliding, target, view.budget
-        )
+        time, outcome = sliding_time_in(view, first, vertex.sliding, target)
     if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
         return refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
     if outcome is not EventTimeOutcome.EXACT or time is None:
