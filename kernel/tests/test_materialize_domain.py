@@ -27,6 +27,7 @@ from cftuv_envelope.materialize import admit, assemble, domain, frames
 from cftuv_envelope.materialize.admit import MaterializationOutcome, PlanarityKind
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.domain import materialize_domain
+from cftuv_envelope.materialize.lift import PlaneLiftV1
 from cftuv_envelope.numeric import LocalVector3V1
 from cftuv_envelope.outcomes import NamedOutcome
 from cftuv_envelope.validation import validate_geometry_batch
@@ -552,6 +553,43 @@ def test_the_corpus_assembles_valid_batches_with_a_sound_mesh():
             exact += (low + high) / 2
         assert abs(mesh - exact) <= Fraction(1, 10**6) * max(Fraction(1), exact)
     assert assembled == CORPUS_ASSEMBLED
+
+
+def test_diagnostics_are_recorded_after_every_point_is_lifted():
+    """Запись диагностик снимается ПОСЛЕ подъёма: счётчики подъёма копятся в нём.
+
+    Раньше запись собиралась до `assemble_batch` и называла `extrapolated_points=0`
+    там, где счётчики подъёма говорили о трёх (поймано на `building.004`, patch 1).
+    Тест кладёт в подъём счётчик вызовов и сверяет его в момент записи диагностик.
+    """
+
+    class CountingPlane:
+        def __init__(self):
+            self.lifted = 0
+            self._inner = PlaneLiftV1(
+                (Fraction(0),) * 3,
+                (Fraction(1), Fraction(0), Fraction(0)),
+                (Fraction(0), Fraction(1), Fraction(0)),
+                1,
+            )
+
+        def lift(self, point):
+            self.lifted += 1
+            return self._inner.lift(point)
+
+    plane = CountingPlane()
+    seen = []
+
+    def diagnostics():
+        seen.append(plane.lifted)
+        return ()
+
+    name, polygon = next(iter(named_corpus()))
+    batch, _ = factories.assemble_polygon_batch(
+        polygon, Fraction(1), plane=plane, diagnostics=diagnostics
+    )
+    assert plane.lifted == len(batch.vertices) > 0, name
+    assert seen == [len(batch.vertices)], name
 
 
 def test_the_corpus_digests_are_stable_between_two_assemblies():

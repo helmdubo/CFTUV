@@ -52,6 +52,7 @@
         "allowed_effect": {
           "enum": [
             "ADMIT_OR_REJECT_PROJECTION",
+            "EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND",
             "RECOMPUTE_DECLARED_CERTIFICATE_ONLY",
             "ADMIT_OR_REJECT_GRID_SCALE",
             "BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED",
@@ -67,6 +68,7 @@
         "applied_stage": {
           "enum": [
             "NEAR_PLANAR_ADMISSION",
+            "SURFACE_LIFT_POINT_LOCATION",
             "NEAR_PLANAR_CERTIFICATE_RECOMPUTATION",
             "SOURCE_GRID_WINDOW",
             "SOURCE_GRID_SCALE_SELECTION",
@@ -112,6 +114,7 @@
           "enum": [
             "SOURCE_LOCAL_INTRINSIC",
             "SOURCE_ANGLE_MEASURE",
+            "CHART_LATTICE",
             "NOT_A_COORDINATE"
           ],
           "type": "string"
@@ -125,6 +128,8 @@
         "id": {
           "enum": [
             "PRODUCT_SKIRT_ABSOLUTE_V1",
+            "NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1",
+            "SURFACE_LIFT_EXTRAPOLATION_CELLS_V1",
             "NEAR_PLANAR_REPRESENTATION_NOISE_V1",
             "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1",
             "AUTHOR_ANGULAR_ERROR_SOURCE_GRID_INTENT_V1",
@@ -180,6 +185,7 @@
             "RADIANS",
             "RADIANS_PER_HALF_TURN",
             "DIMENSIONLESS",
+            "CHART_LATTICE_CELLS",
             "EXACT_WORK_UNITS",
             "MEMO_ENTRIES",
             "NONE"

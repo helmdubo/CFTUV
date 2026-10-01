@@ -289,7 +289,7 @@ def _run_budget_refusal_lands_on_the_metric_stage():
     )
     receipts = json.loads(_gp_object(source_obj)["stage_receipts"])
     assert sorted((item["stage"], item["outcome"]) for item in receipts) == [
-        ("METRIC_REJECTED", "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"),
+        ("METRIC_REJECTED", "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"),
         ("QUEUE_RESOLVED", "EXACT"),
     ], receipts
 

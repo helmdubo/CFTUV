@@ -222,14 +222,59 @@ class HostGridPolicy(str, Enum):
 HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
 
 
+class HostNearPlanarLiftPolicy(str, Enum):
+    """На какую поверхность хост просит класть меш near-planar домена.
+
+    Объявляется явно, как планарность и решётка: ядро не выбирает политику за
+    хост, и она видна и в сертификате метрики (`lift_law`), и в исходе
+    материализации (`NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES`).
+    """
+
+    CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
+    SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
+
+
+# Хост просит укладку на ТРЕУГОЛЬНИКИ ИСТОЧНИКА (NEAR_PLANAR V2, решение
+# владельца 2026-10-02): меш лежит на поверхности, абсолютная невязка плоскости
+# 1.25 см — записанная диагностика, а судят искажение ширины (2 % относительно)
+# и вложение проекции. Прежний закон остаётся членом перечисления: он нужен
+# отладочным сценам и красным контролям.
+HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_V1
+
+
+class HostNearPlanarFramePolicy(str, Enum):
+    """Каким репером хост просит описывать near-planar карту.
+
+    Объявляется явно, как остальные политики: ядро не выбирает закон репера за
+    хост, и применённый закон виден в метрике (`frame_selection_law`).
+    """
+
+    CANONICAL_ONLY_V1 = "CANONICAL_ONLY_V1"
+    REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1 = "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
+
+
+# Приведённый целочисленный базис плоскости (NEAR_PLANAR V2, коммит 4). Репер от
+# разностей спроецированных вершин наследует знаменатели проекции (деление на
+# `n·n`), матрица Грама возводит их в квадрат, и радиканды `SqrtSumV1` растут:
+# Ро-Поллард `building.004` patch 4 не возвращается за кап. Приведённый базис
+# оставляет вершины на месте (они точно те же) и сжимает Грам. Замер на `building`
+# 106/109/120/121: радиканды 248/227/264/248 -> 145/138/143/142 бит (DECISIONS
+# 2026-10-03). У точной плоскости закон не применяется, и её байты прежние.
+HOST_NEAR_PLANAR_FRAME_POLICY = HostNearPlanarFramePolicy.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+
+
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
     "HOST_GRID_POLICY",
+    "HOST_NEAR_PLANAR_FRAME_POLICY",
+    "HOST_NEAR_PLANAR_LIFT_POLICY",
     "HOST_PLANARITY_POLICY",
     "HostGridPolicy",
+    "HostNearPlanarFramePolicy",
+    "HostNearPlanarLiftPolicy",
     "HostPlanarityPolicy",
     "PatchSurfaceIR",
     "SourceEdge",

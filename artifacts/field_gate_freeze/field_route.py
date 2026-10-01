@@ -39,6 +39,7 @@ conveyor preparation -> skeleton -> faces -> coverage.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -59,6 +60,30 @@ from snapshot_bmesh import selected_edge_ids  # noqa: E402
 HOST_REJECT = "HOST_EXPORT_REJECTED"
 STAGE_RAISED = "STAGE_RAISED"
 WORK_CAP_EXCEEDED = "DOMAIN_WORK_CAP_EXCEEDED"
+
+
+PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
+PIN_FRAME_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_FRAME"
+
+
+def install_lift_pin(law_name: str) -> None:
+    """Закрепить закон укладки хоста на время ЭТОГО процесса (подмена константы)."""
+
+    from cftuv import envelope_request_export as export_module
+    from cftuv.surface_ir import HostNearPlanarLiftPolicy
+
+    export_module.HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy(law_name)
+
+
+def install_frame_pin(policy_name: str) -> None:
+    """Закрепить политику репера near-planar хоста на время ЭТОГО процесса."""
+
+    from cftuv import envelope_request_export as export_module
+    from cftuv.surface_ir import HostNearPlanarFramePolicy
+
+    export_module.HOST_NEAR_PLANAR_FRAME_POLICY = HostNearPlanarFramePolicy(
+        policy_name
+    )
 
 
 def snapshot_sha256(name: str) -> str:
@@ -310,6 +335,25 @@ def _main() -> None:
         else None
     )
     substitutions = []
+    pinned = os.environ.get(PIN_LIFT_ENV)
+    if pinned:
+        # ИМЕНОВАННАЯ ЗАКРЕПКА закона укладки. Ворота математики фронта (walls.012)
+        # проверяют ЯДРО на полевой геометрии, а не политику укладки хоста; закон
+        # NEAR_PLANAR V2 отказывает этот домен по ширине (см. DECISIONS 2026-10-03),
+        # и без закрепки сильные ворота перестали бы видеть математику. Закрепка
+        # едет в ответе: прогон без неё — прогон по настоящему закону хоста.
+        install_lift_pin(pinned)
+        substitutions.append(f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{pinned}")
+    pinned_frame = os.environ.get(PIN_FRAME_ENV)
+    if pinned_frame:
+        # Вторая ИМЕНОВАННАЯ закрепка. Таблица якорных локусов записана в канонических
+        # координатах карты; приведённый целочисленный базис (NEAR_PLANAR V2, коммит 4)
+        # даёт ту же плоскость в других `(u, v)`, и якорь, сравниваемый по точным
+        # координатам, перестаёт находиться, хотя геометрия не сдвинулась. Ворота
+        # проверяют математику фронта на полевой геометрии, а не выбор репера; настоящий
+        # репер хоста держат отдельные тесты ядра.
+        install_frame_pin(pinned_frame)
+        substitutions.append(f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pinned_frame}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ

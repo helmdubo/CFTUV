@@ -434,24 +434,50 @@ def test_a_preparation_that_cannot_be_shipped_is_a_named_fallback(
 
 
 def test_a_domain_refused_on_the_metric_is_named_with_its_host_outcome():
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
 
     run, _ = _production(bundle)
 
     refused = [item for item in run.results if not item.is_materialized]
     assert [item.patch_id for item in refused] == [ROW - 1]
-    assert refused[0].outcome == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    assert refused[0].outcome == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
     assert refused[0].batch is None and refused[0].detail
     assert production_status_text(run.results) == (
-        f"MATERIALIZED {ROW - 1} / refused 1 (NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED)"
+        f"MATERIALIZED {ROW - 1} / refused 1 (NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED)"
     )
     lines = production_console_lines(run.results)
     assert len(lines) == 2
     assert f"patch {ROW - 1}" in lines[0]
-    assert "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED" in lines[0]
+    assert "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in lines[0]
     assert lines[1].endswith(production_status_text(run.results))
     assert _counter(run, production.PRODUCTION_REFUSED) == 1
     assert _counter(run, production.PRODUCTION_MATERIALIZED) == ROW - 1
+
+
+def test_a_near_planar_domain_is_materialized_onto_the_source_triangles():
+    """Хост просит укладку на треугольники источника (NEAR_PLANAR V2).
+
+    Приподнятый на 5 см угол последнего квадрата — за прежним абсолютным
+    бюджетом юбки (1.25 см), но ширина в бюджете: домен строится, а меш лежит
+    на поверхности. Планарные соседи укладку не затрагивают: ни счётчиков
+    подъёма, ни диагностики near-planar у них нет.
+    """
+
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    run, _ = _production(bundle)
+
+    assert all(item.is_materialized for item in run.results)
+    lifted = run.results[ROW - 1]
+    assert any(
+        line.startswith("NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES")
+        for line in lifted.diagnostics
+    ), lifted.diagnostics
+    counters = dict(lifted.counters)
+    assert counters["MATERIALIZE_SURFACE_LIFT_LOCATIONS"] == len(lifted.batch.vertices)
+    assert counters["MATERIALIZE_SURFACE_LIFT_TRIANGLES"] > 0
+    for item in run.results[:-1]:
+        assert not any("SURFACE_LIFT" in name for name, _ in item.counters)
+        assert not any("NEAR_PLANAR" in line for line in item.diagnostics)
 
 
 def test_the_status_text_counts_repeated_outcomes():
@@ -600,7 +626,7 @@ def test_production_tasks_are_ranked_like_coverage_tasks():
 def test_the_json_export_round_trips_every_batch_through_the_kernel_codec(tmp_path):
     from cftuv_envelope import GeometryBatchCodecV1
 
-    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     run, _ = _production(bundle)
 
     summary = production.export_production_json(run.results, tmp_path, label="row")
@@ -621,7 +647,7 @@ def test_the_json_export_round_trips_every_batch_through_the_kernel_codec(tmp_pa
         assert batch == result.batch
         assert written[result.patch_id]["content_digest"] == result.content_digest
     refused = next(item for item in data["domains"] if "batch_file" not in item)
-    assert refused["outcome"] == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    assert refused["outcome"] == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
 
 
 def test_the_production_chain_imports_without_blender():

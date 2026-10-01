@@ -33,20 +33,28 @@ from .contracts.metric import (
     ExactSourcePlaneCertificateV1,
     ExactVector3V1,
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
+    NEAR_PLANAR_WIDTH_BUDGET,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
+    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
+    NearPlanarWidthDistortionLawV1,
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
 )
 from .contracts.analysis import SourceVertexV1
-from .contracts.surface import SourceFaceV1
+from .contracts.surface import SourceFaceV1, SurfaceTriangleV1
 from .ids import LineageId, PatchDomainId, SourceRevision
 from ._embedding import (
     build_projection_embedding_certificate,
     patch_plane_normal,
     projection_violations,
     source_snap_violations,
+)
+from ._plane_basis import reduced_frame
+from ._width_distortion import (
+    build_width_distortion_certificate,
+    width_distortion_violations,
 )
 from ._metric_wire import (
     classify_metric_normal_wire,
@@ -222,6 +230,48 @@ def _recomputed_budget(certificate, grid_certificate) -> Fraction | None:
     return None
 
 
+def _check_reduced_frame(issues, path, metric) -> None:
+    """Приведённый базис: закон применим к near-planar, и базис — тот, что считает закон.
+
+    Базис пересчитывается из ЗАПИСАННОЙ нормали и масштаба решётки источника и
+    обязан совпасть побитово, а не быть «каким-то ортогональным».
+    """
+
+    if metric.frame_selection_law is not (
+        AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+    ):
+        return
+    certificate = metric.planarity_certificate
+    source_scale = metric.grid_certificate.source_scale
+    if type(certificate) is not NearPlanarProjectionCertificateV1 or (
+        not metric.grid_certificate.snapping_law.snaps_source
+        or source_scale is None
+        or not any(fraction_point3(certificate.exact_plane_normal))
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("frame_selection_law",),
+            "the reduced integer plane basis applies only to a near-planar "
+            "projection of a snapped source with a non-zero plane normal",
+        )
+        return
+    expected = reduced_frame(
+        normal=tuple(int(item) for item in fraction_point3(certificate.exact_plane_normal)),
+        source_scale=source_scale,
+    )
+    if (
+        fraction_point3(metric.exact_basis_a),
+        fraction_point3(metric.exact_basis_b),
+    ) != expected:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_basis_a", "exact_basis_b"),
+            "affine basis differs from the reduced integer plane basis",
+        )
+
+
 def _check_near_planar_certificate(
     issues: list[ValidationIssue],
     path: tuple[str, ...],
@@ -277,12 +327,89 @@ def _check_near_planar_certificate(
             path + ("residual_budget",),
             "recorded residual budget is not what its declared law produces",
         )
-    if fraction_of(certificate.max_residual_squared) > budget * budget:
+    # Невязка судит ТОЛЬКО при укладке на сертифицированную плоскость. Под
+    # `SOURCE_TRIANGLES_V1` она записанная диагностика и может быть больше
+    # бюджета, зато обязан быть в бюджете сертификат искажения ширины.
+    onto_surface = certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+    if not onto_surface and (
+        fraction_of(certificate.max_residual_squared) > budget * budget
+    ):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("max_residual_squared",),
             "recorded residual exceeds the recorded budget",
+        )
+    _check_width_distortion_record(issues, path, metric)
+    if onto_surface:
+        _check_surface_lift_judgement(issues, path, certificate)
+
+
+def _check_surface_lift_judgement(issues, path, certificate) -> None:
+    """Домен, принятый для укладки на поверхность, обязан нести годный σ."""
+
+    sigma = certificate.width_distortion
+    if sigma is None:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("width_distortion",),
+            "a certificate admitted for the source-triangle lift must carry "
+            "the width-distortion record",
+        )
+        return
+    for outcome in width_distortion_violations(sigma):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("width_distortion",),
+            f"admitted for the source-triangle lift, but {outcome.value}",
+        )
+
+
+def _check_width_distortion_record(issues, path, metric) -> None:
+    """Сертификат искажения ширины: что можно проверить по одной записи метрики.
+
+    Числа `min_cos_squared` здесь не пересчитываются — для этого нужны
+    треугольники источника (`validate_width_distortion_recomputation`). Но
+    принадлежность, закон, бюджет и покрытие вершин проверяются по проводу.
+    """
+
+    certificate = metric.planarity_certificate
+    sigma = certificate.width_distortion
+    if sigma is None:
+        return
+    sigma_path = path + ("width_distortion",)
+    if (
+        sigma.patch_domain_id != metric.patch_domain_id
+        or sigma.source_revision != metric.source_revision
+        or sigma.law
+        is not NearPlanarWidthDistortionLawV1.INTRINSIC_WIDTH_RELATIVE_V1
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            sigma_path,
+            "width-distortion certificate must be a same-domain same-revision "
+            "record of the declared law",
+        )
+    if fraction_of(sigma.width_budget) != NEAR_PLANAR_WIDTH_BUDGET:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            sigma_path + ("width_budget",),
+            "recorded width budget is not the one the law declares",
+        )
+    recorded = {item.source_vertex_id for item in sigma.snapped_source_positions}
+    if recorded != set(certificate.source_vertex_ids) or len(recorded) != len(
+        sigma.snapped_source_positions
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            sigma_path + ("snapped_source_positions",),
+            "snapped positions must cover the certificate source vertices "
+            "exactly once",
         )
 
 
@@ -291,9 +418,9 @@ def validate_rational_affine_planar_metric(
 ) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
-    if (
-        metric.frame_selection_law
-        is not AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+    if metric.frame_selection_law not in (
+        AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1,
+        AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1,
     ):
         add_issue(
             issues,
@@ -301,6 +428,7 @@ def validate_rational_affine_planar_metric(
             path + ("frame_selection_law",),
             "unsupported deterministic affine-frame law",
         )
+    _check_reduced_frame(issues, path, metric)
     certificate = metric.planarity_certificate
     certificate_path = path + ("planarity_certificate",)
     # Разбор по ВАЙР-идентичности. `isinstance` пропустил бы наследника, а
@@ -644,6 +772,17 @@ def _recompute_embedding_inputs(issues, path, record, faces, required_ids, posit
             "projected source IDs differ from exact source recomputation",
         )
     origin, basis_a, basis_b = _canonical_frame(projected, required_ids)
+    if (
+        metric.frame_selection_law
+        is AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+        and metric.grid_certificate.source_scale is not None
+    ):
+        # Приведённый базис считается из ПЕРЕСЧИТАННОЙ нормали, а не из записи:
+        # так проверяется и то, что запись не подменила плоскость.
+        basis_a, basis_b = reduced_frame(
+            normal=tuple(int(item) for item in normal),
+            source_scale=metric.grid_certificate.source_scale,
+        )
     declared_frame = (
         fraction_point3(metric.exact_origin),
         fraction_point3(metric.exact_basis_a),
@@ -740,6 +879,145 @@ def _check_embedding_metric_identity_authority(
         )
 
 
+def validate_width_distortion_recomputation(
+    metric: RationalAffinePlanarMetricV2,
+    *,
+    source_vertices,
+    source_faces,
+    surface_triangles,
+    owner_patch_id,
+) -> tuple[ValidationIssue, ...]:
+    """Пересчитать сертификат искажения ширины из фактов источника.
+
+    Привязанные позиции берутся у ОБЪЯВЛЕННОГО закона решётки метрики
+    (`position_under_grid_law`), нормаль — Ньюэллом по ним, а не из записи:
+    так проверяется и то, что запись метрики не подменила плоскость. Без
+    сертификата проверять нечего.
+    """
+
+    certificate = metric.planarity_certificate
+    sigma = (
+        certificate.width_distortion
+        if type(certificate) is NearPlanarProjectionCertificateV1
+        else None
+    )
+    if sigma is None:
+        return ()
+    issues: list[ValidationIssue] = []
+    path = (
+        "RationalAffinePlanarMetricV2",
+        "planarity_certificate",
+        "width_distortion",
+    )
+    if any(
+        not isinstance(item.position, LocalPoint3V1) for item in source_vertices
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            "width distortion cannot be recomputed without local coordinates",
+        )
+        return tuple(issues)
+    faces, required_ids, positions = _source_embedding_inputs(
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+        owner_patch_id=owner_patch_id,
+    )
+    snapped = {
+        vertex_id: position_under_grid_law(
+            LocalPoint3V1(*(float(axis) for axis in position)),
+            metric.grid_certificate,
+        )
+        for vertex_id, position in positions.items()
+    }
+    from .planar_metric import PlanarMetricAdmissionError
+
+    try:
+        expected = build_width_distortion_certificate(
+            source_revision=metric.source_revision,
+            patch_domain_id=metric.patch_domain_id,
+            snapped=snapped,
+            normal=patch_plane_normal(snapped, faces),
+            faces=faces,
+            triangles=tuple(surface_triangles),
+            required_ids=required_ids,
+        )
+    except PlanarMetricAdmissionError as error:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            f"width distortion cannot be recomputed: {error.outcome.value}",
+        )
+        return tuple(issues)
+    if expected != sigma:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            "width-distortion certificate differs from exact recomputation",
+        )
+    return tuple(issues)
+
+
+def validate_metric_against_source(
+    metric: RationalAffinePlanarMetricV2, snapshot, owner_patch_id
+) -> tuple[ValidationIssue, ...]:
+    """Сверка метрики снапшота с источником снапшота: карта и искажение ширины.
+
+    Вынесено из `validate_analysis_snapshot`: та стоит на своём потолке длины
+    функции. Реконструкция `origin + u·A + v·B` каждой вершины обязана дать
+    позицию, которую делают объявленные законы метрики (`expected_source_position`:
+    узел решётки и, для названных спроецированными, его проекция), а
+    сертификат искажения ширины пересчитывается из треугольников снапшота.
+    """
+
+    issues: list[ValidationIssue] = []
+    path = ("RationalAffinePlanarMetricV2",)
+    origin = fraction_point3(metric.exact_origin)
+    basis_a = fraction_point3(metric.exact_basis_a)
+    basis_b = fraction_point3(metric.exact_basis_b)
+    source_by_id = {item.vertex_id: item for item in snapshot.source_vertices}
+    for item in metric.exact_source_vertex_coordinates:
+        source = source_by_id.get(item.source_vertex_id)
+        if source is None or not isinstance(source.position, LocalPoint3V1):
+            continue
+        # Ожидание считает ВСЕ законы, которые метрика объявила двигающими
+        # источник: узел решётки, а поверх него — для названных
+        # спроецированными — точную проекцию этого узла на сертифицированную
+        # плоскость. Прежде считался один первый, и near-planar метрика
+        # расходилась с ожиданием ровно на второй.
+        position = expected_source_position(
+            source.position, item.source_vertex_id, metric
+        )
+        u = fraction_of(item.domain_coordinate.x)
+        v = fraction_of(item.domain_coordinate.y)
+        reconstructed = tuple(
+            origin[index] + u * basis_a[index] + v * basis_b[index]
+            for index in range(3)
+        )
+        if reconstructed != position:
+            add_issue(
+                issues,
+                ValidationCode.SURFACE_METRIC,
+                path
+                + ("exact_source_vertex_coordinates", str(item.source_vertex_id)),
+                "exact affine reconstruction disagrees with the source "
+                "position the declared grid and planarity laws produce",
+            )
+    issues.extend(
+        validate_width_distortion_recomputation(
+            metric,
+            source_vertices=snapshot.source_vertices,
+            source_faces=snapshot.surface_ir.source_faces,
+            surface_triangles=snapshot.surface_ir.surface_triangles,
+            owner_patch_id=owner_patch_id,
+        )
+    )
+    return tuple(issues)
+
+
 def validate_embedding_certified_rational_affine_planar_metric(
     record: EmbeddingCertifiedRationalAffinePlanarMetricV1,
     *,
@@ -749,6 +1027,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
     expected_source_revision: SourceRevision,
     expected_patch_domain_id: PatchDomainId,
     expected_source_lineage: frozenset[LineageId],
+    surface_triangles: tuple[SurfaceTriangleV1, ...] | None = None,
 ) -> tuple[ValidationIssue, ...]:
     """Recompute evidence and bind it to caller-owned source identity.
 
@@ -780,6 +1059,16 @@ def validate_embedding_certified_rational_affine_planar_metric(
             issues, path, record, faces, required_ids, positions
         )
     )
+    if surface_triangles is not None:
+        issues.extend(
+            validate_width_distortion_recomputation(
+                record.metric,
+                source_vertices=source_vertices,
+                source_faces=source_faces,
+                surface_triangles=surface_triangles,
+                owner_patch_id=owner_patch_id,
+            )
+        )
     projection = record.near_planar_projection_embedding_certificate
     if bool(off_plane) != (projection is not None):
         add_issue(

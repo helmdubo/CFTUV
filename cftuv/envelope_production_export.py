@@ -50,6 +50,7 @@ from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
 )
+from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
 
 #: Закон UV продукта. Реестр законов — `envelope_request_policy`.
 PRODUCTION_UV_POLICY = ENVELOPE_UV_POLICY_DIRECT_STRIP
@@ -178,6 +179,7 @@ def produce_domain(
             reset_factorization_memory,
             reset_unbudgeted_work,
         )
+        from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
         from cftuv_envelope.materialize.admit import (
             admit_domain,
             materialization_request,
@@ -204,6 +206,7 @@ def produce_domain(
             prepared,
             coverage,
             request=materialization_request(prepared, uv_policy_id=uv_policy_id),
+            near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
         )
         if not result.is_materialized:
             return _refusal(

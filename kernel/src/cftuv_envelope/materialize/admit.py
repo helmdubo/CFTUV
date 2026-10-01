@@ -23,11 +23,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
 from enum import Enum
+from fractions import Fraction
 
 from ..contracts.metric import (
     ExactSourcePlaneCertificateV1,
+    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     RationalAffinePlanarMetricV2,
+)
+from .._width_distortion import (
+    width_distortion_refusal_text,
+    width_distortion_violations,
 )
 from ..ids import PolicyId
 from .uv_law import SUPPORTED_UV_POLICIES
@@ -47,6 +53,28 @@ class MaterializationOutcome(str, Enum):
     COVERAGE_FACE_LOST = "COVERAGE_FACE_LOST"
     BATCH_DID_NOT_VALIDATE = "BATCH_DID_NOT_VALIDATE"
     EXACT_WORK_BUDGET_EXHAUSTED = "EXACT_WORK_BUDGET_EXHAUSTED"
+    # Укладка на треугольники источника запрошена, а у near-planar домена нет
+    # сертификата искажения ширины: класть не на что, и считать ширину не из чего.
+    SURFACE_LIFT_UNAVAILABLE = "SURFACE_LIFT_UNAVAILABLE"
+    # Имена отказов допуска укладки совпадают с именами исходов ядра и хоста:
+    # одна причина называется одним словом на всех уровнях.
+    NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED = (
+        "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    )
+    NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
+    # Точка меша лежит вне проекции ВСЕЙ триангуляции источника: ни один
+    # замкнутый треугольник её не накрывает. Не «ближайший треугольник» и не
+    # допуск — именованный отказ с числами.
+    SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION = (
+        "SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION"
+    )
+    # Привязка карты к решётке, на которой посчитано покрытие, ПЕРЕВЕРНУЛА
+    # проекцию треугольника источника (знак площади сменился): триангуляция
+    # решётки перестала быть вложением, и укладывать на неё нельзя.
+    SURFACE_LIFT_CHART_SNAP_FLIPPED_TRIANGLE = (
+        "SURFACE_LIFT_CHART_SNAP_FLIPPED_TRIANGLE"
+    )
 
 
 class PlanarityKind(str, Enum):
@@ -61,6 +89,9 @@ class AdmissionV1:
     outcome: MaterializationOutcome | None
     detail: str = ""
     planarity: PlanarityKind | None = None
+    #: ДЕЙСТВУЮЩИЙ закон укладки: запрошенный, если он применим к домену. Точно
+    #: планарный домен лежит на своей плоскости при любом запросе.
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
 
 
 #: Поля запроса, которые материализатор берёт у ПЕРЕДАННОГО запроса, а не у
@@ -136,8 +167,13 @@ def request_mismatch(prepared, coverage, request) -> str:
 _MISSING = object()
 
 
-def admit_domain(prepared, coverage, request) -> AdmissionV1:
-    """Допуск по порядку: точность, ключ исполнения, плоскость, закон UV.
+def admit_domain(
+    prepared,
+    coverage,
+    request,
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
+) -> AdmissionV1:
+    """Допуск по порядку: точность, ключ исполнения, плоскость, закон UV, укладка.
 
     Первая не прошедшая проверка называется; до любой работы материализатора.
     """
@@ -179,4 +215,56 @@ def admit_domain(prepared, coverage, request) -> AdmissionV1:
             MaterializationOutcome.UV_POLICY_UNSUPPORTED,
             str(request.uv_policy_id.value),
         )
-    return AdmissionV1(None, "", planarity)
+    effective = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    if planarity is PlanarityKind.NEAR_PLANAR:
+        refusal = _lift_refusal(certificate, lift_law)
+        if refusal is not None:
+            return refusal
+        if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+            effective = lift_law
+    return AdmissionV1(None, "", planarity, effective)
+
+
+def _lift_refusal(certificate, requested) -> AdmissionV1 | None:
+    """Закон укладки против сертификата: чем домен ПРИНЯТ, на то и ложится.
+
+    * Запрошена поверхность: нужен годный σ. Судит его и построитель (под
+      `SOURCE_TRIANGLES_V1`), но сертификат мог быть принят под плоскостью, где σ
+      только записан, — поэтому судья здесь свой, до единицы работы.
+    * Запрошена плоскость, а домен принят под поверхностью: невязка плоскости
+      там не судилась и может быть больше бюджета юбки. Класть меш на плоскость
+      с неоценённой невязкой — молча нарушить бюджет, поэтому именованный отказ.
+    """
+
+    sigma = certificate.width_distortion
+    if requested is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        if sigma is None:
+            return AdmissionV1(
+                MaterializationOutcome.SURFACE_LIFT_UNAVAILABLE,
+                "the near-planar certificate carries no width-distortion "
+                "record to lift onto source triangles with",
+            )
+        failures = width_distortion_violations(sigma)
+        if failures:
+            return AdmissionV1(
+                MaterializationOutcome(failures[0].value),
+                width_distortion_refusal_text(sigma),
+            )
+        return None
+    if certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        residual = _fraction(certificate.max_residual_squared)
+        budget = _fraction(certificate.residual_budget)
+        if residual > budget * budget:
+            return AdmissionV1(
+                MaterializationOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
+                "the domain was admitted for the source-triangle lift, where "
+                "the plane residual does not judge; a lift onto the certified "
+                f"plane needs it within budget: max_residual_squared="
+                f"{float(residual):.6e} > residual_budget_squared="
+                f"{float(budget * budget):.6e}",
+            )
+    return None
+
+
+def _fraction(value):
+    return Fraction(value.numerator, value.denominator)

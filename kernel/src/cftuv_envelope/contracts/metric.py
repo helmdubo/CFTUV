@@ -13,8 +13,10 @@ from ..ids import (
     PatchDomainId,
     PlanarityCertificateId,
     RuntimeMetricId,
+    SourceFaceId,
     SourceRevision,
     SourceVertexId,
+    SurfaceTriangleId,
 )
 
 
@@ -353,6 +355,48 @@ class AffineFrameSelectionLawV1(str, Enum):
     CANONICAL_SOURCE_VERTEX_BASIS_V1 = (
         "CANONICAL_SOURCE_VERTEX_BASIS_V1"
     )
+    # Репер near-planar домена со ПРИВЕДЁННЫМ ЦЕЛОЧИСЛЕННЫМ базисом плоскости:
+    # `A = w1 / S`, `B = w2 / S`, где `S` — масштаб решётки источника, а
+    # `(w1, w2)` — приведённый (Лагранж—Гаусс) базис целочисленной решётки
+    # `{w ∈ Z³ : w·n = 0}` плоскости с примитивной нормалью `n`. Репер от
+    # разностей СПРОЕЦИРОВАННЫХ вершин (закон выше) наследует знаменатели
+    # проекции (деление на `n·n`): матрица Грама получает огромные знаменатели, и
+    # квадраты длин рёбер решётки — радиканды `SqrtSumV1` — вырастают до 227–264
+    # бит (поле, `building`) с простыми делителями до 104 бит. Здесь Грам — целые
+    # порядка `|n|`, делённые на `S²` (радиканды 138–145 бит). Начало и координаты
+    # вершин те же: репер лежит в той же
+    # плоскости, и `origin + u·A + v·B` по-прежнему ТОЧНО восстанавливает
+    # спроецированную позицию — меняется только базис, вершины не двигаются.
+    # Закон записывается ТОЛЬКО у near-planar домена со спроецированными
+    # вершинами; у точной плоскости остаётся закон выше, и её байты не двигаются.
+    REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1 = (
+        "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
+    )
+
+
+class NearPlanarFramePolicyV1(str, Enum):
+    """Каким репером просят описывать near-planar карту (политика ВЫЗЫВАЮЩЕГО).
+
+    Политика не записывается в метрику: записывается закон, который применён
+    (`AffineFrameSelectionLawV1`). Приведённый базис применяется только к домену
+    со спроецированными вершинами; точной плоскости политика ничего не меняет.
+
+    ЧЕСТНО О ПРЕДЕЛЕ. Работа подготовки, исходный репер -> приведённый, на полевых
+    near-planar доменах: `building` 106/109/120/121 на d1 — 0.89x, 1.96x, 61.5x,
+    2.26x (на d2 у 106 и 109 — 39.6x и 4.2x), `building.004` 1/4/6/7 на d0 — 115x,
+    «отказ по капу» -> EXACT, 22.6x, 5x. Лучше везде, кроме `building` 106 на d1
+    (там хуже на 12 %), и не ВСЕГДА лучше вообще: на синтетическом
+    домене, где только одна вершина выведена из плоскости, а остальной репер —
+    малые целые, исходный репер дешевле (570 единиц работы против 3913). Выбор по
+    размеру Грама это не ловит (замер: Грам приведённого базиса там даже проще, а
+    радиканды длиннее — их держат знаменатели КООРДИНАТ карты, а не только Грам),
+    поэтому политика явная, а не «умная».
+    """
+
+    CANONICAL_ONLY_V1 = "CANONICAL_ONLY_V1"
+    REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1 = (
+        "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
+    )
 
 
 class ProjectionAnchorSelectionLawV1(str, Enum):
@@ -663,6 +707,129 @@ class NearPlanarProjectionEmbeddingCertificateV1:
             raise ValueError("embedding orientation signs must be -1, 0, or 1")
 
 
+class NearPlanarWidthDistortionLawV1(str, Enum):
+    """Чем меряется искажение ширины при проекции на плоскость карты.
+
+    Проекция треугольника T на плоскость с нормалью `n` — линейное отображение
+    с сингулярными числами `1` и `cos θ_T`, где `θ_T` — угол между нормалью
+    треугольника и `n`. Длина вдоль поверхности относится к длине на карте как
+    число из `[1, 1/cos θ_T]`: декаль, заданная шириной на карте, на поверхности
+    не шире, чем в `1/cos θ_T` раз. `cos² θ_T` — РАЦИОНАЛЬНОЕ число
+    (`(n_T·n)² / ((n_T·n_T)(n·n))`), поэтому закон считается точно, без корня
+    и без допуска вычисления; допуск один, и он назван — относительная ширина.
+    """
+
+    INTRINSIC_WIDTH_RELATIVE_V1 = "INTRINSIC_WIDTH_RELATIVE_V1"
+
+
+class NearPlanarLiftLawV1(str, Enum):
+    """На какую поверхность ложится меш near-planar домена.
+
+    Ось закона: одна и та же метрика (карта домена на сертифицированной
+    плоскости) допускает два разных ответа на вопрос «где в 3D лежит точка
+    карты».
+
+    * `CERTIFIED_PLANE_V1` — на сертифицированную плоскость: `origin + a·x +
+      b·y`. Поверхность источника при этом не трогается, расстояние до неё —
+      невязка сертификата, и судит её абсолютный бюджет юбки.
+    * `SOURCE_TRIANGLES_V1` — на треугольники источника: точка карты находится
+      в проекции треугольника точно, подъём — барицентрический по его ПРИВЯЗАННЫМ
+      3D-вершинам. Расстояние до поверхности по построению нуль, абсолютная
+      невязка плоскости перестаёт судить и становится записанной диагностикой;
+      судят искажение ширины (`NearPlanarWidthDistortionCertificateV1`) и
+      сертификат вложения проекции.
+
+    Точно планарный домен закон не затрагивает: его сертифицированная
+    плоскость и есть его поверхность.
+    """
+
+    CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
+    SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
+
+
+NEAR_PLANAR_WIDTH_BUDGET = Fraction(1, 50)
+"""Допуск искажения ширины near-planar: 2 % относительно. Точная дробь.
+
+Решение ВЛАДЕЛЬЦА (`DECISIONS.md`, 2026-10-02, «КРИВИЗНА, ПЕРВАЯ СТУПЕНЬ»):
+порог относительный, не в сантиметрах — допуск на искажение свойства
+поверхности («насколько декаль шире на поверхности, чем на карте») не должен
+зависеть от размера патча. Условие приёма: `min cos² θ_T ≥ 1/(1+b)²`, то есть
+`b = 1/50` даёт `cos² ≥ 2500/2601`, наклон не круче ~11.5° у худшего
+треугольника.
+
+Допуск владеет ЯДРО: его читают и построитель (судить), и валидатор
+(пересчитать), и записывает сертификат — как `PRODUCT_SKIRT_ABSOLUTE_BUDGET`.
+Абсолютная невязка плоскости (1.25 см) при укладке на треугольники источника
+перестаёт судить и становится записанной диагностикой: поверхность, на которую
+ложится декаль, — не плоскость, и расстояние до плоскости ей безразлично.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class SnappedSourcePositionV1:
+    """Позиция вершины источника после привязки к решётке, ДО проекции."""
+
+    source_vertex_id: SourceVertexId
+    position: ExactPoint3V1
+
+
+@dataclass(frozen=True, slots=True)
+class NearPlanarWidthDistortionCertificateV1:
+    """Искажение ширины по треугольникам источника владельца: точное, записанное.
+
+    `min_cos_squared` — наименьший `cos² θ_T` по измеренным (невырожденным)
+    треугольникам; `worst_triangle_id` — тот, кто его даёт (первый по имени при
+    равенстве). Вырожденный после привязки треугольник (нулевая нормаль) не
+    измерим и не молчит: он считается в `degenerate_triangle_count`, называется
+    `first_degenerate_triangle_id`, и судья обязан отказать
+    `NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE`.
+
+    `snapped_source_positions` — позиции, от которых считан сертификат, то есть
+    привязанные, но не спроецированные. Это то же 3D, на которое ложится
+    декаль при укладке на треугольники источника, поэтому запись
+    самодостаточна для укладки и пересчитываема валидатором из снапшота.
+
+    Сертификат НЕ судит сам: это запись. Судит `width_distortion_violations`
+    (`_width_distortion`), и когда и кого он судит, решает закон укладки.
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    law: NearPlanarWidthDistortionLawV1
+    width_budget: ExactRationalV1
+    min_cos_squared: ExactRationalV1
+    worst_triangle_id: SurfaceTriangleId | None
+    worst_face_id: SourceFaceId | None
+    triangles_measured: int
+    degenerate_triangle_count: int
+    first_degenerate_triangle_id: SurfaceTriangleId | None
+    snapped_source_positions: frozenset[SnappedSourcePositionV1]
+
+    def __post_init__(self) -> None:
+        if self.triangles_measured < 0 or self.degenerate_triangle_count < 0:
+            raise ValueError("width-distortion counts must be non-negative")
+        if (self.worst_triangle_id is None) != (self.triangles_measured == 0):
+            raise ValueError(
+                "the worst triangle is named exactly when a triangle was measured"
+            )
+        if (self.worst_triangle_id is None) != (self.worst_face_id is None):
+            raise ValueError("the worst triangle and its face are named together")
+        if (self.first_degenerate_triangle_id is None) != (
+            self.degenerate_triangle_count == 0
+        ):
+            raise ValueError(
+                "a degenerate triangle is named exactly when one was counted"
+            )
+        low = Fraction(self.min_cos_squared.numerator, self.min_cos_squared.denominator)
+        if not 0 <= low <= 1:
+            raise ValueError("cos-squared lies in [0, 1]")
+        if self.width_budget.numerator <= 0:
+            raise ValueError("the width budget is positive")
+        if self.triangles_measured + self.degenerate_triangle_count == 0:
+            raise ValueError("a width-distortion certificate saw no triangle")
+
+
 @dataclass(frozen=True, slots=True)
 class NearPlanarProjectionCertificateV1:
     """Запись о том, что вход был спроецирован, и на сколько он отклонялся.
@@ -705,6 +872,14 @@ class NearPlanarProjectionCertificateV1:
     residual_budget: ExactRationalV1
     max_residual_squared: ExactRationalV1
     projected_source_vertex_ids: frozenset[SourceVertexId]
+    # Искажение ширины по треугольникам источника (ступень NEAR_PLANAR V2).
+    # `None` — «не измерялось»: вызвавший построитель не дал треугольников.
+    width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None
+    # Закон укладки, под которым домен ПРИНЯТ. При `SOURCE_TRIANGLES_V1` судят
+    # искажение ширины и вложение проекции, а абсолютная невязка плоскости
+    # (`max_residual_squared` против `residual_budget`) — записанная диагностика,
+    # она может быть больше бюджета; при `CERTIFIED_PLANE_V1` судит невязка.
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
 
     def __post_init__(self) -> None:
         if self.exact:

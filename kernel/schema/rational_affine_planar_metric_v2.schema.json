@@ -367,6 +367,13 @@
         "exact_plane_normal": {
           "$ref": "#/$defs/ExactVector3V1"
         },
+        "lift_law": {
+          "enum": [
+            "CERTIFIED_PLANE_V1",
+            "SOURCE_TRIANGLES_V1"
+          ],
+          "type": "string"
+        },
         "max_coordinate_ulp": {
           "$ref": "#/$defs/ExactRationalV1"
         },
@@ -418,6 +425,16 @@
           },
           "type": "array",
           "uniqueItems": true
+        },
+        "width_distortion": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NearPlanarWidthDistortionCertificateV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -438,7 +455,97 @@
         "planar_extent",
         "residual_budget",
         "max_residual_squared",
-        "projected_source_vertex_ids"
+        "projected_source_vertex_ids",
+        "width_distortion",
+        "lift_law"
+      ],
+      "type": "object"
+    },
+    "NearPlanarWidthDistortionCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NearPlanarWidthDistortionCertificateV1"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "degenerate_triangle_count": {
+          "type": "integer"
+        },
+        "first_degenerate_triangle_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceTriangleId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "law": {
+          "enum": [
+            "INTRINSIC_WIDTH_RELATIVE_V1"
+          ],
+          "type": "string"
+        },
+        "min_cos_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "snapped_source_positions": {
+          "items": {
+            "$ref": "#/$defs/SnappedSourcePositionV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "triangles_measured": {
+          "type": "integer"
+        },
+        "width_budget": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "worst_face_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SourceFaceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worst_triangle_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceTriangleId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "source_revision",
+        "law",
+        "width_budget",
+        "min_cos_squared",
+        "worst_triangle_id",
+        "worst_face_id",
+        "triangles_measured",
+        "degenerate_triangle_count",
+        "first_degenerate_triangle_id",
+        "snapped_source_positions"
       ],
       "type": "object"
     },
@@ -513,7 +620,8 @@
         },
         "frame_selection_law": {
           "enum": [
-            "CANONICAL_SOURCE_VERTEX_BASIS_V1"
+            "CANONICAL_SOURCE_VERTEX_BASIS_V1",
+            "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
           ],
           "type": "string"
         },
@@ -583,6 +691,43 @@
       ],
       "type": "object"
     },
+    "SnappedSourcePositionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SnappedSourcePositionV1"
+        },
+        "position": {
+          "$ref": "#/$defs/ExactPoint3V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "position"
+      ],
+      "type": "object"
+    },
+    "SourceFaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceFaceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
     "SourceRevision": {
       "additionalProperties": false,
       "properties": {
@@ -605,6 +750,23 @@
       "properties": {
         "$id_type": {
           "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SurfaceTriangleId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SurfaceTriangleId"
         },
         "value": {
           "minLength": 1,

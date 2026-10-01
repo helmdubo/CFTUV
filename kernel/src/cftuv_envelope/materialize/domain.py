@@ -48,7 +48,7 @@ from ..contracts.geometry_batch import (
     GeometryDiagnosticSeverity,
     GeometryDiagnosticV1,
 )
-from ..contracts.metric import AffineChartOrientationV1
+from ..contracts.metric import AffineChartOrientationV1, NearPlanarLiftLawV1
 from ..exact_sqrt_sum import (
     ExactCanonicalizationWorkBudgetExhausted,
     SqrtSumV1,
@@ -71,6 +71,7 @@ from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
+from .lift_surface import surface_lift_of
 from .stations import chain_station_table, source_chain_by_span
 from .uv_law import UV_DIRECT_STRIP_V1
 
@@ -129,7 +130,14 @@ def _edge_faces(context) -> dict[str, tuple[str, ...]]:
     return {edge: tuple(sorted(names)) for edge, names in found.items()}
 
 
-def _diagnostics(prepared, table, planarity, lines):
+def _diagnostics(
+    prepared,
+    table,
+    planarity,
+    lines,
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
+    lift_note: str = "",
+):
     """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры."""
 
     result = []
@@ -147,13 +155,15 @@ def _diagnostics(prepared, table, planarity, lines):
 
     if planarity is PlanarityKind.NEAR_PLANAR:
         certificate = prepared.context.frame.planarity_certificate
+        onto_surface = lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
         add(
             GeometryDiagnosticSeverity.INFO,
-            NamedOutcome.NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE,
+            NamedOutcome.NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES
+            if onto_surface
+            else NamedOutcome.NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE,
             "domain",
             (),
-            f"residual_budget={certificate.residual_budget} "
-            f"max_residual_squared={certificate.max_residual_squared}",
+            _near_planar_numbers(certificate, onto_surface, lift_note),
         )
     for chain_id in sorted(table.restart_chain_ids):
         add(
@@ -173,6 +183,34 @@ def _diagnostics(prepared, table, planarity, lines):
                 f"{corner.corner_relation_id}: {corner.reason}",
             )
     return result
+
+
+def _near_planar_numbers(certificate, onto_surface: bool, lift_note: str) -> str:
+    """Числа диагностики near-planar.
+
+    На сертифицированной плоскости — прежний текст, побитово. На поверхности
+    источника — искажение ширины (то, чем судят) и невязка плоскости (запись,
+    а не суд), в читаемых числах; точные величины лежат в сертификате.
+    """
+
+    if not onto_surface:
+        return (
+            f"residual_budget={certificate.residual_budget} "
+            f"max_residual_squared={certificate.max_residual_squared}"
+        )
+
+    def number(value) -> float:
+        return value.numerator / value.denominator
+
+    sigma = certificate.width_distortion
+    return (
+        f"min_cos_squared={number(sigma.min_cos_squared):.9g} "
+        f"width_budget={number(sigma.width_budget):.6g} "
+        f"triangles_measured={sigma.triangles_measured} "
+        f"max_residual_squared={number(certificate.max_residual_squared):.6g} "
+        f"(recorded, not judging; residual_budget="
+        f"{number(certificate.residual_budget):.6g}) {lift_note}"
+    )
 
 
 def _merged_area_gap(merged, covered) -> bool:
@@ -266,6 +304,7 @@ class _Built(NamedTuple):
     lines: tuple
     region_count: int
     dropped_names: int
+    lift_counters: tuple = ()
 
 
 def _counters(built: _Built, budget):
@@ -293,6 +332,7 @@ def _counters(built: _Built, budget):
         ("MATERIALIZE_BOUNDARY_CHAINS", len(batch.boundary_chains)),
         ("MATERIALIZE_INTERFACE_CHAINS", len(batch.interface_chains)),
         *built.table.counters,
+        *built.lift_counters,
         *budget.counters(),
     )
 
@@ -308,6 +348,20 @@ def _source_normal(prepared) -> tuple[float, float, float]:
     )
     normal = faces[0].polygon_normal if faces else None
     return (0.0, 0.0, 0.0) if normal is None else (normal.x, normal.y, normal.z)
+
+
+def _lift_of(prepared, admission, scale, budget):
+    """Подъём домена по ДЕЙСТВУЮЩЕМУ закону укладки (`admission.lift_law`)."""
+
+    context = prepared.context
+    if admission.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        return surface_lift_of(
+            context.frame,
+            context.snapshot,
+            prepared.compilation.owner_patch_id,
+            scale,
+        ).bind(budget)
+    return plane_lift_of(context.frame, scale)
 
 
 def _assemble(prepared, coverage, request, admission, budget, clock, parts):
@@ -332,6 +386,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
     )
     triangles = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw)
     clock.lap("TESSELLATE")
+    plane = _lift_of(prepared, admission, table.scale, budget)
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,
@@ -339,7 +394,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
         triangles=triangles,
         facts=facts,
         layout=layout,
-        plane=plane_lift_of(prepared.context.frame, table.scale),
+        plane=plane,
         scale=table.scale,
         lattice_alpha=lattice_alpha,
         edge_faces=_edge_faces(prepared.context),
@@ -351,7 +406,15 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
             MATERIALIZER_CONTRACT,
             f"cftuv.envelope.uv_policy.{UV_DIRECT_STRIP_V1.value}",
         ),
-        diagnostics=_diagnostics(prepared, table, admission.planarity, lines),
+        # Лениво: счётчики продолжений копятся при подъёме вершин, запись — после него.
+        diagnostics=lambda: _diagnostics(
+            prepared,
+            table,
+            admission.planarity,
+            lines,
+            admission.lift_law,
+            plane.note(),
+        ),
     )
     batch = replace(
         batch,
@@ -360,7 +423,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
         ),
     )
     clock.lap("ASSEMBLE")
-    return batch, frame_faces
+    return batch, frame_faces, plane.counters()
 
 
 def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
@@ -373,7 +436,7 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
     lines: list[str] = []
     notes: list[str] = []
     try:
-        batch, frame_faces = _assemble(
+        batch, frame_faces, lift_counters = _assemble(
             prepared, coverage, request, admission, budget, clock,
             (items, table, lines, notes),
         )
@@ -397,23 +460,33 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
         tuple(lines),
         len(prepared.regions),
         len(notes),
+        lift_counters,
     )
 
 
 def materialize_domain(
-    prepared, coverage, *, request=None, work_budget=None
+    prepared,
+    coverage,
+    *,
+    request=None,
+    work_budget=None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
     `request` по умолчанию — запрос самой подготовки; материализатору нужны из
     него только идентичность запроса и два политических идентификатора
     (материал, UV-закон). `work_budget` по умолчанию — свежий бюджет
-    транзакции `MATERIALIZE` домена.
+    транзакции `MATERIALIZE` домена. `near_planar_lift_law` — на что кладётся
+    near-planar домен: по умолчанию на сертифицированную плоскость (поведение
+    не менялось), `SOURCE_TRIANGLES_V1` — на треугольники источника.
     """
 
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
-    admission = admit_domain(prepared, coverage, request)
+    admission = admit_domain(prepared, coverage, request, near_planar_lift_law)
     clock.lap("ADMIT")
     if admission.outcome is not None:
         return _refused(admission.outcome, admission.detail, clock)

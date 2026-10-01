@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from hashlib import sha256
 from math import gcd
@@ -30,9 +30,12 @@ from .contracts.metric import (
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
     GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
+    NearPlanarFramePolicyV1,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
+    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
+    NearPlanarWidthDistortionCertificateV1,
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
     RuntimeMetricFallbackContractV1,
@@ -47,7 +50,13 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
-from .contracts.surface import SourceFaceV1
+from ._plane_basis import chart_of_positions, reduced_frame
+from ._width_distortion import (
+    build_width_distortion_certificate,
+    width_distortion_refusal_text,
+    width_distortion_violation,
+)
+from .contracts.surface import SourceFaceV1, SurfaceTriangleV1
 from .ids import (
     LineageId,
     PatchDomainId,
@@ -290,7 +299,7 @@ def _budget_refusal_text(
 
 
 def _project_onto_exact_plane(
-    *, grid_certificate, positions, origin, normal, off_plane
+    *, grid_certificate, positions, origin, normal, off_plane, judge_residual=True
 ):
     """Спроецировать отклонившиеся вершины на плоскость — точно, в дробях.
 
@@ -298,7 +307,10 @@ def _project_onto_exact_plane(
     по конвейеру арифметика остаётся точной. Приблизителен только выбор
     плоскости, и он записывается в сертификат.
 
-    Невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень.
+    Невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень. При
+    укладке на треугольники источника (`judge_residual=False`) она ВСЁ РАВНО
+    считается и записывается, но не судит: меш лежит на поверхности, и
+    расстояние до плоскости ему безразлично. Судят искажение ширины и вложение.
     """
 
     normal_squared = _dot3(normal, normal)
@@ -314,7 +326,7 @@ def _project_onto_exact_plane(
         max_ulp=max_ulp,
         grid_certificate=grid_certificate,
     )
-    if max_residual_squared > budget * budget:
+    if judge_residual and max_residual_squared > budget * budget:
         raise PlanarMetricAdmissionError(
             NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
             _budget_refusal_text(
@@ -341,7 +353,13 @@ def _project_onto_exact_plane(
 
 
 def _resolve_patch_plane(
-    *, positions, faces, required_ids, planarity_policy, grid_certificate
+    *,
+    positions,
+    faces,
+    required_ids,
+    planarity_policy,
+    grid_certificate,
+    judge_residual=True,
 ):
     """Плоскость патча и то, что пришлось в неё положить.
 
@@ -378,11 +396,19 @@ def _resolve_patch_plane(
         origin=anchor,
         normal=normal,
         off_plane=off_plane,
+        judge_residual=judge_residual,
     )
 
 
 def _planarity_certificate(
-    *, source_revision, patch_domain_id, normal, required_ids, near_planar_facts
+    *,
+    source_revision,
+    patch_domain_id,
+    normal,
+    required_ids,
+    near_planar_facts,
+    width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None,
+    lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
 ):
     """Сертификат допуска плоскости: точный либо near-planar с записью невязки."""
 
@@ -427,6 +453,8 @@ def _planarity_certificate(
         residual_budget=_rational(near_planar_facts.residual_budget),
         max_residual_squared=_rational(near_planar_facts.max_residual_squared),
         projected_source_vertex_ids=frozenset(near_planar_facts.projected),
+        width_distortion=width_distortion,
+        lift_law=lift_law,
     )
 
 
@@ -574,6 +602,104 @@ def _projection_embedding(
     return certificate
 
 
+def _width_distortion_record(
+    *,
+    near_planar_facts,
+    surface_triangles,
+    source_revision,
+    patch_domain_id,
+    snapped,
+    normal,
+    faces,
+    required_ids,
+    judged=False,
+):
+    """Сертификат искажения ширины: пишется, когда есть что мерить.
+
+    Точная плоскость искажения не имеет (проекция тождественна), поэтому у неё
+    записи нет, и байты планарных доменов не двигаются. Вызвавший, не давший
+    треугольников, получает `None` — «не измерялось», а не «измерено
+    хорошо». При `judged` (укладка на треугольники источника) запись СУДИТ:
+    вырожденный треугольник и ширина сверх бюджета — именованные отказы с
+    числами, а отсутствие треугольников — дефект входа.
+    """
+
+    if near_planar_facts is None:
+        return None
+    if surface_triangles is None:
+        if judged:
+            raise PlanarMetricAdmissionError(
+                NamedOutcome.NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE,
+                "lifting onto source triangles needs the surface triangles of "
+                "the owner Patch, and none were given",
+            )
+        return None
+    record = build_width_distortion_certificate(
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        snapped=snapped,
+        normal=normal,
+        faces=faces,
+        triangles=tuple(surface_triangles),
+        required_ids=required_ids,
+    )
+    outcome = width_distortion_violation(record) if judged else None
+    if outcome is not None:
+        raise PlanarMetricAdmissionError(
+            outcome, width_distortion_refusal_text(record)
+        )
+    return record
+
+
+def _near_planar_frame(
+    *, near_planar_facts, frame_policy, frame, positions, normal, grid_certificate
+):
+    """Репер near-planar домена по политике: `(кадр, закон репера)`.
+
+    Приведённый целочисленный базис применяется ТОЛЬКО к домену со
+    спроецированными вершинами: у точной плоскости проекции нет, знаменателей она
+    не наращивает, и закон остаётся прежним (байты планарных метрик не
+    двигаются). Начало и позиции те же — новые только базис, Грам и координаты
+    `(u, v)`, и они по-прежнему восстанавливают спроецированные позиции ТОЧНО.
+    """
+
+    canonical = AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+    if (
+        near_planar_facts is None
+        or frame_policy
+        is not NearPlanarFramePolicyV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+    ):
+        return frame, canonical
+    if not grid_certificate.snapping_law.snaps_source:
+        raise PlanarMetricAdmissionError(
+            NamedOutcome.NEAR_PLANAR_REDUCED_FRAME_REQUIRES_SOURCE_SNAP,
+            "the reduced integer plane basis is measured in source-grid steps, "
+            f"and the grid law {grid_certificate.snapping_law.value} did not "
+            "snap the source",
+        )
+    basis_a, basis_b = reduced_frame(
+        normal=normal, source_scale=grid_certificate.source_scale
+    )
+    g00 = sum((a * a for a in basis_a), Fraction(0))
+    g01 = sum((a * b for a, b in zip(basis_a, basis_b)), Fraction(0))
+    g11 = sum((b * b for b in basis_b), Fraction(0))
+    determinant = g00 * g11 - g01 * g01
+    reduced = replace(
+        frame,
+        basis_a_id=frame.origin_id,
+        basis_a=basis_a,
+        basis_b_id=frame.origin_id,
+        basis_b=basis_b,
+        gram=((g00, g01), (g01, g11)),
+        inverse=(
+            (g11 / determinant, -g01 / determinant),
+            (-g01 / determinant, g00 / determinant),
+        ),
+        coordinates=chart_of_positions(positions, frame.origin, basis_a, basis_b),
+    )
+    return reduced, AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+
+
 def _build_embedding_certified_metric(
     *,
     source_revision: SourceRevision,
@@ -587,6 +713,13 @@ def _build_embedding_certified_metric(
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
     enforce_embedding: bool = True,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     faces, required_ids, positions = _source_scope(
         owner_patch_id=owner_patch_id,
@@ -610,6 +743,9 @@ def _build_embedding_certified_metric(
         required_ids=required_ids,
         planarity_policy=planarity_policy,
         grid_certificate=grid_facts.certificate,
+        judge_residual=(
+            near_planar_lift_law is NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+        ),
     )
     try:
         frame = _affine_frame(positions, required_ids)
@@ -621,6 +757,14 @@ def _build_embedding_certified_metric(
                 f"source-vertex basis: {error}",
             ) from error
         raise
+    frame, frame_law = _near_planar_frame(
+        near_planar_facts=near_planar_facts,
+        frame_policy=near_planar_frame_policy,
+        frame=frame,
+        positions=positions,
+        normal=normal,
+        grid_certificate=grid_facts.certificate,
+    )
     orientation_sign, chart_orientation = _chart_orientation(frame.coordinates, faces)
     metric_id = ReferenceMetricId(
         _stable_id(
@@ -631,12 +775,25 @@ def _build_embedding_certified_metric(
             *(item.value for item in required_ids),
         )
     )
+    width_distortion = _width_distortion_record(
+        near_planar_facts=near_planar_facts,
+        surface_triangles=surface_triangles,
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        snapped=snapped_positions,
+        normal=normal,
+        faces=faces,
+        required_ids=required_ids,
+        judged=near_planar_lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1,
+    )
     certificate = _planarity_certificate(
         source_revision=source_revision,
         patch_domain_id=patch_domain_id,
         normal=normal,
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
+        width_distortion=width_distortion,
+        lift_law=near_planar_lift_law,
     )
     metric = _metric_record(
         metric_id=metric_id,
@@ -653,6 +810,7 @@ def _build_embedding_certified_metric(
         certificate=certificate,
         source_lineage=source_lineage,
         grid_certificate=grid_facts.certificate,
+        frame_law=frame_law,
     )
     projection_embedding = _projection_embedding(
         near_planar_facts=near_planar_facts,
@@ -684,6 +842,13 @@ def build_embedding_certified_rational_affine_planar_metric(
         PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -696,6 +861,9 @@ def build_embedding_certified_rational_affine_planar_metric(
         source_lineage=source_lineage,
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
+        surface_triangles=surface_triangles,
+        near_planar_lift_law=near_planar_lift_law,
+        near_planar_frame_policy=near_planar_frame_policy,
     )
 
 
@@ -711,6 +879,13 @@ def build_rational_affine_planar_metric(
         PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
+    near_planar_lift_law: NearPlanarLiftLawV1 = (
+        NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
+    ),
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -724,6 +899,9 @@ def build_rational_affine_planar_metric(
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
         enforce_embedding=True,
+        surface_triangles=surface_triangles,
+        near_planar_lift_law=near_planar_lift_law,
+        near_planar_frame_policy=near_planar_frame_policy,
     ).metric
 
 
@@ -743,6 +921,7 @@ def _metric_record(
     certificate,
     source_lineage,
     grid_certificate,
+    frame_law=AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1,
 ) -> RationalAffinePlanarMetricV2:
     """Собрать запись метрики. Вынесено ради бюджета длины строителя."""
 
@@ -766,9 +945,7 @@ def _metric_record(
             for vertex_id in required_ids
         ),
         chart_orientation=chart_orientation,
-        frame_selection_law=(
-            AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
-        ),
+        frame_selection_law=frame_law,
         planarity_certificate=certificate,
         source_lineage=source_lineage,
         grid_certificate=grid_certificate,

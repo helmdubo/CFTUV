@@ -48,6 +48,7 @@ Wall-clock назван честно: детерминированный бюд�
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -93,22 +94,44 @@ WORK_CAP_SECONDS = {
 
 # Заранее одобренные ИМЕНОВАННЫЕ отказы. Всё, чего здесь нет, — дефект.
 APPROVED_NAMED_REFUSALS = {
-    # walls.001, домен-склон: полевой профиль владельца
-    # (`artifacts/field_snapshots/walls_001_door_queue_profile.txt`) несёт тот
-    # же исход с тем же max_residual_squared=1.178496e+01.
-    (WALLS_001, 1): "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
-    # building, патч 89: тот же near-planar отказ на обеих вершинах.
-    (BUILDING, 89): "HOST_EXPORT_REJECTED:NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
+    # walls.001, домен-склон. До NEAR_PLANAR V2 полевой профиль владельца
+    # (`artifacts/field_snapshots/walls_001_door_queue_profile.txt`) нёс
+    # `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED` с max_residual_squared=1.178496e+01.
+    # Укладка на треугольники источника отказывает его по ШИРИНЕ: у склона есть
+    # треугольник, перпендикулярный плоскости карты (`min cos²` = 0), и проекция
+    # схлопывает его в отрезок.
+    (WALLS_001, 1): "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",
+    # building, патч 89: до NEAR_PLANAR V2 — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`
+    # (невязка 1.89 см против 1.25 см). Под законом укладки на поверхность
+    # судит ширина: один треугольник из 12 (5.43 м вдоль, перпендикулярен
+    # плоскости карты) даёт `min cos²` = 1.891e-06; вложение проекции тоже
+    # не держится (`NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED`).
+    (BUILDING, 89): "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",
 }
 
 _CACHE: dict[str, dict] = {}
 
 
-def route(snapshot: str) -> dict:
-    """Полный маршрут слепка в отдельном процессе под капом работы."""
+PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
+PIN_FRAME_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_FRAME"
+LEGACY_LIFT = "CERTIFIED_PLANE_V1"
+LEGACY_FRAME = "CANONICAL_ONLY_V1"
 
-    if snapshot in _CACHE:
-        return _CACHE[snapshot]
+
+def route(
+    snapshot: str, pin_lift: str | None = None, pin_frame: str | None = None
+) -> dict:
+    """Полный маршрут слепка в отдельном процессе под капом работы.
+
+    `pin_lift` и `pin_frame` — ИМЕНОВАННЫЕ закрепки закона укладки и политики репера
+    хоста (только для ворот математики фронта, см. `test_walls_012_is_exact` и
+    таблицу якорей): по умолчанию маршрут идёт настоящими законами хоста, закрепка
+    едет в `substitutions` ответа.
+    """
+
+    key = f"{snapshot}|{pin_lift}|{pin_frame}"
+    if key in _CACHE:
+        return _CACHE[key]
     if snapshot == BUILDING:
         alpha, patches = BUILDING_ALPHA, ",".join(
             str(value) for value in BUILDING_PATCHES
@@ -124,6 +147,11 @@ def route(snapshot: str) -> dict:
         patches,
     ]
     cap = WORK_CAP_SECONDS[snapshot]
+    environment = dict(os.environ)
+    if pin_lift is not None:
+        environment[PIN_LIFT_ENV] = pin_lift
+    if pin_frame is not None:
+        environment[PIN_FRAME_ENV] = pin_frame
     try:
         finished = subprocess.run(
             command,
@@ -131,6 +159,7 @@ def route(snapshot: str) -> dict:
             text=True,
             timeout=cap,
             cwd=str(ROOT),
+            env=environment,
         )
     except subprocess.TimeoutExpired:
         pytest.fail(
@@ -145,17 +174,22 @@ def route(snapshot: str) -> dict:
             f"{finished.stderr[-4000:]}"
         )
     result = json.loads(finished.stdout)
-    _CACHE[snapshot] = result
+    _CACHE[key] = result
     return result
 
 
-def domain(snapshot: str, patch_id: int) -> dict:
-    for record in route(snapshot)["domains"]:
+def domain(
+    snapshot: str,
+    patch_id: int,
+    pin_lift: str | None = None,
+    pin_frame: str | None = None,
+) -> dict:
+    for record in route(snapshot, pin_lift, pin_frame)["domains"]:
         if record["patch_id"] == patch_id:
             return record
     raise AssertionError(
         f"DOMAIN_ABSENT: у {snapshot} нет домена патча {patch_id}; "
-        f"есть {[r['patch_id'] for r in route(snapshot)['domains']]}"
+        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame)['domains']]}"
     )
 
 
@@ -289,7 +323,10 @@ def test_walls_012_is_exact():
     (`artifacts/field_gate_freeze/walls_012_break.json`).
     """
 
-    record = domain(WALLS_012, 0)
+    # Закрепка закона укладки: ворота проверяют математику фронта на полевой
+    # геометрии, а настоящий закон хоста отказывает этот домен по ширине
+    # (`test_walls_012_patch_0_refuses_under_the_surface_law`).
+    record = domain(WALLS_012, 0, LEGACY_LIFT)
     assert record["skeleton_outcome"] == "EXACT", (
         f"{RED} / WALLS_012_SKELETON_DID_NOT_CLOSE: "
         f"{record['outcome']} — {record['detail']}\n"
@@ -308,17 +345,20 @@ def test_walls_012_is_exact():
 
 
 @pytest.mark.parametrize(
-    "snapshot,patch_id",
+    "snapshot,patch_id,pin_frame",
     [
-        (WALL_2_001, 0),
-        (WALLS_001, 0),
-        (BUILDING, 17),
-        (BUILDING, 91),
-        (BUILDING, 109),
-        (BUILDING, 121),
+        (WALL_2_001, 0, None),
+        (WALLS_001, 0, None),
+        (BUILDING, 17, None),
+        (BUILDING, 91, None),
+        # Near-planar домены: якоря записаны в канонических координатах карты, а
+        # приведённый базис (NEAR_PLANAR V2, коммит 4) пишет ту же плоскость в других
+        # `(u, v)`. Закрепка репера — именованная и едет в `substitutions` маршрута.
+        (BUILDING, 109, LEGACY_FRAME),
+        (BUILDING, 121, LEGACY_FRAME),
     ],
 )
-def test_anchor_loci_survive_with_their_participants(snapshot, patch_id):
+def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_frame):
     """Каждый якорный локус на месте, и его `participants` не изменились.
 
     Якорный локус — тот, который ОБЕ математики выдают в побитово одинаковых
@@ -327,8 +367,15 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id):
     """
 
     table = anchors(snapshot, patch_id)
+    if pin_frame is not None:
+        # Закрепка не немая: прогон с ней несёт её имя в ответе маршрута.
+        assert (
+            f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pin_frame}"
+            in route(snapshot, None, pin_frame)["substitutions"]
+        )
     present = {
-        locus_key(locus): locus for locus in domain(snapshot, patch_id)["loci"]
+        locus_key(locus): locus
+        for locus in domain(snapshot, patch_id, None, pin_frame)["loci"]
     }
     missing = []
     drifted = []
@@ -361,10 +408,36 @@ def test_walls_012_anchor_loci_survive():
 
     table = anchors(WALLS_012, 0)
     assert table["anchor_loci"] == 2
-    present = {locus_key(locus) for locus in domain(WALLS_012, 0)["loci"]}
+    present = {
+        locus_key(locus)
+        for locus in domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)["loci"]
+    }
     for anchor in table["anchors"]:
         key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)
         assert key in present, f"ANCHOR_LOCUS_DISAPPEARED: {anchor['point']}"
+
+
+def test_walls_012_patch_0_refuses_under_the_surface_law():
+    """Настоящий закон хоста (NEAR_PLANAR V2) называет этот домен отказом по ширине.
+
+    Домен строился: невязка 1.0 см лежала внутри абсолютного бюджета юбки
+    1.25 см. Но патч несёт щель в 1 см глубины, и один его треугольник из 10
+    (8.09 м вдоль, остальные плоские: `cos²` 0.9999998) наклонён на ~26.6° к
+    плоскости карты: `min cos²` = 0.80036 против порога 2500/2601. Так
+    записано, а не замолчано: ворота математики идут с названной закрепкой
+    закона (`test_walls_012_is_exact`), а этот тест держит настоящий ответ.
+    """
+
+    record = domain(WALLS_012, 0)
+    assert record["stage"] == "HOST_EXPORT"
+    assert record["outcome"] == (
+        "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    )
+    assert "min_cos_squared=8.003640990e-01" in record["detail"]
+    assert "threshold=9.611687812e-01" in record["detail"]
+    assert route(WALLS_012, LEGACY_LIFT)["substitutions"] == [
+        f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{LEGACY_LIFT}"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -408,8 +481,10 @@ def test_walls_001_slope_domain_refuses_by_the_field_name():
     assert record["domain_id"].endswith("eb64fc8b4eaaabe6c70159ff")
     assert record["stage"] == "HOST_EXPORT"
     assert record["outcome"] == APPROVED_NAMED_REFUSALS[(WALLS_001, 1)]
-    assert "max_residual_squared=1.178496e+01" in record["detail"]
-    assert "PRODUCT_SKIRT_ABSOLUTE_V1" in record["detail"]
+    # Числа отказа несёт деталь: у склона есть треугольник, перпендикулярный
+    # плоскости карты (проекция схлопывает его в отрезок).
+    assert "min_cos_squared=0.000000000e+00" in record["detail"]
+    assert "INTRINSIC_WIDTH_RELATIVE_V1" in record["detail"]
 
 
 # ---------------------------------------------------------------------------
