@@ -1,0 +1,25 @@
+{
+ "object_name": "2",
+ "alpha": "0.25",
+ "densities": [
+  2,
+  4
+ ],
+ "selected_edges": 133,
+ "patch_count": 32,
+ "request_id": "host-v0:decal-request:6606354caeab8a997580cd47",
+ "domains": {
+  "2": "host-v0:patch-domain:894d1956b4ff872c45927d02",
+  "4": "host-v0:patch-domain:bfc57fe89c9c9c1b9e27802a",
+  "5": "host-v0:patch-domain:0fd1d6c6226e65f6aeb13f0e",
+  "7": "host-v0:patch-domain:33445aed342c234d80668d51",
+  "8": "host-v0:patch-domain:bd5a8d0db297265f0529ef23",
+  "10": "host-v0:patch-domain:96abb9a9a88c30468e325884",
+  "11": "host-v0:patch-domain:67a2d1f6e1e125f662d716d3",
+  "13": "host-v0:patch-domain:985cd187ffbf2ae9018e424c",
+  "14": "host-v0:patch-domain:3c9a9988f50175eff7f35310",
+  "16": "host-v0:patch-domain:7486e3ed2c12f73996371808",
+  "17": "host-v0:patch-domain:1eebd6e5a169820a35f6c288",
+  "19": "host-v0:patch-domain:40c2965cf3d1a3d55f0ed7de"
+ }
+}
