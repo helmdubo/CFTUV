@@ -102,7 +102,7 @@ from .wavefront.faces import (
     fan_edge_key,
 )
 from .wavefront.skeleton import SkeletonNodeV1
-from .wavefront.sqrt_sum import SqrtSumV1
+from .wavefront.sqrt_sum import SqrtSumV1, require_canonical
 
 
 #: Префикс адреса ячейки планарной карты. Он же — обещание, что за адресом НЕ
@@ -133,16 +133,27 @@ def to_algebraic_sum(value: SqrtSumV1) -> ExactAlgebraicSumV1:
 
 
 def from_algebraic_sum(record: ExactAlgebraicSumV1) -> SqrtSumV1:
-    """Обратный перевод. Биекция: канонический набор единствен у обоих."""
+    """Обратный перевод. Биекция: канонический набор единствен у обоих.
 
-    return SqrtSumV1(
-        tuple(
-            (
-                term.radicand,
-                Fraction(term.coefficient.numerator, term.coefficient.denominator),
+    Запись контракта держит порядок радикандов и ненулевые коэффициенты, но не
+    бесквадратность, поэтому на входе в ядро каноника проверяется заново: это
+    единственный путь, которым неканоническая сумма могла бы войти мимо
+    арифметики (`from_algebraic_time` строит `EventTimeV1` без `canonical()`).
+    """
+
+    return require_canonical(
+        SqrtSumV1(
+            tuple(
+                (
+                    term.radicand,
+                    Fraction(
+                        term.coefficient.numerator, term.coefficient.denominator
+                    ),
+                )
+                for term in record.terms
             )
-            for term in record.terms
-        )
+        ),
+        "from_algebraic_sum",
     )
 
 
