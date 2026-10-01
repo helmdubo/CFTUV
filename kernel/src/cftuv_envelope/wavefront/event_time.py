@@ -59,7 +59,9 @@ from ..exact_sqrt_sum import (
     _filtered_sign,
     _named,
     _scaled_difference_items,
+    canonical_audit_enabled,
     radical_sum,
+    require_canonical,
 )
 from .sqrt_sum import SqrtSumV1
 
@@ -213,6 +215,11 @@ class EventTimeV1:
     dividend: Fraction
     divisor: SqrtSumV1
 
+    def __post_init__(self) -> None:
+        # Здесь величина ВХОДИТ в машину времён, и `times_are_equal` читает
+        # равенство из пустоты разности только на канонической форме.
+        require_canonical(self.divisor, "EventTimeV1.divisor")
+
     @staticmethod
     def normalized(
         dividend: Fraction | int,
@@ -292,8 +299,17 @@ def compare_times(
 
 
 def times_are_equal(left: EventTimeV1, right: EventTimeV1) -> bool:
-    """Точная одновременность — чисто рациональная проверка."""
+    """Точная одновременность — чисто рациональная проверка.
 
+    Эквивалентна `compare_times(...) == 0` ТОЛЬКО на канонических суммах: на
+    `sqrt(8)` против `2*sqrt(2)` знак скажет «равны», а пустота разности — нет.
+    Каноника исполняется конструктором `EventTimeV1`; здесь, под аудитом, она
+    проверяется ещё раз на тех, кто конструктор обошёл (`object.__new__`).
+    """
+
+    if canonical_audit_enabled():
+        require_canonical(left.divisor, "times_are_equal.left")
+        require_canonical(right.divisor, "times_are_equal.right")
     return not _scaled_difference_items(
         right.divisor, left.dividend, left.divisor, right.dividend
     )

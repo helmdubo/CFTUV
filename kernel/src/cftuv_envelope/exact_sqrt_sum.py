@@ -1449,6 +1449,121 @@ class SqrtSumV1:
         return _exact_sign(self.as_map(), filter_bits, budget)
 
 
+# --------------------------------------------------------------------------
+# Исполняемая каноника
+#
+# Равенство времён и величин читается из ПУСТОТЫ набора коэффициентов разности
+# (`times_are_equal`, `difference_is_zero`), и это верно только на канонической
+# форме: `sqrt(8)` против `2*sqrt(2)` — равные величины с непустой разностью, а
+# знак (`compare_times == 0`) назвал бы их равными. Каноника держалась
+# дисциплиной конструкторов; здесь она исполняется на входе в машину времён
+# (`EventTimeV1`, `from_algebraic_sum`), а не лежит слухом.
+#
+# Два слоя, граница между ними названа. ВСЕГДА ВКЛЮЧЁН дешёвый слой, O(члены):
+# радиканды — целые, строго возрастают от единицы; коэффициенты — ненулевые
+# рациональные; радиканд не делится на 4, 9, 25, 49 и не полный квадрат.
+# Он ловит неотсортированное, повторённое, нулевое и частые неканонические
+# радиканды, но НЕ полноту бесквадратности. Полноту даёт аудит
+# (`set_canonical_audit`): каждый радиканд раскладывается независимо от памяти
+# канонизации. Набор тестов ядра включает аудит (`kernel/tests/conftest.py`);
+# в продукте он выключен — разложение на горячем пути и есть цена, которой
+# каноника нас избавляет.
+# --------------------------------------------------------------------------
+
+
+class NonCanonicalSqrtSumError(ValueError):
+    """Сумма корней вне канонической формы. Именованный отказ, не фолбэк."""
+
+    def __init__(self, where: str, reason: str) -> None:
+        self.where = where
+        self.reason = reason
+        super().__init__(f"NON_CANONICAL_SQRT_SUM:{where}: {reason}")
+
+
+_CANONICAL_AUDIT = False
+_AUDITED_SQUAREFREE: set[int] = set()
+
+
+def set_canonical_audit(enabled: bool) -> bool:
+    """Включить полную проверку бесквадратности; вернуть прежнее состояние."""
+
+    global _CANONICAL_AUDIT
+    previous = _CANONICAL_AUDIT
+    _CANONICAL_AUDIT = bool(enabled)
+    return previous
+
+
+def canonical_audit_enabled() -> bool:
+    return _CANONICAL_AUDIT
+
+
+def _audit_squarefree(radicand: int) -> bool:
+    """Бесквадратность целого без записи в память канонизации и без бюджета.
+
+    Простые из реестра снимаются делением (только чтение), остаток раскладывается
+    `_rho_factors` на одноразовом бюджете: ни память разложений, ни телеметрия
+    неоплаченной работы, ни статьи чужого бюджета не двигаются, поэтому аудит
+    не меняет цену и счётчики тестов, у которых они закреплены.
+    """
+
+    if radicand in _AUDITED_SQUAREFREE:
+        return True
+    factors, remainder = _strip_known_primes(radicand)
+    if any(power > 1 for power in factors.values()):
+        return False
+    if remainder > 1:
+        scratch = unlimited_reference_budget(stage="CANONICAL_AUDIT")
+        if any(
+            power > 1 for power in _rho_factors(remainder, scratch).values()
+        ):
+            return False
+    _AUDITED_SQUAREFREE.add(radicand)
+    return True
+
+
+def require_canonical(value: SqrtSumV1, where: str) -> SqrtSumV1:
+    """Величина — в канонической форме, иначе `NonCanonicalSqrtSumError`.
+
+    Вызывается там, где величина ВХОДИТ в машину времён, а не в арифметике:
+    арифметика замкнута по канонике (произведение бесквадратных по теореме, а
+    `radical` идёт через `squarefree_split`), поэтому проверять каждый
+    промежуточный результат — платить за то, что уже доказано.
+    """
+
+    previous = 0
+    for radicand, coefficient in value.terms:
+        if type(radicand) is not int or radicand <= previous:
+            raise NonCanonicalSqrtSumError(
+                where,
+                f"радиканд {radicand!r} после {previous}: нужны целые, строго "
+                "возрастающие от единицы",
+            )
+        if not coefficient or (
+            type(coefficient) is not Fraction and type(coefficient) is not int
+        ):
+            raise NonCanonicalSqrtSumError(
+                where,
+                f"коэффициент {coefficient!r} при радиканде {radicand}: нужно "
+                "ненулевое рациональное",
+            )
+        if not (radicand & 3 and radicand % 9 and radicand % 25 and radicand % 49):
+            raise NonCanonicalSqrtSumError(
+                where, f"радиканд {radicand} делится на квадрат малого простого"
+            )
+        if radicand > 1:
+            root = isqrt(radicand)
+            if root * root == radicand:
+                raise NonCanonicalSqrtSumError(
+                    where, f"радиканд {radicand} — полный квадрат"
+                )
+        if _CANONICAL_AUDIT and not _audit_squarefree(radicand):
+            raise NonCanonicalSqrtSumError(
+                where, f"радиканд {radicand} не бесквадратный"
+            )
+        previous = radicand
+    return value
+
+
 def _divide_with_prime_universe(
     numerator: SqrtSumV1,
     denominator: SqrtSumV1,
