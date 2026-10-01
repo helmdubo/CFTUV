@@ -103,6 +103,12 @@ class ReferenceOutcome(str, Enum):
     REFERENCE_CANONICAL_SUBTURN_FAN_INVALID = (
         "REFERENCE_CANONICAL_SUBTURN_FAN_INVALID"
     )
+    # Диагностика, не отказ: закон шума привязки на каноническом угле НЕ применён
+    # (причина названа `EvaluationBindingNoiseRefusalV1`), и счёт на тугом
+    # пороге решил прежний закон на вычислительной геометрии — то есть знак шума.
+    EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED = (
+        "EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED"
+    )
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"
@@ -235,6 +241,29 @@ class EvaluationBindingNoiseLawV1(str, Enum):
     )
 
 
+class EvaluationBindingNoiseRefusalV1(str, Enum):
+    """Почему закон шума привязки не применён к каноническому углу.
+
+    Закон молчит ровно по одной из этих причин, и молчит ИМЕНОВАННО: счёт при
+    этом решает знак шума (прежний закон), а не канон, и это обязано быть
+    видно в диагностике и в счётчике, а не растворяться в «закона нет».
+    """
+
+    SOURCE_COORDINATES_UNAVAILABLE = "SOURCE_COORDINATES_UNAVAILABLE"
+    CORNER_VERTICES_UNAVAILABLE = "CORNER_VERTICES_UNAVAILABLE"
+    DEGENERATE_CORNER_EDGE = "DEGENERATE_CORNER_EDGE"
+    LATERAL_SHIFT_EXCEEDS_ONE_LATTICE_CELL = (
+        "LATERAL_SHIFT_EXCEEDS_ONE_LATTICE_CELL"
+    )
+    EDGE_DIRECTION_NOISE_EXCEEDS_DECLARED_BOUND = (
+        "EDGE_DIRECTION_NOISE_EXCEEDS_DECLARED_BOUND"
+    )
+    TURN_NOISE_EXCEEDS_DECLARED_BOUND = "TURN_NOISE_EXCEEDS_DECLARED_BOUND"
+    CANONICAL_RELATION_HAS_NO_ANGULAR_BOUND = (
+        "CANONICAL_RELATION_HAS_NO_ANGULAR_BOUND"
+    )
+
+
 class EvaluationBindingNoiseEffectV1(str, Enum):
     """Что именно закон сделал с ответом."""
 
@@ -257,7 +286,14 @@ class EvaluationBindingNoiseOnCanonicalAngleV1:
     `binding_lateral_offset_gram_squared_bound` — точный максимум квадрата
     БОКОВОЙ Грам-нормы смещения привязки (`evaluation - source`) по двум рёбрам
     угла: боковой, потому что продольный сдвиг вершины вдоль цепи угла не
-    меняет.
+    меняет. Боковой сдвиг в одну ячейку сам по себе УГОЛ не ограничивает —
+    короткое ребро даёт большой угол при малом сдвиге, — поэтому закон держит и
+    угловое условие: `edge_direction_sine_squared_bound` — точный максимум
+    sin^2 поворота направления каждого из двух рёбер при привязке, а
+    `direction_sine_bound` — объявленная граница (она же в реестре допусков),
+    под которой запись принята. Тот же предел держит поворот между опорами:
+    `evaluation_turn_cosine_squared` (для прямого угла это sin^2 отклонения от
+    90 градусов, а отклонение и есть превышение последнего сектора над `pi/q`).
 
     Запись НЕ доверяется: проверяющий пересчитывает канонический факт, знак и
     `cos^2`, границу смещений и условия применимости по сырой геометрии.
@@ -275,6 +311,8 @@ class EvaluationBindingNoiseOnCanonicalAngleV1:
     evaluation_turn_sign: ExactTurnSignV1
     evaluation_turn_cosine_squared: ExactRatioV1
     binding_lateral_offset_gram_squared_bound: ExactRationalV1
+    edge_direction_sine_squared_bound: ExactRationalV1
+    direction_sine_bound: ExactRationalV1
     proven_predicates: frozenset[str]
 
 

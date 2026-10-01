@@ -87,6 +87,7 @@ from .._canonical_angle import (
 from .._density_policy import huber_density_value_contract
 from .evaluation_binding_noise import (
     canonical_predecessor_ideal,
+    evaluation_binding_noise_diagnostics,
     evaluation_binding_noise_records,
     evaluation_count_is_feasible,
 )
@@ -1008,6 +1009,14 @@ def _attach_direction_bindings(
             compilation,
             context,
             changed_specs,
+        ),
+        diagnostics=(
+            *compilation.diagnostics,
+            *evaluation_binding_noise_diagnostics(
+                compilation,
+                context,
+                changed_specs,
+            ),
         ),
     )
     updated = _synchronize_effective_hidden_support_records(

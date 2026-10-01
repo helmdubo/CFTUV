@@ -656,6 +656,10 @@ class _ArrivalLawsV1:
     #: скрытый луч при подшаге ровно `pi/q`). Счётчик выходит только когда он
     #: ненулевой: ворота равенства ответа заморозили структурные счётчики.
     exact_limit_lifted_count: int = 0
+    #: Канонические углы на тугом пороге, где закон шума привязки НЕ применён
+    #: (причина названа в диагностике ядра) и счёт решил знак шума. Счётчик
+    #: выходит только когда он ненулевой.
+    noise_law_refused_count: int = 0
 
 
 _EXACT_LIMIT_LIFT_LAWS = frozenset(
@@ -731,6 +735,11 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         fans.mitered_corner_count,
         fans.bound_direction_count,
         fans.exact_limit_lifted_count,
+        sum(
+            item.outcome
+            is ReferenceOutcome.EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED
+            for item in context.compilation.diagnostics
+        ),
     )
 
 
@@ -1131,6 +1140,10 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
     ) + (
         (("CONVEYOR_EXACT_LIMIT_LIFTED_FANS", reading.exact_limit_lifted_count),)
         if reading.exact_limit_lifted_count
+        else ()
+    ) + (
+        (("CONVEYOR_BINDING_NOISE_LAW_REFUSED", reading.noise_law_refused_count),)
+        if reading.noise_law_refused_count
         else ()
     )
 

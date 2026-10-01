@@ -1069,20 +1069,24 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1,
         category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
-        value=None,
-        bound_law="EXACT_LATERAL_BINDING_OFFSET_WITHIN_ONE_LATTICE_CELL_V1",
-        units=TolerancePolicyUnitsV1.NONE,
-        coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+        value=_rational(Fraction(1, 1000)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
         scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
         scope=(
             "Шум привязки вершин к решётке на КАНОНИЧЕСКОМ угле. На тугом "
             "пороге (`u*q == H+1`, d2 и d4) знак этого шума решал счёт "
             "точного прямого угла; закон решает канон: счёт идёт по "
-            "каноническому вееру, лучи — точные повороты. Числа у политики "
-            "нет: граница смещений привязки ВЫЧИСЛЯЕТСЯ по геометрии (боковой "
-            "сдвиг каждого из двух рёбер угла не больше одной ячейки решётки) "
-            "и пишется в запись вместе с точными знаком и cos^2 шума; шум вне "
-            "границы закону не принадлежит, и ответ решает прежний закон."
+            "каноническому вееру, лучи — точные повороты. Число — ОБЪЯВЛЕННЫЙ "
+            "синус углового шума: sin поворота направления каждого из двух "
+            "рёбер при привязке и отклонение поворота между опорами от "
+            "канонического угла не больше 1/1000 (проверяется точно, в "
+            "квадратах, без корней). Рядом структурное условие: боковой сдвиг "
+            "каждого ребра не больше одной ячейки решётки — сам по себе он "
+            "угол не ограничивает, поэтому угловое условие отдельное. Шум вне "
+            "границ закону не принадлежит: ответ решает прежний закон, а "
+            "отказ называется в диагностике и в счётчике."
         ),
         authority=(
             "EvaluationBindingNoiseLawV1.EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1; "
@@ -1098,15 +1102,21 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
         changes_topology=True,
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
-        telemetry_counters=("CONVEYOR_EXACT_LIMIT_LIFTED_FANS",),
-        declaration_sites=(),
+        telemetry_counters=(
+            "CONVEYOR_EXACT_LIMIT_LIFTED_FANS",
+            "CONVEYOR_BINDING_NOISE_LAW_REFUSED",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.reference.evaluation_binding_noise."
+            "NOISE_DIRECTION_SINE_BOUND",
+        ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_evaluation_binding_noise.py"
             "::test_a_right_angle_gets_one_count_whatever_the_sign_of_the_binding_noise"
         ),
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_evaluation_binding_noise.py"
-            "::test_an_honest_near_right_angle_is_untouched"
+            "::test_a_short_edge_passes_the_cell_gate_and_is_refused_by_the_angle"
         ),
     ),
 )
