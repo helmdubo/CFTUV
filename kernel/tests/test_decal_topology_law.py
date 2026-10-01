@@ -375,12 +375,13 @@ def test_a_reflex_four_point_strip_stays_triangles_and_is_named():
     frame, cycle = _frame(points)
     result = tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
     assert [len(item) for item in result[0]] == [3, 3]
-    names = {key: None for key, _point in cycle}
-    settled, numbers = settle_topology([frame], [cycle], result, names, QUADS)
+    sources = {key: (None, None) for key, _point in cycle}
+    settled, numbers = settle_topology([frame], [cycle], result, sources, QUADS)
     assert settled == result
     assert dict(numbers) == {
         "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX": 1,
         "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES": 0,
+        "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER": 0,
         "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED": 0,
     }
 
@@ -391,8 +392,8 @@ def test_a_merged_run_is_triangulated_and_counted_under_the_quad_law_only():
     for law, expected in ((QUADS, 1), (TRIANGLES, 0)):
         result = tessellate_faces([frame], [cycle], factories.budget(), False, law)
         assert [len(item) for item in result[0]] == [3, 3, 3]
-        names = {key: None for key, _point in cycle}
-        numbers = dict(settle_topology([frame], [cycle], result, names, law)[1])
+        sources = {key: (None, None) for key, _point in cycle}
+        numbers = dict(settle_topology([frame], [cycle], result, sources, law)[1])
         assert numbers["MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED"] == expected
 
 
@@ -411,33 +412,70 @@ def test_an_area_that_does_not_close_is_a_named_refusal_for_a_quad_too():
 # --------------------------------------------------------------------------
 
 
-def _one_quad(names):
+def _one_quad(tags):
+    """Четырёхгранье и записи подъёма по его вершинам: `tags` — `(треугольник, нормаль)` на вершину."""
+
     points = _points(((0, 0), (4, 0), (5, 3), (-1, 2)))
     frame, cycle = _frame(points)
     polygons = tessellate_faces([frame], [cycle], factories.budget(), False, QUADS)
-    return frame, cycle, polygons, {key: names[index] for index, (key, _p) in enumerate(cycle)}
+    return frame, cycle, polygons, {key: tags[index] for index, (key, _p) in enumerate(cycle)}
+
+
+UP = (0.0, 0.0, 1.0)
+TILTED = (0.0, 0.6, 0.8)
 
 
 def test_a_quad_with_all_four_vertices_in_one_source_triangle_is_kept():
-    frame, cycle, polygons, names = _one_quad(("t7", "t7", "t7", "t7"))
-    settled, numbers = settle_topology([frame], [cycle], polygons, names, QUADS)
+    frame, cycle, polygons, sources = _one_quad([("t7", None)] * 4)
+    settled, numbers = settle_topology([frame], [cycle], polygons, sources, QUADS)
     assert settled == polygons
     assert dict(numbers)["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
 
 
 @pytest.mark.parametrize("odd", (0, 1, 2, 3))
 def test_a_quad_with_one_vertex_in_another_source_triangle_is_split_canonically(odd):
-    labels = ["t7"] * 4
-    labels[odd] = "t8"
-    frame, cycle, polygons, names = _one_quad(labels)
-    settled, numbers = settle_topology([frame], [cycle], polygons, names, QUADS)
+    tags = [("t7", None)] * 4
+    tags[odd] = ("t8", None)
+    frame, cycle, polygons, sources = _one_quad(tags)
+    settled, numbers = settle_topology([frame], [cycle], polygons, sources, QUADS)
     assert settled == [fan_out(polygons[0][0])]
-    assert dict(numbers)["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 1
+    found = dict(numbers)
+    assert found["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 1
+    assert found["MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"] == 0
 
 
 def test_a_plane_names_no_triangles_and_every_quad_stays():
-    frame, cycle, polygons, names = _one_quad((None, None, None, None))
-    assert settle_topology([frame], [cycle], polygons, names, QUADS)[0] == polygons
+    frame, cycle, polygons, sources = _one_quad([(None, None)] * 4)
+    assert settle_topology([frame], [cycle], polygons, sources, QUADS)[0] == polygons
+
+
+def test_a_quad_in_one_triangle_with_equal_offset_normals_stays_planar_and_is_kept():
+    frame, cycle, polygons, sources = _one_quad([("t7", UP)] * 4)
+    settled, numbers = settle_topology([frame], [cycle], polygons, sources, QUADS)
+    assert settled == polygons
+    assert dict(numbers)["MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"] == 0
+
+
+@pytest.mark.parametrize("odd", (0, 1, 2, 3))
+def test_a_quad_whose_offset_normals_differ_is_split_and_named_apart(odd):
+    """Смещённая по разным нормалям грань не плоская, даже если вершины лежат в одном треугольнике."""
+
+    tags = [("t7", UP)] * 4
+    tags[odd] = ("t7", TILTED)
+    frame, cycle, polygons, sources = _one_quad(tags)
+    settled, numbers = settle_topology([frame], [cycle], polygons, sources, QUADS)
+    assert settled == [fan_out(polygons[0][0])]
+    found = dict(numbers)
+    assert found["MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"] == 1
+    assert found["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
+
+
+def test_another_triangle_and_other_normals_are_counted_as_the_triangle_split_only():
+    tags = [("t7", UP), ("t8", TILTED), ("t7", UP), ("t7", UP)]
+    frame, cycle, polygons, sources = _one_quad(tags)
+    found = dict(settle_topology([frame], [cycle], polygons, sources, QUADS)[1])
+    assert found["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 1
+    assert found["MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"] == 0
 
 
 # --------------------------------------------------------------------------
@@ -548,6 +586,7 @@ LAW_COUNTERS = frozenset(
         "MATERIALIZE_QUADS",
         "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX",
         "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
+        "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER",
         "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED",
         "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
         "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
@@ -676,7 +715,7 @@ def test_without_the_law_the_split_quad_would_be_non_planar(monkeypatch):
     """Отрицательный контроль: проверка плоскостности видит то, от чего закон бережёт."""
 
     monkeypatch.setattr(
-        domain, "settle_topology", lambda ff, cy, polygons, names, law: (polygons, ())
+        domain, "settle_topology", lambda ff, cy, polygons, sources, law: (polygons, ())
     )
     prepared, coverage, request = _near_planar_on_surface("1")
     quads = materialize_domain(

@@ -71,9 +71,9 @@ class PlaneLiftV1:
         )
 
     def lift_named(self, point):
-        """`(позиция, None)`: плоскость одна на домен, треугольника источника у точки нет."""
+        """`(позиция, (None, None))`: плоскость одна на домен, у точки нет ни треугольника, ни нормали."""
 
-        return self.lift(point), None
+        return self.lift(point), (None, None)
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         """Подъём на плоскость точки не ищет и бюджета не тратит: счётчиков нет."""

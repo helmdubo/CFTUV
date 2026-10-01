@@ -326,28 +326,44 @@ def tessellate_faces(
 #: Имена чисел закона топологии (они же ключи счётчиков материализатора).
 QUADS_REFUSED_NOT_CONVEX = "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX"
 QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES = "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"
+QUADS_SPLIT_OFFSET_NORMALS_DIFFER = "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"
 MERGED_RUN_FACES_TRIANGULATED = "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED"
 
 
-def settle_topology(frame_faces, cycles, polygons, names, law: DecalTopologyLawV1):
+def _split_reason(polygon, sources):
+    """Почему четырёхгранье не плоское в 3D: `"triangles"`, `"normals"` либо `None` (годится)."""
+
+    tags = [sources[key] for key in polygon]
+    if len({triangle for triangle, _normal in tags}) != 1:
+        return "triangles"
+    if len({normal for _triangle, normal in tags}) != 1:
+        return "normals"
+    return None
+
+
+def settle_topology(frame_faces, cycles, polygons, sources, law: DecalTopologyLawV1):
     """`(грани, числа закона)`: закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1` и счёт того, что закон не взял.
 
-    `names` — `{ключ: имя исходного треугольника, в котором вершина найдена}`
-    (`lift_vertices`; у плоской укладки везде `None`). Подъём барицентрический
-    В НАЙДЕННОМ треугольнике, поэтому четырёхгранья, все четыре вершины которого
-    лежат в ОДНОМ треугольнике источника, — плоское в 3D; иначе оно могло бы
-    изломаться по складке, а Blender разрезал бы его сам, по float, и это было
-    бы безымянное разбиение. Такое четырёхгранье режется каноническим
-    `fan_out` (ровно прежняя тесселяция) и называется счётчиком. Точка на ребре
-    источника получает канонический (первый по имени) треугольник — разрез
-    консервативен, ошибкой он не бывает.
+    `sources` — `{ключ: (имя исходного треугольника, нормаль смещения)}`, как их
+    записал подъём (`lift_vertices`; у плоской укладки везде `(None, None)`).
+    Подъём барицентрический В НАЙДЕННОМ треугольнике, поэтому четырёхгранье, все
+    четыре вершины которого лежат в ОДНОМ треугольнике источника, плоское в 3D;
+    иначе оно могло бы изломаться по складке, а Blender разрезал бы его сам, по
+    float, и это было бы безымянное разбиение. Грань развёртки хост смещает вдоль
+    нормали КАЖДОЙ вершины (закон ядра), и смещённая по разным нормалям грань
+    уже не плоская: четырёхгранье требует ещё и ПОБИТОВО равных нормалей смещения.
+    Не выполнено любое из двух — грань режется каноническим `fan_out` (ровно
+    прежняя тесселяция) и называется своим счётчиком. Точка на ребре источника
+    получает канонический (первый по имени) треугольник — разрез консервативен,
+    ошибкой он не бывает.
 
     Остальное, что закон `QUAD_STRIPS_V1` оставил треугольниками, тоже названо:
     строго невыпуклые (и с плоским углом) четырёхугольники ленты и слитые
     пробеги — контуры больше четырёх вершин (их разбиение — отдельный срез).
     """
 
-    refused = merged = split = 0
+    refused = merged = 0
+    split = {"triangles": 0, "normals": 0}
     settled = []
     for frame_face, cycle, face_polygons in zip(frame_faces, cycles, polygons):
         if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and not frame_face.is_fan:
@@ -355,33 +371,36 @@ def settle_topology(frame_faces, cycles, polygons, names, law: DecalTopologyLawV
             merged += int(len(cycle) > 4)
         kept = []
         for polygon in face_polygons:
-            if len(polygon) == 4 and len({names[key] for key in polygon}) != 1:
-                kept.extend(fan_out(polygon))
-                split += 1
-            else:
+            reason = _split_reason(polygon, sources) if len(polygon) == 4 else None
+            if reason is None:
                 kept.append(polygon)
+            else:
+                kept.extend(fan_out(polygon))
+                split[reason] += 1
         settled.append(tuple(kept))
     return settled, (
         (QUADS_REFUSED_NOT_CONVEX, refused),
-        (QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES, split),
+        (QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES, split["triangles"]),
+        (QUADS_SPLIT_OFFSET_NORMALS_DIFFER, split["normals"]),
         (MERGED_RUN_FACES_TRIANGULATED, merged),
     )
 
 
 def lift_vertices(points, plane):
-    """`({ключ: позиция}, {ключ: имя исходного треугольника})`: подъём ровно ОДИН на вершину.
+    """`({ключ: позиция}, {ключ: (треугольник, нормаль смещения)})`: подъём ровно ОДИН на вершину.
 
     Счётчики подъёма (`LOCATIONS`, `PREDICATES`) считают точки, а не обращения:
-    нахождение (`locate`) делается один раз на вершину и отдаёт и позицию, и имя
-    найденного треугольника, поэтому закон топологии не прибавляет к ним ничего
-    (имена нужны только `settle_topology`). Запись диагностик берётся ПОСЛЕ
-    этого вызова. У плоской укладки треугольников источника нет, имя — `None`.
+    нахождение (`locate`) делается один раз на вершину и отдаёт и позицию, и
+    запись об источнике (имя найденного треугольника, нормаль смещения), поэтому
+    закон топологии не прибавляет к ним ничего (записи нужны только
+    `settle_topology`). Запись диагностик берётся ПОСЛЕ этого вызова. У плоской
+    укладки треугольников источника и нормалей вершин нет: `(None, None)`.
     """
 
     lifted = {key: plane.lift_named(point) for key, point in points.items()}
     return (
-        {key: position for key, (position, _name) in lifted.items()},
-        {key: name for key, (_position, name) in lifted.items()},
+        {key: position for key, (position, _source) in lifted.items()},
+        {key: source for key, (_position, source) in lifted.items()},
     )
 
 
