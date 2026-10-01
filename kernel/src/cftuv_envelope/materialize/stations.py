@@ -1,0 +1,564 @@
+"""Таблица станций: `(s, r)` каждой точки покрытия, ТОЧНО и без sympy.
+
+Что такое станция. Закон полосы `PLANAR_LINEAR_NORMAL_OFFSET_V1` называет две
+координаты: продольную `s` — вдоль `ChainUse` источника, в его ориентации, и
+поперечную `r` — знаковое расстояние до несущей прямой источника внутрь
+владельца. Всё остальное (UV, провенанс, шов) выводится из этих двух чисел и
+ничего больше не спрашивает у геометрии.
+
+Что здесь есть.
+
+1. `source_chain_by_span` — переехало из хоста (отладка и продукт читают один
+   код): какая `PhysicalChain` стоит под решёточным отрезком региона.
+2. `chain_station_table` — по каждому `ChainUse` домена копится ДЛИНА в метрике
+   Грама: `s0` — длина всех рёбер ДО данного. Рёбра собираются в ПРОБЕГИ —
+   подряд идущие коллинеарные рёбра одного направления, — потому что внутри
+   пробега `s` и `r` одна формула, а на изломе цепи у соседних рёбер разные
+   системы координат, и вершина на их общей биссектрисе законно имеет два
+   набора `(s, r)`.
+3. `station_of` / `transverse_of` — сами числа: `s` точки относительно пробега
+   и `r` относительно несущей прямой грани.
+
+ЕДИНИЦЫ. Всё считается в единицах РЕШЁТКИ (`GridSpecV1.scale` целых узлов на
+единицу карты); метры источника получаются делением на `scale` ОДИН раз, на
+выходе (`uv_law`, `domain`). Метрика — Грам `G` аффинной карты домена
+(`exact_gram_matrix`, дроби); карта НЕ ортонормальна, поэтому длина решёточного
+вектора `d` — это `sqrt(d^T G d)`, а не евклидова.
+
+ЧТО НЕ ДЕЛАЕТСЯ. Ни `sympy`, ни float: радикалы — `SqrtSumV1.radical`, и каждый
+из них идёт под бюджетом (новый радиканд — это факторизация). `r` — это время
+прихода `(a x + b y - c) / sqrt(q)` несущей прямой `FaceV1.line`: при единичной
+нормальной скорости оно равно расстоянию, а на фронте равно `alpha` ТОЧНО.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from fractions import Fraction
+
+from ..exact_sqrt_sum import SqrtSumV1
+from ..planar_metric import fraction_from_exact
+from ..reference.planar_types import ConstructionKind
+from ..wavefront.bridge import _lattice_image
+from ..wavefront.conveyor import _region_loops
+from .coalesce import integer_line_class, undirected_span
+
+
+def region_lattice_loops(prepared):
+    """Регионы домена с их решёточными петлями: `(регион, источники, узлы)`.
+
+    Решёточный образ берётся ТЕМИ ЖЕ функциями ядра (`_region_loops` и
+    `_lattice_image`), которыми мост строил полигон. Второй способ его
+    посчитать разошёлся бы с первым молча — а разойтись ему есть на чём:
+    привязка к решётке двигает вершины, и повторять её округление на глаз
+    означало бы получать другой ответ на другом масштабе.
+
+    Регион, у которого петли не читаются либо число узлов не совпало с числом
+    источников, пропускается: отсутствие записи — тоже ответ потребителя.
+    """
+
+    domain = getattr(prepared, "domain", None)
+    if domain is None:
+        return
+    lattice = getattr(prepared, "lattice", None)
+    for region in domain.domain_regions:
+        loops, _issue = _region_loops(region)
+        if loops is None:
+            continue
+        lattice_loops, _off_lattice, _residual = _lattice_image(loops, lattice)
+        sources = (region.outer, *region.holes)
+        if lattice_loops is None or len(lattice_loops) != len(sources):
+            continue
+        yield region, sources, lattice_loops
+
+
+def source_chain_by_span(prepared) -> dict:
+    """`region_id -> (ненаправленный решёточный отрезок -> PhysicalChain)`.
+
+    АДДИТИВНАЯ выгрузка поверх готовой подготовки ядра: ни одного байта ядра
+    она не двигает и ни одного его числа не пересчитывает. Ядру цепь не нужна —
+    владельцем грани у него служит вхождение отрезка (`EdgeKey`), — а домену
+    она известна: `_loop_segment` кладёт `physical_chain_ids` в провенанс
+    КАЖДОГО сегмента граничной петли.
+
+    Сегмент, у которого цепь названа не единственным именем, и отрезок, на
+    который два сегмента ответили по-разному, остаются БЕЗ цепи: два разных
+    ответа — не ответ, и выбирать между ними здесь нечем.
+    """
+
+    result: dict[str, dict] = {}
+    for region, sources, lattice_loops in region_lattice_loops(prepared):
+        by_span: dict[tuple, str | None] = {}
+        for loop_index, source in enumerate(sources):
+            nodes = lattice_loops[loop_index]
+            segments = source.segments
+            if len(segments) != len(nodes):
+                continue
+            for index, segment in enumerate(segments):
+                names = tuple(
+                    sorted(segment.provenance.physical_chain_ids)
+                )
+                if len(names) != 1:
+                    continue
+                start = nodes[index]
+                end = nodes[(index + 1) % len(nodes)]
+                span = undirected_span(
+                    (start[0], start[1], end[0], end[1])
+                )
+                if span is None:
+                    continue
+                if span in by_span and by_span[span] != names[0]:
+                    by_span[span] = None
+                    continue
+                by_span[span] = names[0]
+        result[region.region_id] = {
+            span: name for span, name in by_span.items() if name is not None
+        }
+    return result
+
+
+# --------------------------------------------------------------------------
+# Таблица станций
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class StationRunV1:
+    """Пробег цепи: подряд идущие коллинеарные рёбра ОДНОГО направления.
+
+    Внутри пробега станция точки — одна формула
+    `s = s_origin + <p - origin, direction>_G / |direction|_G`, а `r` — до
+    прямой пробега. `direction` — целый вектор первого ребра В НАПРАВЛЕНИИ
+    `ChainUse`; `covector = G * direction` лежит готовым, потому что считать его
+    на каждой точке значило бы переумножать одни и те же дроби.
+    """
+
+    run_id: str
+    chain_id: str
+    chain_use_id: str
+    run_index: int
+    origin: tuple[int, int]
+    direction: tuple[int, int]
+    #: Длина (в единицах решётки) всех рёбер цепи ДО начала пробега.
+    s_origin: SqrtSumV1
+    #: `1 / |direction|_G`. Радикал, поэтому живёт `SqrtSumV1`, а не дробью.
+    inverse_length: SqrtSumV1
+    covector: tuple[Fraction, Fraction]
+    physical_edge_ids: tuple[str, ...]
+    lineage_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StationEdgeV1:
+    """Одно ребро петли домена: к какому пробегу оно относится и чьё оно."""
+
+    run_id: str
+    chain_id: str
+    chain_use_id: str
+    physical_edge_id: str
+    #: Концы в направлении ПЕТЛИ домена (так же, как ключ владельца у ядра).
+    start: tuple[int, int]
+    end: tuple[int, int]
+    start_vertex_id: str | None
+    end_vertex_id: str | None
+    #: `True`, если направление петли совпадает с направлением `ChainUse`.
+    along_chain_use: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StationCornerV1:
+    """Вершина петли: ребро, входящее в неё, и ребро, выходящее из неё."""
+
+    region_id: str
+    node: tuple[int, int]
+    vertex_id: str | None
+    incoming: tuple[int, int, int, int]
+    outgoing: tuple[int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStationTableV1:
+    """Станции всех цепей домена и всё, что нужно, чтобы по узлу найти цепь.
+
+    `unnamed_chain_ids` — цепи, у которых станцию вывести НЕ из чего (ребро
+    цепи вне петли, неоднозначная пара вершин): грани на них материализатор
+    отдаёт именованным отказом, а не придуманным `s`.
+    """
+
+    scale: int
+    gram: tuple[Fraction, Fraction, Fraction]
+    runs: dict
+    edges: dict
+    corners: dict
+    node_vertex_ids: dict
+    unnamed_chain_ids: frozenset[str]
+    #: Цепи, у которых накопление длины пришлось начать заново из-за ребра вне
+    #: петли домена. Не отказ, а диагностика `U_RESTARTS_AT_DOMAIN_BORDER`.
+    restart_chain_ids: frozenset[str] = frozenset()
+    counters: tuple[tuple[str, int], ...] = field(default=(), compare=False)
+
+    def edge_of_owner(self, region_id: str, owner):
+        """Ребро петли по ключу владельца либо `None`.
+
+        Ключ владельца задан в обходе ПОЛИГОНА, а петля домена может прийти в
+        полигон развёрнутой, поэтому ищется и обратный ключ. Если нашлись ОБА
+        (щель: одно и то же ребро с двух сторон), ответ неоднозначен и честно
+        `None` — решать между двумя станциями здесь нечем.
+        """
+
+        if len(owner) != 4:
+            return None
+        key = tuple(int(item) for item in owner)
+        direct = self.edges.get((region_id, key))
+        reverse = self.edges.get((region_id, (key[2], key[3], key[0], key[1])))
+        if direct is not None and reverse is not None:
+            return None
+        return direct if direct is not None else reverse
+
+    def run_of(self, edge: StationEdgeV1) -> StationRunV1:
+        return self.runs[edge.run_id]
+
+
+def _gram_of(frame) -> tuple[Fraction, Fraction, Fraction]:
+    gram = frame.exact_gram_matrix
+    return (
+        fraction_from_exact(gram.m00),
+        fraction_from_exact(gram.m01),
+        fraction_from_exact(gram.m11),
+    )
+
+
+def length_squared_g(
+    gram: tuple[Fraction, Fraction, Fraction], vector: tuple[int, int]
+) -> Fraction:
+    """`d^T G d`: квадрат длины решёточного вектора в метрике Грама."""
+
+    g00, g01, g11 = gram
+    dx, dy = vector
+    return g00 * dx * dx + 2 * g01 * dx * dy + g11 * dy * dy
+
+
+def _segment_vertex_id(segment, *, at_start: bool) -> str | None:
+    """Исходная вершина конца сегмента по его сертификатам построения."""
+
+    certificates = (
+        segment.start_constructions if at_start else segment.end_constructions
+    )
+    names = {
+        name
+        for item in certificates
+        if item.kind is ConstructionKind.SOURCE_VERTEX
+        for name in item.source_vertex_ids
+    }
+    return next(iter(names)) if len(names) == 1 else None
+
+
+def _single(values) -> str | None:
+    names = tuple(sorted(values))
+    return names[0] if len(names) == 1 else None
+
+
+@dataclass(frozen=True, slots=True)
+class _LoopEdge:
+    """Ребро петли домена, как его читает сборщик таблицы."""
+
+    region_id: str
+    key: tuple[int, int, int, int]
+    start: tuple[int, int]
+    end: tuple[int, int]
+    start_vertex_id: str | None
+    end_vertex_id: str | None
+    chain_id: str
+    chain_use_id: str
+    physical_edge_id: str
+
+
+def _collect_loops(prepared):
+    """Рёбра петель с их `ChainUse`, углы петель и узлы с именами вершин."""
+
+    by_use: dict[str, list[_LoopEdge]] = {}
+    corners: dict = {}
+    node_ids: dict = {}
+    for region, sources, lattice_loops in region_lattice_loops(prepared):
+        rid = region.region_id
+        for loop_index, source in enumerate(sources):
+            nodes = [tuple(node) for node in lattice_loops[loop_index]]
+            segments = source.segments
+            size = len(nodes)
+            if len(segments) != size:
+                continue
+            keys = [
+                (
+                    nodes[i][0],
+                    nodes[i][1],
+                    nodes[(i + 1) % size][0],
+                    nodes[(i + 1) % size][1],
+                )
+                for i in range(size)
+            ]
+            for index, segment in enumerate(segments):
+                start_id = _segment_vertex_id(segment, at_start=True)
+                end_id = _segment_vertex_id(segment, at_start=False)
+                for node, vertex_id in (
+                    (nodes[index], start_id),
+                    (nodes[(index + 1) % size], end_id),
+                ):
+                    seen = node_ids.get((rid, node), vertex_id)
+                    node_ids[(rid, node)] = vertex_id if seen == vertex_id else None
+                corners.setdefault((rid, nodes[index]), []).append(
+                    StationCornerV1(
+                        rid,
+                        nodes[index],
+                        start_id,
+                        keys[(index - 1) % size],
+                        keys[index],
+                    )
+                )
+                provenance = segment.provenance
+                use_id = _single(provenance.chain_use_ids)
+                chain_id = _single(provenance.physical_chain_ids)
+                edge_id = _single(provenance.physical_edge_ids)
+                if use_id is None or chain_id is None or edge_id is None:
+                    continue
+                by_use.setdefault(use_id, []).append(
+                    _LoopEdge(
+                        rid,
+                        keys[index],
+                        nodes[index],
+                        nodes[(index + 1) % size],
+                        start_id,
+                        end_id,
+                        chain_id,
+                        use_id,
+                        edge_id,
+                    )
+                )
+    return by_use, corners, node_ids
+
+
+def _pair_index(vertices, closed: bool):
+    """`(начало, конец) -> (индекс ребра в обходе ChainUse, вперёд?)` и число рёбер.
+
+    Пара встречается в словаре ОДИН раз: цепь, у которой одна пара вершин даёт
+    два ребра, неоднозначна, и запись такой пары снимается (`None`), а не
+    выбирается наугад.
+    """
+
+    names = [item.value for item in vertices]
+    pairs = list(zip(names, names[1:]))
+    if closed:
+        pairs.append((names[-1], names[0]))
+    index: dict = {}
+    for position, (first, second) in enumerate(pairs):
+        for key, forward in (((first, second), True), ((second, first), False)):
+            index[key] = None if key in index else (position, forward)
+    return index, len(pairs)
+
+
+def _ordered_use_edges(context, chain_use, edges):
+    """Рёбра `ChainUse` в порядке обхода: `[(ребро, вперёд?, рестарт?), ...]`.
+
+    `None` — пара вершин неоднозначна либо ребро названо дважды: станцию из
+    такого входа выдавать нельзя. Ребро цепи, которого В ПЕТЛЕ ДОМЕНА НЕТ (цепь
+    выходит за границу домена), НЕ отказ: накопление длины на таком месте
+    начинается заново, и это названо флагом `рестарт` — материализатор
+    выставляет диагностику `U_RESTARTS_AT_DOMAIN_BORDER`, а не молчит.
+    """
+
+    chain = context.chains_by_id[chain_use.physical_chain_id]
+    vertices = context.directed_chain_vertices(chain_use)
+    index, _count = _pair_index(vertices, chain.is_closed)
+    placed: dict[int, tuple] = {}
+    for edge in edges:
+        if edge.start_vertex_id is None or edge.end_vertex_id is None:
+            return None
+        slot = index.get((edge.start_vertex_id, edge.end_vertex_id))
+        if slot is None or slot[0] in placed:
+            return None
+        placed[slot[0]] = (edge, slot[1])
+    ordered = []
+    previous = -1
+    for position in sorted(placed):
+        edge, forward = placed[position]
+        ordered.append((edge, forward, position != previous + 1))
+        previous = position
+    return ordered
+
+
+def _use_runs(chain_use, chain, ordered, gram, budget):
+    """Пробеги и записи рёбер одного `ChainUse`. Копит длину `s0`.
+
+    Рестарт (ребро цепи вне петли домена) обнуляет накопленную длину и
+    обязательно начинает новый пробег: у него другое начало отсчёта.
+    """
+
+    lineage = tuple(sorted(item.value for item in chain.source_lineage))
+    use_id = chain_use.chain_use_id.value
+    g00, g01, g11 = gram
+    raw_runs: list[tuple] = []
+    records: list = []
+    accumulated = SqrtSumV1.zero()
+    previous_class = None
+    run_edges: list[str] = []
+    for edge, along, restart in ordered:
+        if restart:
+            accumulated = SqrtSumV1.zero()
+            previous_class = None
+        use_start, use_end = (
+            (edge.start, edge.end) if along else (edge.end, edge.start)
+        )
+        vector = (use_end[0] - use_start[0], use_end[1] - use_start[1])
+        line = integer_line_class(
+            (use_start[0], use_start[1], use_end[0], use_end[1])
+        )
+        squared = length_squared_g(gram, vector)
+        if line is None or line != previous_class:
+            run_edges = []
+            inverse = (
+                SqrtSumV1.radical(1, Fraction(1) / squared, budget)
+                if squared
+                else SqrtSumV1.zero()
+            )
+            covector = (
+                g00 * vector[0] + g01 * vector[1],
+                g01 * vector[0] + g11 * vector[1],
+            )
+            raw_runs.append(
+                (use_start, vector, accumulated, inverse, covector, run_edges)
+            )
+            previous_class = line
+        run_edges.append(edge.physical_edge_id)
+        records.append(
+            (
+                (edge.region_id, edge.key),
+                StationEdgeV1(
+                    run_id=f"{use_id}#run{len(raw_runs) - 1}",
+                    chain_id=edge.chain_id,
+                    chain_use_id=use_id,
+                    physical_edge_id=edge.physical_edge_id,
+                    start=edge.start,
+                    end=edge.end,
+                    start_vertex_id=edge.start_vertex_id,
+                    end_vertex_id=edge.end_vertex_id,
+                    along_chain_use=along,
+                ),
+            )
+        )
+        if squared:
+            accumulated = accumulated + SqrtSumV1.radical(1, squared, budget)
+    runs = tuple(
+        StationRunV1(
+            run_id=f"{use_id}#run{number}",
+            chain_id=ordered[0][0].chain_id,
+            chain_use_id=use_id,
+            run_index=number,
+            origin=origin,
+            direction=vector,
+            s_origin=origin_station,
+            inverse_length=inverse,
+            covector=covector,
+            physical_edge_ids=tuple(names),
+            lineage_ids=lineage,
+        )
+        for number, (origin, vector, origin_station, inverse, covector, names)
+        in enumerate(raw_runs)
+    )
+    return runs, records
+
+
+def chain_station_table(prepared, budget) -> ChainStationTableV1:
+    """Таблица станций домена по ГОТОВОЙ подготовке очереди. Точно, под бюджетом.
+
+    Порядок работы: (1) все рёбра всех петель всех регионов собираются со своим
+    `ChainUse`, парой вершин и решёточными узлами; (2) по каждому `ChainUse`
+    рёбра выстраиваются в порядке его обхода, и копится длина `s0`; (3) подряд
+    идущие рёбра с одним классом прямой (`integer_line_class` в направлении
+    `ChainUse`) складываются в пробег.
+
+    Бюджет нужен потому, что каждый РАДИКАЛ длины — новый радиканд, то есть
+    факторизация; исчерпание поднимает `ExactCanonicalizationWorkBudgetExhausted`
+    наверх, и материализатор называет его своим исходом.
+    """
+
+    context = prepared.context
+    gram = _gram_of(context.frame)
+    scale = int(prepared.lattice.scale) if prepared.lattice is not None else 1
+    by_use, corners, node_ids = _collect_loops(prepared)
+    uses = {key.value: use for key, use in context.uses_by_id.items()}
+    runs: dict[str, StationRunV1] = {}
+    edges: dict = {}
+    unnamed: set[str] = set()
+    restarted: set[str] = set()
+    for use_id in sorted(by_use):
+        loop_edges = by_use[use_id]
+        chain_use = uses.get(use_id)
+        ordered = (
+            None
+            if chain_use is None
+            else _ordered_use_edges(context, chain_use, loop_edges)
+        )
+        if ordered is None:
+            unnamed.update(item.chain_id for item in loop_edges)
+            continue
+        chain = context.chains_by_id[chain_use.physical_chain_id]
+        if any(item[2] for item in ordered[1:]) or ordered[0][2]:
+            restarted.add(ordered[0][0].chain_id)
+        use_runs, records = _use_runs(chain_use, chain, ordered, gram, budget)
+        runs.update((item.run_id, item) for item in use_runs)
+        edges.update(records)
+    return ChainStationTableV1(
+        scale=scale,
+        gram=gram,
+        runs=runs,
+        edges=edges,
+        corners={key: tuple(value) for key, value in corners.items()},
+        node_vertex_ids=node_ids,
+        unnamed_chain_ids=frozenset(unnamed),
+        restart_chain_ids=frozenset(restarted),
+        counters=(
+            ("STATION_RUNS", len(runs)),
+            ("STATION_EDGES", len(edges)),
+            ("STATION_UNNAMED_CHAINS", len(unnamed)),
+            ("STATION_RESTART_CHAINS", len(restarted)),
+        ),
+    )
+
+
+def station_of(run: StationRunV1, point) -> SqrtSumV1:
+    """`s` точки относительно пробега, в единицах решётки. ТОЧНО.
+
+    `s = s_origin + <p - origin, direction>_G / |direction|_G`. Всё, кроме
+    последнего произведения, — рациональная линейная комбинация координат;
+    произведение двух `SqrtSumV1` замкнуто (`__mul__` на gcd) и новых радикандов
+    не рождает, поэтому бюджет здесь не нужен.
+    """
+
+    relative_x = point[0] - SqrtSumV1.rational(run.origin[0])
+    relative_y = point[1] - SqrtSumV1.rational(run.origin[1])
+    projection = relative_x.scaled(run.covector[0]) + relative_y.scaled(
+        run.covector[1]
+    )
+    return run.s_origin + projection * run.inverse_length
+
+
+def transverse_root(line, budget) -> SqrtSumV1:
+    """`sqrt(q) / q` несущей прямой: множитель времени прихода. `q > 0`."""
+
+    return SqrtSumV1.radical(1, Fraction(1) / Fraction(line.q), budget)
+
+
+def transverse_of(line, point, root: SqrtSumV1) -> SqrtSumV1:
+    """`r = (a x + b y - c) / sqrt(q)` точки грани, в единицах решётки. ТОЧНО.
+
+    Это ВРЕМЯ ПРИХОДА фронта несущей прямой: на самой прямой оно ноль, а на
+    фронте при alpha равно `lattice_alpha` ровно (`coverage_at` режет той же
+    формулой). Деление заменено умножением на `root = sqrt(q)/q`, чтобы не
+    звать сопряжение.
+    """
+
+    numerator = (
+        point[0].scaled(line.a)
+        + point[1].scaled(line.b)
+        - SqrtSumV1.rational(line.c)
+    )
+    return numerator * root

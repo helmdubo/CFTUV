@@ -1,0 +1,88 @@
+"""Подъём точки карты в локальные 3D-координаты: ТОЧНО, одно округление.
+
+Плоскость домена задана аффинным репером метрики: `origin + a*x + b*y`, где
+`(origin, a, b)` — точные дроби (`exact_origin`, `exact_basis_a`,
+`exact_basis_b` дескриптора). Точка покрытия — пара `SqrtSumV1` в единицах
+решётки, поэтому подъём — рациональная линейная комбинация, а значит ТОЧНАЯ
+величина `SqrtSumV1` по каждой оси. Во float она переводится ОДИН раз, на
+выходе, серединой строгой оболочки (`sqrt_sum_binary64`): ни промежуточных
+округлений, ни порогов.
+
+NEAR_PLANAR. Реперы такого домена построены по вершинам, СПРОЕЦИРОВАННЫМ на
+точную плоскость, поэтому подъём лежит на сертифицированной плоскости, а не на
+исходном меше: расстояние между ними — невязка сертификата, и материализатор
+называет её диагностикой (`NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE`), а не прячет.
+Смещение декали над поверхностью (z-fighting) — политика ХОСТА, не ядра.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from fractions import Fraction
+
+from ..exact_sqrt_sum import SqrtSumV1
+from ..numeric import LocalPoint3V1
+from ..planar_metric import fraction_from_exact
+
+#: Разрядность целочисленной оболочки при переводе `SqrtSumV1` в число. Читать
+#: величину по частям правило проекта запрещает; оболочка — объявленный способ,
+#: и её середина отличается от истинного значения не больше чем на половину
+#: ширины, то есть на 2^-64 в единицах величины.
+ENCLOSURE_BITS = 64
+
+
+def sqrt_sum_binary64(value: SqrtSumV1, *, bits: int = ENCLOSURE_BITS) -> float:
+    """Число из `SqrtSumV1` — серединой строгой оболочки, а не по членам.
+
+    Это ТОТ ЖЕ перевод, которым пользуется отладочный хост (`sqrt_sum_float`):
+    у картинки и у меша одно округление, а не два разных.
+    """
+
+    low, high = value.enclosure(bits)
+    return float((low + high) / 2)
+
+
+@dataclass(frozen=True, slots=True)
+class PlaneLiftV1:
+    """Точный подъём карты домена на плоскость: репер и масштаб решётки."""
+
+    origin: tuple[Fraction, Fraction, Fraction]
+    basis_a: tuple[Fraction, Fraction, Fraction]
+    basis_b: tuple[Fraction, Fraction, Fraction]
+    scale: int
+
+    def lift_exact(self, point) -> tuple[SqrtSumV1, SqrtSumV1, SqrtSumV1]:
+        """`origin + a*(X/scale) + b*(Y/scale)` по осям, без единого округления."""
+
+        scale = Fraction(self.scale)
+        return tuple(
+            point[0].scaled(self.basis_a[axis] / scale)
+            + point[1].scaled(self.basis_b[axis] / scale)
+            + SqrtSumV1.rational(self.origin[axis])
+            for axis in range(3)
+        )
+
+    def lift(self, point) -> LocalPoint3V1:
+        x, y, z = self.lift_exact(point)
+        return LocalPoint3V1(
+            sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
+        )
+
+
+def _triple(value) -> tuple[Fraction, Fraction, Fraction]:
+    return (
+        fraction_from_exact(value.x),
+        fraction_from_exact(value.y),
+        fraction_from_exact(value.z),
+    )
+
+
+def plane_lift_of(descriptor, scale: int) -> PlaneLiftV1:
+    """Подъём по дескриптору `RationalAffinePlanarMetricV2` и масштабу решётки."""
+
+    return PlaneLiftV1(
+        origin=_triple(descriptor.exact_origin),
+        basis_a=_triple(descriptor.exact_basis_a),
+        basis_b=_triple(descriptor.exact_basis_b),
+        scale=int(scale),
+    )

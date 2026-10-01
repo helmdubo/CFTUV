@@ -1,0 +1,110 @@
+{
+ "base_root": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cb",
+ "branch_root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-af4927919012e91a4",
+ "identical": true,
+ "parts": {
+  "alpha:0.375#2": {
+   "counters": "efb5120dc8876d47",
+   "gp_props": "93ec7f0a049dc741",
+   "gp_strokes": "b258a194dcc8ba1e",
+   "queue_domains": "af9d0852cfc363fc",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "6a065c2a54df96d7",
+   "sidecar": "c8db248ce28d7eb3",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d1#3": {
+   "counters": "e73033db6e13dd72",
+   "gp_props": "8c4b187b75bb0d4c",
+   "gp_strokes": "737c3bae9fd4b893",
+   "queue_domains": "b7bf5e5d44eed898",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "260975fafab4d079",
+   "sidecar": "7e65a2d775ad4d02",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d2#0": {
+   "counters": "0654f0b9c6b99553",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "cb79c660165f96dc"
+  },
+  "d2#1": {
+   "counters": "efb5120dc8876d47",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "6c2e01346aeb3d31"
+  }
+ },
+ "problems": [],
+ "steps": [
+  {
+   "patch_metric_export_base": 6.318,
+   "patch_metric_export_branch": 6.605,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 6.481,
+   "snapshot_export_branch": 6.774,
+   "step": "d2",
+   "wall_base": 76.132,
+   "wall_branch": 76.925
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.121,
+   "snapshot_export_branch": 0.121,
+   "step": "d2",
+   "wall_base": 14.288,
+   "wall_branch": 14.791
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.121,
+   "snapshot_export_branch": 0.121,
+   "step": "alpha:0.375",
+   "wall_base": 13.62,
+   "wall_branch": 14.004
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.12,
+   "snapshot_export_branch": 0.126,
+   "step": "d1",
+   "wall_base": 52.3,
+   "wall_branch": 54.215
+  }
+ ],
+ "workers": [
+  0,
+  0
+ ]
+}

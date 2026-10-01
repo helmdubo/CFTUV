@@ -50,6 +50,23 @@ def request_alpha_decimal(alpha) -> Decimal:
     return Decimal(str(float(alpha)))
 
 
+# UV-законы запроса. Реестр один: хост объявляет, какие идентификаторы вообще
+# существуют, а материализатор ядра (`materialize.uv_law.SUPPORTED_UV_POLICIES`)
+# решает, какие умеет. Расхождение имён ловит исполняемая проверка
+# (`tests/test_envelope_request_policy.py`), а не договорённость.
+#
+# `ENVELOPE_DEBUG_NO_UV_V1` — закон отладочного пути: UV нет, меш не строится.
+# Он остаётся ЗНАЧЕНИЕМ ПО УМОЛЧАНИЮ, поэтому запрос отладки (и его контентный
+# хэш `DecalRequestId`) не сдвинулся ни на байт. `UV_DIRECT_STRIP_V1` — первый
+# продуктовый закон: `(source_s, source_r) -> (u, v)` без атласа.
+ENVELOPE_UV_POLICY_DEBUG_NO_UV = "ENVELOPE_DEBUG_NO_UV_V1"
+ENVELOPE_UV_POLICY_DIRECT_STRIP = "UV_DIRECT_STRIP_V1"
+ENVELOPE_UV_POLICIES = (
+    ENVELOPE_UV_POLICY_DEBUG_NO_UV,
+    ENVELOPE_UV_POLICY_DIRECT_STRIP,
+)
+
+
 ENVELOPE_FAN_DENSITY_ITEMS = (
     ("0", "0", "Minimum angular fan segment density"),
     ("1", "1", "Default angular fan segment density"),
@@ -190,8 +207,16 @@ def build_envelope_request_contract(
     selected_use_ids,
     alpha_decimal,
     angular_policy: EnvelopeAngularPolicyV1,
+    uv_policy_id: str = ENVELOPE_UV_POLICY_DEBUG_NO_UV,
 ):
-    """Материализует один request из уже проверенных host-фактов."""
+    """Материализует один request из уже проверенных host-фактов.
+
+    `uv_policy_id` — из `ENVELOPE_UV_POLICIES`; незнакомое имя — ошибка, а не
+    молчаливая подмена закона.
+    """
+
+    if uv_policy_id not in ENVELOPE_UV_POLICIES:
+        raise ValueError(f"unknown UV policy {uv_policy_id!r}")
 
     return kernel.DecalRequestV1(
         schema_version=kernel.DECAL_REQUEST_SCHEMA_V1,
@@ -209,13 +234,16 @@ def build_envelope_request_contract(
         interaction_policy_id=kernel.InteractionPolicyId.INTRAPATCH_POLICY_B_V1,
         ownership_policy_id=kernel.OwnershipPolicyId.TOTAL_DISJOINT_RESOLVED_COVERAGE_V1,
         material_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_MATERIAL_V1"),
-        uv_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_UV_V1"),
+        uv_policy_id=kernel.PolicyId(uv_policy_id),
     )
 
 
 __all__ = (
     "DEFAULT_ENVELOPE_FAN_DENSITY",
     "ENVELOPE_FAN_DENSITY_ITEMS",
+    "ENVELOPE_UV_POLICIES",
+    "ENVELOPE_UV_POLICY_DEBUG_NO_UV",
+    "ENVELOPE_UV_POLICY_DIRECT_STRIP",
     "MEASURED_REQUEST_ALPHA",
     "EnvelopeAngularPolicyV1",
     "build_envelope_request_contract",
