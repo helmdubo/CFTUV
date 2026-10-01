@@ -201,6 +201,48 @@ def test_chain_straight_v2_validator_rejects_inconsistent_clamp_disposition():
     } == {kernel.ValidationCode.EVALUATION_GEOMETRY}
 
 
+def test_chain_straight_v2_validator_rejects_the_retired_clamp_excess_disposition():
+    """Зажим сверх полушага больше не «разрешён»: строитель измельчает решётку либо отказывает."""
+
+    binding = _chain_straight_binding()
+    (chain,) = binding.straight_chain_bindings
+    (assignment,) = chain.internal_assignments
+    clamped = replace(
+        assignment,
+        unconstrained_canonical_k=2,
+        clamped=True,
+        disposition=(
+            kernel.ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
+        ),
+    )
+    malformed = replace(
+        binding,
+        straight_chain_bindings=frozenset(
+            {replace(chain, internal_assignments=(clamped,))}
+        ),
+    )
+    within = replace(
+        clamped,
+        disposition=(
+            kernel.ChainStraightAssignmentDispositionV2.CLAMPED_WITHIN_HALF_STEP
+        ),
+    )
+    named_within = replace(
+        binding,
+        straight_chain_bindings=frozenset(
+            {replace(chain, internal_assignments=(within,))}
+        ),
+    )
+
+    assert {
+        issue.code
+        for issue in kernel.validate_chain_straight_evaluation_geometry_binding(
+            malformed
+        )
+    } == {kernel.ValidationCode.EVALUATION_GEOMETRY}
+    assert kernel.validate_chain_straight_evaluation_geometry_binding(named_within) == ()
+
+
 def test_chain_straight_v2_validator_recomputes_v1_half_up_base_binding():
     binding = _chain_straight_binding()
     authority = next(

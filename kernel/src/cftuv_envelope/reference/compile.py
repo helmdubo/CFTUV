@@ -152,6 +152,7 @@ from .adaptive_density_fan import (
     _subturn,
 )
 from .evaluation_geometry import (
+    ChainStraightBindingDisplacementExceeded,
     EvaluationGeometryBindingInvalid,
     EvaluationGeometryRefinementBudgetExhausted,
     SourceDeclaredStraightChainIsNotLinear,
@@ -1262,6 +1263,11 @@ def _attach_evaluation_geometry(
     except EvaluationGeometryRefinementBudgetExhausted as exc:
         return _failure(
             ReferenceOutcome.REFINEMENT_BUDGET_EXHAUSTED,
+            str(exc),
+        )
+    except ChainStraightBindingDisplacementExceeded as exc:
+        return _failure(
+            ReferenceOutcome.CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED,
             str(exc),
         )
     except EvaluationGeometryBindingInvalid as exc:
