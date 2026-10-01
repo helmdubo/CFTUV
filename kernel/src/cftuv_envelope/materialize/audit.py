@@ -5,23 +5,29 @@
 наложение или перевёрнутую грань. Эти свойства сетки считаются здесь, один раз,
 и входят в исход материализации:
 
+ГРАНИ — ЛЮБОЙ ДЛИНЫ (закон топологии `QUAD_STRIPS_V1` кладёт в батч четырёхгранья).
+Обход, вектор площади и UV-площадь считаются веером из первой вершины; у
+треугольника это ПРЕЖНИЕ формулы по трём точкам, побитово. Имена счётчиков
+(`..._TRIANGLES_...`) остались прежними, считают они ГРАНИ: под `TRIANGLES_V1`
+это треугольники, под `QUAD_STRIPS_V1` — и четырёхгранья.
+
 ЖЁСТКИЕ (нарушение — отказ `BATCH_DID_NOT_VALIDATE`, деталь `AUDIT:<имя>`):
 
-* `EDGE_SHARED_BY_MORE_THAN_TWO` — ребро в трёх и более треугольниках;
-* `HALF_EDGE_DUPLICATED` — одно направленное ребро в двух треугольниках
+* `EDGE_SHARED_BY_MORE_THAN_TWO` — ребро в трёх и более гранях;
+* `HALF_EDGE_DUPLICATED` — одно направленное ребро в двух гранях
   (наложение либо противоположные обходы соседей);
-* `BOUNDARY_DOES_NOT_MATCH_CHAINS` — рёбра в ОДНОМ треугольнике — это ровно
+* `BOUNDARY_DOES_NOT_MATCH_CHAINS` — рёбра в ОДНОЙ грани — это ровно
   рёбра граничных цепей, не больше и не меньше (иначе трещина либо цепь
   описывает не то);
 * `V_OUT_OF_UNIT_RANGE` — закон `UV_DIRECT_STRIP_V1` обещает `v` в `[0, 1]`.
 
 МЯГКИЕ (числа в счётчиках, не отказ — это свойства закона, а не дефекты):
 
-* `flipped_vs_source` — треугольники, смотрящие против нормали исходной грани;
-* `uv_degenerate` — треугольники с НУЛЕВОЙ UV-площадью: грани веера (станция
+* `flipped_vs_source` — грани, смотрящие против нормали исходной грани;
+* `uv_degenerate` — грани с НУЛЕВОЙ UV-площадью: грани веера (станция
   константна, `u` не меняется — ограничение закона V1, названное, а не
   скрытое);
-* `uv_reversed` — треугольники с обратным обходом в UV относительно
+* `uv_reversed` — грани с обратным обходом в UV относительно
   большинства невырожденных.
 """
 
@@ -33,7 +39,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class BatchAuditV1:
-    triangles: int
+    faces: int
     boundary_edges: int
     overshared_edges: int
     duplicated_half_edges: int
@@ -52,7 +58,7 @@ class BatchAuditV1:
             found.append("HALF_EDGE_DUPLICATED")
         if self.boundary_chain_mismatch:
             found.append("BOUNDARY_DOES_NOT_MATCH_CHAINS")
-        if self.triangles and (self.v_min < 0.0 or self.v_max > 1.0):
+        if self.faces and (self.v_min < 0.0 or self.v_max > 1.0):
             found.append("V_OUT_OF_UNIT_RANGE")
         return tuple(found)
 
@@ -71,6 +77,30 @@ def _cross(a, b, c):
     return (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
 
 
+def _area_vector(points):
+    """Вектор удвоенной площади грани: у треугольника — `_cross`, дальше веер из первой вершины."""
+
+    total = _cross(points[0], points[1], points[2])
+    for index in range(2, len(points) - 1):
+        part = _cross(points[0], points[index], points[index + 1])
+        total = (total[0] + part[0], total[1] + part[1], total[2] + part[2])
+    return total
+
+
+def _uv_area(uv):
+    """Удвоенная ориентированная UV-площадь: у треугольника прежняя формула, дальше веер."""
+
+    def term(first, second):
+        return (second.u - uv[0].u) * (first.v - uv[0].v) - (second.v - uv[0].v) * (
+            first.u - uv[0].u
+        )
+
+    area = term(uv[2], uv[1])
+    for index in range(2, len(uv) - 1):
+        area += term(uv[index + 1], uv[index])
+    return area
+
+
 def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
     """Свойства сетки батча. `source_normal` — нормаль исходной грани (`x, y, z`).
 
@@ -86,9 +116,9 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
     v_min, v_max = 1.0, 0.0
     for face in batch.faces:
         keys = face.ordered_vert_keys
-        for index in range(3):
-            directed[(keys[index], keys[(index + 1) % 3])] += 1
-        normal = _cross(*(position[key] for key in keys))
+        for index in range(len(keys)):
+            directed[(keys[index], keys[(index + 1) % len(keys)])] += 1
+        normal = _area_vector(tuple(position[key] for key in keys))
         reference = (
             source_normal
             if not vertex_normals
@@ -103,9 +133,7 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
         )
         flipped += int(facing <= 0.0)
         uv = [fact.uv for fact in face.uv_facts]
-        area = (uv[1].u - uv[0].u) * (uv[2].v - uv[0].v) - (
-            uv[1].v - uv[0].v
-        ) * (uv[2].u - uv[0].u)
+        area = _uv_area(uv)
         if area == 0.0:
             degenerate += 1
         else:
@@ -124,7 +152,7 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
     }
     majority = 1 if sum(uv_signs) >= 0 else -1
     return BatchAuditV1(
-        triangles=len(batch.faces),
+        faces=len(batch.faces),
         boundary_edges=len(boundary),
         overshared_edges=sum(1 for count in undirected.values() if count > 2),
         duplicated_half_edges=sum(1 for count in directed.values() if count > 1),

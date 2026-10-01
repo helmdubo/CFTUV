@@ -396,20 +396,23 @@ def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
         frame_faces, cycles, layout, table, lattice_alpha, guard
     )
     triangles = assemble.tessellate_faces(frame_faces, cycles, guard, reverse=False)
-    batch = assemble.assemble_batch(
-        frame_faces=frame_faces,
-        cycles=cycles,
-        points=points,
-        triangles=triangles,
-        facts=facts,
-        layout=layout,
-        plane=plane
+    positions = assemble.lift_vertices(
+        points,
+        plane
         or PlaneLiftV1(
             (Fraction(0),) * 3,
             (Fraction(1), Fraction(0), Fraction(0)),
             (Fraction(0), Fraction(1), Fraction(0)),
             1,
         ),
+    )
+    batch = assemble.assemble_batch(
+        frame_faces=frame_faces,
+        cycles=cycles,
+        positions=positions,
+        polygons=triangles,
+        facts=facts,
+        layout=layout,
         scale=1,
         lattice_alpha=lattice_alpha,
         edge_faces={},

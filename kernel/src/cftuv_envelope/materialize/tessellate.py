@@ -106,3 +106,26 @@ def triangulate_exact(points, budget):
         return None
     triangles.append(last)
     return tuple(triangles)
+
+
+def fan_out(keys):
+    """Грань как треугольники закона `TRIANGLES_V1`: `((a, b, c), ...)` по ключам вершин.
+
+    Треугольник — он сам. Четырёхугольник `(q0, q1, q2, q3)` в порядке кольца
+    (против часовой в координатах карты) — ровно ПЕРВОЕ ухо `triangulate_exact`:
+    у строго выпуклого контура все четыре вершины выпуклы, ухом идёт первая в
+    списке (предыдущая `q3`, текущая `q0`, следующая `q1`), остаток `(q1, q2, q3)`
+    замыкает разбиение. Диагональ — `q1 q3`. Четырёхгранью грань закона бывает
+    только строго выпуклая, поэтому у неё это разбиение допустимо, а не
+    выбрано наугад.
+
+    Другой длины у грани закона нет: больше четырёх вершин — слитые пробеги,
+    они остаются треугольниками закона, а не многоугольниками.
+    """
+
+    if len(keys) == 3:
+        return (tuple(keys),)
+    if len(keys) != 4:
+        raise ValueError(f"a face of {len(keys)} vertices has no canonical split")
+    first, second, third, fourth = keys
+    return ((fourth, first, second), (second, third, fourth))

@@ -45,6 +45,7 @@ from ..canonical import geometry_batch_semantic_digest
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
+    DecalTopologyLawV1,
     GeometryDiagnosticSeverity,
     GeometryDiagnosticV1,
 )
@@ -64,6 +65,7 @@ from .assemble import (
     Layout,
     assemble_batch,
     intern_vertices,
+    lift_vertices,
     station_values,
     tessellate_faces,
 )
@@ -100,6 +102,10 @@ class MaterializationV1:
     vertex_normals: tuple = ()
     offset_normal_law: str = ""
     offset_normals_digest: str = ""
+    #: Закон топологии, КОТОРЫЙ ПРОСИЛИ (и у отказа тоже): поле результата, а не
+    #: диагностики и не `contract_versions` батча — те входят в семантический
+    #: дайджест, а он тесселяции не видит.
+    decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1
 
     @property
     def is_materialized(self) -> bool:
@@ -371,7 +377,17 @@ def _counters(built: _Built, budget):
         ("MATERIALIZE_MERGE_UNRESOLVED", built.stats.unresolved_groups),
         ("MATERIALIZE_FAN_FACES", sum(1 for item in frame_faces if item.is_fan)),
         ("MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED", built.dropped_names),
-        ("MATERIALIZE_TRIANGLES", len(batch.faces)),
+        # Треугольники — СУММА `n - 2` по граням: от выбора диагонали она не
+        # зависит, поэтому под любым законом топологии это одно и то же число.
+        (
+            "MATERIALIZE_TRIANGLES",
+            sum(len(face.ordered_vert_keys) - 2 for face in batch.faces),
+        ),
+        ("MATERIALIZE_FACES_EMITTED", len(batch.faces)),
+        (
+            "MATERIALIZE_QUADS",
+            sum(1 for face in batch.faces if len(face.ordered_vert_keys) == 4),
+        ),
         ("MATERIALIZE_VERTICES", len(batch.vertices)),
         ("MATERIALIZE_REGIONS", len(batch.semantic_regions)),
         ("MATERIALIZE_STATION_FACTS", len(batch.station_facts)),
@@ -441,14 +457,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
     triangles = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw)
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
+    positions = lift_vertices(points, plane)
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,
-        points=points,
-        triangles=triangles,
+        positions=positions,
+        polygons=triangles,
         facts=facts,
         layout=layout,
-        plane=plane,
         scale=table.scale,
         lattice_alpha=lattice_alpha,
         edge_faces=_edge_faces(prepared.context),
@@ -529,6 +545,7 @@ def materialize_domain(
     near_planar_lift_law: NearPlanarLiftLawV1 = (
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
+    decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -538,8 +555,23 @@ def materialize_domain(
     транзакции `MATERIALIZE` домена. `near_planar_lift_law` — на что кладётся
     near-planar домен: по умолчанию на сертифицированную плоскость (поведение
     не менялось), `SOURCE_TRIANGLES_V1` — на треугольники источника.
+    `decal_topology_law` — из каких граней собирается сетка: по умолчанию
+    только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
     """
 
+    if decal_topology_law is not DecalTopologyLawV1.TRIANGLES_V1:
+        raise NotImplementedError(
+            f"{decal_topology_law.value}: этот закон топологии здесь ещё не излучается"
+        )
+    result = _materialize_domain(
+        prepared, coverage, request, work_budget, near_planar_lift_law
+    )
+    return replace(result, decal_topology_law=decal_topology_law)
+
+
+def _materialize_domain(
+    prepared, coverage, request, work_budget, near_planar_lift_law
+) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
     admission = admit_domain(prepared, coverage, request, near_planar_lift_law)

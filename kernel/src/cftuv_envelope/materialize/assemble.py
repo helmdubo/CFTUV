@@ -281,6 +281,17 @@ def tessellate_faces(frame_faces, cycles, budget, reverse: bool):
     return result
 
 
+def lift_vertices(points, plane):
+    """`{ключ: позиция}`: каждая вершина поднимается РОВНО ОДИН раз, до сборки батча.
+
+    Счётчики подъёма (`LOCATIONS`, `PREDICATES`) считают точки, а не обращения:
+    запись диагностик берётся ПОСЛЕ этого вызова, и подъём не зависит от того,
+    какими гранями вершины потом соберутся.
+    """
+
+    return {key: plane.lift(point) for key, point in points.items()}
+
+
 def _paths(edges):
     """Максимальные неветвящиеся пути по полурёбрам: `[(a, ..., z), ...]`.
 
@@ -411,15 +422,64 @@ def _merge_provenance(items) -> GeometryProvenanceV1:
     )
 
 
+def _vertex_records(positions, cycles, face_prov):
+    """Вершины батча: позиция уже поднята, происхождение — слияние граней, где она есть."""
+
+    vertex_prov: dict[str, list] = {}
+    for prov, cycle in zip(face_prov, cycles):
+        for key, _point in cycle:
+            vertex_prov.setdefault(key, []).append(prov)
+    return frozenset(
+        GeometryVertexV1(
+            vert_key=VertexKey(key),
+            position=position,
+            semantic_location_ref=SemanticLocationId(f"location:{key}"),
+            provenance=_merge_provenance(vertex_prov[key]),
+        )
+        for key, position in positions.items()
+    )
+
+
+def _face_records(frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material):
+    """Грани батча: по записи на каждый многоугольник тесселяции, UV — на вершину региона."""
+
+    uv_cache: dict = {}
+
+    def uv_of(region, key):
+        slot = uv_cache.get((region, key))
+        if slot is None:
+            s, r = facts[(region, key)]
+            slot = uv_cache[(region, key)] = uv_direct_strip_v1(s, r, lattice_alpha)
+        return slot
+
+    faces = []
+    for item, prov, polygon_list in zip(frame_faces, face_prov, polygons):
+        region = layout.region_of(item)
+        for polygon in polygon_list:
+            faces.append(
+                GeometryFaceV1(
+                    face_id=GeometryFaceId(f"face:{len(faces)}"),
+                    ordered_vert_keys=tuple(VertexKey(k) for k in polygon),
+                    uv_facts=tuple(
+                        GeometryUvFactV1(VertexKey(k), uv_of(region, k)) for k in polygon
+                    ),
+                    semantic_region_id=Layout.region_id(region),
+                    ownership_claim_id=layout.claim_id(item.claim_key),
+                    provenance=prov,
+                    material_id=material,
+                )
+            )
+    return tuple(faces)
+
+
 def assemble_batch(
     *,
     frame_faces,
     cycles,
-    points,
-    triangles,
+    positions,
+    polygons,
     facts,
     layout: Layout,
-    plane,
     scale: int,
     lattice_alpha: Fraction,
     edge_faces,
@@ -431,8 +491,10 @@ def assemble_batch(
 ):
     """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`.
 
-    `diagnostics` — функция без аргументов, её зовут ПОСЛЕ подъёма всех точек:
-    счётчики подъёма копятся в `plane.lift`.
+    `positions` — `{ключ: позиция}` ПОДНЯТЫХ вершин (`lift_vertices`), `polygons` —
+    грани каждой слитой грани по ключам (`tessellate_faces`): треугольники либо,
+    под `QUAD_STRIPS_V1`, четырёхгранья. `diagnostics` — функция без аргументов,
+    её зовут ПОСЛЕ подъёма всех точек: счётчики подъёма копятся в подъёме.
     """
 
     material = MaterialId(request.material_policy_id.value)
@@ -440,19 +502,7 @@ def assemble_batch(
         _provenance(item, edge_faces, (f"claim:{item.claim_key}",))
         for item in frame_faces
     ]
-    vertex_prov: dict[str, list] = {}
-    for prov, cycle in zip(face_prov, cycles):
-        for key, _point in cycle:
-            vertex_prov.setdefault(key, []).append(prov)
-    vertices = frozenset(
-        GeometryVertexV1(
-            vert_key=VertexKey(key),
-            position=plane.lift(point),
-            semantic_location_ref=SemanticLocationId(f"location:{key}"),
-            provenance=_merge_provenance(vertex_prov[key]),
-        )
-        for key, point in points.items()
-    )
+    vertices = _vertex_records(positions, cycles, face_prov)
     region_prov: dict[int, list] = {}
     region_claim: dict[int, str] = {}
     for item, prov in zip(frame_faces, face_prov):
@@ -468,32 +518,9 @@ def assemble_batch(
         )
         for index in region_prov
     )
-    uv_cache: dict = {}
-
-    def uv_of(region, key):
-        slot = uv_cache.get((region, key))
-        if slot is None:
-            s, r = facts[(region, key)]
-            slot = uv_cache[(region, key)] = uv_direct_strip_v1(s, r, lattice_alpha)
-        return slot
-
-    faces = []
-    for item, prov, tris in zip(frame_faces, face_prov, triangles):
-        region = layout.region_of(item)
-        for tri in tris:
-            faces.append(
-                GeometryFaceV1(
-                    face_id=GeometryFaceId(f"face:{len(faces)}"),
-                    ordered_vert_keys=tuple(VertexKey(k) for k in tri),
-                    uv_facts=tuple(
-                        GeometryUvFactV1(VertexKey(k), uv_of(region, k)) for k in tri
-                    ),
-                    semantic_region_id=Layout.region_id(region),
-                    ownership_claim_id=layout.claim_id(item.claim_key),
-                    provenance=prov,
-                    material_id=material,
-                )
-            )
+    faces = _face_records(
+        frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material
+    )
     model_of = {
         layout.region_of(item): item.station_model for item in frame_faces
     }
@@ -523,7 +550,7 @@ def assemble_batch(
         decal_request_id=request.decal_request_id,
         patch_domain_id=patch_domain_id,
         vertices=vertices,
-        faces=tuple(faces),
+        faces=faces,
         station_facts=station_facts,
         semantic_regions=regions,
         boundary_chains=boundary_chains,

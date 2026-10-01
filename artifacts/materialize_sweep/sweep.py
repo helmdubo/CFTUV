@@ -22,6 +22,15 @@ snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), 
 `--workers 0` — тот же цикл в ЭТОМ процессе (последовательно, один воркер).
 `--only 6,11` — подмножество доменов. Код возврата `compare` — 1 при любом
 расхождении неценовых полей.
+
+`--topology QUAD_STRIPS_V1` — закон топологии декали (по умолчанию `TRIANGLES_V1`,
+как у ядра). Закон пишется в заголовок записи, а НЕ в `ANSWER_KEYS`, и числа
+закона лежат в отдельных полях строки (`topology_counters`), не в `counters`:
+иначе запись под законом по умолчанию разошлась бы с прежними. Два закона
+сравниваются командой `compare --across-topology`: дайджесты содержания у них
+различны ПО ПОСТРОЕНИЮ, всё остальное (семантический дайджест, дайджест
+нормалей, число треугольников как сумма `n - 2`, вершины, цепи, счётчики
+подъёма) обязано совпасть.
 """
 
 from __future__ import annotations
@@ -87,6 +96,19 @@ COUNTER_KEYS = (
     "STATION_SKIPS",
 )
 #: Поля строки, которые обязаны совпасть между прогонами (всё остальное — цена).
+#: Числа закона топологии. Отдельно от `COUNTER_KEYS`: строка закона по умолчанию
+#: не получает новых ключей в `counters`, и прежние записи остаются сравнимыми.
+TOPOLOGY_COUNTER_KEYS = (
+    "MATERIALIZE_FACES_EMITTED",
+    "MATERIALIZE_QUADS",
+)
+#: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
+#: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
+LAW_DEPENDENT_COUNTERS = (
+    "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
+    "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+    "MATERIALIZE_TRIANGLES_UV_REVERSED",
+)
 ANSWER_KEYS = (
     "prepare_outcome",
     "coverage_outcome",
@@ -102,10 +124,11 @@ ANSWER_KEYS = (
 )
 
 
-def compute_row(patch_id: int, density):
+def compute_row(patch_id: int, density, topology: str = "TRIANGLES_V1"):
     ctx = pool_sweep._CTX
     canon = ctx["canon"]
     from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
     from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
     from cftuv_envelope.materialize.admit import materialization_request
     from cftuv_envelope.materialize.domain import materialize_domain
@@ -158,6 +181,7 @@ def compute_row(patch_id: int, density):
         coverage,
         request=request,
         near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
+        decal_topology_law=DecalTopologyLawV1(topology),
     )
     row["materialize_seconds"] = round(time.perf_counter() - work_started, 4)
     row["materialization"] = result.outcome.value
@@ -169,6 +193,11 @@ def compute_row(patch_id: int, density):
     )
     counters = dict(result.counters)
     row["counters"] = {key: counters[key] for key in COUNTER_KEYS if key in counters}
+    row["topology_counters"] = {
+        key: value
+        for key, value in counters.items()
+        if key in TOPOLOGY_COUNTER_KEYS or key.startswith("MATERIALIZE_QUADS_")
+    }
     row["work_spent"] = counters.get("EXACT_WORK_SPENT", 0)
     row["diagnostics"] = list(result.diagnostics)
     row["stage_seconds"] = {name: round(value, 4) for name, value in result.timings}
@@ -222,6 +251,10 @@ def summarize(rows) -> dict:
             row["counters"].get("MATERIALIZE_TRIANGLES_UV_REVERSED", 0) for row in done
         ),
         "fan_faces": sum(row["counters"].get("MATERIALIZE_FAN_FACES", 0) for row in done),
+        "topology": {
+            key: sum(row["topology_counters"].get(key, 0) for row in done)
+            for key in sorted({k for row in done for k in row["topology_counters"]})
+        },
         # Судьба граней покрытия: вход равен контурам + пустым за фронтом +
         # потерям, и потерь на здоровом домене нет.
         "faces_in": sum(row["counters"].get("MATERIALIZE_FACES_IN", 0) for row in done),
@@ -255,6 +288,7 @@ def run(args) -> dict:
         "sha": _git("rev-parse", "--short", "HEAD"),
         "tree_diff_hash": _git("diff", "--stat", "--", "cftuv", "kernel")[:80],
         "alpha": ALPHA_TEXT,
+        "topology": args.topology,
         "workers": args.workers,
         "python": sys.version.split()[0],
         "cores": os.cpu_count(),
@@ -265,12 +299,14 @@ def run(args) -> dict:
         started = time.perf_counter()
         if args.workers == 0:
             gate.init_worker(quiet=True)
-            rows = [compute_row(pid, density) for pid in order]
+            rows = [compute_row(pid, density, args.topology) for pid in order]
         else:
             with ProcessPoolExecutor(
                 max_workers=args.workers, initializer=gate.init_worker
             ) as pool:
-                rows = list(pool.map(_task, [(pid, density) for pid in order]))
+                rows = list(
+                    pool.map(_task, [(pid, density, args.topology) for pid in order])
+                )
         wall = time.perf_counter() - started
         rows.sort(key=lambda row: row["patch_id"])
         summary = summarize(rows)
@@ -283,7 +319,21 @@ def run(args) -> dict:
     return record
 
 
-def compare(paths) -> int:
+def _answer_view(row: dict, across_topology: bool) -> dict:
+    """Поля строки, которые обязаны совпасть; между законами — без закон-зависимого."""
+
+    view = {key: row.get(key) for key in ANSWER_KEYS}
+    if across_topology:
+        view.pop("content_digest")
+        view["counters"] = {
+            key: value
+            for key, value in (row.get("counters") or {}).items()
+            if key not in LAW_DEPENDENT_COUNTERS
+        }
+    return view
+
+
+def compare(paths, across_topology: bool = False) -> int:
     records = [json.loads(Path(item).read_text(encoding="utf-8")) for item in paths]
     problems = []
     base = records[0]
@@ -294,8 +344,10 @@ def compare(paths) -> int:
             if set(left) != set(right):
                 problems.append(f"{path} d{density}: domain sets differ")
             for patch in sorted(set(left) & set(right), key=int):
-                for key in ANSWER_KEYS:
-                    if left[patch].get(key) != right[patch].get(key):
+                first = _answer_view(left[patch], across_topology)
+                second = _answer_view(right[patch], across_topology)
+                for key in first:
+                    if first[key] != second[key]:
                         problems.append(f"{path} d{density} patch{patch}: {key} differs")
     for line in problems[:40]:
         print(line)
@@ -311,11 +363,15 @@ def main() -> int:
     runner.add_argument("--densities", default="1,2")
     runner.add_argument("--only", default="")
     runner.add_argument("--out", required=True)
+    runner.add_argument(
+        "--topology", choices=("TRIANGLES_V1", "QUAD_STRIPS_V1"), default="TRIANGLES_V1"
+    )
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="+")
+    comparer.add_argument("--across-topology", action="store_true")
     args = parser.parse_args()
     if args.command == "compare":
-        return compare(args.paths)
+        return compare(args.paths, args.across_topology)
     record = run(args)
     Path(args.out).write_text(
         json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1),
