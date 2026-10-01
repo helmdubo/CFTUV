@@ -1031,12 +1031,23 @@ def _scaled_difference_items(
     minus: "SqrtSumV1",
     minus_factor: Fraction,
 ) -> list[tuple[int, int]]:
-    """Ненулевые `(m, a_m)` разности `plus*plus_factor - minus*minus_factor`.
+    """Ненулевые `(m, a_m)` разности `plus*plus_factor - minus*minus_factor`."""
 
-    Величина равна `sum a_m*sqrt(m) / D` при положительном `D`, поэтому знак и
-    ноль читаются из целых `a_m` без единого `Fraction`. Слияние радикандов
-    повторяет `scaled(...) - scaled(...)`: слагаемые `plus` перекрывают друг
-    друга, как в `as_map`, слагаемые `minus` складываются.
+    return _scaled_difference_parts(plus, plus_factor, minus, minus_factor)[1]
+
+
+def _scaled_difference_parts(
+    plus: "SqrtSumV1",
+    plus_factor: Fraction,
+    minus: "SqrtSumV1",
+    minus_factor: Fraction,
+) -> tuple[int, list[tuple[int, int]]]:
+    """`(D, [(m, a_m)])`: `plus*plus_factor - minus*minus_factor = sum a_m*sqrt(m) / D`.
+
+    `D` положительно, поэтому знак и ноль читаются из целых `a_m` без единого
+    `Fraction`; нулевые `a_m` отброшены. Слияние радикандов повторяет
+    `scaled(...) - scaled(...)`: слагаемые `plus` перекрывают друг друга, как в
+    `as_map`, слагаемые `minus` складываются. Множители бывают `int`.
     """
 
     plus_common, plus_items = _integer_form(plus.terms)
@@ -1051,7 +1062,7 @@ def _scaled_difference_items(
         merged[radicand] = numerator * plus_multiplier
     for radicand, numerator in minus_items:
         merged[radicand] = merged.get(radicand, 0) - numerator * minus_multiplier
-    return [(radicand, value) for radicand, value in merged.items() if value]
+    return big, [(radicand, value) for radicand, value in merged.items() if value]
 
 
 def _multiply_integer_items(
@@ -1267,6 +1278,51 @@ class SqrtSumV1:
         if factor == 0:
             return SqrtSumV1(())
         return SqrtSumV1(tuple((m, c * factor) for m, c in self.terms))
+
+    def scaled_difference(
+        self,
+        factor: Fraction | int,
+        other: "SqrtSumV1",
+        other_factor: Fraction | int,
+    ) -> "SqrtSumV1":
+        """`self*factor - other*other_factor` одним проходом.
+
+        Те же члены, тот же тип коэффициента и тот же порядок, что у
+        `self.scaled(factor) - other.scaled(other_factor)`, без двух
+        промежуточных величин и без нормировки дроби на каждом шаге.
+        """
+
+        big, items = _scaled_difference_parts(
+            self, factor, other, other_factor
+        )
+        return SqrtSumV1(
+            tuple(
+                (radicand, Fraction(value, big))
+                for radicand, value in sorted(items)
+            )
+        )
+
+    def difference_sign(
+        self,
+        other: "SqrtSumV1",
+        budget: "ExactWorkBudgetV1 | None" = None,
+    ) -> int:
+        """Знак `self - other`, как у `(self - other).sign(budget=budget)`.
+
+        Фильтр читает знак из целых без промежуточной величины и ведёт счётчики
+        `SIGN_COUNTS` ровно как `sign`; не решив, он их не трогает, и вопрос
+        идёт прежним путём с тем же сопряжением и бюджетом.
+        """
+
+        decided = _filtered_sign(_scaled_difference_parts(self, 1, other, 1)[1])
+        if decided is not None:
+            return decided
+        return (self - other).sign(budget=budget)
+
+    def difference_is_zero(self, other: "SqrtSumV1") -> bool:
+        """`(self - other).is_zero` без самой разности."""
+
+        return not _scaled_difference_parts(self, 1, other, 1)[1]
 
     def __mul__(self, other: "SqrtSumV1") -> "SqrtSumV1":
         """Произведение. `sqrt(a)*sqrt(b) = g*sqrt(a*b/g^2)`, g = gcd(a, b).

@@ -285,8 +285,8 @@ def compare_times(
     )
     if decided is not None:
         return decided
-    difference = right.divisor.scaled(left.dividend) - left.divisor.scaled(
-        right.dividend
+    difference = right.divisor.scaled_difference(
+        left.dividend, left.divisor, right.dividend
     )
     return difference.sign(budget=budget)
 
@@ -496,15 +496,19 @@ def _event_point(
     _named(budget).spend_exact_position_hydrations(
         1, operation=ExactWorkOperationV1.EXACT_POSITION, radicand=first.q
     )
-    right_first = SqrtSumV1.rational(first.c) * time.divisor + SqrtSumV1.radical(
+    right_first = time.divisor.scaled(first.c) + SqrtSumV1.radical(
         time.dividend, first.q, budget
     )
-    right_second = SqrtSumV1.rational(second.c) * time.divisor + SqrtSumV1.radical(
+    right_second = time.divisor.scaled(second.c) + SqrtSumV1.radical(
         time.dividend, second.q, budget
     )
     scale = time.divisor.scaled(determinant)
-    x_numerator = right_first.scaled(second.b) - right_second.scaled(first.b)
-    y_numerator = right_second.scaled(first.a) - right_first.scaled(second.a)
+    x_numerator = right_first.scaled_difference(
+        second.b, right_second, first.b
+    )
+    y_numerator = right_second.scaled_difference(
+        first.a, right_first, second.a
+    )
     if prime_universe is None:
         x = x_numerator.divided_by(scale, budget)
         y = y_numerator.divided_by(scale, budget)
