@@ -31,6 +31,7 @@ class NamedOutcome(str, Enum):
     # (нормаль нулевая): наклон не определён, и сертификат искажения не может
     # его измерить. Закрытый отказ, а не пропуск треугольника.
     NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
+    NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED = "NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED"
     # Сертификату искажения нечего мерить: у владельца нет треугольников
     # поверхности, либо треугольник называет вершину вне патча. Это дефект
     # входа хоста, а не геометрия.

@@ -62,6 +62,7 @@ class MaterializationOutcome(str, Enum):
         "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
     )
     NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE = "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE"
+    NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED = "NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED"
     NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"
     # Точка меша лежит вне проекции ВСЕЙ триангуляции источника: ни один
     # замкнутый треугольник её не накрывает. Не «ближайший треугольник» и не
@@ -74,6 +75,11 @@ class MaterializationOutcome(str, Enum):
     # решётки перестала быть вложением, и укладывать на неё нельзя.
     SURFACE_LIFT_CHART_SNAP_FLIPPED_TRIANGLE = (
         "SURFACE_LIFT_CHART_SNAP_FLIPPED_TRIANGLE"
+    )
+    # Привязка к решётке создала пересечение, касание или схлопывание рёбер
+    # границы: граница перестала быть простой.
+    SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE = (
+        "SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE"
     )
 
 

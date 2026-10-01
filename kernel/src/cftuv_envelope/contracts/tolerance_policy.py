@@ -977,8 +977,13 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "значением). Две ячейки: вершина триангуляции и вершина полигона "
             "покрытия — два независимых округления одной точки (каждое не "
             "больше половины ячейки по оси), расходятся не больше чем на √2 "
-            "ячейки. Измерено: наибольший выход 1.0186 ячейки. Дальше — "
-            "именованный отказ SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION."
+            "ячейки. Ячейка — шаг решётки в ЕДИНИЦАХ КАРТЫ; физически при "
+            "приведённом репере 0.0006-0.067 мм (`building`, `building.004`), "
+            "то есть допуск до 0.13 мм. Измерено: наибольший выход 1.0186 ячейки. Дальше — "
+            "именованный отказ SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION. "
+            "Если допустимых треугольников больше одного, побеждает ближайший по "
+            "ТОЧНОМУ квадрату выхода, равенство решает меньшее имя; оба случая "
+            "считаются и называются в диагностике."
         ),
         authority=(
             "materialize.lift_surface.EXTRAPOLATION_CELL_BOUND; DECISIONS.md "
@@ -991,7 +996,11 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
         changes_topology=False,
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
-        telemetry_counters=("MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS",),
+        telemetry_counters=(
+            "MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS",
+            "MATERIALIZE_SURFACE_LIFT_CONTINUATION_AMBIGUOUS_CANDIDATES",
+            "MATERIALIZE_SURFACE_LIFT_CONTINUATION_EXACT_TIES",
+        ),
         declaration_sites=(
             "cftuv_envelope.materialize.lift_surface.EXTRAPOLATION_CELL_BOUND",
         ),

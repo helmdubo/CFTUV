@@ -1436,6 +1436,29 @@
             }
           ]
         },
+        "first_folded_face_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SourceFaceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "first_folded_triangle_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceTriangleId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "folded_triangle_count": {
+          "type": "integer"
+        },
         "law": {
           "enum": [
             "INTRINSIC_WIDTH_RELATIVE_V1"
@@ -1498,6 +1521,9 @@
         "triangles_measured",
         "degenerate_triangle_count",
         "first_degenerate_triangle_id",
+        "folded_triangle_count",
+        "first_folded_triangle_id",
+        "first_folded_face_id",
         "snapped_source_positions"
       ],
       "type": "object"

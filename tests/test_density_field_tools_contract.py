@@ -811,7 +811,7 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
     ]
     assert literals == [], ast.dump(literals[0]) if literals else ""
 
-    # И потребляемая власть — та самая, у которой все девять имён (три новых —
+    # И потребляемая власть — та самая, у которой все десять имён (четыре новых —
     # исходы сертификата искажения ширины NEAR_PLANAR V2).
     members = _frozenset_members(_module(HOST_EXPORT), "METRIC_STAGE_OUTCOMES")
     assert members == {
@@ -820,6 +820,7 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
         "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
         "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",
         "NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE",
+        "NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED",
         "NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE",
         "GRID_WINDOW_CLOSED",
         "NO_POWER_OF_TWO_STEP_IN_WINDOW",

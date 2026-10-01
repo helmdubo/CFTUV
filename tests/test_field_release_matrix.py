@@ -112,8 +112,8 @@ APPROVED_NAMED_REFUSALS = {
 _CACHE: dict[str, dict] = {}
 
 
-PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
-PIN_FRAME_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_FRAME"
+PIN_LIFT_FLAG = "--pin-lift"
+PIN_FRAME_FLAG = "--pin-frame"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
 LEGACY_FRAME = "CANONICAL_ONLY_V1"
 
@@ -149,9 +149,9 @@ def route(
     cap = WORK_CAP_SECONDS[snapshot]
     environment = dict(os.environ)
     if pin_lift is not None:
-        environment[PIN_LIFT_ENV] = pin_lift
+        command += [PIN_LIFT_FLAG, pin_lift]
     if pin_frame is not None:
-        environment[PIN_FRAME_ENV] = pin_frame
+        command += [PIN_FRAME_FLAG, pin_frame]
     try:
         finished = subprocess.run(
             command,
