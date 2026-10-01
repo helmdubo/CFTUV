@@ -72,10 +72,13 @@ from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
 from .tessellate import (
-    convex_polygon_ring,
+    contour_is_simple,
     convex_quad_ring,
+    counter_clockwise_ring,
     fan_out,
+    has_right_turn,
     triangulate_exact,
+    uv_is_affine_in_chart,
 )
 from .uv_law import uv_direct_strip_v1
 from ..wavefront.faces import doubled_shoelace
@@ -299,6 +302,7 @@ def tessellate_faces(
     law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
     exact_plane: bool = True,
     tally: Counter | None = None,
+    uv_values=None,
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -309,11 +313,16 @@ def tessellate_faces(
     разные треугольники источника, режутся позже (`settle_topology`).
 
     Под `PLANAR_POLYGONS_V1` — `_polygon_law_faces`: `exact_plane` говорит, что
-    укладка домена — точная плоскость (многоугольник плоский по построению), а
-    `tally` собирает названные исходы закона для `settle_topology`.
+    укладка домена — точная плоскость (многоугольник плоский по построению), `tally`
+    собирает названные исходы закона для `settle_topology`, а `uv_values(грань, ключ)`
+    отдаёт точные `(s, r)` вершины в регионе грани: по ним проверяется аффинность UV
+    (`PLANAR_AFFINE_UV_POLYGON_V1`). Без `uv_values` закон не может ничего доказать и
+    отказывает `ValueError`, а не молча берёт грань целой.
     """
 
     if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
+        if uv_values is None:
+            raise ValueError("PLANAR_POLYGONS_V1 needs the exact (s, r) of every vertex")
         return _polygon_law_faces(
             frame_faces,
             cycles,
@@ -321,6 +330,7 @@ def tessellate_faces(
             reverse,
             exact_plane,
             Counter() if tally is None else tally,
+            uv_values,
         )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
@@ -347,7 +357,11 @@ def tessellate_faces(
 
 #: Имена чисел закона `PLANAR_POLYGONS_V1` (они же ключи счётчиков материализатора).
 POLYGON_FACES_EMITTED = "MATERIALIZE_POLYGON_FACES_EMITTED"
-POLYGON_FACES_TRIANGULATED_NOT_CONVEX = "MATERIALIZE_POLYGON_FACES_TRIANGULATED_NOT_CONVEX"
+POLYGON_FACES_CONCAVE_EMITTED = "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED"
+POLYGON_FACES_TRIANGULATED_NOT_SIMPLE = "MATERIALIZE_POLYGON_FACES_TRIANGULATED_NOT_SIMPLE"
+POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE = (
+    "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE"
+)
 CURVED_STRIP_FACES_TRIANGULATED = "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED"
 MERGED_RUNS_SPLIT_AT_RUNGS = "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS"
 MERGED_RUNS_KEPT_WHOLE = "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE"
@@ -381,14 +395,38 @@ def _rung_pieces(frame_face, key_of):
     return pieces
 
 
-def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally):
+def _plane_ring(points, keys, budget, tally, uv_of):
+    """Кольцо грани на точной плоскости (закон `PLANAR_AFFINE_UV_POLYGON_V1`) либо `None` под именем.
+
+    Грань берётся целой, если контур ПРОСТ и UV — аффинная функция положения на
+    карте по всему контуру (оба условия точные). Выпуклость не нужна: любая
+    триангуляция показа даёт ту же поверхность и ту же UV-интерполяцию. Не
+    простой контур — `NOT_SIMPLE`, неаффинный UV — `UV_NOT_AFFINE` (оба —
+    отсечение ушей); правый поворот только пересчитывается (`CONCAVE_EMITTED`).
+    Простота выпуклого контура доказана выше по конвейеру (граница 1) и заново не
+    проверяется: пересечениям нужен правый поворот.
+    """
+
+    ring = counter_clockwise_ring(points, budget)
+    concave = ring is not None and has_right_turn(points, ring, budget)
+    if ring is None or (concave and not contour_is_simple(points, budget)):
+        tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE] += 1
+        return None
+    if not uv_is_affine_in_chart(points, [uv_of(key) for key in keys], budget):
+        tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] += 1
+        return None
+    tally[POLYGON_FACES_CONCAVE_EMITTED] += int(concave)
+    return ring
+
+
+def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
-    плоскости контур от четырёх вершин без правого поворота — одна грань любой
-    длины. На укладке на треугольники источника целым остаётся только строго
-    выпуклое четырёхгранье (его плоскостность решает `settle_topology`), контур
-    длиннее — треугольники и `CURVED_STRIP_FACES_TRIANGULATED`.
+    плоскости контур от четырёх вершин — одна грань любой длины, если он прост и его
+    UV аффинен (`_plane_ring`). На укладке на треугольники источника целым остаётся
+    только строго выпуклое четырёхгранье (его плоскостность решает `settle_topology`),
+    контур длиннее — треугольники и `CURVED_STRIP_FACES_TRIANGULATED`.
     """
 
     points = tuple(point for _key, point in cycle)
@@ -396,15 +434,15 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally):
     owner, area = piece.owner, piece.doubled_area
     if len(points) > 3:
         if exact_plane:
-            ring = convex_polygon_ring(points, budget)
-            refused = POLYGON_FACES_TRIANGULATED_NOT_CONVEX
+            ring = _plane_ring(points, keys, budget, tally, uv_of)
         else:
             ring = convex_quad_ring(points, budget)
-            refused = (
-                QUADS_REFUSED_NOT_CONVEX
-                if len(points) == 4
-                else CURVED_STRIP_FACES_TRIANGULATED
-            )
+            if ring is None:
+                tally[
+                    QUADS_REFUSED_NOT_CONVEX
+                    if len(points) == 4
+                    else CURVED_STRIP_FACES_TRIANGULATED
+                ] += 1
         if ring is not None:
             _closes_the_area(
                 doubled_shoelace(tuple(points[index] for index in ring)),
@@ -414,11 +452,12 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally):
             )
             tally[POLYGON_FACES_EMITTED] += int(len(ring) > 4)
             return (_ring_polygon(keys, ring, reverse),)
-        tally[refused] += 1
     return _triangle_polygons(owner, area, points, keys, budget, reverse)
 
 
-def _polygon_law_faces(frame_faces, cycles, budget, reverse, exact_plane, tally):
+def _polygon_law_faces(
+    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values
+):
     """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — треугольники, ленты — многоугольники.
 
     Слитый пробег режется по перекладинам на грани своих рёбер-источников
@@ -452,7 +491,15 @@ def _polygon_law_faces(frame_faces, cycles, budget, reverse, exact_plane, tally)
         polygons = []
         for part, part_cycle in pieces:
             polygons.extend(
-                _contour_polygons(part, part_cycle, budget, reverse, exact_plane, tally)
+                _contour_polygons(
+                    part,
+                    part_cycle,
+                    budget,
+                    reverse,
+                    exact_plane,
+                    tally,
+                    lambda key, frame_face=frame_face: uv_values(frame_face, key),
+                )
             )
         result.append(tuple(polygons))
     return result
@@ -479,10 +526,10 @@ def _split_reason(polygon, sources):
 def _settle_polygon_law(polygons, sources, tally):
     """`settle_topology` под `PLANAR_POLYGONS_V1`: четырёхгранья по тому же закону, остальное — как собрано.
 
-    Многоугольник длиннее четырёх `_polygon_law_faces` излучает только на точной
-    плоскости, где `sources` — `(None, None)` на каждой вершине; здесь это
-    проверяется, а не предполагается: непланарный многоугольник — отказ, а не
-    молчаливый разрез (у него нет канонического `fan_out`).
+    Многоугольник длиннее четырёх (и невыпуклое четырёхгранье) `_polygon_law_faces`
+    излучает только на точной плоскости, где `sources` — `(None, None)` на каждой
+    вершине; здесь это проверяется, а не предполагается: непланарный многоугольник —
+    отказ, а не молчаливый разрез (у него нет канонического `fan_out`).
     """
 
     split = {"triangles": 0, "normals": 0}
@@ -507,9 +554,14 @@ def _settle_polygon_law(polygons, sources, tally):
         (QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES, split["triangles"]),
         (QUADS_SPLIT_OFFSET_NORMALS_DIFFER, split["normals"]),
         (POLYGON_FACES_EMITTED, tally[POLYGON_FACES_EMITTED]),
+        (POLYGON_FACES_CONCAVE_EMITTED, tally[POLYGON_FACES_CONCAVE_EMITTED]),
         (
-            POLYGON_FACES_TRIANGULATED_NOT_CONVEX,
-            tally[POLYGON_FACES_TRIANGULATED_NOT_CONVEX],
+            POLYGON_FACES_TRIANGULATED_NOT_SIMPLE,
+            tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE],
+        ),
+        (
+            POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE,
+            tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE],
         ),
         (CURVED_STRIP_FACES_TRIANGULATED, tally[CURVED_STRIP_FACES_TRIANGULATED]),
         (MERGED_RUNS_SPLIT_AT_RUNGS, tally[MERGED_RUNS_SPLIT_AT_RUNGS]),

@@ -1,12 +1,14 @@
-"""Закон топологии `PLANAR_POLYGONS_V1`: перекладины слитых пробегов и выпуклые многоугольники лент.
+"""Закон топологии `PLANAR_POLYGONS_V1`: перекладины слитых пробегов и простые многоугольники лент.
 
 Закон меняет СБОРКУ граней и больше ничего: вершины, их ключи, UV, станции,
 цепи, диагностики, семантический дайджест и дайджест нормалей смещения
 побитово те же, что у `TRIANGLES_V1` и `QUAD_STRIPS_V1`; число треугольников как
 сумма `n - 2` по граням — то же. Разложение граней закона в треугольники НЕ
-даёт прежний мультимножество (слитый пробег режется по перекладинам, а не
+даёт прежнее мультимножество (слитый пробег режется по перекладинам, а не
 триангулируется целиком), поэтому ворота здесь другие: точное замыкание
-площади каждой грани, точная выпуклость, допустимая триангуляция каждого
+площади каждой грани, точная простота контура и аффинность UV (допуск
+`PLANAR_AFFINE_UV_POLYGON_V1`: тогда любая триангуляция показа даёт ту же
+поверхность и ту же UV-интерполяцию), допустимая триангуляция каждого
 многоугольника по точным точкам, плоскостность в 3D, сумма `n - 2`.
 """
 
@@ -29,8 +31,10 @@ from cftuv_envelope.materialize.assemble import (
     CURVED_STRIP_FACES_TRIANGULATED,
     MERGED_RUNS_KEPT_WHOLE,
     MERGED_RUNS_SPLIT_AT_RUNGS,
+    POLYGON_FACES_CONCAVE_EMITTED,
     POLYGON_FACES_EMITTED,
-    POLYGON_FACES_TRIANGULATED_NOT_CONVEX,
+    POLYGON_FACES_TRIANGULATED_NOT_SIMPLE,
+    POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE,
     QUADS_REFUSED_NOT_CONVEX,
     settle_topology,
     tessellate_faces,
@@ -44,9 +48,13 @@ from cftuv_envelope.materialize.coalesce import (
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.tessellate import (
+    contour_is_simple,
     convex_polygon_ring,
     convex_quad_ring,
+    counter_clockwise_ring,
+    has_right_turn,
     triangulate_exact,
+    uv_is_affine_in_chart,
 )
 from cftuv_envelope.validation import validate_geometry_batch
 from cftuv_envelope.wavefront.faces import doubled_shoelace
@@ -77,7 +85,9 @@ LAW_NUMBERS = frozenset(
         "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
         "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER",
         POLYGON_FACES_EMITTED,
-        POLYGON_FACES_TRIANGULATED_NOT_CONVEX,
+        POLYGON_FACES_CONCAVE_EMITTED,
+        POLYGON_FACES_TRIANGULATED_NOT_SIMPLE,
+        POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE,
         CURVED_STRIP_FACES_TRIANGULATED,
         MERGED_RUNS_SPLIT_AT_RUNGS,
         MERGED_RUNS_KEPT_WHOLE,
@@ -163,8 +173,100 @@ def test_a_strictly_convex_quad_has_the_same_ring_under_both_predicates():
 
 
 # --------------------------------------------------------------------------
+# Предикаты допуска: простота контура и аффинность UV
+# --------------------------------------------------------------------------
+
+
+def _affine_map(points):
+    """Точные `(s, r) = (x + 2y, 3x - y)` по вершинам: аффинная функция положения на карте."""
+
+    return [
+        (x + y.scaled(Fraction(2)), x.scaled(Fraction(3)) - y) for x, y in points
+    ]
+
+
+NOTCHED = ((0, 0), (6, 0), (6, 3), (4, 3), (3, 1), (2, 3), (0, 3))
+SELF_CROSSING = ((0, 0), (4, 0), (0, 4), (4, 4), (2, 6))
+
+
+def test_counter_clockwise_ring_follows_the_sign_of_the_area_and_a_zero_area_has_none():
+    assert counter_clockwise_ring(_points(NOTCHED), BUDGET()) == tuple(range(7))
+    assert counter_clockwise_ring(_points(NOTCHED[::-1]), BUDGET()) == tuple(range(6, -1, -1))
+    assert counter_clockwise_ring(_points(((0, 0), (1, 0), (2, 0), (3, 0))), BUDGET()) is None
+
+
+def test_a_right_turn_is_named_on_a_notched_ring_and_absent_on_a_convex_one():
+    notched = _points(NOTCHED)
+    convex = _points(HEXAGON)
+    assert has_right_turn(notched, counter_clockwise_ring(notched, BUDGET()), BUDGET())
+    assert not has_right_turn(convex, counter_clockwise_ring(convex, BUDGET()), BUDGET())
+
+
+@pytest.mark.parametrize("clockwise", (False, True))
+def test_a_notched_contour_is_simple_and_a_self_crossing_one_is_not(clockwise):
+    notched = NOTCHED[::-1] if clockwise else NOTCHED
+    assert contour_is_simple(_points(notched), BUDGET())
+    assert not contour_is_simple(_points(SELF_CROSSING), BUDGET())
+    assert not contour_is_simple(_points(((0, 0), (1, 0), (2, 0), (3, 0))), BUDGET())
+
+
+def test_an_affine_uv_is_accepted_by_any_choice_of_the_three_base_vertices():
+    # Первые три вершины на одной прямой: база берётся из следующих неколлинеарных.
+    raw = ((0, 0), (2, 0), (4, 0), (4, 3), (0, 3))
+    points = _points(raw)
+    values = _affine_map(points)
+    assert uv_is_affine_in_chart(points, values, BUDGET())
+    assert uv_is_affine_in_chart(points[::-1], values[::-1], BUDGET())
+    assert uv_is_affine_in_chart(_points(NOTCHED), _affine_map(_points(NOTCHED)), BUDGET())
+
+
+@pytest.mark.parametrize("component", (0, 1))
+@pytest.mark.parametrize("index", (0, 2, 3, 4))
+def test_one_vertex_off_the_affine_map_makes_the_uv_not_affine(index, component):
+    points = _points(((0, 0), (2, 0), (4, 0), (4, 3), (0, 3)))
+    values = _affine_map(points)
+    broken = list(values)
+    shifted = list(broken[index])
+    shifted[component] = shifted[component] + SqrtSumV1.rational(Fraction(1, 1000000))
+    broken[index] = tuple(shifted)
+    assert not uv_is_affine_in_chart(points, broken, BUDGET())
+
+
+def test_the_affine_check_is_exact_on_irrational_chart_coordinates():
+    root = SqrtSumV1.radical(1, Fraction(2), BUDGET())
+    zero = SqrtSumV1.zero()
+    half = Fraction(1, 2)
+    points = (
+        (zero, zero),
+        (root, zero),
+        (root, root),
+        (root.scaled(half), root),
+        (zero, root),
+    )
+    values = _affine_map(points)
+    assert uv_is_affine_in_chart(points, values, BUDGET())
+    values[3] = (values[3][0] + root.scaled(Fraction(1, 1000)), values[3][1])
+    assert not uv_is_affine_in_chart(points, values, BUDGET())
+
+
+def test_points_on_one_line_are_not_an_affine_map():
+    points = _points(((0, 0), (1, 0), (2, 0), (3, 0)))
+    assert not uv_is_affine_in_chart(points, _affine_map(points), BUDGET())
+
+
+# --------------------------------------------------------------------------
 # tessellate_faces под законом
 # --------------------------------------------------------------------------
+
+
+def _uv(*cycles):
+    """`uv_values` закона: аффинные `(s, r)` по ключам вершин (тесселяция читает только их)."""
+
+    values = {}
+    for cycle in cycles:
+        for (key, _point), value in zip(cycle, _affine_map([point for _key, point in cycle])):
+            values[key] = value
+    return lambda frame_face, key: values[key]
 
 
 def _frame(points, *, fan=False, parts=()):
@@ -177,11 +279,18 @@ def _frame(points, *, fan=False, parts=()):
     return SimpleNamespace(is_fan=fan, face=face), tuple(zip(keys, points))
 
 
-def _shape(points, *, reverse=False, exact_plane=True, fan=False):
+def _shape(points, *, reverse=False, exact_plane=True, fan=False, uv=None):
     frame, cycle = _frame(points, fan=fan)
     tally = Counter()
     polygons = tessellate_faces(
-        [frame], [cycle], BUDGET(), reverse, POLYGONS, exact_plane, tally
+        [frame],
+        [cycle],
+        BUDGET(),
+        reverse,
+        POLYGONS,
+        exact_plane,
+        tally,
+        uv if uv is not None else _uv(cycle),
     )
     return polygons[0], tally, cycle
 
@@ -206,7 +315,7 @@ def test_a_convex_hexagon_strip_is_one_face_on_an_exact_plane(clockwise, reverse
     polygons, tally, cycle = _shape(points, reverse=reverse)
     assert [len(item) for item in polygons] == [6]
     assert tally[POLYGON_FACES_EMITTED] == 1
-    assert not tally[POLYGON_FACES_TRIANGULATED_NOT_CONVEX]
+    assert not tally[POLYGON_FACES_CONCAVE_EMITTED]
     keys = tuple(key for key, _point in cycle)
     ring = keys if not clockwise else keys[::-1]
     # Первая вершина сохранена, обход — против часовой либо (при `reverse`) обратный.
@@ -228,12 +337,62 @@ def test_a_four_point_strip_with_a_straight_vertex_stays_one_face():
     _exact_triangulation_is_valid(points)
 
 
-def test_a_notched_strip_is_ear_clipped_and_named_not_convex():
-    raw = ((0, 0), (6, 0), (6, 3), (4, 3), (3, 1), (2, 3), (0, 3))
+@pytest.mark.parametrize("reverse", (False, True))
+@pytest.mark.parametrize("clockwise", (False, True))
+def test_a_notched_strip_is_one_concave_face_when_it_is_simple_and_its_uv_is_affine(
+    clockwise, reverse
+):
+    points = _points(NOTCHED[::-1] if clockwise else NOTCHED)
+    polygons, tally, cycle = _shape(points, reverse=reverse)
+    assert [len(item) for item in polygons] == [7]
+    assert tally[POLYGON_FACES_EMITTED] == 1 and tally[POLYGON_FACES_CONCAVE_EMITTED] == 1
+    assert not tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE]
+    assert not tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE]
+    keys = tuple(key for key, _point in cycle)
+    ring = keys if not clockwise else keys[::-1]
+    assert polygons[0] == ((ring[0], *reversed(ring[1:])) if reverse else ring)
+    _exact_triangulation_is_valid(points)
+
+
+def test_a_concave_quad_on_an_exact_plane_is_one_face_too():
+    dart = _points(((0, 0), (4, 0), (1, 1), (0, 4)))
+    polygons, tally, _cycle = _shape(dart)
+    assert [len(item) for item in polygons] == [4]
+    assert tally[POLYGON_FACES_CONCAVE_EMITTED] == 1 and not tally[POLYGON_FACES_EMITTED]
+    frame, cycle = _frame(dart)
+    quads = tessellate_faces([frame], [cycle], BUDGET(), False, QUADS)
+    assert [len(item) for item in quads[0]] == [3, 3]
+
+
+@pytest.mark.parametrize("raw", (NOTCHED, HEXAGON))
+def test_a_non_affine_uv_makes_the_strip_ear_clipped_and_named(raw):
     points = _points(raw)
-    polygons, tally, _cycle = _shape(points)
-    assert [len(item) for item in polygons] == [3] * 5
-    assert tally[POLYGON_FACES_TRIANGULATED_NOT_CONVEX] == 1
+    frame, cycle = _frame(points)
+    clean = _uv(cycle)
+
+    def bent(face, key):
+        s, r = clean(face, key)
+        return (s + SqrtSumV1.rational(Fraction(1)), r) if key == "k3" else (s, r)
+
+    polygons, tally, _cycle = _shape(points, uv=bent)
+    assert [len(item) for item in polygons] == [3] * (len(points) - 2)
+    assert tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
+    assert not tally[POLYGON_FACES_EMITTED] and not tally[POLYGON_FACES_CONCAVE_EMITTED]
+
+
+def test_a_self_crossing_contour_is_named_not_simple_and_never_emitted_whole():
+    points = _points(SELF_CROSSING)
+    frame, cycle = _frame(points)
+    tally = Counter()
+    try:
+        polygons = tessellate_faces(
+            [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
+        )
+    except MaterializationRefusal as refusal:
+        assert refusal.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
+    else:
+        assert all(len(item) == 3 for item in polygons[0])
+    assert tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE] == 1
     assert not tally[POLYGON_FACES_EMITTED]
 
 
@@ -266,7 +425,9 @@ def test_an_area_that_does_not_close_is_a_named_refusal_for_a_polygon():
     frame, cycle = _frame(points)
     frame.face.doubled_area = frame.face.doubled_area + SqrtSumV1.rational(Fraction(1))
     with pytest.raises(MaterializationRefusal) as refusal:
-        tessellate_faces([frame], [cycle], BUDGET(), False, POLYGONS)
+        tessellate_faces(
+            [frame], [cycle], BUDGET(), False, POLYGONS, True, None, _uv(cycle)
+        )
     assert refusal.value.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
     assert "polygon areas differ" in refusal.value.detail
 
@@ -323,7 +484,9 @@ def test_a_merged_run_is_cut_back_into_the_faces_of_its_source_edges():
     left, right, merged = _run()
     frame, cycle = _merged_frame(merged)
     tally = Counter()
-    polygons = tessellate_faces([frame], [cycle], BUDGET(), False, POLYGONS, True, tally)[0]
+    polygons = tessellate_faces(
+        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
+    )[0]
     assert [len(item) for item in polygons] == [4, 4]
     assert tally[MERGED_RUNS_SPLIT_AT_RUNGS] == 1 and not tally[MERGED_RUNS_KEPT_WHOLE]
     key = {point_key(point): name for name, point in cycle}
@@ -338,8 +501,9 @@ def test_a_merged_run_is_cut_back_into_the_faces_of_its_source_edges():
     shared = {(a, b) for a, b in edges[0] if (b, a) in edges[1]}
     assert len(shared) == 1
     # Без частей тот же контур — один шестиугольник (вершины на прямой — в нём).
+    plain, plain_cycle = _frame(merged.points)
     whole = tessellate_faces(
-        [_frame(merged.points)[0]], [_frame(merged.points)[1]], BUDGET(), False, POLYGONS
+        [plain], [plain_cycle], BUDGET(), False, POLYGONS, True, None, _uv(plain_cycle)
     )[0]
     assert [len(item) for item in whole] == [6]
 
@@ -348,7 +512,9 @@ def test_a_run_whose_rung_holds_a_vertex_the_merged_contour_lacks_stays_whole_an
     _left, right, merged = _run()
     frame, cycle = _merged_frame(merged, drop=right.points[3])
     tally = Counter()
-    polygons = tessellate_faces([frame], [cycle], BUDGET(), False, POLYGONS, True, tally)[0]
+    polygons = tessellate_faces(
+        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
+    )[0]
     assert tally[MERGED_RUNS_KEPT_WHOLE] == 1 and not tally[MERGED_RUNS_SPLIT_AT_RUNGS]
     assert [len(item) for item in polygons] == [len(cycle)]
 
@@ -360,7 +526,9 @@ def test_the_parts_of_a_run_must_add_up_to_its_area():
     )
     frame, cycle = _merged_frame(broken)
     with pytest.raises(MaterializationRefusal) as refusal:
-        tessellate_faces([frame], [cycle], BUDGET(), False, POLYGONS)
+        tessellate_faces(
+            [frame], [cycle], BUDGET(), False, POLYGONS, True, None, _uv(cycle)
+        )
     assert refusal.value.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
     assert "run part areas differ" in refusal.value.detail
 
@@ -544,20 +712,26 @@ def test_no_polygon_of_the_law_is_non_planar(name):
 
 
 @pytest.mark.parametrize("name", sorted(DOMAINS) + sorted(SURFACE))
-def test_every_polygon_of_the_law_is_exactly_convex_and_has_a_valid_exact_triangulation(
+def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_valid_triangulation(
     name, monkeypatch
 ):
-    """Точные ворота: по контурам СЛИТЫХ граней, не по float-позициям батча."""
+    """Точные ворота: по контурам СЛИТЫХ граней и точным `(s, r)`, не по float-позициям батча."""
 
     captured = {}
     real = domain.settle_topology
+    real_tessellate = domain.tessellate_faces
 
     def spy(frame_faces, cycles, polygons, sources, law, tally=None):
         settled, numbers = real(frame_faces, cycles, polygons, sources, law, tally)
         captured["cycles"], captured["polygons"] = cycles, settled
         return settled, numbers
 
+    def spy_tessellate(frame_faces, cycles, budget, **kwargs):
+        captured["frames"], captured["uv"] = frame_faces, kwargs["uv_values"]
+        return real_tessellate(frame_faces, cycles, budget, **kwargs)
+
     monkeypatch.setattr(domain, "settle_topology", spy)
+    monkeypatch.setattr(domain, "tessellate_faces", spy_tessellate)
     if name in SURFACE:
         prepared, coverage, request = _near_planar_on_surface(*SURFACE[name])
         extra = {"near_planar_lift_law": ON_SURFACE}
@@ -575,13 +749,26 @@ def test_every_polygon_of_the_law_is_exactly_convex_and_has_a_valid_exact_triang
     point_of = {key: point for cycle in captured["cycles"] for key, point in cycle}
     final = [polygon for face in captured["polygons"] for polygon in face]
     assert [tuple(key.value for key in face.ordered_vert_keys) for face in result.batch.faces] == final
-    for polygon in final:
-        points = tuple(point_of[key] for key in polygon)
-        _exact_triangulation_is_valid(points)
-        if len(points) > 3 and name not in SURFACE:
-            assert convex_polygon_ring(points, BUDGET()) is not None
-        if len(points) > 4:
-            assert name not in SURFACE
+    concave = 0
+    for frame, face_polygons in zip(captured["frames"], captured["polygons"]):
+        for polygon in face_polygons:
+            points = tuple(point_of[key] for key in polygon)
+            _exact_triangulation_is_valid(points)
+            if len(points) > 4:
+                assert name not in SURFACE
+            if len(points) < 4:
+                continue
+            ring = counter_clockwise_ring(points, BUDGET())
+            assert contour_is_simple(points, BUDGET())
+            # Другая тройка базовых вершин, чем у закона: проверка не повторяет его выбор.
+            values = [captured["uv"](frame, key) for key in polygon]
+            assert uv_is_affine_in_chart(points[::-1], values[::-1], BUDGET())
+            if has_right_turn(points, ring, BUDGET()):
+                assert name not in SURFACE
+                concave += 1
+            elif name not in SURFACE:
+                assert convex_polygon_ring(points, BUDGET()) is not None
+    assert concave == dict(result.counters)[POLYGON_FACES_CONCAVE_EMITTED]
 
 
 def test_a_chain_of_two_source_edges_is_two_quads_and_not_one_six_gon_or_four_triangles():
@@ -639,6 +826,35 @@ def test_the_polygon_law_over_the_corpus_changes_only_the_assembly_of_faces():
             assert _uv_by_region_and_vertex(batch) == _uv_by_region_and_vertex(left[0])
             seen.update(len(item.ordered_vert_keys) for item in batch.faces)
     assert seen[4] > 0
+
+
+def test_a_concave_strip_of_the_corpus_is_one_face_and_changes_nothing_else(monkeypatch):
+    """`double_notch` на alpha 3/2: фронт соседа вырезает полосу — контур невыпуклый, а грань одна."""
+
+    from cftuv_envelope.materialize import assemble
+
+    real = assemble.tessellate_faces
+    tally = Counter()
+
+    def spy(*args, **kwargs):
+        kwargs["tally"] = tally
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(assemble, "tessellate_faces", spy)
+    polygon = dict(named_corpus())["double_notch"]
+    alpha = Fraction(3, 2)
+    left = factories.assemble_polygon_batch(polygon, alpha, law=TRIANGLES)[0]
+    assert not +tally
+    batch = factories.assemble_polygon_batch(polygon, alpha, law=POLYGONS)[0]
+    assert tally[POLYGON_FACES_CONCAVE_EMITTED] == 1
+    assert not tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE]
+    assert not tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE]
+    assert validate_geometry_batch(batch) == ()
+    assert audit_batch(batch, NORMAL).problems() == ()
+    assert batch.vertices == left.vertices and batch.semantic_digest == left.semantic_digest
+    assert sum(len(item.ordered_vert_keys) - 2 for item in batch.faces) == len(left.faces)
+    assert _uv_by_region_and_vertex(batch) == _uv_by_region_and_vertex(left)
+    assert len(batch.faces) < len(left.faces)
 
 
 # --------------------------------------------------------------------------

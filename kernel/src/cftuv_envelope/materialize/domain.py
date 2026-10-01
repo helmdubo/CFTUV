@@ -22,8 +22,9 @@
    гранью (веера, невыпуклые и слитые пробеги — треугольники, и каждый такой
    случай назван счётчиком); под `PLANAR_POLYGONS_V1` слитый пробег режется по
    перекладинам обратно в грани рёбер-источников, а лента на точной плоскости
-   остаётся одним выпуклым многоугольником любой длины (невыпуклый контур —
-   отсечение ушей под своим счётчиком, веера — треугольники);
+   остаётся одним многоугольником любой длины, выпуклым или нет, если контур
+   прост и UV в нём аффинен по положению на карте (`PLANAR_AFFINE_UV_POLYGON_V1`,
+   точно; иначе отсечение ушей под своим счётчиком), веера — треугольники;
 7. подъём вершин (по одному разу) и закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1`
    (`settle_topology`): четырёхгранья, лёгшие на разные треугольники источника
    либо смещаемые по разным нормалям (развёртка), режутся каноническим `fan_out`,
@@ -483,6 +484,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         law=law,
         exact_plane=_on_exact_plane(admission),
         tally=tally,
+        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
