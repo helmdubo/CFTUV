@@ -791,12 +791,12 @@ def test_the_operator_is_register_only_and_names_why_undo_is_dropped():
 # --------------------------------------------------------------------------
 
 
-def test_the_host_asks_for_quad_strips_and_its_names_are_the_kernels():
+def test_the_host_asks_for_planar_polygons_and_its_names_are_the_kernels():
     from cftuv.surface_ir import HOST_DECAL_TOPOLOGY_POLICY, HostDecalTopologyPolicy
     from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 
-    assert HOST_DECAL_TOPOLOGY_POLICY is HostDecalTopologyPolicy.QUAD_STRIPS_V1
-    assert production.PRODUCTION_TOPOLOGY_LAW == "QUAD_STRIPS_V1"
+    assert HOST_DECAL_TOPOLOGY_POLICY is HostDecalTopologyPolicy.PLANAR_POLYGONS_V1
+    assert production.PRODUCTION_TOPOLOGY_LAW == "PLANAR_POLYGONS_V1"
     assert {item.value for item in HostDecalTopologyPolicy} == {
         item.value for item in DecalTopologyLawV1
     }
@@ -812,21 +812,24 @@ def _arities(result):
 def test_a_produced_domain_is_built_under_the_host_topology_law_and_names_it():
     prepared = _prepared_domain()
 
-    quads = produce_domain(2, "domain", prepared, "0.25")
+    polygons = produce_domain(2, "domain", prepared, "0.25")
+    quads = produce_domain(2, "domain", prepared, "0.25", topology_law="QUAD_STRIPS_V1")
     triangles = produce_domain(2, "domain", prepared, "0.25", topology_law="TRIANGLES_V1")
 
+    assert polygons.decal_topology_law == "PLANAR_POLYGONS_V1" and 4 in _arities(polygons)
     assert quads.decal_topology_law == "QUAD_STRIPS_V1" and 4 in _arities(quads)
     assert triangles.decal_topology_law == "TRIANGLES_V1" and _arities(triangles) == {3}
     # Закон меняет сборку граней и больше ничего: вершины, смысл, число треугольников.
-    assert quads.batch.vertices == triangles.batch.vertices
-    assert quads.batch.semantic_digest == triangles.batch.semantic_digest
-    assert quads.content_digest != triangles.content_digest
-    assert dict(quads.counters)["MATERIALIZE_TRIANGLES"] == dict(triangles.counters)[
-        "MATERIALIZE_TRIANGLES"
-    ]
-    assert dict(quads.counters)["MATERIALIZE_QUADS"] > 0
-    assert quads.normal == triangles.normal
-    assert quads != triangles
+    for other in (polygons, quads):
+        assert other.batch.vertices == triangles.batch.vertices
+        assert other.batch.semantic_digest == triangles.batch.semantic_digest
+        assert other.content_digest != triangles.content_digest
+        assert dict(other.counters)["MATERIALIZE_TRIANGLES"] == dict(triangles.counters)[
+            "MATERIALIZE_TRIANGLES"
+        ]
+        assert dict(other.counters)["MATERIALIZE_QUADS"] > 0
+        assert other.normal == triangles.normal
+        assert other != triangles
     with pytest.raises(ValueError, match="unknown decal topology law"):
         produce_domain(2, "domain", prepared, "0.25", topology_law="SOMETHING_ELSE")
 
@@ -858,14 +861,14 @@ def test_the_pool_task_carries_the_law_and_a_task_of_the_old_shape_still_reads()
     assert reply.production == produce_domain(
         4, "domain", prepared, "0.25", topology_law="TRIANGLES_V1"
     )
-    assert solve_task(task).production.decal_topology_law == "QUAD_STRIPS_V1"
+    assert solve_task(task).production.decal_topology_law == "PLANAR_POLYGONS_V1"
     bad = dataclasses.replace(
         task, production=ProductionInputV1(blob, PRODUCTION_UV_POLICY, "SOMETHING_ELSE")
     )
     assert not solve_task(bad).ok
 
 
-@pytest.mark.parametrize("law", ("QUAD_STRIPS_V1", "TRIANGLES_V1"))
+@pytest.mark.parametrize("law", ("PLANAR_POLYGONS_V1", "QUAD_STRIPS_V1", "TRIANGLES_V1"))
 def test_the_law_reaches_the_parent_and_the_pool_workers_alike(
     law, monkeypatch, _pool_always
 ):
@@ -880,7 +883,7 @@ def test_the_law_reaches_the_parent_and_the_pool_workers_alike(
     assert {item.decal_topology_law for item in run.results} == {law}
     assert {item.decal_topology_law for item in expected.results} == {law}
     assert (4 in {size for item in run.results for size in _arities(item)}) == (
-        law == "QUAD_STRIPS_V1"
+        law != "TRIANGLES_V1"
     )
 
 
@@ -889,7 +892,7 @@ def test_a_press_uses_the_host_law_by_default_and_refuses_an_unknown_one():
 
     run, _ = _production(bundle)
 
-    assert {item.decal_topology_law for item in run.results} == {"QUAD_STRIPS_V1"}
+    assert {item.decal_topology_law for item in run.results} == {"PLANAR_POLYGONS_V1"}
     with pytest.raises(ValueError, match="unknown decal topology law"):
         _production(bundle, topology_law="SOMETHING_ELSE")
 
@@ -904,11 +907,25 @@ def test_the_json_row_names_the_law_and_its_counters(tmp_path):
     rows = json.loads(summary.read_text(encoding="utf-8"))["domains"]
     materialized = [item for item in rows if "batch_file" in item]
     assert materialized
-    assert {item["decal_topology_law"] for item in materialized} == {"QUAD_STRIPS_V1"}
+    assert {item["decal_topology_law"] for item in materialized} == {"PLANAR_POLYGONS_V1"}
     assert all(item["counters"]["MATERIALIZE_QUADS"] > 0 for item in materialized)
-    # Грани закона — треугольники и четырёхгранья: каждое четырёхгранье стоит двух треугольников.
+    # Числа закона названы поимённо (причина каждого оставшегося треугольника видна в строке).
+    assert all(
+        {
+            "MATERIALIZE_POLYGON_FACES_EMITTED",
+            "MATERIALIZE_POLYGON_FACES_TRIANGULATED_NOT_CONVEX",
+            "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
+            "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
+            "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE",
+        }
+        <= set(item["counters"])
+        and "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED" not in item["counters"]
+        for item in materialized
+    )
+    # Грани закона — треугольники, четырёхгранья и многоугольники: сумма `n - 2` не меньше
+    # числа граней плюс четырёхгранья (каждое стоит двух треугольников, многоугольник — больше).
     assert all(
         item["counters"]["MATERIALIZE_TRIANGLES"]
-        == item["counters"]["MATERIALIZE_FACES_EMITTED"] + item["counters"]["MATERIALIZE_QUADS"]
+        >= item["counters"]["MATERIALIZE_FACES_EMITTED"] + item["counters"]["MATERIALIZE_QUADS"]
         for item in materialized
     )
