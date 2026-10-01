@@ -8157,3 +8157,9 @@ EXACT на воротах при 8 воркерах: patch 3 0.57, 19 9.23 (по
 ключи `EVALUATION_SUBTURN_LIFT_PREDICATES` == все значения `EvaluationGeometrySubturnCountLiftLawV1`.
 ВОРОТА. Равенство ответа d1/d2 против `baseline_18d7197.json`: единственный дифф patch 17 d2, неоплаченной работы 0; d4 против 97e5856: ответный дифф РОВНО patch 3 / 19 / 20 / 99, и все 122 ответа d4
 побитово равны прогону 267b0e7 (IDENTICAL); 12 доменов меша `2` EXACT, реплей материализации 16/16 MATERIALIZED, замечаний батча 0.
+
+**2026-10-02** — D4-TIGHT-FAN-LIFT ПОДТВЕРЖДЁН В ПОЛЕ (владелец, Blender 4.5,
+2dfb6f3, Fan Density 4): `building` 121/122 (было 117; остался только patch 89
+near-planar), стена пула 28.2 → 15.8 с; меш `2` 32/32 (было 20/32), стена
+12.1 → 6.9 с — отказывавшие домены прежде прожигали 96 уточнений коробки до
+отказа. Decal-меш: `building` MATERIALIZED 121, `2` MATERIALIZED 32 / refused 0.
