@@ -7,6 +7,7 @@ from enum import Enum
 from fractions import Fraction
 from math import gcd, isfinite
 
+from ..numeric import CertifiedDecimalIntervalV1
 from ..ids import (
     ReferenceMetricId,
     LineageId,
@@ -36,6 +37,10 @@ class PlanarityAdmissionLawV1(str, Enum):
     # ниже по конвейеру арифметика остаётся точной, приблизительным является
     # только выбор входа, и он записан в сертификате.
     NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
+    # Источник не плоский и не near-planar, но он РАЗВЁРТЫВАЕТСЯ: карта — не
+    # проекция на плоскость, а привязанная к решётке шарнирная развёртка по
+    # дереву смежности, и судит её растяжение (`DevelopableStretchCertificateV1`).
+    DEVELOPABLE_UNFOLD_V1 = "DEVELOPABLE_UNFOLD_V1"
 
 
 class GridSnappingLawV1(str, Enum):
@@ -372,6 +377,13 @@ class AffineFrameSelectionLawV1(str, Enum):
     REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1 = (
         "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
     )
+    # Репер КАРТЫ развёртки: начало нуль, `A = e_x / S'`, `B = e_y / S'`, Грам
+    # `I / S'^2`, где `S'` — масштаб карты (`DevelopableUnfoldCertificateV1.
+    # chart_scale`). Это обычный `RationalAffinePlanarMetricV2` над плоскостью КАРТЫ
+    # (`z = 0`): `origin + u·A + v·B` восстанавливает точку карты, а не точку
+    # источника — источник развёрнут, а не расположен в этой плоскости. Закон
+    # записывается ТОЛЬКО у домена с сертификатом развёртки.
+    UNFOLDED_DEVELOPMENT_FRAME_V1 = "UNFOLDED_DEVELOPMENT_FRAME_V1"
 
 
 class NearPlanarFramePolicyV1(str, Enum):
@@ -922,6 +934,273 @@ class NearPlanarProjectionCertificateV1:
             )
 
 
+class CurvatureLadderPolicyV1(str, Enum):
+    """Лестница метрики по кривизне: что пробуют ПОСЛЕ именованного отказа near-planar.
+
+    Политика ВЫЗЫВАЮЩЕГО, как политика укладки: в метрику не пишется, пишется
+    закон, который применён (`planarity_certificate`). Лестница одна и
+    однонаправленная: EXACT -> NEAR_PLANAR -> DEVELOPABLE. Развёртка пробуется
+    ТОЛЬКО после отказа near-planar по ширине, перевороту треугольника или
+    вложению проекции, поэтому домен, принятый сегодня, не перемаршрутизируется
+    и его байты прежние.
+    """
+
+    NEAR_PLANAR_ONLY_V1 = "NEAR_PLANAR_ONLY_V1"
+    NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1 = "NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1"
+
+
+class DevelopableUnfoldTreeLawV1(str, Enum):
+    """Какое дерево смежности разворачивается: корень и обход названы законом.
+
+    Корень — треугольник владельца с наименьшим значением `SurfaceTriangleId`;
+    обход — в ширину, соседи берутся по порядку номеров сторон `0, 1, 2`
+    (нумерация ядра: сторона `i` — пара `(v[i], v[i+1])`). Шарнир по стороне
+    родителя кладёт третью вершину ребёнка по другую сторону стороны.
+    """
+
+    CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1 = "CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1"
+
+
+class DevelopableProposalLawV1(str, Enum):
+    """Чем считается ПРЕДЛОЖЕНИЕ карты. Предложение — не власть: судит растяжение.
+
+    Шарнирная развёртка в binary64 с фиксированным порядком операций над
+    рациональными квадратами длин: вершина получает ОДНУ позицию при первом
+    достижении (сварка), затем все позиции привязываются к решётке карты.
+    Невязка веера недевелопабельной вершины и шум привязки попадают в растяжение
+    треугольников, а не молча исчезают.
+    """
+
+    BINARY64_HINGE_V1 = "BINARY64_HINGE_V1"
+
+
+class DevelopableStretchLawV1(str, Enum):
+    """Чем судится растяжение: сингулярные числа `G_s^-1 G_c` без корней.
+
+    Для треугольника с рациональным Грамом источника `G_s` и целочисленным
+    Грамом карты `G_c` линейное отображение источник -> карта имеет квадраты
+    сингулярных чисел, равные корням `q(λ) = det(G_c - λ G_s)`. Корни лежат в
+    `[1/(1+b)^2, (1+b)^2]` тогда и только тогда, когда `q(l) >= 0`, `q(u) >= 0`
+    и `l <= tr(G_s^-1 G_c)/2 <= u`: три знака рациональных чисел, ни корня, ни
+    допуска вычисления.
+    """
+
+    EXACT_GRAM_SINGULAR_VALUE_BAND_V1 = "EXACT_GRAM_SINGULAR_VALUE_BAND_V1"
+
+
+class DevelopableLiftLawV1(str, Enum):
+    """Куда ложится меш развёрнутого домена: только на треугольники источника."""
+
+    UNFOLDED_SOURCE_TRIANGLES_V1 = "UNFOLDED_SOURCE_TRIANGLES_V1"
+
+
+class DevelopableFanClosureLawV1(str, Enum):
+    """Чем получен ярлык вершины: классификация, а не суд.
+
+    `EXACT_PLANAR_CLOSED_FAN_V1` — веер замкнут и ТОЧНО компланарен: сумма
+    углов равна `2π` по построению. `CERTIFIED_INTERVAL_ENCLOSURE_V1` —
+    сертифицированная оболочка суммы отделена от `2π`. `EXACT_FAN_CLOSURE_SQRT_SUM_V1`
+    — оболочка содержит `2π`, замкнутость решает точный знак: `Π(P_i + i√H_i)`,
+    `P_i = A_i + B_i - C_i`, `H_i = 4 A_i B_i - P_i^2`, вещественно и положительно
+    тогда и только тогда, когда сумма углов `≡ 0 (mod 2π)`; мнимая часть — элемент
+    `SqrtSumV1`, и ярлык ставится по его оболочке в 256 бит либо по каноническому
+    нулю. `FAN_CLOSURE_UNDECIDED_V1` — веер длиннее объявленного либо оболочка
+    не разделила знак, либо бюджет точной работы кончился; ярлык
+    `UNDECIDED_WORK_BUDGET`, домен при этом судит растяжение, а не ярлык.
+    """
+
+    EXACT_PLANAR_CLOSED_FAN_V1 = "EXACT_PLANAR_CLOSED_FAN_V1"
+    CERTIFIED_INTERVAL_ENCLOSURE_V1 = "CERTIFIED_INTERVAL_ENCLOSURE_V1"
+    EXACT_FAN_CLOSURE_SQRT_SUM_V1 = "EXACT_FAN_CLOSURE_SQRT_SUM_V1"
+    FAN_CLOSURE_UNDECIDED_V1 = "FAN_CLOSURE_UNDECIDED_V1"
+
+
+class VertexDevelopabilityClassV1(str, Enum):
+    """Ярлык внутренней вершины развёрнутого домена. Судит растяжение, не ярлык.
+
+    Решение владельца (2026-10-03): внутренняя вершина с ДОКАЗАННЫМ `≠ 2π`,
+    растяжение которой в бюджете, принимается с ярлыком `NEAR_DEVELOPABLE` —
+    ровно как near-planar принимает наклон в бюджете.
+    """
+
+    EXACT_DEVELOPABLE = "EXACT_DEVELOPABLE"
+    NEAR_DEVELOPABLE = "NEAR_DEVELOPABLE"
+    UNDECIDED_WORK_BUDGET = "UNDECIDED_WORK_BUDGET"
+
+
+DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 50)
+"""Допуск растяжения развёртки: 2 % относительно. Точная дробь.
+
+Решение ВЛАДЕЛЬЦА (`DECISIONS.md`, 2026-10-03, «КРИВИЗНА, СТУПЕНЬ 2: S1»): тот же
+бюджет `1/50`, что у near-planar, и по той же причине — относительное свойство
+поверхности, а не сантиметры. Условие приёма: все квадраты сингулярных чисел
+отображения источник -> карта лежат в `[1/(1+b)^2, (1+b)^2]`, то есть длина вдоль
+поверхности относится к длине на карте как число из `[1/(1+b), 1+b]` (двусторонне:
+развёртка и сжимает, и растягивает, в отличие от проекции).
+
+Допуск владеет ЯДРО: его читают построитель (судить), валидатор (пересчитать) и
+записывает сертификат.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopableStretchCertificateV1:
+    """Растяжение треугольников источника в карту: точный суд, числа записаны.
+
+    `triangles_outside_budget` — сколько невырожденных в карте треугольников
+    не прошли точное условие приёма, `first_outside_triangle_id` — первый по
+    имени. `worst_triangle_id` и `worst_band_squared_upper` называют худший
+    треугольник и СЕРТИФИЦИРОВАННУЮ верхнюю границу `max(λ_max, 1/λ_min)` — число,
+    которое читается, но не судит: суд — точный предикат, граница считается
+    целочисленным корнем. Треугольник карты с нулевой площадью не имеет конечной
+    границы, поэтому считается отдельно (`chart_degenerate_triangle_count`) и
+    всегда вне бюджета. `chart_flipped_triangle_count` — треугольники с обратным
+    обходом карты (знак площади против обхода источника, точно на целых).
+    """
+
+    law: DevelopableStretchLawV1
+    stretch_budget: ExactRationalV1
+    triangles_measured: int
+    triangles_outside_budget: int
+    first_outside_triangle_id: SurfaceTriangleId | None
+    worst_triangle_id: SurfaceTriangleId | None
+    worst_band_squared_upper: ExactRationalV1
+    chart_degenerate_triangle_count: int
+    chart_flipped_triangle_count: int
+    first_flipped_triangle_id: SurfaceTriangleId | None
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.triangles_measured,
+            self.triangles_outside_budget,
+            self.chart_degenerate_triangle_count,
+            self.chart_flipped_triangle_count,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("stretch counts must be non-negative")
+        if self.triangles_outside_budget > self.triangles_measured:
+            raise ValueError("an outside-budget triangle is a measured triangle")
+        if self.chart_flipped_triangle_count > self.triangles_measured:
+            raise ValueError("a flipped triangle is a measured triangle")
+        if (self.first_outside_triangle_id is None) != (
+            self.triangles_outside_budget == 0
+        ):
+            raise ValueError(
+                "an outside-budget triangle is named exactly when one was counted"
+            )
+        if (self.first_flipped_triangle_id is None) != (
+            self.chart_flipped_triangle_count == 0
+        ):
+            raise ValueError(
+                "a flipped triangle is named exactly when one was counted"
+            )
+        if self.stretch_budget.numerator <= 0:
+            raise ValueError("the stretch budget is positive")
+        band = Fraction(
+            self.worst_band_squared_upper.numerator,
+            self.worst_band_squared_upper.denominator,
+        )
+        if band < 1:
+            raise ValueError("the worst squared band is at least one")
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopableVertexClassV1:
+    """Ярлык внутренней вершины: оболочка суммы углов, закон и размер веера."""
+
+    vertex_id: SourceVertexId
+    developability_class: VertexDevelopabilityClassV1
+    closure_law: DevelopableFanClosureLawV1
+    angle_sum_enclosure: CertifiedDecimalIntervalV1
+    fan_triangle_count: int
+
+    def __post_init__(self) -> None:
+        if self.fan_triangle_count < 3:
+            raise ValueError("a closed fan has at least three triangles")
+        undecided = (
+            self.developability_class
+            is VertexDevelopabilityClassV1.UNDECIDED_WORK_BUDGET
+        )
+        law_undecided = (
+            self.closure_law is DevelopableFanClosureLawV1.FAN_CLOSURE_UNDECIDED_V1
+        )
+        if undecided != law_undecided:
+            raise ValueError(
+                "the undecided class and the undecided closure law come together"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopableUnfoldCertificateV1:
+    """Запись о том, что домен РАЗВЁРНУТ: дерево, предложение, растяжение, ярлыки.
+
+    Карта домена — обычный `RationalAffinePlanarMetricV2` с репером развёртки
+    (`AffineFrameSelectionLawV1.UNFOLDED_DEVELOPMENT_FRAME_V1`): начало нуль,
+    `A = e_x/S'`, `B = e_y/S'`. Координаты вершин — целые точки решётки карты
+    (`chart_scale = S'`, решётка очереди — единица), так что очередь видит
+    только граничные петли и семена в этих координатах, а поверхность источника
+    видит только материализатор, через `snapped_source_positions`.
+
+    `exact_plane_normal` — нормаль плоскости КАРТЫ (`(0, 0, 1)`), а не какой-либо
+    плоскости источника: у развёрнутого источника плоскости нет. Поле оставлено,
+    чтобы запись читалась теми же проводными проверками, что и два других
+    сертификата.
+
+    `previous_refusals` — имена отказов near-planar, после которых пробовалась
+    развёртка (`ladder_trace`): запись говорит, ПОЧЕМУ домен здесь, а не на
+    ступень ниже. `snapped_vertex_count` и `snap_residual` — сколько вершин
+    сдвинула привязка карты к решётке и наибольшее смещение по оси в единицах
+    решётки.
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    admission_law: PlanarityAdmissionLawV1
+    exact: bool
+    exact_plane_normal: ExactVector3V1
+    source_vertex_ids: frozenset[SourceVertexId]
+    reconstruction_law: AffineReconstructionLawV1
+    tree_law: DevelopableUnfoldTreeLawV1
+    proposal_law: DevelopableProposalLawV1
+    lift_law: DevelopableLiftLawV1
+    root_triangle_id: SurfaceTriangleId
+    chart_scale: int
+    chart_scale_trials: int
+    stretch: DevelopableStretchCertificateV1
+    proposal_worst_band_squared_upper: ExactRationalV1
+    snapped_vertex_count: int
+    snap_residual: ExactRationalV1
+    vertex_classes: frozenset[DevelopableVertexClassV1]
+    boundary_loop_count: int
+    chart_boundary_overlap_count: int
+    previous_refusals: tuple[str, ...]
+    snapped_source_positions: frozenset[SnappedSourcePositionV1]
+
+    def __post_init__(self) -> None:
+        if self.exact:
+            raise ValueError("DevelopableUnfoldCertificateV1 describes a non-exact chart")
+        if self.admission_law is not PlanarityAdmissionLawV1.DEVELOPABLE_UNFOLD_V1:
+            raise ValueError(
+                "DevelopableUnfoldCertificateV1 requires DEVELOPABLE_UNFOLD_V1"
+            )
+        if self.chart_scale <= 0 or self.chart_scale_trials <= 0:
+            raise ValueError("the chart scale and its trial count are positive")
+        if (
+            self.snapped_vertex_count < 0
+            or self.boundary_loop_count < 0
+            or self.chart_boundary_overlap_count < 0
+        ):
+            raise ValueError("unfold counts must be non-negative")
+        if self.snapped_vertex_count > len(self.source_vertex_ids):
+            raise ValueError("a snapped vertex is a source vertex")
+        classified = {item.vertex_id for item in self.vertex_classes}
+        if len(classified) != len(self.vertex_classes):
+            raise ValueError("a vertex is classified once")
+        if not classified <= self.source_vertex_ids:
+            raise ValueError("a classified vertex is a source vertex")
+
+
 @dataclass(frozen=True, slots=True)
 class RationalAffinePlanarMetricV2:
     reference_metric_id: ReferenceMetricId
@@ -938,7 +1217,9 @@ class RationalAffinePlanarMetricV2:
     chart_orientation: AffineChartOrientationV1
     frame_selection_law: AffineFrameSelectionLawV1
     planarity_certificate: (
-        ExactSourcePlaneCertificateV1 | NearPlanarProjectionCertificateV1
+        ExactSourcePlaneCertificateV1
+        | NearPlanarProjectionCertificateV1
+        | DevelopableUnfoldCertificateV1
     )
     source_lineage: frozenset[LineageId]
     grid_certificate: IntegerGridCertificateV1

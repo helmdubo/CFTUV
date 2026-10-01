@@ -97,6 +97,7 @@ class TolerancePolicyIdV1(str, Enum):
     NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1 = (
         "NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1"
     )
+    DEVELOPABLE_STRETCH_RELATIVE_V1 = "DEVELOPABLE_STRETCH_RELATIVE_V1"
     SURFACE_LIFT_EXTRAPOLATION_CELLS_V1 = "SURFACE_LIFT_EXTRAPOLATION_CELLS_V1"
     NEAR_PLANAR_REPRESENTATION_NOISE_V1 = "NEAR_PLANAR_REPRESENTATION_NOISE_V1"
     AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
@@ -168,6 +169,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     """
 
     NEAR_PLANAR_ADMISSION = "NEAR_PLANAR_ADMISSION"
+    DEVELOPABLE_ADMISSION = "DEVELOPABLE_ADMISSION"
     SURFACE_LIFT_POINT_LOCATION = "SURFACE_LIFT_POINT_LOCATION"
     NEAR_PLANAR_CERTIFICATE_RECOMPUTATION = (
         "NEAR_PLANAR_CERTIFICATE_RECOMPUTATION"
@@ -192,6 +194,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     """
 
     ADMIT_OR_REJECT_PROJECTION = "ADMIT_OR_REJECT_PROJECTION"
+    ADMIT_OR_REJECT_UNFOLDED_CHART = "ADMIT_OR_REJECT_UNFOLDED_CHART"
     EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND = "EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND"
     RECOMPUTE_DECLARED_CERTIFICATE_ONLY = "RECOMPUTE_DECLARED_CERTIFICATE_ONLY"
     ADMIT_OR_REJECT_GRID_SCALE = "ADMIT_OR_REJECT_GRID_SCALE"
@@ -960,6 +963,49 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_near_planar_width_distortion.py"
             "::test_a_steep_slope_is_beyond_the_width_budget_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.DEVELOPABLE_STRETCH_RELATIVE_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 50)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Во сколько раз длина вдоль поверхности источника вправе отличаться от "
+            "длины на привязанной к решётке карте развёртки, В ОБЕ СТОРОНЫ: `1 + b`, "
+            "`b = 1/50`. Условие приёма развёртки: оба квадрата сингулярных чисел "
+            "отображения треугольник источника -> треугольник карты лежат в "
+            "`[1/(1+b)^2, (1+b)^2]`, что решается тремя знаками рациональных "
+            "чисел (корни `det(G_c - lambda G_s)`), без корней и допуска "
+            "вычисления. Невязка веера недевелопабельной вершины и шум привязки "
+            "решётки карты входят в растяжение, а не обходят его. Относительный "
+            "допуск свойства поверхности, а не сантиметры."
+        ),
+        authority=(
+            "DevelopableStretchLawV1.EXACT_GRAM_SINGULAR_VALUE_BAND_V1; DECISIONS.md "
+            "2026-10-03 (КРИВИЗНА, СТУПЕНЬ 2: S1 DEVELOPABLE_UNFOLDED_V1, тот же "
+            "бюджет, что у near-planar)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.DEVELOPABLE_ADMISSION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.ADMIT_OR_REJECT_UNFOLDED_CHART
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=(
+            "cftuv_envelope.contracts.metric.DEVELOPABLE_STRETCH_BUDGET",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_unfold.py"
+            "::test_a_gentle_bevel_is_within_the_stretch_budget"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_unfold.py"
+            "::test_a_cone_with_an_interior_apex_is_beyond_the_stretch_budget_by_name"
         ),
     ),
     TolerancePolicyV1(
