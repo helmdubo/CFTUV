@@ -71,6 +71,7 @@ from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
+from .offset_normal import OFFSET_NORMAL_LAW
 from .lift_surface import surface_lift_of
 from .stations import chain_station_table, source_chain_by_span
 from .uv_law import UV_DIRECT_STRIP_V1
@@ -91,6 +92,11 @@ class MaterializationV1:
     diagnostics: tuple[str, ...]
     #: sha256 канонических байтов ПОЛНОГО батча (с триангуляцией). Пусто у отказа.
     content_digest: str
+    #: Нормаль смещения КАЖДОЙ вершины батча (`vert_key`, единичная нормаль) у домена
+    #: развёртки, по закону `offset_normal_law`; у плоского и near-planar домена пусто:
+    #: там одна нормаль плоскости на домен. В дайджест батча не входит.
+    vertex_normals: tuple = ()
+    offset_normal_law: str = ""
 
     @property
     def is_materialized(self) -> bool:
@@ -165,6 +171,14 @@ def _diagnostics(
             (),
             _near_planar_numbers(certificate, onto_surface, lift_note),
         )
+    if planarity is PlanarityKind.DEVELOPABLE_UNFOLDED:
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES,
+            "domain",
+            (),
+            _developable_numbers(prepared.context.frame.planarity_certificate, lift_note),
+        )
     for chain_id in sorted(table.restart_chain_ids):
         add(
             GeometryDiagnosticSeverity.WARNING,
@@ -210,6 +224,33 @@ def _near_planar_numbers(certificate, onto_surface: bool, lift_note: str) -> str
         f"max_residual_squared={number(certificate.max_residual_squared):.6g} "
         f"(recorded, not judging; residual_budget="
         f"{number(certificate.residual_budget):.6g}) {lift_note}"
+    )
+
+
+def _developable_numbers(certificate, lift_note: str) -> str:
+    """Числа диагностики развёртки: растяжение (то, чем судят), ярлыки, привязка карты."""
+
+    def number(value) -> float:
+        return value.numerator / value.denominator
+
+    stretch = certificate.stretch
+    classes = {}
+    for item in certificate.vertex_classes:
+        classes[item.developability_class.value] = (
+            classes.get(item.developability_class.value, 0) + 1
+        )
+    labels = " ".join(f"{name}={classes[name]}" for name in sorted(classes)) or "none"
+    return (
+        f"worst_band_squared<={number(stretch.worst_band_squared_upper):.9g} "
+        f"stretch_budget={number(stretch.stretch_budget):.6g} "
+        f"triangles_measured={stretch.triangles_measured} "
+        f"chart_scale={certificate.chart_scale} "
+        f"chart_scale_trials={certificate.chart_scale_trials} "
+        f"proposal_snapped_vertices={certificate.snapped_vertex_count} "
+        f"proposal_snap_residual_cells={number(certificate.snap_residual):.6g} "
+        f"interior_vertices[{labels}] "
+        f"previous_refusals={list(certificate.previous_refusals)} "
+        f"offset_normal_law={OFFSET_NORMAL_LAW} {lift_note}"
     )
 
 
@@ -305,6 +346,7 @@ class _Built(NamedTuple):
     region_count: int
     dropped_names: int
     lift_counters: tuple = ()
+    lift: object = None
 
 
 def _counters(built: _Built, budget):
@@ -423,7 +465,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
         ),
     )
     clock.lap("ASSEMBLE")
-    return batch, frame_faces, plane.counters()
+    return batch, frame_faces, plane.counters(), plane
 
 
 def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
@@ -436,7 +478,7 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
     lines: list[str] = []
     notes: list[str] = []
     try:
-        batch, frame_faces, lift_counters = _assemble(
+        batch, frame_faces, lift_counters, lift = _assemble(
             prepared, coverage, request, admission, budget, clock,
             (items, table, lines, notes),
         )
@@ -461,6 +503,7 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
         len(prepared.regions),
         len(notes),
         lift_counters,
+        lift,
     )
 
 
@@ -522,7 +565,16 @@ def materialize_domain(
     batch = built.batch
     issues = validate_geometry_batch(batch)
     clock.lap("VALIDATE")
-    audit = audit_batch(batch, _source_normal(prepared))
+    offset_normals = (
+        built.lift.offset_normals(batch.vertices)
+        if getattr(built.lift, "has_offset_normals", False)
+        else ()
+    )
+    audit = (
+        audit_batch(batch, _source_normal(prepared), dict(offset_normals))
+        if offset_normals
+        else audit_batch(batch, _source_normal(prepared))
+    )
     clock.lap("AUDIT")
     counters = _counters(built, budget) + audit.counters()
     if issues:
@@ -552,4 +604,6 @@ def materialize_domain(
         timings=tuple(clock.marks),
         diagnostics=built.lines,
         content_digest=digest,
+        vertex_normals=offset_normals,
+        offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",
     )

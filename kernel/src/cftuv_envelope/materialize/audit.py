@@ -71,8 +71,13 @@ def _cross(a, b, c):
     return (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
 
 
-def audit_batch(batch, source_normal) -> BatchAuditV1:
-    """Свойства сетки батча. `source_normal` — нормаль исходной грани (`x, y, z`)."""
+def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
+    """Свойства сетки батча. `source_normal` — нормаль исходной грани (`x, y, z`).
+
+    `vertex_normals` — `{vert_key.value: нормаль смещения}` у домена развёртки: на сгибе
+    нет ОДНОЙ нормали исходной грани, и «смотрит против источника» меряется против
+    среднего нормалей вершин самой грани сетки. У плоского домена не передаётся.
+    """
 
     position = {item.vert_key: item.position for item in batch.vertices}
     directed: Counter = Counter()
@@ -84,10 +89,17 @@ def audit_batch(batch, source_normal) -> BatchAuditV1:
         for index in range(3):
             directed[(keys[index], keys[(index + 1) % 3])] += 1
         normal = _cross(*(position[key] for key in keys))
+        reference = (
+            source_normal
+            if not vertex_normals
+            else tuple(
+                sum(vertex_normals[key.value][axis] for key in keys) for axis in range(3)
+            )
+        )
         facing = (
-            normal[0] * source_normal[0]
-            + normal[1] * source_normal[1]
-            + normal[2] * source_normal[2]
+            normal[0] * reference[0]
+            + normal[1] * reference[1]
+            + normal[2] * reference[2]
         )
         flipped += int(facing <= 0.0)
         uv = [fact.uv for fact in face.uv_facts]

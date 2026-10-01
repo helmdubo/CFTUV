@@ -30,6 +30,7 @@ from .contracts.metric import (
     ExactMatrix2V1,
     ExactPoint3V1,
     ExactRationalV1,
+    DevelopableUnfoldCertificateV1,
     ExactSourcePlaneCertificateV1,
     ExactVector3V1,
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
@@ -61,6 +62,10 @@ from ._metric_wire import (
     metric_normal_wire_rejection_message,
 )
 from .numeric import LocalPoint3V1
+from .validation_developable import (
+    check_developable_certificate,
+    validate_developable_recomputation,
+)
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
@@ -421,6 +426,7 @@ def validate_rational_affine_planar_metric(
     if metric.frame_selection_law not in (
         AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1,
         AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1,
+        AffineFrameSelectionLawV1.UNFOLDED_DEVELOPMENT_FRAME_V1,
     ):
         add_issue(
             issues,
@@ -450,6 +456,8 @@ def validate_rational_affine_planar_metric(
             )
     elif type(certificate) is NearPlanarProjectionCertificateV1:
         _check_near_planar_certificate(issues, certificate_path, metric)
+    elif type(certificate) is DevelopableUnfoldCertificateV1:
+        check_developable_certificate(issues, certificate_path, metric)
     else:
         # Ниже сертификат читается по полям, которых у неизвестного типа может
         # не быть вовсе. Разбор кончается здесь названным отказом, а не
@@ -468,6 +476,17 @@ def validate_rational_affine_planar_metric(
             fraction_point3(metric.exact_basis_b),
         )
         return tuple(issues)
+    if (
+        metric.frame_selection_law
+        is AffineFrameSelectionLawV1.UNFOLDED_DEVELOPMENT_FRAME_V1
+    ) is not (type(certificate) is DevelopableUnfoldCertificateV1):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("frame_selection_law",),
+            "the unfolded development frame belongs to the developable "
+            "certificate and to no other",
+        )
     basis_a = fraction_point3(metric.exact_basis_a)
     basis_b = fraction_point3(metric.exact_basis_b)
     normal = fraction_cross3(basis_a, basis_b)
@@ -860,11 +879,10 @@ def _check_embedding_metric_identity_authority(
             "reference metric ID differs from deterministic source recomputation",
         )
     certificate = metric.planarity_certificate
-    kind = (
-        "exact-source-plane"
-        if type(certificate) is ExactSourcePlaneCertificateV1
-        else "near-planar-projection"
-    )
+    kind = {
+        ExactSourcePlaneCertificateV1: "exact-source-plane",
+        DevelopableUnfoldCertificateV1: "developable-unfold",
+    }.get(type(certificate), "near-planar-projection")
     expected_certificate_id = _stable_id(
         kind,
         metric.source_revision.value,
@@ -973,6 +991,17 @@ def validate_metric_against_source(
     сертификат искажения ширины пересчитывается из треугольников снапшота.
     """
 
+    if type(metric.planarity_certificate) is DevelopableUnfoldCertificateV1:
+        # Карта развёртки не восстанавливает позиции источника аффинно: она ЕГО
+        # развёртка. Вместо сверки `origin + u*A + v*B` карта и сертификат строятся
+        # заново из треугольников снапшота и сравниваются на равенство.
+        return validate_developable_recomputation(
+            metric,
+            source_vertices=snapshot.source_vertices,
+            source_faces=snapshot.surface_ir.source_faces,
+            surface_triangles=snapshot.surface_ir.surface_triangles,
+            owner_patch_id=owner_patch_id,
+        )
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
     origin = fraction_point3(metric.exact_origin)
@@ -1018,6 +1047,77 @@ def validate_metric_against_source(
     return tuple(issues)
 
 
+def _validate_developable_embedding_record(
+    issues,
+    path,
+    record,
+    faces,
+    positions,
+    *,
+    source_vertices,
+    source_faces,
+    surface_triangles,
+    owner_patch_id,
+):
+    """Обёртка с картой развёртки: решётка источника пересчитана, карта - заново.
+
+    Проекции нет (`near_planar_projection_embedding_certificate` - `None`), нормали
+    плоскости источника нет; доказательство вложения - растяжение, переворот и
+    простая граница в самом сертификате, пересчитываемом из треугольников.
+    """
+
+    from .source_grid import resolve_source_grid
+
+    metric = record.metric
+    grid = resolve_source_grid(
+        positions=dict(positions),
+        faces=faces,
+        snapping_law=metric.grid_certificate.snapping_law,
+        enforce_embedding=False,
+    )
+    if grid.certificate != metric.grid_certificate:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("metric", "grid_certificate"),
+            "grid certificate differs from exact source recomputation",
+        )
+    if grid.source_snap_embedding_certificate != record.source_snap_embedding_certificate:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("source_snap_embedding_certificate",),
+            "source-snap embedding certificate differs from exact recomputation",
+        )
+    for outcome in source_snap_violations(grid.source_snap_embedding_certificate):
+        _embedding_issue(issues, path + ("source_snap_embedding_certificate",), outcome)
+    if record.near_planar_projection_embedding_certificate is not None:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("near_planar_projection_embedding_certificate",),
+            "an unfolded chart has no projection embedding certificate",
+        )
+    if surface_triangles is None:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            "an unfolded chart cannot be recomputed without surface triangles",
+        )
+    else:
+        issues.extend(
+            validate_developable_recomputation(
+                metric,
+                source_vertices=source_vertices,
+                source_faces=source_faces,
+                surface_triangles=surface_triangles,
+                owner_patch_id=owner_patch_id,
+            )
+        )
+    return tuple(issues)
+
+
 def validate_embedding_certified_rational_affine_planar_metric(
     record: EmbeddingCertifiedRationalAffinePlanarMetricV1,
     *,
@@ -1054,6 +1154,18 @@ def validate_embedding_certified_rational_affine_planar_metric(
         expected_patch_domain_id=expected_patch_domain_id,
         expected_source_lineage=expected_source_lineage,
     )
+    if type(record.metric.planarity_certificate) is DevelopableUnfoldCertificateV1:
+        return _validate_developable_embedding_record(
+            issues,
+            path,
+            record,
+            faces,
+            positions,
+            source_vertices=source_vertices,
+            source_faces=source_faces,
+            surface_triangles=surface_triangles,
+            owner_patch_id=owner_patch_id,
+        )
     grid, normal, off_plane, expected_coordinates, sign = (
         _recompute_embedding_inputs(
             issues, path, record, faces, required_ids, positions

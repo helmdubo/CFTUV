@@ -133,12 +133,13 @@ def quarter_cylinder(segments=16, radius=1.0, height=1.0):
 def cone(sides=8, radius=1.0, rise=0.5, *, boundary_apex: bool):
     """Конус: веер треугольников вокруг вершины `apex`.
 
-    `boundary_apex=True` — веер РАЗОМКНУТ (сектор в 270°, вершина на границе
-    домена); иначе замкнут (вершина внутри, полная сумма углов меньше `2π`).
+    `boundary_apex=True` — веер РАЗОМКНУТ (сектор в 120° плана, вершина на границе
+    домена, угол развёртки при ней меньше развёрнутого); иначе замкнут (вершина
+    внутри, полная сумма углов меньше `2π`).
     """
 
     points = {"apex": (0.0, 0.0, rise)}
-    sweep = 1.5 * math.pi if boundary_apex else 2.0 * math.pi
+    sweep = 2.0 * math.pi / 3.0 if boundary_apex else 2.0 * math.pi
     count = sides + 1 if boundary_apex else sides
     for k in range(count):
         theta = sweep * k / sides

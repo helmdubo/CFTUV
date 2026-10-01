@@ -11,6 +11,15 @@ from math import gcd, isfinite
 from .ids import SymbolicScalarId
 
 
+class PlaneNormalUndefinedError(ValueError):
+    """Нормаль Ньюэлла нулевая: полигоны патча не задают плоскость.
+
+    Потомок `ValueError` с тем же текстом: прежние вызывающие не видят разницы, а
+    лестница метрики отличает этот отказ от прочих `ValueError` и пробует развёртку
+    (замкнутая колонна даёт нулевую сумму векторов площади).
+    """
+
+
 def canonical_primitive_normal(vector):
     """Каноническая примитивная форма нормали: целые, gcd = 1, знак объявлен.
 
@@ -41,7 +50,9 @@ def canonical_primitive_normal(vector):
     for item in integers:
         divisor = gcd(divisor, abs(item))
     if divisor == 0:
-        raise ValueError("patch polygons do not define a non-zero plane normal")
+        raise PlaneNormalUndefinedError(
+            "patch polygons do not define a non-zero plane normal"
+        )
     integers = [item // divisor for item in integers]
     if next(item for item in integers if item) < 0:
         integers = [-item for item in integers]
