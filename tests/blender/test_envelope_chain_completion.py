@@ -36,6 +36,7 @@ for module_name in tuple(sys.modules):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_envelope_debug_bridge import (  # noqa: E402
     REQUIRED_LAYERS,
+    _budget_refused_second_patch_offset,
     _build_two_patch_multi_edge_seam,
     _build_two_patch_seam,
     _enter_edge_selection,
@@ -152,14 +153,14 @@ def _run_one_edge_of_a_two_edge_chain_builds_both_sides():
 
 def _run_refused_domain_gets_a_contour_and_a_name():
     _reset_scene()
-    # 1e-2, а НЕ 1e-3: половина ячейки привязки источника на этом патче крупнее
-    # тысячной, и отклонение в 1e-3 привязка кладёт в плоскость точно — домен
-    # проходит, и отказу, который надо нарисовать, взяться неоткуда. Число
-    # измерено, а не подобрано: тот же порог держит
-    # `test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap`.
+    # Подъём — общий с `_run_staged_metric_rejection_smoke` и выведен из
+    # продуктового бюджета, а не записан литералом: прежний 1e-2 после
+    # решения владельца от 2026-08-01 (допуск 1.25 см) лёг внутрь допуска,
+    # оба домена дошли до покрытия, и отказу, который надо нарисовать, стало
+    # неоткуда взяться.
     source_obj = _build_two_patch_seam(
         nonplanar_second_patch=True,
-        second_patch_offset=0.01,
+        second_patch_offset=_budget_refused_second_patch_offset(),
     )
 
     assert (
@@ -177,8 +178,10 @@ def _run_refused_domain_gets_a_contour_and_a_name():
     # Стадия и исход — разные величины: стадия говорит, ГДЕ домен встал, исход —
     # ЧЕМ он отказал. В штрих обязаны попасть оба.
     assert refused_receipts[0]["stage"] == "METRIC_REJECTED", refused_receipts
+    # Имя бюджета, а не прежнее сведённое `RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED`:
+    # хост объявляет near-planar политику, и отказывает ему бюджет невязки.
     outcome = refused_receipts[0]["outcome"]
-    assert outcome == "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED", (
+    assert outcome == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", (
         refused_receipts[0]
     )
 

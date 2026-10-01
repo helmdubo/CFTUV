@@ -766,7 +766,7 @@ def test_host_adapter_never_calls_exact_arithmetic_without_a_budget():
         source = _source_text(path)
         if "cftuv_envelope" not in source:
             continue
-        module = str(path.relative_to(REPO_ROOT))
+        module = _relative(path)
         for _, name, lineno in ban.unbudgeted_sites_in_source(source, module):
             grouped.setdefault((module, name), []).append(lineno)
 

@@ -157,6 +157,27 @@ def _build_two_patch_seam(
     return obj
 
 
+def _budget_refused_second_patch_offset():
+    """Подъём второго патча, который near-planar ОТВЕРГАЕТ под действующим законом.
+
+    Выводится из `PRODUCT_SKIRT_ABSOLUTE_BUDGET`, а не пишется литералом.
+    Литерал 1e-2 пережил решение владельца от 2026-08-01 (допуск 1.25 см), тихо
+    лёг внутрь допуска, и оба смока отказа перестали его упражнять, продолжая
+    ждать: домен строился до `RESOLVED`, а утверждение падало на отсутствии
+    стадии, ничего не говоря о причине.
+
+    Измерено на этом квадре в Blender 4.3: невязка от подобранной плоскости —
+    половина подъёма (3e-2 → 1.50e-2, 5e-2 → 2.50e-2, 1e-1 → 4.99e-2), поэтому
+    граница бюджета лежит около двух бюджетов подъёма, а четыре бюджета дают
+    двукратный запас над ней. Снизу порог держит привязка источника (половина
+    ячейки), сверху — бюджет; это по-прежнему два разных числа.
+    """
+
+    from cftuv_envelope.contracts.metric import PRODUCT_SKIRT_ABSOLUTE_BUDGET
+
+    return 4 * float(PRODUCT_SKIRT_ABSOLUTE_BUDGET)
+
+
 def _build_two_patch_multi_edge_seam():
     """Два патча, шов между ними разбит вершиной на ДВА коллинеарных ребра.
 
@@ -640,13 +661,13 @@ def _run_topology_only_smoke():
 
 def _run_staged_metric_rejection_smoke():
     _reset_scene()
-    # 1e-2, а не прежние 1e-3: `SOURCE_ONLY_GRID_SNAP_V1` привязывает вершины
-    # источника ДО проверки планарности, и всё ближе половины ячейки ложится в
-    # плоскость ТОЧНО — на тысячной отвергать стало нечего. Тот же порог держит
-    # `test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap`.
+    # Подъём выведен из продуктового бюджета: снизу его подпирает привязка
+    # источника (`test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap`),
+    # сверху — `PRODUCT_SKIRT_ABSOLUTE_BUDGET`; оба прежних литерала (1e-3, 1e-2)
+    # по очереди легли внутрь того, что конвейер прощает.
     source_obj = _build_two_patch_seam(
         nonplanar_second_patch=True,
-        second_patch_offset=0.01,
+        second_patch_offset=_budget_refused_second_patch_offset(),
     )
     assert (
         bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
@@ -657,10 +678,19 @@ def _run_staged_metric_rejection_smoke():
     ]
     assert len(json.loads(gp_obj["patch_domain_ids"])) == 2
     receipts = json.loads(gp_obj["stage_receipts"])
-    assert len(receipts) == 2
-    assert {item["stage"] for item in receipts} >= {
+    # Ровно один домен отвергнут и ровно один построен: отвергнутый не пропал,
+    # а встал на ступени метрики под именем своей причины.
+    assert sorted(item["stage"] for item in receipts) == [
         "METRIC_REJECTED",
-    }
+        "RESOLVED",
+    ], receipts
+    rejected = [
+        item for item in receipts if item["stage"] == "METRIC_REJECTED"
+    ]
+    assert rejected[0]["outcome"] == "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED", (
+        rejected
+    )
+    assert "PRODUCT_SKIRT_ABSOLUTE_V1" in rejected[0]["message"], rejected
     assert all(
         layer in {_layer_name(item) for item in gp_obj.data.layers}
         for layer in {
