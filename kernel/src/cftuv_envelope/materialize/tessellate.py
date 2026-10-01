@@ -29,6 +29,14 @@
 влево на кольце против часовой. Строгость точная, под бюджетом, тем же
 предикатом `orientation`: прямой угол вершины (плоский, `0`) и невыпуклая
 вершина (`< 0`) одинаково выводят контур из закона.
+
+МНОГОУГОЛЬНИК. Закон `PLANAR_POLYGONS_V1` оставляет целым контур любой длины от
+четырёх, у которого нет ПРАВОГО поворота (`convex_polygon_ring`): повороты `>= 0`,
+площадь не нуль. Вершина на прямой допустима — она несёт T-стык соседней грани, а
+потерять её значило бы дать дыру; триангуляция такого контура (`triangulate_exact`)
+всё равно даёт `n - 2` треугольников, каждый невырожденный. Простота контура
+доказана выше по конвейеру (граница 1), поэтому «нет правых поворотов» здесь
+означает выпуклость, а не звезду.
 """
 
 from __future__ import annotations
@@ -138,6 +146,32 @@ def convex_quad_ring(points, budget):
             budget,
         )
         if turn <= 0:
+            return None
+    return ring
+
+
+def convex_polygon_ring(points, budget):
+    """Кольцо индексов против часовой, если контур из `>= 4` точек выпуклый (вершины на прямой допускаются).
+
+    Иначе `None`: меньше четырёх точек, нулевая площадь либо хоть один поворот
+    строго вправо. Знаки точные, под бюджетом (`orientation`).
+    """
+
+    count = len(points)
+    if count < 4:
+        return None
+    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    if total == 0:
+        return None
+    ring = tuple(range(count)) if total > 0 else tuple(range(count - 1, -1, -1))
+    for position in range(count):
+        turn = orientation(
+            points[ring[position - 1]],
+            points[ring[position]],
+            points[ring[(position + 1) % count]],
+            budget,
+        )
+        if turn < 0:
             return None
     return ring
 

@@ -715,7 +715,9 @@ def test_without_the_law_the_split_quad_would_be_non_planar(monkeypatch):
     """Отрицательный контроль: проверка плоскостности видит то, от чего закон бережёт."""
 
     monkeypatch.setattr(
-        domain, "settle_topology", lambda ff, cy, polygons, sources, law: (polygons, ())
+        domain,
+        "settle_topology",
+        lambda ff, cy, polygons, sources, law, tally=None: (polygons, ()),
     )
     prepared, coverage, request = _near_planar_on_surface("1")
     quads = materialize_domain(

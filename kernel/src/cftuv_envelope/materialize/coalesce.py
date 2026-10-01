@@ -51,7 +51,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 
 from ..wavefront.coverage import coverage_at
@@ -125,6 +125,10 @@ class CoveredFaceV1:
     source_chain_id: str | None = None
     #: Владельцы граней, слитых в ЭТОТ контур. Пусто — грань не сливалась.
     merged_owners: tuple[tuple[int, ...], ...] = ()
+    #: Сами слитые грани (в порядке разбиения): по ним слитый пробег режется обратно
+    #: по перекладинам (`assemble`, закон `PLANAR_POLYGONS_V1`). Пусто — грань не
+    #: сливалась. Не часть тождества грани: оно — владелец и контур.
+    parts: tuple = field(default=(), compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -586,6 +590,7 @@ def merge_same_chain_faces(faces, work_budget=None):
                         if item.owner != primary.owner
                     )
                 ),
+                parts=tuple(block),
             )
             dropped.update(sorted(positions)[1:])
     merged = tuple(

@@ -71,7 +71,12 @@ from .coalesce import point_key
 from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
-from .tessellate import convex_quad_ring, fan_out, triangulate_exact
+from .tessellate import (
+    convex_polygon_ring,
+    convex_quad_ring,
+    fan_out,
+    triangulate_exact,
+)
 from .uv_law import uv_direct_strip_v1
 from ..wavefront.faces import doubled_shoelace
 
@@ -248,38 +253,38 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget):
     return facts
 
 
-def _closes_the_face(total, frame_face, parts: str) -> None:
-    """Сумма удвоенных площадей частей разбиения равна площади грани: точно, иначе отказ."""
+def _closes_the_area(total, expected, owner, parts: str) -> None:
+    """Сумма удвоенных площадей частей разбиения равна площади контура: точно, иначе отказ."""
 
-    if not (total - frame_face.face.doubled_area).is_zero:
+    if not (total - expected).is_zero:
         raise MaterializationRefusal(
             MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
-            f"owner {frame_face.face.owner}: {parts} differ from the face",
+            f"owner {owner}: {parts} differ from the face",
         )
 
 
-def _quad_polygon(keys, ring, reverse: bool):
-    """Четырёхгранья по кольцу против часовой; при `reverse` — обход, сохраняющий первую вершину."""
+def _ring_polygon(keys, ring, reverse: bool):
+    """Многоугольник по кольцу против часовой; при `reverse` — обход, сохраняющий первую вершину."""
 
-    first, second, third, fourth = (keys[index] for index in ring)
-    return (first, fourth, third, second) if reverse else (first, second, third, fourth)
+    ordered = tuple(keys[index] for index in ring)
+    return (ordered[0], *reversed(ordered[1:])) if reverse else ordered
 
 
-def _triangle_polygons(frame_face, points, keys, budget, reverse: bool):
-    """Треугольники грани по ключам: отсечение ушей, сумма площадей — точное равенство."""
+def _triangle_polygons(owner, expected, points, keys, budget, reverse: bool):
+    """Треугольники контура по ключам: отсечение ушей, сумма площадей — точное равенство."""
 
     triangles = triangulate_exact(points, budget) if len(points) >= 3 else None
     if triangles is None:
         raise MaterializationRefusal(
             MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
-            f"owner {frame_face.face.owner}: {len(points)} contour points",
+            f"owner {owner}: {len(points)} contour points",
         )
     total = SqrtSumV1.zero()
     for first, second, third in triangles:
         total = total + doubled_shoelace(
             (points[first], points[second], points[third])
         )
-    _closes_the_face(total, frame_face, "triangle areas")
+    _closes_the_area(total, expected, owner, "triangle areas")
     return tuple(
         (keys[a], keys[c], keys[b]) if reverse else (keys[a], keys[b], keys[c])
         for a, b, c in triangles
@@ -292,6 +297,8 @@ def tessellate_faces(
     budget,
     reverse: bool,
     law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
+    exact_plane: bool = True,
+    tally: Counter | None = None,
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -300,26 +307,154 @@ def tessellate_faces(
     площадь проверяется по контуру целиком; всё остальное — треугольники, как
     раньше. Подъём вершин здесь не виден: четырёхгранья, чьи вершины лягут на
     разные треугольники источника, режутся позже (`settle_topology`).
+
+    Под `PLANAR_POLYGONS_V1` — `_polygon_law_faces`: `exact_plane` говорит, что
+    укладка домена — точная плоскость (многоугольник плоский по построению), а
+    `tally` собирает названные исходы закона для `settle_topology`.
     """
 
+    if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
+        return _polygon_law_faces(
+            frame_faces,
+            cycles,
+            budget,
+            reverse,
+            exact_plane,
+            Counter() if tally is None else tally,
+        )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
         points = tuple(point for _key, point in cycle)
         keys = tuple(key for key, _point in cycle)
+        owner, area = frame_face.face.owner, frame_face.face.doubled_area
         ring = (
             convex_quad_ring(points, budget)
             if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and not frame_face.is_fan
             else None
         )
         if ring is None:
-            result.append(_triangle_polygons(frame_face, points, keys, budget, reverse))
+            result.append(_triangle_polygons(owner, area, points, keys, budget, reverse))
             continue
-        _closes_the_face(
+        _closes_the_area(
             doubled_shoelace(tuple(points[index] for index in ring)),
-            frame_face,
+            area,
+            owner,
             "quad areas",
         )
-        result.append((_quad_polygon(keys, ring, reverse),))
+        result.append((_ring_polygon(keys, ring, reverse),))
+    return result
+
+
+#: Имена чисел закона `PLANAR_POLYGONS_V1` (они же ключи счётчиков материализатора).
+POLYGON_FACES_EMITTED = "MATERIALIZE_POLYGON_FACES_EMITTED"
+POLYGON_FACES_TRIANGULATED_NOT_CONVEX = "MATERIALIZE_POLYGON_FACES_TRIANGULATED_NOT_CONVEX"
+CURVED_STRIP_FACES_TRIANGULATED = "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED"
+MERGED_RUNS_SPLIT_AT_RUNGS = "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS"
+MERGED_RUNS_KEPT_WHOLE = "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE"
+
+
+def _rung_pieces(frame_face, key_of):
+    """Части слитого пробега с их контурами по ключам: `[(часть, цикл), ...]` либо `None`.
+
+    `None` — пробег не сливался либо у какой-то части есть точка, которой нет в
+    слитом контуре (вершина внутри перекладины: сливаясь, перекладина её
+    теряет). Новых вершин здесь не заводят: сетка вершин, их ключи и номера
+    `node:` те же, что у остальных законов; такой пробег остаётся целым и
+    называется (`MERGED_RUNS_KEPT_WHOLE`).
+    """
+
+    parts = getattr(frame_face.face, "parts", ())
+    if len(parts) < 2:
+        return None
+    pieces = []
+    for part in parts:
+        pairs = []
+        for point in part.points:
+            key = key_of.get(point_key(point))
+            if key is None:
+                return None
+            pairs.append((key, point))
+        cycle = _cycle(pairs)
+        if len(cycle) < 3:
+            return None
+        pieces.append((part, cycle))
+    return pieces
+
+
+def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally):
+    """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
+
+    `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
+    плоскости контур от четырёх вершин без правого поворота — одна грань любой
+    длины. На укладке на треугольники источника целым остаётся только строго
+    выпуклое четырёхгранье (его плоскостность решает `settle_topology`), контур
+    длиннее — треугольники и `CURVED_STRIP_FACES_TRIANGULATED`.
+    """
+
+    points = tuple(point for _key, point in cycle)
+    keys = tuple(key for key, _point in cycle)
+    owner, area = piece.owner, piece.doubled_area
+    if len(points) > 3:
+        if exact_plane:
+            ring = convex_polygon_ring(points, budget)
+            refused = POLYGON_FACES_TRIANGULATED_NOT_CONVEX
+        else:
+            ring = convex_quad_ring(points, budget)
+            refused = (
+                QUADS_REFUSED_NOT_CONVEX
+                if len(points) == 4
+                else CURVED_STRIP_FACES_TRIANGULATED
+            )
+        if ring is not None:
+            _closes_the_area(
+                doubled_shoelace(tuple(points[index] for index in ring)),
+                area,
+                owner,
+                "polygon areas",
+            )
+            tally[POLYGON_FACES_EMITTED] += int(len(ring) > 4)
+            return (_ring_polygon(keys, ring, reverse),)
+        tally[refused] += 1
+    return _triangle_polygons(owner, area, points, keys, budget, reverse)
+
+
+def _polygon_law_faces(frame_faces, cycles, budget, reverse, exact_plane, tally):
+    """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — треугольники, ленты — многоугольники.
+
+    Слитый пробег режется по перекладинам на грани своих рёбер-источников
+    (`_rung_pieces`): площадь каждой части замыкается точно, и сумма частей
+    равна площади слитой грани.
+    """
+
+    key_of = {point_key(point): key for cycle in cycles for key, point in cycle}
+    result = []
+    for frame_face, cycle in zip(frame_faces, cycles):
+        face = frame_face.face
+        if frame_face.is_fan:
+            points = tuple(point for _key, point in cycle)
+            keys = tuple(key for key, _point in cycle)
+            result.append(
+                _triangle_polygons(
+                    face.owner, face.doubled_area, points, keys, budget, reverse
+                )
+            )
+            continue
+        pieces = _rung_pieces(frame_face, key_of)
+        if len(getattr(face, "parts", ())) >= 2:
+            tally[MERGED_RUNS_SPLIT_AT_RUNGS if pieces else MERGED_RUNS_KEPT_WHOLE] += 1
+        if pieces is None:
+            pieces = [(face, cycle)]
+        else:
+            total = SqrtSumV1.zero()
+            for part, _cycle_of_part in pieces:
+                total = total + part.doubled_area
+            _closes_the_area(total, face.doubled_area, face.owner, "run part areas")
+        polygons = []
+        for part, part_cycle in pieces:
+            polygons.extend(
+                _contour_polygons(part, part_cycle, budget, reverse, exact_plane, tally)
+            )
+        result.append(tuple(polygons))
     return result
 
 
@@ -341,7 +476,55 @@ def _split_reason(polygon, sources):
     return None
 
 
-def settle_topology(frame_faces, cycles, polygons, sources, law: DecalTopologyLawV1):
+def _settle_polygon_law(polygons, sources, tally):
+    """`settle_topology` под `PLANAR_POLYGONS_V1`: четырёхгранья по тому же закону, остальное — как собрано.
+
+    Многоугольник длиннее четырёх `_polygon_law_faces` излучает только на точной
+    плоскости, где `sources` — `(None, None)` на каждой вершине; здесь это
+    проверяется, а не предполагается: непланарный многоугольник — отказ, а не
+    молчаливый разрез (у него нет канонического `fan_out`).
+    """
+
+    split = {"triangles": 0, "normals": 0}
+    settled = []
+    for face_polygons in polygons:
+        kept = []
+        for polygon in face_polygons:
+            reason = _split_reason(polygon, sources) if len(polygon) >= 4 else None
+            if reason is None:
+                kept.append(polygon)
+            elif len(polygon) == 4:
+                kept.extend(fan_out(polygon))
+                split[reason] += 1
+            else:
+                raise MaterializationRefusal(
+                    MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
+                    f"POLYGON_NOT_PLANAR: {len(polygon)} vertices ({reason})",
+                )
+        settled.append(tuple(kept))
+    return settled, (
+        (QUADS_REFUSED_NOT_CONVEX, tally[QUADS_REFUSED_NOT_CONVEX]),
+        (QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES, split["triangles"]),
+        (QUADS_SPLIT_OFFSET_NORMALS_DIFFER, split["normals"]),
+        (POLYGON_FACES_EMITTED, tally[POLYGON_FACES_EMITTED]),
+        (
+            POLYGON_FACES_TRIANGULATED_NOT_CONVEX,
+            tally[POLYGON_FACES_TRIANGULATED_NOT_CONVEX],
+        ),
+        (CURVED_STRIP_FACES_TRIANGULATED, tally[CURVED_STRIP_FACES_TRIANGULATED]),
+        (MERGED_RUNS_SPLIT_AT_RUNGS, tally[MERGED_RUNS_SPLIT_AT_RUNGS]),
+        (MERGED_RUNS_KEPT_WHOLE, tally[MERGED_RUNS_KEPT_WHOLE]),
+    )
+
+
+def settle_topology(
+    frame_faces,
+    cycles,
+    polygons,
+    sources,
+    law: DecalTopologyLawV1,
+    tally: Counter | None = None,
+):
     """`(грани, числа закона)`: закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1` и счёт того, что закон не взял.
 
     `sources` — `{ключ: (имя исходного треугольника, нормаль смещения)}`, как их
@@ -360,9 +543,16 @@ def settle_topology(frame_faces, cycles, polygons, sources, law: DecalTopologyLa
 
     Остальное, что закон `QUAD_STRIPS_V1` оставил треугольниками, тоже названо:
     строго невыпуклые (и с плоским углом) четырёхугольники ленты и слитые
-    пробеги — контуры больше четырёх вершин (их разбиение — отдельный срез).
+    пробеги — контуры больше четырёх вершин (счётчик носит имя «слитый пробег»
+    по традиции закона: считает он любой контур длиннее четырёх, и поэтому у
+    `PLANAR_POLYGONS_V1` его нет — там причины названы поимённо, см.
+    `_polygon_law_faces`). Под `PLANAR_POLYGONS_V1` счёт приходит в `tally`.
     """
 
+    if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
+        return _settle_polygon_law(
+            polygons, sources, Counter() if tally is None else tally
+        )
     refused = merged = 0
     split = {"triangles": 0, "normals": 0}
     settled = []
