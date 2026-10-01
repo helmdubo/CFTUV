@@ -658,6 +658,14 @@ class _ArrivalLawsV1:
     exact_limit_lifted_count: int = 0
 
 
+_EXACT_LIMIT_LIFT_LAWS = frozenset(
+    {
+        EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1,
+        EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1,
+    }
+)
+
+
 def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
     """Законы прихода Strip-источников плана и ВЕЕРЫ вогнутых вершин.
 
@@ -824,10 +832,11 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
             for item in spec.hidden_supports
         )
         lift = getattr(spec, "evaluation_subturn_count_lift", None)
+        # Предел на вычислительном веере и предел на каноническом — один счёт
+        # «подшаг ровно pi/q, луч иррационален»; закон лифта различает основание.
         exact_limit_lifted += (
             lift is not None
-            and lift.lift_law
-            is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1
+            and lift.lift_law in _EXACT_LIMIT_LIFT_LAWS
         )
         fans.append(fan)
     return _AngularFansV1(

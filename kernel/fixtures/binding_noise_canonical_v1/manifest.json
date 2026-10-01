@@ -1,0 +1,28 @@
+{
+ "fixture_id": "binding_noise_canonical_v1",
+ "why": "точный прямой вогнутый угол на тугом пороге d2/d4 (u*q == H+1): привязка вершин к решётке в косой карте даёт вычислительному углу шум со знаком (BELOW/ABOVE 90 градусов), и прежний закон решал счёт этим знаком (FAN-CONSISTENCY). building_patch114 — по углу каждого знака; building_patch4 — только ABOVE; building004_patch0 — честный околопрямой угол 90.56 градуса (не канон, закон молчит)",
+ "source": "artifacts/fan_consistency: выгрузка живой сцены владельца (testscene.blend), все швы выделены, alpha 0.45",
+ "domains": {
+  "building_patch114": {
+   "object_name": "building",
+   "patch_id": 114,
+   "patch_domain_id": "host-v0:patch-domain:784c8f43b7e426da15fb70cc",
+   "decal_request_id": "host-v0:decal-request:0f9b2855cc0446bd8b0fe2a7",
+   "alpha": "0.45"
+  },
+  "building_patch4": {
+   "object_name": "building",
+   "patch_id": 4,
+   "patch_domain_id": "host-v0:patch-domain:e1195142060f6575db93af98",
+   "decal_request_id": "host-v0:decal-request:0f9b2855cc0446bd8b0fe2a7",
+   "alpha": "0.45"
+  },
+  "building004_patch0": {
+   "object_name": "building.004",
+   "patch_id": 0,
+   "patch_domain_id": "host-v0:patch-domain:a41a8f624033edde51689f05",
+   "decal_request_id": "host-v0:decal-request:19245f4c29bf5b59c25b3ec6",
+   "alpha": "0.45"
+  }
+ }
+}

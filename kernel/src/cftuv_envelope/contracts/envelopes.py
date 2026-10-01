@@ -101,6 +101,16 @@ class EvaluationGeometrySubturnCountLiftLawV1(str, Enum):
     допустимая область — точка, а рационального направления в точке с
     иррациональным лучом нет. Счёт неосуществим точно, без допуска, и
     записан под этим именем, а не растворён в отказе поиска окон.
+
+    `EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1` —
+    тот же предел, но на КАНОНИЧЕСКОМ угле: селектор увидел ровно канонический
+    интервал (сырой точный либо восстановленный), предшествующий счёт стоит на
+    `pi/q` на каноническом веере и его скрытый луч иррационален, а привязка к
+    решётке сдвинула вычислительный угол на шум (знак и `cos^2` шума — в самой
+    записи лифта, точная граница смещений привязки — в записи
+    `EvaluationBindingNoiseOnCanonicalAngleV1`). Решает канонический угол, а
+    не знак шума привязки: один и тот же прямой угол получает один счёт,
+    округлила его решётка вверх, вниз или никак.
     """
 
     EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1 = (
@@ -108,6 +118,9 @@ class EvaluationGeometrySubturnCountLiftLawV1(str, Enum):
     )
     EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1 = (
         "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1"
+    )
+    EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1 = (
+        "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1"
     )
 
 

@@ -94,12 +94,16 @@ def build_evaluation_subturn_count_lift(
     q: int,
     effective_ideal,
     predecessor_ideal,
+    canonical_predecessor_ideal=None,
 ) -> EvaluationGeometrySubturnCountLiftV1:
     """Запись лифта под тем законом, чьи факты проверяемы в геометрии вычисления.
 
     Строго неосуществимый предшественник — прежний закон. Иначе — закон
     «на пределе»: предшественник стоит ровно на `pi/q` и его скрытый луч
-    иррационален. Ни один из двух не подтверждён — запись не выдаётся вовсе:
+    иррационален. Третий — предел на КАНОНИЧЕСКОМ веере
+    (`canonical_predecessor_ideal`): шум привязки сдвинул вычислительный угол,
+    но канонический предшественник стоит ровно на `pi/q` с иррациональным
+    лучом. Ни один из трёх не подтверждён — запись не выдаётся вовсе:
     лифт без проверяемого основания есть ровно та подмена, которую запрещает п. 4.
 
     Для восстановленного угла предшественник может быть неосуществим на
@@ -142,6 +146,15 @@ def build_evaluation_subturn_count_lift(
     ):
         return record(
             laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1
+        )
+    if (
+        canonical_predecessor_ideal is not None
+        and ideal_is_exact_limit_with_irrational_direction(
+            metric, canonical_predecessor_ideal, q
+        )
+    ):
+        return record(
+            laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1
         )
     raise DirectionBindingCertificateUnproven(BINDING_SUBTURN_LE_DELTA_MAX)
 

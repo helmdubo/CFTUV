@@ -397,9 +397,11 @@ def test_no_admissible_combination_keeps_the_previous_refusal(monkeypatch):
     monkeypatch.setattr(faces_module, "pairing_defects", lambda segments: 1)
     partition, trace = _rebuild(2)
     assert partition.outcome is FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE
+    # 11, а не 13: угол выше 90 градусов на d2 держит ОДИН канонический луч, а не
+    # два лифтованных (FAN-CANONICAL-COUNT), и участников в точках стало на два меньше.
     assert partition.detail.startswith(
         f"ребро {FIRST_CROWDED_EDGE[:2]} -> {FIRST_CROWDED_EDGE[2:]}: "
-        "1 участников в трёх и более точках из 13: "
+        "1 участников в трёх и более точках из 11: "
     )
     assert "допустимых 0" in partition.detail
     assert partition.faces == ()
@@ -713,7 +715,7 @@ def test_a_late_edge_refusal_after_a_branch_face_keeps_its_own_reason(mode, monk
     assert (trace.faces, trace.paths, trace.combinations, trace.selected) == (2, 4, 0, 0)
     branch = (
         f"ребро {FIRST_CROWDED_EDGE[:2]} -> {FIRST_CROWDED_EDGE[2:]}: "
-        "1 участников в трёх и более точках из 13: "
+        "1 участников в трёх и более точках из 11: "
     )
     assert partition.detail.startswith(branch)
     span = f"ребро {LATE_EDGE[:2]} -> {LATE_EDGE[2:]}"
