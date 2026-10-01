@@ -1028,6 +1028,25 @@ class VertexDevelopabilityClassV1(str, Enum):
     UNDECIDED_WORK_BUDGET = "UNDECIDED_WORK_BUDGET"
 
 
+class DevelopableStraightChainLawV1(str, Enum):
+    """Как объявленная ПРЯМОЙ цепь кладётся на карту развёртки.
+
+    Хост объявляет прямой цепь, у которой нет углов (открытая, больше двух вершин), а
+    очередь требует, чтобы её вершины лежали на одной прямой карты ТОЧНО. Независимая
+    привязка каждой вершины к решётке этого не даёт (прямая вне осей решётки), поэтому
+    цепь, чьи узлы после привязки не лежат на хорде между концами строго по порядку,
+    получает внутренние вершины ровно на хорде: проекция положения вершины в предложении
+    развёртки на хорду, округлённая до двоичной дроби (сдвиг вдоль хорды меньше восьмой
+    доли узла, строгий порядок сохранён). Коллинеарность — по построению, а сдвиг вершины
+    (её расстояние до хорды) судит судья растяжения, как любой другой сдвиг карты.
+    Цепь, уже лежащая на хорде, остаётся на своих узлах. Угловое отклонение боковой
+    стороны от `π` (цепь по внутренней геометрии искривлена) пишется записью и несёт
+    имя отказа `DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT`, когда выпрямление не по карману.
+    """
+
+    INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1 = "INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1"
+
+
 DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 50)
 """Допуск растяжения развёртки: 2 % относительно. Точная дробь.
 
@@ -1131,6 +1150,34 @@ class DevelopableVertexClassV1:
 
 
 @dataclass(frozen=True, slots=True)
+class DevelopableDeclaredChainV1:
+    """Объявленная прямой цепь развёртки: вершины и доказательство боковой стороны.
+
+    `side_angle_enclosure` — сертифицированная оболочка суммы углов веера на стороне патча у
+    худшей внутренней вершины `worst_vertex_id` (прямая в карте — это ровно `π`);
+    `defect_proven` — оболочка ОТДЕЛЕНА от `π`: цепь по своей внутренней геометрии
+    искривлена, и прямой в карте она стала ценой растяжения соседних треугольников
+    (его судит `DevelopableStretchCertificateV1`). Без доказательства (веер не стягивается
+    к двум рёбрам цепи) оба поля пусты.
+    """
+
+    vertex_ids: tuple[SourceVertexId, ...]
+    worst_vertex_id: SourceVertexId | None
+    side_angle_enclosure: CertifiedDecimalIntervalV1 | None
+    defect_proven: bool
+
+    def __post_init__(self) -> None:
+        if len(self.vertex_ids) < 3 or len(set(self.vertex_ids)) != len(self.vertex_ids):
+            raise ValueError("a declared straight chain has three or more distinct vertices")
+        if (self.worst_vertex_id is None) != (self.side_angle_enclosure is None):
+            raise ValueError("the worst vertex and its side-angle enclosure come together")
+        if self.defect_proven and self.worst_vertex_id is None:
+            raise ValueError("a proven defect names its vertex")
+        if self.worst_vertex_id is not None and self.worst_vertex_id not in self.vertex_ids[1:-1]:
+            raise ValueError("the worst vertex is an interior vertex of the chain")
+
+
+@dataclass(frozen=True, slots=True)
 class DevelopableUnfoldCertificateV1:
     """Запись о том, что домен РАЗВЁРНУТ: дерево, предложение, растяжение, ярлыки.
 
@@ -1176,6 +1223,8 @@ class DevelopableUnfoldCertificateV1:
     chart_boundary_overlap_count: int
     previous_refusals: tuple[str, ...]
     snapped_source_positions: frozenset[SnappedSourcePositionV1]
+    straight_chain_law: DevelopableStraightChainLawV1
+    declared_straight_chains: tuple[DevelopableDeclaredChainV1, ...]
 
     def __post_init__(self) -> None:
         if self.exact:

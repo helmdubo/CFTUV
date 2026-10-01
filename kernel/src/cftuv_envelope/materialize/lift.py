@@ -80,6 +80,11 @@ class PlaneLiftV1:
 
         return ""
 
+    def gap_note(self) -> str:
+        """Зазор смещения по нормалям вершин: у плоскости одна нормаль на домен, записи нет."""
+
+        return ""
+
 
 def _triple(value) -> tuple[Fraction, Fraction, Fraction]:
     return (

@@ -71,7 +71,7 @@ from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
-from .offset_normal import OFFSET_NORMAL_LAW
+from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
 from .stations import chain_station_table, source_chain_by_span
 from .uv_law import UV_DIRECT_STRIP_V1
@@ -94,9 +94,12 @@ class MaterializationV1:
     content_digest: str
     #: Нормаль смещения КАЖДОЙ вершины батча (`vert_key`, единичная нормаль) у домена
     #: развёртки, по закону `offset_normal_law`; у плоского и near-planar домена пусто:
-    #: там одна нормаль плоскости на домен. В дайджест батча не входит.
+    #: там одна нормаль плоскости на домен. В дайджест батча не входит, поэтому у них свой
+    #: `offset_normals_digest` (побитовый sha256 нормалей): писатель хоста сдвигает вершины
+    #: меша ими, и без собственного дайджеста сверка прогонов их не видела бы.
     vertex_normals: tuple = ()
     offset_normal_law: str = ""
+    offset_normals_digest: str = ""
 
     @property
     def is_materialized(self) -> bool:
@@ -143,6 +146,7 @@ def _diagnostics(
     lines,
     lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
     lift_note: str = "",
+    gap_note: str = "",
 ):
     """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры."""
 
@@ -179,6 +183,14 @@ def _diagnostics(
             (),
             _developable_numbers(prepared.context.frame.planarity_certificate, lift_note),
         )
+        if gap_note:
+            add(
+                GeometryDiagnosticSeverity.INFO,
+                NamedOutcome.DEVELOPABLE_OFFSET_MIN_GAP_COSINE,
+                "domain",
+                (),
+                gap_note,
+            )
     for chain_id in sorted(table.restart_chain_ids):
         add(
             GeometryDiagnosticSeverity.WARNING,
@@ -456,6 +468,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
             lines,
             admission.lift_law,
             plane.note(),
+            plane.gap_note(),
         ),
     )
     batch = replace(
@@ -606,4 +619,5 @@ def materialize_domain(
         content_digest=digest,
         vertex_normals=offset_normals,
         offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",
+        offset_normals_digest=offset_normals_digest(offset_normals),
     )

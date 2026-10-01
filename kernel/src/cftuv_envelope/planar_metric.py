@@ -890,12 +890,14 @@ def _developable_rung(
     grid_policy,
     enforce_embedding,
     surface_triangles,
+    declared_straight_chains=(),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Последняя ступень лестницы: развёртка после именованного отказа near-planar.
 
     Привязка источника та же, что на ступенях ниже (`resolve_source_grid`), позиции
-    берутся ДО проекции на плоскость: развёртка плоскости не знает. Отказ развёртки
-    несёт и свой исход, и отказ near-planar, после которого она пробовалась.
+    берутся ДО проекции на плоскость: развёртка плоскости не знает. Отказ ступени (и
+    привязки источника, и развёртки) несёт и свой исход, и отказ near-planar, после
+    которого она пробовалась.
     """
 
     faces, required_ids, positions = _source_scope(
@@ -903,15 +905,15 @@ def _developable_rung(
         source_vertices=source_vertices,
         source_faces=source_faces,
     )
-    grid_facts = resolve_source_grid(
-        positions=positions,
-        faces=faces,
-        snapping_law=grid_policy,
-        enforce_embedding=enforce_embedding,
-    )
     face_ids = {face.face_id for face in faces}
-    certificate = grid_facts.certificate
     try:
+        grid_facts = resolve_source_grid(
+            positions=positions,
+            faces=faces,
+            snapping_law=grid_policy,
+            enforce_embedding=enforce_embedding,
+        )
+        certificate = grid_facts.certificate
         chart = build_developable_chart(
             source_revision=source_revision,
             patch_domain_id=patch_domain_id,
@@ -924,6 +926,7 @@ def _developable_rung(
                 certificate.source_scale if certificate.snapping_law.snaps_source else None
             ),
             previous_refusals=(trace,),
+            declared_straight_chains=declared_straight_chains,
         )
     except PlanarMetricAdmissionError as final:
         raise PlanarMetricAdmissionError(
@@ -969,6 +972,7 @@ def _build_embedding_certified_metric(
     curvature_ladder: CurvatureLadderPolicyV1 = (
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
+    declared_straight_chains: tuple = (),
     **arguments,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Лестница метрики: EXACT -> NEAR_PLANAR -> DEVELOPABLE.
@@ -1012,6 +1016,7 @@ def _build_embedding_certified_metric(
             grid_policy=arguments.get("grid_policy", GridSnappingLawV1.UNSNAPPED_EXACT_V1),
             enforce_embedding=arguments.get("enforce_embedding", True),
             surface_triangles=arguments["surface_triangles"],
+            declared_straight_chains=tuple(declared_straight_chains),
         )
 
 
@@ -1037,6 +1042,7 @@ def build_embedding_certified_rational_affine_planar_metric(
     curvature_ladder: CurvatureLadderPolicyV1 = (
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
+    declared_straight_chains: tuple = (),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -1053,6 +1059,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         near_planar_lift_law=near_planar_lift_law,
         near_planar_frame_policy=near_planar_frame_policy,
         curvature_ladder=curvature_ladder,
+        declared_straight_chains=declared_straight_chains,
     )
 
 
@@ -1078,6 +1085,7 @@ def build_rational_affine_planar_metric(
     curvature_ladder: CurvatureLadderPolicyV1 = (
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
+    declared_straight_chains: tuple = (),
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -1095,6 +1103,7 @@ def build_rational_affine_planar_metric(
         near_planar_lift_law=near_planar_lift_law,
         near_planar_frame_policy=near_planar_frame_policy,
         curvature_ladder=curvature_ladder,
+        declared_straight_chains=declared_straight_chains,
     ).metric
 
 

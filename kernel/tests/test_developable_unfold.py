@@ -56,9 +56,9 @@ from cftuv_envelope.planar_metric import PlanarMetricAdmissionError
 import developable_factories as factories
 from developable_factories import REVISION, DOMAIN, developable_chart
 
-#: Золотой дайджест сертификата складки 90°: карта на целых узлах, растяжение 1.
+#: Золотой дайджест сертификата складки 90°: карта на целых узлах, растяжение 1, без объявленных цепей.
 FOLD_STRIP_CERTIFICATE_SHA256 = (
-    "1f9061784ba42197c71f92fed3da219ff91afad47cd10ca1ea9a9382b7d91977"
+    "ef2baa0b4b8960afc567974cb3d6cf2da03f3cfbbaf0affec574281e42c53670"
 )
 
 

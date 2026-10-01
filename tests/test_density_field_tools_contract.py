@@ -813,8 +813,8 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
     ]
     assert literals == [], ast.dump(literals[0]) if literals else ""
 
-    # И потребляемая власть — та самая, у которой все девятнадцать имён (четыре —
-    # исходы сертификата искажения ширины NEAR_PLANAR V2, девять — исходы развёртки
+    # И потребляемая власть — та самая, у которой все двадцать имён (четыре —
+    # исходы сертификата искажения ширины NEAR_PLANAR V2, десять — исходы развёртки
     # S1 DEVELOPABLE: лестница кривизны живёт внутри построителя метрики).
     members = _frozenset_members(_module(HOST_EXPORT), "METRIC_STAGE_OUTCOMES")
     assert members == {
@@ -837,6 +837,7 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
         "DEVELOPABLE_CHART_TRIANGLE_FLIPPED",
         "DEVELOPABLE_CHART_SELF_OVERLAP",
         "DEVELOPABLE_CHART_LATTICE_TOO_COARSE",
+        "DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT",
     }
 
 

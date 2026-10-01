@@ -23,6 +23,7 @@ ANSWER_RUN_KEYS = (
     "diagnostics",
     "chart_orientations",
     "content_digests",
+    "offset_normals_digests",
 )
 ANSWER_RECEIPT_KEYS = (
     "arrays_digest",

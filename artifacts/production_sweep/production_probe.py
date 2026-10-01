@@ -238,6 +238,11 @@ def _run_stats() -> dict:
         "content_digests": {
             str(item.patch_id): item.content_digest for item in run.results
         },
+        "offset_normals_digests": {
+            str(item.patch_id): item.offset_normals_digest
+            for item in run.results
+            if item.offset_normals_digest
+        },
         "receipt": None
         if receipt is None
         else {

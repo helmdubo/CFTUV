@@ -20,8 +20,16 @@ DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложени
    допуск, а имя: `DEVELOPABLE_CHART_LATTICE_TOO_COARSE`.
 
 Решётка очереди этой карты — единица (целые узлы): `chart_grid_for` даёт масштаб
-`1` при `S' >= 2 S`, так что координаты карты — целые, а метрическая единица —
-`1/S'` метра.
+`1` при `S' >= 2 S`, так что координаты карты — целые (кроме внутренностей объявленных
+прямыми цепей), а метрическая единица — `1/S'` метра.
+
+ОБЪЯВЛЕННЫЕ ПРЯМЫМИ ЦЕПИ (`declared_straight_chains`). Очередь требует их точной
+коллинеарности в карте, поэтому внутренние вершины такой цепи кладутся на хорду между
+привязанными концами (`_straight_chain`), а судья растяжения судит уже эту карту.
+Цепь, которую карта не терпит прямой, — отказ `DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT`
+с цепью, худшей вершиной и оболочкой боковой суммы углов против `π`: отказ называет
+именно прямизну, потому что карта со свободными цепями годна (иначе называется её
+собственная причина). Без объявленных цепей карта — байт в байт прежняя.
 """
 
 from __future__ import annotations
@@ -31,6 +39,12 @@ from hashlib import sha256
 
 from ._embedding import _NONE, _OVERLAP, _segment_relation2
 from ._fan_closure import classify_interior_vertices, worst_defect_vertex
+from ._straight_chain import (
+    bent_chain_text,
+    chain_coordinates,
+    declared_chain_records,
+    lattice_displacement,
+)
 from ._stretch import measure_stretch, stretch_refusal_text, stretch_violations
 from ._unfold import (
     UnfoldTopologyV1,
@@ -46,6 +60,7 @@ from .contracts.metric import (
     AffineReconstructionLawV1,
     DevelopableLiftLawV1,
     DevelopableProposalLawV1,
+    DevelopableStraightChainLawV1,
     DevelopableUnfoldCertificateV1,
     DevelopableUnfoldTreeLawV1,
     ExactPoint3V1,
@@ -159,10 +174,12 @@ def _certificate(
     trials,
     facts,
     proposal_band,
-    snapped_chart,
+    displacement,
     classes,
     previous_refusals,
+    chain_records,
 ):
+    moved, residual = displacement
     return DevelopableUnfoldCertificateV1(
         certificate_id=PlanarityCertificateId(
             stable_unfold_id(source_revision, patch_domain_id)
@@ -184,8 +201,8 @@ def _certificate(
         chart_scale_trials=trials,
         stretch=facts.certificate,
         proposal_worst_band_squared_upper=proposal_band,
-        snapped_vertex_count=snapped_chart.snapped_vertex_count,
-        snap_residual=_rational(snapped_chart.snap_residual),
+        snapped_vertex_count=moved,
+        snap_residual=_rational(residual),
         vertex_classes=frozenset(classes),
         boundary_loop_count=topology.boundary_loop_count,
         chart_boundary_overlap_count=0,
@@ -197,11 +214,19 @@ def _certificate(
             )
             for vertex_id in required_ids
         ),
+        straight_chain_law=(
+            DevelopableStraightChainLawV1.INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1
+        ),
+        declared_straight_chains=chain_records,
     )
 
 
 class DevelopableChartV1:
-    """Итог ступени: сертификат и целые узлы карты (единицы решётки `1/S'`)."""
+    """Итог ступени: сертификат и узлы карты (единицы решётки `1/S'`).
+
+    Узел — целое, кроме внутренних вершин объявленных прямыми цепей, не лежавших на хорде
+    после привязки: те положены на хорду между концами цепи и рациональны.
+    """
 
     __slots__ = ("certificate", "nodes", "chart_scale")
 
@@ -209,6 +234,131 @@ class DevelopableChartV1:
         self.certificate = certificate
         self.nodes = nodes
         self.chart_scale = chart_scale
+
+
+class _Unfolding:
+    """Всё, что не зависит от ступени решётки: топология, предложение, ярлыки, суд до привязки."""
+
+    def __init__(
+        self,
+        *,
+        source_revision,
+        patch_domain_id,
+        snapped,
+        owner_triangles,
+        required_ids,
+        source_scale,
+        previous_refusals,
+        budget,
+        declared_straight_chains,
+    ) -> None:
+        _check_inputs(owner_triangles, snapped, required_ids)
+        self.source_revision = source_revision
+        self.patch_domain_id = patch_domain_id
+        self.snapped = snapped
+        self.required_ids = required_ids
+        self.source_scale = source_scale
+        self.previous_refusals = previous_refusals
+        self.budget = budget
+        self.topology = owner_topology(owner_triangles, snapped)
+        self.proposal = hinge_proposal(self.topology, snapped)
+        self.classes = classify_interior_vertices(
+            self.topology, snapped, patch_domain_id.value
+        )
+        self.exact = exact_metres(self.proposal.coordinates)
+        self.raw = measure_stretch(self.topology.triangles, snapped, self.exact, budget)
+        self.chains = tuple(
+            item for item in declared_straight_chains if all(v in snapped for v in item)
+        )
+        self.records: tuple = ()
+
+    def refuse_unsound_proposal(self) -> None:
+        """Суд ДО привязки: самонакрытие и растяжение предложения не лечатся решёткой.
+
+        Записи объявленных цепей строятся уже после него: карту, которой не будет, они не нужны.
+        """
+
+        overlap = boundary_overlaps(self.topology, self.exact)
+        if overlap[0]:
+            raise refusal(
+                NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
+                "the hinge unfolding covers itself before any snapping: "
+                + _overlap_text(*overlap),
+            )
+        facts = self.raw.certificate
+        if facts.triangles_outside_budget or facts.chart_flipped_triangle_count:
+            raise _stretch_failure(self.raw, self.classes, "the hinge proposal before snapping: ")
+        self.records = declared_chain_records(self.chains, self.topology, self.snapped)
+
+    def certificate(self, trial, chart_scale, facts, displacement):
+        return _certificate(
+            source_revision=self.source_revision,
+            patch_domain_id=self.patch_domain_id,
+            snapped=self.snapped,
+            required_ids=self.required_ids,
+            topology=self.topology,
+            proposal=self.proposal,
+            chart_scale=chart_scale,
+            trials=trial,
+            facts=facts,
+            proposal_band=self.raw.certificate.worst_band_squared_upper,
+            displacement=displacement,
+            classes=self.classes,
+            previous_refusals=self.previous_refusals,
+            chain_records=self.records,
+        )
+
+    def failure_text(self, last) -> str:
+        """Числа последней неудачи ступеней: растяжение, граница либо причина размещения цепи."""
+
+        chart_scale, facts, overlap, reason = last
+        if reason is not None:
+            return f"at S'={chart_scale}: {reason}"
+        stretch = stretch_refusal_text(
+            facts.certificate, worst_vertex=_vertex_name(worst_defect_vertex(self.classes))
+        )
+        boundary = _overlap_text(*overlap) if overlap[0] else "boundary simple"
+        return f"at S'={chart_scale}: {stretch}; {boundary}"
+
+
+def _search_lattice(unfolding: _Unfolding, chains):
+    """Ступени решётки с цепями `chains`: `(карта | None, последняя неудача)`."""
+
+    last = None
+    for trial, factor in enumerate(UNFOLD_CHART_SCALE_FACTORS, start=1):
+        chart_scale = factor * unfolding.source_scale
+        snapped_chart = snap_to_chart_lattice(unfolding.exact, chart_scale)
+        coordinates, reason = (
+            chain_coordinates(chains, unfolding.exact, snapped_chart.nodes, chart_scale)
+            if chains
+            else (snapped_chart.nodes, None)
+        )
+        if reason is not None:
+            last = (chart_scale, None, (0, ()), reason)
+            continue
+        facts = measure_stretch(
+            unfolding.topology.triangles,
+            unfolding.snapped,
+            chart_metres(coordinates, chart_scale),
+            unfolding.budget,
+        )
+        overlap = boundary_overlaps(unfolding.topology, coordinates)
+        if not stretch_violations(facts.certificate) and not overlap[0]:
+            displacement = (
+                lattice_displacement(unfolding.exact, coordinates, chart_scale)
+                if chains
+                else (snapped_chart.snapped_vertex_count, snapped_chart.snap_residual)
+            )
+            return (
+                DevelopableChartV1(
+                    unfolding.certificate(trial, chart_scale, facts, displacement),
+                    coordinates,
+                    chart_scale,
+                ),
+                None,
+            )
+        last = (chart_scale, facts, overlap, None)
+    return None, last
 
 
 def build_developable_chart(
@@ -221,12 +371,14 @@ def build_developable_chart(
     source_scale: int | None,
     previous_refusals: tuple[str, ...] = (),
     budget: Fraction = DEVELOPABLE_STRETCH_BUDGET,
+    declared_straight_chains: tuple = (),
 ) -> DevelopableChartV1:
     """Карта и сертификат развёртки домена, либо именованный отказ.
 
     `snapped` — точные привязанные 3D-позиции вершин владельца (до проекции),
     `owner_triangles` — его треугольники, `source_scale` — масштаб решётки
-    источника (`None` — привязки источника не было, и карта не определена).
+    источника (`None` — привязки источника не было, и карта не определена),
+    `declared_straight_chains` — упорядоченные вершины цепей, объявленных прямыми.
     """
 
     if source_scale is None:
@@ -235,59 +387,38 @@ def build_developable_chart(
             "the unfolded chart is measured in steps of the source grid, and the "
             "grid law did not snap the source",
         )
-    _check_inputs(owner_triangles, snapped, required_ids)
-    topology = owner_topology(owner_triangles, snapped)
-    proposal = hinge_proposal(topology, snapped)
-    classes = classify_interior_vertices(topology, snapped, patch_domain_id.value)
-    exact = exact_metres(proposal.coordinates)
-    raw = measure_stretch(topology.triangles, snapped, exact, budget)
-    proposal_overlap = boundary_overlaps(topology, exact)
-    if proposal_overlap[0]:
-        raise refusal(
-            NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
-            "the hinge unfolding covers itself before any snapping: "
-            + _overlap_text(*proposal_overlap),
-        )
-    if raw.certificate.triangles_outside_budget or raw.certificate.chart_flipped_triangle_count:
-        raise _stretch_failure(raw, classes, "the hinge proposal before snapping: ")
-    last = None
-    for trial, factor in enumerate(UNFOLD_CHART_SCALE_FACTORS, start=1):
-        chart_scale = factor * source_scale
-        snapped_chart = snap_to_chart_lattice(exact, chart_scale)
-        points = chart_metres(snapped_chart.nodes, chart_scale)
-        facts = measure_stretch(topology.triangles, snapped, points, budget)
-        overlap = boundary_overlaps(topology, snapped_chart.nodes)
-        if not stretch_violations(facts.certificate) and not overlap[0]:
-            return DevelopableChartV1(
-                _certificate(
-                    source_revision=source_revision,
-                    patch_domain_id=patch_domain_id,
-                    snapped=snapped,
-                    required_ids=required_ids,
-                    topology=topology,
-                    proposal=proposal,
-                    chart_scale=chart_scale,
-                    trials=trial,
-                    facts=facts,
-                    proposal_band=raw.certificate.worst_band_squared_upper,
-                    snapped_chart=snapped_chart,
-                    classes=classes,
-                    previous_refusals=previous_refusals,
-                ),
-                snapped_chart.nodes,
-                chart_scale,
-            )
-        last = (chart_scale, facts, overlap)
-    chart_scale, facts, overlap = last
-    band = raw.certificate.worst_band_squared_upper
-    steps = tuple(factor * source_scale for factor in UNFOLD_CHART_SCALE_FACTORS)
-    stretch = stretch_refusal_text(
-        facts.certificate, worst_vertex=_vertex_name(worst_defect_vertex(classes))
+    unfolding = _Unfolding(
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        snapped=snapped,
+        owner_triangles=owner_triangles,
+        required_ids=required_ids,
+        source_scale=source_scale,
+        previous_refusals=previous_refusals,
+        budget=budget,
+        declared_straight_chains=declared_straight_chains,
     )
-    boundary = _overlap_text(*overlap) if overlap[0] else "boundary simple"
+    unfolding.refuse_unsound_proposal()
+    chart, last = _search_lattice(unfolding, unfolding.chains)
+    if chart is not None:
+        return chart
+    if unfolding.chains:
+        free_chart, free_last = _search_lattice(unfolding, ())
+        if free_chart is not None:
+            raise refusal(
+                NamedOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
+                "the chart is within the stretch budget with free chain lines, but the "
+                "declared straight chains cannot be straight in it ("
+                + bent_chain_text(unfolding.records)
+                + "); "
+                + unfolding.failure_text(last),
+            )
+        last = free_last
+    band = unfolding.raw.certificate.worst_band_squared_upper
+    steps = tuple(factor * source_scale for factor in UNFOLD_CHART_SCALE_FACTORS)
     raise refusal(
         NamedOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE,
         "the unsnapped proposal is within budget "
         f"(worst_band_squared<={band.numerator / band.denominator:.9e}), but no chart "
-        f"lattice step in {steps} kept it; at S'={chart_scale}: {stretch}; {boundary}",
+        f"lattice step in {steps} kept it; {unfolding.failure_text(last)}",
     )

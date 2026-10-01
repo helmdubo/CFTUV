@@ -626,6 +626,51 @@
       ],
       "type": "object"
     },
+    "DevelopableDeclaredChainV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DevelopableDeclaredChainV1"
+        },
+        "defect_proven": {
+          "type": "boolean"
+        },
+        "side_angle_enclosure": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "worst_vertex_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SourceVertexId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "$type",
+        "vertex_ids",
+        "worst_vertex_id",
+        "side_angle_enclosure",
+        "defect_proven"
+      ],
+      "type": "object"
+    },
     "DevelopableStretchCertificateV1": {
       "additionalProperties": false,
       "properties": {
@@ -731,6 +776,12 @@
         "chart_scale_trials": {
           "type": "integer"
         },
+        "declared_straight_chains": {
+          "items": {
+            "$ref": "#/$defs/DevelopableDeclaredChainV1"
+          },
+          "type": "array"
+        },
         "exact": {
           "type": "boolean"
         },
@@ -793,6 +844,12 @@
           "type": "array",
           "uniqueItems": true
         },
+        "straight_chain_law": {
+          "enum": [
+            "INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1"
+          ],
+          "type": "string"
+        },
         "stretch": {
           "$ref": "#/$defs/DevelopableStretchCertificateV1"
         },
@@ -834,7 +891,9 @@
         "boundary_loop_count",
         "chart_boundary_overlap_count",
         "previous_refusals",
-        "snapped_source_positions"
+        "snapped_source_positions",
+        "straight_chain_law",
+        "declared_straight_chains"
       ],
       "type": "object"
     },

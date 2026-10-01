@@ -124,6 +124,9 @@ class ProductionDomainResultV1:
     #: лишь сводка (нормированное среднее). У плоского и near-planar домена пусто.
     vertex_normals: tuple = ()
     offset_normal_law: str = ""
+    #: Побитовый sha256 этих нормалей (`offset_normals_digest` ядра): они сдвигают вершины
+    #: меша, но в дайджест батча не входят, и только этот дайджест виден воротам и свипу.
+    offset_normals_digest: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
 
@@ -251,6 +254,7 @@ def produce_domain(
             chart_orientation=str(prepared.context.frame.chart_orientation.value),
             vertex_normals=tuple(result.vertex_normals),
             offset_normal_law=result.offset_normal_law,
+            offset_normals_digest=result.offset_normals_digest,
             seconds=time.perf_counter() - started,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
@@ -760,6 +764,7 @@ def export_production_json(results, directory, *, label: str = "production") -> 
             "diagnostics": list(item.diagnostics),
             "normal": None if item.normal is None else list(item.normal),
             "offset_normal_law": item.offset_normal_law,
+            "offset_normals_digest": item.offset_normals_digest,
         }
         if item.is_materialized:
             name = f"{label}_patch{item.patch_id:04d}.geometry_batch.json"

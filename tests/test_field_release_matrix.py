@@ -427,7 +427,7 @@ def test_walls_012_patch_0_refuses_under_the_surface_law():
 
     Тест держит ЭТУ ступень лестницы, закрепив лестницу хоста
     (`NEAR_PLANAR_ONLY_V1`): с настоящей лестницей S1 тот же домен уходит на развёртку
-    (`test_walls_012_patch_0_is_unfolded_and_the_straight_chain_law_names_the_refusal`).
+    (`test_walls_012_patch_0_is_unfolded_and_its_declared_straight_chains_are_placed`).
 
     Домен строился: невязка 1.0 см лежала внутри абсолютного бюджета юбки
     1.25 см. Но патч несёт щель в 1 см глубины, и один его треугольник из 10
@@ -449,20 +449,23 @@ def test_walls_012_patch_0_refuses_under_the_surface_law():
     ]
 
 
-def test_walls_012_patch_0_is_unfolded_and_the_straight_chain_law_names_the_refusal():
-    """С лестницей хоста (S1) домен проходит метрику развёрткой и отказывает на ОЧЕРЕДИ.
+def test_walls_012_patch_0_is_unfolded_and_its_declared_straight_chains_are_placed():
+    """С лестницей хоста (S1) домен проходит метрику развёрткой и очередь принимает его.
 
-    Щель в 1 см глубины развёртывается (растяжение в бюджете), но выбранная цепь —
-    прямая в 3D и пересекает складку щели под углом: в развёртке она ЛОМАНАЯ, а
-    закон «объявленная прямая цепь линейна в карте» (`SOURCE_DECLARED_STRAIGHT_CHAIN_
-    IS_NOT_LINEAR`) её отвергает именованно. Это не потеря домена и не тихое
-    исчезновение: ступень и имя названы.
+    Щель в 1 см глубины развёртывается (растяжение в бюджете), а две объявленные прямыми
+    цепи домена (4 и 3 вершины) пересекают складку щели под углом: независимая привязка
+    каждой вершины к решётке делала их в карте ломаными, и очередь отвергала домен именем
+    `SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR` (имя ошибки ОБЪЯВЛЕНИЯ хоста, не карты).
+    Теперь внутренности цепей кладутся на хорду между концами, коллинеарность — по
+    построению, а цена выпрямления судится растяжением. Цепь, которую карта не терпит
+    прямой, называлась бы `DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT` на ступени метрики.
     """
 
     record = domain(WALLS_012, 0)
     assert record["stage"] == "QUEUE"
-    assert record["outcome"] == "PLAN_IS_NOT_COMPILED"
-    assert record["detail"] == "SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR"
+    assert record["outcome"] == "EXACT"
+    assert record["coverage_outcome"] == "EXACT"
+    assert record["detail"] == ""
 
 
 # ---------------------------------------------------------------------------
