@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 
 import bpy
 from mathutils import Vector
@@ -254,10 +255,23 @@ def _lift_plane_point(x: float, y: float, frame, layer_ordinal) -> Vector:
     return origin + axis_u * x + axis_v * y + normal * lift
 
 
+@lru_cache(maxsize=16384)
+def _exact_float(expression: str, sympy) -> float:
+    """`float(sympify(expression))` один раз на строку, а не на каждую точку.
+
+    Разбор строки в sympy — `exec('from sympy import *')` на КАЖДЫЙ вызов —
+    стоил 0.37 мс, а на `building` (Fan Density 2) из 10 336 координат
+    различных строк всего 490: это 3.8 с из 4.6 с отрисовки. Функция чистая
+    (строка -> число), поэтому ответ побитово тот же.
+    """
+
+    return float(sympy.sympify(expression))
+
+
 def _lift_point(point, frame, layer_ordinal, sympy) -> Vector:
     return _lift_plane_point(
-        float(sympy.sympify(point.x_expression)),
-        float(sympy.sympify(point.y_expression)),
+        _exact_float(point.x_expression, sympy),
+        _exact_float(point.y_expression, sympy),
         frame,
         layer_ordinal,
     )

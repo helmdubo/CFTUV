@@ -8,6 +8,7 @@ Blender здесь нет, поэтому frame/drawing — записывающ
 
 from __future__ import annotations
 
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,7 @@ from cftuv.debug import (
     _GpStrokeBatch,
     _write_gp_strokes,
 )
+from cftuv.envelope_debug_renderer import _exact_float
 
 
 def _point(x, y, z):
@@ -219,3 +221,32 @@ def test_batch_index_continues_after_a_frame_that_already_has_strokes():
     assert batch.add(
         frame, [_point(0, 0, 0), _point(1, 0, 0)], 0
     ) == 2
+
+
+class _CountingSympy:
+    def __init__(self):
+        self.calls = []
+
+    def sympify(self, expression):
+        self.calls.append(expression)
+        return Fraction(expression)
+
+
+def test_exact_coordinate_is_parsed_once_per_distinct_string():
+    """10 336 координат `building` — это 490 разных строк.
+
+    Разбор строки в sympy стоил 3.8 с из 4.6 с отрисовки; функция чистая, так
+    что повтор строки обязан быть обращением к памяти, а не к парсеру.
+    """
+
+    sympy = _CountingSympy()
+    _exact_float.cache_clear()
+
+    values = [
+        _exact_float(text, sympy)
+        for text in ("1/3", "2", "1/3", "2", "1/3")
+    ]
+
+    assert values == [float(Fraction(1, 3)), 2.0] * 2 + [float(Fraction(1, 3))]
+    assert sympy.calls == ["1/3", "2"]
+    _exact_float.cache_clear()
