@@ -1206,15 +1206,15 @@ GP-рисунок Envelope Debug.
    `python.exe` Blender без `bpy`, обмен каноническим JSON, пул живёт между
    нажатиями. (в) Кэш по дайджесту домена: повторный Build не считает
    неизменённое. Потолок — самый тяжёлый домен (patch1 ~18 с после INTERN).
-3. **PRODUCTION-MATERIALIZER** (ядро, Blender-free): `CoverageV1` /
+3. ✅ **PRODUCTION-MATERIALIZER** (2026-10-02, + правки аудита) (ядро, Blender-free): `CoverageV1` /
    `FacePartitionV1` → коалесценция → тесселяция → UV-закон V1 →
    `GeometryBatchV1`. Производителя сегодня нет: единственный конструктор
    `GeometryBatchV1` — `kernel/tests/factories.py`, хост заполняет
    `uv_policy_id` заглушкой `ENVELOPE_DEBUG_NO_UV_V1`.
-4. **PRODUCTION-HOST-ADAPTER**: `GeometryBatchV1` → local→world → BMesh-объект
+4. ✅ **PRODUCTION-HOST-ADAPTER** (2026-10-02, кнопка «Build Decal Mesh», + правки аудита): `GeometryBatchV1` → local→world → BMesh-объект
    с UV-слоем, кнопка в панели, отказы доменов видны артисту. Адаптер
    отображает контракт и не чинит геометрию.
-5. **Перемер настоящей кнопки** (building, building.002, «2», building.004 на
+5. ✅ **Перемер настоящей кнопки** (полевая приёмка ACCEPTED на 39d2f03, DECISIONS 2026-10-02) (building, building.002, «2», building.004 на
    d0/d1/d4) после 2–4. Если building.004 всё ещё за капом — атрибуция цены по
    стадиям (FIELD-800S-STAGE-ATTRIBUTION, ниже в п.0).
 6. **Хвост самых тяжёлых доменов — числовое представление.** (шаги 2–3 ✅ 2026-10-01: целочисленное ядро `SqrtSumV1` и шесть правок раунда 3, тяжёлые домены −60 % суммарно, ответы побитово те же; итог выжимки на `building` d2 в Blender 4.5: холодная кнопка 203.7 → 17.4 с, на Python 3.13 воркеров 14.1 с; тёплая 3.3–3.9 с; ползунок alpha 2.5–3.1 с. Остаток: sympy в `_contact_candidates`/`compile_reference_envelopes` (~20 % секунд тяжёлого домена) — лечится квадратичным полем на `SqrtSumV1` вместо sympy с сохранением строк `srepr` дайджестов, отложено как дорогое) Атрибуция спайка
