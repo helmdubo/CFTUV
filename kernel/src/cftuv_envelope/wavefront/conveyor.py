@@ -68,6 +68,7 @@ from ..contracts.envelopes import (
     AdaptiveBoundHiddenSupportSpecV2,
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportSpecV1,
+    EvaluationGeometrySubturnCountLiftLawV1,
     StripEnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
@@ -651,6 +652,10 @@ class _ArrivalLawsV1:
     mitered_corner_count: int = 0
     #: Plan-authority направления, реально потреблённые посеянными веерами.
     bound_direction_count: int = 0
+    #: Вееры, чей счёт поднят законом «на пределе подшага» (иррациональный
+    #: скрытый луч при подшаге ровно `pi/q`). Счётчик выходит только когда он
+    #: ненулевой: ворота равенства ответа заморозили структурные счётчики.
+    exact_limit_lifted_count: int = 0
 
 
 def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
@@ -717,6 +722,7 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         fans.degraded_corners,
         fans.mitered_corner_count,
         fans.bound_direction_count,
+        fans.exact_limit_lifted_count,
     )
 
 
@@ -729,6 +735,7 @@ class _AngularFansV1:
     degraded_corners: tuple[DegradedMiterCornerV1, ...]
     mitered_corner_count: int
     bound_direction_count: int
+    exact_limit_lifted_count: int
 
 
 def _angular_fans(context: GeometryContext) -> _AngularFansV1:
@@ -772,6 +779,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
     bound_directions = 0
+    exact_limit_lifted = 0
     explicit_density = (
         context.compilation.decal_request.angular_profile_selection_policy_id
         is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
@@ -815,6 +823,12 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
             )
             for item in spec.hidden_supports
         )
+        lift = getattr(spec, "evaluation_subturn_count_lift", None)
+        exact_limit_lifted += (
+            lift is not None
+            and lift.lift_law
+            is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1
+        )
         fans.append(fan)
     return _AngularFansV1(
         tuple(fans),
@@ -822,6 +836,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         tuple(degraded),
         mitered,
         bound_directions,
+        exact_limit_lifted,
     )
 
 
@@ -1104,6 +1119,10 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
             "CONVEYOR_FAN_SUPPORTS",
             sum(len(fan.supports) for fan in reading.fans),
         ),
+    ) + (
+        (("CONVEYOR_EXACT_LIMIT_LIFTED_FANS", reading.exact_limit_lifted_count),)
+        if reading.exact_limit_lifted_count
+        else ()
     )
 
 

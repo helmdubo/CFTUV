@@ -116,6 +116,12 @@ class ReferenceOutcome(str, Enum):
         "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
     )
     DENSITY_SEALED_FAN_INVALID = "DENSITY_SEALED_FAN_INVALID"
+    # Ящик вокруг ideal-веера не нашёл осуществимой точки за объявленный кап
+    # уточнений. Это честное имя прежнего «UNDECIDABLE (BINDING_MONOTONE)»: тот
+    # называл предикат, который никто не проверял, а не то, что кончилось.
+    DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED = (
+        "DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED"
+    )
     REFERENCE_ARRANGEMENT_NON_MANIFOLD = "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
     REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN = (
         "REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN"

@@ -858,6 +858,7 @@ def certify_huber_density_bindings_with_adaptive_fallback(
 
     from .adaptive_density_fan import (
         AdaptiveDensityFanInvalid,
+        DensityTerminationBoxesExhausted,
         DensityWindowChartUnrepresentable,
         certify_density_bindings_and_adaptive_fallback,
     )
@@ -870,7 +871,10 @@ def certify_huber_density_bindings_with_adaptive_fallback(
             max_subturn_q,
             binding_reasons=binding_reasons,
         )
-    except DensityWindowChartUnrepresentable:
+    except (
+        DensityWindowChartUnrepresentable,
+        DensityTerminationBoxesExhausted,
+    ):
         raise
     except AdaptiveDensityFanInvalid as exc:
         raise DirectionBindingCertificateUnproven(

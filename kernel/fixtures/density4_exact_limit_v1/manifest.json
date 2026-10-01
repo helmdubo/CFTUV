@@ -1,0 +1,28 @@
+{
+ "fixture_id": "density4_exact_limit_v1",
+ "why": "прямой вогнутый угол при Fan Density 4: подшаг ровно pi/6, лучи 30 и 60 градусов иррациональны, допустимая область веера — точка (D4-TIGHT-FAN-LIFT)",
+ "source": "artifacts/plan_not_compiled: выгрузка из живой сцены владельца, все швы выделены, alpha 0.25",
+ "domains": {
+  "mesh2_patch2": {
+   "object_name": "2",
+   "patch_id": 2,
+   "patch_domain_id": "host-v0:patch-domain:894d1956b4ff872c45927d02",
+   "decal_request_id": "host-v0:decal-request:6606354caeab8a997580cd47",
+   "alpha": "0.25"
+  },
+  "building_patch3": {
+   "object_name": "building",
+   "patch_id": 3,
+   "patch_domain_id": "host-v0:patch-domain:02740e90904e90f274ce157a",
+   "decal_request_id": "host-v0:decal-request:0f9b2855cc0446bd8b0fe2a7",
+   "alpha": "0.25"
+  },
+  "building_patch20": {
+   "object_name": "building",
+   "patch_id": 20,
+   "patch_domain_id": "host-v0:patch-domain:6e6625cf1ac9cd018e5b2e5d",
+   "decal_request_id": "host-v0:decal-request:0f9b2855cc0446bd8b0fe2a7",
+   "alpha": "0.25"
+  }
+ }
+}

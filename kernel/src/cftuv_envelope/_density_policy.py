@@ -10,6 +10,7 @@ import sympy as sp
 from .contracts.envelopes import (
     AdmissibilityUpperBound,
     AngularProfileSelectionCertificateV1,
+    EvaluationGeometrySubturnCountLiftLawV1,
     HuberDensitySelectionIntervalCertificateV1,
     IntervalBoundKind,
     MinimalityLowerBound,
@@ -28,6 +29,30 @@ from .outcomes import NamedOutcome
 
 class DensityIntervalEnclosureUnsupported(Exception):
     """Узел вне закрытой Density-only interval whitelist."""
+
+
+# Что именно доказывает запись лифта счёта, по закону. Одна таблица на три
+# потребителя (компиляцию, независимого верификатора и структурный слой плана):
+# прежде набор был переписан трижды, и новый закон потребовал бы четвёртой копии.
+EVALUATION_SUBTURN_LIFT_PREDICATES = {
+    EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1: frozenset(
+        {
+            "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
+            "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
+            "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
+            "EFFECTIVE_COUNT_IS_MINIMAL",
+        }
+    ),
+    EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1: frozenset(
+        {
+            "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
+            "PREDECESSOR_COUNT_EXACTLY_AT_SUBTURN_LIMIT_IN_EVALUATION_GEOMETRY",
+            "PREDECESSOR_FAN_HAS_IRRATIONAL_HIDDEN_DIRECTION",
+            "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
+            "EFFECTIVE_COUNT_IS_MINIMAL",
+        }
+    ),
+}
 
 
 def density_interval_enclosure(expression: sp.Expr, memo=None):

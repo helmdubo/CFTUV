@@ -37,8 +37,6 @@ from ..contracts.envelopes import (
     DirectionBindingReasonV1,
     EffectiveAlphaBindingKind,
     EvaluationGeometryDirectionBindingCertificateV1,
-    EvaluationGeometrySubturnCountLiftLawV1,
-    EvaluationGeometrySubturnCountLiftV1,
     ExactTurnSignV1,
     ExactTwoPiHandling,
     HiddenSupportDirectionLaw,
@@ -87,6 +85,10 @@ from .._canonical_angle import (
     selector_reflex_excess_interval,
 )
 from .._density_policy import huber_density_value_contract
+from .subturn_exact_limit import (
+    build_evaluation_subturn_count_lift,
+    density_count_is_feasible,
+)
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
@@ -142,6 +144,7 @@ from .metric import _DensityExactMemo
 from .adaptive_density_fan import (
     AdaptiveDensityFanInvalid,
     DensityRationalAuthorityExhausted,
+    DensityTerminationBoxesExhausted,
     DensityWindowChartUnrepresentable,
     _subturn,
 )
@@ -535,16 +538,6 @@ def _attach_front_reading_declarations(
     )
 
 
-_EVALUATION_SUBTURN_LIFT_PREDICATES = frozenset(
-    {
-        "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
-        "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_IS_MINIMAL",
-    }
-)
-
-
 def _density_spec_with_hidden_count(
     spec: AngularEnvelopeSpec,
     hidden_count: int,
@@ -636,8 +629,12 @@ def _evaluation_density_spec(
 
     Лифт видит УЖЕ КАНОНИЧЕСКИЙ факт — через `selection`: исходный счёт лифта
     равен счёту сертификата селекции, а тот построен на канонической доле π.
-    Сам предикат осуществимости остаётся прежним и считается по фактической
-    evaluation-геометрии: жёсткая гарантия `подшаг <= pi/q` НЕ меняется.
+    Сам предикат осуществимости считается по фактической evaluation-геометрии:
+    жёсткая гарантия `подшаг <= pi/q` НЕ меняется. Добавлен один точный случай
+    (`density_count_is_feasible`): подшаг РОВНО `pi/q` при иррациональном
+    скрытом луче — допустимая область веера точка без рационального
+    представителя, счёт неосуществим, лифт идёт дальше под своим законом
+    (`reference/subturn_exact_limit.py`).
 
     Замер, который это подпирает (`test_canonical_angle_restoration`): если
     заставить лифт признать канонический счёт осуществимым, ординальное окно
@@ -656,7 +653,7 @@ def _evaluation_density_spec(
         context,
         source_spec,
     )
-    if _density_ideal_is_subturn_feasible(
+    if density_count_is_feasible(
         context.metric,
         source_count_ideal,
         q,
@@ -672,37 +669,26 @@ def _evaluation_density_spec(
             context,
             candidate_spec,
         )
-        if not _density_ideal_is_subturn_feasible(
+        if not density_count_is_feasible(
             context.metric,
             candidate_ideal,
             q,
         ):
             predecessor_ideal = candidate_ideal
             continue
-        sign, cosine_squared = _exact_turn_witness(
-            context.metric,
-            candidate_ideal,
-        )
         return (
             candidate_spec,
-            EvaluationGeometrySubturnCountLiftV1(
-                lift_law=(
-                    EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
-                ),
-                source_selection_certificate_id=selection.certificate_id,
-                source_hidden_edge_count=source_count,
-                effective_hidden_edge_count=effective_count,
-                max_subturn_q=q,
-                evaluation_turn_sign=sign,
-                evaluation_turn_cosine_squared=cosine_squared,
-                minimality_predecessor_hidden_edge_count=(
-                    effective_count - 1
-                ),
-                proven_predicates=_EVALUATION_SUBTURN_LIFT_PREDICATES,
+            build_evaluation_subturn_count_lift(
+                context.metric,
+                selection,
+                source_count,
+                effective_count,
+                q,
+                candidate_ideal,
+                predecessor_ideal,
             ),
             candidate_ideal,
         )
-    del predecessor_ideal
     raise DirectionBindingCertificateUnproven(
         BINDING_SUBTURN_LE_DELTA_MAX
     )
@@ -979,6 +965,14 @@ def _attach_direction_bindings(
             _failure(
                 ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE,
                 ReferenceOutcome.DENSITY_WINDOW_CHART_UNREPRESENTABLE.value,
+            ),
+            None,
+        )
+    except DensityTerminationBoxesExhausted as exc:
+        return (
+            _failure(
+                ReferenceOutcome.DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED,
+                str(exc),
             ),
             None,
         )

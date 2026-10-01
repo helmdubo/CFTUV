@@ -1964,7 +1964,8 @@
         },
         "lift_law": {
           "enum": [
-            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1"
           ],
           "type": "string"
         },
