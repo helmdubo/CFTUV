@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .envelope_worker_python import draw_worker_python_row
+
 
 def draw_envelope_debug_box(layout, settings) -> None:
     """Рисует диагностическую панель без владения геометрией и исполнением."""
@@ -19,6 +21,7 @@ def draw_envelope_debug_box(layout, settings) -> None:
     envelope_box.prop(settings, "envelope_debug_engine")
     envelope_box.prop(settings, "envelope_debug_fan_density")
     envelope_box.prop(settings, "envelope_debug_workers")
+    draw_worker_python_row(envelope_box)
     envelope_box.prop(settings, "envelope_debug_alpha")
     envelope_box.operator(
         "hotspotuv.build_envelope_topology_debug",

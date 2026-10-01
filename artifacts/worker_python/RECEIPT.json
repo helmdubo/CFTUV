@@ -1,0 +1,1752 @@
+{
+ "base": {
+  "commit": "f698e04",
+  "note": "bundled interpreter, no Worker Python setting",
+  "tree": "41c011c00c626703"
+ },
+ "branch": {
+  "commit": "39b68b1",
+  "tree": "ed368c53dc7b68a4"
+ },
+ "equality": {
+  "bundled_vs_base": {
+   "1": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "2": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "3": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   }
+  },
+  "external_vs_base": {
+   "1": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "2": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "3": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   }
+  },
+  "external_vs_bundled": {
+   "1": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "2": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   },
+   "3": {
+    "identical": true,
+    "steps": [
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d2"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.375"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.3"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.45"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "alpha:0.25"
+     },
+     {
+      "differing": [],
+      "identical": true,
+      "label": "d1"
+     }
+    ]
+   }
+  }
+ },
+ "fingerprints": {
+  "base": {
+   "1": [
+    {
+     "panel": ", coverage 12746 ms | slowest 4da 13042 ms | pool wall 15510 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13241 ms | slowest 4da 2619 ms | pool wall 2730 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13044 ms | slowest 4da 2548 ms | pool wall 2609 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": " slowest 4da 2492 ms | pool wall 2587 ms on 8 workers (times above are per-domain sums) | alpha redraw 2954 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": " slowest 4da 2564 ms | pool wall 2616 ms on 8 workers (times above are per-domain sums) | alpha redraw 2973 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": " slowest 4da 2523 ms | pool wall 2589 ms on 8 workers (times above are per-domain sums) | alpha redraw 2954 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": " slowest 4da 2942 ms | pool wall 3049 ms on 8 workers (times above are per-domain sums) | alpha redraw 3422 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "ms, coverage 13382 ms | slowest 4da 9566 ms | pool wall 9738 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "2": [
+    {
+     "panel": ", coverage 12740 ms | slowest 4da 13193 ms | pool wall 15405 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13338 ms | slowest 4da 2655 ms | pool wall 2773 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13317 ms | slowest 4da 2582 ms | pool wall 2636 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": " slowest 4da 2541 ms | pool wall 2643 ms on 8 workers (times above are per-domain sums) | alpha redraw 2997 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": " slowest 4da 2618 ms | pool wall 2671 ms on 8 workers (times above are per-domain sums) | alpha redraw 3034 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": " slowest 4da 2624 ms | pool wall 2680 ms on 8 workers (times above are per-domain sums) | alpha redraw 3044 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": " slowest 4da 2567 ms | pool wall 2622 ms on 8 workers (times above are per-domain sums) | alpha redraw 3111 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "ms, coverage 13224 ms | slowest 4da 9396 ms | pool wall 9574 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "3": [
+    {
+     "panel": ", coverage 12798 ms | slowest 4da 13227 ms | pool wall 15392 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13411 ms | slowest 4da 2668 ms | pool wall 2803 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "ms, coverage 13286 ms | slowest 4da 2657 ms | pool wall 2711 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": " slowest 4da 2495 ms | pool wall 2567 ms on 8 workers (times above are per-domain sums) | alpha redraw 2922 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": " slowest 4da 2521 ms | pool wall 2610 ms on 8 workers (times above are per-domain sums) | alpha redraw 2973 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": " slowest 4da 2591 ms | pool wall 2646 ms on 8 workers (times above are per-domain sums) | alpha redraw 3141 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": " slowest 4da 2525 ms | pool wall 2585 ms on 8 workers (times above are per-domain sums) | alpha redraw 3076 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "ms, coverage 13330 ms | slowest 4da 9470 ms | pool wall 9648 ms on 8 workers (times above are per-domain sums)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ]
+  },
+  "bundled": {
+   "1": [
+    {
+     "panel": "13201 ms | pool wall 15382 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2681 ms | pool wall 2790 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2649 ms | pool wall 2709 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "592 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 2950 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "737 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3101 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "675 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3043 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "647 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3018 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "a 9282 ms | pool wall 9663 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "2": [
+    {
+     "panel": "13419 ms | pool wall 15600 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2733 ms | pool wall 2842 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2711 ms | pool wall 2765 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "953 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3314 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "676 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3042 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "680 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3046 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "642 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3146 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "a 9493 ms | pool wall 9671 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "3": [
+    {
+     "panel": "12955 ms | pool wall 15110 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2744 ms | pool wall 2857 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2625 ms | pool wall 2679 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "611 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 2968 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "648 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3014 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "646 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3148 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "632 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | alpha redraw 3141 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "a 9384 ms | pool wall 9560 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ]
+  },
+  "external": {
+   "1": [
+    {
+     "panel": " 9998 ms | pool wall 11985 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2136 ms | pool wall 2234 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2135 ms | pool wall 2181 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "126 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2489 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "092 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2458 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "131 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2644 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "082 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2582 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "a 7245 ms | pool wall 7414 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "2": [
+    {
+     "panel": "10254 ms | pool wall 12126 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2140 ms | pool wall 2235 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2104 ms | pool wall 2149 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "130 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2494 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "087 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2447 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "095 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2610 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "151 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2653 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "5 7113 ms | pool wall 7308 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ],
+   "3": [
+    {
+     "panel": "10025 ms | pool wall 11945 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "0654f0b9c6b99553",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "cb79c660165f96dc"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2128 ms | pool wall 2222 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "a 2019 ms | pool wall 2088 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "d13c066003898c23",
+      "gp_strokes": "5f0869918494b22e",
+      "queue_domains": "459e087daff066b1",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "a79d4dc96a7f6a57",
+      "sidecar": "21429370d9f85150",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d2"
+    },
+    {
+     "panel": "057 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2418 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "93ec7f0a049dc741",
+      "gp_strokes": "b258a194dcc8ba1e",
+      "queue_domains": "af9d0852cfc363fc",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "c8db248ce28d7eb3",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.375"
+    },
+    {
+     "panel": "026 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2386 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "963208d6e131f8d5",
+      "gp_strokes": "2d371426f8150782",
+      "queue_domains": "ff44e0c9e1679b41",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "1bed03496d4578cf",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.3"
+    },
+    {
+     "panel": "080 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2438 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "c507e4ecbbf1f863",
+      "gp_strokes": "f5e4f81583c7c50c",
+      "queue_domains": "82cb4f769b92b780",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "84dac3aa9681564d",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.45"
+    },
+    {
+     "panel": "037 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external) | alpha redraw 2399 ms",
+     "parts": {
+      "counters": "efb5120dc8876d47",
+      "gp_props": "419bbb4424fdd527",
+      "gp_strokes": "a34d83381e63e49c",
+      "queue_domains": "84743d73e646058f",
+      "receipts": "7c686398ad2a5f47",
+      "session": "119aa463b8db5ca6",
+      "settings": "6a065c2a54df96d7",
+      "sidecar": "3d84b969613df654",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "alpha:0.25"
+    },
+    {
+     "panel": "a 7373 ms | pool wall 7733 ms on 8 workers (times above are per-domain sums) | worker Python 3.13.1 (external)",
+     "parts": {
+      "counters": "4a274aa8fcf7328e",
+      "gp_props": "c6de450992b3c30f",
+      "gp_strokes": "97f8b983a8aef671",
+      "queue_domains": "18c73c85f28a7c7c",
+      "receipts": "6567d258d9fa8534",
+      "session": "065b977eb65a4d61",
+      "settings": "260975fafab4d079",
+      "sidecar": "5eb46ea119a0888f",
+      "stage_names": "6c2e01346aeb3d31"
+     },
+     "step": "d1"
+    }
+   ]
+  }
+ },
+ "identical": true,
+ "mesh": "building, QUEUE, Fan Density 2, 8 workers, Blender 4.5.12",
+ "negative_control_caught": true,
+ "placement_exempt": {
+  "counters_prefix": "ENVELOPE_DOMAIN_POOL",
+  "panel_tail": "| pool wall N ms on W workers (times above are per-domain sums) | worker Python X.Y.Z (bundled|external) | external Python rejected: <reason>",
+  "stages": [
+   "QUEUE_POOL_WALL"
+  ]
+ },
+ "runs": [
+  "1",
+  "2",
+  "3"
+ ],
+ "speedup_bundled_over_external": {
+  "cold_press": 1.238,
+  "slider": 1.231,
+  "warm_press": 1.183
+ },
+ "startup": {
+  "describe_environment_seconds_median": 0.0375,
+  "host_sympy_dir": "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\sympy",
+  "kernel_fingerprint_seconds_median": 0.0357,
+  "kernel_py_files": 123,
+  "rows": [
+   {
+    "median_s": 1.496,
+    "samples_s": [
+     1.568,
+     1.49,
+     1.496,
+     1.482,
+     1.501
+    ],
+    "variant": "bundled",
+    "worker_sympy_dir": [
+     ""
+    ]
+   },
+   {
+    "median_s": 1.378,
+    "samples_s": [
+     1.378,
+     1.371,
+     1.444,
+     1.362,
+     1.416
+    ],
+    "variant": "external_A",
+    "worker_sympy_dir": [
+     "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\sympy"
+    ]
+   },
+   {
+    "median_s": 1.399,
+    "samples_s": [
+     1.392,
+     1.399,
+     1.373,
+     1.41,
+     1.47
+    ],
+    "variant": "external_B",
+    "worker_sympy_dir": [
+     "C:\\Users\\helmd\\AppData\\Roaming\\Python\\Python313\\site-packages\\sympy"
+    ]
+   }
+  ]
+ },
+ "steps": [
+  "d2",
+  "d2",
+  "d2",
+  "alpha:0.375",
+  "alpha:0.3",
+  "alpha:0.45",
+  "alpha:0.25",
+  "d1"
+ ],
+ "timing": {
+  "base": {
+   "cold_press": {
+    "median_s": 17.408,
+    "min_s": 17.395,
+    "samples_s": [
+     17.573,
+     17.408,
+     17.395
+    ]
+   },
+   "pool_wall_cold_s": 15.405,
+   "pool_wall_warm_s": 2.72,
+   "slider": {
+    "median_s": 3.017,
+    "min_s": 2.924,
+    "samples_s": [
+     2.956,
+     2.974,
+     2.955,
+     3.423,
+     2.998,
+     3.035,
+     3.045,
+     3.112,
+     2.924,
+     2.975,
+     3.142,
+     3.078
+    ]
+   },
+   "warm_press": {
+    "median_s": 3.819,
+    "min_s": 3.572,
+    "samples_s": [
+     3.935,
+     3.572,
+     4.097,
+     3.594,
+     4.121,
+     3.702
+    ]
+   }
+  },
+  "bundled": {
+   "cold_press": {
+    "median_s": 17.424,
+    "min_s": 17.118,
+    "samples_s": [
+     17.424,
+     17.661,
+     17.118
+    ]
+   },
+   "pool_wall_cold_s": 15.382,
+   "pool_wall_warm_s": 2.777,
+   "slider": {
+    "median_s": 3.046,
+    "min_s": 2.951,
+    "samples_s": [
+     2.951,
+     3.102,
+     3.045,
+     3.02,
+     3.315,
+     3.043,
+     3.047,
+     3.147,
+     2.97,
+     3.015,
+     3.149,
+     3.143
+    ]
+   },
+   "warm_press": {
+    "median_s": 3.897,
+    "min_s": 3.64,
+    "samples_s": [
+     4.019,
+     3.702,
+     4.075,
+     3.775,
+     4.185,
+     3.64
+    ]
+   }
+  },
+  "external": {
+   "cold_press": {
+    "median_s": 14.072,
+    "min_s": 13.958,
+    "samples_s": [
+     14.072,
+     14.157,
+     13.958
+    ]
+   },
+   "pool_wall_cold_s": 11.985,
+   "pool_wall_warm_s": 2.202,
+   "slider": {
+    "median_s": 2.474,
+    "min_s": 2.388,
+    "samples_s": [
+     2.49,
+     2.459,
+     2.645,
+     2.583,
+     2.496,
+     2.448,
+     2.611,
+     2.654,
+     2.419,
+     2.388,
+     2.44,
+     2.4
+    ]
+   },
+   "warm_press": {
+    "median_s": 3.295,
+    "min_s": 3.055,
+    "samples_s": [
+     3.637,
+     3.168,
+     3.57,
+     3.112,
+     3.421,
+     3.055
+    ]
+   }
+  }
+ },
+ "worker_python_in_panel": {
+  "base": [
+   null
+  ],
+  "bundled": [
+   "3.11.11 bundled"
+  ],
+  "external": [
+   "3.13.1 external"
+  ]
+ }
+}

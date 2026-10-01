@@ -12,7 +12,10 @@
    воркерах (WARM-COVERAGE-PARALLEL), дают тот же sidecar, что и в родителе, а
    пул назван счётчиком `ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED` и хвостом
    строки панели. Порог малой партии на время проверки снят: двухпатчевый шов
-   стоил бы пулу больше, чем самому покрытию.
+   стоил бы пулу больше, чем самому покрытию;
+4. настройка «Worker Python» (WORKER-PYTHON): свойство пристёгнуто к
+   зарегистрированному классу предпочтений, а внешний CPython, если он есть,
+   отвечает побитово так же; расхождение окружений названо и не выключает пул.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -22,6 +25,7 @@ blender --background --python-exit-code 1 --python <этот файл>
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -52,6 +56,10 @@ POOL_COUNTERS = (
     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK",
     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE",
     "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED",
+    "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION",
+    "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON",
+    "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK",
+    "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON",
 )
 _MS = re.compile(r"\d+(?:\.\d+)? ms")
 
@@ -203,6 +211,77 @@ def _check_warm_and_slide(domains):
     print("pooled slider timing:", pooled_slides[-1][1])
 
 
+def _external_python():
+    """Внешний CPython для проверки: переменная окружения либо стандартное место."""
+
+    candidates = (os.environ.get("CFTUV_TEST_EXTERNAL_PYTHON", ""), "C:/Python313/python.exe")
+    return next((item for item in candidates if item and Path(item).is_file()), "")
+
+
+def _set_worker_python(value):
+    """Предпочтение аддона «Worker Python» тем же путём, каким его выставит владелец."""
+
+    from cftuv.envelope_worker_python import (
+        install_worker_python_preference,
+        read_worker_python,
+    )
+
+    install_worker_python_preference()  # `register` зовёт это сам; повтор ничего не делает
+    addons = bpy.context.preferences.addons
+    entry = addons.get("cftuv") or addons.new()
+    entry.module = "cftuv"
+    assert hasattr(entry.preferences, "worker_python"), "preference not attached"
+    entry.preferences.worker_python = value
+    assert read_worker_python() == value
+
+
+def _check_external_python(reference_payload, domains):
+    external = _external_python()
+    if not external:
+        print("external interpreter: skipped (no standalone CPython found)")
+        return
+    _set_worker_python(external)
+    try:
+        payload, _, counters, timing = _build(2)
+    finally:
+        _set_worker_python("")
+    assert counters["ENVELOPE_DOMAIN_POOL_UNAVAILABLE"] == 0, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_WORKERS"] == 2, counters
+    if counters["ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK"]:
+        # Окружение внешнего не сошлось с Blender: исход назван, воркеры идут
+        # на встроенном (а не на последовательном пути), и причина в панели.
+        assert counters["ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"] == 0, counters
+        assert counters["ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON"] > 0, counters
+        assert "external Python rejected" in timing and "(bundled)" in timing, timing
+    else:
+        assert counters["ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"] == 1, counters
+        assert counters["ENVELOPE_DOMAIN_POOL_DISPATCHED"] == domains, counters
+        assert "(external)" in timing, timing
+        difference = _first_difference(payload, reference_payload)
+        assert difference is None, difference
+    print("external interpreter timing:", timing)
+
+
+def _check_unusable_python():
+    """Несуществующий путь: исход назван, а воркеры идут на встроенном Python."""
+
+    _set_worker_python("C:/nowhere/cftuv/python.exe")
+    try:
+        _, _, counters, timing = _build(2)
+        sidecar = json.dumps(_sidecar_payload(bpy.data.objects["EnvelopeTwoPatch"]))
+    finally:
+        _set_worker_python("")
+    assert counters["ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK"] == 1, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON"] == 1, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"] == 0, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_UNAVAILABLE"] == 0, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_WORKERS"] == 2, counters
+    assert "path is not a usable Python executable" in timing, timing
+    assert "(bundled)" in timing and "pool wall" in timing, timing
+    assert "ENVELOPE_DOMAIN_POOL_INTERPRETER_UNUSABLE" in sidecar
+    print("unusable interpreter timing:", timing)
+
+
 def _main():
     import cftuv
 
@@ -247,9 +326,18 @@ def _main():
     assert pooled_counters["ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"] == 0
     assert pooled_counters["ENVELOPE_DOMAIN_POOL_UNAVAILABLE"] == 0
     assert "pool wall" in pooled_timing and "2 workers" in pooled_timing
+    version = sys.version_info
+    assert pooled_counters["ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"] == 0
+    assert pooled_counters["ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK"] == 0
+    assert pooled_counters["ENVELOPE_DOMAIN_POOL_PYTHON_VERSION"] == (
+        version[0] * 10000 + version[1] * 100 + version[2]
+    ), pooled_counters
+    assert "(bundled)" in pooled_timing, pooled_timing
     print("pooled timing:", pooled_timing)
 
     _check_warm_and_slide(len(domains))
+    _check_external_python(sequential_payload, len(domains))
+    _check_unusable_python()
 
     # Вернуть последовательный режим: воркеры остановлены, а не оставлены.
     from cftuv import envelope_domain_pool

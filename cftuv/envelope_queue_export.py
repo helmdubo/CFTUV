@@ -140,6 +140,13 @@ POOL_UNAVAILABLE = "ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
 #: сессии (подготовку воркеру не считают, её шлют). Остальные — домен целиком.
 POOL_COVERAGE_DISPATCHED = "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED"
 POOL_WALL_STAGE = "QUEUE_POOL_WALL"
+# Интерпретатор воркеров («Worker Python»). Строк в профиле нет, поэтому версия
+# идёт числом `major*10000 + minor*100 + micro`, а причина отказа внешнему
+# интерпретатору — кодом из `envelope_domain_pool.INTERPRETER_REASONS`.
+POOL_PYTHON_VERSION = "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION"
+POOL_EXTERNAL_PYTHON = "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON"
+POOL_INTERPRETER_FALLBACK = "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK"
+POOL_INTERPRETER_REASON = "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON"
 
 # Счётчик переполнения палитры. Девятый владелец получает слот первого, и это
 # должно быть видно числом: молчание здесь означало бы две разные огибающие
@@ -1844,6 +1851,21 @@ def _pool_timing_suffix(profile) -> str:
             f"{int(counters.get(POOL_WORKERS, 0))} workers "
             "(times above are per-domain sums)"
         )
+    version = int(counters.get(POOL_PYTHON_VERSION, 0))
+    if version:
+        kind = "external" if counters.get(POOL_EXTERNAL_PYTHON) else "bundled"
+        parts.append(
+            f"worker Python {version // 10000}.{version // 100 % 100}."
+            f"{version % 100} ({kind})"
+        )
+    if counters.get(POOL_INTERPRETER_FALLBACK):
+        from .envelope_domain_pool import INTERPRETER_REASONS
+
+        reason = int(counters.get(POOL_INTERPRETER_REASON, 0))
+        parts.append(
+            "external Python rejected: "
+            + INTERPRETER_REASONS[reason if 0 < reason < len(INTERPRETER_REASONS) else 0]
+        )
     if counters.get(POOL_UNAVAILABLE):
         parts.append("pool unavailable, ran sequentially")
     fallbacks = int(counters.get(POOL_TASK_FALLBACK, 0))
@@ -1902,6 +1924,10 @@ __all__ = (
     "HOST_CONTOUR_COUNTERS",
     "POOL_COVERAGE_DISPATCHED",
     "POOL_DISPATCHED",
+    "POOL_EXTERNAL_PYTHON",
+    "POOL_INTERPRETER_FALLBACK",
+    "POOL_INTERPRETER_REASON",
+    "POOL_PYTHON_VERSION",
     "POOL_TASK_FALLBACK",
     "POOL_UNAVAILABLE",
     "POOL_WALL_STAGE",

@@ -1,0 +1,78 @@
+{
+ "describe_environment_seconds_median": 0.0375,
+ "external": "C:\\Python313\\python.exe",
+ "host_environment": {
+  "executable": "C:\\Program Files\\Blender Foundation\\Blender 4.5\\4.5\\python\\bin\\python.exe",
+  "kernel_fingerprint": "95774852ae8438672c2b5e8ddb03106c6aaf312e88b90a6acde8afe9c3db8ab1",
+  "kernel_path": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-a5bce61b3d73925d8\\kernel\\src\\cftuv_envelope",
+  "mpmath": "1.3.0",
+  "mpmath_path": "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\mpmath",
+  "numeric_backend": "sympy:python/mpmath:python",
+  "python": [
+   3,
+   11,
+   11
+  ],
+  "sympy": "1.14.0",
+  "sympy_path": "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\sympy"
+ },
+ "host_kernel_dir": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-a5bce61b3d73925d8\\kernel\\src\\cftuv_envelope",
+ "host_sympy_dir": "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\sympy",
+ "kernel_fingerprint_seconds_median": 0.0357,
+ "kernel_py_files": 123,
+ "parent_python": "3.11.11",
+ "root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-a5bce61b3d73925d8",
+ "rows": [
+  {
+   "ensure_started_seconds": [
+    1.568,
+    1.49,
+    1.496,
+    1.482,
+    1.501
+   ],
+   "interpreter": "3.11.11 external=False",
+   "median": 1.496,
+   "rejected": "",
+   "variant": "bundled",
+   "worker_sympy_dirs": [
+    ""
+   ],
+   "workers": 8
+  },
+  {
+   "ensure_started_seconds": [
+    1.378,
+    1.371,
+    1.444,
+    1.362,
+    1.416
+   ],
+   "interpreter": "3.13.1 external=True",
+   "median": 1.378,
+   "rejected": "",
+   "variant": "external_A",
+   "worker_sympy_dirs": [
+    "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.5\\scripts\\modules\\sympy"
+   ],
+   "workers": 8
+  },
+  {
+   "ensure_started_seconds": [
+    1.392,
+    1.399,
+    1.373,
+    1.41,
+    1.47
+   ],
+   "interpreter": "3.13.1 external=True",
+   "median": 1.399,
+   "rejected": "",
+   "variant": "external_B",
+   "worker_sympy_dirs": [
+    "C:\\Users\\helmd\\AppData\\Roaming\\Python\\Python313\\site-packages\\sympy"
+   ],
+   "workers": 8
+  }
+ ]
+}

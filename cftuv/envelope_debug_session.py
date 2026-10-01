@@ -660,6 +660,7 @@ class EnvelopeDebugSessionController:
         from .envelope_request_export import (
             evaluate_envelope_debug_staged as _evaluate,
         )
+        from .envelope_worker_python import read_worker_python
 
         topology_export = self.get_topology_export(
             analysis_bundle,
@@ -746,7 +747,7 @@ class EnvelopeDebugSessionController:
             topology_export=topology_export,
             domain_snapshot_provider=snapshot_provider,
             preparation_provider=preparation_provider,
-            domain_pool=get_domain_pool(workers),
+            domain_pool=get_domain_pool(workers, read_worker_python()),
             cached_preparation=cached_preparation,
             preparation_blobs=self.preparation_blobs,
             preparation_adopter=preparation_adopter,
@@ -894,7 +895,9 @@ def register_window_manager_session_attribute() -> None:
     """Install the runtime descriptor; no controller is module-global."""
 
     import bpy
+    from .envelope_worker_python import install_worker_python_preference
 
+    install_worker_python_preference()
     existing = getattr(
         bpy.types.WindowManager,
         WINDOW_MANAGER_SESSION_ATTRIBUTE,
