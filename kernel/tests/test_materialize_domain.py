@@ -42,6 +42,13 @@ CASES = (
     "full_selection",
     "two_edge",
     "straight3",
+    # Полным путём через настоящий конвейер, а не от разбиения (см.
+    # `materialize_factories`): косая карта, угол «Г» из двух цепей, домен с
+    # дырой и near-planar домен.
+    "skew",
+    "l_chains",
+    "ring",
+    "near_planar",
 )
 
 #: Золотые дайджесты малых случаев. Меняются ТОЛЬКО осознанно: любое их
@@ -77,6 +84,14 @@ def _case(name):
         return factories.field_domain("building_002_full_selection_v1")
     if name == "two_edge":
         return factories.two_edge_chain_domain()
+    if name == "skew":
+        return factories.skew_chain_domain()
+    if name == "l_chains":
+        return factories.l_chains_domain()
+    if name == "ring":
+        return factories.ring_domain()
+    if name == "near_planar":
+        return factories.near_planar_domain()
     return factories.straight_chain_domain()
 
 
@@ -233,11 +248,10 @@ def test_materialization_is_deterministic_and_the_answer_survives_a_pickle():
     second = _run("full_selection")
     assert first.content_digest == second.content_digest
     assert first.batch == second.batch
-    # Цена (бюджет, секунды) — не ответ: она зависит от тепла памяти разложений.
-    answer = lambda item: tuple(  # noqa: E731
-        pair for pair in item.counters if not pair[0].startswith("EXACT_WORK_")
-    )
-    assert answer(first) == answer(second)
+    # Счётчики равны ЦЕЛИКОМ, статьи бюджета включительно: материализация
+    # считается с холодной памятью разложений, поэтому цена — свойство входа, а
+    # не истории процесса (`test_the_exact_work_counters_do_not_depend_...`).
+    assert first.counters == second.counters
     restored = pickle.loads(pickle.dumps(first))
     assert restored == first
     assert restored.content_digest == first.content_digest
@@ -553,3 +567,184 @@ def test_the_corpus_digests_are_stable_between_two_assemblies():
     for (name, alpha, left), (_n, _a, right) in zip(first, second):
         assert left[0].semantic_digest == right[0].semantic_digest, (name, alpha)
         assert left[0] == right[0], (name, alpha)
+
+
+# --------------------------------------------------------------------------
+# Судьба КАЖДОЙ грани покрытия (аудит 2026-10-02, обязательная правка 1)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_every_coverage_face_is_accounted_for_and_none_is_lost(name):
+    """`FACES_IN` равно сумме граней покрытия ПО ВХОДУ и сумме их судеб."""
+
+    prepared, coverage, _request = _case(name)
+    counters = dict(_run(name).counters)
+    assert counters["MATERIALIZE_FACES_IN"] == sum(
+        len(item.faces) for item in coverage.regions
+    )
+    assert counters["MATERIALIZE_FACES_IN"] == (
+        counters["MATERIALIZE_FACES_CONTOURED"]
+        + counters["MATERIALIZE_FACES_EMPTY_AFTER_CLIP"]
+        + counters["MATERIALIZE_FACES_LOST"]
+    )
+    assert counters["MATERIALIZE_FACES_LOST"] == 0
+    assert all(
+        value == 0
+        for key, value in counters.items()
+        if key.startswith("MATERIALIZE_FACES_LOST_")
+    )
+    assert counters["MATERIALIZE_CONTOURS_WITHOUT_FACE"] == 0
+    assert counters["MATERIALIZE_DOMAIN_REGIONS"] == len(prepared.regions)
+    # Ни одного отброшенного имени вершины и ни одного пропуска станции.
+    assert counters["MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED"] == 0
+    assert counters["STATION_SKIPS"] == 0
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_the_mesh_area_equals_the_coverage_area_in_square_meters(name):
+    """Дыры в меше нет: площадь треугольников = площадь покрытия, независимо.
+
+    Грань, пропавшая молча, не видна ни валидатору, ни аудиту сетки (её
+    полурёбра становятся «стеной»), зато видна в площади. Мера независима от
+    сборки: покрытие в единицах решётки и Грам домена против 3D-координат меша.
+    """
+
+    prepared, coverage, _request = _case(name)
+    batch = _run(name).batch
+    position = {item.vert_key: item.position for item in batch.vertices}
+    mesh = 0.0
+    for face in batch.faces:
+        a, b, c = (position[key] for key in face.ordered_vert_keys)
+        ab = (b.x - a.x, b.y - a.y, b.z - a.z)
+        ac = (c.x - a.x, c.y - a.y, c.z - a.z)
+        cross = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        mesh += 0.5 * sum(item * item for item in cross) ** 0.5
+    gram = prepared.context.frame.exact_gram_matrix
+    from cftuv_envelope.planar_metric import fraction_from_exact
+
+    g00, g01, g11 = (fraction_from_exact(item) for item in (gram.m00, gram.m01, gram.m11))
+    determinant = float(g00 * g11 - g01 * g01)
+    scale = float(prepared.lattice.scale)
+    from cftuv_envelope.materialize.lift import sqrt_sum_binary64
+
+    expected = (
+        0.5 * sqrt_sum_binary64(coverage.doubled_area) * determinant**0.5 / scale**2
+    )
+    assert mesh == pytest.approx(expected, rel=1e-9), name
+
+
+def _refused_by_loss(prepared, coverage, request):
+    result = materialize_domain(
+        prepared, coverage, request=dataclasses.replace(request, uv_policy_id=UV)
+    )
+    assert result.outcome is MaterializationOutcome.COVERAGE_FACE_LOST, result.detail
+    assert result.batch is None and result.content_digest == ""
+    return result
+
+
+@pytest.mark.parametrize(
+    "mutation, reason",
+    (
+        ("drop_last", "CONTOUR_MISSING=1"),
+        ("swap_owner", "OWNER_MISMATCH=1"),
+        ("short_contour", "SHORT_CONTOUR_WITH_AREA=1"),
+    ),
+)
+def test_a_lost_face_is_a_named_refusal_with_its_reason_and_its_numbers(
+    monkeypatch, mutation, reason
+):
+    """Для меша потерянная грань — ДЫРА: ей положен отказ, а не пропуск."""
+
+    real = domain.region_contours
+
+    def lossy(region, lattice_alpha, budget):
+        contours = list(real(region, lattice_alpha, budget))
+        if mutation == "drop_last":
+            contours.pop()
+        elif mutation == "swap_owner":
+            contours[0] = dataclasses.replace(contours[0], owner=(9, 9, 9, 9))
+        else:
+            contours[0] = dataclasses.replace(
+                contours[0], points=tuple(contours[0].points[:2])
+            )
+        return tuple(contours)
+
+    monkeypatch.setattr(domain, "region_contours", lossy)
+    prepared, coverage, request = _case("weighted")
+    result = _refused_by_loss(prepared, coverage, request)
+    assert reason in result.detail
+    counters = dict(result.counters)
+    assert counters["MATERIALIZE_FACES_LOST"] == 1
+    # Баланс держится и в отказе: потеря названа, а не вычтена из входа.
+    assert counters["MATERIALIZE_FACES_IN"] == (
+        counters["MATERIALIZE_FACES_CONTOURED"]
+        + counters["MATERIALIZE_FACES_EMPTY_AFTER_CLIP"]
+        + counters["MATERIALIZE_FACES_LOST"]
+    )
+    assert counters[f"MATERIALIZE_FACES_LOST_{reason.split('=')[0]}"] == 1
+
+
+def test_a_region_without_coverage_or_partition_is_a_named_loss_not_a_skip():
+    prepared, coverage, request = _case("weighted")
+    region = prepared.regions[0]
+
+    uncovered = dataclasses.replace(coverage, regions=())
+    result = _refused_by_loss(prepared, uncovered, request)
+    assert f"REGION_WITHOUT_COVERAGE:{region.region_id}" in result.detail
+
+    unpartitioned = dataclasses.replace(
+        prepared, regions=(dataclasses.replace(region, partition=None),)
+    )
+    result = _refused_by_loss(unpartitioned, coverage, request)
+    assert f"REGION_WITHOUT_PARTITION:{region.region_id}" in result.detail
+
+    ghost = dataclasses.replace(coverage.regions[0], region_id="ghost-region")
+    extra = dataclasses.replace(coverage, regions=(*coverage.regions, ghost))
+    result = _refused_by_loss(prepared, extra, request)
+    assert "COVERAGE_REGION_NOT_PREPARED:ghost-region" in result.detail
+
+
+def test_a_merge_that_drops_a_face_is_caught_by_the_exact_area_closure(monkeypatch):
+    """Счёт граней сошёлся, а площадь региона — нет: вторая, независимая проверка."""
+
+    from cftuv_envelope.materialize.coalesce import MergeStatsV1
+
+    monkeypatch.setattr(
+        domain,
+        "merge_same_chain_faces",
+        lambda faces, budget: (tuple(faces)[:-1], MergeStatsV1()),
+    )
+    prepared, coverage, request = _case("weighted")
+    result = _refused_by_loss(prepared, coverage, request)
+    assert ":AREA_DOES_NOT_CLOSE" in result.detail
+    assert dict(result.counters)["MATERIALIZE_FACES_LOST"] == 0
+
+
+def test_the_loss_refusals_are_part_of_the_outcome_vocabulary():
+    assert MaterializationOutcome.COVERAGE_FACE_LOST.value == "COVERAGE_FACE_LOST"
+
+
+# --------------------------------------------------------------------------
+# Цена не зависит от тепла памяти разложений (аудит, предложение 9)
+# --------------------------------------------------------------------------
+
+
+def test_the_exact_work_counters_do_not_depend_on_the_memory_warmth():
+    """`EXACT_WORK_*` равны и после сброса памяти, и после чужого прогрева."""
+
+    from cftuv_envelope.materialize.stations import chain_station_table
+
+    prepared, _coverage, _request = _case("full_selection")
+    reset_factorization_memory()
+    cold = _run("full_selection")
+    # Прогреть память ТОЙ ЖЕ работой, которой материализатор её потом заполнит.
+    chain_station_table(prepared, factories.budget())
+    warm = _run("full_selection")
+    again = _run("full_selection")
+    assert dict(cold.counters)["EXACT_WORK_SPENT"] > 0
+    assert cold.counters == warm.counters == again.counters

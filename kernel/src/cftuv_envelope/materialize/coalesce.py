@@ -72,6 +72,33 @@ CONTOUR_MERGED_SAME_CHAIN_GROUPS = "CONTOUR_MERGED_SAME_CHAIN_GROUPS"
 #: счётчика «слияний не было» было бы неотличимо от «слияние отказало молча».
 CONTOUR_MERGE_BOUNDARY_UNRESOLVED = "CONTOUR_MERGE_BOUNDARY_UNRESOLVED"
 
+#: Куда уходит КАЖДАЯ грань покрытия региона (`match_region_faces`). Одна
+#: законная судьба и три потери; ноль в потере — измерение, а не умолчание.
+#:
+#: `EMPTY_AFTER_CLIP` — фронт до грани к моменту alpha не дошёл: усечённый
+#: контур короче трёх точек, и площадь куска равна нулю ТОЧНО. Грань не
+#: потеряна, ей просто нечего показывать; такой исход всегда был штатным.
+FACE_EMPTY_AFTER_CLIP = "EMPTY_AFTER_CLIP"
+#: Контуров у региона меньше, чем граней покрытия: хвост граней остался без
+#: контура. Для меша это дыра, а не пустота.
+FACE_LOST_CONTOUR_MISSING = "CONTOUR_MISSING"
+#: Контур и грань покрытия с одним индексом назвали РАЗНЫХ владельцев:
+#: сопоставление по индексу сломано, и верить ему дальше нельзя.
+FACE_LOST_OWNER_MISMATCH = "OWNER_MISMATCH"
+#: Контур короче трёх точек, а площадь грани покрытия НЕ ноль: короткий
+#: контур скрыл настоящий кусок.
+FACE_LOST_SHORT_CONTOUR_WITH_AREA = "SHORT_CONTOUR_WITH_AREA"
+FACE_LOSS_REASONS = (
+    FACE_LOST_CONTOUR_MISSING,
+    FACE_LOST_OWNER_MISMATCH,
+    FACE_LOST_SHORT_CONTOUR_WITH_AREA,
+)
+
+#: Контуров у региона БОЛЬШЕ, чем граней покрытия, и лишний не пуст: кусок
+#: геометрии, который покрытие не считало. Не грань покрытия, поэтому не входит
+#: в баланс `faces_in`, но в потерях идёт отдельной строкой.
+CONTOUR_SURPLUS_WITHOUT_FACE = "CONTOUR_WITHOUT_COVERAGE_FACE"
+
 
 @dataclass(frozen=True, slots=True)
 class CoveredFaceV1:
@@ -142,22 +169,145 @@ def region_contours(region, lattice_alpha: Fraction, work_budget=None):
     return coverage_at(region.partition, lattice_alpha, work_budget).faces
 
 
-def covered_faces_of_region(covered, contours, spans) -> list[CoveredFaceV1]:
-    """Грани региона с точными контурами и именем цепи ребра-источника.
+@dataclass(frozen=True, slots=True)
+class FaceMatchV1:
+    """Куда ушла КАЖДАЯ грань покрытия региона: счёт, а не пропуск.
+
+    `faces_in` — число граней покрытия, считанное ПРЯМО (`len(covered.faces)`),
+    а не суммой корзин: баланс `faces_in == matched + empty_after_clip +
+    Σ lost` поэтому проверяет цикл сопоставления, а не повторяет его.
+    `lost` — всегда ВСЕ причины потери, в порядке `FACE_LOSS_REASONS`, с
+    нулями. `surplus_contours` — лишние непустые контуры без грани покрытия
+    (не часть баланса `faces_in`: это не грань покрытия).
+    """
+
+    faces_in: int = 0
+    matched: int = 0
+    empty_after_clip: int = 0
+    lost: tuple[tuple[str, int], ...] = tuple((name, 0) for name in FACE_LOSS_REASONS)
+    surplus_contours: int = 0
+    #: Первые потерянные грани поимённо: `(причина, владелец)`. Для детали
+    #: отказа; счёт лежит в `lost`, а имена — чтобы потерю можно было найти.
+    lost_owners: tuple[tuple[str, tuple], ...] = ()
+
+    @property
+    def lost_faces(self) -> int:
+        return sum(count for _name, count in self.lost)
+
+    @property
+    def lost_total(self) -> int:
+        return self.lost_faces + self.surplus_contours
+
+    @property
+    def balanced(self) -> bool:
+        """`faces_in` равно сумме судеб граней: ни одна не осталась без названия."""
+
+        return self.faces_in == self.matched + self.empty_after_clip + self.lost_faces
+
+    def __add__(self, other: "FaceMatchV1"):
+        return FaceMatchV1(
+            self.faces_in + other.faces_in,
+            self.matched + other.matched,
+            self.empty_after_clip + other.empty_after_clip,
+            tuple(
+                (name, left + right)
+                for (name, left), (_same, right) in zip(self.lost, other.lost)
+            ),
+            self.surplus_contours + other.surplus_contours,
+            (self.lost_owners + other.lost_owners)[:LOST_OWNERS_SHOWN],
+        )
+
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        """Числа для `MaterializationV1.counters`: потери всегда, и с нулями."""
+
+        return (
+            ("MATERIALIZE_FACES_IN", self.faces_in),
+            ("MATERIALIZE_FACES_CONTOURED", self.matched),
+            ("MATERIALIZE_FACES_EMPTY_AFTER_CLIP", self.empty_after_clip),
+            ("MATERIALIZE_FACES_LOST", self.lost_total),
+            *((f"MATERIALIZE_FACES_LOST_{name}", count) for name, count in self.lost),
+            ("MATERIALIZE_CONTOURS_WITHOUT_FACE", self.surplus_contours),
+        )
+
+    def loss_counters(self) -> tuple[tuple[str, int], ...]:
+        """Только потери и ТОЛЬКО когда они есть: для отладочного хоста.
+
+        Отладка не отказывает, а рисует; её счётчики хоста пишутся перечнем и
+        на домене без потерь обязаны остаться побитово прежними. Поэтому здесь
+        ноль не пишется вовсе, а потеря называется тем же числом, что у продукта.
+        """
+
+        if not self.lost_total:
+            return ()
+        return tuple(
+            item
+            for item in self.counters()
+            if item[0].startswith("MATERIALIZE_FACES_LOST")
+            or item[0] == "MATERIALIZE_CONTOURS_WITHOUT_FACE"
+        )
+
+    def describe_losses(self) -> str:
+        """Строка для детали отказа: причины с числами и первые владельцы."""
+
+        parts = [f"{name}={count}" for name, count in self.lost if count]
+        if self.surplus_contours:
+            parts.append(f"{CONTOUR_SURPLUS_WITHOUT_FACE}={self.surplus_contours}")
+        owners = ", ".join(f"{name}@{owner}" for name, owner in self.lost_owners)
+        return f"{' '.join(parts)} of {self.faces_in} faces" + (
+            f" ({owners})" if owners else ""
+        )
+
+
+#: Сколько потерянных владельцев называется в детали отказа поимённо.
+LOST_OWNERS_SHOWN = 6
+
+
+def match_region_faces(
+    covered, contours, spans
+) -> tuple[list[CoveredFaceV1], FaceMatchV1]:
+    """Грани региона с точными контурами и счёт судьбы КАЖДОЙ грани покрытия.
 
     `covered` — `ConveyorRegionCoverageV1` (владельцы и площади), `contours` —
     `region_contours` того же региона, `spans` — `{отрезок: PhysicalChain}`
     региона из `source_chain_by_span`. Контур сопоставляется грани по ИНДЕКСУ и
-    по равенству владельца: несовпавшая либо вырожденная (меньше трёх точек)
-    пара пропускается, а не додумывается.
+    по равенству владельца; ни одна грань не пропадает без счёта (`FaceMatchV1`).
+
+    Законно пуста одна судьба — `EMPTY_AFTER_CLIP`: усечённый контур короче
+    трёх точек И площадь куска ровно ноль. Всё остальное — потеря: короткий
+    контур с ненулевой площадью, разошедшийся владелец, нехватка контуров.
+
+    Функция не отказывает сама: отказывает потребитель, который знает цену
+    потери. Материализатор отвечает на любую потерю именованным отказом
+    `COVERAGE_FACE_LOST` — для меша пропавшая грань дыра, которую не видит ни
+    валидатор батча, ни аудит сетки. Отладочная картинка (хост) потерянную
+    грань по-прежнему НЕ рисует и не отказывает — её контракт не менялся ни на
+    байт, — но теперь называет потерю в `host_counters` (`loss_counters`), и
+    только когда она есть, чтобы вывод без потерь остался побитово прежним.
     """
 
     faces: list[CoveredFaceV1] = []
+    empty = 0
+    lost = dict.fromkeys(FACE_LOSS_REASONS, 0)
+    named_losses: list[tuple[str, tuple]] = []
+
+    def lose(reason: str, owner) -> None:
+        lost[reason] += 1
+        if len(named_losses) < LOST_OWNERS_SHOWN:
+            named_losses.append((reason, tuple(int(item) for item in owner)))
+
     for index, named in enumerate(covered.faces):
         if index >= len(contours):
-            break
+            lose(FACE_LOST_CONTOUR_MISSING, named.owner)
+            continue
         contour = contours[index]
-        if contour.owner != named.owner or len(contour.points) < 3:
+        if contour.owner != named.owner:
+            lose(FACE_LOST_OWNER_MISMATCH, named.owner)
+            continue
+        if len(contour.points) < 3:
+            if named.doubled_area.is_zero:
+                empty += 1
+            else:
+                lose(FACE_LOST_SHORT_CONTOUR_WITH_AREA, named.owner)
             continue
         owner = tuple(int(item) for item in named.owner)
         span = undirected_span(owner)
@@ -172,7 +322,17 @@ def covered_faces_of_region(covered, contours, spans) -> list[CoveredFaceV1]:
                 source_chain_id=(None if span is None else spans.get(span)),
             )
         )
-    return faces
+    surplus = sum(
+        1 for contour in contours[len(covered.faces):] if len(contour.points) >= 3
+    )
+    return faces, FaceMatchV1(
+        faces_in=len(covered.faces),
+        matched=len(faces),
+        empty_after_clip=empty,
+        lost=tuple((name, lost[name]) for name in FACE_LOSS_REASONS),
+        surplus_contours=surplus,
+        lost_owners=tuple(named_losses),
+    )
 
 
 def undirected_span(owner) -> tuple[tuple[int, int], tuple[int, int]] | None:

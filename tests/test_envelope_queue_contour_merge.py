@@ -468,3 +468,40 @@ def test_host_counters_reach_the_sidecar_under_their_own_key():
     }
     kernel_counters = {item["name"] for item in payload["counters"]}
     assert not (kernel_counters & set(host))
+
+
+def test_the_debug_picture_skips_a_lost_face_as_before_but_names_the_loss(monkeypatch):
+    """Аудит 2026-10-02: потерянная грань картинкой не рисуется, но и не молчит.
+
+    Контракт отладки не менялся: грань без контура нерисована, отказа нет. Новое
+    одно — число потери в `host_counters`, и ТОЛЬКО когда потеря есть (вывод
+    домена без потерь побитово прежний: его проверяют соседние тесты и зонд
+    кнопки). Продукт на ту же потерю отказывает (`COVERAGE_FACE_LOST`).
+    """
+
+    from cftuv_envelope.materialize import coalesce
+
+    clean = _queue_domain(TWO_CHAINS)
+    assert len(clean.faces) == 2
+    assert not any(
+        name.startswith("MATERIALIZE_FACES") for name, _value in clean.host_counters
+    )
+
+    real = coalesce.region_contours
+    monkeypatch.setattr(
+        coalesce,
+        "region_contours",
+        lambda region, alpha, budget=None: tuple(real(region, alpha, budget))[:-1],
+    )
+    lossy = _queue_domain(TWO_CHAINS)
+
+    # Нарисованы ровно оставшиеся грани, и они те же, что в чистом прогоне.
+    assert [face.owner for face in lossy.faces] == [face.owner for face in clean.faces][:1]
+    assert lossy.faces[0] == clean.faces[0]
+    counters = dict(lossy.host_counters)
+    assert counters["MATERIALIZE_FACES_LOST"] == 1
+    assert counters["MATERIALIZE_FACES_LOST_CONTOUR_MISSING"] == 1
+    # Три прежних числа стадии контура на месте и в прежнем порядке.
+    assert [name for name, _value in lossy.host_counters[:3]] == list(
+        name for name, _value in clean.host_counters
+    )

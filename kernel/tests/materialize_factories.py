@@ -50,18 +50,14 @@ def load_fixture(name: str):
     return snapshot, request
 
 
-def affine_domain(
+def with_affine_metric(
+    snapshot,
     *,
-    faces,
-    routes,
-    alpha: str = "1",
     grid_policy=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
+    planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
 ):
-    """Снапшот и запрос с честной аффинной метрикой вместо плоского кадра."""
+    """Снапшот с честной аффинной метрикой вместо его плоского кадра."""
 
-    snapshot, request = straight_snapshot(
-        faces=faces, source_routes=routes, alpha=alpha
-    )
     frame = next(iter(snapshot.surface_metric_descriptors))
     domain = next(iter(snapshot.patch_domains))
     metric = kernel.build_rational_affine_planar_metric(
@@ -70,11 +66,49 @@ def affine_domain(
         owner_patch_id=domain.owner_patch_id,
         source_vertices=snapshot.source_vertices,
         source_faces=snapshot.surface_ir.source_faces,
+        planarity_policy=planarity_policy,
         grid_policy=grid_policy,
     )
+    return dataclasses.replace(
+        snapshot, surface_metric_descriptors=frozenset({metric})
+    )
+
+
+def affine_domain(
+    *,
+    faces,
+    routes,
+    alpha: str = "1",
+    grid_policy=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
+    planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
+    lift=None,
+):
+    """Снапшот и запрос с честной аффинной метрикой вместо плоского кадра.
+
+    `lift` — `{индекс_вершины: dz}`: смещение вершины `v<индекс>` по Z. Домен с
+    ненулевым `lift` и политикой `NEAR_PLANAR_PROJECTION_V1` — near-planar.
+    """
+
+    snapshot, request = straight_snapshot(
+        faces=faces, source_routes=routes, alpha=alpha
+    )
+    if lift:
+        snapshot = dataclasses.replace(
+            snapshot,
+            source_vertices=frozenset(
+                dataclasses.replace(
+                    item,
+                    position=dataclasses.replace(
+                        item.position,
+                        z=item.position.z + lift.get(int(item.vertex_id.value[1:]), 0.0),
+                    ),
+                )
+                for item in snapshot.source_vertices
+            ),
+        )
     return (
-        dataclasses.replace(
-            snapshot, surface_metric_descriptors=frozenset({metric})
+        with_affine_metric(
+            snapshot, grid_policy=grid_policy, planarity_policy=planarity_policy
         ),
         request,
     )
@@ -133,6 +167,88 @@ def straight_chain_domain(alpha: str = "1"):
             },
         ),
         alpha=alpha,
+    )
+    return prepare_and_cover(snapshot, request) + (request,)
+
+
+#: Параллелограмм, а не прямоугольник: карта домена КОСАЯ. Базис — `A = (10,0,0)`,
+#: `B = (13,8,0)` (первая вершина вне прямой `v0 v1`), Грам `[[100,130],[130,233]]`:
+#: ни ортогональности, ни единичных длин. Единица решётки по `u` и по `v` — разные
+#: физические длины, и метрическая ошибка станции на такой карте видна сразу.
+SKEW_FACE = ((0.0, 0.0), (10.0, 0.0), (13.0, 8.0), (3.0, 8.0))
+SKEW_BOTTOM = ((0.0, 0.0), (10.0, 0.0))
+SKEW_SIDE = ((10.0, 0.0), (13.0, 8.0))
+
+
+def skew_chain_domain(alpha: str = "1", route=SKEW_BOTTOM):
+    """Одна цепь на косой карте: нижнее ребро либо (route=SKEW_SIDE) боковое."""
+
+    snapshot, request = affine_domain(
+        faces=(SKEW_FACE,),
+        routes=({"name": "source", "points": route},),
+        alpha=alpha,
+    )
+    return prepare_and_cover(snapshot, request) + (request,)
+
+
+def l_chains_domain(alpha: str = "1"):
+    """Две цепи углом «Г» в квадрате: `(0,0)-(10,0)` и `(10,0)-(10,10)`.
+
+    Это и есть форма «Г», которую ядро принимает: ОДНА цепь с изломом в
+    `straight_snapshot` не собирается (`SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR`
+    — излом цепи объявляется углом с сертификатом), поэтому каждое плечо — своя
+    `PhysicalChain` со своим `ChainUse`. Карта косая: базис `A = (10,0,0)`,
+    `B = (10,10,0)`.
+    """
+
+    snapshot, request = affine_domain(
+        faces=(((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)),),
+        routes=(
+            {"name": "arm0", "points": ((0.0, 0.0), (10.0, 0.0))},
+            {"name": "arm1", "points": ((10.0, 0.0), (10.0, 10.0))},
+        ),
+        alpha=alpha,
+    )
+    return prepare_and_cover(snapshot, request) + (request,)
+
+
+RING_OUTER = ((0.0, 0.0), (12.0, 0.0), (12.0, 12.0), (0.0, 12.0))
+RING_INNER = ((4.0, 4.0), (8.0, 4.0), (8.0, 8.0), (4.0, 8.0))
+
+
+def ring_domain(alpha: str = "1"):
+    """Домен с ДЫРОЙ: квадратное кольцо из четырёх трапеций, источник — вся дыра.
+
+    Четыре стороны внутреннего контура — четыре цепи (замкнутая цепь на
+    `straight_snapshot` не принимается: `PLANAR_CHAIN_SUPPORT_NOT_LINEAR`).
+    """
+
+    outer, inner = RING_OUTER, RING_INNER
+    faces = tuple(
+        (outer[i], outer[(i + 1) % 4], inner[(i + 1) % 4], inner[i]) for i in range(4)
+    )
+    routes = tuple(
+        {"name": f"side{i}", "points": (inner[i], inner[(i + 1) % 4])}
+        for i in range(4)
+    )
+    snapshot, request = affine_domain(faces=faces, routes=routes, alpha=alpha)
+    return prepare_and_cover(snapshot, request) + (request,)
+
+
+def near_planar_domain(alpha: str = "1"):
+    """Near-planar домен: вершина `v3` приподнята на 0.002 над плоскостью остальных.
+
+    Подъём БОЛЬШЕ полушага исходной сетки (1/4096): меньший сетка округляет в
+    ноль, и домен остаётся точно плоским. Сертификат — `NearPlanarProjection...`,
+    метрика строится по проекциям на точную плоскость.
+    """
+
+    snapshot, request = affine_domain(
+        faces=(SKEW_FACE,),
+        routes=({"name": "source", "points": SKEW_BOTTOM},),
+        alpha=alpha,
+        planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+        lift={3: 0.002},
     )
     return prepare_and_cover(snapshot, request) + (request,)
 

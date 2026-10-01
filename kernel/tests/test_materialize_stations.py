@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from fractions import Fraction
+from types import SimpleNamespace
 
 import pytest
 
@@ -220,14 +222,14 @@ def test_a_chain_edge_outside_the_loop_restarts_the_station_and_says_so():
         value for key, value in context.uses_by_id.items() if key.value == use_id
     )
     edges = by_use[use_id]
-    whole = stations._ordered_use_edges(context, chain_use, edges)
+    whole, _reason = stations._order_or_reason(context, chain_use, edges)
     assert [item[2] for item in whole] == [False, False]
     # Первого ребра цепи в петле нет: накопление начинается заново, и флаг
     # рестарта стоит на первом оставшемся ребре.
-    cut = stations._ordered_use_edges(context, chain_use, edges[1:])
+    cut, _reason = stations._order_or_reason(context, chain_use, edges[1:])
     assert [item[2] for item in cut] == [True]
     # Неоднозначность — другое дело: то же ребро дважды станции не даёт вовсе.
-    assert stations._ordered_use_edges(context, chain_use, edges + edges[:1]) is None
+    assert stations._order_or_reason(context, chain_use, edges + edges[:1])[0] is None
 
 
 def test_transverse_is_zero_on_the_source_and_exactly_alpha_on_the_front():
@@ -275,3 +277,124 @@ def test_an_exhausted_budget_surfaces_with_its_own_name():
     reset_factorization_memory()
     with pytest.raises(ExactCanonicalizationWorkBudgetExhausted):
         chain_station_table(prepared, factories.budget(cap=0))
+
+
+# --------------------------------------------------------------------------
+# Пропуск станции назван причиной (аудит 2026-10-02, предложение 8)
+# --------------------------------------------------------------------------
+
+
+def test_a_skipped_region_is_named_with_its_reason_not_dropped_silently(monkeypatch):
+    prepared, _coverage, _request = factories.two_edge_chain_domain()
+    region_id = prepared.domain.domain_regions[0].region_id
+
+    skips: list = []
+    assert len(list(stations.region_lattice_loops(prepared, skips))) == 1
+    assert skips == []
+
+    monkeypatch.setattr(stations, "_region_loops", lambda region: (None, "irrational"))
+    skips = []
+    assert list(stations.region_lattice_loops(prepared, skips)) == []
+    assert skips == [(region_id, stations.SKIP_REGION_LOOPS_UNREADABLE)]
+    monkeypatch.undo()
+
+    monkeypatch.setattr(stations, "_lattice_image", lambda loops, lattice: (None, (), None))
+    skips = []
+    assert list(stations.region_lattice_loops(prepared, skips)) == []
+    assert skips == [(region_id, stations.SKIP_REGION_LATTICE_IMAGE_FAILED)]
+    monkeypatch.undo()
+
+    monkeypatch.setattr(
+        stations, "_lattice_image", lambda loops, lattice: ((), (), Fraction(0))
+    )
+    skips = []
+    assert list(stations.region_lattice_loops(prepared, skips)) == []
+    assert skips == [(region_id, stations.SKIP_REGION_NODE_COUNT_MISMATCH)]
+    monkeypatch.undo()
+
+    skips = []
+    assert list(stations.region_lattice_loops(SimpleNamespace(domain=None), skips)) == []
+    assert skips == [("domain", stations.SKIP_DOMAIN_MISSING)]
+    # Без `skips` (так зовёт отладочный хост) поведение прежнее: тот же пропуск.
+    assert list(stations.region_lattice_loops(SimpleNamespace(domain=None))) == []
+
+
+def test_a_chain_use_the_table_cannot_order_is_counted_under_its_reason():
+    prepared, _coverage, _request = factories.two_edge_chain_domain()
+    context = prepared.context
+    cases = {
+        # `ChainUse` петли нет в снапшоте.
+        stations.SKIP_USE_NOT_IN_SNAPSHOT: dataclasses.replace(context, uses_by_id={}),
+    }
+    for reason, broken in cases.items():
+        swapped = SimpleNamespace(
+            context=broken, lattice=prepared.lattice, domain=prepared.domain
+        )
+        table = chain_station_table(swapped, factories.budget())
+        counters = dict(table.counters)
+        assert counters["STATION_SKIPS"] == len(table.skips) >= 1
+        assert counters[f"STATION_SKIP_{reason}"] == len(table.skips)
+        assert {item[1] for item in table.skips} == {reason}
+        assert table.unnamed_chain_ids and not table.edges
+        assert reason in table.skip_text()
+    # Здоровый домен: все причины названы и равны нулю.
+    healthy = dict(_table(prepared).counters)
+    assert healthy["STATION_SKIPS"] == 0
+    assert all(
+        healthy[f"STATION_SKIP_{reason}"] == 0 for reason in stations.STATION_SKIP_REASONS
+    )
+
+
+def test_the_order_failure_names_which_of_the_two_things_went_wrong():
+    prepared, _coverage, _request = factories.two_edge_chain_domain()
+    by_use, _corners, _nodes = stations._collect_loops(prepared)
+    context = prepared.context
+    use_id = next(key for key in by_use if key.startswith("use:"))
+    chain_use = next(
+        value for key, value in context.uses_by_id.items() if key.value == use_id
+    )
+    edges = by_use[use_id]
+    ordered, reason = stations._order_or_reason(context, chain_use, edges)
+    assert ordered is not None and reason == ""
+    nameless = [dataclasses.replace(edges[0], start_vertex_id=None), *edges[1:]]
+    assert stations._order_or_reason(context, chain_use, nameless) == (
+        None,
+        stations.SKIP_USE_EDGE_VERTEX_UNNAMED,
+    )
+    assert stations._order_or_reason(context, chain_use, edges + edges[:1]) == (
+        None,
+        stations.SKIP_USE_EDGE_PAIR_UNRESOLVED,
+    )
+
+
+def test_a_refusal_for_an_unnamed_chain_carries_the_cause_of_the_skip(monkeypatch):
+    """Грань знает только «нет ребра»; причину ей даёт таблица."""
+
+    from cftuv_envelope.ids import PolicyId
+    from cftuv_envelope.materialize import domain
+    from cftuv_envelope.materialize.admit import MaterializationOutcome
+
+    prepared, coverage, request = factories.field_domain(
+        "building_002_weighted_normals_v1"
+    )
+    original = domain.chain_station_table
+
+    def without_edges(prepared_domain, budget):
+        return dataclasses.replace(
+            original(prepared_domain, budget),
+            edges={},
+            skips=(("use:one", stations.SKIP_USE_EDGE_PAIR_UNRESOLVED),),
+        )
+
+    monkeypatch.setattr(domain, "chain_station_table", without_edges)
+    result = domain.materialize_domain(
+        prepared,
+        coverage,
+        request=dataclasses.replace(request, uv_policy_id=PolicyId("UV_DIRECT_STRIP_V1")),
+    )
+    assert result.outcome is MaterializationOutcome.STATION_CHAIN_UNNAMED
+    assert "no chain-use edge" in result.detail
+    assert "station skips: use:one:USE_EDGE_PAIR_UNRESOLVED" in result.detail
+    # Числа ранних стадий переживают отказ поздней.
+    counters = dict(result.counters)
+    assert counters["STATION_SKIPS"] == 0 and "MATERIALIZE_FACES_IN" in counters

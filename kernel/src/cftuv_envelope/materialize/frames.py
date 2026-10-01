@@ -34,12 +34,31 @@ from .stations import ChainStationTableV1, StationRunV1, station_of
 
 
 class MaterializationRefusal(Exception):
-    """Именованный отказ материализации домена; исход лежит в `outcome`."""
+    """Именованный отказ материализации домена; исход лежит в `outcome`.
 
-    def __init__(self, outcome: MaterializationOutcome, detail: str):
+    `counters` — числа, которые стадия успела посчитать до отказа: отказ без
+    чисел не отличить от «не дошли», а потеря граней именно такой отказ.
+    """
+
+    def __init__(
+        self,
+        outcome: MaterializationOutcome,
+        detail: str,
+        counters: tuple[tuple[str, int], ...] = (),
+    ):
         super().__init__(f"{outcome.value}: {detail}")
         self.outcome = outcome
         self.detail = detail
+        self.counters = tuple(counters)
+
+    def augmented(
+        self, extra: str = "", counters: tuple[tuple[str, int], ...] = ()
+    ) -> "MaterializationRefusal":
+        """Тот же исход с пояснением в хвосте детали и добавленными числами."""
+
+        return MaterializationRefusal(
+            self.outcome, f"{self.detail}{extra}", (*self.counters, *counters)
+        )
 
 
 @dataclass(frozen=True, slots=True)

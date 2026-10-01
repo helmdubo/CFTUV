@@ -165,7 +165,10 @@ CONTOUR_MERGE_BOUNDARY_UNRESOLVED = "CONTOUR_MERGE_BOUNDARY_UNRESOLVED"
 #: Счётчики стадии контура, принадлежащие ХОСТУ, а не ядру. Пишутся ВСЕГДА и
 #: перечнем: список из одного сработавшего счётчика не отличал бы ноль от
 #: неизмеренного. Держатся отдельным полем `host_counters`, чтобы канонические
-#: числа ядра (`counters`) остались побитово теми же.
+#: числа ядра (`counters`) остались побитово теми же. Единственное исключение —
+#: числа ПОТЕРИ граней покрытия (`MATERIALIZE_FACES_LOST*`, их даёт ядро,
+#: `FaceMatchV1.loss_counters`): они дописываются только когда потеря есть, и
+#: вывод домена без потерь остаётся побитово прежним.
 HOST_CONTOUR_COUNTERS = (
     CONTOUR_MERGED_SAME_CHAIN_SEPARATORS,
     CONTOUR_MERGED_SAME_CHAIN_GROUPS,
@@ -505,8 +508,9 @@ def build_queue_domain(
     # картинку или нет.
     from cftuv_envelope.exact_sqrt_sum import exact_work_budget
     from cftuv_envelope.materialize.coalesce import (
+        FaceMatchV1,
         MergeStatsV1,
-        covered_faces_of_region,
+        match_region_faces,
         merge_same_chain_faces,
         region_contours,
     )
@@ -525,6 +529,7 @@ def build_queue_domain(
     contour_started = time.perf_counter()
     chain_by_region = source_chain_by_span(prepared)
     merge_stats = MergeStatsV1()
+    face_match = FaceMatchV1()
     for region in prepared.regions:
         covered = coverage_by_region.get(region.region_id)
         regions.append(
@@ -556,9 +561,10 @@ def build_queue_domain(
         contours = region_contours(
             region, coverage.lattice_alpha, export_budget
         )
-        covered_faces = covered_faces_of_region(
+        covered_faces, region_match = match_region_faces(
             covered, contours, chain_by_region.get(region.region_id, {})
         )
+        face_match = face_match + region_match
         merged, stats = merge_same_chain_faces(covered_faces, export_budget)
         merge_stats = merge_stats + stats
         faces.extend(_projected_face(item, scale) for item in merged)
@@ -581,7 +587,11 @@ def build_queue_domain(
         prepare_seconds=float(prepare_seconds),
         coverage_seconds=float(coverage_seconds),
         contour_seconds=contour_seconds,
-        host_counters=merge_stats.counters(),
+        # Потерянная грань покрытия картинкой НЕ рисуется (как и прежде), но
+        # называется: числа потерь дописываются ТОЛЬКО когда потеря есть, и
+        # вывод домена без потерь остаётся побитово прежним. Продукт на такую
+        # потерю отказывает (`materialize.domain`, `COVERAGE_FACE_LOST`).
+        host_counters=merge_stats.counters() + face_match.loss_counters(),
     )
 
 
