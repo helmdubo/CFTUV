@@ -1,0 +1,582 @@
+{
+  "schema": "cftuv.gp_render_bulk.receipt.v1",
+  "base_commit": "5392e01",
+  "scene": "E:/testscene.blend, mesh building, 458 seam edges, QUEUE, Fan Density 2",
+  "equality": [
+    {
+      "environment": "Blender 4.5.12, building d2 (кнопка, QUEUE, 8 воркеров)",
+      "dump": "building_d2_button",
+      "before_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "after_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 8768,
+      "points": 20627,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, building d2 (кнопка, QUEUE, 8 воркеров)",
+      "dump": "r1",
+      "before_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "after_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 8768,
+      "points": 20627,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, building d2 (кнопка, QUEUE, 8 воркеров)",
+      "dump": "r2",
+      "before_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "after_sha256": "d06cacf0a8e94ec66ea170a46be6c4ba4fa6bbb2d0937c815d1ba8e8421e5537",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 8768,
+      "points": 20627,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "legacy_exact",
+      "before_sha256": "0c8243a2f2a169be6e5b845de96394a02d58919849c11cda45860ad38a80ccdf",
+      "after_sha256": "0c8243a2f2a169be6e5b845de96394a02d58919849c11cda45860ad38a80ccdf",
+      "byte_identical": true,
+      "layers": 25,
+      "strokes": 84,
+      "points": 204,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "legacy_viz",
+      "before_sha256": "7e47811c5338d99f1945f9da1c89c5c196378a67cfd0498fc7847b7f2f74e886",
+      "after_sha256": "7e47811c5338d99f1945f9da1c89c5c196378a67cfd0498fc7847b7f2f74e886",
+      "byte_identical": true,
+      "layers": 9,
+      "strokes": 936,
+      "points": 2814,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "multi_seam",
+      "before_sha256": "2f7e6bb82edcce6678802afd1cf8f7bce6f674113171076830bd00f728e52ab3",
+      "after_sha256": "2f7e6bb82edcce6678802afd1cf8f7bce6f674113171076830bd00f728e52ab3",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 76,
+      "points": 194,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "queue_alpha",
+      "before_sha256": "3c2501672de66bd19a6cbd99191ec6c03980b182862711f3fd0eb796be958856",
+      "after_sha256": "3c2501672de66bd19a6cbd99191ec6c03980b182862711f3fd0eb796be958856",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "queue_alpha_redraw",
+      "before_sha256": "8a8b87f2f2ad4ebfd333d69caa3032de907d0ccf5bdd6ddf315c990f2f67e096",
+      "after_sha256": "8a8b87f2f2ad4ebfd333d69caa3032de907d0ccf5bdd6ddf315c990f2f67e096",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "queue",
+      "before_sha256": "3c2501672de66bd19a6cbd99191ec6c03980b182862711f3fd0eb796be958856",
+      "after_sha256": "3c2501672de66bd19a6cbd99191ec6c03980b182862711f3fd0eb796be958856",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.5.12, смоки",
+      "dump": "topology",
+      "before_sha256": "02990dab2627e95087ca1901feb9a15e824ef142b94d15f4013411b4e9c09507",
+      "after_sha256": "02990dab2627e95087ca1901feb9a15e824ef142b94d15f4013411b4e9c09507",
+      "byte_identical": true,
+      "layers": 25,
+      "strokes": 36,
+      "points": 76,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "legacy_viz",
+      "before_sha256": "147ee9ce6ff04656eb0ac7711de2e267c896e2e9589110b30266908c8f9b8a31",
+      "after_sha256": "147ee9ce6ff04656eb0ac7711de2e267c896e2e9589110b30266908c8f9b8a31",
+      "byte_identical": true,
+      "layers": 9,
+      "strokes": 936,
+      "points": 2814,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "multi_seam",
+      "before_sha256": "a00c10ac5e4dc85cd1672c32e13efd86e87c0ade0f69bdec06a6c8a012d656c5",
+      "after_sha256": "a00c10ac5e4dc85cd1672c32e13efd86e87c0ade0f69bdec06a6c8a012d656c5",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 76,
+      "points": 194,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "queue_alpha",
+      "before_sha256": "2f240a461fb926f57d3136f036fee71c294818244a8a2ab55df5175a266431e5",
+      "after_sha256": "2f240a461fb926f57d3136f036fee71c294818244a8a2ab55df5175a266431e5",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "queue_alpha_redraw",
+      "before_sha256": "3a5ff6984ff8eb6bbc74a488f169eb7668eec768034822ed319c4bd7758ba7e7",
+      "after_sha256": "3a5ff6984ff8eb6bbc74a488f169eb7668eec768034822ed319c4bd7758ba7e7",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "queue",
+      "before_sha256": "2f240a461fb926f57d3136f036fee71c294818244a8a2ab55df5175a266431e5",
+      "after_sha256": "2f240a461fb926f57d3136f036fee71c294818244a8a2ab55df5175a266431e5",
+      "byte_identical": true,
+      "layers": 35,
+      "strokes": 70,
+      "points": 152,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    },
+    {
+      "environment": "Blender 4.3.2 --factory-startup, смоки",
+      "dump": "topology",
+      "before_sha256": "dde0acd6ab4c765d45a5a43f8202f4e3b2ab08806b6da3c99ceb9ccfed5751f1",
+      "after_sha256": "dde0acd6ab4c765d45a5a43f8202f4e3b2ab08806b6da3c99ceb9ccfed5751f1",
+      "byte_identical": true,
+      "layers": 25,
+      "strokes": 36,
+      "points": 76,
+      "attributes": [
+        "curve_type",
+        "cyclic",
+        "material_index",
+        "opacity",
+        "position",
+        "radius"
+      ]
+    }
+  ],
+  "gp_render_before": [
+    {
+      "run": "base45_r1",
+      "gp_render_seconds": 5.0973,
+      "button_wall_seconds": 38.827,
+      "queue_pool_wall_seconds": 25.5937
+    },
+    {
+      "run": "base45_r2",
+      "gp_render_seconds": 4.8648,
+      "button_wall_seconds": 35.473,
+      "queue_pool_wall_seconds": 22.8488
+    },
+    {
+      "run": "base45i",
+      "gp_render_seconds": 4.9497,
+      "button_wall_seconds": 34.495,
+      "queue_pool_wall_seconds": 21.9161
+    },
+    {
+      "run": "base45",
+      "gp_render_seconds": 4.5695,
+      "button_wall_seconds": 35.1,
+      "queue_pool_wall_seconds": 22.2074
+    }
+  ],
+  "gp_render_bulk_only": [
+    {
+      "run": "bulkonly45",
+      "gp_render_seconds": 3.3676,
+      "button_wall_seconds": 33.547,
+      "queue_pool_wall_seconds": 22.546
+    }
+  ],
+  "gp_render_after": [
+    {
+      "run": "new45_r1",
+      "gp_render_seconds": 0.3828,
+      "button_wall_seconds": 31.346,
+      "queue_pool_wall_seconds": 22.8996
+    },
+    {
+      "run": "new45_r2",
+      "gp_render_seconds": 0.35,
+      "button_wall_seconds": 31.127,
+      "queue_pool_wall_seconds": 23.1545
+    },
+    {
+      "run": "new45",
+      "gp_render_seconds": 0.3591,
+      "button_wall_seconds": 30.525,
+      "queue_pool_wall_seconds": 22.1115
+    }
+  ],
+  "gp_render_median_seconds": {
+    "before": 4.907,
+    "after": 0.359
+  },
+  "button_wall_median_seconds": {
+    "before": 35.287,
+    "after": 31.127
+  },
+  "replay_inclusive_seconds": {
+    "before": {
+      "clear_envelope_debug": [
+        1,
+        0.0273
+      ],
+      "writer.__init__": [
+        1,
+        0.0001
+      ],
+      "writer.ensure_layer": [
+        35,
+        0.0021
+      ],
+      "_topology_lift": [
+        1751,
+        0.0069
+      ],
+      "writer.add_path": [
+        8768,
+        0.8488
+      ],
+      "_render_topology_scene": [
+        1,
+        0.3288
+      ],
+      "_lift_plane_point": [
+        12431,
+        0.0433
+      ],
+      "_lift_point": [
+        5168,
+        3.7871
+      ],
+      "_render_exact_scene": [
+        121,
+        4.1284
+      ],
+      "render_refused_domains": [
+        1,
+        0.0012
+      ],
+      "render_queue_scene": [
+        1,
+        0.3278
+      ],
+      "_staged_sidecar": [
+        1,
+        0.0019
+      ],
+      "_write_gp_properties": [
+        1,
+        0.0003
+      ],
+      "writer.stroke_count": [
+        2,
+        0.0005
+      ],
+      "_write_sidecar": [
+        2,
+        0.2654
+      ],
+      "_print_profile": [
+        1,
+        0.1849
+      ],
+      "_print_diagnostics": [
+        1,
+        0.0025
+      ]
+    },
+    "bulk_only": {
+      "clear_envelope_debug": [
+        1,
+        0.0252
+      ],
+      "writer.__init__": [
+        1,
+        0.0001
+      ],
+      "writer.ensure_layer": [
+        35,
+        0.0019
+      ],
+      "_topology_lift": [
+        1751,
+        0.0051
+      ],
+      "writer.add_path": [
+        8768,
+        0.0153
+      ],
+      "_render_topology_scene": [
+        1,
+        0.0193
+      ],
+      "_lift_plane_point": [
+        12431,
+        0.0384
+      ],
+      "_lift_point": [
+        5168,
+        3.2179
+      ],
+      "_render_exact_scene": [
+        121,
+        3.25
+      ],
+      "render_refused_domains": [
+        1,
+        0.0005
+      ],
+      "render_queue_scene": [
+        1,
+        0.0824
+      ],
+      "writer.commit": [
+        1,
+        0.0154
+      ],
+      "_staged_sidecar": [
+        1,
+        0.0021
+      ],
+      "_write_gp_properties": [
+        1,
+        0.0003
+      ],
+      "writer.stroke_count": [
+        2,
+        0.0005
+      ],
+      "_write_sidecar": [
+        2,
+        0.2677
+      ],
+      "_print_profile": [
+        1,
+        0.1698
+      ],
+      "_print_diagnostics": [
+        1,
+        0.0048
+      ]
+    },
+    "after": {
+      "clear_envelope_debug": [
+        1,
+        0.0252
+      ],
+      "writer.__init__": [
+        1,
+        0.0001
+      ],
+      "writer.ensure_layer": [
+        35,
+        0.0019
+      ],
+      "_topology_lift": [
+        1751,
+        0.0046
+      ],
+      "writer.add_path": [
+        8768,
+        0.012
+      ],
+      "_render_topology_scene": [
+        1,
+        0.0193
+      ],
+      "_lift_plane_point": [
+        12431,
+        0.0274
+      ],
+      "_lift_point": [
+        5168,
+        0.0161
+      ],
+      "_render_exact_scene": [
+        121,
+        0.0323
+      ],
+      "render_refused_domains": [
+        1,
+        0.0005
+      ],
+      "render_queue_scene": [
+        1,
+        0.0828
+      ],
+      "writer.commit": [
+        1,
+        0.0148
+      ],
+      "_staged_sidecar": [
+        1,
+        0.0019
+      ],
+      "_write_gp_properties": [
+        1,
+        0.0003
+      ],
+      "writer.stroke_count": [
+        2,
+        0.0004
+      ],
+      "_write_sidecar": [
+        2,
+        0.2555
+      ],
+      "_print_profile": [
+        1,
+        0.1729
+      ],
+      "_print_diagnostics": [
+        1,
+        0.0023
+      ]
+    }
+  },
+  "negative_control": {
+    "clean_sha256": "3c2501672de66bd19a6cbd99191ec6c03980b182862711f3fd0eb796be958856",
+    "mutated_sha256": "11f653a3202e93ad18ab15cce8d1fd6f9e13063d48c9c62c24fb3a06185b4095",
+    "detected": true
+  }
+}

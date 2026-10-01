@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 
 import bpy
 from mathutils import Vector
@@ -254,10 +255,23 @@ def _lift_plane_point(x: float, y: float, frame, layer_ordinal) -> Vector:
     return origin + axis_u * x + axis_v * y + normal * lift
 
 
+@lru_cache(maxsize=16384)
+def _exact_float(expression: str, sympy) -> float:
+    """`float(sympify(expression))` один раз на строку, а не на каждую точку.
+
+    Разбор строки в sympy — `exec('from sympy import *')` на КАЖДЫЙ вызов —
+    стоил 0.37 мс, а на `building` (Fan Density 2) из 10 336 координат
+    различных строк всего 490: это 3.8 с из 4.6 с отрисовки. Функция чистая
+    (строка -> число), поэтому ответ побитово тот же.
+    """
+
+    return float(sympy.sympify(expression))
+
+
 def _lift_point(point, frame, layer_ordinal, sympy) -> Vector:
     return _lift_plane_point(
-        float(sympy.sympify(point.x_expression)),
-        float(sympy.sympify(point.y_expression)),
+        _exact_float(point.x_expression, sympy),
+        _exact_float(point.y_expression, sympy),
         frame,
         layer_ordinal,
     )
@@ -1155,6 +1169,32 @@ def _accumulate_exact_scenes(
     return diagnostics, stage_counts, identities, source_revision, point_count
 
 
+def _record_gp_render(profile, render_started, writer, point_count, queue_scene):
+    profile.add_timing("GP_RENDER", time.perf_counter() - render_started)
+    profile.set_counter("GP_STROKES", writer.stroke_count())
+    profile.set_counter("GP_POINTS", point_count)
+    if queue_scene is not None:
+        profile.set_counter(
+            QUEUE_OWNER_PALETTE_WRAPPED,
+            queue_scene.palette_wrapped,
+        )
+
+
+def _write_debug_texts(profile, sidecar, text_name, source_obj, diagnostics):
+    sidecar_started = time.perf_counter()
+    _write_sidecar(text_name, sidecar)
+    if profile is None:
+        return
+    profile.add_timing("SIDECAR_JSON", time.perf_counter() - sidecar_started)
+    final_profile = profile.snapshot()
+    _write_sidecar(
+        envelope_debug_profile_text_name(source_obj),
+        final_profile.to_payload(),
+    )
+    _print_profile(final_profile)
+    _print_diagnostics(diagnostics)
+
+
 def render_staged_envelope_debug(
     topology_scene,
     exact_scenes,
@@ -1250,6 +1290,7 @@ def render_staged_envelope_debug(
             len(item.faces) for item in queue_scene.domains
         )
 
+    writer.commit()
     kernel_version = (
         cftuv_envelope.__version__
         if cftuv_envelope is not None
@@ -1277,32 +1318,10 @@ def render_staged_envelope_debug(
     _write_gp_properties(writer.object, sidecar)
 
     if profile is not None:
-        profile.add_timing(
-            "GP_RENDER",
-            time.perf_counter() - render_started,
+        _record_gp_render(
+            profile, render_started, writer, point_count, queue_scene
         )
-        profile.set_counter("GP_STROKES", writer.stroke_count())
-        profile.set_counter("GP_POINTS", point_count)
-        if queue_scene is not None:
-            profile.set_counter(
-                QUEUE_OWNER_PALETTE_WRAPPED,
-                queue_scene.palette_wrapped,
-            )
-
-    sidecar_started = time.perf_counter()
-    _write_sidecar(text_name, sidecar)
-    if profile is not None:
-        profile.add_timing(
-            "SIDECAR_JSON",
-            time.perf_counter() - sidecar_started,
-        )
-        final_profile = profile.snapshot()
-        _write_sidecar(
-            envelope_debug_profile_text_name(source_obj),
-            final_profile.to_payload(),
-        )
-        _print_profile(final_profile)
-        _print_diagnostics(diagnostics)
+    _write_debug_texts(profile, sidecar, text_name, source_obj, diagnostics)
     return EnvelopeDebugRenderSummaryV1(
         object_name,
         text_name,
@@ -1362,6 +1381,7 @@ def redraw_envelope_queue_layers(
         layer_ordinals,
         stroke_map,
     )
+    writer.commit()
     text_name = envelope_debug_text_name(source_obj_or_name)
     text = bpy.data.texts.get(text_name)
     if text is not None:
