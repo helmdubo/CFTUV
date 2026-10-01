@@ -85,6 +85,28 @@ _PATCH10 = (
 )
 
 
+@pytest.fixture
+def legacy_count_law(monkeypatch):
+    """Счёт на ВЫЧИСЛИТЕЛЬНОЙ геометрии, без закона шума привязки (FAN-CANONICAL-COUNT).
+
+    Полевые числа ниже — машинерия adaptive/atlas на razor-thin окнах: прямой
+    угол ниже 90 градусов при `u*q == H+1` прежний закон оставлял на `H`, и его
+    веер искал рациональный луч в окне шириной в шум привязки (высоты 4492, 397,
+    1711). Закон `EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1` поднимает такие
+    углы до `H+1` с высотой в единицы, и продуктовым путём эти окна на этих
+    данных больше не достигаются. Машинерия остаётся живой для честных углов у
+    предела, поэтому её регрессия держится на тех же полевых данных с
+    отключённым законом: закон молчит ровно так, как молчит у не канонических
+    углов.
+    """
+
+    from cftuv_envelope.reference import angular as angular_module
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+
+    monkeypatch.setattr(noise_module, "canonical_noise_fact", lambda *a, **k: None)
+    monkeypatch.setattr(angular_module, "canonical_noise_fact", lambda *a, **k: None)
+
+
 class _AdaptiveDensityAngularCodecV2(
     ContractCodecV1[AdaptiveDensityAngularEnvelopeSpecV2]
 ):
@@ -706,7 +728,7 @@ def test_field_density_one_replaces_only_empty_old_authorities():
     )
 
 
-def test_field_density_four_has_one_exact_minimal_h_lift():
+def test_field_density_four_has_one_exact_minimal_h_lift(legacy_count_law):
     snapshot, request = _field_inputs(4)
 
     result = kernel.compile_reference_envelopes(snapshot, request)
@@ -968,12 +990,20 @@ def test_h_lift_tampering_fails_before_geometry_consumption():
     snapshot, request = _field_inputs(4)
     result = kernel.compile_reference_envelopes(snapshot, request)
     compilation = result.compilation
-    lifted = next(
+    # Лифтованных углов на поле d4 три (строгий закон и два предела канонического
+    # веера): подделка отвергается у КАЖДОГО из них, а не у «первого попавшегося».
+    lifted_specs = tuple(
         item
         for item in compilation.envelope_specs
         if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
         and item.evaluation_subturn_count_lift is not None
     )
+    assert len(lifted_specs) == 3
+    for lifted in lifted_specs:
+        _assert_h_lift_tampering_is_refused(snapshot, compilation, lifted)
+
+
+def _assert_h_lift_tampering_is_refused(snapshot, compilation, lifted):
     lift = lifted.evaluation_subturn_count_lift
     foreign_selection_id = next(
         item.certificate_id
@@ -985,7 +1015,16 @@ def test_h_lift_tampering_fails_before_geometry_consumption():
         replace(lift, source_hidden_edge_count=True),
         replace(lift, effective_hidden_edge_count=2),
         replace(lift, max_subturn_q=5),
-        replace(lift, evaluation_turn_sign=ExactTurnSignV1.POSITIVE),
+        # Знак ПРОТИВОПОЛОЖНЫЙ настоящему: у углов предела канонического веера
+        # настоящий знак POSITIVE, и подмена на него была бы тождеством.
+        replace(
+            lift,
+            evaluation_turn_sign=(
+                ExactTurnSignV1.NEGATIVE
+                if lift.evaluation_turn_sign is ExactTurnSignV1.POSITIVE
+                else ExactTurnSignV1.POSITIVE
+            ),
+        ),
         replace(
             lift,
             evaluation_turn_cosine_squared=ExactRatioV1(0, 1),
@@ -1624,7 +1663,7 @@ def test_exhausted_density_domain_still_gets_a_prepare_receipt(monkeypatch):
     ),
 )
 def test_the_conveyor_emits_the_spec_count_and_the_lift_owns_the_difference(
-    density, certificates, emitted, lift
+    legacy_count_law, density, certificates, emitted, lift
 ):
     """ПО-ВЕЕРНАЯ сверка эмиссии: конвейер не изобретает опор и не теряет их.
 
@@ -1721,6 +1760,7 @@ def test_the_conveyor_emits_the_spec_count_and_the_lift_owns_the_difference(
 
 def test_deepest_green_field_authority_stays_far_below_the_work_cap(
     monkeypatch,
+    legacy_count_law,
 ):
     """Замороженный якорь маржи: поле d=4 не приближается к капу.
 
@@ -1850,6 +1890,7 @@ def _patch10_inputs():
 
 def test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap(
     monkeypatch,
+    legacy_count_law,
 ):
     """Полевой домен с atlas-окном: власть строится, а не исчерпывается.
 
@@ -1914,7 +1955,9 @@ def test_patch10_density_four_atlas_domain_compiles_inside_the_work_cap(
     assert 3_432 * 32 < _DENSITY_EXACT_WORK_CAP
 
 
-def test_patch10_density_four_domain_passes_the_bridge_on_its_mirrored_chart():
+def test_patch10_density_four_domain_passes_the_bridge_on_its_mirrored_chart(
+    legacy_count_law,
+):
     """Домен ЗЕРКАЛЬНОЙ карты проходит мост целиком, и это заморожено числами.
 
     Прежде здесь стоял замороженный отказ
@@ -1965,3 +2008,121 @@ def test_patch10_density_four_domain_passes_the_bridge_on_its_mirrored_chart():
     assert region.bridge.snap_residual == Fraction(4_464_165, 640_696_385_536)
     assert region.partition.area_reproduces_polygon
     assert dict(prepared.timings)["PLAN_COMPILE"] >= 0
+
+
+# --- FAN-CANONICAL-COUNT: те же поля, продуктовый закон счёта ---------------
+
+
+def _canonical_law_specs(snapshot, request):
+    result = kernel.compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    selection_by_id = {
+        item.certificate_id: item
+        for item in result.compilation.profile_selection_certificates
+    }
+    specs = {
+        item.source_relation_id.value[-10:]: (
+            item,
+            selection_by_id[item.selection_certificate_id],
+        )
+        for item in result.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    }
+    return result.compilation, specs
+
+
+def test_field_density_four_lifts_the_razor_thin_corners_under_the_canonical_law():
+    """Продуктовый закон на поле d4: два угла ниже 90 — `H=3` с высотой 5, а не `H=2` с 4492 и 397.
+
+    Угол ниже 90 градусов прежний закон оставлял на двух скрытых лучах: подшаг
+    чуть меньше `pi/6`, окно веера толщиной в шум привязки, рациональный луч на
+    высоте 4492. Угол выше 90 лифтовался строгим законом. Один и тот же прямой
+    угол получал разный счёт. Теперь счёт один, а лифт двух бывших «ниже» назван
+    законом предела канонического веера и записан с точным шумом.
+    """
+
+    from cftuv_envelope import EvaluationGeometrySubturnCountLiftLawV1 as laws
+
+    snapshot, request = _field_inputs(4)
+    compilation, specs = _canonical_law_specs(snapshot, request)
+    assert {key: item[0].resolved_hidden_edge_count for key, item in specs.items()} == {
+        "32315cd09b": 3,
+        "6c88f9ff6a": 3,
+        "b689264248": 3,
+        "8fe1d1544a": 3,
+    }
+    laws_by_corner = {
+        key: (
+            None
+            if item[0].evaluation_subturn_count_lift is None
+            else item[0].evaluation_subturn_count_lift.lift_law
+        )
+        for key, item in specs.items()
+    }
+    assert laws_by_corner == {
+        "32315cd09b": None,
+        "6c88f9ff6a": laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1,
+        "b689264248": laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1,
+        "8fe1d1544a": laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1,
+    }
+    heights = {
+        key: item[0].direction_fan_authority.minimal_common_height
+        for key, item in specs.items()
+    }
+    assert heights == {
+        "32315cd09b": 13,
+        "6c88f9ff6a": 5,
+        "b689264248": 13,
+        "8fe1d1544a": 5,
+    }
+    recorded = {
+        record.envelope_spec_id for record in compilation.evaluation_binding_noise_records
+    }
+    assert recorded == {
+        specs["6c88f9ff6a"][0].envelope_spec_id,
+        specs["8fe1d1544a"][0].envelope_spec_id,
+    }
+
+
+def test_field_density_two_keeps_the_culprit_at_one_ray_with_a_named_record():
+    """Продуктовый закон на поле d2: виновный угол выше 90 — прежний счёт, лифта нет.
+
+    Прежде строгий лифт `1 -> 2` давал на одном угле расходящийся с соседями
+    счёт; теперь пять скрытых опор на четыре угла (сумма сертификатов равна
+    эмиссии), а веер угла — точные повороты на `pi/4` с именованной записью
+    шума привязки.
+    """
+
+    snapshot, request = _field_inputs(2)
+    compilation, specs = _canonical_law_specs(snapshot, request)
+    assert sum(item[1].resolved_hidden_edge_count for item in specs.values()) == 5
+    assert sum(item[0].resolved_hidden_edge_count for item in specs.values()) == 5
+    assert all(
+        getattr(item[0], "evaluation_subturn_count_lift", None) is None
+        for item in specs.values()
+    )
+    (record,) = compilation.evaluation_binding_noise_records
+    assert record.effect.name == "CANONICAL_ROTATION_FAN"
+    assert record.envelope_spec_id.value == "angular-spec:7dde3e10be8587bd61e928d6"
+    prepared = prepare_conveyor(snapshot, request)
+    counters = dict(prepared.counters)
+    assert prepared.outcome.value == "EXACT"
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == counters["CONVEYOR_FAN_EDGES"] == 5
+
+
+def test_patch10_density_four_emits_eleven_fan_edges_under_the_canonical_law():
+    """Продуктовый закон на patch 10 d4: один угол ниже 90 поднят `2 -> 3`, домен доходит до конца."""
+
+    snapshot, request = _patch10_inputs()
+    prepared = prepare_conveyor(snapshot, request)
+    counters = dict(prepared.counters)
+    assert prepared.outcome.value == "EXACT"
+    assert counters["CONVEYOR_RATIONAL_VERTEX_FANS"] == 4
+    assert counters["CONVEYOR_FAN_EDGES"] == 11
+    assert counters["CONVEYOR_FAN_SUPPORTS"] == 11
+    assert counters["CONVEYOR_BOUND_FAN_DIRECTIONS"] == 11
+    (region,) = prepared.regions
+    assert region.bridge_outcome.value == "EXACT"
+    assert region.skeleton_outcome.value == "EXACT"
+    assert region.face_outcome.value == "EXACT"
+    assert region.partition.area_reproduces_polygon

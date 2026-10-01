@@ -236,6 +236,39 @@ def canonical_reflex_excess_restoration(
     )
 
 
+def exact_canonical_selector_fact(interval):
+    """`(отношение, доля)`, если селектор видит РОВНО канонический интервал.
+
+    Два пути к одному факту: интервал уже точно канонический (сырой точный
+    угол) либо восстановление его заменило. Всё остальное — `None`: селектор
+    видит сырое число, и закон шума привязки к нему не относится. Функция
+    читает только интервал угла снапшота, поэтому проверяющий вызывает её, а не
+    доверяет записи.
+    """
+
+    restoration = canonical_reflex_excess_restoration(interval)
+    if restoration is not None:
+        return restoration.relation, restoration.canonical_excess_over_pi
+    for relation, canonical in CANONICAL_REFLEX_EXCESS_RELATIONS:
+        if _deviation_over_pi(interval, canonical) == 0:
+            return relation, canonical
+    return None
+
+
+def canonical_count_is_tight(
+    canonical_excess_over_pi: Fraction,
+    hidden_count: int,
+    q: int,
+) -> bool:
+    """Канонический подшаг РОВНО `pi/q`: `u*pi/(H+1) == pi/q`, целочисленно.
+
+    Только на этом счёте знак шума привязки решает ответ: при `u*q < H+1`
+    запас положителен и шум привязки его не съедает.
+    """
+
+    return canonical_excess_over_pi * q == hidden_count + 1
+
+
 def selector_reflex_excess_interval(interval):
     """Единственная дверь: что именно увидит закон счёта.
 
@@ -507,8 +540,10 @@ __all__ = (
     "CanonicalExcessIntervalV1",
     "build_canonical_angle_restoration_certificate",
     "canonical_angle_restoration_error",
+    "canonical_count_is_tight",
     "canonical_reflex_excess_restoration",
     "canonical_restoration_reference_errors",
     "canonical_selection_interval",
+    "exact_canonical_selector_fact",
     "selector_reflex_excess_interval",
 )

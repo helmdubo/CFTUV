@@ -8,8 +8,10 @@ from enum import Enum
 from ..contracts.envelopes import (
     AngularProfileSelectionCertificateV1,
     CanonicalAngleRestorationCertificateV1,
+    CanonicalReflexAngleRelationV1,
     CanonicalSubturnFanAuthorityV1,
     EnvelopeSpec,
+    ExactTurnSignV1,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.events import InitialFrontSpec
@@ -22,8 +24,9 @@ from ..contracts.plan import (
 )
 from ..contracts.request import DecalRequestV1
 from ..contracts.seeds import SeedV1
-from ..ids import PatchId, SourceRevision
-from ..numeric import LocalLengthV1
+from ..contracts.metric import ExactRationalV1
+from ..ids import EnvelopeSpecId, PatchId, SelectionCertificateId, SourceRevision
+from ..numeric import ExactRatioV1, LocalLengthV1
 from .planar_types import (
     BoundedSupportSegment,
     ConstructionCertificate,
@@ -208,6 +211,71 @@ class ReferenceEnvelopeCompilationV1:
     canonical_subturn_fan_authorities: frozenset[
         CanonicalSubturnFanAuthorityV1
     ] = frozenset()
+    # Закон шума привязки на каноническом угле — по спеке, и только там, где он
+    # изменил ответ против закона на вычислительной геометрии. Отдельная
+    # коллекция: поле в записи лифта сдвинуло бы байты каждого лифта корпуса.
+    evaluation_binding_noise_records: frozenset[
+        EvaluationBindingNoiseOnCanonicalAngleV1
+    ] = frozenset()
+
+
+class EvaluationBindingNoiseLawV1(str, Enum):
+    """Закон, по которому счёт каноническому углу решает канон, а не шум.
+
+    Привязка вершин к решётке сдвигает вычислительный угол на шум порядка
+    1e-4 рад со случайным знаком. Там, где канонический подшаг стоит РОВНО на
+    `pi/q` (`u_канон * q == H + 1`, чётные q на d2 и d4), знак этого шума
+    решал счёт на самой границе ячейки: одинаковые прямые углы одной стены
+    получали разные веера. Закон переносит решение на канонический веер и
+    именует всё, что он изменил.
+    """
+
+    EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1 = (
+        "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1"
+    )
+
+
+class EvaluationBindingNoiseEffectV1(str, Enum):
+    """Что именно закон сделал с ответом."""
+
+    # Счёт выше счёта селекции: предшествующий счёт стоит на пределе канонического
+    # веера с иррациональным лучом (d4: три шага по 30° невозможны, нужны четыре).
+    CANONICAL_COUNT_LIFT = "CANONICAL_COUNT_LIFT"
+    # Счёт прежний, а лучи ставятся точными поворотами на канонический подшаг:
+    # веер вычислительной геометрии держал бы подшаг больше `pi/q` на шум.
+    CANONICAL_ROTATION_FAN = "CANONICAL_ROTATION_FAN"
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationBindingNoiseOnCanonicalAngleV1:
+    """Именованная запись закона шума привязки: чем он оплачен, точными числами.
+
+    Нет допуска и нет float. `evaluation_turn_sign` и
+    `evaluation_turn_cosine_squared` — точный знак и `cos^2` поворота между
+    опорами в вычислительной геометрии: само шум, его величина. Для прямого
+    угла `cos^2 = 0` — точный прямой, всё остальное — отклонение привязки.
+    `binding_lateral_offset_gram_squared_bound` — точный максимум квадрата
+    БОКОВОЙ Грам-нормы смещения привязки (`evaluation - source`) по двум рёбрам
+    угла: боковой, потому что продольный сдвиг вершины вдоль цепи угла не
+    меняет.
+
+    Запись НЕ доверяется: проверяющий пересчитывает канонический факт, знак и
+    `cos^2`, границу смещений и условия применимости по сырой геометрии.
+    """
+
+    noise_law: EvaluationBindingNoiseLawV1
+    effect: EvaluationBindingNoiseEffectV1
+    envelope_spec_id: EnvelopeSpecId
+    selection_certificate_id: SelectionCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    source_hidden_edge_count: int
+    effective_hidden_edge_count: int
+    max_subturn_q: int
+    evaluation_turn_sign: ExactTurnSignV1
+    evaluation_turn_cosine_squared: ExactRatioV1
+    binding_lateral_offset_gram_squared_bound: ExactRationalV1
+    proven_predicates: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)

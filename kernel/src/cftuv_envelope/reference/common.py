@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 
 import sympy as sp
@@ -176,6 +176,9 @@ class GeometryContext:
     # направлений, где власть ещё НЕ записана, потому что её как раз выводят.
     # Тот же приём и та же причина, что у `require_certified_bound_supports`.
     require_canonical_fan_authority: bool = True
+    # Память закона шума привязки на каноническом угле (канон, граница смещений,
+    # канонический веер): входы контекста не меняются, пересчёт был бы повтором.
+    evaluation_noise_cache: dict = field(default_factory=dict)
 
     @classmethod
     def build(

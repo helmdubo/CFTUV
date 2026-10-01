@@ -718,8 +718,29 @@ def test_density_h3_reduced_turn_fraction_is_valid(projections):
     )
 
 
+# FAN-CANONICAL-COUNT: на поле d4 лифтованных углов теперь три (строгий закон и два
+# закона предела канонического веера), и «первый попавшийся» из frozenset давал
+# зависимость от порядка итерации. Закон выбирается явно, угол — по наименьшему id.
+@pytest.mark.parametrize(
+    ("lift_law", "sign", "cosine_squared"),
+    (
+        (
+            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+            "NEGATIVE",
+            (45522878206665163396, 31361032006103445049292403005),
+        ),
+        (
+            "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1",
+            "POSITIVE",
+            (1004508684634765249, 5017274161018234127482566533),
+        ),
+    ),
+)
 def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
     projections,
+    lift_law,
+    sign,
+    cosine_squared,
 ):
     fixture = (
         Path(__file__).parents[1]
@@ -738,11 +759,15 @@ def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
         ExactAngleSymbol.PI_OVER_6,
     )
     compiled = compile_reference_envelopes(snapshot, request)
-    lifted = next(
-        item
-        for item in compiled.compilation.envelope_specs
-        if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
-        and item.evaluation_subturn_count_lift is not None
+    lifted = min(
+        (
+            item
+            for item in compiled.compilation.envelope_specs
+            if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
+            and item.evaluation_subturn_count_lift is not None
+            and item.evaluation_subturn_count_lift.lift_law.value == lift_law
+        ),
+        key=lambda item: item.envelope_spec_id.value,
     )
 
     plan = _projection(projections, "EC0-C03").plans[0]
@@ -837,24 +862,18 @@ def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
     assert restored_lift.source_selection_certificate_id == (
         restored_selection.certificate_id
     )
-    assert (
-        restored_lift.lift_law.value
-        == "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
-    )
+    assert restored_lift.lift_law.value == lift_law
     assert (
         restored_lift.source_hidden_edge_count,
         restored_lift.effective_hidden_edge_count,
         restored_lift.max_subturn_q,
         restored_lift.minimality_predecessor_hidden_edge_count,
     ) == (2, 3, 6, 2)
-    assert restored_lift.evaluation_turn_sign.value == "NEGATIVE"
+    assert restored_lift.evaluation_turn_sign.value == sign
     assert (
         restored_lift.evaluation_turn_cosine_squared.numerator,
         restored_lift.evaluation_turn_cosine_squared.denominator,
-    ) == (
-        45522878206665163396,
-        31361032006103445049292403005,
-    )
+    ) == cosine_squared
     assert tuple(
         item.value
         for item in restored_spec.direction_fan_authority.binding_reasons

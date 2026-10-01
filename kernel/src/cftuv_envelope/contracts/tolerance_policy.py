@@ -119,6 +119,9 @@ class TolerancePolicyIdV1(str, Enum):
     KNOWN_PRIME_REGISTRY_ENTRIES_V1 = "KNOWN_PRIME_REGISTRY_ENTRIES_V1"
     COPRIME_BASIS_SPLIT_BUDGET_V1 = "COPRIME_BASIS_SPLIT_BUDGET_V1"
     EXACT_CANONICALIZATION_WORK_CAP_V1 = "EXACT_CANONICALIZATION_WORK_CAP_V1"
+    EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1 = (
+        "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1"
+    )
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -176,6 +179,9 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SOURCE_GRID_SCALE_SELECTION = "SOURCE_GRID_SCALE_SELECTION"
     CANONICAL_ANGLE_RESTORATION = "CANONICAL_ANGLE_RESTORATION"
     CANONICAL_SUBTURN_FAN_CONSTRUCTION = "CANONICAL_SUBTURN_FAN_CONSTRUCTION"
+    CANONICAL_COUNT_DECISION_ON_BINDING_NOISE = (
+        "CANONICAL_COUNT_DECISION_ON_BINDING_NOISE"
+    )
     EXACT_SIGN_PREFILTER = "EXACT_SIGN_PREFILTER"
     DENSITY_FAN_PREPARATION = "DENSITY_FAN_PREPARATION"
     DENSITY_MINIMAL_HEIGHT_SEARCH = "DENSITY_MINIMAL_HEIGHT_SEARCH"
@@ -198,6 +204,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED = "BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED"
     REPLACE_MEASURE_WITH_CANONICAL_FACT = "REPLACE_MEASURE_WITH_CANONICAL_FACT"
     BUILD_FAN_ON_CANONICAL_SUPPORTS = "BUILD_FAN_ON_CANONICAL_SUPPORTS"
+    DECIDE_COUNT_ON_CANONICAL_ANGLE = "DECIDE_COUNT_ON_CANONICAL_ANGLE"
     NARROW_ADMITTED_SET_TOWARD_REFUSAL = "NARROW_ADMITTED_SET_TOWARD_REFUSAL"
     CHOOSE_FAST_OR_EXACT_PATH = "CHOOSE_FAST_OR_EXACT_PATH"
     NAMED_REFUSAL_ONLY = "NAMED_REFUSAL_ONLY"
@@ -1011,6 +1018,49 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_materialize_lift_surface.py"
             "::test_a_point_beyond_the_bound_outside_is_a_named_refusal"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=None,
+        bound_law="EXACT_LATERAL_BINDING_OFFSET_WITHIN_ONE_LATTICE_CELL_V1",
+        units=TolerancePolicyUnitsV1.NONE,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Шум привязки вершин к решётке на КАНОНИЧЕСКОМ угле. На тугом "
+            "пороге (`u*q == H+1`, d2 и d4) знак этого шума решал счёт "
+            "точного прямого угла; закон решает канон: счёт идёт по "
+            "каноническому вееру, лучи — точные повороты. Числа у политики "
+            "нет: граница смещений привязки ВЫЧИСЛЯЕТСЯ по геометрии (боковой "
+            "сдвиг каждого из двух рёбер угла не больше одной ячейки решётки) "
+            "и пишется в запись вместе с точными знаком и cos^2 шума; шум вне "
+            "границы закону не принадлежит, и ответ решает прежний закон."
+        ),
+        authority=(
+            "EvaluationBindingNoiseLawV1.EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1; "
+            "EvaluationBindingNoiseOnCanonicalAngleV1; DECISIONS.md 2026-10-03 "
+            "(FAN-CANONICAL-COUNT: визуальная согласованность канонических "
+            "углов важнее строгого шага на шуме привязки)"
+        ),
+        applied_stage=(
+            TolerancePolicyAppliedStageV1.CANONICAL_COUNT_DECISION_ON_BINDING_NOISE
+        ),
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.DECIDE_COUNT_ON_CANONICAL_ANGLE
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("CONVEYOR_EXACT_LIMIT_LIFTED_FANS",),
+        declaration_sites=(),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_evaluation_binding_noise.py"
+            "::test_a_right_angle_gets_one_count_whatever_the_sign_of_the_binding_noise"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_evaluation_binding_noise.py"
+            "::test_an_honest_near_right_angle_is_untouched"
         ),
     ),
 )

@@ -29,6 +29,7 @@ from ..contracts.request import (
     AngularProfileSelectionPolicyId,
 )
 from .._canonical_angle import (
+    canonical_count_is_tight,
     canonical_rotation_denominator,
     canonical_subturn_fan_authority_error,
     canonical_subturn_is_within_max_subturn,
@@ -49,7 +50,22 @@ from .common import (
     stable_id,
     support_vertex_certificate,
 )
-from .contracts import ReferenceEnvelopeInstanceV1, ReferenceOutcome
+from .contracts import (
+    EvaluationBindingNoiseEffectV1,
+    ReferenceEnvelopeInstanceV1,
+    ReferenceOutcome,
+)
+from .evaluation_binding_noise import (
+    CANONICAL_LIFT_LAW,
+    canonical_count_law_error,
+    canonical_fan_noise_error,
+    canonical_fan_rays_are_rational,
+    canonical_ideal,
+    canonical_noise_fact,
+    noise_record_for,
+    noise_records_error,
+    verify_canonical_exact_limit_lift,
+)
 from .direction_binding import (
     BINDING_MONOTONE,
     DirectionBindingCertificateUnproven,
@@ -493,17 +509,33 @@ def _verify_canonical_subturn_fan(context, spec, orientation, ideal, q):
     сертификатом восстановления.
     """
 
-    from .adaptive_density_fan import _expected_orientation, _rotate_q
+    from .adaptive_density_fan import (
+        _covectors,
+        _expected_orientation,
+        _rotate_q,
+    )
 
     authority = next(
-        item
-        for item in context.compilation.canonical_subturn_fan_authorities
-        if item.envelope_spec_id == spec.envelope_spec_id
+        (
+            item
+            for item in context.compilation.canonical_subturn_fan_authorities
+            if item.envelope_spec_id == spec.envelope_spec_id
+        ),
+        None,
     )
+    # Власть восстановления либо запись закона шума привязки (сырой точный
+    # канон без восстановления): оба несут один и тот же канонический факт.
+    carrier = authority if authority is not None else noise_record_for(context, spec)
+    if carrier is None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+            "canonical subturn fan is in force without its recorded authority: "
+            f"{spec.envelope_spec_id}",
+        )
     hidden_count = spec.resolved_hidden_edge_count
     canonical = Fraction(
-        authority.canonical_reflex_excess_over_pi.numerator,
-        authority.canonical_reflex_excess_over_pi.denominator,
+        carrier.canonical_reflex_excess_over_pi.numerator,
+        carrier.canonical_reflex_excess_over_pi.denominator,
     )
     denominator = canonical_rotation_denominator(canonical, hidden_count)
     if denominator is None or denominator < q:
@@ -520,14 +552,21 @@ def _verify_canonical_subturn_fan(context, spec, orientation, ideal, q):
                 f"{support.hidden_support_id}",
             )
     expected = _expected_orientation(orientation)
+    # `_rotate_q` поворачивает КОВЕКТОРЫ в двойственной метрике (так им
+    # пользуется весь адаптивный веер); `ideal` — нормали-векторы. В карте с
+    # единичным Грамом разницы нет, в косой — это разные объекты, и сверка
+    # векторов с поворотом ковекторов не сходилась бы на точной ротации.
+    covectors = _covectors(context.metric, ideal)
     for ordinal in range(1, hidden_count + 1):
         rotated = _rotate_q(
             context.metric,
-            ideal[ordinal - 1],
+            covectors[ordinal - 1],
             expected,
             denominator,
         )
-        if not _density_directions_agree(context.metric, rotated, ideal[ordinal]):
+        if not _density_directions_agree(
+            context.metric, rotated, covectors[ordinal]
+        ):
             raise ReferenceGeometryError(
                 ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
                 "canonical subturn fan ray is not the exact ordinal rotation: "
@@ -544,6 +583,35 @@ def _density_directions_agree(metric, left, right) -> bool:
     if _density_exact_sign(cross, metric) != 0:
         return False
     return _density_exact_sign(sp.expand(lx * rx + ly * ry), metric) > 0
+
+
+def _canonical_fan_on_binding_noise(context, spec, selection, source_ideal, q):
+    """Сырой точный канон: шум привязки сломал гарантию — веер канонический.
+
+    Закон `EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1`: применим только на
+    тугом пороге с рациональными лучами канонического веера; иначе — прежний
+    исход (веер вычислительной геометрии, молчаливого перехода нет).
+    """
+
+    key = spec.envelope_spec_id.value
+    fact = canonical_noise_fact(context, spec, selection)
+    count = spec.resolved_hidden_edge_count
+    if (
+        fact is None
+        or not canonical_count_is_tight(fact.canonical, count, q)
+        or not canonical_fan_rays_are_rational(context, spec, count, fact.canonical)
+    ):
+        context.canonical_subturn_fan[key] = False
+        return source_ideal
+    if context.require_canonical_fan_authority:
+        error = canonical_fan_noise_error(context, spec, selection, source_ideal)
+        if error is not None:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                f"{error}: {key}",
+            )
+    context.canonical_subturn_fan[key] = True
+    return canonical_ideal(context, spec, count, fact.canonical)
 
 
 def _canonical_subturn_fan_or_source(
@@ -587,6 +655,7 @@ def _canonical_subturn_fan_or_source(
         ),
         None,
     )
+    noise_record = noise_record_for(context, spec)
     if _density_ideal_is_subturn_feasible(context.metric, source_ideal, q):
         # Сырой веер держит гарантию — власти канонического подшага здесь быть
         # не может. Запись при живом старом законе и есть подделка.
@@ -596,6 +665,20 @@ def _canonical_subturn_fan_or_source(
                 "canonical subturn fan authority stands on a fan that already "
                 f"satisfies the guarantee on source supports: {key}",
             )
+        if (
+            noise_record is not None
+            and noise_record.effect
+            is EvaluationBindingNoiseEffectV1.CANONICAL_ROTATION_FAN
+            and context.compilation.evaluation_geometry_binding is not None
+        ):
+            # Запись закона шума говорит о ВЫЧИСЛИТЕЛЬНОЙ геометрии: в ней веер
+            # держит гарантию, значит записи нечего оправдывать. В исходной
+            # геометрии (привязки нет) она ничего не утверждает.
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+                "canonical rotation fan record stands on an evaluation fan that "
+                f"already satisfies the guarantee: {key}",
+            )
         context.canonical_subturn_fan[key] = False
         return source_ideal
     if restoration is None:
@@ -604,8 +687,9 @@ def _canonical_subturn_fan_or_source(
                 ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
                 f"canonical subturn fan authority without a restoration: {key}",
             )
-        context.canonical_subturn_fan[key] = False
-        return source_ideal
+        return _canonical_fan_on_binding_noise(
+            context, spec, selection, source_ideal, q
+        )
     canonical = Fraction(
         restoration.canonical_reflex_excess_over_pi.numerator,
         restoration.canonical_reflex_excess_over_pi.denominator,
@@ -928,6 +1012,8 @@ def _verify_evaluation_subturn_count_lift(
         is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1
     ):
         verify_exact_limit_lift(context, spec, lift)
+    elif lift.lift_law is CANONICAL_LIFT_LAW:
+        verify_canonical_exact_limit_lift(context, spec, lift)
     else:
         for count in (
             lift.source_hidden_edge_count,
@@ -964,6 +1050,28 @@ def _verify_evaluation_subturn_count_lift(
         raise ValueError("Density H-lift exact turn witness is false")
 
 
+def _verify_canonical_count_law(context, spec) -> None:
+    """Счёт, который канонический веер обязан был поднять, не остаётся прежним."""
+
+    selection = next(
+        item
+        for item in context.compilation.profile_selection_certificates
+        if item.certificate_id == spec.selection_certificate_id
+    )
+    if (
+        selection.selection_policy_id
+        is not AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        or huber_density_value_contract(selection.max_subturn_value_id) is None
+    ):
+        return
+    message = canonical_count_law_error(context, spec, selection)
+    if message is not None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            f"{message}: {spec.envelope_spec_id}",
+        )
+
+
 def _verify_evaluation_binding_reasons(
     context: GeometryContext,
     source_context: GeometryContext,
@@ -971,6 +1079,7 @@ def _verify_evaluation_binding_reasons(
     hidden_by_ordinal,
     ideal,
 ) -> None:
+    _verify_canonical_count_law(context, spec)
     *_, source_ideal = _ideal_angular_support_data(source_context, spec)
     if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
         try:
@@ -1093,6 +1202,12 @@ def verify_evaluation_direction_binding_reasons(
             spec,
             hidden_by_ordinal,
             ideal,
+        )
+    error = noise_records_error(context)
+    if error is not None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            error,
         )
 
 

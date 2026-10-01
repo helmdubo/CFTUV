@@ -85,10 +85,12 @@ from .._canonical_angle import (
     selector_reflex_excess_interval,
 )
 from .._density_policy import huber_density_value_contract
-from .subturn_exact_limit import (
-    build_evaluation_subturn_count_lift,
-    density_count_is_feasible,
+from .evaluation_binding_noise import (
+    canonical_predecessor_ideal,
+    evaluation_binding_noise_records,
+    evaluation_count_is_feasible,
 )
+from .subturn_exact_limit import build_evaluation_subturn_count_lift
 from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
@@ -363,6 +365,10 @@ def _canonical_fan_authorities(compilation, context, specs) -> frozenset:
             for item in compilation.profile_selection_certificates
             if item.certificate_id == spec.selection_certificate_id
         )
+        if selection.certificate_id not in restorations:
+            # Сырой точный канон: власть пишет закон шума привязки
+            # (`evaluation_binding_noise_records`), а не восстановление.
+            continue
         contract = huber_density_value_contract(selection.max_subturn_value_id)
         authorities.add(
             build_canonical_subturn_fan_authority(
@@ -643,6 +649,11 @@ def _evaluation_density_spec(
     целиком. То есть гарантия здесь не формальность, а условие существования
     веера; переносить её с сырых опор на канонический факт — смена власти, а
     не исполнение этой карточки.
+
+    ИСКЛЮЧЕНИЕ, названное законом `EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1`
+    (`evaluation_binding_noise.py`): на ТУГОМ пороге канонического угла
+    (`u*q == H+1`) счёт решает канонический веер, а не знак шума привязки к
+    решётке. Вне тугого порога и вне применимости закона — ровно прежнее.
     """
 
     from .angular import _ideal_angular_support_data
@@ -653,10 +664,8 @@ def _evaluation_density_spec(
         context,
         source_spec,
     )
-    if density_count_is_feasible(
-        context.metric,
-        source_count_ideal,
-        q,
+    if evaluation_count_is_feasible(
+        context, spec, selection, source_count, source_count_ideal, q
     ):
         return source_spec, None, source_count_ideal
     predecessor_ideal = source_count_ideal
@@ -669,10 +678,8 @@ def _evaluation_density_spec(
             context,
             candidate_spec,
         )
-        if not density_count_is_feasible(
-            context.metric,
-            candidate_ideal,
-            q,
+        if not evaluation_count_is_feasible(
+            context, spec, selection, effective_count, candidate_ideal, q
         ):
             predecessor_ideal = candidate_ideal
             continue
@@ -686,6 +693,9 @@ def _evaluation_density_spec(
                 q,
                 candidate_ideal,
                 predecessor_ideal,
+                canonical_predecessor_ideal=canonical_predecessor_ideal(
+                    context, spec, selection, effective_count - 1, q
+                ),
             ),
             candidate_ideal,
         )
@@ -990,6 +1000,11 @@ def _attach_direction_bindings(
         compilation,
         envelope_specs=frozenset(changed_specs),
         canonical_subturn_fan_authorities=_canonical_fan_authorities(
+            compilation,
+            context,
+            changed_specs,
+        ),
+        evaluation_binding_noise_records=evaluation_binding_noise_records(
             compilation,
             context,
             changed_specs,
