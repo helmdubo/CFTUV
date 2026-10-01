@@ -1654,7 +1654,7 @@ def _rational_affine_metric(
     patch_domain_id,
     owner_patch_id,
     source_vertices,
-    source_faces,
+    surface_ir,
 ):
     """Thin host delegation; exact chart construction belongs to the kernel."""
 
@@ -1664,7 +1664,8 @@ def _rational_affine_metric(
             patch_domain_id=patch_domain_id,
             owner_patch_id=owner_patch_id,
             source_vertices=source_vertices,
-            source_faces=source_faces,
+            source_faces=surface_ir.source_faces,
+            surface_triangles=surface_ir.surface_triangles,
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
@@ -2101,7 +2102,7 @@ def build_envelope_analysis_snapshot(
                 patch_domain_id=patch_domains[patch_id],
                 owner_patch_id=patch_ids[patch_id],
                 source_vertices=source_vertices,
-                source_faces=source_faces,
+                surface_ir=surface_ir,
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
@@ -2111,7 +2112,6 @@ def build_envelope_analysis_snapshot(
         if len(patch_domains) == 1
         else None
     )
-
 
     with _measure(profile, "ANGULAR_RELATIONS", angular_timing_domain):
         (

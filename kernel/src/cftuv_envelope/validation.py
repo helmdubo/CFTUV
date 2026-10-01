@@ -134,9 +134,8 @@ from .validation_issues import (
     raise_for_issues,
 )
 from .validation_metric import (
-    expected_source_position,
     fraction_of as _fraction,
-    fraction_point3 as _fraction_point3,
+    validate_metric_against_source,
     validate_rational_affine_planar_metric,
 )
 
@@ -835,39 +834,8 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
             required_vertices = patch_vertices.get(domain.owner_patch_id, set())
             if full_surface and coordinate_ids != required_vertices:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates",), "exact affine coordinates must cover all and only owner-patch surface vertices")
-            origin = _fraction_point3(descriptor.exact_origin)
-            basis_a = _fraction_point3(descriptor.exact_basis_a)
-            basis_b = _fraction_point3(descriptor.exact_basis_b)
-            for vertex_id in coordinate_ids:
-                source = next(
-                    (
-                        item
-                        for item in snapshot.source_vertices
-                        if item.vertex_id == vertex_id
-                    ),
-                    None,
-                )
-                if source is None or not isinstance(source.position, LocalPoint3V1):
-                    continue
-                # Ожидание считает ВСЕ законы, которые метрика объявила
-                # двигающими источник: узел решётки, а поверх него — для
-                # названных спроецированными — точную проекцию этого узла на
-                # сертифицированную плоскость. Прежде считался один первый, и
-                # near-planar метрика расходилась с ожиданием ровно на второй.
-                position = expected_source_position(
-                    source.position, vertex_id, descriptor
-                )
-                coordinate = coordinate_by_id[vertex_id]
-                u = _fraction(coordinate.x)
-                v = _fraction(coordinate.y)
-                reconstructed = tuple(
-                    origin[index]
-                    + u * basis_a[index]
-                    + v * basis_b[index]
-                    for index in range(3)
-                )
-                if reconstructed != position:
-                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with the source position the declared grid and planarity laws produce")
+            for source_issue in validate_metric_against_source(descriptor, snapshot, domain.owner_patch_id):
+                _issue(issues, source_issue.code, path + source_issue.path[1:], source_issue.message)
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path, "intrinsic metric regime must match a non-planar PatchDomain")

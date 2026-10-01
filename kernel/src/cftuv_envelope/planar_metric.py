@@ -33,6 +33,7 @@ from .contracts.metric import (
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
+    NearPlanarWidthDistortionCertificateV1,
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
     RuntimeMetricFallbackContractV1,
@@ -47,7 +48,8 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
-from .contracts.surface import SourceFaceV1
+from ._width_distortion import build_width_distortion_certificate
+from .contracts.surface import SourceFaceV1, SurfaceTriangleV1
 from .ids import (
     LineageId,
     PatchDomainId,
@@ -382,7 +384,13 @@ def _resolve_patch_plane(
 
 
 def _planarity_certificate(
-    *, source_revision, patch_domain_id, normal, required_ids, near_planar_facts
+    *,
+    source_revision,
+    patch_domain_id,
+    normal,
+    required_ids,
+    near_planar_facts,
+    width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None,
 ):
     """Сертификат допуска плоскости: точный либо near-planar с записью невязки."""
 
@@ -427,6 +435,7 @@ def _planarity_certificate(
         residual_budget=_rational(near_planar_facts.residual_budget),
         max_residual_squared=_rational(near_planar_facts.max_residual_squared),
         projected_source_vertex_ids=frozenset(near_planar_facts.projected),
+        width_distortion=width_distortion,
     )
 
 
@@ -574,6 +583,37 @@ def _projection_embedding(
     return certificate
 
 
+def _width_distortion_record(
+    *,
+    near_planar_facts,
+    surface_triangles,
+    source_revision,
+    patch_domain_id,
+    snapped,
+    normal,
+    faces,
+    required_ids,
+):
+    """Сертификат искажения ширины: пишется, когда есть что мерить, и не судит.
+
+    Точная плоскость искажения не имеет (проекция тождественна), поэтому у неё
+    записи нет, и байты планарных доменов не двигаются. Вызвавший, не давший
+    треугольников, получает `None` — «не измерялось», а не «измерено хорошо».
+    """
+
+    if near_planar_facts is None or surface_triangles is None:
+        return None
+    return build_width_distortion_certificate(
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        snapped=snapped,
+        normal=normal,
+        faces=faces,
+        triangles=tuple(surface_triangles),
+        required_ids=required_ids,
+    )
+
+
 def _build_embedding_certified_metric(
     *,
     source_revision: SourceRevision,
@@ -587,6 +627,7 @@ def _build_embedding_certified_metric(
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
     enforce_embedding: bool = True,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     faces, required_ids, positions = _source_scope(
         owner_patch_id=owner_patch_id,
@@ -631,12 +672,23 @@ def _build_embedding_certified_metric(
             *(item.value for item in required_ids),
         )
     )
+    width_distortion = _width_distortion_record(
+        near_planar_facts=near_planar_facts,
+        surface_triangles=surface_triangles,
+        source_revision=source_revision,
+        patch_domain_id=patch_domain_id,
+        snapped=snapped_positions,
+        normal=normal,
+        faces=faces,
+        required_ids=required_ids,
+    )
     certificate = _planarity_certificate(
         source_revision=source_revision,
         patch_domain_id=patch_domain_id,
         normal=normal,
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
+        width_distortion=width_distortion,
     )
     metric = _metric_record(
         metric_id=metric_id,
@@ -684,6 +736,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -696,6 +749,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         source_lineage=source_lineage,
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
+        surface_triangles=surface_triangles,
     )
 
 
@@ -711,6 +765,7 @@ def build_rational_affine_planar_metric(
         PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
     ),
     grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+    surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -724,6 +779,7 @@ def build_rational_affine_planar_metric(
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
         enforce_embedding=True,
+        surface_triangles=surface_triangles,
     ).metric
 
 

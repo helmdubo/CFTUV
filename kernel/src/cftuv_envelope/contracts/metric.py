@@ -13,8 +13,10 @@ from ..ids import (
     PatchDomainId,
     PlanarityCertificateId,
     RuntimeMetricId,
+    SourceFaceId,
     SourceRevision,
     SourceVertexId,
+    SurfaceTriangleId,
 )
 
 
@@ -663,6 +665,104 @@ class NearPlanarProjectionEmbeddingCertificateV1:
             raise ValueError("embedding orientation signs must be -1, 0, or 1")
 
 
+class NearPlanarWidthDistortionLawV1(str, Enum):
+    """Чем меряется искажение ширины при проекции на плоскость карты.
+
+    Проекция треугольника T на плоскость с нормалью `n` — линейное отображение
+    с сингулярными числами `1` и `cos θ_T`, где `θ_T` — угол между нормалью
+    треугольника и `n`. Длина вдоль поверхности относится к длине на карте как
+    число из `[1, 1/cos θ_T]`: декаль, заданная шириной на карте, на поверхности
+    не шире, чем в `1/cos θ_T` раз. `cos² θ_T` — РАЦИОНАЛЬНОЕ число
+    (`(n_T·n)² / ((n_T·n_T)(n·n))`), поэтому закон считается точно, без корня
+    и без допуска вычисления; допуск один, и он назван — относительная ширина.
+    """
+
+    INTRINSIC_WIDTH_RELATIVE_V1 = "INTRINSIC_WIDTH_RELATIVE_V1"
+
+
+NEAR_PLANAR_WIDTH_BUDGET = Fraction(1, 50)
+"""Допуск искажения ширины near-planar: 2 % относительно. Точная дробь.
+
+Решение ВЛАДЕЛЬЦА (`DECISIONS.md`, 2026-10-02, «КРИВИЗНА, ПЕРВАЯ СТУПЕНЬ»):
+порог относительный, не в сантиметрах — допуск на искажение свойства
+поверхности («насколько декаль шире на поверхности, чем на карте») не должен
+зависеть от размера патча. Условие приёма: `min cos² θ_T ≥ 1/(1+b)²`, то есть
+`b = 1/50` даёт `cos² ≥ 2500/2601`, наклон не круче ~11.5° у худшего
+треугольника.
+
+Допуск владеет ЯДРО: его читают и построитель (судить), и валидатор
+(пересчитать), и записывает сертификат — как `PRODUCT_SKIRT_ABSOLUTE_BUDGET`.
+Абсолютная невязка плоскости (1.25 см) при укладке на треугольники источника
+перестаёт судить и становится записанной диагностикой: поверхность, на которую
+ложится декаль, — не плоскость, и расстояние до плоскости ей безразлично.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class SnappedSourcePositionV1:
+    """Позиция вершины источника после привязки к решётке, ДО проекции."""
+
+    source_vertex_id: SourceVertexId
+    position: ExactPoint3V1
+
+
+@dataclass(frozen=True, slots=True)
+class NearPlanarWidthDistortionCertificateV1:
+    """Искажение ширины по треугольникам источника владельца: точное, записанное.
+
+    `min_cos_squared` — наименьший `cos² θ_T` по измеренным (невырожденным)
+    треугольникам; `worst_triangle_id` — тот, кто его даёт (первый по имени при
+    равенстве). Вырожденный после привязки треугольник (нулевая нормаль) не
+    измерим и не молчит: он считается в `degenerate_triangle_count`, называется
+    `first_degenerate_triangle_id`, и судья обязан отказать
+    `NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE`.
+
+    `snapped_source_positions` — позиции, от которых считан сертификат, то есть
+    привязанные, но не спроецированные. Это то же 3D, на которое ложится
+    декаль при укладке на треугольники источника, поэтому запись
+    самодостаточна для укладки и пересчитываема валидатором из снапшота.
+
+    Сертификат НЕ судит сам: это запись. Судит `width_distortion_violations`
+    (`_width_distortion`), и когда и кого он судит, решает закон укладки.
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    law: NearPlanarWidthDistortionLawV1
+    width_budget: ExactRationalV1
+    min_cos_squared: ExactRationalV1
+    worst_triangle_id: SurfaceTriangleId | None
+    worst_face_id: SourceFaceId | None
+    triangles_measured: int
+    degenerate_triangle_count: int
+    first_degenerate_triangle_id: SurfaceTriangleId | None
+    snapped_source_positions: frozenset[SnappedSourcePositionV1]
+
+    def __post_init__(self) -> None:
+        if self.triangles_measured < 0 or self.degenerate_triangle_count < 0:
+            raise ValueError("width-distortion counts must be non-negative")
+        if (self.worst_triangle_id is None) != (self.triangles_measured == 0):
+            raise ValueError(
+                "the worst triangle is named exactly when a triangle was measured"
+            )
+        if (self.worst_triangle_id is None) != (self.worst_face_id is None):
+            raise ValueError("the worst triangle and its face are named together")
+        if (self.first_degenerate_triangle_id is None) != (
+            self.degenerate_triangle_count == 0
+        ):
+            raise ValueError(
+                "a degenerate triangle is named exactly when one was counted"
+            )
+        low = Fraction(self.min_cos_squared.numerator, self.min_cos_squared.denominator)
+        if not 0 <= low <= 1:
+            raise ValueError("cos-squared lies in [0, 1]")
+        if self.width_budget.numerator <= 0:
+            raise ValueError("the width budget is positive")
+        if self.triangles_measured + self.degenerate_triangle_count == 0:
+            raise ValueError("a width-distortion certificate saw no triangle")
+
+
 @dataclass(frozen=True, slots=True)
 class NearPlanarProjectionCertificateV1:
     """Запись о том, что вход был спроецирован, и на сколько он отклонялся.
@@ -705,6 +805,9 @@ class NearPlanarProjectionCertificateV1:
     residual_budget: ExactRationalV1
     max_residual_squared: ExactRationalV1
     projected_source_vertex_ids: frozenset[SourceVertexId]
+    # Искажение ширины по треугольникам источника (ступень NEAR_PLANAR V2).
+    # `None` — «не измерялось»: вызвавший построитель не дал треугольников.
+    width_distortion: NearPlanarWidthDistortionCertificateV1 | None = None
 
     def __post_init__(self) -> None:
         if self.exact:

@@ -371,7 +371,12 @@ MODULE_LINE_ALLOWANCE = {
     # кода без записи в этой таблице. Число опущено до фактического: храповик
     # затягивается там, где освободилось место, иначе освобождённое место
     # молча превращается в разрешение расти обратно.
-    "kernel/src/cftuv_envelope/validation.py": 1772,
+    # 1772 -> 1731. −41: сверка реконструкции карты с источником и пересчёт
+    # сертификата искажения ширины (NEAR_PLANAR V2) вынесены из
+    # `validate_analysis_snapshot` в `validation_metric.validate_metric_against_source`.
+    # Число опущено до фактического: храповик затягивается там, где
+    # освободилось место.
+    "kernel/src/cftuv_envelope/validation.py": 1731,
 }
 
 
@@ -391,7 +396,8 @@ FUNCTION_LINE_ALLOWANCE = {
     # `apply_policy_b` подлежит разбиению на этапы конвейера (сбор вкладов,
     # крой, доказательство), и семь строк этого не отменяют.
     "kernel/src/cftuv_envelope/interactions/policy_b.py": 487,
-    "kernel/src/cftuv_envelope/validation.py": 426,
+    # 426 -> 395: блок сверки метрики с источником ушёл в `validation_metric`.
+    "kernel/src/cftuv_envelope/validation.py": 395,
     # +5: снятие дельты счётчика локализации точки и два поля в union. Плата за
     # то, чтобы следующий полевой прогон отвечал на вопрос, а не ставил его
     # заново; `exact_union` всё равно подлежит разбиению на этапы конвейера.

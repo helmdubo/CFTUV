@@ -94,6 +94,9 @@ class TolerancePolicyIdV1(str, Enum):
     """
 
     PRODUCT_SKIRT_ABSOLUTE_V1 = "PRODUCT_SKIRT_ABSOLUTE_V1"
+    NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1 = (
+        "NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1"
+    )
     NEAR_PLANAR_REPRESENTATION_NOISE_V1 = "NEAR_PLANAR_REPRESENTATION_NOISE_V1"
     AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
         "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
@@ -912,6 +915,46 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_exact_canonicalization_memory.py"
             "::test_field_radicands_are_bit_for_bit_identical_with_and_without_basis"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 50)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Во сколько раз декаль на поверхности источника вправе быть шире, "
+            "чем на плоскости карты: `1 + b`, `b = 1/50`. Условие приёма "
+            "near-planar при укладке на треугольники источника: наименьший "
+            "`cos²` наклона треугольника к плоскости карты не меньше "
+            "`1/(1+b)²`. Относительный допуск свойства поверхности, а не "
+            "сантиметры: он не зависит от размера патча."
+        ),
+        authority=(
+            "NearPlanarWidthDistortionLawV1.INTRINSIC_WIDTH_RELATIVE_V1; "
+            "DECISIONS.md 2026-10-02 (КРИВИЗНА, ПЕРВАЯ СТУПЕНЬ: решение "
+            "владельца — 2 % ширины, относительный)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.NEAR_PLANAR_ADMISSION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.ADMIT_OR_REJECT_PROJECTION
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=(
+            "cftuv_envelope.contracts.metric.NEAR_PLANAR_WIDTH_BUDGET",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_near_planar_width_distortion.py"
+            "::test_a_gentle_slope_is_within_the_width_budget"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_near_planar_width_distortion.py"
+            "::test_a_steep_slope_is_beyond_the_width_budget_by_name"
         ),
     ),
 )
