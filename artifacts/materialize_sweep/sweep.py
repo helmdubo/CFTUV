@@ -93,6 +93,7 @@ ANSWER_KEYS = (
     "materialization",
     "detail",
     "content_digest",
+    "offset_normals_digest",
     "semantic_digest",
     "counters",
     "diagnostics",
@@ -162,6 +163,7 @@ def compute_row(patch_id: int, density):
     row["materialization"] = result.outcome.value
     row["detail"] = result.detail[:300]
     row["content_digest"] = result.content_digest
+    row["offset_normals_digest"] = result.offset_normals_digest
     row["semantic_digest"] = (
         "" if result.batch is None else result.batch.semantic_digest.value
     )

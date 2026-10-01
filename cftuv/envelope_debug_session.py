@@ -311,9 +311,18 @@ class EnvelopeDebugSessionController:
 
     @staticmethod
     def _revision_value(source_revision: SourceRevision) -> str:
-        from .envelope_request_export import _revision_value
+        """Ключ состояния источника для кэшей сессии: ревизия И политика лестницы кривизны.
 
-        return _revision_value(source_revision)
+        Метрика домена зависит от политики лестницы хоста, а ревизия источника — нет, поэтому
+        ключ без политики отдавал бы метрику, построенную при другой политике. Здесь политика
+        только ключ кэша (смена состояния сбрасывает все кэши); идентичности внутри снапшота
+        выводятся из ревизии источника сами и этой надстройки не видят.
+        """
+
+        from . import envelope_request_export as export_module
+
+        policy = export_module.HOST_CURVATURE_LADDER_POLICY.value
+        return f"{export_module._revision_value(source_revision)}|curvature-ladder:{policy}"
 
     def get_analysis_bundle(
         self,

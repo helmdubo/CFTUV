@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import math
+from hashlib import sha256
 
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
@@ -103,6 +104,47 @@ def source_vertex_normals(triangles, position) -> dict:
                     f"of its triangle {item.triangle_id.value}"
                 )
     return result
+
+
+def min_gap_cosine(triangles):
+    """Наименьший `n_v . n_T` по углам треугольников подъёма: `(косинус, треугольник, угол)` либо `None`.
+
+    Смещение декали на `d` вдоль нормали вершины поднимает её над плоскостью треугольника ровно
+    на `d * (n_v . n_T)`: на складке внутри патча с двугранным углом `phi` это `d * cos(phi / 2)`,
+    и на острой складке зазор стремится к нулю, пока косинус положителен (неположительный косинус
+    — отказ `SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE`). Порога здесь нет, и быть без записи допуска
+    не может: число ЗАПИСЫВАЕТСЯ диагностикой `DEVELOPABLE_OFFSET_MIN_GAP_COSINE`, а решает по нему
+    владелец. Треугольники идут по имени, поэтому первый минимум определён однозначно.
+    """
+
+    best = None
+    for item in triangles:
+        if not item.normals:
+            continue
+        points = tuple(tuple(float(axis) for axis in corner) for corner in item.corners)
+        normal = _unit(_cross(_vector(points[0], points[1]), _vector(points[0], points[2])))
+        for index, vertex_normal in enumerate(item.normals):
+            value = _dot(vertex_normal, normal)
+            if best is None or value < best[0]:
+                best = (value, item.name, index)
+    return best
+
+
+def offset_normals_digest(normals) -> str:
+    """sha256 нормалей смещения вершин батча `((vert_key, (x, y, z)), ...)`; пусто, если нормалей нет.
+
+    Нормали сдвигают вершины меша писателем хоста, но в дайджест батча не входят (смещение —
+    политика отображения), поэтому без собственного дайджеста ни один ворота их не видели бы.
+    Двоичные64 пишутся шестнадцатеричной формой `float.hex`: побитово, без десятичного округления.
+    """
+
+    if not normals:
+        return ""
+    lines = (
+        "\x1f".join((key, *(float(axis).hex() for axis in vector)))
+        for key, vector in sorted(normals, key=lambda entry: entry[0])
+    )
+    return sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def blend(weights, normals):

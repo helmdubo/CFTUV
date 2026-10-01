@@ -61,6 +61,7 @@ from ._metric_wire import (
     classify_metric_normal_wire,
     metric_normal_wire_rejection_message,
 )
+from .declared_chains import declared_straight_chain_vertices
 from .numeric import LocalPoint3V1
 from .validation_developable import (
     check_developable_certificate,
@@ -1001,6 +1002,9 @@ def validate_metric_against_source(
             source_faces=snapshot.surface_ir.source_faces,
             surface_triangles=snapshot.surface_ir.surface_triangles,
             owner_patch_id=owner_patch_id,
+            declared_straight_chains=declared_straight_chain_vertices(
+                snapshot.physical_chains, snapshot.chain_uses, metric.patch_domain_id
+            ),
         )
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
@@ -1058,6 +1062,7 @@ def _validate_developable_embedding_record(
     source_faces,
     surface_triangles,
     owner_patch_id,
+    declared_straight_chains=(),
 ):
     """Обёртка с картой развёртки: решётка источника пересчитана, карта - заново.
 
@@ -1113,6 +1118,7 @@ def _validate_developable_embedding_record(
                 source_faces=source_faces,
                 surface_triangles=surface_triangles,
                 owner_patch_id=owner_patch_id,
+                declared_straight_chains=declared_straight_chains,
             )
         )
     return tuple(issues)
@@ -1128,8 +1134,12 @@ def validate_embedding_certified_rational_affine_planar_metric(
     expected_patch_domain_id: PatchDomainId,
     expected_source_lineage: frozenset[LineageId],
     surface_triangles: tuple[SurfaceTriangleV1, ...] | None = None,
+    declared_straight_chains: tuple = (),
 ) -> tuple[ValidationIssue, ...]:
     """Recompute evidence and bind it to caller-owned source identity.
+
+    ``declared_straight_chains`` (ordered vertex ids per chain, ``declared_chains``) is an
+    authority input of the same kind for an unfolded chart: the chains the host declared straight.
 
     The three ``expected_*`` values are authority inputs, not conveniences:
     an integration must obtain them from its trusted source envelope.  Passing
@@ -1165,6 +1175,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
             source_faces=source_faces,
             surface_triangles=surface_triangles,
             owner_patch_id=owner_patch_id,
+            declared_straight_chains=declared_straight_chains,
         )
     grid, normal, off_plane, expected_coordinates, sign = (
         _recompute_embedding_inputs(

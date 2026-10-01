@@ -255,6 +255,56 @@ def fold_fan(sides=5, radius=1.0):
     return surface(points, cycles)
 
 
+def slanted_cylinder(rows=4, segments=4, shear=0.5, radius=1.0, height=1.0):
+    """Четверть цилиндра с КОСЫМИ образующими: `y += shear * x`.
+
+    Образующая на краю `k = 0` — прямая в 3D из `rows + 1` вершин (`slanted_chain`), а её
+    направление в карте не лежит на осях решётки: корень развёртки кладёт ребро дуги вдоль
+    оси, образующая выходит под углом `atan2(1, shear) - ...` к ней.
+    """
+
+    points = {}
+    for k in range(segments + 1):
+        theta = (math.pi / 2) * k / segments
+        x, z = radius * math.sin(theta), radius * (1.0 - math.cos(theta))
+        for j in range(rows + 1):
+            points[f"p{k}_{j}"] = (x, height * j / rows + shear * x, z)
+    cycles = [
+        [f"p{k}_{j}", f"p{k + 1}_{j}", f"p{k + 1}_{j + 1}", f"p{k}_{j + 1}"]
+        for k in range(segments)
+        for j in range(rows)
+    ]
+    return surface(points, cycles)
+
+
+def slanted_chain(rows=4):
+    """Вершины прямой образующей `k = 0` косого цилиндра, по порядку."""
+
+    return tuple(SourceVertexId(f"v:p0_{j}") for j in range(rows + 1))
+
+
+def kinked_fold_strip(offset=0.25):
+    """Складка 90° с ИЗЛОМОМ края: внутренние вершины края `a` сдвинуты по `y` на `offset`.
+
+    Край `r0a, r1a, r2a, r3a` в карте — ломаная `(0,0) (1,d) (2,d) (3,0)`, а не прямая:
+    объявленный прямым, он выпрямляется ценой растяжения соседних квадов (`~offset`).
+    """
+
+    rings = [
+        ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        ((1.0, offset, 0.0), (1.0, 1.0, 0.0)),
+        ((1.0, offset, 1.0), (1.0, 1.0, 1.0)),
+        ((2.0, 0.0, 1.0), (2.0, 1.0, 1.0)),
+    ]
+    return surface(strip_points(rings), strip_cycles(len(rings)))
+
+
+def kinked_chain():
+    """Вершины края `a` складки с изломом, по порядку."""
+
+    return tuple(SourceVertexId(f"v:r{k}a") for k in range(4))
+
+
 def developable_chart(parts, *, grid_policy=GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1, **overrides):
     """Карта и сертификат развёртки НАПРЯМУЮ (без лестницы): привязка источника, затем развёртка."""
 

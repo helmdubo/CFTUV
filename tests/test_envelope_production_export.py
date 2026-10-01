@@ -497,10 +497,38 @@ def test_an_unfolded_domain_is_materialized_with_a_vertex_offset_normal_law():
     keys = {item.vert_key.value for item in unfolded.batch.vertices}
     assert {name for name, _ in unfolded.vertex_normals} == keys
     assert any(line.startswith("DEVELOPABLE_LIFT_ONTO_UNFOLDED") for line in unfolded.diagnostics)
+    assert any(line.startswith("DEVELOPABLE_OFFSET_MIN_GAP_COSINE") for line in unfolded.diagnostics)
     for item in run.results[:-1]:
         assert item.vertex_normals == () and item.offset_normal_law == ""
+        assert item.offset_normals_digest == ""
     length = sum(axis * axis for axis in unfolded.normal) ** 0.5
     assert abs(length - 1.0) < 1e-12
+
+
+def test_the_offset_normals_are_visible_to_the_equality_and_to_the_json_line(tmp_path):
+    """Нормали смещают вершины меша, но в дайджест батча не входят: у них свой дайджест."""
+
+    import dataclasses
+    import json
+
+    from cftuv_envelope.materialize.offset_normal import offset_normals_digest
+
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    run, _ = _production(bundle)
+    unfolded = run.results[ROW - 1]
+    assert unfolded.offset_normals_digest == offset_normals_digest(unfolded.vertex_normals)
+    assert len(unfolded.offset_normals_digest) == 64
+    # Результат с другим дайджестом нормалей — другой результат (равенство прогонов его видит).
+    assert dataclasses.replace(unfolded, offset_normals_digest="x") != unfolded
+    summary = production.export_production_json(run.results, tmp_path, label="row")
+    rows = {item["patch_id"]: item for item in json.loads(summary.read_text(encoding="utf-8"))["domains"]}
+    assert rows[unfolded.patch_id]["offset_normals_digest"] == unfolded.offset_normals_digest
+    assert rows[unfolded.patch_id]["offset_normal_law"] == "SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1"
+    assert all(
+        row["offset_normals_digest"] == ""
+        for patch, row in rows.items()
+        if patch != unfolded.patch_id
+    )
 
 
 def test_the_status_text_counts_repeated_outcomes():

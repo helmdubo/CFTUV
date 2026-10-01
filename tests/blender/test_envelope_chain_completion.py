@@ -158,9 +158,10 @@ def _run_refused_domain_gets_a_contour_and_a_name():
     # решения владельца от 2026-08-01 (допуск 1.25 см) лёг внутрь допуска,
     # оба домена дошли до покрытия, и отказу, который надо нарисовать, стало
     # неоткуда взяться.
+    # Второй патч с поднятой ВНУТРЕННЕЙ вершиной: отказывает на всей лестнице метрики. Изогнутый
+    # квад из двух треугольников разворачивается точно и с лестницей хоста строится.
     source_obj = _build_two_patch_seam(
-        nonplanar_second_patch=True,
-        second_patch_offset=_budget_refused_second_patch_offset(),
+        second_patch_apex=_budget_refused_second_patch_offset(),
     )
 
     assert (
@@ -182,9 +183,8 @@ def _run_refused_domain_gets_a_contour_and_a_name():
     # хост объявляет near-planar политику и укладку на поверхность, и отказывает
     # ему бюджет ширины (NEAR_PLANAR V2).
     outcome = refused_receipts[0]["outcome"]
-    assert outcome == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED", (
-        refused_receipts[0]
-    )
+    assert outcome == "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED", refused_receipts[0]
+    assert "after near-planar NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in refused_receipts[0]["message"]
 
     strokes = _refused_strokes(payload)
     assert strokes, payload["stage_outcomes"]

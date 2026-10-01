@@ -1258,6 +1258,47 @@ def test_the_host_ladder_unfolds_a_bend_that_the_width_budget_refuses():
     assert certificate.lift_law.value == "UNFOLDED_SOURCE_TRIANGLES_V1"
 
 
+def test_the_host_hands_the_snapshot_chains_to_the_metric_and_the_bent_name_is_a_metric_stage_name(
+    monkeypatch,
+):
+    """Объявленные прямыми цепи берутся ОДНОЙ выборкой ядра, а их отказ — ступень метрики.
+
+    Хост не решает, какая цепь «прямая»: он отдаёт физические цепи и их использования
+    снапшота выборке ядра (`declared_chains`), её же зовёт валидатор при пересчёте. Имя
+    отказа прямизны не схлопывается и несёт хост-исход ТОГО ЖЕ имени на ступени METRIC.
+    """
+
+    import cftuv_envelope.declared_chains as declared_chains
+    from cftuv.envelope_request_export import METRIC_STAGE_OUTCOMES, _host_outcome_for
+    from cftuv_envelope import validate_analysis_snapshot
+    from cftuv_envelope.outcomes import NamedOutcome
+
+    real = declared_chains.declared_straight_chain_vertices
+    calls = []
+
+    def spy(physical_chains, chain_uses, patch_domain_id):
+        calls.append((len(physical_chains), len(chain_uses), patch_domain_id))
+        return real(physical_chains, chain_uses, patch_domain_id)
+
+    monkeypatch.setattr(declared_chains, "declared_straight_chain_vertices", spy)
+    snapshot = build_envelope_analysis_snapshot(_seam_bundle_with_off_plane_vertex(1.0))
+    assert len(calls) == len(snapshot.surface_metric_descriptors)
+    assert all(
+        chains == len(snapshot.physical_chains) and uses == len(snapshot.chain_uses)
+        for chains, uses, _domain in calls
+    )
+    assert validate_analysis_snapshot(snapshot) == ()
+    for descriptor in snapshot.surface_metric_descriptors:
+        certificate = descriptor.planarity_certificate
+        if type(certificate).__name__ == "DevelopableUnfoldCertificateV1":
+            assert tuple(item.vertex_ids for item in certificate.declared_straight_chains) == real(
+                snapshot.physical_chains, snapshot.chain_uses, descriptor.patch_domain_id
+            )
+    bent = _host_outcome_for(NamedOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT)
+    assert bent is EnvelopeDebugHostOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT
+    assert bent in METRIC_STAGE_OUTCOMES
+
+
 def test_a_bend_beyond_the_old_absolute_budget_is_now_admitted_and_recorded():
     """5 см подъёма — за прежним абсолютным бюджетом юбки, но домен строится.
 
@@ -1897,6 +1938,40 @@ def test_source_revision_and_data_replacement_invalidate_all_dependent_caches():
     assert controller.build_counts["TOPOLOGY_EXPORT"] == 3
     assert controller.build_counts["PATCH_METRIC"] == 3
     assert controller.build_counts["DOMAIN_GEOMETRY"] == 3
+
+
+def test_a_change_of_the_ladder_policy_invalidates_the_session_caches(monkeypatch):
+    """Метрика домена зависит от политики лестницы хоста: ключ кэшей сессии её содержит."""
+
+    bundle = _single_patch_bundle()
+    controller = EnvelopeDebugSessionController()
+
+    def evaluate():
+        cached = controller.get_analysis_bundle(
+            "object", "mesh", bundle.source_revision, lambda: bundle
+        )
+        evaluate_envelope_debug_staged(
+            cached,
+            frozenset({0}),
+            0.2,
+            controller=controller,
+            source_object_key="object",
+            source_data_key="mesh",
+        )
+
+    evaluate()
+    evaluate()
+    assert controller.invalidation_count == 0
+    assert controller.build_counts["PATCH_METRIC"] == 1
+    default_key = controller._revision_value(bundle.source_revision)
+    pin_near_planar_only(monkeypatch)
+    pinned_key = controller._revision_value(bundle.source_revision)
+    assert pinned_key != default_key
+    assert default_key.endswith("|curvature-ladder:NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1")
+    assert pinned_key.endswith("|curvature-ladder:NEAR_PLANAR_ONLY_V1")
+    evaluate()
+    assert controller.invalidation_count == 1
+    assert controller.build_counts["PATCH_METRIC"] == 2
 
 
 def test_console_profile_shows_counters_for_each_domain(capsys):

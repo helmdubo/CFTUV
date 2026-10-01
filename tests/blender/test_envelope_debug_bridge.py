@@ -114,8 +114,15 @@ def _build_two_patch_seam(
     *,
     nonplanar_second_patch=False,
     second_patch_offset=0.001,
+    second_patch_apex=None,
 ):
     """Два патча через шов из одного ребра; второй при желании выведен из плоскости.
+
+    `second_patch_apex` — высота ВНУТРЕННЕЙ вершины второго патча (он собирается из четырёх
+    треугольников вокруг неё): веер вокруг поднятой вершины имеет угловой дефект, и такой
+    патч отказывает на ВСЕЙ лестнице метрики (near-planar по ширине, развёртка по
+    растяжению). Изогнутый квад из двух треугольников, наоборот, разворачивается точно
+    (шарнир по диагонали) и с лестницей хоста принимается.
 
     Величина отклонения — параметр, а не литерал: после
     `SOURCE_ONLY_GRID_SNAP_V1` привязка источника кладёт в плоскость ТОЧНО всё,
@@ -124,25 +131,24 @@ def _build_two_patch_seam(
     """
 
     mesh = bpy.data.meshes.new("EnvelopeTwoPatchMesh")
-    mesh.from_pydata(
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (1.0, 1.0, 0.0),
         (
-            (0.0, 0.0, 0.0),
-            (1.0, 0.0, 0.0),
-            (2.0, 0.0, 0.0),
-            (0.0, 1.0, 0.0),
-            (1.0, 1.0, 0.0),
-            (
-                2.0,
-                1.0,
-                float(second_patch_offset) if nonplanar_second_patch else 0.0,
-            ),
+            2.0,
+            1.0,
+            float(second_patch_offset) if nonplanar_second_patch else 0.0,
         ),
-        (),
-        (
-            (0, 1, 4, 3),
-            (1, 2, 5, 4),
-        ),
-    )
+    ]
+    faces = [(0, 1, 4, 3), (1, 2, 5, 4)]
+    if second_patch_apex is not None:
+        vertices[5] = (2.0, 1.0, 0.0)
+        vertices.append((1.5, 0.5, float(second_patch_apex)))
+        faces = [(0, 1, 4, 3), (1, 2, 6), (2, 5, 6), (5, 4, 6), (4, 1, 6)]
+    mesh.from_pydata(vertices, (), faces)
     mesh.update()
     shared_index = None
     for edge in mesh.edges:
@@ -670,8 +676,7 @@ def _run_staged_metric_rejection_smoke():
     # сверху — `PRODUCT_SKIRT_ABSOLUTE_BUDGET`; оба прежних литерала (1e-3, 1e-2)
     # по очереди легли внутрь того, что конвейер прощает.
     source_obj = _build_two_patch_seam(
-        nonplanar_second_patch=True,
-        second_patch_offset=_budget_refused_second_patch_offset(),
+        second_patch_apex=_budget_refused_second_patch_offset(),
     )
     assert (
         bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
@@ -691,9 +696,11 @@ def _run_staged_metric_rejection_smoke():
     rejected = [
         item for item in receipts if item["stage"] == "METRIC_REJECTED"
     ]
-    assert rejected[0]["outcome"] == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED", (
-        rejected
-    )
+    # Домен отвергнут ВСЕЙ лестницей: исход — последней ступени (развёртки), а сообщение
+    # несёт обе (след near-planar: имя и числа ширины).
+    assert rejected[0]["outcome"] == "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED", rejected
+    assert "developable stretch" in rejected[0]["message"], rejected
+    assert "after near-planar NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in rejected[0]["message"], rejected
     assert "INTRINSIC_WIDTH_RELATIVE_V1" in rejected[0]["message"], rejected
     assert all(
         layer in {_layer_name(item) for item in gp_obj.data.layers}
@@ -710,6 +717,23 @@ def _run_staged_metric_rejection_smoke():
     assert settings.envelope_debug_domain_status.endswith(
         "METRIC_REJECTED"
     )
+
+
+def _run_bent_quad_is_resolved_by_the_unfolding_smoke():
+    """Изогнутый квад (два треугольника) с лестницей хоста разворачивается: оба домена построены."""
+
+    _reset_scene()
+    source_obj = _build_two_patch_seam(
+        nonplanar_second_patch=True,
+        second_patch_offset=_budget_refused_second_patch_offset(),
+    )
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    gp_obj = bpy.data.objects["CFTUV_DEBUG_Envelope_" + source_obj.name]
+    receipts = json.loads(gp_obj["stage_receipts"])
+    assert sorted(item["stage"] for item in receipts) == ["RESOLVED", "RESOLVED"], receipts
 
 
 def _run_two_patch_smoke():
@@ -923,6 +947,7 @@ def _main():
         return
     _run_topology_only_smoke()
     _run_staged_metric_rejection_smoke()
+    _run_bent_quad_is_resolved_by_the_unfolding_smoke()
     _run_session_cache_smoke()
     _run_axis_plane_smoke()
     _run_two_patch_smoke()

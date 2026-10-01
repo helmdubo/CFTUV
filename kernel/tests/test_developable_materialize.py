@@ -327,6 +327,111 @@ def test_planar_and_near_planar_domains_carry_no_vertex_normals():
     assert result.is_materialized
     assert result.vertex_normals == ()
     assert result.offset_normal_law == ""
+    assert result.offset_normals_digest == ""
+    assert not any(item.startswith("DEVELOPABLE_OFFSET_MIN_GAP") for item in result.diagnostics)
+
+
+# --------------------------------------------------------------------------
+# Нормали смещения видны воротам: дайджест; наименьший зазор записан, а не молчит
+# --------------------------------------------------------------------------
+
+
+def test_the_offset_normals_have_a_digest_that_sees_every_component(materialized):
+    from cftuv_envelope.materialize.offset_normal import offset_normals_digest
+
+    _name, _parts, result, _prepared = materialized
+    digest = result.offset_normals_digest
+    assert len(digest) == 64 and digest == offset_normals_digest(result.vertex_normals)
+    assert digest != result.content_digest
+    normals = list(result.vertex_normals)
+    assert offset_normals_digest(reversed(normals)) == digest
+    for index in (0, len(normals) // 2, len(normals) - 1):
+        for axis in range(3):
+            key, vector = normals[index]
+            nudged = list(vector)
+            nudged[axis] = math.nextafter(nudged[axis], 2.0)
+            forged = [*normals[:index], (key, tuple(nudged)), *normals[index + 1 :]]
+            assert offset_normals_digest(forged) != digest
+    renamed = [(f"x{normals[0][0]}", normals[0][1]), *normals[1:]]
+    assert offset_normals_digest(renamed) != digest
+
+
+def test_the_offset_normals_digest_is_reproducible_and_empty_without_normals():
+    from cftuv_envelope.materialize.offset_normal import offset_normals_digest
+
+    make, route, alpha = CASES["quarter-cylinder"]
+    first, _ = materialize_developable(make(), route, alpha=alpha)
+    second, _ = materialize_developable(make(), route, alpha=alpha)
+    assert first.offset_normals_digest == second.offset_normals_digest != ""
+    assert offset_normals_digest(()) == ""
+
+
+def _lift_like(parts):
+    """Треугольники подъёма по форме: имя, углы 3D и нормали вершин (как у `LiftTriangleV1`)."""
+
+    triangles, positions = _triangles_and_positions(parts)
+    normals = source_vertex_normals(triangles, positions)
+    return [
+        SimpleNamespace(
+            name=item.triangle_id.value,
+            corners=tuple(positions[vertex] for vertex in item.vertex_ids),
+            normals=tuple(normals[vertex] for vertex in item.vertex_ids),
+        )
+        for item in sorted(triangles, key=lambda entry: entry.triangle_id.value)
+    ]
+
+
+def test_the_minimum_gap_cosine_of_a_ninety_degree_fold_is_cos_forty_five_degrees():
+    from cftuv_envelope.materialize.offset_normal import min_gap_cosine
+
+    cosine, name, corner = min_gap_cosine(_lift_like(factories.fold_strip()))
+    assert cosine == pytest.approx(math.cos(math.pi / 4), abs=1e-12)
+    assert name.startswith("face") and corner in range(3)
+    assert min_gap_cosine([]) is None
+    assert min_gap_cosine([SimpleNamespace(name="t", corners=(), normals=())]) is None
+
+
+def test_a_sharper_fold_has_a_smaller_gap_and_is_recorded_not_thresholded():
+    """Зазор смещения — `offset * (n_v . n_T)`: падает с изломом, а порога у него нет."""
+
+    from cftuv_envelope.materialize.offset_normal import min_gap_cosine
+
+    gaps = []
+    for lift in (0.0, 0.9, 1.9, 9.0):
+        parts = factories.surface(
+            {"a": (0.0, 0.0, 0.0), "b": (1.0, 0.0, 0.0), "c": (0.0, 1.0, 0.0), "d": (0.0, -1.0, lift)},
+            [["a", "b", "c"], ["b", "a", "d"]],
+        )
+        triangles = _lift_like(parts)
+        unit = []
+        for item in triangles:
+            normal = _cross(_sub(item.corners[1], item.corners[0]), _sub(item.corners[2], item.corners[0]))
+            length = math.sqrt(_dot(normal, normal))
+            unit.append(tuple(axis / length for axis in normal))
+        expected = min(
+            _dot(vertex_normal, unit[index])
+            for index, item in enumerate(triangles)
+            for vertex_normal in item.normals
+        )
+        cosine, _name, _corner = min_gap_cosine(triangles)
+        assert cosine == pytest.approx(expected, abs=1e-12)
+        gaps.append(cosine)
+    assert gaps[0] > gaps[1] > gaps[2] > gaps[3] > 0
+
+
+def test_the_batch_records_the_minimum_offset_gap_as_a_named_diagnostic(materialized):
+    name, _parts, result, _prepared = materialized
+    lines = [item for item in result.diagnostics if item.startswith("DEVELOPABLE_OFFSET_MIN_GAP_COSINE")]
+    assert len(lines) == 1
+    assert "offset_min_gap_cosine=" in lines[0] and "recorded, not thresholded" in lines[0]
+    value = float(lines[0].split("offset_min_gap_cosine=")[1].split(" ")[0])
+    assert 0.0 < value <= 1.0
+    if name == "fold-strip":
+        assert value == pytest.approx(math.cos(math.pi / 4), abs=1e-6)
+    assert any(
+        item.outcome is NamedOutcome.DEVELOPABLE_OFFSET_MIN_GAP_COSINE
+        for item in result.batch.diagnostics
+    )
 
 
 # --------------------------------------------------------------------------

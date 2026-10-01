@@ -84,6 +84,7 @@ class EnvelopeDebugHostOutcome(str, Enum):
     DEVELOPABLE_CHART_TRIANGLE_FLIPPED = "DEVELOPABLE_CHART_TRIANGLE_FLIPPED"
     DEVELOPABLE_CHART_SELF_OVERLAP = "DEVELOPABLE_CHART_SELF_OVERLAP"
     DEVELOPABLE_CHART_LATTICE_TOO_COARSE = "DEVELOPABLE_CHART_LATTICE_TOO_COARSE"
+    DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT = "DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT"
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED = "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED"
     ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID = "ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID"
@@ -112,7 +113,7 @@ METRIC_STAGE_OUTCOMES = frozenset(
         EnvelopeDebugHostOutcome.PERIODIC_CUT_REQUIRED, EnvelopeDebugHostOutcome.DEVELOPABLE_SOURCE_TRIANGLE_DEGENERATE,
         EnvelopeDebugHostOutcome.DEVELOPABLE_REQUIRES_SOURCE_SNAP, EnvelopeDebugHostOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED,
         EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED, EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE,
+        EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE, EnvelopeDebugHostOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
     }
 )
 
@@ -1638,17 +1639,12 @@ def _host_outcome_for(outcome):
 
 
 def _rational_affine_metric(
-    kernel,
-    *,
-    source_revision,
-    patch_domain_id,
-    owner_patch_id,
-    source_vertices,
-    surface_ir,
+    kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains,
 ):
-    """Thin host delegation; exact chart construction belongs to the kernel."""
+    """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses)."""
 
     from cftuv_envelope.contracts.metric import CurvatureLadderPolicyV1, NearPlanarFramePolicyV1, NearPlanarLiftLawV1
+    from cftuv_envelope.declared_chains import declared_straight_chain_vertices
 
     try:
         return kernel.build_rational_affine_planar_metric(
@@ -1661,6 +1657,7 @@ def _rational_affine_metric(
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             near_planar_frame_policy=NearPlanarFramePolicyV1(HOST_NEAR_PLANAR_FRAME_POLICY.value),
             curvature_ladder=CurvatureLadderPolicyV1(HOST_CURVATURE_LADDER_POLICY.value),
+            declared_straight_chains=declared_straight_chain_vertices(*chains, patch_domain_id),
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
@@ -2092,12 +2089,9 @@ def build_envelope_analysis_snapshot(
         domain_value = patch_domains[patch_id].value
         with _measure(profile, "FRAME_ADMISSION", domain_value):
             frame = _rational_affine_metric(
-                kernel,
-                source_revision=source_revision,
-                patch_domain_id=patch_domains[patch_id],
-                owner_patch_id=patch_ids[patch_id],
-                source_vertices=source_vertices,
-                surface_ir=surface_ir,
+                kernel, source_revision=source_revision, patch_domain_id=patch_domains[patch_id],
+                owner_patch_id=patch_ids[patch_id], source_vertices=source_vertices, surface_ir=surface_ir,
+                chains=(physical_chains, chain_uses),
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)

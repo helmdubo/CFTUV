@@ -8,9 +8,10 @@
 
 1. ПО ПРОВОДУ (`check_developable_certificate`): запись метрики сама согласована —
    тот же домен и ревизия, объявленные законы, репер развёртки `origin = 0`,
-   `A = e_x/S'`, `B = e_y/S'`, целые координаты, бюджет растяжения — тот, что
-   объявляет закон, судья растяжения не находит нарушений, кратность решётки
-   карты — из объявленного перечня.
+   `A = e_x/S'`, `B = e_y/S'`, целые координаты (кроме внутренностей объявленных
+   прямыми цепей: те на хорде своих концов, строго по порядку), бюджет растяжения —
+   тот, что объявляет закон, судья растяжения не находит нарушений, кратность
+   решётки карты — из объявленного перечня.
 2. ПЕРЕСЧЁТ (`validate_developable_recomputation`): карта и сертификат СТРОЯТСЯ
    ЗАНОВО из привязанных позиций источника и треугольников снапшота и сравниваются
    с записью на равенство. Предложение развёртки детерминировано (binary64 с
@@ -31,6 +32,7 @@ from .contracts.metric import (
     DevelopableFanClosureLawV1,
     DevelopableLiftLawV1,
     DevelopableProposalLawV1,
+    DevelopableStraightChainLawV1,
     DevelopableStretchLawV1,
     DevelopableUnfoldCertificateV1,
     DevelopableUnfoldTreeLawV1,
@@ -64,6 +66,8 @@ def check_developable_certificate(issues, path, metric) -> None:
         is not DevelopableUnfoldTreeLawV1.CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1
         or certificate.proposal_law is not DevelopableProposalLawV1.BINARY64_HINGE_V1
         or certificate.lift_law is not DevelopableLiftLawV1.UNFOLDED_SOURCE_TRIANGLES_V1
+        or certificate.straight_chain_law
+        is not DevelopableStraightChainLawV1.INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1
         or certificate.stretch.law
         is not DevelopableStretchLawV1.EXACT_GRAM_SINGULAR_VALUE_BAND_V1
     ):
@@ -165,17 +169,7 @@ def _check_frame(issues, path, metric, certificate) -> None:
             "the unfolded development frame is origin 0, A = e_x/S', B = e_y/S' "
             "with the chart-plane normal (0, 0, 1)",
         )
-    if any(
-        item.domain_coordinate.x.denominator != 1
-        or item.domain_coordinate.y.denominator != 1
-        for item in metric.exact_source_vertex_coordinates
-    ):
-        add_issue(
-            issues,
-            ValidationCode.SURFACE_METRIC,
-            path + ("exact_source_vertex_coordinates",),
-            "unfolded chart coordinates are integer lattice nodes",
-        )
+    _check_coordinates(issues, path, metric, certificate)
     source_scale = metric.grid_certificate.source_scale
     factors = {factor * source_scale for factor in UNFOLD_CHART_SCALE_FACTORS} if (
         source_scale is not None and metric.grid_certificate.snapping_law.snaps_source
@@ -196,6 +190,54 @@ def _check_frame(issues, path, metric, certificate) -> None:
             path + ("chart_scale_trials",),
             "the recorded trial count does not lead to the recorded chart scale",
         )
+
+
+def _check_coordinates(issues, path, metric, certificate) -> None:
+    """Узлы карты — целые; внутренности объявленных прямыми цепей — на хорде, строго вперёд."""
+
+    interior = {
+        vertex for item in certificate.declared_straight_chains for vertex in item.vertex_ids[1:-1]
+    }
+    coordinates = {
+        item.source_vertex_id: (_fraction(item.domain_coordinate.x), _fraction(item.domain_coordinate.y))
+        for item in metric.exact_source_vertex_coordinates
+    }
+    fractional = sorted(
+        vertex.value
+        for vertex, point in coordinates.items()
+        if vertex not in interior and (point[0].denominator != 1 or point[1].denominator != 1)
+    )
+    if fractional:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_source_vertex_coordinates",),
+            f"unfolded chart coordinates are integer lattice nodes, except interior vertices "
+            f"of declared straight chains; not integer: {fractional[:3]}",
+        )
+    for item in certificate.declared_straight_chains:
+        points = [coordinates.get(vertex) for vertex in item.vertex_ids]
+        if None in points or not _on_chord_in_order(points):
+            add_issue(
+                issues,
+                ValidationCode.SURFACE_METRIC,
+                path + ("declared_straight_chains",),
+                f"declared straight chain {item.vertex_ids[0].value}..{item.vertex_ids[-1].value} "
+                "is not on one line of the chart in order",
+            )
+
+
+def _on_chord_in_order(points) -> bool:
+    span = (points[-1][0] - points[0][0], points[-1][1] - points[0][1])
+    reach = span[0] * span[0] + span[1] * span[1]
+    previous = Fraction(0)
+    for point in points[1:-1]:
+        offset = (point[0] - points[0][0], point[1] - points[0][1])
+        along = offset[0] * span[0] + offset[1] * span[1]
+        if span[0] * offset[1] - span[1] * offset[0] or not previous < along < reach:
+            return False
+        previous = along
+    return bool(reach)
 
 
 def _check_judgement(issues, path, metric, certificate) -> None:
@@ -230,8 +272,13 @@ def validate_developable_recomputation(
     source_faces,
     surface_triangles,
     owner_patch_id,
+    declared_straight_chains=(),
 ) -> tuple[ValidationIssue, ...]:
-    """Построить карту и сертификат заново и сравнить с записью на равенство."""
+    """Построить карту и сертификат заново и сравнить с записью на равенство.
+
+    `declared_straight_chains` — вершины объявленных прямыми цепей домена ИЗ СНАПШОТА
+    (`declared_chains`), а не из записи: запись метрики этого не заявляет, а проверяет.
+    """
 
     from .planar_metric import PlanarMetricAdmissionError
     from .validation_metric import _source_embedding_inputs, position_under_grid_law
@@ -274,6 +321,7 @@ def validate_developable_recomputation(
             required_ids=required_ids,
             source_scale=grid.source_scale if grid.snapping_law.snaps_source else None,
             previous_refusals=certificate.previous_refusals,
+            declared_straight_chains=tuple(declared_straight_chains),
         )
     except PlanarMetricAdmissionError as error:
         add_issue(

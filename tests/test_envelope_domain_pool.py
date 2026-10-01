@@ -378,8 +378,10 @@ def test_a_task_that_cannot_run_returns_its_trace_instead_of_raising():
 # --------------------------------------------------------------------------
 
 
-def test_the_in_process_pool_reproduces_the_sequential_run_exactly(monkeypatch):
-    pin_near_planar_only(monkeypatch)
+@pytest.mark.parametrize("ladder_off", (False, True), ids=("ladder", "near-planar-only"))
+def test_the_in_process_pool_reproduces_the_sequential_run_exactly(monkeypatch, ladder_off):
+    if ladder_off:
+        pin_near_planar_only(monkeypatch)
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile = _direct_run(bundle, pool=None)
     pool = _InProcessPool()
@@ -389,19 +391,21 @@ def test_the_in_process_pool_reproduces_the_sequential_run_exactly(monkeypatch):
     assert _fingerprint(evaluation, profile) == _fingerprint(
         expected, expected_profile
     )
-    # Четыре точных домена и один отказ выгрузки (метрика): отказавший домен
-    # воркеру не уходит, он разбирается тем же обработчиком, что и раньше.
-    assert len(pool.dispatched) == ROW - 1
-    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    # Без лестницы: четыре точных домена и один отказ выгрузки (метрика), отказавший домен
+    # воркеру не уходит, он разбирается тем же обработчиком, что и раньше. С лестницей изогнутый
+    # квад разворачивается и уходит воркеру наравне с остальными: отказа выгрузки нет.
+    dispatched = ROW - 1 if ladder_off else ROW
+    assert len(pool.dispatched) == dispatched
+    assert _counter(profile, POOL_DISPATCHED) == dispatched
     assert _counter(profile, POOL_WORKERS) == 2
     assert _counter(profile, POOL_TASK_FALLBACK) == 0
     assert _counter(profile, POOL_UNAVAILABLE) == 0
     assert _counter(expected_profile, POOL_WORKERS) is None
     assert POOL_WALL_STAGE in profile.snapshot().stage_totals
     assert POOL_WALL_STAGE not in expected_profile.snapshot().stage_totals
-    assert "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in {
+    assert ("NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in {
         item.outcome for item in evaluation.receipts
-    }
+    }) is ladder_off
 
 
 def test_the_wall_clock_of_the_pool_phase_reaches_the_owner_text():

@@ -106,7 +106,7 @@ from ..robust.grid import GridSpecV1, snap_value
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
 from .lift import ENCLOSURE_BITS, sqrt_sum_binary64
-from .offset_normal import OFFSET_NORMAL_LAW, blend, source_vertex_normals
+from .offset_normal import OFFSET_NORMAL_LAW, blend, min_gap_cosine, source_vertex_normals
 
 LOCATIONS = "MATERIALIZE_SURFACE_LIFT_LOCATIONS"
 CANDIDATES = "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES"
@@ -445,6 +445,18 @@ class BoundSurfaceLiftV1:
             f"max_outside_cells={self._max_outside:.6g} "
             f"continuation_ambiguous_points={self._tally[AMBIGUOUS]} "
             f"continuation_exact_ties={self._tally[EXACT_TIES]}"
+        )
+
+    def gap_note(self) -> str:
+        """Наименьший `n_v . n_T` подъёма для диагностики; пусто, если нормалей вершин нет."""
+
+        found = min_gap_cosine(self._lift.triangles)
+        if found is None:
+            return ""
+        return (
+            f"offset_min_gap_cosine={found[0]:.9g} (source triangle {found[1]}, corner "
+            f"{found[2]}): the offset lifts the decal above a source triangle by "
+            "offset * cosine; recorded, not thresholded"
         )
 
     def _window(self, point):
