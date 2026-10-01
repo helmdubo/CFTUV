@@ -8436,3 +8436,11 @@ SHOULD. (a) Простота границы после привязки к ре�
 (двенадцать шардов, 2 skipped), хост 1014 passed (8 skipped), Blender-смоки queue/domain_pool/
 production_mesh — OK. Храповик `envelope_request_export.py` 2919 (два новых имени исхода компенсированы
 склейкой члена enum).
+
+**2026-10-02** — ПОЛЕВАЯ ПРИЁМКА c6c9a8e (NEAR_PLANAR V2 + лифт веера d4):
+паритет 9/9, `building` 121/122 на d0/d1/d4 (patch 89 — METRIC_REJECTED
+`NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED`), `building.002` 13/13,
+`building.004` 8/8 на всех d (patch 4 EXACT). REJECTED только по капу
+`building.004` d4: 16.84 с при 11.0 — patch 4 считается (12.39 с подготовки на
+d4) вместо отказа по капу работы; d0/d1 стали 3.40/3.58 с (было 6.8/7.3). Кап
+поднят до 20.0 — плата за новый EXACT-домен, как у `building`.

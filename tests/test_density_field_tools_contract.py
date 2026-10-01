@@ -296,6 +296,8 @@ def test_every_perf_cap_carries_a_named_price():
       именованный отказ patch 4 по капу единиц работы (решение владельца
       2026-09-30, п. 4), 3.6–4.2 с до исчерпания. Метрика — сумма секунд
       доменов, а не ожидание артиста (с пулом стена в 4–5 раз меньше).
+    * `building.004` 11.0 -> 20.0: NEAR_PLANAR V2 сделал patch 4 EXACT (8/8);
+      d4 = 16.84 с, из них 12.39 с — подготовка patch 4; d0/d1 3.4/3.6 с.
 
     Курс владельца: ширина продукта важнее полировки скорости.
     """
@@ -307,7 +309,7 @@ def test_every_perf_cap_carries_a_named_price():
     }
     assert _assignment(_module(BUTTON_SWEEP), "_FIELD_BUDGET_SECONDS") == {
         "building.002": 5.0,
-        "building.004": 11.0,
+        "building.004": 20.0,
         "building": 240.0,
     }
 
