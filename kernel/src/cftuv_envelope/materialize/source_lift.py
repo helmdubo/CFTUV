@@ -38,8 +38,8 @@
 лежит в стороне до половины ячейки по каждой оси. Решение: вершина вправе сойти с носителя
 подъёма на величину бюджета, но четырёхгранье перестаёт быть ТОЧНО плоским — оно плоское с
 точностью до одной ячейки источника. Это записано, а не спрятано: наибольшее отклонение
-четырёхгранников с подвинутой вершиной от плоскости идёт счётчиком в нанометрах
-(`MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES`; он считает ГРАНИ, поэтому, как все счётчики
+четырёхгранников с подвинутой вершиной (расстояние вершины от плоскости трёх остальных)
+идёт счётчиком в нанометрах (`MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES`; он считает ГРАНИ, поэтому, как все счётчики
 граней, зависит от закона топологии и у `TRIANGLES_V1` нуль). Хост ставит смещение декали
 вдоль нормали вершины (митра общих вершин), и отклонение от плоскости остаётся порядка той же
 ячейки.
@@ -169,17 +169,22 @@ def _dot(left, right) -> float:
 
 
 def _deviation(points) -> float:
-    """Наибольшее расстояние вершины контура от плоскости, заданной его вектором площади."""
+    """Наибольшее расстояние вершины четырёхгранья от плоскости трёх остальных (порядок не важен)."""
 
-    normal = _fan_area(points)
-    length = math.sqrt(_dot(normal, normal))
-    if not length:
-        return 0.0
-    first = points[0]
-    return max(
-        abs(_dot((p.x - first.x, p.y - first.y, p.z - first.z), normal)) / length
-        for p in points
-    )
+    worst = 0.0
+    for skipped in range(len(points)):
+        a, b, c, *_rest = (point for index, point in enumerate(points) if index != skipped)
+        normal = (
+            (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y),
+            (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z),
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x),
+        )
+        length = math.sqrt(_dot(normal, normal))
+        if not length:
+            continue
+        away = points[skipped]
+        worst = max(worst, abs(_dot((away.x - a.x, away.y - a.y, away.z - a.z), normal)) / length)
+    return worst
 
 
 def _flipped_contours(contours, before, proposed, moved):

@@ -178,7 +178,7 @@ def test_a_quad_with_a_lifted_vertex_reports_its_off_plane_deviation():
     result = lift_source_vertices(positions, [quad], host, STEP)
 
     assert result.lifted == 1
-    assert 0.0 < result.max_quad_deviation <= 0.0125
+    assert result.max_quad_deviation == pytest.approx(0.0125)
     assert dict(result.counters())[QUAD_OFF_PLANE] == round(result.max_quad_deviation * 10**9)
     assert dict(result.counters())[QUAD_OFF_PLANE] > 0
 
