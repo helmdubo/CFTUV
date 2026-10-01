@@ -11,6 +11,11 @@ from typing import Callable, Hashable, TYPE_CHECKING
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
+from .envelope_export_input import (
+    build_host_export_input,
+    patch_metric_from_worker,
+    replay_export_records,
+)
 from .envelope_metric_export import (
     EnvelopeDomainGeometryExportV1,
     EnvelopePatchMetricExportV1,
@@ -101,6 +106,67 @@ class _CachedMetricFailure:
             self.message,
             patch_domain_id=self.patch_domain_id,
         )
+
+
+class _WorkerExportHooks:
+    """Выгрузка снапшота доменов в воркерах пула, сквозь кэш метрики сессии.
+
+    Три вызова склейки пула (`envelope_queue_pool`): провайдер входа выгрузки
+    (`export_provider`), приём ответа воркера (`export_adopter`) и провайдер
+    снапшота, который родитель зовёт в любом случае (`snapshot_provider`).
+    Ответ воркера ждёт здесь своего домена и проходит кэш метрики как промах со
+    сборкой: счётчики, счёт сборок и запомненный отказ те же, что у выгрузки в
+    родителе.
+    """
+
+    def __init__(
+        self,
+        controller: EnvelopeDebugSessionController,
+        topology_export: EnvelopeTopologyExportV1,
+        profile: EnvelopeDebugProfileBuilderV1 | None,
+    ) -> None:
+        self._controller = controller
+        self._topology_export = topology_export
+        self._profile = profile
+        self._adopted: dict[int, object] = {}
+
+    def snapshot_provider(self, patch_id: int, _domain_id: str):
+        topology_export = self._topology_export
+        worker_result = self._adopted.pop(int(patch_id), None)
+        metric = self._controller.get_patch_metric(
+            topology_export,
+            patch_id,
+            profile=self._profile,
+            build=(
+                None
+                if worker_result is None
+                else lambda: patch_metric_from_worker(
+                    topology_export, patch_id, worker_result
+                )
+            ),
+        )
+        return self._controller.get_domain_geometry(
+            metric,
+            profile=self._profile,
+        ).snapshot
+
+    def export_provider(self, patch_id, alpha, request_id, density):
+        # Метрика в кэше — выгрузка домена попадание, и воркеру её не отдают:
+        # подготовки без метрики в кэше не бывает, поэтому домен с холодной
+        # метрикой всегда идёт воркеру целиком.
+        if self._controller.has_patch_metric(self._topology_export, patch_id):
+            return None
+        return build_host_export_input(
+            self._topology_export,
+            patch_id,
+            alpha=alpha,
+            request_id=request_id,
+            density=density,
+        )
+
+    def export_adopter(self, patch_id, result) -> None:
+        replay_export_records(self._profile, result)
+        self._adopted[int(patch_id)] = result
 
 
 class EnvelopeDebugSessionController:
@@ -325,13 +391,33 @@ class EnvelopeDebugSessionController:
         )
         return export
 
+    def has_patch_metric(
+        self,
+        topology_export: EnvelopeTopologyExportV1,
+        patch_id: int,
+    ) -> bool:
+        """Есть ли метрика патча в кэше. Счётчиков не пишет: это вопрос, не сборка."""
+
+        domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
+        key = (topology_export.source_revision_value, domain_id)
+        return key in self._patch_metric_cache
+
     def get_patch_metric(
         self,
         topology_export: EnvelopeTopologyExportV1,
         patch_id: int,
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
+        build: Callable[[], EnvelopePatchMetricExportV1] | None = None,
     ) -> EnvelopePatchMetricExportV1:
+        """Метрика патча из кэша либо собранная и запомненная.
+
+        `build` — готовая выгрузка, которую сделал воркер пула (либо её отказ:
+        она поднимает `EnvelopeHostAdapterError`). Она проходит кэш как промах со
+        сборкой: счётчики, счёт сборок и запомненный отказ те же, что у выгрузки
+        в родителе.
+        """
+
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
         key = (topology_export.source_revision_value, domain_id)
         cached = self._patch_metric_cache.get(key)
@@ -347,10 +433,14 @@ class EnvelopeDebugSessionController:
                 cached.raise_error()
             return cached
         try:
-            metric = build_envelope_patch_metric_export(
-                topology_export,
-                patch_id,
-                profile=profile,
+            metric = (
+                build()
+                if build is not None
+                else build_envelope_patch_metric_export(
+                    topology_export,
+                    patch_id,
+                    profile=profile,
+                )
             )
         except Exception as exc:
             from .envelope_request_export import EnvelopeHostAdapterError
@@ -561,16 +651,8 @@ class EnvelopeDebugSessionController:
                 self._build_counts["COMPILED_ENVELOPE"],
             )
 
-        def snapshot_provider(patch_id: int, _domain_id: str):
-            metric = self.get_patch_metric(
-                topology_export,
-                patch_id,
-                profile=profile,
-            )
-            return self.get_domain_geometry(
-                metric,
-                profile=profile,
-            ).snapshot
+        hooks = _WorkerExportHooks(self, topology_export, profile)
+        snapshot_provider = hooks.snapshot_provider
 
         if str(engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
             return _evaluate(
@@ -637,6 +719,8 @@ class EnvelopeDebugSessionController:
             domain_pool=get_domain_pool(workers),
             preparation_cached=preparation_cached,
             preparation_adopter=preparation_adopter,
+            export_provider=hooks.export_provider,
+            export_adopter=hooks.export_adopter,
             density=density,
         )
 

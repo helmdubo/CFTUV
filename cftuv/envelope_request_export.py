@@ -20,7 +20,7 @@ from enum import Enum
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from .model import ChainNeighborKind, LoopKind, PatchType
+from .model_enums import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_GRID_POLICY, HOST_PLANARITY_POLICY
 from .envelope_request_policy import (
     build_envelope_request_contract,

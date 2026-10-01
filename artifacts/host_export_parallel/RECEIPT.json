@@ -1,0 +1,337 @@
+{
+ "base_commit": "5392e013200a640d2f978813011b135cc2513da0",
+ "blender": "4.5.12 LTS, background, add-on loaded from the tree (not the installed copy)",
+ "branch_cftuv_fingerprint": "cbb5cc32f27da6e1",
+ "cold_press_d2_w8": [
+  {
+   "frame_admission_base": 2.11,
+   "frame_admission_branch": 2.817,
+   "gp_render_base": 4.868,
+   "gp_render_branch": 4.49,
+   "patch_metric_export_base": 6.278,
+   "patch_metric_export_branch": 8.748,
+   "pool_wall_base": 23.776,
+   "pool_wall_branch": 25.984,
+   "snapshot_export_base": 6.434,
+   "snapshot_export_branch": 0.149,
+   "snapshot_validation_base": 3.247,
+   "snapshot_validation_branch": 4.947,
+   "wall_base": 36.655,
+   "wall_branch": 32.069
+  },
+  {
+   "frame_admission_base": 2.036,
+   "frame_admission_branch": 2.296,
+   "gp_render_base": 4.929,
+   "gp_render_branch": 4.756,
+   "patch_metric_export_base": 6.163,
+   "patch_metric_export_branch": 6.733,
+   "pool_wall_base": 23.09,
+   "pool_wall_branch": 23.447,
+   "snapshot_export_base": 6.319,
+   "snapshot_export_branch": 0.15,
+   "snapshot_validation_base": 3.243,
+   "snapshot_validation_branch": 3.657,
+   "wall_base": 35.827,
+   "wall_branch": 29.726
+  },
+  {
+   "frame_admission_base": 2.076,
+   "frame_admission_branch": 2.118,
+   "gp_render_base": 4.786,
+   "gp_render_branch": 4.608,
+   "patch_metric_export_base": 6.104,
+   "patch_metric_export_branch": 6.229,
+   "pool_wall_base": 22.142,
+   "pool_wall_branch": 22.636,
+   "snapshot_export_base": 6.258,
+   "snapshot_export_branch": 0.149,
+   "snapshot_validation_base": 3.151,
+   "snapshot_validation_branch": 3.381,
+   "wall_base": 34.487,
+   "wall_branch": 28.758
+  },
+  {
+   "frame_admission_base": 2.041,
+   "frame_admission_branch": 2.073,
+   "gp_render_base": 4.599,
+   "gp_render_branch": 4.488,
+   "patch_metric_export_base": 6.134,
+   "patch_metric_export_branch": 6.2,
+   "pool_wall_base": 22.203,
+   "pool_wall_branch": 22.642,
+   "snapshot_export_base": 6.286,
+   "snapshot_export_branch": 0.15,
+   "snapshot_validation_base": 3.217,
+   "snapshot_validation_branch": 3.415,
+   "wall_base": 34.526,
+   "wall_branch": 28.643
+  },
+  {
+   "frame_admission_base": 2.028,
+   "frame_admission_branch": 2.107,
+   "gp_render_base": 4.585,
+   "gp_render_branch": 4.925,
+   "patch_metric_export_base": 6.126,
+   "patch_metric_export_branch": 6.248,
+   "pool_wall_base": 22.137,
+   "pool_wall_branch": 23.571,
+   "snapshot_export_base": 6.281,
+   "snapshot_export_branch": 0.151,
+   "snapshot_validation_base": 3.223,
+   "snapshot_validation_branch": 3.407,
+   "wall_base": 34.461,
+   "wall_branch": 30.082
+  }
+ ],
+ "engine": "QUEUE",
+ "equality_w0": {
+  "identical": true,
+  "steps": [
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "0654f0b9c6b99553",
+     "gp_props": "d13c066003898c23",
+     "gp_strokes": "5f0869918494b22e",
+     "queue_domains": "459e087daff066b1",
+     "receipts": "7c686398ad2a5f47",
+     "session": "119aa463b8db5ca6",
+     "settings": "a79d4dc96a7f6a57",
+     "sidecar": "21429370d9f85150",
+     "stage_names": "cb79c660165f96dc"
+    },
+    "pool_counters": {},
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 2,
+     "QUEUE_RESOLVED": 120
+    },
+    "step": "d2",
+    "wall_base": 111.826,
+    "wall_branch": 113.135
+   },
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "efb5120dc8876d47",
+     "gp_props": "d13c066003898c23",
+     "gp_strokes": "5f0869918494b22e",
+     "queue_domains": "459e087daff066b1",
+     "receipts": "7c686398ad2a5f47",
+     "session": "119aa463b8db5ca6",
+     "settings": "a79d4dc96a7f6a57",
+     "sidecar": "21429370d9f85150",
+     "stage_names": "6c2e01346aeb3d31"
+    },
+    "pool_counters": {},
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 2,
+     "QUEUE_RESOLVED": 120
+    },
+    "step": "d2",
+    "wall_base": 18.963,
+    "wall_branch": 19.463
+   }
+  ]
+ },
+ "equality_w8": {
+  "identical": true,
+  "steps": [
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "d9eb4597b633a5dd",
+     "gp_props": "d13c066003898c23",
+     "gp_strokes": "5f0869918494b22e",
+     "queue_domains": "459e087daff066b1",
+     "receipts": "7c686398ad2a5f47",
+     "session": "119aa463b8db5ca6",
+     "settings": "45cc7fee6173877e",
+     "sidecar": "21429370d9f85150",
+     "stage_names": "ce42e58bd2980c9d"
+    },
+    "pool_counters": {
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+    },
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 2,
+     "QUEUE_RESOLVED": 120
+    },
+    "step": "d2",
+    "wall_base": 36.655,
+    "wall_branch": 32.069
+   },
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "a994dcfd24238a4d",
+     "gp_props": "d13c066003898c23",
+     "gp_strokes": "5f0869918494b22e",
+     "queue_domains": "459e087daff066b1",
+     "receipts": "7c686398ad2a5f47",
+     "session": "119aa463b8db5ca6",
+     "settings": "a79d4dc96a7f6a57",
+     "sidecar": "21429370d9f85150",
+     "stage_names": "6c2e01346aeb3d31"
+    },
+    "pool_counters": {
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 0,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 0
+    },
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 2,
+     "QUEUE_RESOLVED": 120
+    },
+    "step": "d2",
+    "wall_base": 18.823,
+    "wall_branch": 18.924
+   },
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "a3e19ac5db22cda8",
+     "gp_props": "826aca3d4b9376f6",
+     "gp_strokes": "884999329a76f78b",
+     "queue_domains": "e88ec7f9686ff950",
+     "receipts": "6567d258d9fa8534",
+     "session": "065b977eb65a4d61",
+     "settings": "b09f8537d4991090",
+     "sidecar": "34843ecdbee6c4e7",
+     "stage_names": "3327c2a8ad75f681"
+    },
+    "pool_counters": {
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+    },
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 1,
+     "QUEUE_RESOLVED": 121
+    },
+    "step": "d1",
+    "wall_base": 19.253,
+    "wall_branch": 23.011
+   },
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "a3e19ac5db22cda8",
+     "gp_props": "f47891183c25b0c0",
+     "gp_strokes": "737c3bae9fd4b893",
+     "queue_domains": "b7bf5e5d44eed898",
+     "receipts": "6567d258d9fa8534",
+     "session": "065b977eb65a4d61",
+     "settings": "8ac77d215bf812f7",
+     "sidecar": "9f7adc44d3a172af",
+     "stage_names": "3327c2a8ad75f681"
+    },
+    "pool_counters": {
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 121,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8
+    },
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 1,
+     "QUEUE_RESOLVED": 121
+    },
+    "step": "alpha",
+    "wall_base": 14.562,
+    "wall_branch": 14.684
+   },
+   {
+    "differing_parts": [],
+    "identical": true,
+    "parts": {
+     "counters": "ca79ac08ba43c3a5",
+     "gp_props": "8c4b187b75bb0d4c",
+     "gp_strokes": "737c3bae9fd4b893",
+     "queue_domains": "b7bf5e5d44eed898",
+     "receipts": "6567d258d9fa8534",
+     "session": "065b977eb65a4d61",
+     "settings": "260975fafab4d079",
+     "sidecar": "7e65a2d775ad4d02",
+     "stage_names": "6c2e01346aeb3d31"
+    },
+    "pool_counters": {
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 0,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 0
+    },
+    "receipt_stage_counts": {
+     "QUEUE_PREPARE_REJECTED": 1,
+     "QUEUE_RESOLVED": 121
+    },
+    "step": "d1",
+    "wall_base": 19.225,
+    "wall_branch": 19.147
+   }
+  ]
+ },
+ "head_at_run": "5392e013200a640d2f978813011b135cc2513da0",
+ "kernel_fingerprint": "5318558d1431233c",
+ "mean_seconds": {
+  "patch_metric_export_base": 6.161,
+  "patch_metric_export_branch": 6.832,
+  "pool_wall_base": 22.67,
+  "pool_wall_branch": 23.656,
+  "snapshot_export_base": 6.316,
+  "snapshot_export_branch": 0.15,
+  "wall_base": 35.191,
+  "wall_branch": 29.856
+ },
+ "mesh": "building",
+ "min_max_seconds": {
+  "patch_metric_export_base": [
+   6.104,
+   6.278
+  ],
+  "patch_metric_export_branch": [
+   6.2,
+   8.748
+  ],
+  "pool_wall_base": [
+   22.137,
+   23.776
+  ],
+  "pool_wall_branch": [
+   22.636,
+   25.984
+  ],
+  "snapshot_export_base": [
+   6.258,
+   6.434
+  ],
+  "snapshot_export_branch": [
+   0.149,
+   0.151
+  ],
+  "wall_base": [
+   34.461,
+   36.655
+  ],
+  "wall_branch": [
+   28.643,
+   32.069
+  ]
+ },
+ "notes": [
+  "EXPORT_FRAME_COST_SCALE 7 -> 5 (comment and constant) was edited while the batch ran; the scale multiplies every export task alike on a cold press and is not applied to snapshot tasks, so no run's task order depends on it.",
+  "pool wall of the branch includes the export that moved into workers; the sum of PATCH_METRIC_EXPORT in the branch is worker seconds under 8-way load."
+ ],
+ "scene": "E:\\testscene.blend",
+ "schema": "host_export_parallel_receipt_v1"
+}

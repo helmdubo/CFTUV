@@ -5,7 +5,10 @@
 поле (`building`, 122 домена) пять доменов дают 76 % времени, а пул процессов
 по доменам даёт ПОБИТОВО те же исходы, статьи бюджета, счётчики и отпечатки
 (`artifacts/parallel_domains_spike/`), поэтому этот модуль ничего не решает о
-геометрии: он пересылает готовую задачу и возвращает готовый ответ.
+геометрии: он пересылает готовую задачу и возвращает готовый ответ. Задача
+может нести и выгрузку снапшота домена (`DomainTaskV1.export`, см.
+`envelope_export_input`): воркер выгружает `(snapshot, request)` сам, тем же
+кодом, что и хост, и возвращает снапшот вместе с ответом.
 
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
@@ -25,6 +28,7 @@ stdin/stdout воркера. Внутри воркера fd 1 перенапра
 from __future__ import annotations
 
 import atexit
+import importlib
 import json
 import os
 import pickle
@@ -53,6 +57,12 @@ PICKLE_PROTOCOL = 5
 SPEC_ENVIRONMENT_VARIABLE = "CFTUV_DOMAIN_POOL_SPEC"
 STDERR_TAIL_LINES = 40
 DRAIN_TIMEOUT_SECONDS = 1.0
+
+#: Во сколько раз снапшот с запросом больше лёгкого входа выгрузки того же
+#: домена. Замер на `building` (121 домен, `artifacts/host_export_parallel/
+#: rank_probe.py`): 1.76 МБ против 0.34 МБ, то есть 5.2; округлено до целого,
+#: порядок задач от точности не зависит.
+EXPORT_FRAME_COST_SCALE = 5
 
 # Запускается как `python -u -c`. Пакет хоста поднимается по файлу под ТЕМ ЖЕ
 # именем, под которым он загружен у родителя: в Blender 4.2+ это
@@ -84,7 +94,12 @@ class DomainPoolUnavailable(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class DomainTaskV1:
-    """Один домен очереди: всё, что нужно воркеру, и ничего сверх."""
+    """Один домен очереди: всё, что нужно воркеру, и ничего сверх.
+
+    `export` (`HostExportInputV1`) — домен, чей снапшот в кэше метрики сессии
+    отсутствует: воркер выгружает `(snapshot, request)` сам, и `snapshot` с
+    `request` тогда `None`. Иначе оба пришли готовыми из родителя.
+    """
 
     task_id: int
     patch_id: int
@@ -93,20 +108,36 @@ class DomainTaskV1:
     request: object
     alpha_text: str
     selected_edges: frozenset
+    export: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class DomainTaskResultV1:
-    """Ответ воркера: `error` непуст либо есть и подготовка, и запись домена."""
+    """Ответ воркера: `error` непуст, либо `refusal`, либо подготовка и запись.
+
+    `refusal` — ИМЕНОВАННЫЙ отказ выгрузки домена (`ExportRefusalV1`): это
+    ответ, а не сбой, и родитель разбирает его как разобрал бы сам. Снапшот
+    `snapshot` есть у задачи с выгрузкой в воркере, когда выгрузка удалась;
+    `export_timings` и `export_counters` — её стадии, которые родитель
+    проигрывает в профиль кнопки.
+    """
 
     task_id: int
     prepared: object | None = None
     queue_domain: object | None = None
     error: str = ""
+    snapshot: object | None = None
+    refusal: object | None = None
+    export_timings: tuple = ()
+    export_counters: tuple = ()
 
     @property
     def ok(self) -> bool:
         return not self.error and self.queue_domain is not None
+
+    @property
+    def refused(self) -> bool:
+        return not self.error and self.refusal is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,10 +206,21 @@ def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
     медианы 10 КБ). Порядок важен ровно затем, что потолок ускорения — самый
     тяжёлый домен: поставь его последним, и остальные воркеры ждут его хвост.
     Равные по цене идут в порядке `task_id`, чтобы порядок был воспроизводим.
+
+    Задача с выгрузкой в воркере шлёт лёгкий вход вместо снапшота, и кадр её
+    в `EXPORT_FRAME_COST_SCALE` раз меньше: цена приводится к единицам снапшота,
+    иначе прогон, где часть доменов в кэше метрики, ставил бы тяжёлый домен с
+    готовым снапшотом перед ещё более тяжёлым, которого кадр прячет.
     """
 
     framed = [(task, encode_frame(task)) for task in tasks]
-    framed.sort(key=lambda item: (-len(item[1]), item[0].task_id))
+    framed.sort(
+        key=lambda item: (
+            -len(item[1])
+            * (EXPORT_FRAME_COST_SCALE if item[0].export is not None else 1),
+            item[0].task_id,
+        )
+    )
     return framed
 
 
@@ -196,6 +238,10 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
     """
 
     try:
+        if task.export is not None:
+            from .envelope_export_input import solve_exported_task
+
+            return solve_exported_task(task)
         from .envelope_queue_export import run_queue_domain
 
         prepared, domain = run_queue_domain(
@@ -230,9 +276,18 @@ def worker_main() -> None:
     os.dup2(2, 1)
     sys.stdout = sys.stderr
     source = sys.stdin.buffer
+    from .envelope_export_input import load_export_modules
     from .envelope_queue_export import load_queue_kernel
 
+    # Живой след стадий пишет в stdout, то есть в stderr воркера: читать его
+    # некому, а профиль кнопки получает те же секунды значением, ответом.
+    # `from . import x` не годится: под чужим именем пакета (`bl_ext.*`) он
+    # просит у импорта родителя, которого в воркере нет.
+    importlib.import_module(
+        ".envelope_debug_profile", __package__
+    ).LIVE_STAGE_TRACE = False
     load_queue_kernel()
+    load_export_modules()
     write_frame(channel, ("ready", os.getpid()))
     while True:
         task = read_frame(source)

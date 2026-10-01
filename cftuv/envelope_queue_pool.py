@@ -3,8 +3,10 @@
 Сам пул (`envelope_domain_pool`) ничего не знает об очереди: он пересылает
 `DomainTaskV1` и возвращает ответ. Здесь — то, что знает очередь:
 
-- фаза A: входы `(snapshot, request)` ВСЕХ доменов считаются в родителе, по
-  одному разу (Blender-объекты воркеру не пересылаются);
+- фаза A: входы `(snapshot, request)` доменов, чья метрика уже в кэше сессии,
+  берутся в родителе (кэш-попадание стоит доли миллисекунды); у остальных
+  выгрузку считает ВОРКЕР (`envelope_export_input`: Blender-объекты воркеру не
+  пересылаются, уходит лёгкий вход), и родитель принимает её ответом;
 - фаза B: домены, подготовки которых нет в кэше сессии, уходят воркерам разом,
   а счётчики пула и стадия `QUEUE_POOL_WALL` пишутся в профиль;
 - фаза C (цикл `evaluate_envelope_queue_staged`): ответ воркера принимается как
@@ -75,24 +77,28 @@ def stage_pool_domains(
     topology_export=None,
     domain_snapshot_provider=None,
     preparation_cached=None,
+    export_provider=None,
+    export_adopter=None,
 ):
-    """Фазы A и B пула: входы ВСЕХ доменов, затем воркеры на те, что не в кэше.
+    """Фазы A и B пула: входы доменов, затем воркеры на те, что не в кэше.
 
     Фаза C — прежний последовательный цикл, который берёт отсюда готовые входы
-    и ответы. Выгрузка хоста (`_queue_snapshot_and_request`) идёт здесь один
-    раз на домен, в родителе: Blender-объекты воркеру не пересылаются.
+    и ответы.
+
+    `export_provider(patch_id, alpha, request_id, density)` отвечает лёгким
+    входом выгрузки (`HostExportInputV1`) для домена, метрики которого нет в
+    кэше сессии, и `None` для остальных: у тех выгрузка — попадание в кэш, и
+    идёт здесь, в родителе (`_queue_snapshot_and_request`). Без провайдера
+    (прогон без сессии) выгружается всё в родителе, как и прежде.
+    `export_adopter(patch_id, result)` принимает ответ воркера в кэш сессии.
     """
 
     from .envelope_domain_pool import DomainTaskV1
     from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
 
-    staged: dict[str, StagedQueueDomainV1] = {}
-    tasks = []
-    for patch_id in patch_ids:
-        domain_id = _typed_value("patch-domain", revision, patch_id)
-        selected = frozenset(selected_edges_by_domain[domain_id])
+    def inputs_of(patch_id, domain_id, selected):
         try:
-            inputs = _queue_snapshot_and_request(
+            return _queue_snapshot_and_request(
                 analysis_bundle,
                 patch_id,
                 domain_id,
@@ -105,9 +111,36 @@ def stage_pool_domains(
                 domain_snapshot_provider=domain_snapshot_provider,
             )
         except EnvelopeHostAdapterError as exc:
-            staged[domain_id] = StagedQueueDomainV1(exc)
+            return exc
+
+    staged: dict[str, StagedQueueDomainV1] = {}
+    tasks = []
+    for patch_id in patch_ids:
+        domain_id = _typed_value("patch-domain", revision, patch_id)
+        selected = frozenset(selected_edges_by_domain[domain_id])
+        export = (
+            None
+            if export_provider is None
+            else export_provider(patch_id, alpha, request_id, density)
+        )
+        if export is not None:
+            tasks.append(
+                DomainTaskV1(
+                    len(tasks),
+                    patch_id,
+                    domain_id,
+                    None,
+                    None,
+                    alpha_text,
+                    selected,
+                    export,
+                )
+            )
             continue
+        inputs = inputs_of(patch_id, domain_id, selected)
         staged[domain_id] = StagedQueueDomainV1(inputs)
+        if isinstance(inputs, EnvelopeHostAdapterError):
+            continue
         snapshot, request = inputs
         if preparation_cached is not None and preparation_cached(
             domain_id, selected, request
@@ -124,13 +157,25 @@ def stage_pool_domains(
                 selected,
             )
         )
-    return _dispatch_to_pool(domain_pool, tasks, staged, profile)
+    return _dispatch_to_pool(
+        domain_pool, tasks, staged, profile, inputs_of, export_adopter
+    )
 
 
-def _dispatch_to_pool(domain_pool, tasks, staged, profile):
-    """Фаза B: задачи в пул и названный исход по каждой, счётчики пула."""
+def _dispatch_to_pool(
+    domain_pool, tasks, staged, profile, inputs_of, export_adopter
+):
+    """Фаза B: задачи в пул и названный исход по каждой, счётчики пула.
+
+    Задача с выгрузкой в воркере доводится до входов ЗДЕСЬ, после пула и в
+    порядке доменов: принятый ответ кладётся в кэш сессии (`export_adopter`) и
+    разбирается тем же `inputs_of`, что и родительская выгрузка, — поэтому
+    кэш-счётчики, отказы метрики и отказы запроса те же. Домен, чья выгрузка
+    отказала, воркеру «не уходил»: он не считается ни отправленным, ни упавшим.
+    """
 
     from .envelope_domain_pool import DomainPoolUnavailable
+    from .envelope_request_export import EnvelopeHostAdapterError
 
     run = None
     failure = ""
@@ -142,51 +187,63 @@ def _dispatch_to_pool(domain_pool, tasks, staged, profile):
             failure = str(exc)
         except Exception as exc:  # noqa: BLE001 - пул не должен ронять Build
             failure = f"pool failed: {type(exc).__name__}: {exc}"
-    fallbacks = 0
     if failure:
         print(
             f"[CFTUV][EnvelopeDomainPool] {POOL_UNAVAILABLE}: {failure}; "
             "QUEUE runs sequentially",
             flush=True,
         )
-        first = tasks[0].domain_id
-        staged[first] = replace(
-            staged[first],
-            pool_outcome=POOL_UNAVAILABLE,
+    dispatched = 0
+    fallbacks = 0
+    unavailable_named = False
+    for task in tasks:
+        result = None if run is None else run.results.get(task.task_id)
+        if task.export is not None:
+            if result is not None and (result.ok or result.refused):
+                export_adopter(task.patch_id, result)
+            staged[task.domain_id] = StagedQueueDomainV1(
+                inputs_of(task.patch_id, task.domain_id, task.selected_edges)
+            )
+        entry = staged[task.domain_id]
+        if isinstance(entry.inputs, EnvelopeHostAdapterError):
+            continue
+        if failure:
+            if not unavailable_named:
+                unavailable_named = True
+                staged[task.domain_id] = replace(
+                    entry,
+                    pool_outcome=POOL_UNAVAILABLE,
+                    pool_message=(
+                        f"Domain pool unavailable: {_pool_reason(failure)}; "
+                        "QUEUE domains computed sequentially"
+                    ),
+                )
+            continue
+        dispatched += 1
+        if result is not None and result.ok:
+            staged[task.domain_id] = replace(entry, pooled=result)
+            continue
+        error = (
+            "task was not executed (every worker died)"
+            if result is None
+            else result.error or "worker refused a domain the host accepted"
+        )
+        fallbacks += 1
+        print(
+            f"[CFTUV][EnvelopeDomainPool] {POOL_TASK_FALLBACK} "
+            f"{task.domain_id[-3:]}: {error}",
+            flush=True,
+        )
+        staged[task.domain_id] = replace(
+            entry,
+            pool_outcome=POOL_TASK_FALLBACK,
             pool_message=(
-                f"Domain pool unavailable: {_pool_reason(failure)}; "
-                "QUEUE domains computed sequentially"
+                f"Domain pool task failed: {_pool_reason(error)}; "
+                "domain recomputed sequentially"
             ),
         )
-    elif run is not None:
-        for task in tasks:
-            result = run.results.get(task.task_id)
-            if result is not None and result.ok:
-                staged[task.domain_id] = replace(
-                    staged[task.domain_id], pooled=result
-                )
-                continue
-            error = (
-                "task was not executed (every worker died)"
-                if result is None
-                else result.error
-            )
-            fallbacks += 1
-            print(
-                f"[CFTUV][EnvelopeDomainPool] {POOL_TASK_FALLBACK} "
-                f"{task.domain_id[-3:]}: {error}",
-                flush=True,
-            )
-            staged[task.domain_id] = replace(
-                staged[task.domain_id],
-                pool_outcome=POOL_TASK_FALLBACK,
-                pool_message=(
-                    f"Domain pool task failed: {_pool_reason(error)}; "
-                    "domain recomputed sequentially"
-                ),
-            )
     profile.set_counter(POOL_WORKERS, 0 if run is None else run.workers)
-    profile.set_counter(POOL_DISPATCHED, 0 if run is None else len(tasks))
+    profile.set_counter(POOL_DISPATCHED, dispatched)
     profile.set_counter(POOL_TASK_FALLBACK, fallbacks)
     profile.set_counter(POOL_UNAVAILABLE, int(bool(failure)))
     return staged

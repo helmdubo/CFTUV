@@ -170,7 +170,9 @@ def _counter(profile, name):
     return values[0] if values else None
 
 
-def _session_run(bundle, alpha=0.25, *, workers, controller=None):
+def _session_run(
+    bundle, alpha=0.25, *, workers, controller=None, density=None
+):
     controller = controller or EnvelopeDebugSessionController()
     profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
     evaluation = evaluate_envelope_debug_staged(
@@ -182,10 +184,59 @@ def _session_run(bundle, alpha=0.25, *, workers, controller=None):
         source_object_key="object",
         source_data_key="mesh",
         engine="QUEUE",
-        density=None,
+        density=density,
         workers=workers,
     )
     return evaluation, profile, controller
+
+
+def _session_state(controller):
+    """Кэши сессии без секунд: канонические байты снапшотов и счёт сборок.
+
+    Снапшот сравнивается КАНОНИЧЕСКИМИ БАЙТАМИ кодека ядра, а не `==`: байты —
+    то, что видит ядро, и то, что родитель и воркер обязаны выпустить одинаково.
+    Отказ метрики лежит в кэше значением (`_CachedMetricFailure`).
+    """
+
+    from cftuv_envelope import codec
+
+    metrics = {}
+    for key, value in sorted(controller._patch_metric_cache.items()):
+        snapshot = getattr(value, "snapshot", None)
+        metrics[key] = (
+            codec.canonical_json_bytes(snapshot)
+            if snapshot is not None
+            else (value.outcome, value.message, value.patch_domain_id)
+        )
+    geometry = {
+        key: codec.canonical_json_bytes(value.snapshot)
+        for key, value in sorted(controller._domain_geometry_cache.items())
+    }
+    return (
+        metrics,
+        geometry,
+        controller.build_counts,
+        dict(controller._cache_build_counts),
+        sorted(map(repr, controller._conveyor_preparation_cache)),
+    )
+
+
+class _ParentExportCalls:
+    """Сколько раз РОДИТЕЛЬ выгрузил снапшот патча (а не воркер)."""
+
+    def __init__(self, monkeypatch):
+        from cftuv import envelope_request_export
+
+        self.count = 0
+        original = envelope_request_export.build_envelope_analysis_snapshot
+
+        def counted(*args, **kwargs):
+            self.count += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            envelope_request_export, "build_envelope_analysis_snapshot", counted
+        )
 
 
 def _direct_run(bundle, *, pool, alpha=0.25):
@@ -642,6 +693,396 @@ def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache():
     assert _fingerprint(again, again_profile) == _fingerprint(
         reference, reference_profile
     )
+
+
+# --------------------------------------------------------------------------
+# 5. Выгрузка снапшота в воркере (HOST-EXPORT-PARALLEL)
+# --------------------------------------------------------------------------
+
+
+def test_worker_export_modules_import_without_blender():
+    """Воркер — обычный интерпретатор: ни `bpy`, ни `bmesh`, ни `mathutils`.
+
+    Выгрузка снапшота в воркере тянет `envelope_request_export`, а тот прежде
+    импортировал `model.py`, то есть `mathutils`. Три перечисления, которые ему
+    нужны, вынесены в `model_enums`; эта проверка держит стену: любой новый
+    импорт Blender в цепочке воркера ломает воркер на старте, и узнать об этом
+    иначе можно только в Blender.
+    """
+
+    script = "\n".join(
+        (
+            "import sys",
+            "class Block:",
+            "    def find_spec(self, name, path=None, target=None):",
+            "        if name.split('.')[0] in {'bpy', 'bmesh', 'mathutils'}:",
+            "            raise ImportError('blocked: ' + name)",
+            "sys.meta_path.insert(0, Block())",
+            "import cftuv.envelope_export_input",
+            "import cftuv.envelope_domain_pool",
+            "import cftuv.envelope_queue_export",
+            "import cftuv.envelope_request_export",
+            "import cftuv.envelope_metric_export",
+            "assert not {'bpy', 'bmesh', 'mathutils'} & set(sys.modules)",
+            "print('NO_BLENDER_IN_WORKER_CHAIN')",
+        )
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        (str(KERNEL_SRC.parents[1]), str(KERNEL_SRC))
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        env=environment,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")
+    assert b"NO_BLENDER_IN_WORKER_CHAIN" in completed.stdout
+
+
+def test_the_enums_moved_out_of_the_model_are_the_same_objects():
+    from cftuv import model, model_enums
+
+    for name in ("ChainNeighborKind", "LoopKind", "PatchType"):
+        assert getattr(model, name) is getattr(model_enums, name)
+
+
+def test_export_tasks_are_ranked_in_snapshot_units():
+    light_but_heavy = DomainTaskV1(
+        0, 0, "d0", None, None, "0.25", frozenset(), export="x" * 1000
+    )
+    heavy_snapshot = DomainTaskV1(
+        1, 1, "d1", "x" * 3000, None, "0.25", frozenset()
+    )
+    light = DomainTaskV1(
+        2, 2, "d2", None, None, "0.25", frozenset(), export="x" * 100
+    )
+
+    ordered = order_by_cost([light, heavy_snapshot, light_but_heavy])
+
+    # 1000 байт входа — это ~5000 байт снапшота: выше 3000 и стократ выше 100.
+    assert [task.task_id for task, _ in ordered] == [0, 1, 2]
+
+
+def _export_inputs(bundle):
+    from cftuv.envelope_request_export import _typed_value
+    from cftuv.envelope_topology_export import stage_domain_inputs
+
+    topology = build_envelope_topology_export(bundle)
+    _, revision, patch_ids, request_id, by_domain = stage_domain_inputs(
+        bundle, frozenset(range(ROW)), topology_export=topology
+    )
+    return topology, revision, patch_ids, request_id, by_domain, _typed_value
+
+
+def test_the_worker_export_reproduces_the_parent_export_bit_for_bit():
+    """Снапшот воркера == снапшот родителя: канонические байты, отказы, стадии.
+
+    Вход идёт через pickle, как по трубе: это и проверка того, что лёгкий вход
+    не несёт ничего, что не доезжает. Один домен ряда отказывает на метрике, и
+    его отказ обязан приехать тем же исходом и текстом.
+    """
+
+    from cftuv.envelope_export_input import (
+        ExportRefusalV1,
+        build_host_export_input,
+    )
+    from cftuv.envelope_metric_export import build_envelope_patch_metric_export
+    from cftuv.envelope_request_export import EnvelopeHostAdapterError
+    from cftuv_envelope import codec
+
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    topology, _, patch_ids, request_id, by_domain, _ = _export_inputs(bundle)
+    refused = 0
+    for patch_id in patch_ids:
+        domain_id = topology.patch_domain_id_by_patch[patch_id]
+        selected = frozenset(by_domain[domain_id])
+        export = pickle.loads(
+            pickle.dumps(
+                build_host_export_input(
+                    topology,
+                    patch_id,
+                    alpha=0.25,
+                    request_id=request_id,
+                    density="2",
+                ),
+                5,
+            )
+        )
+        result = pickle.loads(
+            pickle.dumps(
+                solve_task(
+                    DomainTaskV1(
+                        patch_id,
+                        patch_id,
+                        domain_id,
+                        None,
+                        None,
+                        "0.25",
+                        selected,
+                        export,
+                    )
+                ),
+                5,
+            )
+        )
+        profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+        try:
+            parent = build_envelope_patch_metric_export(
+                topology, patch_id, profile=profile
+            ).snapshot
+        except EnvelopeHostAdapterError as exc:
+            refused += 1
+            assert result.refused and not result.ok
+            assert result.snapshot is None
+            assert result.refusal == ExportRefusalV1(
+                exc.outcome, str(exc), exc.patch_domain_id
+            )
+        else:
+            assert result.ok, result.error
+            assert result.snapshot == parent
+            assert codec.canonical_json_bytes(
+                result.snapshot
+            ) == codec.canonical_json_bytes(parent)
+            request = build_envelope_decal_request(
+                parent,
+                selected,
+                0.25,
+                decal_request_id_value=request_id,
+                density="2",
+            )
+            _, expected = run_queue_domain(
+                patch_id, domain_id, parent, request, "0.25",
+                selected_edges=selected,
+            )
+            assert _timing_free_domain(result.queue_domain) == (
+                _timing_free_domain(expected)
+            )
+        recorded = profile.snapshot()
+        assert [
+            (item.stage, item.patch_domain_id)
+            for item in result.export_timings
+        ] == [
+            (item.stage, item.patch_domain_id) for item in recorded.timings
+        ]
+        assert result.export_counters == recorded.counters
+    assert refused == 1
+
+
+def _timing_free_domain(domain):
+    from dataclasses import replace
+
+    from cftuv.envelope_queue_export import queue_domain_payload
+
+    payload = queue_domain_payload(replace(domain, preparation=None))
+    for key in (
+        "prepare_seconds",
+        "coverage_seconds",
+        "contour_seconds",
+        "timings",
+    ):
+        payload.pop(key)
+    return payload
+
+
+def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
+    monkeypatch,
+):
+    """Родитель не выгружает ничего, а всё, что он отдаёт дальше, прежнее.
+
+    Кэш метрики и геометрии (канонические байты), счёт сборок, счётчики
+    `*_CACHE_HIT/MISS` и `*_BUILD_COUNT`, квитанции (METRIC_REJECTED на
+    отказавшей метрике), диагностики и отпечаток ответа — как у
+    последовательного прогона. Вторая кнопка находит всё в кэше; смена
+    плотности находит метрики тёплыми, а подготовки холодными — тот домен идёт
+    воркеру уже готовым снапшотом.
+    """
+
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    calls = _ParentExportCalls(monkeypatch)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+    assert calls.count == ROW
+    calls.count = 0
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    assert calls.count == 0
+    assert _counter(profile, POOL_WORKERS) == 2
+    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_TASK_FALLBACK) == 0
+    assert _counter(profile, POOL_UNAVAILABLE) == 0
+    assert _fingerprint(evaluation, profile) == _fingerprint(
+        expected, expected_profile
+    )
+    assert _session_state(controller) == _session_state(sequential)
+    stages = {item.stage.value for item in evaluation.receipts}
+    assert stages == {"QUEUE_PREPARE_REJECTED", "QUEUE_RESOLVED"}, stages
+    # Стадии выгрузки воркера проиграны в профиль кнопки под теми же именами.
+    worker_stages = {"PATCH_METRIC_EXPORT", "FRAME_ADMISSION", "SNAPSHOT_VALIDATION"}
+    assert worker_stages <= set(profile.snapshot().stage_totals)
+
+    again, again_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=controller
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+    assert calls.count == 0  # всё в кэше метрики, у обоих прогонов
+    assert _counter(again_profile, POOL_DISPATCHED) == 0
+    assert _fingerprint(again, again_profile) == _fingerprint(
+        reference, reference_profile
+    )
+    assert _session_state(controller) == _session_state(sequential)
+
+    calls.count = 0
+    density, density_profile, _ = _session_run(
+        bundle, workers=2, controller=controller, density="2"
+    )
+    density_reference, density_reference_profile, _ = _session_run(
+        bundle, workers=0, controller=sequential, density="2"
+    )
+    assert calls.count == 0  # метрики тёплые: родитель берёт их из кэша
+    assert _counter(density_profile, POOL_DISPATCHED) == ROW - 1
+    assert _fingerprint(density, density_profile) == _fingerprint(
+        density_reference, density_reference_profile
+    )
+    assert _session_state(controller) == _session_state(sequential)
+
+
+def _in_process_session(monkeypatch, pool):
+    monkeypatch.setattr(pool_module, "get_domain_pool", lambda workers: pool)
+
+
+@pytest.mark.parametrize("injection", ("fail", "drop"))
+def test_a_failed_export_task_is_named_and_exported_in_the_parent(
+    injection, monkeypatch, capsys
+):
+    bundle = quad_row_bundle(ROW)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+    victim_task = 2
+    _in_process_session(
+        monkeypatch, _InProcessPool(**{injection: (victim_task,)})
+    )
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    victim = evaluation.domains[victim_task]
+    assert _counter(profile, POOL_TASK_FALLBACK) == 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW
+    notices = [
+        item
+        for item in victim.diagnostics
+        if item.outcome == POOL_TASK_FALLBACK
+    ]
+    assert len(notices) == 1
+    assert notices[0].patch_domain_id == victim.patch_domain_id
+    assert victim.queue is not None and victim.queue.is_exact
+    assert POOL_TASK_FALLBACK in capsys.readouterr().out
+    assert _fingerprint(
+        evaluation, profile, skip_scene_of=(victim.patch_domain_id,)
+    ) == _fingerprint(
+        expected, expected_profile, skip_scene_of=(victim.patch_domain_id,)
+    )
+    assert _session_state(controller) == _session_state(sequential)
+
+
+def test_a_refused_domain_whose_worker_died_is_neither_dispatched_nor_fallback(
+    monkeypatch,
+):
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+    # Последний патч ряда — тот, что отказывает на метрике.
+    _in_process_session(monkeypatch, _InProcessPool(drop=(ROW - 1,)))
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_TASK_FALLBACK) == 0
+    assert evaluation.receipts[ROW - 1].stage.value == "QUEUE_PREPARE_REJECTED"
+    assert _fingerprint(evaluation, profile) == _fingerprint(
+        expected, expected_profile
+    )
+    assert _session_state(controller) == _session_state(sequential)
+
+
+def test_a_metric_stage_refusal_keeps_its_receipt_stage_through_the_worker(
+    monkeypatch,
+):
+    """METRIC_REJECTED и QUEUE_PREPARE_REJECTED различаются исходом отказа.
+
+    `quad_row_bundle(lifted_corner=...)` даёт `NEAR_PLANAR_RESIDUAL_BUDGET_
+    EXCEEDED` (ступень очереди), а исход «кадр недоступен» — ступень метрики;
+    его нечем вызвать данными ряда, поэтому кадр патча 1 отказывает подменой
+    (пул «в процессе» исполняет ту же выгрузку в этом же процессе).
+    """
+
+    from cftuv import envelope_request_export as export_module
+
+    original = export_module._rational_affine_metric
+
+    def refusing(kernel, **kwargs):
+        if kwargs["owner_patch_id"].value.endswith(":1"):
+            raise export_module.EnvelopeHostAdapterError(
+                export_module.EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+                "injected frame refusal",
+                patch_domain_id=kwargs["patch_domain_id"].value,
+            )
+        return original(kernel, **kwargs)
+
+    monkeypatch.setattr(export_module, "_rational_affine_metric", refusing)
+    bundle = quad_row_bundle(ROW)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+    _in_process_session(monkeypatch, _InProcessPool())
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    assert evaluation.receipts[1].stage.value == "METRIC_REJECTED"
+    assert [item.stage.value for item in evaluation.receipts].count(
+        "QUEUE_RESOLVED"
+    ) == ROW - 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _fingerprint(evaluation, profile) == _fingerprint(
+        expected, expected_profile
+    )
+    assert _session_state(controller) == _session_state(sequential)
+    # Отказ лежит в кэше метрики: повторная кнопка берёт его оттуда.
+    again, again_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=controller
+    )
+    cache_hits = [
+        item
+        for item in again_profile.snapshot().counters
+        if item.name == "PATCH_METRIC_CACHE_HIT" and item.value == 1
+    ]
+    assert len(cache_hits) == ROW
+    assert again.receipts[1].stage.value == "METRIC_REJECTED"
+
+
+def test_an_unavailable_pool_exports_in_the_parent_and_names_the_first_domain(
+    monkeypatch,
+):
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    expected, expected_profile, sequential = _session_run(bundle, workers=0)
+    _in_process_session(
+        monkeypatch, DomainPool(2, python_executable="C:/nowhere/python.exe")
+    )
+
+    evaluation, profile, controller = _session_run(bundle, workers=2)
+
+    first = evaluation.domains[0]
+    assert _counter(profile, POOL_UNAVAILABLE) == 1
+    assert _counter(profile, POOL_DISPATCHED) == 0
+    notices = [
+        item for item in evaluation.diagnostics if item.outcome == POOL_UNAVAILABLE
+    ]
+    assert [item.patch_domain_id for item in notices] == [first.patch_domain_id]
+    assert _fingerprint(
+        evaluation, profile, skip_scene_of=(first.patch_domain_id,)
+    ) == _fingerprint(
+        expected, expected_profile, skip_scene_of=(first.patch_domain_id,)
+    )
+    assert _session_state(controller) == _session_state(sequential)
 
 
 def test_a_killed_worker_costs_one_task_and_the_pool_respawns_it():

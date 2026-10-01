@@ -1231,26 +1231,27 @@ def load_queue_kernel() -> None:
     Пакет `wavefront` ленив (`__getattr__`), а домен подгружает часть модулей
     (`symbolic_*`, `superlevel_*`, `digest`, ...) изнутри функций, поэтому двух
     имён выше мало: первый домен каждого воркера платил бы за остальные. Здесь
-    поднимается весь пакет по списку файлов, а не по списку имён, который
-    устаревал бы с каждым новым модулем; `source_grid` и `planar_metric`
-    домен тоже берёт изнутри функций и тянут за собой `angle_measure` и
-    `robust.snapping`.
+    поднимается весь пакет ядра по списку файлов, а не по списку имён, который
+    устаревал бы с каждым новым модулем: `source_grid` и `planar_metric` домен
+    берёт изнутри функций, а воркер с выгрузкой снапшота (`envelope_export_
+    input`) берёт ещё `reference.*` и кодек. Весь остаток пакета после очереди
+    стоит ~0.15 с.
     """
 
     from importlib import import_module
-    from pkgutil import iter_modules
+    from pkgutil import walk_packages
 
-    from cftuv_envelope import wavefront
+    import cftuv_envelope
     from cftuv_envelope.exact_sqrt_sum import exact_work_budget  # noqa: F401
     from cftuv_envelope.wavefront import (  # noqa: F401
         conveyor_coverage,
         prepare_conveyor,
     )
 
-    for module in iter_modules(wavefront.__path__):
-        import_module(f"{wavefront.__name__}.{module.name}")
-    import_module("cftuv_envelope.source_grid")
-    import_module("cftuv_envelope.planar_metric")
+    for module in walk_packages(
+        cftuv_envelope.__path__, f"{cftuv_envelope.__name__}."
+    ):
+        import_module(module.name)
 
 
 def run_queue_domain(
@@ -1486,6 +1487,8 @@ def evaluate_envelope_queue_staged(
     domain_pool=None,
     preparation_cached=None,
     preparation_adopter=None,
+    export_provider=None,
+    export_adopter=None,
     density,
 ):
     """Движок QUEUE: подготовка плюс покрытие с владельцами, без союза.
@@ -1501,7 +1504,8 @@ def evaluate_envelope_queue_staged(
     домен досчитывается при любом отказе пула. `preparation_cached(domain_id,
     selected_edges, request)` отвечает, есть ли подготовка в кэше сессии, а
     `preparation_adopter(patch_id, domain_id, selected_edges, request,
-    prepared)` кладёт в него подготовку воркера.
+    prepared)` кладёт в него подготовку воркера; `export_provider` и
+    `export_adopter` — то же для выгрузки снапшота (`stage_pool_domains`).
     """
 
     from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -1556,6 +1560,8 @@ def evaluate_envelope_queue_staged(
             topology_export=topology_export,
             domain_snapshot_provider=domain_snapshot_provider,
             preparation_cached=preparation_cached,
+            export_provider=export_provider,
+            export_adopter=export_adopter,
         )
 
     for patch_id in patch_ids:
