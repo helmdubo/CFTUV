@@ -39,6 +39,25 @@
     "vertices": 144
    },
    "run": {
+    "chart_orientation_counts": {
+     "COORDINATE_CCW_MATCHES_OWNER_PATCH": 9,
+     "COORDINATE_CW_MATCHES_OWNER_PATCH": 4
+    },
+    "chart_orientations": {
+     "0": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "1": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "10": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "11": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "12": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "2": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "3": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "4": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "5": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "6": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "7": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "8": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "9": "COORDINATE_CCW_MATCHES_OWNER_PATCH"
+    },
     "cold": true,
     "content_digests": {
      "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
@@ -120,15 +139,20 @@
       12
      ],
      "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "mesh_name": "building.002.CFTUV_Decal",
+     "object_name": "building.002.CFTUV_Decal",
      "replaced": false,
-     "skipped": []
+     "seam_edges": 67,
+     "seam_edges_requested": 67,
+     "skipped": [],
+     "warnings": []
     },
     "refused": [],
-    "run_seconds": 5.122
+    "run_seconds": 6.043
    },
    "status": "MATERIALIZED 13 / refused 0",
-   "timing_text": "Decal cold 5.12 s | preparations reused 0, built 13 | pool wall 4471 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
-   "wall_seconds": 5.156
+   "timing_text": "Decal cold 6.04 s | preparations reused 0, built 13 | pool wall 5328 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 6.078
   },
   {
    "builds_delta": {
@@ -159,6 +183,25 @@
     "vertices": 144
    },
    "run": {
+    "chart_orientation_counts": {
+     "COORDINATE_CCW_MATCHES_OWNER_PATCH": 9,
+     "COORDINATE_CW_MATCHES_OWNER_PATCH": 4
+    },
+    "chart_orientations": {
+     "0": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "1": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "10": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "11": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "12": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "2": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "3": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "4": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "5": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "6": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "7": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "8": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "9": "COORDINATE_CCW_MATCHES_OWNER_PATCH"
+    },
     "cold": false,
     "content_digests": {
      "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
@@ -240,15 +283,20 @@
       12
      ],
      "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "mesh_name": "building.002.CFTUV_Decal",
+     "object_name": "building.002.CFTUV_Decal",
      "replaced": true,
-     "skipped": []
+     "seam_edges": 67,
+     "seam_edges_requested": 67,
+     "skipped": [],
+     "warnings": []
     },
     "refused": [],
-    "run_seconds": 0.728
+    "run_seconds": 0.797
    },
    "status": "MATERIALIZED 13 / refused 0",
-   "timing_text": "Decal warm 0.73 s | preparations reused 13, built 0 | pool wall 713 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
-   "wall_seconds": 0.74
+   "timing_text": "Decal warm 0.80 s | preparations reused 13, built 0 | pool wall 781 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 0.808
   },
   {
    "builds_delta": {
@@ -268,7 +316,7 @@
      "PATCH_METRIC": 13,
      "TOPOLOGY_EXPORT": 1
     },
-    "wall_seconds": 2.108
+    "wall_seconds": 2.48
    },
    "label": "debug_warm",
    "object": {
@@ -290,6 +338,25 @@
     "vertices": 144
    },
    "run": {
+    "chart_orientation_counts": {
+     "COORDINATE_CCW_MATCHES_OWNER_PATCH": 9,
+     "COORDINATE_CW_MATCHES_OWNER_PATCH": 4
+    },
+    "chart_orientations": {
+     "0": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "1": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "10": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "11": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "12": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "2": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "3": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "4": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "5": "COORDINATE_CW_MATCHES_OWNER_PATCH",
+     "6": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "7": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "8": "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+     "9": "COORDINATE_CCW_MATCHES_OWNER_PATCH"
+    },
     "cold": false,
     "content_digests": {
      "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
@@ -371,15 +438,20 @@
       12
      ],
      "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "mesh_name": "building.002.CFTUV_Decal",
+     "object_name": "building.002.CFTUV_Decal",
      "replaced": true,
-     "skipped": []
+     "seam_edges": 67,
+     "seam_edges_requested": 67,
+     "skipped": [],
+     "warnings": []
     },
     "refused": [],
-    "run_seconds": 0.782
+    "run_seconds": 0.899
    },
    "status": "MATERIALIZED 13 / refused 0",
-   "timing_text": "Decal warm 0.78 s | preparations reused 13, built 0 | pool wall 735 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
-   "wall_seconds": 0.792
+   "timing_text": "Decal warm 0.90 s | preparations reused 13, built 0 | pool wall 850 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 0.911
   }
  ],
  "workers": 8

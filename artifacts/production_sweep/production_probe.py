@@ -220,6 +220,20 @@ def _run_stats() -> dict:
         "placements": dict(sorted(placements.items())),
         "materialize_counters": dict(sorted(counters.items())),
         "diagnostics": dict(sorted(diagnostics.items())),
+        "chart_orientations": {
+            str(item.patch_id): item.chart_orientation
+            for item in run.results
+            if item.chart_orientation
+        },
+        "chart_orientation_counts": dict(
+            sorted(
+                {
+                    name: sum(1 for item in run.results if item.chart_orientation == name)
+                    for name in {item.chart_orientation for item in run.results}
+                    if name
+                }.items()
+            )
+        ),
         "profile_counters": dict(sorted(profile.items())),
         "content_digests": {
             str(item.patch_id): item.content_digest for item in run.results
@@ -229,8 +243,13 @@ def _run_stats() -> dict:
         else {
             "arrays_digest": receipt.arrays_digest,
             "mesh_digest": receipt.mesh_digest,
+            "mesh_name": receipt.mesh_name,
+            "object_name": receipt.object_name,
             "replaced": receipt.replaced,
+            "seam_edges": receipt.seam_edges,
+            "seam_edges_requested": receipt.seam_edges_requested,
             "skipped": [list(item) for item in receipt.skipped],
+            "warnings": [list(item) for item in receipt.warnings],
             "domains": list(receipt.domains),
         },
     }

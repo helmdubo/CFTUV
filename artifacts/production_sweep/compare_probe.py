@@ -21,9 +21,19 @@ ANSWER_RUN_KEYS = (
     "refused",
     "materialize_counters",
     "diagnostics",
+    "chart_orientations",
     "content_digests",
 )
-ANSWER_RECEIPT_KEYS = ("arrays_digest", "mesh_digest", "skipped", "domains")
+ANSWER_RECEIPT_KEYS = (
+    "arrays_digest",
+    "mesh_digest",
+    "mesh_name",
+    "seam_edges",
+    "seam_edges_requested",
+    "skipped",
+    "warnings",
+    "domains",
+)
 
 
 def _load(path: str) -> dict:

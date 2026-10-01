@@ -15,6 +15,20 @@ UV, атрибуты граней). Здесь только Blender: выдел�
 Регистрация живёт ЗДЕСЬ, а не в `operators.py` (тот стоит на потолке размера):
 `register_production_operator` зовётся из хука регистрации сессии, рядом с
 настройкой «Worker Python».
+
+ПОЧЕМУ НЕТ ФЛАГА UNDO (`UNDO_DROPPED_REASON`). Оператор работает, пока источник в
+EDIT-режиме (выделение берётся из BMesh), а шаг отмены в EDIT-режиме — шаг BMesh:
+он не отслеживает создание объекта и датаблоков. Что получается на деле, снято в
+фоновом Blender 4.5 (`tests/blender/test_envelope_production_mesh.py`: два
+`ed.undo_push` включают отмену, затем `ed.undo`/`ed.redo` в OBJECT-режиме;
+`ed.undo` в EDIT-режиме фоновый Blender отказывает: «context is incorrect»,
+поэтому отмена из EDIT-режима НЕ проверена): после выхода из EDIT-режима ОДИН
+шаг отмены убирает декаль вместе со всем сеансом редактирования, а повтор
+(`ed.redo`) объект НЕ возвращает. Висячих ссылок нет (обход всех датаблоков
+чист, осиротевших мешей после отката нет), следующее нажатие работает. Обещать
+отмену декаля отдельным шагом нечем, поэтому оператор — только REGISTER, как
+кнопки отладки Envelope (они тоже создают объекты из EDIT-режима). Пересборка
+заменяет меш, а лишний объект удаляется руками.
 """
 
 from __future__ import annotations
@@ -33,6 +47,10 @@ from .envelope_production_mesh import (
 )
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
+UNDO_DROPPED_REASON = (
+    "the operator runs in EDIT mode where an undo step is a BMesh step that does "
+    "not track object/datablock creation; undo/redo of the decal cannot be promised"
+)
 
 
 class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
@@ -97,7 +115,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         "Materialize the exact Envelope coverage of the selected seams into "
         "one decal mesh object with UVs; every refused domain is named"
     )
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
@@ -111,9 +129,10 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
 
     def execute(self, context):
         from .envelope_production_export import (
-            production_console_lines,
-            production_status_text,
             production_timing_text,
+            receipt_console_lines,
+            receipt_report_level,
+            receipt_status_text,
             run_production,
         )
 
@@ -172,21 +191,17 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             mesh_settings.status = f"Decal mesh not written: {exc.outcome}"
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
-        mesh_settings.status = production_status_text(run.results)
+        # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`)
+        # и мягкая находка стоят в них наравне с отказом продуктового пути.
+        mesh_settings.status = receipt_status_text(receipt)
         mesh_settings.timing = (
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
-        for line in production_console_lines(run.results):
+        for line in receipt_console_lines(receipt, run.results):
             print(line, flush=True)
-        for patch_id, _domain_id, outcome, _detail in receipt.skipped:
-            if outcome.startswith("ADAPTER_"):
-                print(
-                    f"[CFTUV][Production] ADAPTER SKIPPED patch {patch_id}: {outcome}",
-                    flush=True,
-                )
         self.report(
-            {"WARNING"} if run.refused else {"INFO"},
+            {receipt_report_level(receipt)},
             f"Decal mesh: {mesh_settings.status}",
         )
         return {"FINISHED"}
@@ -223,6 +238,7 @@ __all__ = (
     "HOTSPOTUV_DecalMeshSettings",
     "HOTSPOTUV_OT_BuildEnvelopeDecalMesh",
     "SETTINGS_ATTRIBUTE",
+    "UNDO_DROPPED_REASON",
     "register_production_operator",
     "unregister_production_operator",
 )

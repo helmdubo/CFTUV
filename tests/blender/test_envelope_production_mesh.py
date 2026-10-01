@@ -13,7 +13,14 @@
    материализации, ключ кэша подготовок его не содержит);
 4. 0 и 2 воркера дают ПОБИТОВО тот же меш (дайджест того, что лежит в Blender);
 5. смещение над поверхностью — настройка сцены: позиции = локальная позиция
-   батча + нормаль · смещение.
+   батча + нормаль · смещение;
+6. ДЛИННОЕ ИМЯ источника (60 символов): Blender режет имя объекта до 63 байт, и
+   декаль ищется по маркеру, а не по имени — два нажатия дают один объект;
+7. пропуск ПИСАТЕЛЯ (`ADAPTER_*`) виден в строке статуса, как и отказ пути;
+8. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
+   создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
+   нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
+   («context is incorrect»), поэтому проверяется именно эта последовательность.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -95,7 +102,9 @@ def _mesh_digest(decal):
 
 
 def _decal_objects():
-    return [item for item in bpy.data.objects if item.name.endswith(".CFTUV_Decal")]
+    return [
+        item for item in bpy.data.objects if "cftuv_source_revision" in item.keys()
+    ]
 
 
 def _run_cold_press_builds_one_child_object():
@@ -215,6 +224,124 @@ def _run_nothing_selected_is_refused_by_name():
     assert bpy.data.objects.get(DECAL) is None
 
 
+def _run_a_long_source_name_never_multiplies_the_decal():
+    from cftuv.envelope_production_mesh import decal_object_name
+
+    source = _fresh_scene()
+    source.name = "L" * 60
+    wanted = decal_object_name(source.name)
+    assert len(wanted.encode("utf-8")) <= 63 and wanted != source.name + ".CFTUV_Decal"
+
+    first = bpy.data.objects.get(_press_named(source).name)
+    second = _press_named(source)
+
+    assert second == first, (first.name, second.name)
+    assert first.name == wanted and len(first.name.encode("utf-8")) <= 63
+    assert len(_decal_objects()) == 1, [item.name for item in _decal_objects()]
+    assert first.parent == source and first["cftuv_source_object"] == source.name
+    assert first.data.name == wanted
+
+
+def _press_named(source):
+    result = bpy.ops.hotspotuv.build_envelope_decal_mesh()
+    assert result == {"FINISHED"}, result
+    found = [item for item in _decal_objects() if item.parent == source]
+    assert len(found) == 1, [item.name for item in _decal_objects()]
+    return found[0]
+
+
+def _run_an_adapter_skip_reaches_the_status_line():
+    import dataclasses
+
+    from cftuv import envelope_production_export as export
+
+    source = _fresh_scene()
+    original = export.run_production
+
+    def damaged(*args, **kwargs):
+        run = original(*args, **kwargs)
+        first, *rest = run.results
+        broken = dataclasses.replace(first, normal=(float("nan"), 0.0, 1.0))
+        return dataclasses.replace(run, results=(broken, *rest))
+
+    export.run_production = damaged
+    try:
+        _press_named(source)
+    finally:
+        export.run_production = original
+    status = _decal_settings().status
+    assert status == "MATERIALIZED 1 / refused 1 (ADAPTER_NORMAL_MISSING)", status
+    assert export.receipt_report_level  # уровень отчёта — по квитанции (см. host-тест)
+
+
+def _run_the_operator_is_register_only_with_a_named_reason():
+    from cftuv.envelope_production_operator import (
+        HOTSPOTUV_OT_BuildEnvelopeDecalMesh,
+        UNDO_DROPPED_REASON,
+    )
+
+    assert set(HOTSPOTUV_OT_BuildEnvelopeDecalMesh.bl_options) == {"REGISTER"}
+    assert "BMesh" in UNDO_DROPPED_REASON
+
+
+def _walk_every_datablock():
+    """Обход как при перерисовке: висячая ссылка здесь роняет Blender или бросает."""
+
+    for item in bpy.data.objects:
+        assert item.data is not None, item.name
+        _ = (item.name, item.type, item.parent)
+    for mesh in bpy.data.meshes:
+        _ = (mesh.name, len(mesh.polygons), len(mesh.uv_layers))
+
+
+def _run_undo_leaves_a_consistent_scene_and_the_next_press_works():
+    source = _fresh_scene()
+    seam = [edge.index for edge in source.data.edges if edge.use_seam]
+    assert seam
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # Фоновый Blender включает систему отмены явным шагом, а отменять она начинает
+    # со ВТОРОГО: первый `undo_push` только инициализирует (`ed.undo.poll()`
+    # остаётся ложным), второй — настоящий шаг.
+    bpy.ops.ed.undo_push(message="initialize")
+    bpy.ops.ed.undo_push(message="scene ready")
+    assert bpy.ops.ed.undo.poll()
+    bpy.ops.object.mode_set(mode="EDIT")
+    _press_named(source)
+    assert len(_decal_objects()) == 1
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    assert bpy.ops.ed.undo() == {"FINISHED"}
+    _walk_every_datablock()
+    survivors = _decal_objects()
+    print("UNDO_OBSERVED after_undo decals:", [item.name for item in survivors])
+    source = bpy.data.objects[SOURCE]
+    assert source.data is not None and len(source.data.polygons) == 2
+    assert all(item.data is not None for item in survivors)
+
+    try:
+        redone = bpy.ops.ed.redo()
+    except RuntimeError as exc:  # нечего повторять — тоже честный исход
+        redone = str(exc)
+    print("UNDO_OBSERVED redo:", redone, [item.name for item in _decal_objects()])
+    print(
+        "UNDO_OBSERVED meshes:",
+        sorted((item.name, item.users) for item in bpy.data.meshes),
+    )
+    _walk_every_datablock()
+
+    source = bpy.data.objects[SOURCE]
+    from test_envelope_debug_bridge import _enter_edge_selection
+
+    bpy.context.view_layer.objects.active = source
+    if source.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    _enter_edge_selection(source, seam)
+    decal = _press_named(source)
+    assert decal.parent == source and len(_decal_objects()) == 1
+    assert decal.data.uv_layers.get("UVMap") is not None
+    _walk_every_datablock()
+
+
 def _main():
     import cftuv
 
@@ -229,6 +356,10 @@ def _main():
     warm_digest = _run_warm_press_after_a_debug_build_reuses_the_preparations()
     _run_workers_do_not_change_the_mesh(warm_digest)
     _run_nothing_selected_is_refused_by_name()
+    _run_a_long_source_name_never_multiplies_the_decal()
+    _run_an_adapter_skip_reaches_the_status_line()
+    _run_the_operator_is_register_only_with_a_named_reason()
+    _run_undo_leaves_a_consistent_scene_and_the_next_press_works()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()
