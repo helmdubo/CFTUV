@@ -43,6 +43,34 @@
 частичного источника отказ не срабатывает ни разу, и этот ноль заморожен
 тестом.
 
+ВЕТКА `crowded` — ЕДИНСТВЕННОЕ МЕСТО С ПЕРЕБОРОМ, и это исключение с объявленной
+границей, а не второй порядок. Правило смежности предполагает ОДНУ дугу на пару
+рёбер: участник стоит ровно в двух точках грани. В остром выпуклом углу рядом с
+дырой, зажатой в клин (patch 17 `building`, Fan Density >= 2, DECISIONS
+2026-10-01), между двумя рёбрами рождаются ДВЕ дуги: дыра проходит между ними, и
+вершина между теми же рёбрами рождается снова по ту сторону. Участник стоит в
+трёх точках, и грань отказывала `FACE_CHAIN_DOES_NOT_CLOSE` всегда. Теперь на
+этой ветке и ТОЛЬКО на ней перебираются пути head -> tail через все точки грани
+(потолки `CROWDED_*`; путь, не прошедший границы 1 и 2 сам по себе, отсеивается
+сразу), а выбирает не первый годный путь, а объявленная ГРАНИЦА 4 — ПАРНОСТЬ:
+
+    каждый внутренний сегмент контура стоит ровно в двух гранях, встречно.
+
+«Внутренний» — сегмент, по ту сторону которого есть грань: общий второй участник
+его концов (у концевых сегментов — соседнее ребро петли) не стена. Дуга вдоль
+стены лежит на границе области и пары не имеет (у стены грани нет), опорное
+ребро — тоже граница. Спрашивается по ВСЕМ граням области, а не только по ветке:
+неверный путь одной грани проявляется как несовпадение с соседней. На patch 17
+верная комбинация даёт 0 нарушений, три прочие — 12, 24 и 20 (d2).
+
+Выбор идёт по комбинациям путей всех граней ветки: допустима та, что проходит
+парность И тождество площади (граница 3); каждый критерий по отдельности
+оставляет из четырёх ту же единственную. Ровно одна допустимая — сборка. Больше
+одной либо перебор упёрся в потолок — `FACE_CHAIN_AMBIGUOUS` с числами в
+`detail` (первого годного нет). Ни одной — прежний отказ
+`FACE_CHAIN_DOES_NOT_CLOSE` с прежним текстом. Счётчики ветки выходят в
+`CONVEYOR_CROWDED_CHAIN_*` и только когда ветка входилась.
+
 ПРЕЖНЕЕ ПРАВИЛО И ПРИЧИНА ЗАМЕНЫ — история, и она записана числами, а не словом
 «улучшили». Поставлена была МОНОТОННОСТЬ: «грань опорного ребра монотонна по
 направлению этого ребра», узлы сортировались по УБЫВАНИЮ проекции на ребро, а
@@ -154,9 +182,12 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
+from itertools import product
+from math import prod
 
 from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import SupportLineV1
@@ -207,6 +238,16 @@ class FaceOutcome(str, Enum):
     # ниже. На корпусах и на всей сетке крестов исход не срабатывает ни разу, и
     # ноль этот заморожен тестом, а не подразумевается.
     FACE_CHAIN_DOES_NOT_CLOSE = "FACE_CHAIN_DOES_NOT_CLOSE"
+    # Ветка `crowded` (участник стоит в трёх и более точках грани: две дуги у
+    # одной пары рёбер) перебрала пути head -> tail, и однозначного выбора нет:
+    # допустимых по границе 4 и тождеству площади комбинаций БОЛЬШЕ ОДНОЙ, либо
+    # перебор упёрся в потолок (`CROWDED_*`) и «ровно одна» недоказуема. Член
+    # отдельный от `FACE_CHAIN_DOES_NOT_CLOSE`: там верного обхода НЕТ, здесь их
+    # несколько либо их не удалось пересчитать, и первый попавшийся был бы
+    # ровно тем молчаливым фолбэком, против которого заведён весь модуль. В
+    # `detail` лежат ЧИСЛА: путей на грань, пригодных, комбинаций, прошедших
+    # каждую границу по отдельности.
+    FACE_CHAIN_AMBIGUOUS = "FACE_CHAIN_AMBIGUOUS"
     # Граница 1 нарушена: контур грани самопересекается, то есть порядок обхода
     # перекрутил его. Член отдельный, потому что это дефект СБОРКИ, а не
     # площади: площадь на таком контуре считается по формуле трапеций и выходит
@@ -555,6 +596,94 @@ def edge_neighbours(
     return neighbours
 
 
+#: Потолки ветки `crowded`. ПОТОЛОК — ЭТО ГРАНИЦА ДОКАЗАТЕЛЬСТВА, а не вкус: перебор,
+#: упёршийся в любой из них, не вправе утверждать «допустимая комбинация ровно одна»,
+#: поэтому он отвечает `FACE_CHAIN_AMBIGUOUS`, а не берёт первую найденную. Числа — с
+#: запасом над измеренным: на `building` patch 17 путей на грань ДВА, комбинаций
+#: четыре, шагов обхода порядка сотни.
+CROWDED_PATH_CAP = 16
+CROWDED_STEP_CAP = 20_000
+CROWDED_COMBINATION_CAP = 256
+
+PointKey = tuple[tuple, tuple]
+#: Направленный сегмент контура грани: от точки, к точке, и «по ту сторону есть
+#: грань» (`True`: парный сегмент обязан быть; `False`: обязан отсутствовать).
+Segment = tuple[PointKey, PointKey, bool]
+
+
+@dataclass(frozen=True, slots=True)
+class CrowdedChainsV1:
+    """Что сделала ветка `crowded` на одном домене. Все нули — ветка не входилась."""
+
+    faces: int = 0
+    paths: int = 0
+    combinations: int = 0
+    selected: int = 0
+
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        """Счётчики ветки. Пусты, когда ветка не входилась, и это намеренно.
+
+        Структурные счётчики подготовки заморожены тестами и воротами равенства
+        ответа; четыре нуля у каждого из ста двадцати доменов, на которых ветка
+        не срабатывает, сдвинули бы их все ради одного.
+        """
+
+        if not self.faces:
+            return ()
+        return (
+            ("CONVEYOR_CROWDED_CHAIN_ATTEMPTS", self.faces),
+            ("CONVEYOR_CROWDED_CHAIN_PATHS", self.paths),
+            ("CONVEYOR_CROWDED_CHAIN_COMBINATIONS", self.combinations),
+            ("CONVEYOR_CROWDED_CHAIN_SELECTED", self.selected),
+        )
+
+
+def face_places(
+    owner: EdgeKey, nodes: tuple[SkeletonNodeV1, ...]
+) -> tuple[dict[tuple, list[SkeletonNodeV1]], list[tuple], list[set[EdgeKey]]]:
+    """Узлы грани по ТОЧКАМ и вторые участники каждой точки.
+
+    Несколько записей в одной точке дают одну вершину контура, и их взаимный
+    порядок на площадь не влияет — сегмент между ними нулевой длины.
+    """
+
+    places: dict[tuple, list[SkeletonNodeV1]] = {}
+    for node in nodes:
+        places.setdefault(
+            (node.point.x.terms, node.point.y.terms), []
+        ).append(node)
+    order_of_place = list(places)
+    partners = [
+        {
+            participant
+            for node in places[place]
+            for participant in node.participants
+            if participant != owner
+        }
+        for place in order_of_place
+    ]
+    return places, order_of_place, partners
+
+
+def participant_seats(
+    partners: list[set[EdgeKey]],
+) -> tuple[dict[EdgeKey, list[int]], list[EdgeKey]]:
+    """В каких точках стоит каждый участник и кто стоит в трёх и более из них."""
+
+    shared: dict[EdgeKey, list[int]] = {}
+    for index, group in enumerate(partners):
+        for participant in group:
+            shared.setdefault(participant, []).append(index)
+    return shared, sorted(f for f, seats in shared.items() if len(seats) > 2)
+
+
+def crowded_reason(crowded: list[EdgeKey], places: int) -> str:
+    return (
+        f"{len(crowded)} участников в трёх и более точках из "
+        f"{places}: {crowded[:2]}"
+    )
+
+
 def face_chain(
     owner: EdgeKey,
     nodes: tuple[SkeletonNodeV1, ...],
@@ -573,35 +702,15 @@ def face_chain(
     сложилось»: участник больше чем в двух точках (дуг у одной пары рёбер
     больше одной), концов не по одному, развилка на обходе, обход не покрыл все
     точки, обход кончился не у предшествующего ребра. Причина возвращается
-    строкой и поднимается наверх исходом `FACE_CHAIN_DOES_NOT_CLOSE`.
+    строкой и поднимается наверх исходом `FACE_CHAIN_DOES_NOT_CLOSE` — а на
+    первой из них ещё и ВЕТКОЙ `crowded` (`crowded_face`), которая выбирает путь
+    по границе 4 вместо отказа.
     """
 
-    places: dict[tuple, list[SkeletonNodeV1]] = {}
-    for node in nodes:
-        places.setdefault(
-            (node.point.x.terms, node.point.y.terms), []
-        ).append(node)
-    order_of_place = list(places)
-    partners = [
-        {
-            participant
-            for node in places[place]
-            for participant in node.participants
-            if participant != owner
-        }
-        for place in order_of_place
-    ]
-
-    shared: dict[EdgeKey, list[int]] = {}
-    for index, group in enumerate(partners):
-        for participant in group:
-            shared.setdefault(participant, []).append(index)
-    crowded = sorted(f for f, seats in shared.items() if len(seats) > 2)
+    places, order_of_place, partners = face_places(owner, nodes)
+    shared, crowded = participant_seats(partners)
     if crowded:
-        return None, (
-            f"{len(crowded)} участников в трёх и более точках из "
-            f"{len(places)}: {crowded[:2]}"
-        )
+        return None, crowded_reason(crowded, len(places))
 
     links: dict[int, set[int]] = {index: set() for index in range(len(places))}
     for seats in shared.values():
@@ -636,6 +745,284 @@ def face_chain(
     ), ""
 
 
+def head_tail_paths(
+    partners: list[set[EdgeKey]],
+    shared: dict[EdgeKey, list[int]],
+    previous: EdgeKey,
+    following: EdgeKey,
+) -> tuple[tuple[tuple[int, ...], ...], bool]:
+    """Все пути head -> tail по графу смежности, ровно через ВСЕ точки грани.
+
+    Граф здесь — полный на местах участника: если участник стоит в трёх точках,
+    все три попарно соседние (правило смежности «есть общий второй участник» без
+    предположения «ровно в двух»). Голов и хвостов может быть несколько: голова —
+    точка с `following`, хвост — точка с `previous`, и у участника в трёх точках
+    голов бывает три.
+
+    Обход детерминирован (индексы точек по порядку узлов скелета) и ограничен
+    двумя потолками — путей (`CROWDED_PATH_CAP`) и шагов (`CROWDED_STEP_CAP`).
+    Второе возвращаемое — «перебор оборван потолком»: найденное тогда НЕ
+    исчерпывающе, и вызывающий не вправе считать его полным списком.
+    """
+
+    count = len(partners)
+    links: dict[int, set[int]] = {index: set() for index in range(count)}
+    for seats in shared.values():
+        for first in seats:
+            links[first].update(seat for seat in seats if seat != first)
+    heads = [i for i, group in enumerate(partners) if following in group]
+    tails = {i for i, group in enumerate(partners) if previous in group}
+    found: list[tuple[int, ...]] = []
+    steps = 0
+    for head in heads:
+        path = [head]
+        seen = {head}
+        options = [iter(sorted(links[head]))]
+        while options:
+            steps += 1
+            if steps > CROWDED_STEP_CAP:
+                return tuple(found), True
+            for step in options[-1]:
+                if step not in seen:
+                    break
+            else:
+                options.pop()
+                seen.discard(path.pop())
+                continue
+            path.append(step)
+            seen.add(step)
+            if len(path) < count:
+                options.append(iter(sorted(links[step])))
+                continue
+            if step in tails:
+                if len(found) == CROWDED_PATH_CAP:
+                    return tuple(found), True
+                found.append(tuple(path))
+            path.pop()
+            seen.discard(step)
+    return tuple(found), False
+
+
+def face_points(
+    start: tuple[int, int],
+    end: tuple[int, int],
+    chain: tuple[SkeletonNodeV1, ...],
+) -> tuple[tuple[SqrtSumV1, SqrtSumV1], ...]:
+    """Контур грани: концы опорного ребра, затем точки цепочки."""
+
+    return (
+        (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
+        (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
+    ) + tuple((node.point.x, node.point.y) for node in chain)
+
+
+def contour_segments(
+    owner: EdgeKey,
+    points: tuple[tuple[SqrtSumV1, SqrtSumV1], ...],
+    chain: tuple[SkeletonNodeV1, ...],
+    previous: EdgeKey,
+    following: EdgeKey,
+    faced: frozenset[EdgeKey],
+) -> tuple[Segment, ...]:
+    """Направленные сегменты контура грани и признак «по ту сторону есть грань».
+
+    Сегмент между двумя соседними точками цепочки лежит на дуге между опорным
+    ребром и их ОБЩИМ вторым участником; концевые сегменты (от `end` к голове и
+    от хвоста к `start`) — на дугах с `following` и `previous`. Если такой
+    участник — не стена (`faced`), по ту сторону дуги лежит его грань, и она
+    обходит тот же отрезок ВСТРЕЧНО. Дуга вдоль стены лежит на границе области, и
+    парной у неё нет. Сегмент самого опорного ребра — тоже граница. Сегменты
+    нулевой длины в счёт не идут: две записи скелета в одной точке.
+    """
+
+    stops: list[tuple[PointKey, set[EdgeKey]]] = []
+    for node in chain:
+        key = (node.point.x.terms, node.point.y.terms)
+        partners = {item for item in node.participants if item != owner}
+        if stops and stops[-1][0] == key:
+            stops[-1][1].update(partners)
+        else:
+            stops.append((key, partners))
+    start = (points[0][0].terms, points[0][1].terms)
+    end = (points[1][0].terms, points[1][1].terms)
+    segments: list[Segment] = [(start, end, False)]
+    behind, behind_partners = end, {following}
+    for key, partners in stops:
+        segments.append((behind, key, bool(behind_partners & partners & faced)))
+        behind, behind_partners = key, partners
+    segments.append((behind, start, bool(behind_partners & {previous} & faced)))
+    return tuple(item for item in segments if item[0] != item[1])
+
+
+def pairing_defects(segments: list[Segment]) -> int:
+    """ГРАНИЦА 4 (парность): сколько сегментов нарушают «две грани, встречно».
+
+    Каждый направленный сегмент стоит в ровно одной грани. Его встречный
+    стоит ровно в одной другой, если по ту сторону есть грань, и не стоит нигде,
+    если сегмент на границе области. Ноль — граница держится. Сравнение по
+    каноническим наборам коэффициентов точек: порога и допуска нет, а точная
+    арифметика здесь не нужна вовсе — точки уже канонические.
+    """
+
+    seen = Counter((first, second) for first, second, _ in segments)
+    return sum(
+        1
+        for first, second, mirrored in segments
+        if seen[(first, second)] != 1 or seen[(second, first)] != int(mirrored)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Variant:
+    """Один путь head -> tail грани ветки `crowded`: готовая грань и её сегменты."""
+
+    face: FaceV1
+    segments: tuple[Segment, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _CrowdedFace:
+    """Грань, у которой правило смежности отказало на `crowded`, и её пути.
+
+    `why` — прежний текст отказа с префиксом ребра, байт в байт: если выбора не
+    выйдет, отвечает он, и отказ не меняется от того, что перебор был.
+    `variants` — только пути, прошедшие границы 1 и 2 сами по себе: перекрученный
+    или вывернутый контур не станет верным от того, что соседи подобраны.
+    """
+
+    key: EdgeKey
+    why: str
+    paths: int
+    exhausted: bool
+    variants: tuple[_Variant, ...]
+
+
+def crowded_face(
+    key: EdgeKey,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    line: SupportLineV1,
+    nodes: tuple[SkeletonNodeV1, ...],
+    previous: EdgeKey,
+    following: EdgeKey,
+    faced: frozenset[EdgeKey],
+    work_budget: ExactWorkBudgetV1 | None,
+) -> _CrowdedFace | None:
+    """Пути head -> tail грани, если её отказ — `crowded`; иначе `None`.
+
+    Предикаты точные и под бюджетом транзакции: контур каждого пути
+    спрашивается границей 1 (`contour_crossings`), площадь — границей 2
+    (`sign`). Остальное — комбинаторика над каноническими ключами.
+    """
+
+    places, order_of_place, partners = face_places(key, nodes)
+    shared, crowded = participant_seats(partners)
+    if not crowded:
+        return None
+    paths, exhausted = head_tail_paths(partners, shared, previous, following)
+    variants: list[_Variant] = []
+    for path in paths:
+        chain = tuple(
+            node for index in path for node in places[order_of_place[index]]
+        )
+        points = face_points(start, end, chain)
+        if contour_crossings(points, work_budget):
+            continue
+        doubled = doubled_shoelace(points)
+        if doubled.sign(budget=work_budget) <= 0:
+            continue
+        variants.append(
+            _Variant(
+                FaceV1(key, start, end, points, doubled, line),
+                contour_segments(
+                    key, points, chain, previous, following, faced
+                ),
+            )
+        )
+    return _CrowdedFace(
+        key,
+        f"ребро {start} -> {end}: {crowded_reason(crowded, len(places))}",
+        len(paths),
+        exhausted,
+        tuple(variants),
+    )
+
+
+def settle_crowded(
+    pending: list[_CrowdedFace],
+    fixed_total: SqrtSumV1,
+    fixed_segments: list[Segment],
+    polygon_doubled_area: int,
+) -> tuple[tuple[_Variant, ...] | None, tuple[FaceOutcome, str] | None, int]:
+    """Выбор комбинации путей по всем граням ветки: (выбор, отказ, число проб).
+
+    Комбинация допустима, когда в ней одновременно выполнены граница 4
+    (`pairing_defects` по ВСЕМ граням области, а не только по ветке) и
+    тождество площади. Ровно одна допустимая — выбор. Несколько либо потолок —
+    `FACE_CHAIN_AMBIGUOUS`. Ни одной — прежний отказ `FACE_CHAIN_DOES_NOT_CLOSE` с
+    прежним текстом первой грани ветки и числами перебора в хвосте.
+    """
+
+    sizes = [len(item.variants) for item in pending]
+    numbers = (
+        f"путей на грань {[item.paths for item in pending]}, "
+        f"пригодных {sizes}"
+    )
+    for item in pending:
+        if not item.variants and not item.exhausted:
+            return None, (
+                FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE,
+                f"{pending[0].why}; перебор: {numbers}, комбинаций 0",
+            ), 0
+    space = prod(sizes)
+    capped = (
+        any(item.exhausted for item in pending)
+        or space > CROWDED_COMBINATION_CAP
+    )
+    if capped:
+        return None, (
+            FaceOutcome.FACE_CHAIN_AMBIGUOUS,
+            f"{pending[0].why}; перебор оборван потолком "
+            f"(пути {CROWDED_PATH_CAP}, шаги {CROWDED_STEP_CAP}, "
+            f"комбинации {CROWDED_COMBINATION_CAP}): {numbers}, "
+            f"пространство {space}",
+        ), 0
+    polygon_area = SqrtSumV1.rational(polygon_doubled_area)
+    paired = exact = 0
+    admissible: list[tuple[_Variant, ...]] = []
+    tried = 0
+    for combination in product(*(item.variants for item in pending)):
+        tried += 1
+        defects = pairing_defects(
+            fixed_segments
+            + [segment for item in combination for segment in item.segments]
+        )
+        total = fixed_total
+        for item in combination:
+            total = total + item.face.doubled_area
+        by_pairing = defects == 0
+        by_area = (total - polygon_area).is_zero
+        paired += by_pairing
+        exact += by_area
+        if by_pairing and by_area:
+            admissible.append(combination)
+    tally = (
+        f"комбинаций {tried}, по парности {paired}, по площади {exact}, "
+        f"обеих {len(admissible)}"
+    )
+    if len(admissible) == 1:
+        return admissible[0], None, tried
+    if admissible:
+        return None, (
+            FaceOutcome.FACE_CHAIN_AMBIGUOUS,
+            f"{pending[0].why}; перебор: {numbers}, {tally}",
+        ), tried
+    return None, (
+        FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE,
+        f"{pending[0].why}; перебор: {numbers}, {tally}",
+    ), tried
+
+
 def doubled_shoelace(
     points: tuple[tuple[SqrtSumV1, SqrtSumV1], ...],
 ) -> SqrtSumV1:
@@ -654,46 +1041,20 @@ def doubled_shoelace(
     return total
 
 
-def build_faces(
-    polygon: PolygonV1,
-    skeleton: SkeletonV1,
-    work_budget: ExactWorkBudgetV1 | None = None,
+def _refused(
+    polygon_doubled_area: int, outcome: FaceOutcome, detail: str
 ) -> FacePartitionV1:
-    """Грани скелета по правилу СМЕЖНОСТИ, со всеми тремя границами в ответе.
+    """Отказ до счёта: граней нет, и придумывать их нельзя."""
 
-    `work_budget` — бюджет точной работы транзакции. Он кладётся в РАЗБИЕНИЕ, а
-    не расходуется здесь: сама сборка граней точных предикатов не зовёт, их
-    зовут три объявленные границы, и они спрашиваются свойствами. Отказные
-    возвраты ниже бюджета не несут намеренно — у них нет ни одной грани,
-    поэтому ни одна граница на них ничего не считает.
-    """
-
-    empty = FacePartitionV1(
-        FaceOutcome.EXACT,
-        (),
-        SqrtSumV1.zero(),
-        sum(signed_double_area(loop.points) for loop in polygon.loops),
+    return FacePartitionV1(
+        outcome, (), SqrtSumV1.zero(), polygon_doubled_area, detail
     )
-    if skeleton.outcome is not SkeletonOutcome.EXACT:
-        return FacePartitionV1(
-            FaceOutcome.SKELETON_IS_NOT_EXACT,
-            (),
-            SqrtSumV1.zero(),
-            empty.polygon_doubled_area,
-            skeleton.outcome.value,
-        )
 
-    edges = polygon_fronts(polygon)
-    keys = [key for key, _, _, _ in edges]
-    if len(set(keys)) != len(keys):
-        shared = sorted({key for key in keys if keys.count(key) > 1})
-        return FacePartitionV1(
-            FaceOutcome.TWO_EDGES_SHARE_ONE_SPAN,
-            (),
-            SqrtSumV1.zero(),
-            empty.polygon_doubled_area,
-            f"{len(shared)} вхождений на нескольких рёбрах: {shared[:3]}",
-        )
+
+def _nodes_by_owner(
+    skeleton: SkeletonV1,
+) -> tuple[dict[EdgeKey, list[SkeletonNodeV1]] | None, str]:
+    """Узлы скелета по ключу каждого участника либо причина отказа MULTIWAY."""
 
     nodes_by_key: dict[EdgeKey, list[SkeletonNodeV1]] = {}
     for node in skeleton.nodes:
@@ -701,22 +1062,52 @@ def build_faces(
             try:
                 _, incidences = validate_multiway_node(node)
             except ValueError as error:
-                return FacePartitionV1(
-                    FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE,
-                    (),
-                    SqrtSumV1.zero(),
-                    empty.polygon_doubled_area,
-                    str(error),
-                )
+                return None, str(error)
         else:
             incidences = (node.participants,)
         for incidence in incidences:
             for key in incidence:
                 nodes_by_key.setdefault(key, []).append(node)
-    neighbours = edge_neighbours(polygon)
+    return nodes_by_key, ""
 
-    faces: list[FaceV1] = []
-    total = SqrtSumV1.zero()
+
+def build_faces(
+    polygon: PolygonV1,
+    skeleton: SkeletonV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
+) -> FacePartitionV1:
+    """Грани скелета по правилу СМЕЖНОСТИ, со всеми тремя границами в ответе.
+
+    Разбиение без счётчиков ветки `crowded` — их читает только конвейер, и он
+    зовёт `build_faces_traced`.
+    """
+
+    return build_faces_traced(polygon, skeleton, work_budget)[0]
+
+
+def _collect_slots(
+    edges: tuple[tuple[EdgeKey, tuple[int, int], tuple[int, int], SupportLineV1], ...],
+    nodes_by_key: dict[EdgeKey, list[SkeletonNodeV1]],
+    neighbours: dict[EdgeKey, tuple[EdgeKey, EdgeKey]],
+    faced: frozenset[EdgeKey],
+    work_budget: ExactWorkBudgetV1 | None,
+) -> tuple[
+    list[FaceV1 | _CrowdedFace],
+    list[_CrowdedFace],
+    dict[EdgeKey, tuple[SkeletonNodeV1, ...]],
+    tuple[FaceOutcome, str] | None,
+]:
+    """Грань на каждое подвижное ребро: готовая либо ветка `crowded`, либо отказ.
+
+    Возвращает слоты В ПОРЯДКЕ РЁБЕР, список граней ветки, цепочки готовых граней
+    (для сегментов границы 4) и первый отказ. Первым в порядке рёбер отказавшее
+    ребро и называется: если ему предшествовала грань ветки, отвечает она, как
+    отвечала до перебора.
+    """
+
+    slots: list[FaceV1 | _CrowdedFace] = []
+    pending: list[_CrowdedFace] = []
+    fixed: dict[EdgeKey, tuple[SkeletonNodeV1, ...]] = {}
     for key, start, end, line in edges:
         if line.is_stationary:
             # Стена не заметает НИЧЕГО: её отрезок фронта остаётся на своей
@@ -726,41 +1117,157 @@ def build_faces(
             # участники, и сумма площадей по-прежнему обязана дать всю область.
             continue
         candidates = nodes_by_key.get(key, ())
+        previous, following = neighbours[key]
         if not candidates:
-            return FacePartitionV1(
+            refusal = (
                 FaceOutcome.FACE_HAS_NO_SKELETON_NODE,
-                (),
-                SqrtSumV1.zero(),
-                empty.polygon_doubled_area,
                 f"ребро {start} -> {end} без узлов",
             )
-        previous, following = neighbours[key]
-        chain, why = face_chain(key, tuple(candidates), previous, following)
-        if chain is None:
-            return FacePartitionV1(
+        else:
+            chain, why = face_chain(key, tuple(candidates), previous, following)
+            if chain is not None:
+                points = face_points(start, end, chain)
+                slots.append(
+                    FaceV1(key, start, end, points, doubled_shoelace(points), line)
+                )
+                fixed[key] = chain
+                continue
+            crowded = crowded_face(
+                key, start, end, line, tuple(candidates), previous, following,
+                faced, work_budget,
+            )
+            if crowded is not None:
+                slots.append(crowded)
+                pending.append(crowded)
+                continue
+            refusal = (
                 FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE,
-                (),
-                SqrtSumV1.zero(),
-                empty.polygon_doubled_area,
                 f"ребро {start} -> {end}: {why}",
             )
-        points = (
-            (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
-            (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
-        ) + tuple((node.point.x, node.point.y) for node in chain)
-        doubled = doubled_shoelace(points)
-        faces.append(FaceV1(key, start, end, points, doubled, line))
-        total = total + doubled
+        if pending:
+            refusal = (FaceOutcome.FACE_CHAIN_DOES_NOT_CLOSE, pending[0].why)
+        return slots, pending, fixed, refusal
+    return slots, pending, fixed, None
 
+
+def _resolve_crowded(
+    slots: list[FaceV1 | _CrowdedFace],
+    pending: list[_CrowdedFace],
+    fixed: dict[EdgeKey, tuple[SkeletonNodeV1, ...]],
+    neighbours: dict[EdgeKey, tuple[EdgeKey, EdgeKey]],
+    faced: frozenset[EdgeKey],
+    polygon_area: int,
+) -> tuple[list[FaceV1] | None, tuple[FaceOutcome, str] | None, CrowdedChainsV1]:
+    """Грани ветки `crowded` заменены выбранными путями: (грани, отказ, счётчики)."""
+
+    ready = {slot.owner: slot for slot in slots if isinstance(slot, FaceV1)}
+    total = SqrtSumV1.zero()
+    for face in ready.values():
+        total = total + face.doubled_area
+    segments: list[Segment] = []
+    for key, chain in fixed.items():
+        previous, following = neighbours[key]
+        segments.extend(
+            contour_segments(
+                key, ready[key].points, chain, previous, following, faced
+            )
+        )
+    chosen, refusal, tried = settle_crowded(pending, total, segments, polygon_area)
+    trace = CrowdedChainsV1(
+        len(pending),
+        sum(item.paths for item in pending),
+        tried,
+        0 if chosen is None else 1,
+    )
+    if chosen is None:
+        return None, refusal, trace
+    picked = {item.key: variant.face for item, variant in zip(pending, chosen)}
+    return [
+        picked[slot.key] if isinstance(slot, _CrowdedFace) else slot
+        for slot in slots
+    ], None, trace
+
+
+def build_faces_traced(
+    polygon: PolygonV1,
+    skeleton: SkeletonV1,
+    work_budget: ExactWorkBudgetV1 | None = None,
+) -> tuple[FacePartitionV1, CrowdedChainsV1]:
+    """Грани скелета по правилу СМЕЖНОСТИ и счётчики ветки `crowded`.
+
+    `work_budget` — бюджет точной работы транзакции. Он кладётся в РАЗБИЕНИЕ, а
+    не расходуется здесь: сама сборка граней точных предикатов не зовёт, их
+    зовут три объявленные границы, и они спрашиваются свойствами. Исключение —
+    ветка `crowded` (`crowded_face`): её пути проверяются границами 1 и 2 ДО
+    выбора, и бюджет там расходуется тем же счётом. Отказные возвраты ниже
+    бюджета не несут намеренно — у них нет ни одной грани, поэтому ни одна
+    граница на них ничего не считает.
+
+    Ветка `crowded` отказывала всегда; теперь на ней перебираются пути, и выбор
+    — по границе 4 (парность) и тождеству площади. Остальные грани собираются
+    ровно как раньше, побитово, и пока ни одна грань не отказала, ветка не
+    входится.
+    """
+
+    polygon_area = sum(signed_double_area(loop.points) for loop in polygon.loops)
+    untouched = CrowdedChainsV1()
+    if skeleton.outcome is not SkeletonOutcome.EXACT:
+        return _refused(
+            polygon_area,
+            FaceOutcome.SKELETON_IS_NOT_EXACT,
+            skeleton.outcome.value,
+        ), untouched
+
+    edges = polygon_fronts(polygon)
+    keys = [key for key, _, _, _ in edges]
+    if len(set(keys)) != len(keys):
+        shared = sorted({key for key in keys if keys.count(key) > 1})
+        return _refused(
+            polygon_area,
+            FaceOutcome.TWO_EDGES_SHARE_ONE_SPAN,
+            f"{len(shared)} вхождений на нескольких рёбрах: {shared[:3]}",
+        ), untouched
+
+    nodes_by_key, incidence_error = _nodes_by_owner(skeleton)
+    if nodes_by_key is None:
+        return _refused(
+            polygon_area,
+            FaceOutcome.MULTIWAY_NODE_INCIDENCE_UNAVAILABLE,
+            incidence_error,
+        ), untouched
+    neighbours = edge_neighbours(polygon)
+    faced = frozenset(key for key, _, _, line in edges if not line.is_stationary)
+    slots, pending, fixed, refusal = _collect_slots(
+        edges, nodes_by_key, neighbours, faced, work_budget
+    )
+    if refusal is not None:
+        return _refused(polygon_area, *refusal), CrowdedChainsV1(
+            len(pending), sum(item.paths for item in pending)
+        )
+
+    trace = untouched
+    if pending:
+        resolved, refusal, trace = _resolve_crowded(
+            slots, pending, fixed, neighbours, faced, polygon_area
+        )
+        if resolved is None:
+            assert refusal is not None
+            return _refused(polygon_area, *refusal), trace
+        slots = resolved
+
+    faces = [slot for slot in slots if isinstance(slot, FaceV1)]
+    total = SqrtSumV1.zero()
+    for face in faces:
+        total = total + face.doubled_area
     return check_declared_boundaries(
         FacePartitionV1(
             FaceOutcome.EXACT,
             tuple(faces),
             total,
-            empty.polygon_doubled_area,
+            polygon_area,
             work_budget=work_budget,
         )
-    )
+    ), trace
 
 
 def check_declared_boundaries(assembled: FacePartitionV1) -> FacePartitionV1:

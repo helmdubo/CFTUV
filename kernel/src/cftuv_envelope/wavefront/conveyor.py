@@ -124,7 +124,13 @@ from .bridge import (
     bridge_arrival_laws,
 )
 from .coverage import CoverageOutcome, coverage_at
-from .faces import EdgeKey, FaceOutcome, FacePartitionV1, build_faces
+from .faces import (
+    CrowdedChainsV1,
+    EdgeKey,
+    FaceOutcome,
+    FacePartitionV1,
+    build_faces_traced,
+)
 from .skeleton import SkeletonOutcome, SkeletonV1, build_skeleton
 from .sqrt_sum import SqrtSumV1
 
@@ -292,6 +298,11 @@ class PreparedRegionV1:
     # Без значения по умолчанию намеренно: пустой кортеж «на всякий случай» дал бы
     # будущему месту сборки региона право забыть деградацию молча.
     degraded_miter_corners: tuple[DegradedMiterCornerV1, ...]
+    # Что сделала ветка `crowded` сборщика граней на этом регионе (две дуги у
+    # пары рёбер, `faces.py`). Поле отдельное, а не часть `partition`: разбиение
+    # входит в отпечатки равенства ответа целиком, и новое поле сдвинуло бы их у
+    # всех доменов ради одного. `None` — сборка граней не доходила.
+    crowded_chains: CrowdedChainsV1 | None = None
 
     @property
     def is_exact(self) -> bool:
@@ -1001,15 +1012,18 @@ def _prepare_region(
         )
 
     started = time.perf_counter()
-    partition = build_faces(report.polygon, skeleton, work_budget)
+    partition, crowded = build_faces_traced(
+        report.polygon, skeleton, work_budget
+    )
     clock.add("FACES", started)
-    return _with_skeleton(prepared, skeleton, partition), None
+    return _with_skeleton(prepared, skeleton, partition, crowded), None
 
 
 def _with_skeleton(
     prepared: PreparedRegionV1,
     skeleton: SkeletonV1,
     partition: FacePartitionV1 | None,
+    crowded_chains: CrowdedChainsV1 | None = None,
 ) -> PreparedRegionV1:
     return PreparedRegionV1(
         region_id=prepared.region_id,
@@ -1024,6 +1038,7 @@ def _with_skeleton(
         wall_edge_count=prepared.wall_edge_count,
         ambiguous_owner_spans=prepared.ambiguous_owner_spans,
         degraded_miter_corners=prepared.degraded_miter_corners,
+        crowded_chains=crowded_chains,
     )
 
 
@@ -1132,7 +1147,28 @@ def _preparation_counters(
                 for item in regions
             ),
         ),
-    )
+    ) + _crowded_counters(regions)
+
+
+def _crowded_counters(regions: tuple[PreparedRegionV1, ...]) -> Counters:
+    """Счётчики ветки `crowded` по всем регионам; пусты, пока ветка не входилась.
+
+    Пустота намеренна: структурные счётчики подготовки заморожены тестами и
+    воротами равенства ответа, и нули у каждого из доменов, где ветка не
+    срабатывает, сдвинули бы все ради одного.
+    """
+
+    traces = [
+        item.crowded_chains
+        for item in regions
+        if item.crowded_chains is not None
+    ]
+    return CrowdedChainsV1(
+        sum(item.faces for item in traces),
+        sum(item.paths for item in traces),
+        sum(item.combinations for item in traces),
+        sum(item.selected for item in traces),
+    ).counters()
 
 
 def prepare_conveyor(

@@ -82,6 +82,7 @@ CHARGED_EXACT_SURFACE: dict[str, tuple[int | None, tuple[str, ...]]] = {
     "contour_crossings": (1, ("budget",)),
     "clip_to_halfplane": (None, ("budget",)),
     "build_faces": (2, ("work_budget",)),
+    "build_faces_traced": (2, ("work_budget",)),
     "coverage_at": (2, ("work_budget",)),
 }
 

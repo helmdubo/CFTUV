@@ -1,0 +1,15 @@
+{
+ "fixture_id": "building_patch17_crowded_v1",
+ "object_name": "building",
+ "patch_id": 17,
+ "alpha": "0.45",
+ "densities": [
+  2,
+  3,
+  4
+ ],
+ "patch_domain_ids": [
+  "host-v0:patch-domain:77e0b8c76791034d905695e3"
+ ],
+ "why": "острый выпуклый угол внешней петли рядом с дырой, зажатой в клин: две дуги между парой рёбер, ветка crowded сборщика граней"
+}
