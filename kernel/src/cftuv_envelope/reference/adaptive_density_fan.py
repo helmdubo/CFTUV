@@ -35,7 +35,7 @@ from .adaptive_density_atlas import (
     termination_piece,
     validate_atlas_structure,
 )
-from .common import stable_id
+from .common import ReferenceGeometryError, stable_id
 from .metric import ExactPlanarMetric
 from .planar_types import ExactPlanarVector
 
@@ -746,11 +746,16 @@ def _termination_boxes(metric, ideal, orientation, q, records):
         if _box_is_feasible(metric, ideal, orientation, q, boxes):
             return boxes
         divisor *= 2
+    # Подсказка в сообщении не вправе заменить собой честное имя отказа: сам
+    # предикат может быть не решён, и тогда так и сказано.
+    try:
+        at_limit = str(_subturn_boundary(metric, ideal[0], ideal[1], q))
+    except ReferenceGeometryError:
+        at_limit = "undecided"
     raise DensityTerminationBoxesExhausted(
         f"termination box refinement exhausted after {_BOX_REFINEMENT_CAP} "
         f"halvings for {len(centers)} hidden rays: no feasible box was "
-        "witnessed (ideal fan exactly at the subturn limit: "
-        f"{_subturn_boundary(metric, ideal[0], ideal[1], q)})"
+        f"witnessed (ideal fan exactly at the subturn limit: {at_limit})"
     )
 
 
