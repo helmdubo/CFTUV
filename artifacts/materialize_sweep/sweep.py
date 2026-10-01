@@ -48,6 +48,15 @@ ALPHA_TEXT = pool_sweep.ALPHA_TEXT
 ALPHA_VALUE = pool_sweep.ALPHA_VALUE
 COUNTER_KEYS = (
     "MATERIALIZE_FACES_IN",
+    "MATERIALIZE_FACES_CONTOURED",
+    "MATERIALIZE_FACES_EMPTY_AFTER_CLIP",
+    "MATERIALIZE_FACES_LOST",
+    "MATERIALIZE_FACES_LOST_CONTOUR_MISSING",
+    "MATERIALIZE_FACES_LOST_OWNER_MISMATCH",
+    "MATERIALIZE_FACES_LOST_SHORT_CONTOUR_WITH_AREA",
+    "MATERIALIZE_CONTOURS_WITHOUT_FACE",
+    "MATERIALIZE_DOMAIN_REGIONS",
+    "MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED",
     "MATERIALIZE_FACES_MERGED",
     "MATERIALIZE_SEPARATORS_MERGED",
     "MATERIALIZE_MERGE_UNRESOLVED",
@@ -67,6 +76,7 @@ COUNTER_KEYS = (
     "STATION_EDGES",
     "STATION_UNNAMED_CHAINS",
     "STATION_RESTART_CHAINS",
+    "STATION_SKIPS",
 )
 #: Поля строки, которые обязаны совпасть между прогонами (всё остальное — цена).
 ANSWER_KEYS = (
@@ -193,6 +203,21 @@ def summarize(rows) -> dict:
             row["counters"].get("MATERIALIZE_TRIANGLES_UV_REVERSED", 0) for row in done
         ),
         "fan_faces": sum(row["counters"].get("MATERIALIZE_FAN_FACES", 0) for row in done),
+        # Судьба граней покрытия: вход равен контурам + пустым за фронтом +
+        # потерям, и потерь на здоровом домене нет.
+        "faces_in": sum(row["counters"].get("MATERIALIZE_FACES_IN", 0) for row in done),
+        "faces_contoured": sum(
+            row["counters"].get("MATERIALIZE_FACES_CONTOURED", 0) for row in done
+        ),
+        "faces_empty_after_clip": sum(
+            row["counters"].get("MATERIALIZE_FACES_EMPTY_AFTER_CLIP", 0) for row in done
+        ),
+        "faces_lost": sum(row["counters"].get("MATERIALIZE_FACES_LOST", 0) for row in done),
+        "vertex_source_names_dropped": sum(
+            row["counters"].get("MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED", 0)
+            for row in done
+        ),
+        "station_skips": sum(row["counters"].get("STATION_SKIPS", 0) for row in done),
         "charts": {
             name: sum(1 for row in done if row.get("chart") == name)
             for name in sorted({row.get("chart") for row in done})

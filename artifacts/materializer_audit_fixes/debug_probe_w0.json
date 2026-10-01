@@ -1,0 +1,110 @@
+{
+ "base_root": "E:\\cftuv_audit_base",
+ "branch_root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-a49f4f24ca7f3e5b7",
+ "identical": true,
+ "parts": {
+  "alpha:0.375#3": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "f47891183c25b0c0",
+   "gp_strokes": "737c3bae9fd4b893",
+   "queue_domains": "b7bf5e5d44eed898",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "8ac77d215bf812f7",
+   "sidecar": "9f7adc44d3a172af",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d1#2": {
+   "counters": "f59009e746e11d34",
+   "gp_props": "826aca3d4b9376f6",
+   "gp_strokes": "884999329a76f78b",
+   "queue_domains": "e88ec7f9686ff950",
+   "receipts": "6567d258d9fa8534",
+   "session": "065b977eb65a4d61",
+   "settings": "260975fafab4d079",
+   "sidecar": "34843ecdbee6c4e7",
+   "stage_names": "6c2e01346aeb3d31"
+  },
+  "d2#0": {
+   "counters": "0654f0b9c6b99553",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "cb79c660165f96dc"
+  },
+  "d2#1": {
+   "counters": "efb5120dc8876d47",
+   "gp_props": "d13c066003898c23",
+   "gp_strokes": "5f0869918494b22e",
+   "queue_domains": "459e087daff066b1",
+   "receipts": "7c686398ad2a5f47",
+   "session": "119aa463b8db5ca6",
+   "settings": "a79d4dc96a7f6a57",
+   "sidecar": "21429370d9f85150",
+   "stage_names": "6c2e01346aeb3d31"
+  }
+ },
+ "problems": [],
+ "steps": [
+  {
+   "patch_metric_export_base": 6.483,
+   "patch_metric_export_branch": 6.33,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 6.648,
+   "snapshot_export_branch": 6.496,
+   "step": "d2",
+   "wall_base": 77.653,
+   "wall_branch": 77.589
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.128,
+   "snapshot_export_branch": 0.12,
+   "step": "d2",
+   "wall_base": 14.709,
+   "wall_branch": 14.783
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.122,
+   "snapshot_export_branch": 0.124,
+   "step": "d1",
+   "wall_base": 54.448,
+   "wall_branch": 54.512
+  },
+  {
+   "patch_metric_export_base": null,
+   "patch_metric_export_branch": null,
+   "pool_counters_base": {},
+   "pool_counters_branch": {},
+   "pool_wall_base": null,
+   "pool_wall_branch": null,
+   "snapshot_export_base": 0.122,
+   "snapshot_export_branch": 0.124,
+   "step": "alpha:0.375",
+   "wall_base": 15.686,
+   "wall_branch": 15.171
+  }
+ ],
+ "workers": [
+  0,
+  0
+ ]
+}

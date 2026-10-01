@@ -15,10 +15,14 @@
 from __future__ import annotations
 
 from fractions import Fraction
+from types import SimpleNamespace
 
 from cftuv_envelope.materialize.coalesce import (
     CoveredFaceV1,
+    FACE_LOSS_REASONS,
+    FaceMatchV1,
     integer_line_class,
+    match_region_faces,
     merge_same_chain_faces,
     undirected_span,
 )
@@ -273,3 +277,170 @@ def test_a_merged_contour_that_is_not_simple_is_refused_by_the_kernel_bound():
     # Перекрут лежит во ВХОДЕ, и это доказано тем же предикатом ядра: без него
     # тест мерил бы отказ, не назвав его причины.
     assert contour_crossings(twisted.points)
+
+
+# --------------------------------------------------------------------------
+# Судьба КАЖДОЙ грани покрытия: счёт вместо молчаливого пропуска
+# --------------------------------------------------------------------------
+
+
+def _named(owner, area=2):
+    """Грань покрытия: владелец и ТОЧНАЯ удвоенная площадь."""
+
+    return SimpleNamespace(
+        region_id="region",
+        owner=owner,
+        envelope_spec_id="spec",
+        envelope_instance_id="instance",
+        doubled_area=SqrtSumV1.rational(Fraction(area)),
+    )
+
+
+def _contour(owner, points):
+    return SimpleNamespace(owner=owner, points=tuple(_point(x, y) for x, y in points))
+
+
+SQUARE = ((0, 0), (2, 0), (2, 1), (0, 1))
+LEFT = (0, 0, 2, 0)
+RIGHT = (2, 0, 4, 0)
+
+
+def _legacy_covered_faces(covered, contours, spans):
+    """Прежний цикл ОТЛАДКИ слово в слово: оракул того, что хост рисует.
+
+    Это не проверяемый код, а его замороженная копия до правки: отладочный
+    путь обязан отдавать ТЕ ЖЕ грани, а счёт потерь — добавление рядом.
+    """
+
+    faces = []
+    for index, named in enumerate(covered.faces):
+        if index >= len(contours):
+            break
+        contour = contours[index]
+        if contour.owner != named.owner or len(contour.points) < 3:
+            continue
+        owner = tuple(int(item) for item in named.owner)
+        span = undirected_span(owner)
+        faces.append(
+            CoveredFaceV1(
+                region_id=named.region_id,
+                owner=owner,
+                envelope_spec_id=str(named.envelope_spec_id),
+                envelope_instance_id=named.envelope_instance_id,
+                points=tuple(contour.points),
+                doubled_area=named.doubled_area,
+                source_chain_id=(None if span is None else spans.get(span)),
+            )
+        )
+    return faces
+
+
+def test_a_clean_region_balances_and_loses_nothing():
+    covered = SimpleNamespace(faces=(_named(LEFT), _named(RIGHT)))
+    contours = (_contour(LEFT, SQUARE), _contour(RIGHT, SQUARE))
+    faces, match = match_region_faces(covered, contours, {})
+
+    assert [item.owner for item in faces] == [LEFT, RIGHT]
+    assert (match.faces_in, match.matched, match.empty_after_clip) == (2, 2, 0)
+    assert match.lost_total == 0 and match.balanced
+    # Ноль потери — измерение: все причины названы и равны нулю.
+    assert dict(match.lost) == {name: 0 for name in FACE_LOSS_REASONS}
+    assert match.loss_counters() == ()
+
+
+def test_a_face_behind_the_front_is_empty_not_lost():
+    """Контур короче трёх точек И площадь ровно ноль — законная судьба."""
+
+    covered = SimpleNamespace(faces=(_named(LEFT), _named(RIGHT, area=0)))
+    contours = (_contour(LEFT, SQUARE), _contour(RIGHT, ()))
+    faces, match = match_region_faces(covered, contours, {})
+
+    assert [item.owner for item in faces] == [LEFT]
+    assert match.empty_after_clip == 1 and match.lost_total == 0
+    assert match.balanced
+    assert match.loss_counters() == ()
+
+
+def test_every_way_to_lose_a_face_is_counted_under_its_own_name():
+    # Хвост без контуров, разошедшийся владелец, короткий контур с площадью.
+    covered = SimpleNamespace(
+        faces=(_named(LEFT), _named(RIGHT), _named((4, 0, 6, 0)), _named((6, 0, 8, 0)))
+    )
+    contours = (
+        _contour(LEFT, SQUARE),
+        _contour((9, 9, 9, 9), SQUARE),
+        _contour((4, 0, 6, 0), ((4, 0), (6, 0))),
+    )
+    faces, match = match_region_faces(covered, contours, {})
+
+    assert [item.owner for item in faces] == [LEFT]
+    assert dict(match.lost) == {
+        "CONTOUR_MISSING": 1,
+        "OWNER_MISMATCH": 1,
+        "SHORT_CONTOUR_WITH_AREA": 1,
+    }
+    assert match.faces_in == 4 and match.lost_faces == 3 and match.balanced
+    assert {name for name, _owner in match.lost_owners} == set(FACE_LOSS_REASONS)
+    counters = dict(match.counters())
+    assert counters["MATERIALIZE_FACES_IN"] == 4
+    assert counters["MATERIALIZE_FACES_LOST"] == 3
+    assert counters["MATERIALIZE_FACES_LOST_OWNER_MISMATCH"] == 1
+    # Для отладки потеря называется ЧИСЛОМ, и только когда она есть.
+    assert dict(match.loss_counters())["MATERIALIZE_FACES_LOST"] == 3
+
+
+def test_a_surplus_contour_is_named_but_is_not_a_coverage_face():
+    covered = SimpleNamespace(faces=(_named(LEFT),))
+    contours = (_contour(LEFT, SQUARE), _contour(RIGHT, SQUARE), _contour(RIGHT, ()))
+    _faces, match = match_region_faces(covered, contours, {})
+
+    assert match.surplus_contours == 1
+    assert match.lost_faces == 0 and match.lost_total == 1
+    # Лишний контур не часть баланса `faces_in`: это не грань покрытия.
+    assert match.balanced
+    assert dict(match.counters())["MATERIALIZE_CONTOURS_WITHOUT_FACE"] == 1
+
+
+def test_the_debug_faces_are_exactly_the_legacy_loop_with_or_without_losses():
+    """Отладочный путь не изменился ни на грань: сравнение с замороженным циклом."""
+
+    spans = {undirected_span(LEFT): "chain:one"}
+    cases = (
+        (
+            SimpleNamespace(faces=(_named(LEFT), _named(RIGHT))),
+            (_contour(LEFT, SQUARE), _contour(RIGHT, SQUARE)),
+        ),
+        (
+            SimpleNamespace(faces=(_named(LEFT), _named(RIGHT, area=0))),
+            (_contour(LEFT, SQUARE), _contour(RIGHT, ())),
+        ),
+        (
+            SimpleNamespace(faces=(_named(LEFT), _named(RIGHT), _named((4, 0, 6, 0)))),
+            (_contour(LEFT, SQUARE), _contour((9, 9, 9, 9), SQUARE)),
+        ),
+        (SimpleNamespace(faces=(_named(LEFT),)), ()),
+        (SimpleNamespace(faces=()), (_contour(LEFT, SQUARE),)),
+    )
+    for covered, contours in cases:
+        faces, match = match_region_faces(covered, contours, spans)
+        assert faces == _legacy_covered_faces(covered, contours, spans)
+        assert match.balanced
+
+
+def test_match_sums_are_elementwise_and_keep_the_balance():
+    left = FaceMatchV1(faces_in=3, matched=2, empty_after_clip=1)
+    right = FaceMatchV1(
+        faces_in=2,
+        matched=1,
+        lost=(
+            ("CONTOUR_MISSING", 1),
+            ("OWNER_MISMATCH", 0),
+            ("SHORT_CONTOUR_WITH_AREA", 0),
+        ),
+        lost_owners=(("CONTOUR_MISSING", (1, 2, 3, 4)),),
+    )
+    total = left + right
+    assert (total.faces_in, total.matched, total.empty_after_clip) == (5, 3, 1)
+    assert total.lost_faces == 1 and total.balanced
+    assert "CONTOUR_MISSING=1" in total.describe_losses()
+    assert "(1, 2, 3, 4)" in total.describe_losses()

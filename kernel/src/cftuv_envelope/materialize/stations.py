@@ -44,7 +44,32 @@ from ..wavefront.conveyor import _region_loops
 from .coalesce import integer_line_class, undirected_span
 
 
-def region_lattice_loops(prepared):
+#: Почему станция чего-то НЕ вывелась. Каждая причина — отдельное число таблицы
+#: (`STATION_SKIP_<ПРИЧИНА>`, с нулями) и строка в `ChainStationTableV1.skips`:
+#: до этого пропуск приходил позже отказом `STATION_CHAIN_UNNAMED` без причины.
+SKIP_DOMAIN_MISSING = "DOMAIN_MISSING"
+SKIP_REGION_LOOPS_UNREADABLE = "REGION_LOOPS_UNREADABLE"
+SKIP_REGION_LATTICE_IMAGE_FAILED = "REGION_LATTICE_IMAGE_FAILED"
+SKIP_REGION_NODE_COUNT_MISMATCH = "REGION_NODE_COUNT_MISMATCH"
+SKIP_LOOP_SEGMENT_COUNT_MISMATCH = "LOOP_SEGMENT_COUNT_MISMATCH"
+SKIP_EDGE_PROVENANCE_AMBIGUOUS = "EDGE_PROVENANCE_AMBIGUOUS"
+SKIP_USE_NOT_IN_SNAPSHOT = "CHAIN_USE_NOT_IN_SNAPSHOT"
+SKIP_USE_EDGE_VERTEX_UNNAMED = "USE_EDGE_VERTEX_UNNAMED"
+SKIP_USE_EDGE_PAIR_UNRESOLVED = "USE_EDGE_PAIR_UNRESOLVED"
+STATION_SKIP_REASONS = (
+    SKIP_DOMAIN_MISSING,
+    SKIP_REGION_LOOPS_UNREADABLE,
+    SKIP_REGION_LATTICE_IMAGE_FAILED,
+    SKIP_REGION_NODE_COUNT_MISMATCH,
+    SKIP_LOOP_SEGMENT_COUNT_MISMATCH,
+    SKIP_EDGE_PROVENANCE_AMBIGUOUS,
+    SKIP_USE_NOT_IN_SNAPSHOT,
+    SKIP_USE_EDGE_VERTEX_UNNAMED,
+    SKIP_USE_EDGE_PAIR_UNRESOLVED,
+)
+
+
+def region_lattice_loops(prepared, skips: list | None = None):
     """Регионы домена с их решёточными петлями: `(регион, источники, узлы)`.
 
     Решёточный образ берётся ТЕМИ ЖЕ функциями ядра (`_region_loops` и
@@ -54,20 +79,33 @@ def region_lattice_loops(prepared):
     означало бы получать другой ответ на другом масштабе.
 
     Регион, у которого петли не читаются либо число узлов не совпало с числом
-    источников, пропускается: отсутствие записи — тоже ответ потребителя.
+    источников, пропускается — и пропуск НАЗЫВАЕТСЯ: если задан `skips`, в него
+    ложится `(регион, причина)`. Без `skips` поведение прежнее (так зовёт
+    отладочный хост): молчаливым пропуск быть перестаёт только там, где есть
+    кому его прочесть.
     """
 
     domain = getattr(prepared, "domain", None)
     if domain is None:
+        if skips is not None:
+            skips.append(("domain", SKIP_DOMAIN_MISSING))
         return
     lattice = getattr(prepared, "lattice", None)
     for region in domain.domain_regions:
         loops, _issue = _region_loops(region)
         if loops is None:
+            if skips is not None:
+                skips.append((region.region_id, SKIP_REGION_LOOPS_UNREADABLE))
             continue
         lattice_loops, _off_lattice, _residual = _lattice_image(loops, lattice)
         sources = (region.outer, *region.holes)
-        if lattice_loops is None or len(lattice_loops) != len(sources):
+        if lattice_loops is None:
+            if skips is not None:
+                skips.append((region.region_id, SKIP_REGION_LATTICE_IMAGE_FAILED))
+            continue
+        if len(lattice_loops) != len(sources):
+            if skips is not None:
+                skips.append((region.region_id, SKIP_REGION_NODE_COUNT_MISMATCH))
             continue
         yield region, sources, lattice_loops
 
@@ -196,6 +234,19 @@ class ChainStationTableV1:
     #: петли домена. Не отказ, а диагностика `U_RESTARTS_AT_DOMAIN_BORDER`.
     restart_chain_ids: frozenset[str] = frozenset()
     counters: tuple[tuple[str, int], ...] = field(default=(), compare=False)
+    #: Всё, что станция НЕ вывела, с причиной: `(где, причина)`. «Где» — регион,
+    #: петля либо `ChainUse`. Нужны затем, что отказ `STATION_CHAIN_UNNAMED`
+    #: приходит с грани и сам причины не знает.
+    skips: tuple[tuple[str, str], ...] = ()
+
+    def skip_text(self) -> str:
+        """Хвост для детали отказа: первые пропуски поимённо, либо пустая строка."""
+
+        if not self.skips:
+            return ""
+        shown = ", ".join(f"{where}:{reason}" for where, reason in self.skips[:6])
+        more = len(self.skips) - 6
+        return f"; station skips: {shown}" + (f" (+{more} more)" if more > 0 else "")
 
     def edge_of_owner(self, region_id: str, owner):
         """Ребро петли по ключу владельца либо `None`.
@@ -273,19 +324,28 @@ class _LoopEdge:
     physical_edge_id: str
 
 
-def _collect_loops(prepared):
-    """Рёбра петель с их `ChainUse`, углы петель и узлы с именами вершин."""
+def _collect_loops(prepared, skips: list | None = None):
+    """Рёбра петель с их `ChainUse`, углы петель и узлы с именами вершин.
+
+    `skips` — куда ложатся названные пропуски (регион, петля, ребро без
+    единственного провенанса): станции для них не будет, и причина должна
+    остаться читаемой, а не раствориться в позднем `STATION_CHAIN_UNNAMED`.
+    """
 
     by_use: dict[str, list[_LoopEdge]] = {}
     corners: dict = {}
     node_ids: dict = {}
-    for region, sources, lattice_loops in region_lattice_loops(prepared):
+    for region, sources, lattice_loops in region_lattice_loops(prepared, skips):
         rid = region.region_id
         for loop_index, source in enumerate(sources):
             nodes = [tuple(node) for node in lattice_loops[loop_index]]
             segments = source.segments
             size = len(nodes)
             if len(segments) != size:
+                if skips is not None:
+                    skips.append(
+                        (f"{rid}/loop{loop_index}", SKIP_LOOP_SEGMENT_COUNT_MISMATCH)
+                    )
                 continue
             keys = [
                 (
@@ -319,6 +379,15 @@ def _collect_loops(prepared):
                 chain_id = _single(provenance.physical_chain_ids)
                 edge_id = _single(provenance.physical_edge_ids)
                 if use_id is None or chain_id is None or edge_id is None:
+                    # Ребро стены `ChainUse` не называет вовсе, и это штатно.
+                    # Пропуском считается только ребро, у которого `ChainUse`
+                    # ЕСТЬ, а единственной тройки (использование, цепь, ребро)
+                    # из провенанса не вышло: станцию такому ребру взять негде.
+                    if skips is not None and provenance.chain_use_ids:
+                        skips.append(
+                            (f"{rid}/loop{loop_index}/edge{index}",
+                             SKIP_EDGE_PROVENANCE_AMBIGUOUS)
+                        )
                     continue
                 by_use.setdefault(use_id, []).append(
                     _LoopEdge(
@@ -355,14 +424,16 @@ def _pair_index(vertices, closed: bool):
     return index, len(pairs)
 
 
-def _ordered_use_edges(context, chain_use, edges):
-    """Рёбра `ChainUse` в порядке обхода: `[(ребро, вперёд?, рестарт?), ...]`.
+def _order_or_reason(context, chain_use, edges):
+    """Рёбра `ChainUse` в порядке обхода и причина отказа: `(ordered, reason)`.
 
-    `None` — пара вершин неоднозначна либо ребро названо дважды: станцию из
-    такого входа выдавать нельзя. Ребро цепи, которого В ПЕТЛЕ ДОМЕНА НЕТ (цепь
-    выходит за границу домена), НЕ отказ: накопление длины на таком месте
-    начинается заново, и это названо флагом `рестарт` — материализатор
-    выставляет диагностику `U_RESTARTS_AT_DOMAIN_BORDER`, а не молчит.
+    `ordered` — `[(ребро, вперёд?, рестарт?), ...]`; `None` — пара вершин
+    неоднозначна либо ребро названо дважды, и тогда `reason` называет, какое из
+    двух: станцию из такого входа выдавать нельзя. Ребро цепи, которого В ПЕТЛЕ
+    ДОМЕНА НЕТ (цепь выходит за границу домена), НЕ отказ: накопление длины на
+    таком месте начинается заново, и это названо флагом `рестарт` —
+    материализатор выставляет диагностику `U_RESTARTS_AT_DOMAIN_BORDER`, а не
+    молчит.
     """
 
     chain = context.chains_by_id[chain_use.physical_chain_id]
@@ -371,10 +442,10 @@ def _ordered_use_edges(context, chain_use, edges):
     placed: dict[int, tuple] = {}
     for edge in edges:
         if edge.start_vertex_id is None or edge.end_vertex_id is None:
-            return None
+            return None, SKIP_USE_EDGE_VERTEX_UNNAMED
         slot = index.get((edge.start_vertex_id, edge.end_vertex_id))
         if slot is None or slot[0] in placed:
-            return None
+            return None, SKIP_USE_EDGE_PAIR_UNRESOLVED
         placed[slot[0]] = (edge, slot[1])
     ordered = []
     previous = -1
@@ -382,7 +453,7 @@ def _ordered_use_edges(context, chain_use, edges):
         edge, forward = placed[position]
         ordered.append((edge, forward, position != previous + 1))
         previous = position
-    return ordered
+    return ordered, ""
 
 
 def _use_runs(chain_use, chain, ordered, gram, budget):
@@ -483,7 +554,8 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
     context = prepared.context
     gram = _gram_of(context.frame)
     scale = int(prepared.lattice.scale) if prepared.lattice is not None else 1
-    by_use, corners, node_ids = _collect_loops(prepared)
+    skips: list[tuple[str, str]] = []
+    by_use, corners, node_ids = _collect_loops(prepared, skips)
     uses = {key.value: use for key, use in context.uses_by_id.items()}
     runs: dict[str, StationRunV1] = {}
     edges: dict = {}
@@ -492,13 +564,13 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
     for use_id in sorted(by_use):
         loop_edges = by_use[use_id]
         chain_use = uses.get(use_id)
-        ordered = (
-            None
-            if chain_use is None
-            else _ordered_use_edges(context, chain_use, loop_edges)
-        )
+        if chain_use is None:
+            ordered, reason = None, SKIP_USE_NOT_IN_SNAPSHOT
+        else:
+            ordered, reason = _order_or_reason(context, chain_use, loop_edges)
         if ordered is None:
             unnamed.update(item.chain_id for item in loop_edges)
+            skips.append((use_id, reason))
             continue
         chain = context.chains_by_id[chain_use.physical_chain_id]
         if any(item[2] for item in ordered[1:]) or ordered[0][2]:
@@ -520,7 +592,16 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
             ("STATION_EDGES", len(edges)),
             ("STATION_UNNAMED_CHAINS", len(unnamed)),
             ("STATION_RESTART_CHAINS", len(restarted)),
+            ("STATION_SKIPS", len(skips)),
+            *(
+                (
+                    f"STATION_SKIP_{reason}",
+                    sum(1 for _where, name in skips if name == reason),
+                )
+                for reason in STATION_SKIP_REASONS
+            ),
         ),
+        skips=tuple(skips),
     )
 
 

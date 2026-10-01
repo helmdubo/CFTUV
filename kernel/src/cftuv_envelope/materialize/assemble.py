@@ -23,7 +23,15 @@
 from __future__ import annotations
 
 from collections import Counter
-from decimal import Decimal, localcontext
+from decimal import (
+    ROUND_HALF_EVEN,
+    Context,
+    Decimal,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+    localcontext,
+)
 from fractions import Fraction
 
 from ..contracts.geometry_batch import (
@@ -70,19 +78,35 @@ from ..wavefront.faces import doubled_shoelace
 #: кодек читает `Decimal`: больше цифр кодек молча обрезал бы на круговом проходе.
 DECIMAL_DIGITS = 28
 
+#: Десятичный контекст ЗАДАН целиком, а не унаследован от окружения: до этого
+#: ставилась одна `prec`, а округление, границы порядка и ловушки брались у
+#: процесса, то есть ответ материализатора зависел от того, кто вызвал его до
+#: нас (хост, тест, чужой аддон в том же интерпретаторе). Значения — штатные
+#: значения Python; важно, что они теперь написаны здесь.
+DECIMAL_CONTEXT = Context(
+    prec=DECIMAL_DIGITS,
+    rounding=ROUND_HALF_EVEN,
+    Emin=-999999,
+    Emax=999999,
+    capitals=1,
+    clamp=0,
+    flags=[],
+    traps=[InvalidOperation, DivisionByZero, Overflow],
+)
+
 
 def decimal_of(value: SqrtSumV1, divisor: int) -> Decimal:
     """`value / divisor` как `Decimal` из середины строгой оболочки.
 
-    Детерминированно: 28 значащих цифр в ЛОКАЛЬНОМ контексте, середина
-    оболочки на `ENCLOSURE_BITS` разрядах. Рациональное с конечной десятичной
-    записью проходит без шума.
+    Детерминированно: ЗАДАННЫЙ контекст `DECIMAL_CONTEXT` (копия на время
+    деления), середина оболочки на `ENCLOSURE_BITS` разрядах. Рациональное с
+    конечной десятичной записью проходит без шума. `Decimal(int)` точен при
+    любом контексте, поэтому от контекста зависит только само деление.
     """
 
     low, high = value.scaled(Fraction(1, divisor)).enclosure(ENCLOSURE_BITS)
     middle = (low + high) / 2
-    with localcontext() as context:
-        context.prec = DECIMAL_DIGITS
+    with localcontext(DECIMAL_CONTEXT):
         return Decimal(middle.numerator) / Decimal(middle.denominator)
 
 
@@ -106,36 +130,70 @@ def _cycle(keys_and_points):
     return out
 
 
-def intern_vertices(items, table: ChainStationTableV1):
+#: Имя вершины исходника, которое сварка точек отбросила: точка уже получила
+#: другой ключ, а второй регион называет её другой исходной вершиной.
+SOURCE_VERTEX_NAME_DROPPED = "SOURCE_VERTEX_NAME_DROPPED"
+
+
+def intern_vertices(items, table: ChainStationTableV1, notes: list | None = None):
     """Ключи вершин по точкам контуров: `([цикл граней], {ключ: точка})`.
 
     `items` — `[(region_id, FrameFaceV1)]`. Порядок ключей `node:` — порядок
     первого появления точки при обходе граней и их вершин.
+
+    ИМЯ `src:` берётся у ПЕРВОГО региона, который точку назвал, и этот выбор
+    теперь не молчит. Две вещи, на которые он способен, названы:
+
+    * та же точка, а другой регион называет её ДРУГОЙ исходной вершиной (либо
+      первый назвать не смог и точка получила `node:`) — имя второй вершины
+      сваркой отброшено; в `notes` ложится строка `SOURCE_VERTEX_NAME_DROPPED`
+      (по одной на пару «точка, имя»), и число этих строк — счётчик
+      материализатора. Меш при этом остаётся одним: сварка точек — решение, а
+      не ошибка, ошибкой было бы его не заметить;
+    * ДВЕ РАЗНЫЕ точки под одним именем `src:` — это уже не потеря имени, а
+      слипшаяся геометрия (прежний код молча перезаписывал точку ключа), и это
+      именованный отказ `VERTEX_KEY_COLLISION`.
     """
 
     interned: dict = {}
     points: dict[str, tuple] = {}
     counter = 0
     cycles = []
+    reported: set = set()
     for region_id, frame_face in items:
         pairs = []
         for point in frame_face.face.points:
             pk = point_key(point)
+            node = _lattice_node(point)
+            vertex_id = (
+                None if node is None else table.node_vertex_ids.get((region_id, node))
+            )
             key = interned.get(pk)
             if key is None:
-                node = _lattice_node(point)
-                vertex_id = (
-                    None
-                    if node is None
-                    else table.node_vertex_ids.get((region_id, node))
-                )
                 if vertex_id is not None:
                     key = f"src:{vertex_id}"
+                    if key in points:
+                        raise MaterializationRefusal(
+                            MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
+                            f"VERTEX_KEY_COLLISION: {key} names two different "
+                            f"points (region {region_id}, node {node})",
+                        )
                 else:
                     key = f"node:{counter}"
                     counter += 1
                 interned[pk] = key
                 points[key] = point
+            elif (
+                notes is not None
+                and vertex_id is not None
+                and key != f"src:{vertex_id}"
+                and (pk, vertex_id) not in reported
+            ):
+                reported.add((pk, vertex_id))
+                notes.append(
+                    f"{SOURCE_VERTEX_NAME_DROPPED}: {vertex_id} at node {node} of "
+                    f"region {region_id} is welded into {key}"
+                )
             pairs.append((key, point))
         cycles.append(_cycle(pairs))
     return cycles, points
