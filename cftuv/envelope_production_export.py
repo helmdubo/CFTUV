@@ -111,6 +111,12 @@ class ProductionDomainResultV1:
     normal: tuple[float, float, float] | None = None
     content_digest: str = ""
     diagnostics: tuple[str, ...] = ()
+    #: Нормаль первой исходной грани владельца (то, что видит источник) —
+    #: свидетельство для именованной проверки хоста `normal . source_normal > 0`.
+    source_normal: tuple[float, float, float] | None = None
+    #: Ориентация карты домена (`AffineChartOrientationV1.value`): от неё зависят
+    #: обход треугольников и знак нормали, поэтому она идёт в сводку зонда.
+    chart_orientation: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
 
@@ -129,6 +135,22 @@ def _refusal(patch_id, domain_id, outcome, detail, seconds=0.0, placement=PLACEM
         seconds=seconds,
         placement=placement,
     )
+
+
+def _source_normal(prepared):
+    """Нормаль первой (по имени) исходной грани патча-владельца либо `None`."""
+
+    owner = prepared.compilation.owner_patch_id
+    faces = sorted(
+        (
+            item
+            for item in prepared.context.snapshot.surface_ir.source_faces
+            if item.patch_id == owner
+        ),
+        key=lambda item: item.face_id.value,
+    )
+    normal = faces[0].polygon_normal if faces else None
+    return None if normal is None else (normal.x, normal.y, normal.z)
 
 
 def produce_domain(
@@ -202,6 +224,8 @@ def produce_domain(
             normal=(normal.x, normal.y, normal.z),
             content_digest=result.content_digest,
             diagnostics=tuple(result.diagnostics),
+            source_normal=_source_normal(prepared),
+            chart_orientation=str(prepared.context.frame.chart_orientation.value),
             seconds=time.perf_counter() - started,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
@@ -558,20 +582,74 @@ def refused_outcome_counts(results) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def production_status_text(results) -> str:
-    """Строка панели: `MATERIALIZED n / refused m (OUTCOME x2, OTHER)`."""
+def _outcome_counts(rows) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for _patch, _domain, outcome, _detail in rows:
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return dict(sorted(counts.items()))
 
-    results = tuple(results)
-    done = sum(1 for item in results if item.is_materialized)
-    refused = len(results) - done
-    text = f"MATERIALIZED {done} / refused {refused}"
-    counts = refused_outcome_counts(results)
+
+def _status_text(written: int, rows, warnings=()) -> str:
+    """`MATERIALIZED n / refused m (OUTCOME x2, OTHER)` и, если есть, `| warnings`."""
+
+    rows = tuple(rows)
+    text = f"MATERIALIZED {written} / refused {len(rows)}"
+    counts = _outcome_counts(rows)
     if counts:
         text += " (" + ", ".join(
             name if count == 1 else f"{name} x{count}"
             for name, count in counts.items()
         ) + ")"
+    names: dict[str, int] = {}
+    for _patch, outcome, _detail in warnings:
+        names[outcome] = names.get(outcome, 0) + 1
+    if names:
+        text += " | warnings: " + ", ".join(
+            name if count == 1 else f"{name} x{count}"
+            for name, count in sorted(names.items())
+        )
     return text
+
+
+def _refused_rows(results):
+    return [
+        (item.patch_id, item.domain_id, item.outcome, item.detail)
+        for item in results
+        if not item.is_materialized
+    ]
+
+
+def production_status_text(results) -> str:
+    """Строка по результатам ПРОДУКТОВОГО пути (до записи меша)."""
+
+    results = tuple(results)
+    return _status_text(
+        sum(1 for item in results if item.is_materialized), _refused_rows(results)
+    )
+
+
+def receipt_status_text(receipt) -> str:
+    """Строка панели по КВИТАНЦИИ записи: сколько домен лежит в меше, а остальное названо.
+
+    Пропуск писателя (`ADAPTER_*`) стоит в ней наравне с отказом продуктового
+    пути: домен, которого нет в меше, не может молчать по любой из причин.
+    """
+
+    return _status_text(len(receipt.domains), receipt.skipped, receipt.warnings)
+
+
+def receipt_report_level(receipt) -> str:
+    """`WARNING`, если хоть один домен не в меше (по любой причине) либо есть находка; иначе `INFO`."""
+
+    return "WARNING" if receipt.skipped or receipt.warnings else "INFO"
+
+
+def _row_line(kind, patch_id, domain_id, outcome, detail) -> str:
+    return (
+        f"[CFTUV][Production] {kind} patch {patch_id} "
+        f"(domain ...{str(domain_id)[-6:]}): {outcome}"
+        + (f": {detail}" if detail else "")
+    )
 
 
 def production_console_lines(results) -> list[str]:
@@ -579,13 +657,43 @@ def production_console_lines(results) -> list[str]:
 
     results = tuple(results)
     lines = [
-        f"[CFTUV][Production] REFUSED patch {item.patch_id} "
-        f"(domain ...{item.domain_id[-6:]}): {item.outcome}"
-        + (f": {item.detail}" if item.detail else "")
-        for item in results
-        if not item.is_materialized
+        _row_line("REFUSED", *row) for row in _refused_rows(results)
     ]
     lines.append(f"[CFTUV][Production] {production_status_text(results)}")
+    return lines
+
+
+def diagnostic_summary_lines(results) -> list[str]:
+    """Диагностики батчей (`NEAR_PLANAR_...`, `U_RESTARTS_...`) по именам: сколько доменов и каких."""
+
+    found: dict[str, list[int]] = {}
+    for item in results:
+        for line in item.diagnostics:
+            found.setdefault(line.split(":", 1)[0], []).append(item.patch_id)
+    lines = []
+    for name, patches in sorted(found.items()):
+        shown = sorted(set(patches))
+        tail = ", ".join(str(item) for item in shown[:12])
+        more = f", ... (+{len(shown) - 12})" if len(shown) > 12 else ""
+        lines.append(
+            f"[CFTUV][Production] DIAGNOSTIC {name}: {len(patches)} in "
+            f"{len(shown)} domains (patch {tail}{more})"
+        )
+    return lines
+
+
+def receipt_console_lines(receipt, results) -> list[str]:
+    """Консольная сводка квитанции: каждый пропущенный домен, предупреждения, диагностики, итог."""
+
+    lines = [_row_line("REFUSED", *row) for row in receipt.skipped]
+    for patch_id, outcome, detail in receipt.warnings:
+        where = "mesh" if patch_id is None else f"patch {patch_id}"
+        lines.append(
+            f"[CFTUV][Production] WARNING {where}: {outcome}"
+            + (f": {detail}" if detail else "")
+        )
+    lines.extend(diagnostic_summary_lines(results))
+    lines.append(f"[CFTUV][Production] {receipt_status_text(receipt)}")
     return lines
 
 
@@ -662,9 +770,13 @@ __all__ = (
     "ProductionDomainResultV1",
     "ProductionInputV1",
     "ProductionRunV1",
+    "diagnostic_summary_lines",
     "export_production_json",
     "produce_domain",
     "production_console_lines",
+    "receipt_console_lines",
+    "receipt_report_level",
+    "receipt_status_text",
     "production_status_text",
     "production_timing_text",
     "refused_outcome_counts",

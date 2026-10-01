@@ -94,7 +94,7 @@ class _Mesh:
     @name.setter
     def name(self, value):
         if self._registry is not None:
-            self._registry.rename(self._name, value)
+            value = self._registry.rename(self._name, value)
         self._name = value
 
     def from_pydata(self, vertices, edges, faces):
@@ -191,10 +191,12 @@ class _Registry:
         self._factory = factory
 
     def new(self, name, *args):
+        # Blender режет имя ID до 63 байт и дописывает `.001` при коллизии.
+        name = name.encode("utf-8")[:63].decode("utf-8", "ignore")
         base, number = name, 0
         while name in self._items:
             number += 1
-            name = f"{base}.{number:03d}"
+            name = f"{base.encode('utf-8')[:59].decode('utf-8', 'ignore')}.{number:03d}"
         item = self._factory(name, *args)
         item.name = name
         self.add(item)
@@ -206,9 +208,17 @@ class _Registry:
             item._registry = self
 
     def rename(self, old, new):
-        # Blender дописывает `.001` занятому имени; тест держит имя свободным.
-        assert new not in self._items, f"name {new!r} is taken"
+        """Как Blender: занятое имя получает `.001`; возвращает итоговое имя."""
+
+        new = new.encode("utf-8")[:63].decode("utf-8", "ignore")
+        if new == old:
+            return new
+        base, number = new, 0
+        while new in self._items:
+            number += 1
+            new = f"{base.encode('utf-8')[:59].decode('utf-8', 'ignore')}.{number:03d}"
         self._items[new] = self._items.pop(old)
+        return new
 
     def get(self, name):
         return self._items.get(name)
@@ -223,13 +233,22 @@ class _Registry:
         return iter(self._items.values())
 
 
+class _Coll:
+    """Коллекция: `objects.link` помнит объект, а объект помнит коллекцию."""
+
+    def __init__(self):
+        self.linked = []
+        self.objects = SimpleNamespace(link=self._link)
+
+    def _link(self, item):
+        self.linked.append(item)
+        item.users_collection = tuple(item.users_collection) + (self,)
+
+
 class _Scene:
     def __init__(self):
-        linked = []
-        self.linked = linked
-        self.collection = SimpleNamespace(
-            objects=SimpleNamespace(link=linked.append)
-        )
+        self.collection = _Coll()
+        self.linked = self.collection.linked
 
 
 def _fake_bpy():
@@ -304,7 +323,16 @@ def field_result():
     return result
 
 
-def _fake_domain(patch_id, vertices, faces, *, normal=(0.0, 0.0, 1.0), seams=()):
+def _fake_domain(
+    patch_id,
+    vertices,
+    faces,
+    *,
+    normal=(0.0, 0.0, 1.0),
+    seams=(),
+    source_normal=(0.0, 0.0, 1.0),
+    counters=(),
+):
     """Батч минимального вида: только то, что читает писатель."""
 
     def vertex(key, xyz):
@@ -336,7 +364,13 @@ def _fake_domain(patch_id, vertices, faces, *, normal=(0.0, 0.0, 1.0), seams=())
         source_revision=SimpleNamespace(value="rev"),
     )
     return ProductionDomainResultV1(
-        patch_id, f"domain{patch_id}", MATERIALIZED, batch, normal=normal
+        patch_id,
+        f"domain{patch_id}",
+        MATERIALIZED,
+        batch,
+        normal=normal,
+        source_normal=source_normal,
+        counters=counters,
     )
 
 
@@ -545,13 +579,12 @@ def test_one_child_object_holds_every_domain_with_uv_attributes_and_one_material
 
 def test_the_object_is_a_child_in_the_collection_of_its_source(fake_bpy, row_results):
     source = _source(fake_bpy)
-    collection = SimpleNamespace(objects=SimpleNamespace(link=lambda item: seen.append(item)))
-    seen: list = []
+    collection = _Coll()
     source.users_collection = (collection,)
 
     write_decal_object(source, row_results, offset=0.0, material_name="M")
 
-    assert len(seen) == 1 and fake_bpy.context.scene.linked == []
+    assert len(collection.linked) == 1 and fake_bpy.context.scene.linked == []
 
 
 def test_a_rebuild_is_idempotent_one_object_one_mesh_one_material(fake_bpy, row_results):
@@ -720,3 +753,273 @@ def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatc
     absent = _Layout()
     draw_decal_mesh_rows(absent)
     assert absent.calls == []
+
+
+# --------------------------------------------------------------------------
+# Аудит среза 4: имена ID, швы, нормаль источника, предупреждения, статус
+# --------------------------------------------------------------------------
+
+
+def _decal_objects(bpy):
+    return [item for item in bpy.data.objects if DECAL_REVISION_PROPERTY in item.keys()]
+
+
+def test_a_decal_name_is_clipped_to_the_blender_limit_on_a_character_boundary():
+    from cftuv.envelope_production_mesh import DECAL_OBJECT_SUFFIX, ID_NAME_LIMIT_BYTES
+
+    for source in ("S" * 60, "Ж" * 40, "short"):
+        name = decal_object_name(source)
+        assert len(name.encode("utf-8")) <= ID_NAME_LIMIT_BYTES, source
+        assert name.endswith(DECAL_OBJECT_SUFFIX)
+    assert decal_object_name("short") == "short.CFTUV_Decal"
+    clipped = decal_object_name("Ж" * 40)
+    assert clipped[: -len(DECAL_OBJECT_SUFFIX)] == "Ж" * 25  # 50 байт + 12 суффикса
+
+
+def test_a_long_source_name_never_multiplies_the_decal_object(fake_bpy, row_results):
+    source = _source(fake_bpy, "S" * 60)
+    wanted = decal_object_name(source.name)
+    assert len(wanted.encode("utf-8")) <= 63 and wanted != source.name + ".CFTUV_Decal"
+
+    first = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    again = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert first.object_name == again.object_name == wanted
+    assert not first.replaced and again.replaced
+    assert len(_decal_objects(fake_bpy)) == 1
+    assert again.mesh_digest == first.mesh_digest
+    assert again.warnings == ()
+
+
+def test_two_sources_whose_clipped_names_collide_keep_one_decal_each(fake_bpy, row_results):
+    first = _source(fake_bpy, "S" * 60 + "A")
+    second = _source(fake_bpy, "S" * 60 + "B")
+
+    for _ in range(2):
+        write_decal_object(first, row_results, offset=0.0, material_name="M")
+        write_decal_object(second, row_results, offset=0.0, material_name="M")
+
+    decals = _decal_objects(fake_bpy)
+    assert len(decals) == 2
+    assert {item.parent.name for item in decals} == {first.name, second.name}
+    # Имя второго Blender разрешил суффиксом: оба нажатия нашли СВОЙ объект по маркеру.
+    assert sum(item.name.endswith(".001") for item in decals) == 1
+
+
+def test_the_decal_is_found_by_its_marker_after_the_owner_renames_either_object(
+    fake_bpy, row_results
+):
+    source = _source(fake_bpy)
+    first = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    decal = fake_bpy.data.objects.get(first.object_name)
+    fake_bpy.data.objects.rename(decal.name, "MyOwnName")
+    decal.name = "MyOwnName"
+
+    second = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert second.replaced and second.object_name == "MyOwnName"
+    assert len(_decal_objects(fake_bpy)) == 1
+    # Переименованный источник: родитель переживает переименование, метка обновляется.
+    fake_bpy.data.objects.rename(source.name, "Renamed")
+    source.name = "Renamed"
+    third = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    assert third.replaced and len(_decal_objects(fake_bpy)) == 1
+    assert decal["cftuv_source_object"] == "Renamed"
+
+
+def test_two_decals_of_one_source_are_named_and_only_one_is_rebuilt(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    first = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    stray_mesh = fake_bpy.data.meshes.new("Stray")
+    stray = _Object("Stray.CFTUV_Decal", stray_mesh)
+    stray["cftuv_source_revision"] = "old"
+    stray.parent = source
+    fake_bpy.data.objects.add(stray)
+
+    receipt = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert receipt.object_name == first.object_name
+    assert [item[1] for item in receipt.warnings] == [writer.OUTCOME_DUPLICATE_DECALS]
+    assert stray["cftuv_source_revision"] == "old" and stray.data is stray_mesh
+
+
+def test_a_parent_or_collection_that_drifted_is_restored_and_named(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    home = _Coll()
+    source.users_collection = (home,)
+    first = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    decal = fake_bpy.data.objects.get(first.object_name)
+    assert first.warnings == () and decal.users_collection == (home,)
+    decal.parent = None
+    decal.users_collection = ()
+
+    second = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert decal.parent is source and decal.users_collection == (home,)
+    assert {item[1] for item in second.warnings} == {
+        writer.OUTCOME_PARENT_REASSERTED,
+        writer.OUTCOME_COLLECTION_REASSERTED,
+    }
+
+
+def test_a_shared_mesh_datablock_is_kept_and_named(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    first = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    decal = fake_bpy.data.objects.get(first.object_name)
+    twin = _Object("Twin", decal.data)
+    fake_bpy.data.objects.add(twin)
+    assert decal.data.users == 2
+
+    second = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert [item[1] for item in second.warnings] == [writer.OUTCOME_MESH_SHARED]
+    assert twin.data is not decal.data and twin.data.users == 1
+    assert second.mesh_name == decal.data.name
+
+
+def test_an_orphan_mesh_with_the_decal_name_does_not_leak_a_suffix(fake_bpy, row_results):
+    source = _source(fake_bpy)
+    orphan = fake_bpy.data.meshes.new("Source.CFTUV_Decal")
+    assert orphan.users == 0
+
+    receipt = write_decal_object(source, row_results, offset=0.0, material_name="M")
+
+    assert receipt.mesh_name == "Source.CFTUV_Decal"
+    assert fake_bpy.data.meshes.get("Source.CFTUV_Decal.001") is None
+
+
+def test_a_seam_that_is_not_a_mesh_edge_is_counted_and_named_not_reported_as_marked(
+    fake_bpy,
+):
+    source = _source(fake_bpy)
+    # `b`-`d` — диагональ, которой нет среди рёбер двух треугольников.
+    domain = _fake_domain(0, SQUARE, TWO_TRIANGLES, seams=(("a", "c"), ("b", "d")))
+
+    receipt = write_decal_object(source, [domain], offset=0.0, material_name="M")
+
+    assert receipt.seam_edges_requested == 2 and receipt.seam_edges == 1
+    assert [(item[0], item[1]) for item in receipt.warnings] == [
+        (None, writer.OUTCOME_SEAM_EDGE_MISSING)
+    ]
+    assert "2 seam edges requested" in receipt.warnings[0][2]
+    assert "1 marked" in receipt.warnings[0][2]
+
+
+def test_a_domain_whose_normal_opposes_the_source_is_skipped_by_name():
+    inward = _fake_domain(0, SQUARE, TWO_TRIANGLES, source_normal=(0.0, 0.0, -1.0))
+    fine = _fake_domain(1, SQUARE, TWO_TRIANGLES)
+
+    arrays = build_mesh_arrays([inward, fine], 0.02)
+
+    assert arrays.domains == (1,)
+    assert [(item[0], item[2]) for item in arrays.skipped] == [
+        (0, writer.OUTCOME_NORMAL_OPPOSES_SOURCE)
+    ]
+    assert "into the surface" in arrays.skipped[0][3]
+
+
+def test_an_orthogonal_normal_is_not_accepted_either():
+    edge_on = _fake_domain(0, SQUARE, TWO_TRIANGLES, source_normal=(1.0, 0.0, 0.0))
+
+    arrays = build_mesh_arrays([edge_on], 0.02)
+
+    assert not arrays.domains and arrays.skipped[0][2] == writer.OUTCOME_NORMAL_OPPOSES_SOURCE
+
+
+def test_soft_findings_of_a_written_domain_are_warnings_and_the_domain_stays():
+    unknown = _fake_domain(0, SQUARE, TWO_TRIANGLES, source_normal=None)
+    flipped = _fake_domain(
+        1,
+        SQUARE,
+        TWO_TRIANGLES,
+        counters=((writer.OUTCOME_FLIPPED_VS_SOURCE, 3),),
+    )
+
+    arrays = build_mesh_arrays([unknown, flipped], 0.0)
+
+    assert arrays.domains == (0, 1) and not arrays.skipped
+    assert [(item[0], item[1]) for item in arrays.warnings] == [
+        (0, writer.OUTCOME_SOURCE_NORMAL_UNKNOWN),
+        (1, writer.OUTCOME_FLIPPED_VS_SOURCE),
+    ]
+    assert "3 triangles" in arrays.warnings[1][2]
+
+
+def test_the_status_and_console_come_from_the_receipt_so_adapter_skips_are_visible(
+    fake_bpy, row_results
+):
+    from cftuv.envelope_production_export import (
+        receipt_console_lines,
+        receipt_status_text,
+    )
+
+    source = _source(fake_bpy)
+    refused = ProductionDomainResultV1(5, "d5", "STATION_CHAIN_UNNAMED", None, "why")
+    broken = _fake_domain(6, {}, ())
+    inward = _fake_domain(7, SQUARE, TWO_TRIANGLES, source_normal=(0.0, 0.0, -1.0))
+    everything = [*row_results, refused, broken, inward]
+
+    receipt = write_decal_object(source, everything, offset=0.0, material_name="M")
+
+    status = receipt_status_text(receipt)
+    assert status == (
+        "MATERIALIZED 3 / refused 3 (ADAPTER_EMPTY_BATCH, "
+        "ADAPTER_NORMAL_OPPOSES_SOURCE, STATION_CHAIN_UNNAMED)"
+    )
+    lines = receipt_console_lines(receipt, everything)
+    assert len([item for item in lines if " REFUSED patch " in item]) == 3
+    assert any("patch 6" in item and "ADAPTER_EMPTY_BATCH" in item for item in lines)
+    assert lines[-1].endswith(status)
+
+
+def test_a_warning_reaches_the_status_and_the_console_with_its_name(fake_bpy):
+    from cftuv.envelope_production_export import (
+        receipt_console_lines,
+        receipt_status_text,
+    )
+
+    source = _source(fake_bpy)
+    domain = _fake_domain(0, SQUARE, TWO_TRIANGLES, seams=(("b", "d"),))
+
+    receipt = write_decal_object(source, [domain], offset=0.0, material_name="M")
+
+    assert receipt_status_text(receipt) == (
+        "MATERIALIZED 1 / refused 0 | warnings: ADAPTER_SEAM_EDGE_MISSING"
+    )
+    lines = receipt_console_lines(receipt, [domain])
+    assert any("WARNING mesh: ADAPTER_SEAM_EDGE_MISSING" in item for item in lines)
+
+
+def test_the_real_batches_carry_the_source_normal_and_the_chart_orientation(row_results):
+    for result in row_results:
+        assert result.source_normal is not None and any(result.source_normal)
+        assert result.chart_orientation.startswith("COORDINATE_")
+        dot = sum(a * b for a, b in zip(result.normal, result.source_normal))
+        assert dot > 0.99
+    arrays = build_mesh_arrays(row_results, 0.02)
+    assert arrays.warnings == () and arrays.domains == (0, 1, 2)
+
+
+def test_the_report_level_is_a_warning_for_any_missing_domain_or_finding(fake_bpy, row_results):
+    from cftuv.envelope_production_export import receipt_report_level
+
+    source = _source(fake_bpy)
+    clean = write_decal_object(source, row_results, offset=0.0, material_name="M")
+    assert receipt_report_level(clean) == "INFO"
+
+    # Пропуск ПИСАТЕЛЯ (а не продуктового пути): раньше уровень это не видел.
+    adapter_only = write_decal_object(
+        source,
+        [*row_results, _fake_domain(6, {}, ())],
+        offset=0.0,
+        material_name="M",
+    )
+    assert adapter_only.skipped and receipt_report_level(adapter_only) == "WARNING"
+
+    finding_only = write_decal_object(
+        source,
+        [_fake_domain(0, SQUARE, TWO_TRIANGLES, seams=(("b", "d"),))],
+        offset=0.0,
+        material_name="M",
+    )
+    assert not finding_only.skipped and receipt_report_level(finding_only) == "WARNING"

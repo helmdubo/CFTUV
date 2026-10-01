@@ -653,3 +653,56 @@ def test_the_production_chain_imports_without_blender():
     )
     assert completed.returncode == 0, completed.stderr.decode(errors="replace")
     assert b"NO_BLENDER_IN_PRODUCTION_CHAIN" in completed.stdout
+
+
+# --------------------------------------------------------------------------
+# Аудит среза 4: строка и консоль по квитанции, диагностики, свидетельства
+# --------------------------------------------------------------------------
+
+
+def test_a_produced_domain_carries_the_source_normal_and_the_chart_orientation():
+    prepared = _prepared_domain()
+
+    result = produce_domain(2, "domain", prepared, "0.25")
+
+    assert result.is_materialized
+    assert result.chart_orientation == prepared.context.frame.chart_orientation.value
+    assert result.source_normal is not None
+    dot = sum(a * b for a, b in zip(result.normal, result.source_normal))
+    assert dot > 0.99
+
+
+def test_the_batch_diagnostics_are_summarised_by_name_in_the_console():
+    def result(patch, *lines):
+        return production.ProductionDomainResultV1(
+            patch, f"d{patch}", MATERIALIZED, object(), diagnostics=lines
+        )
+
+    lines = production.diagnostic_summary_lines(
+        [
+            result(3, "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE: residual_budget=1"),
+            result(1, "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE: residual_budget=1"),
+            result(2, "U_RESTARTS_AT_DOMAIN_BORDER: chain:a", "U_RESTARTS_AT_DOMAIN_BORDER: chain:b"),
+            result(4),
+        ]
+    )
+
+    assert lines == [
+        "[CFTUV][Production] DIAGNOSTIC NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE: "
+        "2 in 2 domains (patch 1, 3)",
+        "[CFTUV][Production] DIAGNOSTIC U_RESTARTS_AT_DOMAIN_BORDER: "
+        "2 in 1 domains (patch 2)",
+    ]
+
+
+def test_the_operator_is_register_only_and_names_why_undo_is_dropped():
+    """`UNDO` — обещание отката; шаг BMesh в EDIT-режиме его не даёт (см. оператор)."""
+
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py"
+    ).read_text(encoding="utf-8")
+    assert 'bl_options = {"REGISTER"}' in source
+    assert '"UNDO"' not in source.split("class HOTSPOTUV_OT_BuildEnvelopeDecalMesh")[1]
+    assert "UNDO_DROPPED_REASON" in source
