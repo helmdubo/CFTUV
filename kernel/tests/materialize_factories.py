@@ -55,8 +55,13 @@ def with_affine_metric(
     *,
     grid_policy=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
     planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
+    with_triangles=True,
 ):
-    """Снапшот с честной аффинной метрикой вместо его плоского кадра."""
+    """Снапшот с честной аффинной метрикой вместо его плоского кадра.
+
+    `with_triangles` — как хост: строитель получает треугольники поверхности и
+    пишет сертификат искажения ширины у near-planar домена. Без них записи нет.
+    """
 
     frame = next(iter(snapshot.surface_metric_descriptors))
     domain = next(iter(snapshot.patch_domains))
@@ -68,6 +73,9 @@ def with_affine_metric(
         source_faces=snapshot.surface_ir.source_faces,
         planarity_policy=planarity_policy,
         grid_policy=grid_policy,
+        surface_triangles=(
+            snapshot.surface_ir.surface_triangles if with_triangles else None
+        ),
     )
     return dataclasses.replace(
         snapshot, surface_metric_descriptors=frozenset({metric})
@@ -82,6 +90,7 @@ def affine_domain(
     grid_policy=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
     planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
     lift=None,
+    with_triangles=True,
 ):
     """Снапшот и запрос с честной аффинной метрикой вместо плоского кадра.
 
@@ -108,7 +117,10 @@ def affine_domain(
         )
     return (
         with_affine_metric(
-            snapshot, grid_policy=grid_policy, planarity_policy=planarity_policy
+            snapshot,
+            grid_policy=grid_policy,
+            planarity_policy=planarity_policy,
+            with_triangles=with_triangles,
         ),
         request,
     )

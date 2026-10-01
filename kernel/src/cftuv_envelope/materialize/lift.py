@@ -70,6 +70,16 @@ class PlaneLiftV1:
             sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
         )
 
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        """Подъём на плоскость точки не ищет и бюджета не тратит: счётчиков нет."""
+
+        return ()
+
+    def note(self) -> str:
+        """Пояснение укладки для диагностики: у плоскости его нет."""
+
+        return ""
+
 
 def _triple(value) -> tuple[Fraction, Fraction, Fraction]:
     return (
