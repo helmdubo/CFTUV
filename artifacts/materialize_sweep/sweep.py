@@ -3,9 +3,11 @@
 Каждый домен считается тем же маршрутом, что и кнопка (`build_envelope_analysis_
 snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), и
 затем — `materialize_domain` на готовых `prepared` + покрытии, под UV-законом
-`UV_DIRECT_STRIP_V1`. Запрос в материализатор уходит с подставленным
-`uv_policy_id` (хост пока строит запросы с отладочным `ENVELOPE_DEBUG_NO_UV_V1`),
-больше в нём ничего не меняется.
+`UV_DIRECT_STRIP_V1`. Запрос в материализатор уходит как
+`materialization_request(prepared, uv_policy_id=...)`: это СКОМПИЛИРОВАННЫЙ
+запрос подготовки с заменой одного закона UV, а не заново собранный запрос
+со старым id (аудит 2026-10-02: так батч нёс ключ исполнения, чей хэш не
+совпадал с содержимым). Чужой запрос `admit` теперь отказывает именованно.
 
 Что пишется на каждый домен: исход подготовки и покрытия, исход
 материализации (имя и деталь), дайджесты (семантический и содержательный),
@@ -25,7 +27,6 @@ snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), 
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import os
 import statistics
@@ -86,7 +87,7 @@ ANSWER_KEYS = (
 def compute_row(patch_id: int, density):
     ctx = pool_sweep._CTX
     canon = ctx["canon"]
-    from cftuv_envelope.ids import PolicyId
+    from cftuv_envelope.materialize.admit import materialization_request
     from cftuv_envelope.materialize.domain import materialize_domain
     from cftuv_envelope.wavefront import conveyor_coverage
 
@@ -128,7 +129,7 @@ def compute_row(patch_id: int, density):
     cover_started = time.perf_counter()
     coverage = conveyor_coverage(prepared, ALPHA_TEXT)
     row["coverage_again_seconds"] = round(time.perf_counter() - cover_started, 3)
-    request = dataclasses.replace(request, uv_policy_id=PolicyId("UV_DIRECT_STRIP_V1"))
+    request = materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1")
     work_started = time.perf_counter()
     result = materialize_domain(prepared, coverage, request=request)
     row["materialize_seconds"] = round(time.perf_counter() - work_started, 4)

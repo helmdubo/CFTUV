@@ -10,7 +10,10 @@
 `envelope_export_input`): воркер выгружает `(snapshot, request)` сам, тем же
 кодом, что и хост, и возвращает снапшот вместе с ответом. Либо только покрытие
 готовой подготовки (`DomainTaskV1.coverage`, см. `envelope_queue_pool`): ей
-воркер получает пикл подготовки и возвращает запись домена без неё.
+воркер получает пикл подготовки и возвращает запись домена без неё. Либо
+продуктовый путь на той же готовой подготовке (`DomainTaskV1.production`, см.
+`envelope_production_export`): воркер считает покрытие и материализует
+`GeometryBatchV1`, а отказ материализации приходит ОТВЕТОМ с названным исходом.
 
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
@@ -160,6 +163,10 @@ class DomainTaskV1:
     `coverage` (`CoverageInputV1`) — домен, чья подготовка уже лежит в кэше
     сессии: воркер считает только покрытие и запись хоста, а `snapshot` с
     `request` тогда `None`.
+
+    `production` (`ProductionInputV1`) — продуктовый путь на той же готовой
+    подготовке: воркер считает покрытие и материализует `GeometryBatchV1`
+    (`envelope_production_export`), а `snapshot` с `request` тогда `None`.
     """
 
     task_id: int
@@ -171,6 +178,7 @@ class DomainTaskV1:
     selected_edges: frozenset
     export: object | None = None
     coverage: object | None = None
+    production: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +189,9 @@ class DomainTaskResultV1:
     ответ, а не сбой, и родитель разбирает его как разобрал бы сам. Снапшот
     `snapshot` есть у задачи с выгрузкой в воркере, когда выгрузка удалась;
     `export_timings` и `export_counters` — её стадии, которые родитель
-    проигрывает в профиль кнопки.
+    проигрывает в профиль кнопки. `production` — ответ продуктового пути
+    (`ProductionDomainResultV1`): отказ материализации там названный исход, а
+    не сбой задачи.
     """
 
     task_id: int
@@ -192,10 +202,13 @@ class DomainTaskResultV1:
     refusal: object | None = None
     export_timings: tuple = ()
     export_counters: tuple = ()
+    production: object | None = None
 
     @property
     def ok(self) -> bool:
-        return not self.error and self.queue_domain is not None
+        return not self.error and (
+            self.queue_domain is not None or self.production is not None
+        )
 
     @property
     def refused(self) -> bool:
@@ -312,7 +325,7 @@ def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
 def _frame_cost(task: DomainTaskV1, frame: bytes) -> float:
     if task.export is not None:
         return len(frame) * EXPORT_FRAME_COST_SCALE
-    if task.coverage is not None:
+    if task.coverage is not None or task.production is not None:
         return len(frame) / COVERAGE_FRAME_COST_DIVISOR
     return float(len(frame))
 
@@ -339,6 +352,10 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
             from .envelope_queue_pool import solve_coverage_task
 
             return solve_coverage_task(task)
+        if task.production is not None:
+            from .envelope_production_export import solve_production_task
+
+            return solve_production_task(task)
         from .envelope_queue_export import run_queue_domain
 
         prepared, domain = run_queue_domain(
@@ -508,8 +525,10 @@ def worker_main() -> None:
     ).LIVE_STAGE_TRACE = False
     load_queue_kernel()
     load_export_modules()
-    # Склейка покрытия поднимается до «готов», а не на первой задаче.
+    # Склейка покрытия и продуктовый путь поднимаются до «готов», а не на
+    # первой задаче.
     importlib.import_module(".envelope_queue_pool", __package__)
+    importlib.import_module(".envelope_production_export", __package__)
     write_frame(channel, ("ready", os.getpid()))
     while True:
         task = read_frame(source)

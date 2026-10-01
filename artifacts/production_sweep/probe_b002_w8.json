@@ -1,0 +1,386 @@
+{
+ "alpha": 0.25,
+ "density": "2",
+ "export_json": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-ad75012c64ba12a86\\artifacts\\production_sweep\\json_building_002\\building_002_summary.json",
+ "failure": null,
+ "mesh": "building.002",
+ "obj": {
+  "bytes": 16506,
+  "obj": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-ad75012c64ba12a86\\artifacts\\production_sweep\\building_002_decal.obj"
+ },
+ "root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-ad75012c64ba12a86",
+ "steps": [
+  {
+   "builds_delta": {
+    "ANALYSIS_BUNDLE": 1,
+    "COMPILED_ENVELOPE": 0,
+    "CONVEYOR_PREPARATION": 13,
+    "DOMAIN_GEOMETRY": 13,
+    "PATCH_METRIC": 13,
+    "TOPOLOGY_EXPORT": 1
+   },
+   "label": "cold",
+   "object": {
+    "attributes": [
+     "cftuv_domain",
+     "cftuv_owner"
+    ],
+    "faces": 144,
+    "loops": 432,
+    "materials": [
+     "CFTUV_Decal"
+    ],
+    "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+    "object": "building.002.CFTUV_Decal",
+    "parent": "building.002",
+    "seam_edges": 67,
+    "uv_layer": "UVMap",
+    "uv_loops": 432,
+    "vertices": 144
+   },
+   "run": {
+    "cold": true,
+    "content_digests": {
+     "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
+     "1": "f23872c00868953b5c0a23df28cdd22d2219f645725c9d2fd480e50cccd4442c",
+     "10": "5205d4572b18ebd288d9ce0b6df5741bd181df7c419715b2c6e4219dc62b4205",
+     "11": "4d7248d5f1cd8840772ba82413e81288c2db520647fcfcf61e46a122a48ab76c",
+     "12": "d06dc435796dcea0ea992f3b4fdbec2f23e336b1073675f1fb8753e89bbadb34",
+     "2": "d204308aecb06c4cdd52c681ded937f0008209b5f0b16413c86b4b3c6b98c745",
+     "3": "7d111f6d8c3376380be207e1751d2ad46343dca7dc454de53a07b070147cfe64",
+     "4": "18ff3bdd6eb82ea287550fafe34610f890905c27862baf56c7eb4dc8afc8273f",
+     "5": "9b57aca612845b4e1bffbbd9bbf732f571f474ae62240ff5b5152a72541e9ca9",
+     "6": "79bc67e38b8346b03f4a155d3de830929fb0c331e8614aa73d87b99a193dfbc3",
+     "7": "700a9a1f5c5c6f7f44026a05c61558baaeaaf6d21c673639c26acfdc62ff6eef",
+     "8": "3c051ab11897ddb47a940c7034e94d22790bdbc85bd0ceb6495ec44017664f82",
+     "9": "c14029c4541cf4852a3ef1a2f87a95bc711740fb6d5f29d9e03cbdb26aafc806"
+    },
+    "diagnostics": {
+     "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE": 1
+    },
+    "domains": 13,
+    "materialize_counters": {
+     "MATERIALIZE_BOUNDARY_CHAINS": 130,
+     "MATERIALIZE_BOUNDARY_EDGES": 144,
+     "MATERIALIZE_FACES_IN": 75,
+     "MATERIALIZE_FACES_MERGED": 69,
+     "MATERIALIZE_FAN_FACES": 6,
+     "MATERIALIZE_INTERFACE_CHAINS": 67,
+     "MATERIALIZE_MERGE_UNRESOLVED": 0,
+     "MATERIALIZE_REGIONS": 67,
+     "MATERIALIZE_SEPARATORS_MERGED": 6,
+     "MATERIALIZE_STATION_CONSTANT_S": 14,
+     "MATERIALIZE_STATION_FACTS": 278,
+     "MATERIALIZE_TRIANGLES": 144,
+     "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE": 0,
+     "MATERIALIZE_TRIANGLES_UV_DEGENERATE": 6,
+     "MATERIALIZE_TRIANGLES_UV_REVERSED": 0,
+     "MATERIALIZE_VERTICES": 144
+    },
+    "outcomes": {
+     "MATERIALIZED": 13
+    },
+    "placements": {
+     "worker": 13
+    },
+    "profile_counters": {
+     "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON": 0,
+     "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION": 31111,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8,
+     "PRODUCTION_COLD_FILL": 1,
+     "PRODUCTION_DOMAINS": 13,
+     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS": 13,
+     "PRODUCTION_MATERIALIZED": 13,
+     "PRODUCTION_PATCH_METRIC_BUILDS": 13,
+     "PRODUCTION_PREPARATION_BUILDS": 13,
+     "PRODUCTION_PREPARATION_REUSED": 0,
+     "PRODUCTION_REFUSED": 0
+    },
+    "receipt": {
+     "arrays_digest": "e2279b43582c7b5e0f3131b0ca6391dff617e17ff7b82024eb0d847e8e367fc5",
+     "domains": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+     ],
+     "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "replaced": false,
+     "skipped": []
+    },
+    "refused": [],
+    "run_seconds": 5.122
+   },
+   "status": "MATERIALIZED 13 / refused 0",
+   "timing_text": "Decal cold 5.12 s | preparations reused 0, built 13 | pool wall 4471 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 5.156
+  },
+  {
+   "builds_delta": {
+    "ANALYSIS_BUNDLE": 0,
+    "COMPILED_ENVELOPE": 0,
+    "CONVEYOR_PREPARATION": 0,
+    "DOMAIN_GEOMETRY": 0,
+    "PATCH_METRIC": 0,
+    "TOPOLOGY_EXPORT": 0
+   },
+   "label": "rebuild",
+   "object": {
+    "attributes": [
+     "cftuv_domain",
+     "cftuv_owner"
+    ],
+    "faces": 144,
+    "loops": 432,
+    "materials": [
+     "CFTUV_Decal"
+    ],
+    "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+    "object": "building.002.CFTUV_Decal",
+    "parent": "building.002",
+    "seam_edges": 67,
+    "uv_layer": "UVMap",
+    "uv_loops": 432,
+    "vertices": 144
+   },
+   "run": {
+    "cold": false,
+    "content_digests": {
+     "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
+     "1": "f23872c00868953b5c0a23df28cdd22d2219f645725c9d2fd480e50cccd4442c",
+     "10": "5205d4572b18ebd288d9ce0b6df5741bd181df7c419715b2c6e4219dc62b4205",
+     "11": "4d7248d5f1cd8840772ba82413e81288c2db520647fcfcf61e46a122a48ab76c",
+     "12": "d06dc435796dcea0ea992f3b4fdbec2f23e336b1073675f1fb8753e89bbadb34",
+     "2": "d204308aecb06c4cdd52c681ded937f0008209b5f0b16413c86b4b3c6b98c745",
+     "3": "7d111f6d8c3376380be207e1751d2ad46343dca7dc454de53a07b070147cfe64",
+     "4": "18ff3bdd6eb82ea287550fafe34610f890905c27862baf56c7eb4dc8afc8273f",
+     "5": "9b57aca612845b4e1bffbbd9bbf732f571f474ae62240ff5b5152a72541e9ca9",
+     "6": "79bc67e38b8346b03f4a155d3de830929fb0c331e8614aa73d87b99a193dfbc3",
+     "7": "700a9a1f5c5c6f7f44026a05c61558baaeaaf6d21c673639c26acfdc62ff6eef",
+     "8": "3c051ab11897ddb47a940c7034e94d22790bdbc85bd0ceb6495ec44017664f82",
+     "9": "c14029c4541cf4852a3ef1a2f87a95bc711740fb6d5f29d9e03cbdb26aafc806"
+    },
+    "diagnostics": {
+     "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE": 1
+    },
+    "domains": 13,
+    "materialize_counters": {
+     "MATERIALIZE_BOUNDARY_CHAINS": 130,
+     "MATERIALIZE_BOUNDARY_EDGES": 144,
+     "MATERIALIZE_FACES_IN": 75,
+     "MATERIALIZE_FACES_MERGED": 69,
+     "MATERIALIZE_FAN_FACES": 6,
+     "MATERIALIZE_INTERFACE_CHAINS": 67,
+     "MATERIALIZE_MERGE_UNRESOLVED": 0,
+     "MATERIALIZE_REGIONS": 67,
+     "MATERIALIZE_SEPARATORS_MERGED": 6,
+     "MATERIALIZE_STATION_CONSTANT_S": 14,
+     "MATERIALIZE_STATION_FACTS": 278,
+     "MATERIALIZE_TRIANGLES": 144,
+     "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE": 0,
+     "MATERIALIZE_TRIANGLES_UV_DEGENERATE": 6,
+     "MATERIALIZE_TRIANGLES_UV_REVERSED": 0,
+     "MATERIALIZE_VERTICES": 144
+    },
+    "outcomes": {
+     "MATERIALIZED": 13
+    },
+    "placements": {
+     "worker": 13
+    },
+    "profile_counters": {
+     "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON": 0,
+     "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION": 31111,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8,
+     "PRODUCTION_COLD_FILL": 0,
+     "PRODUCTION_DOMAINS": 13,
+     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS": 0,
+     "PRODUCTION_MATERIALIZED": 13,
+     "PRODUCTION_PATCH_METRIC_BUILDS": 0,
+     "PRODUCTION_PREPARATION_BUILDS": 0,
+     "PRODUCTION_PREPARATION_REUSED": 13,
+     "PRODUCTION_REFUSED": 0
+    },
+    "receipt": {
+     "arrays_digest": "e2279b43582c7b5e0f3131b0ca6391dff617e17ff7b82024eb0d847e8e367fc5",
+     "domains": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+     ],
+     "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "replaced": true,
+     "skipped": []
+    },
+    "refused": [],
+    "run_seconds": 0.728
+   },
+   "status": "MATERIALIZED 13 / refused 0",
+   "timing_text": "Decal warm 0.73 s | preparations reused 13, built 0 | pool wall 713 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 0.74
+  },
+  {
+   "builds_delta": {
+    "ANALYSIS_BUNDLE": 0,
+    "COMPILED_ENVELOPE": 0,
+    "CONVEYOR_PREPARATION": 0,
+    "DOMAIN_GEOMETRY": 0,
+    "PATCH_METRIC": 0,
+    "TOPOLOGY_EXPORT": 0
+   },
+   "debug_press": {
+    "builds_delta": {
+     "ANALYSIS_BUNDLE": 1,
+     "COMPILED_ENVELOPE": 0,
+     "CONVEYOR_PREPARATION": 13,
+     "DOMAIN_GEOMETRY": 13,
+     "PATCH_METRIC": 13,
+     "TOPOLOGY_EXPORT": 1
+    },
+    "wall_seconds": 2.108
+   },
+   "label": "debug_warm",
+   "object": {
+    "attributes": [
+     "cftuv_domain",
+     "cftuv_owner"
+    ],
+    "faces": 144,
+    "loops": 432,
+    "materials": [
+     "CFTUV_Decal"
+    ],
+    "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+    "object": "building.002.CFTUV_Decal",
+    "parent": "building.002",
+    "seam_edges": 67,
+    "uv_layer": "UVMap",
+    "uv_loops": 432,
+    "vertices": 144
+   },
+   "run": {
+    "cold": false,
+    "content_digests": {
+     "0": "b06d977072360b927806e142cb554221cc287715c8fa36b6029d3a4163b59054",
+     "1": "f23872c00868953b5c0a23df28cdd22d2219f645725c9d2fd480e50cccd4442c",
+     "10": "5205d4572b18ebd288d9ce0b6df5741bd181df7c419715b2c6e4219dc62b4205",
+     "11": "4d7248d5f1cd8840772ba82413e81288c2db520647fcfcf61e46a122a48ab76c",
+     "12": "d06dc435796dcea0ea992f3b4fdbec2f23e336b1073675f1fb8753e89bbadb34",
+     "2": "d204308aecb06c4cdd52c681ded937f0008209b5f0b16413c86b4b3c6b98c745",
+     "3": "7d111f6d8c3376380be207e1751d2ad46343dca7dc454de53a07b070147cfe64",
+     "4": "18ff3bdd6eb82ea287550fafe34610f890905c27862baf56c7eb4dc8afc8273f",
+     "5": "9b57aca612845b4e1bffbbd9bbf732f571f474ae62240ff5b5152a72541e9ca9",
+     "6": "79bc67e38b8346b03f4a155d3de830929fb0c331e8614aa73d87b99a193dfbc3",
+     "7": "700a9a1f5c5c6f7f44026a05c61558baaeaaf6d21c673639c26acfdc62ff6eef",
+     "8": "3c051ab11897ddb47a940c7034e94d22790bdbc85bd0ceb6495ec44017664f82",
+     "9": "c14029c4541cf4852a3ef1a2f87a95bc711740fb6d5f29d9e03cbdb26aafc806"
+    },
+    "diagnostics": {
+     "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE": 1
+    },
+    "domains": 13,
+    "materialize_counters": {
+     "MATERIALIZE_BOUNDARY_CHAINS": 130,
+     "MATERIALIZE_BOUNDARY_EDGES": 144,
+     "MATERIALIZE_FACES_IN": 75,
+     "MATERIALIZE_FACES_MERGED": 69,
+     "MATERIALIZE_FAN_FACES": 6,
+     "MATERIALIZE_INTERFACE_CHAINS": 67,
+     "MATERIALIZE_MERGE_UNRESOLVED": 0,
+     "MATERIALIZE_REGIONS": 67,
+     "MATERIALIZE_SEPARATORS_MERGED": 6,
+     "MATERIALIZE_STATION_CONSTANT_S": 14,
+     "MATERIALIZE_STATION_FACTS": 278,
+     "MATERIALIZE_TRIANGLES": 144,
+     "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE": 0,
+     "MATERIALIZE_TRIANGLES_UV_DEGENERATE": 6,
+     "MATERIALIZE_TRIANGLES_UV_REVERSED": 0,
+     "MATERIALIZE_VERTICES": 144
+    },
+    "outcomes": {
+     "MATERIALIZED": 13
+    },
+    "placements": {
+     "worker": 13
+    },
+    "profile_counters": {
+     "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_DISPATCHED": 13,
+     "ENVELOPE_DOMAIN_POOL_EXTERNAL_PYTHON": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_INTERPRETER_REASON": 0,
+     "ENVELOPE_DOMAIN_POOL_PYTHON_VERSION": 31111,
+     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK": 0,
+     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE": 0,
+     "ENVELOPE_DOMAIN_POOL_WORKERS": 8,
+     "PRODUCTION_COLD_FILL": 0,
+     "PRODUCTION_DOMAINS": 13,
+     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS": 0,
+     "PRODUCTION_MATERIALIZED": 13,
+     "PRODUCTION_PATCH_METRIC_BUILDS": 0,
+     "PRODUCTION_PREPARATION_BUILDS": 0,
+     "PRODUCTION_PREPARATION_REUSED": 13,
+     "PRODUCTION_REFUSED": 0
+    },
+    "receipt": {
+     "arrays_digest": "e2279b43582c7b5e0f3131b0ca6391dff617e17ff7b82024eb0d847e8e367fc5",
+     "domains": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+     ],
+     "mesh_digest": "5c0e74752f5005a215a271bfd0a586f92ac071561f7906c44b6f61531339e82f",
+     "replaced": true,
+     "skipped": []
+    },
+    "refused": [],
+    "run_seconds": 0.782
+   },
+   "status": "MATERIALIZED 13 / refused 0",
+   "timing_text": "Decal warm 0.78 s | preparations reused 13, built 0 | pool wall 735 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 144 faces, 144 vertices",
+   "wall_seconds": 0.792
+  }
+ ],
+ "workers": 8
+}
