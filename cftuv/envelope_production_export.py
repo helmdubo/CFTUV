@@ -118,6 +118,12 @@ class ProductionDomainResultV1:
     #: Ориентация карты домена (`AffineChartOrientationV1.value`): от неё зависят
     #: обход треугольников и знак нормали, поэтому она идёт в сводку зонда.
     chart_orientation: str = ""
+    #: Нормаль смещения КАЖДОЙ вершины батча (`vert_key`, единичная) у домена-развёртки
+    #: и закон, который её дал (`SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`): у развёртки нет
+    #: плоскости источника, смещение декали идёт по нормали вершины, а `normal` выше —
+    #: лишь сводка (нормированное среднее). У плоского и near-planar домена пусто.
+    vertex_normals: tuple = ()
+    offset_normal_law: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
 
@@ -152,6 +158,20 @@ def _source_normal(prepared):
     )
     normal = faces[0].polygon_normal if faces else None
     return None if normal is None else (normal.x, normal.y, normal.z)
+
+
+def _summary_normal(vertex_normals):
+    """Нормированное среднее нормалей вершин развёртки либо `None` (у плоского домена их нет)."""
+
+    if not vertex_normals:
+        return None
+    total = [sum(item[1][axis] for item in vertex_normals) for axis in range(3)]
+    length = sum(axis * axis for axis in total) ** 0.5
+    if not length:
+        return None
+    from cftuv_envelope.numeric import LocalVector3V1
+
+    return LocalVector3V1(*(axis / length for axis in total))
 
 
 def produce_domain(
@@ -216,7 +236,7 @@ def produce_domain(
                 result.detail,
                 time.perf_counter() - started,
             )
-        normal = plane_normal_binary64(prepared.context.frame)
+        normal = _summary_normal(result.vertex_normals) or plane_normal_binary64(prepared.context.frame)
         return ProductionDomainResultV1(
             patch_id=int(patch_id),
             domain_id=str(domain_id),
@@ -229,6 +249,8 @@ def produce_domain(
             diagnostics=tuple(result.diagnostics),
             source_normal=_source_normal(prepared),
             chart_orientation=str(prepared.context.frame.chart_orientation.value),
+            vertex_normals=tuple(result.vertex_normals),
+            offset_normal_law=result.offset_normal_law,
             seconds=time.perf_counter() - started,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
@@ -737,6 +759,7 @@ def export_production_json(results, directory, *, label: str = "production") -> 
             "counters": dict(item.counters),
             "diagnostics": list(item.diagnostics),
             "normal": None if item.normal is None else list(item.normal),
+            "offset_normal_law": item.offset_normal_law,
         }
         if item.is_materialized:
             name = f"{label}_patch{item.patch_id:04d}.geometry_batch.json"

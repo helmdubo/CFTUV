@@ -342,6 +342,50 @@ def _run_undo_leaves_a_consistent_scene_and_the_next_press_works():
     _walk_every_datablock()
 
 
+def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
+    """Изогнутый патч (лестница S1) разворачивается; смещение — по нормали каждой вершины.
+
+    Второй патч поднят на 0.9 м: near-planar отказал бы по ширине, развёртка принимает
+    (изогнутый квад из двух треугольников развёртывается точно). Меш пишется целиком
+    (`MATERIALIZED 2`), а каждая вершина декали стоит от поверхности источника не дальше
+    смещения: нормаль вершины на сгибе — биссектриса, расстояние до поверхности меньше.
+    """
+
+    from mathutils.bvhtree import BVHTree
+
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    _reset_scene()
+    source = _build_two_patch_seam(nonplanar_second_patch=True, second_patch_offset=0.9)
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    settings.envelope_debug_alpha = 0.25
+    settings.envelope_debug_workers = 0
+    _decal_settings().offset = 0.02
+    decal = _press()
+    status = _decal_settings().status
+    assert status == "MATERIALIZED 2 / refused 0", status
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    tree = BVHTree.FromObject(source, depsgraph)
+    domain = decal.data.attributes["cftuv_domain"].data
+    second = {
+        vertex
+        for polygon, value in zip(decal.data.polygons, domain)
+        if value.value == 1
+        for vertex in polygon.vertices
+    }
+    assert second
+    distances = [
+        tree.find_nearest(tuple(decal.data.vertices[index].co))[3] for index in second
+    ]
+    assert max(distances) <= 0.02 + 1e-5, distances
+    assert min(distances) > 0.005, distances
+    return decal
+
+
 def _main():
     import cftuv
 
@@ -360,6 +404,7 @@ def _main():
     _run_an_adapter_skip_reaches_the_status_line()
     _run_the_operator_is_register_only_with_a_named_reason()
     _run_undo_leaves_a_consistent_scene_and_the_next_press_works()
+    _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()

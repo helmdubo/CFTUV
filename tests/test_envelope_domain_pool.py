@@ -77,7 +77,7 @@ from cftuv.envelope_request_export import (  # noqa: E402
 from cftuv.envelope_topology_export import (  # noqa: E402
     build_envelope_topology_export,
 )
-from envelope_fixture_bundles import quad_row_bundle  # noqa: E402
+from envelope_fixture_bundles import pin_near_planar_only, quad_row_bundle  # noqa: E402
 
 
 ROW = 5
@@ -378,7 +378,8 @@ def test_a_task_that_cannot_run_returns_its_trace_instead_of_raising():
 # --------------------------------------------------------------------------
 
 
-def test_the_in_process_pool_reproduces_the_sequential_run_exactly():
+def test_the_in_process_pool_reproduces_the_sequential_run_exactly(monkeypatch):
+    pin_near_planar_only(monkeypatch)
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile = _direct_run(bundle, pool=None)
     pool = _InProcessPool()
@@ -683,11 +684,11 @@ def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache(
         expected, expected_profile
     )
     assert _counter(profile, POOL_WORKERS) == 2
-    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW
     assert _counter(profile, POOL_TASK_FALLBACK) == 0
     assert _counter(profile, POOL_UNAVAILABLE) == 0
     assert controller.build_counts == sequential.build_counts
-    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW - 1
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW
     # Подготовки воркеров лежат в кэше сессии: ползунок alpha найдёт их тёплыми.
     assert all(
         item.preparation is not None for item in evaluation.queue_domains
@@ -703,7 +704,7 @@ def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache(
     )
     assert _counter(again_profile, POOL_DISPATCHED) == 0
     assert POOL_WALL_STAGE not in again_profile.snapshot().stage_totals
-    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW - 1
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW
     assert _fingerprint(again, again_profile) == _fingerprint(
         reference, reference_profile
     )
@@ -790,7 +791,10 @@ def _export_inputs(bundle):
     return topology, revision, patch_ids, request_id, by_domain, _typed_value
 
 
-def test_the_worker_export_reproduces_the_parent_export_bit_for_bit():
+@pytest.mark.parametrize("ladder_off", (False, True), ids=("ladder", "near-planar-only"))
+def test_the_worker_export_reproduces_the_parent_export_bit_for_bit(monkeypatch, ladder_off):
+    if ladder_off:
+        pin_near_planar_only(monkeypatch)
     """Снапшот воркера == снапшот родителя: канонические байты, отказы, стадии.
 
     Вход идёт через pickle, как по трубе: это и проверка того, что лёгкий вход
@@ -881,7 +885,8 @@ def test_the_worker_export_reproduces_the_parent_export_bit_for_bit():
             (item.stage, item.patch_domain_id) for item in recorded.timings
         ]
         assert result.export_counters == recorded.counters
-    assert refused == 1
+    # С лестницей (S1) изогнутый квад развёртывается; без неё отказывает на метрике.
+    assert refused == (1 if ladder_off else 0)
 
 
 def _timing_free_domain(domain):
@@ -923,7 +928,7 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
 
     assert calls.count == 0
     assert _counter(profile, POOL_WORKERS) == 2
-    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW
     assert _counter(profile, POOL_TASK_FALLBACK) == 0
     assert _counter(profile, POOL_UNAVAILABLE) == 0
     assert _fingerprint(evaluation, profile) == _fingerprint(
@@ -931,7 +936,8 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
     )
     assert _session_state(controller) == _session_state(sequential)
     stages = {item.stage.value for item in evaluation.receipts}
-    assert stages == {"METRIC_REJECTED", "QUEUE_RESOLVED"}, stages
+    # Развёртка (S1) принимает и изогнутый квад: отказавших на метрике нет.
+    assert stages == {"QUEUE_RESOLVED"}, stages
     # Стадии выгрузки воркера проиграны в профиль кнопки под теми же именами.
     worker_stages = {"PATCH_METRIC_EXPORT", "FRAME_ADMISSION", "SNAPSHOT_VALIDATION"}
     assert worker_stages <= set(profile.snapshot().stage_totals)
@@ -957,7 +963,7 @@ def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
         bundle, workers=0, controller=sequential, density="2"
     )
     assert calls.count == 0  # метрики тёплые: родитель берёт их из кэша
-    assert _counter(density_profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(density_profile, POOL_DISPATCHED) == ROW
     assert _fingerprint(density, density_profile) == _fingerprint(
         density_reference, density_reference_profile
     )
@@ -1006,6 +1012,7 @@ def test_a_failed_export_task_is_named_and_exported_in_the_parent(
 def test_a_refused_domain_whose_worker_died_is_neither_dispatched_nor_fallback(
     monkeypatch,
 ):
+    pin_near_planar_only(monkeypatch)
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
     # Последний патч ряда — тот, что отказывает на метрике.
@@ -1333,11 +1340,11 @@ def test_real_workers_cover_cached_preparations_and_the_warm_press_is_identical(
         bundle, 0.4, workers=0, controller=sequential
     )
 
-    # Воркеры считали покрытие четырёх точных доменов (пятый отказал на
-    # метрике), подготовок не строили и пул не заводил заново.
+    # Воркеры считали покрытие всех пяти доменов (изогнутый квад принят
+    # развёрткой), подготовок не строили и пул не заводил заново.
     assert _counter(warm_profile, POOL_WORKERS) == 2
-    assert _counter(warm_profile, POOL_DISPATCHED) == ROW - 1
-    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW - 1
+    assert _counter(warm_profile, POOL_DISPATCHED) == ROW
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW
     assert _counter(warm_profile, POOL_TASK_FALLBACK) == 0
     assert _counter(warm_profile, POOL_UNAVAILABLE) == 0
     assert POOL_WALL_STAGE in warm_profile.snapshot().stage_totals
@@ -1352,7 +1359,7 @@ def test_real_workers_cover_cached_preparations_and_the_warm_press_is_identical(
         for item in warm_profile.snapshot().counters
         if item.name == "CONVEYOR_PREPARATION_CACHE_HIT" and item.value == 1
     ]
-    assert len(hits) == ROW - 1
+    assert len(hits) == ROW
     # Подготовка в записи — тот самый объект кэша, а не копия воркера.
     cache = list(pooled._conveyor_preparation_cache.values())
     assert all(
@@ -2121,7 +2128,7 @@ def test_real_external_workers_reproduce_the_sequential_run(
         tuple(sys.version_info[:3]), True
     ).version_code
     assert _counter(profile, POOL_WORKERS) == 2
-    assert _counter(profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW
     assert _counter(profile, POOL_TASK_FALLBACK) == 0
     assert _counter(profile, POOL_UNAVAILABLE) == 0
     assert controller.build_counts == sequential.build_counts

@@ -19,6 +19,7 @@ from .contracts.metric import (
     Binary64Point3V1,
     Binary64SourceVertexCoordinateV1,
     Binary64Vector3V1,
+    CurvatureLadderPolicyV1,
     DerivedBinary64AffineViewV1,
     ExactMatrix2V1,
     ExactPoint2V1,
@@ -50,6 +51,7 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
+from ._developable import build_developable_chart
 from ._plane_basis import chart_of_positions, reduced_frame
 from ._width_distortion import (
     build_width_distortion_certificate,
@@ -67,7 +69,7 @@ from .ids import (
     SourceRevision,
     SourceVertexId,
 )
-from .numeric import LocalPoint3V1
+from .numeric import LocalPoint3V1, PlaneNormalUndefinedError
 from .outcomes import NamedOutcome
 from .source_grid import resolve_source_grid
 
@@ -700,7 +702,7 @@ def _near_planar_frame(
     return reduced, AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
 
 
-def _build_embedding_certified_metric(
+def _build_planar_family_metric(
     *,
     source_revision: SourceRevision,
     patch_domain_id: PatchDomainId,
@@ -830,6 +832,189 @@ def _build_embedding_certified_metric(
     )
 
 
+#: Отказы near-planar, после которых лестница пробует развёртку: именованные отказы
+#: по ширине, перевороту треугольника источника и вложению проекции. Остальные
+#: (политика, невязка плоскости, вырожденность, окно решётки) развёртка не лечит, и
+#: они остаются как есть.
+LADDER_TRIGGER_OUTCOMES = frozenset(
+    {
+        NamedOutcome.NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED,
+        NamedOutcome.NEAR_PLANAR_SOURCE_TRIANGLE_FOLDED,
+        *(
+            item
+            for item in NamedOutcome
+            if item.value.startswith("NEAR_PLANAR_PROJECTION_")
+        ),
+    }
+)
+
+
+def _developable_frame(chart, required_ids):
+    """Репер карты развёртки: `(origin, A, B, Gram, inverse, coordinates)`.
+
+    Начало нуль, `A = e_x/S'`, `B = e_y/S'`; координаты — целые узлы карты.
+    """
+
+    scale = chart.chart_scale
+    unit = Fraction(1, scale)
+    zero = Fraction(0)
+    return (
+        (zero, zero, zero),
+        (unit, zero, zero),
+        (zero, unit, zero),
+        ((unit * unit, zero), (zero, unit * unit)),
+        ((Fraction(scale * scale), zero), (zero, Fraction(scale * scale))),
+        {
+            vertex_id: (Fraction(chart.nodes[vertex_id][0]), Fraction(chart.nodes[vertex_id][1]))
+            for vertex_id in required_ids
+        },
+    )
+
+
+#: Имя «отказа», которым лестница записывает нулевую нормаль Ньюэлла: у
+#: `PlaneNormalUndefinedError` исхода ядра нет (он `ValueError`, как был), но
+#: в `previous_refusals` сертификата причина попадания на ступень должна читаться.
+PLANE_NORMAL_UNDEFINED_TRACE = "PATCH_PLANE_NORMAL_UNDEFINED"
+
+
+def _developable_rung(
+    refused: Exception,
+    trace: str,
+    *,
+    source_revision,
+    patch_domain_id,
+    owner_patch_id,
+    source_vertices,
+    source_faces,
+    source_lineage,
+    grid_policy,
+    enforce_embedding,
+    surface_triangles,
+) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    """Последняя ступень лестницы: развёртка после именованного отказа near-planar.
+
+    Привязка источника та же, что на ступенях ниже (`resolve_source_grid`), позиции
+    берутся ДО проекции на плоскость: развёртка плоскости не знает. Отказ развёртки
+    несёт и свой исход, и отказ near-planar, после которого она пробовалась.
+    """
+
+    faces, required_ids, positions = _source_scope(
+        owner_patch_id=owner_patch_id,
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+    )
+    grid_facts = resolve_source_grid(
+        positions=positions,
+        faces=faces,
+        snapping_law=grid_policy,
+        enforce_embedding=enforce_embedding,
+    )
+    face_ids = {face.face_id for face in faces}
+    certificate = grid_facts.certificate
+    try:
+        chart = build_developable_chart(
+            source_revision=source_revision,
+            patch_domain_id=patch_domain_id,
+            snapped=dict(grid_facts.positions),
+            owner_triangles=tuple(
+                item for item in surface_triangles if item.source_face_id in face_ids
+            ),
+            required_ids=required_ids,
+            source_scale=(
+                certificate.source_scale if certificate.snapping_law.snaps_source else None
+            ),
+            previous_refusals=(trace,),
+        )
+    except PlanarMetricAdmissionError as final:
+        raise PlanarMetricAdmissionError(
+            final.outcome, f"{final} [after near-planar {trace}: {str(refused)[:240]}]"
+        ) from refused
+    origin, first, second, gram, inverse, coordinates = _developable_frame(
+        chart, required_ids
+    )
+    metric = _metric_record(
+        metric_id=ReferenceMetricId(
+            _stable_id(
+                "reference-metric",
+                source_revision.value,
+                patch_domain_id.value,
+                required_ids[0].value,
+                *(item.value for item in required_ids),
+            )
+        ),
+        patch_domain_id=patch_domain_id,
+        source_revision=source_revision,
+        origin=origin,
+        first=first,
+        second=second,
+        gram=gram,
+        inverse=inverse,
+        required_ids=required_ids,
+        coordinates=coordinates,
+        chart_orientation=AffineChartOrientationV1.COORDINATE_CCW_MATCHES_OWNER_PATCH,
+        certificate=chart.certificate,
+        source_lineage=source_lineage,
+        grid_certificate=certificate,
+        frame_law=AffineFrameSelectionLawV1.UNFOLDED_DEVELOPMENT_FRAME_V1,
+    )
+    return EmbeddingCertifiedRationalAffinePlanarMetricV1(
+        metric=metric,
+        source_snap_embedding_certificate=grid_facts.source_snap_embedding_certificate,
+        near_planar_projection_embedding_certificate=None,
+    )
+
+
+def _build_embedding_certified_metric(
+    *,
+    curvature_ladder: CurvatureLadderPolicyV1 = (
+        CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
+    ),
+    **arguments,
+) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
+    """Лестница метрики: EXACT -> NEAR_PLANAR -> DEVELOPABLE.
+
+    Без лестницы (`NEAR_PLANAR_ONLY_V1`, по умолчанию) — ровно прежний путь
+    построения. С лестницей развёртка пробуется ТОЛЬКО после именованного отказа
+    near-planar из `LADDER_TRIGGER_OUTCOMES`, поэтому принятый сегодня домен не
+    перемаршрутизируется (его байты прежние), а отказавший получает ещё одну
+    попытку, у которой есть свой сертификат и свои имена отказа. Отказ вне
+    триггеров, как и отсутствие треугольников поверхности, остаётся как есть.
+    """
+
+    if curvature_ladder is CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1:
+        return _build_planar_family_metric(**arguments)
+    arguments["source_vertices"] = tuple(arguments["source_vertices"])
+    arguments["source_faces"] = tuple(arguments["source_faces"])
+    if arguments.get("surface_triangles") is not None:
+        arguments["surface_triangles"] = tuple(arguments["surface_triangles"])
+    try:
+        return _build_planar_family_metric(**arguments)
+    except (PlanarMetricAdmissionError, PlaneNormalUndefinedError) as refused:
+        trace = (
+            refused.outcome.value
+            if isinstance(refused, PlanarMetricAdmissionError)
+            else PLANE_NORMAL_UNDEFINED_TRACE
+        )
+        if (
+            isinstance(refused, PlanarMetricAdmissionError)
+            and refused.outcome not in LADDER_TRIGGER_OUTCOMES
+        ) or arguments.get("surface_triangles") is None:
+            raise
+        return _developable_rung(
+            refused,
+            trace,
+            source_revision=arguments["source_revision"],
+            patch_domain_id=arguments["patch_domain_id"],
+            owner_patch_id=arguments["owner_patch_id"],
+            source_vertices=arguments["source_vertices"],
+            source_faces=arguments["source_faces"],
+            source_lineage=arguments.get("source_lineage", frozenset()),
+            grid_policy=arguments.get("grid_policy", GridSnappingLawV1.UNSNAPPED_EXACT_V1),
+            enforce_embedding=arguments.get("enforce_embedding", True),
+            surface_triangles=arguments["surface_triangles"],
+        )
+
+
 def build_embedding_certified_rational_affine_planar_metric(
     *,
     source_revision: SourceRevision,
@@ -849,6 +1034,9 @@ def build_embedding_certified_rational_affine_planar_metric(
     near_planar_frame_policy: NearPlanarFramePolicyV1 = (
         NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
     ),
+    curvature_ladder: CurvatureLadderPolicyV1 = (
+        CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -864,6 +1052,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         surface_triangles=surface_triangles,
         near_planar_lift_law=near_planar_lift_law,
         near_planar_frame_policy=near_planar_frame_policy,
+        curvature_ladder=curvature_ladder,
     )
 
 
@@ -886,6 +1075,9 @@ def build_rational_affine_planar_metric(
     near_planar_frame_policy: NearPlanarFramePolicyV1 = (
         NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
     ),
+    curvature_ladder: CurvatureLadderPolicyV1 = (
+        CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
+    ),
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -902,6 +1094,7 @@ def build_rational_affine_planar_metric(
         surface_triangles=surface_triangles,
         near_planar_lift_law=near_planar_lift_law,
         near_planar_frame_policy=near_planar_frame_policy,
+        curvature_ladder=curvature_ladder,
     ).metric
 
 

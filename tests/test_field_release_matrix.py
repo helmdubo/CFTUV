@@ -94,19 +94,16 @@ WORK_CAP_SECONDS = {
 
 # Заранее одобренные ИМЕНОВАННЫЕ отказы. Всё, чего здесь нет, — дефект.
 APPROVED_NAMED_REFUSALS = {
-    # walls.001, домен-склон. До NEAR_PLANAR V2 полевой профиль владельца
-    # (`artifacts/field_snapshots/walls_001_door_queue_profile.txt`) нёс
-    # `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED` с max_residual_squared=1.178496e+01.
-    # Укладка на треугольники источника отказывает его по ШИРИНЕ: у склона есть
-    # треугольник, перпендикулярный плоскости карты (`min cos²` = 0), и проекция
-    # схлопывает его в отрезок.
-    (WALLS_001, 1): "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",
-    # building, патч 89: до NEAR_PLANAR V2 — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`
-    # (невязка 1.89 см против 1.25 см). Под законом укладки на поверхность
-    # судит ширина: один треугольник из 12 (5.43 м вдоль, перпендикулярен
-    # плоскости карты) даёт `min cos²` = 1.891e-06; вложение проекции тоже
-    # не держится (`NEAR_PLANAR_PROJECTION_FAN_IDENTITY_CHANGED`).
-    (BUILDING, 89): "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",
+    # building, патч 89. До NEAR_PLANAR V2 — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`
+    # (невязка 1.89 см против 1.25 см); под укладкой на поверхность отказывала ширина
+    # (один треугольник из 12, 5.43 м вдоль, перпендикулярен плоскости карты, `min cos²`
+    # = 1.891e-06). С лестницей S1 (DEVELOPABLE) домен пробует развёртку и отказывает
+    # ТОЧНЕЕ: развёртка по растяжению в бюджете (ступенька трёх плоскостей, 12
+    # треугольников, внутренних вершин нет), но вершина `building:34` — граничная с
+    # веером 360.167° (> 2π): границы карты у неё перекрываются на 0.167°, и карта —
+    # не вложение. Прежнее имя этого отказа держит закрепка лестницы
+    # (`test_building_patch_89_still_refuses_by_width_on_the_near_planar_rung`).
+    (BUILDING, 89): "HOST_EXPORT_REJECTED:DEVELOPABLE_CHART_SELF_OVERLAP",
 }
 
 _CACHE: dict[str, dict] = {}
@@ -114,12 +111,17 @@ _CACHE: dict[str, dict] = {}
 
 PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
+PIN_LADDER_FLAG = "--pin-ladder"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
 LEGACY_FRAME = "CANONICAL_ONLY_V1"
+NEAR_PLANAR_ONLY = "NEAR_PLANAR_ONLY_V1"
 
 
 def route(
-    snapshot: str, pin_lift: str | None = None, pin_frame: str | None = None
+    snapshot: str,
+    pin_lift: str | None = None,
+    pin_frame: str | None = None,
+    pin_ladder: str | None = None,
 ) -> dict:
     """Полный маршрут слепка в отдельном процессе под капом работы.
 
@@ -129,7 +131,7 @@ def route(
     едет в `substitutions` ответа.
     """
 
-    key = f"{snapshot}|{pin_lift}|{pin_frame}"
+    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}"
     if key in _CACHE:
         return _CACHE[key]
     if snapshot == BUILDING:
@@ -152,6 +154,8 @@ def route(
         command += [PIN_LIFT_FLAG, pin_lift]
     if pin_frame is not None:
         command += [PIN_FRAME_FLAG, pin_frame]
+    if pin_ladder is not None:
+        command += [PIN_LADDER_FLAG, pin_ladder]
     try:
         finished = subprocess.run(
             command,
@@ -183,13 +187,14 @@ def domain(
     patch_id: int,
     pin_lift: str | None = None,
     pin_frame: str | None = None,
+    pin_ladder: str | None = None,
 ) -> dict:
-    for record in route(snapshot, pin_lift, pin_frame)["domains"]:
+    for record in route(snapshot, pin_lift, pin_frame, pin_ladder)["domains"]:
         if record["patch_id"] == patch_id:
             return record
     raise AssertionError(
         f"DOMAIN_ABSENT: у {snapshot} нет домена патча {patch_id}; "
-        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame)['domains']]}"
+        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame, pin_ladder)['domains']]}"
     )
 
 
@@ -418,7 +423,11 @@ def test_walls_012_anchor_loci_survive():
 
 
 def test_walls_012_patch_0_refuses_under_the_surface_law():
-    """Настоящий закон хоста (NEAR_PLANAR V2) называет этот домен отказом по ширине.
+    """Ступень near-planar (NEAR_PLANAR V2) называет этот домен отказом по ширине.
+
+    Тест держит ЭТУ ступень лестницы, закрепив лестницу хоста
+    (`NEAR_PLANAR_ONLY_V1`): с настоящей лестницей S1 тот же домен уходит на развёртку
+    (`test_walls_012_patch_0_is_unfolded_and_the_straight_chain_law_names_the_refusal`).
 
     Домен строился: невязка 1.0 см лежала внутри абсолютного бюджета юбки
     1.25 см. Но патч несёт щель в 1 см глубины, и один его треугольник из 10
@@ -428,7 +437,7 @@ def test_walls_012_patch_0_refuses_under_the_surface_law():
     закона (`test_walls_012_is_exact`), а этот тест держит настоящий ответ.
     """
 
-    record = domain(WALLS_012, 0)
+    record = domain(WALLS_012, 0, None, None, NEAR_PLANAR_ONLY)
     assert record["stage"] == "HOST_EXPORT"
     assert record["outcome"] == (
         "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
@@ -438,6 +447,22 @@ def test_walls_012_patch_0_refuses_under_the_surface_law():
     assert route(WALLS_012, LEGACY_LIFT)["substitutions"] == [
         f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{LEGACY_LIFT}"
     ]
+
+
+def test_walls_012_patch_0_is_unfolded_and_the_straight_chain_law_names_the_refusal():
+    """С лестницей хоста (S1) домен проходит метрику развёрткой и отказывает на ОЧЕРЕДИ.
+
+    Щель в 1 см глубины развёртывается (растяжение в бюджете), но выбранная цепь —
+    прямая в 3D и пересекает складку щели под углом: в развёртке она ЛОМАНАЯ, а
+    закон «объявленная прямая цепь линейна в карте» (`SOURCE_DECLARED_STRAIGHT_CHAIN_
+    IS_NOT_LINEAR`) её отвергает именованно. Это не потеря домена и не тихое
+    исчезновение: ступень и имя названы.
+    """
+
+    record = domain(WALLS_012, 0)
+    assert record["stage"] == "QUEUE"
+    assert record["outcome"] == "PLAN_IS_NOT_COMPILED"
+    assert record["detail"] == "SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR"
 
 
 # ---------------------------------------------------------------------------
@@ -469,18 +494,37 @@ def test_walls_001_door_domain_builds():
     assert record["counters"]["CONVEYOR_LATTICE_SCALE"] == 16384
 
 
-def test_walls_001_slope_domain_refuses_by_the_field_name():
-    """Домен-склон: тот же ИМЕНОВАННЫЙ near-planar отказ, что в поле.
+def test_walls_001_slope_domain_is_unfolded_and_exact():
+    """Домен-склон: развёртка (S1) строит его, очередь EXACT.
+
+    Раньше склон отказывал на метрике по ширине: треугольник, перпендикулярный
+    плоскости карты (`min cos²` = 0), проекция схлопывала. Склон — разворачиваемая
+    поверхность, и с лестницей хоста он проходит метрику, а очередь считает его
+    покрытие точно.
+    """
+
+    record = domain(WALLS_001, 1)
+    assert record["domain_id"].endswith("eb64fc8b4eaaabe6c70159ff")
+    assert record["stage"] == "QUEUE"
+    assert record["outcome"] == "EXACT"
+    assert record["coverage_outcome"] == "EXACT"
+    assert record["face_outcome"] == "EXACT"
+
+
+def test_walls_001_slope_domain_refuses_by_the_field_name_on_the_near_planar_rung():
+    """Ступень near-planar (лестница закреплена): прежний ИМЕНОВАННЫЙ отказ по ширине.
 
     Именованный отказ — не пропуск: он обязан прийти по имени и на той же
     стадии. Тихое исчезновение домена было бы дефектом, а не «ну он же не
     считается».
     """
 
-    record = domain(WALLS_001, 1)
+    record = domain(WALLS_001, 1, None, None, NEAR_PLANAR_ONLY)
     assert record["domain_id"].endswith("eb64fc8b4eaaabe6c70159ff")
     assert record["stage"] == "HOST_EXPORT"
-    assert record["outcome"] == APPROVED_NAMED_REFUSALS[(WALLS_001, 1)]
+    assert record["outcome"] == (
+        "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    )
     # Числа отказа несёт деталь: у склона есть треугольник, перпендикулярный
     # плоскости карты (проекция схлопывает его в отрезок).
     assert "min_cos_squared=0.000000000e+00" in record["detail"]
@@ -490,6 +534,25 @@ def test_walls_001_slope_domain_refuses_by_the_field_name():
 # ---------------------------------------------------------------------------
 # 6. building — каждый выбранный домен либо EXACT, либо одобренный отказ.
 # ---------------------------------------------------------------------------
+
+
+def test_building_patch_89_still_refuses_by_width_on_the_near_planar_rung():
+    """Прежнее имя патча 89 — на закреплённой ступени near-planar, с прежними числами."""
+
+    record = domain(BUILDING, 89, None, None, NEAR_PLANAR_ONLY)
+    assert record["outcome"] == (
+        "HOST_EXPORT_REJECTED:NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
+    )
+    assert "min_cos_squared=1.891285054e-06" in record["detail"]
+
+
+def test_building_patch_89_refuses_on_the_unfolding_with_its_numbers():
+    """Ступенька развёртывается, но вершина с веером 360.167° перекрывает границу карты."""
+
+    record = domain(BUILDING, 89)
+    assert record["stage"] == "HOST_EXPORT"
+    assert "boundary edge pairs of the chart meet or overlap" in record["detail"]
+    assert "[after near-planar NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in record["detail"]
 
 
 @pytest.mark.parametrize("patch_id", BUILDING_PATCHES)

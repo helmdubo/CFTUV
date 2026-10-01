@@ -8,15 +8,21 @@
    обязан с ней совпасть везде, кроме законов выхода (`OUTPUT_POLICY_FIELDS`) —
    иначе `REQUEST_DOES_NOT_MATCH_PREPARATION`;
 3. метрика — точный аффинный дескриптор плоскости (`RationalAffinePlanarMetricV2`
-   с сертификатом точной плоскости или near-planar проекции). Кривой домен до
-   сюда не доходит (его отвергает бюджет near-planar при подготовке), а вход с
-   иным дескриптором — `DOMAIN_IS_NOT_PLANAR_ADMITTED`;
+   с сертификатом точной плоскости, near-planar проекции либо РАЗВЁРТКИ). Кривой
+   домен без годного сертификата сюда не доходит (его отвергает метрика при
+   подготовке), а вход с иным дескриптором — `DOMAIN_IS_NOT_PLANAR_ADMITTED`;
 4. UV-закон запроса — из `SUPPORTED_UV_POLICIES`, иначе `UV_POLICY_UNSUPPORTED`.
 
 NEAR_PLANAR допущен (решение 2026-10-01): меш строится на СЕРТИФИЦИРОВАННОЙ
 плоскости, а не на исходных вершинах, и этот факт именован диагностикой
 `NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE`; смещение над поверхностью — политика
 хоста.
+
+DEVELOPABLE допущен (S1): карта домена — развёртка, у неё нет плоскости источника,
+поэтому укладка ЕЩЁ ОДНА и единственная — на треугольники источника (запрошенный
+закон роли не играет, как у точной плоскости), а сертификат растяжения судится
+здесь заново, до единицы работы. Направление смещения над поверхностью у такого
+домена — нормаль вершины (`offset_normal`), не нормаль плоскости.
 """
 
 from __future__ import annotations
@@ -26,11 +32,13 @@ from enum import Enum
 from fractions import Fraction
 
 from ..contracts.metric import (
+    DevelopableUnfoldCertificateV1,
     ExactSourcePlaneCertificateV1,
     NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     RationalAffinePlanarMetricV2,
 )
+from .._stretch import stretch_refusal_text, stretch_violations
 from .._width_distortion import (
     width_distortion_refusal_text,
     width_distortion_violations,
@@ -81,11 +89,21 @@ class MaterializationOutcome(str, Enum):
     SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE = (
         "SURFACE_LIFT_CHART_SNAP_BOUNDARY_NOT_SIMPLE"
     )
+    # Сертификат развёртки не проходит судью растяжения: домен принят под другим
+    # судьёй либо запись подделана. Имена совпадают с исходами метрики.
+    DEVELOPABLE_STRETCH_BUDGET_EXCEEDED = "DEVELOPABLE_STRETCH_BUDGET_EXCEEDED"
+    DEVELOPABLE_CHART_TRIANGLE_FLIPPED = "DEVELOPABLE_CHART_TRIANGLE_FLIPPED"
+    DEVELOPABLE_CHART_SELF_OVERLAP = "DEVELOPABLE_CHART_SELF_OVERLAP"
+    # Нормаль смещения вершины (сумма нормалей инцидентных треугольников с весами
+    # углов) нулевая либо смотрит ПРОТИВ нормали одного из своих треугольников:
+    # смещение втолкнуло бы декаль в поверхность. Отказ, а не молчаливый выбор.
+    SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE = "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE"
 
 
 class PlanarityKind(str, Enum):
     PLANAR_EXACT = "PLANAR_EXACT"
     NEAR_PLANAR = "NEAR_PLANAR"
+    DEVELOPABLE_UNFOLDED = "DEVELOPABLE_UNFOLDED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +229,8 @@ def admit_domain(
         planarity = PlanarityKind.PLANAR_EXACT
     elif isinstance(certificate, NearPlanarProjectionCertificateV1):
         planarity = PlanarityKind.NEAR_PLANAR
+    elif isinstance(certificate, DevelopableUnfoldCertificateV1):
+        planarity = PlanarityKind.DEVELOPABLE_UNFOLDED
     else:
         return AdmissionV1(
             MaterializationOutcome.DOMAIN_IS_NOT_PLANAR_ADMITTED,
@@ -222,6 +242,11 @@ def admit_domain(
             str(request.uv_policy_id.value),
         )
     effective = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    if planarity is PlanarityKind.DEVELOPABLE_UNFOLDED:
+        refusal = _developable_refusal(certificate)
+        if refusal is not None:
+            return refusal
+        effective = NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
     if planarity is PlanarityKind.NEAR_PLANAR:
         refusal = _lift_refusal(certificate, lift_law)
         if refusal is not None:
@@ -229,6 +254,24 @@ def admit_domain(
         if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
             effective = lift_law
     return AdmissionV1(None, "", planarity, effective)
+
+
+def _developable_refusal(certificate) -> AdmissionV1 | None:
+    """Сертификат развёртки против судьи растяжения: принятый домен обязан его проходить."""
+
+    failures = stretch_violations(certificate.stretch)
+    if failures:
+        return AdmissionV1(
+            MaterializationOutcome(failures[0].value),
+            stretch_refusal_text(certificate.stretch),
+        )
+    if certificate.chart_boundary_overlap_count:
+        return AdmissionV1(
+            MaterializationOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
+            f"{certificate.chart_boundary_overlap_count} boundary edge pairs of "
+            "the unfolded chart meet or overlap",
+        )
+    return None
 
 
 def _lift_refusal(certificate, requested) -> AdmissionV1 | None:

@@ -96,13 +96,17 @@ from .._embedding import (
     _nonadjacent_pairs,
     _segment_relation2,
 )
-from ..contracts.metric import NearPlanarProjectionCertificateV1
+from ..contracts.metric import (
+    DevelopableUnfoldCertificateV1,
+    NearPlanarProjectionCertificateV1,
+)
 from ..exact_sqrt_sum import SqrtSumV1
 from ..numeric import LocalPoint3V1
 from ..robust.grid import GridSpecV1, snap_value
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
 from .lift import ENCLOSURE_BITS, sqrt_sum_binary64
+from .offset_normal import OFFSET_NORMAL_LAW, blend, source_vertex_normals
 
 LOCATIONS = "MATERIALIZE_SURFACE_LIFT_LOCATIONS"
 CANDIDATES = "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES"
@@ -155,9 +159,12 @@ class LiftTriangleV1:
     corners: tuple
     twice_area: Fraction
     box: tuple
+    #: Единичные нормали смещения трёх углов (binary64), либо пусто: нормаль смещения
+    #: у домена развёртки своя на вершину, у плоского и near-planar — одна на домен.
+    normals: tuple = ()
 
 
-def _triangle(name, chart, corners) -> LiftTriangleV1 | None:
+def _triangle(name, chart, corners, normals=()) -> LiftTriangleV1 | None:
     (ax, ay), (bx, by), (cx, cy) = chart
     area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
     if not area:
@@ -170,6 +177,7 @@ def _triangle(name, chart, corners) -> LiftTriangleV1 | None:
         corners=tuple(corners),
         twice_area=area,
         box=(_down(min(xs)), _up(max(xs)), _down(min(ys)), _up(max(ys))),
+        normals=tuple(normals),
     )
 
 
@@ -196,15 +204,16 @@ class SurfaceLiftV1:
         snap_residual=Fraction(0),
         collapsed_by_snapping: int = 0,
     ) -> "SurfaceLiftV1":
-        """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины)`."""
+        """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины[, три нормали])`."""
 
         built = []
         degenerate = 0
-        for name, chart, corners in sorted(items, key=lambda item: item[0]):
+        for name, chart, corners, *normals in sorted(items, key=lambda item: item[0]):
             triangle = _triangle(
                 name,
                 tuple((Fraction(x), Fraction(y)) for x, y in chart),
                 tuple(tuple(Fraction(axis) for axis in point) for point in corners),
+                normals[0] if normals else (),
             )
             if triangle is None:
                 degenerate += 1
@@ -239,17 +248,22 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
     """
 
     certificate = frame.planarity_certificate
-    if type(certificate) is not NearPlanarProjectionCertificateV1:
-        raise ValueError("a surface lift needs a near-planar certificate")
-    sigma = certificate.width_distortion
-    if sigma is None:
-        raise ValueError("a surface lift needs the width-distortion certificate")
+    unfolded = type(certificate) is DevelopableUnfoldCertificateV1
+    if unfolded:
+        recorded = certificate.snapped_source_positions
+    elif type(certificate) is NearPlanarProjectionCertificateV1:
+        sigma = certificate.width_distortion
+        if sigma is None:
+            raise ValueError("a surface lift needs the width-distortion certificate")
+        recorded = sigma.snapped_source_positions
+    else:
+        raise ValueError("a surface lift needs a near-planar or developable certificate")
     position = {
         item.source_vertex_id: tuple(
             _fraction(axis)
             for axis in (item.position.x, item.position.y, item.position.z)
         )
-        for item in sigma.snapped_source_positions
+        for item in recorded
     }
     grid = GridSpecV1(scale=int(scale))
     exact = {
@@ -295,12 +309,18 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         exact,
         chart,
     )
+    normals = source_vertex_normals(owned, position) if unfolded else None
     return SurfaceLiftV1.from_triangles(
         (
             (
                 item.triangle_id.value,
                 tuple(chart[vertex] for vertex in item.vertex_ids),
                 tuple(position[vertex] for vertex in item.vertex_ids),
+                *(
+                    ()
+                    if normals is None
+                    else (tuple(normals[vertex] for vertex in item.vertex_ids),)
+                ),
             )
             for item in owned
         ),
@@ -401,6 +421,7 @@ class BoundSurfaceLiftV1:
             EXACT_TIES: 0,
         }
         self._max_outside = 0.0
+        self._normal_by_position: dict = {}
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
@@ -577,10 +598,37 @@ class BoundSurfaceLiftV1:
         return self.lift_in(triangle, values)
 
     def lift(self, point) -> LocalPoint3V1:
-        x, y, z = self.lift_exact(point)
-        return LocalPoint3V1(
+        triangle, values = self.locate(point)
+        x, y, z = self.lift_in(triangle, values)
+        lifted = LocalPoint3V1(
             sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
         )
+        if triangle.normals:
+            divisor = float(triangle.twice_area)
+            weights = tuple(
+                sqrt_sum_binary64(values[index]) / divisor for index in (1, 2, 0)
+            )
+            self._normal_by_position[(lifted.x, lifted.y, lifted.z)] = blend(
+                weights, triangle.normals
+            )
+        return lifted
+
+    @property
+    def has_offset_normals(self) -> bool:
+        return bool(self._normal_by_position)
+
+    def offset_normals(self, vertices) -> tuple:
+        """`((vert_key, нормаль), ...)` вершин батча по закону `OFFSET_NORMAL_LAW`."""
+
+        return tuple(
+            (
+                item.vert_key.value,
+                self._normal_by_position[(item.position.x, item.position.y, item.position.z)],
+            )
+            for item in sorted(vertices, key=lambda entry: entry.vert_key.value)
+        )
+
+    offset_normal_law = OFFSET_NORMAL_LAW
 
     def values_in(self, triangle: LiftTriangleV1, point):
         """Три значения ориентации точки в ЗАДАННОМ треугольнике (без проверки)."""

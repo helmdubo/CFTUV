@@ -58,6 +58,7 @@ def with_affine_metric(
     with_triangles=True,
     near_planar_lift_law=None,
     near_planar_frame_policy=None,
+    curvature_ladder=None,
 ):
     """Снапшот с честной аффинной метрикой вместо его плоского кадра.
 
@@ -87,6 +88,11 @@ def with_affine_metric(
             {}
             if near_planar_frame_policy is None
             else {"near_planar_frame_policy": near_planar_frame_policy}
+        ),
+        **(
+            {}
+            if curvature_ladder is None
+            else {"curvature_ladder": curvature_ladder}
         ),
     )
     return dataclasses.replace(

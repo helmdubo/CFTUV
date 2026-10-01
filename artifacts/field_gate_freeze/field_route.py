@@ -66,17 +66,18 @@ WORK_CAP_EXCEEDED = "DOMAIN_WORK_CAP_EXCEEDED"
 #: отказ, а не молчаливое игнорирование.
 PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
+PIN_LADDER_FLAG = "--pin-ladder"
 
 
 def split_pins(argv) -> tuple[list[str], dict[str, str]]:
-    """Позиционные аргументы и закрепки: `--pin-lift ИМЯ`, `--pin-frame ИМЯ`."""
+    """Позиционные аргументы и закрепки: `--pin-lift ИМЯ`, `--pin-frame ИМЯ`, `--pin-ladder ИМЯ`."""
 
     positional: list[str] = []
     pins: dict[str, str] = {}
     items = list(argv)
     while items:
         item = items.pop(0)
-        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG):
+        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG, PIN_LADDER_FLAG):
             if not items:
                 raise SystemExit(f"{item} needs a policy name")
             pins[item] = items.pop(0)
@@ -105,6 +106,15 @@ def install_frame_pin(policy_name: str) -> None:
     export_module.HOST_NEAR_PLANAR_FRAME_POLICY = HostNearPlanarFramePolicy(
         policy_name
     )
+
+
+def install_ladder_pin(policy_name: str) -> None:
+    """Закрепить лестницу кривизны хоста (S1): `NEAR_PLANAR_ONLY_V1` — как до развёртки."""
+
+    from cftuv import envelope_request_export as export_module
+    from cftuv.surface_ir import HostCurvatureLadderPolicy
+
+    export_module.HOST_CURVATURE_LADDER_POLICY = HostCurvatureLadderPolicy(policy_name)
 
 
 def snapshot_sha256(name: str) -> str:
@@ -376,6 +386,13 @@ def _main() -> None:
         # репер хоста держат отдельные тесты ядра.
         install_frame_pin(pinned_frame)
         substitutions.append(f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pinned_frame}")
+    pinned_ladder = pins.get(PIN_LADDER_FLAG)
+    if pinned_ladder:
+        # Третья ИМЕНОВАННАЯ закрепка: ворота прежней математики near-planar (отказ по
+        # ширине, имена, числа) держат прежний ответ ПОД РАЗВЁРТКОЙ тоже: с настоящей
+        # лестницей хоста те же домены уходят на ступень ниже, и это другой ответ.
+        install_ladder_pin(pinned_ladder)
+        substitutions.append(f"HOST_CURVATURE_LADDER_POLICY_PINNED:{pinned_ladder}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ

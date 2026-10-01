@@ -65,7 +65,7 @@ from cftuv.envelope_queue_export import (  # noqa: E402
     POOL_UNAVAILABLE,
     POOL_WORKERS,
 )
-from envelope_fixture_bundles import quad_row_bundle  # noqa: E402
+from envelope_fixture_bundles import pin_near_planar_only, quad_row_bundle  # noqa: E402
 
 ROW = 5
 ALPHA = 0.25
@@ -433,7 +433,8 @@ def test_a_preparation_that_cannot_be_shipped_is_a_named_fallback(
     assert envelope_queue_pool.COVERAGE_POOL_MIN_BYTES == 0
 
 
-def test_a_domain_refused_on_the_metric_is_named_with_its_host_outcome():
+def test_a_domain_refused_on_the_metric_is_named_with_its_host_outcome(monkeypatch):
+    pin_near_planar_only(monkeypatch)
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)
 
     run, _ = _production(bundle)
@@ -478,6 +479,28 @@ def test_a_near_planar_domain_is_materialized_onto_the_source_triangles():
     for item in run.results[:-1]:
         assert not any("SURFACE_LIFT" in name for name, _ in item.counters)
         assert not any("NEAR_PLANAR" in line for line in item.diagnostics)
+
+
+def test_an_unfolded_domain_is_materialized_with_a_vertex_offset_normal_law():
+    """Изогнутый квад (лестница S1) материализуется; смещение — по нормали ВЕРШИНЫ.
+
+    У развёртки нет плоскости источника: `normal` результата — лишь сводка (среднее нормалей
+    вершин), а писатель меша кладёт смещение по нормали каждой вершины батча.
+    """
+
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    run, _ = _production(bundle)
+
+    assert all(item.is_materialized for item in run.results)
+    unfolded = run.results[ROW - 1]
+    assert unfolded.offset_normal_law == "SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1"
+    keys = {item.vert_key.value for item in unfolded.batch.vertices}
+    assert {name for name, _ in unfolded.vertex_normals} == keys
+    assert any(line.startswith("DEVELOPABLE_LIFT_ONTO_UNFOLDED") for line in unfolded.diagnostics)
+    for item in run.results[:-1]:
+        assert item.vertex_normals == () and item.offset_normal_law == ""
+    length = sum(axis * axis for axis in unfolded.normal) ** 0.5
+    assert abs(length - 1.0) < 1e-12
 
 
 def test_the_status_text_counts_repeated_outcomes():
@@ -623,7 +646,8 @@ def test_production_tasks_are_ranked_like_coverage_tasks():
 # --------------------------------------------------------------------------
 
 
-def test_the_json_export_round_trips_every_batch_through_the_kernel_codec(tmp_path):
+def test_the_json_export_round_trips_every_batch_through_the_kernel_codec(tmp_path, monkeypatch):
+    pin_near_planar_only(monkeypatch)
     from cftuv_envelope import GeometryBatchCodecV1
 
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)

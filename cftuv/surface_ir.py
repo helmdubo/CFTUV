@@ -263,15 +263,39 @@ class HostNearPlanarFramePolicy(str, Enum):
 HOST_NEAR_PLANAR_FRAME_POLICY = HostNearPlanarFramePolicy.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
 
 
+class HostCurvatureLadderPolicy(str, Enum):
+    """Что хост просит ядро пробовать ПОСЛЕ именованного отказа near-planar.
+
+    Объявляется явно, как остальные политики: ядро не выбирает политику за хост, и
+    применённый закон виден в сертификате метрики. `NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1`
+    — лестница EXACT -> NEAR_PLANAR -> DEVELOPABLE: развёртка пробуется только после
+    отказа near-planar по ширине, перевороту треугольника или вложению проекции, поэтому
+    домен, принятый сегодня, не перемаршрутизируется и его байты прежние.
+    """
+
+    NEAR_PLANAR_ONLY_V1 = "NEAR_PLANAR_ONLY_V1"
+    NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1 = "NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1"
+
+
+# Хост просит лестницу кривизны с развёрткой (S1 DEVELOPABLE_UNFOLDED_V1, решение владельца
+# 2026-10-03): домен, отвергнутый near-planar по ширине (патч 89 `building`: ступенька с
+# перпендикулярным треугольником), получает ещё одну попытку - привязанную к решётке
+# шарнирную развёртку, которую судит точное растяжение (1/50 в обе стороны). Смещение
+# декали над развёрнутым доменом идёт по нормали ВЕРШИНЫ (углы-веса), не плоскости.
+HOST_CURVATURE_LADDER_POLICY = HostCurvatureLadderPolicy.NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1
+
+
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
+    "HOST_CURVATURE_LADDER_POLICY",
     "HOST_GRID_POLICY",
     "HOST_NEAR_PLANAR_FRAME_POLICY",
     "HOST_NEAR_PLANAR_LIFT_POLICY",
     "HOST_PLANARITY_POLICY",
+    "HostCurvatureLadderPolicy",
     "HostGridPolicy",
     "HostNearPlanarFramePolicy",
     "HostNearPlanarLiftPolicy",

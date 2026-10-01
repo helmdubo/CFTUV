@@ -831,3 +831,23 @@ def quad_row_bundle(count: int, *, lifted_corner: float = 0.0):
         triangles=tuple(triangles),
     )
     return AnalysisBundle(revision, graph, surface)
+
+
+def pin_near_planar_only(monkeypatch):
+    """Закрепить лестницу кривизны хоста на `NEAR_PLANAR_ONLY_V1` (как до S1 DEVELOPABLE).
+
+    Тест держит именно ступень near-planar — отказ по ширине, его имя и числа, ступень
+    домена, счёт пула. С настоящей лестницей хоста те же разворачиваемые домены (изогнутый
+    квад, склон) принимаются развёрткой, и это другой ответ, его держат отдельные тесты.
+    Закрепка действует в ЭТОМ процессе: тесты с настоящими воркерами её не используют,
+    воркер читает политику хоста по умолчанию.
+    """
+
+    import cftuv.envelope_request_export as export_module
+    from cftuv.surface_ir import HostCurvatureLadderPolicy
+
+    monkeypatch.setattr(
+        export_module,
+        "HOST_CURVATURE_LADDER_POLICY",
+        HostCurvatureLadderPolicy.NEAR_PLANAR_ONLY_V1,
+    )

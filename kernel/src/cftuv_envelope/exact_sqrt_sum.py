@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 from bisect import insort
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
@@ -653,6 +654,38 @@ def reset_factorization_memory() -> None:
     _FACTORIZATION_MEMO.clear()
     _SQUAREFREE_MEMO.clear()
     _PRIME_SUPPORT_MEMO.clear()
+
+
+@contextmanager
+def isolated_factorization_memory():
+    """Память канонизации, ХОЛОДНАЯ внутри блока; память вызывающего возвращается.
+
+    Нужна там, где ответ зависит от бюджета точной работы (ярлык вершины
+    развёртки: хватило ли бюджета на точный знак): попадание в память
+    возвращается до оплаты, и тот же вход при тёплой памяти стоил бы меньше —
+    ярлык оказался бы свойством ИСТОРИИ процесса, а не входа. Внутри блока
+    цена — функция входа; после блока память вызывающего восстановлена целиком,
+    поэтому окружающий счёт (цену подготовки и покрытия) блок не двигает.
+    """
+
+    saved = (
+        list(_KNOWN_PRIMES),
+        set(_KNOWN_PRIME_SET),
+        dict(_FACTORIZATION_MEMO),
+        dict(_SQUAREFREE_MEMO),
+        dict(_PRIME_SUPPORT_MEMO),
+    )
+    reset_factorization_memory()
+    try:
+        yield
+    finally:
+        reset_factorization_memory()
+        known, known_set, factorization, squarefree, support = saved
+        _KNOWN_PRIMES.extend(known)
+        _KNOWN_PRIME_SET.update(known_set)
+        _FACTORIZATION_MEMO.update(factorization)
+        _SQUAREFREE_MEMO.update(squarefree)
+        _PRIME_SUPPORT_MEMO.update(support)
 
 
 def _register_prime(prime: int) -> None:

@@ -21,7 +21,7 @@ import math
 from dataclasses import dataclass
 from fractions import Fraction
 
-from ..contracts.metric import AffineChartOrientationV1
+from ..contracts.metric import AffineChartOrientationV1, DevelopableUnfoldCertificateV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..numeric import LocalPoint3V1, LocalVector3V1
 from ..planar_metric import fraction_from_exact
@@ -89,9 +89,20 @@ def _triple(value) -> tuple[Fraction, Fraction, Fraction]:
     )
 
 
+def _refuse_unfolded(descriptor) -> None:
+    """Репер развёртки — репер КАРТЫ: плоскости источника у него нет, класть не на что."""
+
+    if type(descriptor.planarity_certificate) is DevelopableUnfoldCertificateV1:
+        raise ValueError(
+            "an unfolded chart has no source plane: the domain lifts onto the "
+            "source triangles, and its offset normal is per vertex"
+        )
+
+
 def plane_lift_of(descriptor, scale: int) -> PlaneLiftV1:
     """Подъём по дескриптору `RationalAffinePlanarMetricV2` и масштабу решётки."""
 
+    _refuse_unfolded(descriptor)
     return PlaneLiftV1(
         origin=_triple(descriptor.exact_origin),
         basis_a=_triple(descriptor.exact_basis_a),
@@ -114,6 +125,7 @@ def plane_normal_binary64(descriptor) -> LocalVector3V1:
     выходе: компоненты и длина переводятся во float по одному разу.
     """
 
+    _refuse_unfolded(descriptor)
     a = _triple(descriptor.exact_basis_a)
     b = _triple(descriptor.exact_basis_b)
     cross = (

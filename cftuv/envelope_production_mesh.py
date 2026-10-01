@@ -177,8 +177,12 @@ def _domain_arrays(result, offset: float):
     if result.normal is None or not _finite(result.normal):
         return None, OUTCOME_NORMAL_MISSING, "the plane normal of the domain is absent"
     nx, ny, nz = result.normal
+    vertex_normals = dict(getattr(result, "vertex_normals", ()) or ())
     source = getattr(result, "source_normal", None)
-    if source is not None and any(source):
+    # У домена-развёртки нормаль смещения своя на вершину (закон ядра), и каждая уже
+    # проверена ядром против нормалей её треугольников; одной нормалью первой грани
+    # на сгибе проверять нечего.
+    if source is not None and any(source) and not vertex_normals:
         dot = nx * source[0] + ny * source[1] + nz * source[2]
         if not dot > 0.0:
             return (
@@ -194,8 +198,11 @@ def _domain_arrays(result, offset: float):
         point = vertex.position
         if not _finite((point.x, point.y, point.z)):
             return None, OUTCOME_NON_FINITE, f"vertex {vertex.vert_key.value}"
+        shift = vertex_normals.get(vertex.vert_key.value, (nx, ny, nz)) if vertex_normals else (nx, ny, nz)
+        if vertex_normals and vertex.vert_key.value not in vertex_normals:
+            return None, OUTCOME_NORMAL_MISSING, f"the offset normal of vertex {vertex.vert_key.value} is absent"
         positions.append(
-            (point.x + offset * nx, point.y + offset * ny, point.z + offset * nz)
+            (point.x + offset * shift[0], point.y + offset * shift[1], point.z + offset * shift[2])
         )
     owners = _claim_ordinals(batch)
     faces, uvs, face_owner = [], [], []
