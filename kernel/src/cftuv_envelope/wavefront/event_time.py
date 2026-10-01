@@ -59,6 +59,7 @@ from ..exact_sqrt_sum import (
     _filtered_sign,
     _named,
     _scaled_difference_items,
+    radical_sum,
 )
 from .sqrt_sum import SqrtSumV1
 
@@ -284,8 +285,8 @@ def compare_times(
     )
     if decided is not None:
         return decided
-    difference = right.divisor.scaled(left.dividend) - left.divisor.scaled(
-        right.dividend
+    difference = right.divisor.scaled_difference(
+        left.dividend, left.divisor, right.dividend
     )
     return difference.sign(budget=budget)
 
@@ -320,10 +321,13 @@ def concurrency_time(
         + second.c * cofactor_second
         + third.c * cofactor_third
     )
-    speed = (
-        SqrtSumV1.radical(cofactor_first, first.q, budget)
-        + SqrtSumV1.radical(cofactor_second, second.q, budget)
-        + SqrtSumV1.radical(cofactor_third, third.q, budget)
+    speed = radical_sum(
+        (
+            (cofactor_first, first.q),
+            (cofactor_second, second.q),
+            (cofactor_third, third.q),
+        ),
+        budget,
     )
     if speed.is_zero:
         if offset == 0:
@@ -412,9 +416,7 @@ def sliding_time(
         + along.scaled(cross)
         - SqrtSumV1.rational(weight * line.c)
     )
-    speed = SqrtSumV1.radical(weight, line.q, budget) - SqrtSumV1.radical(
-        norm, other.q, budget
-    )
+    speed = radical_sum(((weight, line.q), (-norm, other.q)), budget)
     if speed.is_zero:
         if numerator.is_zero:
             return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
@@ -494,15 +496,19 @@ def _event_point(
     _named(budget).spend_exact_position_hydrations(
         1, operation=ExactWorkOperationV1.EXACT_POSITION, radicand=first.q
     )
-    right_first = SqrtSumV1.rational(first.c) * time.divisor + SqrtSumV1.radical(
+    right_first = time.divisor.scaled(first.c) + SqrtSumV1.radical(
         time.dividend, first.q, budget
     )
-    right_second = SqrtSumV1.rational(second.c) * time.divisor + SqrtSumV1.radical(
+    right_second = time.divisor.scaled(second.c) + SqrtSumV1.radical(
         time.dividend, second.q, budget
     )
     scale = time.divisor.scaled(determinant)
-    x_numerator = right_first.scaled(second.b) - right_second.scaled(first.b)
-    y_numerator = right_second.scaled(first.a) - right_first.scaled(second.a)
+    x_numerator = right_first.scaled_difference(
+        second.b, right_second, first.b
+    )
+    y_numerator = right_second.scaled_difference(
+        first.a, right_first, second.a
+    )
     if prime_universe is None:
         x = x_numerator.divided_by(scale, budget)
         y = y_numerator.divided_by(scale, budget)

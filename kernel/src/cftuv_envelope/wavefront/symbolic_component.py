@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
 from .event_time import EventPointV1
@@ -38,28 +40,130 @@ def point_from_key(key):
     return EventPointV1(SqrtSumV1(key[0]), SqrtSumV1(key[1]))
 
 
-def overlay_signature(overlay):
-    def trace_authority(trace):
+class _SignaturePartsMemo:
+    """Тексты `repr` неизменяемых частей подписи, по одному на ОБЪЕКТ.
+
+    Подпись сортирует вершины, пролёты и листья по `repr`, а `repr` вершины
+    разворачивает сотни `Fraction` в ссылках и точках: на тяжёлых доменах это
+    15 % секунд. При этом подписи одной транзакции берутся с клонов ОДНОГО
+    наложения (`clone_overlay` делает `replace(vertex)`, то есть вершина новая,
+    а её ссылки, точка и скольжение — те же самые объекты), поэтому `repr`
+    каждой неизменяемой части достаточно посчитать один раз.
+
+    Ключ — `id(объекта)`, и запись держит сам объект: пока запись жива, адрес
+    не может достаться другому. Текст части есть ровно `repr(часть)`, а текст
+    кортежа — ровно `"(" + ", ".join(тексты частей) + ")"`, как у самого
+    `tuple.__repr__`, поэтому ключ сортировки побитово прежний и порядок
+    подписи тот же. Память не хранит ни ответа, ни цены: она живёт, пока
+    открыта `signature_memo()`, и умирает вместе с ней.
+    """
+
+    __slots__ = ("texts", "births", "traces")
+
+    def __init__(self):
+        self.texts: dict = {}
+        self.births: dict = {}
+        self.traces: dict = {}
+
+    def shown(self, part) -> str:
+        if part is None:
+            return "None"
+        entry = self.texts.get(id(part))
+        if entry is None:
+            entry = self.texts[id(part)] = (part, repr(part))
+        return entry[1]
+
+    def birth(self, birth):
+        """`(birth.canonical(), repr(...))`: каноническая форма считается раз."""
+
+        entry = self.births.get(id(birth))
+        if entry is None:
+            canonical = birth.canonical()
+            entry = self.births[id(birth)] = (birth, canonical, repr(canonical))
+        return entry[1], entry[2]
+
+    def trace(self, trace):
+        """`(trace_authority(trace), repr(...))` для следа вершины."""
+
         if trace is None:
-            return ("UNAVAILABLE",)
+            authority = ("UNAVAILABLE",)
+            return authority, repr(authority)
         crash_time = trace.crash_time
         if crash_time is None:
-            return ("TRACE_WITHOUT_CRASH",)
-        return ("BOUNDED", crash_time.canonical())
+            authority = ("TRACE_WITHOUT_CRASH",)
+            return authority, repr(authority)
+        entry = self.traces.get(id(crash_time))
+        if entry is None:
+            authority = ("BOUNDED", crash_time.canonical())
+            entry = self.traces[id(crash_time)] = (
+                crash_time, authority, repr(authority)
+            )
+        return entry[1], entry[2]
 
-    vertices = tuple(sorted((
+
+_SIGNATURE_MEMO: ContextVar = ContextVar("overlay_signature_memo", default=None)
+
+
+@contextmanager
+def signature_memo():
+    """Открыть память представлений подписи на время одной транзакции."""
+
+    if _SIGNATURE_MEMO.get() is not None:
+        yield
+        return
+    token = _SIGNATURE_MEMO.set(_SignaturePartsMemo())
+    try:
+        yield
+    finally:
+        _SIGNATURE_MEMO.reset(token)
+
+
+def _joined(texts) -> str:
+    return "(" + ", ".join(texts) + ")"
+
+
+def overlay_signature(overlay):
+    memo = _SIGNATURE_MEMO.get()
+    if memo is None:
+        memo = _SignaturePartsMemo()
+    shown = memo.shown
+    rows = []
+    for v in overlay.vertices.values():
+        if not v.alive:
+            continue
+        birth, birth_text = memo.birth(v.birth)
+        authority, authority_text = memo.trace(v.trace)
+        rows.append((
+            _joined((
+                shown(v.ref), shown(v.prev), shown(v.next),
+                shown(v.prev_leaf), shown(v.next_leaf), birth_text,
+                shown(v.point), shown(v.sliding), shown(v.provenance),
+                authority_text,
+            )),
+            (
+                v.ref, v.prev, v.next, v.prev_leaf, v.next_leaf, birth,
+                v.point, v.sliding, v.provenance, authority,
+            ),
+        ))
+    rows.sort(key=_row_text)
+    vertices = tuple(entry for _, entry in rows)
+    rows = [
         (
-            v.ref, v.prev, v.next, v.prev_leaf, v.next_leaf,
-            v.birth.canonical(), v.point, v.sliding, v.provenance,
-            trace_authority(v.trace),
+            _joined((
+                shown(leaf), repr(item.physical_edge_id),
+                shown(item.start), shown(item.end),
+            )),
+            (leaf, item.physical_edge_id, item.start, item.end),
         )
-        for v in overlay.vertices.values() if v.alive
-    ), key=repr))
-    spans = tuple(sorted((
-        (leaf, item.physical_edge_id, item.start, item.end)
         for leaf, item in overlay.spans.items()
-    ), key=repr))
-    return vertices, spans, tuple(sorted(overlay.changed, key=repr))
+    ]
+    rows.sort(key=_row_text)
+    spans = tuple(entry for _, entry in rows)
+    return vertices, spans, tuple(sorted(overlay.changed, key=shown))
+
+
+def _row_text(row) -> str:
+    return row[0]
 
 
 def normalize_dead_component(

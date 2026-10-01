@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .event_time import compare_times
+from .event_time import times_are_equal
 from .exact_candidate_view import (
     CandidateSpanStateV1,
     CandidateVertexStateV1,
@@ -416,7 +416,7 @@ def build_symbolic_overlay(
     )
 
 
-def _born_place(overlay, ref, budget=None):
+def _born_place(overlay, ref):
     """Место порта в `now`, если он в `now` и РОДИЛСЯ, иначе `None`.
 
     ПРОДОЛЖЕНИЕ ЗАКОНА ПРИМИРЕНИЯ НА КОНЦЫ ПРОЛЁТА. Закон сказал: admission
@@ -443,7 +443,7 @@ def _born_place(overlay, ref, budget=None):
     vertex = overlay.vertices.get(ref)
     if vertex is None or vertex.point is None:
         return None
-    if compare_times(vertex.birth, overlay.time, budget) != 0:
+    if not times_are_equal(vertex.birth, overlay.time):
         return None
     return vertex.point
 
@@ -488,8 +488,8 @@ def exact_overlay_view(builder, overlay):
             binding.start,
             binding.end,
             overlay.time,
-            _born_place(overlay, binding.start, budget),
-            _born_place(overlay, binding.end, budget),
+            _born_place(overlay, binding.start),
+            _born_place(overlay, binding.end),
         )
         if span_memo is not None and span_memo.admits(overlay, overlay.time):
             span_memo.entries[leaf] = state

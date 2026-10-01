@@ -16,7 +16,7 @@ from .superlevel_fixed_point import (
     _compile_contacts,
     merge_symbolic_split_contacts,
 )
-from .symbolic_component import overlay_signature
+from .symbolic_component import overlay_signature, signature_memo
 from .symbolic_f0_overlay import build_f0_overlay
 from .symbolic_junction_fixed_point import (
     SymbolicJunctionFixedPointV1,
@@ -203,8 +203,19 @@ def _refusal(materialization, contacts, junction, iterations, signatures, reason
 def plan_symbolic_superlevel_closure(
     builder, snapshot, *, outer_budget, junction_budget
 ):
-    """Rebuild from F0 whenever the stable interior contact set grows."""
+    """Rebuild from F0 whenever the stable interior contact set grows.
 
+    Подписи наложений этой транзакции делят память представлений общих
+    неизменяемых частей (`signature_memo`): ответ тот же, цена — раз на объект.
+    """
+
+    with signature_memo():
+        return _plan_closure(
+            builder, snapshot, outer_budget, junction_budget
+        )
+
+
+def _plan_closure(builder, snapshot, outer_budget, junction_budget):
     if not snapshot.incidents:
         return _refusal(
             None, (), None, 0, (), "SYMBOLIC_SUPERLEVEL_EMPTY_PACKET"

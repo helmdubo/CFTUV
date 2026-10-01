@@ -1,0 +1,3279 @@
+{
+ "task": "срез 6, шаг 3 — KERNEL-ROUND-3: безопасные выигрыши в ядре на тяжёлых доменах d2 (patch 6, 1, 7, 11, 15)",
+ "base": {
+  "sha": "5392e01",
+  "sha_full": "5392e013200a640d2f978813011b135cc2513da0",
+  "gate_before_rerun": {
+   "1": {
+    "wall_seconds": 13.452,
+    "sum_domain_seconds": 75.139,
+    "max_domain_seconds": 12.82
+   },
+   "2": {
+    "wall_seconds": 18.211,
+    "sum_domain_seconds": 95.688,
+    "max_domain_seconds": 17.562
+   }
+  }
+ },
+ "branch": "worktree-agent-a59cdea36b5f312b4",
+ "commits": [
+  {
+   "tag": "c1",
+   "sha": "96e93cb",
+   "subject": "overlay_signature: память repr неизменяемых частей на транзакцию",
+   "files": [
+    "kernel/src/cftuv_envelope/wavefront/symbolic_component.py",
+    "kernel/src/cftuv_envelope/wavefront/symbolic_superlevel_coordinator.py",
+    "kernel/tests/test_overlay_signature_memo.py"
+   ],
+   "audit_signatures": "подписи наложений используются ТОЛЬКО как равенство (replay vs junction в plan_symbolic_superlevel_closure) и лежат в непрочитанных полях closure/junction.signatures; потребителя порядка, дайджеста, repr-ключа наружу нет. Порядок и сам кортеж оставлены побитово прежними (ключ строки = '(' + ', '.join(repr частей) + ')' — ровно tuple.__repr__), поэтому замены ключа сортировки не потребовалось.",
+   "mechanism": "repr каждой неизменяемой части (JunctionRefV1, SegmentRefV1, EventPointV1, SqrtSumV1, frozenset, каноника рождения и следа) — раз на объект внутри signature_memo(), открываемой plan_symbolic_superlevel_closure; ключ id, запись держит объект; вне scope — одноразовая память на вызов",
+   "shadow_check": "теневая сверка с исходной функцией (значение И repr): 424 вызова на patch 7 d2, 4 d1, 100/103 d2, 0 расхождений; 6.4x быстрее на самой подписи",
+   "p7_d2_solo_seconds": [
+    9.86,
+    10.0,
+    9.89
+   ],
+   "moves_price": false,
+   "sha_full": "96e93cbd6a45df0edb23bcfc7fb17cf7b9917c98",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 0,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 11.936,
+      "sum_domain_seconds": 67.778,
+      "max_domain_seconds": 11.29
+     },
+     "2": {
+      "wall_seconds": 15.943,
+      "sum_domain_seconds": 85.685,
+      "max_domain_seconds": 15.327
+     }
+    }
+   }
+  },
+  {
+   "tag": "c2",
+   "sha": "fffe2f8",
+   "subject": "exact_sqrt_sum: деление домножением на сопряжённые в целых (_divide_with_prime_universe 121 -> 57 мкс/вызов)",
+   "files": [
+    "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+    "kernel/tests/test_exact_sqrt_sum_division_kernel.py"
+   ],
+   "mechanism": "числитель/знаменатель как (L, [(радикант, целое)]); сопряжённое = знаменатель с перевёрнутым знаком у членов с радикантом, делящимся на простое; общий _multiply_integer_items (им же стал __mul__); Fraction один раз на член результата; _pick_prime_from_universe зовётся столько же раз и в том же порядке (заморожено полевыми тестами); squarefree_split(p, budget) там, где стоял radical(1, p, budget); откат divided_by на исходных операндах",
+   "p7_d2_solo_seconds": [
+    9.16,
+    9.28,
+    9.11
+   ],
+   "moves_price": false,
+   "sha_full": "fffe2f88a22ee5f22cbb9518fee45055135520b8",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 0,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 10.889,
+      "sum_domain_seconds": 63.047,
+      "max_domain_seconds": 10.229
+     },
+     "2": {
+      "wall_seconds": 14.847,
+      "sum_domain_seconds": 79.594,
+      "max_domain_seconds": 14.235
+     }
+    }
+   }
+  },
+  {
+   "tag": "c3",
+   "sha": "eb98752",
+   "subject": "event_time: radical_sum — скорость события одной суммой в целых (concurrency_time 24.7 -> 12.8 мкс)",
+   "files": [
+    "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+    "kernel/src/cftuv_envelope/wavefront/event_time.py",
+    "kernel/tests/exact_work_budget_ban.py",
+    "kernel/tests/test_exact_sqrt_sum_radical_sum.py"
+   ],
+   "mechanism": "член копится как (целый числитель, целый знаменатель), слияние перекрёстным произведением, Fraction один раз на член; squarefree_split на тех же ненулевых радикандах в том же порядке; radical_sum внесён в CHARGED_EXACT_SURFACE",
+   "note": "первая версия на Fraction-аккумуляторе дала только -3 % на самой функции (24.2 -> 23.5 мкс): на полевом входе q — дробь, и Fraction-арифметика, а не цепочка SqrtSumV1, была ценой; целочисленное накопление дало -48 %",
+   "p7_d2_solo_seconds": [
+    8.81,
+    8.67,
+    8.79
+   ],
+   "moves_price": false,
+   "sha_full": "eb987529a39bca5b9cda6a4a13a837dfd01df20f",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 0,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 12.102,
+      "sum_domain_seconds": 70.037,
+      "max_domain_seconds": 11.456
+     },
+     "2": {
+      "wall_seconds": 16.439,
+      "sum_domain_seconds": 91.855,
+      "max_domain_seconds": 15.631
+     }
+    }
+   }
+  },
+  {
+   "tag": "c4",
+   "sha": "aba8bb4",
+   "subject": "span: scaled_difference / difference_sign — проекция на нормаль и знак разности проекций одним проходом в целых",
+   "files": [
+    "kernel/src/cftuv_envelope/exact_sqrt_sum.py",
+    "kernel/src/cftuv_envelope/wavefront/event_time.py",
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py",
+    "kernel/tests/exact_work_budget_ban.py",
+    "kernel/tests/test_exact_sqrt_sum_scaled_difference.py"
+   ],
+   "mechanism": "SqrtSumV1.scaled_difference == scaled(f) - other.scaled(g) (члены/тип/порядок); difference_sign через _filtered_sign с откатом на прежний (self - other).sign(budget); difference_is_zero; span_containment сохраняет короткое замыкание or (счётчики знака те же); _event_point и откат compare_times на scaled_difference",
+   "p7_d2_solo_seconds": [
+    8.26,
+    8.22,
+    8.28
+   ],
+   "moves_price": false,
+   "sha_full": "aba8bb4e157538f30f3b7c5aa7c3064730f0e3cf",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 0,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": 0,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": 0,
+       "closed_by_enclosure": 0,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 10.984,
+      "sum_domain_seconds": 62.754,
+      "max_domain_seconds": 10.321
+     },
+     "2": {
+      "wall_seconds": 13.614,
+      "sum_domain_seconds": 74.274,
+      "max_domain_seconds": 12.96
+     }
+    }
+   }
+  },
+  {
+   "tag": "c5",
+   "sha": "4543b44",
+   "subject": "candidate_law: время тройки прямых — в память мест superlevel'а (concurrency_time_in / sliding_time_in)",
+   "files": [
+    "kernel/src/cftuv_envelope/wavefront/exact_candidate_view.py",
+    "kernel/src/cftuv_envelope/wavefront/candidate_law.py",
+    "kernel/tests/test_event_time_memo.py"
+   ],
+   "mechanism": "в PositionMemoV1 superlevel'а (чистится при смене точного времени, обслуживает свой базис простых, нет в плотном режиме) кладётся ответ чистой функции трёх прямых; ключ ('CONCURRENCY'/'SLIDING', id трёх объектов), запись держит объекты. На patch 7 d2: 29651 вызов concurrency_time на 5104 тройки (5809 по id), 7191 sliding_time на 760 (967)",
+   "p7_d2_solo_seconds": [
+    7.46,
+    7.41,
+    7.36
+   ],
+   "moves_price": true,
+   "price_note": "SIGN_COUNTS падает (пропущенный пересчёт не спрашивает знак второй раз): patch 7 d2 total 162515 -> 141429; статьи бюджета равны на 244/244, closed_by_conjugation не двигается (0). Откатывается отдельно.",
+   "sha_full": "4543b444107165fcb85e0595a67e5f776414985f",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 38,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": -84193,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": -7589,
+       "closed_by_enclosure": -76604,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": -125146,
+       "closed_rational_zero": 0,
+       "closed_rational_nonzero": -7662,
+       "closed_by_enclosure": -117484,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 9.648,
+      "sum_domain_seconds": 56.58,
+      "max_domain_seconds": 9.02
+     },
+     "2": {
+      "wall_seconds": 12.81,
+      "sum_domain_seconds": 69.683,
+      "max_domain_seconds": 12.189
+     }
+    }
+   }
+  },
+  {
+   "tag": "c6",
+   "sha": "6e5ed55",
+   "subject": "events: вопросы «равны ли времена» не ходят в знак (обход очереди с обрезкой, times_are_equal в _born_place)",
+   "files": [
+    "kernel/src/cftuv_envelope/wavefront/events.py",
+    "kernel/src/cftuv_envelope/wavefront/symbolic_overlay.py",
+    "kernel/tests/test_equality_only_queries.py"
+   ],
+   "mechanism": "EventQueueV1._count_at_time (телеметрия) на каждый уровень сравнивала с now все записи очереди (119 811 из 393 725 compare_times на трёх тяжёлых доменах): обход кучи сверху с обрезкой поддеревьев, чьё время строго позже (даёт тот же счёт и при записи из прошлого); _born_place (69 354 вызова) -> times_are_equal",
+   "p7_d2_solo_seconds": [
+    7.05,
+    7.06,
+    7.05
+   ],
+   "moves_price": true,
+   "price_note": "SIGN_COUNTS падает на ВСЕХ доменах (242 строки): d2 total 1 023 947 -> 563 379 с учётом c5; closed_rational_zero тоже (равенства считались как знак). Статьи бюджета равны, closed_by_conjugation = 0 на всех строках, поэтому сопряжений, чей бюджет рациональная проверка 'не равно' заменяет, в корпусе нет. Откатывается отдельно.",
+   "sha_full": "6e5ed55911303c063a0fa89e6e8c4727689dbc7f",
+   "gate": {
+    "command": "python artifacts/numeric_repr/gate.py run --workers 8 --densities 1,2 --out <scratch>.json --baseline artifacts/numeric_repr/baseline_18d7197.json",
+    "verdict": "IDENTICAL",
+    "answer_diffs": 0,
+    "repr_only_diffs": 0,
+    "structural_diffs": 0,
+    "price_vs_baseline": {
+     "rows": 244,
+     "budget_article_diffs": 0,
+     "sign_counts_diffs": 242,
+     "sign_counts_delta_sum_vs_baseline": {
+      "1": {
+       "total": -323464,
+       "closed_rational_zero": -11786,
+       "closed_rational_nonzero": -82935,
+       "closed_by_enclosure": -228743,
+       "closed_by_conjugation": 0
+      },
+      "2": {
+       "total": -460568,
+       "closed_rational_zero": -13236,
+       "closed_rational_nonzero": -115261,
+       "closed_by_enclosure": -332071,
+       "closed_by_conjugation": 0
+      }
+     }
+    },
+    "walls": {
+     "1": {
+      "wall_seconds": 9.337,
+      "sum_domain_seconds": 55.487,
+      "max_domain_seconds": 8.697
+     },
+     "2": {
+      "wall_seconds": 12.269,
+      "sum_domain_seconds": 67.963,
+      "max_domain_seconds": 11.656
+     }
+    }
+   }
+  }
+ ],
+ "baseline_before": {
+  "p7_d2_solo_seconds_5392e01": [
+   11.04,
+   10.89,
+   10.8
+  ],
+  "gate_walls_5392e01_same_session": {
+   "1": {
+    "wall_seconds": 13.452,
+    "sum_domain_seconds": 75.139,
+    "max_domain_seconds": 12.82
+   },
+   "2": {
+    "wall_seconds": 18.211,
+    "sum_domain_seconds": 95.688,
+    "max_domain_seconds": 17.562
+   }
+  }
+ },
+ "final_timing": {
+  "gate": {
+   "before": [
+    {
+     "1": {
+      "wall": 14.163,
+      "sum": 79.823,
+      "max": 13.518
+     },
+     "2": {
+      "wall": 20.114,
+      "sum": 108.378,
+      "max": 19.499
+     }
+    },
+    {
+     "1": {
+      "wall": 13.808,
+      "sum": 78.955,
+      "max": 13.158
+     },
+     "2": {
+      "wall": 18.076,
+      "sum": 94.442,
+      "max": 17.463
+     }
+    }
+   ],
+   "after": [
+    {
+     "1": {
+      "wall": 10.244,
+      "sum": 61.142,
+      "max": 9.596
+     },
+     "2": {
+      "wall": 13.312,
+      "sum": 74.818,
+      "max": 12.518
+     }
+    },
+    {
+     "1": {
+      "wall": 9.652,
+      "sum": 57.539,
+      "max": 9.012
+     },
+     "2": {
+      "wall": 12.243,
+      "sum": 68.876,
+      "max": 11.636
+     }
+    }
+   ]
+  },
+  "solo": {
+   "7": {
+    "before": [
+     {
+      "seconds": 10.86,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 162515
+     },
+     {
+      "seconds": 11.0,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 162515
+     },
+     {
+      "seconds": 10.86,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 162515
+     }
+    ],
+    "after": [
+     {
+      "seconds": 7.06,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 87522
+     },
+     {
+      "seconds": 7.16,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 87522
+     },
+     {
+      "seconds": 7.04,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 87522
+     }
+    ]
+   },
+   "6": {
+    "before": [
+     {
+      "seconds": 15.85,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 229586
+     },
+     {
+      "seconds": 15.7,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 229586
+     },
+     {
+      "seconds": 15.95,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 229586
+     }
+    ],
+    "after": [
+     {
+      "seconds": 10.19,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 114639
+     },
+     {
+      "seconds": 10.01,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 114639
+     },
+     {
+      "seconds": 10.01,
+      "answer_equal": true,
+      "budget_articles_equal": true,
+      "sign_total": 114639
+     }
+    ]
+   }
+  }
+ },
+ "profile_tables": {
+  "before_5392e01": {
+   "domains": "patch 6 + 1 + 7, density 2, cProfile (sum of 3 domains; profiler inflates call-heavy code)",
+   "profile_total_seconds": 92.2,
+   "self_top25": [
+    {
+     "site": "exact_sqrt_sum.py:973(_integer_form)",
+     "calls": 1753981,
+     "self_s": 4.04,
+     "self_share": 0.0438,
+     "cum_s": 6.03
+    },
+    {
+     "site": "exact_sqrt_sum.py:1209(__mul__)",
+     "calls": 409618,
+     "self_s": 3.77,
+     "self_share": 0.0409,
+     "cum_s": 11.3
+    },
+    {
+     "site": "fractions.py:203(__new__)",
+     "calls": 3771409,
+     "self_s": 3.43,
+     "self_share": 0.0372,
+     "cum_s": 5.0
+    },
+    {
+     "site": "~:0(<built-in method math.gcd>)",
+     "calls": 12409808,
+     "self_s": 3.17,
+     "self_share": 0.0344,
+     "cum_s": 3.17
+    },
+    {
+     "site": "fractions.py:663(forward)",
+     "calls": 4241283,
+     "self_s": 2.69,
+     "self_share": 0.0292,
+     "cum_s": 13.7
+    },
+    {
+     "site": "fractions.py:422(__repr__)",
+     "calls": 6534895,
+     "self_s": 2.49,
+     "self_share": 0.027,
+     "cum_s": 2.49
+    },
+    {
+     "site": "fractions.py:792(_mul)",
+     "calls": 2306026,
+     "self_s": 2.45,
+     "self_share": 0.0265,
+     "cum_s": 4.81
+    },
+    {
+     "site": "fractions.py:334(_from_coprime_ints)",
+     "calls": 4965900,
+     "self_s": 2.37,
+     "self_share": 0.0257,
+     "cum_s": 3.16
+    },
+    {
+     "site": "~:0(<built-in method builtins.isinstance>)",
+     "calls": 12660530,
+     "self_s": 1.89,
+     "self_share": 0.0205,
+     "cum_s": 2.76
+    },
+    {
+     "site": "~:0(<method 'get' of 'dict' objects>)",
+     "calls": 8953896,
+     "self_s": 1.86,
+     "self_share": 0.0201,
+     "cum_s": 4.36
+    },
+    {
+     "site": "<string>:7(__repr__)",
+     "calls": 96114,
+     "self_s": 1.72,
+     "self_share": 0.0187,
+     "cum_s": 5.9
+    },
+    {
+     "site": "exact_sqrt_sum.py:1116(radical)",
+     "calls": 499944,
+     "self_s": 1.7,
+     "self_share": 0.0185,
+     "cum_s": 7.54
+    },
+    {
+     "site": "sympy/core/mul.py:205(flatten)",
+     "calls": 67304,
+     "self_s": 1.59,
+     "self_share": 0.0172,
+     "cum_s": 7.0
+    },
+    {
+     "site": "exact_sqrt_sum.py:1028(_scaled_difference_items)",
+     "calls": 393725,
+     "self_s": 1.56,
+     "self_share": 0.0169,
+     "cum_s": 4.41
+    },
+    {
+     "site": "~:0(<built-in method __new__ of type object at 0x00007FFC6B8D28A0>)",
+     "calls": 9441571,
+     "self_s": 1.55,
+     "self_share": 0.0168,
+     "cum_s": 1.55
+    },
+    {
+     "site": "~:0(<built-in method builtins.sorted>)",
+     "calls": 1339556,
+     "self_s": 1.51,
+     "self_share": 0.0164,
+     "cum_s": 12.45
+    },
+    {
+     "site": "~:0(<built-in method builtins.hash>)",
+     "calls": 3662527,
+     "self_s": 1.39,
+     "self_share": 0.0151,
+     "cum_s": 2.38
+    },
+    {
+     "site": "fractions.py:776(_sub)",
+     "calls": 1039243,
+     "self_s": 1.29,
+     "self_share": 0.0139,
+     "cum_s": 2.52
+    },
+    {
+     "site": "exact_sqrt_sum.py:1162(_from_map)",
+     "calls": 888927,
+     "self_s": 1.19,
+     "self_share": 0.0129,
+     "cum_s": 4.07
+    },
+    {
+     "site": "exact_sqrt_sum.py:1203(scaled)",
+     "calls": 415991,
+     "self_s": 1.12,
+     "self_share": 0.0122,
+     "cum_s": 6.89
+    },
+    {
+     "site": "exact_sqrt_sum.py:993(_integer_enclosure)",
+     "calls": 388919,
+     "self_s": 1.06,
+     "self_share": 0.0115,
+     "cum_s": 1.96
+    },
+    {
+     "site": "exact_sqrt_sum.py:1188(__sub__)",
+     "calls": 375804,
+     "self_s": 1.06,
+     "self_share": 0.0115,
+     "cum_s": 6.54
+    },
+    {
+     "site": "exact_sqrt_sum.py:1165(<genexpr>)",
+     "calls": 3336967,
+     "self_s": 1.05,
+     "self_share": 0.0114,
+     "cum_s": 1.52
+    },
+    {
+     "site": "~:0(<built-in method math.lcm>)",
+     "calls": 4462640,
+     "self_s": 1.02,
+     "self_share": 0.0111,
+     "cum_s": 1.02
+    },
+    {
+     "site": "sympy/core/cache.py:69(wrapper)",
+     "calls": 1079232,
+     "self_s": 1.02,
+     "self_share": 0.0111,
+     "cum_s": 13.54
+    }
+   ],
+   "cumulative_kernel_top40": [
+    {
+     "site": "envelope_queue_export.py:1256(run_queue_domain)",
+     "calls": 3,
+     "cum_s": 94.16,
+     "cum_share": 1.0215,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:1138(prepare_conveyor)",
+     "calls": 3,
+     "cum_s": 80.23,
+     "cum_share": 0.8703,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:940(_prepare_region)",
+     "calls": 3,
+     "cum_s": 71.23,
+     "cum_share": 0.7727,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:224(build_skeleton)",
+     "calls": 3,
+     "cum_s": 69.94,
+     "cum_share": 0.7587,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:986(run)",
+     "calls": 3,
+     "cum_s": 57.16,
+     "cum_share": 0.6201,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/skeleton.py:1067(_apply_level)",
+     "calls": 735,
+     "cum_s": 54.28,
+     "cum_share": 0.5889,
+     "self_s": 0.04
+    },
+    {
+     "site": "wavefront/superlevel.py:1604(apply_superlevel_transaction)",
+     "calls": 735,
+     "cum_s": 54.24,
+     "cum_share": 0.5884,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:203(plan_symbolic_superlevel_closure)",
+     "calls": 190,
+     "cum_s": 39.22,
+     "cum_share": 0.4254,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/candidate_law.py:130(evaluate_split_candidate)",
+     "calls": 102582,
+     "cum_s": 39.01,
+     "cum_share": 0.4231,
+     "self_s": 0.51
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:208(position)",
+     "calls": 90220,
+     "cum_s": 24.46,
+     "cum_share": 0.2653,
+     "self_s": 0.23
+    },
+    {
+     "site": "wavefront/event_time.py:479(_event_point)",
+     "calls": 27183,
+     "cum_s": 22.4,
+     "cum_share": 0.243,
+     "self_s": 0.39
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:181(_hydrate_position)",
+     "calls": 25931,
+     "cum_s": 21.66,
+     "cum_share": 0.2349,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/event_time.py:461(_event_point_with_prime_universe)",
+     "calls": 23364,
+     "cum_s": 20.79,
+     "cum_share": 0.2255,
+     "self_s": 0.05
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+     "calls": 570,
+     "cum_s": 18.93,
+     "cum_share": 0.2053,
+     "self_s": 0.1
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 22977,
+     "cum_s": 18.84,
+     "cum_share": 0.2043,
+     "self_s": 0.2
+    },
+    {
+     "site": "wavefront/symbolic_mixed_generation.py:199(plan_mixed_generations)",
+     "calls": 380,
+     "cum_s": 17.01,
+     "cum_share": 0.1846,
+     "self_s": 0.0
+    },
+    {
+     "site": "exact_sqrt_sum.py:1342(_divide_with_prime_universe)",
+     "calls": 47454,
+     "cum_s": 16.02,
+     "cum_share": 0.1738,
+     "self_s": 0.78
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 49498,
+     "cum_s": 16.0,
+     "cum_share": 0.1736,
+     "self_s": 0.15
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:333(_span_bound)",
+     "calls": 45608,
+     "cum_s": 14.94,
+     "cum_share": 0.162,
+     "self_s": 0.03
+    },
+    {
+     "site": "wavefront/skeleton.py:778(_split_candidate)",
+     "calls": 28242,
+     "cum_s": 13.59,
+     "cum_share": 0.1475,
+     "self_s": 0.1
+    },
+    {
+     "site": "wavefront/conveyor.py:1537(conveyor_coverage)",
+     "calls": 3,
+     "cum_s": 13.42,
+     "cum_share": 0.1455,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:1386(_instance_ids_by_spec)",
+     "calls": 3,
+     "cum_s": 13.04,
+     "cum_share": 0.1415,
+     "self_s": 0.0
+    },
+    {
+     "site": "reference/boundary.py:175(resolve_component_alphas)",
+     "calls": 3,
+     "cum_s": 13.02,
+     "cum_share": 0.1412,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/skeleton.py:258(__init__)",
+     "calls": 3,
+     "cum_s": 12.78,
+     "cum_share": 0.1386,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:451(_seed)",
+     "calls": 3,
+     "cum_s": 12.67,
+     "cum_share": 0.1374,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:116(_initial_interior_closure)",
+     "calls": 190,
+     "cum_s": 12.65,
+     "cum_share": 0.1372,
+     "self_s": 0.0
+    },
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 3316,
+     "cum_s": 12.42,
+     "cum_share": 0.1348,
+     "self_s": 0.1
+    },
+    {
+     "site": "exact_sqrt_sum.py:1209(__mul__)",
+     "calls": 409618,
+     "cum_s": 11.3,
+     "cum_share": 0.1226,
+     "self_s": 3.77
+    },
+    {
+     "site": "wavefront/skeleton.py:680(_enqueue_for)",
+     "calls": 489,
+     "cum_s": 10.25,
+     "cum_share": 0.1112,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:749(_enqueue_split_events)",
+     "calls": 200,
+     "cum_s": 9.85,
+     "cum_share": 0.1069,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:770(_try_split)",
+     "calls": 13931,
+     "cum_s": 9.84,
+     "cum_share": 0.1068,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/conveyor.py:1255(_prepare_inputs)",
+     "calls": 3,
+     "cum_s": 9.0,
+     "cum_share": 0.0976,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/symbolic_junction_contacts.py:60(discover_junction_contacts)",
+     "calls": 380,
+     "cum_s": 8.96,
+     "cum_share": 0.0972,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/event_time.py:301(concurrency_time)",
+     "calls": 101697,
+     "cum_s": 8.66,
+     "cum_share": 0.0939,
+     "self_s": 0.46
+    },
+    {
+     "site": "wavefront/symbolic_component.py:41(overlay_signature)",
+     "calls": 760,
+     "cum_s": 8.53,
+     "cum_share": 0.0925,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/superlevel_snapshot.py:330(collect_superlevel_snapshot)",
+     "calls": 735,
+     "cum_s": 8.52,
+     "cum_share": 0.0924,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/symbolic_split_endpoint.py:55(discover_endpoint_contacts)",
+     "calls": 380,
+     "cum_s": 7.93,
+     "cum_share": 0.086,
+     "self_s": 0.07
+    },
+    {
+     "site": "reference/compile.py:1408(compile_reference_envelopes)",
+     "calls": 3,
+     "cum_s": 7.62,
+     "cum_share": 0.0827,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/superlevel_snapshot.py:286(_sparse_occurrences)",
+     "calls": 964,
+     "cum_s": 7.55,
+     "cum_share": 0.0819,
+     "self_s": 0.05
+    },
+    {
+     "site": "exact_sqrt_sum.py:1116(radical)",
+     "calls": 499944,
+     "cum_s": 7.54,
+     "cum_share": 0.0818,
+     "self_s": 1.7
+    }
+   ]
+  },
+  "after_6e5ed55": {
+   "domains": "patch 6 + 1 + 7, density 2, cProfile (sum of 3 domains; profiler inflates call-heavy code)",
+   "profile_total_seconds": 62.7,
+   "self_top25": [
+    {
+     "site": "exact_sqrt_sum.py:973(_integer_form)",
+     "calls": 1157499,
+     "self_s": 3.05,
+     "self_share": 0.0486,
+     "cum_s": 4.68
+    },
+    {
+     "site": "exact_sqrt_sum.py:1068(_multiply_integer_items)",
+     "calls": 252557,
+     "self_s": 2.17,
+     "self_share": 0.0347,
+     "cum_s": 3.57
+    },
+    {
+     "site": "fractions.py:203(__new__)",
+     "calls": 1766931,
+     "self_s": 2.03,
+     "self_share": 0.0324,
+     "cum_s": 3.09
+    },
+    {
+     "site": "exact_sqrt_sum.py:1039(_scaled_difference_parts)",
+     "calls": 440613,
+     "self_s": 1.89,
+     "self_share": 0.0301,
+     "cum_s": 6.03
+    },
+    {
+     "site": "~:0(<built-in method math.gcd>)",
+     "calls": 6541674,
+     "self_s": 1.83,
+     "self_share": 0.0291,
+     "cum_s": 1.83
+    },
+    {
+     "site": "sympy/core/mul.py:205(flatten)",
+     "calls": 67282,
+     "self_s": 1.62,
+     "self_share": 0.0258,
+     "cum_s": 7.19
+    },
+    {
+     "site": "~:0(<method 'get' of 'dict' objects>)",
+     "calls": 7908193,
+     "self_s": 1.57,
+     "self_share": 0.025,
+     "cum_s": 3.57
+    },
+    {
+     "site": "~:0(<built-in method builtins.hash>)",
+     "calls": 3662762,
+     "self_s": 1.35,
+     "self_share": 0.0216,
+     "cum_s": 2.3
+    },
+    {
+     "site": "~:0(<built-in method builtins.isinstance>)",
+     "calls": 8401875,
+     "self_s": 1.2,
+     "self_share": 0.0191,
+     "cum_s": 1.57
+    },
+    {
+     "site": "sympy/core/cache.py:69(wrapper)",
+     "calls": 1079900,
+     "self_s": 1.04,
+     "self_share": 0.0166,
+     "cum_s": 13.77
+    },
+    {
+     "site": "~:0(<built-in method math.lcm>)",
+     "calls": 3681156,
+     "self_s": 0.92,
+     "self_share": 0.0147,
+     "cum_s": 0.92
+    },
+    {
+     "site": "sympy/core/operations.py:62(__new__)",
+     "calls": 108181,
+     "self_s": 0.76,
+     "self_share": 0.0121,
+     "cum_s": 9.95
+    },
+    {
+     "site": "fractions.py:663(forward)",
+     "calls": 1281765,
+     "self_s": 0.75,
+     "self_share": 0.0119,
+     "cum_s": 3.73
+    },
+    {
+     "site": "exact_sqrt_sum.py:910(_support_from_prime_universe)",
+     "calls": 184856,
+     "self_s": 0.71,
+     "self_share": 0.0113,
+     "cum_s": 0.79
+    },
+    {
+     "site": "fractions.py:334(_from_coprime_ints)",
+     "calls": 1459046,
+     "self_s": 0.7,
+     "self_share": 0.0112,
+     "cum_s": 0.93
+    },
+    {
+     "site": "fractions.py:418(denominator)",
+     "calls": 8385886,
+     "self_s": 0.68,
+     "self_share": 0.0109,
+     "cum_s": 0.68
+    },
+    {
+     "site": "~:0(<built-in method __new__ of type object at 0x00007FFC6B8D28A0>)",
+     "calls": 3930651,
+     "self_s": 0.67,
+     "self_share": 0.0108,
+     "cum_s": 0.67
+    },
+    {
+     "site": "fractions.py:792(_mul)",
+     "calls": 673120,
+     "self_s": 0.66,
+     "self_share": 0.0106,
+     "cum_s": 1.31
+    },
+    {
+     "site": "~:0(<built-in method builtins.sorted>)",
+     "calls": 624483,
+     "self_s": 0.66,
+     "self_share": 0.0106,
+     "cum_s": 2.38
+    },
+    {
+     "site": "wavefront/exact_identity.py:66(__hash__)",
+     "calls": 2339543,
+     "self_s": 0.61,
+     "self_share": 0.0098,
+     "cum_s": 1.58
+    },
+    {
+     "site": "sympy/core/facts.py:599(deduce_all_facts)",
+     "calls": 20080,
+     "self_s": 0.55,
+     "self_share": 0.0087,
+     "cum_s": 1.36
+    },
+    {
+     "site": "exact_sqrt_sum.py:1452(_divide_with_prime_universe)",
+     "calls": 47454,
+     "self_s": 0.53,
+     "self_share": 0.0085,
+     "cum_s": 6.86
+    },
+    {
+     "site": "sympy/core/sympify.py:124(sympify)",
+     "calls": 670952,
+     "self_s": 0.53,
+     "self_share": 0.0085,
+     "cum_s": 1.19
+    },
+    {
+     "site": "exact_sqrt_sum.py:993(_integer_enclosure)",
+     "calls": 192501,
+     "self_s": 0.53,
+     "self_share": 0.0085,
+     "cum_s": 0.97
+    },
+    {
+     "site": "ctx_iv.py:413(convert)",
+     "calls": 132215,
+     "self_s": 0.53,
+     "self_share": 0.0084,
+     "cum_s": 1.52
+    }
+   ],
+   "cumulative_kernel_top40": [
+    {
+     "site": "envelope_queue_export.py:1256(run_queue_domain)",
+     "calls": 3,
+     "cum_s": 62.12,
+     "cum_share": 0.9906,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:1138(prepare_conveyor)",
+     "calls": 3,
+     "cum_s": 48.09,
+     "cum_share": 0.767,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:940(_prepare_region)",
+     "calls": 3,
+     "cum_s": 38.87,
+     "cum_share": 0.6198,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:224(build_skeleton)",
+     "calls": 3,
+     "cum_s": 37.53,
+     "cum_share": 0.5984,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:986(run)",
+     "calls": 3,
+     "cum_s": 29.05,
+     "cum_share": 0.4632,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/skeleton.py:1067(_apply_level)",
+     "calls": 735,
+     "cum_s": 28.54,
+     "cum_share": 0.4551,
+     "self_s": 0.03
+    },
+    {
+     "site": "wavefront/superlevel.py:1604(apply_superlevel_transaction)",
+     "calls": 735,
+     "cum_s": 28.51,
+     "cum_share": 0.4546,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/candidate_law.py:130(evaluate_split_candidate)",
+     "calls": 102582,
+     "cum_s": 20.51,
+     "cum_share": 0.3271,
+     "self_s": 0.44
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:203(plan_symbolic_superlevel_closure)",
+     "calls": 190,
+     "cum_s": 19.38,
+     "cum_share": 0.309,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:218(_plan_closure)",
+     "calls": 190,
+     "cum_s": 19.37,
+     "cum_share": 0.3088,
+     "self_s": 0.01
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:208(position)",
+     "calls": 90220,
+     "cum_s": 13.65,
+     "cum_share": 0.2178,
+     "self_s": 0.22
+    },
+    {
+     "site": "wavefront/conveyor.py:1537(conveyor_coverage)",
+     "calls": 3,
+     "cum_s": 13.56,
+     "cum_share": 0.2162,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/conveyor.py:1386(_instance_ids_by_spec)",
+     "calls": 3,
+     "cum_s": 13.24,
+     "cum_share": 0.2111,
+     "self_s": 0.0
+    },
+    {
+     "site": "reference/boundary.py:175(resolve_component_alphas)",
+     "calls": 3,
+     "cum_s": 13.22,
+     "cum_share": 0.2108,
+     "self_s": 0.01
+    },
+    {
+     "site": "reference/boundary.py:72(_contact_candidates)",
+     "calls": 3316,
+     "cum_s": 12.61,
+     "cum_share": 0.2012,
+     "self_s": 0.11
+    },
+    {
+     "site": "wavefront/event_time.py:481(_event_point)",
+     "calls": 27183,
+     "cum_s": 11.98,
+     "cum_share": 0.191,
+     "self_s": 0.24
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:181(_hydrate_position)",
+     "calls": 25931,
+     "cum_s": 11.38,
+     "cum_share": 0.1815,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:422(span_containment)",
+     "calls": 22977,
+     "cum_s": 10.56,
+     "cum_share": 0.1683,
+     "self_s": 0.1
+    },
+    {
+     "site": "wavefront/event_time.py:463(_event_point_with_prime_universe)",
+     "calls": 23364,
+     "cum_s": 10.48,
+     "cum_share": 0.1671,
+     "self_s": 0.04
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:154(discover_interior_split_contacts)",
+     "calls": 570,
+     "cum_s": 10.39,
+     "cum_share": 0.1657,
+     "self_s": 0.08
+    },
+    {
+     "site": "wavefront/conveyor.py:1255(_prepare_inputs)",
+     "calls": 3,
+     "cum_s": 9.22,
+     "cum_share": 0.1471,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:354(span_end)",
+     "calls": 49498,
+     "cum_s": 9.07,
+     "cum_share": 0.1446,
+     "self_s": 0.08
+    },
+    {
+     "site": "wavefront/symbolic_mixed_generation.py:199(plan_mixed_generations)",
+     "calls": 380,
+     "cum_s": 8.69,
+     "cum_share": 0.1385,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:389(_span_bound)",
+     "calls": 45608,
+     "cum_s": 8.48,
+     "cum_share": 0.1353,
+     "self_s": 0.03
+    },
+    {
+     "site": "wavefront/skeleton.py:258(__init__)",
+     "calls": 3,
+     "cum_s": 8.48,
+     "cum_share": 0.1352,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:451(_seed)",
+     "calls": 3,
+     "cum_s": 8.36,
+     "cum_share": 0.1333,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/symbolic_superlevel_coordinator.py:116(_initial_interior_closure)",
+     "calls": 190,
+     "cum_s": 8.15,
+     "cum_share": 0.1299,
+     "self_s": 0.0
+    },
+    {
+     "site": "reference/compile.py:1408(compile_reference_envelopes)",
+     "calls": 3,
+     "cum_s": 7.8,
+     "cum_share": 0.1243,
+     "self_s": 0.01
+    },
+    {
+     "site": "reference/compile.py:1169(_finalize_compilation)",
+     "calls": 3,
+     "cum_s": 7.71,
+     "cum_share": 0.1229,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:778(_split_candidate)",
+     "calls": 28242,
+     "cum_s": 7.59,
+     "cum_share": 0.1211,
+     "self_s": 0.08
+    },
+    {
+     "site": "reference/compile.py:711(_attach_direction_bindings)",
+     "calls": 3,
+     "cum_s": 7.48,
+     "cum_share": 0.1193,
+     "self_s": 0.0
+    },
+    {
+     "site": "exact_sqrt_sum.py:1452(_divide_with_prime_universe)",
+     "calls": 47454,
+     "cum_s": 6.86,
+     "cum_share": 0.1094,
+     "self_s": 0.53
+    },
+    {
+     "site": "wavefront/skeleton.py:680(_enqueue_for)",
+     "calls": 489,
+     "cum_s": 6.06,
+     "cum_share": 0.0966,
+     "self_s": 0.0
+    },
+    {
+     "site": "exact_sqrt_sum.py:1039(_scaled_difference_parts)",
+     "calls": 440613,
+     "cum_s": 6.03,
+     "cum_share": 0.0962,
+     "self_s": 1.89
+    },
+    {
+     "site": "wavefront/skeleton.py:749(_enqueue_split_events)",
+     "calls": 200,
+     "cum_s": 5.81,
+     "cum_share": 0.0926,
+     "self_s": 0.0
+    },
+    {
+     "site": "wavefront/skeleton.py:770(_try_split)",
+     "calls": 13931,
+     "cum_s": 5.8,
+     "cum_share": 0.0925,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/superlevel_snapshot.py:330(collect_superlevel_snapshot)",
+     "calls": 735,
+     "cum_s": 4.99,
+     "cum_share": 0.0795,
+     "self_s": 0.02
+    },
+    {
+     "site": "wavefront/symbolic_junction_contacts.py:60(discover_junction_contacts)",
+     "calls": 380,
+     "cum_s": 4.69,
+     "cum_share": 0.0748,
+     "self_s": 0.0
+    },
+    {
+     "site": "exact_sqrt_sum.py:973(_integer_form)",
+     "calls": 1157499,
+     "cum_s": 4.68,
+     "cum_share": 0.0747,
+     "self_s": 3.05
+    },
+    {
+     "site": "reference/metric.py:340(dot_g)",
+     "calls": 17684,
+     "cum_s": 4.25,
+     "cum_share": 0.0677,
+     "self_s": 0.08
+    }
+   ]
+  },
+  "exact_sqrt_sum_attribution_before": {
+   "profile_total_seconds": 92.18,
+   "sympy_share_of_profile": 0.2004,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "radical",
+     "calls": 388686,
+     "cum_seconds": 6.369
+    },
+    {
+     "func": "__sub__",
+     "calls": 264546,
+     "cum_seconds": 5.584
+    },
+    {
+     "func": "scaled",
+     "calls": 349130,
+     "cum_seconds": 5.065
+    },
+    {
+     "func": "divided_by",
+     "calls": 19407,
+     "cum_seconds": 2.48
+    },
+    {
+     "func": "__add__",
+     "calls": 290607,
+     "cum_seconds": 2.248
+    },
+    {
+     "func": "sign",
+     "calls": 149254,
+     "cum_seconds": 1.934
+    },
+    {
+     "func": "__mul__",
+     "calls": 75844,
+     "cum_seconds": 1.907
+    },
+    {
+     "func": "__neg__",
+     "calls": 90120,
+     "cum_seconds": 0.558
+    },
+    {
+     "func": "rational",
+     "calls": 110224,
+     "cum_seconds": 0.342
+    },
+    {
+     "func": "enclosure",
+     "calls": 8929,
+     "cum_seconds": 0.101
+    },
+    {
+     "func": "spend_exact_position_hydrations",
+     "calls": 29282,
+     "cum_seconds": 0.04
+    },
+    {
+     "func": "is_zero",
+     "calls": 167806,
+     "cum_seconds": 0.029
+    },
+    {
+     "func": "zero",
+     "calls": 1169,
+     "cum_seconds": 0.001
+    },
+    {
+     "func": "as_rational",
+     "calls": 206,
+     "cum_seconds": 0.0
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:479(_event_point)",
+     "calls": 442566,
+     "cum_seconds": 6.212,
+     "funcs": {
+      "scaled": [
+       135915,
+       1.578
+      ],
+      "radical": [
+       54366,
+       1.042
+      ],
+      "__mul__": [
+       54366,
+       1.021
+      ],
+      "divided_by": [
+       7638,
+       1.018
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:301(concurrency_time)",
+     "calls": 610182,
+     "cum_seconds": 6.193,
+     "funcs": {
+      "radical": [
+       305091,
+       4.827
+      ],
+      "__add__": [
+       203394,
+       1.348
+      ],
+      "is_zero": [
+       101697,
+       0.018
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:366(span_containment)",
+     "calls": 214834,
+     "cum_seconds": 3.581,
+     "funcs": {
+      "__sub__": [
+       96015,
+       2.292
+      ],
+      "scaled": [
+       45608,
+       0.694
+      ],
+      "sign": [
+       30977,
+       0.588
+      ],
+      "is_zero": [
+       42234,
+       0.007
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:298(span_end)",
+     "calls": 137802,
+     "cum_seconds": 3.345,
+     "funcs": {
+      "scaled": [
+       91868,
+       1.91
+      ],
+      "__sub__": [
+       45934,
+       1.435
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:215(normalized)",
+     "calls": 193310,
+     "cum_seconds": 1.693,
+     "funcs": {
+      "sign": [
+       103738,
+       1.139
+      ],
+      "__neg__": [
+       89572,
+       0.555
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:383(sliding_time)",
+     "calls": 110906,
+     "cum_seconds": 1.587,
+     "funcs": {
+      "divided_by": [
+       9196,
+       0.845
+      ],
+      "radical": [
+       20342,
+       0.345
+      ],
+      "__sub__": [
+       20342,
+       0.163
+      ],
+      "scaled": [
+       10171,
+       0.087
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 31648,
+     "cum_seconds": 1.088,
+     "funcs": {
+      "__mul__": [
+       7912,
+       0.545
+      ],
+      "__sub__": [
+       19780,
+       0.448
+      ],
+      "sign": [
+       3956,
+       0.095
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:338(sliding_point)",
+     "calls": 27287,
+     "cum_seconds": 0.823,
+     "funcs": {
+      "divided_by": [
+       2099,
+       0.54
+      ],
+      "scaled": [
+       12594,
+       0.161
+      ],
+      "__add__": [
+       4198,
+       0.046
+      ],
+      "radical": [
+       2099,
+       0.042
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:233(canonical)",
+     "calls": 51416,
+     "cum_seconds": 0.45,
+     "funcs": {
+      "scaled": [
+       27928,
+       0.35
+      ],
+      "rational": [
+       23488,
+       0.1
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 12970,
+     "cum_seconds": 0.287,
+     "funcs": {
+      "__mul__": [
+       6164,
+       0.166
+      ],
+      "__sub__": [
+       3082,
+       0.07
+      ],
+      "__add__": [
+       3082,
+       0.05
+      ],
+      "zero": [
+       642,
+       0.001
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "exact_sqrt_sum": 0.2802,
+    "Fraction/gcd arithmetic": 0.268,
+    "other": 0.177,
+    "sympy": 0.1763,
+    "skeleton march": 0.0679,
+    "number theory": 0.0306
+   }
+  },
+  "exact_sqrt_sum_attribution_after": {
+   "profile_total_seconds": 62.71,
+   "sympy_share_of_profile": 0.2996,
+   "exact_sqrt_sum_by_function": [
+    {
+     "func": "scaled_difference",
+     "calls": 123733,
+     "cum_seconds": 4.027
+    },
+    {
+     "func": "divided_by",
+     "calls": 12606,
+     "cum_seconds": 1.959
+    },
+    {
+     "func": "scaled",
+     "calls": 129071,
+     "cum_seconds": 1.578
+    },
+    {
+     "func": "radical",
+     "calls": 63253,
+     "cum_seconds": 1.184
+    },
+    {
+     "func": "__mul__",
+     "calls": 21478,
+     "cum_seconds": 0.937
+    },
+    {
+     "func": "difference_sign",
+     "calls": 30977,
+     "cum_seconds": 0.929
+    },
+    {
+     "func": "__add__",
+     "calls": 79687,
+     "cum_seconds": 0.87
+    },
+    {
+     "func": "__sub__",
+     "calls": 49905,
+     "cum_seconds": 0.849
+    },
+    {
+     "func": "radical_sum",
+     "calls": 36058,
+     "cum_seconds": 0.735
+    },
+    {
+     "func": "sign",
+     "calls": 48459,
+     "cum_seconds": 0.563
+    },
+    {
+     "func": "difference_is_zero",
+     "calls": 11257,
+     "cum_seconds": 0.228
+    },
+    {
+     "func": "__neg__",
+     "calls": 27749,
+     "cum_seconds": 0.174
+    },
+    {
+     "func": "enclosure",
+     "calls": 8929,
+     "cum_seconds": 0.102
+    },
+    {
+     "func": "rational",
+     "calls": 17779,
+     "cum_seconds": 0.05
+    }
+   ],
+   "exact_sqrt_sum_top10_callers": [
+    {
+     "site": "wavefront/event_time.py:481(_event_point)",
+     "calls": 279468,
+     "cum_seconds": 4.964,
+     "funcs": {
+      "scaled_difference": [
+       54366,
+       1.332
+      ],
+      "divided_by": [
+       7638,
+       1.053
+      ],
+      "radical": [
+       54366,
+       1.027
+      ],
+      "scaled": [
+       81549,
+       0.998
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:354(span_end)",
+     "calls": 45934,
+     "cum_seconds": 1.975,
+     "funcs": {
+      "scaled_difference": [
+       45934,
+       1.975
+      ]
+     }
+    },
+    {
+     "site": "wavefront/exact_candidate_view.py:422(span_containment)",
+     "calls": 65038,
+     "cum_seconds": 1.859,
+     "funcs": {
+      "difference_sign": [
+       30977,
+       0.929
+      ],
+      "scaled_difference": [
+       22804,
+       0.703
+      ],
+      "difference_is_zero": [
+       11257,
+       0.228
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:431(orientation)",
+     "calls": 31648,
+     "cum_seconds": 1.121,
+     "funcs": {
+      "__mul__": [
+       7912,
+       0.572
+      ],
+      "__sub__": [
+       19780,
+       0.453
+      ],
+      "sign": [
+       3956,
+       0.097
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:342(sliding_point)",
+     "calls": 27287,
+     "cum_seconds": 0.854,
+     "funcs": {
+      "divided_by": [
+       2099,
+       0.567
+      ],
+      "scaled": [
+       12594,
+       0.163
+      ],
+      "__add__": [
+       4198,
+       0.047
+      ],
+      "radical": [
+       2099,
+       0.042
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:302(concurrency_time)",
+     "calls": 66826,
+     "cum_seconds": 0.695,
+     "funcs": {
+      "radical_sum": [
+       33413,
+       0.689
+      ],
+      "is_zero": [
+       33413,
+       0.006
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:216(normalized)",
+     "calls": 61121,
+     "cum_seconds": 0.525,
+     "funcs": {
+      "sign": [
+       33920,
+       0.353
+      ],
+      "__neg__": [
+       27201,
+       0.171
+      ]
+     }
+    },
+    {
+     "site": "wavefront/event_time.py:387(sliding_time)",
+     "calls": 23555,
+     "cum_seconds": 0.389,
+     "funcs": {
+      "divided_by": [
+       2395,
+       0.256
+      ],
+      "radical_sum": [
+       2645,
+       0.045
+      ],
+      "scaled": [
+       2645,
+       0.024
+      ],
+      "__add__": [
+       2645,
+       0.024
+      ]
+     }
+    },
+    {
+     "site": "wavefront/faces.py:639(doubled_shoelace)",
+     "calls": 12970,
+     "cum_seconds": 0.297,
+     "funcs": {
+      "__mul__": [
+       6164,
+       0.176
+      ],
+      "__sub__": [
+       3082,
+       0.07
+      ],
+      "__add__": [
+       3082,
+       0.05
+      ],
+      "zero": [
+       642,
+       0.001
+      ]
+     }
+    },
+    {
+     "site": "wavefront/motorcycle.py:270(_projection_is_inside)",
+     "calls": 29823,
+     "cum_seconds": 0.251,
+     "funcs": {
+      "scaled": [
+       7638,
+       0.073
+      ],
+      "__sub__": [
+       6122,
+       0.056
+      ],
+      "__add__": [
+       3819,
+       0.054
+      ],
+      "sign": [
+       6122,
+       0.052
+      ]
+     }
+    }
+   ],
+   "tottime_bucket_share_spike_method": {
+    "sympy": 0.264,
+    "exact_sqrt_sum": 0.2578,
+    "other": 0.2079,
+    "Fraction/gcd arithmetic": 0.1555,
+    "skeleton march": 0.0838,
+    "number theory": 0.0311
+   }
+  }
+ },
+ "heavy_domains_seconds_in_gate_pool_runs": {
+  "head": {
+   "1": {
+    "6": 12.82,
+    "1": 12.437,
+    "7": 9.597,
+    "11": 9.876,
+    "15": 8.628
+   },
+   "2": {
+    "6": 17.562,
+    "1": 16.443,
+    "7": 12.705,
+    "11": 13.43,
+    "15": 11.582
+   }
+  },
+  "c1": {
+   "1": {
+    "6": 11.29,
+    "1": 11.07,
+    "7": 8.894,
+    "11": 8.705,
+    "15": 7.566
+   },
+   "2": {
+    "6": 15.327,
+    "1": 14.421,
+    "7": 11.704,
+    "11": 11.572,
+    "15": 10.216
+   }
+  },
+  "c2": {
+   "1": {
+    "6": 10.229,
+    "1": 9.939,
+    "7": 8.232,
+    "11": 8.125,
+    "15": 7.033
+   },
+   "2": {
+    "6": 14.235,
+    "1": 12.931,
+    "7": 10.876,
+    "11": 10.718,
+    "15": 9.24
+   }
+  },
+  "c3": {
+   "1": {
+    "6": 11.456,
+    "1": 10.742,
+    "7": 9.1,
+    "11": 9.089,
+    "15": 7.916
+   },
+   "2": {
+    "6": 15.631,
+    "1": 14.294,
+    "7": 12.267,
+    "11": 12.215,
+    "15": 11.006
+   }
+  },
+  "c4": {
+   "1": {
+    "6": 10.321,
+    "1": 9.785,
+    "7": 8.117,
+    "11": 7.867,
+    "15": 7.025
+   },
+   "2": {
+    "6": 12.96,
+    "1": 12.026,
+    "7": 9.867,
+    "11": 9.812,
+    "15": 8.75
+   }
+  },
+  "c5": {
+   "1": {
+    "6": 9.02,
+    "1": 8.969,
+    "7": 7.043,
+    "11": 7.011,
+    "15": 6.379
+   },
+   "2": {
+    "6": 12.189,
+    "1": 11.338,
+    "7": 8.865,
+    "11": 9.182,
+    "15": 8.198
+   }
+  },
+  "c6": {
+   "1": {
+    "6": 8.697,
+    "1": 8.662,
+    "7": 6.823,
+    "11": 6.853,
+    "15": 6.342
+   },
+   "2": {
+    "6": 11.656,
+    "1": 11.231,
+    "7": 8.473,
+    "11": 8.919,
+    "15": 7.976
+   }
+  }
+ },
+ "real_time_exclusive_by_function": {
+  "before_p7_d2": {
+   "patch": 7,
+   "density": 2,
+   "wall_seconds": 11.358,
+   "rows": [
+    {
+     "function": "exact_sqrt_sum:_divide_with_prime_universe",
+     "exclusive_seconds": 1.619,
+     "inclusive_seconds": 1.632,
+     "calls": 12962,
+     "exclusive_share": 0.1426
+    },
+    {
+     "function": "wavefront.symbolic_component:overlay_signature",
+     "exclusive_seconds": 1.103,
+     "inclusive_seconds": 1.103,
+     "calls": 168,
+     "exclusive_share": 0.0971
+    },
+    {
+     "function": "reference.boundary:_contact_candidates",
+     "exclusive_seconds": 1.004,
+     "inclusive_seconds": 1.004,
+     "calls": 1085,
+     "exclusive_share": 0.0884
+    },
+    {
+     "function": "wavefront.event_time:concurrency_time",
+     "exclusive_seconds": 0.947,
+     "inclusive_seconds": 0.982,
+     "calls": 29651,
+     "exclusive_share": 0.0834
+    },
+    {
+     "function": "wavefront.event_time:compare_times",
+     "exclusive_seconds": 0.872,
+     "inclusive_seconds": 0.872,
+     "calls": 114810,
+     "exclusive_share": 0.0767
+    },
+    {
+     "function": "wavefront.event_time:_event_point",
+     "exclusive_seconds": 0.683,
+     "inclusive_seconds": 2.299,
+     "calls": 7498,
+     "exclusive_share": 0.0601
+    },
+    {
+     "function": "reference.compile:compile_reference_envelopes",
+     "exclusive_seconds": 0.653,
+     "inclusive_seconds": 0.653,
+     "calls": 1,
+     "exclusive_share": 0.0575
+    },
+    {
+     "function": "wavefront.event_time:sliding_time",
+     "exclusive_seconds": 0.62,
+     "inclusive_seconds": 0.629,
+     "calls": 7191,
+     "exclusive_share": 0.0546
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_containment",
+     "exclusive_seconds": 0.547,
+     "inclusive_seconds": 2.497,
+     "calls": 8522,
+     "exclusive_share": 0.0482
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_end",
+     "exclusive_seconds": 0.449,
+     "inclusive_seconds": 2.011,
+     "calls": 17840,
+     "exclusive_share": 0.0395
+    },
+    {
+     "function": "wavefront.candidate_law:evaluate_split_candidate",
+     "exclusive_seconds": 0.441,
+     "inclusive_seconds": 5.363,
+     "calls": 33780,
+     "exclusive_share": 0.0388
+    },
+    {
+     "function": "wavefront.exact_candidate_view:position",
+     "exclusive_seconds": 0.35,
+     "inclusive_seconds": 2.71,
+     "calls": 30165,
+     "exclusive_share": 0.0308
+    },
+    {
+     "function": "wavefront.conveyor:prepare_conveyor",
+     "exclusive_seconds": 0.267,
+     "inclusive_seconds": 9.775,
+     "calls": 1,
+     "exclusive_share": 0.0235
+    },
+    {
+     "function": "wavefront.skeleton:build_skeleton",
+     "exclusive_seconds": 0.23,
+     "inclusive_seconds": 8.854,
+     "calls": 1,
+     "exclusive_share": 0.0202
+    },
+    {
+     "function": "wavefront.event_time:sliding_point",
+     "exclusive_seconds": 0.199,
+     "inclusive_seconds": 0.201,
+     "calls": 1228,
+     "exclusive_share": 0.0175
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:plan_symbolic_runtime_commit",
+     "exclusive_seconds": 0.111,
+     "inclusive_seconds": 0.159,
+     "calls": 42,
+     "exclusive_share": 0.0098
+    },
+    {
+     "function": "wavefront.superlevel_snapshot:collect_superlevel_snapshot",
+     "exclusive_seconds": 0.097,
+     "inclusive_seconds": 0.655,
+     "calls": 205,
+     "exclusive_share": 0.0085
+    },
+    {
+     "function": "wavefront.superlevel_closure:plan_split_materialization",
+     "exclusive_seconds": 0.091,
+     "inclusive_seconds": 0.091,
+     "calls": 42,
+     "exclusive_share": 0.008
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:discover_interior_split_contacts",
+     "exclusive_seconds": 0.081,
+     "inclusive_seconds": 2.542,
+     "calls": 126,
+     "exclusive_share": 0.0071
+    },
+    {
+     "function": "wavefront.symbolic_f0_overlay:build_f0_overlay",
+     "exclusive_seconds": 0.077,
+     "inclusive_seconds": 0.077,
+     "calls": 42,
+     "exclusive_share": 0.0067
+    },
+    {
+     "function": "reference.boundary:resolve_component_alphas",
+     "exclusive_seconds": 0.075,
+     "inclusive_seconds": 1.079,
+     "calls": 1,
+     "exclusive_share": 0.0066
+    },
+    {
+     "function": "wavefront.symbolic_overlay:build_symbolic_overlay",
+     "exclusive_seconds": 0.07,
+     "inclusive_seconds": 0.098,
+     "calls": 42,
+     "exclusive_share": 0.0062
+    },
+    {
+     "function": "exact_sqrt_sum:squarefree_split",
+     "exclusive_seconds": 0.069,
+     "inclusive_seconds": 0.069,
+     "calls": 138839,
+     "exclusive_share": 0.0061
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:materialize_symbolic_runtime_commit",
+     "exclusive_seconds": 0.06,
+     "inclusive_seconds": 0.916,
+     "calls": 42,
+     "exclusive_share": 0.0053
+    },
+    {
+     "function": "wavefront.symbolic_split_endpoint:discover_endpoint_contacts",
+     "exclusive_seconds": 0.054,
+     "inclusive_seconds": 1.089,
+     "calls": 84,
+     "exclusive_share": 0.0048
+    },
+    {
+     "function": "wavefront.symbolic_junction_contacts:discover_junction_contacts",
+     "exclusive_seconds": 0.036,
+     "inclusive_seconds": 1.193,
+     "calls": 84,
+     "exclusive_share": 0.0032
+    },
+    {
+     "function": "wavefront.conveyor:conveyor_coverage",
+     "exclusive_seconds": 0.036,
+     "inclusive_seconds": 1.126,
+     "calls": 1,
+     "exclusive_share": 0.0031
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_span_bound",
+     "exclusive_seconds": 0.027,
+     "inclusive_seconds": 1.95,
+     "calls": 16808,
+     "exclusive_share": 0.0024
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:_initial_interior_closure",
+     "exclusive_seconds": 0.02,
+     "inclusive_seconds": 1.664,
+     "calls": 42,
+     "exclusive_share": 0.0018
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_hydrate_position",
+     "exclusive_seconds": 0.012,
+     "inclusive_seconds": 2.354,
+     "calls": 7829,
+     "exclusive_share": 0.0011
+    },
+    {
+     "function": "wavefront.symbolic_component:clone_overlay",
+     "exclusive_seconds": 0.01,
+     "inclusive_seconds": 0.01,
+     "calls": 84,
+     "exclusive_share": 0.0009
+    },
+    {
+     "function": "wavefront.event_time:event_point",
+     "exclusive_seconds": 0.002,
+     "inclusive_seconds": 0.16,
+     "calls": 1131,
+     "exclusive_share": 0.0001
+    },
+    {
+     "function": "wavefront.symbolic_mixed_generation:plan_mixed_generations",
+     "exclusive_seconds": 0.001,
+     "inclusive_seconds": 2.293,
+     "calls": 84,
+     "exclusive_share": 0.0001
+    }
+   ]
+  },
+  "after_p7_d2": {
+   "patch": 7,
+   "density": 2,
+   "wall_seconds": 7.522,
+   "rows": [
+    {
+     "function": "reference.boundary:_contact_candidates",
+     "exclusive_seconds": 1.02,
+     "inclusive_seconds": 1.02,
+     "calls": 1085,
+     "exclusive_share": 0.1356
+    },
+    {
+     "function": "exact_sqrt_sum:_divide_with_prime_universe",
+     "exclusive_seconds": 0.836,
+     "inclusive_seconds": 0.847,
+     "calls": 12962,
+     "exclusive_share": 0.1112
+    },
+    {
+     "function": "reference.compile:compile_reference_envelopes",
+     "exclusive_seconds": 0.657,
+     "inclusive_seconds": 0.657,
+     "calls": 1,
+     "exclusive_share": 0.0873
+    },
+    {
+     "function": "wavefront.event_time:_event_point",
+     "exclusive_seconds": 0.594,
+     "inclusive_seconds": 1.437,
+     "calls": 7498,
+     "exclusive_share": 0.079
+    },
+    {
+     "function": "wavefront.event_time:compare_times",
+     "exclusive_seconds": 0.449,
+     "inclusive_seconds": 0.449,
+     "calls": 60903,
+     "exclusive_share": 0.0597
+    },
+    {
+     "function": "wavefront.candidate_law:evaluate_split_candidate",
+     "exclusive_seconds": 0.394,
+     "inclusive_seconds": 3.142,
+     "calls": 33780,
+     "exclusive_share": 0.0524
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_containment",
+     "exclusive_seconds": 0.351,
+     "inclusive_seconds": 1.675,
+     "calls": 8522,
+     "exclusive_share": 0.0467
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_end",
+     "exclusive_seconds": 0.324,
+     "inclusive_seconds": 1.354,
+     "calls": 17840,
+     "exclusive_share": 0.0431
+    },
+    {
+     "function": "wavefront.exact_candidate_view:position",
+     "exclusive_seconds": 0.294,
+     "inclusive_seconds": 1.807,
+     "calls": 30165,
+     "exclusive_share": 0.0391
+    },
+    {
+     "function": "wavefront.conveyor:prepare_conveyor",
+     "exclusive_seconds": 0.27,
+     "inclusive_seconds": 5.928,
+     "calls": 1,
+     "exclusive_share": 0.0359
+    },
+    {
+     "function": "wavefront.event_time:sliding_point",
+     "exclusive_seconds": 0.205,
+     "inclusive_seconds": 0.207,
+     "calls": 1228,
+     "exclusive_share": 0.0273
+    },
+    {
+     "function": "wavefront.skeleton:build_skeleton",
+     "exclusive_seconds": 0.201,
+     "inclusive_seconds": 5.002,
+     "calls": 1,
+     "exclusive_share": 0.0267
+    },
+    {
+     "function": "wavefront.event_time:concurrency_time",
+     "exclusive_seconds": 0.185,
+     "inclusive_seconds": 0.195,
+     "calls": 10464,
+     "exclusive_share": 0.0246
+    },
+    {
+     "function": "wavefront.event_time:sliding_time",
+     "exclusive_seconds": 0.165,
+     "inclusive_seconds": 0.168,
+     "calls": 1914,
+     "exclusive_share": 0.022
+    },
+    {
+     "function": "wavefront.symbolic_component:overlay_signature",
+     "exclusive_seconds": 0.157,
+     "inclusive_seconds": 0.157,
+     "calls": 168,
+     "exclusive_share": 0.0209
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:plan_symbolic_runtime_commit",
+     "exclusive_seconds": 0.111,
+     "inclusive_seconds": 0.147,
+     "calls": 42,
+     "exclusive_share": 0.0147
+    },
+    {
+     "function": "wavefront.superlevel_snapshot:collect_superlevel_snapshot",
+     "exclusive_seconds": 0.098,
+     "inclusive_seconds": 0.453,
+     "calls": 205,
+     "exclusive_share": 0.013
+    },
+    {
+     "function": "wavefront.event_time:times_are_equal",
+     "exclusive_seconds": 0.082,
+     "inclusive_seconds": 0.151,
+     "calls": 31884,
+     "exclusive_share": 0.0109
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:discover_interior_split_contacts",
+     "exclusive_seconds": 0.079,
+     "inclusive_seconds": 1.577,
+     "calls": 126,
+     "exclusive_share": 0.0105
+    },
+    {
+     "function": "wavefront.symbolic_f0_overlay:build_f0_overlay",
+     "exclusive_seconds": 0.076,
+     "inclusive_seconds": 0.076,
+     "calls": 42,
+     "exclusive_share": 0.0101
+    },
+    {
+     "function": "reference.boundary:resolve_component_alphas",
+     "exclusive_seconds": 0.075,
+     "inclusive_seconds": 1.095,
+     "calls": 1,
+     "exclusive_share": 0.01
+    },
+    {
+     "function": "wavefront.symbolic_overlay:build_symbolic_overlay",
+     "exclusive_seconds": 0.07,
+     "inclusive_seconds": 0.092,
+     "calls": 42,
+     "exclusive_share": 0.0093
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:materialize_symbolic_runtime_commit",
+     "exclusive_seconds": 0.056,
+     "inclusive_seconds": 0.562,
+     "calls": 42,
+     "exclusive_share": 0.0075
+    },
+    {
+     "function": "wavefront.superlevel_closure:plan_split_materialization",
+     "exclusive_seconds": 0.054,
+     "inclusive_seconds": 0.054,
+     "calls": 42,
+     "exclusive_share": 0.0072
+    },
+    {
+     "function": "wavefront.symbolic_split_endpoint:discover_endpoint_contacts",
+     "exclusive_seconds": 0.052,
+     "inclusive_seconds": 0.535,
+     "calls": 84,
+     "exclusive_share": 0.0069
+    },
+    {
+     "function": "wavefront.conveyor:conveyor_coverage",
+     "exclusive_seconds": 0.037,
+     "inclusive_seconds": 1.138,
+     "calls": 1,
+     "exclusive_share": 0.0049
+    },
+    {
+     "function": "wavefront.symbolic_junction_contacts:discover_junction_contacts",
+     "exclusive_seconds": 0.036,
+     "inclusive_seconds": 0.627,
+     "calls": 84,
+     "exclusive_share": 0.0048
+    },
+    {
+     "function": "exact_sqrt_sum:squarefree_split",
+     "exclusive_seconds": 0.035,
+     "inclusive_seconds": 0.035,
+     "calls": 73883,
+     "exclusive_share": 0.0047
+    },
+    {
+     "function": "wavefront.exact_candidate_view:concurrency_time_in",
+     "exclusive_seconds": 0.03,
+     "inclusive_seconds": 0.178,
+     "calls": 26661,
+     "exclusive_share": 0.004
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_span_bound",
+     "exclusive_seconds": 0.025,
+     "inclusive_seconds": 1.324,
+     "calls": 16808,
+     "exclusive_share": 0.0034
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:_initial_interior_closure",
+     "exclusive_seconds": 0.02,
+     "inclusive_seconds": 1.209,
+     "calls": 42,
+     "exclusive_share": 0.0027
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_hydrate_position",
+     "exclusive_seconds": 0.012,
+     "inclusive_seconds": 1.507,
+     "calls": 7829,
+     "exclusive_share": 0.0015
+    },
+    {
+     "function": "wavefront.symbolic_component:clone_overlay",
+     "exclusive_seconds": 0.01,
+     "inclusive_seconds": 0.01,
+     "calls": 84,
+     "exclusive_share": 0.0014
+    },
+    {
+     "function": "wavefront.exact_candidate_view:sliding_time_in",
+     "exclusive_seconds": 0.008,
+     "inclusive_seconds": 0.166,
+     "calls": 7119,
+     "exclusive_share": 0.0011
+    },
+    {
+     "function": "wavefront.event_time:event_point",
+     "exclusive_seconds": 0.002,
+     "inclusive_seconds": 0.15,
+     "calls": 1131,
+     "exclusive_share": 0.0002
+    },
+    {
+     "function": "wavefront.symbolic_mixed_generation:plan_mixed_generations",
+     "exclusive_seconds": 0.001,
+     "inclusive_seconds": 1.174,
+     "calls": 84,
+     "exclusive_share": 0.0001
+    }
+   ]
+  },
+  "before_p6_d2": {
+   "patch": 6,
+   "density": 2,
+   "wall_seconds": 16.477,
+   "rows": [
+    {
+     "function": "exact_sqrt_sum:_divide_with_prime_universe",
+     "exclusive_seconds": 2.523,
+     "inclusive_seconds": 2.543,
+     "calls": 19090,
+     "exclusive_share": 0.1531
+    },
+    {
+     "function": "wavefront.symbolic_component:overlay_signature",
+     "exclusive_seconds": 2.423,
+     "inclusive_seconds": 2.423,
+     "calls": 304,
+     "exclusive_share": 0.147
+    },
+    {
+     "function": "reference.boundary:_contact_candidates",
+     "exclusive_seconds": 1.838,
+     "inclusive_seconds": 1.838,
+     "calls": 1332,
+     "exclusive_share": 0.1116
+    },
+    {
+     "function": "wavefront.event_time:concurrency_time",
+     "exclusive_seconds": 1.469,
+     "inclusive_seconds": 1.524,
+     "calls": 42868,
+     "exclusive_share": 0.0891
+    },
+    {
+     "function": "wavefront.event_time:compare_times",
+     "exclusive_seconds": 1.359,
+     "inclusive_seconds": 1.359,
+     "calls": 172451,
+     "exclusive_share": 0.0825
+    },
+    {
+     "function": "reference.compile:compile_reference_envelopes",
+     "exclusive_seconds": 1.153,
+     "inclusive_seconds": 1.153,
+     "calls": 1,
+     "exclusive_share": 0.07
+    },
+    {
+     "function": "wavefront.event_time:_event_point",
+     "exclusive_seconds": 0.994,
+     "inclusive_seconds": 3.501,
+     "calls": 10903,
+     "exclusive_share": 0.0603
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_containment",
+     "exclusive_seconds": 0.602,
+     "inclusive_seconds": 2.716,
+     "calls": 7894,
+     "exclusive_share": 0.0365
+    },
+    {
+     "function": "wavefront.candidate_law:evaluate_split_candidate",
+     "exclusive_seconds": 0.577,
+     "inclusive_seconds": 5.973,
+     "calls": 40399,
+     "exclusive_share": 0.035
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_end",
+     "exclusive_seconds": 0.503,
+     "inclusive_seconds": 2.262,
+     "calls": 17208,
+     "exclusive_share": 0.0305
+    },
+    {
+     "function": "wavefront.conveyor:prepare_conveyor",
+     "exclusive_seconds": 0.453,
+     "inclusive_seconds": 14.045,
+     "calls": 1,
+     "exclusive_share": 0.0275
+    },
+    {
+     "function": "wavefront.exact_candidate_view:position",
+     "exclusive_seconds": 0.371,
+     "inclusive_seconds": 3.687,
+     "calls": 32647,
+     "exclusive_share": 0.0225
+    },
+    {
+     "function": "wavefront.skeleton:build_skeleton",
+     "exclusive_seconds": 0.332,
+     "inclusive_seconds": 12.439,
+     "calls": 1,
+     "exclusive_share": 0.0202
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:plan_symbolic_runtime_commit",
+     "exclusive_seconds": 0.204,
+     "inclusive_seconds": 0.273,
+     "calls": 76,
+     "exclusive_share": 0.0124
+    },
+    {
+     "function": "wavefront.symbolic_f0_overlay:build_f0_overlay",
+     "exclusive_seconds": 0.196,
+     "inclusive_seconds": 0.196,
+     "calls": 76,
+     "exclusive_share": 0.0119
+    },
+    {
+     "function": "wavefront.superlevel_snapshot:collect_superlevel_snapshot",
+     "exclusive_seconds": 0.16,
+     "inclusive_seconds": 1.421,
+     "calls": 307,
+     "exclusive_share": 0.0097
+    },
+    {
+     "function": "wavefront.symbolic_overlay:build_symbolic_overlay",
+     "exclusive_seconds": 0.139,
+     "inclusive_seconds": 0.195,
+     "calls": 76,
+     "exclusive_share": 0.0084
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:discover_interior_split_contacts",
+     "exclusive_seconds": 0.101,
+     "inclusive_seconds": 2.975,
+     "calls": 228,
+     "exclusive_share": 0.0062
+    },
+    {
+     "function": "exact_sqrt_sum:squarefree_split",
+     "exclusive_seconds": 0.092,
+     "inclusive_seconds": 0.092,
+     "calls": 184264,
+     "exclusive_share": 0.0056
+    },
+    {
+     "function": "reference.boundary:resolve_component_alphas",
+     "exclusive_seconds": 0.078,
+     "inclusive_seconds": 1.916,
+     "calls": 1,
+     "exclusive_share": 0.0047
+    },
+    {
+     "function": "wavefront.superlevel_closure:plan_split_materialization",
+     "exclusive_seconds": 0.074,
+     "inclusive_seconds": 0.074,
+     "calls": 76,
+     "exclusive_share": 0.0045
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:materialize_symbolic_runtime_commit",
+     "exclusive_seconds": 0.073,
+     "inclusive_seconds": 0.704,
+     "calls": 76,
+     "exclusive_share": 0.0044
+    },
+    {
+     "function": "wavefront.symbolic_split_endpoint:discover_endpoint_contacts",
+     "exclusive_seconds": 0.069,
+     "inclusive_seconds": 1.28,
+     "calls": 152,
+     "exclusive_share": 0.0042
+    },
+    {
+     "function": "wavefront.symbolic_junction_contacts:discover_junction_contacts",
+     "exclusive_seconds": 0.056,
+     "inclusive_seconds": 1.453,
+     "calls": 152,
+     "exclusive_share": 0.0034
+    },
+    {
+     "function": "wavefront.conveyor:conveyor_coverage",
+     "exclusive_seconds": 0.047,
+     "inclusive_seconds": 1.988,
+     "calls": 1,
+     "exclusive_share": 0.0029
+    },
+    {
+     "function": "wavefront.event_time:sliding_time",
+     "exclusive_seconds": 0.04,
+     "inclusive_seconds": 0.041,
+     "calls": 872,
+     "exclusive_share": 0.0024
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:_initial_interior_closure",
+     "exclusive_seconds": 0.037,
+     "inclusive_seconds": 2.005,
+     "calls": 76,
+     "exclusive_share": 0.0023
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_span_bound",
+     "exclusive_seconds": 0.026,
+     "inclusive_seconds": 2.114,
+     "calls": 15692,
+     "exclusive_share": 0.0016
+    },
+    {
+     "function": "wavefront.event_time:sliding_point",
+     "exclusive_seconds": 0.026,
+     "inclusive_seconds": 0.026,
+     "calls": 217,
+     "exclusive_share": 0.0016
+    },
+    {
+     "function": "wavefront.symbolic_component:clone_overlay",
+     "exclusive_seconds": 0.021,
+     "inclusive_seconds": 0.021,
+     "calls": 152,
+     "exclusive_share": 0.0013
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_hydrate_position",
+     "exclusive_seconds": 0.015,
+     "inclusive_seconds": 3.306,
+     "calls": 9864,
+     "exclusive_share": 0.0009
+    },
+    {
+     "function": "wavefront.event_time:event_point",
+     "exclusive_seconds": 0.002,
+     "inclusive_seconds": 0.239,
+     "calls": 1484,
+     "exclusive_share": 0.0001
+    },
+    {
+     "function": "wavefront.symbolic_mixed_generation:plan_mixed_generations",
+     "exclusive_seconds": 0.001,
+     "inclusive_seconds": 2.754,
+     "calls": 152,
+     "exclusive_share": 0.0001
+    }
+   ]
+  },
+  "after_p6_d2": {
+   "patch": 6,
+   "density": 2,
+   "wall_seconds": 10.605,
+   "rows": [
+    {
+     "function": "reference.boundary:_contact_candidates",
+     "exclusive_seconds": 1.85,
+     "inclusive_seconds": 1.85,
+     "calls": 1332,
+     "exclusive_share": 0.1745
+    },
+    {
+     "function": "exact_sqrt_sum:_divide_with_prime_universe",
+     "exclusive_seconds": 1.247,
+     "inclusive_seconds": 1.264,
+     "calls": 19090,
+     "exclusive_share": 0.1176
+    },
+    {
+     "function": "reference.compile:compile_reference_envelopes",
+     "exclusive_seconds": 1.163,
+     "inclusive_seconds": 1.163,
+     "calls": 1,
+     "exclusive_share": 0.1097
+    },
+    {
+     "function": "wavefront.event_time:_event_point",
+     "exclusive_seconds": 0.845,
+     "inclusive_seconds": 2.096,
+     "calls": 10903,
+     "exclusive_share": 0.0797
+    },
+    {
+     "function": "wavefront.event_time:compare_times",
+     "exclusive_seconds": 0.64,
+     "inclusive_seconds": 0.64,
+     "calls": 86050,
+     "exclusive_share": 0.0603
+    },
+    {
+     "function": "wavefront.candidate_law:evaluate_split_candidate",
+     "exclusive_seconds": 0.511,
+     "inclusive_seconds": 3.466,
+     "calls": 40399,
+     "exclusive_share": 0.0481
+    },
+    {
+     "function": "wavefront.conveyor:prepare_conveyor",
+     "exclusive_seconds": 0.448,
+     "inclusive_seconds": 8.171,
+     "calls": 1,
+     "exclusive_share": 0.0423
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_containment",
+     "exclusive_seconds": 0.379,
+     "inclusive_seconds": 1.749,
+     "calls": 7894,
+     "exclusive_share": 0.0358
+    },
+    {
+     "function": "wavefront.exact_candidate_view:span_end",
+     "exclusive_seconds": 0.375,
+     "inclusive_seconds": 1.456,
+     "calls": 17208,
+     "exclusive_share": 0.0354
+    },
+    {
+     "function": "wavefront.symbolic_component:overlay_signature",
+     "exclusive_seconds": 0.336,
+     "inclusive_seconds": 0.336,
+     "calls": 304,
+     "exclusive_share": 0.0317
+    },
+    {
+     "function": "wavefront.exact_candidate_view:position",
+     "exclusive_seconds": 0.308,
+     "inclusive_seconds": 2.238,
+     "calls": 32647,
+     "exclusive_share": 0.029
+    },
+    {
+     "function": "wavefront.skeleton:build_skeleton",
+     "exclusive_seconds": 0.274,
+     "inclusive_seconds": 6.56,
+     "calls": 1,
+     "exclusive_share": 0.0258
+    },
+    {
+     "function": "wavefront.event_time:concurrency_time",
+     "exclusive_seconds": 0.263,
+     "inclusive_seconds": 0.278,
+     "calls": 13133,
+     "exclusive_share": 0.0248
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:plan_symbolic_runtime_commit",
+     "exclusive_seconds": 0.2,
+     "inclusive_seconds": 0.249,
+     "calls": 76,
+     "exclusive_share": 0.0188
+    },
+    {
+     "function": "wavefront.symbolic_f0_overlay:build_f0_overlay",
+     "exclusive_seconds": 0.192,
+     "inclusive_seconds": 0.192,
+     "calls": 76,
+     "exclusive_share": 0.0181
+    },
+    {
+     "function": "wavefront.superlevel_snapshot:collect_superlevel_snapshot",
+     "exclusive_seconds": 0.155,
+     "inclusive_seconds": 0.892,
+     "calls": 307,
+     "exclusive_share": 0.0147
+    },
+    {
+     "function": "wavefront.event_time:times_are_equal",
+     "exclusive_seconds": 0.145,
+     "inclusive_seconds": 0.265,
+     "calls": 58820,
+     "exclusive_share": 0.0137
+    },
+    {
+     "function": "wavefront.symbolic_overlay:build_symbolic_overlay",
+     "exclusive_seconds": 0.134,
+     "inclusive_seconds": 0.18,
+     "calls": 76,
+     "exclusive_share": 0.0126
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:discover_interior_split_contacts",
+     "exclusive_seconds": 0.096,
+     "inclusive_seconds": 1.807,
+     "calls": 228,
+     "exclusive_share": 0.009
+    },
+    {
+     "function": "reference.boundary:resolve_component_alphas",
+     "exclusive_seconds": 0.08,
+     "inclusive_seconds": 1.931,
+     "calls": 1,
+     "exclusive_share": 0.0076
+    },
+    {
+     "function": "wavefront.superlevel_closure:plan_split_materialization",
+     "exclusive_seconds": 0.072,
+     "inclusive_seconds": 0.072,
+     "calls": 76,
+     "exclusive_share": 0.0067
+    },
+    {
+     "function": "wavefront.symbolic_runtime_commit:materialize_symbolic_runtime_commit",
+     "exclusive_seconds": 0.069,
+     "inclusive_seconds": 0.423,
+     "calls": 76,
+     "exclusive_share": 0.0065
+    },
+    {
+     "function": "wavefront.symbolic_split_endpoint:discover_endpoint_contacts",
+     "exclusive_seconds": 0.064,
+     "inclusive_seconds": 0.685,
+     "calls": 152,
+     "exclusive_share": 0.006
+    },
+    {
+     "function": "wavefront.symbolic_junction_contacts:discover_junction_contacts",
+     "exclusive_seconds": 0.054,
+     "inclusive_seconds": 0.822,
+     "calls": 152,
+     "exclusive_share": 0.0051
+    },
+    {
+     "function": "wavefront.conveyor:conveyor_coverage",
+     "exclusive_seconds": 0.049,
+     "inclusive_seconds": 1.992,
+     "calls": 1,
+     "exclusive_share": 0.0046
+    },
+    {
+     "function": "exact_sqrt_sum:squarefree_split",
+     "exclusive_seconds": 0.047,
+     "inclusive_seconds": 0.047,
+     "calls": 97420,
+     "exclusive_share": 0.0044
+    },
+    {
+     "function": "wavefront.exact_candidate_view:concurrency_time_in",
+     "exclusive_seconds": 0.045,
+     "inclusive_seconds": 0.263,
+     "calls": 39541,
+     "exclusive_share": 0.0043
+    },
+    {
+     "function": "wavefront.symbolic_superlevel_coordinator:_initial_interior_closure",
+     "exclusive_seconds": 0.037,
+     "inclusive_seconds": 1.415,
+     "calls": 76,
+     "exclusive_share": 0.0035
+    },
+    {
+     "function": "wavefront.event_time:sliding_point",
+     "exclusive_seconds": 0.027,
+     "inclusive_seconds": 0.027,
+     "calls": 217,
+     "exclusive_share": 0.0025
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_span_bound",
+     "exclusive_seconds": 0.023,
+     "inclusive_seconds": 1.37,
+     "calls": 15692,
+     "exclusive_share": 0.0022
+    },
+    {
+     "function": "wavefront.symbolic_component:clone_overlay",
+     "exclusive_seconds": 0.021,
+     "inclusive_seconds": 0.021,
+     "calls": 152,
+     "exclusive_share": 0.002
+    },
+    {
+     "function": "wavefront.exact_candidate_view:_hydrate_position",
+     "exclusive_seconds": 0.015,
+     "inclusive_seconds": 1.922,
+     "calls": 9864,
+     "exclusive_share": 0.0014
+    },
+    {
+     "function": "wavefront.event_time:sliding_time",
+     "exclusive_seconds": 0.008,
+     "inclusive_seconds": 0.008,
+     "calls": 204,
+     "exclusive_share": 0.0007
+    },
+    {
+     "function": "wavefront.event_time:event_point",
+     "exclusive_seconds": 0.002,
+     "inclusive_seconds": 0.218,
+     "calls": 1484,
+     "exclusive_share": 0.0002
+    },
+    {
+     "function": "wavefront.symbolic_mixed_generation:plan_mixed_generations",
+     "exclusive_seconds": 0.001,
+     "inclusive_seconds": 1.527,
+     "calls": 152,
+     "exclusive_share": 0.0001
+    },
+    {
+     "function": "wavefront.exact_candidate_view:sliding_time_in",
+     "exclusive_seconds": 0.001,
+     "inclusive_seconds": 0.008,
+     "calls": 858,
+     "exclusive_share": 0.0001
+    }
+   ]
+  }
+ },
+ "sign_counts_totals_sum_over_domains": {
+  "baseline_18d7197": {
+   "1": {
+    "total": 736103,
+    "closed_rational_zero": 64632,
+    "closed_rational_nonzero": 195450,
+    "closed_by_enclosure": 476021,
+    "closed_by_conjugation": 0
+   },
+   "2": {
+    "total": 1023947,
+    "closed_rational_zero": 83589,
+    "closed_rational_nonzero": 262263,
+    "closed_by_enclosure": 678095,
+    "closed_by_conjugation": 0
+   }
+  },
+  "after_c4": {
+   "1": {
+    "total": 736103,
+    "closed_rational_zero": 64632,
+    "closed_rational_nonzero": 195450,
+    "closed_by_enclosure": 476021,
+    "closed_by_conjugation": 0
+   },
+   "2": {
+    "total": 1023947,
+    "closed_rational_zero": 83589,
+    "closed_rational_nonzero": 262263,
+    "closed_by_enclosure": 678095,
+    "closed_by_conjugation": 0
+   }
+  },
+  "after_c5": {
+   "1": {
+    "total": 651910,
+    "closed_rational_zero": 64632,
+    "closed_rational_nonzero": 187861,
+    "closed_by_enclosure": 399417,
+    "closed_by_conjugation": 0
+   },
+   "2": {
+    "total": 898801,
+    "closed_rational_zero": 83589,
+    "closed_rational_nonzero": 254601,
+    "closed_by_enclosure": 560611,
+    "closed_by_conjugation": 0
+   }
+  },
+  "after_c6": {
+   "1": {
+    "total": 412639,
+    "closed_rational_zero": 52846,
+    "closed_rational_nonzero": 112515,
+    "closed_by_enclosure": 247278,
+    "closed_by_conjugation": 0
+   },
+   "2": {
+    "total": 563379,
+    "closed_rational_zero": 70353,
+    "closed_rational_nonzero": 147002,
+    "closed_by_enclosure": 346024,
+    "closed_by_conjugation": 0
+   }
+  }
+ },
+ "verification": {
+  "full_kernel_suite": "6 шардов по `ls -S kernel/tests/test_*.py` round-robin, PYTHONSAFEPATH=1 PYTHONPATH=kernel/src python -m pytest <files> -q -p no:cacheprovider --basetemp=<distinct>; результат — см. поле full_kernel_suite_result",
+  "architecture": "python -m pytest tests/test_architecture.py -q: 414 passed, 1 failed (test_host_adapter_never_calls_exact_arithmetic_without_a_budget, Windows-разделители, известное; без каталога scratch3 с копиями дерева, которые иначе ломают счётчики крупных файлов/markdown)",
+  "budget_ban_emulation": "kernel/tests/test_exact_work_budget_coverage.py падает на Windows двумя известными тестами (ключи модулей с обратной косой чертой); логика запрета перепроверена вне pytest с нормализацией разделителей (unregistered=[], grown=[], dead=[], missing_surface=[]) на каждом коммите, где менялась поверхность; radical_sum и difference_sign внесены в CHARGED_EXACT_SURFACE",
+  "line_endings": "рабочие файлы CRLF (autocrlf), индекс LF; новые тестовые файлы приведены к CRLF",
+  "full_kernel_suite_result": {
+   "shards": [
+    "717 passed + 2 failed + 2 skipped",
+    "465 passed",
+    "599 passed",
+    "738 passed",
+    "568 passed",
+    "215 passed"
+   ],
+   "total": "3302 passed, 2 failed (известные Windows-падения test_exact_work_budget_coverage.py::test_no_charged_exact_call_escapes_a_named_budget и ::test_no_frozen_exemption_is_dead — те же сайты, что на 5392e01: списки сравнены), 2 skipped"
+  },
+  "host_suite": "python -m pytest tests: 842 passed, 8 skipped; deselected 2 средовых (test_architecture::test_host_adapter_never_calls_exact_arithmetic_without_a_budget — известное Windows; test_version_info::test_uses_embedded_identity_outside_checkout — имя ветки worktree)"
+ },
+ "measurement_notes": [
+  "машина разделяется с другими процессами (24 потока, пул 8 воркеров ворот): стены ворот между коммитами шумят на +-10-15 % (c3: два прогона 12.10/12.80 с на d1 против 10.89 у предыдущего коммита); решения принимались по solo-замерам patch 7 d2 (разброс 0.05-0.1 с) и микробенчмаркам на записанных входах, а финальное сравнение до/после — чередующимися прогонами (final_timing)",
+  "solo-замеры: PYTHONSAFEPATH=1 PYTHONPATH=kernel/src python artifacts/numeric_repr/proto_run.py 7 2 none artifacts/numeric_repr/baseline_18d7197.json — после прогрева ядра малым доменом; в каждом прогоне answer_equal=true и budget_articles_equal=true"
+ ],
+ "stopped_candidates": [
+  {
+   "candidate": "целочисленный _event_point (числители x/y и знаменатель в целых, _radical_term)",
+   "measured": "микробенчмарк на записанных 7498 входах patch 7: 164 -> 134 мкс/вызов (-18 %), solo patch 7 d2 7.14/7.15 -> 7.21/7.05 с (в шуме); оценка <= 3 %",
+   "decision": "откачено: +70 строк кода ради <= 2 %"
+  },
+  {
+   "candidate": "_integer_form через слоты Fraction (_numerator/_denominator)",
+   "measured": "compare_times 5.91 -> 5.69 мкс (-4 %), solo 8.25 -> 8.13 с (-1.5 %)",
+   "decision": "откачено: <3 % и опора на приватные слоты"
+  },
+  {
+   "candidate": "варианты _divide_with_prime_universe (без _reduced_form; D*conj = A*A - G*G)",
+   "measured": "59.0 -> 54.1 / 53.4 мкс (-8 % деления, <1 % домена), ответы те же на 12962 записанных входах",
+   "decision": "не внесено: пол цикла сопряжений — накладные расходы, а не арифметика (pick/support вызываются через имена, заморожены тестами)"
+  },
+  {
+   "candidate": "целочисленный цикл в SqrtSumV1.divided_by (путь sliding_time/event_point без universe)",
+   "measured": "divided_by 3.3 % профиля, ожидание -50 % = ~1.6 %",
+   "decision": "не сделано: <3 %"
+  },
+  {
+   "candidate": "память compare_times по id пары на superlevel (candidate_law)",
+   "measured": "после c5 на patch 7 d2: 60 903 вызова, 19 192 различных пар по id (68 % повторов); потолок выигрыша ~1.7 % (evaluate_split_candidate даёт 45 % вызовов, compare_times 6 % стены)",
+   "decision": "не сделано: <3 % и ещё один сдвиг SIGN_COUNTS"
+  },
+  {
+   "candidate": "рациональные быстрые пути sympy (metric.dot_g, boundary._contact_candidates, adaptive_density_fan._dual_dot/_subturn)",
+   "measured": "_contact_candidates = 14 % (patch 7), 17 % (patch 6) секунд; из 13264 dot_g рациональны 25-49 %; остальное — иррациональные выражения с sqrt (owner_normal = unit_g), где идентичность = srepr (ExactScalar.expression -> stable_id/point_key/semantic_digest)",
+   "decision": "не сделано: потолок ~2 % при средней-высокой цене ошибки в строках идентичности; настоящее лечение — квадратичное поле на SqrtSumV1 вместо sympy (ранг 9 шага 1, редизайн)"
+  },
+  {
+   "candidate": "compile_reference_envelopes (_attach_direction_bindings, adaptive_density_fan)",
+   "measured": "7-11 % стены на домен, 100 % sympy (ассумпции is_positive/_ask в _box_is_feasible, _local_candidate, _slope)",
+   "decision": "вне безопасного объёма: алгебра направлений, меняет её только владелец плотности"
+  }
+ ],
+ "structural_findings_for_owner": [
+  "plan_symbolic_superlevel_closure вызывает plan_mixed_generations ДВАЖДЫ на одних и тех же аргументах (junction и replay — проверка повторяемости, отказ SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE). Замер на финальном дереве, patch 7 d2: junction-прогон 0.52 с, replay-прогон 0.51 с из 7.05 с (по 7.3 % стены на каждый; до c5 было 0.93/0.92 с из 8.7). Это доказательные ворота, а не оптимизация — не трогалось; решение о его цене — владельца.",
+  "evaluate_split_candidate на одну пару (вершина, цель) вызывается 3 раза за замыкание (начальное замыкание, junction, replay); память целых решений снимала бы остаток, но решение зависит от вида (вершины/пролёты/следы наложения) и требует ключа состояния наложения — не безопасно без решения владельца",
+  "SIGN_COUNTS после c5/c6 перестаёт быть метрикой 'сколько знаков спросили по сценарию': пропущенные пересчёты не учитываются; если счётчик где-то заморожен как эталон цены, c5 и c6 откатываются независимо (коммиты не зависят друг от друга по коду)"
+ ],
+ "proposed_decisions_lines": [
+  "2026-10-01 overlay_signature: память repr неизменяемых частей живёт ТОЛЬКО внутри signature_memo() транзакции plan_symbolic_superlevel_closure; подписи сравниваются на равенство, порядок и кортеж не менялись, потому что у них нет потребителя порядка — но и не доказано, что его не появится.",
+  "2026-10-01 concurrency_time/sliding_time кандидата кэшируются в PositionMemoV1 superlevel'а по id прямых, а не в процессном кэше: чистая функция трёх объектов, бюджет не входит в ответ, память чистится сменой точного времени и отсутствует в плотном режиме (эталон теневой сверки); SIGN_COUNTS при этом перестаёт быть неизменным.",
+  "2026-10-01 вопросы 'равны ли времена' идут через times_are_equal, а не через знак compare_times: равенство — рациональная проверка, знак им не нужен; счётчик очереди считается обходом кучи с обрезкой поддеревьев строго позже."
+ ],
+ "tooling_added": {
+  "artifacts/numeric_repr/exclusive_time.py": "реальное (не cProfile) исключительное время по функциям ядра на одном домене; таблицы real_time_exclusive_by_function сняты им (до: дерево 5392e01, после: HEAD)",
+  "reproduce_final_timing": "до = `git archive 5392e01` в отдельный каталог, после = этот worktree; ворота и solo-прогоны чередуются (до, после, до, после); solo: PYTHONSAFEPATH=1 PYTHONPATH=<root>/kernel/src python <root>/artifacts/numeric_repr/proto_run.py <patch> 2 none artifacts/numeric_repr/baseline_18d7197.json"
+ }
+}

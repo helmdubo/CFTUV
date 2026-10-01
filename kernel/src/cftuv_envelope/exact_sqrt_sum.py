@@ -1031,12 +1031,23 @@ def _scaled_difference_items(
     minus: "SqrtSumV1",
     minus_factor: Fraction,
 ) -> list[tuple[int, int]]:
-    """Ненулевые `(m, a_m)` разности `plus*plus_factor - minus*minus_factor`.
+    """Ненулевые `(m, a_m)` разности `plus*plus_factor - minus*minus_factor`."""
 
-    Величина равна `sum a_m*sqrt(m) / D` при положительном `D`, поэтому знак и
-    ноль читаются из целых `a_m` без единого `Fraction`. Слияние радикандов
-    повторяет `scaled(...) - scaled(...)`: слагаемые `plus` перекрывают друг
-    друга, как в `as_map`, слагаемые `minus` складываются.
+    return _scaled_difference_parts(plus, plus_factor, minus, minus_factor)[1]
+
+
+def _scaled_difference_parts(
+    plus: "SqrtSumV1",
+    plus_factor: Fraction,
+    minus: "SqrtSumV1",
+    minus_factor: Fraction,
+) -> tuple[int, list[tuple[int, int]]]:
+    """`(D, [(m, a_m)])`: `plus*plus_factor - minus*minus_factor = sum a_m*sqrt(m) / D`.
+
+    `D` положительно, поэтому знак и ноль читаются из целых `a_m` без единого
+    `Fraction`; нулевые `a_m` отброшены. Слияние радикандов повторяет
+    `scaled(...) - scaled(...)`: слагаемые `plus` перекрывают друг друга, как в
+    `as_map`, слагаемые `minus` складываются. Множители бывают `int`.
     """
 
     plus_common, plus_items = _integer_form(plus.terms)
@@ -1051,7 +1062,69 @@ def _scaled_difference_items(
         merged[radicand] = numerator * plus_multiplier
     for radicand, numerator in minus_items:
         merged[radicand] = merged.get(radicand, 0) - numerator * minus_multiplier
-    return [(radicand, value) for radicand, value in merged.items() if value]
+    return big, [(radicand, value) for radicand, value in merged.items() if value]
+
+
+def _multiply_integer_items(
+    left: list[tuple[int, int]], right: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Произведение двух `sum a_m*sqrt(m)` на целых; радиканды по возрастанию.
+
+    `sqrt(a)*sqrt(b) = g*sqrt(a*b/g^2)`, `g = gcd(a, b)`. Слияние по радиканду
+    и отброс нулей — те же, что у `SqrtSumV1.__mul__`; общий знаменатель
+    произведения вызывающий собирает сам.
+    """
+
+    merged: dict[int, int] = {}
+    for left_radicand, left_numerator in left:
+        for right_radicand, right_numerator in right:
+            common = gcd(left_radicand, right_radicand)
+            radicand = (left_radicand // common) * (right_radicand // common)
+            merged[radicand] = (
+                merged.get(radicand, 0)
+                + left_numerator * right_numerator * common
+            )
+    return sorted(
+        (radicand, value) for radicand, value in merged.items() if value
+    )
+
+
+def _reduced_form(
+    common: int, items: list[tuple[int, int]]
+) -> tuple[int, list[tuple[int, int]]]:
+    """Тот же набор `(L, a_m)`, сокращённый на общий делитель; значение то же."""
+
+    divisor = gcd(common, *[value for _, value in items])
+    if divisor == 1:
+        return common, items
+    return common // divisor, [(m, value // divisor) for m, value in items]
+
+
+def _scaled_by_reciprocal(
+    numerator_common: int,
+    numerator_items: list[tuple[int, int]],
+    denominator_common: int,
+    denominator_items: list[tuple[int, int]],
+) -> "SqrtSumV1":
+    """`numerator / rational` для рационального знаменателя, по одной дроби."""
+
+    rational = Fraction(
+        denominator_items[0][1] if denominator_items else 0,
+        denominator_common,
+    )
+    factor = Fraction(1) / rational
+    return SqrtSumV1(
+        tuple(
+            (
+                radicand,
+                Fraction(
+                    value * factor.numerator,
+                    numerator_common * factor.denominator,
+                ),
+            )
+            for radicand, value in numerator_items
+        )
+    )
 
 
 # Одна ширина оболочки на `SqrtSumV1.sign` и `_filtered_sign`: разойдись они,
@@ -1206,6 +1279,51 @@ class SqrtSumV1:
             return SqrtSumV1(())
         return SqrtSumV1(tuple((m, c * factor) for m, c in self.terms))
 
+    def scaled_difference(
+        self,
+        factor: Fraction | int,
+        other: "SqrtSumV1",
+        other_factor: Fraction | int,
+    ) -> "SqrtSumV1":
+        """`self*factor - other*other_factor` одним проходом.
+
+        Те же члены, тот же тип коэффициента и тот же порядок, что у
+        `self.scaled(factor) - other.scaled(other_factor)`, без двух
+        промежуточных величин и без нормировки дроби на каждом шаге.
+        """
+
+        big, items = _scaled_difference_parts(
+            self, factor, other, other_factor
+        )
+        return SqrtSumV1(
+            tuple(
+                (radicand, Fraction(value, big))
+                for radicand, value in sorted(items)
+            )
+        )
+
+    def difference_sign(
+        self,
+        other: "SqrtSumV1",
+        budget: "ExactWorkBudgetV1 | None" = None,
+    ) -> int:
+        """Знак `self - other`, как у `(self - other).sign(budget=budget)`.
+
+        Фильтр читает знак из целых без промежуточной величины и ведёт счётчики
+        `SIGN_COUNTS` ровно как `sign`; не решив, он их не трогает, и вопрос
+        идёт прежним путём с тем же сопряжением и бюджетом.
+        """
+
+        decided = _filtered_sign(_scaled_difference_parts(self, 1, other, 1)[1])
+        if decided is not None:
+            return decided
+        return (self - other).sign(budget=budget)
+
+    def difference_is_zero(self, other: "SqrtSumV1") -> bool:
+        """`(self - other).is_zero` без самой разности."""
+
+        return not _scaled_difference_parts(self, 1, other, 1)[1]
+
     def __mul__(self, other: "SqrtSumV1") -> "SqrtSumV1":
         """Произведение. `sqrt(a)*sqrt(b) = g*sqrt(a*b/g^2)`, g = gcd(a, b).
 
@@ -1217,21 +1335,13 @@ class SqrtSumV1:
             return SqrtSumV1(())
         left_common, left_items = _integer_form(self.terms)
         right_common, right_items = _integer_form(other.terms)
-        merged: dict[int, int] = {}
-        for left_radicand, left_numerator in left_items:
-            for right_radicand, right_numerator in right_items:
-                common = gcd(left_radicand, right_radicand)
-                radicand = (left_radicand // common) * (right_radicand // common)
-                merged[radicand] = (
-                    merged.get(radicand, 0)
-                    + left_numerator * right_numerator * common
-                )
         denominator = left_common * right_common
         return SqrtSumV1(
             tuple(
                 (radicand, Fraction(numerator, denominator))
-                for radicand, numerator in sorted(merged.items())
-                if numerator
+                for radicand, numerator in _multiply_integer_items(
+                    left_items, right_items
+                )
             )
         )
 
@@ -1354,27 +1464,90 @@ def _divide_with_prime_universe(
     операндах — частично сопряжённые величины никогда не смешиваются с legacy.
     """
 
-    original_numerator = numerator
-    original_denominator = denominator
     if denominator.is_zero:
         return numerator.divided_by(denominator, budget)
+    numerator_common, numerator_items = _integer_form(numerator.terms)
+    denominator_common, denominator_items = _integer_form(denominator.terms)
     while True:
-        rational = denominator.as_rational()
-        if rational is not None:
-            return numerator.scaled(Fraction(1) / rational)
+        if len(denominator_items) <= 1 and all(
+            radicand == 1 for radicand, _ in denominator_items
+        ):
+            return _scaled_by_reciprocal(
+                numerator_common,
+                numerator_items,
+                denominator_common,
+                denominator_items,
+            )
         prime = _pick_prime_from_universe(
-            denominator.as_map(),
+            dict(denominator_items),
             prime_universe,
         )
-        if prime is None:
-            return original_numerator.divided_by(original_denominator, budget)
-        outside, inside = _split_by_prime(denominator.as_map(), prime)
-        root = SqrtSumV1.radical(1, prime, budget)
-        conjugate = SqrtSumV1._from_map(outside) - (
-            SqrtSumV1._from_map(inside) * root
+        # Корень `sqrt(prime)` материализуется здесь и только здесь: промах
+        # памяти `squarefree_split` платит бюджет, как платил `radical(1, p)`.
+        if prime is None or squarefree_split(prime, budget) != (1, prime):
+            return numerator.divided_by(denominator, budget)
+        # `E = A + B*sqrt(p)`, сопряжённое `A - B*sqrt(p)`: члены, делящиеся на
+        # p, меняют знак, а радиканды остаются прежними (`sqrt(k)*sqrt(p)` при
+        # `p` не делящем `k` даёт тот же `k*p`).
+        conjugate = [
+            (radicand, -value if radicand % prime == 0 else value)
+            for radicand, value in denominator_items
+        ]
+        numerator_items = _multiply_integer_items(numerator_items, conjugate)
+        denominator_items = _multiply_integer_items(
+            denominator_items, conjugate
         )
-        numerator = numerator * conjugate
-        denominator = denominator * conjugate
+        numerator_common *= denominator_common
+        denominator_common *= denominator_common
+        numerator_common, numerator_items = _reduced_form(
+            numerator_common, numerator_items
+        )
+        denominator_common, denominator_items = _reduced_form(
+            denominator_common, denominator_items
+        )
+
+
+def radical_sum(
+    parts: "tuple[tuple[Fraction | int, Fraction | int], ...]",
+    budget: "ExactWorkBudgetV1 | None" = None,
+) -> "SqrtSumV1":
+    """`sum coefficient_i * sqrt(radicand_i)` — то же, что цепочка `radical(...) + ...`.
+
+    Слагаемые идут в порядке `parts`, `squarefree_split` зовётся на тех же
+    (ненулевых) радикандах в том же порядке, поэтому статьи бюджета и промахи
+    памяти те же, что у цепочки. Сумма копится в целых там, где коэффициент и
+    радиканд целые; `Fraction` создаётся один раз на член результата, а нулевые
+    суммы отбрасываются, как отбрасывает их `_from_map`.
+    """
+
+    merged: dict[int, tuple[int, int]] = {}
+    for coefficient, radicand in parts:
+        if type(coefficient) is int:
+            numerator, denominator = coefficient, 1
+        else:
+            coefficient = Fraction(coefficient)
+            numerator, denominator = coefficient.numerator, coefficient.denominator
+        if numerator == 0 or radicand == 0:
+            continue
+        if isinstance(radicand, Fraction) and radicand.denominator != 1:
+            denominator *= radicand.denominator
+            radicand = radicand.numerator * radicand.denominator
+        else:
+            radicand = int(radicand)
+        outside, inside = squarefree_split(radicand, budget)
+        numerator *= outside
+        old = merged.get(inside)
+        if old is not None:
+            numerator = numerator * old[1] + old[0] * denominator
+            denominator *= old[1]
+        merged[inside] = (numerator, denominator)
+    return SqrtSumV1(
+        tuple(
+            (radicand, Fraction(numerator, denominator))
+            for radicand, (numerator, denominator) in sorted(merged.items())
+            if numerator
+        )
+    )
 
 
 def _split_by_prime(

@@ -243,6 +243,62 @@ def position(
     return place
 
 
+def concurrency_time_in(
+    view: ExactCandidateViewV1,
+    first: SupportLineV1,
+    second: SupportLineV1,
+    third: SupportLineV1,
+) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+    """`concurrency_time(first, second, third)` через память superlevel'а.
+
+    Закон кандидата спрашивает время одной и той же тройки прямых ПО ДЕСЯТКУ
+    раз: поколения exact-time замыкания и его повтор считают одни и те же пары
+    (вершина, цель). Функция чистая по трём прямым — бюджет в ответ не входит, а
+    повторный вопрос ничего не оплачивает (память разложений уже ответила), —
+    поэтому ответ памяти и пересчёта один, а цена пересчёта — нет. Ключ —
+    идентичность трёх прямых; запись держит сами объекты, и пока она жива,
+    адрес не может достаться другому. Память та же, что у `position`, со
+    своей границей: смена точного времени и чужой базис простых.
+    """
+
+    memo = view.position_memo
+    if memo is None or not memo.admits(view.prime_universe):
+        return concurrency_time(first, second, third, view.budget)
+    key = ("CONCURRENCY", id(first), id(second), id(third))
+    entry = memo.entries.get(key)
+    if entry is None:
+        entry = memo.entries[key] = (
+            first,
+            second,
+            third,
+            concurrency_time(first, second, third, view.budget),
+        )
+    return entry[3]
+
+
+def sliding_time_in(
+    view: ExactCandidateViewV1,
+    line: SupportLineV1,
+    along: SqrtSumV1,
+    other: SupportLineV1,
+) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+    """`sliding_time(line, along, other)` через ту же память, по тем же причинам."""
+
+    memo = view.position_memo
+    if memo is None or not memo.admits(view.prime_universe):
+        return sliding_time(line, along, other, view.budget)
+    key = ("SLIDING", id(line), id(along), id(other))
+    entry = memo.entries.get(key)
+    if entry is None:
+        entry = memo.entries[key] = (
+            line,
+            along,
+            other,
+            sliding_time(line, along, other, view.budget),
+        )
+    return entry[3]
+
+
 def edge_event_time(
     view: ExactCandidateViewV1,
     vertex_ref: object,
@@ -306,7 +362,7 @@ def span_end(
     span = view.span_state(span_ref)
     place = position(view, vertex_ref, time)
     if place is not None:
-        return place.x.scaled(span.line.b) - place.y.scaled(span.line.a)
+        return place.x.scaled_difference(span.line.b, place.y, span.line.a)
     if not span.line.is_stationary:
         return None
     x0, y0, x1, y1 = span.source_span
@@ -360,7 +416,7 @@ def _span_bound(
         or compare_times(time, span.frozen_instant, view.budget) != 0
     ):
         return None
-    return place.x.scaled(span.line.b) - place.y.scaled(span.line.a)
+    return place.x.scaled_difference(span.line.b, place.y, span.line.a)
 
 
 def span_containment(
@@ -372,17 +428,31 @@ def span_containment(
     span = view.span_state(span_ref)
     if span.start_vertex is None or span.end_vertex is None:
         return SpanContainmentV1(False, False, False)
-    here = point.x.scaled(span.line.b) - point.y.scaled(span.line.a)
+    here = point.x.scaled_difference(span.line.b, point.y, span.line.a)
     low = _span_bound(view, span, span_ref, time, at_start=True)
     high = _span_bound(view, span, span_ref, time, at_start=False)
+    # Знак `here - low` спрашивается всегда, когда граница есть; знак
+    # `high - here` — только если первая граница точку не отвергла (как и
+    # короткое замыкание `or` до замены), поэтому счётчики знака прежние.
+    # Нулевая разность и есть знак 0, отдельной проверки для неё не нужно.
+    low_sign = None if low is None else here.difference_sign(low, view.budget)
+    high_sign = None
+    if low_sign is None or low_sign >= 0:
+        if high is not None:
+            high_sign = high.difference_sign(here, view.budget)
     inside = not (
-        (low is not None and (here - low).sign(budget=view.budget) < 0)
-        or (high is not None and (high - here).sign(budget=view.budget) < 0)
+        (low_sign is not None and low_sign < 0)
+        or (high_sign is not None and high_sign < 0)
     )
     return SpanContainmentV1(
         inside,
-        low is not None and (here - low).is_zero,
-        high is not None and (high - here).is_zero,
+        low is not None and low_sign == 0,
+        high is not None
+        and (
+            high_sign == 0
+            if high_sign is not None
+            else high.difference_is_zero(here)
+        ),
     )
 
 
@@ -407,4 +477,4 @@ def sliding_projection(
         == second.q * first.normal_squared
     ):
         return None
-    return point.x.scaled(first.b) - point.y.scaled(first.a)
+    return point.x.scaled_difference(first.b, point.y, first.a)

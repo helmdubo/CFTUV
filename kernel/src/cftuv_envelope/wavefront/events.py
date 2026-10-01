@@ -140,12 +140,30 @@ class EventQueueV1:
         return None if not self._heap else self._heap[0].event.time
 
     def _count_at_time(self, time: EventTimeV1) -> int:
-        """Сколько queued events имеют данное exact time. Только telemetry."""
+        """Сколько queued events имеют данное exact time. Только telemetry.
 
-        return sum(
-            compare_times(entry.event.time, time, self.work_budget) == 0
-            for entry in self._heap
-        )
+        Куча упорядочена по времени: потомок не раньше родителя. Значит у узла,
+        чьё время СТРОГО позже `time`, во всём поддереве равных нет, и обход
+        сверху обрезает такое поддерево. Узлы раньше или равные `time` обходятся
+        дальше, поэтому ответ тот же, что у полного перебора, даже если очередь
+        держит запись из прошлого; а стоит это по сравнению на каждый узел
+        «фронта» равных времён, а не на каждую запись очереди.
+        """
+
+        heap = self._heap
+        size = len(heap)
+        count = 0
+        pending = [0] if size else []
+        while pending:
+            index = pending.pop()
+            order = compare_times(heap[index].event.time, time, self.work_budget)
+            if order > 0:
+                continue
+            count += order == 0
+            pending.extend(
+                child for child in (2 * index + 1, 2 * index + 2) if child < size
+            )
+        return count
 
     def pop_level(self) -> tuple[CandidateEventV1, ...]:
         """Все события ТОЧНО того же времени, что у вершины кучи.
