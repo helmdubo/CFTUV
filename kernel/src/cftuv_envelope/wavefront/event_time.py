@@ -59,6 +59,7 @@ from ..exact_sqrt_sum import (
     _filtered_sign,
     _named,
     _scaled_difference_items,
+    radical_sum,
 )
 from .sqrt_sum import SqrtSumV1
 
@@ -320,10 +321,13 @@ def concurrency_time(
         + second.c * cofactor_second
         + third.c * cofactor_third
     )
-    speed = (
-        SqrtSumV1.radical(cofactor_first, first.q, budget)
-        + SqrtSumV1.radical(cofactor_second, second.q, budget)
-        + SqrtSumV1.radical(cofactor_third, third.q, budget)
+    speed = radical_sum(
+        (
+            (cofactor_first, first.q),
+            (cofactor_second, second.q),
+            (cofactor_third, third.q),
+        ),
+        budget,
     )
     if speed.is_zero:
         if offset == 0:
@@ -412,9 +416,7 @@ def sliding_time(
         + along.scaled(cross)
         - SqrtSumV1.rational(weight * line.c)
     )
-    speed = SqrtSumV1.radical(weight, line.q, budget) - SqrtSumV1.radical(
-        norm, other.q, budget
-    )
+    speed = radical_sum(((weight, line.q), (-norm, other.q)), budget)
     if speed.is_zero:
         if numerator.is_zero:
             return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT

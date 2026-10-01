@@ -1451,6 +1451,49 @@ def _divide_with_prime_universe(
         )
 
 
+def radical_sum(
+    parts: "tuple[tuple[Fraction | int, Fraction | int], ...]",
+    budget: "ExactWorkBudgetV1 | None" = None,
+) -> "SqrtSumV1":
+    """`sum coefficient_i * sqrt(radicand_i)` — то же, что цепочка `radical(...) + ...`.
+
+    Слагаемые идут в порядке `parts`, `squarefree_split` зовётся на тех же
+    (ненулевых) радикандах в том же порядке, поэтому статьи бюджета и промахи
+    памяти те же, что у цепочки. Сумма копится в целых там, где коэффициент и
+    радиканд целые; `Fraction` создаётся один раз на член результата, а нулевые
+    суммы отбрасываются, как отбрасывает их `_from_map`.
+    """
+
+    merged: dict[int, tuple[int, int]] = {}
+    for coefficient, radicand in parts:
+        if type(coefficient) is int:
+            numerator, denominator = coefficient, 1
+        else:
+            coefficient = Fraction(coefficient)
+            numerator, denominator = coefficient.numerator, coefficient.denominator
+        if numerator == 0 or radicand == 0:
+            continue
+        if isinstance(radicand, Fraction) and radicand.denominator != 1:
+            denominator *= radicand.denominator
+            radicand = radicand.numerator * radicand.denominator
+        else:
+            radicand = int(radicand)
+        outside, inside = squarefree_split(radicand, budget)
+        numerator *= outside
+        old = merged.get(inside)
+        if old is not None:
+            numerator = numerator * old[1] + old[0] * denominator
+            denominator *= old[1]
+        merged[inside] = (numerator, denominator)
+    return SqrtSumV1(
+        tuple(
+            (radicand, Fraction(numerator, denominator))
+            for radicand, (numerator, denominator) in sorted(merged.items())
+            if numerator
+        )
+    )
+
+
 def _split_by_prime(
     terms: dict[int, Fraction], prime: int
 ) -> tuple[dict[int, Fraction], dict[int, Fraction]]:

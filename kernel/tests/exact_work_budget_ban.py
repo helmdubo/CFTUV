@@ -61,6 +61,7 @@ from pathlib import Path
 CHARGED_EXACT_SURFACE: dict[str, tuple[int | None, tuple[str, ...]]] = {
     "sign": (None, ("budget",)),
     "radical": (2, ("budget",)),
+    "radical_sum": (1, ("budget",)),
     "divided_by": (1, ("budget",)),
     "squarefree_split": (1, ("budget",)),
     "prime_support": (1, ("budget",)),
