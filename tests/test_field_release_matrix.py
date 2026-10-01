@@ -113,18 +113,23 @@ _CACHE: dict[str, dict] = {}
 
 
 PIN_LIFT_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_LIFT"
+PIN_FRAME_ENV = "CFTUV_FIELD_PIN_NEAR_PLANAR_FRAME"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
+LEGACY_FRAME = "CANONICAL_ONLY_V1"
 
 
-def route(snapshot: str, pin_lift: str | None = None) -> dict:
+def route(
+    snapshot: str, pin_lift: str | None = None, pin_frame: str | None = None
+) -> dict:
     """Полный маршрут слепка в отдельном процессе под капом работы.
 
-    `pin_lift` — ИМЕНОВАННАЯ закрепка закона укладки хоста (только для ворот
-    математики фронта, см. `test_walls_012_is_exact`): по умолчанию маршрут идёт
-    настоящим законом хоста, закрепка едет в `substitutions` ответа.
+    `pin_lift` и `pin_frame` — ИМЕНОВАННЫЕ закрепки закона укладки и политики репера
+    хоста (только для ворот математики фронта, см. `test_walls_012_is_exact` и
+    таблицу якорей): по умолчанию маршрут идёт настоящими законами хоста, закрепка
+    едет в `substitutions` ответа.
     """
 
-    key = snapshot if pin_lift is None else f"{snapshot}|{pin_lift}"
+    key = f"{snapshot}|{pin_lift}|{pin_frame}"
     if key in _CACHE:
         return _CACHE[key]
     if snapshot == BUILDING:
@@ -145,6 +150,8 @@ def route(snapshot: str, pin_lift: str | None = None) -> dict:
     environment = dict(os.environ)
     if pin_lift is not None:
         environment[PIN_LIFT_ENV] = pin_lift
+    if pin_frame is not None:
+        environment[PIN_FRAME_ENV] = pin_frame
     try:
         finished = subprocess.run(
             command,
@@ -171,13 +178,18 @@ def route(snapshot: str, pin_lift: str | None = None) -> dict:
     return result
 
 
-def domain(snapshot: str, patch_id: int, pin_lift: str | None = None) -> dict:
-    for record in route(snapshot, pin_lift)["domains"]:
+def domain(
+    snapshot: str,
+    patch_id: int,
+    pin_lift: str | None = None,
+    pin_frame: str | None = None,
+) -> dict:
+    for record in route(snapshot, pin_lift, pin_frame)["domains"]:
         if record["patch_id"] == patch_id:
             return record
     raise AssertionError(
         f"DOMAIN_ABSENT: у {snapshot} нет домена патча {patch_id}; "
-        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift)['domains']]}"
+        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame)['domains']]}"
     )
 
 
@@ -333,17 +345,20 @@ def test_walls_012_is_exact():
 
 
 @pytest.mark.parametrize(
-    "snapshot,patch_id",
+    "snapshot,patch_id,pin_frame",
     [
-        (WALL_2_001, 0),
-        (WALLS_001, 0),
-        (BUILDING, 17),
-        (BUILDING, 91),
-        (BUILDING, 109),
-        (BUILDING, 121),
+        (WALL_2_001, 0, None),
+        (WALLS_001, 0, None),
+        (BUILDING, 17, None),
+        (BUILDING, 91, None),
+        # Near-planar домены: якоря записаны в канонических координатах карты, а
+        # приведённый базис (NEAR_PLANAR V2, коммит 4) пишет ту же плоскость в других
+        # `(u, v)`. Закрепка репера — именованная и едет в `substitutions` маршрута.
+        (BUILDING, 109, LEGACY_FRAME),
+        (BUILDING, 121, LEGACY_FRAME),
     ],
 )
-def test_anchor_loci_survive_with_their_participants(snapshot, patch_id):
+def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_frame):
     """Каждый якорный локус на месте, и его `participants` не изменились.
 
     Якорный локус — тот, который ОБЕ математики выдают в побитово одинаковых
@@ -352,8 +367,15 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id):
     """
 
     table = anchors(snapshot, patch_id)
+    if pin_frame is not None:
+        # Закрепка не немая: прогон с ней несёт её имя в ответе маршрута.
+        assert (
+            f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pin_frame}"
+            in route(snapshot, None, pin_frame)["substitutions"]
+        )
     present = {
-        locus_key(locus): locus for locus in domain(snapshot, patch_id)["loci"]
+        locus_key(locus): locus
+        for locus in domain(snapshot, patch_id, None, pin_frame)["loci"]
     }
     missing = []
     drifted = []
@@ -387,7 +409,8 @@ def test_walls_012_anchor_loci_survive():
     table = anchors(WALLS_012, 0)
     assert table["anchor_loci"] == 2
     present = {
-        locus_key(locus) for locus in domain(WALLS_012, 0, LEGACY_LIFT)["loci"]
+        locus_key(locus)
+        for locus in domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)["loci"]
     }
     for anchor in table["anchors"]:
         key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)

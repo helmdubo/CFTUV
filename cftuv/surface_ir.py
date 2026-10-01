@@ -242,15 +242,38 @@ class HostNearPlanarLiftPolicy(str, Enum):
 HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_V1
 
 
+class HostNearPlanarFramePolicy(str, Enum):
+    """Каким репером хост просит описывать near-planar карту.
+
+    Объявляется явно, как остальные политики: ядро не выбирает закон репера за
+    хост, и применённый закон виден в метрике (`frame_selection_law`).
+    """
+
+    CANONICAL_ONLY_V1 = "CANONICAL_ONLY_V1"
+    REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1 = "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
+
+
+# Приведённый целочисленный базис плоскости (NEAR_PLANAR V2, коммит 4). Репер от
+# разностей спроецированных вершин наследует знаменатели проекции (деление на
+# `n·n`), матрица Грама возводит их в квадрат, и радиканды `SqrtSumV1` растут:
+# Ро-Поллард `building.004` patch 4 не возвращается за кап. Приведённый базис
+# оставляет вершины на месте (они точно те же) и сжимает Грам. Замер на `building`
+# 106/109/120/121: радиканды 248/227/264/248 -> 145/138/143/142 бит (DECISIONS
+# 2026-10-03). У точной плоскости закон не применяется, и её байты прежние.
+HOST_NEAR_PLANAR_FRAME_POLICY = HostNearPlanarFramePolicy.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+
+
 __all__ = (
     "AnalysisBundle",
     "AnalysisCapabilities",
     "AnalysisCrossIrError",
     "AnalysisSchemaError",
     "HOST_GRID_POLICY",
+    "HOST_NEAR_PLANAR_FRAME_POLICY",
     "HOST_NEAR_PLANAR_LIFT_POLICY",
     "HOST_PLANARITY_POLICY",
     "HostGridPolicy",
+    "HostNearPlanarFramePolicy",
     "HostNearPlanarLiftPolicy",
     "HostPlanarityPolicy",
     "PatchSurfaceIR",

@@ -448,4 +448,10 @@ def test_a_domain_admitted_for_the_surface_materializes_on_both_laws_when_flat_e
     on_surface = materialize_domain(prepared, coverage, request=request, near_planar_lift_law=ON_SURFACE)
     assert on_plane.is_materialized and on_surface.is_materialized
     assert on_plane.content_digest != on_surface.content_digest
+    # Число продолжений в записи диагностики — то же, что в счётчике подъёма.
+    counted = dict(on_surface.counters)["MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS"]
+    (note,) = (
+        line for line in on_surface.diagnostics if "NEAR_PLANAR_LIFT_ONTO_SOURCE" in line
+    )
+    assert f"extrapolated_points={counted} " in note
     assert near_planar_domain is not None

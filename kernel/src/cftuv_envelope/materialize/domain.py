@@ -406,7 +406,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
             MATERIALIZER_CONTRACT,
             f"cftuv.envelope.uv_policy.{UV_DIRECT_STRIP_V1.value}",
         ),
-        diagnostics=_diagnostics(
+        # Лениво: счётчики продолжений копятся при подъёме вершин, запись — после него.
+        diagnostics=lambda: _diagnostics(
             prepared,
             table,
             admission.planarity,

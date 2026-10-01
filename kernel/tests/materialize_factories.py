@@ -57,6 +57,7 @@ def with_affine_metric(
     planarity_policy=kernel.PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
     with_triangles=True,
     near_planar_lift_law=None,
+    near_planar_frame_policy=None,
 ):
     """Снапшот с честной аффинной метрикой вместо его плоского кадра.
 
@@ -82,6 +83,11 @@ def with_affine_metric(
             if near_planar_lift_law is None
             else {"near_planar_lift_law": near_planar_lift_law}
         ),
+        **(
+            {}
+            if near_planar_frame_policy is None
+            else {"near_planar_frame_policy": near_planar_frame_policy}
+        ),
     )
     return dataclasses.replace(
         snapshot, surface_metric_descriptors=frozenset({metric})
@@ -98,6 +104,7 @@ def affine_domain(
     lift=None,
     with_triangles=True,
     near_planar_lift_law=None,
+    near_planar_frame_policy=None,
 ):
     """Снапшот и запрос с честной аффинной метрикой вместо плоского кадра.
 
@@ -129,6 +136,7 @@ def affine_domain(
             planarity_policy=planarity_policy,
             with_triangles=with_triangles,
             near_planar_lift_law=near_planar_lift_law,
+            near_planar_frame_policy=near_planar_frame_policy,
         ),
         request,
     )
@@ -277,7 +285,7 @@ def budget(*, cap: int | None = None):
     return exact_work_budget(stage="MATERIALIZE_TEST", domain_id="test", cap=cap)
 
 
-def assemble_polygon_batch(polygon, alpha):
+def assemble_polygon_batch(polygon, alpha, *, plane=None, diagnostics=None):
     """Батч прямо из разбиения многоугольника корпуса: без снапшота и метрики.
 
     Корпус стенда (`wavefront_cases.named_corpus`) — решёточные многоугольники
@@ -286,6 +294,8 @@ def assemble_polygon_batch(polygon, alpha):
     с нулевой станцией. Всё, что идёт после кадров (вершины, факты, UV,
     тесселяция, цепи, батч), — те же функции, что у `materialize_domain`.
     Возвращает `(батч, грани с кадрами)` либо `None`, если разбиение не `EXACT`.
+    `plane` и `diagnostics` (функция без аргументов) подменяют подъём и запись
+    диагностик — для теста порядка «сначала подъём, потом диагностика».
     """
 
     from dataclasses import replace
@@ -387,7 +397,8 @@ def assemble_polygon_batch(polygon, alpha):
         triangles=triangles,
         facts=facts,
         layout=layout,
-        plane=PlaneLiftV1(
+        plane=plane
+        or PlaneLiftV1(
             (Fraction(0),) * 3,
             (Fraction(1), Fraction(0), Fraction(0)),
             (Fraction(0), Fraction(1), Fraction(0)),
@@ -400,7 +411,7 @@ def assemble_polygon_batch(polygon, alpha):
         source_revision=SourceRevision("corpus"),
         patch_domain_id=PatchDomainId("corpus"),
         contract_versions=("cftuv.envelope.geometry_batch.v1",),
-        diagnostics=(),
+        diagnostics=diagnostics or (lambda: ()),
     )
     batch = replace(
         batch,

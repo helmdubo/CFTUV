@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from hashlib import sha256
 from math import gcd
@@ -30,6 +30,7 @@ from .contracts.metric import (
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
     GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
+    NearPlanarFramePolicyV1,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
     NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
@@ -49,6 +50,7 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
+from ._plane_basis import chart_of_positions, reduced_frame
 from ._width_distortion import (
     build_width_distortion_certificate,
     width_distortion_refusal_text,
@@ -649,6 +651,55 @@ def _width_distortion_record(
     return record
 
 
+def _near_planar_frame(
+    *, near_planar_facts, frame_policy, frame, positions, normal, grid_certificate
+):
+    """Репер near-planar домена по политике: `(кадр, закон репера)`.
+
+    Приведённый целочисленный базис применяется ТОЛЬКО к домену со
+    спроецированными вершинами: у точной плоскости проекции нет, знаменателей она
+    не наращивает, и закон остаётся прежним (байты планарных метрик не
+    двигаются). Начало и позиции те же — новые только базис, Грам и координаты
+    `(u, v)`, и они по-прежнему восстанавливают спроецированные позиции ТОЧНО.
+    """
+
+    canonical = AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+    if (
+        near_planar_facts is None
+        or frame_policy
+        is not NearPlanarFramePolicyV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+    ):
+        return frame, canonical
+    if not grid_certificate.snapping_law.snaps_source:
+        raise PlanarMetricAdmissionError(
+            NamedOutcome.NEAR_PLANAR_REDUCED_FRAME_REQUIRES_SOURCE_SNAP,
+            "the reduced integer plane basis is measured in source-grid steps, "
+            f"and the grid law {grid_certificate.snapping_law.value} did not "
+            "snap the source",
+        )
+    basis_a, basis_b = reduced_frame(
+        normal=normal, source_scale=grid_certificate.source_scale
+    )
+    g00 = sum((a * a for a in basis_a), Fraction(0))
+    g01 = sum((a * b for a, b in zip(basis_a, basis_b)), Fraction(0))
+    g11 = sum((b * b for b in basis_b), Fraction(0))
+    determinant = g00 * g11 - g01 * g01
+    reduced = replace(
+        frame,
+        basis_a_id=frame.origin_id,
+        basis_a=basis_a,
+        basis_b_id=frame.origin_id,
+        basis_b=basis_b,
+        gram=((g00, g01), (g01, g11)),
+        inverse=(
+            (g11 / determinant, -g01 / determinant),
+            (-g01 / determinant, g00 / determinant),
+        ),
+        coordinates=chart_of_positions(positions, frame.origin, basis_a, basis_b),
+    )
+    return reduced, AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+
+
 def _build_embedding_certified_metric(
     *,
     source_revision: SourceRevision,
@@ -665,6 +716,9 @@ def _build_embedding_certified_metric(
     surface_triangles: Iterable[SurfaceTriangleV1] | None = None,
     near_planar_lift_law: NearPlanarLiftLawV1 = (
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+    ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
     ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     faces, required_ids, positions = _source_scope(
@@ -703,6 +757,14 @@ def _build_embedding_certified_metric(
                 f"source-vertex basis: {error}",
             ) from error
         raise
+    frame, frame_law = _near_planar_frame(
+        near_planar_facts=near_planar_facts,
+        frame_policy=near_planar_frame_policy,
+        frame=frame,
+        positions=positions,
+        normal=normal,
+        grid_certificate=grid_facts.certificate,
+    )
     orientation_sign, chart_orientation = _chart_orientation(frame.coordinates, faces)
     metric_id = ReferenceMetricId(
         _stable_id(
@@ -748,6 +810,7 @@ def _build_embedding_certified_metric(
         certificate=certificate,
         source_lineage=source_lineage,
         grid_certificate=grid_facts.certificate,
+        frame_law=frame_law,
     )
     projection_embedding = _projection_embedding(
         near_planar_facts=near_planar_facts,
@@ -783,6 +846,9 @@ def build_embedding_certified_rational_affine_planar_metric(
     near_planar_lift_law: NearPlanarLiftLawV1 = (
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
+    ),
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -797,6 +863,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         grid_policy=grid_policy,
         surface_triangles=surface_triangles,
         near_planar_lift_law=near_planar_lift_law,
+        near_planar_frame_policy=near_planar_frame_policy,
     )
 
 
@@ -816,6 +883,9 @@ def build_rational_affine_planar_metric(
     near_planar_lift_law: NearPlanarLiftLawV1 = (
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
+    near_planar_frame_policy: NearPlanarFramePolicyV1 = (
+        NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
+    ),
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -831,6 +901,7 @@ def build_rational_affine_planar_metric(
         enforce_embedding=True,
         surface_triangles=surface_triangles,
         near_planar_lift_law=near_planar_lift_law,
+        near_planar_frame_policy=near_planar_frame_policy,
     ).metric
 
 
@@ -850,6 +921,7 @@ def _metric_record(
     certificate,
     source_lineage,
     grid_certificate,
+    frame_law=AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1,
 ) -> RationalAffinePlanarMetricV2:
     """Собрать запись метрики. Вынесено ради бюджета длины строителя."""
 
@@ -873,9 +945,7 @@ def _metric_record(
             for vertex_id in required_ids
         ),
         chart_orientation=chart_orientation,
-        frame_selection_law=(
-            AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
-        ),
+        frame_selection_law=frame_law,
         planarity_certificate=certificate,
         source_lineage=source_lineage,
         grid_certificate=grid_certificate,

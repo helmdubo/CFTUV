@@ -21,7 +21,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from .model_enums import ChainNeighborKind, LoopKind, PatchType
-from .surface_ir import HOST_GRID_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
+from .surface_ir import HOST_GRID_POLICY, HOST_NEAR_PLANAR_FRAME_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
@@ -74,9 +74,7 @@ class EnvelopeDebugHostOutcome(str, Enum):
     GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
     NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
     NO_GRID_SCALE_RESTORES_RELATIONS = "NO_GRID_SCALE_RESTORES_RELATIONS"
-    ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = (
-        "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
-    )
+    ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED = (
         "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED"
     )
@@ -1654,7 +1652,7 @@ def _rational_affine_metric(
 ):
     """Thin host delegation; exact chart construction belongs to the kernel."""
 
-    from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
+    from cftuv_envelope.contracts.metric import NearPlanarFramePolicyV1, NearPlanarLiftLawV1
 
     try:
         return kernel.build_rational_affine_planar_metric(
@@ -1665,6 +1663,7 @@ def _rational_affine_metric(
             source_faces=surface_ir.source_faces,
             surface_triangles=surface_ir.surface_triangles,
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
+            near_planar_frame_policy=NearPlanarFramePolicyV1(HOST_NEAR_PLANAR_FRAME_POLICY.value),
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(

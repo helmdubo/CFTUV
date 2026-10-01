@@ -51,6 +51,7 @@ from ._embedding import (
     projection_violations,
     source_snap_violations,
 )
+from ._plane_basis import reduced_frame
 from ._width_distortion import (
     build_width_distortion_certificate,
     width_distortion_violations,
@@ -229,6 +230,48 @@ def _recomputed_budget(certificate, grid_certificate) -> Fraction | None:
     return None
 
 
+def _check_reduced_frame(issues, path, metric) -> None:
+    """Приведённый базис: закон применим к near-planar, и базис — тот, что считает закон.
+
+    Базис пересчитывается из ЗАПИСАННОЙ нормали и масштаба решётки источника и
+    обязан совпасть побитово, а не быть «каким-то ортогональным».
+    """
+
+    if metric.frame_selection_law is not (
+        AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+    ):
+        return
+    certificate = metric.planarity_certificate
+    source_scale = metric.grid_certificate.source_scale
+    if type(certificate) is not NearPlanarProjectionCertificateV1 or (
+        not metric.grid_certificate.snapping_law.snaps_source
+        or source_scale is None
+        or not any(fraction_point3(certificate.exact_plane_normal))
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("frame_selection_law",),
+            "the reduced integer plane basis applies only to a near-planar "
+            "projection of a snapped source with a non-zero plane normal",
+        )
+        return
+    expected = reduced_frame(
+        normal=tuple(int(item) for item in fraction_point3(certificate.exact_plane_normal)),
+        source_scale=source_scale,
+    )
+    if (
+        fraction_point3(metric.exact_basis_a),
+        fraction_point3(metric.exact_basis_b),
+    ) != expected:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_basis_a", "exact_basis_b"),
+            "affine basis differs from the reduced integer plane basis",
+        )
+
+
 def _check_near_planar_certificate(
     issues: list[ValidationIssue],
     path: tuple[str, ...],
@@ -375,9 +418,9 @@ def validate_rational_affine_planar_metric(
 ) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
-    if (
-        metric.frame_selection_law
-        is not AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+    if metric.frame_selection_law not in (
+        AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1,
+        AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1,
     ):
         add_issue(
             issues,
@@ -385,6 +428,7 @@ def validate_rational_affine_planar_metric(
             path + ("frame_selection_law",),
             "unsupported deterministic affine-frame law",
         )
+    _check_reduced_frame(issues, path, metric)
     certificate = metric.planarity_certificate
     certificate_path = path + ("planarity_certificate",)
     # Разбор по ВАЙР-идентичности. `isinstance` пропустил бы наследника, а
@@ -728,6 +772,17 @@ def _recompute_embedding_inputs(issues, path, record, faces, required_ids, posit
             "projected source IDs differ from exact source recomputation",
         )
     origin, basis_a, basis_b = _canonical_frame(projected, required_ids)
+    if (
+        metric.frame_selection_law
+        is AffineFrameSelectionLawV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1
+        and metric.grid_certificate.source_scale is not None
+    ):
+        # Приведённый базис считается из ПЕРЕСЧИТАННОЙ нормали, а не из записи:
+        # так проверяется и то, что запись не подменила плоскость.
+        basis_a, basis_b = reduced_frame(
+            normal=tuple(int(item) for item in normal),
+            source_scale=metric.grid_certificate.source_scale,
+        )
     declared_frame = (
         fraction_point3(metric.exact_origin),
         fraction_point3(metric.exact_basis_a),

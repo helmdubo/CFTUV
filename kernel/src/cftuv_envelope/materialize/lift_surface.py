@@ -17,6 +17,22 @@
 сохранение ориентации у всех треугольников при неизменной простой границе и есть
 доказательство, что привязанная триангуляция осталась вложением.
 
+ВЫХОД ЗА ТРИАНГУЛЯЦИЮ НЕ БОЛЕЕ ДВУХ ЯЧЕЕК. Полигон покрытия строится из
+ГЕОМЕТРИИ цепей, а не из вершин сетки: вершина полигона на хорде между концами
+цепи — не вершина источника, и после привязки обеих карт к решётке она лежит
+вне привязанной триангуляции. Замер на `building.004` (приведённый репер): три
+такие точки у patch 1 (до 0.979 ячейки) и четыре у patch 4 (до 1.0186). Точка не
+принадлежит ни одному замкнутому треугольнику, но принадлежит поверхности «в
+пределах решётки»: она лифтится ПРОДОЛЖЕНИЕМ ближайшего треугольника
+(барицентрические веса с отрицательным значением), если выходит за его границу не
+более чем на `EXTRAPOLATION_CELL_BOUND` ячеек решётки карты. Граница — две ячейки:
+два независимых округления (карты и вершины полигона) дают не больше корня из
+двух. Это допуск, и он назван: записан в реестре допусков, точка считается в
+`MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS` и называется в диагностике батча
+(`extrapolated_points`, `max_outside_cells`); дальше границы — прежний именованный
+отказ `SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION`. Сравнение расстояния с
+границей точное: `e² <= B²·|ребро|²` на `SqrtSumV1` под бюджетом.
+
 ТОЧНО. Точка покрытия — пара `SqrtSumV1` (единицы решётки), вершины проекций —
 целые точки решётки.
 Принадлежность замкнутому треугольнику — три знака ориентации по рёбрам, и
@@ -70,6 +86,17 @@ ON_EDGE = "MATERIALIZE_SURFACE_LIFT_ON_EDGE_POINTS"
 TRIANGLES = "MATERIALIZE_SURFACE_LIFT_TRIANGLES"
 DEGENERATE = "MATERIALIZE_SURFACE_LIFT_DEGENERATE_PROJECTIONS"
 CHART_SNAPPED = "MATERIALIZE_SURFACE_LIFT_CHART_VERTICES_SNAPPED"
+EXTRAPOLATED = "MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS"
+
+#: Допуск продолжения ближайшего треугольника: на сколько ячеек решётки карты
+#: точка покрытия вправе выйти за привязанную триангуляцию. ДВЕ ячейки: вершина
+#: триангуляции и вершина полигона покрытия — два независимых округления одной
+#: точки до решётки (каждое не больше половины ячейки по оси), поэтому они
+#: расходятся не больше чем на ячейку по оси, то есть на `√2 < 2` ячеек; больше —
+#: уже не шум привязки, а другая геометрия, и это отказ. ИЗМЕРЕНО на `building`
+#: и `building.004` (патчи 4, 1, 106, 109): наибольший выход 1.0186 ячейки.
+#: Запись реестра допусков `SURFACE_LIFT_EXTRAPOLATION_CELLS_V1`.
+EXTRAPOLATION_CELL_BOUND = Fraction(2)
 
 
 def _down(value: Fraction) -> float:
@@ -278,7 +305,9 @@ class BoundSurfaceLiftV1:
             CANDIDATES: 0,
             PREDICATES: 0,
             ON_EDGE: 0,
+            EXTRAPOLATED: 0,
         }
+        self._max_outside = 0.0
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
@@ -295,7 +324,9 @@ class BoundSurfaceLiftV1:
         return (
             f"chart_vertices_snapped={lift.snapped_vertices} "
             f"snap_residual_cells={float(lift.snap_residual):.6g} "
-            f"source_triangles={len(lift.triangles)}"
+            f"source_triangles={len(lift.triangles)} "
+            f"extrapolated_points={self._tally[EXTRAPOLATED]} "
+            f"max_outside_cells={self._max_outside:.6g}"
         )
 
     def _window(self, point):
@@ -336,6 +367,10 @@ class BoundSurfaceLiftV1:
                 if any(item.is_zero for item in values):
                     self._tally[ON_EDGE] += 1
                 return triangle, values
+        nearest = self._nearest(point)
+        if nearest is not None:
+            self._tally[EXTRAPOLATED] += 1
+            return nearest
         raise MaterializationRefusal(
             MaterializationOutcome.SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION,
             f"point≈({(xlow + xhigh) / 2:.9g}, {(ylow + yhigh) / 2:.9g}) in lattice "
@@ -343,6 +378,63 @@ class BoundSurfaceLiftV1:
             f"{len(self._lift.triangles)} source triangles",
             self.counters(),
         )
+
+    def _bounded_values(self, triangle: LiftTriangleV1, point):
+        """Три значения ориентации и расстояние выхода, если оно в пределах допуска."""
+
+        direction = 1 if triangle.twice_area > 0 else -1
+        values = []
+        outside = 0.0
+        for index in range(3):
+            start, end = triangle.chart[index], triangle.chart[(index + 1) % 3]
+            value = _edge_value(start, end, point)
+            self._tally[PREDICATES] += 1
+            values.append(value)
+            if value.sign(budget=self._budget) * direction >= 0:
+                continue
+            # Расстояние до прямой ребра `|e| / |ребро|` не больше допуска B
+            # тогда и только тогда, когда `e² <= B²·|ребро|²` — точно, без корня.
+            length_squared = (end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2
+            gap = SqrtSumV1.rational(
+                EXTRAPOLATION_CELL_BOUND**2 * length_squared
+            ) - value * value
+            self._tally[PREDICATES] += 1
+            if gap.sign(budget=self._budget) < 0:
+                return None
+            low, high = value.enclosure(ENCLOSURE_BITS)
+            outside = max(
+                outside, float(max(abs(low), abs(high))) / math.sqrt(float(length_squared))
+            )
+        return outside, values
+
+    def _nearest(self, point):
+        """Ближайший треугольник, который точка превышает не более допуска, либо `None`.
+
+        «Ближайший» — по приближённому расстоянию (оболочка в float): это порядок
+        перебора кандидатов, а не решение; решение — точный предикат допуска.
+        Равенство разрешается порядком имён треугольников.
+        """
+
+        xlow, xhigh, ylow, yhigh = self._window(point)
+        margin = float(EXTRAPOLATION_CELL_BOUND)
+        best = None
+        for triangle in self._lift.triangles:
+            xmin, xmax, ymin, ymax = triangle.box
+            if (
+                xhigh < xmin - margin
+                or xlow > xmax + margin
+                or yhigh < ymin - margin
+                or ylow > ymax + margin
+            ):
+                continue
+            self._tally[CANDIDATES] += 1
+            found = self._bounded_values(triangle, point)
+            if found is not None and (best is None or found[0] < best[0]):
+                best = (found[0], triangle, found[1])
+        if best is None:
+            return None
+        self._max_outside = max(self._max_outside, best[0])
+        return best[1], best[2]
 
     @staticmethod
     def lift_in(triangle: LiftTriangleV1, values) -> tuple[SqrtSumV1, SqrtSumV1, SqrtSumV1]:

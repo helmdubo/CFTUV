@@ -429,7 +429,11 @@ def assemble_batch(
     contract_versions,
     diagnostics,
 ):
-    """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`."""
+    """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`.
+
+    `diagnostics` — функция без аргументов, её зовут ПОСЛЕ подъёма всех точек:
+    счётчики подъёма копятся в `plane.lift`.
+    """
 
     material = MaterialId(request.material_policy_id.value)
     face_prov = [
@@ -524,7 +528,7 @@ def assemble_batch(
         semantic_regions=regions,
         boundary_chains=boundary_chains,
         interface_chains=interface_chains,
-        diagnostics=frozenset(diagnostics),
+        diagnostics=frozenset(diagnostics()),
         contract_versions=frozenset(ContractVersionId(x) for x in contract_versions),
         semantic_digest=SemanticDigestValue("pending"),
     )

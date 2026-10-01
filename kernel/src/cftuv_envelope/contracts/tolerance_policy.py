@@ -97,6 +97,7 @@ class TolerancePolicyIdV1(str, Enum):
     NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1 = (
         "NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1"
     )
+    SURFACE_LIFT_EXTRAPOLATION_CELLS_V1 = "SURFACE_LIFT_EXTRAPOLATION_CELLS_V1"
     NEAR_PLANAR_REPRESENTATION_NOISE_V1 = "NEAR_PLANAR_REPRESENTATION_NOISE_V1"
     AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
         "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
@@ -127,6 +128,7 @@ class TolerancePolicyUnitsV1(str, Enum):
     RADIANS = "RADIANS"
     RADIANS_PER_HALF_TURN = "RADIANS_PER_HALF_TURN"
     DIMENSIONLESS = "DIMENSIONLESS"
+    CHART_LATTICE_CELLS = "CHART_LATTICE_CELLS"
     EXACT_WORK_UNITS = "EXACT_WORK_UNITS"
     MEMO_ENTRIES = "MEMO_ENTRIES"
     NONE = "NONE"
@@ -142,6 +144,7 @@ class TolerancePolicyCoordinateSpaceV1(str, Enum):
 
     SOURCE_LOCAL_INTRINSIC = "SOURCE_LOCAL_INTRINSIC"
     SOURCE_ANGLE_MEASURE = "SOURCE_ANGLE_MEASURE"
+    CHART_LATTICE = "CHART_LATTICE"
     NOT_A_COORDINATE = "NOT_A_COORDINATE"
 
 
@@ -165,6 +168,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     """
 
     NEAR_PLANAR_ADMISSION = "NEAR_PLANAR_ADMISSION"
+    SURFACE_LIFT_POINT_LOCATION = "SURFACE_LIFT_POINT_LOCATION"
     NEAR_PLANAR_CERTIFICATE_RECOMPUTATION = (
         "NEAR_PLANAR_CERTIFICATE_RECOMPUTATION"
     )
@@ -188,6 +192,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     """
 
     ADMIT_OR_REJECT_PROJECTION = "ADMIT_OR_REJECT_PROJECTION"
+    EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND = "EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND"
     RECOMPUTE_DECLARED_CERTIFICATE_ONLY = "RECOMPUTE_DECLARED_CERTIFICATE_ONLY"
     ADMIT_OR_REJECT_GRID_SCALE = "ADMIT_OR_REJECT_GRID_SCALE"
     BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED = "BOUND_GRID_WINDOW_OR_NAME_IT_CLOSED"
@@ -955,6 +960,48 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_near_planar_width_distortion.py"
             "::test_a_steep_slope_is_beyond_the_width_budget_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.SURFACE_LIFT_EXTRAPOLATION_CELLS_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(2),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.CHART_LATTICE_CELLS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "На сколько ячеек решётки карты точка покрытия вправе выйти за "
+            "привязанную триангуляцию источника, чтобы подняться ПРОДОЛЖЕНИЕМ "
+            "ближайшего треугольника (барицентрические веса с отрицательным "
+            "значением). Две ячейки: вершина триангуляции и вершина полигона "
+            "покрытия — два независимых округления одной точки (каждое не "
+            "больше половины ячейки по оси), расходятся не больше чем на √2 "
+            "ячейки. Измерено: наибольший выход 1.0186 ячейки. Дальше — "
+            "именованный отказ SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION."
+        ),
+        authority=(
+            "materialize.lift_surface.EXTRAPOLATION_CELL_BOUND; DECISIONS.md "
+            "2026-10-03 (NEAR-PLANAR-V2, КОММИТ 4: приведённый базис и допуск "
+            "выхода за триангуляцию)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.SURFACE_LIFT_POINT_LOCATION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS",),
+        declaration_sites=(
+            "cftuv_envelope.materialize.lift_surface.EXTRAPOLATION_CELL_BOUND",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_materialize_lift_surface.py"
+            "::test_a_point_within_the_bound_outside_is_extended_and_counted"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_materialize_lift_surface.py"
+            "::test_a_point_beyond_the_bound_outside_is_a_named_refusal"
         ),
     ),
 )

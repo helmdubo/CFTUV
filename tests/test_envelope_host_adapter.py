@@ -1242,9 +1242,22 @@ def test_a_bend_beyond_the_old_absolute_budget_is_now_admitted_and_recorded():
     сертификат, поэтому читающий видит, под чем домен принят.
     """
 
-    from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
+    from cftuv.surface_ir import (
+        HOST_NEAR_PLANAR_FRAME_POLICY,
+        HOST_NEAR_PLANAR_LIFT_POLICY,
+    )
 
     snapshot = build_envelope_analysis_snapshot(_seam_bundle_with_off_plane_vertex(0.05))
+    # Закон репера: у near-planar домена со спроецированными вершинами — тот, что
+    # просит хост (приведённый базис), у точной плоскости — прежний.
+    laws = {
+        type(item.planarity_certificate).__name__: item.frame_selection_law.value
+        for item in snapshot.surface_metric_descriptors
+    }
+    assert laws["NearPlanarProjectionCertificateV1"] == (
+        HOST_NEAR_PLANAR_FRAME_POLICY.value
+    )
+    assert laws["ExactSourcePlaneCertificateV1"] == "CANONICAL_SOURCE_VERTEX_BASIS_V1"
     near = [
         item.planarity_certificate
         for item in snapshot.surface_metric_descriptors

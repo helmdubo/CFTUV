@@ -39,6 +39,8 @@ from cftuv_envelope.materialize.lift_surface import (
     CANDIDATES,
     CHART_SNAPPED,
     DEGENERATE,
+    EXTRAPOLATED,
+    EXTRAPOLATION_CELL_BOUND,
     LOCATIONS,
     ON_EDGE,
     PREDICATES,
@@ -191,10 +193,33 @@ def test_a_radical_edge_point_lifts_identically_from_both_triangles():
     )
 
 
-def test_a_point_outside_the_projection_is_a_named_refusal_with_numbers():
+def test_a_point_within_the_bound_outside_is_extended_and_counted():
+    """Выход за триангуляцию до `EXTRAPOLATION_CELL_BOUND` ячеек — продолжение треугольника.
+
+    Точка `(11/2, 2)` лежит на полторы ячейки правее ребра `x = 4`: ни один
+    замкнутый треугольник её не накрывает, и подъём — продолжение `t0` (вес
+    вершины `(0, 0)` отрицателен): значение равно аффинному отображению `t0`
+    ТОЧНО. Точка считается, и число видно в счётчиках и в пояснении.
+    """
+
+    bound = two_triangle_lift().bind(budget())
+    point = exact(Fraction(11, 2), 2)
+    assert bound.lift(point) == as_point(t0(Fraction(11, 2), 2))
+    counters = dict(bound.counters())
+    assert counters[EXTRAPOLATED] == 1
+    assert "extrapolated_points=1" in bound.note()
+    # Точно на границе (две ячейки) — ещё допуск: сравнение `e² <= B²·|ребро|²` нестрогое.
+    assert bound.lift(exact(6, 2)) == as_point(t0(6, 2))
+    assert dict(bound.counters())[EXTRAPOLATED] == 2
+    # Внутренняя точка допуска не касается.
+    bound.lift(exact(3, 1))
+    assert dict(bound.counters())[EXTRAPOLATED] == 2
+
+
+def test_a_point_beyond_the_bound_outside_is_a_named_refusal():
     bound = two_triangle_lift().bind(budget())
     with pytest.raises(MaterializationRefusal) as refusal:
-        bound.lift(exact(5, 1))
+        bound.lift(exact(7, 1))
     assert (
         refusal.value.outcome
         is MaterializationOutcome.SURFACE_LIFT_POINT_OUTSIDE_PROJECTED_TRIANGULATION
@@ -202,14 +227,35 @@ def test_a_point_outside_the_projection_is_a_named_refusal_with_numbers():
     assert "lies outside the projection of all 2 source triangles" in refusal.value.detail
     assert dict(refusal.value.counters)[LOCATIONS] == 1
     assert dict(refusal.value.counters)[TRIANGLES] == 2
-    # Точка на волосок вне границы — тоже вне: допуска у замкнутого треугольника
-    # нет, и «почти внутри» отказ, а не подъём.
-    just_outside = (
-        SqrtSumV1.rational(Fraction(4) + Fraction(1, 10**12)),
+    # На волосок дальше границы в две ячейки — тоже отказ: допуск не размывается.
+    just_beyond = (
+        SqrtSumV1.rational(Fraction(6) + Fraction(1, 10**9)),
         SqrtSumV1.rational(2),
     )
     with pytest.raises(MaterializationRefusal):
-        two_triangle_lift().bind(budget()).lift(just_outside)
+        two_triangle_lift().bind(budget()).lift(just_beyond)
+    assert EXTRAPOLATION_CELL_BOUND == 2
+
+
+def test_an_extended_point_lies_on_the_plane_of_its_triangle():
+    """Продолжение — точно в плоскости ближайшего треугольника, а не «примерно рядом»."""
+
+    bound = two_triangle_lift().bind(budget())
+    triangle, values = bound.locate(exact(Fraction(11, 2), 2))
+    assert triangle.name == "t0"
+    lifted = tuple(item.as_rational() for item in bound.lift_in(triangle, values))
+    first, second, third = triangle.corners
+    normal = (
+        (second[1] - first[1]) * (third[2] - first[2])
+        - (second[2] - first[2]) * (third[1] - first[1]),
+        (second[2] - first[2]) * (third[0] - first[0])
+        - (second[0] - first[0]) * (third[2] - first[2]),
+        (second[0] - first[0]) * (third[1] - first[1])
+        - (second[1] - first[1]) * (third[0] - first[0]),
+    )
+    assert sum(
+        normal[axis] * (lifted[axis] - first[axis]) for axis in range(3)
+    ) == 0
 
 
 # --------------------------------------------------------------------------

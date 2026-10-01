@@ -37,6 +37,12 @@ class NamedOutcome(str, Enum):
     NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE = (
         "NEAR_PLANAR_OWNER_SURFACE_TRIANGLES_UNAVAILABLE"
     )
+    # Приведённый целочисленный базис плоскости измеряется в шагах решётки
+    # источника, а закон решётки привязку источника не выполнял: масштаба нет, и
+    # базис не определён. Закон репера не подменяется молча другим.
+    NEAR_PLANAR_REDUCED_FRAME_REQUIRES_SOURCE_SNAP = (
+        "NEAR_PLANAR_REDUCED_FRAME_REQUIRES_SOURCE_SNAP"
+    )
     # Границы окна шага решётки разошлись: авторская ошибка на этом габарите
     # требует шага крупнее, чем позволяет деталь декали. Крупный шаг «на глаз»
     # запрещён, поэтому исход именованный.

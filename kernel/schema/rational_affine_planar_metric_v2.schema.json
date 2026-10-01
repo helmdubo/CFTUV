@@ -620,7 +620,8 @@
         },
         "frame_selection_law": {
           "enum": [
-            "CANONICAL_SOURCE_VERTEX_BASIS_V1"
+            "CANONICAL_SOURCE_VERTEX_BASIS_V1",
+            "REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1"
           ],
           "type": "string"
         },
