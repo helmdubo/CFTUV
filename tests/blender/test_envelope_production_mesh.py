@@ -17,10 +17,15 @@
 6. ДЛИННОЕ ИМЯ источника (60 символов): Blender режет имя объекта до 63 байт, и
    декаль ищется по маркеру, а не по имени — два нажатия дают один объект;
 7. пропуск ПИСАТЕЛЯ (`ADAPTER_*`) виден в строке статуса, как и отказ пути;
-8. ЗАКОН ТОПОЛОГИИ: кнопка просит `QUAD_STRIPS_V1`, поэтому полосы лежат в меше
-   ЧЕТЫРЁХГРАННИКАМИ (грань в 4 петли, без триангуляции Blender), а грани —
-   только из 3 и 4 петель; четырёхгранник плоский (его вершины в одной плоскости);
-9. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
+8. ЗАКОН ТОПОЛОГИИ: кнопка просит `PLANAR_POLYGONS_V1`, поэтому полосы лежат в меше
+   ЧЕТЫРЁХГРАННИКАМИ и выпуклыми многоугольниками (грань в 4 и более петель, без
+   триангуляции Blender), веера — треугольниками; каждая грань от 4 петель плоская
+   (её вершины в одной плоскости);
+9. НЕВЫПУКЛАЯ грань закона (`PLANAR_AFFINE_UV_POLYGON_V1`) пишется ОДНОЙ гранью меша: петли
+   = UV-петли, плоскость до 1e-5, площадь граней меша равна точной площади батча, а любая
+   триангуляция, которую Blender выбрал для показа, даёт ту же UV-интерполяцию на всех
+   петлях грани (аффинность UV, а не совпадение вершин);
+10. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
    создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
    нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
    («context is incorrect»), поэтому проверяется именно эта последовательность.
@@ -110,23 +115,31 @@ def _decal_objects():
     ]
 
 
-def _assert_faces_follow_the_quad_strip_law(mesh, *, require_quads):
-    """Грани меша — треугольники и четырёхгранники, и четырёхгранник плоский."""
+def _assert_faces_follow_the_polygon_law(mesh, *, require_quads):
+    """Грани меша — треугольники, четырёхгранники и многоугольники, и каждая грань от 4 петель плоская."""
 
     sizes = [len(polygon.vertices) for polygon in mesh.polygons]
-    assert set(sizes) <= {3, 4}, sorted(set(sizes))
+    assert min(sizes) >= 3, sorted(set(sizes))
     assert len(mesh.loops) == sum(sizes)
     if require_quads:
         assert 4 in sizes, sizes
     quads = 0
     for polygon in mesh.polygons:
-        if len(polygon.vertices) != 4:
+        count = len(polygon.vertices)
+        if count < 4:
             continue
-        quads += 1
-        a, b, c, d = (mesh.vertices[index].co for index in polygon.vertices)
-        normal = (b - a).cross(c - a)
+        quads += int(count == 4)
+        points = [mesh.vertices[index].co for index in polygon.vertices]
+        # Нормаль Ньюэлла: у многоугольника с вершинами на прямой первые три точки её не задают.
+        normal = points[0] * 0.0
+        for index, current in enumerate(points):
+            following = points[(index + 1) % count]
+            normal.x += (current.y - following.y) * (current.z + following.z)
+            normal.y += (current.z - following.z) * (current.x + following.x)
+            normal.z += (current.x - following.x) * (current.y + following.y)
         assert normal.length > 0.0
-        assert abs(normal.normalized().dot(d - a)) < 1e-5, polygon.index
+        for point in points:
+            assert abs(normal.normalized().dot(point - points[0])) < 1e-5, polygon.index
     return quads
 
 
@@ -160,9 +173,9 @@ def _run_cold_press_builds_one_child_object():
     # Ни одной UV вне [0, 1] по v: закон V1 кладёт полосу в единичный квадрат поперёк.
     v_values = [item.uv[1] for item in mesh.uv_layers["UVMap"].data]
     assert min(v_values) >= -1e-6 and max(v_values) <= 1.0 + 1e-6
-    # Закон топологии: полосы — четырёхгранники (в Blender они остались гранями в 4 петли).
-    quads = _assert_faces_follow_the_quad_strip_law(mesh, require_quads=True)
-    print("QUAD_STRIPS observed:", quads, "quads of", len(mesh.polygons), "faces")
+    # Закон топологии: полосы — четырёхгранники и многоугольники (в Blender они остались гранями в 4+ петли).
+    quads = _assert_faces_follow_the_polygon_law(mesh, require_quads=True)
+    print("PLANAR_POLYGONS observed:", quads, "quads of", len(mesh.polygons), "faces")
     # Исходный объект мешем декаля не тронут.
     assert len(source.data.polygons) == 2
     return source, decal
@@ -409,8 +422,114 @@ def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
     ]
     assert max(distances) <= 0.02 + 1e-5, distances
     assert min(distances) > 0.005, distances
-    _assert_faces_follow_the_quad_strip_law(decal.data, require_quads=False)
+    _assert_faces_follow_the_polygon_law(decal.data, require_quads=False)
     return decal
+
+
+def _polygon_points(mesh, polygon):
+    return [mesh.vertices[index].co.copy() for index in polygon.vertices]
+
+
+def _is_concave(mesh, polygon):
+    """Есть ли у грани строго правый поворот относительно её нормали Ньюэлла."""
+
+    points = _polygon_points(mesh, polygon)
+    count = len(points)
+    if count < 4:
+        return False
+    normal = points[0] * 0.0
+    for index, current in enumerate(points):
+        following = points[(index + 1) % count]
+        normal.x += (current.y - following.y) * (current.z + following.z)
+        normal.y += (current.z - following.z) * (current.x + following.x)
+        normal.z += (current.x - following.x) * (current.y + following.y)
+    normal.normalize()
+    return any(
+        (points[index] - points[index - 1]).cross(
+            points[(index + 1) % count] - points[index]
+        ).dot(normal)
+        < -1e-6
+        for index in range(count)
+    )
+
+
+def _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation():
+    """Корпус ядра `double_notch` на alpha 3/2: полоса с вырезом фронта соседа — невыпуклая грань."""
+
+    from fractions import Fraction
+
+    import mathutils
+
+    kernel_tests = REPO_ROOT / "kernel" / "tests"
+    if str(kernel_tests) not in sys.path:
+        sys.path.insert(0, str(kernel_tests))
+    import materialize_factories as factories
+    from wavefront_cases import named_corpus
+
+    from cftuv.envelope_production_export import MATERIALIZED, ProductionDomainResultV1
+    from cftuv.envelope_production_mesh import write_decal_object
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+
+    law = DecalTopologyLawV1.PLANAR_POLYGONS_V1
+    batch, _frames = factories.assemble_polygon_batch(
+        dict(named_corpus())["double_notch"], Fraction(3, 2), law=law
+    )
+    source = _fresh_scene()
+    result = ProductionDomainResultV1(
+        0,
+        "concave",
+        MATERIALIZED,
+        batch,
+        normal=(0.0, 0.0, 1.0),
+        source_normal=(0.0, 0.0, 1.0),
+        decal_topology_law=law.value,
+    )
+    receipt = write_decal_object(source, [result], offset=0.0, material_name="M")
+    mesh = bpy.data.objects[receipt.object_name].data
+    assert receipt.decal_topology_law == law.value
+    assert [len(item.vertices) for item in mesh.polygons] == [
+        len(face.ordered_vert_keys) for face in batch.faces
+    ]
+    assert len(mesh.uv_layers["UVMap"].data) == len(mesh.loops) == receipt.loops
+    concave = [item for item in mesh.polygons if _is_concave(mesh, item)]
+    assert len(concave) == 1, [len(item.vertices) for item in concave]
+    # Площадь: Blender считает невыпуклую грань верно (сумма граней = точная площадь батча).
+    position = {item.vert_key.value: item.position for item in batch.vertices}
+    expected = 0.0
+    for face in batch.faces:
+        points = [position[key.value] for key in face.ordered_vert_keys]
+        expected += abs(
+            sum(
+                points[index].x * points[(index + 1) % len(points)].y
+                - points[(index + 1) % len(points)].x * points[index].y
+                for index in range(len(points))
+            )
+        ) / 2.0
+    assert abs(sum(item.area for item in mesh.polygons) - expected) < 1e-4, expected
+    # Плоскость: все вершины граней от четырёх петель лежат в плоскости грани до 1e-5.
+    for polygon in mesh.polygons:
+        if len(polygon.vertices) < 4:
+            continue
+        origin = mesh.vertices[polygon.vertices[0]].co
+        for index in polygon.vertices:
+            assert abs(polygon.normal.dot(mesh.vertices[index].co - origin)) < 1e-5
+    # Любая триангуляция показа даёт ту же UV-интерполяцию: карта первого треугольника
+    # (положение -> UV) попадает в UV КАЖДОЙ петли той же грани.
+    mesh.calc_loop_triangles()
+    uv = mesh.uv_layers["UVMap"].data
+    polygon = concave[0]
+    triangles = [item for item in mesh.loop_triangles if item.polygon_index == polygon.index]
+    assert len(triangles) == len(polygon.vertices) - 2 > 1
+    assert abs(sum(item.area for item in triangles) - polygon.area) < 1e-4
+    first = triangles[0]
+    corners = [mesh.vertices[index].co for index in first.vertices]
+    corner_uv = [mathutils.Vector((uv[loop].uv[0], uv[loop].uv[1], 0.0)) for loop in first.loops]
+    for loop_index in polygon.loop_indices:
+        point = mesh.vertices[mesh.loops[loop_index].vertex_index].co
+        mapped = mathutils.geometry.barycentric_transform(point, *corners, *corner_uv)
+        assert abs(mapped[0] - uv[loop_index].uv[0]) < 1e-4, loop_index
+        assert abs(mapped[1] - uv[loop_index].uv[1]) < 1e-4, loop_index
+    print("CONCAVE polygon of", len(polygon.vertices), "vertices:", len(triangles), "display triangles")
 
 
 def _main():
@@ -432,6 +551,7 @@ def _main():
     _run_the_operator_is_register_only_with_a_named_reason()
     _run_undo_leaves_a_consistent_scene_and_the_next_press_works()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
+    _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()

@@ -20,7 +20,11 @@
 6. тесселяция (`tessellate`): отсечение ушей, сумма площадей — точное равенство;
    под `QUAD_STRIPS_V1` строго выпуклый четырёхугольник ленты остаётся одной
    гранью (веера, невыпуклые и слитые пробеги — треугольники, и каждый такой
-   случай назван счётчиком);
+   случай назван счётчиком); под `PLANAR_POLYGONS_V1` слитый пробег режется по
+   перекладинам обратно в грани рёбер-источников, а лента на точной плоскости
+   остаётся одним многоугольником любой длины, выпуклым или нет, если контур
+   прост и UV в нём аффинен по положению на карте (`PLANAR_AFFINE_UV_POLYGON_V1`,
+   точно; иначе отсечение ушей под своим счётчиком), веера — треугольники;
 7. подъём вершин (по одному разу) и закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1`
    (`settle_topology`): четырёхгранья, лёгшие на разные треугольники источника
    либо смещаемые по разным нормалям (развёртка), режутся каноническим `fan_out`,
@@ -44,6 +48,7 @@
 from __future__ import annotations
 
 import time
+from collections import Counter
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import NamedTuple
@@ -430,11 +435,17 @@ def _source_normal(prepared) -> tuple[float, float, float]:
     return (0.0, 0.0, 0.0) if normal is None else (normal.x, normal.y, normal.z)
 
 
+def _on_exact_plane(admission) -> bool:
+    """Укладка домена — ТОЧНАЯ плоскость (аффинный подъём), а не треугольники источника."""
+
+    return admission.lift_law is not NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+
+
 def _lift_of(prepared, admission, scale, budget):
     """Подъём домена по ДЕЙСТВУЮЩЕМУ закону укладки (`admission.lift_law`)."""
 
     context = prepared.context
-    if admission.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+    if not _on_exact_plane(admission):
         return surface_lift_of(
             context.frame,
             context.snapshot,
@@ -464,11 +475,23 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         prepared.context.frame.chart_orientation
         is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
-    polygons = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw, law=law)
+    tally = Counter()
+    polygons = tessellate_faces(
+        frame_faces,
+        cycles,
+        budget,
+        reverse=chart_cw,
+        law=law,
+        exact_plane=_on_exact_plane(admission),
+        tally=tally,
+        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
+    )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
     positions, names = lift_vertices(points, plane)
-    polygons, topology = settle_topology(frame_faces, cycles, polygons, names, law)
+    polygons, topology = settle_topology(
+        frame_faces, cycles, polygons, names, law, tally
+    )
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,

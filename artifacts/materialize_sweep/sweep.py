@@ -23,8 +23,8 @@ snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), 
 `--only 6,11` — подмножество доменов. Код возврата `compare` — 1 при любом
 расхождении неценовых полей.
 
-`--topology QUAD_STRIPS_V1` — закон топологии декали (по умолчанию `TRIANGLES_V1`,
-как у ядра). Закон пишется в заголовок записи, а НЕ в `ANSWER_KEYS`, и числа
+`--topology QUAD_STRIPS_V1|PLANAR_POLYGONS_V1` — закон топологии декали (по
+умолчанию `TRIANGLES_V1`, как у ядра). Закон пишется в заголовок записи, а НЕ в `ANSWER_KEYS`, и числа
 закона лежат в отдельных полях строки (`topology_counters`), не в `counters`:
 иначе запись под законом по умолчанию разошлась бы с прежними. Два закона
 сравниваются командой `compare --across-topology`: дайджесты содержания у них
@@ -105,6 +105,15 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
     "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER",
     "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED",
+    # Числа закона `PLANAR_POLYGONS_V1`: причины названы поимённо вместо одного
+    # счётчика «слитые пробеги», который считал любой контур длиннее четырёх.
+    "MATERIALIZE_POLYGON_FACES_EMITTED",
+    "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED",
+    "MATERIALIZE_POLYGON_FACES_TRIANGULATED_NOT_SIMPLE",
+    "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+    "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
+    "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
+    "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
@@ -366,7 +375,9 @@ def main() -> int:
     runner.add_argument("--only", default="")
     runner.add_argument("--out", required=True)
     runner.add_argument(
-        "--topology", choices=("TRIANGLES_V1", "QUAD_STRIPS_V1"), default="TRIANGLES_V1"
+        "--topology",
+        choices=("TRIANGLES_V1", "QUAD_STRIPS_V1", "PLANAR_POLYGONS_V1"),
+        default="TRIANGLES_V1",
     )
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="+")

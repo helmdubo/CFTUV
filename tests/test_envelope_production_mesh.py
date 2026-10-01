@@ -1089,7 +1089,7 @@ def test_the_quads_of_a_field_domain_are_four_loops_and_the_fans_stay_triangles(
     assert receipt.quads == sizes.count(4) > 0 and receipt.triangles == sizes.count(3) > 0
     assert receipt.faces == receipt.quads + receipt.triangles == len(mesh.polygons)
     assert receipt.loops == 4 * receipt.quads + 3 * receipt.triangles == mesh.loop_count
-    assert receipt.decal_topology_law == "QUAD_STRIPS_V1"
+    assert receipt.decal_topology_law == "PLANAR_POLYGONS_V1"
     # Грани закона совпадают с гранями батча: ни разреза, ни склейки писателем.
     assert sizes == [len(face.ordered_vert_keys) for face in field_result.batch.faces]
     assert receipt.seam_edges == receipt.seam_edges_requested > 0

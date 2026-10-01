@@ -401,7 +401,12 @@ def assemble_polygon_batch(
     )
     law = law or DecalTopologyLawV1.TRIANGLES_V1
     polygons = assemble.tessellate_faces(
-        frame_faces, cycles, guard, reverse=False, law=law
+        frame_faces,
+        cycles,
+        guard,
+        reverse=False,
+        law=law,
+        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
     )
     positions, names = assemble.lift_vertices(
         points,
