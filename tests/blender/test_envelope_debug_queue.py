@@ -277,6 +277,42 @@ def _run_budget_refusal_lands_on_the_metric_stage():
     ставило этот отказ на `QUEUE_PREPARE_REJECTED`.
     """
 
+    import cftuv.envelope_request_export as export_module
+    from cftuv.surface_ir import HostCurvatureLadderPolicy
+
+    # Тест держит ступень near-planar: лестница кривизны хоста (S1 DEVELOPABLE) закреплена
+    # на `NEAR_PLANAR_ONLY_V1`, а с настоящей лестницей тот же изогнутый патч
+    # разворачивается и очередь считает оба домена (проверено ниже).
+    original = export_module.HOST_CURVATURE_LADDER_POLICY
+    try:
+        export_module.HOST_CURVATURE_LADDER_POLICY = (
+            HostCurvatureLadderPolicy.NEAR_PLANAR_ONLY_V1
+        )
+        _reset_scene()
+        source_obj = _build_two_patch_seam(
+            nonplanar_second_patch=True,
+            second_patch_offset=_budget_refused_second_patch_offset(),
+        )
+        _settings().envelope_debug_engine = "QUEUE"
+        # Закрепка действует в ЭТОМ процессе: воркер пула читал бы политику по умолчанию.
+        _settings().envelope_debug_workers = 0
+        assert (
+            bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+            == {"FINISHED"}
+        )
+        receipts = json.loads(_gp_object(source_obj)["stage_receipts"])
+        assert sorted((item["stage"], item["outcome"]) for item in receipts) == [
+            ("METRIC_REJECTED", "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"),
+            ("QUEUE_RESOLVED", "EXACT"),
+        ], receipts
+    finally:
+        export_module.HOST_CURVATURE_LADDER_POLICY = original
+
+    # Кэш метрики сессии ключится по ревизии источника, а не по политике хоста (политика —
+    # константа кода, не ручка панели): между двумя политиками в одном процессе сессию чистят.
+    controller = bpy.context.window_manager._cftuv_envelope_debug_session
+    if controller is not None:
+        controller.clear()
     _reset_scene()
     source_obj = _build_two_patch_seam(
         nonplanar_second_patch=True,
@@ -289,7 +325,7 @@ def _run_budget_refusal_lands_on_the_metric_stage():
     )
     receipts = json.loads(_gp_object(source_obj)["stage_receipts"])
     assert sorted((item["stage"], item["outcome"]) for item in receipts) == [
-        ("METRIC_REJECTED", "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"),
+        ("QUEUE_RESOLVED", "EXACT"),
         ("QUEUE_RESOLVED", "EXACT"),
     ], receipts
 

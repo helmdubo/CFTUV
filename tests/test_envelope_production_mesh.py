@@ -408,6 +408,39 @@ def test_the_offset_follows_each_domains_own_normal():
     assert arrays.positions[4] == (0.0, 0.0, 0.5)
 
 
+def test_an_unfolded_domain_offsets_each_vertex_along_its_own_normal():
+    """Домен-развёртка: нормаль смещения своя на вершину (закон ядра), не нормаль плоскости."""
+
+    from dataclasses import replace
+
+    law = "SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1"
+    folded = replace(
+        _fake_domain(0, SQUARE, TWO_TRIANGLES),
+        vertex_normals=(
+            ("a", (0.0, 0.0, 1.0)),
+            ("b", (0.0, 0.0, 1.0)),
+            ("c", (1.0, 0.0, 0.0)),
+            ("d", (0.0, 1.0, 0.0)),
+        ),
+        offset_normal_law=law,
+    )
+
+    arrays = build_mesh_arrays([folded], 0.5)
+
+    assert arrays.positions == (
+        (0.0, 0.0, 0.5),
+        (1.0, 0.0, 0.5),
+        (1.5, 1.0, 0.0),
+        (0.0, 1.5, 0.0),
+    )
+    assert not arrays.skipped
+
+    missing = replace(folded, vertex_normals=folded.vertex_normals[:3])
+    skipped = build_mesh_arrays([missing], 0.5).skipped
+    assert [item[2] for item in skipped] == ["ADAPTER_NORMAL_MISSING"]
+    assert "vertex d" in skipped[0][3]
+
+
 def test_loop_uvs_are_the_uv_facts_of_every_face_in_order(row_results):
     arrays = build_mesh_arrays(row_results, 0.0)
 

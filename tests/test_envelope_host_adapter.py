@@ -67,7 +67,7 @@ from cftuv.surface_ir import (  # noqa: E402
     SourceVertex,
     SurfaceTriangle,
 )
-from envelope_fixture_bundles import planar_quad_bundle  # noqa: E402
+from envelope_fixture_bundles import pin_near_planar_only, planar_quad_bundle  # noqa: E402
 from cftuv_envelope import (  # noqa: E402
     DecalRequestCodecV1,
     PlanarityAdmissionLawV1,
@@ -1201,7 +1201,7 @@ def _seam_bundle_with_off_plane_vertex(z: float):
     )
 
 
-def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
+def test_selected_non_coplanar_patch_still_fails_exact_frame_admission(monkeypatch):
     """Наклон за БЮДЖЕТОМ ШИРИНЫ по-прежнему отвергается — и называется по числам.
 
     NEAR_PLANAR V2 (решение владельца 2026-10-02) сменила, чем судят домен:
@@ -1218,6 +1218,7 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     не от требования побитовой компланарности.
     """
 
+    pin_near_planar_only(monkeypatch)
     evaluation = evaluate_envelope_debug(
         _seam_bundle_with_off_plane_vertex(1.0),
         frozenset({4}),
@@ -1231,6 +1232,30 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     message = evaluation.diagnostics[0].message
     for fragment in ("min_cos_squared=9.000000000e-01", "threshold=9.611687812e-01"):
         assert fragment in message, message
+
+
+def test_the_host_ladder_unfolds_a_bend_that_the_width_budget_refuses():
+    """С лестницей хоста (S1) подъём на метр — не отказ, а развёртка.
+
+    Изогнутый квад из двух треугольников разворачивается ТОЧНО (шарнир по диагонали):
+    растяжение тождественно единице. Прежний отказ по ширине остаётся в следе
+    сертификата (`previous_refusals`), а политика хоста названа явно и видна в записи.
+    """
+
+    from cftuv.surface_ir import HOST_CURVATURE_LADDER_POLICY
+
+    assert HOST_CURVATURE_LADDER_POLICY.value == "NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1"
+    snapshot = build_envelope_analysis_snapshot(_seam_bundle_with_off_plane_vertex(1.0))
+    unfolded = [
+        item.planarity_certificate
+        for item in snapshot.surface_metric_descriptors
+        if type(item.planarity_certificate).__name__ == "DevelopableUnfoldCertificateV1"
+    ]
+    assert len(unfolded) == 1
+    certificate = unfolded[0]
+    assert certificate.previous_refusals == ("NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",)
+    assert certificate.stretch.triangles_outside_budget == 0
+    assert certificate.lift_law.value == "UNFOLDED_SOURCE_TRIANGLES_V1"
 
 
 def test_a_bend_beyond_the_old_absolute_budget_is_now_admitted_and_recorded():
@@ -1382,7 +1407,7 @@ def test_topology_scene_uses_host_facts_without_loading_exact_kernel(monkeypatch
     } == {EnvelopeDomainStage.TOPOLOGY_READY}
 
 
-def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
+def test_staged_exact_keeps_topology_when_one_domain_rejects_metric(monkeypatch):
     """Подъём на метр, а не прежние 5 см, по той же причине, что и выше.
 
     Зонд обязан лежать ЗА действующей границей допуска, иначе тест перестаёт
@@ -1399,6 +1424,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
       наклон ~11.5°, а метр подъёма за ней (`min cos²` = 0.90).
     """
 
+    pin_near_planar_only(monkeypatch)
     profile = EnvelopeDebugProfileBuilderV1(
         "v0-seam",
         "EXACT_REFERENCE",
@@ -1431,7 +1457,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
 
 
 @pytest.mark.parametrize("engine", ("LEGACY", "QUEUE"))
-def test_budget_refusal_lands_on_the_metric_stage_on_both_engines(engine):
+def test_budget_refusal_lands_on_the_metric_stage_on_both_engines(engine, monkeypatch):
     """Ступень домена — это ГДЕ случился отказ, а не какой движок его встретил.
 
     QUEUE держал своё двухэлементное множество имён против шести у
@@ -1440,6 +1466,7 @@ def test_budget_refusal_lands_on_the_metric_stage_on_both_engines(engine):
     `METRIC_REJECTED`.
     """
 
+    pin_near_planar_only(monkeypatch)
     evaluation = evaluate_envelope_debug_staged(
         _budget_refused_seam_bundle(),
         frozenset({1}),
