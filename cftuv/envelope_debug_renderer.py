@@ -1155,6 +1155,32 @@ def _accumulate_exact_scenes(
     return diagnostics, stage_counts, identities, source_revision, point_count
 
 
+def _record_gp_render(profile, render_started, writer, point_count, queue_scene):
+    profile.add_timing("GP_RENDER", time.perf_counter() - render_started)
+    profile.set_counter("GP_STROKES", writer.stroke_count())
+    profile.set_counter("GP_POINTS", point_count)
+    if queue_scene is not None:
+        profile.set_counter(
+            QUEUE_OWNER_PALETTE_WRAPPED,
+            queue_scene.palette_wrapped,
+        )
+
+
+def _write_debug_texts(profile, sidecar, text_name, source_obj, diagnostics):
+    sidecar_started = time.perf_counter()
+    _write_sidecar(text_name, sidecar)
+    if profile is None:
+        return
+    profile.add_timing("SIDECAR_JSON", time.perf_counter() - sidecar_started)
+    final_profile = profile.snapshot()
+    _write_sidecar(
+        envelope_debug_profile_text_name(source_obj),
+        final_profile.to_payload(),
+    )
+    _print_profile(final_profile)
+    _print_diagnostics(diagnostics)
+
+
 def render_staged_envelope_debug(
     topology_scene,
     exact_scenes,
@@ -1250,6 +1276,7 @@ def render_staged_envelope_debug(
             len(item.faces) for item in queue_scene.domains
         )
 
+    writer.commit()
     kernel_version = (
         cftuv_envelope.__version__
         if cftuv_envelope is not None
@@ -1277,32 +1304,10 @@ def render_staged_envelope_debug(
     _write_gp_properties(writer.object, sidecar)
 
     if profile is not None:
-        profile.add_timing(
-            "GP_RENDER",
-            time.perf_counter() - render_started,
+        _record_gp_render(
+            profile, render_started, writer, point_count, queue_scene
         )
-        profile.set_counter("GP_STROKES", writer.stroke_count())
-        profile.set_counter("GP_POINTS", point_count)
-        if queue_scene is not None:
-            profile.set_counter(
-                QUEUE_OWNER_PALETTE_WRAPPED,
-                queue_scene.palette_wrapped,
-            )
-
-    sidecar_started = time.perf_counter()
-    _write_sidecar(text_name, sidecar)
-    if profile is not None:
-        profile.add_timing(
-            "SIDECAR_JSON",
-            time.perf_counter() - sidecar_started,
-        )
-        final_profile = profile.snapshot()
-        _write_sidecar(
-            envelope_debug_profile_text_name(source_obj),
-            final_profile.to_payload(),
-        )
-        _print_profile(final_profile)
-        _print_diagnostics(diagnostics)
+    _write_debug_texts(profile, sidecar, text_name, source_obj, diagnostics)
     return EnvelopeDebugRenderSummaryV1(
         object_name,
         text_name,
@@ -1362,6 +1367,7 @@ def redraw_envelope_queue_layers(
         layer_ordinals,
         stroke_map,
     )
+    writer.commit()
     text_name = envelope_debug_text_name(source_obj_or_name)
     text = bpy.data.texts.get(text_name)
     if text is not None:

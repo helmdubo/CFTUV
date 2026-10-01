@@ -193,19 +193,6 @@ def _ensure_gp_layer(gp_data, layer_name, color_rgba):
     return frame, mat_idx
 
 
-def _new_gp_stroke(frame, point_count):
-    if hasattr(frame, 'strokes') and hasattr(frame.strokes, 'new'):
-        stroke = frame.strokes.new()
-        stroke.points.add(point_count)
-        return stroke
-
-    drawing = getattr(frame, 'drawing', None)
-    if drawing is None:
-        raise RuntimeError("Grease Pencil frame has no drawing/strokes API")
-    drawing.add_strokes(sizes=[point_count])
-    return drawing.strokes[-1]
-
-
 def _gp_frame_strokes(frame):
     strokes = getattr(frame, 'strokes', None)
     if strokes is not None:
@@ -214,42 +201,100 @@ def _gp_frame_strokes(frame):
     return getattr(drawing, 'strokes', ()) if drawing is not None else ()
 
 
-def _set_gp_stroke_style(stroke, line_width, cyclic):
-    if hasattr(stroke, 'line_width'):
+def _gp_coordinates(points):
+    coordinates = []
+    for point in points:
+        coordinates.extend((point.x, point.y, point.z))
+    return coordinates
+
+
+def _write_gp_v2_strokes(frame, specs):
+    """GPENCIL (4.1): штрих за штрихом, значения точек — массивом на поле."""
+    for points, material_index, line_width, cyclic in specs:
+        count = len(points)
+        stroke = frame.strokes.new()
+        stroke.points.add(count)
+        stroke.points.foreach_set('co', _gp_coordinates(points))
+        stroke.points.foreach_set('strength', [1.0] * count)
+        stroke.points.foreach_set('pressure', [1.0] * count)
+        stroke.material_index = material_index
         stroke.line_width = line_width
-    if hasattr(stroke, 'use_cyclic'):
         stroke.use_cyclic = cyclic
-    elif hasattr(stroke, 'cyclic'):
-        stroke.cyclic = cyclic
 
 
-def _set_gp_stroke_point(point, location, line_width):
-    coords = (location.x, location.y, location.z)
-    if hasattr(point, 'co'):
-        point.co = coords
-    elif hasattr(point, 'position'):
-        point.position = coords
-
-    if hasattr(point, 'strength'):
-        point.strength = 1.0
-    elif hasattr(point, 'opacity'):
-        point.opacity = 1.0
-
-    if hasattr(point, 'pressure'):
-        point.pressure = 1.0
-    if hasattr(point, 'radius'):
-        point.radius = max(0.0005, line_width * _GP_V3_RADIUS_PER_PIXEL)
+def _set_gp_v3_attribute(attributes, name, data_type, domain, field, values):
+    attribute = attributes.get(name)
+    if attribute is None:
+        attribute = attributes.new(name, data_type, domain)
+    attribute.data.foreach_set(field, values)
 
 
-def _add_gp_stroke(frame, points, mat_idx, line_width=4, cyclic=False):
-    if len(points) < 2:
-        return None
-    stroke = _new_gp_stroke(frame, len(points))
-    stroke.material_index = mat_idx
-    _set_gp_stroke_style(stroke, line_width, cyclic)
-    for index, point in enumerate(points):
-        _set_gp_stroke_point(stroke.points[index], point, line_width)
-    return stroke
+def _write_gp_v3_strokes(drawing, specs):
+    """GREASEPENCIL v3 (4.3+): один `add_strokes`, значения — массивами атрибутов."""
+    if len(drawing.strokes) != 0:
+        raise RuntimeError("Grease Pencil bulk write needs an empty drawing")
+    positions, radii, materials, cyclics = [], [], [], []
+    for points, material_index, line_width, cyclic in specs:
+        positions.extend(_gp_coordinates(points))
+        radius = max(0.0005, line_width * _GP_V3_RADIUS_PER_PIXEL)
+        radii.extend([radius] * len(points))
+        materials.append(material_index)
+        cyclics.append(bool(cyclic))
+    drawing.add_strokes(sizes=[len(points) for points, *_ in specs])
+    attributes = drawing.attributes
+    _set_gp_v3_attribute(attributes, 'position', 'FLOAT_VECTOR', 'POINT', 'vector', positions)
+    _set_gp_v3_attribute(attributes, 'radius', 'FLOAT', 'POINT', 'value', radii)
+    _set_gp_v3_attribute(attributes, 'opacity', 'FLOAT', 'POINT', 'value', [1.0] * len(radii))
+    _set_gp_v3_attribute(attributes, 'material_index', 'INT', 'CURVE', 'value', materials)
+    _set_gp_v3_attribute(attributes, 'cyclic', 'BOOLEAN', 'CURVE', 'value', cyclics)
+    drawing.tag_positions_changed()
+
+
+def _write_gp_strokes(frame, specs):
+    """Все штрихи кадра одной записью; `specs` — (points, material, width, cyclic)."""
+    if not specs:
+        return
+    drawing = getattr(frame, 'drawing', None)
+    if drawing is not None:
+        _write_gp_v3_strokes(drawing, specs)
+    elif hasattr(getattr(frame, 'strokes', None), 'new'):
+        _write_gp_v2_strokes(frame, specs)
+    else:
+        raise RuntimeError("Grease Pencil frame has no drawing/strokes API")
+
+
+class _GpStrokeBatch:
+    """Штрихи кадров, собранные до ОДНОЙ записи в Blender.
+
+    Штрих за штрихом — это RNA-вызов на каждое свойство каждой точки: на
+    `building` (8 768 штрихов, 20 627 точек) это 0.85 с из 4.6 с отрисовки.
+    Индекс штриха, нужный sidecar'у, выдаётся при добавлении и равен числу
+    штрихов кадра к этому моменту — так же, как при записи по одному.
+    Кадр v3 принимает запись только пустым: `flush` на drawing со штрихами —
+    именованный отказ, а не молча перемешанные атрибуты.
+    """
+
+    def __init__(self):
+        self._entries = {}
+
+    def add(self, frame, points, material_index, line_width=4, cyclic=False):
+        if len(points) < 2:
+            return None
+        entry = self._entries.get(id(frame))
+        if entry is None:
+            base = len(_gp_frame_strokes(frame))
+            entry = self._entries[id(frame)] = (frame, base, [])
+        entry[2].append((points, material_index, line_width, cyclic))
+        return entry[1] + len(entry[2]) - 1
+
+    def pending(self):
+        return sum(len(specs) for _frame, _base, specs in self._entries.values())
+
+    def flush(self):
+        entries = list(self._entries.values())
+        self._entries.clear()
+        for frame, _base, specs in entries:
+            _write_gp_strokes(frame, specs)
 
 
 def _ensure_gp_material(gp_data, mat_name, color_rgba):
@@ -305,6 +350,7 @@ class GreasePencilDebugWriter:
         self.data = gp_data
         self._frames = {}
         self._material_indices = {}
+        self._batch = _GpStrokeBatch()
 
     @staticmethod
     def clear_object(object_name, *, material_prefix=None):
@@ -352,6 +398,7 @@ class GreasePencilDebugWriter:
         writer.data = gp_obj.data
         writer._frames = {}
         writer._material_indices = {}
+        writer._batch = _GpStrokeBatch()
         return writer
 
     @staticmethod
@@ -397,19 +444,21 @@ class GreasePencilDebugWriter:
         line_width=4,
         cyclic=False,
     ):
-        frame = self._frames[str(layer_name)]
-        stroke_index = len(_gp_frame_strokes(frame))
-        stroke = _add_gp_stroke(
-            frame,
+        return self._batch.add(
+            self._frames[str(layer_name)],
             list(points),
             self._material_indices[str(layer_name)],
             line_width=int(line_width),
             cyclic=bool(cyclic),
         )
-        return stroke_index if stroke is not None else None
+
+    def commit(self):
+        """Записать накопленные штрихи в Blender; до вызова GP-объект пуст."""
+        self._batch.flush()
 
     def stroke_count(self):
-        return sum(len(_gp_frame_strokes(frame)) for frame in self._frames.values())
+        written = sum(len(_gp_frame_strokes(frame)) for frame in self._frames.values())
+        return written + self._batch.pending()
 
 
 def _ensure_gp_fill_material(gp_data, mat_name, color_rgba):
@@ -748,6 +797,7 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         )
 
     centers_frame, centers_mat = frames_and_mats['Overlay_Centers']
+    batch = _GpStrokeBatch()
 
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
@@ -756,31 +806,27 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         axis_len = 0.15
         center_size = 0.045
 
-        _add_gp_stroke(basis_frame, [centroid, centroid + node.basis_u * axis_len], basis_mats['U'], line_width=8)
-        _add_gp_stroke(basis_frame, [centroid, centroid + node.basis_v * axis_len], basis_mats['V'], line_width=8)
-        _add_gp_stroke(basis_frame, [centroid, centroid + node.normal * axis_len * 0.6], basis_mats['N'], line_width=6)
-        _add_gp_stroke(centers_frame, [centroid - node.basis_u * center_size, centroid + node.basis_u * center_size], centers_mat, line_width=5)
-        _add_gp_stroke(centers_frame, [centroid - node.basis_v * center_size, centroid + node.basis_v * center_size], centers_mat, line_width=5)
+        batch.add(basis_frame, [centroid, centroid + node.basis_u * axis_len], basis_mats['U'], line_width=8)
+        batch.add(basis_frame, [centroid, centroid + node.basis_v * axis_len], basis_mats['V'], line_width=8)
+        batch.add(basis_frame, [centroid, centroid + node.normal * axis_len * 0.6], basis_mats['N'], line_width=6)
+        batch.add(centers_frame, [centroid - node.basis_u * center_size, centroid + node.basis_u * center_size], centers_mat, line_width=5)
+        batch.add(centers_frame, [centroid - node.basis_v * center_size, centroid + node.basis_v * center_size], centers_mat, line_width=5)
 
         patch_type = _enum_value(node.patch_type)
         patch_frame = patch_layers.get(patch_type, patch_layers[PatchType.WALL.value])
         patch_mat = patch_mat_indices[patch_id]
         for triangle in _surface_triangles(graph, patch_id):
-            stroke = _new_gp_stroke(patch_frame, 3)
-            stroke.material_index = patch_mat
-            _set_gp_stroke_style(stroke, 1, True)
-            for point_index, point in enumerate(triangle):
-                _set_gp_stroke_point(stroke.points[point_index], point, 1)
+            batch.add(patch_frame, list(triangle), patch_mat, line_width=1, cyclic=True)
 
         for boundary_loop in node.boundary_loops:
             loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
             if len(loop_points) >= 2:
                 if _enum_value(boundary_loop.kind) == LoopKind.HOLE.value:
                     frame, mat_idx = frames_and_mats['Loops_Holes']
-                    _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+                    batch.add(frame, loop_points, mat_idx, line_width=5)
                 else:
                     frame, mat_idx = frames_and_mats['Loops_Boundary']
-                    _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+                    batch.add(frame, loop_points, mat_idx, line_width=5)
 
             for chain in boundary_loop.chains:
                 raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
@@ -791,8 +837,9 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                 role = chain.frame_role if isinstance(chain.frame_role, FrameRole) else FrameRole(chain.frame_role)
                 line_width = 6 if role in (FrameRole.H_FRAME, FrameRole.V_FRAME) else 3
                 mat_idx = chain_mat_indices.get(role, chain_mat_indices[FrameRole.FREE])
-                _add_gp_stroke(chains_frame, lifted_points, mat_idx, line_width=line_width)
+                batch.add(chains_frame, lifted_points, mat_idx, line_width=line_width)
 
+    batch.flush()
     _create_chain_labels(graph, source_obj)
 
     apply_layer_visibility(gp_data, settings_dict)
@@ -839,14 +886,10 @@ def _prepare_patch_fill_materials(graph, gp_data):
     return patch_mat_indices
 
 
-def _draw_patch_fill(gp_frame, analysis_bundle, patch_id, mat_idx):
-    """Рисует fill triangles patch'а на GP frame."""
+def _draw_patch_fill(batch, gp_frame, analysis_bundle, patch_id, mat_idx):
+    """Кладёт fill triangles patch'а на GP frame (запись — `batch.flush`)."""
     for triangle in _surface_triangles(analysis_bundle, patch_id):
-        stroke = _new_gp_stroke(gp_frame, 3)
-        stroke.material_index = mat_idx
-        _set_gp_stroke_style(stroke, 1, True)
-        for point_index, point in enumerate(triangle):
-            _set_gp_stroke_point(stroke.points[point_index], point, 1)
+        batch.add(gp_frame, list(triangle), mat_idx, line_width=1, cyclic=True)
 
 
 def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, settings_dict=None):
@@ -926,6 +969,7 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     for step_index in range(total_steps):
         frame_number = frame_cursor
         gp_frame = layer.frames.new(frame_number)
+        batch = _GpStrokeBatch()
 
         # Счётчик размещённых chains на текущий шаг
         patch_placed = {}
@@ -952,7 +996,7 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
             raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
             lifted_points = _lift_points(raw_points, node.normal, 0.020)
             if len(lifted_points) >= 2:
-                _add_gp_stroke(gp_frame, lifted_points, mat_idx, line_width=line_width)
+                batch.add(gp_frame, lifted_points, mat_idx, line_width=line_width)
 
         # Рисуем fill для patches у которых все chains размещены
         for pid, placed_count in patch_placed.items():
@@ -960,11 +1004,13 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
                 node = graph.nodes.get(pid)
                 if node is not None and pid in patch_fill_mats:
                     _draw_patch_fill(
+                        batch,
                         gp_frame,
                         graph,
                         pid,
                         patch_fill_mats[pid],
                     )
+        batch.flush()
         frame_cursor += step_frames[step_index]
 
     # Настраиваем timeline

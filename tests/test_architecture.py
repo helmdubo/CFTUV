@@ -421,7 +421,11 @@ FUNCTION_LINE_ALLOWANCE = {
     # 174 -> 154: отрисовка точных сцен доменов и сборка их идентичностей ушли
     # в `_accumulate_exact_scenes`. Функция стояла РОВНО на потолке, и слой
     # отказа домена было некуда вызвать.
-    "cftuv/envelope_debug_renderer.py": 154,
+    # 154 -> 145: строка `writer.commit()` массовой записи GP не помещалась в
+    # `render_staged_envelope_debug`, стоявшую РОВНО на потолке. Счётчики GP и
+    # запись sidecar/профиля ушли в `_record_gp_render` и `_write_debug_texts`;
+    # самой длинной стала `_render_exact_scene`, потолок затянут до неё.
+    "cftuv/envelope_debug_renderer.py": 145,
     "kernel/src/cftuv_envelope/interactions/validation.py": 167,
     "cftuv/analysis_boundary_loops.py": 163,
     "tools/benchmark_envelope_metric_models.py": 161,
@@ -435,7 +439,10 @@ FUNCTION_LINE_ALLOWANCE = {
     # `_scope_inputs`, чтобы стадия QUEUE встала рядом с RAW, а не вместо
     # чьей-нибудь строки.
     "tools/run_envelope_mr1_building_gate.py": 116,
-    "cftuv/debug.py": 135,
+    # 135 -> 133: запись треугольника заливки в `create_visualization`
+    # (`_new_gp_stroke`, материал, стиль, цикл по точкам) стала одной строкой
+    # `batch.add`.
+    "cftuv/debug.py": 133,
     "kernel/src/cftuv_envelope/reference/strip.py": 134,
     "cftuv/solve_report_metrics.py": 133,
     "kernel/src/cftuv_envelope/reference/validation.py": 129,
