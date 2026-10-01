@@ -116,6 +116,19 @@ class DensityWindowChartUnrepresentable(AdaptiveDensityFanInvalid):
     """Допустимое projective-окно не представимо принятым chart-контрактом."""
 
 
+class DensityTerminationBoxesExhausted(AdaptiveDensityFanInvalid):
+    """Ящик вокруг ideal не нашёл осуществимого веера за `_BOX_REFINEMENT_CAP`.
+
+    Это ИМЕННО нехватка уточнения, а не неразрешимость предиката: предел
+    подшага с иррациональным лучом (допустимая область — точка) отсекается
+    раньше, точным признаком `ideal_is_exact_limit_with_irrational_direction`,
+    и сюда не доходит. Сюда доходит положительный запас, который не уместился
+    в ящик шириной `2^-24 ... 2^-120` от окна, и, редкий случай, предел с
+    рациональным лучом evaluation-геометрии, привязанный из-за иррационального
+    исходного: сообщение называет, стоит ли веер ровно на пределе.
+    """
+
+
 def _work_budget(cap: int | None = None) -> DensityExactWorkBudget:
     """Свежий счётчик точной работы одной транзакции поиска D*."""
 
@@ -733,8 +746,11 @@ def _termination_boxes(metric, ideal, orientation, q, records):
         if _box_is_feasible(metric, ideal, orientation, q, boxes):
             return boxes
         divisor *= 2
-    raise AdaptiveDensityFanInvalid(
-        "positive full-fan termination width is not proven"
+    raise DensityTerminationBoxesExhausted(
+        f"termination box refinement exhausted after {_BOX_REFINEMENT_CAP} "
+        f"halvings for {len(centers)} hidden rays: no feasible box was "
+        "witnessed (ideal fan exactly at the subturn limit: "
+        f"{_subturn_boundary(metric, ideal[0], ideal[1], q)})"
     )
 
 

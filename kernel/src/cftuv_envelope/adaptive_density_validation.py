@@ -18,16 +18,9 @@ from .contracts.events import InitialFrontFeatureKind
 from .ids import HiddenSupportId
 from .contracts.request import AngularProfileSelectionPolicyId
 from .numeric import ExactRatioV1
-from ._density_policy import huber_density_value_contract
-
-
-_LIFT_PREDICATES = frozenset(
-    {
-        "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
-        "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_IS_MINIMAL",
-    }
+from ._density_policy import (
+    EVALUATION_SUBTURN_LIFT_PREDICATES,
+    huber_density_value_contract,
 )
 
 
@@ -49,8 +42,7 @@ def adaptive_density_effective_hidden_count(
 
     valid = (
         type(lift) is EvaluationGeometrySubturnCountLiftV1
-        and lift.lift_law
-        is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+        and type(lift.lift_law) is EvaluationGeometrySubturnCountLiftLawV1
         and selection.selection_policy_id
         is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
         and q_contract is not None
@@ -84,7 +76,8 @@ def adaptive_density_effective_hidden_count(
             lift.evaluation_turn_cosine_squared.denominator,
         )
         == 1
-        and lift.proven_predicates == _LIFT_PREDICATES
+        and lift.proven_predicates
+        == EVALUATION_SUBTURN_LIFT_PREDICATES[lift.lift_law]
     )
     return (
         (lift.effective_hidden_edge_count, ())

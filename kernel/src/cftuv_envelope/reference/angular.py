@@ -34,6 +34,7 @@ from .._canonical_angle import (
     canonical_subturn_is_within_max_subturn,
 )
 from .._density_policy import (
+    EVALUATION_SUBTURN_LIFT_PREDICATES,
     DensityIntervalEnclosureUnsupported,
     density_interval_enclosure,
     huber_density_value_contract,
@@ -76,16 +77,7 @@ from .planar_types import (
 )
 from .metric import ExactPlanarMetric
 from .provenance import make_reference_provenance, merge_provenance
-
-
-_EVALUATION_SUBTURN_LIFT_PREDICATES = frozenset(
-    {
-        "SOURCE_SELECTION_CERTIFICATE_IMMUTABLE",
-        "SOURCE_COUNT_EXACTLY_INFEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_EXACTLY_FEASIBLE_IN_EVALUATION_GEOMETRY",
-        "EFFECTIVE_COUNT_IS_MINIMAL",
-    }
-)
+from .subturn_exact_limit import verify_exact_limit_lift
 
 
 @dataclass(frozen=True, slots=True)
@@ -892,8 +884,7 @@ def _verify_evaluation_subturn_count_lift(
     )
     if (
         type(lift) is not EvaluationGeometrySubturnCountLiftV1
-        or lift.lift_law
-        is not EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+        or lift.lift_law not in EVALUATION_SUBTURN_LIFT_PREDICATES
         or q_contract is None
         or lift.source_selection_certificate_id
         != selection.certificate_id
@@ -916,7 +907,7 @@ def _verify_evaluation_subturn_count_lift(
         or lift.minimality_predecessor_hidden_edge_count
         != lift.effective_hidden_edge_count - 1
         or lift.proven_predicates
-        != _EVALUATION_SUBTURN_LIFT_PREDICATES
+        != EVALUATION_SUBTURN_LIFT_PREDICATES[lift.lift_law]
         or type(lift.evaluation_turn_sign) is not ExactTurnSignV1
         or type(lift.evaluation_turn_cosine_squared)
         is not ExactRatioV1
@@ -932,12 +923,20 @@ def _verify_evaluation_subturn_count_lift(
         lift.effective_hidden_edge_count,
     ):
         raise ValueError("Density lifted H is not exactly feasible")
-    for count in (
-        lift.source_hidden_edge_count,
-        lift.minimality_predecessor_hidden_edge_count,
+    if (
+        lift.lift_law
+        is EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1
     ):
-        if _lift_count_is_feasible(lift, count):
-            raise ValueError("Density H-lift minimality witness is false")
+        verify_exact_limit_lift(context, spec, lift)
+    else:
+        for count in (
+            lift.source_hidden_edge_count,
+            lift.minimality_predecessor_hidden_edge_count,
+        ):
+            if _lift_count_is_feasible(lift, count):
+                raise ValueError(
+                    "Density H-lift minimality witness is false"
+                )
     incoming = covectors[0]
     outgoing = covectors[-1]
     dot = sp.cancel(_dual_dot(context.metric, incoming, outgoing))

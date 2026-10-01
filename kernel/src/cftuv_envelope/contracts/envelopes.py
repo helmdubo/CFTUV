@@ -89,8 +89,25 @@ class AdaptiveBoundHiddenSupportDirectionLawV2(str, Enum):
 
 
 class EvaluationGeometrySubturnCountLiftLawV1(str, Enum):
+    """Почему счёт скрытых рёбер evaluation-веера выше счёта селекции.
+
+    `EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1` — исходный закон: подшаг на
+    предшествующем счёте СТРОГО больше `pi/q` в геометрии вычисления.
+
+    `EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1` — подшаг на
+    предшествующем счёте РОВНО `pi/q` (остаток подшага точно ноль), а хотя бы
+    один скрытый луч этого веера иррационален. Веер равношаговый, поэтому
+    все `H + 1` шагов равны `pi/q` и каждый скрытый луч закреплён поворотом:
+    допустимая область — точка, а рационального направления в точке с
+    иррациональным лучом нет. Счёт неосуществим точно, без допуска, и
+    записан под этим именем, а не растворён в отказе поиска окон.
+    """
+
     EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1 = (
         "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1"
+    )
+    EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1 = (
+        "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_EXACT_LIMIT_V1"
     )
 
 

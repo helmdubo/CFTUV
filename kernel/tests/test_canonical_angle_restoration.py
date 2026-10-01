@@ -505,12 +505,10 @@ def test_map_metric_lift_takes_its_source_count_from_the_canonical_fact(
     snapshot, legacy_request = angular_snapshot(NEAR_RIGHT_ANGLE)
     request = _density_request(legacy_request, value_id, symbol)
     compiled = compile_reference_envelopes(snapshot, request)
-    if compiled.outcome is not ReferenceOutcome.EXACT:
-        # Синтетическая фигура — ножевая: у q=6 ординальное окно веера
-        # вырождено уже у ТОЧНОГО прямого угла. Это свойство фигуры, а не
-        # закона, и селектор здесь всё равно проверен отдельным тестом.
-        assert q == 6
-        return
+    # Нож q=6 закрыт (D4-TIGHT-FAN-LIFT): у ТОЧНОГО прямого угла веер из трёх
+    # шагов по 30° стоит ровно на пределе с иррациональными лучами, и счёт
+    # поднимается; восстановленный угол идёт тем же путём. Исход всюду EXACT.
+    assert compiled.outcome is ReferenceOutcome.EXACT, (q, compiled.diagnostics)
     selection = next(iter(compiled.compilation.profile_selection_certificates))
     spec = next(
         item
@@ -739,9 +737,7 @@ def test_canonical_fan_authority_is_recorded_only_where_the_source_law_failed(
     """
 
     _, compiled = _density_compile(NEAR_RIGHT_ANGLE, value_id, symbol)
-    if compiled.outcome is not ReferenceOutcome.EXACT:
-        assert q == 6  # ножевая синтетика, см. тест лифта
-        return
+    assert compiled.outcome is ReferenceOutcome.EXACT, (q, compiled.diagnostics)
     authorities = compiled.compilation.canonical_subturn_fan_authorities
     spec = next(
         item
@@ -749,8 +745,20 @@ def test_canonical_fan_authority_is_recorded_only_where_the_source_law_failed(
         if isinstance(item, AngularEnvelopeSpec)
     )
     tight = 2 * (spec.resolved_hidden_edge_count + 1) == q
-    assert tight is (q in (4, 6)), (density, q)
-    if tight:
+    # q=6 больше не «тугой»: канонический веер из 3 шагов по 30° стоит на
+    # пределе с иррациональными лучами, его единственная точка не имеет
+    # рационального представителя, и счёт поднят лифтом на сырой геометрии
+    # (сырой угол чуть больше 90°, поэтому закон лифта — прежний, строгий).
+    assert tight is (q == 4), (density, q)
+    if q == 6:
+        lift = spec.evaluation_subturn_count_lift
+        assert lift is not None
+        assert (lift.source_hidden_edge_count, lift.effective_hidden_edge_count) == (2, 3)
+        assert lift.lift_law is (
+            kernel.EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
+        )
+        assert authorities == frozenset(), (density, q)
+    elif tight:
         assert len(authorities) == 1, (density, q)
         authority = next(iter(authorities))
         assert authority.guarantee_law is CANONICAL_SUBTURN_FAN_LAW
