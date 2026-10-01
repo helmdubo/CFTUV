@@ -37,9 +37,9 @@ def main():
     original = F.settle_crowded
     captured = {}
 
-    def spy(pending, fixed_total, fixed_segments, polygon_area):
+    def spy(pending, fixed_total, fixed_segments, polygon_area, boundary):
         captured["row"] = (pending, fixed_total, fixed_segments, polygon_area)
-        return original(pending, fixed_total, fixed_segments, polygon_area)
+        return original(pending, fixed_total, fixed_segments, polygon_area, boundary)
 
     F.settle_crowded = spy
     for d in densities:
