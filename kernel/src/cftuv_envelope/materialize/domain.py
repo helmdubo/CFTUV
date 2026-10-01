@@ -1,0 +1,360 @@
+"""`materialize_domain`: покрытие домена очереди -> `GeometryBatchV1`.
+
+Ключ исполнения — ВЕСЬ домен: все источники и все регионы считаются вместе
+(AGENTS.md, п.2 envelope-ядра). Материализации по одной цепи с последующей
+сшивкой здесь нет: слияние, станции, вершины и цепи берут грани всего домена.
+
+Стадии (каждая под именем в `timings`, под ОДНИМ бюджетом точной работы
+`stage="MATERIALIZE"`):
+
+1. допуск (`admit`): покрытие `EXACT`, плоскость, UV-закон — три отказа до работы;
+2. таблица станций (`stations`): `s0` по цепям, пробеги, углы петель;
+3. контуры и слияние (`coalesce`): ТОТ ЖЕ код, что у отладочной картинки;
+4. кадры (`frames`): огибающая и система `(s, r)` каждой слитой грани;
+5. вершины, факты `(s, r)`, UV (`assemble`, `uv_law`): точно, одно округление;
+6. тесселяция (`tessellate`): отсечение ушей, сумма площадей — точное равенство;
+7. сборка, валидация `validate_geometry_batch`, дайджесты.
+
+Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
+`EXACT_WORK_BUDGET_EXHAUSTED`, а не зависание; батч не прошёл валидатор —
+`BATCH_DID_NOT_VALIDATE` с пересчётом замечаний в `detail`.
+
+ВСЁ ПИКЛИТСЯ: результат — замороженные записи из чисел, строк и множеств, а
+вход (`prepared`, `coverage`) воркер пула держит у себя, поэтому вызов можно
+делать прямо в воркере после покрытия.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, replace
+from hashlib import sha256
+
+from ..canonical import geometry_batch_semantic_digest
+from ..codec import canonical_json_bytes
+from ..contracts.geometry_batch import (
+    GEOMETRY_BATCH_SCHEMA_V1,
+    GeometryDiagnosticSeverity,
+    GeometryDiagnosticV1,
+)
+from ..contracts.metric import AffineChartOrientationV1
+from ..exact_sqrt_sum import (
+    ExactCanonicalizationWorkBudgetExhausted,
+    exact_work_budget,
+)
+from ..ids import GeometryDiagnosticId, LineageId, SemanticDigestValue
+from ..outcomes import NamedOutcome
+from ..validation import validate_geometry_batch
+from .admit import MaterializationOutcome, PlanarityKind, admit_domain
+from .audit import audit_batch
+from .assemble import (
+    Layout,
+    assemble_batch,
+    intern_vertices,
+    station_values,
+    tessellate_faces,
+)
+from .coalesce import covered_faces_of_region, merge_same_chain_faces, region_contours
+from .coalesce import MergeStatsV1
+from .frames import MaterializationRefusal, resolve_frame
+from .lift import plane_lift_of
+from .stations import chain_station_table, source_chain_by_span
+from .uv_law import UV_DIRECT_STRIP_V1
+
+MATERIALIZER_CONTRACT = "cftuv.envelope.materializer.v1"
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializationV1:
+    """Исход материализации домена: батч либо именованный отказ, с числами."""
+
+    outcome: MaterializationOutcome
+    batch: object | None
+    detail: str
+    counters: tuple[tuple[str, int], ...]
+    timings: tuple[tuple[str, float], ...]
+    #: Читаемые строки диагностик батча (сами диагностики лежат в нём).
+    diagnostics: tuple[str, ...]
+    #: sha256 канонических байтов ПОЛНОГО батча (с триангуляцией). Пусто у отказа.
+    content_digest: str
+
+    @property
+    def is_materialized(self) -> bool:
+        return self.outcome is MaterializationOutcome.MATERIALIZED
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.marks: list[tuple[str, float]] = []
+        self._started = time.perf_counter()
+
+    def lap(self, stage: str) -> None:
+        now = time.perf_counter()
+        self.marks.append((stage, now - self._started))
+        self._started = now
+
+
+def _refused(outcome, detail, clock, counters=()) -> MaterializationV1:
+    return MaterializationV1(
+        outcome=outcome,
+        batch=None,
+        detail=detail,
+        counters=tuple(counters),
+        timings=tuple(clock.marks),
+        diagnostics=(),
+        content_digest="",
+    )
+
+
+def _edge_faces(context) -> dict[str, tuple[str, ...]]:
+    """`физическое ребро -> исходные грани, его несущие` (по циклам рёбер)."""
+
+    found: dict[str, list[str]] = {}
+    for face_id, face in context.source_faces_by_id.items():
+        for edge in face.edge_cycle:
+            found.setdefault(edge.value, []).append(face_id.value)
+    return {edge: tuple(sorted(names)) for edge, names in found.items()}
+
+
+def _diagnostics(prepared, table, planarity, lines):
+    """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры."""
+
+    result = []
+
+    def add(severity, outcome, token, lineage, text):
+        result.append(
+            GeometryDiagnosticV1(
+                GeometryDiagnosticId(f"diagnostic:{outcome.value}:{token}"),
+                severity,
+                outcome,
+                frozenset(LineageId(item) for item in lineage),
+            )
+        )
+        lines.append(f"{outcome.value}: {text}")
+
+    if planarity is PlanarityKind.NEAR_PLANAR:
+        certificate = prepared.context.frame.planarity_certificate
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE,
+            "domain",
+            (),
+            f"residual_budget={certificate.residual_budget} "
+            f"max_residual_squared={certificate.max_residual_squared}",
+        )
+    for chain_id in sorted(table.restart_chain_ids):
+        add(
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.U_RESTARTS_AT_DOMAIN_BORDER,
+            chain_id,
+            (chain_id,),
+            chain_id,
+        )
+    for region in prepared.regions:
+        for corner in region.degraded_miter_corners:
+            add(
+                GeometryDiagnosticSeverity.WARNING,
+                NamedOutcome.DEGRADED_MITER_CORNER_IN_GEOMETRY,
+                corner.corner_relation_id,
+                (corner.corner_relation_id,),
+                f"{corner.corner_relation_id}: {corner.reason}",
+            )
+    return result
+
+
+def _covered_regions(prepared, coverage, table, spans, budget, clock):
+    """Слитые грани ВСЕХ регионов домена: `[(region_id, грань, прямая)]`."""
+
+    covered_by_region = {item.region_id: item for item in coverage.regions}
+    lattice_alpha = coverage.lattice_alpha
+    items = []
+    stats = MergeStatsV1()
+    faces_in = 0
+    for region in prepared.regions:
+        covered = covered_by_region.get(region.region_id)
+        if covered is None or region.partition is None:
+            continue
+        contours = region_contours(region, lattice_alpha, budget)
+        clock.lap("CONTOURS")
+        plain = covered_faces_of_region(
+            covered, contours, spans.get(region.region_id, {})
+        )
+        faces_in += len(plain)
+        merged, region_stats = merge_same_chain_faces(plain, budget)
+        stats = stats + region_stats
+        lines = {face.owner: face.line for face in region.partition.faces}
+        source_keys = frozenset(key for key, _name in region.owner_by_edge) | frozenset(
+            region.ambiguous_owner_spans
+        )
+        for face in merged:
+            items.append((region.region_id, face, lines[face.owner], source_keys))
+    clock.lap("COALESCE")
+    return items, stats, faces_in
+
+
+def _counters(frame_faces, stats, faces_in, batch, table, budget):
+    return (
+        ("MATERIALIZE_FACES_IN", faces_in),
+        ("MATERIALIZE_FACES_MERGED", len(frame_faces)),
+        ("MATERIALIZE_SEPARATORS_MERGED", stats.merged_separators),
+        ("MATERIALIZE_MERGE_UNRESOLVED", stats.unresolved_groups),
+        ("MATERIALIZE_FAN_FACES", sum(1 for item in frame_faces if item.is_fan)),
+        ("MATERIALIZE_TRIANGLES", len(batch.faces)),
+        ("MATERIALIZE_VERTICES", len(batch.vertices)),
+        ("MATERIALIZE_REGIONS", len(batch.semantic_regions)),
+        ("MATERIALIZE_STATION_FACTS", len(batch.station_facts)),
+        (
+            "MATERIALIZE_STATION_CONSTANT_S",
+            sum(
+                1
+                for fact in batch.station_facts
+                if fact.station_model_id.value == "CONSTANT_PHYSICAL_ENDPOINT_S"
+            ),
+        ),
+        ("MATERIALIZE_BOUNDARY_CHAINS", len(batch.boundary_chains)),
+        ("MATERIALIZE_INTERFACE_CHAINS", len(batch.interface_chains)),
+        *table.counters,
+        *budget.counters(),
+    )
+
+
+def _source_normal(prepared) -> tuple[float, float, float]:
+    """Нормаль первой исходной грани владельца (по имени грани): меркой для аудита."""
+
+    snapshot = prepared.context.snapshot
+    owner = prepared.compilation.owner_patch_id
+    faces = sorted(
+        (item for item in snapshot.surface_ir.source_faces if item.patch_id == owner),
+        key=lambda item: item.face_id.value,
+    )
+    normal = faces[0].polygon_normal if faces else None
+    return (0.0, 0.0, 0.0) if normal is None else (normal.x, normal.y, normal.z)
+
+
+def _build(prepared, coverage, request, admission, budget, clock):
+    table = chain_station_table(prepared, budget)
+    spans = source_chain_by_span(prepared)
+    clock.lap("STATIONS")
+    items, stats, faces_in = _covered_regions(
+        prepared, coverage, table, spans, budget, clock
+    )
+    frame_faces = [
+        resolve_frame(table, region_id, face, line, source_keys)
+        for region_id, face, line, source_keys in items
+    ]
+    clock.lap("FRAMES")
+    layout = Layout(frame_faces)
+    cycles, points = intern_vertices(
+        [(item[0], frame) for item, frame in zip(items, frame_faces)], table
+    )
+    lattice_alpha = coverage.lattice_alpha
+    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget)
+    clock.lap("STATIONS_UV")
+    chart_cw = (
+        prepared.context.frame.chart_orientation
+        is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
+    )
+    triangles = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw)
+    clock.lap("TESSELLATE")
+    lines: list[str] = []
+    batch = assemble_batch(
+        frame_faces=frame_faces,
+        cycles=cycles,
+        points=points,
+        triangles=triangles,
+        facts=facts,
+        layout=layout,
+        plane=plane_lift_of(prepared.context.frame, table.scale),
+        scale=table.scale,
+        lattice_alpha=lattice_alpha,
+        edge_faces=_edge_faces(prepared.context),
+        request=request,
+        source_revision=prepared.context.snapshot.source_revision,
+        patch_domain_id=prepared.compilation.plan_key.patch_domain_id,
+        contract_versions=(
+            GEOMETRY_BATCH_SCHEMA_V1,
+            MATERIALIZER_CONTRACT,
+            f"cftuv.envelope.uv_policy.{UV_DIRECT_STRIP_V1.value}",
+        ),
+        diagnostics=_diagnostics(prepared, table, admission.planarity, lines),
+    )
+    batch = replace(
+        batch,
+        semantic_digest=SemanticDigestValue(
+            geometry_batch_semantic_digest(batch).sha256_hex
+        ),
+    )
+    clock.lap("ASSEMBLE")
+    return batch, frame_faces, stats, faces_in, table, tuple(lines)
+
+
+def materialize_domain(
+    prepared, coverage, *, request=None, work_budget=None
+) -> MaterializationV1:
+    """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
+
+    `request` по умолчанию — запрос самой подготовки; материализатору нужны из
+    него только идентичность запроса и два политических идентификатора
+    (материал, UV-закон). `work_budget` по умолчанию — свежий бюджет
+    транзакции `MATERIALIZE` домена.
+    """
+
+    clock = _Clock()
+    request = request if request is not None else prepared.compilation.decal_request
+    admission = admit_domain(prepared, coverage, request)
+    clock.lap("ADMIT")
+    if admission.outcome is not None:
+        return _refused(admission.outcome, admission.detail, clock)
+    domain_id = prepared.compilation.plan_key.patch_domain_id.value
+    budget = (
+        work_budget
+        if work_budget is not None
+        else exact_work_budget(stage="MATERIALIZE", domain_id=domain_id)
+    )
+    try:
+        batch, frame_faces, stats, faces_in, table, lines = _build(
+            prepared, coverage, request, admission, budget, clock
+        )
+    except MaterializationRefusal as refusal:
+        return _refused(refusal.outcome, refusal.detail, clock, budget.counters())
+    except ExactCanonicalizationWorkBudgetExhausted as exhausted:
+        return _refused(
+            MaterializationOutcome.EXACT_WORK_BUDGET_EXHAUSTED,
+            str(exhausted),
+            clock,
+            budget.counters(),
+        )
+    issues = validate_geometry_batch(batch)
+    clock.lap("VALIDATE")
+    audit = audit_batch(batch, _source_normal(prepared))
+    clock.lap("AUDIT")
+    counters = _counters(frame_faces, stats, faces_in, batch, table, budget)
+    counters = counters + audit.counters()
+    if issues:
+        shown = "; ".join(
+            f"{item.code.value}@{'/'.join(map(str, item.path))}" for item in issues[:8]
+        )
+        return _refused(
+            MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
+            f"{len(issues)} issues: {shown}",
+            clock,
+            counters,
+        )
+    if audit.problems():
+        return _refused(
+            MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
+            "AUDIT:" + ",".join(audit.problems()),
+            clock,
+            counters,
+        )
+    digest = sha256(canonical_json_bytes(batch)).hexdigest()
+    clock.lap("DIGEST")
+    return MaterializationV1(
+        outcome=MaterializationOutcome.MATERIALIZED,
+        batch=batch,
+        detail="",
+        counters=counters,
+        timings=tuple(clock.marks),
+        diagnostics=lines,
+        content_digest=digest,
+    )

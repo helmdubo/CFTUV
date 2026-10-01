@@ -108,3 +108,18 @@ class NamedOutcome(str, Enum):
     NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP = (
         "NEAR_PLANAR_PROJECTION_INTERIOR_OVERLAP"
     )
+
+    # Материализатор (`materialize/`): исходы, которые идут В БАТЧ диагностикой,
+    # а не отказом домена. Меш построен, но читатель обязан видеть, что он такое.
+    #
+    # Домен near-planar: меш лежит на СЕРТИФИЦИРОВАННОЙ плоскости (спроецированной
+    # точно, в рациональных числах), а не на исходных вершинах; расстояние между
+    # ними — невязка сертификата. Смещение над поверхностью — политика хоста.
+    NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE = "NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE"
+    # Ребро `ChainUse` лежит вне петли домена (цепь выходит за его границу):
+    # накопление станции `s` на этом месте началось заново, и `u` не продолжается
+    # через границу домена.
+    U_RESTARTS_AT_DOMAIN_BORDER = "U_RESTARTS_AT_DOMAIN_BORDER"
+    # Острая вогнутая вершина оставлена МИТРОВАННОЙ (веер не записался): мягкого
+    # угла в этом месте нет, и меш показывает именно митру.
+    DEGRADED_MITER_CORNER_IN_GEOMETRY = "DEGRADED_MITER_CORNER_IN_GEOMETRY"

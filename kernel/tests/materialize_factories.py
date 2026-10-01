@@ -139,3 +139,137 @@ def straight_chain_domain(alpha: str = "1"):
 
 def budget(*, cap: int | None = None):
     return exact_work_budget(stage="MATERIALIZE_TEST", domain_id="test", cap=cap)
+
+
+def assemble_polygon_batch(polygon, alpha):
+    """Батч прямо из разбиения многоугольника корпуса: без снапшота и метрики.
+
+    Корпус стенда (`wavefront_cases.named_corpus`) — решёточные многоугольники
+    без цепей и без дескриптора, поэтому станции здесь простейшие: у каждого
+    ребра-источника СВОЙ пробег с единичной метрикой, у каждого веера свой кадр
+    с нулевой станцией. Всё, что идёт после кадров (вершины, факты, UV,
+    тесселяция, цепи, батч), — те же функции, что у `materialize_domain`.
+    Возвращает `(батч, грани с кадрами)` либо `None`, если разбиение не `EXACT`.
+    """
+
+    from dataclasses import replace
+    from fractions import Fraction
+    from types import SimpleNamespace
+
+    from cftuv_envelope.canonical import geometry_batch_semantic_digest
+    from cftuv_envelope.contracts.envelopes import StationModelId
+    from cftuv_envelope.ids import PatchDomainId, SemanticDigestValue, SourceRevision
+    from cftuv_envelope.materialize import assemble
+    from cftuv_envelope.materialize.coalesce import CoveredFaceV1
+    from cftuv_envelope.materialize.frames import FrameFaceV1
+    from cftuv_envelope.materialize.lift import PlaneLiftV1
+    from cftuv_envelope.materialize.stations import StationRunV1
+    from cftuv_envelope.wavefront.coverage import coverage_at
+    from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+    from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, build_skeleton
+    from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
+
+    from reference_factories import reference_request
+
+    guard = budget()
+    skeleton = build_skeleton(polygon, work_budget=guard)
+    if skeleton.outcome is not SkeletonOutcome.EXACT:
+        return None
+    partition = build_faces(polygon, skeleton, guard)
+    if partition.outcome is not FaceOutcome.EXACT:
+        return None
+    covered = coverage_at(partition, Fraction(alpha), guard)
+    lines = {face.owner: face.line for face in partition.faces}
+    frame_faces = []
+    for item in covered.faces:
+        if len(item.points) < 3:
+            continue
+        face = CoveredFaceV1(
+            region_id="corpus",
+            owner=tuple(item.owner),
+            envelope_spec_id="spec",
+            envelope_instance_id="instance",
+            points=tuple(item.points),
+            doubled_area=item.doubled_area,
+        )
+        fan = len(item.owner) == 5
+        dx, dy = (
+            (0, 0)
+            if fan
+            else (item.owner[2] - item.owner[0], item.owner[3] - item.owner[1])
+        )
+        squared = Fraction(dx * dx + dy * dy)
+        run = StationRunV1(
+            run_id=f"run:{item.owner}",
+            chain_id="chain",
+            chain_use_id="use",
+            run_index=0,
+            origin=(item.owner[0], item.owner[1]),
+            direction=(dx, dy),
+            s_origin=SqrtSumV1.zero(),
+            inverse_length=(
+                SqrtSumV1.zero()
+                if not squared
+                else SqrtSumV1.radical(1, Fraction(1) / squared, guard)
+            ),
+            covector=(Fraction(dx), Fraction(dy)),
+            physical_edge_ids=(),
+            lineage_ids=(),
+        )
+        frame_faces.append(
+            FrameFaceV1(
+                face=face,
+                line=lines[item.owner],
+                claim_key="claim",
+                frame_key=run.run_id,
+                station_model=(
+                    StationModelId.CONSTANT_PHYSICAL_ENDPOINT_S
+                    if fan
+                    else StationModelId.SEMANTIC_CHAIN_USE_S
+                ),
+                run=run,
+                fan_station=SqrtSumV1.zero() if fan else None,
+                physical_edge_ids=frozenset(),
+                chain_use_ids=frozenset(),
+                chain_ids=frozenset(),
+            )
+        )
+    table = SimpleNamespace(node_vertex_ids={})
+    layout = assemble.Layout(frame_faces)
+    cycles, points = assemble.intern_vertices(
+        [("corpus", item) for item in frame_faces], table
+    )
+    lattice_alpha = Fraction(alpha)
+    facts = assemble.station_values(
+        frame_faces, cycles, layout, table, lattice_alpha, guard
+    )
+    triangles = assemble.tessellate_faces(frame_faces, cycles, guard, reverse=False)
+    batch = assemble.assemble_batch(
+        frame_faces=frame_faces,
+        cycles=cycles,
+        points=points,
+        triangles=triangles,
+        facts=facts,
+        layout=layout,
+        plane=PlaneLiftV1(
+            (Fraction(0),) * 3,
+            (Fraction(1), Fraction(0), Fraction(0)),
+            (Fraction(0), Fraction(1), Fraction(0)),
+            1,
+        ),
+        scale=1,
+        lattice_alpha=lattice_alpha,
+        edge_faces={},
+        request=reference_request(),
+        source_revision=SourceRevision("corpus"),
+        patch_domain_id=PatchDomainId("corpus"),
+        contract_versions=("cftuv.envelope.geometry_batch.v1",),
+        diagnostics=(),
+    )
+    batch = replace(
+        batch,
+        semantic_digest=SemanticDigestValue(
+            geometry_batch_semantic_digest(batch).sha256_hex
+        ),
+    )
+    return batch, frame_faces
