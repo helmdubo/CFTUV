@@ -8,7 +8,11 @@
 
 ФОРМА РЕЗУЛЬТАТА. Один объект `<исходный>.CFTUV_Decal`, потомок исходного с
 единичным локальным преобразованием (позиции батча — в локальных координатах
-источника, и родитель переводит их в мир сам), ВСЕ домены в одном меше. UV —
+источника, и родитель переводит их в мир сам), ВСЕ домены в одном меше. Грани —
+многоугольники ЛЮБОЙ длины от трёх: под законом топологии `QUAD_STRIPS_V1` это
+четырёхгранники лент и треугольники вееров, и писатель кладёт их как есть, без
+собственной триангуляции (разрез грани на треугольники — решение ядра, названное
+счётчиком, а не Blender по float). UV —
 слой `UVMap`, по вершине каждой петли из `uv_facts` грани. Целочисленные
 атрибуты граней: `cftuv_domain` (номер патча) и `cftuv_owner` (порядковый номер
 огибающей внутри домена, `claim:N` батча). Один слот материала `material_name`:
@@ -112,6 +116,9 @@ class MeshArraysV1:
     warnings: tuple
     source_revision: str
     digest: str
+    #: Закон топологии записанных доменов (`DecalTopologyLawV1.value`); при разных
+    #: законах — имена через запятую по возрастанию; пусто, если ничего не записано.
+    decal_topology_law: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +145,11 @@ class ProductionWriteReceiptV1:
     arrays_digest: str
     mesh_name: str | None
     mesh_digest: str
+    #: Закон топологии записанных доменов и состав граней меша: четырёхгранники и
+    #: треугольники (других длин у закона нет, а чужая длина видна в `faces - ...`).
+    decal_topology_law: str = ""
+    quads: int = 0
+    triangles: int = 0
 
 
 def decal_object_name(source_name: str) -> str:
@@ -245,7 +257,7 @@ def _domain_warnings(result) -> list:
             (
                 result.patch_id,
                 OUTCOME_FLIPPED_VS_SOURCE,
-                f"{flipped} triangles are wound against the source face",
+                f"{flipped} faces are wound against the source face",
             )
         )
     return found
@@ -267,6 +279,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
     face_domain, face_owner, seams = [], [], []
     domains, skipped, warnings = [], [], []
     revision = ""
+    laws: set[str] = set()
     for result in sorted(results, key=lambda item: (item.patch_id, item.domain_id)):
         if not result.is_materialized:
             skipped.append(
@@ -287,6 +300,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         seams.extend((base + a, base + b) for a, b in d_seams)
         domains.append(result.patch_id)
         warnings.extend(_domain_warnings(result))
+        laws.add(getattr(result, "decal_topology_law", ""))
         revision = revision or result.batch.source_revision.value
     digest = _arrays_digest(
         {
@@ -310,6 +324,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         warnings=tuple(warnings),
         source_revision=revision,
         digest=digest,
+        decal_topology_law=",".join(sorted(item for item in laws if item)),
     )
 
 
@@ -531,6 +546,9 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         arrays_digest=arrays.digest,
         mesh_name=None if mesh is None else mesh.name,
         mesh_digest="" if mesh is None else mesh_content_digest(mesh),
+        decal_topology_law=arrays.decal_topology_law,
+        quads=sum(1 for loop in arrays.faces if len(loop) == 4),
+        triangles=sum(1 for loop in arrays.faces if len(loop) == 3),
     )
 
 
@@ -541,6 +559,7 @@ def _blank_arrays(arrays: MeshArraysV1) -> MeshArraysV1:
         positions=(), faces=(), uvs=(), face_domain=(), face_owner=(),
         seam_edges=(), domains=(), skipped=arrays.skipped, warnings=arrays.warnings,
         source_revision=arrays.source_revision, digest=arrays.digest,
+        decal_topology_law=arrays.decal_topology_law,
     )
 
 

@@ -10,6 +10,11 @@
 материализация берут ВСЕ источники домена вместе (AGENTS.md, п.2). Задача
 пула — одна на домен; цепь за цепью с последующей сшивкой тут не бывает.
 
+ЗАКОН ТОПОЛОГИИ — явный параметр, как закон UV: `HOST_DECAL_TOPOLOGY_POLICY` (кнопка
+просит четырёхгранники лент). Он идёт в задачу пула (`ProductionInputV1`), в
+`produce_domain`, в результат домена (`decal_topology_law`) и в строку JSON; сетка
+вершин и семантика от него не зависят, меняется только сборка граней.
+
 ЗАКОН UV — явный параметр. Запрос подготовки несёт отладочный
 `ENVELOPE_DEBUG_NO_UV_V1`, а продукту нужен `UV_DIRECT_STRIP_V1`. Подготовка от
 закона UV не зависит (ключ её кэша — ревизия, домен, рёбра и подпись угловой
@@ -50,10 +55,17 @@ from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
 )
-from .surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
+from .surface_ir import (
+    HOST_DECAL_TOPOLOGY_POLICY,
+    HOST_NEAR_PLANAR_LIFT_POLICY,
+    HostDecalTopologyPolicy,
+)
 
 #: Закон UV продукта. Реестр законов — `envelope_request_policy`.
 PRODUCTION_UV_POLICY = ENVELOPE_UV_POLICY_DIRECT_STRIP
+#: Закон топологии продукта и допустимые имена (политика хоста, не выбор ядра).
+PRODUCTION_TOPOLOGY_LAW = HOST_DECAL_TOPOLOGY_POLICY.value
+PRODUCTION_TOPOLOGY_LAWS = frozenset(item.value for item in HostDecalTopologyPolicy)
 
 MATERIALIZED = "MATERIALIZED"
 OUTCOME_PREPARATION_UNAVAILABLE = "PREPARATION_UNAVAILABLE"
@@ -79,15 +91,17 @@ PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
 
 @dataclass(frozen=True, slots=True)
 class ProductionInputV1:
-    """Вход задачи пула: пикл готовой подготовки и закон UV.
+    """Вход задачи пула: пикл готовой подготовки, закон UV и закон топологии.
 
     Остальное воркер берёт из самой задачи (`DomainTaskV1.alpha_text`,
     `patch_id`, `domain_id`). Снапшот и запрос не пересылаются: запрос подготовки
-    лежит в ней самой, а закон UV — один параметр.
+    лежит в ней самой, а законы — по одному параметру. Закон топологии — поле со
+    значением по умолчанию, поэтому задача без него (прежняя форма) читается.
     """
 
     blob: bytes
     uv_policy_id: str = PRODUCTION_UV_POLICY
+    topology_law: str = PRODUCTION_TOPOLOGY_LAW
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +141,8 @@ class ProductionDomainResultV1:
     #: Побитовый sha256 этих нормалей (`offset_normals_digest` ядра): они сдвигают вершины
     #: меша, но в дайджест батча не входят, и только этот дайджест виден воротам и свипу.
     offset_normals_digest: str = ""
+    #: Закон топологии, по которому собрана сетка (`DecalTopologyLawV1.value`): пусто у отказа.
+    decal_topology_law: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
 
@@ -184,6 +200,7 @@ def produce_domain(
     alpha_text: str,
     *,
     uv_policy_id: str = PRODUCTION_UV_POLICY,
+    topology_law: str = PRODUCTION_TOPOLOGY_LAW,
 ) -> ProductionDomainResultV1:
     """Покрытие на готовой подготовке и материализация: общий код всех путей.
 
@@ -196,8 +213,11 @@ def produce_domain(
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
+    if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
+        raise ValueError(f"unknown decal topology law {topology_law!r}")
     started = time.perf_counter()
     try:
+        from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
         from cftuv_envelope.exact_sqrt_sum import (
             reset_factorization_memory,
             reset_unbudgeted_work,
@@ -230,6 +250,7 @@ def produce_domain(
             coverage,
             request=materialization_request(prepared, uv_policy_id=uv_policy_id),
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
+            decal_topology_law=DecalTopologyLawV1(topology_law),
         )
         if not result.is_materialized:
             return _refusal(
@@ -255,6 +276,7 @@ def produce_domain(
             vertex_normals=tuple(result.vertex_normals),
             offset_normal_law=result.offset_normal_law,
             offset_normals_digest=result.offset_normals_digest,
+            decal_topology_law=result.decal_topology_law.value,
             seconds=time.perf_counter() - started,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
@@ -284,6 +306,7 @@ def solve_production_task(task):
         prepared,
         task.alpha_text,
         uv_policy_id=task.production.uv_policy_id,
+        topology_law=task.production.topology_law,
     )
     return DomainTaskResultV1(
         task.task_id,
@@ -370,7 +393,9 @@ def _host_refusal(entry: _DomainEntryV1) -> ProductionDomainResultV1:
     return _refusal(entry.patch_id, entry.domain_id, outcome, str(entry.failure))
 
 
-def _dispatch(items, domain_pool, controller, alpha_text, uv_policy_id, profile):
+def _dispatch(
+    items, domain_pool, controller, alpha_text, uv_policy_id, topology_law, profile
+):
     """`{domain_id: результат}`: воркеры на то, что окупает пересылку, родитель на остальное.
 
     Названные исходы те же, что у покрытия отладки: пул, который не стартовал
@@ -409,7 +434,7 @@ def _dispatch(items, domain_pool, controller, alpha_text, uv_policy_id, profile)
                 None,
                 alpha_text,
                 selected_of[domain_id],
-                production=ProductionInputV1(blob, uv_policy_id),
+                production=ProductionInputV1(blob, uv_policy_id, topology_law),
             )
             for index, ((patch_id, domain_id, _prepared), blob) in enumerate(shipped)
         ]
@@ -443,6 +468,7 @@ def _dispatch(items, domain_pool, controller, alpha_text, uv_policy_id, profile)
                 item.prepared,
                 alpha_text,
                 uv_policy_id=uv_policy_id,
+                topology_law=topology_law,
             ),
             placement.get(item.domain_id, PLACEMENT_PARENT),
         )
@@ -490,6 +516,7 @@ def run_production(
     density,
     workers: int = 0,
     uv_policy_id: str = PRODUCTION_UV_POLICY,
+    topology_law: str = PRODUCTION_TOPOLOGY_LAW,
     domain_pool=_FROM_SETTINGS,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
@@ -506,6 +533,8 @@ def run_production(
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
+    if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
+        raise ValueError(f"unknown decal topology law {topology_law!r}")
     started = time.perf_counter()
     profile = EnvelopeDebugProfileBuilderV1(
         getattr(analysis_bundle.source_revision, "source_name", "source"),
@@ -555,7 +584,9 @@ def run_production(
     alpha_text = str(float(alpha))
     ready = [item for item in entries if item.prepared is not None]
     with profile.measure("PRODUCTION_DOMAINS_WALL"):
-        produced = _dispatch(ready, pool, controller, alpha_text, uv_policy_id, profile)
+        produced = _dispatch(
+            ready, pool, controller, alpha_text, uv_policy_id, topology_law, profile
+        )
     results = []
     for entry in entries:
         if entry.failure is not None:
@@ -765,6 +796,7 @@ def export_production_json(results, directory, *, label: str = "production") -> 
             "normal": None if item.normal is None else list(item.normal),
             "offset_normal_law": item.offset_normal_law,
             "offset_normals_digest": item.offset_normals_digest,
+            "decal_topology_law": item.decal_topology_law,
         }
         if item.is_materialized:
             name = f"{label}_patch{item.patch_id:04d}.geometry_batch.json"
@@ -797,6 +829,8 @@ __all__ = (
     "PRODUCTION_PREPARATION_BUILDS",
     "PRODUCTION_PREPARATION_REUSED",
     "PRODUCTION_REFUSED",
+    "PRODUCTION_TOPOLOGY_LAW",
+    "PRODUCTION_TOPOLOGY_LAWS",
     "PRODUCTION_UV_POLICY",
     "ProductionDomainResultV1",
     "ProductionInputV1",

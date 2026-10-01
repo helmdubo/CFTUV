@@ -18,7 +18,14 @@
 4. кадры (`frames`): огибающая и система `(s, r)` каждой слитой грани;
 5. вершины, факты `(s, r)`, UV (`assemble`, `uv_law`): точно, одно округление;
 6. тесселяция (`tessellate`): отсечение ушей, сумма площадей — точное равенство;
-7. сборка, валидация `validate_geometry_batch`, дайджесты.
+   под `QUAD_STRIPS_V1` строго выпуклый четырёхугольник ленты остаётся одной
+   гранью (веера, невыпуклые и слитые пробеги — треугольники, и каждый такой
+   случай назван счётчиком);
+7. подъём вершин (по одному разу) и закон `QUAD_IN_ONE_SOURCE_TRIANGLE_V1`
+   (`settle_topology`): четырёхгранья, лёгшие на разные треугольники источника
+   либо смещаемые по разным нормалям (развёртка), режутся каноническим `fan_out`,
+   чтобы не выдать непланарную грань;
+8. сборка, валидация `validate_geometry_batch`, дайджесты.
 
 Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
 `EXACT_WORK_BUDGET_EXHAUSTED`, а не зависание; батч не прошёл валидатор —
@@ -45,6 +52,7 @@ from ..canonical import geometry_batch_semantic_digest
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
+    DecalTopologyLawV1,
     GeometryDiagnosticSeverity,
     GeometryDiagnosticV1,
 )
@@ -64,6 +72,8 @@ from .assemble import (
     Layout,
     assemble_batch,
     intern_vertices,
+    lift_vertices,
+    settle_topology,
     station_values,
     tessellate_faces,
 )
@@ -100,6 +110,10 @@ class MaterializationV1:
     vertex_normals: tuple = ()
     offset_normal_law: str = ""
     offset_normals_digest: str = ""
+    #: Закон топологии, КОТОРЫЙ ПРОСИЛИ (и у отказа тоже): поле результата, а не
+    #: диагностики и не `contract_versions` батча — те входят в семантический
+    #: дайджест, а он тесселяции не видит.
+    decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1
 
     @property
     def is_materialized(self) -> bool:
@@ -359,6 +373,7 @@ class _Built(NamedTuple):
     dropped_names: int
     lift_counters: tuple = ()
     lift: object = None
+    topology_counters: tuple = ()
 
 
 def _counters(built: _Built, budget):
@@ -371,7 +386,17 @@ def _counters(built: _Built, budget):
         ("MATERIALIZE_MERGE_UNRESOLVED", built.stats.unresolved_groups),
         ("MATERIALIZE_FAN_FACES", sum(1 for item in frame_faces if item.is_fan)),
         ("MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED", built.dropped_names),
-        ("MATERIALIZE_TRIANGLES", len(batch.faces)),
+        # Треугольники — СУММА `n - 2` по граням: от выбора диагонали она не
+        # зависит, поэтому под любым законом топологии это одно и то же число.
+        (
+            "MATERIALIZE_TRIANGLES",
+            sum(len(face.ordered_vert_keys) - 2 for face in batch.faces),
+        ),
+        ("MATERIALIZE_FACES_EMITTED", len(batch.faces)),
+        (
+            "MATERIALIZE_QUADS",
+            sum(1 for face in batch.faces if len(face.ordered_vert_keys) == 4),
+        ),
         ("MATERIALIZE_VERTICES", len(batch.vertices)),
         ("MATERIALIZE_REGIONS", len(batch.semantic_regions)),
         ("MATERIALIZE_STATION_FACTS", len(batch.station_facts)),
@@ -387,6 +412,7 @@ def _counters(built: _Built, budget):
         ("MATERIALIZE_INTERFACE_CHAINS", len(batch.interface_chains)),
         *built.table.counters,
         *built.lift_counters,
+        *built.topology_counters,
         *budget.counters(),
     )
 
@@ -418,7 +444,7 @@ def _lift_of(prepared, admission, scale, budget):
     return plane_lift_of(context.frame, scale)
 
 
-def _assemble(prepared, coverage, request, admission, budget, clock, parts):
+def _assemble(prepared, coverage, request, admission, budget, clock, parts, law):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена."""
 
     items, table, lines, notes = parts
@@ -438,17 +464,18 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
         prepared.context.frame.chart_orientation
         is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
-    triangles = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw)
+    polygons = tessellate_faces(frame_faces, cycles, budget, reverse=chart_cw, law=law)
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
+    positions, names = lift_vertices(points, plane)
+    polygons, topology = settle_topology(frame_faces, cycles, polygons, names, law)
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,
-        points=points,
-        triangles=triangles,
+        positions=positions,
+        polygons=polygons,
         facts=facts,
         layout=layout,
-        plane=plane,
         scale=table.scale,
         lattice_alpha=lattice_alpha,
         edge_faces=_edge_faces(prepared.context),
@@ -478,10 +505,10 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts):
         ),
     )
     clock.lap("ASSEMBLE")
-    return batch, frame_faces, plane.counters(), plane
+    return batch, frame_faces, plane.counters(), plane, topology
 
 
-def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
+def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built:
     table = chain_station_table(prepared, budget)
     spans = source_chain_by_span(prepared)
     clock.lap("STATIONS")
@@ -491,9 +518,9 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
     lines: list[str] = []
     notes: list[str] = []
     try:
-        batch, frame_faces, lift_counters, lift = _assemble(
+        batch, frame_faces, lift_counters, lift, topology = _assemble(
             prepared, coverage, request, admission, budget, clock,
-            (items, table, lines, notes),
+            (items, table, lines, notes), law,
         )
     except MaterializationRefusal as refusal:
         # Отказ поздней стадии несёт числа ранних: сколько граней пришло и куда
@@ -517,6 +544,7 @@ def _build(prepared, coverage, request, admission, budget, clock) -> _Built:
         len(notes),
         lift_counters,
         lift,
+        topology,
     )
 
 
@@ -529,6 +557,7 @@ def materialize_domain(
     near_planar_lift_law: NearPlanarLiftLawV1 = (
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
+    decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -538,8 +567,19 @@ def materialize_domain(
     транзакции `MATERIALIZE` домена. `near_planar_lift_law` — на что кладётся
     near-planar домен: по умолчанию на сертифицированную плоскость (поведение
     не менялось), `SOURCE_TRIANGLES_V1` — на треугольники источника.
+    `decal_topology_law` — из каких граней собирается сетка: по умолчанию
+    только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
     """
 
+    result = _materialize_domain(
+        prepared, coverage, request, work_budget, near_planar_lift_law, decal_topology_law
+    )
+    return replace(result, decal_topology_law=decal_topology_law)
+
+
+def _materialize_domain(
+    prepared, coverage, request, work_budget, near_planar_lift_law, law
+) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
     admission = admit_domain(prepared, coverage, request, near_planar_lift_law)
@@ -560,7 +600,7 @@ def materialize_domain(
         else exact_work_budget(stage="MATERIALIZE", domain_id=domain_id)
     )
     try:
-        built = _build(prepared, coverage, request, admission, budget, clock)
+        built = _build(prepared, coverage, request, admission, budget, clock, law)
     except MaterializationRefusal as refusal:
         return _refused(
             refusal.outcome,

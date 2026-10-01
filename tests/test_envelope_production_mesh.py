@@ -975,7 +975,7 @@ def test_soft_findings_of_a_written_domain_are_warnings_and_the_domain_stays():
         (0, writer.OUTCOME_SOURCE_NORMAL_UNKNOWN),
         (1, writer.OUTCOME_FLIPPED_VS_SOURCE),
     ]
-    assert "3 triangles" in arrays.warnings[1][2]
+    assert "3 faces" in arrays.warnings[1][2]
 
 
 def test_the_status_and_console_come_from_the_receipt_so_adapter_skips_are_visible(
@@ -1056,3 +1056,66 @@ def test_the_report_level_is_a_warning_for_any_missing_domain_or_finding(fake_bp
         material_name="M",
     )
     assert not finding_only.skipped and receipt_report_level(finding_only) == "WARNING"
+
+
+# --------------------------------------------------------------------------
+# Закон топологии: грани разной длины в одном меше
+# --------------------------------------------------------------------------
+
+QUAD_THEN_TRIANGLE = (("a", "b", "c", "d"), ("a", "c", "b"))
+
+
+def test_a_quad_and_a_triangle_are_written_as_loops_of_their_own_length():
+    domain = _fake_domain(0, SQUARE, QUAD_THEN_TRIANGLE, seams=(("a", "c"),))
+
+    arrays = build_mesh_arrays([domain], 0.0)
+
+    assert arrays.faces == ((0, 1, 2, 3), (0, 2, 1))
+    assert len(arrays.uvs) == 4 + 3 == sum(len(loop) for loop in arrays.faces)
+    assert arrays.face_domain == (0, 0) and len(arrays.face_owner) == 2
+    assert arrays.seam_edges == ((0, 2),)
+
+
+def test_the_quads_of_a_field_domain_are_four_loops_and_the_fans_stay_triangles(
+    fake_bpy, field_result
+):
+    source = _source(fake_bpy)
+
+    receipt = write_decal_object(source, [field_result], offset=0.0, material_name="M")
+
+    mesh = fake_bpy.data.objects.get(receipt.object_name).data
+    sizes = [len(item.vertices) for item in mesh.polygons]
+    assert set(sizes) == {3, 4}
+    assert receipt.quads == sizes.count(4) > 0 and receipt.triangles == sizes.count(3) > 0
+    assert receipt.faces == receipt.quads + receipt.triangles == len(mesh.polygons)
+    assert receipt.loops == 4 * receipt.quads + 3 * receipt.triangles == mesh.loop_count
+    assert receipt.decal_topology_law == "QUAD_STRIPS_V1"
+    # Грани закона совпадают с гранями батча: ни разреза, ни склейки писателем.
+    assert sizes == [len(face.ordered_vert_keys) for face in field_result.batch.faces]
+    assert receipt.seam_edges == receipt.seam_edges_requested > 0
+    assert not any(item[1] == writer.OUTCOME_SEAM_EDGE_MISSING for item in receipt.warnings)
+
+
+def test_a_triangle_law_receipt_names_its_law_and_has_no_quads(fake_bpy):
+    from dataclasses import replace
+
+    domain = replace(
+        _fake_domain(0, SQUARE, TWO_TRIANGLES), decal_topology_law="TRIANGLES_V1"
+    )
+    source = _source(fake_bpy)
+
+    receipt = write_decal_object(source, [domain], offset=0.0, material_name="M")
+
+    assert receipt.decal_topology_law == "TRIANGLES_V1"
+    assert (receipt.quads, receipt.triangles, receipt.faces) == (0, 2, 2)
+
+
+def test_domains_under_two_laws_are_named_together_in_the_receipt():
+    from dataclasses import replace
+
+    quads = replace(_fake_domain(0, SQUARE, QUAD_THEN_TRIANGLE), decal_topology_law="QUAD_STRIPS_V1")
+    triangles = replace(_fake_domain(1, SQUARE, TWO_TRIANGLES), decal_topology_law="TRIANGLES_V1")
+
+    arrays = build_mesh_arrays([quads, triangles], 0.0)
+
+    assert arrays.decal_topology_law == "QUAD_STRIPS_V1,TRIANGLES_V1"

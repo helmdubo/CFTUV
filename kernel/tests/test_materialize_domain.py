@@ -573,9 +573,9 @@ def test_diagnostics_are_recorded_after_every_point_is_lifted():
                 1,
             )
 
-        def lift(self, point):
+        def lift_named(self, point):
             self.lifted += 1
-            return self._inner.lift(point)
+            return self._inner.lift_named(point)
 
     plane = CountingPlane()
     seen = []

@@ -610,20 +610,30 @@ class BoundSurfaceLiftV1:
         return self.lift_in(triangle, values)
 
     def lift(self, point) -> LocalPoint3V1:
+        return self.lift_named(point)[0]
+
+    def lift_named(self, point):
+        """`(позиция, (имя найденного треугольника, нормаль смещения | None))`.
+
+        Нахождение ОДНО на точку, счётчики не растут. Нормаль смещения есть у домена
+        развёртки (своя на вершину) и нужна закону топологии: смещённая по разным
+        нормалям грань уже не плоская, как бы ни лежали её вершины до смещения.
+        """
+
         triangle, values = self.locate(point)
         x, y, z = self.lift_in(triangle, values)
         lifted = LocalPoint3V1(
             sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
         )
+        normal = None
         if triangle.normals:
             divisor = float(triangle.twice_area)
             weights = tuple(
                 sqrt_sum_binary64(values[index]) / divisor for index in (1, 2, 0)
             )
-            self._normal_by_position[(lifted.x, lifted.y, lifted.z)] = blend(
-                weights, triangle.normals
-            )
-        return lifted
+            normal = blend(weights, triangle.normals)
+            self._normal_by_position[(lifted.x, lifted.y, lifted.z)] = normal
+        return lifted, (triangle.name, normal)
 
     @property
     def has_offset_normals(self) -> bool:
