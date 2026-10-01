@@ -197,6 +197,9 @@ class EnvelopeDebugSessionController:
             tuple[str, str, frozenset[int], tuple[str, ...]], object
         ] = {}
         self._queue_session: QueueSessionStateV1 | None = None
+        # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
+        # считается в них): живут и чистятся вместе с кэшем подготовок.
+        self._preparation_blobs = None
         self._build_counts: dict[str, int] = {
             "ANALYSIS_BUNDLE": 0,
             "TOPOLOGY_EXPORT": 0,
@@ -220,6 +223,29 @@ class EnvelopeDebugSessionController:
     def queue_session(self) -> QueueSessionStateV1 | None:
         return self._queue_session
 
+    @property
+    def preparation_blobs(self):
+        if self._preparation_blobs is None:
+            from .envelope_queue_pool import PreparationBlobsV1
+
+            self._preparation_blobs = PreparationBlobsV1()
+        return self._preparation_blobs
+
+    def slider_coverage_pool(self, workers: int, profile):
+        """Пул покрытия для ползунка alpha либо `None`: тогда считает родитель.
+
+        Пул берётся только живой, уже поднятый кнопкой на ЭТО число воркеров:
+        старт воркеров посреди перетаскивания стоил бы секунд.
+        """
+
+        from .envelope_domain_pool import peek_domain_pool
+        from .envelope_queue_pool import SliderCoveragePool
+
+        pool = peek_domain_pool(workers)
+        if pool is None:
+            return None
+        return SliderCoveragePool(pool, self.preparation_blobs, profile)
+
     def clear(self) -> None:
         self._source_state_by_object.clear()
         self._analysis_bundle_cache.clear()
@@ -228,6 +254,8 @@ class EnvelopeDebugSessionController:
         self._domain_geometry_cache.clear()
         self._compiled_envelope_cache.clear()
         self._conveyor_preparation_cache.clear()
+        if self._preparation_blobs is not None:
+            self._preparation_blobs.clear()
         self._queue_session = None
         self._invalidation_count += 1
 
@@ -535,23 +563,25 @@ class EnvelopeDebugSessionController:
             envelope_request_policy_signature(request),
         )
 
-    def has_conveyor_preparation(
+    def peek_conveyor_preparation(
         self,
         source_revision_value: str,
         patch_domain_id: str,
         selected_edge_ids: frozenset[int],
         request,
-    ) -> bool:
-        """Есть ли подготовка в кэше. Счётчиков не пишет: это вопрос, не сборка."""
+    ):
+        """Подготовка из кэша либо `None`. Счётчиков не пишет: это вопрос.
 
-        return (
+        Попадание записывает `get_conveyor_preparation` — когда домен принят.
+        """
+
+        return self._conveyor_preparation_cache.get(
             self._preparation_key(
                 source_revision_value,
                 patch_domain_id,
                 selected_edge_ids,
                 request,
             )
-            in self._conveyor_preparation_cache
         )
 
     def get_conveyor_preparation(
@@ -685,8 +715,8 @@ class EnvelopeDebugSessionController:
                 profile=profile,
             )
 
-        def preparation_cached(domain_id, selected_edges, request):
-            return self.has_conveyor_preparation(
+        def cached_preparation(domain_id, selected_edges, request):
+            return self.peek_conveyor_preparation(
                 revision, domain_id, selected_edges, request
             )
 
@@ -717,7 +747,8 @@ class EnvelopeDebugSessionController:
             domain_snapshot_provider=snapshot_provider,
             preparation_provider=preparation_provider,
             domain_pool=get_domain_pool(workers),
-            preparation_cached=preparation_cached,
+            cached_preparation=cached_preparation,
+            preparation_blobs=self.preparation_blobs,
             preparation_adopter=preparation_adopter,
             export_provider=hooks.export_provider,
             export_adopter=hooks.export_adopter,

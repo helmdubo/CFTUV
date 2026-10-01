@@ -54,6 +54,7 @@ from cftuv.envelope_domain_pool import (  # noqa: E402
     write_frame,
 )
 from cftuv.envelope_queue_export import (  # noqa: E402
+    POOL_COVERAGE_DISPATCHED,
     POOL_DISPATCHED,
     POOL_TASK_FALLBACK,
     POOL_UNAVAILABLE,
@@ -81,6 +82,7 @@ POOL_NAMES = (
     POOL_TASK_FALLBACK,
     POOL_WORKERS,
     POOL_DISPATCHED,
+    POOL_COVERAGE_DISPATCHED,
 )
 
 
@@ -659,7 +661,9 @@ def test_a_pooled_domain_is_priced_like_a_sequential_one_on_a_warm_worker():
         assert result.queue_domain.host_counters == local_domain.host_counters
 
 
-def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache():
+def test_real_workers_reproduce_the_sequential_run_and_warm_the_session_cache(
+    _pool_never,
+):
     bundle = quad_row_bundle(ROW, lifted_corner=0.05)
     expected, expected_profile, sequential = _session_run(bundle, workers=0)
 
@@ -887,7 +891,7 @@ def _timing_free_domain(domain):
 
 
 def test_real_workers_export_the_snapshots_and_the_session_stays_identical(
-    monkeypatch,
+    monkeypatch, _pool_never
 ):
     """Родитель не выгружает ничего, а всё, что он отдаёт дальше, прежнее.
 
@@ -1180,3 +1184,625 @@ def test_shutdown_stops_every_worker_process():
     shutdown_domain_pool()
 
     assert all(p.poll() is not None for p in processes)
+
+
+# --------------------------------------------------------------------------
+# 6. Покрытие кэшированных подготовок в воркерах (WARM-COVERAGE-PARALLEL)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _pool_always(monkeypatch):
+    """Малая партия остаётся в родителе (порог); тесту нужен именно пул."""
+
+    from cftuv import envelope_queue_pool
+
+    monkeypatch.setattr(envelope_queue_pool, "COVERAGE_POOL_MIN_BYTES", 0)
+
+
+@pytest.fixture
+def _pool_never(monkeypatch):
+    """Порог выше любой партии теста: покрытие остаётся в родителе."""
+
+    from cftuv import envelope_queue_pool
+
+    monkeypatch.setattr(envelope_queue_pool, "COVERAGE_POOL_MIN_BYTES", 10**9)
+
+
+def _coverage_task(task_id, weight):
+    from cftuv.envelope_queue_pool import CoverageInputV1
+
+    return DomainTaskV1(
+        task_id,
+        task_id,
+        f"d{task_id}",
+        None,
+        None,
+        "0.25",
+        frozenset(),
+        coverage=CoverageInputV1(b"x" * weight, False),
+    )
+
+
+def test_coverage_tasks_are_ranked_by_what_their_blob_costs_to_cover():
+    from cftuv.envelope_domain_pool import COVERAGE_FRAME_COST_DIVISOR
+
+    snapshot = DomainTaskV1(0, 0, "d0", "x" * 3000, None, "0.25", frozenset())
+    big_blob = _coverage_task(1, 3000 * COVERAGE_FRAME_COST_DIVISOR * 2)
+    small_blob = _coverage_task(2, 3000)
+
+    ordered = order_by_cost([small_blob, snapshot, big_blob])
+
+    # Пикл вдвое «дороже» снапшота после приведения идёт первым, пикл тех же
+    # 3 КБ — после снапшота: покрытие за байт стоит меньше решения.
+    assert [task.task_id for task, _ in ordered] == [1, 0, 2]
+
+
+def test_a_preparation_is_pickled_once_and_the_blob_cache_dies_with_the_session():
+    bundle = quad_row_bundle(ROW)
+    _, _, controller = _session_run(bundle, workers=0)
+    prepared = next(iter(controller._conveyor_preparation_cache.values()))
+    blobs = controller.preparation_blobs
+
+    first = blobs.blob_of(prepared)
+
+    assert blobs.blob_of(prepared) is first and len(blobs) == 1
+    assert pickle.loads(first).outcome == prepared.outcome
+    controller.clear()
+    assert len(blobs) == 0
+
+
+def test_a_shipped_coverage_equals_the_parents_for_both_memory_modes():
+    """Покрытие воркера == покрытие родителя: запись домена, счётчики, без секунд.
+
+    Домен полевой, с иррациональными длинами: факторизация настоящая, и режим
+    памяти (кнопка сбрасывает её, ползунок нет) не должен менять ответ.
+    """
+
+    from cftuv.envelope_queue_export import cover_prepared
+    from cftuv.envelope_queue_pool import CoverageInputV1
+
+    task = _field_task()
+    prepared, _ = run_queue_domain(
+        task.patch_id, task.domain_id, task.snapshot, task.request, "0.25"
+    )
+    blob = pickle.dumps(prepared, protocol=5)
+    for alpha in ("0.25", "0.4"):
+        expected = cover_prepared(task.patch_id, task.domain_id, prepared, alpha)
+        for reset in (True, False):
+            shipped = pickle.loads(
+                pickle.dumps(
+                    solve_task(
+                        DomainTaskV1(
+                            1,
+                            task.patch_id,
+                            task.domain_id,
+                            None,
+                            None,
+                            alpha,
+                            frozenset(),
+                            coverage=CoverageInputV1(blob, reset),
+                        )
+                    ),
+                    5,
+                )
+            )
+            assert shipped.ok, shipped.error
+            assert shipped.prepared is None
+            assert shipped.queue_domain.preparation is None
+            assert _timing_free_domain(shipped.queue_domain) == (
+                _timing_free_domain(expected)
+            )
+            assert shipped.queue_domain.counters == expected.counters
+            assert shipped.queue_domain.host_counters == expected.host_counters
+
+
+def _warm_pair(bundle, *, workers=2, alpha=0.4):
+    """Две сессии: пуловая и последовательная, обе холодные, затем тёплая кнопка."""
+
+    cold, cold_profile, pooled = _session_run(bundle, workers=workers)
+    cold_ref, cold_ref_profile, sequential = _session_run(bundle, workers=0)
+    assert _fingerprint(cold, cold_profile) == _fingerprint(
+        cold_ref, cold_ref_profile
+    )
+    return pooled, sequential
+
+
+def test_real_workers_cover_cached_preparations_and_the_warm_press_is_identical(
+    _pool_always,
+):
+    bundle = quad_row_bundle(ROW, lifted_corner=0.05)
+    pooled, sequential = _warm_pair(bundle)
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    # Воркеры считали покрытие четырёх точных доменов (пятый отказал на
+    # метрике), подготовок не строили и пул не заводил заново.
+    assert _counter(warm_profile, POOL_WORKERS) == 2
+    assert _counter(warm_profile, POOL_DISPATCHED) == ROW - 1
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW - 1
+    assert _counter(warm_profile, POOL_TASK_FALLBACK) == 0
+    assert _counter(warm_profile, POOL_UNAVAILABLE) == 0
+    assert POOL_WALL_STAGE in warm_profile.snapshot().stage_totals
+    assert _fingerprint(warm, warm_profile) == _fingerprint(
+        reference, reference_profile
+    )
+    # Кэши, их счётчики и счёт сборок — как у последовательного прогона: ровно
+    # одно попадание подготовки на домен, ни одной новой сборки.
+    assert _session_state(pooled) == _session_state(sequential)
+    hits = [
+        item
+        for item in warm_profile.snapshot().counters
+        if item.name == "CONVEYOR_PREPARATION_CACHE_HIT" and item.value == 1
+    ]
+    assert len(hits) == ROW - 1
+    # Подготовка в записи — тот самый объект кэша, а не копия воркера.
+    cache = list(pooled._conveyor_preparation_cache.values())
+    assert all(
+        any(item.preparation is cached for cached in cache)
+        for item in warm.queue_domains
+    )
+
+
+def test_a_mixed_batch_sends_whole_domains_and_coverages_in_one_run(_pool_always):
+    """Домен без подготовки в кэше идёт целиком, остальные — покрытием, разом."""
+
+    bundle = quad_row_bundle(ROW)
+    pooled, sequential = _warm_pair(bundle)
+    victim = sorted(pooled._conveyor_preparation_cache, key=repr)[2]
+    del pooled._conveyor_preparation_cache[victim]
+    del sequential._conveyor_preparation_cache[victim]
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    assert _counter(warm_profile, POOL_DISPATCHED) == ROW
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW - 1
+    assert _counter(warm_profile, POOL_TASK_FALLBACK) == 0
+    assert _fingerprint(warm, warm_profile) == _fingerprint(
+        reference, reference_profile
+    )
+    assert pooled.build_counts["CONVEYOR_PREPARATION"] == ROW + 1
+    assert _session_state(pooled) == _session_state(sequential)
+
+
+def test_a_small_batch_stays_in_the_parent_and_the_pool_is_not_asked(
+    _pool_never,
+):
+    bundle = quad_row_bundle(ROW)
+    pooled, sequential = _warm_pair(bundle)
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    assert _counter(warm_profile, POOL_DISPATCHED) == 0
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == 0
+    assert POOL_WALL_STAGE not in warm_profile.snapshot().stage_totals
+    assert _fingerprint(warm, warm_profile) == _fingerprint(
+        reference, reference_profile
+    )
+
+
+@pytest.mark.parametrize("injection", ("fail", "drop"))
+def test_a_failed_coverage_task_is_named_and_covered_in_the_parent(
+    injection, monkeypatch, capsys, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    pooled, sequential = _warm_pair(bundle)
+    victim_task = 1
+    _in_process_session(
+        monkeypatch, _InProcessPool(**{injection: (victim_task,)})
+    )
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    victim = warm.domains[victim_task]
+    assert _counter(warm_profile, POOL_TASK_FALLBACK) == 1
+    assert _counter(warm_profile, POOL_DISPATCHED) == ROW
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW
+    notices = [
+        item
+        for item in victim.diagnostics
+        if item.outcome == POOL_TASK_FALLBACK
+    ]
+    assert len(notices) == 1
+    assert notices[0].patch_domain_id == victim.patch_domain_id
+    assert "recomputed sequentially" in notices[0].message
+    assert (
+        "InjectedTaskFailure: boom" in notices[0].message
+        if injection == "fail"
+        else "every worker died" in notices[0].message
+    )
+    console = capsys.readouterr().out
+    assert POOL_TASK_FALLBACK in console
+    assert victim.patch_domain_id[-3:] in console
+    assert _fingerprint(
+        warm, warm_profile, skip_scene_of=(victim.patch_domain_id,)
+    ) == _fingerprint(
+        reference, reference_profile, skip_scene_of=(victim.patch_domain_id,)
+    )
+    assert victim.queue is not None and victim.queue.is_exact
+    assert _session_state(pooled) == _session_state(sequential)
+
+
+def test_a_worker_killed_during_a_warm_press_costs_one_domain_and_heals(
+    _pool_always,
+):
+    """Настоящий труп: воркер умер до задачи, домен досчитан в родителе.
+
+    Последовательные прогоны-эталоны закрывают общий пул (0 воркеров — это его
+    выключатель), поэтому сначала идут оба пуловых нажатия, потом эталоны.
+    """
+
+    bundle = quad_row_bundle(ROW)
+    _, _, sequential = _session_run(bundle, workers=0)
+    shutdown_domain_pool()
+    _, _, pooled = _session_run(bundle, workers=2)
+    pool = pool_module._POOL
+    assert pool is not None and pool.worker_count == 2
+    pool._workers[0].process.kill()
+    pool._workers[0].process.wait()
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    survivors = pool.worker_count
+    healed, healed_profile, _ = _session_run(
+        bundle, 0.3, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+    healed_reference, healed_reference_profile, _ = _session_run(
+        bundle, 0.3, workers=0, controller=sequential
+    )
+
+    assert survivors == 1
+    assert _counter(warm_profile, POOL_TASK_FALLBACK) == 1
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == ROW
+    fallen = [
+        item
+        for item in warm.domains
+        if any(note.outcome == POOL_TASK_FALLBACK for note in item.diagnostics)
+    ]
+    assert len(fallen) == 1
+    assert "worker died" in " ".join(
+        note.message for note in fallen[0].diagnostics
+    )
+    skip = (fallen[0].patch_domain_id,)
+    assert _fingerprint(
+        warm, warm_profile, skip_scene_of=skip
+    ) == _fingerprint(reference, reference_profile, skip_scene_of=skip)
+    # Следующее нажатие воскрешает воркера, и все задачи доходят до воркеров.
+    assert _counter(healed_profile, POOL_TASK_FALLBACK) == 0
+    assert _counter(healed_profile, POOL_WORKERS) == 2
+    assert _fingerprint(healed, healed_profile) == _fingerprint(
+        healed_reference, healed_reference_profile
+    )
+    assert _session_state(pooled) == _session_state(sequential)
+
+
+def test_an_unavailable_pool_covers_in_the_parent_and_names_the_first_domain(
+    monkeypatch, capsys, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    pooled, sequential = _warm_pair(bundle)
+    _in_process_session(
+        monkeypatch, DomainPool(2, python_executable="C:/nowhere/python.exe")
+    )
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    first = warm.domains[0]
+    assert _counter(warm_profile, POOL_UNAVAILABLE) == 1
+    assert _counter(warm_profile, POOL_DISPATCHED) == 0
+    assert _counter(warm_profile, POOL_COVERAGE_DISPATCHED) == 0
+    notices = [
+        item for item in warm.diagnostics if item.outcome == POOL_UNAVAILABLE
+    ]
+    assert [item.patch_domain_id for item in notices] == [first.patch_domain_id]
+    assert POOL_UNAVAILABLE in capsys.readouterr().out
+    assert _fingerprint(
+        warm, warm_profile, skip_scene_of=(first.patch_domain_id,)
+    ) == _fingerprint(
+        reference, reference_profile, skip_scene_of=(first.patch_domain_id,)
+    )
+    assert _session_state(pooled) == _session_state(sequential)
+
+
+def test_a_preparation_that_cannot_be_shipped_is_a_named_fallback(
+    monkeypatch, capsys, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    pooled, sequential = _warm_pair(bundle)
+    _in_process_session(monkeypatch, _InProcessPool())
+    victim_prepared = list(pooled._conveyor_preparation_cache.values())[2]
+    blobs = pooled.preparation_blobs
+    original = blobs.blob_of
+
+    def refusing(prepared):
+        if prepared is victim_prepared:
+            raise TypeError("cannot pickle 'mpf' object")
+        return original(prepared)
+
+    monkeypatch.setattr(blobs, "blob_of", refusing)
+
+    warm, warm_profile, _ = _session_run(
+        bundle, 0.4, workers=2, controller=pooled
+    )
+    reference, reference_profile, _ = _session_run(
+        bundle, 0.4, workers=0, controller=sequential
+    )
+
+    fallen = [
+        item
+        for item in warm.domains
+        if any(note.outcome == POOL_TASK_FALLBACK for note in item.diagnostics)
+    ]
+    assert len(fallen) == 1
+    message = " ".join(note.message for note in fallen[0].diagnostics)
+    assert "cannot be shipped" in message and "cannot pickle" in message
+    assert _counter(warm_profile, POOL_TASK_FALLBACK) == 1
+    # Не дошла до воркера: ни отправленной, ни покрытой им.
+    assert _counter(warm_profile, POOL_DISPATCHED) == ROW - 1
+    assert POOL_TASK_FALLBACK in capsys.readouterr().out
+    skip = (fallen[0].patch_domain_id,)
+    assert _fingerprint(
+        warm, warm_profile, skip_scene_of=skip
+    ) == _fingerprint(reference, reference_profile, skip_scene_of=skip)
+
+
+def _slider_entries(bundle, controller_workers=0):
+    from cftuv.envelope_debug_session import remember_queue_session
+
+    evaluation, _, controller = _session_run(bundle, workers=controller_workers)
+    remember_queue_session(
+        controller,
+        "row",
+        evaluation.topology_scene,
+        evaluation.exact_debug_scenes,
+        evaluation,
+        density=None,
+    )
+    return controller, controller.queue_session.entries
+
+
+def _timing_free_scene(scene):
+    payload = queue_scene_payload(scene)
+    for domain in payload["domains"]:
+        for key in (
+            "prepare_seconds",
+            "coverage_seconds",
+            "contour_seconds",
+            "timings",
+        ):
+            domain.pop(key)
+    return payload
+
+
+def test_the_slider_covers_in_real_workers_and_the_scene_is_identical(
+    _pool_always,
+):
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+
+    controller, entries = _slider_entries(quad_row_bundle(ROW))
+    pool = get_domain_pool(2)
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+    slider = pool_module.peek_domain_pool(2)
+    assert slider is None  # пула ещё нет: ползунок его не заводит
+    assert controller.slider_coverage_pool(2, profile) is None
+    pool.ensure_started()
+    coverage_pool = controller.slider_coverage_pool(2, profile)
+    assert coverage_pool is not None
+    for alpha in ("0.4", "0.3", "0.4"):
+        pooled = recompute_queue_coverage(
+            entries, alpha, coverage_pool=coverage_pool
+        )
+        reference = recompute_queue_coverage(entries, alpha)
+        assert _timing_free_scene(pooled) == _timing_free_scene(reference)
+        assert all(
+            item.preparation is prepared
+            for item, (_, _, prepared) in zip(pooled.domains, entries)
+        )
+    snapshot = profile.snapshot()
+    assert _counter(profile, POOL_COVERAGE_DISPATCHED) == ROW
+    assert _counter(profile, POOL_TASK_FALLBACK) == 0
+    text = queue_timing_text(pooled, snapshot)
+    assert "pool wall" in text and "on 2 workers" in text
+    # Пиклы сняты один раз на подготовку, а не на каждый шаг ползунка.
+    assert len(controller.preparation_blobs) == ROW
+
+
+def test_a_small_slider_batch_never_leaves_the_parent(_pool_never):
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+
+    controller, entries = _slider_entries(quad_row_bundle(ROW))
+    pool = get_domain_pool(2)
+    pool.ensure_started()
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+    coverage_pool = controller.slider_coverage_pool(2, profile)
+
+    scene = recompute_queue_coverage(entries, "0.4", coverage_pool=coverage_pool)
+
+    assert _timing_free_scene(scene) == _timing_free_scene(
+        recompute_queue_coverage(entries, "0.4")
+    )
+    assert _counter(profile, POOL_WORKERS) is None
+    assert POOL_WALL_STAGE not in profile.snapshot().stage_totals
+    assert queue_timing_text(scene, profile.snapshot()) == queue_timing_text(scene)
+
+
+@pytest.mark.parametrize("injection", ("fail", "drop"))
+def test_a_failed_slider_task_is_named_counted_and_covered_in_the_parent(
+    injection, monkeypatch, capsys, _pool_always
+):
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+    from cftuv.envelope_queue_pool import SliderCoveragePool
+
+    controller, entries = _slider_entries(quad_row_bundle(ROW))
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+    coverage_pool = SliderCoveragePool(
+        _InProcessPool(**{injection: (2,)}), controller.preparation_blobs, profile
+    )
+
+    scene = recompute_queue_coverage(entries, "0.4", coverage_pool=coverage_pool)
+
+    assert _timing_free_scene(scene) == _timing_free_scene(
+        recompute_queue_coverage(entries, "0.4")
+    )
+    assert _counter(profile, POOL_TASK_FALLBACK) == 1
+    assert _counter(profile, POOL_DISPATCHED) == ROW
+    assert _counter(profile, POOL_COVERAGE_DISPATCHED) == ROW
+    assert POOL_TASK_FALLBACK in capsys.readouterr().out
+    text = queue_timing_text(scene, profile.snapshot())
+    assert "pool fallback on 1 domains" in text
+
+
+def test_the_slider_names_an_unavailable_pool_and_stays_sequential(capsys):
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+    from cftuv.envelope_queue_pool import SliderCoveragePool
+    from cftuv import envelope_queue_pool
+
+    controller, entries = _slider_entries(quad_row_bundle(ROW))
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+    coverage_pool = SliderCoveragePool(
+        DomainPool(2, python_executable="C:/nowhere/python.exe"),
+        controller.preparation_blobs,
+        profile,
+    )
+    original = envelope_queue_pool.COVERAGE_POOL_MIN_BYTES
+    envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    try:
+        scene = recompute_queue_coverage(
+            entries, "0.4", coverage_pool=coverage_pool
+        )
+    finally:
+        envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
+
+    assert _timing_free_scene(scene) == _timing_free_scene(
+        recompute_queue_coverage(entries, "0.4")
+    )
+    assert _counter(profile, POOL_UNAVAILABLE) == 1
+    assert _counter(profile, POOL_DISPATCHED) == 0
+    assert POOL_UNAVAILABLE in capsys.readouterr().out
+    assert "pool unavailable" in queue_timing_text(scene, profile.snapshot())
+
+
+def test_the_slider_never_starts_a_pool_and_ignores_a_dead_or_resized_one():
+    shutdown_domain_pool()
+    assert pool_module.peek_domain_pool(2) is None
+    pool = get_domain_pool(2)
+    assert pool_module.peek_domain_pool(2) is None  # заведён, но не запущен
+    pool.ensure_started()
+    assert pool_module.peek_domain_pool(2) is pool
+    assert pool_module.peek_domain_pool(3) is None
+    assert pool_module.peek_domain_pool(0) is None
+    for worker in pool._workers:
+        worker.process.kill()
+        worker.process.wait()
+        worker.dead = True
+    assert pool_module.peek_domain_pool(2) is None
+    shutdown_domain_pool()
+
+
+def test_a_pooled_coverage_does_not_charge_the_parents_budget():
+    """Названное расхождение: бюджет подготовки в родителе от покрытия воркера не растёт.
+
+    В последовательном пути `conveyor_coverage` тратит из того же `work_budget`,
+    что и подготовка, и подготовка из кэша копит расход от шага к шагу. Воркер
+    считает на копии: ответ тот же, а счёт родителя остаётся на подготовке.
+    Исчерпать потолок (2^23 единиц) так можно только тысячами холодных покрытий
+    одного домена, поэтому на ответ это не влияет; тест держит само различие
+    видимым, чтобы его не «починили» молча в одну из сторон.
+    """
+
+    from cftuv_envelope import exact_sqrt_sum
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+    from cftuv.envelope_queue_pool import PreparationBlobsV1, SliderCoveragePool
+
+    task = _field_task()
+    prepared, _ = run_queue_domain(
+        task.patch_id, task.domain_id, task.snapshot, task.request, "0.25"
+    )
+    entries = [(task.patch_id, task.domain_id, prepared)]
+    start = prepared.work_budget.spent
+
+    exact_sqrt_sum.reset_factorization_memory()
+    recompute_queue_coverage(entries, "0.4")
+    charged = prepared.work_budget.spent
+    assert charged > start, (start, charged)  # контроль: покрытие тратит
+
+    import cftuv.envelope_queue_pool as queue_pool
+
+    original = queue_pool.COVERAGE_POOL_MIN_BYTES
+    queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    try:
+        profile = EnvelopeDebugProfileBuilderV1("field", "QUEUE")
+        pooled = SliderCoveragePool(_InProcessPool(), PreparationBlobsV1(), profile)
+        scene = recompute_queue_coverage(entries, "0.3", coverage_pool=pooled)
+    finally:
+        queue_pool.COVERAGE_POOL_MIN_BYTES = original
+
+    assert _counter(profile, POOL_COVERAGE_DISPATCHED) == 1
+    assert prepared.work_budget.spent == charged
+    assert scene.domains[0].coverage_outcome == "EXACT"
+
+
+def test_a_slider_preparation_that_cannot_be_shipped_is_named_in_a_small_batch(
+    monkeypatch, capsys, _pool_never
+):
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+    from cftuv.envelope_queue_pool import SliderCoveragePool
+
+    controller, entries = _slider_entries(quad_row_bundle(ROW))
+    blobs = controller.preparation_blobs
+    victim = entries[1][2]
+    original = blobs.blob_of
+
+    def refusing(prepared):
+        if prepared is victim:
+            raise TypeError("cannot pickle 'mpf' object")
+        return original(prepared)
+
+    monkeypatch.setattr(blobs, "blob_of", refusing)
+    profile = EnvelopeDebugProfileBuilderV1("row", "QUEUE")
+
+    scene = recompute_queue_coverage(
+        entries,
+        "0.4",
+        coverage_pool=SliderCoveragePool(_InProcessPool(), blobs, profile),
+    )
+
+    assert _timing_free_scene(scene) == _timing_free_scene(
+        recompute_queue_coverage(entries, "0.4")
+    )
+    assert _counter(profile, POOL_TASK_FALLBACK) == 1
+    assert _counter(profile, POOL_DISPATCHED) == 0
+    out = capsys.readouterr().out
+    assert POOL_TASK_FALLBACK in out and "cannot be shipped" in out
+    assert "pool fallback on 1 domains" in queue_timing_text(
+        scene, profile.snapshot()
+    )

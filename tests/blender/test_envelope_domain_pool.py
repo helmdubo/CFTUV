@@ -7,7 +7,12 @@
    интерпретатора Blender) считают домен тем же `run_queue_domain`;
 2. пул действительно работал, а не молча уступил последовательному пути:
    счётчики `ENVELOPE_DOMAIN_POOL_*` лежат в профиле кнопки, задач отправлено
-   столько, сколько доменов, и ни одна не упала.
+   столько, сколько доменов, и ни одна не упала;
+3. ТЁПЛАЯ кнопка и ползунок alpha, чьё покрытие кэшированных подготовок идёт в
+   воркерах (WARM-COVERAGE-PARALLEL), дают тот же sidecar, что и в родителе, а
+   пул назван счётчиком `ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED` и хвостом
+   строки панели. Порог малой партии на время проверки снят: двухпатчевый шов
+   стоил бы пулу больше, чем самому покрытию.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -46,6 +51,7 @@ POOL_COUNTERS = (
     "ENVELOPE_DOMAIN_POOL_DISPATCHED",
     "ENVELOPE_DOMAIN_POOL_TASK_FALLBACK",
     "ENVELOPE_DOMAIN_POOL_UNAVAILABLE",
+    "ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED",
 )
 _MS = re.compile(r"\d+(?:\.\d+)? ms")
 
@@ -138,6 +144,65 @@ def _build(workers):
     )
 
 
+def _warm_and_slide(workers):
+    """Холодная кнопка, тёплая кнопка, два шага ползунка: ответ каждого шага."""
+
+    from cftuv import envelope_queue_pool
+
+    cold = _build(workers)
+    source_obj = bpy.data.objects["EnvelopeTwoPatch"]
+    settings = _settings()
+    original = envelope_queue_pool.COVERAGE_POOL_MIN_BYTES
+    envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    try:
+        assert (
+            bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+            == {"FINISHED"}
+        )
+        warm = (
+            _timing_free(_sidecar_payload(source_obj)),
+            _pool_counters(),
+            settings.envelope_debug_queue_timing,
+        )
+        slides = []
+        for alpha in (0.4, 0.3):
+            settings.envelope_debug_alpha = alpha
+            slides.append(
+                (
+                    _timing_free(_sidecar_payload(source_obj)),
+                    settings.envelope_debug_queue_timing,
+                )
+            )
+    finally:
+        envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
+    return cold, warm, slides
+
+
+def _check_warm_and_slide(domains):
+    sequential_cold, sequential_warm, sequential_slides = _warm_and_slide(0)
+    assert sequential_warm[1] == {}, sequential_warm[1]
+    assert "pool" not in sequential_warm[2], sequential_warm[2]
+    for _, text in sequential_slides:
+        assert "pool" not in text, text
+
+    pooled_cold, pooled_warm, pooled_slides = _warm_and_slide(2)
+    difference = _first_difference(pooled_warm[0], sequential_warm[0])
+    assert difference is None, difference
+    counters = pooled_warm[1]
+    assert counters["ENVELOPE_DOMAIN_POOL_COVERAGE_DISPATCHED"] == domains
+    assert counters["ENVELOPE_DOMAIN_POOL_DISPATCHED"] == domains
+    assert counters["ENVELOPE_DOMAIN_POOL_WORKERS"] == 2, counters
+    assert counters["ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"] == 0
+    assert counters["ENVELOPE_DOMAIN_POOL_UNAVAILABLE"] == 0
+    assert "pool wall" in pooled_warm[2] and "2 workers" in pooled_warm[2]
+    for (payload, text), (reference, _) in zip(pooled_slides, sequential_slides):
+        difference = _first_difference(payload, reference)
+        assert difference is None, difference
+        assert "pool wall" in text and "2 workers" in text, text
+    print("pooled warm timing:", pooled_warm[2])
+    print("pooled slider timing:", pooled_slides[-1][1])
+
+
 def _main():
     import cftuv
 
@@ -183,6 +248,8 @@ def _main():
     assert pooled_counters["ENVELOPE_DOMAIN_POOL_UNAVAILABLE"] == 0
     assert "pool wall" in pooled_timing and "2 workers" in pooled_timing
     print("pooled timing:", pooled_timing)
+
+    _check_warm_and_slide(len(domains))
 
     # Вернуть последовательный режим: воркеры остановлены, а не оставлены.
     from cftuv import envelope_domain_pool
