@@ -406,6 +406,33 @@ def test_a_non_affine_uv_makes_the_strip_ear_clipped_and_named(raw):
     assert not tally[POLYGON_FACES_EMITTED] and not tally[POLYGON_FACES_CONCAVE_EMITTED]
 
 
+@pytest.mark.parametrize("flow_key", (None, "flow:u0"))
+def test_a_non_affine_convex_quad_stays_whole_only_in_a_flow(flow_key):
+    """`QUAD_UV_BILINEAR_V1` — закон ПОТОКА: вне потока неаффинное четырёхгранье режется, как раньше."""
+
+    points = _points(((0, 0), (4, 0), (5, 3), (-1, 3)))
+    frame, cycle = _frame(points)
+    frame.flow_key = flow_key
+    clean = _uv(cycle)
+
+    def bent(face, key):
+        s, r = clean(face, key)
+        return (s + SqrtSumV1.rational(Fraction(1)), r) if key == "k3" else (s, r)
+
+    tally = Counter()
+    polygons = tessellate_faces(
+        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, bent
+    )[0]
+    if flow_key is None:
+        assert [len(item) for item in polygons] == [3, 3]
+        assert tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
+        assert not tally[QUADS_UV_BILINEAR]
+    else:
+        assert [len(item) for item in polygons] == [4]
+        assert tally[QUADS_UV_BILINEAR] == 1
+        assert not tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE]
+
+
 @pytest.mark.parametrize("raw", (SELF_CROSSING, PENTAGRAM))
 def test_a_self_crossing_contour_is_never_emitted_whole_even_with_no_right_turn(raw):
     """Сплошные левые повороты не доказывают простоту: пентаграмма раньше шла целой гранью."""

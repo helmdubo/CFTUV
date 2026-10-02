@@ -593,13 +593,15 @@ def _bilinear_quad(points, keys, budget, uv_of, unit, tally):
     return ring
 
 
-def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1):
+def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1, in_flow=False):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
     плоскости контур от четырёх вершин — одна грань любой длины, если он прост и его
     UV аффинен (`_plane_ring`); строго выпуклое четырёхгранье с билинейной UV — тоже
-    одна грань, под своим именем (`_bilinear_quad`). На укладке на треугольники
+    одна грань, под своим именем (`_bilinear_quad`), но ТОЛЬКО у полосы потока
+    (`in_flow`, `FrameFaceV1.flow_key`): только там её рождает закон перекладины JOIN, а
+    неаффинное четырёхгранье вне потока режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
     источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
     решает `settle_topology`), контур длиннее — треугольники и
     `CURVED_STRIP_FACES_TRIANGULATED`.
@@ -612,7 +614,12 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
     if len(points) > 3:
         if exact_plane:
             ring, named = _plane_ring(points, keys, budget, uv_of)
-            if ring is None and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE and len(points) == 4:
+            if (
+                in_flow
+                and ring is None
+                and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE
+                and len(points) == 4
+            ):
                 ring = _bilinear_quad(points, keys, budget, uv_of, unit, tally)
                 named = named if ring is None else QUADS_UV_BILINEAR
         else:
@@ -690,6 +697,7 @@ def _polygon_law_faces(
                     tally,
                     lambda key, frame_face=frame_face: uv_values(frame_face, key),
                     unit,
+                    getattr(frame_face, "flow_key", None) is not None,
                 )
             )
         result.append(tuple(polygons))

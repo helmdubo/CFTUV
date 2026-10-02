@@ -81,6 +81,10 @@ class FrameFaceV1:
     physical_edge_ids: frozenset[str]
     chain_use_ids: frozenset[str]
     chain_ids: frozenset[str]
+    #: Ключ ПОТОКА (`stations.flow_of_run`) у полосы, чей пробег лежит в потоке из двух
+    #: и более `ChainUse` (`CORNER_JOIN_SOFT_BEND_V1`); иначе `None`. Только у такой
+    #: полосы четырёхгранье может нести билинейную UV (`QUAD_UV_BILINEAR_V1`).
+    flow_key: str | None = None
 
     @property
     def is_fan(self) -> bool:
@@ -167,6 +171,7 @@ def resolve_frame(
             physical_edge_ids=frozenset(edge.physical_edge_id for edge in edges),
             chain_use_ids=frozenset(edge.chain_use_id for edge in edges),
             chain_ids=frozenset(edge.chain_id for edge in edges),
+            flow_key=flow,
         )
     run, edge, corner = _fan_frame(table, region_id, face, source_keys)
     incident = [
