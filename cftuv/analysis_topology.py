@@ -74,6 +74,34 @@ def _coerce_face_indices(bm, faces_or_indices):
     return ordered
 
 
+ZERO_LENGTH_EDGE = 'ZERO_LENGTH_EDGE'
+
+
+def find_zero_length_edges(bm, face_indices):
+    """Ребра граней, у которых концы лежат в ОДНОЙ точке: `(edge, vert_a, vert_b)`.
+
+    Порядок — по возрастанию ребра, концы — по возрастанию индекса вершины:
+    результат не зависит от того, как BMesh хранит концы ребра.
+
+    Сравнение — точное равенство координат (`tuple`, не `Vector ==`: тот
+    допускает ulp). «Короче шага решётки» — другой класс, его шаг известен только
+    ядру после выбора закона решётки. Ничего не чинит: слияние вершин — дело
+    владельца (`Merge by Distance`), а не молчаливая правка источника.
+    """
+
+    seen = set()
+    found = []
+    for face_index in _coerce_face_indices(bm, face_indices):
+        for edge in bm.faces[face_index].edges:
+            if edge.index in seen:
+                continue
+            seen.add(edge.index)
+            first, second = edge.verts
+            if tuple(first.co) == tuple(second.co):
+                found.append((edge.index, *sorted((first.index, second.index))))
+    return tuple(sorted(found))
+
+
 def validate_solver_input_mesh(bm, face_indices, area_epsilon=1e-10):
     """Validate mesh topology before entering the solve pipeline."""
 
@@ -118,6 +146,16 @@ def validate_solver_input_mesh(bm, face_indices, area_epsilon=1e-10):
                     vert_indices=signature,
                 )
             )
+
+    for edge_index, vert_a, vert_b in find_zero_length_edges(bm, checked_face_indices):
+        report.issues.append(
+            MeshPreflightIssue(
+                code=ZERO_LENGTH_EDGE,
+                message=f'Edge {edge_index} has zero length: vertices {vert_a} and {vert_b} coincide',
+                edge_indices=(edge_index,),
+                vert_indices=(vert_a, vert_b),
+            )
+        )
 
     visited_edges = set()
     for face_index in checked_face_indices:
@@ -253,6 +291,18 @@ def _flood_fill_patches(bm, face_indices):
         patches.append(patch)
 
     return patches
+
+
+def faces_of_patches_touching_edges(bm, edge_indices):
+    """Грани всех патчей (разбиение по швам), у которых есть грань при одном из рёбер."""
+
+    bm.edges.ensure_lookup_table()
+    seeds = {face.index for index in edge_indices for face in bm.edges[index].link_faces}
+    faces = []
+    for patch in _flood_fill_patches(bm, [face.index for face in bm.faces]):
+        if seeds.intersection(patch):
+            faces.extend(patch)
+    return tuple(sorted(faces))
 
 
 

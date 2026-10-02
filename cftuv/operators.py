@@ -39,6 +39,7 @@ from .debug import (
 from .envelope_debug_panel import draw_envelope_debug_box
 from .envelope_domain_pool import DEFAULT_POOL_WORKERS
 from .envelope_request_policy import DEFAULT_ENVELOPE_FAN_DENSITY, ENVELOPE_FAN_DENSITY_ITEMS
+from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .model import MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -1412,10 +1413,7 @@ class _EnvelopeDebugBuildBase:
             self.report({"ERROR"}, "Select a mesh object")
             return {"CANCELLED"}
 
-        from .envelope_debug_profile import (
-            EnvelopeDebugProfileBuilderV1,
-            EnvelopeDomainStage,
-        )
+        from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1, EnvelopeDomainStage
         from .envelope_debug_renderer import (
             clear_envelope_debug,
             render_envelope_topology_debug_scene,
@@ -1424,10 +1422,7 @@ class _EnvelopeDebugBuildBase:
         )
 
         previous_source = str(settings.envelope_debug_source_object).strip()
-        for source_name in {
-            previous_source,
-            source_obj.name,
-        }:
+        for source_name in {previous_source, source_obj.name}:
             if source_name:
                 clear_envelope_debug(source_name)
         settings.envelope_debug_source_object = source_obj.name
@@ -1443,12 +1438,16 @@ class _EnvelopeDebugBuildBase:
         selected_edge_indices = _capture_selected_physical_edges(source_bm)
         if not selected_edge_indices:
             outcome = "ENVELOPE_DEBUG_EMPTY_SELECTION"
-            settings.envelope_debug_status = (
-                "Failed: select a whole PhysicalChain"
-            )
+            settings.envelope_debug_status = "Failed: select a whole PhysicalChain"
             settings.envelope_debug_outcome = outcome
             self.report({"WARNING"}, outcome)
             return {"CANCELLED"}
+
+        refusal = zero_length_edge_refusal(source_bm, selected_edge_indices) if self.exact_reference else None
+        if refusal is not None:
+            settings.envelope_debug_status = f"Failed: {refusal.message}"
+            settings.envelope_debug_outcome = refusal.outcome
+            return reject_source(self, context, source_obj, source_bm, refusal)
 
         profile = EnvelopeDebugProfileBuilderV1(
             source_obj.name,
