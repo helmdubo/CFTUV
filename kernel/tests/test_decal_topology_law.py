@@ -31,7 +31,12 @@ from cftuv_envelope.materialize.assemble import settle_topology, tessellate_face
 from cftuv_envelope.materialize.audit import audit_batch
 from cftuv_envelope.materialize.frames import MaterializationRefusal
 from cftuv_envelope.materialize.domain import materialize_domain
-from cftuv_envelope.materialize.source_lift import QUAD_OFF_PLANE, _deviation
+from cftuv_envelope.materialize.source_lift import (
+    FACES_OFF_PLANE,
+    FACES_TRIANGULATED_AFTER_LIFT,
+    TRIANGLES_FLIPPED_BY_LIFT,
+    off_plane_distance,
+)
 from cftuv_envelope.materialize.tessellate import (
     convex_quad_ring,
     fan_out,
@@ -592,7 +597,9 @@ def _both_laws_unlifted(name):
 LAW_COUNTERS = frozenset(
     (
         "MATERIALIZE_FACES_EMITTED",
-        "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
+        FACES_OFF_PLANE,
+        FACES_TRIANGULATED_AFTER_LIFT,
+        TRIANGLES_FLIPPED_BY_LIFT,
         "MATERIALIZE_QUADS",
         "MATERIALIZE_QUADS_REFUSED_NOT_CONVEX",
         "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
@@ -697,26 +704,35 @@ def test_no_quad_of_the_law_is_non_planar(name):
 
     _triangles, quads = _both_laws_unlifted(name)
     assert_every_quad_is_planar(quads.batch)
-    assert dict(quads.counters)[QUAD_OFF_PLANE] == 0
+    assert dict(quads.counters)[FACES_OFF_PLANE] == 0
 
 
 @pytest.mark.parametrize("name", ALL_NAMES)
 def test_the_lifted_quads_are_planar_within_the_recorded_deviation(name):
-    """С законом позиций хоста четырёхгранье плоское в пределах числа, которое закон записал."""
+    """С законом позиций хоста четырёхгранье плоское в пределах числа, которое закон записал.
+
+    Число — наибольший уход подвинутой вершины от плоскости её грани ДО сдвига; «до» — позиции
+    того же домена без закона положения (точный подъём), «после» — с ним.
+    """
 
     _triangles, quads = _both_laws(name)
-    position = {item.vert_key: item.position for item in quads.batch.vertices}
-    recorded = dict(quads.counters)[QUAD_OFF_PLANE] * 1e-9
+    _plain_triangles, plain = _both_laws_unlifted(name)
+    before = {item.vert_key: item.position for item in plain.batch.vertices}
+    after = {item.vert_key: item.position for item in quads.batch.vertices}
+    recorded = dict(quads.counters)[FACES_OFF_PLANE] * 1e-9
     measured = max(
         (
-            _deviation(tuple(position[key] for key in face.ordered_vert_keys))
+            off_plane_distance(
+                tuple(before[key] for key in face.ordered_vert_keys),
+                tuple(after[key] for key in face.ordered_vert_keys),
+            )
             for face in quads.batch.faces
             if len(face.ordered_vert_keys) == 4
         ),
         default=0.0,
     )
     # Записано наибольшее отклонение четырёхгранников с подвинутой вершиной, остальные — точно плоские.
-    assert measured <= recorded + 1e-9, (name, measured, recorded)
+    assert measured == pytest.approx(recorded, abs=1e-9), (name, measured, recorded)
 
 
 def assert_every_quad_is_planar(batch, tolerance=1e-12):

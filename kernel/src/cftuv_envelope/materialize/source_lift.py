@@ -28,21 +28,37 @@
   до подъёма (знак скалярного произведения векторов площади); перевернувшийся треугольник
   возвращает свои вершины на узлы (`SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION`, счёт), и
   проверка идёт до неподвижной точки (откат вершины меняет соседние треугольники).
-  КАНОНИЧЕСКИЙ треугольник — треугольник закона `TRIANGLES_V1` (`tessellate.fan_out`: грань
-  закона четырёхгранья даёт ровно прежние два): позиции вершин не вправе зависеть от закона
-  топологии (семантический дайджест у законов один), поэтому проверка идёт по тому разбиению,
-  которое у всех законов общее, а не по граням, которые закон выпустил.
+  КАНОНИЧЕСКИЙ треугольник — треугольник закона `TRIANGLES_V1` СЛИТОЙ грани (уши
+  `tessellate.triangulate_exact` её контура — ровно то, что закон выпускает). Позиции вершин не
+  вправе зависеть от закона топологии (семантический дайджест у законов один), поэтому проверка
+  идёт по этому разбиению у ВСЕХ законов, а не по граням, которые выпустил закон: веер из первой
+  вершины невыпуклого многоугольника — не триангуляция (ложные развороты, молчаливая потеря
+  сварки), а части слитого пробега под `PLANAR_POLYGONS_V1` — не разбиение слитой грани.
+  Закон принимает канонические треугольники готовыми (`lift_source_vertices`), собирает их
+  `materialize.domain`.
 
 ПЛОСКОСТЬ. Вершина исходника лежит на плоскости домена не точно: плоскость проходит через
 позиции, привязанные к решётке источника домена, а хостовая позиция — не привязана, то есть
 лежит в стороне до половины ячейки по каждой оси. Решение: вершина вправе сойти с носителя
-подъёма на величину бюджета, но четырёхгранье перестаёт быть ТОЧНО плоским — оно плоское с
-точностью до одной ячейки источника. Это записано, а не спрятано: наибольшее отклонение
-четырёхгранников с подвинутой вершиной (расстояние вершины от плоскости трёх остальных)
-идёт счётчиком в нанометрах (`MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES`; он считает ГРАНИ, поэтому, как все счётчики
-граней, зависит от закона топологии и у `TRIANGLES_V1` нуль). Хост ставит смещение декали
-вдоль нормали вершины (митра общих вершин), и отклонение от плоскости остаётся порядка той же
-ячейки.
+подъёма на величину бюджета, но грань от четырёх вершин перестаёт быть ТОЧНО плоской — она
+плоская с точностью до порядка ячейки источника, а её аффинная UV-карта перестаёт быть ТОЧНО
+аффинной по положению в 3D (`PLANAR_AFFINE_UV_POLYGON_V1` доказана на карте, а не на подвинутых
+позициях). ЭТО ОГРАНИЧЕНИЕ ЗАКОНОВ `QUAD_STRIPS_V1` И `PLANAR_POLYGONS_V1`, оно записано, а не
+спрятано: наибольшее расстояние подвинутой вершины грани от плоскости ЭТОЙ ГРАНИ ДО сдвига
+(`off_plane_distance`: нормаль — вектор площади грани до сдвига, поэтому мера не раздувается у
+тонких граней, как расстояние «от плоскости остальных вершин», и не больше сдвига вершины, то
+есть бюджета) идёт счётчиком в нанометрах (`MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES`; он
+считает ГРАНИ, поэтому, как все счётчики граней, зависит от закона топологии и у `TRIANGLES_V1`
+нуль). Хост ставит смещение декали вдоль нормали вершины (митра общих вершин), и отклонение от
+плоскости остаётся порядка той же ячейки.
+
+ГРАНЬ ПОСЛЕ СДВИГА (`settle_emitted_faces`). Выпущенная грань от четырёх вершин с подвинутой
+вершиной обязана остаться простой и ориентированной: каждое ухо её точной триангуляции (по
+точкам карты) сохраняет ориентацию 3D в binary64. Иначе ЭТА грань режется на свои уши под
+именем (`MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT`); сварка не откатывается: позиции
+те же, что у `TRIANGLES_V1`. Выпущенный треугольник, у которого ориентация всё же потеряна (его
+нет среди канонических: часть слитого пробега), назван счётом
+`MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT`, а не молчит.
 
 Без хостовой позиции, отличной от подъёма (синтетика с точными координатами), закон — нуль
 действий: ни позиция, ни батч, ни дайджест не меняются, и диагностика не пишется.
@@ -55,7 +71,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from ..numeric import LocalPoint3V1
-from .tessellate import fan_out
+from .tessellate import triangulate_exact
 
 SOURCE_VERTEX_LIFT_LAW = "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"
 
@@ -71,7 +87,10 @@ DISPLACED = "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE"
 UNAVAILABLE = "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE"
 ORIENTATION_KEPT = "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION"
 
-QUAD_OFF_PLANE = "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES"
+#: Счётчики ГРАНЕЙ после сдвига: зависят от закона топологии, как все счётчики граней.
+FACES_OFF_PLANE = "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES"
+FACES_TRIANGULATED_AFTER_LIFT = "MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT"
+TRIANGLES_FLIPPED_BY_LIFT = "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT"
 NANOMETRES_PER_METRE = 10**9
 
 _PREFIX = "src:"
@@ -99,8 +118,6 @@ class SourceLiftV1:
     max_lifted_displacement: float
     #: Бюджет в метрах (ячейка источника × число ячеек), либо `None`.
     budget: float | None
-    #: Наибольшее отклонение от плоскости у четырёхгранников с подвинутой вершиной, метры.
-    max_quad_deviation: float
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
@@ -108,7 +125,6 @@ class SourceLiftV1:
             (DISPLACED, self.displaced),
             (UNAVAILABLE, self.unavailable),
             (ORIENTATION_KEPT, self.kept_for_orientation),
-            (QUAD_OFF_PLANE, round(self.max_quad_deviation * NANOMETRES_PER_METRE)),
         )
 
     def lifted_note(self) -> str:
@@ -147,8 +163,8 @@ def _distance_squared(first, second) -> Fraction:
     )
 
 
-def _fan_area(points):
-    """Вектор удвоенной площади контура: веер из первой вершины (как в аудите сетки)."""
+def _area_vector(points):
+    """Вектор удвоенной площади контура (веер из первой вершины; для треугольника — его векторное произведение)."""
 
     first = points[0]
     total = (0.0, 0.0, 0.0)
@@ -168,22 +184,29 @@ def _dot(left, right) -> float:
     return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 
 
-def _deviation(points) -> float:
-    """Наибольшее расстояние вершины четырёхгранья от плоскости трёх остальных (порядок не важен)."""
+def off_plane_distance(before, after) -> float:
+    """Наибольшее расстояние ПОДВИНУТОЙ вершины грани от плоскости этой грани до сдвига, метры.
 
+    `before` и `after` — позиции вершин одной грани (одной длины, один порядок) до и после
+    сдвига. Плоскость — через первую вершину до сдвига с нормалью вектора площади ВСЕЙ грани
+    до сдвига (веер из первой вершины; грань плоская по построению подъёма, и нормаль
+    берётся по всем её вершинам). Мера не зависит от того, сколько у грани вершин, не раздувается
+    у тонкой грани (плоскость «остальных вершин» у неё плохо обусловлена) и не больше самого
+    сдвига вершины, то есть бюджета. Неподвинутые вершины не считаются; грань нулевой площади
+    до сдвига ничего не меряет.
+    """
+
+    normal = _area_vector(before)
+    length = math.sqrt(_dot(normal, normal))
+    if not length:
+        return 0.0
+    origin = before[0]
     worst = 0.0
-    for skipped in range(len(points)):
-        a, b, c, *_rest = (point for index, point in enumerate(points) if index != skipped)
-        normal = (
-            (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y),
-            (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z),
-            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x),
-        )
-        length = math.sqrt(_dot(normal, normal))
-        if not length:
+    for old, new in zip(before, after, strict=True):
+        if old == new:
             continue
-        away = points[skipped]
-        worst = max(worst, abs(_dot((away.x - a.x, away.y - a.y, away.z - a.z), normal)) / length)
+        away = (new.x - origin.x, new.y - origin.y, new.z - origin.z)
+        worst = max(worst, abs(_dot(away, normal)) / length)
     return worst
 
 
@@ -194,20 +217,20 @@ def _flipped_contours(contours, before, proposed, moved):
     for index, keys in contours:
         if not any(key in moved for key in keys):
             continue
-        after = _fan_area(tuple(proposed[key] for key in keys))
+        after = _area_vector(tuple(proposed[key] for key in keys))
         if not _dot(before[index], after) > 0.0:
             found.append(index)
     return found
 
 
-def lift_source_vertices(positions, polygons, host_positions, step) -> SourceLiftV1:
+def lift_source_vertices(positions, triangles, host_positions, step) -> SourceLiftV1:
     """Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` над подъёмом домена.
 
-    `positions` — `{ключ: LocalPoint3V1}` подъёма узлов (`lift_vertices`); `polygons` — грани
-    сетки домена по ключам вершин (после тесселяции и закона топологии: треугольники,
-    четырёхгранья, любой длины от трёх); `host_positions` — `{SourceVertexId.value: позиция}`
-    вершин исходника из снапшота; `step` — ячейка источника домена (метры, `Fraction`) либо
-    `None`, если решётки нет.
+    `positions` — `{ключ: LocalPoint3V1}` подъёма узлов (`lift_vertices`); `triangles` —
+    КАНОНИЧЕСКИЕ треугольники домена по ключам вершин: треугольники закона `TRIANGLES_V1`
+    слитых граней (см. модульный докстринг), одни и те же при любом законе топологии;
+    `host_positions` — `{SourceVertexId.value: позиция}` вершин исходника из снапшота;
+    `step` — ячейка источника домена (метры, `Fraction`) либо `None`, если решётки нет.
     """
 
     names = tuple(key for key in positions if key.startswith(_PREFIX))
@@ -228,13 +251,10 @@ def lift_source_vertices(positions, polygons, host_positions, step) -> SourceLif
             displaced += 1
             if worst is None or squared > worst[1]:
                 worst = (key, squared)
-    contours = tuple(
-        enumerate(
-            triangle for polygon in polygons for triangle in fan_out(tuple(polygon))
-        )
-    )
+    contours = tuple(enumerate(tuple(triangle) for triangle in triangles))
     before = {
-        index: _fan_area(tuple(positions[key] for key in keys)) for index, keys in contours
+        index: _area_vector(tuple(positions[key] for key in keys))
+        for index, keys in contours
     }
     kept = 0
     while allowed:
@@ -251,14 +271,6 @@ def lift_source_vertices(positions, polygons, host_positions, step) -> SourceLif
             del allowed[key]
     final = {**positions, **allowed}
     changed = {key for key, host in allowed.items() if positions[key] != host}
-    deviation = max(
-        (
-            _deviation(tuple(final[key] for key in polygon))
-            for polygon in polygons
-            if len(polygon) == 4 and any(key in changed for key in polygon)
-        ),
-        default=0.0,
-    )
     biggest = max(
         (_distance_squared(positions[key], allowed[key]) for key in changed),
         default=Fraction(0),
@@ -276,8 +288,117 @@ def lift_source_vertices(positions, polygons, host_positions, step) -> SourceLif
         ),
         max_lifted_displacement=math.sqrt(float(biggest)),
         budget=None if budget is None else float(budget),
-        max_quad_deviation=deviation,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFacesV1:
+    """Итог проверки ВЫПУЩЕННЫХ граней после сдвига вершин `src:` (числа зависят от закона топологии)."""
+
+    #: Наибольшее отклонение от плоскости у граней от четырёх вершин с подвинутой вершиной, метры.
+    max_off_plane: float
+    #: Грани от четырёх вершин, разрезанные на свои уши: ухо потеряло ориентацию.
+    triangulated: int
+    #: Выпущенные треугольники с подвинутой вершиной, потерявшие ориентацию.
+    flipped_triangles: int
+
+    def counters(self) -> tuple[tuple[str, int], ...]:
+        return (
+            (FACES_OFF_PLANE, round(self.max_off_plane * NANOMETRES_PER_METRE)),
+            (FACES_TRIANGULATED_AFTER_LIFT, self.triangulated),
+            (TRIANGLES_FLIPPED_BY_LIFT, self.flipped_triangles),
+        )
+
+
+def _ears_of(polygon, chart_of, budget):
+    """Уши выпущенной грани по индексам её цикла: точные, против часовой на карте.
+
+    Возвращает `(уши, против_часовой)`. У треугольника ухо одно — он сам. Точная триангуляция
+    (`triangulate_exact`) у выпущенной грани есть по построению (простота доказана законом);
+    если её всё же нет, берётся веер из первой вершины (уши в порядке цикла, не против
+    часовой), и это не молчаливо: такая грань режется (`settle_emitted_faces`).
+    """
+
+    if len(polygon) == 3:
+        return ((0, 1, 2),), True
+    ears = triangulate_exact([chart_of[key] for key in polygon], budget)
+    if ears is None:
+        return tuple((0, index, index + 1) for index in range(1, len(polygon) - 1)), False
+    return ears, True
+
+
+def settle_emitted_faces(polygons, before, sourced, chart_of, budget, reverse):
+    """`(грани, SourceFacesV1)`: выпущенные грани после сдвига вершин `src:`.
+
+    `polygons` — грани закона топологии по слитым граням (кортежи по ключам вершин);
+    `before` — позиции подъёма до закона, `sourced` — итог `lift_source_vertices`;
+    `chart_of` — `{ключ: точка карты}` (точная, `SqrtSumV1`); `reverse` — обход граней
+    закона обратный (как у `tessellate_faces`).
+
+    Грань от четырёх вершин с подвинутой вершиной остаётся целой, если КАЖДОЕ ухо её точной
+    триангуляции сохранило ориентацию 3D (знак скалярного произведения векторов площади до и
+    после, binary64): уши, не перевернувшись, покрывают контур без складок, то есть он остался
+    простым. Иначе грань режется на свои уши (`FACES_TRIANGULATED_AFTER_LIFT`); сварка не
+    откатывается. У остальных граней с подвинутой вершиной считается уход подвинутой вершины
+    от плоскости грани до сдвига (`off_plane_distance`, наибольший — в счёт): «плоскость в
+    записанных пределах», а не «плоскость точно». Треугольник, потерявший ориентацию, назван и посчитан
+    (`TRIANGLES_FLIPPED_BY_LIFT`): среди канонических он не мог оказаться, а у части слитого
+    пробега закона `PLANAR_POLYGONS_V1` — может.
+    """
+
+    final = sourced.positions
+    changed = {key for key, position in final.items() if position != before[key]}
+    if not changed:
+        return polygons, SourceFacesV1(0.0, 0, 0)
+
+    def area(source, keys):
+        return _area_vector(tuple(source[key] for key in keys))
+
+    worst = 0.0
+    cut = flipped = 0
+    settled = []
+    for face_polygons in polygons:
+        kept = []
+        for polygon in face_polygons:
+            if not any(key in changed for key in polygon):
+                kept.append(polygon)
+                continue
+            ears, exact = _ears_of(polygon, chart_of, budget)
+            lost = sum(
+                1
+                for ear in ears
+                if not _dot(
+                    area(before, [polygon[index] for index in ear]),
+                    area(final, [polygon[index] for index in ear]),
+                )
+                > 0.0
+            )
+            if len(polygon) == 3:
+                flipped += lost
+                kept.append(polygon)
+            elif lost or not exact:
+                cut += 1
+                flipped += lost
+                # Уши точной триангуляции идут против часовой на карте, грань закона — так же
+                # либо (при `reverse`) обратно; уши веера уже в порядке цикла грани.
+                swap = reverse and exact
+                kept.extend(
+                    (polygon[a], polygon[c], polygon[b])
+                    if swap
+                    else (polygon[a], polygon[b], polygon[c])
+                    for a, b, c in ears
+                )
+            else:
+                kept.append(polygon)
+                worst = max(
+                    worst,
+                    off_plane_distance(
+                        tuple(before[key] for key in polygon),
+                        tuple(final[key] for key in polygon),
+                    ),
+                )
+        settled.append(tuple(kept))
+    return settled, SourceFacesV1(worst, cut, flipped)
 
 
 def host_positions_of(snapshot) -> dict:

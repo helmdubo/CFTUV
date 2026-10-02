@@ -76,6 +76,7 @@ from .audit import audit_batch
 from .assemble import (
     Layout,
     assemble_batch,
+    canonical_triangles,
     intern_vertices,
     lift_vertices,
     settle_topology,
@@ -88,7 +89,13 @@ from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
-from .source_lift import host_positions_of, lift_source_vertices, rebind_offset_normals, source_step_of
+from .source_lift import (
+    host_positions_of,
+    lift_source_vertices,
+    rebind_offset_normals,
+    settle_emitted_faces,
+    source_step_of,
+)
 from .stations import chain_station_table, source_chain_by_span
 from .uv_law import UV_DIRECT_STRIP_V1
 
@@ -518,13 +525,28 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     polygons, topology = settle_topology(
         frame_faces, cycles, polygons, names, law, tally
     )
+    # Позиции не вправе зависеть от закона: ориентация сверяется по каноническим
+    # треугольникам `TRIANGLES_V1` слитых граней (`source_lift`), а не по выпущенным.
+    canonical = (
+        polygons
+        if law is DecalTopologyLawV1.TRIANGLES_V1
+        else canonical_triangles(frame_faces, cycles, budget, chart_cw)
+    )
     sourced = lift_source_vertices(
         positions,
-        [polygon for face in polygons for polygon in face],
+        [triangle for face in canonical for triangle in face],
         host_positions_of(prepared.context.snapshot),
         source_step_of(prepared.context.frame),
     )
     rebind_offset_normals(plane, positions, sourced)
+    polygons, faces_after = settle_emitted_faces(
+        polygons,
+        positions,
+        sourced,
+        {key: point for cycle in cycles for key, point in cycle},
+        budget,
+        chart_cw,
+    )
     positions = sourced.positions
     batch = assemble_batch(
         frame_faces=frame_faces,
@@ -563,7 +585,13 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         ),
     )
     clock.lap("ASSEMBLE")
-    return batch, frame_faces, (*plane.counters(), *sourced.counters()), plane, topology
+    return (
+        batch,
+        frame_faces,
+        (*plane.counters(), *sourced.counters(), *faces_after.counters()),
+        plane,
+        topology,
+    )
 
 
 def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built:

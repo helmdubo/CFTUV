@@ -118,7 +118,9 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
     "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
     "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE",
-    "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
+    "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
+    "MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT",
+    "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).

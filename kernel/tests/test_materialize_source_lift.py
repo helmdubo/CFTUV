@@ -14,18 +14,26 @@ from fractions import Fraction
 import pytest
 
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.ids import PolicyId
 from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.source_lift import (
     DISPLACED,
+    FACES_OFF_PLANE,
+    FACES_TRIANGULATED_AFTER_LIFT,
     LIFTED,
     ORIENTATION_KEPT,
-    QUAD_OFF_PLANE,
     SOURCE_VERTEX_LIFT_BUDGET_CELLS,
+    TRIANGLES_FLIPPED_BY_LIFT,
     UNAVAILABLE,
     lift_source_vertices,
+    off_plane_distance,
+    settle_emitted_faces,
+    source_step_of,
 )
+from cftuv_envelope.materialize.tessellate import triangulate_exact
+from cftuv_envelope.wavefront.faces import doubled_shoelace
 from cftuv_envelope.numeric import LocalPoint3V1
 from cftuv_envelope.outcomes import NamedOutcome
 
@@ -165,26 +173,55 @@ def _area_z(a, b, c):
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 
 
-def test_a_quad_with_a_lifted_vertex_reports_its_off_plane_deviation():
-    positions = {
-        "node:0": _point(0.0),
-        "node:1": _point(1.0),
-        "node:2": _point(1.0, 1.0),
-        "src:q": _point(0.0, 1.0),
+def _chart(raw):
+    """Точные точки карты `{ключ: (SqrtSumV1, SqrtSumV1)}` из `{ключ: (x, y)}`."""
+
+    return {
+        key: (SqrtSumV1.rational(Fraction(x)), SqrtSumV1.rational(Fraction(y)))
+        for key, (x, y) in raw.items()
     }
-    host = {"q": _point(0.0, 1.0, 0.0125)}
-    quad = ("node:0", "node:1", "node:2", "src:q")
-
-    result = lift_source_vertices(positions, [quad], host, STEP)
-
-    assert result.lifted == 1
-    assert result.max_quad_deviation == pytest.approx(0.0125)
-    assert dict(result.counters())[QUAD_OFF_PLANE] == round(result.max_quad_deviation * 10**9)
-    assert dict(result.counters())[QUAD_OFF_PLANE] > 0
 
 
-def test_the_positions_do_not_depend_on_the_topology_law():
-    """Четырёхгранье и его два канонических треугольника дают ОДНИ позиции."""
+def _chart_sign(points):
+    return doubled_shoelace(tuple(points)).sign(budget=factories.budget())
+
+
+def _canonical_ears(raw):
+    """Канонические треугольники закона `TRIANGLES_V1` контура: точные уши по ключам."""
+
+    keys = tuple(raw)
+    chart = _chart(raw)
+    ears = triangulate_exact([chart[key] for key in keys], factories.budget())
+    return tuple(tuple(keys[index] for index in ear) for ear in ears)
+
+
+def test_a_fan_from_the_first_vertex_is_not_a_triangulation_the_exact_ears_are():
+    """Прямая вершина на ребре многоугольника: веер из первой вершины даёт треугольник нулевой
+    площади, и любая её подвижка выглядела «разворотом» (молчаливая потеря сварки). Точные уши
+    такого треугольника не имеют: вершина ложится в позицию хоста."""
+
+    raw = {
+        "node:0": (0, 0),
+        "src:1": (2, 0),
+        "node:2": (4, 0),
+        "node:3": (4, 2),
+        "node:4": (0, 2),
+    }
+    positions = {key: _point(x, y) for key, (x, y) in raw.items()}
+    host = {"1": _point(2.0, 0.01, 0.002)}
+
+    keys = tuple(raw)
+    fan = [(keys[0], keys[index], keys[index + 1]) for index in range(1, len(keys) - 1)]
+    by_ears = lift_source_vertices(positions, _canonical_ears(raw), host, STEP)
+    by_fan = lift_source_vertices(positions, fan, host, STEP)
+
+    assert (by_ears.lifted, by_ears.kept_for_orientation) == (1, 0)
+    assert _bits(by_ears.positions["src:1"]) == _bits(host["1"])
+    assert (by_fan.lifted, by_fan.kept_for_orientation) == (0, 1)
+
+
+def test_the_lift_takes_canonical_triangles_so_the_positions_cannot_see_the_emitted_faces():
+    """`lift_source_vertices` не знает о гранях закона: тот же набор треугольников — те же позиции."""
 
     positions = {
         "node:0": _point(0.0),
@@ -194,15 +231,145 @@ def test_the_positions_do_not_depend_on_the_topology_law():
         "src:t": _point(0.5, 0.00001),
     }
     host = {"q": _point(0.003, 1.004), "t": _point(0.5, -0.00002)}
-    quad = ("node:0", "node:1", "node:2", "src:q")
-    triangles = (("src:q", "node:0", "node:1"), ("node:1", "node:2", "src:q"))
-    sliver = ("node:0", "node:1", "src:t")
+    triangles = (
+        ("src:q", "node:0", "node:1"),
+        ("node:1", "node:2", "src:q"),
+        ("node:0", "node:1", "src:t"),
+    )
 
-    as_quad = lift_source_vertices(positions, [quad, sliver], host, STEP)
-    as_triangles = lift_source_vertices(positions, [*triangles, sliver], host, STEP)
+    first = lift_source_vertices(positions, triangles, host, STEP)
+    again = lift_source_vertices(positions, iter(triangles), host, STEP)
 
-    assert as_quad.positions == as_triangles.positions
-    assert as_quad.kept_for_orientation == as_triangles.kept_for_orientation
+    assert first.positions == again.positions
+    assert first.kept_for_orientation == 1 and first.lifted == 1
+
+
+# --------------------------------------------------------------------------
+# Выпущенные грани после сдвига (`settle_emitted_faces`)
+# --------------------------------------------------------------------------
+
+SQUARE = {"a": (0, 0), "b": (4, 0), "c": (4, 4), "d": (0, 4)}
+L_SHAPE = {
+    "node:0": (0, 0),
+    "node:1": (4, 0),
+    "src:2": (4, 2),
+    "node:3": (2, 2),
+    "node:4": (2, 4),
+    "node:5": (0, 4),
+}
+
+
+def _settle(raw, final_overrides, polygons, *, reverse=False):
+    """`settle_emitted_faces` на синтетике: подъём — карта в плоскости `z = 0`, итог — с подменой позиций."""
+
+    before = {key: _point(x, y) for key, (x, y) in raw.items()}
+    final = {**before, **final_overrides}
+    sourced = type("Sourced", (), {"positions": final})()
+    settled, numbers = settle_emitted_faces(
+        polygons, before, sourced, _chart(raw), factories.budget(), reverse
+    )
+    return settled, numbers
+
+
+def test_off_plane_distance_is_the_exit_of_a_moved_vertex_from_the_face_plane_for_any_length():
+    quad = (_point(0.0), _point(1.0), _point(1.0, 1.0), _point(0.0, 1.0))
+    lifted = quad[:3] + (_point(0.0, 1.0, 0.0125),)
+    assert off_plane_distance(quad, lifted) == pytest.approx(0.0125)
+    # Начало цикла и обход меры не меняют.
+    assert off_plane_distance(quad[2:] + quad[:2], lifted[2:] + lifted[:2]) == pytest.approx(0.0125)
+    assert off_plane_distance(quad[::-1], lifted[::-1]) == pytest.approx(0.0125)
+    hexagon = tuple(_point(x, y) for x, y in ((0, 0), (4, 0), (6, 2), (5, 5), (1, 5), (-1, 2)))
+    assert off_plane_distance(hexagon, hexagon) == 0.0
+    moved = hexagon[:3] + (_point(5, 5, 0.01),) + hexagon[4:]
+    assert off_plane_distance(hexagon, moved) == pytest.approx(0.01)
+    # Подвижка в плоскости грани плоскость не покидает.
+    inside = hexagon[:3] + (_point(5.01, 5.02),) + hexagon[4:]
+    assert off_plane_distance(hexagon, inside) == pytest.approx(0.0, abs=1e-12)
+    # Грань нулевой площади до сдвига ничего не меряет.
+    flat = tuple(_point(i) for i in range(4))
+    assert off_plane_distance(flat, flat[:3] + (_point(3.0, 0.0, 1.0),)) == 0.0
+
+
+def test_a_thin_face_does_not_inflate_the_measure_it_is_the_move_that_is_measured():
+    """Полоса 1 м x 1 мм: плоскость «остальных вершин» у неё шумит, а уход вершины — нет."""
+
+    strip = tuple(
+        _point(x, y) for x, y in ((0, 0), (0.25, 0), (0.5, 0), (1, 0), (1, 0.001), (0, 0.001))
+    )
+    moved = strip[:3] + (_point(1, 0, 0.0001),) + strip[4:]
+    assert off_plane_distance(strip, moved) == pytest.approx(0.0001)
+
+
+def test_a_face_of_any_length_reports_its_off_plane_deviation_and_stays_whole():
+    keys = tuple(L_SHAPE)
+    settled, numbers = _settle(
+        L_SHAPE, {"src:2": _point(4.01, 2.02, 0.0125)}, [(keys,)]
+    )
+
+    assert settled == [(keys,)]
+    assert (numbers.triangulated, numbers.flipped_triangles) == (0, 0)
+    assert numbers.max_off_plane == pytest.approx(0.0125)
+    assert dict(numbers.counters())[FACES_OFF_PLANE] == round(numbers.max_off_plane * 10**9) > 0
+    assert dict(numbers.counters())[FACES_TRIANGULATED_AFTER_LIFT] == 0
+    assert dict(numbers.counters())[TRIANGLES_FLIPPED_BY_LIFT] == 0
+
+
+def test_a_face_without_a_moved_vertex_is_left_alone_and_costs_nothing():
+    keys = tuple(L_SHAPE)
+    polygons = [(keys,), (("node:0", "node:1", "src:2"),)]
+    settled, numbers = _settle(L_SHAPE, {}, polygons)
+
+    assert settled is polygons
+    assert (numbers.max_off_plane, numbers.triangulated, numbers.flipped_triangles) == (0.0, 0, 0)
+
+
+@pytest.mark.parametrize("reverse", (False, True))
+def test_a_face_whose_ear_turns_over_is_cut_into_its_ears_and_the_weld_stays(reverse):
+    """Ухо квадрата `(b, c, d)` перевёрнуто подвижкой `c`; грань режется на `n - 2` уха, позиции те же."""
+
+    keys = tuple(SQUARE) if not reverse else ("a", "d", "c", "b")
+    moved = {"c": _point(-2.0, -2.0)}
+    settled, numbers = _settle(SQUARE, moved, [(keys,)], reverse=reverse)
+
+    (triangles,) = settled
+    assert len(triangles) == 2 and all(len(item) == 3 for item in triangles)
+    assert numbers.triangulated == 1
+    assert dict(numbers.counters())[FACES_TRIANGULATED_AFTER_LIFT] == 1
+    # Обход ушей — обход грани: против часовой на карте, а при `reverse` — по часовой.
+    chart = _chart(SQUARE)
+    after = {key: _point(x, y) for key, (x, y) in SQUARE.items()} | moved
+    turned = 0
+    for triangle in triangles:
+        sign = _chart_sign(chart[key] for key in triangle)
+        assert sign == (-1 if reverse else 1), triangle
+        # Ухо, у которого знак 3D не тот, что на карте, перевёрнуто: ровно их и считает закон.
+        turned += int(_area_z(*(after[key] for key in triangle)) * sign < 0.0)
+    assert turned >= 1
+    assert numbers.flipped_triangles == turned
+    assert dict(numbers.counters())[TRIANGLES_FLIPPED_BY_LIFT] == turned
+    # Все вершины грани остались в ушах, новых нет.
+    assert {key for triangle in triangles for key in triangle} == set(keys)
+    assert numbers.max_off_plane == 0.0
+
+
+def test_an_emitted_triangle_that_loses_its_orientation_is_counted_not_silent():
+    raw = {"node:0": (0, 0), "node:1": (4, 0), "src:2": (2, 3)}
+    triangle = tuple(raw)
+    settled, numbers = _settle(raw, {"src:2": _point(2.0, -1.0)}, [(triangle,)])
+
+    assert settled == [(triangle,)]
+    assert (numbers.triangulated, numbers.flipped_triangles) == (0, 1)
+
+
+def test_a_straight_vertex_and_a_concave_corner_do_not_turn_a_whole_face_into_triangles():
+    """Невыпуклая грань с прямой вершиной и подвижкой в плоскости остаётся одной гранью."""
+
+    raw = {**L_SHAPE, "node:6": (1, 0)}
+    keys = ("node:0", "node:6", "node:1", "src:2", "node:3", "node:4", "node:5")
+    settled, numbers = _settle(raw, {"src:2": _point(4.0, 2.01)}, [(keys,)])
+
+    assert settled == [(keys,)]
+    assert numbers.triangulated == 0 and numbers.flipped_triangles == 0
 
 
 # --------------------------------------------------------------------------
@@ -290,13 +457,58 @@ def test_without_host_positions_the_batch_is_the_lattice_lift(monkeypatch):
 
 @pytest.mark.parametrize("name", CASES)
 def test_the_positions_agree_across_the_topology_laws(name):
-    _prepared, triangles = _materialize(name)
-    _prepared, quads = _materialize(name, DecalTopologyLawV1.QUAD_STRIPS_V1)
+    """Позиции (и дайджест смысла) — побитово одни у `TRIANGLES_V1`, `QUAD_STRIPS_V1` и `PLANAR_POLYGONS_V1`."""
 
-    assert triangles.batch.vertices == quads.batch.vertices
-    assert dict(triangles.counters)[LIFTED] == dict(quads.counters)[LIFTED]
-    assert dict(triangles.counters)[ORIENTATION_KEPT] == dict(quads.counters)[ORIENTATION_KEPT]
-    assert dict(triangles.counters)[QUAD_OFF_PLANE] == 0
+    prepared, triangles = _materialize(name)
+    cell = float(source_step_of(prepared.context.frame))
+    results = [
+        _materialize(name, law)[1]
+        for law in (
+            DecalTopologyLawV1.QUAD_STRIPS_V1,
+            DecalTopologyLawV1.PLANAR_POLYGONS_V1,
+        )
+    ]
+
+    own = dict(triangles.counters)
+    assert own[FACES_OFF_PLANE] == 0 and own[FACES_TRIANGULATED_AFTER_LIFT] == 0
+    assert own[TRIANGLES_FLIPPED_BY_LIFT] == 0
+    for other in results:
+        assert other.is_materialized, other.detail
+        assert triangles.batch.vertices == other.batch.vertices
+        assert triangles.batch.semantic_digest == other.batch.semantic_digest
+        assert triangles.vertex_normals == other.vertex_normals
+        counters = dict(other.counters)
+        assert own[LIFTED] == counters[LIFTED] > 0
+        assert own[ORIENTATION_KEPT] == counters[ORIENTATION_KEPT]
+        assert own[DISPLACED] == counters[DISPLACED]
+        assert counters[TRIANGLES_FLIPPED_BY_LIFT] == 0, name
+        # Грань от четырёх вершин с подвинутой вершиной — запись закона: плоскость до ячейки.
+        assert counters[FACES_OFF_PLANE] * 1e-9 <= SOURCE_VERTEX_LIFT_BUDGET_CELLS * cell, name
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_the_law_is_fed_the_same_canonical_triangles_under_every_topology_law(name, monkeypatch):
+    """Вход закона положения — канонические треугольники слитых граней, а не грани закона топологии."""
+
+    seen = {}
+    real = domain.lift_source_vertices
+
+    def spy(positions, triangles, host_positions, step):
+        triangles = [tuple(item) for item in triangles]
+        seen[current[0]] = triangles
+        return real(positions, triangles, host_positions, step)
+
+    monkeypatch.setattr(domain, "lift_source_vertices", spy)
+    current = [None]
+    for law in DecalTopologyLawV1:
+        current[0] = law
+        _materialize(name, law)
+
+    assert set(seen) == set(DecalTopologyLawV1)
+    assert all(len(item) == 3 for item in seen[DecalTopologyLawV1.TRIANGLES_V1])
+    reference = seen[DecalTopologyLawV1.TRIANGLES_V1]
+    for law, triangles in seen.items():
+        assert triangles == reference, law
 
 
 #: Дайджесты малых случаев ДО закона (`test_materialize_domain.GOLDEN` на 89a7d89): с выключенным

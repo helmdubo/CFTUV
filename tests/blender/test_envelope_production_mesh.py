@@ -608,7 +608,7 @@ def _run_a_fold_welds_the_shared_chain_into_single_vertices():
                 assert abs(z - offset) < 1e-5, (polygon.index, z)
             else:
                 assert abs(x - (1.0 - offset)) < 1e-5, (polygon.index, x)
-    _assert_faces_follow_the_quad_strip_law(mesh, require_quads=False)
+    _assert_faces_follow_the_polygon_law(mesh, require_quads=False)
 
     # Общее ребро — ребро двух граней РАЗНЫХ доменов и шов UV: дыры вдоль складки нет.
     edge = next(item for item in mesh.edges if set(item.vertices) == set(shared))

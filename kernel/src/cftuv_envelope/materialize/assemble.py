@@ -355,6 +355,19 @@ def tessellate_faces(
     return result
 
 
+def canonical_triangles(frame_faces, cycles, budget, reverse: bool):
+    """Треугольники закона `TRIANGLES_V1` СЛИТЫХ граней: `[(треугольник, ...), ...]` по ключам.
+
+    Они одни и те же при любом законе топологии (уши точных контуров слитых граней), и по
+    ним закон положения вершин `src:` (`source_lift`) сверяет ориентацию: позиции не вправе
+    зависеть от закона.
+    """
+
+    return tessellate_faces(
+        frame_faces, cycles, budget, reverse, DecalTopologyLawV1.TRIANGLES_V1
+    )
+
+
 #: Имена чисел закона `PLANAR_POLYGONS_V1` (они же ключи счётчиков материализатора).
 POLYGON_FACES_EMITTED = "MATERIALIZE_POLYGON_FACES_EMITTED"
 POLYGON_FACES_CONCAVE_EMITTED = "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED"

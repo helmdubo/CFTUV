@@ -1145,10 +1145,12 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "другое положение вершины (внутренность объявленной прямой цепи, "
             "сдвинутая вдоль хорды), и она остаётся на узле под именем "
             "SOURCE_VERTEX_DISPLACED_BY_LATTICE. Положенная вершина вправе сойти с "
-            "носителя подъёма на величину бюджета: четырёхгранья плоские с точностью "
-            "до одной ячейки, и наибольшее отклонение пишется счётчиком. Контур, "
+            "носителя подъёма на величину бюджета: грани от четырёх вершин плоские с "
+            "точностью до одной ячейки (а их UV аффинен по карте, не по подвинутым "
+            "позициям), и наибольшее отклонение пишется счётчиком. Контур, "
             "который положенная вершина перевернула бы, остаётся на узлах под именем "
-            "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION."
+            "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION; выпущенная грань с "
+            "перевернувшимся ухом режется на уши под своим счётчиком."
         ),
         authority=(
             "materialize.source_lift.SOURCE_VERTEX_LIFT_BUDGET_CELLS; закон "
@@ -1169,7 +1171,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
             "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE",
             "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
-            "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
+            "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
+            "MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT",
+            "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT",
         ),
         declaration_sites=(
             "cftuv_envelope.materialize.source_lift.SOURCE_VERTEX_LIFT_BUDGET_CELLS",

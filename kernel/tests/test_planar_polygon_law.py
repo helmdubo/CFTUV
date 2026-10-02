@@ -47,6 +47,12 @@ from cftuv_envelope.materialize.coalesce import (
 )
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.frames import MaterializationRefusal
+from cftuv_envelope.materialize.source_lift import (
+    FACES_OFF_PLANE,
+    FACES_TRIANGULATED_AFTER_LIFT,
+    TRIANGLES_FLIPPED_BY_LIFT,
+    off_plane_distance,
+)
 from cftuv_envelope.materialize.tessellate import (
     contour_is_simple,
     convex_polygon_ring,
@@ -97,6 +103,9 @@ LAW_NUMBERS = frozenset(
 FACE_COUNTERS = frozenset(
     (
         "MATERIALIZE_FACES_EMITTED",
+        FACES_OFF_PLANE,
+        FACES_TRIANGULATED_AFTER_LIFT,
+        TRIANGLES_FLIPPED_BY_LIFT,
         "MATERIALIZE_QUADS",
         "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED",
         "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
@@ -713,9 +722,21 @@ def test_the_polygon_law_never_emits_more_faces_than_the_quad_law(name):
     assert len(result.batch.faces) <= len(quads.batch.faces)
 
 
+def _polygons_law_unlifted(name):
+    """Закон многоугольников без закона `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` (позиций хоста нет)."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(domain, "host_positions_of", lambda snapshot: {})
+        return _polygons_law.__wrapped__(name)
+
+
 @pytest.mark.parametrize("name", ALL_NAMES)
 def test_no_polygon_of_the_law_is_non_planar(name):
-    batch = _polygons_law(name).batch
+    """Точная плоскость многоугольника — свойство ПОДЪЁМА: вершины на носителе. Сдвиг хоста — ниже."""
+
+    result = _polygons_law_unlifted(name)
+    assert dict(result.counters)[FACES_OFF_PLANE] == 0
+    batch = result.batch
     position = {item.vert_key: item.position for item in batch.vertices}
     for face in batch.faces:
         count = len(face.ordered_vert_keys)
@@ -747,6 +768,53 @@ def test_no_polygon_of_the_law_is_non_planar(name):
             assert distance / scale < 1e-12
 
 
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_lifted_polygons_are_planar_within_the_recorded_deviation(name):
+    """ОГРАНИЧЕНИЕ ЗАКОНА: после сдвига вершины на `<= 1` ячейку грань от четырёх вершин плоская
+    лишь в записанных пределах, а не точно; число — наибольший уход подвинутой вершины от плоскости
+    грани до сдвига, по ВСЕМ длинам граней."""
+
+    result = _polygons_law(name)
+    plain = _polygons_law_unlifted(name)
+    before = {item.vert_key: item.position for item in plain.batch.vertices}
+    after = {item.vert_key: item.position for item in result.batch.vertices}
+    recorded = dict(result.counters)[FACES_OFF_PLANE] * 1e-9
+    measured = max(
+        (
+            off_plane_distance(
+                tuple(before[key] for key in face.ordered_vert_keys),
+                tuple(after[key] for key in face.ordered_vert_keys),
+            )
+            for face in result.batch.faces
+            if len(face.ordered_vert_keys) >= 4
+        ),
+        default=0.0,
+    )
+    # Записано наибольшее отклонение граней с подвинутой вершиной; прочие плоские точно.
+    assert measured == pytest.approx(recorded, abs=1e-9), (name, measured, recorded)
+
+
+@pytest.mark.parametrize("name", ALL_NAMES)
+def test_the_positions_and_the_digest_of_meaning_agree_across_all_three_laws(name):
+    """Позиции вершин не зависят от закона топологии: ориентация сварки идёт по каноническим
+    треугольникам слитых граней, а не по веерам и частям пробегов выпущенных граней."""
+
+    triangles, quads = _both_laws(name)
+    polygons = _polygons_law(name)
+    for other in (quads, polygons):
+        assert other.batch.vertices == triangles.batch.vertices
+        assert other.batch.semantic_digest == triangles.batch.semantic_digest
+        assert other.vertex_normals == triangles.vertex_normals
+        assert other.offset_normals_digest == triangles.offset_normals_digest
+        left, right = dict(triangles.counters), dict(other.counters)
+        for key in (
+            "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+            "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+            "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
+        ):
+            assert left[key] == right[key], key
+
+
 @pytest.mark.parametrize("name", sorted(DOMAINS) + sorted(SURFACE))
 def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_valid_triangulation(
     name, monkeypatch
@@ -756,18 +824,25 @@ def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_vali
     captured = {}
     real = domain.settle_topology
     real_tessellate = domain.tessellate_faces
+    real_settle_faces = domain.settle_emitted_faces
 
     def spy(frame_faces, cycles, polygons, sources, law, tally=None):
         settled, numbers = real(frame_faces, cycles, polygons, sources, law, tally)
-        captured["cycles"], captured["polygons"] = cycles, settled
+        captured["cycles"] = cycles
         return settled, numbers
 
     def spy_tessellate(frame_faces, cycles, budget, **kwargs):
         captured["frames"], captured["uv"] = frame_faces, kwargs["uv_values"]
         return real_tessellate(frame_faces, cycles, budget, **kwargs)
 
+    def spy_settle_faces(polygons, *rest):
+        settled, numbers = real_settle_faces(polygons, *rest)
+        captured["polygons"] = settled
+        return settled, numbers
+
     monkeypatch.setattr(domain, "settle_topology", spy)
     monkeypatch.setattr(domain, "tessellate_faces", spy_tessellate)
+    monkeypatch.setattr(domain, "settle_emitted_faces", spy_settle_faces)
     if name in SURFACE:
         prepared, coverage, request = _near_planar_on_surface(*SURFACE[name])
         extra = {"near_planar_lift_law": ON_SURFACE}
@@ -899,10 +974,14 @@ def test_a_concave_strip_of_the_corpus_is_one_face_and_changes_nothing_else(monk
 
 #: Золотые содержательные дайджесты закона для малых случаев (семантические те же,
 #: что у других законов). Меняются ТОЛЬКО осознанно: любое движение — смена состава граней.
+#: `weighted`, `point_contact`, `two_edge` пересняты после слияния DECAL-WELD: закон
+#: `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` сдвинул вершины `src:` в позиции хоста
+#: (те же сдвинутые позиции, что у `GOLDEN_QUADS`: грани законов тут совпадают), состав
+#: граней не менялся; `straight3` сдвига не имеет.
 GOLDEN_POLYGONS = {
-    "weighted": "c9393fe09675d97787059d98abd721cd0b1f2a095da6db0d2398b66d1d45e537",
-    "point_contact": "a42d195e02aeca1b9e25b68c0521cb9a54a4a3d4536ba4b1e5515c69bea09fe4",
-    "two_edge": "2c2064cc3df8a2baca43daa583d469932864956b21dd9e51c47c8ce3b70b4520",
+    "weighted": "61d88c1adce5ad5537917e754c0c6ef01c3a7beb7e87fdbb3775f206f482d89d",
+    "point_contact": "a18d06885f2ae09de58e54807fd921f3eef52f3b7797b7a6b4e9ff5c81815113",
+    "two_edge": "6f7f4f4e71ea11d22aab8c7ed53551b2607986e767814e10e3860a04c6f2352e",
     "straight3": "d77838183f8b36115e0bd985fdb966247e55974ff2ee91effb03542328a2b454",
 }
 
