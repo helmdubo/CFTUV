@@ -44,8 +44,18 @@ from cftuv_envelope.contracts.envelopes import (
 from cftuv_envelope.reference import ReferenceOutcome, compile_reference_envelopes
 from cftuv_envelope.reference import direction_binding
 from cftuv_envelope.reference.adaptive_density_fan import _covectors, _dual_dot
-from cftuv_envelope.reference.angular import angular_support_data, seal_angular_support_cache
-from cftuv_envelope.reference.canonical_fan_rays import canonical_fan_rays_decision
+from cftuv_envelope.contracts.analysis import TurnOrientation
+from cftuv_envelope.reference.angular import (
+    _interpolated_normals,
+    angular_support_data,
+    seal_angular_support_cache,
+)
+from cftuv_envelope.reference.canonical_fan_rays import (
+    _primitive_covector,
+    canonical_fan_rays_decision,
+)
+from cftuv_envelope.reference.metric import ExactPlanarMetric
+from cftuv_envelope.reference.planar_types import ExactPlanarVector
 from cftuv_envelope.reference.common import GeometryContext, ReferenceGeometryError
 from cftuv_envelope.reference.contracts import CanonicalFanRaysRefusalV1
 from cftuv_envelope.reference.validation import validate_reference_geometry_payload
@@ -304,6 +314,136 @@ def test_two_corners_with_different_noise_get_the_same_primitive_rays_in_their_o
         assert ray_angles[0] == pytest.approx(math.degrees(math.atan2(5, 12)), abs=1e-8)
         assert ray_angles[1] == pytest.approx(45.0, abs=1e-8)
         assert ray_angles[2] == pytest.approx(math.degrees(math.atan2(12, 5)), abs=1e-8)
+
+
+# --------------------------------------------------------------------------
+# 2b. Зеркальные углы: обратный обход даёт зеркальные лучи ТОЧНО
+# --------------------------------------------------------------------------
+
+
+def _chart_metric(g00: Fraction, g01: Fraction, g11: Fraction) -> ExactPlanarMetric:
+    gram = tuple(
+        tuple(sp.Rational(item.numerator, item.denominator) for item in row)
+        for row in ((g00, g01), (g01, g11))
+    )
+    inverse = sp.Matrix(gram).inv()
+    return ExactPlanarMetric(
+        gram, ((inverse[0, 0], inverse[0, 1]), (inverse[1, 0], inverse[1, 1])), 1
+    )
+
+
+#: Карты: единичная и две косые из слепков владельца (определитель Грама — полный квадрат).
+MIRROR_CHARTS = {
+    "identity": (Fraction(1), Fraction(0), Fraction(1)),
+    "mesh2": (Fraction(1, 4), Fraction(1, 4), Fraction(1843815665, 2**28)),
+    "building": (
+        Fraction(3893136025, 2**26),
+        Fraction(1037192085, 2**25),
+        Fraction(280518433, 2**24),
+    ),
+}
+
+#: Равноугольный ряд `(12 + 5i)^k` — НЕ палиндром: отрицательный контроль теста.
+NON_PALINDROME_ROW = ((12, 5), (119, 120), (828, 2035))
+
+
+def _primitive(vector) -> tuple[int, int]:
+    """Целый примитивный вектор с положительным масштабом из рационального."""
+
+    denominator = math.lcm(*(sp.Rational(item).q for item in vector))
+    scaled = [int(item * denominator) for item in vector]
+    divisor = math.gcd(*scaled)
+    return scaled[0] // divisor, scaled[1] // divisor
+
+
+def _mirror_rays(chart, clockwise: bool, row):
+    """`(лучи угла A, лучи зеркального угла B в обратном обходе, M^{-T})`, примитивные ковекторы.
+
+    `M` — отражение карты через ось первого базисного вектора (изометрия Грама);
+    угол B — образ угла A под `M`, пройденный В ОБРАТНУЮ СТОРОНУ: входящая опора
+    B — образ исходящей опоры A и наоборот.
+    """
+
+    g00, g01, g11 = chart
+    metric = _chart_metric(g00, g01, g11)
+    gram = sp.Matrix(metric.gram)
+    mirror = sp.Matrix([[1, 2 * sp.Rational(g01.numerator, g01.denominator) / sp.Rational(g00.numerator, g00.denominator)], [0, -1]])
+    assert mirror.T * gram * mirror == gram, "M is not an isometry of the chart"
+    sign = -1 if clockwise else 1
+    orientation = (
+        TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
+        if clockwise
+        else TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+    )
+    incoming = sp.Matrix([1, 0])
+    # Вектор, Грам-ортогональный `incoming`: прямой канонический угол, точно.
+    outgoing = sign * sp.Matrix(
+        [-sp.Rational(g01.numerator, g01.denominator), sp.Rational(g00.numerator, g00.denominator)]
+    )
+    assert (incoming.T * gram * outgoing)[0] == 0
+    mirrored_incoming, mirrored_outgoing = mirror * outgoing, mirror * incoming
+
+    def rays(first, second):
+        ideal = _interpolated_normals(
+            metric,
+            ExactPlanarVector.from_values(*first),
+            ExactPlanarVector.from_values(*second),
+            len(row),
+            orientation,
+            huber_density=True,
+            rational_rotation=row,
+        )
+        return [_primitive_covector(metric, ray) for ray in ideal[1:-1]]
+
+    # Обратный обход отражённого угла сохраняет ориентацию: det(M) = -1 и
+    # смена порядка опор — два переворота.
+    original = rays(tuple(incoming), tuple(outgoing))
+    reflected = rays(tuple(mirrored_incoming), tuple(mirrored_outgoing))
+    return original, reflected, mirror.inv().T
+
+
+@pytest.mark.parametrize("clockwise", (False, True))
+@pytest.mark.parametrize("chart_name", tuple(MIRROR_CHARTS))
+def test_the_mirror_corner_in_reverse_traversal_has_the_mirrored_primitive_rays(
+    chart_name, clockwise
+):
+    """Зеркальные углы получают зеркальные веера ТОЧНО, а не «похожие».
+
+    Угол B — отражение угла A изометрией карты `M`, пройденное в обратную
+    сторону (так левый и правый угол окна видит обход патча). Луч `j` угла B —
+    это образ луча `H + 1 - j` угла A: ковекторы переходят под `M^{-T}`, и
+    примитивные целые векторы РАВНЫ, а не пропорциональны с допуском. Рациональная
+    матрица коммутирует с изометриями решётки, а палиндромный ряд таблицы
+    переставляет сектора зеркально.
+    """
+
+    original, reflected, transform = _mirror_rays(
+        MIRROR_CHARTS[chart_name], clockwise, TABLE_ROW
+    )
+    assert len(original) == len(reflected) == len(TABLE_ROW)
+    for ordinal, vector in enumerate(reflected, start=1):
+        image = transform * sp.Matrix(original[len(original) - ordinal])
+        assert vector == _primitive(tuple(image)), (chart_name, clockwise, ordinal)
+    # Не тривиальное совпадение: лучи угла A попарно различны.
+    assert len(set(original)) == len(original)
+
+
+@pytest.mark.parametrize("chart_name", tuple(MIRROR_CHARTS))
+def test_a_row_that_is_not_a_palindrome_breaks_the_mirror_congruence(chart_name):
+    """Отрицательный контроль: несимметричный ряд (j поворотов на подшаг) зеркало ломает.
+
+    Ради этого ряд таблицы — палиндром. Тест выше без этого контроля мог бы
+    проходить на любом ряду; здесь видно, что он различает.
+    """
+
+    original, reflected, transform = _mirror_rays(
+        MIRROR_CHARTS[chart_name], False, NON_PALINDROME_ROW
+    )
+    images = [
+        _primitive(tuple(transform * sp.Matrix(original[len(original) - ordinal])))
+        for ordinal in range(1, len(original) + 1)
+    ]
+    assert images != reflected
 
 
 # --------------------------------------------------------------------------

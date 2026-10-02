@@ -1037,7 +1037,6 @@ def _attach_direction_bindings(
                 changed_specs,
             ),
             *canonical_fan_rays_diagnostics(
-                compilation,
                 context,
                 changed_specs,
             ),

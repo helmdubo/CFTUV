@@ -263,6 +263,11 @@ def canonical_fan_rays_error(context, spec) -> str | None:
     Спека, не поднятая лифтом, законом не затрагивается. Лифтованная обязана
     нести ровно ту власть, что получилась бы: ни атласа там, где закон
     применим, ни власти закона там, где он молчит или отказал.
+
+    Исход считается ОДИН раз на контекст и запись: проверку зовут и сверка
+    причин привязки, и потребление опор, а сверка лучей стоит точной работы.
+    Ключ — вся неизменяемая запись, как у кэша опор: подделанная спека с тем же
+    идентификатором не получит чужого исхода.
     """
 
     if (
@@ -270,6 +275,14 @@ def canonical_fan_rays_error(context, spec) -> str | None:
         or spec.evaluation_subturn_count_lift is None
     ):
         return None
+    cache = context.evaluation_noise_cache
+    key = ("rays-error", spec)
+    if key not in cache:
+        cache[key] = _rays_error(context, spec)
+    return cache[key]
+
+
+def _rays_error(context, spec) -> str | None:
     authority = spec.direction_fan_authority
     carries = type(authority) is CanonicalRationalRotationFanAuthorityV1
     decision = canonical_fan_rays_decision(
@@ -339,7 +352,7 @@ def _ray_direction_error(context, spec, authority, expected) -> str | None:
     return None
 
 
-def canonical_fan_rays_diagnostics(compilation, context, specs) -> tuple:
+def canonical_fan_rays_diagnostics(context, specs) -> tuple:
     """Именованный отказ закона там, где лифтованный канонический угол его не получил."""
 
     diagnostics = []

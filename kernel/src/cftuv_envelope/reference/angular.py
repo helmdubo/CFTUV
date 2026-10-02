@@ -467,10 +467,14 @@ def _huber_density_interpolated_normals(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A requires a strict principal turn in (0, pi)",
         )
-    turn_sign = _density_exact_sign(raw_dot, metric)
-    cosine_total = turn_sign * sp.sqrt(cosine_squared)
-    sine_squared = 1 - cosine_squared
-    principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
+    # Угол поворота нужен только равноугольной ветке; луч по таблице
+    # (`rational_rotation`) его не читает, и считать его — пустая точная работа.
+    principal_turn = None
+    if rational_rotation is None:
+        turn_sign = _density_exact_sign(raw_dot, metric)
+        cosine_total = turn_sign * sp.sqrt(cosine_squared)
+        sine_squared = 1 - cosine_squared
+        principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
     subturn_count = count + 1
     ix, iy = metric.density_expressions(incoming)
     lx, ly = metric.density_expressions(
