@@ -1393,7 +1393,7 @@ def _remember_queue_session(
 
 class _EnvelopeDebugBuildBase:
     exact_reference = False
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "UNDO"}  # UNDO_REQUIRED_REASON
 
     @classmethod
     def poll(cls, context):
@@ -1655,7 +1655,7 @@ class HOTSPOTUV_OT_ClearEnvelopeDebug(bpy.types.Operator):
     bl_idname = "hotspotuv.clear_envelope_debug"
     bl_label = "Clear Envelope Debug"
     bl_description = "Remove Envelope Debug GP object and JSON sidecar"
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         settings = context.scene.hotspotuv_settings
