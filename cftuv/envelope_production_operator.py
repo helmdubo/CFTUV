@@ -46,6 +46,7 @@ from .envelope_production_mesh import (
     ProductionWriteError,
     write_decal_object,
 )
+from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
 UNDO_REQUIRED_REASON = (
@@ -151,6 +152,12 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             mesh_settings.status = "Failed: select a whole PhysicalChain"
             self.report({"WARNING"}, "ENVELOPE_DEBUG_EMPTY_SELECTION")
             return {"CANCELLED"}
+        # Предполёт источника: ребро нулевой длины называется здесь, до анализа и
+        # расчёта, и остаётся выделенным; хост ничего не сваривает молча.
+        refusal = zero_length_edge_refusal(source_bm, selected)
+        if refusal is not None:
+            mesh_settings.status = f"Failed: {refusal.message}"
+            return reject_source(self, context, source_obj, source_bm, refusal)
         controller = _session(context)
         source_object_key = _runtime_key(source_obj)
         source_data_key = _runtime_key(source_obj.data)

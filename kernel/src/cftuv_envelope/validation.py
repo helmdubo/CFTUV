@@ -133,6 +133,7 @@ from .validation_issues import (
     add_issue as _issue,
     raise_for_issues,
 )
+from .validation_source_edges import source_edge_zero_length_issues
 from .validation_metric import (
     fraction_of as _fraction,
     validate_metric_against_source,
@@ -1042,7 +1043,7 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                     _issue(issues, ValidationCode.TERMINAL_RELATION, path, "START terminal is not the first physical-chain vertex")
                 if relation.endpoint_role is TerminalEndpointRole.END and relation.source_vertex_id != chain.ordered_source_vertex_ids[-1]:
                     _issue(issues, ValidationCode.TERMINAL_RELATION, path, "END terminal is not the last physical-chain vertex")
-    return tuple(issues)
+    return source_edge_zero_length_issues(snapshot) + tuple(issues)
 
 
 def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ...]:

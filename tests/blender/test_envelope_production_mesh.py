@@ -41,7 +41,10 @@
    депсграфа (`view_layer.update()`, место падения) проходит; `ed.redo` возвращает
    декаль; следующее нажатие работает. То же — для кнопки отладки Envelope (GP-объект)
    и кнопки Clear. Без флага UNDO эта последовательность роняла Blender 4.5 в UI
-   (`DepsgraphNodeBuilder::build_materials` на висячем объекте).
+   (`DepsgraphNodeBuilder::build_materials` на висячем объекте);
+13. РЕБРО НУЛЕВОЙ ДЛИНЫ (`ZERO_LENGTH_EDGE`): обе кнопки ядра отказывают одним именем и строкой
+   «run Merge by Distance» ДО анализа, виновное ребро остаётся выделенным, источник не тронут;
+   после слияния вершин (bmesh `remove_doubles`, в памяти) та же кнопка строит декаль.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -298,6 +301,77 @@ def _run_nothing_selected_is_refused_by_name():
     assert bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"CANCELLED"}
     assert "select a whole PhysicalChain" in _decal_settings().status
     assert bpy.data.objects.get(DECAL) is None
+
+
+def _run_a_zero_length_edge_is_named_selected_and_never_repaired():
+    """ZERO_LENGTH_EDGE: ребро с совпавшими концами названо ДО анализа обеими кнопками ядра.
+
+    Шов двух патчей разбит вершиной 6, лежащей в одной точке с вершиной 4 (как вершины 6 и
+    19 на `wall_noise_top`). Кнопка отказывает ОДНИМ именем и строкой «что делать», виновное
+    ребро остаётся выделенным (режим рёбер), источник не тронут. После `Merge by Distance`
+    на источнике (bmesh `remove_doubles`, в памяти) та же кнопка строит декаль.
+    """
+
+    import bmesh
+
+    _reset_scene()
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    mesh = bpy.data.meshes.new("EnvelopeZeroLengthSeamMesh")
+    mesh.from_pydata(
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)],
+        (),
+        [(0, 1, 6, 4, 3), (1, 2, 5, 4, 6)],
+    )
+    mesh.update()
+    for edge in mesh.edges:
+        edge.use_seam = set(edge.vertices) in ({1, 6}, {4, 6})
+    source = bpy.data.objects.new("EnvelopeZeroLengthSeam", mesh)
+    bpy.context.scene.collection.objects.link(source)
+    _enter_edge_selection(source, [edge.index for edge in mesh.edges if edge.use_seam])
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    settings.envelope_debug_alpha = 0.25
+    settings.envelope_debug_workers = 0
+    wanted = "ZERO_LENGTH_EDGE: 1 edges (e.g. vertices 4–6); run Merge by Distance"
+
+    def refused(operator):
+        try:
+            operator()
+        except RuntimeError as exc:
+            assert wanted in str(exc), str(exc)
+            return
+        raise AssertionError("the button must refuse a zero-length edge")
+
+    def offending():
+        bm = bmesh.from_edit_mesh(source.data)
+        return [tuple(sorted(item.index for item in edge.verts)) for edge in bm.edges if edge.select]
+
+    refused(bpy.ops.hotspotuv.build_envelope_decal_mesh)
+    assert _decal_settings().status == "Failed: " + wanted, _decal_settings().status
+    assert offending() == [(4, 6)], offending()
+    assert tuple(bpy.context.tool_settings.mesh_select_mode) == (False, True, False)
+    assert bpy.data.objects.get(DECAL) is None
+
+    _enter_edge_selection(source, [edge.index for edge in source.data.edges if edge.use_seam])
+    refused(bpy.ops.hotspotuv.build_exact_reference_envelope_debug)
+    assert settings.envelope_debug_outcome == "ZERO_LENGTH_EDGE", settings.envelope_debug_outcome
+    assert settings.envelope_debug_status == "Failed: " + wanted, settings.envelope_debug_status
+    assert offending() == [(4, 6)], offending()
+
+    # Хост ничего не сваривает молча: вершин и рёбер столько же.
+    assert (len(source.data.vertices), len(source.data.edges)) == (7, 8)
+
+    bm = bmesh.from_edit_mesh(source.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-4)
+    bmesh.update_edit_mesh(source.data)
+    bm.edges.ensure_lookup_table()
+    _enter_edge_selection(source, [edge.index for edge in bm.edges if edge.seam])
+    decal = _press_named(source)
+    assert decal.parent == source
+    assert _decal_settings().status == "MATERIALIZED 2 / refused 0", _decal_settings().status
 
 
 def _run_a_long_source_name_never_multiplies_the_decal():
@@ -841,6 +915,7 @@ def _main():
     warm_digest = _run_warm_press_after_a_debug_build_reuses_the_preparations()
     _run_workers_do_not_change_the_mesh(warm_digest)
     _run_nothing_selected_is_refused_by_name()
+    _run_a_zero_length_edge_is_named_selected_and_never_repaired()
     _run_a_long_source_name_never_multiplies_the_decal()
     _run_an_adapter_skip_reaches_the_status_line()
     _run_the_operator_declares_undo_with_a_named_reason()
