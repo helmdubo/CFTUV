@@ -9,10 +9,13 @@
 * кривой домен (near-planar на поверхности, развёртка): все вершины до резки на месте и в тех же позициях
   (исключение — вершина `src:`, которую сдвиг к позиции хоста не сделан из-за ориентации куска: число таких
   вершин равно приросту счётчика `..._LIFT_REFUSED_BY_FACE_ORIENTATION`), новые вершины — только `clip:`,
-  цепи без вершин `clip:` те же, регионы те же, факты `(s, r)` вершин до резки те же, суммарная UV-площадь
-  граней та же, диагностик прибавилось одна (`SOURCE_EDGES_LIFTED_ONTO_SURFACE`; плюс отказ сдвига вершины по
-  ориентации куска, если счётчик отказов вырос), а счёт
-  `QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` равен нулю.
+  ШОВНЫЕ цепи (источник и стена — граница домена вдоль контура патча, шов с соседним доменом) побитово те же
+  БЕЗ вычёркивания вершин и без единой `clip:` (иначе шов молча открывается: хост сваривает только
+  `location:src:`), остальные цепи (фронт, интерфейсы) те же без вершин `clip:`, регионы те же, факты
+  `(s, r)` вершин до резки те же, суммарная UV-площадь граней та же, диагностик прибавилось одна
+  (`SOURCE_EDGES_LIFTED_ONTO_SURFACE`; плюс отказ сдвига вершины по ориентации куска, если счётчик отказов вырос).
+  Счёт `QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` под резкой — тавтология (имена подъёма обнулены), поэтому он
+  печатается, но вердикта не решает: доказательство «кусок в одном треугольнике» — `clip._prove`.
 
     python clip_gate.py run --workers 8 --densities 1,2,4 --topology PLANAR_POLYGONS_V1 --out gate.json
 
@@ -60,12 +63,33 @@ def _uv_area(batch) -> float:
     return total
 
 
+SEAM_KINDS = ("SOURCE", "WALL")
+
+
+def _chain_id(item) -> str:
+    return (getattr(item, "semantic_boundary_id", None) or item.semantic_interface_id).value
+
+
+def _is_seam(item) -> bool:
+    """Граничная цепь вдоль контура патча (`boundary:SOURCE:...`, `boundary:WALL:...`): шов с соседним доменом."""
+
+    parts = _chain_id(item).split(":")
+    return parts[0] == "boundary" and parts[1] in SEAM_KINDS
+
+
+def _seam_chains(chains) -> dict:
+    """Шовные цепи как есть: ключи вершин по порядку, без вычёркивания."""
+
+    return {_chain_id(item): tuple(key.value for key in item.ordered_vert_keys) for item in chains if _is_seam(item)}
+
+
 def _stripped(chains):
+    """Цепи НЕ шва без вершин `clip:`: фронт и интерфейсы вправе нести вершины резки."""
+
     return {
-        (getattr(item, "semantic_boundary_id", None) or item.semantic_interface_id).value: tuple(
-            key.value for key in item.ordered_vert_keys if not key.value.startswith("clip:")
-        )
+        _chain_id(item): tuple(key.value for key in item.ordered_vert_keys if not key.value.startswith("clip:"))
         for item in chains
+        if not _is_seam(item)
     }
 
 
@@ -108,6 +132,14 @@ def judge(base, cut, planar: bool) -> list[str]:
     refused = dict(cut.counters).get(REFUSED, 0) - dict(base.counters).get(REFUSED, 0)
     if any(not key.startswith("src:") for key in moved) or len(moved) > max(refused, 0):
         problems.append(f"{len(moved)} vertices moved, {refused} extra orientation refusals")
+    seam_before, seam_after = _seam_chains(base.batch.boundary_chains), _seam_chains(cut.batch.boundary_chains)
+    if seam_before != seam_after:
+        problems.append(
+            "seam (SOURCE/WALL) chains differ: "
+            + ", ".join(sorted(name for name in set(seam_before) | set(seam_after) if seam_before.get(name) != seam_after.get(name))[:4])
+        )
+    if any(key.startswith("clip:") for keys in seam_after.values() for key in keys):
+        problems.append("a clip: vertex lies on a seam chain")
     if _stripped(base.batch.boundary_chains) != _stripped(cut.batch.boundary_chains):
         problems.append("boundary chains differ beyond clip vertices")
     if _stripped(base.batch.interface_chains) != _stripped(cut.batch.interface_chains):
@@ -124,8 +156,6 @@ def judge(base, cut, planar: bool) -> list[str]:
     # Диагностика отказа сдвига вершины по ориентации куска появляется ровно тогда, когда счётчик вырос.
     if added - ({REFUSED_DIAGNOSTIC} if refused > 0 else set()) != {CLIP_NEW}:
         problems.append(f"diagnostics added: {sorted(added)}")
-    if dict(cut.counters).get(SPLIT, 0):
-        problems.append("QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES is not zero")
     return problems
 
 
@@ -137,6 +167,9 @@ def _numbers(result) -> dict:
         "triangles": counters.get("MATERIALIZE_TRIANGLES", 0),
         "clip_vertices": counters.get("MATERIALIZE_CLIP_VERTICES_INSERTED", 0),
         "overhang": counters.get("MATERIALIZE_CLIP_FACES_OVERHANG_TRIANGULATED", 0),
+        "seam_suppressed": counters.get("MATERIALIZE_CLIP_FACES_SEAM_CROSSINGS_SUPPRESSED", 0),
+        "off_corner": counters.get("MATERIALIZE_CLIP_FACES_SOURCE_VERTEX_OFF_CORNER_SUPPRESSED", 0),
+        "refused": counters.get(REFUSED, 0),
         "split": counters.get(SPLIT, 0),
         "work": counters.get("EXACT_WORK_SPENT", 0),
         "seconds": round(dict(result.timings).get("CLIP", 0.0), 3),
@@ -227,7 +260,9 @@ def run(args) -> dict:
             print(
                 f"    patch {row['patch_id']:3d}: faces {b['faces']}->{c['faces']} quads {b['quads']}->{c['quads']} "
                 f"tris {b['triangles']}->{c['triangles']} split {b['split']}->{c['split']} "
-                f"clip vertices {c['clip_vertices']} overhang {c['overhang']} work {b['work']}->{c['work']} "
+                f"clip vertices {c['clip_vertices']} overhang {c['overhang']} seam-suppressed {c['seam_suppressed']} "
+                f"off-corner {c['off_corner']} src-move refusals {b['refused']}->{c['refused']} "
+                f"work {b['work']}->{c['work']} "
                 f"clip s {c['seconds']}",
                 flush=True,
             )

@@ -4,8 +4,10 @@
 (тот же, что у `test_materialize_lift_surface`): куски, площади, вершины `clip:`, T-стыки, свес,
 невыпуклый контур, отказ доказательства. Домен целиком — на складке, фаске и четверти цилиндра:
 куски лежат в замкнутых треугольниках источника (проверяется в 3D независимым путём), хорда через
-складку исчезла, сетка вершин `node:` та же, семантика цепей та же (кроме вершин `clip:`), а счёт
-`QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` — нуль.
+складку исчезла, сетка вершин `node:` та же, семантика цепей та же: ШОВНЫЕ цепи (источник и стена, граница
+домена вдоль контура патча) побитово те же и без единой вершины `clip:`, остальные — без вершин `clip:`.
+Нулевой `QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` под резкой доказательством НЕ служит: имена подъёма обнулены
+(`domain._assemble`), доказательство — `clip._prove` и независимый 3D-путь этого файла.
 """
 
 from __future__ import annotations
@@ -420,15 +422,15 @@ def test_the_clipped_domain_covers_the_same_uv_area_and_keeps_every_node_vertex(
 
 
 @pytest.mark.parametrize("name", sorted(DOMAINS))
-def test_the_clipped_domain_counts_no_quad_split_and_names_its_numbers(name):
+def test_the_clipped_domain_names_its_numbers(name):
     plain, cut, _parts = pair(name)
     counters = dict(cut.counters)
-    assert counters["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
-    assert counters["MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"] == 0
+    # Счёт разрезов `QUADS_SPLIT_*` под резкой не читается как доказательство: он нулевой по построению.
     assert counters[clip.VERTICES_INSERTED] == len(
         [item for item in cut.batch.vertices if item.vert_key.value.startswith("clip:")]
     )
     assert counters[clip.FACES_OVERHANG] == counters[clip.FACES_BOUNDARY_MISMATCH] == 0
+    assert counters[clip.FACES_SEAM_SUPPRESSED] == 0
     assert counters["MATERIALIZE_QUADS"] >= dict(plain.counters)["MATERIALIZE_QUADS"]
     lines = [line for line in cut.diagnostics if line.startswith("SOURCE_EDGES_LIFTED_ONTO_SURFACE")]
     assert len(lines) == 1 and f"clip_vertices={counters[clip.VERTICES_INSERTED]}" in lines[0]
@@ -438,19 +440,48 @@ def test_the_clipped_domain_counts_no_quad_split_and_names_its_numbers(name):
     assert not [line for line in plain.diagnostics if line.startswith("SOURCE_EDGES")]
 
 
+def chain_id(item) -> str:
+    return (getattr(item, "semantic_boundary_id", None) or item.semantic_interface_id).value
+
+
+def is_seam_chain(item) -> bool:
+    """Граничная цепь вдоль контура патча: `boundary:SOURCE:...` и `boundary:WALL:...` — шов с соседним доменом."""
+
+    parts = chain_id(item).split(":")
+    return parts[0] == "boundary" and parts[1] in ("SOURCE", "WALL")
+
+
+def assert_seams_are_untouched(plain, cut):
+    """Шовные цепи побитово те же, БЕЗ вычёркивания вершин, и ни одной `clip:` на них.
+
+    Хост сваривает вершины соседних доменов только по `location:src:` и T-стыков не считает: вершина резки на
+    шовном ребре молча открыла бы шов (поле: `building` патч 109, цепь `src:313 -> src:315`).
+    """
+
+    seam = lambda batch: {
+        chain_id(item): tuple(key.value for key in item.ordered_vert_keys)
+        for item in batch.boundary_chains
+        if is_seam_chain(item)
+    }
+    assert seam(cut.batch) == seam(plain.batch)
+    assert not [key for keys in seam(cut.batch).values() for key in keys if key.startswith("clip:")]
+    assert seam(cut.batch), "the fixture has no seam chain to check"
+
+
 @pytest.mark.parametrize("name", sorted(DOMAINS))
 def test_the_chains_of_the_clipped_domain_are_the_plain_chains_plus_clip_vertices(name):
-    """Семантика без `clip:`: те же цепи, регионы и факты станций (ворота «дайджест по модулю clip»)."""
+    """Шов побитово тот же; у остальных цепей без `clip:` то же; регионы и факты станций те же."""
 
     plain, cut, _parts = pair(name)
 
     def stripped(chains):
         return {
-            (item.semantic_boundary_id.value if hasattr(item, "semantic_boundary_id") else item.semantic_interface_id.value):
-            tuple(key.value for key in item.ordered_vert_keys if not key.value.startswith("clip:"))
+            chain_id(item): tuple(key.value for key in item.ordered_vert_keys if not key.value.startswith("clip:"))
             for item in chains
+            if not is_seam_chain(item)
         }
 
+    assert_seams_are_untouched(plain, cut)
     assert stripped(cut.batch.boundary_chains) == stripped(plain.batch.boundary_chains)
     assert stripped(cut.batch.interface_chains) == stripped(plain.batch.interface_chains)
     assert cut.batch.semantic_regions == plain.batch.semantic_regions
@@ -591,7 +622,6 @@ def test_a_near_planar_surface_domain_is_clipped_in_either_chart_orientation(mir
     for points in face_points(result.batch):
         assert any(in_closed_triangle(points, triangle, 1e-4) for triangle in triangles)
     counters = dict(result.counters)
-    assert counters["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
     assert counters[clip.VERTICES_INSERTED] >= 1
     # Ориентация карты не меняет резку: то же число вершин и граней у зеркальной карты.
     other_prepared, other = surface_result(not mirrored, law)
@@ -620,3 +650,151 @@ def test_the_triangles_of_emitted_pieces_are_the_ears_the_orientation_guard_read
     assert len(triangles) == 3
     assert {key for triangle in triangles for key in triangle} == {*points}
     assert all(len(set(triangle)) == 3 for triangle in triangles)
+
+
+# --------------------------------------------------------------------------
+# Шов: ребро на границе домена вдоль контура патча вершин резки не получает
+# --------------------------------------------------------------------------
+
+
+def seam_of(keys, *edges):
+    """Пары ключей рёбер шва по координатам `(x, y)` вершин (`keys` — словарь `stage_for`)."""
+
+    return frozenset(frozenset((keys[a], keys[b])) for a, b in edges)
+
+
+def test_a_polygon_whose_seam_edge_crosses_a_source_edge_is_not_cut_and_gets_no_seam_vertex():
+    """Поле: источник `src:313 -> src:315` пересекал внутренние рёбра у угла (шум привязки) и нёс три `clip:`."""
+
+    stage, cycles, polygons, keys = stage_for([[(1, 1), (3, 1), (3, 2), (1, 2)]])
+    seam = seam_of(keys, ((3, 2), (1, 2)))  # ребро пересекает диагональ в (2, 2)
+    result = stage.run(cycles, polygons, POLYGONS, seam)
+    counters = dict(result.counters)
+    assert counters[clip.FACES_SEAM_SUPPRESSED] == 1
+    assert counters[clip.FACES_OVERHANG] == counters[clip.FACES_BOUNDARY_MISMATCH] == 0
+    assert counters[clip.PIECES_EMITTED] == 0 and not result.points
+    assert all(len(item) == 3 for item in result.polygons[0])
+    assert [key for key, _point in result.cycles[0]] == ["p0", "p1", "p2", "p3"]
+    assert "seam_crossings_suppressed_faces=1" in result.note
+
+
+def test_a_seam_edge_that_crosses_nothing_does_not_stop_the_cut():
+    stage, cycles, polygons, keys = stage_for([[(1, 1), (3, 1), (3, 2), (1, 2)]])
+    seam = seam_of(keys, ((1, 1), (3, 1)))  # лежит под диагональю, пересечений нет
+    result = stage.run(cycles, polygons, POLYGONS, seam)
+    assert dict(result.counters)[clip.FACES_SEAM_SUPPRESSED] == 0
+    assert list(result.points) == ["clip:0"]
+    assert sorted(len(item) for item in result.polygons[0]) == [3, 4]
+
+
+def test_a_suppressed_neighbour_does_not_force_vertices_on_the_edges_it_does_not_share():
+    """Отброшенный многоугольник не даёт «нужных» рёбер: его соседи режутся по своим рёбрам."""
+
+    stage, cycles, polygons, keys = stage_for(
+        [[(1, 1), (3, 1), (3, 2), (1, 2)], [(1, 2), (3, 2), (3, 3), (1, 3)]]
+    )
+    seam = seam_of(keys, ((1, 1), (3, 1)), ((3, 3), (1, 3)))
+    result = stage.run(cycles, polygons, POLYGONS, seam)
+    # Оба шовных края пересечений не имеют; общее ребро получает `(2, 2)` как прежде.
+    assert dict(result.counters)[clip.FACES_SEAM_SUPPRESSED] == 0
+    assert list(result.points) == ["clip:0"]
+
+
+@pytest.mark.parametrize("name", ["fold", "slant", "bevel", "quarter"])
+def test_the_seam_handed_to_the_stage_is_exactly_the_source_and_wall_edges_of_the_batch(name, monkeypatch):
+    """Проводка: `seam_edges` отдаёт стадии пары ключей граничных цепей источника и стены, и только их."""
+
+    seen = {}
+    original = ClipStageV1.run
+
+    def spy(self, cycles, polygons, law, seam=frozenset(), fans=None):
+        seen["seam"], seen["fans"] = seam, fans
+        return original(self, cycles, polygons, law, seam, fans)
+
+    monkeypatch.setattr(ClipStageV1, "run", spy)
+    make, route, alpha = DOMAINS[name]
+    parts = make()
+    plain, _ = materialize_developable(parts, route, alpha=alpha, decal_topology_law=POLYGONS)
+    cut, _ = materialize_developable(
+        parts, route, alpha=alpha, decal_topology_law=POLYGONS, near_planar_lift_law=CLIPPED
+    )
+
+    def pairs(batch, seam_kind):
+        found = set()
+        for item in batch.boundary_chains:
+            parts_ = chain_id(item).split(":")
+            if (parts_[1] in ("SOURCE", "WALL")) == seam_kind:
+                keys = [key.value for key in item.ordered_vert_keys]
+                found |= {frozenset(pair) for pair in zip(keys, keys[1:])}
+        return found
+
+    assert seen["seam"] == pairs(plain.batch, True)
+    assert not seen["seam"] & pairs(plain.batch, False)
+    assert seen["fans"] is not None
+
+
+def test_the_quad_law_keeps_the_pieces_of_a_fan_as_triangles():
+    """Под `QUAD_STRIPS_V1` четырёхгранья только у ленты: куски веера остаются треугольниками, как у закона."""
+
+    for fan, sizes in ((False, [3, 4]), (True, [3, 3, 3])):
+        stage, cycles, polygons, keys = stage_for([[(1, 1), (3, 1), (3, 2), (1, 2)]])
+        result = stage.run(cycles, polygons, QUADS, frozenset(), [fan])
+        assert sorted(len(item) for item in result.polygons[0]) == sizes
+
+
+def test_the_audit_refuses_a_clip_vertex_on_a_seam_chain():
+    """Страховка закона: вершина `clip:` на цепи источника открыла бы шов, и батч с ней не принимается."""
+
+    from cftuv_envelope.ids import VertexKey
+    from cftuv_envelope.materialize.audit import audit_batch
+
+    _plain, cut, _parts = pair("fold")
+    assert not audit_batch(cut.batch, (0.0, 0.0, 1.0)).seam_clip_vertices
+    chains = []
+    for chain in sorted(cut.batch.boundary_chains, key=chain_id):
+        if is_seam_chain(chain) and "SOURCE" in chain_id(chain):
+            chain = dataclasses.replace(
+                chain, ordered_vert_keys=(chain.ordered_vert_keys[0], VertexKey("clip:99"), *chain.ordered_vert_keys[1:])
+            )
+        chains.append(chain)
+    broken = dataclasses.replace(cut.batch, boundary_chains=frozenset(chains))
+    audit = audit_batch(broken, (0.0, 0.0, 1.0))
+    assert audit.seam_clip_vertices == 1
+    assert "CLIP_VERTEX_ON_SEAM_CHAIN" in audit.problems()
+
+
+def test_a_polygon_with_a_source_vertex_off_the_triangulation_corners_stays_ears_and_is_named():
+    """Вершина `src:` не в углу привязанной триангуляции (шум привязки): вокруг неё нет «настоящих» пересечений."""
+
+    stage, cycles, polygons, keys = stage_for([[(1, 1), (3, 1), (3, 2), (1, 2)]])
+    # Те же ключи, но у двух вершин имя вершины источника: `(1, 1)` и `(3, 1)` в углах квадрата не стоят.
+    renamed = {"p0": "src:a", "p1": "src:b"}
+    cycles = [[(renamed.get(key, key), point) for key, point in cycle] for cycle in cycles]
+    polygons = [(tuple(renamed.get(key, key) for key in polygons[0][0]),)]
+    stage = ClipStageV1(
+        two_triangle_lift().bind(budget()),
+        budget(),
+        {renamed.get(key, key): point(*xy) for xy, key in keys.items()},
+    )
+    result = stage.run(cycles, polygons, POLYGONS)
+    counters = dict(result.counters)
+    assert counters[clip.FACES_OFF_CORNER_SUPPRESSED] == 1 and counters[clip.FACES_SEAM_SUPPRESSED] == 0
+    assert not result.points and all(len(item) == 3 for item in result.polygons[0])
+    assert "off_corner_source_vertex_faces=1" in result.note
+
+
+def test_a_source_vertex_on_a_triangulation_corner_does_not_stop_the_cut():
+    corners = [(0, 0), (4, 0), (4, 2), (0, 2)]
+    stage, cycles, polygons, keys = stage_for([corners])
+    renamed = {"p0": "src:a", "p1": "src:b"}
+    cycles = [[(renamed.get(key, key), point) for key, point in cycle] for cycle in cycles]
+    polygons = [(tuple(renamed.get(key, key) for key in polygons[0][0]),)]
+    stage = ClipStageV1(
+        two_triangle_lift().bind(budget()),
+        budget(),
+        {renamed.get(key, key): point(*xy) for xy, key in keys.items()},
+    )
+    result = stage.run(cycles, polygons, POLYGONS)
+    counters = dict(result.counters)
+    assert counters[clip.FACES_OFF_CORNER_SUPPRESSED] == 0
+    assert counters[clip.FACES_CUT] == 1 and sorted(len(item) for item in result.polygons[0]) == [3, 4]

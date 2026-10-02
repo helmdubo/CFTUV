@@ -67,12 +67,16 @@ from dataclasses import dataclass
 import bpy
 
 from .envelope_production_weld import (
+    COUNTER_SEAM_CLIP_VERTICES,
+    COUNTER_SEAM_T_JUNCTIONS,
     COUNTER_WELD_SEAMS_MARKED,
+    OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
     DomainVerticesV1,
     cross_domain_seams,
     half_edge_conflicts,
     off_plane_after_offset,
+    seam_report,
     weld_vertices,
 )
 
@@ -141,6 +145,8 @@ class MeshArraysV1:
     #: с отклонением. Запись, а не суд (порога нет): грань куска плоская в батче, а смещение вдоль
     #: нормалей вершин развёртки её искривляет.
     offset_counters: tuple = ()
+    #: Шов по цепям батчей: T-стыки между доменами и вершины `clip:` на шовных цепях (`seam_report`).
+    seam_counters: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +184,8 @@ class ProductionWriteReceiptV1:
     weld_counters: tuple = ()
     #: Плоскость граней после смещения (см. `MeshArraysV1.offset_counters`).
     offset_counters: tuple = ()
+    #: Шов по цепям батчей (см. `MeshArraysV1.seam_counters`).
+    seam_counters: tuple = ()
 
 
 def decal_object_name(source_name: str) -> str:
@@ -359,6 +367,18 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 "neighbouring domains wind against each other there",
             )
         )
+    seam = seam_report([result.batch for result, _built in entries])
+    seam_found = dict(seam)
+    if seam_found[COUNTER_SEAM_T_JUNCTIONS] or seam_found[COUNTER_SEAM_CLIP_VERTICES]:
+        warnings.append(
+            (
+                None,
+                OUTCOME_SEAM_T_JUNCTIONS,
+                f"{seam_found[COUNTER_SEAM_T_JUNCTIONS]} source-chain segments have a different number of vertices in "
+                f"the two neighbour domains, {seam_found[COUNTER_SEAM_CLIP_VERTICES]} clip vertices lie on seam chains: "
+                "the seam may be open",
+            )
+        )
     digest = _arrays_digest(
         {
             "positions": positions,
@@ -388,6 +408,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
             (COUNTER_WELD_SEAMS_MARKED, len(folds)),
         ),
         offset_counters=off_plane_after_offset(positions, faces),
+        seam_counters=seam,
     )
 
 
@@ -615,6 +636,7 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         polygons=sum(1 for loop in arrays.faces if len(loop) > 4),
         weld_counters=arrays.weld_counters,
         offset_counters=arrays.offset_counters,
+        seam_counters=arrays.seam_counters,
     )
 
 

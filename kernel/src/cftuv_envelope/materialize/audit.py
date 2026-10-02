@@ -19,7 +19,11 @@
 * `BOUNDARY_DOES_NOT_MATCH_CHAINS` — рёбра в ОДНОЙ грани — это ровно
   рёбра граничных цепей, не больше и не меньше (иначе трещина либо цепь
   описывает не то);
-* `V_OUT_OF_UNIT_RANGE` — закон `UV_DIRECT_STRIP_V1` обещает `v` в `[0, 1]`.
+* `V_OUT_OF_UNIT_RANGE` — закон `UV_DIRECT_STRIP_V1` обещает `v` в `[0, 1]`;
+* `CLIP_VERTEX_ON_SEAM_CHAIN` — вершина резки (`clip:`) на цепи источника или стены (`boundary:SOURCE:*`,
+  `boundary:WALL:*`): граница домена вдоль контура патча — шов с соседним доменом, а хост сваривает только
+  `location:src:` и T-стыков не считает, так что такая вершина молча открыла бы шов (закон
+  `SOURCE_TRIANGLES_CLIPPED_V1` их туда не ставит; проверка — страховка закона, а не его замена).
 
 МЯГКИЕ (числа в счётчиках, не отказ — это свойства закона, а не дефекты):
 
@@ -64,6 +68,8 @@ class BatchAuditV1:
     #: Наибольший угол между нормалями смещения вершин одной грани от четырёх вершин, градусы; `None` —
     #: нормалей вершин нет (плоский и near-planar домен: одна нормаль на домен).
     offset_normal_spread: float | None = None
+    #: Вершины `clip:` на шовных цепях (источник, стена).
+    seam_clip_vertices: int = 0
 
     def problems(self) -> tuple[str, ...]:
         found = []
@@ -75,6 +81,8 @@ class BatchAuditV1:
             found.append("BOUNDARY_DOES_NOT_MATCH_CHAINS")
         if self.faces and (self.v_min < 0.0 or self.v_max > 1.0):
             found.append("V_OUT_OF_UNIT_RANGE")
+        if self.seam_clip_vertices:
+            found.append("CLIP_VERTEX_ON_SEAM_CHAIN")
         return tuple(found)
 
     def counters(self) -> tuple[tuple[str, int], ...]:
@@ -202,4 +210,11 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
         uv_degenerate=degenerate,
         uv_reversed=sum(1 for sign in uv_signs if sign != majority),
         offset_normal_spread=spread if vertex_normals else None,
+        seam_clip_vertices=sum(
+            1
+            for chain in batch.boundary_chains
+            if chain.semantic_boundary_id.value.split(":")[1] in ("SOURCE", "WALL")
+            for key in chain.ordered_vert_keys
+            if key.value.startswith("clip:")
+        ),
     )

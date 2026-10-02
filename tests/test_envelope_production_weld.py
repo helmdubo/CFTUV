@@ -363,3 +363,79 @@ def test_triangles_and_degenerate_faces_measure_nothing():
 
     assert counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] == 0
     assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 0
+
+
+# --------------------------------------------------------------------------
+# Шов по цепям батчей: T-стыки между доменами и вершины `clip:` на шовных цепях
+# --------------------------------------------------------------------------
+
+
+def _chain(kind, keys, number=0):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        semantic_boundary_id=SimpleNamespace(value=f"boundary:{kind}:0:{number}"),
+        ordered_vert_keys=tuple(SimpleNamespace(value=key) for key in keys),
+    )
+
+
+def _batch(*chains):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(boundary_chains=tuple(chains))
+
+
+def test_neighbour_domains_with_the_same_vertices_on_a_source_chain_have_no_t_junction():
+    from cftuv.envelope_production_weld import seam_report
+
+    left = _batch(_chain("SOURCE", ["src:a", "node:0", "src:b"]))
+    right = _batch(_chain("SOURCE", ["src:b", "node:7", "src:a"]))
+
+    assert dict(seam_report([left, right])) == {
+        "ADAPTER_SEAM_T_JUNCTIONS": 0,
+        "ADAPTER_SEAM_CLIP_VERTICES": 0,
+    }
+
+
+def test_a_source_segment_with_a_vertex_on_one_side_only_is_a_t_junction():
+    from cftuv.envelope_production_weld import seam_report
+
+    cut = _batch(_chain("SOURCE", ["src:a", "clip:1", "clip:2", "src:b"]))
+    plain = _batch(_chain("SOURCE", ["src:a", "src:b"]))
+
+    counters = dict(seam_report([cut, plain]))
+    assert counters["ADAPTER_SEAM_T_JUNCTIONS"] == 1
+    assert counters["ADAPTER_SEAM_CLIP_VERTICES"] == 2
+    # Лишняя вершина другого вида (не `clip:`) — тот же T-стык, но не вершина резки.
+    other = dict(seam_report([_batch(_chain("SOURCE", ["src:a", "node:3", "src:b"])), plain]))
+    assert other == {"ADAPTER_SEAM_T_JUNCTIONS": 1, "ADAPTER_SEAM_CLIP_VERTICES": 0}
+
+
+def test_a_segment_owned_by_one_domain_cannot_be_a_t_junction_and_the_front_is_not_a_seam():
+    from cftuv.envelope_production_weld import seam_report
+
+    single = _batch(_chain("SOURCE", ["src:a", "clip:1", "src:b"]), _chain("RIM", ["node:0", "clip:2", "node:1"], 1))
+
+    assert dict(seam_report([single])) == {
+        "ADAPTER_SEAM_T_JUNCTIONS": 0,
+        "ADAPTER_SEAM_CLIP_VERTICES": 1,
+    }
+
+
+def test_a_clip_vertex_on_a_wall_chain_is_counted_as_a_seam_defect():
+    from cftuv.envelope_production_weld import seam_report
+
+    wall = _batch(_chain("WALL", ["src:a", "clip:5", "src:b"]))
+
+    assert dict(seam_report([wall]))["ADAPTER_SEAM_CLIP_VERTICES"] == 1
+
+
+def test_a_batch_without_chains_reports_nothing():
+    from types import SimpleNamespace
+
+    from cftuv.envelope_production_weld import seam_report
+
+    assert dict(seam_report([SimpleNamespace()])) == {
+        "ADAPTER_SEAM_T_JUNCTIONS": 0,
+        "ADAPTER_SEAM_CLIP_VERTICES": 0,
+    }

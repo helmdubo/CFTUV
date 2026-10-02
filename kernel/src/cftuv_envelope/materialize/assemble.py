@@ -802,7 +802,7 @@ def _paths(edges):
     return tuple(paths)
 
 
-def _edge_kind(facts, region, a, b, lattice_alpha) -> str:
+def edge_kind(facts, region, a, b, lattice_alpha) -> str:
     """Граничное полуребро: источник (`r = 0`), фронт (`r = alpha`), иначе стена."""
 
     ra, rb = facts[(region, a)][1], facts[(region, b)][1]
@@ -834,7 +834,7 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
         region = layout.region_of(frame_faces[index])
         other = owner_of.get((b, a))
         if other is None:
-            kind = _edge_kind(facts, region, a, b, lattice_alpha)
+            kind = edge_kind(facts, region, a, b, lattice_alpha)
             boundary.setdefault((kind, region), []).append((a, b))
             continue
         other_region = layout.region_of(frame_faces[other])

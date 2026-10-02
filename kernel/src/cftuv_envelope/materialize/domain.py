@@ -498,6 +498,23 @@ def _lift_of(prepared, admission, scale, budget):
     return plane_lift_of(context.frame, scale)
 
 
+def _tessellation_law(clipped: bool, law):
+    """Закон тесселяции: под резкой `PLANAR_POLYGONS_V1` при ЛЮБОМ запрошенном законе.
+
+    На вход резки идёт целый простой многоугольник с аффинной UV (как на плоскости), а плоским в 3D его
+    делает резка: каждый кусок лежит в одном треугольнике источника. Запрошенный закон решает потом
+    только форму кусков, поэтому вершины `clip:`, цепи и семантический дайджест у законов одни и те же.
+    Следствия, которые нельзя вывести из кода: (1) числа закона топологии (`MATERIALIZE_POLYGON_FACES_*`,
+    `FAN_*`, `QUADS_REFUSED_NOT_CONVEX`) описывают ТЕССЕЛЯЦИЮ ДО резки и идут по `PLANAR_POLYGONS_V1`
+    при любом запрошенном законе; (2) срезанный соседом веер на кривом домене — один многоугольник
+    (`exact_plane`), его режет резка, а не разрез от вершины веера (`FAN_FACE_TRIANGULATED_FROM_APEX_V1`
+    его не видит); (3) имена подъёма под резкой обнулены (`names`), поэтому счёт `QUADS_SPLIT_*`
+    нулевой по построению и доказательством не служит.
+    """
+
+    return DecalTopologyLawV1.PLANAR_POLYGONS_V1 if clipped else law
+
+
 def _is_clipped(admission) -> bool:
     """Укладка домена — треугольники источника С РЕЗКОЙ граней (`SOURCE_TRIANGLES_CLIPPED_V1`)."""
 
@@ -566,11 +583,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     )
     clipped = _is_clipped(admission)
     tally = Counter()
-    # Под резкой на вход идут многоугольники `PLANAR_POLYGONS_V1` при ЛЮБОМ запрошенном законе (целый
-    # простой многоугольник с аффинной UV, как на плоскости), а плоскими в 3D их делает резка: каждый
-    # кусок лежит в одном треугольнике источника. Закон топологии решает потом только форму кусков,
-    # поэтому вершины `clip:`, цепи и семантический дайджест у законов одни и те же.
-    tessellation_law = DecalTopologyLawV1.PLANAR_POLYGONS_V1 if clipped else law
+    tessellation_law = _tessellation_law(clipped, law)
     polygons = tessellate_faces(
         frame_faces,
         cycles,
