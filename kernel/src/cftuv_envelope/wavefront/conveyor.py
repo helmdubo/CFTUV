@@ -56,7 +56,7 @@ ALPHA ВХОДИТ РОВНО В ДВУХ МЕСТАХ, и оба измерен
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
@@ -92,6 +92,7 @@ from ..interactions.arrival import (
 )
 from ..numeric import LocalLengthV1
 from ..reference.boundary import (
+    ContactCandidatesMemoV1,
     build_domain_geometry,
     resolve_component_alphas,
 )
@@ -343,6 +344,12 @@ class ConveyorPreparationV1:
     # геометрию, и обнуление на границе сделало бы кап границей стадии, а не
     # домена. `None` — прогон без названного бюджета.
     work_budget: ExactWorkBudgetV1 | None = None
+    # Контакты источников с границей домена: alpha-независимы, считаются на первом
+    # покрытии и ездят с подготовкой (`ContactCandidatesMemoV1`). Не часть значения:
+    # ни равенства, ни представления, ни ответа покрытие от неё не меняет.
+    contact_memo: ContactCandidatesMemoV1 | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def counter(self, name: str) -> int:
         return dict(self.counters).get(name, 0)
@@ -1343,6 +1350,7 @@ def prepare_conveyor(
         domain=domain,
         requested_alpha=normalize_requested_alpha(request.requested_alpha),
         work_budget=budget,
+        contact_memo=ContactCandidatesMemoV1(),
     )
 
 
@@ -1518,7 +1526,7 @@ def _instance_ids_by_spec(
     """
 
     resolutions, _ = resolve_component_alphas(
-        prepared.context, alpha_value, prepared.domain
+        prepared.context, alpha_value, prepared.domain, prepared.contact_memo
     )
     names: dict[str, str] = {}
     for spec in prepared.compilation.envelope_specs:

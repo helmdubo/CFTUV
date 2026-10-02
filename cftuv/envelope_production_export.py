@@ -24,18 +24,29 @@
 запрос подготовки с одной заменой, и ключ исполнения батча остаётся ровно тем,
 с которым подготовка скомпилирована (аудит материализатора 2026-10-02).
 
-ОТКУДА ПОДГОТОВКА. Тёплая сессия (кнопка отладки уже нажата на том же выделении,
-плотности и ревизии) отдаёт подготовки без единой сборки: это доказывается
-счётчиками сборок контроллера (`PRODUCTION_PREPARATION_BUILDS` = 0). Холодная —
-запускает ТОТ ЖЕ отладочный вычислитель очереди (`controller.evaluate_staged`)
-ради кэшей, без отрисовки, и дальше идёт как тёплая: второго способа подготовить
-домен здесь нет, поэтому подготовки продукта и отладки одни и те же объекты.
+ОТКУДА ПОДГОТОВКА. Тёплая сессия (на том же выделении, плотности и ревизии уже
+считали) отдаёт подготовки без единой сборки: это доказывается счётчиками сборок
+контроллера (`PRODUCTION_PREPARATION_BUILDS` = 0). Холодный домен — ОДНА задача пула:
+подготовка и материализация подряд (`ColdProductionInputV1`, `prepare_for_production` ->
+`produce_domain`), а подготовка возвращается ответом и входит в кэш сессии тем же
+путём (`get_conveyor_preparation`), что и подготовка кнопки отладки: подготовки
+продукта и отладки одни и те же объекты. Прежний холодный путь сперва гнал отладочный
+вычислитель по ВСЕМ доменам (подготовка, покрытие, контур), а потом считал покрытие
+второй раз: на `building` ~19 с работы воркеров впустую.
+
+РЕЗУЛЬТАТЫ ДОМЕНОВ КЭШИРУЮТСЯ в сессии (`production_result_key`): ключ — ключ
+подготовки, alpha текстом, закон UV, закон топологии и закон подъёма. Домен с тем же
+ключом не считается вовсе (`PRODUCTION_RESULT_CACHE_HIT`, размещение `cache`), а
+считается только то, чего под ключом нет (`..._MISS`). Правка выделения меняет ключ
+подготовки лишь у доменов, которых она касается, поэтому снятая цепочка пересчитывает
+ровно их. Вытеснение — по давности (`PRODUCTION_RESULT_CACHE_LIMIT`), а исключение
+внутри домена (`PRODUCTION_DOMAIN_RAISED`) в кэш не кладётся.
 
 ОТКАЗ НАЗВАН НА КАЖДОМ УРОВНЕ. Домен, чей вход не выгрузился, называется
 исходом хоста (`EnvelopeDebugHostOutcome`); домен, который материализатор
 отклонил, — исходом ядра (`MaterializationOutcome`); исключение внутри домена —
-`PRODUCTION_DOMAIN_RAISED` с хвостом трассы; домен без подготовки после
-наполнения кэша — `PREPARATION_UNAVAILABLE`. Пул, который не стартовал
+`PRODUCTION_DOMAIN_RAISED` с хвостом трассы; домен, не вернувшийся ни от воркера,
+ни от родителя, — `PREPARATION_UNAVAILABLE`. Пул, который не стартовал
 (`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`), и задача, которая упала
 (`ENVELOPE_DOMAIN_POOL_TASK_FALLBACK`), — счётчик профиля, строка консоли и
 пометка `placement` домена; считает при этом родитель, ТЕМ ЖЕ `produce_domain`.
@@ -82,6 +93,7 @@ OUTCOME_DOMAIN_RAISED = "PRODUCTION_DOMAIN_RAISED"
 
 #: Стадия профиля продукта и числа, которые он называет.
 PRODUCTION_BUILD_KIND = "PRODUCTION"
+#: 1, если хоть один домен был холодным (без подготовки в кэше сессии): считались подготовки.
 PRODUCTION_COLD_FILL = "PRODUCTION_COLD_FILL"
 PRODUCTION_PREPARATION_REUSED = "PRODUCTION_PREPARATION_REUSED"
 PRODUCTION_PREPARATION_BUILDS = "PRODUCTION_PREPARATION_BUILDS"
@@ -90,9 +102,14 @@ PRODUCTION_DOMAIN_GEOMETRY_BUILDS = "PRODUCTION_DOMAIN_GEOMETRY_BUILDS"
 PRODUCTION_DOMAINS = "PRODUCTION_DOMAINS"
 PRODUCTION_MATERIALIZED = "PRODUCTION_MATERIALIZED"
 PRODUCTION_REFUSED = "PRODUCTION_REFUSED"
+#: Домены, чей результат лежал в кэше сессии, и домены, которые пришлось считать.
+PRODUCTION_RESULT_CACHE_HIT = "PRODUCTION_RESULT_CACHE_HIT"
+PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
 
 PLACEMENT_WORKER = "worker"
 PLACEMENT_PARENT = "parent"
+#: Домен не считался: результат взят из кэша сессии.
+PLACEMENT_CACHED = "cache"
 #: Домен считал родитель, и причина названа: те же имена, что у отладки.
 PLACEMENT_UNAVAILABLE = "parent:ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
 PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
@@ -109,6 +126,18 @@ class ProductionInputV1:
     """
 
     blob: bytes
+    uv_policy_id: str = PRODUCTION_UV_POLICY
+    topology_law: str = PRODUCTION_TOPOLOGY_LAW
+
+
+@dataclass(frozen=True, slots=True)
+class ColdProductionInputV1:
+    """Вход задачи «холодный домен»: два закона; сами входы идут в самой задаче.
+
+    Снапшот и запрос домена воркер берёт у задачи (`DomainTaskV1.snapshot`, `request`) либо
+    выгружает сам (`DomainTaskV1.export`) — как у задачи отладочного вычислителя.
+    """
+
     uv_policy_id: str = PRODUCTION_UV_POLICY
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
 
@@ -289,14 +318,74 @@ def produce_domain(
             seconds=time.perf_counter() - started,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
-        tail = traceback.format_exc().strip().splitlines()[-3:]
         return _refusal(
             patch_id,
             domain_id,
             OUTCOME_DOMAIN_RAISED,
-            " | ".join(item.strip() for item in tail),
+            _trace_tail(),
             time.perf_counter() - started,
         )
+
+
+def prepare_for_production(snapshot, request):
+    """Подготовка очереди с холодной памятью разложений: то, что делала кнопка отладки.
+
+    Память разложений и счётчик внебюджетной работы обнуляются ПЕРЕД подготовкой
+    (`run_queue_domain` делает ровно это): статьи бюджета не зависят от того, какие
+    домены процесс уже видел, а в пуле — от того, как задачи легли на воркеры.
+    """
+
+    from cftuv_envelope.exact_sqrt_sum import (
+        reset_factorization_memory,
+        reset_unbudgeted_work,
+    )
+    from cftuv_envelope.wavefront import prepare_conveyor
+
+    reset_factorization_memory()
+    reset_unbudgeted_work()
+    return prepare_conveyor(snapshot, request)
+
+
+def _trace_tail() -> str:
+    tail = traceback.format_exc().strip().splitlines()[-3:]
+    return " | ".join(item.strip() for item in tail)
+
+
+def solve_cold_production_task(task):
+    """Воркер пула: холодный домен целиком — выгрузка (если нужна), подготовка, материализация.
+
+    Подготовка и материализация идут подряд тем же кодом, что и порознь (`prepare_for_production`
+    и `produce_domain`, который сам обнуляет память перед покрытием), поэтому ответ тот же, что
+    у домена на подготовке из кэша. Ответ несёт и подготовку: у родителя её ещё нет, и в кэш
+    сессии она входит так же, как подготовка отладочного вычислителя. Отказ выгрузки приходит
+    ответом-отказом (`refusal`) и разбирается родителем, как разобрал бы он сам.
+    """
+
+    from .envelope_export_input import TaskInputsV1, task_inputs
+
+    inputs = task_inputs(task)
+    if not isinstance(inputs, TaskInputsV1):
+        return inputs
+    started = time.perf_counter()
+    prepared = prepare_for_production(inputs.snapshot, inputs.request)
+    prepare_seconds = time.perf_counter() - started
+    inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
+    produced = produce_domain(
+        task.patch_id,
+        task.domain_id,
+        prepared,
+        task.alpha_text,
+        uv_policy_id=task.cold.uv_policy_id,
+        topology_law=task.cold.topology_law,
+    )
+    return inputs.result(
+        prepared=prepared,
+        production=_placed(
+            replace(produced, seconds=produced.seconds + prepare_seconds),
+            PLACEMENT_WORKER,
+        ),
+        snapshot=inputs.snapshot if inputs.exported else None,
+    )
 
 
 def solve_production_task(task):
@@ -334,88 +423,288 @@ def _placed(result: ProductionDomainResultV1, placement: str):
 
 @dataclass(frozen=True, slots=True)
 class _DomainEntryV1:
-    """Что кэши сессии знают о домене: отказ входа, подготовка либо ничего."""
+    """Что сессия знает о домене: отказ входа, готовый результат, подготовка либо ничего.
+
+    `inputs` — `(snapshot, request)`, когда метрика домена лежит в кэше сессии; `export` —
+    лёгкий вход выгрузки, когда её там нет (снапшот тогда выгрузит воркер, вместе с
+    подготовкой). `result_key` и `cached` — ключ кэша результатов и результат под ним.
+    """
 
     patch_id: int
     domain_id: str
     selected: frozenset
     failure: object | None = None
     prepared: object | None = None
+    inputs: tuple | None = None
+    export: object | None = None
+    result_key: tuple | None = None
+    cached: object | None = None
 
     @property
     def is_cold(self) -> bool:
         return self.failure is None and self.prepared is None
 
+    @property
+    def needs_work(self) -> bool:
+        return self.failure is None and self.cached is None
 
-def _scan(controller, analysis_bundle, topology_export, revision, patch_ids, selected_by_domain, alpha, request_id, density):
+
+@dataclass(frozen=True, slots=True)
+class _RunInputsV1:
+    """Всё, что одному прогону известно о выделении, сессии и законах."""
+
+    controller: object
+    analysis_bundle: object
+    topology_export: object
+    revision: str
+    patch_ids: tuple
+    selected_by_domain: dict
+    alpha: float
+    alpha_text: str
+    request_id: str
+    density: object
+    uv_policy_id: str
+    topology_law: str
+    hooks: object
+    profile: object
+
+
+def _inputs_of(run: _RunInputsV1, entry_key, provider):
+    from .envelope_queue_export import _queue_snapshot_and_request
+
+    patch_id, domain_id, selected = entry_key
+    return _queue_snapshot_and_request(
+        run.analysis_bundle,
+        patch_id,
+        domain_id,
+        selected,
+        run.alpha,
+        run.request_id,
+        density=run.density,
+        topology_export=run.topology_export,
+        domain_snapshot_provider=provider,
+    )
+
+
+def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
+    return run.controller.production_result_key(
+        run.revision,
+        domain_id,
+        selected,
+        request,
+        run.alpha_text,
+        run.uv_policy_id,
+        run.topology_law,
+        HOST_NEAR_PLANAR_LIFT_POLICY.value,
+    )
+
+
+def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs):
+    """Домен с выгруженным входом: подготовка и результат из кэшей сессии, если они там есть."""
+
+    controller = run.controller
+    request = inputs[1]
+    key = _result_key(run, domain_id, selected, request)
+    return _DomainEntryV1(
+        patch_id,
+        domain_id,
+        selected,
+        prepared=controller.peek_conveyor_preparation(
+            run.revision, domain_id, selected, request
+        ),
+        inputs=inputs,
+        result_key=key,
+        cached=controller.peek_production_result(key),
+    )
+
+
+def _scan(run: _RunInputsV1):
     """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно.
 
-    Метрика, снапшот и подготовка читаются из кэшей контроллера; промах метрики
-    называется холодным доменом, а не собирается здесь в родителе (сборка
-    метрик — работа воркеров пула в холодном наполнении).
+    Метрика, снапшот, подготовка и результат читаются из кэшей контроллера; промах метрики
+    называется холодным доменом с лёгким входом выгрузки, а не собирается здесь в родителе
+    (сборка метрик — работа воркеров пула в холодной задаче).
     """
 
-    from .envelope_queue_export import _queue_snapshot_and_request
     from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
 
+    controller = run.controller
+
     def snapshots(patch_id, _domain_id):
-        metric = controller.get_patch_metric(topology_export, patch_id)
+        metric = controller.get_patch_metric(run.topology_export, patch_id)
         return controller.get_domain_geometry(metric).snapshot
 
     entries = []
-    for patch_id in patch_ids:
-        domain_id = _typed_value("patch-domain", revision, patch_id)
-        selected = frozenset(selected_by_domain[domain_id])
-        if not controller.has_patch_metric(topology_export, patch_id):
-            entries.append(_DomainEntryV1(patch_id, domain_id, selected))
+    for patch_id in run.patch_ids:
+        domain_id = _typed_value("patch-domain", run.revision, patch_id)
+        selected = frozenset(run.selected_by_domain[domain_id])
+        export = run.hooks.export_provider(
+            patch_id, run.alpha, run.request_id, run.density
+        )
+        if export is not None:
+            entries.append(_DomainEntryV1(patch_id, domain_id, selected, export=export))
             continue
         try:
-            _snapshot, request = _queue_snapshot_and_request(
-                analysis_bundle,
-                patch_id,
-                domain_id,
-                selected,
-                alpha,
-                request_id,
-                density=density,
-                topology_export=topology_export,
-                domain_snapshot_provider=snapshots,
-            )
+            inputs = _inputs_of(run, (patch_id, domain_id, selected), snapshots)
         except EnvelopeHostAdapterError as exc:
             entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc))
             continue
-        entries.append(
-            _DomainEntryV1(
-                patch_id,
-                domain_id,
-                selected,
-                prepared=controller.peek_conveyor_preparation(
-                    revision, domain_id, selected, request
-                ),
-            )
-        )
+        entries.append(_entry_with_inputs(run, patch_id, domain_id, selected, inputs))
     return entries
 
 
-def _host_refusal(entry: _DomainEntryV1) -> ProductionDomainResultV1:
-    outcome = getattr(entry.failure.outcome, "value", entry.failure.outcome)
-    return _refusal(entry.patch_id, entry.domain_id, outcome, str(entry.failure))
+def _host_refusal(entry: _DomainEntryV1, failure=None) -> ProductionDomainResultV1:
+    failure = entry.failure if failure is None else failure
+    outcome = getattr(failure.outcome, "value", failure.outcome)
+    return _refusal(entry.patch_id, entry.domain_id, outcome, str(failure))
 
 
-def _dispatch(
-    items, domain_pool, controller, alpha_text, uv_policy_id, topology_law, profile
-):
-    """`{domain_id: результат}`: воркеры на то, что окупает пересылку, родитель на остальное.
+def _remember(run: _RunInputsV1, key, result) -> None:
+    """Результат — в кэш сессии; исключение внутри домена не кэшируется (оно не ответ)."""
 
-    Названные исходы те же, что у покрытия отладки: пул, который не стартовал
-    (`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`), и задача, которая упала или чей воркер
-    умер (`ENVELOPE_DOMAIN_POOL_TASK_FALLBACK`), — счётчик профиля, строка
-    консоли и пометка `placement`; домен при этом считает родитель тем же
-    `produce_domain`. Партия, которая стоит меньше пересылки, остаётся в родителе
-    без исхода: это не отказ, а размещение.
+    if key is not None and result.outcome != OUTCOME_DOMAIN_RAISED:
+        run.controller.remember_production_result(key, result)
+
+
+def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
+    """Холодный домен считает родитель: подготовка через кэш сессии, затем `produce_domain`.
+
+    Сюда идёт домен, которого не взял воркер (нет пула, малая партия, упавшая задача), и
+    ответ тот же: код тот же. Исключение подготовки называется, а не уходит в кнопку.
     """
 
+    snapshot, request = inputs
+    started = time.perf_counter()
+    try:
+        prepared = run.controller.get_conveyor_preparation(
+            run.revision,
+            entry.domain_id,
+            entry.selected,
+            request,
+            lambda: prepare_for_production(snapshot, request),
+            profile=run.profile,
+        )
+    except Exception:  # noqa: BLE001 - исход называется, а не теряется
+        return _refusal(
+            entry.patch_id,
+            entry.domain_id,
+            OUTCOME_DOMAIN_RAISED,
+            _trace_tail(),
+            time.perf_counter() - started,
+            placement,
+        )
+    return _placed(
+        produce_domain(
+            entry.patch_id,
+            entry.domain_id,
+            prepared,
+            run.alpha_text,
+            uv_policy_id=run.uv_policy_id,
+            topology_law=run.topology_law,
+        ),
+        placement,
+    )
+
+
+def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
+    """Родительская сторона холодного домена: выгрузка, подготовка и результат — в кэши сессии.
+
+    `(отказ входа | None, результат | None)`. `reply` — ответ воркера (`None`: задачи не было
+    либо воркер её не вернул). Ответ воркера с выгрузкой проходит кэш метрики тем же путём,
+    что и у отладочного вычислителя (`export_adopter` -> `snapshot_provider`): счётчики,
+    счёт сборок и запомненный отказ те же. Домен, которого воркер не посчитал, считает
+    родитель с названным `placement`.
+    """
+
+    from .envelope_export_input import replay_export_records
+    from .envelope_request_export import EnvelopeHostAdapterError
+
+    answered = reply is not None and (reply.ok or reply.refused)
+    if answered and entry.export is not None:
+        run.hooks.export_adopter(entry.patch_id, reply)
+    elif answered:
+        replay_export_records(run.profile, reply)
+    inputs = entry.inputs
+    if inputs is None:
+        try:
+            inputs = _inputs_of(
+                run,
+                (entry.patch_id, entry.domain_id, entry.selected),
+                run.hooks.snapshot_provider,
+            )
+        except EnvelopeHostAdapterError as exc:
+            return exc, None
+    request = inputs[1]
+    if reply is not None and reply.ok and reply.production is not None:
+        prepared = reply.prepared
+        run.controller.get_conveyor_preparation(
+            run.revision,
+            entry.domain_id,
+            entry.selected,
+            request,
+            lambda: prepared,
+            profile=run.profile,
+        )
+        result = reply.production
+    else:
+        result = _produce_cold_in_parent(run, entry, inputs, placement)
+    _remember(
+        run, _result_key(run, entry.domain_id, entry.selected, request), result
+    )
+    return None, result
+
+
+def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
+    """Задачи пула: домены на готовой подготовке (пикл) и холодные домены (вход задачи)."""
+
     from .envelope_domain_pool import DomainTaskV1
+
+    selected_of = {item.domain_id: item.selected for item in ready}
+    tasks = [
+        DomainTaskV1(
+            index,
+            patch_id,
+            domain_id,
+            None,
+            None,
+            run.alpha_text,
+            selected_of[domain_id],
+            production=ProductionInputV1(blob, run.uv_policy_id, run.topology_law),
+        )
+        for index, ((patch_id, domain_id, _prepared), blob) in enumerate(shipped)
+    ]
+    laws = ColdProductionInputV1(run.uv_policy_id, run.topology_law)
+    for entry in cold:
+        snapshot, request = entry.inputs or (None, None)
+        tasks.append(
+            DomainTaskV1(
+                len(tasks),
+                entry.patch_id,
+                entry.domain_id,
+                snapshot,
+                request,
+                run.alpha_text,
+                entry.selected,
+                export=entry.export,
+                cold=laws,
+            )
+        )
+    return tasks
+
+
+def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
+    """`({domain_id: результат}, {domain_id: отказ входа})`: воркеры на то, что окупает пересылку.
+
+    `ready` — домены на подготовке из кэша (воркеру уходит её пикл), `cold` — домены без
+    подготовки (воркеру уходит вход, он готовит и материализует сам). Названные исходы те
+    же, что у покрытия отладки: пул, который не стартовал (`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`),
+    и задача, которая упала или чей воркер умер (`ENVELOPE_DOMAIN_POOL_TASK_FALLBACK`), —
+    счётчик профиля, строка консоли и пометка `placement`; домен при этом считает родитель
+    тем же кодом. Партия готовых подготовок, которая стоит меньше пересылки, остаётся в
+    родителе без исхода (это размещение, а не отказ) — если только холодные задачи не
+    поднимают пул и так: тогда готовые идут с ними в одной партии.
+    """
+
     from .envelope_queue_pool import (
         _note_task_fallback,
         _record_pool_counters,
@@ -425,65 +714,82 @@ def _dispatch(
         _worth_the_pool,
     )
 
-    triples = [(item.patch_id, item.domain_id, item.prepared) for item in items]
+    controller = run.controller
+    triples = [(item.patch_id, item.domain_id, item.prepared) for item in ready]
     shipped, shipping_failures = (
         _ship_preparations(triples, controller.preparation_blobs, lambda item: item[2])
         if domain_pool is not None and triples
         else ([], {})
     )
-    tasks = []
-    if _worth_the_pool(shipped) and shipped:
-        selected_of = {item.domain_id: item.selected for item in items}
-        tasks = [
-            DomainTaskV1(
-                index,
-                patch_id,
-                domain_id,
-                None,
-                None,
-                alpha_text,
-                selected_of[domain_id],
-                production=ProductionInputV1(blob, uv_policy_id, topology_law),
-            )
-            for index, ((patch_id, domain_id, _prepared), blob) in enumerate(shipped)
-        ]
-    run, failure = _run_tasks(domain_pool, tasks, profile) if tasks else (None, "")
+    sent_cold = list(cold) if domain_pool is not None else []
+    if not (sent_cold or _worth_the_pool(shipped)):
+        shipped = []
+    tasks = _worker_tasks(run, ready, shipped, sent_cold) if (shipped or sent_cold) else []
+    pooled, failure = _run_tasks(domain_pool, tasks, run.profile) if tasks else (None, "")
+    entry_of = {item.domain_id: item for item in (*ready, *cold)}
     done: dict[str, ProductionDomainResultV1] = {}
+    refused: dict[str, object] = {}
     placement: dict[str, str] = {}
+    handled: set[str] = set()
     dispatched = fallbacks = 0
     for task in tasks:
+        domain_id = task.domain_id
+        reply = None if pooled is None or failure else pooled.results.get(task.task_id)
+        landed = reply is not None and reply.ok and reply.production is not None
+        sent = True
         if failure:
-            placement[task.domain_id] = PLACEMENT_UNAVAILABLE
+            placement[domain_id] = PLACEMENT_UNAVAILABLE
+        elif landed:
+            placement[domain_id] = PLACEMENT_WORKER
+        elif task.cold is not None and reply is not None and reply.refused:
+            # Выгрузка отказала в воркере: домен воркеру «не уходил» (как у отладки).
+            sent = False
+        else:
+            fallbacks += 1
+            _note_task_fallback(domain_id, _task_error(pooled, task))
+            placement[domain_id] = PLACEMENT_FALLBACK
+        dispatched += int(sent and not failure)
+        if task.cold is None:
+            if landed:
+                done[domain_id] = reply.production
             continue
-        dispatched += 1
-        result = None if run is None else run.results.get(task.task_id)
-        if result is not None and result.ok and result.production is not None:
-            done[task.domain_id] = result.production
-            continue
-        fallbacks += 1
-        _note_task_fallback(task.domain_id, _task_error(run, task))
-        placement[task.domain_id] = PLACEMENT_FALLBACK
+        handled.add(domain_id)
+        exc, result = _adopt_cold(
+            run, entry_of[domain_id], reply, placement.get(domain_id, PLACEMENT_PARENT)
+        )
+        if exc is not None:
+            refused[domain_id] = exc
+        else:
+            done[domain_id] = result
     for domain_id, reason in shipping_failures.items():
         fallbacks += 1
         _note_task_fallback(domain_id, reason)
         placement[domain_id] = PLACEMENT_FALLBACK
-    for item in items:
-        if item.domain_id in done:
+    for item in ready:
+        if item.domain_id not in done:
+            done[item.domain_id] = _placed(
+                produce_domain(
+                    item.patch_id,
+                    item.domain_id,
+                    item.prepared,
+                    run.alpha_text,
+                    uv_policy_id=run.uv_policy_id,
+                    topology_law=run.topology_law,
+                ),
+                placement.get(item.domain_id, PLACEMENT_PARENT),
+            )
+        _remember(run, item.result_key, done[item.domain_id])
+    for item in cold:
+        if item.domain_id in handled:
             continue
-        done[item.domain_id] = _placed(
-            produce_domain(
-                item.patch_id,
-                item.domain_id,
-                item.prepared,
-                alpha_text,
-                uv_policy_id=uv_policy_id,
-                topology_law=topology_law,
-            ),
-            placement.get(item.domain_id, PLACEMENT_PARENT),
-        )
+        exc, result = _adopt_cold(run, item, None, PLACEMENT_PARENT)
+        if exc is not None:
+            refused[item.domain_id] = exc
+        else:
+            done[item.domain_id] = result
     if domain_pool is not None:
-        _record_pool_counters(profile, run, failure, dispatched, fallbacks, dispatched)
-    return done
+        _record_pool_counters(run.profile, pooled, failure, dispatched, fallbacks, dispatched)
+    return done, refused
 
 
 @dataclass(frozen=True, slots=True)
@@ -514,6 +820,60 @@ class ProductionRunV1:
 _FROM_SETTINGS = object()
 
 
+def _domain_results(entries, done, refused):
+    """Результаты в порядке доменов: отказ входа, результат из кэша, посчитанное либо названная пропажа."""
+
+    results = []
+    for entry in entries:
+        if entry.failure is not None:
+            results.append(_host_refusal(entry))
+        elif entry.domain_id in refused:
+            results.append(_host_refusal(entry, refused[entry.domain_id]))
+        elif entry.cached is not None:
+            results.append(replace(entry.cached, seconds=0.0, placement=PLACEMENT_CACHED))
+        elif entry.domain_id in done:
+            results.append(done[entry.domain_id])
+        else:
+            results.append(
+                _refusal(
+                    entry.patch_id,
+                    entry.domain_id,
+                    OUTCOME_PREPARATION_UNAVAILABLE,
+                    "the domain came back from the workers and the parent without a result",
+                )
+            )
+    return results
+
+
+def _record_run_counters(profile, controller, builds_before, entries, results, cold):
+    builds_after = controller.build_counts
+    for name, key in (
+        (PRODUCTION_PREPARATION_BUILDS, "CONVEYOR_PREPARATION"),
+        (PRODUCTION_PATCH_METRIC_BUILDS, "PATCH_METRIC"),
+        (PRODUCTION_DOMAIN_GEOMETRY_BUILDS, "DOMAIN_GEOMETRY"),
+    ):
+        profile.set_counter(name, builds_after[key] - builds_before[key])
+    profile.set_counter(
+        PRODUCTION_PREPARATION_REUSED,
+        sum(1 for item in entries if item.prepared is not None),
+    )
+    profile.set_counter(PRODUCTION_COLD_FILL, int(cold))
+    profile.set_counter(
+        PRODUCTION_RESULT_CACHE_HIT,
+        sum(1 for item in entries if item.failure is None and item.cached is not None),
+    )
+    profile.set_counter(
+        PRODUCTION_RESULT_CACHE_MISS, sum(1 for item in entries if item.needs_work)
+    )
+    profile.set_counter(PRODUCTION_DOMAINS, len(results))
+    profile.set_counter(
+        PRODUCTION_MATERIALIZED, sum(1 for item in results if item.is_materialized)
+    )
+    profile.set_counter(
+        PRODUCTION_REFUSED, sum(1 for item in results if not item.is_materialized)
+    )
+
+
 def run_production(
     controller,
     analysis_bundle,
@@ -530,10 +890,11 @@ def run_production(
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
-    Тёплый прогон не собирает ничего: счётчики сборок контроллера в профиле
-    (`PRODUCTION_*_BUILDS`) — доказательство повторного использования. Холодный
-    сперва наполняет кэши отладочным вычислителем очереди (то же, что делает
-    кнопка отладки, без отрисовки), затем идёт как тёплый.
+    Домен с результатом в кэше сессии не считается вовсе; домен с подготовкой в кэше
+    считает только покрытие и материализацию; холодный домен — подготовку и
+    материализацию одной задачей. Счётчики сборок контроллера в профиле
+    (`PRODUCTION_*_BUILDS`) и счётчики кэша результатов — доказательство повторного
+    использования, а не секунды.
     """
 
     from .envelope_domain_pool import get_domain_pool
@@ -557,76 +918,39 @@ def run_production(
     _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export
     )
-    scan_args = (
+    run = _RunInputsV1(
         controller,
         analysis_bundle,
         topology_export,
         revision,
-        patch_ids,
+        tuple(patch_ids),
         selected_by_domain,
         alpha,
+        str(float(alpha)),
         request_id,
         density,
+        uv_policy_id,
+        topology_law,
+        controller.worker_export_hooks(topology_export, profile),
+        profile,
     )
-    entries = _scan(*scan_args)
-    reused = sum(1 for item in entries if item.prepared is not None)
+    entries = _scan(run)
     cold = any(item.is_cold for item in entries)
-    if cold:
-        with profile.measure(PRODUCTION_COLD_FILL):
-            controller.evaluate_staged(
-                analysis_bundle,
-                selected,
-                alpha,
-                source_object_key=source_object_key,
-                source_data_key=source_data_key,
-                profile=profile,
-                engine="QUEUE",
-                density=density,
-                workers=workers,
-            )
-        entries = _scan(*scan_args)
+    work = [item for item in entries if item.needs_work]
     pool = (
         get_domain_pool(workers, read_worker_python())
         if domain_pool is _FROM_SETTINGS
         else domain_pool
     )
-    alpha_text = str(float(alpha))
-    ready = [item for item in entries if item.prepared is not None]
     with profile.measure("PRODUCTION_DOMAINS_WALL"):
-        produced = _dispatch(
-            ready, pool, controller, alpha_text, uv_policy_id, topology_law, profile
+        done, refused = _dispatch(
+            run,
+            [item for item in work if item.prepared is not None],
+            [item for item in work if item.prepared is None],
+            pool,
         )
-    results = []
-    for entry in entries:
-        if entry.failure is not None:
-            results.append(_host_refusal(entry))
-        elif entry.prepared is None:
-            results.append(
-                _refusal(
-                    entry.patch_id,
-                    entry.domain_id,
-                    OUTCOME_PREPARATION_UNAVAILABLE,
-                    "no preparation in the session after the debug-equivalent fill",
-                )
-            )
-        else:
-            results.append(produced[entry.domain_id])
-    builds_after = controller.build_counts
-    for name, key in (
-        (PRODUCTION_PREPARATION_BUILDS, "CONVEYOR_PREPARATION"),
-        (PRODUCTION_PATCH_METRIC_BUILDS, "PATCH_METRIC"),
-        (PRODUCTION_DOMAIN_GEOMETRY_BUILDS, "DOMAIN_GEOMETRY"),
-    ):
-        profile.set_counter(name, builds_after[key] - builds_before[key])
-    profile.set_counter(PRODUCTION_PREPARATION_REUSED, reused)
-    profile.set_counter(PRODUCTION_COLD_FILL, int(cold))
-    profile.set_counter(PRODUCTION_DOMAINS, len(results))
-    profile.set_counter(
-        PRODUCTION_MATERIALIZED, sum(1 for item in results if item.is_materialized)
-    )
-    profile.set_counter(
-        PRODUCTION_REFUSED, sum(1 for item in results if not item.is_materialized)
-    )
+    results = _domain_results(entries, done, refused)
+    _record_run_counters(profile, controller, builds_before, entries, results, cold)
     return ProductionRunV1(
         results=tuple(results),
         revision=revision,
@@ -790,9 +1114,12 @@ def production_timing_text(run: ProductionRunV1) -> str:
     kind = "cold" if run.cold else "warm"
     reused = run.counter(PRODUCTION_PREPARATION_REUSED)
     builds = run.counter(PRODUCTION_PREPARATION_BUILDS)
+    cached = run.counter(PRODUCTION_RESULT_CACHE_HIT)
+    computed = run.counter(PRODUCTION_RESULT_CACHE_MISS)
     return (
         f"Decal {kind} {run.wall_seconds:.2f} s | preparations reused {reused}, "
-        f"built {builds}{_pool_timing_suffix(run.profile)}"
+        f"built {builds} | results cached {cached}, computed {computed}"
+        f"{_pool_timing_suffix(run.profile)}"
     )
 
 
@@ -843,9 +1170,11 @@ def export_production_json(results, directory, *, label: str = "production") -> 
 
 
 __all__ = (
+    "ColdProductionInputV1",
     "MATERIALIZED",
     "OUTCOME_DOMAIN_RAISED",
     "OUTCOME_PREPARATION_UNAVAILABLE",
+    "PLACEMENT_CACHED",
     "PRODUCTION_COLD_FILL",
     "PRODUCTION_DOMAINS",
     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS",
@@ -854,6 +1183,8 @@ __all__ = (
     "PRODUCTION_PREPARATION_BUILDS",
     "PRODUCTION_PREPARATION_REUSED",
     "PRODUCTION_REFUSED",
+    "PRODUCTION_RESULT_CACHE_HIT",
+    "PRODUCTION_RESULT_CACHE_MISS",
     "PRODUCTION_TOPOLOGY_LAW",
     "PRODUCTION_TOPOLOGY_LAWS",
     "PRODUCTION_UV_POLICY",
@@ -862,6 +1193,7 @@ __all__ = (
     "ProductionRunV1",
     "diagnostic_summary_lines",
     "export_production_json",
+    "prepare_for_production",
     "produce_domain",
     "production_console_lines",
     "receipt_console_lines",
@@ -871,5 +1203,6 @@ __all__ = (
     "production_timing_text",
     "refused_outcome_counts",
     "run_production",
+    "solve_cold_production_task",
     "solve_production_task",
 )

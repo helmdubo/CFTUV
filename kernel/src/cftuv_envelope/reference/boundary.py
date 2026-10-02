@@ -61,6 +61,79 @@ class ComponentResolution:
         )
 
 
+class ContactCandidatesMemoV1:
+    """Контакты `(источник, граница)` ОДНОЙ подготовки очереди: значения, а не кэш процесса.
+
+    `_contact_candidates` — функция только геометрии: опорного отрезка источника и
+    отрезка границы домена в метрике контекста. Запрошенная alpha в неё не входит, она
+    стоит лишь в сравнениях ПОСЛЕ неё (`resolve_component_alphas`). Поэтому покрытие при
+    каждой новой alpha пересчитывало одни и те же точные контакты: на центральном патче
+    `building` 1332 вызова стоили 2.0 с из 2.2 с покрытия (клип самой юбки — 45 мс).
+
+    Здесь контакты считаются один раз на подготовку, на первом покрытии, и ездят вместе с
+    ней: память НЕ обнуляется при пересылке (в отличие от `_DensityExactMemo`, чьи
+    интервалы `mpmath` не пиклятся), потому что воркер, получивший пикл подготовки, иначе
+    начинал бы с пустой памяти на каждое нажатие. Значения — те же выражения `sympy` и
+    точки, что вернула бы функция, поэтому ответ побитово прежний.
+
+    Ключ несёт геометрию обоих отрезков, а не только имена: отрезок границы и его
+    `reversed()` носят одно `segment_id`.
+    """
+
+    __slots__ = ("entries", "computed", "reused")
+
+    def __init__(self, entries: dict | None = None) -> None:
+        self.entries: dict = {} if entries is None else entries
+        # Сколько раз память посчитала и сколько отдала в ЭТОМ процессе: счётчики не
+        # едут с пиклом, иначе копия в воркере выдавала бы чужие числа за свои.
+        self.computed = 0
+        self.reused = 0
+
+    def __reduce__(self):
+        return (type(self), (self.entries,))
+
+
+def _remembered(memo: ContactCandidatesMemoV1 | None, key: tuple, compute):
+    if memo is None:
+        return compute()
+    found = memo.entries.get(key)
+    if found is None:
+        found = memo.entries[key] = compute()
+        memo.computed += 1
+    else:
+        memo.reused += 1
+    return found
+
+
+def _contacts_of(context, source, boundary, memo):
+    """`_contact_candidates` через память подготовки (`None` — как раньше, без неё)."""
+
+    segment = boundary.segment
+    return _remembered(
+        memo,
+        (
+            "contacts",
+            source.support_id,
+            point_key(source.start),
+            point_key(source.end),
+            segment.segment_id,
+            point_key(segment.start),
+            point_key(segment.end),
+        ),
+        lambda: _contact_candidates(context, source, boundary),
+    )
+
+
+def _source_length(context, source, memo):
+    """Метрическая длина опорного отрезка источника; считается один раз на отрезок."""
+
+    return _remembered(
+        memo,
+        ("length", source.support_id, point_key(source.start), point_key(source.end)),
+        lambda: context.metric.length_g(point_sub(source.end, source.start)),
+    )
+
+
 def build_domain_geometry(
     context: GeometryContext,
 ) -> SparsePatchDomainGeometryV1:
@@ -176,6 +249,7 @@ def resolve_component_alphas(
     context: GeometryContext,
     requested_alpha: LocalLengthV1,
     domain_geometry: SparsePatchDomainGeometryV1,
+    contact_memo: ContactCandidatesMemoV1 | None = None,
 ) -> tuple[dict[str, ComponentResolution], tuple[ReferenceEvaluationDiagnosticV1, ...]]:
     requested = sp.Rational(str(requested_alpha.value))
     resolutions = {
@@ -215,16 +289,14 @@ def resolve_component_alphas(
             for boundary in domain_geometry.blocking_segments:
                 if source.physical_edge_id.value in boundary.segment.provenance.physical_edge_ids:
                     continue
-                for alpha, station, point in _contact_candidates(
-                    context, source, boundary
+                for alpha, station, point in _contacts_of(
+                    context, source, boundary, contact_memo
                 ):
                     if exact_sign(alpha) == 0:
                         continue
                     if exact_sign(alpha - requested) > 0:
                         continue
-                    source_length = context.metric.length_g(
-                        point_sub(source.end, source.start)
-                    )
+                    source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
                     split = interior and (
                         boundary.role in (BoundaryRole.HOLE, BoundaryRole.EXPLICIT_BARRIER)

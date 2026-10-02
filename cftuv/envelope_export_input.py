@@ -216,48 +216,68 @@ def _refusal(error) -> ExportRefusalV1:
     return ExportRefusalV1(error.outcome, str(error), error.patch_domain_id)
 
 
-def solve_exported_task(task):
-    """Домен целиком в воркере: выгрузка `(snapshot, request)`, затем очередь.
+@dataclass(frozen=True, slots=True)
+class TaskInputsV1:
+    """Что воркер получил на входе задачи: `(snapshot, request)` и запись стадий выгрузки.
 
-    Возвращает `DomainTaskResultV1`. Отказ выгрузки — запись `refusal` без
-    `queue_domain`; отказ запроса — то же, но со снапшотом (родитель повторит
-    сборку запроса и получит тот же отказ). Прочие исключения уходят наверх, в
+    `profile` держит секунды и счётчики выгрузки, которую сделал ВОРКЕР, и любую стадию,
+    которую воркер допишет сам (подготовка продуктового пути): `result` возвращает их
+    ответом, а родитель проигрывает в профиль кнопки (`replay_export_records`).
+    `exported` — снапшот выгрузил воркер: он едет обратно ответом, у родителя его нет.
+    """
+
+    snapshot: object
+    request: object
+    profile: object
+    task_id: int
+    exported: bool
+
+    def result(self, **fields):
+        from .envelope_domain_pool import DomainTaskResultV1
+
+        recorded = self.profile.snapshot()
+        return DomainTaskResultV1(
+            self.task_id,
+            export_timings=recorded.timings,
+            export_counters=recorded.counters,
+            **fields,
+        )
+
+
+def task_inputs(task):
+    """Входы домена в воркере: `TaskInputsV1` либо готовый ответ-отказ выгрузки.
+
+    Задача с выгрузкой в воркере (`task.export`) выгружает `(snapshot, request)` сама,
+    тем же кодом, что и родитель; иначе оба пришли готовыми из родителя. Отказ выгрузки —
+    запись `refusal` без `queue_domain`; отказ запроса — то же, но со снапшотом (родитель
+    повторит сборку запроса и получит тот же отказ). Прочие исключения уходят наверх, в
     `solve_task`, и становятся ошибкой задачи.
     """
 
     from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
-    from .envelope_domain_pool import DomainTaskResultV1
     from .envelope_metric_export import build_envelope_patch_metric_export
-    from .envelope_queue_export import run_queue_domain
     from .envelope_request_export import (
         EnvelopeHostAdapterError,
         build_envelope_decal_request,
     )
 
-    export = task.export
     profile = EnvelopeDebugProfileBuilderV1("worker", "QUEUE")
+    export = task.export
+    if export is None:
+        return TaskInputsV1(task.snapshot, task.request, profile, task.task_id, False)
     topology = EnvelopeTopologyExportV1(
         export.source_revision_value,
         export.bundle,
         export.host_chains,
         {int(task.patch_id): task.domain_id},
     )
-
-    def result(**fields):
-        recorded = profile.snapshot()
-        return DomainTaskResultV1(
-            task.task_id,
-            export_timings=recorded.timings,
-            export_counters=recorded.counters,
-            **fields,
-        )
-
+    inputs = TaskInputsV1(None, None, profile, task.task_id, True)
     try:
         snapshot = build_envelope_patch_metric_export(
             topology, task.patch_id, profile=profile
         ).snapshot
     except EnvelopeHostAdapterError as error:
-        return result(refusal=_refusal(error))
+        return inputs.result(refusal=_refusal(error))
     try:
         request = build_envelope_decal_request(
             snapshot,
@@ -267,20 +287,34 @@ def solve_exported_task(task):
             density=export.density,
         )
     except EnvelopeHostAdapterError as error:
-        return result(snapshot=snapshot, refusal=_refusal(error))
+        return inputs.result(snapshot=snapshot, refusal=_refusal(error))
+    return replace(inputs, snapshot=snapshot, request=request)
+
+
+def solve_exported_task(task):
+    """Домен целиком в воркере: выгрузка `(snapshot, request)`, затем очередь.
+
+    Возвращает `DomainTaskResultV1` (отказы выгрузки — см. `task_inputs`).
+    """
+
+    from .envelope_queue_export import run_queue_domain
+
+    inputs = task_inputs(task)
+    if not isinstance(inputs, TaskInputsV1):
+        return inputs
     prepared, domain = run_queue_domain(
         task.patch_id,
         task.domain_id,
-        snapshot,
-        request,
+        inputs.snapshot,
+        inputs.request,
         task.alpha_text,
         selected_edges=task.selected_edges,
         profile=None,
     )
-    return result(
+    return inputs.result(
         prepared=prepared,
         queue_domain=replace(domain, preparation=None),
-        snapshot=snapshot,
+        snapshot=inputs.snapshot,
     )
 
 
@@ -310,9 +344,11 @@ def load_export_modules() -> None:
 __all__ = (
     "ExportRefusalV1",
     "HostExportInputV1",
+    "TaskInputsV1",
     "build_host_export_input",
     "load_export_modules",
     "patch_metric_from_worker",
     "replay_export_records",
     "solve_exported_task",
+    "task_inputs",
 )

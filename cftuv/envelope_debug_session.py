@@ -6,6 +6,7 @@ on the active WindowManager as ``_cftuv_envelope_debug_session``.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Hashable, TYPE_CHECKING
 
@@ -33,6 +34,10 @@ if TYPE_CHECKING:
 
 COMPILE_CONTRACT_ALPHA_INDEPENDENT = False
 WINDOW_MANAGER_SESSION_ATTRIBUTE = "_cftuv_envelope_debug_session"
+#: Сколько результатов продуктового пути держит сессия (вытесняется давнее по обращению).
+#: Результат домена — батч с сеткой, поэтому запас считан в доменах: `building` (121) в
+#: четыре прогона при разных alpha.
+PRODUCTION_RESULT_CACHE_LIMIT = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +202,10 @@ class EnvelopeDebugSessionController:
             tuple[str, str, frozenset[int], tuple[str, ...]], object
         ] = {}
         self._queue_session: QueueSessionStateV1 | None = None
+        # Результаты продуктового пути по доменам: функция подготовки (её ключ), alpha и
+        # законов, поэтому тот же ключ даёт тот же ответ без единого покрытия. Вытеснение
+        # — по давности обращения (`PRODUCTION_RESULT_CACHE_LIMIT`).
+        self._production_result_cache: OrderedDict[tuple, object] = OrderedDict()
         # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
         # считается в них): живут и чистятся вместе с кэшем подготовок.
         self._preparation_blobs = None
@@ -254,6 +263,7 @@ class EnvelopeDebugSessionController:
         self._domain_geometry_cache.clear()
         self._compiled_envelope_cache.clear()
         self._conveyor_preparation_cache.clear()
+        self._production_result_cache.clear()
         if self._preparation_blobs is not None:
             self._preparation_blobs.clear()
         self._queue_session = None
@@ -639,6 +649,60 @@ class EnvelopeDebugSessionController:
             cache_key=key,
         )
         return prepared
+
+    def worker_export_hooks(
+        self,
+        topology_export: EnvelopeTopologyExportV1,
+        profile: EnvelopeDebugProfileBuilderV1 | None,
+    ) -> _WorkerExportHooks:
+        """Выгрузка домена в воркерах пула сквозь кэш метрики этой сессии."""
+
+        return _WorkerExportHooks(self, topology_export, profile)
+
+    def production_result_key(
+        self,
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        request,
+        *laws: Hashable,
+    ) -> tuple:
+        """Ключ результата продуктового пути: ключ подготовки и всё, что вне её.
+
+        Подготовка alpha-независима и от законов материализации не зависит, а
+        результат домена — функция подготовки, alpha и этих законов (`laws`: alpha
+        текстом, закон UV, закон топологии, закон подъёма). Числа воркеров и размещения
+        в ключе нет намеренно: размещение не меняет ответ.
+        """
+
+        return (
+            self._preparation_key(
+                source_revision_value,
+                patch_domain_id,
+                selected_edge_ids,
+                request,
+            ),
+            *laws,
+        )
+
+    def peek_production_result(self, key: tuple):
+        """Результат домена под ключом либо `None`; обращение освежает давность."""
+
+        found = self._production_result_cache.get(key)
+        if found is not None:
+            self._production_result_cache.move_to_end(key)
+        return found
+
+    def remember_production_result(self, key: tuple, result) -> None:
+        cache = self._production_result_cache
+        cache[key] = result
+        cache.move_to_end(key)
+        while len(cache) > PRODUCTION_RESULT_CACHE_LIMIT:
+            cache.popitem(last=False)
+
+    @property
+    def production_result_count(self) -> int:
+        return len(self._production_result_cache)
 
     def remember_queue_session(self, state: QueueSessionStateV1) -> None:
         self._queue_session = state

@@ -14,6 +14,8 @@
 продуктовый путь на той же готовой подготовке (`DomainTaskV1.production`, см.
 `envelope_production_export`): воркер считает покрытие и материализует
 `GeometryBatchV1`, а отказ материализации приходит ОТВЕТОМ с названным исходом.
+Либо ХОЛОДНЫЙ домен продуктового пути (`DomainTaskV1.cold`): подготовка и
+материализация одной задачей, без промежуточного прогона отладочного вычислителя.
 
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
@@ -167,6 +169,11 @@ class DomainTaskV1:
     `production` (`ProductionInputV1`) — продуктовый путь на той же готовой
     подготовке: воркер считает покрытие и материализует `GeometryBatchV1`
     (`envelope_production_export`), а `snapshot` с `request` тогда `None`.
+
+    `cold` (`ColdProductionInputV1`) — продуктовый путь на домене БЕЗ подготовки:
+    воркер готовит её и сразу материализует (`prepare -> produce_domain`), а вход
+    берёт как задача с выгрузкой (`export`) либо как задача с готовыми `snapshot` и
+    `request`. Подготовка возвращается ответом: у родителя её ещё нет.
     """
 
     task_id: int
@@ -179,6 +186,7 @@ class DomainTaskV1:
     export: object | None = None
     coverage: object | None = None
     production: object | None = None
+    cold: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,7 +199,8 @@ class DomainTaskResultV1:
     `export_timings` и `export_counters` — её стадии, которые родитель
     проигрывает в профиль кнопки. `production` — ответ продуктового пути
     (`ProductionDomainResultV1`): отказ материализации там названный исход, а
-    не сбой задачи.
+    не сбой задачи. У холодного домена ответ несёт и подготовку (`prepared`), и снапшот
+    выгрузки, если выгружал воркер.
     """
 
     task_id: int
@@ -344,6 +353,10 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
     """
 
     try:
+        if task.cold is not None:
+            from .envelope_production_export import solve_cold_production_task
+
+            return solve_cold_production_task(task)
         if task.export is not None:
             from .envelope_export_input import solve_exported_task
 
