@@ -274,8 +274,8 @@ def test_the_real_edge_between_two_faces_still_cuts_and_closes_the_mesh():
     assert found[clip.FACES_CUT] == 2 and found[clip.FACES_BOUNDARY_MISMATCH] == found[clip.FACES_OVERHANG] == 0
 
 
-def test_a_straight_vertex_of_a_face_does_not_open_the_boundary_with_its_neighbours():
-    """Пятиугольник с прямой вершиной `(2, 0)`: соседи с поворотом в ней, куски сходятся без T-стыка."""
+def straight_vertex_lift():
+    """Пятиугольник `top` с прямой вершиной `(2, 0)` и два соседа снизу с поворотом в ней."""
 
     chart = [(0, 0), (2, 0), (4, 0), (4, 4), (0, 4)]
     top = ("top", chart, [(x, y, Fraction(0)) for x, y in chart], ((1, 2, 3), (0, 1, 3), (0, 3, 4)))
@@ -283,7 +283,22 @@ def test_a_straight_vertex_of_a_face_does_not_open_the_boundary_with_its_neighbo
     right_chart = [(2, -4), (4, -4), (4, 0), (2, 0)]
     left = ("left", left_chart, [(x, y, Fraction(0)) for x, y in left_chart], FAN4)
     right = ("right", right_chart, [(x, y, Fraction(0)) for x, y in right_chart], FAN4)
-    lift = lift_of([top, left, right])
+    return lift_of([top, left, right])
+
+
+def test_without_the_straight_vertex_the_boundary_would_open(monkeypatch):
+    """Красный контроль: стадия без вершины прямого угла не сводит границу куска с соседом (названо, не молча)."""
+
+    monkeypatch.setattr(ClipStageV1, "_with_straight_vertices", lambda self, nodes, ti: nodes)
+    result, _keys = run(straight_vertex_lift(), [[(1, -1), (3, -1), (3, 1), (1, 1)]])
+    found = counters(result)
+    assert found[clip.FACES_BOUNDARY_MISMATCH] == 1 and found[clip.FACES_CUT] == 0
+
+
+def test_a_straight_vertex_of_a_face_does_not_open_the_boundary_with_its_neighbours():
+    """Пятиугольник с прямой вершиной `(2, 0)`: соседи с поворотом в ней, куски сходятся без T-стыка."""
+
+    lift = straight_vertex_lift()
     plan = build_cells(lift.triangles)
     top_cell = next(cell for cell in plan.cells if cell.name == "top")
     assert len(top_cell.members) == 3 and [point for _edge, point in top_cell.straight] == [(Fraction(2), Fraction(0))]
