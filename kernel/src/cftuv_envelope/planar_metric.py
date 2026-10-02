@@ -786,7 +786,7 @@ def _build_planar_family_metric(
         normal=normal,
         faces=faces,
         required_ids=required_ids,
-        judged=near_planar_lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1,
+        judged=near_planar_lift_law.onto_surface,
     )
     certificate = _planarity_certificate(
         source_revision=source_revision,
@@ -795,7 +795,7 @@ def _build_planar_family_metric(
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
         width_distortion=width_distortion,
-        lift_law=near_planar_lift_law,
+        lift_law=near_planar_lift_law.judged_as,
     )
     metric = _metric_record(
         metric_id=metric_id,

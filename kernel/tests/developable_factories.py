@@ -105,6 +105,21 @@ def fold_strip(width=1.0):
     return surface(strip_points(rings), strip_cycles(len(rings)))
 
 
+def slant_fold(width=1.0, shear=0.5):
+    """Косая складка: плоский квад и вертикальный квад вдоль ребра, срезанного на `shear` по длине полосы.
+
+    Ребро складки не перпендикулярно полосе: диагональ ушей полосы его пересекает, и лента через такую
+    складку без резки уходит хордой в стену (на `fold_strip` ребро складки идёт по перекладине).
+    """
+
+    rings = [
+        ((0.0, 0.0, 0.0), (0.0, width, 0.0)),
+        ((1.0, 0.0, 0.0), (1.0 + shear, width, 0.0)),
+        ((1.0, 0.0, 1.0), (1.0 + shear, width, 1.0)),
+    ]
+    return surface(strip_points(rings), strip_cycles(len(rings)))
+
+
 def bevel_strip(segments: int, *, step_degrees=15.0, length=1.0, width=1.0):
     """Фаска: `segments` плоских квадов, каждый повёрнут относительно предыдущего на `step`."""
 

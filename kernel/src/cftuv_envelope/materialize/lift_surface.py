@@ -621,6 +621,16 @@ class BoundSurfaceLiftV1:
         """
 
         triangle, values = self.locate(point)
+        return self.lift_known(triangle, values)
+
+    def lift_known(self, triangle: LiftTriangleV1, values):
+        """`lift_named` для точки, чей ЗАДАННЫЙ треугольник и три значения ориентации уже известны.
+
+        Закон `SOURCE_TRIANGLES_CLIPPED_V1` доказывает вхождение куска грани в свой треугольник
+        сам (`clip`), поэтому нахождение (`locate`) заново он не просит и счётчиков подъёма не
+        трогает: значения те же, что дало бы `locate` для замкнутого треугольника.
+        """
+
         x, y, z = self.lift_in(triangle, values)
         lifted = LocalPoint3V1(
             sqrt_sum_binary64(x), sqrt_sum_binary64(y), sqrt_sum_binary64(z)
@@ -638,6 +648,24 @@ class BoundSurfaceLiftV1:
     @property
     def has_offset_normals(self) -> bool:
         return bool(self._normal_by_position)
+
+    @property
+    def triangles(self) -> tuple[LiftTriangleV1, ...]:
+        """Треугольники подъёма по имени (проекции треугольников источника владельца)."""
+
+        return self._lift.triangles
+
+    def window(self, point):
+        """Outward-округлённая рамка `(xmin, xmax, ymin, ymax)` точки: фильтр, ответа не меняет."""
+
+        return self._window(point)
+
+    def line_value(self, triangle: LiftTriangleV1, index: int, point) -> SqrtSumV1:
+        """Ориентация точки относительно `index`-го ребра треугольника: значение, а не знак."""
+
+        return _edge_value(
+            triangle.chart[index], triangle.chart[(index + 1) % 3], point
+        )
 
     def rebind_position(self, old, new) -> None:
         """Нормаль смещения вершины, чья позиция стала `new`, — та же, что была у `old`.

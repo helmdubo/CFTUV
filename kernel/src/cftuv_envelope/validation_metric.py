@@ -36,7 +36,6 @@ from .contracts.metric import (
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
     NEAR_PLANAR_WIDTH_BUDGET,
     PRODUCT_SKIRT_ABSOLUTE_BUDGET,
-    NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
     NearPlanarWidthDistortionLawV1,
@@ -336,7 +335,7 @@ def _check_near_planar_certificate(
     # Невязка судит ТОЛЬКО при укладке на сертифицированную плоскость. Под
     # `SOURCE_TRIANGLES_V1` она записанная диагностика и может быть больше
     # бюджета, зато обязан быть в бюджете сертификат искажения ширины.
-    onto_surface = certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+    onto_surface = certificate.lift_law.onto_surface
     if not onto_surface and (
         fraction_of(certificate.max_residual_squared) > budget * budget
     ):

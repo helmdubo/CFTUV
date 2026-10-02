@@ -83,6 +83,7 @@ from .assemble import (
     station_values,
     tessellate_faces,
 )
+from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
@@ -175,6 +176,7 @@ def _diagnostics(
     lift_note: str = "",
     gap_note: str = "",
     sourced=None,
+    clip_note: str = "",
 ):
     """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры, положение вершин `src:`."""
 
@@ -193,7 +195,7 @@ def _diagnostics(
 
     if planarity is PlanarityKind.NEAR_PLANAR:
         certificate = prepared.context.frame.planarity_certificate
-        onto_surface = lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+        onto_surface = lift_law.onto_surface
         add(
             GeometryDiagnosticSeverity.INFO,
             NamedOutcome.NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES
@@ -219,6 +221,14 @@ def _diagnostics(
                 (),
                 gap_note,
             )
+    if clip_note:
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.SOURCE_EDGES_LIFTED_ONTO_SURFACE,
+            "domain",
+            (),
+            clip_note,
+        )
     if sourced is not None and sourced.moved:
         add(
             GeometryDiagnosticSeverity.INFO,
@@ -471,7 +481,7 @@ def _source_normal(prepared) -> tuple[float, float, float]:
 def _on_exact_plane(admission) -> bool:
     """Укладка домена — ТОЧНАЯ плоскость (аффинный подъём), а не треугольники источника."""
 
-    return admission.lift_law is not NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+    return not admission.lift_law.onto_surface
 
 
 def _lift_of(prepared, admission, scale, budget):
@@ -486,6 +496,52 @@ def _lift_of(prepared, admission, scale, budget):
             scale,
         ).bind(budget)
     return plane_lift_of(context.frame, scale)
+
+
+def _is_clipped(admission) -> bool:
+    """Укладка домена — треугольники источника С РЕЗКОЙ граней (`SOURCE_TRIANGLES_CLIPPED_V1`)."""
+
+    return admission.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1
+
+
+def _lifted(plane, points, cut):
+    """`(позиции, записи об источнике)` вершин: узлы подъёмом, новые вершины резки — как они подняты."""
+
+    positions, names = lift_vertices(points, plane)
+    if cut is not None:
+        positions.update((key, lifted[0]) for key, lifted in cut.lifted.items())
+        names.update((key, lifted[1]) for key, lifted in cut.lifted.items())
+    return positions, names
+
+
+def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
+    """Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` и проверка выпущенных граней: `(грани, итог, числа граней)`.
+
+    Позиции не вправе зависеть от закона: ориентация сверяется по каноническим треугольникам
+    `TRIANGLES_V1` слитых граней (`source_lift`), а не по выпущенным. Под резкой к ним добавлены уши
+    ВЫПУЩЕННЫХ кусков: обрезок у вершины на ячейку, которого нет среди канонических, тоже обязан
+    остаться гранью, когда вершина `src:` встаёт в позицию хоста.
+    """
+
+    frame_faces, cycles, points = faces
+    positions, polygons, cut = lifted
+    canonical = (
+        polygons
+        if law is DecalTopologyLawV1.TRIANGLES_V1 and cut is None
+        else canonical_triangles(frame_faces, cycles, budget, chart_cw)
+    )
+    sourced = lift_source_vertices(
+        positions,
+        [triangle for face in canonical for triangle in face]
+        + ([] if cut is None else piece_triangles(cut.polygons, points, budget)),
+        host_positions_of(prepared.context.snapshot),
+        source_step_of(prepared.context.frame),
+    )
+    rebind_offset_normals(plane, positions, sourced)
+    final, faces_after = settle_emitted_faces(
+        polygons if cut is None else cut.polygons, positions, sourced, points, budget, chart_cw
+    )
+    return final, sourced, faces_after
 
 
 def _assemble(prepared, coverage, request, admission, budget, clock, parts, law):
@@ -508,49 +564,55 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         prepared.context.frame.chart_orientation
         is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
+    clipped = _is_clipped(admission)
     tally = Counter()
+    # Под резкой многоугольник доказан простым и аффинным по UV на карте (как на плоскости), а
+    # плоскими в 3D его делает резка: каждый кусок лежит в одном треугольнике источника.
     polygons = tessellate_faces(
         frame_faces,
         cycles,
         budget,
         reverse=chart_cw,
         law=law,
-        exact_plane=_on_exact_plane(admission),
+        exact_plane=_on_exact_plane(admission) or clipped,
         tally=tally,
         uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    positions, names = lift_vertices(points, plane)
+    cut = None
+    if clipped:
+        cut = cut_domain(
+            plane,
+            budget,
+            frame_faces=frame_faces,
+            cycles=cycles,
+            points=points,
+            polygons=polygons,
+            facts=facts,
+            layout=layout,
+            table=table,
+            lattice_alpha=lattice_alpha,
+            law=law,
+        )
+        clock.lap("CLIP")
+    positions, names = _lifted(plane, points, cut)
+    if cut is not None:
+        points = {**points, **cut.points}
+        # Счёт закона топологии идёт по ТЕССЕЛЯЦИИ; режет и называет куски резка, поэтому
+        # здесь ни один многоугольник не делится по записи об источнике.
+        names = {key: (None, None) for key in names}
     polygons, topology = settle_topology(
         frame_faces, cycles, polygons, names, law, tally
     )
-    # Позиции не вправе зависеть от закона: ориентация сверяется по каноническим
-    # треугольникам `TRIANGLES_V1` слитых граней (`source_lift`), а не по выпущенным.
-    canonical = (
-        polygons
-        if law is DecalTopologyLawV1.TRIANGLES_V1
-        else canonical_triangles(frame_faces, cycles, budget, chart_cw)
-    )
-    sourced = lift_source_vertices(
-        positions,
-        [triangle for face in canonical for triangle in face],
-        host_positions_of(prepared.context.snapshot),
-        source_step_of(prepared.context.frame),
-    )
-    rebind_offset_normals(plane, positions, sourced)
-    polygons, faces_after = settle_emitted_faces(
-        polygons,
-        positions,
-        sourced,
-        {key: point for cycle in cycles for key, point in cycle},
-        budget,
-        chart_cw,
+    polygons, sourced, faces_after = _at_host_positions(
+        prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
     positions = sourced.positions
     batch = assemble_batch(
         frame_faces=frame_faces,
-        cycles=cycles,
+        cycles=cycles if cut is None else cut.cycles,
+        vertex_cycles=None if cut is None else cut.vertex_lists,
         positions=positions,
         polygons=polygons,
         facts=facts,
@@ -576,6 +638,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             plane.note(),
             plane.gap_note(),
             sourced,
+            "" if cut is None else cut.note,
         ),
     )
     batch = replace(
@@ -588,7 +651,12 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     return (
         batch,
         frame_faces,
-        (*plane.counters(), *sourced.counters(), *faces_after.counters()),
+        (
+            *plane.counters(),
+            *sourced.counters(),
+            *faces_after.counters(),
+            *(() if cut is None else cut.counters),
+        ),
         plane,
         topology,
     )
@@ -652,7 +720,9 @@ def materialize_domain(
     (материал, UV-закон). `work_budget` по умолчанию — свежий бюджет
     транзакции `MATERIALIZE` домена. `near_planar_lift_law` — на что кладётся
     near-planar домен: по умолчанию на сертифицированную плоскость (поведение
-    не менялось), `SOURCE_TRIANGLES_V1` — на треугольники источника.
+    не менялось), `SOURCE_TRIANGLES_V1` — на треугольники источника,
+    `SOURCE_TRIANGLES_CLIPPED_V1` — на них же с РЕЗКОЙ граней рёбрами источника (`clip`):
+    каждый кусок в одном треугольнике; домен развёртки при этом тоже режется.
     `decal_topology_law` — из каких граней собирается сетка: по умолчанию
     только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
     """
