@@ -16,9 +16,15 @@
 
 1. Рёбра многоугольника (`edge_points`). Каждое ребро режется замкнутыми треугольниками источника;
    концы получившихся отрезков, лежащие на ВНУТРЕННЕМ ребре источника (два владельца) либо в его
-   конце, — новые вершины ребра. Граница патча — граница триангуляции — не получает вершин: швы с
-   соседними доменами остаются теми же. Кэш по паре вершин: одно ребро — одно подразделение, с обеих
-   сторон и в любом направлении.
+   конце, — новые вершины ребра. Кэш по паре вершин: одно ребро — одно подразделение, с обеих
+   сторон и в любом направлении. ШОВ вершин не получает (`seam_edges`): ребро на границе домена вдоль
+   контура патча — источник (`r = 0` на обоих концах) и стена — сварено с соседним доменом только по
+   вершинам `src:` (хост не сваривает `clip:` и не считает T-стыки), поэтому вершина на нём молча открыла бы
+   шов. Многоугольник, чей шовный край пересекает внутренние рёбра источника, не режется, а остаётся ушами
+   под своим счётчиком (`MATERIALIZE_CLIP_FACES_SEAM_CROSSINGS_SUPPRESSED`). Такое пересечение — не
+   рельеф: внутренние рёбра источника подходят к контуру патча в его вершинах, а пересекают край лишь
+   там, где вершина `src:` на решётке не совпала с углом привязанного треугольника (шум привязки: доли
+   ячейки).
 2. Выпуклый контур (вершины на прямой допустимы) режется по Сазерленду—Ходжмену тремя полуплоскостями
    каждого треугольника-кандидата (рамки — фильтр, ответа не меняют). Невыпуклый — по ушам точной
    триангуляции; куски одного (многоугольник, треугольник) складываются обратно сокращением
@@ -29,7 +35,9 @@
    подразделение не сошлось: он остаётся как есть — ушами контура с теми же вершинами на рёбрах (нет
    T-стыков с соседями), под СВОИМ счётчиком, не молча.
 4. Доказательство: у КАЖДОГО выпущенного куска все вершины лежат в ЗАМКНУТОМ треугольнике по трём
-   знакам рёбер, посчитанным заново; иначе отказ `CLIP_PIECE_LEFT_ITS_TRIANGLE`.
+   знакам рёбер (`_prove`; знаки узлов старше резки берутся из кэша `_line` той же точной функции, знаки
+   новых узлов считаются тут впервые); иначе отказ `CLIP_PIECE_LEFT_ITS_TRIANGLE`. Нулевой счёт
+   `QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` под резкой — не доказательство (имена подъёма обнулены): доказательство — `_prove`.
 
 ВЕРШИНЫ. Тождество — `point_key`: точка из любой грани и любого треугольника даёт одну вершину (в
 домене нет T-стыков). Ключи `clip:<k>` нумеруются ПОСЛЕ `intern_vertices` в порядке первого выпуска
@@ -61,14 +69,14 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cmp_to_key
 
 from ..contracts.geometry_batch import DecalTopologyLawV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..wavefront.faces import doubled_shoelace
 from .admit import MaterializationOutcome
-from .assemble import station_values
+from .assemble import edge_kind, station_values
 from .coalesce import point_key
 from .frames import MaterializationRefusal
 from .tessellate import convex_quad_ring, has_right_turn, triangulate_exact
@@ -85,6 +93,8 @@ PIECES_MERGED = "MATERIALIZE_CLIP_PIECES_MERGED"
 PIECES_KEPT_SEPARATE = "MATERIALIZE_CLIP_PIECES_KEPT_SEPARATE"
 FACES_OVERHANG = "MATERIALIZE_CLIP_FACES_OVERHANG_TRIANGULATED"
 FACES_BOUNDARY_MISMATCH = "MATERIALIZE_CLIP_FACES_BOUNDARY_MISMATCH_TRIANGULATED"
+FACES_SEAM_SUPPRESSED = "MATERIALIZE_CLIP_FACES_SEAM_CROSSINGS_SUPPRESSED"
+FACES_OFF_CORNER_SUPPRESSED = "MATERIALIZE_CLIP_FACES_SOURCE_VERTEX_OFF_CORNER_SUPPRESSED"
 PREDICATES = "MATERIALIZE_CLIP_PREDICATES"
 DIVISIONS = "MATERIALIZE_CLIP_DIVISIONS"
 
@@ -136,6 +146,10 @@ class _Cut:
     by_ears: bool
     merged: int
     kept: int
+    #: Многоугольник мог быть разрезан, но остаётся ушами по причине резки: `"seam"` — его шовный край пересекает
+    #: внутренние рёбра источника, `"corner"` — вершина `src:` на карте не совпала с углом привязанной
+    #: триангуляции (шум привязки); пусто — не отброшен.
+    suppressed: str = ""
 
 
 class ClipStageV1:
@@ -457,7 +471,13 @@ class ClipStageV1:
         return key
 
     def _prove(self, nodes, ti: int) -> None:
-        """Каждая вершина куска — в ЗАМКНУТОМ треугольнике источника: три знака, посчитанные точно."""
+        """Каждая вершина куска — в ЗАМКНУТОМ треугольнике источника: три точных знака рёбер.
+
+        Знаки берутся из кэша `_line`: у узла, пришедшего из тесселяции, они посчитаны при резке той же точной
+        функцией (`line_value`), у новых узлов (пересечений) их здесь не было, и они считаются заново, независимо
+        от арифметики пересечения. Кэш — не второй вычислитель: полностью независимой перепроверки (другим
+        кодом) тут нет, и docstring этого не обещает.
+        """
 
         for node in nodes:
             for index in range(3):
@@ -468,13 +488,16 @@ class ClipStageV1:
                         f"{self.triangles[ti].name} (edge {index})",
                     )
 
-    def _split_for_law(self, nodes, law):
-        """Куски закона топологии: многоугольник целиком, четырёхгранья ленты либо уши куска."""
+    def _split_for_law(self, nodes, law, fan: bool):
+        """Куски закона топологии: многоугольник целиком, четырёхгранья ленты либо уши куска.
+
+        Под `QUAD_STRIPS_V1` четырёхгранье — только у ЛЕНТЫ: куски веера остаются треугольниками, как у закона.
+        """
 
         if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1 or len(nodes) == 3:
             return [nodes]
         points = tuple(node.point for node in nodes)
-        if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and convex_quad_ring(points, self.budget):
+        if law is DecalTopologyLawV1.QUAD_STRIPS_V1 and not fan and convex_quad_ring(points, self.budget):
             return [nodes]
         ears = triangulate_exact(list(points), self.budget)
         if ears is None:
@@ -513,7 +536,7 @@ class ClipStageV1:
         closed = (total - area).is_zero
         return _Cut(nodes, flip, pieces if closed else None, by_ears, merged_count, kept_count)
 
-    def _emit(self, cut: _Cut, law):
+    def _emit(self, cut: _Cut, law, fan: bool = False):
         """Фаза 3: грани многоугольника в его обходе: куски либо (свес, невязка границы) уши с названным счётчиком."""
 
         nodes = self._refined(cut.nodes)
@@ -530,12 +553,16 @@ class ClipStageV1:
                 # Номера `clip:` — по обходу куска, а не по порядку ушей закона: имена не зависят от закона.
                 for node in piece:
                     self._key(node, ti)
-                for face in self._split_for_law(piece, law):
+                for face in self._split_for_law(piece, law, fan):
                     faces.append(self._oriented(tuple(self._key(node, ti) for node in face), cut.flip))
             return faces
-        # Свес за привязанную триангуляцию (площадь не сошлась) либо подразделение, не давшее
-        # контур: многоугольник остаётся ушами с теми же вершинами на нужных рёбрах, и это названо.
-        self.tally[FACES_OVERHANG if pieces is None else FACES_BOUNDARY_MISMATCH] += 1
+        # Свес за привязанную триангуляцию (площадь не сошлась), шовный край, пересекающий внутренние рёбра
+        # источника, либо подразделение, не давшее контур: многоугольник остаётся ушами с теми же вершинами
+        # на нужных рёбрах, и каждая причина названа своим счётчиком.
+        if cut.suppressed:
+            self.tally[FACES_SEAM_SUPPRESSED if cut.suppressed == "seam" else FACES_OFF_CORNER_SUPPRESSED] += 1
+        else:
+            self.tally[FACES_OVERHANG if pieces is None else FACES_BOUNDARY_MISMATCH] += 1
         return [
             self._oriented(tuple(self._key(nodes[index], None) for index in ear), cut.flip)
             for ear in self._ears(tuple(node.point for node in nodes))
@@ -556,7 +583,44 @@ class ClipStageV1:
 
     # ---- домен ------------------------------------------------------------
 
-    def run(self, cycles, polygons, law) -> ClippedV1:
+    def _off_corner(self, node: _Node) -> bool:
+        """Вершина `src:` стоит НЕ в углу привязанной триангуляции (точное сравнение точки с углами карты)."""
+
+        if node.key is None or not node.key.startswith("src:"):
+            return False
+        point = tuple(axis.as_rational() for axis in node.point)
+        return point not in self.corners
+
+    def _suppress_noise(self, cuts, seam) -> list:
+        """Разрезанные многоугольники в шуме привязки остаются ушами (`suppressed`): шов либо угол.
+
+        (а) Шовный край, который получил бы вершины, — шов открылся бы молча (`seam`). (б) Вершина `src:` не в
+        углу триангуляции — вершина объявленной прямой цепи, сдвинутая вдоль хорды, либо привязка карты, и
+        вокруг неё нет «настоящих» пересечений: рёбра, ведущие от неё внутрь, пересекают веер тонких
+        треугольников у угла, и вершины на них дают обрезки площадью с ячейку, которые переворачивает сдвиг
+        вершины `src:` к позиции хоста (`corner`).
+        """
+
+        seam_nodes = {frozenset(self.node_of_key[key] for key in pair) for pair in seam}
+        result = []
+        for face_cuts in cuts:
+            kept = []
+            for cut in face_cuts:
+                size = len(cut.nodes)
+                if cut.pieces is not None:
+                    if any(
+                        frozenset((cut.nodes[index], cut.nodes[(index + 1) % size])) in seam_nodes
+                        and self.edge_points(cut.nodes[index], cut.nodes[(index + 1) % size])
+                        for index in range(size)
+                    ):
+                        cut = replace(cut, pieces=None, suppressed="seam")
+                    elif any(self._off_corner(node) for node in cut.nodes):
+                        cut = replace(cut, pieces=None, suppressed="corner")
+                kept.append(cut)
+            result.append(kept)
+        return result
+
+    def run(self, cycles, polygons, law, seam=frozenset(), fans=None) -> ClippedV1:
         """Грани всех слитых граней домена, контуры с вершинами рёбер и числа стадии.
 
         Три фазы. (1) Каждый многоугольник режется, и по площади решается, помещается ли он в привязанную
@@ -565,9 +629,14 @@ class ClipStageV1:
         привязанной карты — шум привязки (доли ячейки вокруг вершин объявленных прямых цепей), а не
         рельеф, и вершины на них дали бы обрезки площадью с ячейку, которые переворачивает сдвиг вершины
         `src:` к позиции хоста. (3) Выпуск: ключи `clip:<k>` в порядке выпуска, подъём новых вершин.
+
+        `seam` — пары ключей рёбер на границе домена вдоль контура патча (`seam_edges`): вершин не получают;
+        многоугольник, чей шовный край их получил бы, остаётся ушами и не даёт нужных рёбер. `fans` —
+        признак веера у каждой слитой грани (под `QUAD_STRIPS_V1` куски веера остаются треугольниками).
         """
 
         cuts = [[self._cut(keys) for keys in face_polygons] for face_polygons in polygons]
+        cuts = self._suppress_noise(cuts, seam)
         self.needed = {
             frozenset((cut.nodes[index], cut.nodes[(index + 1) % len(cut.nodes)]))
             for face_cuts in cuts
@@ -576,10 +645,11 @@ class ClipStageV1:
             for index in range(len(cut.nodes))
         }
         faces = []
-        for face_cuts in cuts:
+        fan_flags = fans if fans is not None else [False] * len(cuts)
+        for face_cuts, fan in zip(cuts, fan_flags):
             emitted: list = []
             for cut in face_cuts:
-                emitted.extend(self._emit(cut, law))
+                emitted.extend(self._emit(cut, law, fan))
             faces.append(tuple(emitted))
         refined, lists, extras = [], [], []
         for cycle, emitted in zip(cycles, faces):
@@ -607,6 +677,8 @@ class ClipStageV1:
                 PIECES_KEPT_SEPARATE,
                 FACES_OVERHANG,
                 FACES_BOUNDARY_MISMATCH,
+                FACES_SEAM_SUPPRESSED,
+                FACES_OFF_CORNER_SUPPRESSED,
                 PREDICATES,
                 DIVISIONS,
             )
@@ -647,8 +719,38 @@ class ClipStageV1:
             f"kept_separate_groups={tally[PIECES_KEPT_SEPARATE]} "
             f"overhang_faces={tally[FACES_OVERHANG]} "
             f"boundary_mismatch_faces={tally[FACES_BOUNDARY_MISMATCH]} "
+            f"seam_crossings_suppressed_faces={tally[FACES_SEAM_SUPPRESSED]} "
+            f"off_corner_source_vertex_faces={tally[FACES_OFF_CORNER_SUPPRESSED]} "
             f"predicates={tally[PREDICATES]} divisions={tally[DIVISIONS]}"
         )
+
+
+def seam_edges(frame_faces, polygons, facts, layout, lattice_alpha) -> frozenset:
+    """Пары ключей рёбер многоугольников на границе домена вдоль контура патча: источник и стена.
+
+    Край — граничный, если он принадлежит ровно одному многоугольнику домена; вид — `edge_kind` цепей батча
+    (`SOURCE`: `r = 0` на обоих концах, `RIM`: фронт, иначе `WALL`). Фронт лежит внутри патча, на его
+    поверхности, и получает вершины резки законно; источник и стена идут по контуру патча, то есть по
+    границе триангуляции и по шву с соседними доменами.
+    """
+
+    count: dict = {}
+    owner: dict = {}
+    for index, face_polygons in enumerate(polygons):
+        for keys in face_polygons:
+            for position, key in enumerate(keys):
+                pair = frozenset((key, keys[(position + 1) % len(keys)]))
+                count[pair] = count.get(pair, 0) + 1
+                owner[pair] = index
+    found = set()
+    for pair, number in count.items():
+        if number != 1 or len(pair) != 2:
+            continue
+        first, second = tuple(pair)
+        kind = edge_kind(facts, layout.region_of(frame_faces[owner[pair]]), first, second, lattice_alpha)
+        if kind != "RIM":
+            found.add(pair)
+    return frozenset(found)
 
 
 def piece_triangles(polygons, points, budget):
@@ -680,7 +782,10 @@ def cut_domain(
     отказ, как у `station_values`.
     """
 
-    clipped = ClipStageV1(plane, budget, points).run(cycles, polygons, law)
+    seam = seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
+    clipped = ClipStageV1(plane, budget, points).run(
+        cycles, polygons, law, seam, [item.is_fan for item in frame_faces]
+    )
     extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget)
     for slot, value in extra.items():
         known = facts.setdefault(slot, value)

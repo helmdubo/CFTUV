@@ -1311,3 +1311,49 @@ def test_a_quad_offset_along_different_vertex_normals_is_measured_and_named_in_t
         "OFFSET:" in line and "recorded, not judged" in line
         for line in receipt_console_lines(receipt, [tilted])
     )
+
+
+def test_a_t_junction_on_a_shared_source_chain_reaches_the_arrays_and_the_receipt_warnings(fake_bpy):
+    floor, wall = _fold()
+    floor = replace_chains(floor, [("src:a", "src:b")])
+    wall = replace_chains(wall, [("src:b", "clip:1", "src:a")])
+
+    arrays = build_mesh_arrays([floor, wall], 0.02)
+
+    counters = dict(arrays.seam_counters)
+    assert counters["ADAPTER_SEAM_T_JUNCTIONS"] == 1 and counters["ADAPTER_SEAM_CLIP_VERTICES"] == 1
+    assert [item[1] for item in arrays.warnings if item[1] == "ADAPTER_SEAM_T_JUNCTIONS"] == ["ADAPTER_SEAM_T_JUNCTIONS"]
+    receipt = write_decal_object(_source(fake_bpy), [floor, wall], offset=0.02, material_name="M")
+    assert dict(receipt.seam_counters) == counters
+    assert any(item[1] == "ADAPTER_SEAM_T_JUNCTIONS" for item in receipt.warnings)
+
+
+def test_a_clean_shared_source_chain_gives_zero_seam_counters_and_no_warning():
+    floor, wall = _fold()
+    floor = replace_chains(floor, [("src:a", "src:b")])
+    wall = replace_chains(wall, [("src:b", "src:a")])
+
+    arrays = build_mesh_arrays([floor, wall], 0.02)
+
+    assert dict(arrays.seam_counters) == {"ADAPTER_SEAM_T_JUNCTIONS": 0, "ADAPTER_SEAM_CLIP_VERTICES": 0}
+    assert not any(item[1] == "ADAPTER_SEAM_T_JUNCTIONS" for item in arrays.warnings)
+
+
+def replace_chains(result, chains):
+    """Результат домена с цепями источника `chains` в батче (остальное то же)."""
+
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    batch = result.batch
+    new = SimpleNamespace(
+        **{name: getattr(batch, name) for name in vars(batch)},
+    )
+    new.boundary_chains = tuple(
+        SimpleNamespace(
+            semantic_boundary_id=SimpleNamespace(value=f"boundary:SOURCE:0:{number}"),
+            ordered_vert_keys=tuple(SimpleNamespace(value=key) for key in chain),
+        )
+        for number, chain in enumerate(chains)
+    )
+    return replace(result, batch=new)

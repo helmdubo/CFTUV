@@ -38,6 +38,13 @@
 (`off_plane_after_offset`) и пишется в квитанцию (`ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES`).
 Порога у числа нет — решает владелец глазами (прецедент: `DEVELOPABLE_OFFSET_MIN_GAP_COSINE` ядра).
 
+ШОВ БЕЗ T-СТЫКОВ. Соседние домены делят цепь источника, и сваривает их только `location:src:`: вершины
+между двумя `src:` одной цепи (`node:`, `clip:`) в разные домены не сливаются и T-стыков хост не считает
+(`half_edge_conflicts` видит лишь повторные полурёбра). Поэтому шов проверяется ПО ЦЕПЯМ БАТЧЕЙ, точно:
+у каждой пары соседних `src:` на цепи `boundary:SOURCE` берётся число вершин между ними в каждом домене, и
+пара, у которой оно в двух доменах различно, — T-стык (`seam_report`; запись, а не ремонт: вершины не
+подтягиваются). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
+
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
 по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча.
 """
@@ -61,6 +68,11 @@ COUNTER_WELD_SEAMS_MARKED = "ADAPTER_WELD_SEAMS_MARKED"
 COUNTER_MAX_OFF_PLANE_AFTER_OFFSET = "ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"
 COUNTER_FACES_OFF_PLANE_AFTER_OFFSET = "ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"
 NANOMETRES_PER_METRE = 10**9
+#: Шов по цепям батчей (см. `seam_report`): пары соседних `src:` цепи источника с РАЗНЫМ числом вершин между
+#: ними в двух доменах (T-стык шва) и вершины `clip:` на цепях источника и стены.
+COUNTER_SEAM_T_JUNCTIONS = "ADAPTER_SEAM_T_JUNCTIONS"
+COUNTER_SEAM_CLIP_VERTICES = "ADAPTER_SEAM_CLIP_VERTICES"
+OUTCOME_SEAM_T_JUNCTIONS = "ADAPTER_SEAM_T_JUNCTIONS"
 
 #: Предел митры: длина смещения общей вершины не больше `MITER_LIMIT` смещений одиночной (для двух
 #: доменов это `1 / cos(угла между нормалями / 2) <= 4`, угол до ~151 градуса). Острее — вершины
@@ -261,6 +273,34 @@ def weld_vertices(domains, offset: float) -> WeldV1:
             (OUTCOME_WELD_MITER_FALLBACK, fallbacks),
         ),
         warnings=tuple(warnings),
+    )
+
+
+def seam_report(batches) -> tuple:
+    """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям батчей.
+
+    Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Батч без
+    `boundary_chains` ничего не даёт. Точно, без допусков: ключи вершин, а не координаты.
+    """
+
+    by_pair: dict = {}
+    clip_vertices = 0
+    for batch in batches:
+        for chain in getattr(batch, "boundary_chains", ()) or ():
+            kind = chain.semantic_boundary_id.value.split(":")[1]
+            if kind not in ("SOURCE", "WALL"):
+                continue
+            keys = [item.value for item in chain.ordered_vert_keys]
+            anchors = [index for index, key in enumerate(keys) if key.startswith("src:")]
+            clip_vertices += sum(1 for key in keys if key.startswith("clip:"))
+            if kind != "SOURCE":
+                continue
+            for first, second in zip(anchors, anchors[1:]):
+                by_pair.setdefault(frozenset((keys[first], keys[second])), []).append(second - first - 1)
+    junctions = sum(1 for counts in by_pair.values() if len(counts) > 1 and len(set(counts)) > 1)
+    return (
+        (COUNTER_SEAM_T_JUNCTIONS, junctions),
+        (COUNTER_SEAM_CLIP_VERTICES, clip_vertices),
     )
 
 
