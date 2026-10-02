@@ -98,6 +98,10 @@ class MaterializationOutcome(str, Enum):
     # углов) нулевая либо смотрит ПРОТИВ нормали одного из своих треугольников:
     # смещение втолкнуло бы декаль в поверхность. Отказ, а не молчаливый выбор.
     SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE = "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE"
+    # Закон `SOURCE_TRIANGLES_CLIPPED_V1`: вершина куска грани вышла за ЗАМКНУТЫЙ треугольник
+    # источника, в котором кусок обязан лежать (доказательство каждого выпущенного куска точным
+    # знаком трёх рёбер не сошлось). Это не молчаливый разрез, а отказ с числами.
+    CLIP_PIECE_LEFT_ITS_TRIANGLE = "CLIP_PIECE_LEFT_ITS_TRIANGLE"
 
 
 class PlanarityKind(str, Enum):
@@ -246,12 +250,16 @@ def admit_domain(
         refusal = _developable_refusal(certificate)
         if refusal is not None:
             return refusal
-        effective = NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+        effective = (
+            lift_law
+            if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1
+            else NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+        )
     if planarity is PlanarityKind.NEAR_PLANAR:
         refusal = _lift_refusal(certificate, lift_law)
         if refusal is not None:
             return refusal
-        if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+        if lift_law.onto_surface:
             effective = lift_law
     return AdmissionV1(None, "", planarity, effective)
 
@@ -286,7 +294,7 @@ def _lift_refusal(certificate, requested) -> AdmissionV1 | None:
     """
 
     sigma = certificate.width_distortion
-    if requested is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+    if requested.onto_surface:
         if sigma is None:
             return AdmissionV1(
                 MaterializationOutcome.SURFACE_LIFT_UNAVAILABLE,
@@ -300,7 +308,7 @@ def _lift_refusal(certificate, requested) -> AdmissionV1 | None:
                 width_distortion_refusal_text(sigma),
             )
         return None
-    if certificate.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1:
+    if certificate.lift_law.onto_surface:
         residual = _fraction(certificate.max_residual_squared)
         budget = _fraction(certificate.residual_budget)
         if residual > budget * budget:

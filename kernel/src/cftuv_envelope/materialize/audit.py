@@ -28,13 +28,25 @@
   константна, `u` не меняется — ограничение закона V1, названное, а не
   скрытое);
 * `uv_reversed` — грани с обратным обходом в UV относительно
-  большинства невырожденных.
+  большинства невырожденных;
+* `offset_normal_spread` — наибольший угол между нормалями смещения двух вершин ОДНОЙ грани от
+  четырёх вершин (градусы; только у домена развёртки, где нормаль своя на вершину). Хост смещает
+  вершины вдоль их нормалей, и грань, плоская до смещения (закон `SOURCE_TRIANGLES_CLIPPED_V1`:
+  один треугольник источника), перестаёт быть плоской на величину, растущую с этим углом. Число
+  ЗАПИСАНО, порога у него нет (прецедент — `DEVELOPABLE_OFFSET_MIN_GAP_COSINE`): решает
+  владелец, а квитанция хоста несёт само отклонение в нанометрах.
 """
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass
+
+
+#: Счётчик развода нормалей смещения внутри грани: целые миллиградусы (как нанометры у `source_lift`).
+OFFSET_NORMAL_SPREAD = "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG"
+MILLIDEGREES_PER_DEGREE = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +61,9 @@ class BatchAuditV1:
     flipped_vs_source: int
     uv_degenerate: int
     uv_reversed: int
+    #: Наибольший угол между нормалями смещения вершин одной грани от четырёх вершин, градусы; `None` —
+    #: нормалей вершин нет (плоский и near-planar домен: одна нормаль на домен).
+    offset_normal_spread: float | None = None
 
     def problems(self) -> tuple[str, ...]:
         found = []
@@ -68,6 +83,16 @@ class BatchAuditV1:
             ("MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE", self.flipped_vs_source),
             ("MATERIALIZE_TRIANGLES_UV_DEGENERATE", self.uv_degenerate),
             ("MATERIALIZE_TRIANGLES_UV_REVERSED", self.uv_reversed),
+            *(
+                ()
+                if self.offset_normal_spread is None
+                else (
+                    (
+                        OFFSET_NORMAL_SPREAD,
+                        round(self.offset_normal_spread * MILLIDEGREES_PER_DEGREE),
+                    ),
+                )
+            ),
         )
 
 
@@ -101,6 +126,17 @@ def _uv_area(uv):
     return area
 
 
+def _normal_spread(normals) -> float:
+    """Наибольший угол между двумя единичными нормалями из набора, градусы."""
+
+    worst = 0.0
+    for first in range(len(normals)):
+        for second in range(first + 1, len(normals)):
+            dot = sum(a * b for a, b in zip(normals[first], normals[second]))
+            worst = max(worst, math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
+    return worst
+
+
 def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
     """Свойства сетки батча. `source_normal` — нормаль исходной грани (`x, y, z`).
 
@@ -114,8 +150,11 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
     flipped = degenerate = 0
     uv_signs: list[int] = []
     v_min, v_max = 1.0, 0.0
+    spread = 0.0
     for face in batch.faces:
         keys = face.ordered_vert_keys
+        if vertex_normals and len(keys) >= 4:
+            spread = max(spread, _normal_spread([vertex_normals[key.value] for key in keys]))
         for index in range(len(keys)):
             directed[(keys[index], keys[(index + 1) % len(keys)])] += 1
         normal = _area_vector(tuple(position[key] for key in keys))
@@ -162,4 +201,5 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
         flipped_vs_source=flipped,
         uv_degenerate=degenerate,
         uv_reversed=sum(1 for sign in uv_signs if sign != majority),
+        offset_normal_spread=spread if vertex_normals else None,
     )

@@ -1267,3 +1267,47 @@ def test_domains_under_two_laws_are_named_together_in_the_receipt():
     arrays = build_mesh_arrays([quads, triangles], 0.0)
 
     assert arrays.decal_topology_law == "QUAD_STRIPS_V1,TRIANGLES_V1"
+
+
+def test_a_welded_fold_stays_flat_after_the_offset_and_the_receipt_says_zero(fake_bpy):
+    from cftuv.envelope_production_export import receipt_console_lines
+
+    arrays = build_mesh_arrays(_fold(), 0.02)
+    counters = dict(arrays.offset_counters)
+    assert counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] == 0
+    assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 0
+
+    receipt = write_decal_object(_source(fake_bpy), _fold(), offset=0.02, material_name="M")
+    assert dict(receipt.offset_counters) == counters
+    assert not any("OFFSET:" in line for line in receipt_console_lines(receipt, _fold()))
+
+
+def test_a_quad_offset_along_different_vertex_normals_is_measured_and_named_in_the_console(fake_bpy):
+    from dataclasses import replace
+
+    from cftuv.envelope_production_export import receipt_console_lines
+
+    # Четырёхгранник пола с нормалями вершин, наклонёнными по-разному: смещённый, он перестаёт быть плоским.
+    normals = {
+        "d": (0.0, 0.0, 1.0),
+        "a": (0.0, -0.6, 0.8),
+        "b": (0.6, 0.0, 0.8),
+        "c": (0.0, 0.0, 1.0),
+    }
+    quad = _fake_domain(0, FLOOR, (("d", "a", "b", "c"),))
+    tilted = replace(
+        quad,
+        vertex_normals=tuple((key, normals[key]) for key in FLOOR),
+        offset_normal_law="SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1",
+    )
+
+    arrays = build_mesh_arrays([tilted], 0.1)
+    counters = dict(arrays.offset_counters)
+    assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 1
+    assert counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] > 0
+    receipt = write_decal_object(_source(fake_bpy), [tilted], offset=0.1, material_name="M")
+    assert dict(receipt.offset_counters) == counters
+    assert any(
+        "OFFSET:" in line and "recorded, not judged" in line
+        for line in receipt_console_lines(receipt, [tilted])
+    )

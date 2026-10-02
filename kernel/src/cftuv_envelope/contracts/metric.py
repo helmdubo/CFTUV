@@ -751,12 +751,35 @@ class NearPlanarLiftLawV1(str, Enum):
       судят искажение ширины (`NearPlanarWidthDistortionCertificateV1`) и
       сертификат вложения проекции.
 
+    * `SOURCE_TRIANGLES_CLIPPED_V1` — то же, что `SOURCE_TRIANGLES_V1`, плюс
+      РЕЗКА граней меша по рёбрам треугольников источника: на каждом внутреннем
+      ребре источника, которое пересекает грань, встаёт вершина, и каждый кусок
+      грани лежит в ОДНОМ замкнутом треугольнике источника (доказано точно). Это
+      закон подъёма, а не закон топологии: он добавляет вершины `clip:<k>`, а
+      суд над доменом (σ, вложение, сертификат) остаётся прежним, поэтому
+      сертификат метрики пишет `SOURCE_TRIANGLES_V1` (`judged_as`).
+
     Точно планарный домен закон не затрагивает: его сертифицированная
     плоскость и есть его поверхность.
     """
 
     CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
     SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
+    SOURCE_TRIANGLES_CLIPPED_V1 = "SOURCE_TRIANGLES_CLIPPED_V1"
+
+    @property
+    def onto_surface(self) -> bool:
+        """Меш кладётся на треугольники источника (резка либо нет)."""
+
+        return self is not NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
+
+    @property
+    def judged_as(self) -> "NearPlanarLiftLawV1":
+        """Закон, под которым ДОМЕН ПРИНЯТ: резка суда не меняет, сертификат пишет его."""
+
+        if self is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1:
+            return NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+        return self
 
 
 NEAR_PLANAR_WIDTH_BUDGET = Fraction(1, 50)

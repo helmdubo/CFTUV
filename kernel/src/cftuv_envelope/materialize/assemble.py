@@ -956,13 +956,16 @@ def assemble_batch(
     patch_domain_id,
     contract_versions,
     diagnostics,
+    vertex_cycles=None,
 ):
     """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`.
 
     `positions` — `{ключ: позиция}` ПОДНЯТЫХ вершин (`lift_vertices`), `polygons` —
     грани каждой слитой грани по ключам (`tessellate_faces`): треугольники либо,
     под `QUAD_STRIPS_V1`, четырёхгранья. `diagnostics` — функция без аргументов,
-    её зовут ПОСЛЕ подъёма всех точек: счётчики подъёма копятся в подъёме.
+    её зовут ПОСЛЕ подъёма всех точек: счётчики подъёма копятся в подъёме. `vertex_cycles` —
+    все вершины каждой грани, если они шире контура (закон `SOURCE_TRIANGLES_CLIPPED_V1`:
+    вершина внутри грани — вершина её кусков, но не цепи); без него вершины граней — контуры.
     """
 
     material = MaterialId(request.material_policy_id.value)
@@ -970,7 +973,9 @@ def assemble_batch(
         _provenance(item, edge_faces, (f"claim:{item.claim_key}",))
         for item in frame_faces
     ]
-    vertices = _vertex_records(positions, cycles, face_prov)
+    vertices = _vertex_records(
+        positions, cycles if vertex_cycles is None else vertex_cycles, face_prov
+    )
     region_prov: dict[int, list] = {}
     region_claim: dict[int, str] = {}
     for item, prov in zip(frame_faces, face_prov):

@@ -31,6 +31,13 @@
 которого две грани РАЗНЫХ доменов и UV хоть на одном конце различаются, — разрыв UV на складке, и
 оно помечается швом (`ADAPTER_WELD_SEAMS_MARKED`): раньше эту роль играла открытая граница.
 
+ПЛОСКОСТЬ ПОСЛЕ СМЕЩЕНИЯ. Грань от четырёх вершин, плоская в батче (закон ядра
+`SOURCE_TRIANGLES_CLIPPED_V1`: кусок лежит в одном треугольнике источника), смещается вдоль нормалей
+СВОИХ вершин, и у домена развёртки они разные: смещённая грань перестаёт быть плоской. Хост этого не
+чинит и не режет молча: отклонение вершин от плоскости их грани ПОСЛЕ смещения измеряется
+(`off_plane_after_offset`) и пишется в квитанцию (`ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES`).
+Порога у числа нет — решает владелец глазами (прецедент: `DEVELOPABLE_OFFSET_MIN_GAP_COSINE` ядра).
+
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
 по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча.
 """
@@ -49,6 +56,11 @@ OUTCOME_WELD_HALF_EDGE_CONFLICT = "ADAPTER_WELD_HALF_EDGE_CONFLICT"
 COUNTER_WELD_GROUPS = "ADAPTER_WELD_GROUPS"
 COUNTER_WELD_VERTICES_MERGED = "ADAPTER_WELD_VERTICES_MERGED"
 COUNTER_WELD_SEAMS_MARKED = "ADAPTER_WELD_SEAMS_MARKED"
+#: Числа плоскости граней после смещения: наибольшее отклонение вершины от плоскости своей грани (нм) и
+#: число граней от четырёх вершин с отклонением больше нуля.
+COUNTER_MAX_OFF_PLANE_AFTER_OFFSET = "ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"
+COUNTER_FACES_OFF_PLANE_AFTER_OFFSET = "ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"
+NANOMETRES_PER_METRE = 10**9
 
 #: Предел митры: длина смещения общей вершины не больше `MITER_LIMIT` смещений одиночной (для двух
 #: доменов это `1 / cos(угла между нормалями / 2) <= 4`, угол до ~151 градуса). Острее — вершины
@@ -249,6 +261,51 @@ def weld_vertices(domains, offset: float) -> WeldV1:
             (OUTCOME_WELD_MITER_FALLBACK, fallbacks),
         ),
         warnings=tuple(warnings),
+    )
+
+
+def _cross(left, right):
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def off_plane_after_offset(positions, faces) -> tuple:
+    """`((имя, число), ...)`: плоскость граней от четырёх вершин ПОСЛЕ смещения над поверхностью.
+
+    Плоскость грани — через её первую вершину с нормалью вектора площади (веер из первой вершины);
+    мера — наибольшее расстояние вершины грани от неё, метры. Грань нулевой площади ничего не меряет.
+    Возвращает наибольшее отклонение в нанометрах и число граней, у которых оно не меньше нанометра.
+    """
+
+    worst, off = 0.0, 0
+    for loop in faces:
+        if len(loop) < 4:
+            continue
+        points = [positions[index] for index in loop]
+        origin = points[0]
+        normal = (0.0, 0.0, 0.0)
+        for index in range(1, len(points) - 1):
+            part = _cross(
+                tuple(b - a for a, b in zip(origin, points[index])),
+                tuple(b - a for a, b in zip(origin, points[index + 1])),
+            )
+            normal = tuple(a + b for a, b in zip(normal, part))
+        length = math.sqrt(_dot(normal, normal))
+        if not length:
+            continue
+        deviation = max(
+            abs(_dot(tuple(b - a for a, b in zip(origin, point)), normal)) / length
+            for point in points[1:]
+        )
+        worst = max(worst, deviation)
+        # Разрешение записи — нанометр: шум округления binary64 (1e-16 м) гранью «вне плоскости» не числится.
+        off += int(round(deviation * NANOMETRES_PER_METRE) > 0)
+    return (
+        (COUNTER_MAX_OFF_PLANE_AFTER_OFFSET, round(worst * NANOMETRES_PER_METRE)),
+        (COUNTER_FACES_OFF_PLANE_AFTER_OFFSET, off),
     )
 
 

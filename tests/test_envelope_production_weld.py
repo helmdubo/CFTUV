@@ -326,3 +326,40 @@ def test_the_weld_module_never_merges_by_distance():
     source = Path(weld.__file__).read_text(encoding="utf-8")
     for forbidden in ("remove_doubles", "merge_distance", "isclose", "hypot", "threshold"):
         assert forbidden not in source, forbidden
+
+
+# --------------------------------------------------------------------------
+# Плоскость граней ПОСЛЕ смещения: запись, а не суд (закон ядра `SOURCE_TRIANGLES_CLIPPED_V1`)
+# --------------------------------------------------------------------------
+
+
+def test_a_planar_face_has_no_off_plane_deviation_after_the_offset():
+    from cftuv.envelope_production_weld import off_plane_after_offset
+
+    square = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+    counters = dict(off_plane_after_offset(square, [(0, 1, 2, 3), (0, 1, 2)]))
+
+    assert counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] == 0
+    assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 0
+
+
+def test_a_quad_with_one_vertex_lifted_names_the_deviation_in_nanometres():
+    from cftuv.envelope_production_weld import off_plane_after_offset
+
+    lifted = 0.004  # 4 мм: вершина одной нормали смещения дальше остальных
+    quad = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, lifted), (0.0, 1.0, 0.0)]
+    counters = dict(off_plane_after_offset(quad, [(0, 1, 2, 3)]))
+
+    # Плоскость — через первую вершину по вектору площади веера: отклонение того же порядка, что подъём.
+    assert 1_000_000 < counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] <= 4_000_000
+    assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 1
+
+
+def test_triangles_and_degenerate_faces_measure_nothing():
+    from cftuv.envelope_production_weld import off_plane_after_offset
+
+    points = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.5), (2.0, 0.0, 1.0), (3.0, 0.0, 1.5)]
+    counters = dict(off_plane_after_offset(points, [(0, 1, 2), (0, 1, 2, 3)]))
+
+    assert counters["ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES"] == 0
+    assert counters["ADAPTER_FACES_OFF_PLANE_AFTER_OFFSET"] == 0

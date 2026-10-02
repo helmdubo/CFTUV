@@ -1332,7 +1332,9 @@ def test_a_bend_beyond_the_old_absolute_budget_is_now_admitted_and_recorded():
     ]
     assert len(near) == 1
     certificate = near[0]
-    assert certificate.lift_law.value == HOST_NEAR_PLANAR_LIFT_POLICY.value == "SOURCE_TRIANGLES_V1"
+    # Резка граней не меняет суд: сертификат пишет закон, под которым домен ПРИНЯТ.
+    assert certificate.lift_law.value == "SOURCE_TRIANGLES_V1"
+    assert HOST_NEAR_PLANAR_LIFT_POLICY.value == "SOURCE_TRIANGLES_CLIPPED_V1"
     residual = Fraction(
         certificate.max_residual_squared.numerator,
         certificate.max_residual_squared.denominator,

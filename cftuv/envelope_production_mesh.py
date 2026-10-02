@@ -72,6 +72,7 @@ from .envelope_production_weld import (
     DomainVerticesV1,
     cross_domain_seams,
     half_edge_conflicts,
+    off_plane_after_offset,
     weld_vertices,
 )
 
@@ -136,6 +137,10 @@ class MeshArraysV1:
     #: Числа сварки `((имя, значение), ...)`: общие вершины, слитые вершины доменов,
     #: расхождения позиций, отказы митры, швы складок, конфликты обхода.
     weld_counters: tuple = ()
+    #: Плоскость граней от четырёх вершин ПОСЛЕ смещения: наибольшее отклонение (нм) и число граней
+    #: с отклонением. Запись, а не суд (порога нет): грань куска плоская в батче, а смещение вдоль
+    #: нормалей вершин развёртки её искривляет.
+    offset_counters: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +176,8 @@ class ProductionWriteReceiptV1:
     polygons: int = 0
     #: Числа сварки (см. `MeshArraysV1.weld_counters`): в квитанции и в JSON прогона.
     weld_counters: tuple = ()
+    #: Плоскость граней после смещения (см. `MeshArraysV1.offset_counters`).
+    offset_counters: tuple = ()
 
 
 def decal_object_name(source_name: str) -> str:
@@ -380,6 +387,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
             (OUTCOME_WELD_HALF_EDGE_CONFLICT, conflicts),
             (COUNTER_WELD_SEAMS_MARKED, len(folds)),
         ),
+        offset_counters=off_plane_after_offset(positions, faces),
     )
 
 
@@ -606,6 +614,7 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         triangles=sum(1 for loop in arrays.faces if len(loop) == 3),
         polygons=sum(1 for loop in arrays.faces if len(loop) > 4),
         weld_counters=arrays.weld_counters,
+        offset_counters=arrays.offset_counters,
     )
 
 

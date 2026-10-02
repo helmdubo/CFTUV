@@ -52,6 +52,8 @@ from pathlib import Path
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_production_weld import (
+    COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
+    COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
     COUNTER_WELD_GROUPS,
     COUNTER_WELD_SEAMS_MARKED,
     COUNTER_WELD_VERTICES_MERGED,
@@ -768,6 +770,13 @@ def receipt_console_lines(receipt, results) -> list[str]:
             f"{weld[COUNTER_WELD_SEAMS_MARKED]} fold seams, "
             f"position mismatches {weld[OUTCOME_WELD_POSITION_MISMATCH]}, "
             f"miter fallbacks {weld[OUTCOME_WELD_MITER_FALLBACK]}"
+        )
+    offset = dict(getattr(receipt, "offset_counters", ()) or ())
+    if offset.get(COUNTER_FACES_OFF_PLANE_AFTER_OFFSET):
+        lines.append(
+            f"[CFTUV][Production] OFFSET: {offset[COUNTER_FACES_OFF_PLANE_AFTER_OFFSET]} faces of 4+ vertices "
+            f"leave their plane after the offset, at most {offset[COUNTER_MAX_OFF_PLANE_AFTER_OFFSET] / 1e6:.3f} mm "
+            "(recorded, not judged)"
         )
     lines.append(f"[CFTUV][Production] {receipt_status_text(receipt)}")
     return lines
