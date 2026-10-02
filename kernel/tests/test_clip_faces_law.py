@@ -145,7 +145,7 @@ def test_a_piece_within_the_chord_budget_stays_one_face_across_the_diagonal():
     assert not result.points and not result.lifted
     found = counters(result)
     assert found[clip_cells.DIAGONAL_FACES_WHOLE] == 1
-    assert found[clip_cells.DIAGONAL_KEPT_NOT_PLANAR] == 0 and found[clip_cells.DIAGONAL_KEPT_NOT_CONVEX] == 0
+    assert found[clip_cells.DIAGONAL_KEPT_NOT_PLANAR] == 0 and found[clip_cells.DIAGONAL_KEPT_UNMERGEABLE] == 0
     depth = found[clip_cells.DIAGONAL_MAX_CHORD_KEPT]
     assert 0 < depth <= nanometres(CLIP_DIAGONAL_CHORD_BUDGET**2)
     assert found[clip.FACES_IN_ONE_TRIANGLE] == 1 and found[clip.FACES_CUT] == 0
@@ -241,7 +241,7 @@ def test_a_convex_face_of_many_triangles_is_one_cell_with_the_flat_bound():
     corners = [(x, y, Fraction(h)) for (x, y), h in zip(chart, (0, 0, Fraction(1, 2000), 0, 0))]
     lift = lift_of([("p", chart, corners, ((0, 1, 2), (0, 2, 3), (0, 3, 4)))])
     plan = build_cells(lift.triangles)
-    assert len(plan.cells) == 1 and plan.not_convex == ()
+    assert len(plan.cells) == 1 and plan.unmergeable == ()
     cell = plan.cells[0]
     assert len(cell.members) == 3 and cell.hinge is None and cell.flat_square is not None
     result, _keys = run(lift, [[(1, 1), (3, 1), (3, 2), (1, 2)]])
@@ -300,16 +300,82 @@ def test_a_straight_vertex_of_a_face_does_not_open_the_boundary_with_its_neighbo
     assert sum(shared[0] in item for item in result.polygons[0]) == 3
 
 
-def test_a_non_convex_face_keeps_its_cuts_between_convex_parts_and_is_named():
-    """Г-образная грань: две выпуклые части, диагональ между ними режет и названа; внутри части диагонали нет."""
+L_CHART = [(0, 0), (4, 0), (4, 2), (2, 2), (2, 4), (0, 4)]
+L_FAN = ((0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 5))
 
-    chart = [(0, 0), (4, 0), (4, 2), (2, 2), (2, 4), (0, 4)]
-    lift = lift_of([("L", chart, [(x, y, Fraction(0)) for x, y in chart], ((0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 5)))])
+
+def l_face(bump=0):
+    """Г-образная грань (стена с проёмом) веером из угла; `bump` — высота вершины `(4, 2)`, метры."""
+
+    heights = [0, 0, Fraction(bump), 0, 0, 0]
+    return lift_of([("L", L_CHART, [(x, y, Fraction(h)) for (x, y), h in zip(L_CHART, heights)], L_FAN)])
+
+
+def test_a_non_convex_face_is_one_group_and_its_diagonals_do_not_cut():
+    """Г-образная грань: группа из четырёх треугольников, куски по ним склеиваются в один, вершин диагоналей нет."""
+
+    lift = l_face()
     plan = build_cells(lift.triangles)
-    assert [len(cell.members) for cell in plan.cells] == [2, 2] and plan.not_convex == (("L", "NOT_CONVEX"),)
+    assert len(plan.cells) == 4 and plan.unmergeable == () and len({cell.group for cell in plan.cells}) == 1
+    # Прямоугольник пересекает три диагонали веера (`y = x/2`, `y = x`, `y = 2x`): четыре куска, один контур.
     result, _keys = run(lift, [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)]])
-    assert counters(result)[clip_cells.DIAGONAL_KEPT_NOT_CONVEX] == 1
-    assert "faces_cut_not_convex=1{'NOT_CONVEX': 1}" in result.note
+    assert [len(item) for item in result.polygons[0]] == [4] and not result.points
+    found = counters(result)
+    assert found[clip_cells.DIAGONAL_FACES_WHOLE] == 1 and found[clip_cells.DIAGONAL_PIECES_ACROSS] == 1
+    assert found[clip_cells.DIAGONAL_CUTS_AVOIDED] == 3
+    assert found[clip.FACES_CUT] == 0 and found[clip.FACES_BOUNDARY_MISMATCH] == 0
+    # Прежний закон резал бы тем же многоугольником по диагоналям: четыре куска и вершины на них.
+    old, _old_keys = run(lift, [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)]], by_faces=False)
+    assert len(old.polygons[0]) == 4 and len(old.points) >= 3
+
+
+def test_a_concave_polygon_inside_a_concave_face_is_one_concave_face():
+    """Невыпуклый многоугольник в невыпуклой грани: куски по ушам и треугольникам склеены, диагоналей нет."""
+
+    polygon = [(0.5, 0.5), (3, 0.5), (3, 1.5), (1.5, 1.5), (1.5, 3), (0.5, 3)]
+    result, _keys = run(l_face(), [polygon])
+    assert [len(item) for item in result.polygons[0]] == [6] and not result.points
+    found = counters(result)
+    assert found[clip_cells.DIAGONAL_FACES_WHOLE] == 1 and found[clip.FACES_BOUNDARY_MISMATCH] == 0
+    area = sum(
+        a[0] * b[1] - b[0] * a[1] for a, b in zip(polygon, polygon[1:] + polygon[:1])
+    )
+    assert chart_double_area(result, _keys, result.polygons[0][0]) == pytest.approx(area)
+
+
+def chart_double_area(result, keys, polygon):
+    xy = {key: coordinates for coordinates, key in keys.items()}
+    xy.update({key: tuple(float(axis.as_rational()) for axis in value) for key, value in result.points.items()})
+    pts = [xy[key] for key in polygon]
+    return sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1] for i in range(len(pts)))
+
+
+def test_a_non_convex_face_beyond_the_chord_budget_is_cut_by_its_triangles_and_named():
+    lift = l_face(bump=Fraction(1, 5))
+    result, _keys = run(lift, [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)]])
+    old, _old_keys = run(lift, [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)]], by_faces=False)
+    assert result.polygons == old.polygons and list(result.points) == list(old.points)
+    found = counters(result)
+    assert found[clip_cells.DIAGONAL_KEPT_NOT_PLANAR] == 1 and found[clip_cells.DIAGONAL_FACES_WHOLE] == 0
+    assert found[clip_cells.DIAGONAL_MAX_CHORD_OVER] > nanometres(CLIP_DIAGONAL_CHORD_BUDGET**2)
+
+
+def test_a_face_with_mixed_winding_is_cut_by_its_triangles_and_named():
+    """Два треугольника с разным обходом на карте (складка) не склеиваются: названа причина."""
+
+    bow = lift_of(
+        [
+            (
+                "bow",
+                [(0, 0), (2, 0), (4, 2), (2, 4)],
+                [(x, y, Fraction(0)) for x, y in [(0, 0), (2, 0), (4, 2), (2, 4)]],
+                ((0, 1, 2), (3, 2, 1)),
+            )
+        ]
+    )
+    plan = build_cells(bow.triangles)
+    assert len(plan.cells) == 2 and all(len(cell.members) == 1 and cell.group is None for cell in plan.cells)
+    assert plan.unmergeable == (("bow", "MIXED_WINDING"),)
 
 
 # --------------------------------------------------------------------------

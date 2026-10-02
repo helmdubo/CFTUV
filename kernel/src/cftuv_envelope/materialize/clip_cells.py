@@ -14,11 +14,19 @@
 поверхность над ней определена (оценка хорды ниже). Прямая вершина петли (угол 180°, T-вершина n-угольника
 стены) допустима, но кусок, чей край проходит через неё, обязан её нести (`ClipCellV1.straight`): соседняя
 грань с поворотом в этой вершине даёт своему куску вершину, и без неё у куска этой ячейки граница с соседом не
-сошлась бы. Невыпуклая грань (Г-образная стена) разбивается на ВЫПУКЛЫЕ ЧАСТИ жадным склеиванием соседних
-треугольников (результат — выпуклая ячейка, иначе склейка не делается): диагонали внутри части не режут,
-диагонали между частями — режут, как под `SOURCE_TRIANGLES_CLIPPED_V1`; такая грань названа счётчиком
-`MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_NOT_CONVEX` (у неё остались разрезы по диагоналям: невыпуклую объединённую
-область звучной оценкой хорды не накрыть). Смешанный обход и петля не одна — тоже треугольники.
+сошлась бы.
+
+НЕВЫПУКЛАЯ ГРАНЬ (Г- и П-образная стена с проёмом): одна простая петля того же обхода, но с поворотом
+против обхода. Областями остаются её треугольники, а `ClipCellV1.group` объединяет их: диагонали внутри
+группы НЕ режут (`ClipStageV1.inert`), куски многоугольника по треугольникам группы склеиваются в один
+контур сокращением встречных полурёбер (`ClipStageV1._glued`), а вершины, рождённые пересечением с такой
+диагональю и лежащие на прямой между соседями, снимаются. Оценка хорды — `2ρ` по всей грани (не зависит от
+размера куска); для куска, чья оболочка выходит за грань (обход проёма), она держится в допущении, что
+триангуляция выпущенной грани лежит в её контуре — а у простого многоугольника любая триангуляция такова.
+
+Грань со смешанным обходом, не одной петлёй либо с изломом без определённой стороны режется по своим
+треугольникам, как под `SOURCE_TRIANGLES_CLIPPED_V1`, под счётчиком
+`MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_UNMERGEABLE`.
 
 ХОРДА. Кусок ячейки лежит в ячейке целиком, но вершины его подняты в РАЗНЫХ треугольниках грани:
 непланарная грань даёт кусок со складкой по диагонали, а грань меша плоская ровно по вершинам. Глубина
@@ -59,7 +67,7 @@ DIAGONAL_FACES_WHOLE = "MATERIALIZE_CLIP_DIAGONAL_FACES_KEPT_WHOLE"
 DIAGONAL_PIECES_ACROSS = "MATERIALIZE_CLIP_DIAGONAL_PIECES_ACROSS"
 DIAGONAL_CUTS_AVOIDED = "MATERIALIZE_CLIP_DIAGONAL_CUTS_AVOIDED"
 DIAGONAL_KEPT_NOT_PLANAR = "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_NOT_PLANAR"
-DIAGONAL_KEPT_NOT_CONVEX = "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_NOT_CONVEX"
+DIAGONAL_KEPT_UNMERGEABLE = "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_UNMERGEABLE"
 DIAGONAL_MAX_CHORD_KEPT = "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_KEPT_NANOMETRES"
 DIAGONAL_MAX_CHORD_OVER = "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_OVER_BUDGET_NANOMETRES"
 NANOMETRES_PER_METRE = 10**9
@@ -96,14 +104,16 @@ class ClipCellV1:
     flat_square: Fraction | None = None
     #: Прямые вершины петли: `(индекс ребра на той же прямой, точка карты)`.
     straight: tuple = ()
+    #: Ключ группы невыпуклой грани: треугольники одной группы не режут друг друга по диагонали (склейка кусков).
+    group: tuple | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class CellPlanV1:
     cells: tuple
-    #: Грани из двух и более треугольников, которые не стали ячейкой: `((грань, причина), ...)`.
-    #: Причины: `MIXED_WINDING`, `NOT_ONE_LOOP`, `NOT_CONVEX`, `NO_HINGE`.
-    not_convex: tuple
+    #: Грани из двух и более треугольников, которые не склеились ни в ячейку, ни в группу: `((грань, причина), ...)`.
+    #: Причины: `MIXED_WINDING`, `NOT_ONE_LOOP`, `NO_HINGE`.
+    unmergeable: tuple
 
 
 def _edge_value(start, end, point) -> Fraction:
@@ -127,9 +137,11 @@ def _affine(triangle, point):
     )
 
 
-def _single(triangles, index: int) -> ClipCellV1:
+def _single(triangles, index: int, group=None, flat=None) -> ClipCellV1:
     item = triangles[index]
-    return ClipCellV1(("t", index), item.name, item.chart, item.box, item.twice_area, (index,))
+    return ClipCellV1(
+        ("t", index), item.name, item.chart, item.box, item.twice_area, (index,), (), None, flat, (), group
+    )
 
 
 def _loop_of(triangles, members):
@@ -231,35 +243,8 @@ def _merged_cell(triangles, face: str, members) -> ClipCellV1 | str:
     )
 
 
-def _parts_of(triangles, face: str, members):
-    """`(части, причина)`: выпуклые ячейки грани жадным склеиванием соседних треугольников.
-
-    Начинают с одиночных треугольников и склеивают пару, если объединение — ячейка (выпуклая петля, излом
-    определён). Выпуклая грань склеивается в одну часть; невыпуклая остаётся несколькими. Причина — пусто,
-    если часть одна; иначе имя отказа последней попытки склеить всю грань.
-    """
-
-    parts = [(index,) for index in members]
-    cells: dict = {}
-    grown = True
-    while grown and len(parts) > 1:
-        grown = False
-        for first in range(len(parts)):
-            for second in range(first + 1, len(parts)):
-                trial = _merged_cell(triangles, face, parts[first] + parts[second])
-                if not isinstance(trial, str):
-                    parts[first] += parts.pop(second)
-                    cells[parts[first]] = trial
-                    grown = True
-                    break
-            if grown:
-                break
-    reason = "" if len(parts) == 1 else _merged_cell(triangles, face, tuple(members))
-    return [(part, cells.get(part)) for part in parts], reason if isinstance(reason, str) else "NOT_CONVEX"
-
-
 def build_cells(triangles, split=frozenset()) -> CellPlanV1:
-    """Ячейки резки по треугольникам подъёма; ячейки из `split` (их ключи) остаются треугольниками.
+    """Ячейки резки по треугольникам подъёма; ячейки и группы из `split` (их ключи) остаются треугольниками.
 
     Порядок — по индексу первого треугольника, поэтому при `split` на всех ячейках области совпадают с
     треугольниками один в один, и резка побитово та же, что у `SOURCE_TRIANGLES_CLIPPED_V1`.
@@ -268,21 +253,25 @@ def build_cells(triangles, split=frozenset()) -> CellPlanV1:
     groups: dict = {}
     for index, item in enumerate(triangles):
         groups.setdefault(item.face or f"\0{index}", []).append(index)
-    cells, not_convex = [], []
+    cells, unmergeable = [], []
     for face, members in groups.items():
-        if len(members) == 1:
+        built = None if len(members) == 1 else _merged_cell(triangles, face, members)
+        if built is None:
             cells.append((members[0], _single(triangles, members[0])))
-            continue
-        parts, reason = _parts_of(triangles, face, members)
-        if len(parts) > 1:
-            not_convex.append((face, reason))
-        for part, cell in parts:
-            if cell is None or cell.key in split:
-                cells.extend((index, _single(triangles, index)) for index in part)
+        elif isinstance(built, ClipCellV1):
+            if built.key in split:
+                cells.extend((index, _single(triangles, index)) for index in members)
             else:
-                cells.append((part[0], cell))
+                cells.append((members[0], built))
+        elif built == "NOT_CONVEX" and ("g", face, members[0]) not in split:
+            group, flat = ("g", face, members[0]), _flat_square(triangles, members)
+            cells.extend((index, _single(triangles, index, group, flat)) for index in members)
+        else:
+            if built != "NOT_CONVEX":
+                unmergeable.append((face, built))
+            cells.extend((index, _single(triangles, index)) for index in members)
     cells.sort(key=lambda entry: entry[0])
-    return CellPlanV1(tuple(cell for _index, cell in cells), tuple(not_convex))
+    return CellPlanV1(tuple(cell for _index, cell in cells), tuple(unmergeable))
 
 
 def hinge_depth_square(jump_square: Fraction, column) -> Fraction:

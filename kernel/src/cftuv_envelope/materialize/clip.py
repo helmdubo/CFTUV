@@ -69,10 +69,13 @@
 ЯЧЕЙКА — замкнутая выпуклая грань источника (объединение её треугольников). Режет только ребро меша,
 общее у ячеек разных граней: диагональ четырёхгранья — ребро триангуляции хоста, её у меша нет. Кусок
 доказан внутри ЗАМКНУТОЙ ячейки: каждый его кусок-часть уже доказан в своём треугольнике, ячейка — их
-объединение, а подъём вершины — барицентрический в найденном треугольнике ячейки, как прежде. Кусок над
-диагональю непланарной грани имеет глубину хорды (`clip_cells.chord_of`, звучная оценка); ячейка, у
-которой хоть один кусок глубже допуска, расщепляется на треугольники и режется по диагонали (`cut_domain`:
-две стадии на общих узлах), под счётчиком. Прежний закон остаётся: без ячеек стадия работает по
+объединение, а подъём вершины — барицентрический в найденном треугольнике ячейки, как прежде. Невыпуклая
+грань (стена с проёмом) остаётся треугольниками одной ГРУППЫ: диагонали группы не режут (`inert`), куски
+многоугольника по её треугольникам склеиваются в один контур по общим диагоналям (`_glued`), а вершины,
+рождённые пересечением с диагональю, снимаются (`_without_inert`). Кусок над диагональю непланарной грани
+имеет глубину хорды (`clip_cells.chord_of`, звучная оценка); ячейка или группа, у которой хоть один кусок
+глубже допуска, расщепляется на треугольники и режется по диагонали (`cut_domain`: две стадии на общих
+узлах), под счётчиком. Прежний закон остаётся: без ячеек стадия работает по
 треугольникам, побитово как раньше.
 """
 
@@ -92,7 +95,7 @@ from .clip_cells import (
     CLIP_DIAGONAL_CHORD_BUDGET,
     DIAGONAL_CUTS_AVOIDED,
     DIAGONAL_FACES_WHOLE,
-    DIAGONAL_KEPT_NOT_CONVEX,
+    DIAGONAL_KEPT_UNMERGEABLE,
     DIAGONAL_KEPT_NOT_PLANAR,
     DIAGONAL_MAX_CHORD_KEPT,
     DIAGONAL_MAX_CHORD_OVER,
@@ -182,8 +185,8 @@ class DiagonalVerdictV1:
 
     #: `{ключ ячейки: наибольший квадрат глубины хорды}` ячеек, расщеплённых на треугольники допуском.
     over: dict
-    #: Грани из двух и более треугольников, которые не стали ячейкой: `((грань, причина), ...)`.
-    not_convex: tuple
+    #: Грани из двух и более треугольников, которые не склеились ни в ячейку, ни в группу: `((грань, причина), ...)`.
+    unmergeable: tuple
 
 
 class ClipStageV1:
@@ -211,19 +214,32 @@ class ClipStageV1:
             else tuple(item.members for item in cells)
         )
         self.directions = tuple(1 if item.twice_area > 0 else -1 for item in self.regions)
-        owners = Counter(
-            frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))
-            for item in self.regions
-            for index in range(len(item.chart))
+        #: Группа невыпуклой грани у области (`None` — своя): диагонали внутри группы не режут.
+        self.groups = tuple(getattr(item, "group", None) for item in self.regions)
+        self.has_groups = any(group is not None for group in self.groups)
+        owners: dict = {}
+        for ti, item in enumerate(self.regions):
+            for index in range(len(item.chart)):
+                edge = frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))
+                owners.setdefault(edge, []).append(ti)
+
+        def is_shared(ti, index) -> bool:
+            item = self.regions[ti]
+            return len(owners[frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))]) > 1
+
+        def is_inert(ti, index) -> bool:
+            item = self.regions[ti]
+            both = owners[frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))]
+            return len(both) == 2 and self.groups[ti] is not None and self.groups[both[0]] == self.groups[both[1]]
+
+        #: `interior[ti][i]` — `i`-е ребро области `ti` общее у двух областей и режет: настоящее ребро меша либо
+        #: (у закона по треугольникам и у расщеплённой грани) диагональ. Диагональ группы (`inert`) не режет.
+        self.inert = tuple(
+            tuple(is_inert(ti, index) for index in range(len(item.chart))) for ti, item in enumerate(self.regions)
         )
-        #: `interior[ti][i]` — `i`-е ребро области `ti` общее у двух областей: настоящее ребро меша либо (у
-        #: закона по треугольникам и у расщеплённой грани) диагональ.
         self.interior = tuple(
-            tuple(
-                owners[frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))] > 1
-                for index in range(len(item.chart))
-            )
-            for item in self.regions
+            tuple(is_shared(ti, index) and not self.inert[ti][index] for index in range(len(item.chart)))
+            for ti, item in enumerate(self.regions)
         )
         self.corners = frozenset(corner for item in self.regions for corner in item.chart)
         self.by_point: dict = {} if shared is None else shared.by_point
@@ -249,6 +265,10 @@ class ClipStageV1:
         self.new_points: dict = {}
         self.lifted: dict = {}
         self.count = 0
+        #: Узлы, рождённые пересечением с диагональю группы (кандидаты на снятие после склейки), и склейка.
+        self.inert_nodes: set = set()
+        self.where: dict = {}
+        self.glued: dict = {}
         #: Итоги кусков в склеенных ячейках (счётчики закона по граням).
         self.whole: set = set()
         self.across = 0
@@ -406,7 +426,10 @@ class ClipStageV1:
                     result.append(current)
                 if here == 0 or there == 0 or (here > 0) == (there > 0):
                     continue
-                result.append(self._crossing(current, following, ti, index))
+                crossing = self._crossing(current, following, ti, index)
+                if self.inert[ti][index]:
+                    self.inert_nodes.add(crossing)
+                result.append(crossing)
             nodes = result
         return self._with_straight_vertices(nodes, ti)
 
@@ -667,6 +690,8 @@ class ClipStageV1:
 
         nodes = self._refined(cut.nodes)
         pieces = cut.pieces
+        if pieces is not None and self.has_groups:
+            pieces = self._glued(pieces, set(nodes))
         if pieces is not None and self._boundary_is(pieces, nodes):
             self.tally[FACES_IN_ONE_TRIANGLE if len(pieces) == 1 else FACES_CUT] += 1
             self.tally[FACES_CUT_BY_EARS] += int(cut.by_ears)
@@ -675,11 +700,13 @@ class ClipStageV1:
             self.tally[PIECES_KEPT_SEPARATE] += cut.kept
             faces = []
             for ti, piece, _part in pieces:
-                self._prove(piece, ti)
-                self._record_whole(ti, piece)
+                merged = self.glued.get(id(piece), 0)
+                if not merged:
+                    self._prove(piece, ti)
+                self._record_whole(ti, piece, merged)
                 # Номера `clip:` — по обходу куска, а не по порядку ушей закона: имена не зависят от закона.
                 for node in piece:
-                    self._key(node, ti)
+                    self._key(node, self.where.get(node, ti) if merged else ti)
                 for face in self._split_for_law(piece, law, fan):
                     faces.append(self._oriented(tuple(self._key(node, ti) for node in face), cut.flip))
             return faces
@@ -695,9 +722,92 @@ class ClipStageV1:
             for ear in self._ears(tuple(node.point for node in nodes))
         ]
 
+    def _components(self, entries) -> list:
+        """Куски одной группы, связанные встречными полурёбрами (общей диагональю): компоненты связности."""
+
+        owner = {}
+        for index, (_ti, piece, _area) in enumerate(entries):
+            for position, node in enumerate(piece):
+                owner[(node, piece[(position + 1) % len(piece)])] = index
+        parent = list(range(len(entries)))
+
+        def find(item: int) -> int:
+            while parent[item] != item:
+                parent[item] = parent[parent[item]]
+                item = parent[item]
+            return item
+
+        for (first, second), index in owner.items():
+            other = owner.get((second, first))
+            if other is not None:
+                parent[find(index)] = find(other)
+        found: dict = {}
+        for index, entry in enumerate(entries):
+            found.setdefault(find(index), []).append(entry)
+        return list(found.values())
+
+    def _is_corner(self, node: _Node) -> bool:
+        point = tuple(axis.as_rational() for axis in node.point)
+        return None not in point and point in self.corners
+
+    def _collinear(self, first: _Node, middle: _Node, last: _Node) -> bool:
+        (ax, ay), (bx, by), (cx, cy) = first.point, middle.point, last.point
+        return ((bx - ax) * (cy - by) - (by - ay) * (cx - bx)).is_zero
+
+    def _without_inert(self, loop, refined) -> list:
+        """Контур без вершин, рождённых диагональю группы: на прямой между соседями, не угол меша, не вершина многоугольника."""
+
+        out = list(loop)
+        changed = True
+        while changed and len(out) > 3:
+            changed = False
+            for index, node in enumerate(out):
+                if (
+                    node in self.inert_nodes
+                    and node not in refined
+                    and not self._is_corner(node)
+                    and self._collinear(out[index - 1], node, out[(index + 1) % len(out)])
+                ):
+                    del out[index]
+                    changed = True
+                    break
+        return out
+
+    def _glued(self, pieces, refined) -> list:
+        """Куски невыпуклой грани по её треугольникам склеиваются в один контур по общим диагоналям.
+
+        Каждый кусок по треугольнику доказан в своём замкнутом треугольнике (`_prove`) ДО склейки; склеенный —
+        их точное объединение (встречные полурёбра сокращены, контур одна петля без повторов вершин). Не
+        склеившиеся (петля не одна) остаются отдельными: граница не сойдётся, и многоугольник уйдёт ушами под
+        счётчиком невязки границы.
+        """
+
+        out, by_group = [], {}
+        for entry in pieces:
+            group = self.groups[entry[0]]
+            if group is None:
+                out.append(entry)
+                continue
+            self._prove(entry[1], entry[0])
+            for node in entry[1]:
+                self.where.setdefault(node, entry[0])
+            by_group.setdefault(group, []).append(entry)
+        for entries in by_group.values():
+            for component in self._components(entries):
+                loop = self._merged([item[1] for item in component]) if len(component) > 1 else None
+                if loop is None:
+                    out.extend(component)
+                    continue
+                piece = self._without_inert(loop, refined)
+                self.glued[id(piece)] = len(component)
+                out.append((component[0][0], piece, sum((item[2] for item in component), SqrtSumV1.zero())))
+        return out
+
     def piece_chord(self, ti: int, piece) -> tuple:
         """`(квадрат глубины хорды, число пересечённых диагоналей)` куска склеенной ячейки `ti` (кэш на узлах)."""
 
+        if self.groups[ti] is not None:
+            return self.regions[ti].flat_square, 0
         ident = (self.keys[ti], tuple(id(node) for node in piece))
         found = self.chords.get(ident)
         if found is None:
@@ -721,17 +831,24 @@ class ClipStageV1:
         for face_cuts in cuts:
             for cut in face_cuts:
                 for ti, piece, _area in cut.pieces or ():
-                    if len(self.members[ti]) < 2:
+                    if len(self.members[ti]) < 2 and self.groups[ti] is None:
                         continue
                     depth = self.piece_chord(ti, piece)[0]
                     if depth > limit:
-                        key = self.keys[ti]
+                        key = self.groups[ti] or self.keys[ti]
                         found[key] = max(found.get(key, depth), depth)
         return found
 
-    def _record_whole(self, ti: int, piece) -> None:
-        """Выпущенный кусок склеенной ячейки: сколько диагоналей он пересёк (разрезов не сделано) и глубина хорды."""
+    def _record_whole(self, ti: int, piece, merged: int = 0) -> None:
+        """Выпущенный кусок склеенной ячейки или группы: сколько диагоналей он пересёк (разрезов не сделано) и глубина хорды."""
 
+        if self.groups[ti] is not None:
+            if merged:
+                self.whole.add(self.regions[ti].name)
+                self.across += 1
+                self.avoided += merged - 1
+                self.kept_depth = max(self.kept_depth, self.regions[ti].flat_square)
+            return
         if len(self.members[ti]) < 2:
             return
         depth, crossed = self.piece_chord(ti, piece)
@@ -747,7 +864,7 @@ class ClipStageV1:
             (DIAGONAL_PIECES_ACROSS, self.across),
             (DIAGONAL_CUTS_AVOIDED, self.avoided),
             (DIAGONAL_KEPT_NOT_PLANAR, len({key[1] for key in verdict.over})),
-            (DIAGONAL_KEPT_NOT_CONVEX, len(verdict.not_convex)),
+            (DIAGONAL_KEPT_UNMERGEABLE, len(verdict.unmergeable)),
             (DIAGONAL_MAX_CHORD_KEPT, nanometres(self.kept_depth)),
             (DIAGONAL_MAX_CHORD_OVER, nanometres(max(verdict.over.values(), default=Fraction(0)))),
         )
@@ -918,11 +1035,11 @@ class ClipStageV1:
         if not self.faces_mode:
             return ""
         verdict = self.verdict or DiagonalVerdictV1({}, ())
-        reasons = Counter(reason for _face, reason in verdict.not_convex)
+        reasons = Counter(reason for _face, reason in verdict.unmergeable)
         return (
             f" diagonals: faces_whole={len(self.whole)} pieces_across={self.across} "
             f"cuts_avoided={self.avoided} faces_cut_not_planar={len({key[1] for key in verdict.over})} "
-            f"faces_cut_not_convex={len(verdict.not_convex)}{dict(sorted(reasons.items()))} "
+            f"faces_cut_unmergeable={len(verdict.unmergeable)}{dict(sorted(reasons.items()))} "
             f"max_chord_kept_nm={nanometres(self.kept_depth)} "
             f"max_chord_over_budget_nm={nanometres(max(verdict.over.values(), default=Fraction(0)))} "
             f"chord_budget_nm={nanometres(CLIP_DIAGONAL_CHORD_BUDGET**2)}"
@@ -994,7 +1111,7 @@ def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans) -> C
             plane, budget, points, build_cells(plane.triangles, frozenset(over)).cells, shared=stage
         )
         cuts = stage.cuts_of(polygons)
-    stage.verdict = DiagonalVerdictV1(over, plan.not_convex)
+    stage.verdict = DiagonalVerdictV1(over, plan.unmergeable)
     return stage.run(cycles, polygons, law, seam, fans, cuts)
 
 
