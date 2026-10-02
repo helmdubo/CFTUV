@@ -398,6 +398,15 @@ def point_key(point):
     return (point[0].terms, point[1].terms)
 
 
+def lattice_node(point):
+    """Узел решётки `(x, y)` целых координат точки контура либо `None`: точка не на узле."""
+
+    x, y = point[0].as_rational(), point[1].as_rational()
+    if x is None or y is None or x.denominator != 1 or y.denominator != 1:
+        return None
+    return (int(x), int(y))
+
+
 def _merge_key(face: CoveredFaceV1):
     """Ключ группы слияния либо `None`, если хоть одно условие не доказано.
 
