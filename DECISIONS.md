@@ -9169,3 +9169,20 @@ k = 3: единственное решение; больше — решение,
 в корпус `DOMAINS` ворот закона топологии; приёмка исполняема: `fan_congruence_check.py
 --require-single-class`, тесты `test_fan_face_law.py`, `triangulate_from_apex` в
 `test_materialize_tessellate.py`.
+
+**2026-10-03** — FAN_FACE_TRIANGULATED_FROM_APEX_V1, ПОПРАВКИ ПО АУДИТУ (Fable, «ship with fixes»). (1) Текст
+контракта `DecalTopologyLawV1.PLANAR_POLYGONS_V1` говорил «веера остаются треугольниками» — после закона это
+ложь, а контракт и есть закон: переписан (целый веер — треугольник на сектор; срезанный — одна грань на точной
+плоскости при простом контуре и аффинной UV, иначе от вершины веера, иначе по ушам под `NOT_STAR_FROM_APEX`).
+(2) На пути по ушам причина «не одна грань» (`POLYGON_FACES_TRIANGULATED_NOT_SIMPLE` / `_UV_NOT_AFFINE`) терялась,
+тогда как у лент `_contour_polygons` её считает: теперь называется на обоих путях и только когда грань увидел меш.
+(3) Невыпуклая клетка была покрыта только синтетикой: в корпус `DOMAINS` вошёл `building` патч 17 на d2
+(фикстура `building_patch17_crowded_v1`, одна невыпуклая клетка из двух срезанных), тест
+`test_a_field_cut_fan_with_a_right_turn_is_one_concave_face`; «30 из 53» воспроизводит свип d2. (4)
+`fan_congruence_check.py` молча отбрасывал внутренние вершины веера: такой веер теперь пропускается, считается
+(`skipped`), а под `--require-single-class` проваливает приёмку (`verdict`). (5) Имя
+`MATERIALIZE_FAN_FACES_CUT_BY_NEIGHBOUR` оставлено (ключ свипа и квитанций), но текст стал правдивым: число
+считает веерные грани с контуром длиннее трёх; вершина фронта на прямой (T-стык) даёт такой же контур, поэтому
+оно верхняя оценка срезов, а не их точное число. Ворота те же, что у основного коммита: свип
+`TRIANGLES_V1`/`QUAD_STRIPS_V1` против 805f1bb — IDENTICAL, across-topology — IDENTICAL, `numeric_repr/gate.py` —
+IDENTICAL, счётчики свипа d1/d2 те же (43/53 срезанных, 21/30 невыпуклых).
