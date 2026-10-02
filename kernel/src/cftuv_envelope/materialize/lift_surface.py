@@ -81,7 +81,13 @@
 
 ОГРАНИЧЕНИЕ. Лежат на поверхности ВЕРШИНЫ меша. Ребро треугольника меша, идущее
 через ребро источника под изломом, остаётся хордой; вставка вершин на пересечении
-с рёбрами источника — отдельный срез.
+с рёбрами источника — законы `SOURCE_TRIANGLES_CLIPPED_V1` и `SOURCE_FACES_CLIPPED_V1`
+(`materialize/clip`).
+
+ГРАНЬ ИСТОЧНИКА. Каждый треугольник несёт `face` — id грани источника, из которой его выпустила
+триангуляция хоста. Диагональ четырёхгранья — общее ребро двух треугольников ОДНОЙ грани, а не
+ребро меша (у неё `physical_edge_id = None`): закон `SOURCE_FACES_CLIPPED_V1` режет только по
+рёбрам, общим у треугольников РАЗНЫХ граней.
 """
 
 from __future__ import annotations
@@ -162,9 +168,12 @@ class LiftTriangleV1:
     #: Единичные нормали смещения трёх углов (binary64), либо пусто: нормаль смещения
     #: у домена развёртки своя на вершину, у плоского и near-planar — одна на домен.
     normals: tuple = ()
+    #: Идентификатор грани источника, из которой выпущен треугольник; пусто — грань неизвестна, и
+    #: треугольник сам себе грань (закон `SOURCE_FACES_CLIPPED_V1` его не склеивает ни с кем).
+    face: str = ""
 
 
-def _triangle(name, chart, corners, normals=()) -> LiftTriangleV1 | None:
+def _triangle(name, chart, corners, normals=(), face="") -> LiftTriangleV1 | None:
     (ax, ay), (bx, by), (cx, cy) = chart
     area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
     if not area:
@@ -178,6 +187,7 @@ def _triangle(name, chart, corners, normals=()) -> LiftTriangleV1 | None:
         twice_area=area,
         box=(_down(min(xs)), _up(max(xs)), _down(min(ys)), _up(max(ys))),
         normals=tuple(normals),
+        face=face,
     )
 
 
@@ -204,16 +214,17 @@ class SurfaceLiftV1:
         snap_residual=Fraction(0),
         collapsed_by_snapping: int = 0,
     ) -> "SurfaceLiftV1":
-        """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины[, три нормали])`."""
+        """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины[, три нормали[, грань]])`."""
 
         built = []
         degenerate = 0
-        for name, chart, corners, *normals in sorted(items, key=lambda item: item[0]):
+        for name, chart, corners, *rest in sorted(items, key=lambda item: item[0]):
             triangle = _triangle(
                 name,
                 tuple((Fraction(x), Fraction(y)) for x, y in chart),
                 tuple(tuple(Fraction(axis) for axis in point) for point in corners),
-                normals[0] if normals else (),
+                rest[0] if rest else (),
+                rest[1] if len(rest) > 1 else "",
             )
             if triangle is None:
                 degenerate += 1
@@ -316,11 +327,10 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
                 item.triangle_id.value,
                 tuple(chart[vertex] for vertex in item.vertex_ids),
                 tuple(position[vertex] for vertex in item.vertex_ids),
-                *(
-                    ()
-                    if normals is None
-                    else (tuple(normals[vertex] for vertex in item.vertex_ids),)
-                ),
+                ()
+                if normals is None
+                else tuple(normals[vertex] for vertex in item.vertex_ids),
+                item.source_face_id.value,
             )
             for item in owned
         ),
@@ -664,7 +674,9 @@ class BoundSurfaceLiftV1:
         """Ориентация точки относительно `index`-го ребра треугольника: значение, а не знак."""
 
         return _edge_value(
-            triangle.chart[index], triangle.chart[(index + 1) % 3], point
+            triangle.chart[index],
+            triangle.chart[(index + 1) % len(triangle.chart)],
+            point,
         )
 
     def rebind_position(self, old, new) -> None:

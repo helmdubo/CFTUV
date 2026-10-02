@@ -734,17 +734,20 @@ def _fold_decal(*, lift_policy=None):
 
 
 def _run_a_decal_across_a_fold_stays_on_the_surface():
-    """Закон `SOURCE_TRIANGLES_CLIPPED_V1`: куски граней лежат в треугольниках источника, хорды через складку нет."""
+    """Законы резки (`SOURCE_FACES_CLIPPED_V1` кнопки и `SOURCE_TRIANGLES_CLIPPED_V1`): куски лежат в гранях источника, хорды через складку нет."""
 
     from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY, HostNearPlanarLiftPolicy
 
-    assert HOST_NEAR_PLANAR_LIFT_POLICY is HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_CLIPPED_V1
+    assert HOST_NEAR_PLANAR_LIFT_POLICY is HostNearPlanarLiftPolicy.SOURCE_FACES_CLIPPED_V1
     decal, _source, worst = _fold_decal()
     sizes = [len(polygon.vertices) for polygon in decal.data.polygons]
     # Смещение вдоль нормалей вершин: точка грани отстоит от поверхности не дальше смещения.
     assert worst <= 0.02 + 1e-5, worst
     assert max(sizes) >= 4, sizes
     print("FOLD clipped:", sorted(sizes), "faces, worst distance", worst)
+    # Прежний закон по треугольникам режет ту же сцену так же: складка по ребру меша, диагоналей нет.
+    _by_triangles, _source, triangles_worst = _fold_decal(lift_policy=HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_CLIPPED_V1)
+    assert triangles_worst <= 0.02 + 1e-5, triangles_worst
     # Красный контроль: та же сцена без резки (закон `SOURCE_TRIANGLES_V1`) режет в стену.
     _plain, _source, plain_worst = _fold_decal(lift_policy=HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_V1)
     assert plain_worst > 0.02 + 0.05, plain_worst

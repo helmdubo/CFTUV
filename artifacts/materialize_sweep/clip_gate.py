@@ -1,7 +1,7 @@
-"""Ворота закона `SOURCE_TRIANGLES_CLIPPED_V1` на ВСЕХ доменах `building`: плоские — побитово те же, кривые — отличие ровно резкой.
+"""Ворота законов резки (`SOURCE_FACES_CLIPPED_V1` по умолчанию, `SOURCE_TRIANGLES_CLIPPED_V1`) на ВСЕХ доменах `building`: плоские — побитово те же, кривые — отличие ровно резкой.
 
 Каждый домен считается маршрутом кнопки до покрытия (как `sweep.py`) и материализуется ДВАЖДЫ на одних и тех
-же `prepared` и покрытии: законом укладки `SOURCE_TRIANGLES_V1` (до резки) и `SOURCE_TRIANGLES_CLIPPED_V1`.
+же `prepared` и покрытии: законом укладки `SOURCE_TRIANGLES_V1` (до резки) и законом резки `--law`.
 Сравнение — по ответам, а не по обещаниям:
 
 * плоский домен (точная плоскость): `content_digest`, семантический дайджест и дайджест нормалей РАВНЫ
@@ -16,8 +16,11 @@
   (`SOURCE_EDGES_LIFTED_ONTO_SURFACE`; плюс отказ сдвига вершины по ориентации куска, если счётчик отказов вырос).
   Счёт `QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES` под резкой — тавтология (имена подъёма обнулены), поэтому он
   печатается, но вердикта не решает: доказательство «кусок в одном треугольнике» — `clip._prove`.
+  Закон по граням (`SOURCE_FACES_CLIPPED_V1`) прибавляет только вершины `clip:` на настоящих рёбрах и счётчики
+  `MATERIALIZE_CLIP_DIAGONAL_*`; шовные цепи и там побитово те же и без единой вершины `clip:`.
 
     python clip_gate.py run --workers 8 --densities 1,2,4 --topology PLANAR_POLYGONS_V1 --out gate.json
+    python clip_gate.py run --law SOURCE_TRIANGLES_CLIPPED_V1 --out gate_triangles.json
 
 Код возврата 1 при любом расхождении. Список кривых доменов с числами (грани, четырёхгранья, треугольники,
 вершины `clip:`, свес, секунды резки) печатается всегда.
@@ -176,7 +179,7 @@ def _numbers(result) -> dict:
     }
 
 
-def compute_pair(patch_id: int, density, topology: str) -> dict:
+def compute_pair(patch_id: int, density, topology: str, law_name: str = "SOURCE_FACES_CLIPPED_V1") -> dict:
     ctx = pool_sweep._CTX
     canon = ctx["canon"]
     from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
@@ -210,7 +213,7 @@ def compute_pair(patch_id: int, density, topology: str) -> dict:
     coverage = conveyor_coverage(prepared, ALPHA_TEXT)
     request = materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1")
     results = {}
-    for law in (NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1, NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1):
+    for law in (NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1, NearPlanarLiftLawV1(law_name)):
         canon.reset_factorization_memory()
         results[law.value] = materialize_domain(
             prepared,
@@ -219,7 +222,7 @@ def compute_pair(patch_id: int, density, topology: str) -> dict:
             near_planar_lift_law=law,
             decal_topology_law=DecalTopologyLawV1(topology),
         )
-    base, cut = results["SOURCE_TRIANGLES_V1"], results["SOURCE_TRIANGLES_CLIPPED_V1"]
+    base, cut = results["SOURCE_TRIANGLES_V1"], results[law_name]
     row.update(
         planar=planar,
         status=cut.outcome.value,
@@ -238,12 +241,12 @@ def _task(args):
 def run(args) -> dict:
     from concurrent.futures import ProcessPoolExecutor
 
-    record = {"schema": SCHEMA, "topology": args.topology, "alpha": ALPHA_TEXT, "runs": {}}
+    record = {"schema": SCHEMA, "topology": args.topology, "law": args.law, "alpha": ALPHA_TEXT, "runs": {}}
     for density in (int(item) for item in args.densities.split(",")):
         order = [int(x) for x in args.only.split(",")] if args.only else gate._default_order()
         started = time.perf_counter()
         with ProcessPoolExecutor(max_workers=args.workers, initializer=gate.init_worker) as pool:
-            rows = list(pool.map(_task, [(pid, density, args.topology) for pid in order]))
+            rows = list(pool.map(_task, [(pid, density, args.topology, args.law) for pid in order]))
         rows.sort(key=lambda row: row["patch_id"])
         record["runs"][str(density)] = {"wall": round(time.perf_counter() - started, 1), "domains": rows}
         done = [row for row in rows if row.get("status") == "MATERIALIZED"]
@@ -278,6 +281,7 @@ def main() -> int:
     parser.add_argument("--densities", default="1,2,4")
     parser.add_argument("--only", default="")
     parser.add_argument("--topology", default="PLANAR_POLYGONS_V1")
+    parser.add_argument("--law", default="SOURCE_FACES_CLIPPED_V1", choices=("SOURCE_FACES_CLIPPED_V1", "SOURCE_TRIANGLES_CLIPPED_V1"))
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     record = run(args)

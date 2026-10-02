@@ -233,6 +233,7 @@ class HostNearPlanarLiftPolicy(str, Enum):
     CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
     SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
     SOURCE_TRIANGLES_CLIPPED_V1 = "SOURCE_TRIANGLES_CLIPPED_V1"
+    SOURCE_FACES_CLIPPED_V1 = "SOURCE_FACES_CLIPPED_V1"
 
 
 # Хост просит укладку на ТРЕУГОЛЬНИКИ ИСТОЧНИКА С РЕЗКОЙ граней (NEAR_PLANAR V2, решение
@@ -243,8 +244,12 @@ class HostNearPlanarLiftPolicy(str, Enum):
 # каждый кусок лежит в ОДНОМ треугольнике источника: хорда через сгиб больше не срезает
 # стену, а кусок плоский точно и остаётся четырёхгранью. Суд и метрика те же, что у
 # `SOURCE_TRIANGLES_V1` (сертификат пишет его), поэтому закон возвращается одной строкой.
+# 2026-10-03, «лишние рёбра на кривых»: диагональ четырёхгранья — ребро триангуляции хоста, а не
+# меша, и резать по ней нельзя. `SOURCE_FACES_CLIPPED_V1` режет только по рёбрам, общим у граней
+# источника: кусок лежит в одной ЗАМКНУТОЙ грани, а грань, непланарная глубже четверти смещения
+# (5 мм, умолчание в ожидании владельца), режется по своим треугольникам под счётчиком.
 # Прежние законы остаются членами перечисления: они нужны отладочным сценам и красным контролям.
-HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_CLIPPED_V1
+HOST_NEAR_PLANAR_LIFT_POLICY = HostNearPlanarLiftPolicy.SOURCE_FACES_CLIPPED_V1
 
 
 class HostNearPlanarFramePolicy(str, Enum):

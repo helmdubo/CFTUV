@@ -251,9 +251,7 @@ def admit_domain(
         if refusal is not None:
             return refusal
         effective = (
-            lift_law
-            if lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1
-            else NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
+            lift_law if lift_law.clips else NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
         )
     if planarity is PlanarityKind.NEAR_PLANAR:
         refusal = _lift_refusal(certificate, lift_law)

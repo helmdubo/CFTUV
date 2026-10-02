@@ -516,9 +516,9 @@ def _tessellation_law(clipped: bool, law):
 
 
 def _is_clipped(admission) -> bool:
-    """Укладка домена — треугольники источника С РЕЗКОЙ граней (`SOURCE_TRIANGLES_CLIPPED_V1`)."""
+    """Укладка домена — треугольники источника С РЕЗКОЙ граней (`SOURCE_TRIANGLES_CLIPPED_V1`, `SOURCE_FACES_CLIPPED_V1`)."""
 
-    return admission.lift_law is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1
+    return admission.lift_law.clips
 
 
 def _lifted(plane, points, cut):
@@ -610,6 +610,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             table=table,
             lattice_alpha=lattice_alpha,
             law=law,
+            by_faces=admission.lift_law.clips_by_faces,
         )
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)

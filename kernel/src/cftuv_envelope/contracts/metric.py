@@ -758,6 +758,12 @@ class NearPlanarLiftLawV1(str, Enum):
       закон подъёма, а не закон топологии: он добавляет вершины `clip:<k>`, а
       суд над доменом (σ, вложение, сертификат) остаётся прежним, поэтому
       сертификат метрики пишет `SOURCE_TRIANGLES_V1` (`judged_as`).
+    * `SOURCE_FACES_CLIPPED_V1` — то же, но режет ТОЛЬКО по настоящим рёбрам меша: ребро источника, общее
+      у треугольников РАЗНЫХ граней. Диагональ четырёхгранья — ребро триангуляции хоста, а не меша, и
+      по ней грань не режется: кусок лежит в одной ЗАМКНУТОЙ грани источника (объединение её
+      треугольников, выпуклое на карте). Грань, непланарная больше допуска хорды
+      (`materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET`), режется по своим треугольникам, как под
+      `SOURCE_TRIANGLES_CLIPPED_V1`, под названным счётчиком. Суд тот же (`judged_as`).
 
     Точно планарный домен закон не затрагивает: его сертифицированная
     плоскость и есть его поверхность.
@@ -766,6 +772,7 @@ class NearPlanarLiftLawV1(str, Enum):
     CERTIFIED_PLANE_V1 = "CERTIFIED_PLANE_V1"
     SOURCE_TRIANGLES_V1 = "SOURCE_TRIANGLES_V1"
     SOURCE_TRIANGLES_CLIPPED_V1 = "SOURCE_TRIANGLES_CLIPPED_V1"
+    SOURCE_FACES_CLIPPED_V1 = "SOURCE_FACES_CLIPPED_V1"
 
     @property
     def onto_surface(self) -> bool:
@@ -774,10 +781,25 @@ class NearPlanarLiftLawV1(str, Enum):
         return self is not NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
 
     @property
+    def clips(self) -> bool:
+        """Грани меша режутся рёбрами источника (по треугольникам либо по граням)."""
+
+        return self in (
+            NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1,
+            NearPlanarLiftLawV1.SOURCE_FACES_CLIPPED_V1,
+        )
+
+    @property
+    def clips_by_faces(self) -> bool:
+        """Резка идёт по рёбрам МЕШ-граней источника, а не по рёбрам его триангуляции."""
+
+        return self is NearPlanarLiftLawV1.SOURCE_FACES_CLIPPED_V1
+
+    @property
     def judged_as(self) -> "NearPlanarLiftLawV1":
         """Закон, под которым ДОМЕН ПРИНЯТ: резка суда не меняет, сертификат пишет его."""
 
-        if self is NearPlanarLiftLawV1.SOURCE_TRIANGLES_CLIPPED_V1:
+        if self.clips:
             return NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1
         return self
 
