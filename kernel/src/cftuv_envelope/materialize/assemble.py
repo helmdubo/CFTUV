@@ -78,6 +78,7 @@ from .tessellate import (
     fan_out,
     has_right_turn,
     triangulate_exact,
+    triangulate_from_apex,
     uv_is_affine_in_chart,
 )
 from .uv_law import uv_direct_strip_v1
@@ -282,6 +283,12 @@ def _triangle_polygons(owner, expected, points, keys, budget, reverse: bool):
             MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
             f"owner {owner}: {len(points)} contour points",
         )
+    return _emitted_triangles(owner, expected, points, keys, triangles, reverse)
+
+
+def _emitted_triangles(owner, expected, points, keys, triangles, reverse: bool):
+    """Треугольники по индексам контура -> по ключам; сумма удвоенных площадей равна площади контура точно."""
+
     total = SqrtSumV1.zero()
     for first, second, third in triangles:
         total = total + doubled_shoelace(
@@ -378,6 +385,15 @@ POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE = (
 CURVED_STRIP_FACES_TRIANGULATED = "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED"
 MERGED_RUNS_SPLIT_AT_RUNGS = "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS"
 MERGED_RUNS_KEPT_WHOLE = "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE"
+#: Числа закона `FAN_FACE_TRIANGULATED_FROM_APEX_V1` (веера под `PLANAR_POLYGONS_V1`).
+#: `CUT_BY_NEIGHBOUR` — веерных граней, чей контур длиннее треугольника (клетка среза
+#: локусом соседа); она всегда равна сумме остальных трёх: каждая такая грань выпущена
+#: одним многоугольником, разрезана от вершины веера либо — название беды — по ушам.
+FAN_FACES_CUT_BY_NEIGHBOUR = "MATERIALIZE_FAN_FACES_CUT_BY_NEIGHBOUR"
+FAN_POLYGON_FACES_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_EMITTED"
+FAN_POLYGON_FACES_CONCAVE_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_CONCAVE_EMITTED"
+FAN_FACES_TRIANGULATED_FROM_APEX = "MATERIALIZE_FAN_FACES_TRIANGULATED_FROM_APEX"
+FAN_FACES_NOT_STAR_FROM_APEX = "MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX"
 
 
 def _rung_pieces(frame_face, key_of):
@@ -439,6 +455,62 @@ def _plane_ring(points, keys, budget, uv_of):
     return ring, POLYGON_FACES_CONCAVE_EMITTED if concave else None
 
 
+def _fan_apex(owner, points):
+    """Индекс вершины веера в контуре либо `None`: точка узла `owner[:2]` (решёточные координаты)."""
+
+    for index, point in enumerate(points):
+        if point[0].as_rational() == owner[0] and point[1].as_rational() == owner[1]:
+            return index
+    return None
+
+
+def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
+    """Грани ОДНОГО веера под `PLANAR_POLYGONS_V1` (закон `FAN_FACE_TRIANGULATED_FROM_APEX_V1`).
+
+    Треугольник — он сам. Обрезанная соседом клетка (контур длиннее трёх) на точной плоскости
+    остаётся ОДНОЙ гранью, если она проста и её UV аффинна (`_plane_ring`, точно): в веере
+    `s` постоянна, а `r` линейна по положению, поэтому аффинность выполнена по построению, но
+    доказывается всё равно. Выпуклость не нужна и не обещана: полевая клетка бывает невыпуклой
+    (срез локусом соседа даёт правый поворот), и любая триангуляция показа даёт ту же
+    поверхность и ту же UV-интерполяцию; невыпуклые названы (`FAN_POLYGON_FACES_CONCAVE_EMITTED`).
+    Иначе (кривая укладка, непростая клетка, неаффинная UV — последние две названы прежними
+    `POLYGON_FACES_TRIANGULATED_*`) клетка режется ОТ вершины веера (`triangulate_from_apex`);
+    если и так не складывается (вершины веера нет в контуре либо треугольник вырожден) — по
+    ушам и называется (`FAN_FACES_NOT_STAR_FROM_APEX`). Секторы одного угла между собой не
+    сливаются: у каждого своя опора и свой `r`, UV кусочно-линейна.
+    """
+
+    points = tuple(point for _key, point in cycle)
+    keys = tuple(key for key, _point in cycle)
+    owner, area = frame_face.face.owner, frame_face.face.doubled_area
+    if len(points) <= 3:
+        return _triangle_polygons(owner, area, points, keys, budget, reverse)
+    tally[FAN_FACES_CUT_BY_NEIGHBOUR] += 1
+    named = None
+    if exact_plane:
+        ring, named = _plane_ring(points, keys, budget, uv_of)
+        if ring is not None:
+            _closes_the_area(
+                doubled_shoelace(tuple(points[index] for index in ring)),
+                area,
+                owner,
+                "fan polygon areas",
+            )
+            tally[FAN_POLYGON_FACES_EMITTED] += 1
+            tally[FAN_POLYGON_FACES_CONCAVE_EMITTED] += int(named is not None)
+            return (_ring_polygon(keys, ring, reverse),)
+    apex = _fan_apex(owner, points)
+    triangles = None if apex is None else triangulate_from_apex(points, apex, budget)
+    if triangles is None:
+        tally[FAN_FACES_NOT_STAR_FROM_APEX] += 1
+        return _triangle_polygons(owner, area, points, keys, budget, reverse)
+    polygons = _emitted_triangles(owner, area, points, keys, triangles, reverse)
+    tally[FAN_FACES_TRIANGULATED_FROM_APEX] += 1
+    if named is not None:
+        tally[named] += 1
+    return polygons
+
+
 def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
@@ -485,7 +557,7 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
 def _polygon_law_faces(
     frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values
 ):
-    """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — треугольники, ленты — многоугольники.
+    """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — `_fan_faces`, ленты — многоугольники.
 
     Слитый пробег режется по перекладинам на грани своих рёбер-источников
     (`_rung_pieces`): площадь каждой части замыкается точно, и сумма частей
@@ -497,11 +569,15 @@ def _polygon_law_faces(
     for frame_face, cycle in zip(frame_faces, cycles):
         face = frame_face.face
         if frame_face.is_fan:
-            points = tuple(point for _key, point in cycle)
-            keys = tuple(key for key, _point in cycle)
             result.append(
-                _triangle_polygons(
-                    face.owner, face.doubled_area, points, keys, budget, reverse
+                _fan_faces(
+                    frame_face,
+                    cycle,
+                    budget,
+                    reverse,
+                    exact_plane,
+                    tally,
+                    lambda key, frame_face=frame_face: uv_values(frame_face, key),
                 )
             )
             continue
@@ -593,6 +669,11 @@ def _settle_polygon_law(polygons, sources, tally):
         (CURVED_STRIP_FACES_TRIANGULATED, tally[CURVED_STRIP_FACES_TRIANGULATED]),
         (MERGED_RUNS_SPLIT_AT_RUNGS, tally[MERGED_RUNS_SPLIT_AT_RUNGS]),
         (MERGED_RUNS_KEPT_WHOLE, tally[MERGED_RUNS_KEPT_WHOLE]),
+        (FAN_FACES_CUT_BY_NEIGHBOUR, tally[FAN_FACES_CUT_BY_NEIGHBOUR]),
+        (FAN_POLYGON_FACES_EMITTED, tally[FAN_POLYGON_FACES_EMITTED]),
+        (FAN_POLYGON_FACES_CONCAVE_EMITTED, tally[FAN_POLYGON_FACES_CONCAVE_EMITTED]),
+        (FAN_FACES_TRIANGULATED_FROM_APEX, tally[FAN_FACES_TRIANGULATED_FROM_APEX]),
+        (FAN_FACES_NOT_STAR_FROM_APEX, tally[FAN_FACES_NOT_STAR_FROM_APEX]),
     )
 
 

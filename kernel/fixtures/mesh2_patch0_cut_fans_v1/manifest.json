@@ -1,0 +1,14 @@
+{
+ "fixture_id": "mesh2_patch0_cut_fans_v1",
+ "object_name": "2",
+ "patch_id": 0,
+ "alpha": "0.25",
+ "densities": [
+  2
+ ],
+ "patch_domain_ids": [
+  "host-v0:patch-domain:87992b70bca933b37ff97fc3"
+ ],
+ "why": "веера углов окон, срезанные локусом соседа: 12 из 24 вееров домена — четырёхгранники (FAN_FACE_TRIANGULATED_FROM_APEX_V1); конгруэнтные углы обязаны давать конгруэнтные грани",
+ "source": "artifacts/fan_consistency/export_domains.py: выгрузка из живой сцены владельца, все швы выделены, alpha 0.25, плотность 2"
+}
