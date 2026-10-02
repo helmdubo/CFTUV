@@ -1869,17 +1869,13 @@ def build_envelope_analysis_snapshot(
                 tuple(vertex_ids[item] for item in canonical_vertices),
                 tuple(edge_ids[item] for item in canonical_edges),
                 frozenset({lineage_id}),
+                # `chain-record` — кусок; `chain-source` — ЦЕПЬ хоста до разреза
+                # по изломам: общая запись двух кусков и есть факт «один излом
+                # одной цепи» для JOIN ядра (`reference/corner_treatment.py`).
                 frozenset(
-                    kernel.LineageId(
-                        _typed_value(
-                            "chain-record",
-                            revision,
-                            item.patch_id,
-                            item.loop_index,
-                            item.chain_index,
-                        )
-                    )
+                    kernel.LineageId(_typed_value(kind, revision, item.patch_id, item.loop_index, index))
                     for item in records
+                    for kind, index in (("chain-record", item.chain_index), ("chain-source", item.source_chain_index))
                 ),
             )
         )

@@ -50,6 +50,8 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 from ..wavefront.faces import contour_crossings, doubled_shoelace, orientation
 
 
@@ -291,6 +293,54 @@ def uv_is_affine_in_chart(points, values, budget) -> bool:
             if not (left - right).is_zero:
                 return False
     return True
+
+
+def uv_affine_defect_milli(points, values, unit, budget, bits: int = 64) -> int:
+    """Наибольшее отклонение UV четвёртой вершины от аффинного продолжения трёх, в тысячных `unit`.
+
+    Та же подстановка, что в `uv_is_affine_in_chart`: `det (f(q) - f0) - [(q' x v)(f1 - f0)
+    + (u x q')(f2 - f0)] = det * e`, где `e` — на сколько UV вершины `q` отстоит от аффинной
+    карты, решённой по трём остальным. Это ЗАПИСЬ, а не суд: число берётся из строгих оболочек
+    (вверх, `ceil`), в тысячных `unit` (у вызывающего — `lattice_alpha`), и нужно, чтобы
+    четырёхгранье с билинейной UV (`MATERIALIZE_QUADS_UV_BILINEAR`) несло свою величину излома
+    на диагонали показа. Контур из коллинейных точек — нуль: решать нечего.
+    """
+
+    count = len(points)
+    base = None
+    for second in range(1, count):
+        for third in range(second + 1, count):
+            if orientation(points[0], points[second], points[third], budget) != 0:
+                base = (second, third)
+                break
+        if base is not None:
+            break
+    if base is None:
+        return 0
+    second, third = base
+    origin = points[0]
+    ux, uy = points[second][0] - origin[0], points[second][1] - origin[1]
+    vx, vy = points[third][0] - origin[0], points[third][1] - origin[1]
+    det_low, det_high = (ux * vy - uy * vx).enclosure(bits)
+    det_abs = min(abs(det_low), abs(det_high))
+    if det_low <= 0 <= det_high or det_abs == 0:
+        return 0
+    worst = Fraction(0)
+    for index in range(1, count):
+        if index in base:
+            continue
+        qx, qy = points[index][0] - origin[0], points[index][1] - origin[1]
+        first_weight = qx * vy - qy * vx
+        second_weight = ux * qy - uy * qx
+        for component in (0, 1):
+            f0 = values[0][component]
+            residual = (ux * vy - uy * vx) * (values[index][component] - f0) - (
+                first_weight * (values[second][component] - f0)
+                + second_weight * (values[third][component] - f0)
+            )
+            low, high = residual.enclosure(bits)
+            worst = max(worst, max(abs(low), abs(high)) / det_abs)
+    return -(-(worst * 1000) // Fraction(unit))
 
 
 def fan_out(keys):

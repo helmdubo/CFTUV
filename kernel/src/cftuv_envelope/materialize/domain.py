@@ -74,6 +74,7 @@ from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
 from .audit import audit_batch
 from .assemble import (
+    RUNG_STATIONS_FROM_CHAIN_VERTEX,
     Layout,
     assemble_batch,
     canonical_triangles,
@@ -575,14 +576,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         [(item[0], frame) for item, frame in zip(items, frame_faces)], table, notes
     )
     lattice_alpha = coverage.lattice_alpha
-    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget)
+    tally = Counter()
+    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally)
     clock.lap("STATIONS_UV")
     chart_cw = (
         prepared.context.frame.chart_orientation
         is AffineChartOrientationV1.COORDINATE_CW_MATCHES_OWNER_PATCH
     )
     clipped = _is_clipped(admission)
-    tally = Counter()
     tessellation_law = _tessellation_law(clipped, law)
     polygons = tessellate_faces(
         frame_faces,
@@ -593,6 +594,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         exact_plane=_on_exact_plane(admission) or clipped,
         tally=tally,
         uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
+        lattice_alpha=lattice_alpha,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
@@ -610,6 +612,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             table=table,
             lattice_alpha=lattice_alpha,
             law=law,
+            tally=tally,
         )
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
@@ -672,6 +675,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             *sourced.counters(),
             *faces_after.counters(),
             *(() if cut is None else cut.counters),
+            (RUNG_STATIONS_FROM_CHAIN_VERTEX, tally[RUNG_STATIONS_FROM_CHAIN_VERTEX]),
         ),
         plane,
         topology,

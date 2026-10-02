@@ -41,6 +41,8 @@ from cftuv_envelope.materialize.assemble import (
     POLYGON_FACES_TRIANGULATED_NOT_SIMPLE,
     POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE,
     QUADS_REFUSED_NOT_CONVEX,
+    QUADS_UV_BILINEAR,
+    QUADS_UV_BILINEAR_MAX_MILLI_ALPHA,
     settle_topology,
     tessellate_faces,
 )
@@ -107,6 +109,9 @@ LAW_NUMBERS = frozenset(
         FAN_POLYGON_FACES_CONCAVE_EMITTED,
         FAN_FACES_TRIANGULATED_FROM_APEX,
         FAN_FACES_NOT_STAR_FROM_APEX,
+        # Закон `QUAD_UV_BILINEAR_V1` (перекладина угла JOIN): без угла JOIN оба нули.
+        QUADS_UV_BILINEAR,
+        QUADS_UV_BILINEAR_MAX_MILLI_ALPHA,
     )
 )
 #: Счётчики, которые считают ГРАНИ (зависят от закона, как у пары прежних законов).

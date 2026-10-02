@@ -773,7 +773,7 @@ def piece_triangles(polygons, points, budget):
 
 
 def cut_domain(
-    plane, budget, *, frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law
+    plane, budget, *, frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law, tally=None
 ) -> ClippedV1:
     """Стадия резки домена: грани тесселяции -> куски; факты `(s, r)` новых вершин дописываются в `facts`.
 
@@ -786,7 +786,7 @@ def cut_domain(
     clipped = ClipStageV1(plane, budget, points).run(
         cycles, polygons, law, seam, [item.is_fan for item in frame_faces]
     )
-    extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget)
+    extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget, tally)
     for slot, value in extra.items():
         known = facts.setdefault(slot, value)
         if known != value:

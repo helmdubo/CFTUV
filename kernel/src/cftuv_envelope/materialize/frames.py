@@ -20,6 +20,11 @@
 вершины на цепи (`CONSTANT_PHYSICAL_ENDPOINT_S`), `r` — время прихода скрытой
 опоры. Тогда веер продолжает полосу входящего ребра по `u` без разрыва, а шов
 остаётся только там, где цепи действительно разные.
+
+Мягкий излом одной цепи (`CORNER_JOIN_SOFT_BEND_V1`, веера нет) — ПОТОК: кадр
+и огибающая у полос по обе стороны угла одни (`stations.flow_of_run`), `s`
+копится сквозь угол, а перекладина на биссектрисе получает станцию вершины
+цепи (`assemble.station_values`).
 """
 
 from __future__ import annotations
@@ -147,11 +152,15 @@ def resolve_frame(
         )
     if len(face.owner) == 4:
         run, edges = _strip_frame(table, region_id, face)
+        # ПОТОК (`CORNER_JOIN_SOFT_BEND_V1`): пробеги вхождений, связанных углом
+        # JOIN, делят один кадр И одно имя огибающей — иначе грани двух полос
+        # легли бы в разные регионы, а граница регионов есть шов.
+        flow = table.flow_of_run.get(run.run_id)
         return FrameFaceV1(
             face=face,
             line=line,
-            claim_key=claim,
-            frame_key=run.run_id,
+            claim_key=claim if flow is None else f"flow:{flow}",
+            frame_key=run.run_id if flow is None else flow,
             station_model=StationModelId.SEMANTIC_CHAIN_USE_S,
             run=run,
             fan_station=None,
