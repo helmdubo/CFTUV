@@ -919,6 +919,11 @@ def test_the_json_row_names_the_law_and_its_counters(tmp_path):
             "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
             "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
             "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE",
+            "MATERIALIZE_FAN_FACES_CUT_BY_NEIGHBOUR",
+            "MATERIALIZE_FAN_POLYGON_FACES_EMITTED",
+            "MATERIALIZE_FAN_POLYGON_FACES_CONCAVE_EMITTED",
+            "MATERIALIZE_FAN_FACES_TRIANGULATED_FROM_APEX",
+            "MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX",
         }
         <= set(item["counters"])
         and "MATERIALIZE_MERGED_RUN_FACES_TRIANGULATED" not in item["counters"]

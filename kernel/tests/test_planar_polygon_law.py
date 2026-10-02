@@ -29,6 +29,11 @@ from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.materialize.assemble import (
     CURVED_STRIP_FACES_TRIANGULATED,
+    FAN_FACES_CUT_BY_NEIGHBOUR,
+    FAN_FACES_NOT_STAR_FROM_APEX,
+    FAN_FACES_TRIANGULATED_FROM_APEX,
+    FAN_POLYGON_FACES_CONCAVE_EMITTED,
+    FAN_POLYGON_FACES_EMITTED,
     MERGED_RUNS_KEPT_WHOLE,
     MERGED_RUNS_SPLIT_AT_RUNGS,
     POLYGON_FACES_CONCAVE_EMITTED,
@@ -97,6 +102,11 @@ LAW_NUMBERS = frozenset(
         CURVED_STRIP_FACES_TRIANGULATED,
         MERGED_RUNS_SPLIT_AT_RUNGS,
         MERGED_RUNS_KEPT_WHOLE,
+        FAN_FACES_CUT_BY_NEIGHBOUR,
+        FAN_POLYGON_FACES_EMITTED,
+        FAN_POLYGON_FACES_CONCAVE_EMITTED,
+        FAN_FACES_TRIANGULATED_FROM_APEX,
+        FAN_FACES_NOT_STAR_FROM_APEX,
     )
 )
 #: Счётчики, которые считают ГРАНИ (зависят от закона, как у пары прежних законов).
@@ -458,13 +468,6 @@ def test_on_a_source_triangle_lift_only_a_strictly_convex_quad_stays_whole():
     assert tally[QUADS_REFUSED_NOT_CONVEX] == 1
 
 
-def test_a_fan_face_stays_triangles_under_the_law():
-    points = _points(HEXAGON)
-    polygons, tally, _cycle = _shape(points, fan=True)
-    assert [len(item) for item in polygons] == [3] * 4
-    assert not +tally
-
-
 def test_an_area_that_does_not_close_is_a_named_refusal_for_a_polygon():
     points = _points(HEXAGON)
     frame, cycle = _frame(points)
@@ -709,7 +712,15 @@ def test_the_counters_agree_except_the_ones_that_count_faces(name):
     # Сумма `n - 2` не зависит ни от диагонали, ни от перекладин: то же число у всех трёх законов.
     assert own["MATERIALIZE_TRIANGLES"] == sum((size - 2) * count for size, count in sizes.items())
     assert own["MATERIALIZE_TRIANGLES"] == left["MATERIALIZE_TRIANGLES"] == right["MATERIALIZE_TRIANGLES"]
-    assert own[POLYGON_FACES_EMITTED] == sum(count for size, count in sizes.items() if size > 4)
+    # Многоугольники лент — `POLYGON_FACES_EMITTED`; веерные клетки считаются отдельно
+    # (`FAN_POLYGON_FACES_EMITTED`) и от пяти вершин входят в число граней длиннее четырёх.
+    over_four = sum(count for size, count in sizes.items() if size > 4)
+    assert own[POLYGON_FACES_EMITTED] <= over_four <= own[POLYGON_FACES_EMITTED] + own[FAN_POLYGON_FACES_EMITTED]
+    assert own[FAN_FACES_CUT_BY_NEIGHBOUR] == (
+        own[FAN_POLYGON_FACES_EMITTED]
+        + own[FAN_FACES_TRIANGULATED_FROM_APEX]
+        + own[FAN_FACES_NOT_STAR_FROM_APEX]
+    )
     assert own[MERGED_RUNS_KEPT_WHOLE] == 0
 
 
@@ -879,7 +890,8 @@ def test_every_polygon_of_the_law_is_exactly_simple_with_an_affine_uv_and_a_vali
                 concave += 1
             elif name not in SURFACE:
                 assert convex_polygon_ring(points, BUDGET()) is not None
-    assert concave == dict(result.counters)[POLYGON_FACES_CONCAVE_EMITTED]
+    counters = dict(result.counters)
+    assert concave == counters[POLYGON_FACES_CONCAVE_EMITTED] + counters[FAN_POLYGON_FACES_CONCAVE_EMITTED]
 
 
 def test_a_chain_of_two_source_edges_is_two_quads_and_not_one_six_gon_or_four_triangles():

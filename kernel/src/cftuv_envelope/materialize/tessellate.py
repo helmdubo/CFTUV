@@ -24,6 +24,12 @@
 Не сложилось — `None`, и материализатор называет это
 `TESSELLATION_DID_NOT_CLOSE`: молчаливого запасного разбиения нет.
 
+ВЕЕР ОТ ВЕРШИНЫ. Грань веера, обрезанная локусом соседа, — клетка линейных фронтов
+из вершины веера, и режется она ОТ ЭТОЙ ВЕРШИНЫ (`triangulate_from_apex`), а не по
+порядку контура: отсечение ушей берёт первое ухо списка, а начало списка у конгруэнтных
+углов разное, и одинаковые углы окон получали то диагональ мимо вершины веера, то через
+неё. От вершины разрез один и тот же у любого начала и любого обхода.
+
 ЧЕТЫРЁХГРАННИК. Закон `QUAD_STRIPS_V1` оставляет грань целым четырёхугольником,
 если контур СТРОГО выпуклый (`convex_quad_ring`): все четыре поворота строго
 влево на кольце против часовой. Строгость точная, под бюджетом, тем же
@@ -122,6 +128,38 @@ def triangulate_exact(points, budget):
     if orientation(points[last[0]], points[last[1]], points[last[2]], budget) <= 0:
         return None
     triangles.append(last)
+    return tuple(triangles)
+
+
+def triangulate_from_apex(points, apex, budget):
+    """Треугольники `((apex, i, j), ...)` веером от вершины `apex` (индекс в `points`) либо `None`.
+
+    Обход — против часовой в системе координат карты, чем бы ни был ориентирован вход,
+    и первая вершина обхода — `apex`: `n - 2` треугольников `(apex, r_i, r_{i + 1})`.
+    Каждый треугольник строго положителен (точный знак, под бюджетом). Для ПРОСТОГО
+    контура этого достаточно, чтобы они уложили его без щелей и наложений: сумма их
+    индикаторов равна числу обмотки границы, а оно у простого контура единица внутри
+    и нуль снаружи. Контур, у которого вершины с `apex` на одной прямой (нулевой
+    треугольник) или не видна какая-то вершина (правый поворот в веере), — `None`,
+    и вызывающий называет это (`MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX`).
+    """
+
+    count = len(points)
+    if count < 3 or not 0 <= apex < count:
+        return None
+    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    if total == 0:
+        return None
+    ring = list(range(count))
+    if total < 0:
+        ring.reverse()
+    start = ring.index(apex)
+    ring = ring[start:] + ring[:start]
+    triangles = []
+    for first, second in zip(ring[1:], ring[2:]):
+        if orientation(points[apex], points[first], points[second], budget) <= 0:
+            return None
+        triangles.append((apex, first, second))
     return tuple(triangles)
 
 

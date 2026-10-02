@@ -522,12 +522,20 @@ def _mirrored(make):
     return build
 
 
+@lru_cache(maxsize=None)
+def _cut_fans_domain():
+    """`2`, патч 0: веера окон, срезанные локусом соседа (`FAN_FACE_TRIANGULATED_FROM_APEX_V1`)."""
+
+    return factories.field_domain("mesh2_patch0_cut_fans_v1")
+
+
 #: Корпус ворот: полевые домены, синтетика, near-planar на плоскости и на
 #: поверхности, зеркальные карты. Развёртки идут отдельной таблицей (`DEVELOPABLE`).
 DOMAINS = {
     "weighted": lambda: factories.field_domain("building_002_weighted_normals_v1"),
     "point_contact": lambda: factories.field_domain("building_002_point_contact_v1"),
     "full_selection": lambda: factories.field_domain("building_002_full_selection_v1"),
+    "cut_fans": _cut_fans_domain,
     "two_edge": factories.two_edge_chain_domain,
     "straight3": factories.straight_chain_domain,
     "skew": factories.skew_chain_domain,
