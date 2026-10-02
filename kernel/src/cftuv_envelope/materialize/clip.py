@@ -261,7 +261,9 @@ class ClipStageV1:
         )
         self.edge_cache: dict = {}
         self.needed: set = set()
-        self.tally: Counter = Counter()
+        #: Стадия-преемник наследует числа работы стадии 1 (`PREDICATES`, `DIVISIONS`): её знаки лежат в кэше
+        #: узлов и считаются один раз, а работа домена — сумма обеих стадий, не только второй.
+        self.tally: Counter = Counter() if shared is None else Counter(shared.tally)
         self.new_points: dict = {}
         self.lifted: dict = {}
         self.count = 0
@@ -844,7 +846,9 @@ class ClipStageV1:
 
         if self.groups[ti] is not None:
             if merged:
-                self.whole.add(self.regions[ti].name)
+                # Имя ГРАНИ группы, не треугольника `ti`: грань, пересечённая несколькими многоугольниками,
+                # считается целой один раз (у каждого многоугольника свой первый треугольник компоненты).
+                self.whole.add(self.groups[ti][1])
                 self.across += 1
                 self.avoided += merged - 1
                 self.kept_depth = max(self.kept_depth, self.regions[ti].flat_square)

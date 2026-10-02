@@ -24,7 +24,7 @@ from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1, exact_work_budget
 from cftuv_envelope.materialize import clip, clip_cells
-from cftuv_envelope.materialize.clip import ClipStageV1, _cut_by_faces
+from cftuv_envelope.materialize.clip import ClipStageV1, DiagonalVerdictV1, _cut_by_faces
 from cftuv_envelope.materialize.clip_cells import (
     CLIP_DIAGONAL_CHORD_BUDGET,
     build_cells,
@@ -85,10 +85,9 @@ def square(name, x0, y0, heights, *, size=4):
     return (name, chart, corners, FAN4)
 
 
-def run(lift, polygons_xy, *, by_faces=True, law=POLYGONS):
-    """`(результат, ключи)`: стадия закона по граням (либо по треугольникам) на многоугольниках `[[(x, y), ...], ...]`."""
+def prepared(polygons_xy):
+    """`(ключи, точки, контуры, многоугольники)` стадии из многоугольников `[[(x, y), ...], ...]`."""
 
-    spend = budget()
     keys, points, cycles, polygons = {}, {}, [], []
     for polygon in polygons_xy:
         cycle = []
@@ -99,6 +98,14 @@ def run(lift, polygons_xy, *, by_faces=True, law=POLYGONS):
             cycle.append((keys[xy], points[keys[xy]]))
         cycles.append(cycle)
         polygons.append((tuple(key for key, _point in cycle),))
+    return keys, points, cycles, polygons
+
+
+def run(lift, polygons_xy, *, by_faces=True, law=POLYGONS):
+    """`(результат, ключи)`: стадия закона по граням (либо по треугольникам) на многоугольниках `[[(x, y), ...], ...]`."""
+
+    spend = budget()
+    keys, points, cycles, polygons = prepared(polygons_xy)
     plane = lift.bind(spend)
     fans = [False] * len(polygons_xy)
     if by_faces:
@@ -186,6 +193,97 @@ def test_splitting_every_cell_reproduces_the_triangle_law_bitwise():
     old, _old_keys = run(lift, faces, by_faces=False)
     assert new.polygons == old.polygons and new.cycles == old.cycles
     assert list(new.points) == list(old.points) and new.lifted == old.lifted
+
+
+# --------------------------------------------------------------------------
+# Смешанная стадия 2: глубокая грань расщеплена, соседняя цела, общее ребро режет
+# --------------------------------------------------------------------------
+
+
+def mixed_lift():
+    """`f0` глубже допуска (0.1 м в углу `(4, 4)`), `f1` в допуске (1 мм в углу `(8, 4)`); общее настоящее ребро `x = 4`."""
+
+    return lift_of([square("f0", 0, 0, (0, 0, Fraction(1, 10), 0)), square("f1", 4, 0, (0, 0, Fraction(1, 1000), 0))])
+
+
+#: Прямоугольник поперёк диагонали `f0` (`y = x` в `(1, 1)` и `(2, 2)`), ребра `x = 4` и диагонали `f1` (`y = x - 4`).
+MIXED_RECTANGLE = [[(1, Fraction(1, 2)), (7, Fraction(1, 2)), (7, 2), (1, 2)]]
+
+
+def rational_points(result):
+    return {tuple(axis.as_rational() for axis in value) for value in result.points.values()}
+
+
+def test_stage_two_splits_only_the_deep_face_and_keeps_its_neighbour_whole_across_the_shared_edge():
+    """Грань глубже допуска режется по диагонали, соседняя остаётся целой поперёк своей, общее ребро режет обе."""
+
+    result, _keys = run(mixed_lift(), MIXED_RECTANGLE)
+    # Вершины: две на диагонали `f0`, две на настоящем ребре; на диагонали `f1` ни одной.
+    assert rational_points(result) == {(1, 1), (2, 2), (4, Fraction(1, 2)), (4, 2)}
+    # Куски: пятиугольник и треугольник по треугольникам `f0`, четырёхгранье поперёк диагонали `f1`.
+    assert sorted(len(item) for item in result.polygons[0]) == [3, 4, 5]
+    assert max(directed_edges(result.polygons).values()) == 1
+    found = counters(result)
+    assert found[clip_cells.DIAGONAL_KEPT_NOT_PLANAR] == 1 and found[clip_cells.DIAGONAL_FACES_WHOLE] == 1
+    assert found[clip_cells.DIAGONAL_PIECES_ACROSS] == 1 and found[clip_cells.DIAGONAL_CUTS_AVOIDED] == 1
+    assert found[clip_cells.DIAGONAL_MAX_CHORD_OVER] > nanometres(CLIP_DIAGONAL_CHORD_BUDGET**2)
+    assert 0 < found[clip_cells.DIAGONAL_MAX_CHORD_KEPT] <= nanometres(CLIP_DIAGONAL_CHORD_BUDGET**2)
+    assert found[clip.FACES_CUT] == 1 and found[clip.VERTICES_INSERTED] == 4
+    assert found[clip.FACES_BOUNDARY_MISMATCH] == found[clip.FACES_OVERHANG] == 0
+    # Прежний закон резал бы и диагональ `f1`: вершин больше, кусков четыре.
+    old, _old_keys = run(mixed_lift(), MIXED_RECTANGLE, by_faces=False)
+    assert len(old.points) == 6 and len(old.polygons[0]) == 4
+
+
+def test_stage_two_inherits_the_nodes_the_chords_and_the_work_of_stage_one():
+    """`shared=`: стадия 2 берёт узлы и оценки хорд стадии 1 как есть, а числа работы домена — сумма обеих стадий."""
+
+    lift = mixed_lift()
+    spend = budget()
+    plane = lift.bind(spend)
+    _keys, points, cycles, polygons = prepared(MIXED_RECTANGLE)
+    plan = build_cells(lift.triangles)
+    first = ClipStageV1(plane, spend, points, plan.cells)
+    cuts = first.cuts_of(polygons)
+    over = first.over_budget(cuts)
+    assert set(over) == {("f", "f0", 0)}
+    work = (first.tally[clip.PREDICATES], first.tally[clip.DIVISIONS])
+    assert work[0] > 0 and work[1] > 0
+    chords = set(first.chords)
+    assert chords  # оценка хорды куска `f1` сделана в стадии 1
+    second = ClipStageV1(plane, spend, points, build_cells(lift.triangles, frozenset(over)).cells, shared=first)
+    assert second.by_point is first.by_point and second.chords is first.chords
+    # Работа стадии 1 не обнуляется (до поправки стадия 2 начинала счёт заново, и домен занижал свою цену).
+    assert (second.tally[clip.PREDICATES], second.tally[clip.DIVISIONS]) == work
+    cuts_two = second.cuts_of(polygons)
+    cut_work = second.tally[clip.PREDICATES]
+    assert cut_work > work[0]
+    # Знаки целой ячейки `f1` взяты из кэша узлов: резка стадии 2 дешевле свежей стадии на тех же областях.
+    fresh = ClipStageV1(plane, spend, points, build_cells(lift.triangles, frozenset(over)).cells)
+    fresh.cuts_of(polygons)
+    assert cut_work - work[0] < fresh.tally[clip.PREDICATES]
+
+    def node_at(stage_cuts, xy):
+        return next(
+            node
+            for face_cuts in stage_cuts
+            for cut in face_cuts
+            for _ti, piece, _area in cut.pieces
+            for node in piece
+            if tuple(axis.as_rational() for axis in node.point) == xy
+        )
+
+    # Пересечение с настоящим ребром — тот же узел в обеих стадиях (`point_key`), а не второй экземпляр.
+    assert node_at(cuts_two, (4, Fraction(1, 2))) is node_at(cuts, (4, Fraction(1, 2)))
+    second.verdict = DiagonalVerdictV1(over, plan.unmergeable)
+    result = second.run(cycles, polygons, POLYGONS, frozenset(), [False], cuts_two)
+    # Оценка хорды целой ячейки `f1` взята из кэша: новых записей стадия 2 не сделала.
+    assert set(second.chords) == chords
+    # Открытый путь (`_cut_by_faces`) — ровно это: те же грани и те же числа, включая работу обеих стадий.
+    public, _public_keys = run(lift, MIXED_RECTANGLE)
+    assert public.polygons == result.polygons and dict(public.counters) == dict(result.counters)
+    assert dict(public.counters)[clip.PREDICATES] == second.tally[clip.PREDICATES] >= cut_work > work[0]
+    assert f"predicates={second.tally[clip.PREDICATES]}" in public.note
 
 
 # --------------------------------------------------------------------------
@@ -342,6 +440,19 @@ def test_a_non_convex_face_is_one_group_and_its_diagonals_do_not_cut():
     # Прежний закон резал бы тем же многоугольником по диагоналям: четыре куска и вершины на них.
     old, _old_keys = run(lift, [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)]], by_faces=False)
     assert len(old.polygons[0]) == 4 and len(old.points) >= 3
+
+
+def test_a_concave_face_crossed_by_several_polygons_is_kept_whole_once():
+    """Два многоугольника в одной Г-образной грани: грань целая ОДИН раз, кусков поперёк диагоналей два."""
+
+    # Первый пересекает диагонали `y = x/2`, `y = x`, `y = 2x` в нижней ножке; второй — только `y = 2x` в верхней.
+    polygons = [[(0.5, 0.5), (3, 0.5), (3, 1.5), (0.5, 1.5)], [(0.5, 2.5), (1.5, 2.5), (1.5, 3.5), (0.5, 3.5)]]
+    result, _keys = run(l_face(), polygons)
+    assert [len(item) for polygon in result.polygons for item in polygon] == [4, 4] and not result.points
+    found = counters(result)
+    assert found[clip_cells.DIAGONAL_FACES_WHOLE] == 1
+    assert found[clip_cells.DIAGONAL_PIECES_ACROSS] == 2 and found[clip_cells.DIAGONAL_CUTS_AVOIDED] == 4
+    assert "faces_whole=1 pieces_across=2" in result.note
 
 
 def test_a_concave_polygon_inside_a_concave_face_is_one_concave_face():
