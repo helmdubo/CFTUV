@@ -24,7 +24,8 @@
         },
         "direction_law": {
           "enum": [
-            "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2"
+            "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2",
+            "CANONICAL_RATIONAL_ROTATION_FAN_V1"
           ],
           "type": "string"
         },
@@ -88,7 +89,14 @@
           "$ref": "#/$defs/DecalRequestId"
         },
         "direction_fan_authority": {
-          "$ref": "#/$defs/AdaptiveMinimalRationalFanAuthorityV2"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AdaptiveMinimalRationalFanAuthorityV2"
+            },
+            {
+              "$ref": "#/$defs/CanonicalRationalRotationFanAuthorityV1"
+            }
+          ]
         },
         "envelope_spec_id": {
           "$ref": "#/$defs/EnvelopeSpecId"
@@ -965,6 +973,94 @@
         "deviation_upper_bound_radians",
         "tolerance_radians",
         "tolerance_policy_id",
+        "proven_predicates"
+      ],
+      "type": "object"
+    },
+    "CanonicalRationalRotationFanAuthorityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CanonicalRationalRotationFanAuthorityV1"
+        },
+        "authority_id": {
+          "type": "string"
+        },
+        "bound_primitive_integer_vectors": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "canonical_reflex_excess_over_pi": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "canonical_relation": {
+          "enum": [
+            "CANONICAL_REFLEX_EXCESS_PI_OVER_2"
+          ],
+          "type": "string"
+        },
+        "hidden_edge_count": {
+          "type": "integer"
+        },
+        "max_subturn_q": {
+          "type": "integer"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "ray_law": {
+          "enum": [
+            "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
+          ],
+          "type": "string"
+        },
+        "ray_rotation_pairs": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        }
+      },
+      "required": [
+        "$type",
+        "authority_id",
+        "ray_law",
+        "selection_certificate_id",
+        "canonical_relation",
+        "canonical_reflex_excess_over_pi",
+        "hidden_edge_count",
+        "max_subturn_q",
+        "ray_rotation_pairs",
+        "bound_primitive_integer_vectors",
         "proven_predicates"
       ],
       "type": "object"

@@ -32,6 +32,7 @@ from ..contracts.envelopes import (
     AngularSubdivisionPolicy,
     CapClosureLawId,
     CapEnvelopeSpec,
+    CanonicalRationalRotationFanAuthorityV1,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     DirectionBindingReasonV1,
@@ -85,6 +86,10 @@ from .._canonical_angle import (
     selector_reflex_excess_interval,
 )
 from .._density_policy import huber_density_value_contract
+from .canonical_fan_rays import (
+    canonical_fan_rays_decision,
+    canonical_fan_rays_diagnostics,
+)
 from .evaluation_binding_noise import (
     canonical_predecessor_ideal,
     evaluation_binding_noise_diagnostics,
@@ -794,6 +799,20 @@ def _attach_direction_bindings(
                     selection,
                     density_contract[0],
                 )
+                rays = (
+                    None
+                    if lift is None
+                    else canonical_fan_rays_decision(context, spec, selection)
+                )
+                if rays is not None and rays.authority is not None:
+                    # ЗАКОН `CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1`: лучи
+                    # лифтованного канонического угла вычислены по таблице
+                    # поворотов, атласу искать нечего (`canonical_fan_rays.py`).
+                    changed_specs.remove(original_spec)
+                    changed_specs.add(
+                        _adaptive_density_spec(spec, rays.authority, lift)
+                    )
+                    continue
                 source_spec = _density_spec_with_hidden_count(
                     spec,
                     spec.resolved_hidden_edge_count,
@@ -1017,6 +1036,11 @@ def _attach_direction_bindings(
                 context,
                 changed_specs,
             ),
+            *canonical_fan_rays_diagnostics(
+                compilation,
+                context,
+                changed_specs,
+            ),
         ),
     )
     updated = _synchronize_effective_hidden_support_records(
@@ -1145,7 +1169,9 @@ def _adaptive_density_spec(spec, authority, lift):
             ordinal=support.ordinal,
             turn_fraction=support.turn_fraction,
             direction_law=(
-                AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
+                AdaptiveBoundHiddenSupportDirectionLawV2.CANONICAL_RATIONAL_ROTATION_FAN_V1
+                if type(authority) is CanonicalRationalRotationFanAuthorityV1
+                else AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
             ),
             zero_length_at_alpha_zero=support.zero_length_at_alpha_zero,
             scope=support.scope,

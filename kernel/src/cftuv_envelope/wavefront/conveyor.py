@@ -67,6 +67,7 @@ import sympy as sp
 from ..contracts.envelopes import (
     AdaptiveBoundHiddenSupportSpecV2,
     AngularEnvelopeSpec,
+    CanonicalRationalRotationFanAuthorityV1,
     CertifiedBoundHiddenSupportSpecV1,
     EvaluationGeometrySubturnCountLiftLawV1,
     StripEnvelopeSpec,
@@ -660,6 +661,12 @@ class _ArrivalLawsV1:
     #: (причина названа в диагностике ядра) и счёт решил знак шума. Счётчик
     #: выходит только когда он ненулевой.
     noise_law_refused_count: int = 0
+    #: Вееры лифтованных канонических углов, чьи лучи поставлены таблицей
+    #: поворотов (`CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1`), и углы, где закон
+    #: рациональных лучей отказал по названной причине. Оба счётчика выходят
+    #: только когда ненулевые.
+    canonical_rays_fan_count: int = 0
+    canonical_rays_refused_count: int = 0
 
 
 _EXACT_LIMIT_LIFT_LAWS = frozenset(
@@ -740,6 +747,12 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
             is ReferenceOutcome.EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED
             for item in context.compilation.diagnostics
         ),
+        fans.canonical_rays_count,
+        sum(
+            item.outcome
+            is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
+            for item in context.compilation.diagnostics
+        ),
     )
 
 
@@ -753,6 +766,7 @@ class _AngularFansV1:
     mitered_corner_count: int
     bound_direction_count: int
     exact_limit_lifted_count: int
+    canonical_rays_count: int
 
 
 def _angular_fans(context: GeometryContext) -> _AngularFansV1:
@@ -797,6 +811,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     mitered = 0
     bound_directions = 0
     exact_limit_lifted = 0
+    canonical_rays = 0
     explicit_density = (
         context.compilation.decal_request.angular_profile_selection_policy_id
         is AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
@@ -847,6 +862,10 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
             lift is not None
             and lift.lift_law in _EXACT_LIMIT_LIFT_LAWS
         )
+        canonical_rays += (
+            type(getattr(spec, "direction_fan_authority", None))
+            is CanonicalRationalRotationFanAuthorityV1
+        )
         fans.append(fan)
     return _AngularFansV1(
         tuple(fans),
@@ -855,6 +874,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         mitered,
         bound_directions,
         exact_limit_lifted,
+        canonical_rays,
     )
 
 
@@ -1144,6 +1164,19 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
     ) + (
         (("CONVEYOR_BINDING_NOISE_LAW_REFUSED", reading.noise_law_refused_count),)
         if reading.noise_law_refused_count
+        else ()
+    ) + (
+        (("CONVEYOR_CANONICAL_FAN_RAYS_FANS", reading.canonical_rays_fan_count),)
+        if reading.canonical_rays_fan_count
+        else ()
+    ) + (
+        (
+            (
+                "CONVEYOR_CANONICAL_FAN_RAYS_LAW_REFUSED",
+                reading.canonical_rays_refused_count,
+            ),
+        )
+        if reading.canonical_rays_refused_count
         else ()
     )
 

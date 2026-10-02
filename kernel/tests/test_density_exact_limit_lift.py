@@ -40,6 +40,7 @@ from cftuv_envelope import (
     MaxSubturnParameterId,
     MaxSubturnValueId,
 )
+from cftuv_envelope import _density_policy
 from cftuv_envelope._density_policy import EVALUATION_SUBTURN_LIFT_PREDICATES
 from cftuv_envelope.reference import ReferenceOutcome, compile_reference_envelopes
 from cftuv_envelope.reference import adaptive_density_fan
@@ -719,6 +720,11 @@ def test_box_refinement_exhaustion_name_survives_an_undecided_limit_hint(monkeyp
         adaptive_density_fan, "_box_is_feasible", lambda *args, **kwargs: False
     )
     monkeypatch.setattr(adaptive_density_fan, "_subturn_boundary", undecided)
+    # `building_patch3` — канонический угол: лучи его лифтованного веера теперь
+    # ставит таблица поворотов, атлас им не нужен. Пустая таблица — это закон
+    # рациональных лучей, ОТКАЗАВШИЙ (`NO_CANONICAL_ROTATION_TABLE_ENTRY`), и
+    # лифтованный веер идёт прежним адаптивным путём, ради которого тест.
+    monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
     snapshot, request = _load("building_patch3", 4)
     result = compile_reference_envelopes(snapshot, request)
     assert result.outcome is ReferenceOutcome.DENSITY_FAN_BOX_REFINEMENT_EXHAUSTED
@@ -739,6 +745,9 @@ def test_box_refinement_exhaustion_has_its_own_honest_name(monkeypatch, route):
     monkeypatch.setattr(
         adaptive_density_fan, "_box_is_feasible", lambda *args, **kwargs: False
     )
+    # Лифтованный веер канонического угла — через атлас, а не по таблице
+    # поворотов (см. тест выше): таблица пуста, закон лучей молчит именованно.
+    monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
     if route == "lifted_fan":
         snapshot, request = _load("building_patch3", 4)
     else:
