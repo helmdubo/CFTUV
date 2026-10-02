@@ -51,7 +51,6 @@ class Fan:
     label: str
     vectors: tuple
     faces: tuple
-    interior: int
     #: Время прихода `r` каждой вершины обводки (у вершины веера — нуль).
     radii: tuple = ()
 
@@ -92,7 +91,8 @@ def _outline(faces, apex):
 
 
 def fans_of(batch, name):
-    """Веера батча: `[Fan, ...]`; веер без одной вершины `r = 0` либо без цикла обводки пропущен (счёт — в 'skipped')."""
+    """`([Fan, ...], пропущено)`: веер без одной вершины `r = 0`, без цикла обводки либо с вершиной вне обводки
+    (внутренняя вершина: разбиение по индексам обводки её не описывает) не сравнивается, а считается."""
 
     position = {v.vert_key.value: (v.position.x, v.position.y, v.position.z) for v in batch.vertices}
     regions = {
@@ -121,12 +121,14 @@ def fans_of(batch, name):
             skipped += 1
             continue
         index = {key: number for number, key in enumerate(cycle)}
+        if any(key not in index for face in faces for key in face):
+            skipped += 1
+            continue
         found.append(
             Fan(
                 label=f"{name}:{region}",
                 vectors=tuple(_sub(position[key], position[cycle[0]]) for key in cycle),
-                faces=tuple(tuple(index[key] for key in face if key in index) for face in faces),
-                interior=len({key for face in faces for key in face} - set(cycle)),
+                faces=tuple(tuple(index[key] for key in face) for face in faces),
                 radii=tuple(radius.get((region, key), 0.0) for key in cycle),
             )
         )
@@ -279,9 +281,8 @@ def report(fans, skipped, tolerance, out=print, every_group=False):
     extra = multi = 0
     shapes = Counter(shape_of(fan) for fan in fans)
     out(
-        f"fans {len(fans)} (skipped {skipped}, with interior vertices "
-        f"{sum(1 for fan in fans if fan.interior)}) in {len(groups)} congruent groups "
-        f"(tolerance {tolerance:g} of the squared fan radius)"
+        f"fans {len(fans)} (skipped {skipped}: no single apex, no outline cycle or interior vertices) "
+        f"in {len(groups)} congruent groups (tolerance {tolerance:g} of the squared fan radius)"
     )
     for number, (base, members, worst) in enumerate(groups, 1):
         classes = _classes(members)
@@ -317,6 +318,13 @@ def report(fans, skipped, tolerance, out=print, every_group=False):
     return len(groups), multi + coarse_multi, extra
 
 
+def verdict(fans, skipped, multi, require_single_class) -> int:
+    """Код возврата: при `--require-single-class` не проходит ни группа с несколькими классами,
+    ни пустой вход, ни веер, который не удалось сравнить (пропущенный веер не молчит)."""
+
+    return 1 if require_single_class and (multi or skipped or not fans) else 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("directories", nargs="+")
@@ -326,7 +334,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     fans, skipped = load(args.directories)
     _groups, multi, _extra = report(fans, skipped, args.tolerance, every_group=args.all_groups)
-    return 1 if args.require_single_class and (multi or not fans) else 0
+    return verdict(len(fans), skipped, multi, args.require_single_class)
 
 
 if __name__ == "__main__":

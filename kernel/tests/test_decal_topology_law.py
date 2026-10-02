@@ -10,10 +10,12 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import pickle
 from collections import Counter
 from fractions import Fraction
 from functools import lru_cache
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -529,6 +531,22 @@ def _cut_fans_domain():
     return factories.field_domain("mesh2_patch0_cut_fans_v1")
 
 
+@lru_cache(maxsize=None)
+def _crowded_patch17_d2_domain():
+    """`building`, патч 17, d2, alpha 0.45: срезанный веер с правым поворотом (одна из 30 невыпуклых клеток свипа)."""
+
+    folder = Path(__file__).resolve().parents[1] / "fixtures" / "building_patch17_crowded_v1"
+    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads((folder / "analysis_snapshot.json").read_bytes())
+    request = kernel.DecalRequestCodecV1.loads((folder / "decal_request_density2.json").read_bytes())
+    (domain,) = [
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id.value == manifest["patch_domain_ids"][0]
+    ]
+    return factories.prepare_and_cover(snapshot, request, domain_id=domain.patch_domain_id) + (request,)
+
+
 #: Корпус ворот: полевые домены, синтетика, near-planar на плоскости и на
 #: поверхности, зеркальные карты. Развёртки идут отдельной таблицей (`DEVELOPABLE`).
 DOMAINS = {
@@ -536,6 +554,7 @@ DOMAINS = {
     "point_contact": lambda: factories.field_domain("building_002_point_contact_v1"),
     "full_selection": lambda: factories.field_domain("building_002_full_selection_v1"),
     "cut_fans": _cut_fans_domain,
+    "crowded_patch17_d2": _crowded_patch17_d2_domain,
     "two_edge": factories.two_edge_chain_domain,
     "straight3": factories.straight_chain_domain,
     "skew": factories.skew_chain_domain,

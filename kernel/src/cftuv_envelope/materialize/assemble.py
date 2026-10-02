@@ -386,9 +386,11 @@ CURVED_STRIP_FACES_TRIANGULATED = "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED"
 MERGED_RUNS_SPLIT_AT_RUNGS = "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS"
 MERGED_RUNS_KEPT_WHOLE = "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE"
 #: Числа закона `FAN_FACE_TRIANGULATED_FROM_APEX_V1` (веера под `PLANAR_POLYGONS_V1`).
-#: `CUT_BY_NEIGHBOUR` — веерных граней, чей контур длиннее треугольника (клетка среза
-#: локусом соседа); она всегда равна сумме остальных трёх: каждая такая грань выпущена
-#: одним многоугольником, разрезана от вершины веера либо — название беды — по ушам.
+#: `CUT_BY_NEIGHBOUR` — веерных граней, чей контур ДЛИННЕЕ ТРЕУГОЛЬНИКА: обычно это клетка
+#: среза локусом соседа, но вершина фронта на прямой (T-стык) тоже даёт контур длиннее трёх,
+#: и срез от такой вершины число не отличает — оно верхняя оценка срезов. Оно всегда равно
+#: сумме остальных трёх: каждая такая грань выпущена одним многоугольником, разрезана от
+#: вершины веера либо — название беды — по ушам.
 FAN_FACES_CUT_BY_NEIGHBOUR = "MATERIALIZE_FAN_FACES_CUT_BY_NEIGHBOUR"
 FAN_POLYGON_FACES_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_EMITTED"
 FAN_POLYGON_FACES_CONCAVE_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_CONCAVE_EMITTED"
@@ -502,10 +504,13 @@ def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
     apex = _fan_apex(owner, points)
     triangles = None if apex is None else triangulate_from_apex(points, apex, budget)
     if triangles is None:
+        polygons = _triangle_polygons(owner, area, points, keys, budget, reverse)
         tally[FAN_FACES_NOT_STAR_FROM_APEX] += 1
-        return _triangle_polygons(owner, area, points, keys, budget, reverse)
-    polygons = _emitted_triangles(owner, area, points, keys, triangles, reverse)
-    tally[FAN_FACES_TRIANGULATED_FROM_APEX] += 1
+    else:
+        polygons = _emitted_triangles(owner, area, points, keys, triangles, reverse)
+        tally[FAN_FACES_TRIANGULATED_FROM_APEX] += 1
+    # Причина, по которой клетка не стала одной гранью (непростая, неаффинная UV), названа на
+    # обоих путях и только когда грань увидел меш: отказ разреза её не оставляет.
     if named is not None:
         tally[named] += 1
     return polygons
