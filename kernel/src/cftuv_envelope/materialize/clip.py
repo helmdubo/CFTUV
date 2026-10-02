@@ -1133,6 +1133,7 @@ def cut_domain(
     lattice_alpha,
     law,
     by_faces=False,
+    tally=None,
 ) -> ClippedV1:
     """Стадия резки домена: грани тесселяции -> куски; факты `(s, r)` новых вершин дописываются в `facts`.
 
@@ -1147,7 +1148,7 @@ def cut_domain(
         clipped = _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans)
     else:
         clipped = ClipStageV1(plane, budget, points).run(cycles, polygons, law, seam, fans)
-    extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget)
+    extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget, tally)
     for slot, value in extra.items():
         known = facts.setdefault(slot, value)
         if known != value:

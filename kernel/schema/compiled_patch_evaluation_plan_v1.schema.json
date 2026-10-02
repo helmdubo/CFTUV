@@ -855,7 +855,8 @@
         "selection_law": {
           "enum": [
             "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
-            "HUBER_EMANATED_DENSITY_FLOOR_V1"
+            "HUBER_EMANATED_DENSITY_FLOOR_V1",
+            "CORNER_JOIN_SOFT_BEND_V1"
           ],
           "type": "string"
         },

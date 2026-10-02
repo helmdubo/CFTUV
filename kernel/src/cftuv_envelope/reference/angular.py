@@ -404,10 +404,12 @@ def _huber_density_interpolated_normals(
     сертифицируют знаки/окна и никогда не подменяют конструкцию числом.
     """
 
-    if count not in range(1, 6):
+    # `H = 0` — митрованный угол JOIN (`CORNER_JOIN_SOFT_BEND_V1`): опоры есть
+    # только входящая и исходящая, и ниже проверяется лишь их поворот.
+    if count not in range(0, 6):
         raise ReferenceGeometryError(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-            "Density A supports only the certified H=1..5 range",
+            "Density A supports only the certified H=0..5 range",
         )
     incoming_squared = sp.expand(
         _density_dot_expression(metric, incoming, incoming)
@@ -450,6 +452,8 @@ def _huber_density_interpolated_normals(
         outgoing_squared,
         metric,
     )
+    if count == 0:
+        return incoming, outgoing
     raw_dot_squared = sp.expand(raw_dot * raw_dot)
     if raw_dot_squared.is_Rational is not True:
         raise ReferenceGeometryError(

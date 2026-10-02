@@ -56,6 +56,10 @@ SKIP_EDGE_PROVENANCE_AMBIGUOUS = "EDGE_PROVENANCE_AMBIGUOUS"
 SKIP_USE_NOT_IN_SNAPSHOT = "CHAIN_USE_NOT_IN_SNAPSHOT"
 SKIP_USE_EDGE_VERTEX_UNNAMED = "USE_EDGE_VERTEX_UNNAMED"
 SKIP_USE_EDGE_PAIR_UNRESOLVED = "USE_EDGE_PAIR_UNRESOLVED"
+#: Угол JOIN, у которого вхождения не стыкуются «конец -> начало» в направлении
+#: `ChainUse` в вершине угла: поток через него не продолжается, оба вхождения
+#: остаются своими кадрами (как без JOIN), и это названо.
+SKIP_JOIN_CORNER_NOT_ADJACENT = "JOIN_CORNER_NOT_ADJACENT"
 STATION_SKIP_REASONS = (
     SKIP_DOMAIN_MISSING,
     SKIP_REGION_LOOPS_UNREADABLE,
@@ -66,6 +70,7 @@ STATION_SKIP_REASONS = (
     SKIP_USE_NOT_IN_SNAPSHOT,
     SKIP_USE_EDGE_VERTEX_UNNAMED,
     SKIP_USE_EDGE_PAIR_UNRESOLVED,
+    SKIP_JOIN_CORNER_NOT_ADJACENT,
 )
 
 
@@ -238,6 +243,20 @@ class ChainStationTableV1:
     #: петля либо `ChainUse`. Нужны затем, что отказ `STATION_CHAIN_UNNAMED`
     #: приходит с грани и сам причины не знает.
     skips: tuple[tuple[str, str], ...] = ()
+    #: ПОТОКИ (закон `CORNER_JOIN_SOFT_BEND_V1`): `run_id -> ключ потока` для
+    #: пробегов, лежащих в потоке из двух и более `ChainUse`; у одиночного
+    #: вхождения записи нет, его кадр — прежний пробег.
+    flow_of_run: dict = field(default_factory=dict, compare=False)
+    #: Стык JOIN: `(пробег до угла, пробег после угла) -> s вершины угла`.
+    #: По нему `assemble.station_values` даёт перекладине на биссектрисе
+    #: станцию вершины цепи (`RUNG_STATION_FROM_CHAIN_VERTEX_V1`).
+    joins: dict = field(default_factory=dict, compare=False)
+
+    def join_station(self, run_a: str, run_b: str):
+        """`s` вершины угла JOIN между двумя пробегами (в любом порядке) либо `None`."""
+
+        found = self.joins.get((run_a, run_b))
+        return self.joins.get((run_b, run_a)) if found is None else found
 
     def skip_text(self) -> str:
         """Хвост для детали отказа: первые пропуски поимённо, либо пустая строка."""
@@ -457,8 +476,17 @@ def _order_or_reason(context, chain_use, edges):
 
 
 def _use_runs(chain_use, chain, ordered, gram, budget):
+    """Пробеги и записи рёбер одного `ChainUse` с нуля: `(пробеги, записи)`."""
+
+    return _use_runs_from(chain_use, chain, ordered, gram, budget, None)[:2]
+
+
+def _use_runs_from(chain_use, chain, ordered, gram, budget, accumulated):
     """Пробеги и записи рёбер одного `ChainUse`. Копит длину `s0`.
 
+    `accumulated` — длина, с которой начинается счёт: `None` (нуль) у начала
+    потока, длина предыдущих вхождений потока после угла JOIN. Третьим
+    возвращается длина на конце вхождения — она станет началом следующего.
     Рестарт (ребро цепи вне петли домена) обнуляет накопленную длину и
     обязательно начинает новый пробег: у него другое начало отсчёта.
     """
@@ -468,7 +496,7 @@ def _use_runs(chain_use, chain, ordered, gram, budget):
     g00, g01, g11 = gram
     raw_runs: list[tuple] = []
     records: list = []
-    accumulated = SqrtSumV1.zero()
+    accumulated = SqrtSumV1.zero() if accumulated is None else accumulated
     previous_class = None
     run_edges: list[str] = []
     for edge, along, restart in ordered:
@@ -534,17 +562,107 @@ def _use_runs(chain_use, chain, ordered, gram, budget):
         for number, (origin, vector, origin_station, inverse, covector, names)
         in enumerate(raw_runs)
     )
-    return runs, records
+    return runs, records, accumulated
+
+
+def _join_successors(context, uses: dict, skips: list) -> dict:
+    """`вхождение до угла -> вхождение после угла` по записям JOIN плана.
+
+    Порядок — В НАПРАВЛЕНИИ `ChainUse`, а не петли: поток продолжает счёт `s`
+    того вхождения, которое КОНЧАЕТСЯ в вершине угла, тем, которое в ней
+    НАЧИНАЕТСЯ. Если ни так, ни наоборот (вхождения смотрят врозь либо их нет в
+    домене), стык не делается и называется (`JOIN_CORNER_NOT_ADJACENT`).
+    """
+
+    compilation = getattr(context, "compilation", None)
+    relations = {
+        item.corner_relation_id: item
+        for item in getattr(getattr(compilation, "analysis_snapshot", None), "corner_relations", ())
+    }
+    successors: dict[str, str] = {}
+    for record in sorted(
+        getattr(compilation, "corner_treatments", ()),
+        key=lambda item: item.corner_relation_id.value,
+    ):
+        if record.treatment.value != "CORNER_JOIN_CONTINUATION":
+            continue
+        relation = relations.get(record.corner_relation_id)
+        first = uses.get(record.incoming_chain_use_id.value)
+        second = uses.get(record.outgoing_chain_use_id.value)
+        pair = None
+        if relation is not None and first is not None and second is not None:
+            vertex = relation.source_vertex_id
+            for before, after in ((first, second), (second, first)):
+                ends = context.directed_chain_vertices(before)
+                starts = context.directed_chain_vertices(after)
+                if ends[-1] == vertex and starts[0] == vertex:
+                    pair = (before.chain_use_id.value, after.chain_use_id.value)
+        if pair is None or pair[0] in successors or pair[1] in successors.values():
+            skips.append((record.corner_relation_id.value, SKIP_JOIN_CORNER_NOT_ADJACENT))
+            continue
+        successors[pair[0]] = pair[1]
+    return successors
+
+
+def _flows(use_ids, successors: dict) -> list:
+    """Вхождения, выстроенные в потоки: `[[u1, u2, ...], ...]`, детерминированно.
+
+    Потоки без предшественника начинаются с него; остаток (замкнутая цепь,
+    нарезанная сплошь на мягкие изломы) — цикл, и он размыкается в наименьшем
+    по имени вхождении: счёт `s` обязан где-то начаться заново, как у замкнутой
+    цепи без изломов.
+    """
+
+    predecessors = {after: before for before, after in successors.items()}
+    placed: set = set()
+    flows = []
+    for start in sorted(use_ids):
+        if start in placed or start in predecessors:
+            continue
+        flow = []
+        cursor = start
+        while cursor is not None and cursor not in placed:
+            placed.add(cursor)
+            flow.append(cursor)
+            cursor = successors.get(cursor)
+        flows.append(flow)
+    for start in sorted(use_ids):
+        if start in placed:
+            continue
+        flow = []
+        cursor = start
+        while cursor not in placed:
+            placed.add(cursor)
+            flow.append(cursor)
+            cursor = successors.get(cursor)
+        flows.append(flow)
+    return flows
+
+
+def _use_order(context, uses, use_id, loop_edges, skips, unnamed):
+    """Рёбра вхождения в порядке обхода либо `None` с названным пропуском."""
+
+    chain_use = uses.get(use_id)
+    if chain_use is None:
+        ordered, reason = None, SKIP_USE_NOT_IN_SNAPSHOT
+    else:
+        ordered, reason = _order_or_reason(context, chain_use, loop_edges)
+    if ordered is None:
+        unnamed.update(item.chain_id for item in loop_edges)
+        skips.append((use_id, reason))
+    return chain_use, ordered
 
 
 def chain_station_table(prepared, budget) -> ChainStationTableV1:
     """Таблица станций домена по ГОТОВОЙ подготовке очереди. Точно, под бюджетом.
 
     Порядок работы: (1) все рёбра всех петель всех регионов собираются со своим
-    `ChainUse`, парой вершин и решёточными узлами; (2) по каждому `ChainUse`
-    рёбра выстраиваются в порядке его обхода, и копится длина `s0`; (3) подряд
-    идущие рёбра с одним классом прямой (`integer_line_class` в направлении
-    `ChainUse`) складываются в пробег.
+    `ChainUse`, парой вершин и решёточными узлами; (2) вхождения выстраиваются
+    в ПОТОКИ — цепочки `ChainUse`, связанные углами JOIN плана
+    (`CORNER_JOIN_SOFT_BEND_V1`, `_join_successors`); (3) по каждому вхождению
+    рёбра выстраиваются в порядке его обхода, и копится длина `s0` — СКВОЗЬ
+    углы JOIN одного потока; (4) подряд идущие рёбра с одним классом прямой
+    (`integer_line_class` в направлении `ChainUse`) складываются в пробег.
 
     Бюджет нужен потому, что каждый РАДИКАЛ длины — новый радиканд, то есть
     факторизация; исчерпание поднимает `ExactCanonicalizationWorkBudgetExhausted`
@@ -561,23 +679,33 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
     edges: dict = {}
     unnamed: set[str] = set()
     restarted: set[str] = set()
-    for use_id in sorted(by_use):
-        loop_edges = by_use[use_id]
-        chain_use = uses.get(use_id)
-        if chain_use is None:
-            ordered, reason = None, SKIP_USE_NOT_IN_SNAPSHOT
-        else:
-            ordered, reason = _order_or_reason(context, chain_use, loop_edges)
-        if ordered is None:
-            unnamed.update(item.chain_id for item in loop_edges)
-            skips.append((use_id, reason))
-            continue
-        chain = context.chains_by_id[chain_use.physical_chain_id]
-        if any(item[2] for item in ordered[1:]) or ordered[0][2]:
-            restarted.add(ordered[0][0].chain_id)
-        use_runs, records = _use_runs(chain_use, chain, ordered, gram, budget)
-        runs.update((item.run_id, item) for item in use_runs)
-        edges.update(records)
+    flow_of_run: dict[str, str] = {}
+    joins: dict = {}
+    flows = _flows(by_use, _join_successors(context, uses, skips))
+    for flow in flows:
+        accumulated = None
+        previous_run = None
+        flow_key = f"flow:{flow[0]}"
+        for use_id in flow:
+            chain_use, ordered = _use_order(
+                context, uses, use_id, by_use[use_id], skips, unnamed
+            )
+            if ordered is None:
+                accumulated, previous_run = None, None
+                continue
+            chain = context.chains_by_id[chain_use.physical_chain_id]
+            if any(item[2] for item in ordered[1:]) or ordered[0][2]:
+                restarted.add(ordered[0][0].chain_id)
+            use_runs, records, accumulated = _use_runs_from(
+                chain_use, chain, ordered, gram, budget, accumulated
+            )
+            runs.update((item.run_id, item) for item in use_runs)
+            edges.update(records)
+            if len(flow) > 1:
+                flow_of_run.update((item.run_id, flow_key) for item in use_runs)
+            if previous_run is not None and not ordered[0][2]:
+                joins[(previous_run, use_runs[0].run_id)] = use_runs[0].s_origin
+            previous_run = use_runs[-1].run_id
     return ChainStationTableV1(
         scale=scale,
         gram=gram,
@@ -600,8 +728,12 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
                 )
                 for reason in STATION_SKIP_REASONS
             ),
+            ("STATION_FLOWS", sum(1 for flow in flows if len(flow) > 1)),
+            ("STATION_JOIN_CORNERS", len(joins)),
         ),
         skips=tuple(skips),
+        flow_of_run=flow_of_run,
+        joins=joins,
     )
 
 

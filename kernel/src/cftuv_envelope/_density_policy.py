@@ -251,6 +251,10 @@ def selection_certificate_contract_error(
 
     hidden_count = certificate.resolved_hidden_edge_count
     interval = certificate.selection_interval_certificate
+    # JOIN мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`): счёт `k = 0` под своим
+    # законом, интервальная запись — прежняя запись политики (её доказательство
+    # остаётся в силе и проверяется тем же `selection_interval_proof_error`).
+    joined = certificate.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
     if (
         certificate.selection_policy_id
         is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1
@@ -258,8 +262,11 @@ def selection_certificate_contract_error(
         valid = (
             certificate.max_subturn_value_id
             is MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1
-            and certificate.selection_law
-            is SelectionLaw.MIN_K_FOR_MAX_SUBTURN
+            and (
+                joined
+                or certificate.selection_law is SelectionLaw.MIN_K_FOR_MAX_SUBTURN
+            )
+            and (not joined or hidden_count == 0)
             and certificate.minimality_lower_bound
             is MinimalityLowerBound.K_ZERO_OR_STRICT_LOWER
             and certificate.admissibility_upper_bound
@@ -284,8 +291,11 @@ def selection_certificate_contract_error(
         )
         valid = (
             value_contract is not None
-            and certificate.selection_law
-            is SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1
+            and (
+                joined
+                or certificate.selection_law
+                is SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1
+            )
             and certificate.minimality_lower_bound
             is MinimalityLowerBound.HUBER_DENSITY_BUCKET_OPEN_LOWER
             and certificate.admissibility_upper_bound
@@ -298,7 +308,7 @@ def selection_certificate_contract_error(
             and interval.upper_bound_kind is IntervalBoundKind.CLOSED
             and interval.lower_bound_numerator == interval.bucket_c - 1
             and interval.upper_bound_numerator == interval.bucket_c
-            and hidden_count == max(1, interval.bucket_c - 1)
+            and hidden_count == (0 if joined else max(1, interval.bucket_c - 1))
             and hidden_count <= 5
         )
         return (
@@ -306,7 +316,7 @@ def selection_certificate_contract_error(
             if valid
             else (
                 "Density A certificate must encode "
-                "(C-1)/q < u <= C/q and H=max(1,C-1)"
+                "(C-1)/q < u <= C/q and H=max(1,C-1), or H=0 under CORNER_JOIN_SOFT_BEND_V1"
             )
         )
     return "unsupported angular selection policy"

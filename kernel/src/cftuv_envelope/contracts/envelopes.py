@@ -216,6 +216,10 @@ class AngularRegressionFixtureId(str, Enum):
 class SelectionLaw(str, Enum):
     MIN_K_FOR_MAX_SUBTURN = "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
     HUBER_EMANATED_DENSITY_FLOOR_V1 = "HUBER_EMANATED_DENSITY_FLOOR_V1"
+    # Мягкий излом (δ < 30°) ОДНОЙ цепи источника: `k = 0`, митра прямого
+    # скелета, полоса продолжается через вершину. Счёт по плотности этому углу
+    # не задаётся; решение и его причина — `CornerTreatmentRecordV1`.
+    CORNER_JOIN_SOFT_BEND_V1 = "CORNER_JOIN_SOFT_BEND_V1"
 
 
 class MinimalityLowerBound(str, Enum):
@@ -413,6 +417,46 @@ class AngularProfileSelectionCertificateV1:
     )
     certificate_authority: SelectionCertificateAuthority
     regression_fixture_id: AngularRegressionFixtureId | None
+
+
+class CornerTreatmentV1(str, Enum):
+    """Что делает полоса в вогнутой вершине: продолжается либо идёт профилем."""
+
+    JOIN_CONTINUATION = "CORNER_JOIN_CONTINUATION"
+    ANGULAR_PROFILE = "CORNER_ANGULAR_PROFILE"
+
+
+class CornerTreatmentReasonV1(str, Enum):
+    """Почему угол получил свою обработку. Ровно одна причина на угол."""
+
+    SOFT_BEND_IN_ONE_SOURCE_CHAIN = "SOFT_BEND_IN_ONE_SOURCE_CHAIN"
+    REFLEX_EXCESS_NOT_SOFT = "REFLEX_EXCESS_NOT_SOFT"
+    REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD = (
+        "REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD"
+    )
+    SOURCE_CHAINS_DIFFER = "SOURCE_CHAINS_DIFFER"
+
+
+@dataclass(frozen=True, slots=True)
+class CornerTreatmentRecordV1:
+    """Запись закона `CORNER_TREATMENT_V1` на один `CornerRelation`.
+
+    `incoming`/`outgoing` — вхождения цепей в порядке сектора владельца;
+    `shared_source_lineage_ids` — общие записи `data_record_lineage` двух
+    цепей (факт хоста «один кусок одной цепи источника»); `reflex_excess_over_pi`
+    — сырой сертифицированный интервал, по которому решалась мягкость.
+    """
+
+    treatment_law: str
+    corner_relation_id: CornerRelationId
+    selection_certificate_id: SelectionCertificateId
+    incoming_chain_use_id: ChainUseId
+    outgoing_chain_use_id: ChainUseId
+    treatment: CornerTreatmentV1
+    reason: CornerTreatmentReasonV1
+    threshold_over_pi: ExactRatioV1
+    reflex_excess_over_pi: CertifiedDecimalIntervalV1
+    shared_source_lineage_ids: frozenset[LineageId]
 
 
 @dataclass(frozen=True, slots=True)

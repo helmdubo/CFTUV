@@ -137,6 +137,16 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
     "MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT",
     "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT",
+    # Числа потоков (`CORNER_JOIN_SOFT_BEND_V1`): стыки JOIN, потоки из двух и более
+    # вхождений, перекладины со станцией вершины цепи, билинейные четырёхгранья и
+    # наибольший излом их UV (`_MAX_` — максимум по доменам, а не сумма). Здесь, а не в
+    # `COUNTER_KEYS`: прежние записи остаются сравнимыми на доменах без потоков.
+    "STATION_FLOWS",
+    "STATION_JOIN_CORNERS",
+    "STATION_SKIP_JOIN_CORNER_NOT_ADJACENT",
+    "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
+    "MATERIALIZE_QUADS_UV_BILINEAR",
+    "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
@@ -317,7 +327,9 @@ def summarize(rows) -> dict:
         ),
         "fan_faces": sum(row["counters"].get("MATERIALIZE_FAN_FACES", 0) for row in done),
         "topology": {
-            key: sum(row["topology_counters"].get(key, 0) for row in done)
+            key: (max if "_MAX_" in key else sum)(
+                row["topology_counters"].get(key, 0) for row in done
+            )
             for key in sorted({k for row in done for k in row["topology_counters"]})
         },
         # Судьба граней покрытия: вход равен контурам + пустым за фронтом +

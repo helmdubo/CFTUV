@@ -79,6 +79,7 @@ from .tessellate import (
     has_right_turn,
     triangulate_exact,
     triangulate_from_apex,
+    uv_affine_defect_milli,
     uv_is_affine_in_chart,
 )
 from .uv_law import uv_direct_strip_v1
@@ -232,17 +233,49 @@ class Layout:
         return SemanticRegionId(f"region:{index}")
 
 
-def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget):
-    """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ."""
+#: Число закона `RUNG_STATION_FROM_CHAIN_VERTEX_V1`: вершин на перекладине JOIN,
+#: получивших станцию вершины цепи вместо двух ответов двух пробегов.
+RUNG_STATIONS_FROM_CHAIN_VERTEX = "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"
+
+
+def _rung_station(table, answers: dict, run_id: str, value):
+    """`(s, r)` вершины на биссектрисе угла JOIN либо `None` (закон `RUNG_STATION_FROM_CHAIN_VERTEX_V1`).
+
+    Два пробега одного потока, стыкующиеся углом JOIN, дают точке биссектрисы
+    два `s`: `s_v + d sin(δ/2)` и `s_v - d sin(δ/2)` — и один `r`. Их среднее
+    есть станция вершины цепи `s_v` ТОЧНО, и ровно это проверяется (нуль
+    разности канонических `SqrtSumV1`): точка не на биссектрисе ответа не
+    получает, и конфликт остаётся конфликтом.
+    """
+
+    if len(answers) != 1 or run_id in answers:
+        return None
+    (other_run, (other_s, other_r)), = answers.items()
+    station = table.join_station(other_run, run_id)
+    if station is None or not (other_r - value[1]).is_zero:
+        return None
+    if not (other_s + value[0] - station - station).is_zero:
+        return None
+    return station, value[1]
+
+
+def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None):
+    """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ.
+
+    Второй ответ на вершину региона допустим ровно в одном случае — на
+    перекладине угла JOIN (`_rung_station`); он считается в `tally`.
+    """
 
     facts: dict = {}
     roots: dict = {}
+    answers: dict = {}
     for frame_face, cycle in zip(frame_faces, cycles):
         region = layout.region_of(frame_face)
         line = frame_face.line
         root = roots.get(line.q)
         if root is None:
             root = roots[line.q] = transverse_root(line, budget)
+        run_id = frame_face.run.run_id
         for key, point in cycle:
             station = (
                 frame_face.fan_station
@@ -250,13 +283,23 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget):
                 else station_of(frame_face.run, point)
             )
             value = (station, transverse_of(line, point, root))
-            known = facts.setdefault((region, key), value)
-            if known != value:
+            slot = (region, key)
+            known = facts.setdefault(slot, value)
+            given = answers.setdefault(slot, {})
+            if known == value or given.get(run_id) == value:
+                given.setdefault(run_id, value)
+                continue
+            rung = None if frame_face.is_fan else _rung_station(table, given, run_id, value)
+            if rung is None:
                 raise MaterializationRefusal(
                     MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
                     f"STATION_VALUE_CONFLICT: vertex {key} in region {region} "
                     f"has two (s, r) answers from owner {frame_face.face.owner}",
                 )
+            given[run_id] = value
+            facts[slot] = rung
+            if tally is not None:
+                tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
     return facts
 
 
@@ -313,6 +356,7 @@ def tessellate_faces(
     exact_plane: bool = True,
     tally: Counter | None = None,
     uv_values=None,
+    lattice_alpha=None,
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -327,7 +371,9 @@ def tessellate_faces(
     собирает названные исходы закона для `settle_topology`, а `uv_values(грань, ключ)`
     отдаёт точные `(s, r)` вершины в регионе грани: по ним проверяется аффинность UV
     (`PLANAR_AFFINE_UV_POLYGON_V1`). Без `uv_values` закон не может ничего доказать и
-    отказывает `ValueError`, а не молча берёт грань целой.
+    отказывает `ValueError`, а не молча берёт грань целой. `lattice_alpha` — единица,
+    в тысячных которой записывается излом UV билинейного четырёхгранья
+    (`MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA`); без неё — в единицах решётки.
     """
 
     if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
@@ -341,6 +387,7 @@ def tessellate_faces(
             exact_plane,
             Counter() if tally is None else tally,
             uv_values,
+            1 if lattice_alpha is None else lattice_alpha,
         )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
@@ -399,6 +446,11 @@ FAN_POLYGON_FACES_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_EMITTED"
 FAN_POLYGON_FACES_CONCAVE_EMITTED = "MATERIALIZE_FAN_POLYGON_FACES_CONCAVE_EMITTED"
 FAN_FACES_TRIANGULATED_FROM_APEX = "MATERIALIZE_FAN_FACES_TRIANGULATED_FROM_APEX"
 FAN_FACES_NOT_STAR_FROM_APEX = "MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX"
+#: Числа закона `QUAD_UV_BILINEAR_V1`: строго выпуклое четырёхгранье ленты, чья UV
+#: НЕ аффинна по положению (перекладина угла JOIN несёт станцию вершины цепи), выпущено
+#: одной гранью; второе число — наибольший излом UV на диагонали показа, в тысячных alpha.
+QUADS_UV_BILINEAR = "MATERIALIZE_QUADS_UV_BILINEAR"
+QUADS_UV_BILINEAR_MAX_MILLI_ALPHA = "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA"
 
 
 def _rung_pieces(frame_face, key_of):
@@ -519,14 +571,38 @@ def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
     return polygons
 
 
-def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
+def _bilinear_quad(points, keys, budget, uv_of, unit, tally):
+    """Кольцо строго выпуклого четырёхгранья с билинейной UV (закон `QUAD_UV_BILINEAR_V1`) либо `None`.
+
+    Четырёхгранье ленты с неаффинной UV рождается ровно одним законом — станцией
+    вершины цепи на перекладине угла JOIN (`RUNG_STATION_FROM_CHAIN_VERTEX_V1`):
+    в UV оно прямоугольник, на карте трапеция. Любая триангуляция показа даёт ту
+    же поверхность; UV на диагонали показа изламывается не больше записанного
+    числа (`MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA`, тысячные alpha).
+    Резать его по диагонали (`UV_NOT_AFFINE`) значило бы вернуть на ленту
+    ребро, которого в топологии источника нет.
+    """
+
+    ring = convex_quad_ring(points, budget)
+    if ring is None:
+        return None
+    defect = uv_affine_defect_milli(points, [uv_of(key) for key in keys], unit, budget)
+    tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA] = max(
+        tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA], int(defect)
+    )
+    return ring
+
+
+def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
     плоскости контур от четырёх вершин — одна грань любой длины, если он прост и его
-    UV аффинен (`_plane_ring`). На укладке на треугольники источника целым остаётся
-    только строго выпуклое четырёхгранье (его плоскостность решает `settle_topology`),
-    контур длиннее — треугольники и `CURVED_STRIP_FACES_TRIANGULATED`.
+    UV аффинен (`_plane_ring`); строго выпуклое четырёхгранье с билинейной UV — тоже
+    одна грань, под своим именем (`_bilinear_quad`). На укладке на треугольники
+    источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
+    решает `settle_topology`), контур длиннее — треугольники и
+    `CURVED_STRIP_FACES_TRIANGULATED`.
     """
 
     points = tuple(point for _key, point in cycle)
@@ -536,6 +612,9 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
     if len(points) > 3:
         if exact_plane:
             ring, named = _plane_ring(points, keys, budget, uv_of)
+            if ring is None and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE and len(points) == 4:
+                ring = _bilinear_quad(points, keys, budget, uv_of, unit, tally)
+                named = named if ring is None else QUADS_UV_BILINEAR
         else:
             ring = convex_quad_ring(points, budget)
             if ring is None:
@@ -563,13 +642,13 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
 
 
 def _polygon_law_faces(
-    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values
+    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1
 ):
     """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — `_fan_faces`, ленты — многоугольники.
 
     Слитый пробег режется по перекладинам на грани своих рёбер-источников
     (`_rung_pieces`): площадь каждой части замыкается точно, и сумма частей
-    равна площади слитой грани.
+    равна площади слитой грани. `unit` — единица записи излома билинейной UV.
     """
 
     key_of = {point_key(point): key for cycle in cycles for key, point in cycle}
@@ -610,6 +689,7 @@ def _polygon_law_faces(
                     exact_plane,
                     tally,
                     lambda key, frame_face=frame_face: uv_values(frame_face, key),
+                    unit,
                 )
             )
         result.append(tuple(polygons))
@@ -682,6 +762,8 @@ def _settle_polygon_law(polygons, sources, tally):
         (FAN_POLYGON_FACES_CONCAVE_EMITTED, tally[FAN_POLYGON_FACES_CONCAVE_EMITTED]),
         (FAN_FACES_TRIANGULATED_FROM_APEX, tally[FAN_FACES_TRIANGULATED_FROM_APEX]),
         (FAN_FACES_NOT_STAR_FROM_APEX, tally[FAN_FACES_NOT_STAR_FROM_APEX]),
+        (QUADS_UV_BILINEAR, tally[QUADS_UV_BILINEAR]),
+        (QUADS_UV_BILINEAR_MAX_MILLI_ALPHA, tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA]),
     )
 
 

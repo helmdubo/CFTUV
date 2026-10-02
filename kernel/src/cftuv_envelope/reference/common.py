@@ -27,6 +27,7 @@ from .._canonical_angle import (
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
+from .corner_treatment import corner_treatment_errors
 from .planar_types import (
     BoundedSupportSegment,
     ConstructionCertificate,
@@ -193,6 +194,11 @@ class GeometryContext:
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
         verify_canonical_angle_restorations(compilation)
+        treatment_errors = corner_treatment_errors(compilation)
+        if treatment_errors:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.CORNER_TREATMENT_INVALID, treatment_errors[0]
+            )
         from .evaluation_geometry import (
             EvaluationGeometryBindingInvalid,
             verify_evaluation_geometry_binding,

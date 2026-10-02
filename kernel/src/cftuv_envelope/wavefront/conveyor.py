@@ -70,6 +70,7 @@ from ..contracts.envelopes import (
     CanonicalRationalRotationFanAuthorityV1,
     CertifiedBoundHiddenSupportSpecV1,
     EvaluationGeometrySubturnCountLiftLawV1,
+    SelectionLaw,
     StripEnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
@@ -769,6 +770,16 @@ class _AngularFansV1:
     canonical_rays_count: int
 
 
+def _joined_corner(context: GeometryContext, spec) -> bool:
+    """Сертификат селекции спеки решил угол законом JOIN (`k = 0` по решению, не по плотности)."""
+
+    return any(
+        item.certificate_id == spec.selection_certificate_id
+        and item.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+        for item in context.compilation.profile_selection_certificates
+    )
+
+
 def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     """Веер каждой вогнутой вершины домена — ТЕМ ЖЕ рецептом, что у эталона.
 
@@ -823,13 +834,14 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         if not isinstance(spec, AngularEnvelopeSpec):
             continue
         if spec.resolved_hidden_edge_count == 0:
-            if explicit_density:
+            if explicit_density and not _joined_corner(context, spec):
                 raise ReferenceGeometryError(
                     ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
                     "explicit Density emitted a zero-support angular fan",
                 )
             # `k = 0` — тот самый митрованный угол, и он законный член
-            # семейства: скрытых опор нет, вставлять в фронт нечего.
+            # семейства: скрытых опор нет, вставлять в фронт нечего. JOIN
+            # мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`) — та же митра.
             mitered += 1
             continue
         fan, rescaled, corner = _one_fan(context, spec, speed_squared)
