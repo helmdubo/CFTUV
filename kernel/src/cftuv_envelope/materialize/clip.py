@@ -122,6 +122,10 @@ FACES_OVERHANG = "MATERIALIZE_CLIP_FACES_OVERHANG_TRIANGULATED"
 FACES_BOUNDARY_MISMATCH = "MATERIALIZE_CLIP_FACES_BOUNDARY_MISMATCH_TRIANGULATED"
 FACES_SEAM_SUPPRESSED = "MATERIALIZE_CLIP_FACES_SEAM_CROSSINGS_SUPPRESSED"
 FACES_OFF_CORNER_SUPPRESSED = "MATERIALIZE_CLIP_FACES_SOURCE_VERTEX_OFF_CORNER_SUPPRESSED"
+#: Рёбра, которых не просит ни одно ребро меша источника, внутри граней РЕГИОНОВ ПОТОКА (`CORNER_JOIN_SOFT_BEND_V1`):
+#: куски одного треугольника источника, оставленные порознь, диагонали ушей куска и ушей свеса. Нижняя оценка
+#: (дерево на каждую группу): число для глаз владельца и для сравнения со свипом, а не суд.
+FLOW_FREE_CUT_EDGES = "MATERIALIZE_CLIP_FLOW_FREE_CUT_EDGES"
 PREDICATES = "MATERIALIZE_CLIP_PREDICATES"
 DIVISIONS = "MATERIALIZE_CLIP_DIVISIONS"
 
@@ -200,6 +204,8 @@ class ClipStageV1:
     def __init__(self, plane, budget, points, cells=None, shared=None) -> None:
         self.plane = plane
         self.budget = budget
+        #: Признак региона потока у каждой слитой грани (числа `FLOW_FREE_CUT_EDGES`); `None` — нигде.
+        self.flows = None
         self.triangles = plane.triangles
         self.faces_mode = cells is not None
         #: Области резки: у закона по треугольникам это сами треугольники подъёма.
@@ -687,8 +693,11 @@ class ClipStageV1:
         closed = (total - area).is_zero
         return _Cut(nodes, flip, pieces if closed else None, by_ears, merged_count, kept_count)
 
-    def _emit(self, cut: _Cut, law, fan: bool = False):
-        """Фаза 3: грани многоугольника в его обходе: куски либо (свес, невязка границы) уши с названным счётчиком."""
+    def _emit(self, cut: _Cut, law, fan: bool = False, flow: bool = False):
+        """Фаза 3: грани многоугольника в его обходе: куски либо (свес, невязка границы) уши с названным счётчиком.
+
+        `flow` — грань региона потока: свободные рёбра резки внутри неё считаются (`FLOW_FREE_CUT_EDGES`).
+        """
 
         nodes = self._refined(cut.nodes)
         pieces = cut.pieces
@@ -701,6 +710,7 @@ class ClipStageV1:
             self.tally[PIECES_MERGED] += cut.merged
             self.tally[PIECES_KEPT_SEPARATE] += cut.kept
             faces = []
+            free = len(pieces) - len({ti for ti, _piece, _part in pieces})
             for ti, piece, _part in pieces:
                 merged = self.glued.get(id(piece), 0)
                 if not merged:
@@ -709,8 +719,11 @@ class ClipStageV1:
                 # Номера `clip:` — по обходу куска, а не по порядку ушей закона: имена не зависят от закона.
                 for node in piece:
                     self._key(node, self.where.get(node, ti) if merged else ti)
-                for face in self._split_for_law(piece, law, fan):
+                split = self._split_for_law(piece, law, fan)
+                free += len(split) - 1
+                for face in split:
                     faces.append(self._oriented(tuple(self._key(node, ti) for node in face), cut.flip))
+            self.tally[FLOW_FREE_CUT_EDGES] += free if flow else 0
             return faces
         # Свес за привязанную триангуляцию (площадь не сошлась), шовный край, пересекающий внутренние рёбра
         # источника, либо подразделение, не давшее контур: многоугольник остаётся ушами с теми же вершинами
@@ -719,9 +732,11 @@ class ClipStageV1:
             self.tally[FACES_SEAM_SUPPRESSED if cut.suppressed == "seam" else FACES_OFF_CORNER_SUPPRESSED] += 1
         else:
             self.tally[FACES_OVERHANG if pieces is None else FACES_BOUNDARY_MISMATCH] += 1
+        ears = self._ears(tuple(node.point for node in nodes))
+        self.tally[FLOW_FREE_CUT_EDGES] += len(ears) - 1 if flow else 0
         return [
             self._oriented(tuple(self._key(nodes[index], None) for index in ear), cut.flip)
-            for ear in self._ears(tuple(node.point for node in nodes))
+            for ear in ears
         ]
 
     def _components(self, entries) -> list:
@@ -943,7 +958,8 @@ class ClipStageV1:
         `seam` — пары ключей рёбер на границе домена вдоль контура патча (`seam_edges`): вершин не получают;
         многоугольник, чей шовный край их получил бы, остаётся ушами и не даёт нужных рёбер. `fans` —
         признак веера у каждой слитой грани (под `QUAD_STRIPS_V1` куски веера остаются треугольниками).
-        `cuts` — готовая фаза 1 (`cuts_of`), если вызывающий уже решал по ней.
+        `cuts` — готовая фаза 1 (`cuts_of`), если вызывающий уже решал по ней. Признак региона потока
+        у каждой слитой грани (числа `FLOW_FREE_CUT_EDGES`) — поле стадии `flows`; без него — нигде.
         """
 
         cuts = self.cuts_of(polygons) if cuts is None else cuts
@@ -957,10 +973,11 @@ class ClipStageV1:
         }
         faces = []
         fan_flags = fans if fans is not None else [False] * len(cuts)
-        for face_cuts, fan in zip(cuts, fan_flags):
+        flow_flags = self.flows if self.flows is not None else [False] * len(cuts)
+        for face_cuts, fan, flow in zip(cuts, fan_flags, flow_flags):
             emitted: list = []
             for cut in face_cuts:
-                emitted.extend(self._emit(cut, law, fan))
+                emitted.extend(self._emit(cut, law, fan, flow))
             faces.append(tuple(emitted))
         refined, lists, extras = [], [], []
         for cycle, emitted in zip(cycles, faces):
@@ -990,6 +1007,7 @@ class ClipStageV1:
                 FACES_BOUNDARY_MISMATCH,
                 FACES_SEAM_SUPPRESSED,
                 FACES_OFF_CORNER_SUPPRESSED,
+                FLOW_FREE_CUT_EDGES,
                 PREDICATES,
                 DIVISIONS,
             )
@@ -1097,7 +1115,7 @@ def piece_triangles(polygons, points, budget):
     return found
 
 
-def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans) -> ClippedV1:
+def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows=None) -> ClippedV1:
     """Закон `SOURCE_FACES_CLIPPED_V1`: ячейки-грани, затем расщепление граней, у которых хорда глубже допуска.
 
     Стадия 1 режет по ячейкам и оценивает хорду каждого куска; грань с куском глубже допуска
@@ -1116,6 +1134,7 @@ def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans) -> C
         )
         cuts = stage.cuts_of(polygons)
     stage.verdict = DiagonalVerdictV1(over, plan.unmergeable)
+    stage.flows = flows
     return stage.run(cycles, polygons, law, seam, fans, cuts)
 
 
@@ -1144,10 +1163,13 @@ def cut_domain(
 
     seam = seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
     fans = [item.is_fan for item in frame_faces]
+    flows = [getattr(item, "flow_key", None) is not None for item in frame_faces]
     if by_faces:
-        clipped = _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans)
+        clipped = _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows)
     else:
-        clipped = ClipStageV1(plane, budget, points).run(cycles, polygons, law, seam, fans)
+        stage = ClipStageV1(plane, budget, points)
+        stage.flows = flows
+        clipped = stage.run(cycles, polygons, law, seam, fans)
     extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget, tally)
     for slot, value in extra.items():
         known = facts.setdefault(slot, value)

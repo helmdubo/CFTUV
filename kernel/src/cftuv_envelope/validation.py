@@ -133,6 +133,7 @@ from .validation_issues import (
     add_issue as _issue,
     raise_for_issues,
 )
+from .validation_corner_treatment import validate_plan_corner_treatments, validate_plan_corner_treatments_against_snapshot
 from .validation_metric import (
     fraction_of as _fraction,
     validate_metric_against_source,
@@ -1167,12 +1168,8 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                 contract_error,
             )
 
-    _require_refs(
-        issues,
-        _check_unique(issues, plan.canonical_angle_restorations, "selection_certificate_id", "canonical_angle_restorations"),
-        certificate_ids,
-        ("canonical_angle_restorations", "selection_certificate_id"),
-    )
+    _require_refs(issues, _check_unique(issues, plan.canonical_angle_restorations, "selection_certificate_id", "canonical_angle_restorations"), certificate_ids, ("canonical_angle_restorations", "selection_certificate_id"))
+    validate_plan_corner_treatments(issues, plan)
     for selection_id, message in canonical_restoration_reference_errors(plan.canonical_angle_restorations, certificate_by_id):
         _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, ("canonical_angle_restorations", str(selection_id)), message)
 
@@ -1637,6 +1634,8 @@ def validate_cross_contract_references(
                 proof_error = selection_interval_proof_error(certificate, delta)
                 if proof_error is not None:
                     _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, proof_error)
+
+        validate_plan_corner_treatments_against_snapshot(issues, plan, snapshot, ("plans", str(plan.evaluation_plan_id)))
 
         for spec in plan.envelope_specs:
             path = ("plans", str(plan.evaluation_plan_id), "envelope_specs", str(spec.envelope_spec_id))

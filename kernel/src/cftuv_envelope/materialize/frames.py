@@ -24,7 +24,10 @@
 Мягкий излом одной цепи (`CORNER_JOIN_SOFT_BEND_V1`, веера нет) — ПОТОК: кадр
 и огибающая у полос по обе стороны угла одни (`stations.flow_of_run`), `s`
 копится сквозь угол, а перекладина на биссектрисе получает станцию вершины
-цепи (`assemble.station_values`).
+цепи (`assemble.station_values`). Замкнутая цепь из одних мягких изломов (кольцо) — поток-цикл:
+он размыкается в одном названном месте (`stations.ChainStationTableV1.cuts`), и у него ДВА
+кадра — открыватель и остальное: вершина разреза несёт два набора `(s, r)`, а граница кадров
+у открывателя непрерывна (`assemble._unify_across_frames`) и швом не называется.
 """
 
 from __future__ import annotations
@@ -85,6 +88,10 @@ class FrameFaceV1:
     #: и более `ChainUse` (`CORNER_JOIN_SOFT_BEND_V1`); иначе `None`. Только у такой
     #: полосы четырёхгранье может нести билинейную UV (`QUAD_UV_BILINEAR_V1`).
     flow_key: str | None = None
+    #: Имя огибающей, которое грань несла бы без потока: экземпляр, спека либо цепь
+    #: (`claim_key_of`). У потока `claim_key` — имя потока (регион один, огибающая одна), и без
+    #: этого поля имена экземпляров терялись бы из происхождения граней.
+    instance_claim: str | None = None
 
     @property
     def is_fan(self) -> bool:
@@ -158,13 +165,15 @@ def resolve_frame(
         run, edges = _strip_frame(table, region_id, face)
         # ПОТОК (`CORNER_JOIN_SOFT_BEND_V1`): пробеги вхождений, связанных углом
         # JOIN, делят один кадр И одно имя огибающей — иначе грани двух полос
-        # легли бы в разные регионы, а граница регионов есть шов.
+        # легли бы в разные регионы, а граница регионов есть шов. Ключ потока уже
+        # `flow:<вхождение>` и есть имя огибающей; кадр — по таблице (замкнутый поток
+        # имеет два кадра: у разрезанного кольца вершина разреза несёт два набора `(s, r)`).
         flow = table.flow_of_run.get(run.run_id)
         return FrameFaceV1(
             face=face,
             line=line,
-            claim_key=claim if flow is None else f"flow:{flow}",
-            frame_key=run.run_id if flow is None else flow,
+            claim_key=claim if flow is None else flow,
+            frame_key=run.run_id if flow is None else table.frame_of_run.get(run.run_id, flow),
             station_model=StationModelId.SEMANTIC_CHAIN_USE_S,
             run=run,
             fan_station=None,
@@ -172,6 +181,7 @@ def resolve_frame(
             chain_use_ids=frozenset(edge.chain_use_id for edge in edges),
             chain_ids=frozenset(edge.chain_id for edge in edges),
             flow_key=flow,
+            instance_claim=claim,
         )
     run, edge, corner = _fan_frame(table, region_id, face, source_keys)
     incident = [
@@ -194,4 +204,5 @@ def resolve_frame(
         physical_edge_ids=frozenset(item.physical_edge_id for item in incident),
         chain_use_ids=frozenset(item.chain_use_id for item in incident),
         chain_ids=frozenset(item.chain_id for item in incident),
+        instance_claim=claim,
     )

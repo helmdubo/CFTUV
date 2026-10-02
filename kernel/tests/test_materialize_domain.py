@@ -489,7 +489,7 @@ def test_a_near_planar_domain_is_admitted_and_the_lift_is_named():
     assert admission.planarity is PlanarityKind.NEAR_PLANAR
     lines: list = []
     found = domain._diagnostics(
-        swapped, SimpleNamespace(restart_chain_ids=frozenset()), admission.planarity, lines
+        swapped, SimpleNamespace(restart_chain_ids=frozenset(), cuts=()), admission.planarity, lines
     )
     assert [item.outcome for item in found] == [
         NamedOutcome.NEAR_PLANAR_LIFT_ON_CERTIFIED_PLANE
@@ -507,7 +507,7 @@ def test_a_restart_and_a_degraded_miter_are_named_in_the_batch():
     lines: list = []
     found = domain._diagnostics(
         stub,
-        SimpleNamespace(restart_chain_ids=frozenset({"chain:a"})),
+        SimpleNamespace(restart_chain_ids=frozenset({"chain:a"}), cuts=()),
         PlanarityKind.PLANAR_EXACT,
         lines,
     )

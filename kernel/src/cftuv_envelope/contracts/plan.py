@@ -36,6 +36,7 @@ from .coverage import InteractionDeclarationV1, RawCoverageRef, ResolvedCoverage
 from .envelopes import (
     AngularProfileSelectionCertificateV1,
     CanonicalAngleRestorationCertificateV1,
+    CornerTreatmentRecordV1,
     EnvelopeInstanceV1,
     EnvelopeSpec,
 )
@@ -335,6 +336,12 @@ class CompiledPatchEvaluationPlanV1:
     canonical_angle_restorations: frozenset[
         CanonicalAngleRestorationCertificateV1
     ] = frozenset()
+    # Обработка вогнутых углов плана (`CORNER_TREATMENT_V1`): JOIN мягкого излома
+    # одной цепи либо прежний профиль, с причиной. Проверяющий пересчитывает
+    # КАЖДУЮ запись по сырому снапшоту (`validation_corner_treatment`): сертификат
+    # селекции под законом `CORNER_JOIN_SOFT_BEND_V1` без честной записи JOIN —
+    # именованный отказ, а не принятое на слово `k = 0`.
+    corner_treatments: frozenset[CornerTreatmentRecordV1] = frozenset()
 
 
 CompiledPatchEvaluationPlan = CompiledPatchEvaluationPlanV1

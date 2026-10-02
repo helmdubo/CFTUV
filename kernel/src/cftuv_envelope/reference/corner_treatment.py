@@ -1,107 +1,32 @@
-"""Обработка вогнутого угла ДО закона счёта: JOIN мягкого излома одной цепи.
+"""Обработка вогнутого угла ДО закона счёта: компиляция и пересчёт записей по сырому снапшоту.
 
-Решение владельца (2026-10-03): излом меньше 30° внутри ОДНОЙ цепи источника —
-не веер, а продолжение полосы: `k = 0` (митра прямого скелета), `u`
-непрерывна, шва нет. Порог 30° — тот же `CORNER_ANGLE_THRESHOLD_DEG` главного
-UV-солвера: хост режет свои цепи на куски в точных изломах, а на углах от 30°
-кончается сама цепь; «одна цепь» здесь — факт хоста (общая запись
-`PhysicalChainV1.data_record_lineage` двух кусков), а порог сверяется с
-СЕРТИФИЦИРОВАННЫМ интервалом δ/π ядра, нижней и верхней границей порознь.
+Сам закон (порог 30°, «одна цепь» владельца, причины) — в `_corner_treatment.py`:
+его читает и проверяющий плана, которому `reference` недоступен. Здесь остаётся то,
+что нужно только компиляции: выбор счёта угла под JOIN (`resolve_corner_selection`)
+и пересчёт каждой записи компиляции при сборке `GeometryContext`
+(`corner_treatment_errors`; расхождение — именованный отказ `CORNER_TREATMENT_INVALID`).
 
 Каждый угол получает ровно одну запись `CornerTreatmentRecordV1` с причиной:
-угол от 30°, угол с интервалом поверх порога и излом между РАЗНЫМИ цепями идут
-прежним законом счёта и названы, а не выбраны молча (AGENTS.md, п. 4). Без
-общей записи хоста закон инертен: все прежние снапшоты и фикстуры дают прежний
-ответ побитово.
-
-`corner_treatment_errors` пересчитывает каждую запись по СЫРОМУ снапшоту при
-каждой сборке `GeometryContext`; расхождение — именованный отказ
-`CORNER_TREATMENT_INVALID`.
+угол от 30°, угол с интервалом поверх порога и излом, чья одна цепь владельца не
+доказана, идут прежним законом счёта и названы, а не выбраны молча (AGENTS.md, п. 4).
+Та же запись несётся в плане (`CompiledPatchEvaluationPlanV1.corner_treatments`) и
+пересчитывается проверяющим плана по сырому снапшоту.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
-from fractions import Fraction
 
-from ..contracts.analysis import CertifiedReflexAngleMeasureV1
-from ..contracts.envelopes import (
-    CornerTreatmentReasonV1,
-    CornerTreatmentRecordV1,
-    CornerTreatmentV1,
-    SelectionLaw,
+from .._corner_treatment import (  # noqa: F401  (имена закона остаются здесь же по старому пути)
+    CORNER_TREATMENT_LAW,
+    JOIN_THRESHOLD_OVER_PI,
+    decide,
+    recompute_record,
+    treatment_record,
 )
-from ..numeric import ExactRatioV1, IntervalEndpointKind
+from ..contracts.analysis import CertifiedReflexAngleMeasureV1
+from ..contracts.envelopes import CornerTreatmentV1, SelectionLaw
 from .contracts import ReferenceOutcome
-
-CORNER_TREATMENT_LAW = "CORNER_TREATMENT_V1"
-#: 30° = π/6: порог главного UV-солвера, выраженный долей π рефлексного избытка.
-JOIN_THRESHOLD_OVER_PI = Fraction(1, 6)
-
-
-def shared_source_lineage(chain_a, chain_b) -> frozenset:
-    """Общие записи хоста двух цепей: непусто — куски одной цепи источника."""
-
-    return frozenset(chain_a.data_record_lineage) & frozenset(chain_b.data_record_lineage)
-
-
-def softness(interval) -> CornerTreatmentReasonV1 | None:
-    """`None` — δ < π/6 доказано; иначе причина, по которой JOIN не положен."""
-
-    lower, upper = Fraction(interval.lower), Fraction(interval.upper)
-    if upper < JOIN_THRESHOLD_OVER_PI or (
-        upper == JOIN_THRESHOLD_OVER_PI
-        and interval.upper_kind is IntervalEndpointKind.OPEN
-    ):
-        return None
-    if lower >= JOIN_THRESHOLD_OVER_PI:
-        return CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT
-    return CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD
-
-
-def decide(sector, measure, uses_by_id, chains_by_id):
-    """`(обработка, причина, общая линия)` одного угла по сырым фактам."""
-
-    incoming, outgoing = (
-        sector.ordered_incident_chain_use_ids[0],
-        sector.ordered_incident_chain_use_ids[-1],
-    )
-    shared = shared_source_lineage(
-        chains_by_id[uses_by_id[incoming].physical_chain_id],
-        chains_by_id[uses_by_id[outgoing].physical_chain_id],
-    )
-    reason = softness(measure.reflex_excess_over_pi)
-    if reason is not None:
-        return CornerTreatmentV1.ANGULAR_PROFILE, reason, shared
-    if not shared:
-        return (
-            CornerTreatmentV1.ANGULAR_PROFILE,
-            CornerTreatmentReasonV1.SOURCE_CHAINS_DIFFER,
-            shared,
-        )
-    return (
-        CornerTreatmentV1.JOIN_CONTINUATION,
-        CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN,
-        shared,
-    )
-
-
-def _record(relation, sector, selection_id, measure, decision) -> CornerTreatmentRecordV1:
-    treatment, reason, shared = decision
-    return CornerTreatmentRecordV1(
-        treatment_law=CORNER_TREATMENT_LAW,
-        corner_relation_id=relation.corner_relation_id,
-        selection_certificate_id=selection_id,
-        incoming_chain_use_id=sector.ordered_incident_chain_use_ids[0],
-        outgoing_chain_use_id=sector.ordered_incident_chain_use_ids[-1],
-        treatment=treatment,
-        reason=reason,
-        threshold_over_pi=ExactRatioV1(
-            JOIN_THRESHOLD_OVER_PI.numerator, JOIN_THRESHOLD_OVER_PI.denominator
-        ),
-        reflex_excess_over_pi=measure.reflex_excess_over_pi,
-        shared_source_lineage_ids=shared,
-    )
 
 
 def resolve_corner_selection(
@@ -137,7 +62,7 @@ def resolve_corner_selection(
             selection_law=SelectionLaw.CORNER_JOIN_SOFT_BEND_V1,
             regression_fixture_id=None,
         )
-    return resolved, _record(relation, sector, selection_id, measure, decision), None
+    return resolved, treatment_record(relation, sector, selection_id, measure, decision), None
 
 
 def corner_treatment_errors(compilation) -> tuple[str, ...]:
@@ -177,8 +102,9 @@ def corner_treatment_errors(compilation) -> tuple[str, ...]:
         ):
             errors.append(f"treatment record {selection_id} names unknown raw facts")
             continue
-        expected = _record(relation, sector, selection_id, angle.measure_payload,
-                           decide(sector, angle.measure_payload, uses_by_id, chains_by_id))
+        expected = recompute_record(
+            relation, sector, selection_id, angle.measure_payload, uses_by_id, chains_by_id
+        )
         if record != expected:
             errors.append(f"treatment record {selection_id} differs from the raw snapshot")
         if joined != (record.treatment is CornerTreatmentV1.JOIN_CONTINUATION):

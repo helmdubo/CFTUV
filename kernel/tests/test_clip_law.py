@@ -798,3 +798,22 @@ def test_a_source_vertex_on_a_triangulation_corner_does_not_stop_the_cut():
     counters = dict(result.counters)
     assert counters[clip.FACES_OFF_CORNER_SUPPRESSED] == 0
     assert counters[clip.FACES_CUT] == 1 and sorted(len(item) for item in result.polygons[0]) == [3, 4]
+
+
+@pytest.mark.parametrize(
+    ("law", "flows", "expected"),
+    (
+        (TRIANGLES, [True], 1),  # четырёхугольный кусок режется на два уха: одно свободное ребро
+        (TRIANGLES, None, 0),  # то же вне региона потока — не считается
+        (TRIANGLES, [False], 0),
+        (POLYGONS, [True], 0),  # под законом многоугольников кусок целый: свободных рёбер нет
+    ),
+    ids=("flow-triangles", "no-flow-flags", "not-a-flow", "flow-polygons"),
+)
+def test_free_cut_edges_inside_a_flow_face_are_counted_under_a_name(law, flows, expected):
+    """`FLOW_FREE_CUT_EDGES`: рёбра ушей кусков внутри граней региона потока названы счётчиком, а не молчат."""
+
+    stage, cycles, polygons, _keys = stage_for([[(1, 1), (3, 1), (3, 2), (1, 2)]])
+    stage.flows = flows
+    result = stage.run(cycles, polygons, law)
+    assert dict(result.counters)[clip.FLOW_FREE_CUT_EDGES] == expected

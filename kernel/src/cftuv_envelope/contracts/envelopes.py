@@ -434,7 +434,9 @@ class CornerTreatmentReasonV1(str, Enum):
     REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD = (
         "REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD"
     )
-    SOURCE_CHAINS_DIFFER = "SOURCE_CHAINS_DIFFER"
+    # Хост не доказал, что два куска — одна цепь ВЛАДЕЛЬЦА угла (нет общей записи
+    # `chain-source` его патча): ядро знает «не доказано», а не «цепи разные».
+    SOURCE_CHAIN_UNPROVEN = "SOURCE_CHAIN_UNPROVEN"
 
 
 @dataclass(frozen=True, slots=True)
