@@ -72,6 +72,12 @@ class SourceDeclaredStraightChainIsNotLinear(
     pass
 
 
+class ChainStraightBindingDisplacementExceeded(
+    EvaluationGeometryBindingInvalid
+):
+    """`CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED`: зажим сверх полушага не снимается."""
+
+
 @dataclass(frozen=True, slots=True)
 class _StraightChainInfo:
     chain: PhysicalChainV1
@@ -470,6 +476,79 @@ def _chain_binding(
     )
 
 
+def _clamp_excess(
+    chain_bindings: tuple[ChainStraightPhysicalChainBindingV2, ...],
+) -> tuple[ChainStraightInternalAssignmentV2, ...]:
+    """Внутренние вершины, которых строгий порядок зажал сверх полушага."""
+
+    return tuple(
+        item
+        for chain_binding in chain_bindings
+        for item in chain_binding.internal_assignments
+        if item.disposition
+        is ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
+    )
+
+
+def _excess_text(
+    excess: tuple[ChainStraightInternalAssignmentV2, ...],
+    refinement_power: int,
+) -> str:
+    """Имя отказа и ЧИСЛА худшего зажима: цепь, вершина, k, смещение против полушага."""
+
+    worst = max(
+        excess, key=lambda item: _fraction(item.exact_gram_displacement_squared)
+    )
+    displacement = float(_fraction(worst.exact_gram_displacement_squared)) ** 0.5
+    bound = float(_fraction(worst.half_step_gram_squared_bound)) ** 0.5
+    return (
+        "CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED: "
+        f"{len(excess)} internal vertices stay clamped beyond the half step at "
+        f"the refinement ceiling r={refinement_power}; worst "
+        f"{worst.source_vertex_id.value} on {worst.physical_chain_id.value}: "
+        f"selected k={worst.selected_k} for unconstrained k="
+        f"{worst.unconstrained_canonical_k} in [{worst.lower_k}, "
+        f"{worst.upper_k}], Gram displacement {displacement:.6g} against the "
+        f"half-step bound {bound:.6g} (chart units), longitudinal "
+        f"{float(_fraction(worst.exact_longitudinal_displacement_k)):.6g} k"
+    )
+
+
+def _refined_chain_bindings(
+    chain_infos: tuple[_StraightChainInfo, ...],
+    base_scale: int,
+    gram,
+) -> tuple[int, tuple[ChainStraightPhysicalChainBindingV2, ...]]:
+    """`(r, привязки цепей)`: минимальное общее r с ёмкостью и БЕЗ зажима сверх полушага.
+
+    Закон `CLAMPED_CONSTRAINT_EXCESS_ALLOWED` («зажим сверх полушага разрешён без
+    бюджета») снят. Строгий порядок внутренних вершин на хорде с малым числом узлов
+    (хорда ГРУБОЙ решётки: узлов на ней столько, сколько `gcd` её приращения) сдвигал
+    вершину исходника на метры (поле: 1.65 м у вершины 321 `building`, 1.14 м у
+    вершины 83 меша `2`) и не называл этого нигде. Теперь ёмкость хорды растёт, пока
+    зажима нет: узлы хорды на решётке `S*2^r` — `gcd * 2^r`, и параметр вершины
+    перестаёт упираться в соседа. Не вышло до потолка `r` — именованный отказ
+    `CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED` с числами худшего зажима. Точная
+    рациональная посадка вершины на хорду здесь не берётся: загрузчик петель и ключ
+    `src:` требуют ЦЕЛЫЙ узел решётки (`stations._lattice_node`), а валидатор V2 —
+    целый `assigned_refined_node`.
+    """
+
+    power = _minimum_refinement_power(chain_infos)
+    while True:
+        bindings = tuple(
+            _chain_binding(info, base_scale, power, gram) for info in chain_infos
+        )
+        excess = _clamp_excess(bindings)
+        if not excess:
+            return power, bindings
+        if power >= MAX_CHAIN_STRAIGHT_REFINEMENT_POWER:
+            raise ChainStraightBindingDisplacementExceeded(
+                _excess_text(excess, power)
+            )
+        power += 1
+
+
 def _v2_vertex_records(
     source_by_id: dict[SourceVertexId, tuple[Fraction, Fraction]],
     base_node_by_id: dict[SourceVertexId, tuple[int, int]],
@@ -568,19 +647,13 @@ def _v2_binding(
         _chain_info(chain, source_by_id, base_node_by_id)
         for chain in declared_chains
     )
-    refinement_power = _minimum_refinement_power(chain_infos)
+    refinement_power, chain_bindings = _refined_chain_bindings(
+        chain_infos,
+        base_lattice.scale,
+        _gram_matrix(frame),
+    )
     factor = 1 << refinement_power
     scale = base_lattice.scale * factor
-    gram = _gram_matrix(frame)
-    chain_bindings = tuple(
-        _chain_binding(
-            info,
-            base_lattice.scale,
-            refinement_power,
-            gram,
-        )
-        for info in chain_infos
-    )
     authority_records, coordinate_records = _v2_vertex_records(
         source_by_id,
         base_node_by_id,

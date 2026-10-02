@@ -25,7 +25,12 @@
    = UV-петли, плоскость до 1e-5, площадь граней меша равна точной площади батча, а любая
    триангуляция, которую Blender выбрал для показа, даёт ту же UV-интерполяцию на всех
    петлях грани (аффинность UV, а не совпадение вершин);
-10. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
+10. СКЛАДКА 90°: два патча (пол и стена) через общий шов дают на общей цепи ОДНУ вершину
+   на станцию (вершины общего шва сварены по семантической ссылке при побитово равных
+   позициях), смещение общей вершины — митра (пересечение сдвинутых плоскостей двух
+   доменов), каждая грань остаётся на сдвинутой плоскости СВОЕГО домена (плоская в
+   пределах 1e-5), а общее ребро — шов UV между гранями двух доменов;
+11. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
    создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
    нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
    («context is incorrect»), поэтому проверяется именно эта последовательность.
@@ -54,6 +59,7 @@ for module_name in tuple(sys.modules):
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_envelope_debug_bridge import (  # noqa: E402
     _build_two_patch_seam,
+    _enter_edge_selection,
     _reset_scene,
 )
 
@@ -532,6 +538,98 @@ def _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation(
     print("CONCAVE polygon of", len(polygon.vertices), "vertices:", len(triangles), "display triangles")
 
 
+def _build_folded_two_patch_seam():
+    """Пол `z = 0` и стена `x = 1` под 90°: складка внутрь комнаты, шов — общее ребро `(1,0,0)-(1,1,0)`.
+
+    Обход таков, что общее ребро идёт в гранях в противоположные стороны (многообразие), а нормали
+    обоих патчей — `+z` и `-x` — смотрят в одну сторону складки (внутрь угла).
+    """
+
+    mesh = bpy.data.meshes.new("EnvelopeFoldMesh")
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (1.0, 0.0, 1.0),
+        (1.0, 1.0, 1.0),
+    ]
+    mesh.from_pydata(vertices, (), [(0, 1, 2, 3), (1, 4, 5, 2)])
+    mesh.update()
+    shared = None
+    for edge in mesh.edges:
+        if set(edge.vertices) == {1, 2}:
+            edge.use_seam = True
+            shared = edge.index
+    assert shared is not None
+    obj = bpy.data.objects.new(SOURCE, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    _enter_edge_selection(obj, (shared,))
+    return obj
+
+
+def _run_a_fold_welds_the_shared_chain_into_single_vertices():
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    _reset_scene()
+    _build_folded_two_patch_seam()
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    settings.envelope_debug_alpha = 0.25
+    settings.envelope_debug_workers = 0
+    offset = 0.02
+    _decal_settings().offset = offset
+    decal = _press()
+    status = _decal_settings().status
+    assert status == "MATERIALIZED 2 / refused 0", status
+    mesh = decal.data
+    domain = mesh.attributes["cftuv_domain"].data
+    assert {item.value for item in domain} == {0, 1}
+
+    # Общая цепь: вершины исходника (1,0,0) и (1,1,0). Над каждой — ОДНА вершина декали,
+    # в точке митры `(1 - d, y, d)`: пересечение плоскостей `z = d` (пол) и `x = 1 - d` (стена).
+    shared = []
+    for y in (0.0, 1.0):
+        expected = (1.0 - offset, y, offset)
+        hits = [
+            item.index
+            for item in mesh.vertices
+            if all(abs(a - b) < 1e-6 for a, b in zip(item.co, expected))
+        ]
+        assert len(hits) == 1, (expected, hits)
+        shared.append(hits[0])
+
+    # Каждая грань лежит на сдвинутой плоскости СВОЕГО домена (и плоская).
+    for polygon, value in zip(mesh.polygons, domain):
+        for index in polygon.vertices:
+            x, _y, z = mesh.vertices[index].co
+            if value.value == 0:
+                assert abs(z - offset) < 1e-5, (polygon.index, z)
+            else:
+                assert abs(x - (1.0 - offset)) < 1e-5, (polygon.index, x)
+    _assert_faces_follow_the_quad_strip_law(mesh, require_quads=False)
+
+    # Общее ребро — ребро двух граней РАЗНЫХ доменов и шов UV: дыры вдоль складки нет.
+    edge = next(item for item in mesh.edges if set(item.vertices) == set(shared))
+    users = [
+        value.value
+        for polygon, value in zip(mesh.polygons, domain)
+        if set(shared) <= set(polygon.vertices)
+    ]
+    assert sorted(users) == [0, 1], users
+    assert edge.use_seam
+    # Ни одного ребра вдоль общей цепи, открытого с одной стороны.
+    open_on_chain = [
+        item
+        for item in mesh.edges
+        if set(item.vertices) <= set(shared)
+        and sum(1 for polygon in mesh.polygons if set(item.vertices) <= set(polygon.vertices)) == 1
+    ]
+    assert not open_on_chain
+    return decal
+
+
 def _main():
     import cftuv
 
@@ -552,6 +650,7 @@ def _main():
     _run_undo_leaves_a_consistent_scene_and_the_next_press_works()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
+    _run_a_fold_welds_the_shared_chain_into_single_vertices()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()

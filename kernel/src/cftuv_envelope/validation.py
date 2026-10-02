@@ -476,14 +476,14 @@ def validate_chain_straight_evaluation_geometry_binding(
                 assignment.selected_k
                 != assignment.unconstrained_canonical_k
             )
-            excess_named = (
-                assignment.disposition
-                is ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
-            )
+            # `CLAMPED_CONSTRAINT_EXCESS_ALLOWED` снят: зажим сверх полушага
+            # строитель либо снимает измельчением решётки, либо отказывает
+            # именованно (`CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED`), и
+            # запись с этим исходом валидатор не принимает. Член перечисления
+            # остаётся ради чтения старых записей.
             expected_dispositions = (
                 {
                     ChainStraightAssignmentDispositionV2.CLAMPED_WITHIN_HALF_STEP,
-                    ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED,
                 }
                 if assignment.clamped
                 else {
@@ -506,7 +506,6 @@ def validate_chain_straight_evaluation_geometry_binding(
                 or not assignment.lower_k
                 <= assignment.selected_k
                 <= assignment.upper_k
-                or excess_named and not assignment.clamped
                 or assignment.disposition not in expected_dispositions
                 or assignment.assigned_refined_node != expected_node
                 or authority is None

@@ -18,6 +18,7 @@ import math
 
 import pytest
 
+from cftuv_envelope.materialize import domain
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.outcomes import NamedOutcome
 from cftuv_envelope.planar_metric import fraction_from_exact
@@ -167,15 +168,18 @@ def test_the_metric_check_is_not_vacuous_on_the_skew_chart():
 
 
 @pytest.mark.parametrize("name", CASES)
-def test_the_strip_texels_are_isotropic_u_and_v_are_one_length_alpha(name):
+def test_the_strip_texels_are_isotropic_u_and_v_are_one_length_alpha(name, monkeypatch):
     """`uv_law.py` утверждает: единица `u` и единица `v` — одна и та же длина.
 
     Якобиан `(u, v) -> 3D` каждого невырожденного треугольника полосы: обе
     колонки длиной `alpha` и перпендикулярны. Это следствие согласованной
     метрики `s` и `r`, а не отдельное свойство закона: ошибка метрики в любой из
-    двух координат сломала бы его.
+    двух координат сломала бы его. Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` двигает
+    вершины `src:` на долю ячейки источника и тем возмущает якобиан на ту же долю, поэтому
+    согласованность метрики проверяется на позициях подъёма (закон выключен).
     """
 
+    monkeypatch.setattr(domain, "host_positions_of", lambda snapshot: {})
     prepared, coverage, _request = _case(name)
     batch = _run(name).batch
     alpha = float(_alpha_decimal(coverage))

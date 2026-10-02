@@ -39,6 +39,11 @@ EXPECTED_R_MIN = {
     "building_all_seams_patch_011_lost_resolved_v1": 2,
     "building_all_seams_patch_105_lost_resolved_v1": 1,
 }
+#: Патч 105 — единственный случай квитанции A3 с зажимом `CLAMPED_CONSTRAINT_EXCESS_ALLOWED`.
+#: Закон снят (измельчение до отсутствия зажима либо именованный отказ): продукт берёт
+#: `r_min + 1`, и построчное сравнение с ЗАМОРОЖЕННОЙ квитанцией для него не определено.
+RETIRED_CLAMP_CASE = "building_all_seams_patch_105_lost_resolved_v1"
+RETIRED_CLAMP_PRODUCT_R = 2
 EXPECTED_K_SEQUENCES = {
     "building_all_seams_patch_001_lost_resolved_v1": (
         (0, 3, 8),
@@ -54,7 +59,7 @@ EXPECTED_K_SEQUENCES = {
         (0, 1, 3, 4),
     ),
     "building_all_seams_patch_105_lost_resolved_v1": (
-        (0, 1, 2),
+        (0, 3, 4),
     ),
 }
 #: Терминал полевого случая. EXACT — фронт закрылся; иначе — ЧЕСТНЫЙ
@@ -294,6 +299,20 @@ def test_product_v2_matches_every_selected_a3_exact_assignment_row():
             kernel.ChainStraightEvaluationGeometryBindingV2
         )
         fixture = receipt_by_case[case_name]
+        if case_name == RETIRED_CLAMP_CASE:
+            assert binding.refinement_power == expected_r + 1 == RETIRED_CLAMP_PRODUCT_R
+            (retired_chain,) = binding.straight_chain_bindings
+            observed_sequences[case_name] = (_node_sequence(retired_chain),)
+            internal_row_count += len(retired_chain.internal_assignments)
+            retired_non_chain = sum(
+                1
+                for item in binding.vertex_authorities
+                if item.authority
+                is kernel.ChainStraightVertexAuthorityV2.BASE_BOUND_NON_CHAIN_V1
+            )
+            assert retired_non_chain == fixture["non_chain_vertex_count"]
+            non_chain_count += retired_non_chain
+            continue
         selected_attempt = next(
             item
             for item in fixture["attempts"]
@@ -439,40 +458,57 @@ def test_product_v2_matches_every_selected_a3_exact_assignment_row():
     assert non_chain_count == 83
 
 
-def test_patch105_has_the_sole_exact_named_clamp():
-    all_clamps = []
+def test_patch105_clamp_is_frozen_in_the_receipt_and_retired_in_the_product():
+    """Квитанция A3 хранит единственный зажим; продукт его уже не выдаёт и называет, чем снят."""
+
+    frozen = [
+        row
+        for fixture in _receipt()["fixtures"]
+        for attempt in fixture["attempts"]
+        if attempt["r"] == fixture["r_min"]
+        for chain in attempt["chain_attempts"]
+        for row in chain["canonical_gram_assignment"]["steps"]
+        if row["CLAMPED"]
+    ]
+    (frozen_clamp,) = frozen
+    assert frozen_clamp["boundary_disposition"] == (
+        "CLAMPED_CONSTRAINT_EXCESS_ALLOWED"
+    )
+    assert frozen_clamp["source_vertex_id"].endswith(":building:189")
+
+    product_clamps = []
     for case_name in EXPECTED_R_MIN:
         _, _, _, compilation = _load_case(case_name)
         binding = compilation.evaluation_geometry_binding
-        all_clamps.extend(
+        product_clamps.extend(
             item
             for chain in binding.straight_chain_bindings
             for item in chain.internal_assignments
             if item.clamped
         )
+    assert product_clamps == []
 
-    (clamp,) = all_clamps
-    assert clamp.source_vertex_id.value.endswith(":building:189")
-    assert _ratio_text(clamp.projection_k_gram) == (
-        "578633553271514/339894311513453"
+    _, _, _, compilation = _load_case(RETIRED_CLAMP_CASE)
+    (chain,) = compilation.evaluation_geometry_binding.straight_chain_bindings
+    (assignment,) = chain.internal_assignments
+    assert assignment.source_vertex_id.value.endswith(":building:189")
+    assert _ratio_text(assignment.projection_k_gram) == (
+        "1157267106543028/339894311513453"
     )
-    assert clamp.unconstrained_canonical_k == 2
-    assert (clamp.lower_k, clamp.upper_k, clamp.selected_k) == (1, 1, 1)
-    assert clamp.disposition is (
-        kernel.ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
+    assert assignment.unconstrained_canonical_k == 3
+    assert (assignment.lower_k, assignment.upper_k, assignment.selected_k) == (1, 3, 3)
+    assert assignment.disposition is (
+        kernel.ChainStraightAssignmentDispositionV2.UNCLAMPED_WITHIN_HALF_STEP
     )
-    assert _point_text(clamp.exact_offset_from_source) == [
-        "-27745503/451280896",
-        "-130742673/451280896",
+    assert _point_text(assignment.exact_offset_from_source) == [
+        "-15989467/902561792",
+        "-75346437/902561792",
     ]
-    assert _ratio_text(clamp.exact_gram_displacement_squared) == (
-        "8887499590674321/288230376151711744"
+    assert _ratio_text(assignment.exact_gram_displacement_squared) == (
+        "2951677620201361/1152921504606846976"
     )
-    assert _ratio_text(clamp.half_step_gram_squared_bound) == (
-        "18014398510213009/1152921504606846976"
-    )
-    assert _ratio_text(clamp.exact_longitudinal_displacement_k) == (
-        "238739241758061/339894311513453"
+    assert _ratio_text(assignment.exact_longitudinal_displacement_k) == (
+        "137584172002669/339894311513453"
     )
 
 

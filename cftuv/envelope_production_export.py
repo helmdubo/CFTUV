@@ -51,6 +51,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
+from .envelope_production_weld import (
+    COUNTER_WELD_GROUPS,
+    COUNTER_WELD_SEAMS_MARKED,
+    COUNTER_WELD_VERTICES_MERGED,
+    OUTCOME_WELD_MITER_FALLBACK,
+    OUTCOME_WELD_POSITION_MISMATCH,
+)
 from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
@@ -753,6 +760,15 @@ def receipt_console_lines(receipt, results) -> list[str]:
             + (f": {detail}" if detail else "")
         )
     lines.extend(diagnostic_summary_lines(results))
+    weld = dict(getattr(receipt, "weld_counters", ()) or ())
+    if weld.get(COUNTER_WELD_GROUPS):
+        lines.append(
+            f"[CFTUV][Production] WELD: {weld[COUNTER_WELD_GROUPS]} shared vertices "
+            f"({weld[COUNTER_WELD_VERTICES_MERGED]} domain vertices merged), "
+            f"{weld[COUNTER_WELD_SEAMS_MARKED]} fold seams, "
+            f"position mismatches {weld[OUTCOME_WELD_POSITION_MISMATCH]}, "
+            f"miter fallbacks {weld[OUTCOME_WELD_MITER_FALLBACK]}"
+        )
     lines.append(f"[CFTUV][Production] {receipt_status_text(receipt)}")
     return lines
 

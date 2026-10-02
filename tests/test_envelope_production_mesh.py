@@ -332,14 +332,21 @@ def _fake_domain(
     seams=(),
     source_normal=(0.0, 0.0, 1.0),
     counters=(),
+    refs=None,
 ):
-    """Батч минимального вида: только то, что читает писатель."""
+    """Батч минимального вида: только то, что читает писатель.
+
+    `refs` — `{ключ: семантическая ссылка}`: у вершин без записи ссылки нет (как у батча без неё).
+    """
 
     def vertex(key, xyz):
-        return SimpleNamespace(
+        item = SimpleNamespace(
             vert_key=SimpleNamespace(value=key),
             position=SimpleNamespace(x=xyz[0], y=xyz[1], z=xyz[2]),
         )
+        if refs and key in refs:
+            item.semantic_location_ref = SimpleNamespace(value=refs[key])
+        return item
 
     def face(index, keys, claim="claim:0"):
         return SimpleNamespace(
@@ -474,7 +481,9 @@ def test_vertices_weld_by_the_semantic_key_inside_a_domain_and_never_across_doma
     arrays = build_mesh_arrays([first, second], 0.0)
 
     # Четыре ключа на домен: диагональ делит `a` и `c`; одинаковые ключи и
-    # позиции соседнего домена НЕ сварены (ни по ключу, ни по расстоянию).
+    # позиции соседнего домена НЕ сварены (ни по ключу, ни по расстоянию):
+    # между доменами сваривает только семантическая ссылка `location:src:`,
+    # которой у этих вершин нет (см. тесты сварки ниже).
     assert len(arrays.positions) == 8
     assert arrays.faces[0] == (0, 1, 2) and arrays.faces[2] == (4, 5, 6)
     assert arrays.positions[:4] == arrays.positions[4:]
@@ -491,6 +500,119 @@ def test_two_distinct_keys_at_one_point_are_not_merged_by_distance():
 
     assert len(arrays.positions) == 4
     assert arrays.positions[0] == arrays.positions[1] == (0.0, 0.0, 0.0)
+
+
+# Складка: пол `z = 0` (нормаль `+z`) и стена `x = 1` (нормаль `-x`) делят ребро `a-b` исходника.
+FOLD_REFS = {"a": "location:src:host:A", "b": "location:src:host:B"}
+FLOOR = {"d": (0, 0, 0), "a": (1, 0, 0), "b": (1, 1, 0), "c": (0, 1, 0)}
+WALL = {"a": (1, 0, 0), "b": (1, 1, 0), "e": (1, 1, 1), "f": (1, 0, 1)}
+
+
+def _fold(wall_positions=None):
+    floor = _fake_domain(0, FLOOR, (("d", "a", "b"), ("d", "b", "c")), refs=FOLD_REFS)
+    wall = _fake_domain(
+        1,
+        wall_positions or WALL,
+        (("b", "a", "f"), ("b", "f", "e")),
+        normal=(-1.0, 0.0, 0.0),
+        source_normal=(-1.0, 0.0, 0.0),
+        refs=FOLD_REFS,
+    )
+    return [floor, wall]
+
+
+def test_two_domains_sharing_source_vertices_are_welded_with_the_miter_offset():
+    arrays = build_mesh_arrays(_fold(), 0.02)
+
+    # 4 + 4 вершины, две общие (`a`, `b`) сварены: 6 вершин меша.
+    assert len(arrays.positions) == 6
+    floor_a, floor_b = arrays.faces[0][1], arrays.faces[0][2]
+    # Стена идёт по тем же вершинам, в обратную сторону.
+    assert arrays.faces[2][:2] == (floor_b, floor_a)
+    # Митра: пересечение сдвинутых плоскостей `z = 0.02` и `x = 0.98` над точкой исходника.
+    assert arrays.positions[floor_a] == pytest.approx((1.0 - 0.02, 0.0, 0.02))
+    assert arrays.positions[floor_b] == pytest.approx((1.0 - 0.02, 1.0, 0.02))
+    counters = dict(arrays.weld_counters)
+    assert counters["ADAPTER_WELD_GROUPS"] == 2 and counters["ADAPTER_WELD_VERTICES_MERGED"] == 2
+    assert counters["ADAPTER_WELD_POSITION_MISMATCH"] == counters["ADAPTER_WELD_MITER_FALLBACK"] == 0
+    assert counters["ADAPTER_WELD_HALF_EDGE_CONFLICT"] == 0
+    assert not any(item[1].startswith("ADAPTER_WELD") for item in arrays.warnings)
+
+
+def test_every_face_of_a_welded_fold_stays_on_the_offset_plane_of_its_domain():
+    arrays = build_mesh_arrays(_fold(), 0.02)
+
+    for loop, domain in zip(arrays.faces, arrays.face_domain):
+        for index in loop:
+            x, _y, z = arrays.positions[index]
+            if domain == 0:
+                assert z == pytest.approx(0.02, abs=1e-12)
+            else:
+                assert x == pytest.approx(1.0 - 0.02, abs=1e-12)
+
+
+def test_the_welded_fold_edge_is_a_uv_seam_and_belongs_to_two_faces():
+    arrays = build_mesh_arrays(_fold(), 0.02)
+
+    shared = tuple(sorted((arrays.faces[0][1], arrays.faces[0][2])))
+    assert shared in arrays.seam_edges
+    assert dict(arrays.weld_counters)["ADAPTER_WELD_SEAMS_MARKED"] >= 1
+    users = [
+        number
+        for number, loop in enumerate(arrays.faces)
+        if {shared[0], shared[1]} <= set(loop)
+    ]
+    assert {arrays.face_domain[number] for number in users} == {0, 1}
+
+
+def test_positions_that_are_not_bitwise_equal_stay_separate_and_the_mismatch_is_a_warning():
+    nudged = dict(WALL)
+    nudged["a"] = (1.0 + 2.0**-40, 0.0, 0.0)
+
+    arrays = build_mesh_arrays(_fold(wall_positions=nudged), 0.02)
+
+    assert len(arrays.positions) == 7
+    counters = dict(arrays.weld_counters)
+    assert counters["ADAPTER_WELD_POSITION_MISMATCH"] == 1 and counters["ADAPTER_WELD_GROUPS"] == 1
+    assert [item[1] for item in arrays.warnings if item[1].startswith("ADAPTER_WELD")] == [
+        "ADAPTER_WELD_POSITION_MISMATCH"
+    ]
+
+
+def test_an_unfolded_domain_welds_with_its_vertex_normal_not_its_plane_normal():
+    from dataclasses import replace
+
+    floor, wall = _fold()
+    tilted = replace(
+        floor,
+        vertex_normals=tuple(
+            (key, (0.0, 0.0, 1.0) if key not in ("a", "b") else (0.0, -0.6, 0.8))
+            for key in FLOOR
+        ),
+        offset_normal_law="SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1",
+    )
+
+    arrays = build_mesh_arrays([tilted, wall], 1.0)
+
+    x, y, z = arrays.positions[arrays.faces[0][1]]
+    delta = (x - 1.0, y - 0.0, z - 0.0)
+    assert -0.6 * delta[1] + 0.8 * delta[2] == pytest.approx(1.0)
+    assert -delta[0] == pytest.approx(1.0)
+
+
+def test_a_cold_receipt_reports_the_weld_and_the_console_names_it(fake_bpy):
+    from cftuv.envelope_production_export import receipt_console_lines
+
+    source = _source(fake_bpy)
+
+    receipt = write_decal_object(source, _fold(), offset=0.02, material_name="M")
+
+    counters = dict(receipt.weld_counters)
+    assert counters["ADAPTER_WELD_GROUPS"] == 2 and receipt.vertices == 6
+    lines = receipt_console_lines(receipt, _fold())
+    assert any("WELD: 2 shared vertices (2 domain vertices merged)" in line for line in lines)
+    mesh = fake_bpy.data.objects.get(receipt.object_name).data
+    assert len(mesh.vertices) == 6 and receipt.seam_edges == receipt.seam_edges_requested
 
 
 def test_the_order_is_by_patch_and_key_and_the_digest_depends_on_the_offset():

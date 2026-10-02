@@ -89,6 +89,10 @@ COUNTER_KEYS = (
     "MATERIALIZE_SURFACE_LIFT_TRIANGLES",
     "MATERIALIZE_SURFACE_LIFT_DEGENERATE_PROJECTIONS",
     "MATERIALIZE_SURFACE_LIFT_CHART_VERTICES_SNAPPED",
+    "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+    "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+    "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE",
+    "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
     "STATION_RUNS",
     "STATION_EDGES",
     "STATION_UNNAMED_CHAINS",
@@ -114,6 +118,7 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
     "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
     "MATERIALIZE_MERGED_RUNS_KEPT_WHOLE",
+    "MATERIALIZE_QUADS_MAX_OFF_PLANE_NANOMETRES",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
@@ -137,8 +142,16 @@ ANSWER_KEYS = (
 )
 
 
-def compute_row(patch_id: int, density, topology: str = "TRIANGLES_V1"):
+def compute_row(
+    patch_id: int, density, topology: str = "TRIANGLES_V1", source_lift: str = "on"
+):
     ctx = pool_sweep._CTX
+    if source_lift == "off":
+        # Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` выключен (позиций хоста нет): батч
+        # обязан совпасть побитово с батчем до закона (ворота «закон — единственное изменение»).
+        from cftuv_envelope.materialize import domain as materialize_domain_module
+
+        materialize_domain_module.host_positions_of = lambda snapshot: {}
     canon = ctx["canon"]
     from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY
     from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
@@ -221,6 +234,10 @@ def _task(args):
     return compute_row(*args)
 
 
+def _source_lift_option(args) -> str:
+    return getattr(args, "source_lift", "on")
+
+
 def _git(*args: str) -> str:
     try:
         out = subprocess.run(
@@ -300,6 +317,7 @@ def run(args) -> dict:
         "tree_diff_hash": _git("diff", "--stat", "--", "cftuv", "kernel")[:80],
         "alpha": ALPHA_TEXT,
         "topology": args.topology,
+        "source_lift": _source_lift_option(args),
         "workers": args.workers,
         "python": sys.version.split()[0],
         "cores": os.cpu_count(),
@@ -310,13 +328,22 @@ def run(args) -> dict:
         started = time.perf_counter()
         if args.workers == 0:
             gate.init_worker(quiet=True)
-            rows = [compute_row(pid, density, args.topology) for pid in order]
+            rows = [
+                compute_row(pid, density, args.topology, _source_lift_option(args))
+                for pid in order
+            ]
         else:
             with ProcessPoolExecutor(
                 max_workers=args.workers, initializer=gate.init_worker
             ) as pool:
                 rows = list(
-                    pool.map(_task, [(pid, density, args.topology) for pid in order])
+                    pool.map(
+                        _task,
+                        [
+                            (pid, density, args.topology, _source_lift_option(args))
+                            for pid in order
+                        ],
+                    )
                 )
         wall = time.perf_counter() - started
         rows.sort(key=lambda row: row["patch_id"])
@@ -378,6 +405,13 @@ def main() -> int:
         "--topology",
         choices=("TRIANGLES_V1", "QUAD_STRIPS_V1", "PLANAR_POLYGONS_V1"),
         default="TRIANGLES_V1",
+    )
+    runner.add_argument(
+        "--source-lift",
+        dest="source_lift",
+        choices=("on", "off"),
+        default="on",
+        help="off: закон SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1 выключен (ворота равенства до закона)",
     )
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="+")

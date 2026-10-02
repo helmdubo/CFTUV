@@ -88,6 +88,7 @@ from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
+from .source_lift import host_positions_of, lift_source_vertices, rebind_offset_normals, source_step_of
 from .stations import chain_station_table, source_chain_by_span
 from .uv_law import UV_DIRECT_STRIP_V1
 
@@ -166,8 +167,9 @@ def _diagnostics(
     lift_law: NearPlanarLiftLawV1 = NearPlanarLiftLawV1.CERTIFIED_PLANE_V1,
     lift_note: str = "",
     gap_note: str = "",
+    sourced=None,
 ):
-    """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры."""
+    """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры, положение вершин `src:`."""
 
     result = []
 
@@ -210,6 +212,30 @@ def _diagnostics(
                 (),
                 gap_note,
             )
+    if sourced is not None and sourced.moved:
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1,
+            "domain",
+            (),
+            sourced.lifted_note(),
+        )
+    if sourced is not None and sourced.displaced:
+        add(
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.SOURCE_VERTEX_DISPLACED_BY_LATTICE,
+            "domain",
+            (),
+            sourced.displaced_note(),
+        )
+    if sourced is not None and sourced.kept_for_orientation:
+        add(
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION,
+            "domain",
+            (),
+            sourced.orientation_note(),
+        )
     for chain_id in sorted(table.restart_chain_ids):
         add(
             GeometryDiagnosticSeverity.WARNING,
@@ -492,6 +518,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     polygons, topology = settle_topology(
         frame_faces, cycles, polygons, names, law, tally
     )
+    sourced = lift_source_vertices(
+        positions,
+        [polygon for face in polygons for polygon in face],
+        host_positions_of(prepared.context.snapshot),
+        source_step_of(prepared.context.frame),
+    )
+    rebind_offset_normals(plane, positions, sourced)
+    positions = sourced.positions
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles,
@@ -519,6 +553,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             admission.lift_law,
             plane.note(),
             plane.gap_note(),
+            sourced,
         ),
     )
     batch = replace(
@@ -528,7 +563,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         ),
     )
     clock.lap("ASSEMBLE")
-    return batch, frame_faces, plane.counters(), plane, topology
+    return batch, frame_faces, (*plane.counters(), *sourced.counters()), plane, topology
 
 
 def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built:
