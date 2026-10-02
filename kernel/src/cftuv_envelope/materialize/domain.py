@@ -566,14 +566,17 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     )
     clipped = _is_clipped(admission)
     tally = Counter()
-    # Под резкой многоугольник доказан простым и аффинным по UV на карте (как на плоскости), а
-    # плоскими в 3D его делает резка: каждый кусок лежит в одном треугольнике источника.
+    # Под резкой на вход идут многоугольники `PLANAR_POLYGONS_V1` при ЛЮБОМ запрошенном законе (целый
+    # простой многоугольник с аффинной UV, как на плоскости), а плоскими в 3D их делает резка: каждый
+    # кусок лежит в одном треугольнике источника. Закон топологии решает потом только форму кусков,
+    # поэтому вершины `clip:`, цепи и семантический дайджест у законов одни и те же.
+    tessellation_law = DecalTopologyLawV1.PLANAR_POLYGONS_V1 if clipped else law
     polygons = tessellate_faces(
         frame_faces,
         cycles,
         budget,
         reverse=chart_cw,
-        law=law,
+        law=tessellation_law,
         exact_plane=_on_exact_plane(admission) or clipped,
         tally=tally,
         uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
@@ -599,11 +602,11 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     positions, names = _lifted(plane, points, cut)
     if cut is not None:
         points = {**points, **cut.points}
-        # Счёт закона топологии идёт по ТЕССЕЛЯЦИИ; режет и называет куски резка, поэтому
+        # Счёт закона топологии идёт по ТЕССЕЛЯЦИИ (входу резки); режет и называет куски резка, поэтому
         # здесь ни один многоугольник не делится по записи об источнике.
         names = {key: (None, None) for key in names}
     polygons, topology = settle_topology(
-        frame_faces, cycles, polygons, names, law, tally
+        frame_faces, cycles, polygons, names, tessellation_law, tally
     )
     polygons, sourced, faces_after = _at_host_positions(
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw

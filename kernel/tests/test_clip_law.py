@@ -468,16 +468,18 @@ def test_the_chains_of_the_clipped_domain_are_the_plain_chains_plus_clip_vertice
 
 @pytest.mark.parametrize("name", sorted(DOMAINS))
 def test_the_clipped_domain_is_the_same_for_the_other_topology_laws_up_to_the_faces(name):
-    """Закон топологии решает форму кусков: треугольники, четырёхгранья либо многоугольники; кусок остаётся в треугольнике.
+    """Закон топологии решает форму кусков (треугольники, четырёхгранья, многоугольники) и больше ничего.
 
-    Вершины `clip:` у законов могут различаться: под `TRIANGLES_V1` режутся УШИ контура, а их диагонали
-    тоже пересекают рёбра источника. Общее — доказательство (каждая грань в одном замкнутом треугольнике)
-    и закрытая сетка (аудит ядра не отказал).
+    Резка берёт многоугольники `PLANAR_POLYGONS_V1` при любом законе, поэтому вершины `clip:`, их позиции,
+    цепи, факты и СЕМАНТИЧЕСКИЙ ДАЙДЖЕСТ у законов одни (`TessellationDigestEquivalence`), число
+    треугольников как сумма `n - 2` то же, а каждая грань лежит в одном замкнутом треугольнике.
     """
 
+    reference = pair(name)[1]
     _plain, _cut, parts = pair(name)
     triangles = triangles_3d(parts)
     tolerance = max(SURFACE_TOLERANCE[name], 1e-6)
+    positions = lambda batch: {item.vert_key.value: item.position for item in batch.vertices}
     for law in (TRIANGLES, QUADS):
         _plain, cut, _parts = pair(name, law)
         assert cut.is_materialized, (name, law, cut.detail)
@@ -485,6 +487,13 @@ def test_the_clipped_domain_is_the_same_for_the_other_topology_laws_up_to_the_fa
         assert sizes == {3} if law is TRIANGLES else sizes <= {3, 4}
         for points in face_points(cut.batch):
             assert any(in_closed_triangle(points, triangle, tolerance) for triangle in triangles)
+        assert positions(cut.batch) == positions(reference.batch)
+        assert cut.batch.semantic_digest == reference.batch.semantic_digest
+        assert cut.batch.boundary_chains == reference.batch.boundary_chains
+        assert cut.batch.interface_chains == reference.batch.interface_chains
+        assert cut.batch.station_facts == reference.batch.station_facts
+        assert dict(cut.counters)["MATERIALIZE_TRIANGLES"] == dict(reference.counters)["MATERIALIZE_TRIANGLES"]
+        assert cut.offset_normals_digest == reference.offset_normals_digest
 
 
 def test_a_domain_on_a_fold_gets_quads_where_the_plain_law_had_only_triangles():
