@@ -781,17 +781,79 @@ def test_the_batch_diagnostics_are_summarised_by_name_in_the_console():
     ]
 
 
-def test_the_operator_is_register_only_and_names_why_undo_is_dropped():
-    """`UNDO` — обещание отката; шаг BMesh в EDIT-режиме его не даёт (см. оператор)."""
+#: Операторы, которые создают либо удаляют датаблоки, пока источник в EDIT-режиме.
+#: Без шага отмены следующий Ctrl+Z переиспользует сцену как есть и освобождает
+#: созданные объекты — висячий указатель, падение Blender (воспроизведено в UI 4.5).
+EDIT_MODE_DATABLOCK_WRITERS = frozenset(
+    {
+        "hotspotuv.build_envelope_decal_mesh",
+        "hotspotuv.build_envelope_topology_debug",
+        "hotspotuv.build_exact_reference_envelope_debug",
+        "hotspotuv.build_envelope_debug",
+        "hotspotuv.clear_envelope_debug",
+    }
+)
+
+
+def _operator_options_by_idname(*paths):
+    """`bl_idname -> bl_options` по AST, с учётом примесей (`_EnvelopeDebugBuildBase`)."""
+
+    import ast
+
+    classes = {}
+    for path in paths:
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.ClassDef):
+                classes[node.name] = node
+
+    def attribute(node, name):
+        for item in node.body:
+            if isinstance(item, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == name
+                for target in item.targets
+            ):
+                try:
+                    return ast.literal_eval(item.value)
+                except ValueError:  # не литерал (`bl_idname = ADDON_PACKAGE`)
+                    return None
+        for base in node.bases:
+            parent = classes.get(getattr(base, "id", None))
+            found = None if parent is None else attribute(parent, name)
+            if found is not None:
+                return found
+        return None
+
+    found = {}
+    for node in classes.values():
+        idname = attribute(node, "bl_idname")
+        if idname is not None:
+            found[idname] = attribute(node, "bl_options") or set()
+    return found
+
+
+def test_operators_that_write_datablocks_from_edit_mode_declare_undo():
+    """Шаг отмены после оператора заставляет Blender записать memfile с созданными ID.
+
+    Иначе Ctrl+Z декодирует предыдущий memfile с переиспользованием «неизменившейся»
+    сцены, которая всё ещё ссылается на освобождённый объект (см. `UNDO_REQUIRED_REASON`
+    и запись DECISIONS от 2026-10-03).
+    """
 
     from pathlib import Path
 
-    source = (
-        Path(__file__).resolve().parents[1] / "cftuv" / "envelope_production_operator.py"
-    ).read_text(encoding="utf-8")
-    assert 'bl_options = {"REGISTER"}' in source
-    assert '"UNDO"' not in source.split("class HOTSPOTUV_OT_BuildEnvelopeDecalMesh")[1]
-    assert "UNDO_DROPPED_REASON" in source
+    package = Path(__file__).resolve().parents[1] / "cftuv"
+    options = _operator_options_by_idname(
+        package / "envelope_production_operator.py", package / "operators.py"
+    )
+    missing = sorted(EDIT_MODE_DATABLOCK_WRITERS - set(options))
+    assert not missing, f"операторы не найдены: {missing}"
+    without_undo = sorted(
+        name for name in EDIT_MODE_DATABLOCK_WRITERS if "UNDO" not in options[name]
+    )
+    assert not without_undo, f"без флага UNDO: {without_undo}"
+    source = (package / "envelope_production_operator.py").read_text(encoding="utf-8")
+    assert "UNDO_REQUIRED_REASON" in source and "memfile" in source
+    assert "UNDO_DROPPED_REASON" not in source
 
 
 # --------------------------------------------------------------------------

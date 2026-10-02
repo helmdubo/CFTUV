@@ -34,10 +34,14 @@
    (вершины, середины рёбер, центр) отстоит от поверхности источника не дальше смещения, грани
    от четырёх вершин есть, а красный контроль (укладка без резки) уходит хордой в стену
    глубже смещения на сантиметры;
-12. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
-   создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
-   нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
-   («context is incorrect»), поэтому проверяется именно эта последовательность.
+12. ОТМЕНА: оператор — REGISTER|UNDO (`UNDO_REQUIRED_REASON`). Нажатие в EDIT-режиме,
+   выход в OBJECT БЕЗ шага отмены (`undo=False` — как Ctrl+Z владельца сразу после
+   кнопки), затем `ed.undo`: декали нет, ни коллекции сцены, ни слой не ссылаются на
+   освобождённый объект (сравнение указателей без разыменования), перестройка
+   депсграфа (`view_layer.update()`, место падения) проходит; `ed.redo` возвращает
+   декаль; следующее нажатие работает. То же — для кнопки отладки Envelope (GP-объект)
+   и кнопки Clear. Без флага UNDO эта последовательность роняла Blender 4.5 в UI
+   (`DepsgraphNodeBuilder::build_materials` на висячем объекте).
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -314,8 +318,13 @@ def _run_a_long_source_name_never_multiplies_the_decal():
     assert first.data.name == wanted
 
 
-def _press_named(source):
-    result = bpy.ops.hotspotuv.build_envelope_decal_mesh()
+def _press_named(source, *, undo=False):
+    # `True` первым аргументом — как нажатие кнопки в UI: оператор кладёт свой шаг
+    # отмены. Вызов из Python без него шага не кладёт (`bpy.ops`, `C_undo=False`).
+    if undo:
+        result = bpy.ops.hotspotuv.build_envelope_decal_mesh(True)
+    else:
+        result = bpy.ops.hotspotuv.build_envelope_decal_mesh()
     assert result == {"FINISHED"}, result
     found = [item for item in _decal_objects() if item.parent == source]
     assert len(found) == 1, [item.name for item in _decal_objects()]
@@ -346,14 +355,14 @@ def _run_an_adapter_skip_reaches_the_status_line():
     assert export.receipt_report_level  # уровень отчёта — по квитанции (см. host-тест)
 
 
-def _run_the_operator_is_register_only_with_a_named_reason():
+def _run_the_operator_declares_undo_with_a_named_reason():
     from cftuv.envelope_production_operator import (
         HOTSPOTUV_OT_BuildEnvelopeDecalMesh,
-        UNDO_DROPPED_REASON,
+        UNDO_REQUIRED_REASON,
     )
 
-    assert set(HOTSPOTUV_OT_BuildEnvelopeDecalMesh.bl_options) == {"REGISTER"}
-    assert "BMesh" in UNDO_DROPPED_REASON
+    assert set(HOTSPOTUV_OT_BuildEnvelopeDecalMesh.bl_options) == {"REGISTER", "UNDO"}
+    assert "EDIT mode" in UNDO_REQUIRED_REASON and "memfile" in UNDO_REQUIRED_REASON
 
 
 def _walk_every_datablock():
@@ -366,44 +375,80 @@ def _walk_every_datablock():
         _ = (mesh.name, len(mesh.polygons), len(mesh.uv_layers))
 
 
-def _run_undo_leaves_a_consistent_scene_and_the_next_press_works():
-    source = _fresh_scene()
-    seam = [edge.index for edge in source.data.edges if edge.use_seam]
-    assert seam
+def _linked_object_pointers():
+    """Указатели объектов, на которые ссылаются коллекции сцены и слой: БЕЗ разыменования."""
+
+    pointers = set()
+
+    def visit(collection):
+        pointers.update(item.as_pointer() for item in collection.objects)
+        for child in collection.children:
+            visit(child)
+
+    visit(bpy.context.scene.collection)
+    pointers.update(item.as_pointer() for item in bpy.context.view_layer.objects)
+    return pointers
+
+
+def _assert_scene_links_only_live_objects():
+    """Висячий объект после отмены виден по указателю раньше, чем он уронит депсграф."""
+
+    live = {item.as_pointer() for item in bpy.data.objects}
+    dangling = _linked_object_pointers() - live
+    assert not dangling, f"the scene links {len(dangling)} object(s) bpy.data no longer owns"
+
+
+def _enable_background_undo(source):
+    """Фоновый Blender включает систему отмены явным шагом, а отменять она начинает
+    со ВТОРОГО: первый `undo_push` только инициализирует (`ed.undo.poll()`
+    остаётся ложным), второй — настоящий шаг."""
+
     bpy.ops.object.mode_set(mode="OBJECT")
-    # Фоновый Blender включает систему отмены явным шагом, а отменять она начинает
-    # со ВТОРОГО: первый `undo_push` только инициализирует (`ed.undo.poll()`
-    # остаётся ложным), второй — настоящий шаг.
     bpy.ops.ed.undo_push(message="initialize")
     bpy.ops.ed.undo_push(message="scene ready")
     assert bpy.ops.ed.undo.poll()
-    bpy.ops.object.mode_set(mode="EDIT")
-    _press_named(source)
-    assert len(_decal_objects()) == 1
-    bpy.ops.object.mode_set(mode="OBJECT")
+    seam = [edge.index for edge in source.data.edges if edge.use_seam]
+    assert seam
+    _enter_edge_selection(source, seam)
+    return seam
 
+
+def _undo_from_the_state_the_button_left():
+    """Выход из EDIT без шага отмены и отмена: как Ctrl+Z владельца сразу после
+    кнопки (`ed.undo` в EDIT-режиме фоновый Blender отказывает; `mode_set` из Python
+    шага не кладёт). Перестройка депсграфа — место падения без флага UNDO."""
+
+    bpy.ops.object.mode_set(mode="OBJECT")
     assert bpy.ops.ed.undo() == {"FINISHED"}
+    _assert_scene_links_only_live_objects()
+    bpy.context.view_layer.update()
     _walk_every_datablock()
-    survivors = _decal_objects()
-    print("UNDO_OBSERVED after_undo decals:", [item.name for item in survivors])
+
+
+def _redo_and_check():
+    assert bpy.ops.ed.redo() == {"FINISHED"}
+    _assert_scene_links_only_live_objects()
+    bpy.context.view_layer.update()
+    _walk_every_datablock()
+
+
+def _run_undo_after_a_press_in_edit_mode_keeps_the_scene_consistent():
+    source = _fresh_scene()
+    seam = _enable_background_undo(source)
+    _press_named(source, undo=True)
+    assert len(_decal_objects()) == 1
+
+    _undo_from_the_state_the_button_left()
+    assert not _decal_objects(), [item.name for item in _decal_objects()]
     source = bpy.data.objects[SOURCE]
     assert source.data is not None and len(source.data.polygons) == 2
-    assert all(item.data is not None for item in survivors)
 
-    try:
-        redone = bpy.ops.ed.redo()
-    except RuntimeError as exc:  # нечего повторять — тоже честный исход
-        redone = str(exc)
-    print("UNDO_OBSERVED redo:", redone, [item.name for item in _decal_objects()])
-    print(
-        "UNDO_OBSERVED meshes:",
-        sorted((item.name, item.users) for item in bpy.data.meshes),
-    )
-    _walk_every_datablock()
+    _redo_and_check()
+    redone = _decal_objects()
+    assert len(redone) == 1, [item.name for item in redone]
+    print("UNDO_OBSERVED redo restored:", redone[0].name, "mode", bpy.context.mode)
 
     source = bpy.data.objects[SOURCE]
-    from test_envelope_debug_bridge import _enter_edge_selection
-
     bpy.context.view_layer.objects.active = source
     if source.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
@@ -412,6 +457,34 @@ def _run_undo_leaves_a_consistent_scene_and_the_next_press_works():
     assert decal.parent == source and len(_decal_objects()) == 1
     assert decal.data.uv_layers.get("UVMap") is not None
     _walk_every_datablock()
+
+
+def _run_undo_after_the_debug_button_and_after_clear_keeps_the_scene_consistent():
+    """Кнопка отладки создаёт GP-объект, материалы и тексты из EDIT-режима; Clear удаляет их."""
+
+    from cftuv.envelope_debug_renderer import envelope_debug_object_name
+
+    source = _fresh_scene()
+    _enable_background_undo(source)
+    assert bpy.ops.hotspotuv.build_exact_reference_envelope_debug(True) == {"FINISHED"}
+    gp_name = envelope_debug_object_name(source)
+    assert gp_name in bpy.data.objects
+
+    _undo_from_the_state_the_button_left()
+    assert gp_name not in bpy.data.objects
+    _redo_and_check()
+    assert gp_name in bpy.data.objects
+
+    assert bpy.ops.hotspotuv.clear_envelope_debug(True) == {"FINISHED"}
+    assert gp_name not in bpy.data.objects
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    assert bpy.ops.ed.undo() == {"FINISHED"}
+    _assert_scene_links_only_live_objects()
+    bpy.context.view_layer.update()
+    _walk_every_datablock()
+    assert gp_name in bpy.data.objects, "Clear must be undoable"
+    print("UNDO_OBSERVED debug button and Clear undo/redo clean; mode", bpy.context.mode)
 
 
 def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
@@ -770,8 +843,9 @@ def _main():
     _run_nothing_selected_is_refused_by_name()
     _run_a_long_source_name_never_multiplies_the_decal()
     _run_an_adapter_skip_reaches_the_status_line()
-    _run_the_operator_is_register_only_with_a_named_reason()
-    _run_undo_leaves_a_consistent_scene_and_the_next_press_works()
+    _run_the_operator_declares_undo_with_a_named_reason()
+    _run_undo_after_a_press_in_edit_mode_keeps_the_scene_consistent()
+    _run_undo_after_the_debug_button_and_after_clear_keeps_the_scene_consistent()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     _run_a_fold_welds_the_shared_chain_into_single_vertices()

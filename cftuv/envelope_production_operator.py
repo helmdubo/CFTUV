@@ -16,19 +16,20 @@ UV, атрибуты граней). Здесь только Blender: выдел�
 `register_production_operator` зовётся из хука регистрации сессии, рядом с
 настройкой «Worker Python».
 
-ПОЧЕМУ НЕТ ФЛАГА UNDO (`UNDO_DROPPED_REASON`). Оператор работает, пока источник в
-EDIT-режиме (выделение берётся из BMesh), а шаг отмены в EDIT-режиме — шаг BMesh:
-он не отслеживает создание объекта и датаблоков. Что получается на деле, снято в
-фоновом Blender 4.5 (`tests/blender/test_envelope_production_mesh.py`: два
-`ed.undo_push` включают отмену, затем `ed.undo`/`ed.redo` в OBJECT-режиме;
-`ed.undo` в EDIT-режиме фоновый Blender отказывает: «context is incorrect»,
-поэтому отмена из EDIT-режима НЕ проверена): после выхода из EDIT-режима ОДИН
-шаг отмены убирает декаль вместе со всем сеансом редактирования, а повтор
-(`ed.redo`) объект НЕ возвращает. Висячих ссылок нет (обход всех датаблоков
-чист, осиротевших мешей после отката нет), следующее нажатие работает. Обещать
-отмену декаля отдельным шагом нечем, поэтому оператор — только REGISTER, как
-кнопки отладки Envelope (они тоже создают объекты из EDIT-режима). Пересборка
-заменяет меш, а лишний объект удаляется руками.
+ПОЧЕМУ ФЛАГ UNDO ОБЯЗАТЕЛЕН (`UNDO_REQUIRED_REASON`). Оператор работает, пока
+источник в EDIT-режиме, и создаёт датаблоки (объект, меш, материал). Без шага отмены
+после него следующий Ctrl+Z декодирует последний MEMFILE-шаг (Blender записал его при
+входе в EDIT) с повторным использованием «неизменившихся» ID: сцена и коллекция
+берутся как есть и всё ещё ссылаются на декаль, а объекта декали в том memfile нет —
+он освобождается, и Blender падает на висячем указателе в депсграфе
+(`DepsgraphNodeBuilder::build_materials`) либо в аутлайнере. Шаг отмены оператора —
+даже BMesh-шаг в EDIT-режиме — лечит это: `BKE_undosys_step_push` видит, что Main
+менялся после последней записи memfile (`is_memfile_undo_written`), и кладёт перед
+BMesh-шагом внутренний memfile-шаг с декалью; один Ctrl+Z убирает декаль, Ctrl+Shift+Z
+возвращает. Прежняя причина снятия флага («шаг BMesh не отслеживает создание
+объекта») была проверена только фоновым Blender из OBJECT-режима и была неверна:
+воспроизведение в UI Blender 4.5 — падение без флага, чистая отмена с флагом
+(DECISIONS, 2026-10-03). То же правило — у кнопок отладки Envelope (`operators.py`).
 """
 
 from __future__ import annotations
@@ -47,9 +48,11 @@ from .envelope_production_mesh import (
 )
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
-UNDO_DROPPED_REASON = (
-    "the operator runs in EDIT mode where an undo step is a BMesh step that does "
-    "not track object/datablock creation; undo/redo of the decal cannot be promised"
+UNDO_REQUIRED_REASON = (
+    "the operator creates datablocks while the source is in EDIT mode; without an "
+    "undo step the next undo reuses the scene unchanged and frees the decal object "
+    "(dangling pointer, crash in the depsgraph); the pushed step makes Blender write "
+    "the memfile that holds the decal"
 )
 
 
@@ -115,7 +118,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         "Materialize the exact Envelope coverage of the selected seams into "
         "one decal mesh object with UVs; every refused domain is named"
     )
-    bl_options = {"REGISTER"}
+    bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
@@ -238,7 +241,7 @@ __all__ = (
     "HOTSPOTUV_DecalMeshSettings",
     "HOTSPOTUV_OT_BuildEnvelopeDecalMesh",
     "SETTINGS_ATTRIBUTE",
-    "UNDO_DROPPED_REASON",
+    "UNDO_REQUIRED_REASON",
     "register_production_operator",
     "unregister_production_operator",
 )
