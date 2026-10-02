@@ -128,6 +128,7 @@ class TolerancePolicyIdV1(str, Enum):
         "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
     )
     CLIP_DIAGONAL_CHORD_DEPTH_V1 = "CLIP_DIAGONAL_CHORD_DEPTH_V1"
+    CORNER_JOIN_SOFT_BEND_THRESHOLD_V1 = "CORNER_JOIN_SOFT_BEND_THRESHOLD_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -196,6 +197,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     EXACT_CANONICALIZATION_TRANSACTION = "EXACT_CANONICALIZATION_TRANSACTION"
     SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
     SOURCE_FACE_CLIP_AT_DIAGONALS = "SOURCE_FACE_CLIP_AT_DIAGONALS"
+    CORNER_TREATMENT_BEFORE_COUNT_LAW = "CORNER_TREATMENT_BEFORE_COUNT_LAW"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -225,6 +227,7 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH = (
         "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
     )
+    JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN = "JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN"
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1299,6 +1302,51 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_clip_faces_law.py"
             "::test_a_piece_beyond_the_chord_budget_cuts_the_face_by_its_triangles_and_names_it"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CORNER_JOIN_SOFT_BEND_THRESHOLD_V1,
+        category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
+        value=_rational(Fraction(1, 6)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Порог мягкого излома ОДНОЙ цепи источника, доля π рефлексного избытка: 1/6 = 30°, тот же "
+            "CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера (решение владельца 2026-10-03). Вогнутый угол "
+            "между двумя кусками одной цепи хоста (общая запись `chain-source`), чей СЕРТИФИЦИРОВАННЫЙ "
+            "интервал δ/π лежит строго ниже порога, получает `k = 0` (митра прямого скелета) под законом "
+            "CORNER_JOIN_SOFT_BEND_V1, и материализатор ведёт полосу сквозь угол одним потоком (u "
+            "непрерывна, шва нет). Интервал поверх порога и угол от порога идут прежним законом счёта "
+            "под именами REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD / REFLEX_EXCESS_NOT_SOFT; каждый угол "
+            "несёт запись CornerTreatmentRecordV1, проверяющий пересчитывает её по сырому снапшоту."
+        ),
+        authority=(
+            "reference.corner_treatment.JOIN_THRESHOLD_OVER_PI; SelectionLaw.CORNER_JOIN_SOFT_BEND_V1; "
+            "DECISIONS.md 2026-10-03 (JOIN-FLOW: мягкий излом < 30° одной цепи — митра вместо фаски)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW,
+        allowed_effect=TolerancePolicyAllowedEffectV1.JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN,
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "STATION_JOIN_CORNERS",
+            "STATION_FLOWS",
+            "STATION_SKIP_JOIN_CORNER_NOT_ADJACENT",
+            "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
+            "MATERIALIZE_QUADS_UV_BILINEAR",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.reference.corner_treatment.JOIN_THRESHOLD_OVER_PI",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_corner_join.py"
+            "::test_a_soft_bend_in_one_source_chain_joins"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_corner_join.py"
+            "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
         ),
     ),
 )
