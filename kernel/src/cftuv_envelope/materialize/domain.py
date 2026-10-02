@@ -239,7 +239,7 @@ def _diagnostics(
             (),
             chords.placed_note(),
         )
-    if chords is not None and chords.skipped:
+    if chords is not None and (chords.skipped or chords.not_in_coverage):
         add(
             GeometryDiagnosticSeverity.WARNING,
             NamedOutcome.SOURCE_VERTEX_CHORD_STATION_SKIPPED,

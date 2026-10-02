@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -100,6 +101,7 @@ COUNTER_KEYS = (
     "MATERIALIZE_CHORD_STATIONS_NOT_IN_COVERAGE",
     "MATERIALIZE_CHORD_STATIONS_SKIPPED_NOT_MONOTONE",
     "MATERIALIZE_CHORD_STATIONS_SKIPPED_NODE_NAMES_ANOTHER_VERTEX",
+    "MATERIALIZE_CHORD_STATIONS_SKIPPED_SLIDE_BEYOND_HALF_STEP",
     "MATERIALIZE_CHORD_STATIONS_FACES_RESTATIONED",
     "STATION_RUNS",
     "STATION_EDGES",
@@ -405,18 +407,75 @@ def run(args) -> dict:
     return record
 
 
+#: Приставки счётчиков, которых вправе не быть в прежней записи (числа самого среза). Ничего короче этих
+#: приставок `--ignore-counters` не принимает: приставка `MATERIALIZE_` спрятала бы весь ответ.
+IGNORABLE_COUNTER_PREFIXES = ("MATERIALIZE_CHORD_STATIONS_",)
+
+#: Что вправе измениться у домена из `--expect-changed` (закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`),
+#: поимённо; ВСЁ прочее — исход, деталь, счётчики граней и четырёхгранья, закон топологии, уход от
+#: плоскости, возвраты сдвига по ориентации, диагностики — обязано совпасть.
+CHANGED_COUNTERS = (
+    "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+    "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+    # Подъём ищет треугольники для сдвинутых точек: числа поиска зависят от положения точки.
+    "MATERIALIZE_SURFACE_LIFT_PREDICATES",
+    "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES",
+)
+#: Диагностики, чьи строки вправе появиться, исчезнуть либо смениться числами: сам закон и закон
+#: положения хоста (счёт подвинутых и оставленных вершин).
+CHANGED_DIAGNOSTICS = (
+    "SOURCE_VERTEX_STATIONED_ON_CHORD_V1",
+    "SOURCE_VERTEX_CHORD_STATION_SKIPPED",
+    "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
+    "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
+)
+#: Числа в строках `NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES` и `SOURCE_EDGES_LIFTED_ONTO_SURFACE`, которые
+#: считает подъём по новым точкам; остальные числа этих строк обязаны совпасть.
+LIFT_SEARCH_NUMBERS = re.compile(
+    r" (?:extrapolated_points|max_outside_cells|continuation_ambiguous_points"
+    r"|continuation_exact_ties|predicates|divisions)=\S+"
+)
+
+
+def _ignored(key: str, ignore_counters) -> bool:
+    return any(
+        key == item or (item in IGNORABLE_COUNTER_PREFIXES and key.startswith(item))
+        for item in ignore_counters
+    )
+
+
 def _answer_view(row: dict, across_topology: bool, ignore_counters=()) -> dict:
     """Поля строки, которые обязаны совпасть; между законами — без закон-зависимого."""
 
     view = {key: row.get(key) for key in ANSWER_KEYS}
     if across_topology:
         view.pop("content_digest")
+    else:
+        # Числа закона топологии (грани, четырёхгранья, уход от плоскости) — тоже ответ, пока закон один.
+        view["topology_counters"] = row.get("topology_counters")
     skipped = LAW_DEPENDENT_COUNTERS if across_topology else ()
     view["counters"] = {
         key: value
         for key, value in (row.get("counters") or {}).items()
-        if key not in skipped and not key.startswith(tuple(ignore_counters))
+        if key not in skipped and not _ignored(key, ignore_counters)
     }
+    return view
+
+
+def _changed_view(row: dict) -> dict:
+    """Ответ домена БЕЗ того, что закон вправе менять (списки `CHANGED_*`): остаток обязан совпасть."""
+
+    view = _answer_view(row, False, IGNORABLE_COUNTER_PREFIXES)
+    view.pop("semantic_digest")
+    view.pop("content_digest")
+    view["counters"] = {
+        key: value for key, value in view["counters"].items() if key not in CHANGED_COUNTERS
+    }
+    view["diagnostics"] = [
+        LIFT_SEARCH_NUMBERS.sub("", line)
+        for line in (view["diagnostics"] or [])
+        if line.split(":", 1)[0] not in CHANGED_DIAGNOSTICS
+    ]
     return view
 
 
@@ -434,8 +493,11 @@ def compare(
 
     Для среза, который меняет ответ осознанно (закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`): дайджест
     сдвигается ровно у перечисленных доменов (иначе проблема: срез тронул лишнее либо не дошёл), а у
-    остальных совпадает всё. Поля перечисленных доменов не сравниваются: их различие и есть срез.
-    `ignore_counters` — приставки имён счётчиков, которых в прежней записи нет (числа самого среза).
+    остальных совпадает всё. У перечисленных доменов сравнение НЕ отключено: исход, деталь, грани,
+    четырёхгранья, закон топологии, уход от плоскости, возвраты по ориентации и все счётчики, кроме
+    поимённого списка `CHANGED_COUNTERS` и приставки закона, обязаны совпасть; диагностики — кроме строк
+    `CHANGED_DIAGNOSTICS` и чисел поиска подъёма (`LIFT_SEARCH_NUMBERS`). `ignore_counters` — точные
+    имена либо приставки из `IGNORABLE_COUNTER_PREFIXES` (чисел, которых в прежней записи нет).
     """
 
     records = [json.loads(Path(item).read_text(encoding="utf-8")) for item in paths]
@@ -452,6 +514,13 @@ def compare(
                 if expected is not None and patch in expected:
                     if not _digests_moved(left[patch], right[patch]):
                         problems.append(f"{path} d{density} patch{patch}: expected change is absent")
+                    elif not right[patch].get("semantic_digest"):
+                        # Пустой дайджест — отказ, а не сдвиг ответа.
+                        problems.append(f"{path} d{density} patch{patch}: semantic_digest is empty")
+                    first, second = _changed_view(left[patch]), _changed_view(right[patch])
+                    for key in first:
+                        if first[key] != second[key]:
+                            problems.append(f"{path} d{density} patch{patch}: {key} differs beyond the law")
                     continue
                 first = _answer_view(left[patch], across_topology, ignore_counters)
                 second = _answer_view(right[patch], across_topology, ignore_counters)
@@ -502,12 +571,15 @@ def main() -> int:
     comparer.add_argument(
         "--ignore-counters",
         default="",
-        help="приставки имён счётчиков через запятую, которых нет в прежней записи (числа самого среза)",
+        help="точные имена счётчиков либо приставка MATERIALIZE_CHORD_STATIONS_ через запятую (числа самого среза)",
     )
     args = parser.parse_args()
     if args.command == "compare":
         expected = None if args.expect_changed is None else [int(x) for x in args.expect_changed.split(",") if x]
         ignored = tuple(item for item in args.ignore_counters.split(",") if item)
+        for item in ignored:
+            if item not in COUNTER_KEYS and item not in IGNORABLE_COUNTER_PREFIXES:
+                parser.error(f"--ignore-counters: {item!r} is neither a counter name nor an allowed prefix")
         return compare(args.paths, args.across_topology, expected, ignored)
     record = run(args)
     Path(args.out).write_text(

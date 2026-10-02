@@ -424,9 +424,6 @@ def test_every_source_vertex_of_a_field_domain_is_lifted_or_named(name):
         == len(sources)
     )
     assert len(at_host) == counters[LIFTED] > 0
-    # Ни одной вершины, оставленной на подъёме узла: внутренности прямых цепей встают на хорду
-    # (`SOURCE_VERTEX_STATIONED_ON_CHORD_V1`), а не остаются на узле в метрах от своей позиции.
-    assert counters[DISPLACED] == 0
     named = {item.outcome for item in result.batch.diagnostics}
     assert NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1 in named
 

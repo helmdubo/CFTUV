@@ -530,8 +530,9 @@ def _refined_chain_bindings(
     перестаёт упираться в соседа. Не вышло до потолка `r` — именованный отказ
     `CHAIN_STRAIGHT_BINDING_DISPLACEMENT_EXCEEDED` с числами худшего зажима. Точная
     рациональная посадка вершины на хорду здесь не берётся: загрузчик петель и ключ
-    `src:` требуют ЦЕЛЫЙ узел решётки (`stations._lattice_node`), а валидатор V2 —
-    целый `assigned_refined_node`.
+    `src:` в арранжементе требуют ЦЕЛЫЙ узел решётки (`stations.region_lattice_loops`,
+    `coalesce.lattice_node`), а валидатор V2 — целый `assigned_refined_node`. Вершину на
+    хорду ставит материализатор (`materialize/chord_station`, по `projection_k_gram`).
     """
 
     power = _minimum_refinement_power(chain_infos)
