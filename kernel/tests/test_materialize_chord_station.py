@@ -33,6 +33,7 @@ from cftuv_envelope.materialize.chord_station import (
     PLACED,
     SKIPPED_NODE_SHARED,
     SKIPPED_NOT_MONOTONE,
+    SKIPPED_SLIDE,
     TOTAL,
     ChordStationsV1,
 )
@@ -59,6 +60,7 @@ CHORD_COUNTERS = (
     NOT_IN_COVERAGE,
     SKIPPED_NOT_MONOTONE,
     SKIPPED_NODE_SHARED,
+    SKIPPED_SLIDE,
     FACES_RESTATIONED,
 )
 
@@ -180,7 +182,8 @@ def _numbers(result, names=CHORD_COUNTERS):
 
 def _accounted(numbers) -> bool:
     return numbers[TOTAL] == sum(
-        numbers[name] for name in (PLACED, AT_NODE, NOT_IN_COVERAGE, SKIPPED_NOT_MONOTONE, SKIPPED_NODE_SHARED)
+        numbers[name]
+        for name in (PLACED, AT_NODE, NOT_IN_COVERAGE, SKIPPED_NOT_MONOTONE, SKIPPED_NODE_SHARED, SKIPPED_SLIDE)
     )
 
 
@@ -384,6 +387,30 @@ def test_a_node_that_two_vertices_claim_is_not_stationed_under_a_foreign_name():
     assert any("NODE_NAMES_ANOTHER_VERTEX(1)" in line for line in result.diagnostics)
 
 
+@pytest.mark.parametrize("slide", [Fraction(3, 4), Fraction(-5, 8)])
+def test_a_station_farther_than_half_a_step_from_its_node_is_a_named_skip(slide):
+    """Привязка из кодека либо фикстуры может обещать больше, чем держит: полушаг проверяется точно."""
+
+    plain = _run(_oblique())
+    result = _run(_restationed(_oblique(), slide={"v2": slide}))
+
+    assert result.is_materialized, result.detail
+    numbers = _numbers(result)
+    assert numbers[SKIPPED_SLIDE] == numbers[TOTAL] == 1 and numbers[PLACED] == 0
+    assert _accounted(numbers)
+    assert any("chain:source:SLIDE_BEYOND_HALF_STEP(1)" in line for line in result.diagnostics)
+    assert result.batch.vertices == plain.batch.vertices and result.batch.faces == plain.batch.faces
+
+
+@pytest.mark.parametrize("slide", [Fraction(1, 2), Fraction(-1, 2)])
+def test_a_station_exactly_half_a_step_from_its_node_is_still_placed(slide):
+    result = _run(_restationed(_oblique(), slide={"v2": slide}))
+
+    assert result.is_materialized, result.detail
+    numbers = _numbers(result)
+    assert numbers[PLACED] == numbers[TOTAL] == 1 and numbers[SKIPPED_SLIDE] == 0
+
+
 def test_a_vertex_whose_node_no_face_reaches_is_counted_not_dropped():
     """Узла нет ни в одной грани: ставить нечего, и это число, а не молчание."""
 
@@ -394,6 +421,19 @@ def test_a_vertex_whose_node_no_face_reaches_is_counted_not_dropped():
     assert items == [] and stats.names == {}
     assert (stats.total, stats.placed, stats.not_in_coverage) == (1, 0, 1)
     assert _accounted(dict(stats.counters()))
+    # И диагностика, не только счёт: батч называет вершины, до которых не дошла ни одна грань.
+    lines: list = []
+    named = domain._diagnostics(
+        SimpleNamespace(regions=()),
+        SimpleNamespace(restart_chain_ids=()),
+        domain.PlanarityKind.PLANAR_EXACT,
+        lines,
+        chords=stats,
+    )
+    (item,) = [d for d in named if d.outcome is NamedOutcome.SOURCE_VERTEX_CHORD_STATION_SKIPPED]
+    assert item.severity is GeometryDiagnosticSeverity.WARNING
+    assert any("1 chain-internal source vertices have no face at their node" in line for line in lines)
+    assert not any(d.outcome is NamedOutcome.SOURCE_VERTEX_STATIONED_ON_CHORD_V1 for d in named)
 
 
 # --------------------------------------------------------------------------

@@ -26,7 +26,10 @@
   `NOT_IN_COVERAGE` — узел вершины ни в одной грани домена, ставить нечего.
 * `SKIPPED_NOT_MONOTONE` — станции цепи не строго возрастают между концами хорды (точная ничья на
   полушаге): цепь остаётся на узлах, диагностика называет её; `SKIPPED_NODE_NAMES_ANOTHER_VERTEX` — узел
-  вершины назван в привязке или в таблице станций другой вершиной: ставить под чужим именем нельзя.
+  вершины назван в привязке или в таблице станций другой вершиной: ставить под чужим именем нельзя;
+  `SKIPPED_SLIDE_BEYOND_HALF_STEP` — станция дальше полушага хорды от своего узла: привязка обещает
+  не больше полушага, но привязка могла прийти из кодека либо фикстуры, и обещание проверяется здесь
+  точно, а не принимается на веру.
 * Допусков закон не вводит: все сравнения точные, реестр допусков не меняется.
 """
 
@@ -53,8 +56,10 @@ SKIPPED_NOT_MONOTONE = "MATERIALIZE_CHORD_STATIONS_SKIPPED_NOT_MONOTONE"
 SKIPPED_NODE_SHARED = "MATERIALIZE_CHORD_STATIONS_SKIPPED_NODE_NAMES_ANOTHER_VERTEX"
 FACES_RESTATIONED = "MATERIALIZE_CHORD_STATIONS_FACES_RESTATIONED"
 
+SKIPPED_SLIDE = "MATERIALIZE_CHORD_STATIONS_SKIPPED_SLIDE_BEYOND_HALF_STEP"
 REASON_NOT_MONOTONE = "NOT_MONOTONE"
 REASON_NODE_SHARED = "NODE_NAMES_ANOTHER_VERTEX"
+REASON_SLIDE = "SLIDE_BEYOND_HALF_STEP"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +76,7 @@ class ChordStationsV1:
     faces: int = 0
     #: `((id цепи, причина, вершин), ...)` — цепи, оставленные на узлах.
     skipped: tuple = ()
-    #: Наибольший сдвиг среди поставленных, в шагах хорды (`Fraction`, не больше 1/2).
+    #: Наибольший сдвиг среди поставленных, в шагах хорды (`Fraction`; `SKIPPED_SLIDE` держит его не больше 1/2).
     largest_slide: Fraction = Fraction(0)
 
     def _skipped_vertices(self, reason: str) -> int:
@@ -85,6 +90,7 @@ class ChordStationsV1:
             (NOT_IN_COVERAGE, self.not_in_coverage),
             (SKIPPED_NOT_MONOTONE, self._skipped_vertices(REASON_NOT_MONOTONE)),
             (SKIPPED_NODE_SHARED, self._skipped_vertices(REASON_NODE_SHARED)),
+            (SKIPPED_SLIDE, self._skipped_vertices(REASON_SLIDE)),
             (FACES_RESTATIONED, self.faces),
         )
 
@@ -97,14 +103,24 @@ class ChordStationsV1:
         )
 
     def skipped_note(self) -> str:
-        shown = ", ".join(
-            f"{chain}:{reason}({count})" for chain, reason, count in self.skipped[:6]
-        )
-        more = len(self.skipped) - 6
-        return (
-            f"{len(self.skipped)} straight chains keep their internal vertices on lattice "
-            f"nodes: {shown}" + (f" (+{more} more)" if more > 0 else "")
-        )
+        """Что осталось на узлах и почему: цепи поимённо и вершины, до которых не дошла ни одна грань."""
+
+        parts = []
+        if self.skipped:
+            shown = ", ".join(
+                f"{chain}:{reason}({count})" for chain, reason, count in self.skipped[:6]
+            )
+            more = len(self.skipped) - 6
+            parts.append(
+                f"{len(self.skipped)} straight chains keep their internal vertices on lattice "
+                f"nodes: {shown}" + (f" (+{more} more)" if more > 0 else "")
+            )
+        if self.not_in_coverage:
+            parts.append(
+                f"{self.not_in_coverage} chain-internal source vertices have no face at their "
+                "node: nothing to station"
+            )
+        return "; ".join(parts)
 
 
 class _Target(NamedTuple):
@@ -122,12 +138,19 @@ def _station(item) -> Fraction:
     return Fraction(value.numerator, value.denominator)
 
 
-def _skip_reason(chain, stations, claims) -> str | None:
-    """Причина оставить цепь на узлах либо `None`: порядок станций строгий, узлы названы одной вершиной."""
+def _skip_reason(chain, assignments, stations, claims) -> str | None:
+    """Причина оставить цепь на узлах либо `None`: порядок строгий, сдвиг до полушага, узлы названы одной вершиной."""
 
     sequence = (Fraction(0), *stations, Fraction(chain.refined_endpoint_span_k))
     if any(after <= before for before, after in zip(sequence, sequence[1:])):
         return REASON_NOT_MONOTONE
+    # Не допуск, а обещание привязки (`longitudinal_half_step_bound_k`): ближайший узел хорды не дальше
+    # половины её шага; точное сравнение двух дробей.
+    if any(
+        abs(station - item.selected_k) > Fraction(1, 2)
+        for item, station in zip(assignments, stations)
+    ):
+        return REASON_SLIDE
     if any(
         len(claims[tuple(item.assigned_refined_node)]) != 1
         for item in chain.internal_assignments
@@ -164,7 +187,7 @@ def _plan(binding, table):
         assignments = sorted(chain.internal_assignments, key=lambda item: item.ordinal)
         stations = [_station(item) for item in assignments]
         total += len(assignments)
-        reason = _skip_reason(chain, stations, claims)
+        reason = _skip_reason(chain, assignments, stations, claims)
         if reason is not None:
             skipped.append((chain.physical_chain_id.value, reason, len(assignments)))
             continue
