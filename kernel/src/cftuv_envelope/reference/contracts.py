@@ -10,6 +10,7 @@ from ..contracts.envelopes import (
     CanonicalAngleRestorationCertificateV1,
     CanonicalReflexAngleRelationV1,
     CanonicalSubturnFanAuthorityV1,
+    CornerTreatmentRecordV1,
     EnvelopeSpec,
     ExactTurnSignV1,
 )
@@ -132,6 +133,9 @@ class ReferenceOutcome(str, Enum):
         "DENSITY_WINDOW_CHART_UNREPRESENTABLE"
     )
     DENSITY_SEALED_FAN_INVALID = "DENSITY_SEALED_FAN_INVALID"
+    # Запись обработки угла (`CORNER_TREATMENT_V1`) расходится с сырым
+    # снапшотом либо с сертификатом селекции (`reference/corner_treatment.py`).
+    CORNER_TREATMENT_INVALID = "CORNER_TREATMENT_INVALID"
     # Ящик вокруг ideal-веера не нашёл осуществимой точки за объявленный кап
     # уточнений. Это честное имя прежнего «UNDECIDABLE (BINDING_MONOTONE)»: тот
     # называл предикат, который никто не проверял, а не то, что кончилось.
@@ -230,6 +234,11 @@ class ReferenceEnvelopeCompilationV1:
     evaluation_binding_noise_records: frozenset[
         EvaluationBindingNoiseOnCanonicalAngleV1
     ] = frozenset()
+    # Обработка каждого вогнутого угла домена (`CORNER_TREATMENT_V1`): JOIN
+    # мягкого излома одной цепи либо прежний профиль, с причиной. Отдельная
+    # коллекция по той же причине, что и восстановления: сертификат селекции —
+    # замороженная запись закона счёта.
+    corner_treatments: frozenset[CornerTreatmentRecordV1] = frozenset()
 
 
 class EvaluationBindingNoiseLawV1(str, Enum):

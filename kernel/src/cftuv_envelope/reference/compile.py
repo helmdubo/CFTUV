@@ -90,6 +90,7 @@ from .canonical_fan_rays import (
     canonical_fan_rays_decision,
     canonical_fan_rays_diagnostics,
 )
+from .corner_treatment import resolve_corner_selection
 from .evaluation_binding_noise import (
     canonical_predecessor_ideal,
     evaluation_binding_noise_diagnostics,
@@ -1541,7 +1542,7 @@ def compile_reference_envelopes(
     components = set()
     component_by_use_sector = {}
     sector_id_by_use = {}
-    selection_certificates, canonical_angle_restorations = set(), set()
+    selection_certificates, canonical_angle_restorations, corner_treatments = set(), set(), set()
     specs_by_id = {}
     provenance_by_spec_id = {}
     strip_ids_by_use = {}
@@ -1632,27 +1633,18 @@ def compile_reference_envelopes(
             continue
         if not frozenset(sector.ordered_incident_chain_use_ids).issubset(local_use_ids):
             continue
-        angle_certificate = angle_certificates.get(relation.reflex_angle_certificate_id)
-        if angle_certificate is None or not isinstance(
-            angle_certificate.measure_payload, CertifiedReflexAngleMeasureV1
-        ):
-            return _failure(
-                ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-                f"CornerRelation {relation.corner_relation_id} lacks a certified numeric angle",
-            )
-        resolved_selection = _resolve_angular_profile_selection(
-            request,
-            angle_certificate.measure_payload,
-        )
-        if resolved_selection is None:
-            return _failure(
-                ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-                f"CornerRelation {relation.corner_relation_id} does not prove a unique angular profile",
-            )
-        hidden_count = resolved_selection.hidden_count
         selection_id = SelectionCertificateId(
             _stable_value("profile-selection", request.decal_request_id, relation.corner_relation_id)
         )
+        resolved_selection, treatment, failure = resolve_corner_selection(
+            request, relation, sector, angle_certificates.get(relation.reflex_angle_certificate_id),
+            selection_id, uses_by_id, chains_by_id, _resolve_angular_profile_selection,
+        )
+        if failure is not None:
+            return _failure(*failure)
+        corner_treatments.add(treatment)
+        hidden_count = resolved_selection.hidden_count
+        angle_certificate = angle_certificates[relation.reflex_angle_certificate_id]
         canonical_angle_restorations.update(_canonical_restoration_record(resolved_selection, relation, angle_certificate, selection_id))
         selection = AngularProfileSelectionCertificateV1(
             certificate_id=selection_id,
@@ -1977,6 +1969,7 @@ def compile_reference_envelopes(
         front_components=frozenset(components),
         profile_selection_certificates=frozenset(selection_certificates),
         canonical_angle_restorations=frozenset(canonical_angle_restorations),
+        corner_treatments=frozenset(corner_treatments),
         envelope_specs=all_specs,
         initial_front_spec=InitialFrontSpec(
             decal_request_id=request.decal_request_id,
