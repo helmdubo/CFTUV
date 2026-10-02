@@ -127,6 +127,7 @@ class TolerancePolicyIdV1(str, Enum):
     CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1 = (
         "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
     )
+    CLIP_DIAGONAL_CHORD_DEPTH_V1 = "CLIP_DIAGONAL_CHORD_DEPTH_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -194,6 +195,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     EXACT_CANONICALIZATION_MEMORY = "EXACT_CANONICALIZATION_MEMORY"
     EXACT_CANONICALIZATION_TRANSACTION = "EXACT_CANONICALIZATION_TRANSACTION"
     SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
+    SOURCE_FACE_CLIP_AT_DIAGONALS = "SOURCE_FACE_CLIP_AT_DIAGONALS"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -219,6 +221,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     CHANGE_COST_NEVER_THE_ANSWER = "CHANGE_COST_NEVER_THE_ANSWER"
     LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND = (
         "LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND"
+    )
+    KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH = (
+        "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
     )
 
 
@@ -1241,6 +1246,59 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_canonical_fan_rays.py"
             "::test_a_fan_that_breaks_the_subturn_guarantee_is_named_and_not_placed"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CLIP_DIAGONAL_CHORD_DEPTH_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 200)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Насколько кусок грани декали, лежащий в ОДНОЙ грани источника поперёк диагонали её "
+            "триангуляции, вправе отстоять от поверхности источника над той же точкой карты, чтобы "
+            "диагональ его не резала. Диагональ четырёхгранья — ребро триангуляции хоста, в меше "
+            "источника её нет, и закон SOURCE_FACES_CLIPPED_V1 режет только по рёбрам меша; но "
+            "непланарная грань даёт кусок со складкой, и его глубина (звучная оценка по выпуклой "
+            "оболочке вершин куска: излом `|k|·a·b/(a+b)` у четырёхгранья, `2ρ` у выпуклой грани из "
+            "трёх и более треугольников) не должна превышать допуск. Четверть смещения хоста "
+            "(0.02 м -> 5 мм). УМОЛЧАНИЕ, РЕШЕНИЕ ВЛАДЕЛЬЦА ЖДЁТ: число меняется одной строкой "
+            "константы. Ячейка, у которой хоть один кусок глубже допуска, режется по диагонали, как "
+            "под SOURCE_TRIANGLES_CLIPPED_V1 (названа счётчиком, наибольшая глубина записана); точно "
+            "планарная грань диагональю не режется никогда."
+        ),
+        authority=(
+            "materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET; NearPlanarLiftLawV1."
+            "SOURCE_FACES_CLIPPED_V1; DECISIONS.md 2026-10-03 (CLIP_BY_SOURCE_FACES_V1: «лишние рёбра» "
+            "на кривых декалях, диагонали четырёхгранья)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.SOURCE_FACE_CLIP_AT_DIAGONALS,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_CLIP_DIAGONAL_FACES_KEPT_WHOLE",
+            "MATERIALIZE_CLIP_DIAGONAL_PIECES_ACROSS",
+            "MATERIALIZE_CLIP_DIAGONAL_CUTS_AVOIDED",
+            "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_NOT_PLANAR",
+            "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_UNMERGEABLE",
+            "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_KEPT_NANOMETRES",
+            "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_OVER_BUDGET_NANOMETRES",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_faces_law.py"
+            "::test_a_piece_within_the_chord_budget_stays_one_face_across_the_diagonal"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_faces_law.py"
+            "::test_a_piece_beyond_the_chord_budget_cuts_the_face_by_its_triangles_and_names_it"
         ),
     ),
 )

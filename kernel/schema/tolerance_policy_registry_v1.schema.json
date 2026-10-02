@@ -64,7 +64,8 @@
             "CHOOSE_FAST_OR_EXACT_PATH",
             "NAMED_REFUSAL_ONLY",
             "CHANGE_COST_NEVER_THE_ANSWER",
-            "LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND"
+            "LIFT_SOURCE_VERTEX_TO_HOST_POSITION_WITHIN_BOUND",
+            "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
           ],
           "type": "string"
         },
@@ -84,7 +85,8 @@
             "DENSITY_MINIMAL_HEIGHT_SEARCH",
             "EXACT_CANONICALIZATION_MEMORY",
             "EXACT_CANONICALIZATION_TRANSACTION",
-            "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
+            "SOURCE_VERTEX_LIFT_AT_HOST_POSITION",
+            "SOURCE_FACE_CLIP_AT_DIAGONALS"
           ],
           "type": "string"
         },
@@ -154,7 +156,8 @@
             "EXACT_CANONICALIZATION_WORK_CAP_V1",
             "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1",
             "SOURCE_VERTEX_LIFT_BUDGET_V1",
-            "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
+            "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1",
+            "CLIP_DIAGONAL_CHORD_DEPTH_V1"
           ],
           "type": "string"
         },

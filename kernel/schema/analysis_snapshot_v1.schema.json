@@ -1640,7 +1640,8 @@
           "enum": [
             "CERTIFIED_PLANE_V1",
             "SOURCE_TRIANGLES_V1",
-            "SOURCE_TRIANGLES_CLIPPED_V1"
+            "SOURCE_TRIANGLES_CLIPPED_V1",
+            "SOURCE_FACES_CLIPPED_V1"
           ],
           "type": "string"
         },
