@@ -153,7 +153,8 @@
             "COPRIME_BASIS_SPLIT_BUDGET_V1",
             "EXACT_CANONICALIZATION_WORK_CAP_V1",
             "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1",
-            "SOURCE_VERTEX_LIFT_BUDGET_V1"
+            "SOURCE_VERTEX_LIFT_BUDGET_V1",
+            "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
           ],
           "type": "string"
         },

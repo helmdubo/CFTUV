@@ -2155,16 +2155,20 @@ def test_field_density_four_lifts_the_razor_thin_corners_under_the_canonical_law
         "b689264248": laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1,
         "8fe1d1544a": laws.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1,
     }
-    heights = {
-        key: item[0].direction_fan_authority.minimal_common_height
+    # Лифтованные канонические углы (три) несут власть таблицы поворотов
+    # (CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1): веер вычислен, а не найден в
+    # окне; угол без лифта остаётся на адаптивном атласе с высотой 13.
+    kinds = {
+        key: type(item[0].direction_fan_authority).__name__
         for key, item in specs.items()
     }
-    assert heights == {
-        "32315cd09b": 13,
-        "6c88f9ff6a": 5,
-        "b689264248": 13,
-        "8fe1d1544a": 5,
+    assert kinds == {
+        "32315cd09b": "AdaptiveMinimalRationalFanAuthorityV2",
+        "6c88f9ff6a": "CanonicalRationalRotationFanAuthorityV1",
+        "b689264248": "CanonicalRationalRotationFanAuthorityV1",
+        "8fe1d1544a": "CanonicalRationalRotationFanAuthorityV1",
     }
+    assert specs["32315cd09b"][0].direction_fan_authority.minimal_common_height == 13
     recorded = {
         record.envelope_spec_id for record in compilation.evaluation_binding_noise_records
     }

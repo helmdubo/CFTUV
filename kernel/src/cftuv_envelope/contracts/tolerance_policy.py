@@ -124,6 +124,9 @@ class TolerancePolicyIdV1(str, Enum):
         "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1"
     )
     SOURCE_VERTEX_LIFT_BUDGET_V1 = "SOURCE_VERTEX_LIFT_BUDGET_V1"
+    CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1 = (
+        "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
+    )
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -1185,6 +1188,59 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_materialize_source_lift.py"
             "::test_a_vertex_beyond_the_budget_stays_and_is_named"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=None,
+        bound_law="CANONICAL_ROTATION_TABLE_ROW_EXACTLY_WITHIN_MAX_SUBTURN_V1",
+        units=TolerancePolicyUnitsV1.NONE,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Лучи веера ЛИФТОВАННОГО канонического угла (d4: `u = 1/2`, "
+            "`H + 1 = 4`, `q = 6`). Равноугольный идеал `pi/8` иррационален, "
+            "адаптивный атлас искал рациональный веер на шумной геометрии, и "
+            "конгруэнтные углы получали разные лучи. Закон ставит лучи по "
+            "таблице рациональных поворотов входящей опоры: углы 22.62, 45 и "
+            "67.38 градуса вместо 22.5, 45 и 67.5 — квантование канонического "
+            "подшага в рациональное направление. Числа в законе нет: каждая "
+            "строка таблицы проверена тестом точно (порядок, симметрия, потолок "
+            "сектора `pi/q`), а на КАЖДОМ веере точно проверяются подшаг и "
+            "порядок лучей на вычислительной геометрии, включая последний "
+            "сектор с шумом привязки. Нет записи таблицы, луч иррационален в "
+            "карте или проверка провалилась — отказ назван, веер ищет прежний "
+            "атлас."
+        ),
+        authority=(
+            "CanonicalFanRaysLawV1.CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1; "
+            "CanonicalRationalRotationFanAuthorityV1; DECISIONS.md 2026-10-03 "
+            "(CANONICAL-FAN-RAYS: конгруэнтные канонические углы получают один "
+            "веер, решение владельца)"
+        ),
+        applied_stage=(
+            TolerancePolicyAppliedStageV1.CANONICAL_SUBTURN_FAN_CONSTRUCTION
+        ),
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.BUILD_FAN_ON_CANONICAL_SUPPORTS
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "CONVEYOR_CANONICAL_FAN_RAYS_FANS",
+            "CONVEYOR_CANONICAL_FAN_RAYS_LAW_REFUSED",
+        ),
+        declaration_sites=(
+            "cftuv_envelope._density_policy.CANONICAL_ROTATION_TABLE",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_canonical_fan_rays.py"
+            "::test_every_lifted_canonical_corner_carries_the_table_fan"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_canonical_fan_rays.py"
+            "::test_a_fan_that_breaks_the_subturn_guarantee_is_named_and_not_placed"
         ),
     ),
 )

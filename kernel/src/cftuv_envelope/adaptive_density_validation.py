@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
 from math import gcd
 
 from .contracts.envelopes import (
@@ -10,6 +11,8 @@ from .contracts.envelopes import (
     AdaptiveBoundHiddenSupportSpecV2,
     AdaptiveDensityAngularEnvelopeSpecV2,
     AdaptiveRationalFanOrdinalWindowAtlasV1,
+    CanonicalFanRaysLawV1,
+    CanonicalRationalRotationFanAuthorityV1,
     EvaluationGeometrySubturnCountLiftLawV1,
     EvaluationGeometrySubturnCountLiftV1,
     ExactTurnSignV1,
@@ -19,7 +22,9 @@ from .ids import HiddenSupportId
 from .contracts.request import AngularProfileSelectionPolicyId
 from .numeric import ExactRatioV1
 from ._density_policy import (
+    CANONICAL_FAN_RAYS_PREDICATES,
     EVALUATION_SUBTURN_LIFT_PREDICATES,
+    canonical_rotation_rays,
     huber_density_value_contract,
 )
 
@@ -108,6 +113,69 @@ def angular_hidden_feature_id_sets(plan):
     return hidden, features
 
 
+def _canonical_rotation_structure_errors(spec, supports):
+    """Структура власти поворотов: типы, закон, предикаты, тройка и ссылки опор.
+
+    Геометрию (равенство лучей таблице, подшаг) проверяет эталон пересчётом;
+    здесь — только то, что видно из самой записи.
+    """
+
+    authority = spec.direction_fan_authority
+    path = ("direction_fan_authority",)
+    ordered = tuple(
+        item.bound_primitive_integer_vector
+        for item in sorted(supports, key=lambda item: item.ordinal)
+    )
+    problems = []
+    if (
+        authority.ray_law
+        is not CanonicalFanRaysLawV1.CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1
+        or authority.proven_predicates != CANONICAL_FAN_RAYS_PREDICATES
+    ):
+        problems.append("canonical rotation fan must name its law and predicates")
+    if (
+        type(authority.hidden_edge_count) is not int
+        or authority.hidden_edge_count != spec.resolved_hidden_edge_count
+        or type(authority.max_subturn_q) is not int
+        or authority.max_subturn_q not in range(2, 7)
+        or authority.selection_certificate_id != spec.selection_certificate_id
+    ):
+        problems.append("canonical rotation fan must describe its own spec")
+    canonical = authority.canonical_reflex_excess_over_pi
+    if (
+        type(canonical.numerator) is not int
+        or type(canonical.denominator) is not int
+        or canonical.denominator <= 0
+        or canonical_rotation_rays(
+            Fraction(canonical.numerator, canonical.denominator),
+            authority.hidden_edge_count + 1,
+            authority.max_subturn_q,
+        )
+        != authority.ray_rotation_pairs
+    ):
+        problems.append(
+            "canonical rotation fan must carry the table row of its angle"
+        )
+    if (
+        len(ordered) != len(authority.bound_primitive_integer_vectors)
+        or ordered != authority.bound_primitive_integer_vectors
+        or any(
+            item.direction_fan_authority_id != authority.authority_id
+            for item in supports
+        )
+    ):
+        problems.append("canonical rotation supports must reference one matching authority")
+    if any(
+        len(vector) != 2
+        or any(type(value) is not int for value in vector)
+        or vector == (0, 0)
+        or gcd(abs(vector[0]), abs(vector[1])) != 1
+        for vector in authority.bound_primitive_integer_vectors
+    ):
+        problems.append("canonical rotation rays must be primitive integer vectors")
+    return [(path, message) for message in problems]
+
+
 def adaptive_density_structure_errors(
     spec,
 ) -> tuple[tuple[tuple[str, ...], str], ...]:
@@ -130,6 +198,37 @@ def adaptive_density_structure_errors(
                 "adaptive H-lift must bind source selection and effective H",
             )
         )
+    canonical_rays = (
+        type(spec.direction_fan_authority)
+        is CanonicalRationalRotationFanAuthorityV1
+    )
+    support_errors, valid_supports = _support_record_errors(spec, canonical_rays)
+    errors.extend(support_errors)
+    if len(valid_supports) != len(spec.hidden_supports) or any(
+        len(item.bound_primitive_integer_vector) != 2
+        or any(
+            type(value) is not int
+            for value in item.bound_primitive_integer_vector
+        )
+        for item in valid_supports
+    ):
+        return tuple(errors)
+    if canonical_rays:
+        errors.extend(_canonical_rotation_structure_errors(spec, valid_supports))
+        return tuple(errors)
+    errors.extend(_atlas_structure_errors(spec, valid_supports))
+    return tuple(errors)
+
+
+def _support_record_errors(spec, canonical_rays: bool):
+    """Ошибки записей опор и сами годные записи: тип, закон власти, примитивность."""
+
+    expected_law = (
+        AdaptiveBoundHiddenSupportDirectionLawV2.CANONICAL_RATIONAL_ROTATION_FAN_V1
+        if canonical_rays
+        else AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
+    )
+    errors = []
     valid_supports = []
     for support in spec.hidden_supports:
         ordinal = getattr(support, "ordinal", "?")
@@ -143,14 +242,11 @@ def adaptive_density_structure_errors(
             )
             continue
         valid_supports.append(support)
-        if (
-            support.direction_law
-            is not AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
-        ):
+        if support.direction_law is not expected_law:
             errors.append(
                 (
                     (*suffix, "direction_law"),
-                    "adaptive support must reference the sealed V2 fan law",
+                    "adaptive support must reference the law of its fan authority",
                 )
             )
         vector = support.bound_primitive_integer_vector
@@ -166,15 +262,13 @@ def adaptive_density_structure_errors(
                     "adaptive direction must be a primitive integer vector",
                 )
             )
-    if len(valid_supports) != len(spec.hidden_supports) or any(
-        len(item.bound_primitive_integer_vector) != 2
-        or any(
-            type(value) is not int
-            for value in item.bound_primitive_integer_vector
-        )
-        for item in valid_supports
-    ):
-        return tuple(errors)
+    return errors, valid_supports
+
+
+def _atlas_structure_errors(spec, valid_supports):
+    """Структура атласной власти: окна, ссылки опор и минимальная общая высота."""
+
+    errors = []
     authority = spec.direction_fan_authority
     uses_atlas = any(
         type(item) is AdaptiveRationalFanOrdinalWindowAtlasV1
@@ -194,7 +288,7 @@ def adaptive_density_structure_errors(
                 "adaptive fan window cardinality must match its supports",
             )
         )
-        return tuple(errors)
+        return errors
     if (
         any(
             item.direction_fan_authority_id != authority.authority_id
@@ -228,4 +322,4 @@ def adaptive_density_structure_errors(
                 "adaptive supports must reference one matching minimal-height authority",
             )
         )
-    return tuple(errors)
+    return errors

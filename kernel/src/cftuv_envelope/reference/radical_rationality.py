@@ -162,13 +162,38 @@ def radical_ratio_is_rational(
     Знаменатель обязан быть точным ненулём; нулевой вернёт `None`.
     """
 
+    proportional, _ = _proportion(numerator, denominator)
+    return proportional
+
+
+def radical_ratio_value(
+    numerator: sp.Expr,
+    denominator: sp.Expr,
+) -> Fraction | None:
+    """Значение `numerator / denominator`, если оно рационально; иначе `None`.
+
+    Тот же точный разбор, что у `radical_ratio_is_rational`, и тот же запрет
+    факторизации: `None` объединяет «иррационально» и «вне поля» — потребителю,
+    которому нужно различие, остаётся `radical_ratio_is_rational`.
+    """
+
+    proportional, ratio = _proportion(numerator, denominator)
+    return ratio if proportional else None
+
+
+def _proportion(
+    numerator: sp.Expr,
+    denominator: sp.Expr,
+) -> tuple[bool | None, Fraction | None]:
+    """`(рационально?, значение)`: `(None, None)` — вне поля или нулевой знаменатель."""
+
     try:
         upper = _terms(numerator)
         lower = _terms(denominator)
     except _OutsideTheRadicalField:
-        return None
+        return None, None
     if not lower:
-        return None
+        return None, None
     # Один реестр на обе величины: классы `x` и `y` сравниваются между собой.
     classes = _Classes()
     top: Sum = {}
@@ -179,7 +204,8 @@ def radical_ratio_is_rational(
             _put(target, rep, coefficient * factor)
     pivot = next(iter(bottom))
     ratio = top.get(pivot, Fraction(0)) / bottom[pivot]
-    return all(
+    proportional = all(
         top.get(rep, Fraction(0)) == ratio * bottom.get(rep, Fraction(0))
         for rep in {*top, *bottom}
     )
+    return proportional, (ratio if proportional else None)

@@ -741,7 +741,15 @@ def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
     lift_law,
     sign,
     cosine_squared,
+    monkeypatch,
 ):
+    # Тест о ПРОВОДЕ счёта лифта и об адаптивной власти лучей; лучи канонических
+    # углов теперь ставит таблица поворотов (`CANONICAL_FAN_RAYS_ON_CANONICAL_
+    # ANGLE_V1`, её провод — `test_canonical_fan_rays.py`). Пустая таблица —
+    # закон лучей молчит именованно, и лифтованный веер идёт прежним атласом.
+    from cftuv_envelope import _density_policy
+
+    monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
     fixture = (
         Path(__file__).parents[1]
         / "fixtures"

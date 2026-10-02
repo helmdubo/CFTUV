@@ -14,6 +14,7 @@ from ..contracts.envelopes import (
     AdaptiveBoundHiddenSupportSpecV2,
     AdaptiveDensityAngularEnvelopeSpecV2,
     AngularEnvelopeSpec,
+    CanonicalRationalRotationFanAuthorityV1,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     DirectionBindingReasonV1,
@@ -55,6 +56,7 @@ from .contracts import (
     ReferenceEnvelopeInstanceV1,
     ReferenceOutcome,
 )
+from .canonical_fan_rays import canonical_fan_rays_error
 from .evaluation_binding_noise import (
     CANONICAL_LIFT_LAW,
     canonical_count_law_error,
@@ -152,6 +154,7 @@ def _interpolated_normals(
     *,
     huber_density: bool = False,
     canonical_excess_over_pi=None,
+    rational_rotation=None,
 ) -> tuple[ExactPlanarVector, ...]:
     expected = 1 if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION else -1
     if huber_density:
@@ -162,6 +165,7 @@ def _interpolated_normals(
             count,
             expected,
             canonical_excess_over_pi,
+            rational_rotation,
         )
     incoming = metric.unit_g(incoming)
     outgoing = metric.unit_g(outgoing)
@@ -390,6 +394,7 @@ def _huber_density_interpolated_normals(
     count: int,
     orientation_sign: int,
     canonical_excess_over_pi=None,
+    rational_rotation=None,
 ) -> tuple[ExactPlanarVector, ...]:
     """Равноугольный веер H=1..5 без generic root solver.
 
@@ -462,10 +467,14 @@ def _huber_density_interpolated_normals(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A requires a strict principal turn in (0, pi)",
         )
-    turn_sign = _density_exact_sign(raw_dot, metric)
-    cosine_total = turn_sign * sp.sqrt(cosine_squared)
-    sine_squared = 1 - cosine_squared
-    principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
+    # Угол поворота нужен только равноугольной ветке; луч по таблице
+    # (`rational_rotation`) его не читает, и считать его — пустая точная работа.
+    principal_turn = None
+    if rational_rotation is None:
+        turn_sign = _density_exact_sign(raw_dot, metric)
+        cosine_total = turn_sign * sp.sqrt(cosine_squared)
+        sine_squared = 1 - cosine_squared
+        principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
     subturn_count = count + 1
     ix, iy = metric.density_expressions(incoming)
     lx, ly = metric.density_expressions(
@@ -473,6 +482,20 @@ def _huber_density_interpolated_normals(
     )
     hidden = []
     for ordinal in range(1, subturn_count):
+        if rational_rotation is not None:
+            # Закон `CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1`: луч ординала
+            # направлен как `a * e + b * J e` по паре `(a, b)` ряда таблицы
+            # (`e` — входящая единичная опора, `J e` — её левая нормаль);
+            # направление целочисленное, длина — `sqrt(a^2 + b^2)`.
+            ray_a, ray_b = rational_rotation[ordinal - 1]
+            length = sp.sqrt(ray_a * ray_a + ray_b * ray_b)
+            hidden.append(
+                _density_runtime_vector(
+                    (ray_a * ix + orientation_sign * ray_b * lx) / length,
+                    (ray_a * iy + orientation_sign * ray_b * ly) / length,
+                )
+            )
+            continue
         # Канонический веер: луч ординала ставится ТОЧНЫМ поворотом входящей
         # опоры на `ordinal * u_канон * pi / (H + 1)`. Формула та же, что у
         # точного близнеца, — у него `principal_turn` и есть канонический
@@ -793,7 +816,10 @@ def _ideal_angular_support_data(
         ) or (
             type(support) is AdaptiveBoundHiddenSupportSpecV2
             and support.direction_law
-            is AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
+            in (
+                AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2,
+                AdaptiveBoundHiddenSupportDirectionLawV2.CANONICAL_RATIONAL_ROTATION_FAN_V1,
+            )
         )
         if not law_matches_tag:
             exc = DirectionBindingCertificateUnproven(BINDING_MONOTONE)
@@ -1073,6 +1099,17 @@ def _verify_canonical_count_law(context, spec) -> None:
         )
 
 
+def _verify_canonical_fan_rays_law(context, spec) -> None:
+    """Лифтованный канонический угол несёт ровно тот веер, что требует закон лучей."""
+
+    message = canonical_fan_rays_error(context, spec)
+    if message is not None:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID,
+            f"{message}: {spec.envelope_spec_id}",
+        )
+
+
 def _verify_evaluation_binding_reasons(
     context: GeometryContext,
     source_context: GeometryContext,
@@ -1081,6 +1118,7 @@ def _verify_evaluation_binding_reasons(
     ideal,
 ) -> None:
     _verify_canonical_count_law(context, spec)
+    _verify_canonical_fan_rays_law(context, spec)
     *_, source_ideal = _ideal_angular_support_data(source_context, spec)
     if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
         try:
@@ -1095,6 +1133,11 @@ def _verify_evaluation_binding_reasons(
                 f"evaluation subturn-count lift is not proven: {exc}",
             ) from exc
         authority = spec.direction_fan_authority
+        if type(authority) is CanonicalRationalRotationFanAuthorityV1:
+            # Лучи рациональны по построению и в обеих геометриях: причин
+            # привязки у них нет, а равенство лучей таблице проверено
+            # пересчётом в `_adaptive_support_data`.
+            return
         for ordinal, reason in enumerate(authority.binding_reasons, start=1):
             source_rational = has_rational_density_support_direction(
                 source_context.metric,
@@ -1212,22 +1255,26 @@ def verify_evaluation_direction_binding_reasons(
         )
 
 
-def _angular_support_data_uncached(
+def _adaptive_support_data(
     context: GeometryContext,
-    spec: AngularEnvelopeSpec,
+    spec: AdaptiveDensityAngularEnvelopeSpecV2,
+    relation,
+    anchor,
+    hidden_by_ordinal,
+    support_ids,
+    ideal,
 ):
-    """Один раз проверить и материализовать plan-authority опоры Angular."""
+    """Опоры лифтованного веера: власть проверена, направления — её ковекторы."""
 
-    (
-        relation,
-        sector,
-        anchor,
-        hidden_by_ordinal,
-        support_ids,
-        ideal,
-    ) = _ideal_angular_support_data(context, spec)
-    if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
-        authority = spec.direction_fan_authority
+    authority = spec.direction_fan_authority
+    canonical_rays = type(authority) is CanonicalRationalRotationFanAuthorityV1
+    if canonical_rays:
+        # Лучи — вычисление, а не поиск: проверка пересчитывает веер по
+        # сырой геометрии и сверяет лучи на точное равенство направления
+        # (исход `REFERENCE_CANONICAL_SUBTURN_FAN_INVALID` сохраняется);
+        # окон атласа у власти нет.
+        _verify_canonical_fan_rays_law(context, spec)
+    else:
         try:
             from .adaptive_density_fan import (
                 verify_sealed_adaptive_density_fan,
@@ -1246,34 +1293,66 @@ def _angular_support_data_uncached(
                 ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
                 f"adaptive direction fan is not proven: {exc}",
             ) from exc
-        ordered_supports = tuple(
-            hidden_by_ordinal[index]
-            for index in range(
-                1,
-                spec.resolved_hidden_edge_count + 1,
-            )
+    ordered_supports = tuple(
+        hidden_by_ordinal[index]
+        for index in range(
+            1,
+            spec.resolved_hidden_edge_count + 1,
         )
-        if any(
-            type(item) is not AdaptiveBoundHiddenSupportSpecV2
-            or item.direction_fan_authority_id != authority.authority_id
-            or item.bound_primitive_integer_vector
-            != authority.bound_primitive_integer_vectors[item.ordinal - 1]
-            for item in ordered_supports
-        ):
-            raise ReferenceGeometryError(
-                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
-                "adaptive support does not match its sealed fan authority",
-            )
-        normals = list(ideal)
-        for ordinal, vector in enumerate(
-            authority.bound_primitive_integer_vectors,
-            start=1,
-        ):
-            normals[ordinal] = bound_unit_normal_from_vector(
-                context.metric,
-                vector,
-            )
-        return relation, anchor, support_ids, tuple(normals)
+    )
+    expected_law = (
+        AdaptiveBoundHiddenSupportDirectionLawV2.CANONICAL_RATIONAL_ROTATION_FAN_V1
+        if canonical_rays
+        else AdaptiveBoundHiddenSupportDirectionLawV2.ADAPTIVE_MINIMAL_RATIONAL_FAN_V2
+    )
+    if any(
+        type(item) is not AdaptiveBoundHiddenSupportSpecV2
+        or item.direction_law is not expected_law
+        or item.direction_fan_authority_id != authority.authority_id
+        or item.bound_primitive_integer_vector
+        != authority.bound_primitive_integer_vectors[item.ordinal - 1]
+        for item in ordered_supports
+    ):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            "adaptive support does not match its sealed fan authority",
+        )
+    normals = list(ideal)
+    for ordinal, vector in enumerate(
+        authority.bound_primitive_integer_vectors,
+        start=1,
+    ):
+        normals[ordinal] = bound_unit_normal_from_vector(
+            context.metric,
+            vector,
+        )
+    return relation, anchor, support_ids, tuple(normals)
+
+
+def _angular_support_data_uncached(
+    context: GeometryContext,
+    spec: AngularEnvelopeSpec,
+):
+    """Один раз проверить и материализовать plan-authority опоры Angular."""
+
+    (
+        relation,
+        sector,
+        anchor,
+        hidden_by_ordinal,
+        support_ids,
+        ideal,
+    ) = _ideal_angular_support_data(context, spec)
+    if type(spec) is AdaptiveDensityAngularEnvelopeSpecV2:
+        return _adaptive_support_data(
+            context,
+            spec,
+            relation,
+            anchor,
+            hidden_by_ordinal,
+            support_ids,
+            ideal,
+        )
     certificates = tuple(
         (
             hidden_by_ordinal[ordinal].direction_binding

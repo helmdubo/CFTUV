@@ -112,6 +112,10 @@ class ReferenceOutcome(str, Enum):
     EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED = (
         "EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED"
     )
+    # Диагностика, не отказ: лифтованный канонический угол получил веер
+    # прежним адаптивным путём, потому что закон рациональных лучей не
+    # применён (причина названа `CanonicalFanRaysRefusalV1`).
+    CANONICAL_FAN_RAYS_LAW_NOT_APPLIED = "CANONICAL_FAN_RAYS_LAW_NOT_APPLIED"
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"
@@ -264,6 +268,27 @@ class EvaluationBindingNoiseRefusalV1(str, Enum):
     TURN_NOISE_EXCEEDS_DECLARED_BOUND = "TURN_NOISE_EXCEEDS_DECLARED_BOUND"
     CANONICAL_RELATION_HAS_NO_ANGULAR_BOUND = (
         "CANONICAL_RELATION_HAS_NO_ANGULAR_BOUND"
+    )
+
+
+class CanonicalFanRaysRefusalV1(str, Enum):
+    """Почему лучи лифтованного канонического угла не поставлены по таблице.
+
+    Закон `CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1` молчит ровно по одной из
+    этих причин, и молчит ИМЕНОВАННО: веер тогда ищет прежний адаптивный атлас
+    на вычислительной геометрии (то есть одинаковые углы могут получить разные
+    лучи), и это обязано быть видно в диагностике и в счётчике.
+    """
+
+    # Для `(u, H + 1, q)` нет пифагоровой тройки в `CANONICAL_ROTATION_TABLE`.
+    NO_CANONICAL_ROTATION_TABLE_ENTRY = "NO_CANONICAL_ROTATION_TABLE_ENTRY"
+    # Хотя бы один луч поворота иррационален в карте домена (корень из
+    # определителя Грама не рационален): рационального ковектора у него нет.
+    CANONICAL_RAYS_IRRATIONAL_IN_CHART = "CANONICAL_RAYS_IRRATIONAL_IN_CHART"
+    # Точная проверка `подшаг <= pi/q` или порядка лучей провалилась на
+    # вычислительной геометрии: шум привязки больше запаса последнего сектора.
+    CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE = (
+        "CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE"
     )
 
 

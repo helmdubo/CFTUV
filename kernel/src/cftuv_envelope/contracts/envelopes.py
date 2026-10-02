@@ -83,8 +83,44 @@ class CertifiedBoundHiddenSupportDirectionLawV1(str, Enum):
 
 
 class AdaptiveBoundHiddenSupportDirectionLawV2(str, Enum):
+    """Чем закреплено направление лифтованной скрытой опоры.
+
+    `ADAPTIVE_MINIMAL_RATIONAL_FAN_V2` — минимальная общая высота рационального
+    веера в окнах идеального веера (`AdaptiveMinimalRationalFanAuthorityV2`).
+
+    `CANONICAL_RATIONAL_ROTATION_FAN_V1` — фиксированный рациональный поворот
+    входящей опоры по таблице (`CanonicalRationalRotationFanAuthorityV1`): луч
+    не ищется в окне, а вычисляется, поэтому одинаковые канонические углы
+    получают одинаковые веера независимо от шума привязки.
+    """
+
     ADAPTIVE_MINIMAL_RATIONAL_FAN_V2 = (
         "ADAPTIVE_MINIMAL_RATIONAL_FAN_V2"
+    )
+    CANONICAL_RATIONAL_ROTATION_FAN_V1 = (
+        "CANONICAL_RATIONAL_ROTATION_FAN_V1"
+    )
+
+
+class CanonicalFanRaysLawV1(str, Enum):
+    """Закон, по которому лучи веера канонического угла — точные рациональные повороты.
+
+    Лифт счёта на каноническом прямом угле при чётном `q` даёт равноугольный
+    идеал с иррациональным подшагом (`pi/8` при `H + 1 = 4`, `q = 6`), и
+    адаптивный атлас искал рациональный веер на ШУМНОЙ вычислительной
+    геометрии: сорок восемь конгруэнтных углов одной стены получали десять
+    разных наборов шагов. Закон заменяет поиск вычислением: луч ординала `j` —
+    рациональный поворот входящей опоры по таблице (для `pi/8` при `H + 1 = 4`
+    — лучи на 22.62, 45 и 67.38 градуса: пары `(12, 5)`, `(1, 1)`, `(5, 12)`),
+    знак поворота — из ориентации угла, а остаток шума остаётся в ПОСЛЕДНЕМ
+    секторе. Ряд симметричен, поэтому зеркальные углы получают один веер. Гарантия
+    `подшаг <= pi/q` проверяется точно на каждом секторе вычислительной
+    геометрии, включая последний, и не ослаблена. Нет рационального луча в
+    карте или нет записи таблицы — именованный отказ и прежний путь.
+    """
+
+    CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1 = (
+        "CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1"
     )
 
 
@@ -507,6 +543,31 @@ class AdaptiveMinimalRationalFanAuthorityV2:
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalRationalRotationFanAuthorityV1:
+    """Власть веера лифтованного канонического угла: лучи — рациональные повороты.
+
+    Запись НЕ доверяется: проверяющий заново берёт канонический факт из
+    интервала угла снапшота, запись таблицы по `(u, H + 1, q)`, входящую опору
+    вычислительной геометрии и ориентацию угла, строит веер и сверяет каждый
+    `bound_primitive_integer_vectors[j]` с направлением луча `j` на точное
+    равенство (нулевой cross и положительный dot), а затем точно проверяет
+    `подшаг <= pi/q` на каждом секторе, включая последний. Поля, которых
+    проверяющий не может вывести из геометрии, не хранятся.
+    """
+
+    authority_id: str
+    ray_law: CanonicalFanRaysLawV1
+    selection_certificate_id: SelectionCertificateId
+    canonical_relation: CanonicalReflexAngleRelationV1
+    canonical_reflex_excess_over_pi: ExactRatioV1
+    hidden_edge_count: int
+    max_subturn_q: int
+    ray_rotation_pairs: tuple[tuple[int, int], ...]
+    bound_primitive_integer_vectors: tuple[tuple[int, int], ...]
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class CertifiedBoundHiddenSupportSpecV1:
     hidden_support_id: HiddenSupportId
     ordinal: int
@@ -581,7 +642,10 @@ class AdaptiveDensityAngularEnvelopeSpecV2(AngularEnvelopeSpec):
     """Density Angular spec с одной общей властью рационального веера."""
 
     hidden_supports: frozenset[AdaptiveBoundHiddenSupportSpecV2]
-    direction_fan_authority: AdaptiveMinimalRationalFanAuthorityV2
+    direction_fan_authority: (
+        AdaptiveMinimalRationalFanAuthorityV2
+        | CanonicalRationalRotationFanAuthorityV1
+    )
     evaluation_subturn_count_lift: (
         EvaluationGeometrySubturnCountLiftV1 | None
     )
