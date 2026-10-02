@@ -1085,15 +1085,41 @@ def test_the_quads_of_a_field_domain_are_four_loops_and_the_fans_stay_triangles(
 
     mesh = fake_bpy.data.objects.get(receipt.object_name).data
     sizes = [len(item.vertices) for item in mesh.polygons]
-    assert set(sizes) == {3, 4}
     assert receipt.quads == sizes.count(4) > 0 and receipt.triangles == sizes.count(3) > 0
-    assert receipt.faces == receipt.quads + receipt.triangles == len(mesh.polygons)
-    assert receipt.loops == 4 * receipt.quads + 3 * receipt.triangles == mesh.loop_count
+    assert receipt.polygons == sum(1 for size in sizes if size > 4)
+    assert receipt.faces == receipt.quads + receipt.triangles + receipt.polygons == len(mesh.polygons)
+    assert receipt.loops == sum(sizes) == mesh.loop_count
     assert receipt.decal_topology_law == "PLANAR_POLYGONS_V1"
     # Грани закона совпадают с гранями батча: ни разреза, ни склейки писателем.
     assert sizes == [len(face.ordered_vert_keys) for face in field_result.batch.faces]
     assert receipt.seam_edges == receipt.seam_edges_requested > 0
     assert not any(item[1] == writer.OUTCOME_SEAM_EDGE_MISSING for item in receipt.warnings)
+
+
+HEXAGON = {
+    "a": (0, 0, 0), "b": (2, 0, 0), "c": (3, 1, 0), "d": (2, 2, 0), "e": (0, 2, 0),
+    "f": (-1, 1, 0),
+}
+HEXAGON_AND_FAN = (("a", "b", "c", "d", "e", "f"), ("a", "c", "d"), ("a", "b", "c", "d"))
+
+
+def test_the_receipt_counts_every_face_length_so_that_the_parts_sum_to_the_whole(
+    fake_bpy,
+):
+    """Закон `PLANAR_POLYGONS_V1` пишет и грани длиннее четырёх: квитанция их не прячет."""
+
+    source = _source(fake_bpy)
+
+    receipt = write_decal_object(
+        source,
+        [_fake_domain(0, HEXAGON, HEXAGON_AND_FAN)],
+        offset=0.0,
+        material_name="M",
+    )
+
+    assert (receipt.triangles, receipt.quads, receipt.polygons) == (1, 1, 1)
+    assert receipt.faces == receipt.quads + receipt.triangles + receipt.polygons == 3
+    assert receipt.loops == 6 + 3 + 4
 
 
 def test_a_triangle_law_receipt_names_its_law_and_has_no_quads(fake_bpy):
@@ -1107,7 +1133,7 @@ def test_a_triangle_law_receipt_names_its_law_and_has_no_quads(fake_bpy):
     receipt = write_decal_object(source, [domain], offset=0.0, material_name="M")
 
     assert receipt.decal_topology_law == "TRIANGLES_V1"
-    assert (receipt.quads, receipt.triangles, receipt.faces) == (0, 2, 2)
+    assert (receipt.quads, receipt.triangles, receipt.polygons, receipt.faces) == (0, 2, 0, 2)
 
 
 def test_domains_under_two_laws_are_named_together_in_the_receipt():

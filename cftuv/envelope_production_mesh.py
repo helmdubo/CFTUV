@@ -145,11 +145,13 @@ class ProductionWriteReceiptV1:
     arrays_digest: str
     mesh_name: str | None
     mesh_digest: str
-    #: Закон топологии записанных доменов и состав граней меша: четырёхгранники и
-    #: треугольники (других длин у закона нет, а чужая длина видна в `faces - ...`).
+    #: Закон топологии записанных доменов и состав граней меша по числу углов:
+    #: треугольники, четырёхгранники и многоугольники (грани длиннее 4 пишет
+    #: `PLANAR_POLYGONS_V1`); `faces == quads + triangles + polygons` всегда.
     decal_topology_law: str = ""
     quads: int = 0
     triangles: int = 0
+    polygons: int = 0
 
 
 def decal_object_name(source_name: str) -> str:
@@ -549,6 +551,7 @@ def _receipt(arrays, offset, material_name, *, object_name, replaced, mesh, mark
         decal_topology_law=arrays.decal_topology_law,
         quads=sum(1 for loop in arrays.faces if len(loop) == 4),
         triangles=sum(1 for loop in arrays.faces if len(loop) == 3),
+        polygons=sum(1 for loop in arrays.faces if len(loop) > 4),
     )
 
 

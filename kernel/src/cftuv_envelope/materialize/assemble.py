@@ -395,28 +395,35 @@ def _rung_pieces(frame_face, key_of):
     return pieces
 
 
-def _plane_ring(points, keys, budget, tally, uv_of):
-    """Кольцо грани на точной плоскости (закон `PLANAR_AFFINE_UV_POLYGON_V1`) либо `None` под именем.
+def _plane_ring(points, keys, budget, uv_of):
+    """`(кольцо, имя)` грани на точной плоскости (закон `PLANAR_AFFINE_UV_POLYGON_V1`).
 
     Грань берётся целой, если контур ПРОСТ и UV — аффинная функция положения на
     карте по всему контуру (оба условия точные). Выпуклость не нужна: любая
-    триангуляция показа даёт ту же поверхность и ту же UV-интерполяцию. Не
-    простой контур — `NOT_SIMPLE`, неаффинный UV — `UV_NOT_AFFINE` (оба —
-    отсечение ушей); правый поворот только пересчитывается (`CONCAVE_EMITTED`).
-    Простота выпуклого контура доказана выше по конвейеру (граница 1) и заново не
-    проверяется: пересечениям нужен правый поворот.
+    триангуляция показа даёт ту же поверхность и ту же UV-интерполяцию.
+
+    Простота проверяется у КАЖДОГО контура, а не только с правым поворотом: пятиконечная
+    звезда сплошь из левых поворотов, но сама себя пересекает. Контур прост, если вершины
+    попарно различны по ключам (повтор — перетяжка, касание в вершине, которого
+    трансверсальные пересечения не видят) и `contour_is_simple` (пересечений нет, допустимая
+    триангуляция есть).
+
+    Кольцо `None` — грань уходит в треугольники. Имя — счётчик, который вызывающий
+    прибавит, ТОЛЬКО когда грань действительно выпущена: `NOT_SIMPLE` и `UV_NOT_AFFINE`
+    означают «разрезана на треугольники», `CONCAVE_EMITTED` — «выпущена целой с правым
+    поворотом». Нулевая площадь не названа ничем: ни многоугольника, ни треугольников
+    у такого контура нет, и `_triangle_polygons` откажет `TESSELLATION_DID_NOT_CLOSE`.
     """
 
     ring = counter_clockwise_ring(points, budget)
-    concave = ring is not None and has_right_turn(points, ring, budget)
-    if ring is None or (concave and not contour_is_simple(points, budget)):
-        tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE] += 1
-        return None
+    if ring is None:
+        return None, None
+    if len(set(keys)) != len(keys) or not contour_is_simple(points, budget):
+        return None, POLYGON_FACES_TRIANGULATED_NOT_SIMPLE
     if not uv_is_affine_in_chart(points, [uv_of(key) for key in keys], budget):
-        tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] += 1
-        return None
-    tally[POLYGON_FACES_CONCAVE_EMITTED] += int(concave)
-    return ring
+        return None, POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE
+    concave = has_right_turn(points, ring, budget)
+    return ring, POLYGON_FACES_CONCAVE_EMITTED if concave else None
 
 
 def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
@@ -432,17 +439,18 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
     points = tuple(point for _key, point in cycle)
     keys = tuple(key for key, _point in cycle)
     owner, area = piece.owner, piece.doubled_area
+    named = None
     if len(points) > 3:
         if exact_plane:
-            ring = _plane_ring(points, keys, budget, tally, uv_of)
+            ring, named = _plane_ring(points, keys, budget, uv_of)
         else:
             ring = convex_quad_ring(points, budget)
             if ring is None:
-                tally[
+                named = (
                     QUADS_REFUSED_NOT_CONVEX
                     if len(points) == 4
                     else CURVED_STRIP_FACES_TRIANGULATED
-                ] += 1
+                )
         if ring is not None:
             _closes_the_area(
                 doubled_shoelace(tuple(points[index] for index in ring)),
@@ -451,8 +459,14 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of):
                 "polygon areas",
             )
             tally[POLYGON_FACES_EMITTED] += int(len(ring) > 4)
+            if named is not None:
+                tally[named] += 1
             return (_ring_polygon(keys, ring, reverse),)
-    return _triangle_polygons(owner, area, points, keys, budget, reverse)
+    polygons = _triangle_polygons(owner, area, points, keys, budget, reverse)
+    # Имя — про грань, которую увидел меш: отказ `_triangle_polygons` его не оставляет.
+    if named is not None:
+        tally[named] += 1
+    return polygons
 
 
 def _polygon_law_faces(

@@ -187,6 +187,8 @@ def _affine_map(points):
 
 NOTCHED = ((0, 0), (6, 0), (6, 3), (4, 3), (3, 1), (2, 3), (0, 3))
 SELF_CROSSING = ((0, 0), (4, 0), (0, 4), (4, 4), (2, 6))
+#: Пентаграмма: пять левых поворотов подряд (`has_right_turn` ложен), но контур пересекает сам себя.
+PENTAGRAM = ((0, 0), (5, 3), (-1, 3), (4, 0), (2, 5))
 
 
 def test_counter_clockwise_ring_follows_the_sign_of_the_area_and_a_zero_area_has_none():
@@ -380,20 +382,54 @@ def test_a_non_affine_uv_makes_the_strip_ear_clipped_and_named(raw):
     assert not tally[POLYGON_FACES_EMITTED] and not tally[POLYGON_FACES_CONCAVE_EMITTED]
 
 
-def test_a_self_crossing_contour_is_named_not_simple_and_never_emitted_whole():
-    points = _points(SELF_CROSSING)
+@pytest.mark.parametrize("raw", (SELF_CROSSING, PENTAGRAM))
+def test_a_self_crossing_contour_is_never_emitted_whole_even_with_no_right_turn(raw):
+    """Сплошные левые повороты не доказывают простоту: пентаграмма раньше шла целой гранью."""
+
+    points = _points(raw)
+    ring = counter_clockwise_ring(points, BUDGET())
+    assert has_right_turn(points, ring, BUDGET()) == (raw is SELF_CROSSING)
     frame, cycle = _frame(points)
     tally = Counter()
-    try:
-        polygons = tessellate_faces(
+    with pytest.raises(MaterializationRefusal) as refusal:
+        tessellate_faces(
             [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
         )
-    except MaterializationRefusal as refusal:
-        assert refusal.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
-    else:
-        assert all(len(item) == 3 for item in polygons[0])
-    assert tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE] == 1
+    assert refusal.value.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
+    # Грани, которой нет в меше, счётчик «разрезана на треугольники» не помнит.
+    assert not tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE]
     assert not tally[POLYGON_FACES_EMITTED]
+
+
+def test_a_contour_whose_vertex_repeats_is_not_one_face_and_is_counted_only_as_triangles():
+    """Перетяжка (одна вершина дважды) трансверсальных пересечений не даёт, но и многоугольником не станет."""
+
+    points = _points(HEXAGON)
+    frame, cycle = _frame(points)
+    pinched = tuple(
+        ("k0" if index == 3 else key, point) for index, (key, point) in enumerate(cycle)
+    )
+    assert contour_is_simple(points, BUDGET())
+    tally = Counter()
+    polygons = tessellate_faces(
+        [frame], [pinched], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
+    )
+    assert all(len(item) == 3 for item in polygons[0]) and len(polygons[0]) == 4
+    assert tally[POLYGON_FACES_TRIANGULATED_NOT_SIMPLE] == 1
+    assert not tally[POLYGON_FACES_EMITTED] and not tally[POLYGON_FACES_CONCAVE_EMITTED]
+
+
+def test_a_zero_area_contour_is_a_refusal_and_no_counter_claims_triangles_for_it():
+    flat = _points(((0, 0), (1, 0), (2, 0), (3, 0)))
+    frame, cycle = _frame(flat)
+    frame.face.doubled_area = SqrtSumV1.zero()
+    tally = Counter()
+    with pytest.raises(MaterializationRefusal) as refusal:
+        tessellate_faces(
+            [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, _uv(cycle)
+        )
+    assert refusal.value.outcome is MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE
+    assert not +tally
 
 
 def test_on_a_source_triangle_lift_only_a_strictly_convex_quad_stays_whole():
