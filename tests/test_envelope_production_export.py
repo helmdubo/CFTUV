@@ -474,7 +474,15 @@ def test_a_near_planar_domain_is_materialized_onto_the_source_triangles():
         for line in lifted.diagnostics
     ), lifted.diagnostics
     counters = dict(lifted.counters)
-    assert counters["MATERIALIZE_SURFACE_LIFT_LOCATIONS"] == len(lifted.batch.vertices)
+    # Кнопка просит укладку с РЕЗКОЙ граней: вершины `clip:` поднимает сама резка (в треугольнике, где они
+    # родились), поэтому нахождений столько, сколько прочих вершин батча.
+    assert (
+        counters["MATERIALIZE_SURFACE_LIFT_LOCATIONS"] + counters["MATERIALIZE_CLIP_VERTICES_INSERTED"]
+        == len(lifted.batch.vertices)
+    )
+    assert counters["MATERIALIZE_CLIP_VERTICES_INSERTED"] >= 1
+    assert any(line.startswith("SOURCE_EDGES_LIFTED_ONTO_SURFACE") for line in lifted.diagnostics)
+    assert counters["MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"] == 0
     assert counters["MATERIALIZE_SURFACE_LIFT_TRIANGLES"] > 0
     for item in run.results[:-1]:
         assert not any("SURFACE_LIFT" in name for name, _ in item.counters)

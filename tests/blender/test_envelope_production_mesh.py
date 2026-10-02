@@ -30,7 +30,11 @@
    позициях), смещение общей вершины — митра (пересечение сдвинутых плоскостей двух
    доменов), каждая грань остаётся на сдвинутой плоскости СВОЕГО домена (плоская в
    пределах 1e-5), а общее ребро — шов UV между гранями двух доменов;
-11. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
+11. ДЕКАЛЬ ЧЕРЕЗ КОСУЮ СКЛАДКУ 90° (закон укладки `SOURCE_TRIANGLES_CLIPPED_V1`): каждая точка грани
+   (вершины, середины рёбер, центр) отстоит от поверхности источника не дальше смещения, грани
+   от четырёх вершин есть, а красный контроль (укладка без резки) уходит хордой в стену
+   глубже смещения на сантиметры;
+12. отмена: оператор — только REGISTER (шаг BMesh в EDIT-режиме не отслеживает
    создание объекта), а после отката в OBJECT-режиме сцена цела и следующее
    нажатие работает. `ed.undo` в EDIT-режиме фоновый Blender отказывает
    («context is incorrect»), поэтому проверяется именно эта последовательность.
@@ -121,8 +125,28 @@ def _decal_objects():
     ]
 
 
-def _assert_faces_follow_the_polygon_law(mesh, *, require_quads):
-    """Грани меша — треугольники, четырёхгранники и многоугольники, и каждая грань от 4 петель плоская."""
+def _off_plane(mesh, polygon):
+    """Наибольшее расстояние вершины грани от плоскости грани (нормаль Ньюэлла, через первую вершину)."""
+
+    points = [mesh.vertices[index].co for index in polygon.vertices]
+    normal = points[0] * 0.0
+    for index, current in enumerate(points):
+        following = points[(index + 1) % len(points)]
+        normal.x += (current.y - following.y) * (current.z + following.z)
+        normal.y += (current.z - following.z) * (current.x + following.x)
+        normal.z += (current.x - following.x) * (current.y + following.y)
+    assert normal.length > 0.0
+    return max(abs(normal.normalized().dot(point - points[0])) for point in points)
+
+
+def _assert_faces_follow_the_polygon_law(mesh, *, require_quads, planar=True):
+    """Грани меша — треугольники, четырёхгранники и многоугольники, и каждая грань от 4 петель плоская.
+
+    `planar=False` — у домена развёртки смещение идёт вдоль нормали КАЖДОЙ вершины (закон ядра), и грань,
+    плоская в батче (кусок в одном треугольнике источника), после смещения не плоская на записанную
+    величину (`ADAPTER_MAX_OFF_PLANE_AFTER_OFFSET_NANOMETRES`): тогда проверяется только, что число конечно и
+    меньше смещения.
+    """
 
     sizes = [len(polygon.vertices) for polygon in mesh.polygons]
     assert min(sizes) >= 3, sorted(set(sizes))
@@ -144,6 +168,9 @@ def _assert_faces_follow_the_polygon_law(mesh, *, require_quads):
             normal.y += (current.z - following.z) * (current.x + following.x)
             normal.z += (current.x - following.x) * (current.y + following.y)
         assert normal.length > 0.0
+        if not planar:
+            assert _off_plane(mesh, polygon) < 0.02, polygon.index
+            continue
         for point in points:
             assert abs(normal.normalized().dot(point - points[0])) < 1e-5, polygon.index
     return quads
@@ -428,7 +455,7 @@ def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
     ]
     assert max(distances) <= 0.02 + 1e-5, distances
     assert min(distances) > 0.005, distances
-    _assert_faces_follow_the_polygon_law(decal.data, require_quads=False)
+    _assert_faces_follow_the_polygon_law(decal.data, require_quads=False, planar=False)
     return decal
 
 
@@ -630,6 +657,100 @@ def _run_a_fold_welds_the_shared_chain_into_single_vertices():
     return decal
 
 
+def _build_slanted_fold():
+    """Одна складка 90° в одном патче: плоский квад и вертикальная стена вдоль КОСОГО ребра `(2, 0)-(2.5, 1)`.
+
+    Шов — граничное ребро `x = 1`, откуда растёт декаль. Ребро складки не перпендикулярно полосе,
+    поэтому без резки диагональ уха ленты уходит хордой в стену.
+    """
+
+    mesh = bpy.data.meshes.new("EnvelopeSlantFoldMesh")
+    mesh.from_pydata(
+        [
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.5, 1.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (2.5, 1.0, 1.0),
+            (2.0, 0.0, 1.0),
+        ],
+        (),
+        [(0, 3, 2, 1), (3, 5, 4, 2)],
+    )
+    mesh.update()
+    seam = None
+    for edge in mesh.edges:
+        if set(edge.vertices) == {0, 1}:
+            edge.use_seam = True
+            seam = edge.index
+    assert seam is not None
+    obj = bpy.data.objects.new(SOURCE, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    _enter_edge_selection(obj, (seam,))
+    return obj
+
+
+def _fold_decal(*, lift_policy=None):
+    """Нажатие на косой складке: `(объект декаля, исходный, наибольшее расстояние точек граней до источника)`."""
+
+    from mathutils.bvhtree import BVHTree
+
+    from cftuv import envelope_production_export, envelope_request_export
+
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    _reset_scene()
+    source = _build_slanted_fold()
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    settings.envelope_debug_alpha = 1.3
+    settings.envelope_debug_workers = 0
+    _decal_settings().offset = 0.02
+    saved = (
+        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY,
+        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY,
+    )
+    if lift_policy is not None:
+        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY = lift_policy
+        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY = lift_policy
+    try:
+        decal = _press()
+    finally:
+        envelope_production_export.HOST_NEAR_PLANAR_LIFT_POLICY = saved[0]
+        envelope_request_export.HOST_NEAR_PLANAR_LIFT_POLICY = saved[1]
+    assert _decal_settings().status == "MATERIALIZED 1 / refused 0", _decal_settings().status
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    tree = BVHTree.FromObject(source, bpy.context.evaluated_depsgraph_get())
+    mesh = decal.data
+    worst = 0.0
+    for polygon in mesh.polygons:
+        points = [mesh.vertices[index].co for index in polygon.vertices]
+        samples = [*points, polygon.center]
+        samples += [(points[i] + points[(i + 1) % len(points)]) * 0.5 for i in range(len(points))]
+        worst = max(worst, *(tree.find_nearest(tuple(point))[3] for point in samples))
+    return decal, source, worst
+
+
+def _run_a_decal_across_a_fold_stays_on_the_surface():
+    """Закон `SOURCE_TRIANGLES_CLIPPED_V1`: куски граней лежат в треугольниках источника, хорды через складку нет."""
+
+    from cftuv.surface_ir import HOST_NEAR_PLANAR_LIFT_POLICY, HostNearPlanarLiftPolicy
+
+    assert HOST_NEAR_PLANAR_LIFT_POLICY is HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_CLIPPED_V1
+    decal, _source, worst = _fold_decal()
+    sizes = [len(polygon.vertices) for polygon in decal.data.polygons]
+    # Смещение вдоль нормалей вершин: точка грани отстоит от поверхности не дальше смещения.
+    assert worst <= 0.02 + 1e-5, worst
+    assert max(sizes) >= 4, sizes
+    print("FOLD clipped:", sorted(sizes), "faces, worst distance", worst)
+    # Красный контроль: та же сцена без резки (закон `SOURCE_TRIANGLES_V1`) режет в стену.
+    _plain, _source, plain_worst = _fold_decal(lift_policy=HostNearPlanarLiftPolicy.SOURCE_TRIANGLES_V1)
+    assert plain_worst > 0.02 + 0.05, plain_worst
+    print("FOLD plain control: worst distance", plain_worst)
+
+
 def _main():
     import cftuv
 
@@ -651,6 +772,7 @@ def _main():
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     _run_a_fold_welds_the_shared_chain_into_single_vertices()
+    _run_a_decal_across_a_fold_stays_on_the_surface()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()
