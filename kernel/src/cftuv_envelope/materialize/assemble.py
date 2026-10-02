@@ -67,7 +67,7 @@ from ..ids import (
 from ..numeric import LocalCoordinateV1
 from ..exact_sqrt_sum import SqrtSumV1
 from .admit import MaterializationOutcome
-from .coalesce import point_key
+from .coalesce import lattice_node, point_key
 from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
@@ -120,13 +120,6 @@ def decimal_of(value: SqrtSumV1, divisor: int) -> Decimal:
         return Decimal(middle.numerator) / Decimal(middle.denominator)
 
 
-def _lattice_node(point):
-    x, y = point[0].as_rational(), point[1].as_rational()
-    if x is None or y is None or x.denominator != 1 or y.denominator != 1:
-        return None
-    return (int(x), int(y))
-
-
 def _cycle(keys_and_points):
     """Контур без подряд идущих повторов вершины (нулевые отрезки)."""
 
@@ -145,11 +138,19 @@ def _cycle(keys_and_points):
 SOURCE_VERTEX_NAME_DROPPED = "SOURCE_VERTEX_NAME_DROPPED"
 
 
-def intern_vertices(items, table: ChainStationTableV1, notes: list | None = None):
+def intern_vertices(
+    items,
+    table: ChainStationTableV1,
+    notes: list | None = None,
+    chord_names: dict | None = None,
+):
     """Ключи вершин по точкам контуров: `([цикл граней], {ключ: точка})`.
 
     `items` — `[(region_id, FrameFaceV1)]`. Порядок ключей `node:` — порядок
     первого появления точки при обходе граней и их вершин.
+
+    Имя вершины даёт узел решётки (`table.node_vertex_ids`); точку, которая уже не узел (станция
+    на хорде прямой цепи, `chord_station`), называет `chord_names[(регион, point_key)]`.
 
     ИМЯ `src:` берётся у ПЕРВОГО региона, который точку назвал, и этот выбор
     теперь не молчит. Две вещи, на которые он способен, названы:
@@ -174,10 +175,12 @@ def intern_vertices(items, table: ChainStationTableV1, notes: list | None = None
         pairs = []
         for point in frame_face.face.points:
             pk = point_key(point)
-            node = _lattice_node(point)
-            vertex_id = (
-                None if node is None else table.node_vertex_ids.get((region_id, node))
-            )
+            node = lattice_node(point)
+            if node is not None:
+                vertex_id = table.node_vertex_ids.get((region_id, node))
+            else:
+                vertex_id = None if chord_names is None else chord_names.get((region_id, pk))
+            where = "its chord station" if node is None else f"node {node}"
             key = interned.get(pk)
             if key is None:
                 if vertex_id is not None:
@@ -186,7 +189,7 @@ def intern_vertices(items, table: ChainStationTableV1, notes: list | None = None
                         raise MaterializationRefusal(
                             MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
                             f"VERTEX_KEY_COLLISION: {key} names two different "
-                            f"points (region {region_id}, node {node})",
+                            f"points (region {region_id}, {where})",
                         )
                 else:
                     key = f"node:{counter}"
@@ -201,7 +204,7 @@ def intern_vertices(items, table: ChainStationTableV1, notes: list | None = None
             ):
                 reported.add((pk, vertex_id))
                 notes.append(
-                    f"{SOURCE_VERTEX_NAME_DROPPED}: {vertex_id} at node {node} of "
+                    f"{SOURCE_VERTEX_NAME_DROPPED}: {vertex_id} at {where} of "
                     f"region {region_id} is welded into {key}"
                 )
             pairs.append((key, point))

@@ -93,6 +93,14 @@ COUNTER_KEYS = (
     "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
     "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE",
     "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
+    # Закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`: исходы каждой внутренней вершины прямой цепи.
+    "MATERIALIZE_CHORD_STATIONS_TOTAL",
+    "MATERIALIZE_CHORD_STATIONS_PLACED",
+    "MATERIALIZE_CHORD_STATIONS_AT_NODE",
+    "MATERIALIZE_CHORD_STATIONS_NOT_IN_COVERAGE",
+    "MATERIALIZE_CHORD_STATIONS_SKIPPED_NOT_MONOTONE",
+    "MATERIALIZE_CHORD_STATIONS_SKIPPED_NODE_NAMES_ANOTHER_VERTEX",
+    "MATERIALIZE_CHORD_STATIONS_FACES_RESTATIONED",
     "STATION_RUNS",
     "STATION_EDGES",
     "STATION_UNNAMED_CHAINS",
@@ -151,9 +159,24 @@ ANSWER_KEYS = (
 
 
 def compute_row(
-    patch_id: int, density, topology: str = "TRIANGLES_V1", source_lift: str = "on"
+    patch_id: int,
+    density,
+    topology: str = "TRIANGLES_V1",
+    source_lift: str = "on",
+    chord_station: str = "on",
 ):
     ctx = pool_sweep._CTX
+    if chord_station == "off":
+        # Закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1` выключен: грани остаются на узлах решётки, как до
+        # закона (ворота «закон — единственное изменение»: батч и дайджесты побитово прежние, кроме чисел
+        # самого закона).
+        from cftuv_envelope.materialize import domain as materialize_domain_module
+        from cftuv_envelope.materialize.chord_station import ChordStationsV1
+
+        materialize_domain_module.station_chord_vertices = lambda prepared, items, table: (
+            items,
+            ChordStationsV1(),
+        )
     if source_lift == "off":
         # Закон `SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1` выключен (позиций хоста нет): батч
         # обязан совпасть побитово с батчем до закона (ворота «закон — единственное изменение»).
@@ -246,6 +269,10 @@ def _source_lift_option(args) -> str:
     return getattr(args, "source_lift", "on")
 
 
+def _chord_station_option(args) -> str:
+    return getattr(args, "chord_station", "on")
+
+
 def _git(*args: str) -> str:
     try:
         out = subprocess.run(
@@ -326,6 +353,7 @@ def run(args) -> dict:
         "alpha": ALPHA_TEXT,
         "topology": args.topology,
         "source_lift": _source_lift_option(args),
+        "chord_station": _chord_station_option(args),
         "workers": args.workers,
         "python": sys.version.split()[0],
         "cores": os.cpu_count(),
@@ -337,7 +365,13 @@ def run(args) -> dict:
         if args.workers == 0:
             gate.init_worker(quiet=True)
             rows = [
-                compute_row(pid, density, args.topology, _source_lift_option(args))
+                compute_row(
+                    pid,
+                    density,
+                    args.topology,
+                    _source_lift_option(args),
+                    _chord_station_option(args),
+                )
                 for pid in order
             ]
         else:
@@ -348,7 +382,13 @@ def run(args) -> dict:
                     pool.map(
                         _task,
                         [
-                            (pid, density, args.topology, _source_lift_option(args))
+                            (
+                                pid,
+                                density,
+                                args.topology,
+                                _source_lift_option(args),
+                                _chord_station_option(args),
+                            )
                             for pid in order
                         ],
                     )
@@ -365,22 +405,41 @@ def run(args) -> dict:
     return record
 
 
-def _answer_view(row: dict, across_topology: bool) -> dict:
+def _answer_view(row: dict, across_topology: bool, ignore_counters=()) -> dict:
     """Поля строки, которые обязаны совпасть; между законами — без закон-зависимого."""
 
     view = {key: row.get(key) for key in ANSWER_KEYS}
     if across_topology:
         view.pop("content_digest")
-        view["counters"] = {
-            key: value
-            for key, value in (row.get("counters") or {}).items()
-            if key not in LAW_DEPENDENT_COUNTERS
-        }
+    skipped = LAW_DEPENDENT_COUNTERS if across_topology else ()
+    view["counters"] = {
+        key: value
+        for key, value in (row.get("counters") or {}).items()
+        if key not in skipped and not key.startswith(tuple(ignore_counters))
+    }
     return view
 
 
-def compare(paths, across_topology: bool = False) -> int:
+def _digests_moved(first: dict, second: dict) -> bool:
+    return any(first.get(key) != second.get(key) for key in ("semantic_digest", "content_digest"))
+
+
+def compare(
+    paths,
+    across_topology: bool = False,
+    expect_changed=None,
+    ignore_counters=(),
+) -> int:
+    """Прогоны побитово равны по ответу. `expect_changed` — номера патчей, чей ответ ОБЯЗАН сдвинуться.
+
+    Для среза, который меняет ответ осознанно (закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`): дайджест
+    сдвигается ровно у перечисленных доменов (иначе проблема: срез тронул лишнее либо не дошёл), а у
+    остальных совпадает всё. Поля перечисленных доменов не сравниваются: их различие и есть срез.
+    `ignore_counters` — приставки имён счётчиков, которых в прежней записи нет (числа самого среза).
+    """
+
     records = [json.loads(Path(item).read_text(encoding="utf-8")) for item in paths]
+    expected = None if expect_changed is None else {str(item) for item in expect_changed}
     problems = []
     base = records[0]
     for other, path in zip(records[1:], paths[1:]):
@@ -390,8 +449,12 @@ def compare(paths, across_topology: bool = False) -> int:
             if set(left) != set(right):
                 problems.append(f"{path} d{density}: domain sets differ")
             for patch in sorted(set(left) & set(right), key=int):
-                first = _answer_view(left[patch], across_topology)
-                second = _answer_view(right[patch], across_topology)
+                if expected is not None and patch in expected:
+                    if not _digests_moved(left[patch], right[patch]):
+                        problems.append(f"{path} d{density} patch{patch}: expected change is absent")
+                    continue
+                first = _answer_view(left[patch], across_topology, ignore_counters)
+                second = _answer_view(right[patch], across_topology, ignore_counters)
                 for key in first:
                     if first[key] != second[key]:
                         problems.append(f"{path} d{density} patch{patch}: {key} differs")
@@ -421,12 +484,31 @@ def main() -> int:
         default="on",
         help="off: закон SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1 выключен (ворота равенства до закона)",
     )
+    runner.add_argument(
+        "--chord-station",
+        dest="chord_station",
+        choices=("on", "off"),
+        default="on",
+        help="off: закон SOURCE_VERTEX_STATIONED_ON_CHORD_V1 выключен (грани на узлах решётки, как до закона)",
+    )
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="+")
     comparer.add_argument("--across-topology", action="store_true")
+    comparer.add_argument(
+        "--expect-changed",
+        default=None,
+        help="номера патчей через запятую: дайджест ОБЯЗАН сдвинуться ровно у них, у остальных всё совпадает",
+    )
+    comparer.add_argument(
+        "--ignore-counters",
+        default="",
+        help="приставки имён счётчиков через запятую, которых нет в прежней записи (числа самого среза)",
+    )
     args = parser.parse_args()
     if args.command == "compare":
-        return compare(args.paths, args.across_topology)
+        expected = None if args.expect_changed is None else [int(x) for x in args.expect_changed.split(",") if x]
+        ignored = tuple(item for item in args.ignore_counters.split(",") if item)
+        return compare(args.paths, args.across_topology, expected, ignored)
     record = run(args)
     Path(args.out).write_text(
         json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1),

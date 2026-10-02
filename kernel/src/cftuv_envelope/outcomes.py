@@ -221,3 +221,10 @@ class NamedOutcome(str, Enum):
     SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION = (
         "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION"
     )
+    # Закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1` (`materialize/chord_station`): внутренние вершины
+    # объявленных прямых цепей стоят в точной точке хорды (проекция по Граму из привязки), а не на узле
+    # решётки. Диагностика пишется, только когда хоть одна вершина реально сдвинута; числа — в строке.
+    SOURCE_VERTEX_STATIONED_ON_CHORD_V1 = "SOURCE_VERTEX_STATIONED_ON_CHORD_V1"
+    # Цепь осталась на узлах: станции не строго возрастают между концами хорды либо узел вершины назван
+    # другой вершиной. Названа цепь и причина; счёт — `MATERIALIZE_CHORD_STATIONS_SKIPPED_*`.
+    SOURCE_VERTEX_CHORD_STATION_SKIPPED = "SOURCE_VERTEX_CHORD_STATION_SKIPPED"

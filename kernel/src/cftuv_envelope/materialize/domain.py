@@ -83,6 +83,7 @@ from .assemble import (
     station_values,
     tessellate_faces,
 )
+from .chord_station import station_chord_vertices
 from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
@@ -177,6 +178,7 @@ def _diagnostics(
     gap_note: str = "",
     sourced=None,
     clip_note: str = "",
+    chords=None,
 ):
     """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры, положение вершин `src:`."""
 
@@ -228,6 +230,22 @@ def _diagnostics(
             "domain",
             (),
             clip_note,
+        )
+    if chords is not None and chords.placed:
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.SOURCE_VERTEX_STATIONED_ON_CHORD_V1,
+            "domain",
+            (),
+            chords.placed_note(),
+        )
+    if chords is not None and chords.skipped:
+        add(
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.SOURCE_VERTEX_CHORD_STATION_SKIPPED,
+            "domain",
+            (),
+            chords.skipped_note(),
         )
     if sourced is not None and sourced.moved:
         add(
@@ -564,7 +582,7 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
 def _assemble(prepared, coverage, request, admission, budget, clock, parts, law):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена."""
 
-    items, table, lines, notes = parts
+    items, table, lines, notes, chords = parts
     frame_faces = [
         resolve_frame(table, region_id, face, line, source_keys)
         for region_id, face, line, source_keys in items
@@ -572,7 +590,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     clock.lap("FRAMES")
     layout = Layout(frame_faces)
     cycles, points = intern_vertices(
-        [(item[0], frame) for item, frame in zip(items, frame_faces)], table, notes
+        [(item[0], frame) for item, frame in zip(items, frame_faces)], table, notes, chords.names
     )
     lattice_alpha = coverage.lattice_alpha
     facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget)
@@ -655,6 +673,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             plane.gap_note(),
             sourced,
             "" if cut is None else cut.note,
+            chords,
         ),
     )
     batch = replace(
@@ -685,12 +704,14 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
     items, stats, match = _covered_regions(
         prepared, coverage, table, spans, budget, clock
     )
+    items, chords = station_chord_vertices(prepared, items, table)
+    clock.lap("CHORD_STATIONS")
     lines: list[str] = []
     notes: list[str] = []
     try:
         batch, frame_faces, lift_counters, lift, topology = _assemble(
             prepared, coverage, request, admission, budget, clock,
-            (items, table, lines, notes), law,
+            (items, table, lines, notes, chords), law,
         )
     except MaterializationRefusal as refusal:
         # Отказ поздней стадии несёт числа ранних: сколько граней пришло и куда
@@ -701,7 +722,9 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
             if refusal.outcome is MaterializationOutcome.STATION_CHAIN_UNNAMED
             else ""
         )
-        raise refusal.augmented(extra, (*match.counters(), *table.counters)) from None
+        raise refusal.augmented(
+            extra, (*match.counters(), *table.counters, *chords.counters())
+        ) from None
     lines.extend(notes)
     return _Built(
         batch,
@@ -712,7 +735,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
         tuple(lines),
         len(prepared.regions),
         len(notes),
-        lift_counters,
+        (*chords.counters(), *lift_counters),
         lift,
         topology,
     )
