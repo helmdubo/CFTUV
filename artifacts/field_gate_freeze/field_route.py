@@ -203,10 +203,12 @@ def install_fans_pin(name: str) -> None:
 
 
 def install_join_pin(name: str) -> None:
-    """Закрепить порог JOIN 30° (до решения 45°) на время ЭТОГО процесса.
+    """Закрепить предел изгиба JOIN в 30° (прежний порог до решения 45°) на время ЭТОГО процесса.
 
-    Порог читают три модуля: решение угла, проверка плана и его реэкспорт; без подмены всех трёх
-    проверка отвергла бы план с прежним порогом.
+    С решения 2026-10-04 («JOIN решает тождество цепи») число — предел изгиба `JOIN_BEND_BOUND_OVER_PI` (прежде
+    порог выбора `JOIN_THRESHOLD_OVER_PI`): закрепка в 1/6 возвращает веера на изломах 31–90° ОДНОЙ цепи, то есть
+    те локусы, которые закон тождества снял (`retired_by_join`). Число читают три модуля: решение угла, проверка
+    плана и его реэкспорт; без подмены всех трёх проверка отвергла бы план с прежним числом.
     """
 
     if name != JOIN_THRESHOLD_BEFORE_45:
@@ -218,7 +220,7 @@ def install_join_pin(name: str) -> None:
     from cftuv_envelope.reference import corner_treatment as reference_module
 
     for module in (treatment_module, validation_module, reference_module):
-        module.JOIN_THRESHOLD_OVER_PI = Fraction(1, 6)
+        module.JOIN_BEND_BOUND_OVER_PI = Fraction(1, 6)
 
 
 def snapshot_sha256(name: str) -> str:

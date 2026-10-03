@@ -67,6 +67,14 @@ def _uv_area(batch) -> float:
 
 
 SEAM_KINDS = ("SOURCE", "WALL")
+#: Счётчики неаффинной UV потока: домен с любым из них сверяет UV-площадь с допуском, а не точно (см. `judge`).
+NON_AFFINE_COUNTERS = (
+    "MATERIALIZE_QUADS_UV_BILINEAR",
+    "MATERIALIZE_POLYGONS_UV_BILINEAR",
+    "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+)
+#: Относительный допуск UV-площади домена с неаффинными гранями: измерено 1.5e-8 при изломе UV 0.001 alpha (building п106).
+FLOW_UV_AREA_REL_TOL = 1e-4
 
 
 def _chain_id(item) -> str:
@@ -151,7 +159,16 @@ def judge(base, cut, planar: bool) -> list[str]:
         problems.append("semantic regions differ")
     if _facts(base.batch, set(before)) != _facts(cut.batch, set(before)):
         problems.append("(s, r) facts of the old vertices differ")
-    if not math.isclose(_uv_area(base.batch), _uv_area(cut.batch), rel_tol=1e-9, abs_tol=1e-12):
+    # Равенство суммарной UV-площади держится у АФФИННОЙ UV. Поток (`CORNER_JOIN_SAME_PCHAIN_V1`, `CORNER_JOIN_SOFT_BEND_V1`)
+    # несёт неаффинную UV (билинейные грани, `UV_NOT_AFFINE`): целая грань и её куски после резки отличаются на излом
+    # UV, поэтому у домена с неаффинными гранями площадь сверяется с допуском `FLOW_UV_AREA_REL_TOL`, а не точно.
+    nonaffine = any(
+        dict(side.counters).get(name, 0)
+        for side in (base, cut)
+        for name in NON_AFFINE_COUNTERS
+    )
+    area_tolerance = FLOW_UV_AREA_REL_TOL if nonaffine else 1e-9
+    if not math.isclose(_uv_area(base.batch), _uv_area(cut.batch), rel_tol=area_tolerance, abs_tol=1e-12):
         problems.append("the covered UV area differs")
     added = {item.outcome.value for item in cut.batch.diagnostics} - {
         item.outcome.value for item in base.batch.diagnostics
