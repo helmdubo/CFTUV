@@ -132,6 +132,7 @@ class TolerancePolicyIdV1(str, Enum):
     ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1 = "ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1"
     CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1 = "CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1"
     CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1 = "CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1"
+    DEVELOPABLE_CONE_RELIEF_GAP_V1 = "DEVELOPABLE_CONE_RELIEF_GAP_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -204,6 +205,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     DENSITY_NARROW_BAND_RAY_BINDING = "DENSITY_NARROW_BAND_RAY_BINDING"
     CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER = "CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER"
     CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE = "CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE"
+    DEVELOPABLE_PROPOSAL_TARGET = "DEVELOPABLE_PROPOSAL_TARGET"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -242,6 +244,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     ZERO_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE_WITHIN_GAP = (
         "ZERO_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE_WITHIN_GAP"
+    )
+    SHRINK_BOUNDARY_FAN_ANGLE_TARGET_TO_LEAVE_A_GAP = (
+        "SHRINK_BOUNDARY_FAN_ANGLE_TARGET_TO_LEAVE_A_GAP"
     )
 
 
@@ -1527,6 +1532,50 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_clip_snap.py"
             "::test_a_node_beyond_the_gap_of_an_interior_edge_still_cuts_a_needle"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.DEVELOPABLE_CONE_RELIEF_GAP_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(Fraction(1, 90)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.RADIANS_PER_HALF_TURN,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Какой зазор в обороте закон `CONE_RELIEF_NLERP_V1` оставляет вееру ГРАНИЧНОЙ вершины с разомкнутым "
+            "веером, чья сумма углов больше `2π − g` (`g = π/90`, два градуса), в ЦЕЛИ третьего предложения "
+            "развёртки: изометрия такого веера накрывает себя (патч 89 `building`: ступенька 1.6 см, вершина "
+            "`building:34`, 360.167°), ARAP из изометрии не выходит, и цель сдвигает угол при вершине так, чтобы "
+            "граничные рёбра карты разошлись. Это допуск ПРЕДЛОЖЕНИЯ, а не приёма: карту, которую даст ARAP к "
+            "этим целям, судит тот же точный сертификат растяжения (бюджет `DEVELOPABLE_STRETCH_RELATIVE_V1`) и "
+            "та же простота границы, поэтому слишком малый зазор даёт именованный отказ самонакрытия, слишком "
+            "большой — именованный отказ растяжения; молчаливой замены карты нет. Зазор в два градуса на "
+            "метровом ребре — сантиметры, на порядки больше шага решётки карты; избыток в доли градуса снимается "
+            "растяжением в доли процента. Квантование `rho` (`1/1024`, потолок половина) стирает разницу "
+            "`atan2` между платформами в последнем бите."
+        ),
+        authority=(
+            "_cone_relief.CONE_RELIEF_GAP_HALF_TURNS; закон CONE_RELIEF_NLERP_V1; DECISIONS.md 2026-10-03 "
+            "(LEFTOVER A: патч 89 `building`, третье предложение развёртки)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.DEVELOPABLE_PROPOSAL_TARGET,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.SHRINK_BOUNDARY_FAN_ANGLE_TARGET_TO_LEAVE_A_GAP
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=(
+            "cftuv_envelope._cone_relief.CONE_RELIEF_GAP_HALF_TURNS",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_cone_relief.py"
+            "::test_the_step_patch_is_accepted_with_the_relief_within_the_stretch_budget"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_cone_relief.py"
+            "::test_an_excess_that_costs_more_than_the_budget_is_refused_by_name_with_the_relief_numbers"
         ),
     ),
 )

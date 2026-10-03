@@ -1023,10 +1023,17 @@ class DevelopableProposalLawV1(str, Enum):
     операций) размазывает его по всей карте. Число итераций — часть закона и его имени.
     Старт ARAP — положения шарнира, а имя его отказа записано в `previous_refusals`
     сертификата. Власть та же: точный сертификат растяжения и простота границы.
+
+    `ARAP_CONE_RELIEF_80_BINARY64_V1` — тот же ARAP с теми же 80 итерациями, но с ЦЕЛЬЮ,
+    смещённой по углу у граничных вершин, чей разомкнутый веер не помещается в оборот
+    (`_cone_relief`, закон `CONE_RELIEF_NLERP_V1`). Пробуется ТОЛЬКО после отказа шарнира
+    `DEVELOPABLE_CHART_SELF_OVERLAP` при развёртке в бюджете (изометрия накрывает себя сама, ARAP
+    её не лечит), и последняя запись `previous_refusals` у него — именно этот отказ.
     """
 
     BINARY64_HINGE_V1 = "BINARY64_HINGE_V1"
     ARAP_LOCAL_GLOBAL_80_BINARY64_V1 = "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
+    ARAP_CONE_RELIEF_80_BINARY64_V1 = "ARAP_CONE_RELIEF_80_BINARY64_V1"
 
 
 class DevelopableStretchLawV1(str, Enum):
@@ -1252,8 +1259,9 @@ class DevelopableUnfoldCertificateV1:
     сертификата.
 
     `previous_refusals` — след лестницы: имя отказа near-planar, после которого
-    пробовалась развёртка, и (только у `ARAP_LOCAL_GLOBAL_80_BINARY64_V1`) имя отказа
-    шарнирного предложения, после которого пробовался ARAP: запись говорит, ПОЧЕМУ
+    пробовалась развёртка, и (только у `ARAP_LOCAL_GLOBAL_80_BINARY64_V1` и
+    `ARAP_CONE_RELIEF_80_BINARY64_V1`) имя отказа шарнирного предложения, после
+    которого пробовалось второе предложение: запись говорит, ПОЧЕМУ
     домен здесь, а не на ступень ниже. `snapped_vertex_count` и `snap_residual` — сколько вершин
     сдвинула привязка карты к решётке и наибольшее смещение по оси в единицах
     решётки.

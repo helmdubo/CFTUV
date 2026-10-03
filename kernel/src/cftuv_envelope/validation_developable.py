@@ -52,16 +52,20 @@ from .contracts.metric import (
     VertexDevelopabilityClassV1,
 )
 from .numeric import LocalPoint3V1
+from .outcomes import NamedOutcome
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
-#: Законы предложения, которые ядро объявляет: шарнир и (после его именованного отказа) ARAP.
-DECLARED_PROPOSAL_LAWS = frozenset(
+#: Законы, которые пробуются ПОСЛЕ именованного отказа шарнира: след лестницы у них кончается этим отказом.
+SECOND_PROPOSAL_LAWS = frozenset(
     {
-        DevelopableProposalLawV1.BINARY64_HINGE_V1,
         DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+        DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1,
     }
 )
+
+#: Законы предложения, которые ядро объявляет: шарнир и (после его именованного отказа) ARAP либо ARAP с запасом угла.
+DECLARED_PROPOSAL_LAWS = SECOND_PROPOSAL_LAWS | {DevelopableProposalLawV1.BINARY64_HINGE_V1}
 
 
 def _fraction(value) -> Fraction:
@@ -69,10 +73,10 @@ def _fraction(value) -> Fraction:
 
 
 def ladder_trace(certificate) -> tuple[str, ...]:
-    """След ступеней НИЖЕ развёртки: у ARAP последняя запись — отказ шарнира, не лестницы."""
+    """След ступеней НИЖЕ развёртки: у второго предложения последняя запись — отказ шарнира, не лестницы."""
 
     trace = certificate.previous_refusals
-    if certificate.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1:
+    if certificate.proposal_law in SECOND_PROPOSAL_LAWS:
         return trace[:-1]
     return trace
 
@@ -175,20 +179,24 @@ def _check_ladder_trace(issues, path, certificate) -> None:
             "an unfolded chart is tried only after a named near-planar refusal: "
             "the ladder trace must name a ladder trigger",
         )
-    arap = certificate.proposal_law is (
-        DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+    second = certificate.proposal_law in SECOND_PROPOSAL_LAWS
+    relief = certificate.proposal_law is (
+        DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1
     )
-    if arap and (
+    last = {NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP.value} if relief else {
+        item.value for item in ARAP_TRIGGER_OUTCOMES
+    }
+    if second and (
         len(certificate.previous_refusals) != len(trace) + 1
-        or certificate.previous_refusals[-1]
-        not in {item.value for item in ARAP_TRIGGER_OUTCOMES}
+        or certificate.previous_refusals[-1] not in last
     ):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("previous_refusals",),
             "the second (ARAP) proposal is tried only after a named refusal of the "
-            "hinge proposal: the trace must end with that refusal",
+            "hinge proposal (the cone relief only after its self-overlap): the trace "
+            "must end with that refusal",
         )
 
 
