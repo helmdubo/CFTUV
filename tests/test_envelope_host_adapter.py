@@ -1848,7 +1848,11 @@ def test_queue_preparation_cache_is_keyed_by_density_and_survives_warm_reset():
 
 
 def test_alpha_redraw_refuses_a_stale_density_session():
-    from cftuv.envelope_debug_renderer import update_queue_alpha
+    from cftuv.envelope_alpha_preview_gp import (
+        DENSITY_CHANGED,
+        GpPreviewTargetV1,
+        session_problem,
+    )
     from cftuv.envelope_debug_session import QueueSessionStateV1
 
     controller = EnvelopeDebugSessionController()
@@ -1863,12 +1867,9 @@ def test_alpha_redraw_refuses_a_stale_density_session():
         )
     )
 
-    assert update_queue_alpha(
-        controller,
-        "source",
-        0.5,
-        density=4,
-    ) == "Fan Density changed; press Build"
+    assert session_problem(
+        controller, GpPreviewTargetV1("source", 4, 0)
+    ) == DENSITY_CHANGED == "Fan Density changed; press Build"
 
 
 def test_selection_change_rebuilds_request_but_reuses_source_caches():

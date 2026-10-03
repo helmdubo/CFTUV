@@ -156,6 +156,7 @@ def _warm_and_slide(workers):
     """Холодная кнопка, тёплая кнопка, два шага ползунка: ответ каждого шага."""
 
     from cftuv import envelope_queue_pool
+    from cftuv.envelope_alpha_preview_gp import settle_alpha_preview
 
     cold = _build(workers)
     source_obj = bpy.data.objects["EnvelopeTwoPatch"]
@@ -175,6 +176,8 @@ def _warm_and_slide(workers):
         slides = []
         for alpha in (0.4, 0.3):
             settings.envelope_debug_alpha = alpha
+            # Ползунок асинхронен: у смока нет таймеров главного цикла, слив вручную.
+            settle_alpha_preview(bpy.context.window_manager._cftuv_envelope_debug_session)
             slides.append(
                 (
                     _timing_free(_sidecar_payload(source_obj)),

@@ -178,38 +178,22 @@ def _live_session(context):
 
 
 def _update_envelope_debug_alpha(settings, context):
-    """Ползунок alpha на движке QUEUE: покрытие и слои, без единой компиляции.
+    """Ползунок alpha на движке QUEUE: ЗАКАЗ превью, а не счёт.
 
-    Ничего не считает, пока нет тёплой подготовки: без неё ответ «ждём кнопки»,
-    а не «посчитаем сейчас» — подготовка стоит десятки миллисекунд на домен.
+    Калбэк только записывает значение (`envelope_alpha_preview_gp`): пауза, слияние
+    значений, счёт в фоне и применение результата идут таймером. Синхронного пути
+    `update_queue_alpha` здесь больше нет (стена в `tests/test_architecture.py`).
     """
 
-    from .envelope_queue_export import ENVELOPE_DEBUG_ENGINE_QUEUE
-
-    if str(settings.envelope_debug_engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
-        return
-    source_name = str(settings.envelope_debug_source_object).strip()
-    controller = _live_session(context)
-    if not source_name or controller is None:
-        return
     try:
-        from .envelope_debug_renderer import update_queue_alpha
+        from .envelope_alpha_preview_gp import schedule_alpha_preview
 
-        status = update_queue_alpha(
-            controller,
-            source_name,
-            float(settings.envelope_debug_alpha),
-            density=settings.envelope_debug_fan_density,
-            settings=settings,
-        )
+        schedule_alpha_preview(settings, context)
     except (ImportError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         settings.envelope_debug_queue_timing = (
             f"QUEUE alpha update failed: {type(exc).__name__}"
         )
         print(f"[CFTUV][EnvelopeDebug] QUEUE alpha update failed: {exc}")
-        return
-    if status is not None:
-        settings.envelope_debug_queue_timing = status
 
 
 def _request_policy_update(label):

@@ -61,6 +61,15 @@ def _controller():
     return bpy.context.window_manager._cftuv_envelope_debug_session
 
 
+def _slide(settings, alpha):
+    """Ползунок асинхронен: заказ, затем слив (у смока нет главного цикла и его таймеров)."""
+
+    from cftuv.envelope_alpha_preview_gp import settle_alpha_preview
+
+    settings.envelope_debug_alpha = alpha
+    settle_alpha_preview(_controller())
+
+
 def _gp_object(source_obj):
     return bpy.data.objects["CFTUV_DEBUG_Envelope_" + source_obj.name]
 
@@ -168,7 +177,7 @@ def _run_alpha_change_reuses_the_preparation(source_obj, payload):
         if item["kind"] == "QUEUE_COVERAGE_FACE"
     ]
 
-    settings.envelope_debug_alpha = 0.45
+    _slide(settings, 0.45)
     assert controller.build_counts["CONVEYOR_PREPARATION"] == before
     assert "alpha redraw" in settings.envelope_debug_queue_timing
 
@@ -242,7 +251,7 @@ def _run_density_sequence_keys_preparation_and_invalidates_only_warm_session():
     assert settings.envelope_debug_queue_timing == (
         "Fan Density changed; press Build"
     )
-    settings.envelope_debug_alpha = 0.4
+    _slide(settings, 0.4)
     assert settings.envelope_debug_queue_timing == (
         "Fan Density changed; press Build"
     )
@@ -255,7 +264,7 @@ def _run_density_sequence_keys_preparation_and_invalidates_only_warm_session():
     assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_HIT") == [0, 0]
     assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [1, 1]
 
-    settings.envelope_debug_alpha = 0.42
+    _slide(settings, 0.42)
     assert controller.build_counts["CONVEYOR_PREPARATION"] == density_four_count
     assert "alpha redraw" in settings.envelope_debug_queue_timing
 

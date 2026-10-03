@@ -908,6 +908,8 @@ def run_production(
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
     if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
         raise ValueError(f"unknown decal topology law {topology_law!r}")
+    # Поток превью alpha считает на тех же подготовках, что и эта кнопка: сперва стоп и ожидание.
+    controller.quiesce_preview("Build Decal Mesh")
     started = time.perf_counter()
     profile = EnvelopeDebugProfileBuilderV1(
         getattr(analysis_bundle.source_revision, "source_name", "source"),

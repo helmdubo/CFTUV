@@ -1,0 +1,210 @@
+{
+ "button_answer": {
+  "alpha": "46000000834465027/100000000000000000",
+  "gp": {
+   "digest": "22af8552f216af3c",
+   "strokes": 707
+  },
+  "queue": "5a9311c4ebd45f7e",
+  "queue_strokes": "002e9e1117ba2c5c"
+ },
+ "button_at_last_alpha_s": 0.643,
+ "cancel": {
+  "cancel_return_ms": 19.1,
+  "counters": {
+   "applied": 1,
+   "cancelled": 0,
+   "coalesced": 0,
+   "failed": 0,
+   "invalid": 0,
+   "requested": 2,
+   "stale": 1,
+   "started": 2,
+   "unavailable": 0
+  },
+  "status": "ready alpha=0.47 (compute 0.29 s, apply 0.19 s) | superseded 1",
+  "steps_max_ms": 196.58
+ },
+ "cold_button_s": 15.36,
+ "density": "2",
+ "domains": 32,
+ "drags": [
+  {
+   "apply_ms": 172.0,
+   "change_ms": [
+    0.198,
+    0.123,
+    0.115,
+    0.111,
+    0.14
+   ],
+   "compute_ms": 270.3,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "latency_ms": 594.0,
+   "oversleep_ms": 17.21,
+   "queue_timing": "QUEUE 32 domains: prepare 0 ms, coverage 269 ms | slowest fc3 100 ms | alpha redraw 435 ms (compute 270, apply 164)",
+   "status": "ready alpha=0.34 (compute 0.27 s, apply 0.17 s) | superseded 4",
+   "steps_ms": [
+    0.01,
+    0.06,
+    0.01,
+    0.01,
+    0.01,
+    6.06,
+    0.03,
+    0.03,
+    0.02,
+    0.02,
+    0.01,
+    164.81
+   ],
+   "values": [
+    0.3,
+    0.31,
+    0.32,
+    0.33,
+    0.34
+   ],
+   "wall_from_last_change_ms": 583.3
+  },
+  {
+   "apply_ms": 78.0,
+   "change_ms": [
+    0.08,
+    0.188,
+    0.09,
+    0.061,
+    0.054
+   ],
+   "compute_ms": 280.2,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "latency_ms": 516.0,
+   "oversleep_ms": 18.07,
+   "queue_timing": "QUEUE 32 domains: prepare 0 ms, coverage 278 ms | slowest fc3 103 ms | alpha redraw 362 ms (compute 280, apply 82)",
+   "status": "ready alpha=0.4 (compute 0.28 s, apply 0.08 s) | superseded 4",
+   "steps_ms": [
+    0.01,
+    0.01,
+    0.01,
+    0.0,
+    0.0,
+    0.0,
+    7.11,
+    0.01,
+    0.02,
+    0.02,
+    0.01,
+    0.01,
+    82.89
+   ],
+   "values": [
+    0.36,
+    0.37,
+    0.38,
+    0.39,
+    0.4
+   ],
+   "wall_from_last_change_ms": 519.1
+  },
+  {
+   "apply_ms": 78.0,
+   "change_ms": [
+    0.076,
+    0.062,
+    0.055,
+    0.056,
+    0.069
+   ],
+   "compute_ms": 308.6,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "latency_ms": 563.0,
+   "oversleep_ms": 18.78,
+   "queue_timing": "QUEUE 32 domains: prepare 0 ms, coverage 307 ms | slowest fc3 104 ms | alpha redraw 395 ms (compute 309, apply 86)",
+   "status": "ready alpha=0.46 (compute 0.31 s, apply 0.08 s) | superseded 4",
+   "steps_ms": [
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    12.1,
+    0.01,
+    0.02,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    86.78
+   ],
+   "values": [
+    0.42,
+    0.43,
+    0.44,
+    0.45,
+    0.46
+   ],
+   "wall_from_last_change_ms": 558.7
+  }
+ ],
+ "equal": {
+  "gp": true,
+  "queue": true,
+  "queue_strokes": true
+ },
+ "failure": null,
+ "last_alpha": 0.46000000834465027,
+ "mesh": "2",
+ "root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-ae1d130ebf3c6e11e",
+ "slider_answer": {
+  "alpha": "46000000834465027/100000000000000000",
+  "gp": {
+   "digest": "22af8552f216af3c",
+   "strokes": 707
+  },
+  "queue": "5a9311c4ebd45f7e",
+  "queue_strokes": "002e9e1117ba2c5c"
+ },
+ "summary": {
+  "apply_ms_median": 78.0,
+  "change_ms_max": 0.198,
+  "change_ms_median": 0.08,
+  "compute_ms_median": 280.2,
+  "latency_ms_max": 594.0,
+  "latency_ms_median": 563.0,
+  "oversleep_ms_max": 18.78,
+  "step_ms_max": 164.81,
+  "step_ms_median": 0.01
+ },
+ "warm_button_s": 0.652,
+ "workers": 0
+}

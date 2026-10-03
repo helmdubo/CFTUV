@@ -228,6 +228,22 @@ class EnvelopeDebugSessionController:
         }
         self._cache_build_counts: dict[tuple[str, object], int] = {}
         self._invalidation_count = 0
+        #: Планировщик фонового превью alpha (`envelope_alpha_preview_gp.scheduler_of`) либо `None`,
+        #: пока ползунок ничего не заказывал. Его поток считает на подготовках этой сессии, поэтому
+        #: любой тяжёлый синхронный путь сперва зовёт `quiesce_preview`.
+        self.alpha_preview = None
+
+    def quiesce_preview(self, reason: str) -> None:
+        """Останавливает фоновое превью alpha и ждёт конца его потока (перед работой кнопки)."""
+
+        if self.alpha_preview is not None:
+            self.alpha_preview.quiesce(reason)
+
+    def supersede_preview(self, reason: str) -> None:
+        """Снимает заказ превью и просит поток остановиться, не дожидаясь (калбэки свойств)."""
+
+        if self.alpha_preview is not None:
+            self.alpha_preview.supersede(reason)
 
     @property
     def build_counts(self) -> dict[str, int]:
@@ -285,6 +301,7 @@ class EnvelopeDebugSessionController:
         return SliderCoveragePool(pool, self.preparation_blobs, profile)
 
     def clear(self) -> None:
+        self.quiesce_preview("session cleared")
         self._source_state_by_object.clear()
         self._analysis_bundle_cache.clear()
         self._topology_export_cache.clear()
@@ -741,6 +758,7 @@ class EnvelopeDebugSessionController:
     def invalidate_queue_session(self) -> None:
         """Сбрасывает только warm redraw, сохраняя правильно ключённые кэши."""
 
+        self.supersede_preview("warm session dropped")
         self._queue_session = None
 
     def evaluate_staged(
@@ -767,6 +785,7 @@ class EnvelopeDebugSessionController:
         )
         from .envelope_worker_python import read_worker_python
 
+        self.quiesce_preview("Envelope debug build")
         topology_export = self.get_topology_export(
             analysis_bundle,
             source_object_key,

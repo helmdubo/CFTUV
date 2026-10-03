@@ -752,6 +752,9 @@ class DomainPool:
         self._workers: list[_Worker] = []
         self._interpreter: PoolInterpreterV1 | None = None
         self._rejection: _InterpreterRejected | None = None
+        # Воркер однопоточен по кадрам: два одновременных `run` перемешали бы кадры. Раньше пулом
+        # пользовался один главный поток; теперь превью alpha гонит `run` из потока счёта.
+        self._run_lock = threading.Lock()
 
     @property
     def worker_count(self) -> int:
@@ -894,9 +897,18 @@ class DomainPool:
             version, False, rejection.outcome, str(rejection), rejection.code
         )
 
-    def run(self, tasks) -> DomainPoolRunV1:
-        """Считает задачи воркерами, тяжёлые первыми, и собирает ответы."""
+    def run(self, tasks, cancel=None) -> DomainPoolRunV1:
+        """Считает задачи воркерами, тяжёлые первыми, и собирает ответы.
 
+        Один прогон за раз (`_run_lock`). `cancel` — `threading.Event`: после его установки воркеры
+        не берут НОВЫЕ задачи (идущая дочитывается), и ответ вернёт только сделанное; кто отменил,
+        тот и разбирает неполный ответ (`SliderCoveragePool.cover` бросает `CoverageCancelled`).
+        """
+
+        with self._run_lock:
+            return self._run_locked(tasks, cancel)
+
+    def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
         self.ensure_started()
         pending: queue.Queue = queue.Queue()
         for item in order_by_cost(tasks):
@@ -906,6 +918,8 @@ class DomainPool:
 
         def feed(worker: _Worker) -> None:
             while True:
+                if cancel is not None and cancel.is_set():
+                    return
                 try:
                     task, frame = pending.get_nowait()
                 except queue.Empty:
