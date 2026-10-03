@@ -68,21 +68,37 @@ PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
 PIN_FANS_FLAG = "--pin-fans"
+PIN_JOIN_FLAG = "--pin-join"
 #: Законы вееров ДО RIGHT-ANGLE-STABLE (2026-10-03): допуск восстановления 7e-6 рад,
 #: граница шума привязки 1/1000, таблица лучей только лифтованного `(1/2, 4, 6)`, окно луча
-#: Вороного. Единственное имя закрепки веера.
+#: Вороного. Закрепка веера — ТОЛЬКО красный контроль и переснятие таблицы якорей
+#: (`refreeze_anchor_loci.py`): маршрут по умолчанию идёт продуктовыми законами и ничего не закрепляет.
+#: Имя без суффикса `_ONLY` — все четыре закона; одиночные имена (через запятую можно несколько) называют
+#: каждый закон отдельно, чтобы переснятие записывало, КАКОЙ закон сдвинул якорь.
 FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE = "FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE_V1"
+FAN_RESTORATION_TOLERANCE_PIN = "FAN_RESTORATION_TOLERANCE_BEFORE_RIGHT_ANGLE_STABLE_V1"
+FAN_NOISE_BOUND_PIN = "FAN_BINDING_NOISE_BOUND_BEFORE_RIGHT_ANGLE_STABLE_V1"
+FAN_ROTATION_TABLE_PIN = "FAN_ROTATION_TABLE_BEFORE_RIGHT_ANGLE_STABLE_V1"
+FAN_RAY_WINDOW_PIN = "FAN_RAY_WINDOW_BEFORE_RIGHT_ANGLE_STABLE_V1"
+#: Порог мягкого излома JOIN ДО решения 45° (2026-10-03): 30° = π/6.
+JOIN_THRESHOLD_BEFORE_45 = "JOIN_SOFT_BEND_THRESHOLD_30_V1"
 
 
 def split_pins(argv) -> tuple[list[str], dict[str, str]]:
-    """Позиционные аргументы и закрепки: `--pin-lift`, `--pin-frame`, `--pin-ladder`, `--pin-fans`."""
+    """Позиционные аргументы и закрепки: `--pin-lift`, `--pin-frame`, `--pin-ladder`, `--pin-fans`, `--pin-join`."""
 
     positional: list[str] = []
     pins: dict[str, str] = {}
     items = list(argv)
     while items:
         item = items.pop(0)
-        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG, PIN_LADDER_FLAG, PIN_FANS_FLAG):
+        if item in (
+            PIN_LIFT_FLAG,
+            PIN_FRAME_FLAG,
+            PIN_LADDER_FLAG,
+            PIN_FANS_FLAG,
+            PIN_JOIN_FLAG,
+        ):
             if not items:
                 raise SystemExit(f"{item} needs a policy name")
             pins[item] = items.pop(0)
@@ -122,34 +138,87 @@ def install_ladder_pin(policy_name: str) -> None:
     export_module.HOST_CURVATURE_LADDER_POLICY = HostCurvatureLadderPolicy(policy_name)
 
 
-def install_fans_pin(name: str) -> None:
-    """Закрепить законы вееров ядра ДО RIGHT-ANGLE-STABLE на время ЭТОГО процесса.
-
-    Четыре константы ядра возвращаются на прежние значения; сам код ядра не меняется.
-    """
-
-    if name != FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE:
-        raise SystemExit(f"unknown fan-laws pin: {name}")
-    from fractions import Fraction
-
+def _pin_restoration_tolerance() -> None:
     from cftuv_envelope import _canonical_angle as canonical_module
-    from cftuv_envelope import _density_policy as policy_module
     from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR
-    from cftuv_envelope.reference import compile as compile_module
-    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
-    from cftuv_envelope.reference.adaptive_density_band import WINDOW_LAW_VORONOI
 
     canonical_module.CANONICAL_RESTORATION_ARTIST_ERROR = AUTHOR_ANGULAR_ERROR
     canonical_module._TOLERANCE_OVER_PI = (
         AUTHOR_ANGULAR_ERROR / canonical_module.PI_RATIONAL_UPPER_BOUND
     )
+
+
+def _pin_noise_bound() -> None:
+    from fractions import Fraction
+
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+
     noise_module.NOISE_DIRECTION_SINE_BOUND = Fraction(1, 1000)
+
+
+def _pin_rotation_table() -> None:
+    from fractions import Fraction
+
+    from cftuv_envelope import _density_policy as policy_module
+
     policy_module.CANONICAL_ROTATION_TABLE = {
         key: row
         for key, row in policy_module.CANONICAL_ROTATION_TABLE.items()
         if key == (Fraction(1, 2), 4, 6)
     }
+
+
+def _pin_ray_window() -> None:
+    from cftuv_envelope.reference import compile as compile_module
+    from cftuv_envelope.reference.adaptive_density_band import WINDOW_LAW_VORONOI
+
     compile_module.FAN_WINDOW_LAW = WINDOW_LAW_VORONOI
+
+
+_FAN_LAW_INSTALLERS = {
+    FAN_RESTORATION_TOLERANCE_PIN: _pin_restoration_tolerance,
+    FAN_NOISE_BOUND_PIN: _pin_noise_bound,
+    FAN_ROTATION_TABLE_PIN: _pin_rotation_table,
+    FAN_RAY_WINDOW_PIN: _pin_ray_window,
+}
+
+
+def install_fans_pin(name: str) -> None:
+    """Закрепить законы вееров ядра ДО RIGHT-ANGLE-STABLE на время ЭТОГО процесса.
+
+    `name` — `FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE_V1` (все четыре закона) либо список одиночных имён
+    через запятую. Константы ядра возвращаются на прежние значения; сам код ядра не меняется.
+    """
+
+    names = (
+        list(_FAN_LAW_INSTALLERS)
+        if name == FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE
+        else name.split(",")
+    )
+    for item in names:
+        if item not in _FAN_LAW_INSTALLERS:
+            raise SystemExit(f"unknown fan-laws pin: {item}")
+    for item in names:
+        _FAN_LAW_INSTALLERS[item]()
+
+
+def install_join_pin(name: str) -> None:
+    """Закрепить порог JOIN 30° (до решения 45°) на время ЭТОГО процесса.
+
+    Порог читают три модуля: решение угла, проверка плана и его реэкспорт; без подмены всех трёх
+    проверка отвергла бы план с прежним порогом.
+    """
+
+    if name != JOIN_THRESHOLD_BEFORE_45:
+        raise SystemExit(f"unknown join pin: {name}")
+    from fractions import Fraction
+
+    from cftuv_envelope import _corner_treatment as treatment_module
+    from cftuv_envelope import validation_corner_treatment as validation_module
+    from cftuv_envelope.reference import corner_treatment as reference_module
+
+    for module in (treatment_module, validation_module, reference_module):
+        module.JOIN_THRESHOLD_OVER_PI = Fraction(1, 6)
 
 
 def snapshot_sha256(name: str) -> str:
@@ -430,13 +499,19 @@ def _main() -> None:
         substitutions.append(f"HOST_CURVATURE_LADDER_POLICY_PINNED:{pinned_ladder}")
     pinned_fans = pins.get(PIN_FANS_FLAG)
     if pinned_fans:
-        # Четвёртая ИМЕНОВАННАЯ закрепка: таблица якорных локусов заморожена на лучах
-        # прежних законов веера (допуск 7e-6 рад, окно Вороного, таблица только поднятого
-        # d4). RIGHT-ANGLE-STABLE ставит лучи иначе — ответ сдвигается ПО ЗАМЫСЛУ, и точный
-        # локус, сравниваемый побитово, перестаёт находиться, хотя математика фронта та же.
-        # Ворота проверяют математику фронта, а не выбор лучей; законы лучей держат тесты ядра.
+        # Четвёртая ИМЕНОВАННАЯ закрепка — КРАСНЫЙ КОНТРОЛЬ, не режим ворот: таблица якорных
+        # локусов снята на продуктовых законах вееров, и этот прогон возвращает прежние
+        # (допуск 7e-6 рад, окно Вороного, таблица только поднятого d4). Ворота якорей обязаны
+        # на нём краснеть (`test_anchor_gate_goes_red_when_an_old_law_is_re_enabled`), иначе они
+        # перестали видеть закон. Имя едет в `substitutions`.
         install_fans_pin(pinned_fans)
         substitutions.append(f"KERNEL_FAN_LAWS_PINNED:{pinned_fans}")
+    pinned_join = pins.get(PIN_JOIN_FLAG)
+    if pinned_join:
+        # Пятая ИМЕНОВАННАЯ закрепка — тоже красный контроль: порог JOIN 30° возвращает
+        # локусы, которые закон 45° снял (`retired_by_join` в таблице якорей).
+        install_join_pin(pinned_join)
+        substitutions.append(f"KERNEL_JOIN_THRESHOLD_PINNED:{pinned_join}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ
