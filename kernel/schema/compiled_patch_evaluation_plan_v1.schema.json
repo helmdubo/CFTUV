@@ -1381,6 +1381,13 @@
           "type": "array",
           "uniqueItems": true
         },
+        "corner_treatments": {
+          "items": {
+            "$ref": "#/$defs/CornerTreatmentRecordV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "envelope_instances": {
           "items": {
             "$ref": "#/$defs/EnvelopeInstanceV1"
@@ -1514,6 +1521,7 @@
               "DEVELOPABLE_OFFSET_MIN_GAP_COSINE",
               "SOURCE_EDGES_LIFTED_ONTO_SURFACE",
               "U_RESTARTS_AT_DOMAIN_BORDER",
+              "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
               "DEGRADED_MITER_CORNER_IN_GEOMETRY",
               "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
               "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
@@ -1610,7 +1618,8 @@
         "named_outcomes",
         "front_reading_declarations",
         "self_contact_pair_declarations",
-        "canonical_angle_restorations"
+        "canonical_angle_restorations",
+        "corner_treatments"
       ],
       "type": "object"
     },
@@ -1692,6 +1701,72 @@
         "owner_sector_id",
         "ordered_incident_chain_use_ids",
         "profile_selection_certificate_id"
+      ],
+      "type": "object"
+    },
+    "CornerTreatmentRecordV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CornerTreatmentRecordV1"
+        },
+        "corner_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "incoming_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "outgoing_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "reason": {
+          "enum": [
+            "SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+            "REFLEX_EXCESS_NOT_SOFT",
+            "REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD",
+            "SOURCE_CHAIN_UNPROVEN"
+          ],
+          "type": "string"
+        },
+        "reflex_excess_over_pi": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "shared_source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "threshold_over_pi": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "treatment": {
+          "enum": [
+            "CORNER_JOIN_CONTINUATION",
+            "CORNER_ANGULAR_PROFILE"
+          ],
+          "type": "string"
+        },
+        "treatment_law": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "treatment_law",
+        "corner_relation_id",
+        "selection_certificate_id",
+        "incoming_chain_use_id",
+        "outgoing_chain_use_id",
+        "treatment",
+        "reason",
+        "threshold_over_pi",
+        "reflex_excess_over_pi",
+        "shared_source_lineage_ids"
       ],
       "type": "object"
     },
@@ -2209,6 +2284,7 @@
             "DEVELOPABLE_OFFSET_MIN_GAP_COSINE",
             "SOURCE_EDGES_LIFTED_ONTO_SURFACE",
             "U_RESTARTS_AT_DOMAIN_BORDER",
+            "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
             "DEGRADED_MITER_CORNER_IN_GEOMETRY",
             "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
             "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
@@ -3467,6 +3543,7 @@
             "DEVELOPABLE_OFFSET_MIN_GAP_COSINE",
             "SOURCE_EDGES_LIFTED_ONTO_SURFACE",
             "U_RESTARTS_AT_DOMAIN_BORDER",
+            "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
             "DEGRADED_MITER_CORNER_IN_GEOMETRY",
             "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
             "SOURCE_VERTEX_DISPLACED_BY_LATTICE",

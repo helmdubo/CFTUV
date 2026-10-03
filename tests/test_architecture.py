@@ -390,7 +390,10 @@ MODULE_LINE_ALLOWANCE = {
     # `validate_analysis_snapshot` в `validation_metric.validate_metric_against_source`.
     # Число опущено до фактического: храповик затягивается там, где
     # освободилось место.
-    "kernel/src/cftuv_envelope/validation.py": 1731,
+    # 1731 -> 1729. −2 при ДОБАВЛЕННОЙ проверке записей обработки угла плана: сама проверка живёт в
+    # `validation_corner_treatment.py` (два вызова здесь), а место под них оплачено сведением
+    # шестистрочной ссылки восстановлений канонического угла в одну строку. Число опущено до фактического.
+    "kernel/src/cftuv_envelope/validation.py": 1729,
 }
 
 

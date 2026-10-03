@@ -390,7 +390,7 @@ def assemble_polygon_batch(
                 chain_ids=frozenset(),
             )
         )
-    table = SimpleNamespace(node_vertex_ids={})
+    table = SimpleNamespace(node_vertex_ids={}, frame_of_run={})
     layout = assemble.Layout(frame_faces)
     cycles, points = assemble.intern_vertices(
         [("corpus", item) for item in frame_faces], table

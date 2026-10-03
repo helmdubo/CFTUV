@@ -1804,6 +1804,7 @@ def build_envelope_analysis_snapshot(
             if record.patch_id in selected_patch_ids
         )
     chain_groups = _group_host_chains(host_chains)
+    source_prefix = importlib.import_module("cftuv_envelope.contracts.lineage").owner_chain_source_prefix
 
     physical_chains = []
     chain_id_by_key = {}
@@ -1869,13 +1870,15 @@ def build_envelope_analysis_snapshot(
                 tuple(vertex_ids[item] for item in canonical_vertices),
                 tuple(edge_ids[item] for item in canonical_edges),
                 frozenset({lineage_id}),
-                # `chain-record` — кусок; `chain-source` — ЦЕПЬ хоста до разреза
-                # по изломам: общая запись двух кусков и есть факт «один излом
-                # одной цепи» для JOIN ядра (`reference/corner_treatment.py`).
+                # `chain-record` — кусок; `chain-source:<PatchId>:<токен>` — ЦЕПЬ патча до разреза по
+                # изломам (формат — `cftuv_envelope.contracts.lineage`): общая запись двух кусков
+                # ОДНОГО патча и есть факт «один излом одной цепи» для JOIN ядра.
                 frozenset(
-                    kernel.LineageId(_typed_value(kind, revision, item.patch_id, item.loop_index, index))
+                    kernel.LineageId(_typed_value("chain-record", revision, item.patch_id, item.loop_index, item.chain_index))
                     for item in records
-                    for kind, index in (("chain-record", item.chain_index), ("chain-source", item.source_chain_index))
+                ) | frozenset(
+                    kernel.LineageId(source_prefix(patch_ids[item.patch_id]) + _stable_token("chain-source", revision, item.patch_id, item.loop_index, item.source_chain_index))
+                    for item in records
                 ),
             )
         )

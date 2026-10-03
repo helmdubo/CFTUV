@@ -206,6 +206,10 @@ class NamedOutcome(str, Enum):
     # накопление станции `s` на этом месте началось заново, и `u` не продолжается
     # через границу домена.
     U_RESTARTS_AT_DOMAIN_BORDER = "U_RESTARTS_AT_DOMAIN_BORDER"
+    # Замкнутая цепь из одних мягких изломов (кольцо потока JOIN) разомкнута в одном месте:
+    # там `s` начинается заново, а вершина разреза несёт два набора `(s, r)` в двух регионах
+    # (`FLOW_CYCLE_OPENED`). Шов один — на этом стыке; остальной поток непрерывен.
+    U_RESTARTS_AT_CLOSED_FLOW_OPENING = "U_RESTARTS_AT_CLOSED_FLOW_OPENING"
     # Острая вогнутая вершина оставлена МИТРОВАННОЙ (веер не записался): мягкого
     # угла в этом месте нет, и меш показывает именно митру.
     DEGRADED_MITER_CORNER_IN_GEOMETRY = "DEGRADED_MITER_CORNER_IN_GEOMETRY"

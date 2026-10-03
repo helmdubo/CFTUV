@@ -1315,7 +1315,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         scope=(
             "Порог мягкого излома ОДНОЙ цепи источника, доля π рефлексного избытка: 1/6 = 30°, тот же "
             "CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера (решение владельца 2026-10-03). Вогнутый угол "
-            "между двумя кусками одной цепи хоста (общая запись `chain-source`), чей СЕРТИФИЦИРОВАННЫЙ "
+            "между двумя кусками одной цепи хоста (общая запись `chain-source` ЕГО патча), чей СЕРТИФИЦИРОВАННЫЙ "
             "интервал δ/π лежит строго ниже порога, получает `k = 0` (митра прямого скелета) под законом "
             "CORNER_JOIN_SOFT_BEND_V1, и материализатор ведёт полосу сквозь угол одним потоком (u "
             "непрерывна, шва нет). Интервал поверх порога и угол от порога идут прежним законом счёта "
@@ -1323,7 +1323,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "несёт запись CornerTreatmentRecordV1, проверяющий пересчитывает её по сырому снапшоту."
         ),
         authority=(
-            "reference.corner_treatment.JOIN_THRESHOLD_OVER_PI; SelectionLaw.CORNER_JOIN_SOFT_BEND_V1; "
+            "_corner_treatment.JOIN_THRESHOLD_OVER_PI; SelectionLaw.CORNER_JOIN_SOFT_BEND_V1; "
             "DECISIONS.md 2026-10-03 (JOIN-FLOW: мягкий излом < 30° одной цепи — митра вместо фаски)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW,
@@ -1334,11 +1334,12 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "STATION_JOIN_CORNERS",
             "STATION_FLOWS",
             "STATION_SKIP_JOIN_CORNER_NOT_ADJACENT",
+            "STATION_FLOW_CYCLES_OPENED",
             "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
             "MATERIALIZE_QUADS_UV_BILINEAR",
         ),
         declaration_sites=(
-            "cftuv_envelope.reference.corner_treatment.JOIN_THRESHOLD_OVER_PI",
+            "cftuv_envelope._corner_treatment.JOIN_THRESHOLD_OVER_PI",
         ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"

@@ -425,7 +425,7 @@ def test_a_vertex_whose_node_no_face_reaches_is_counted_not_dropped():
     lines: list = []
     named = domain._diagnostics(
         SimpleNamespace(regions=()),
-        SimpleNamespace(restart_chain_ids=()),
+        SimpleNamespace(restart_chain_ids=(), cuts=()),
         domain.PlanarityKind.PLANAR_EXACT,
         lines,
         chords=stats,

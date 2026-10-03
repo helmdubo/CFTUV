@@ -225,6 +225,20 @@ class Layout:
     def region_of(self, frame_face) -> int:
         return self.region[(frame_face.claim_key, frame_face.frame_key)]
 
+    def cut_pairs(self, frame_faces) -> frozenset:
+        """Пары регионов одного РАЗОМКНУТОГО кольца потока (`FLOW_CYCLE_OPENED`): `{frozenset({a, b}), ...}`.
+
+        Поток — один регион; два региона у одного потока бывают ровно у кольца, разомкнутого
+        в одном месте, и граница между ними — не шов целиком: шов там, где UV рвётся (вершина
+        разреза), а стык `a -> b` у открывателя непрерывен (`chains_of`).
+        """
+
+        regions: dict = {}
+        for item in frame_faces:
+            if getattr(item, "flow_key", None) is not None:
+                regions.setdefault(item.flow_key, set()).add(self.region_of(item))
+        return frozenset(frozenset(found) for found in regions.values() if len(found) == 2)
+
     def claim_id(self, name: str) -> OwnershipClaimId:
         return OwnershipClaimId(f"claim:{self.claim[name]}")
 
@@ -259,12 +273,52 @@ def _rung_station(table, answers: dict, run_id: str, value):
     return station, value[1]
 
 
-def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None):
+def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
+    """Закон `RUNG_STATION_FROM_CHAIN_VERTEX_V1` ЧЕРЕЗ границу кадров разомкнутого кольца.
+
+    Угол JOIN между открывателем кольца и следующим вхождением лежит в двух регионах
+    (`ChainStationTableV1.frame_of_run`), и в каждом из них вершина перекладины получает
+    только свой ответ — конфликта нет, но UV на стыке рвалась бы на `2 d sin(δ/2)`. Здесь
+    ответы двух пробегов ОДНОГО стыка в разных регионах сводятся к станции вершины цепи ТОЧНО
+    по тому же условию, что и внутри региона (`r` равны, `s_a + s_b = 2 s_v`): после этого стык
+    непрерывен, и `chains_of` не называет его швом.
+    """
+
+    by_key: dict = {}
+    for (region, key), given in answers.items():
+        for run_id, value in given.items():
+            by_key.setdefault(key, []).append((region, run_id, value))
+    for key, entries in by_key.items():
+        for first in range(len(entries)):
+            for second in range(first + 1, len(entries)):
+                (region_a, run_a, value_a), (region_b, run_b, value_b) = entries[first], entries[second]
+                station = table.cut_join_station(run_a, run_b)
+                if region_a == region_b or station is None:
+                    continue
+                if not (value_a[1] - value_b[1]).is_zero:
+                    continue
+                if not (value_a[0] + value_b[0] - station - station).is_zero:
+                    continue
+                for region, value in ((region_a, value_a), (region_b, value_b)):
+                    slot = (region, key)
+                    if facts[slot] != (station, value[1]):
+                        facts[slot] = (station, value[1])
+                        rungs.add(slot)
+                        if tally is not None:
+                            tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
+
+
+def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None):
     """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ.
 
     Второй ответ на вершину региона допустим ровно в одном случае — на
-    перекладине угла JOIN (`_rung_station`); он считается в `tally`.
+    перекладине угла JOIN (`_rung_station`); он считается в `tally`. Станцию вершины
+    цепи на перекладине получает и стык двух регионов разомкнутого кольца
+    (`_unify_across_frames`). `rungs` — множество `(регион, ключ)` вершин, получивших её:
+    только четырёхгранье, в котором такая вершина есть, может нести билинейную UV.
     """
+
+    rungs = set() if rungs is None else rungs
 
     facts: dict = {}
     roots: dict = {}
@@ -298,8 +352,11 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, ta
                 )
             given[run_id] = value
             facts[slot] = rung
+            rungs.add(slot)
             if tally is not None:
                 tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
+    if table.frame_of_run:
+        _unify_across_frames(facts, answers, table, tally, rungs)
     return facts
 
 
@@ -357,6 +414,7 @@ def tessellate_faces(
     tally: Counter | None = None,
     uv_values=None,
     lattice_alpha=None,
+    is_rung=None,
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -374,6 +432,9 @@ def tessellate_faces(
     отказывает `ValueError`, а не молча берёт грань целой. `lattice_alpha` — единица,
     в тысячных которой записывается излом UV билинейного четырёхгранья
     (`MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA`); без неё — в единицах решётки.
+    `is_rung(грань, ключ)` — вершина получила станцию вершины цепи на перекладине JOIN
+    (`station_values`, `rungs`): билинейным четырёхгранье может быть ТОЛЬКО с такой
+    вершиной; без `is_rung` закон закрыт и неаффинное четырёхгранье режется (`UV_NOT_AFFINE`).
     """
 
     if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
@@ -388,6 +449,7 @@ def tessellate_faces(
             Counter() if tally is None else tally,
             uv_values,
             1 if lattice_alpha is None else lattice_alpha,
+            is_rung,
         )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
@@ -599,9 +661,10 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
     плоскости контур от четырёх вершин — одна грань любой длины, если он прост и его
     UV аффинен (`_plane_ring`); строго выпуклое четырёхгранье с билинейной UV — тоже
-    одна грань, под своим именем (`_bilinear_quad`), но ТОЛЬКО у полосы потока
-    (`in_flow`, `FrameFaceV1.flow_key`): только там её рождает закон перекладины JOIN, а
-    неаффинное четырёхгранье вне потока режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
+    одна грань, под своим именем (`_bilinear_quad`), но ТОЛЬКО у полосы потока И с
+    вершиной перекладины JOIN (`in_flow`: `FrameFaceV1.flow_key` и `is_rung` хотя бы у одной
+    вершины контура): только такую UV рождает закон перекладины, а любое другое неаффинное
+    четырёхгранье режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
     источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
     решает `settle_topology`), контур длиннее — треугольники и
     `CURVED_STRIP_FACES_TRIANGULATED`.
@@ -649,7 +712,7 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
 
 
 def _polygon_law_faces(
-    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1
+    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1, is_rung=None
 ):
     """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — `_fan_faces`, ленты — многоугольники.
 
@@ -697,7 +760,9 @@ def _polygon_law_faces(
                     tally,
                     lambda key, frame_face=frame_face: uv_values(frame_face, key),
                     unit,
-                    getattr(frame_face, "flow_key", None) is not None,
+                    getattr(frame_face, "flow_key", None) is not None
+                    and is_rung is not None
+                    and any(is_rung(frame_face, key) for key, _point in part_cycle),
                 )
             )
         result.append(tuple(polygons))
@@ -923,6 +988,7 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
             owner_of[half] = index
     boundary: dict = {}
     interface: dict = {}
+    cut_pairs = layout.cut_pairs(frame_faces)
     for (a, b), index in owner_of.items():
         region = layout.region_of(frame_faces[index])
         other = owner_of.get((b, a))
@@ -932,6 +998,10 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
             continue
         other_region = layout.region_of(frame_faces[other])
         if other_region != region and region < other_region:
+            if frozenset((region, other_region)) in cut_pairs and all(
+                facts[(region, key)] == facts[(other_region, key)] for key in (a, b)
+            ):
+                continue  # технический край разомкнутого кольца: UV на нём не рвётся, это не шов
             interface.setdefault((region, other_region), []).append((a, b))
     boundary_chains = []
     for (kind, region), edges in sorted(boundary.items()):
@@ -952,6 +1022,16 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
                 )
             )
     return frozenset(boundary_chains), frozenset(interface_chains)
+
+
+def _claim_lineage(frame_face) -> tuple:
+    """`claim:` записи грани: имя огибающей региона и, у потока, имя экземпляра (спеки, цепи), которое поток заместил."""
+
+    names = [frame_face.claim_key]
+    instance = getattr(frame_face, "instance_claim", None)
+    if instance is not None and instance != frame_face.claim_key:
+        names.append(instance)
+    return tuple(f"claim:{name}" for name in names)
 
 
 def _provenance(frame_face, edge_faces, extra_lineage=()) -> GeometryProvenanceV1:
@@ -1063,7 +1143,7 @@ def assemble_batch(
 
     material = MaterialId(request.material_policy_id.value)
     face_prov = [
-        _provenance(item, edge_faces, (f"claim:{item.claim_key}",))
+        _provenance(item, edge_faces, _claim_lineage(item))
         for item in frame_faces
     ]
     vertices = _vertex_records(

@@ -272,14 +272,7 @@ def _diagnostics(
             (),
             sourced.orientation_note(),
         )
-    for chain_id in sorted(table.restart_chain_ids):
-        add(
-            GeometryDiagnosticSeverity.WARNING,
-            NamedOutcome.U_RESTARTS_AT_DOMAIN_BORDER,
-            chain_id,
-            (chain_id,),
-            chain_id,
-        )
+    _table_diagnostics(table, add)
     for region in prepared.regions:
         for corner in region.degraded_miter_corners:
             add(
@@ -290,6 +283,27 @@ def _diagnostics(
                 f"{corner.corner_relation_id}: {corner.reason}",
             )
     return result
+
+
+def _table_diagnostics(table, add) -> None:
+    """Диагностики таблицы станций: рестарт `u` у границы домена и разрез замкнутого потока."""
+
+    for chain_id in sorted(table.restart_chain_ids):
+        add(
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.U_RESTARTS_AT_DOMAIN_BORDER,
+            chain_id,
+            (chain_id,),
+            chain_id,
+        )
+    for flow_key, closing, opening, chain_id in table.cuts:
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.U_RESTARTS_AT_CLOSED_FLOW_OPENING,
+            flow_key,
+            (chain_id,),
+            f"{flow_key}: the closed flow is opened at {opening}; the corner {closing} -> {opening} is the cut",
+        )
 
 
 def _near_planar_numbers(certificate, onto_surface: bool, lift_note: str) -> str:
@@ -594,8 +608,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         [(item[0], frame) for item, frame in zip(items, frame_faces)], table, notes, chords.names
     )
     lattice_alpha = coverage.lattice_alpha
-    tally = Counter()
-    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally)
+    tally, rungs = Counter(), set()
+    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs)
     clock.lap("STATIONS_UV")
     chart_cw = (
         prepared.context.frame.chart_orientation
@@ -613,6 +627,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         tally=tally,
         uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
         lattice_alpha=lattice_alpha,
+        is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)

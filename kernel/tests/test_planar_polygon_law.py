@@ -406,9 +406,13 @@ def test_a_non_affine_uv_makes_the_strip_ear_clipped_and_named(raw):
     assert not tally[POLYGON_FACES_EMITTED] and not tally[POLYGON_FACES_CONCAVE_EMITTED]
 
 
-@pytest.mark.parametrize("flow_key", (None, "flow:u0"))
-def test_a_non_affine_convex_quad_stays_whole_only_in_a_flow(flow_key):
-    """`QUAD_UV_BILINEAR_V1` — закон ПОТОКА: вне потока неаффинное четырёхгранье режется, как раньше."""
+@pytest.mark.parametrize(
+    ("flow_key", "rung_keys"),
+    ((None, {"k3"}), ("flow:u0", set()), ("flow:u0", {"k1", "k3"})),
+    ids=("outside-a-flow", "flow-without-a-rung-vertex", "flow-with-a-rung-vertex"),
+)
+def test_a_non_affine_convex_quad_stays_whole_only_in_a_flow_at_a_rung(flow_key, rung_keys):
+    """`QUAD_UV_BILINEAR_V1` — закон ПОТОКА и ПЕРЕКЛАДИНЫ: без потока либо без вершины перекладины режется, как раньше."""
 
     points = _points(((0, 0), (4, 0), (5, 3), (-1, 3)))
     frame, cycle = _frame(points)
@@ -421,9 +425,10 @@ def test_a_non_affine_convex_quad_stays_whole_only_in_a_flow(flow_key):
 
     tally = Counter()
     polygons = tessellate_faces(
-        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, bent
+        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, bent,
+        None, lambda face, key: key in rung_keys,
     )[0]
-    if flow_key is None:
+    if flow_key is None or not rung_keys:
         assert [len(item) for item in polygons] == [3, 3]
         assert tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
         assert not tally[QUADS_UV_BILINEAR]

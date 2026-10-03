@@ -147,6 +147,13 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
     "MATERIALIZE_QUADS_UV_BILINEAR",
     "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+    # Кольца потока (замкнутая цепь из одних мягких изломов разомкнута в одном месте), углы JOIN
+    # вне домена, названные пропуски стыков и свободные рёбра резки внутри регионов потока.
+    "STATION_FLOW_CYCLES_OPENED",
+    "STATION_JOIN_CORNERS_OUT_OF_DOMAIN",
+    "STATION_SKIP_JOIN_USE_NOT_IN_DOMAIN_LOOPS",
+    "STATION_SKIP_JOIN_CYCLE_OF_ONE_USE",
+    "MATERIALIZE_CLIP_FLOW_FREE_CUT_EDGES",
 )
 #: Счётчики, которые считают ГРАНИ и потому зависят от закона топологии: между
 #: законами они не сравниваются (число треугольников как сумма `n - 2` — сравнивается).
@@ -456,6 +463,12 @@ def _ignored(key: str, ignore_counters) -> bool:
     )
 
 
+def _nonzero(counters):
+    """Счётчики без нулей: отсутствующее число равно нулю, и новый нулевой счётчик не делает записи разными."""
+
+    return None if counters is None else {key: value for key, value in counters.items() if value}
+
+
 def _answer_view(row: dict, across_topology: bool, ignore_counters=()) -> dict:
     """Поля строки, которые обязаны совпасть; между законами — без закон-зависимого."""
 
@@ -464,7 +477,8 @@ def _answer_view(row: dict, across_topology: bool, ignore_counters=()) -> dict:
         view.pop("content_digest")
     else:
         # Числа закона топологии (грани, четырёхгранья, уход от плоскости) — тоже ответ, пока закон один.
-        view["topology_counters"] = row.get("topology_counters")
+        # Отсутствующий ключ равен нулю (`_nonzero`): прежняя запись без новых счётчиков остаётся сравнимой.
+        view["topology_counters"] = _nonzero(row.get("topology_counters"))
     skipped = LAW_DEPENDENT_COUNTERS if across_topology else ()
     view["counters"] = {
         key: value
