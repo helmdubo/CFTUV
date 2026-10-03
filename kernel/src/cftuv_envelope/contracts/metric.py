@@ -1029,6 +1029,34 @@ class DevelopableProposalLawV1(str, Enum):
     ARAP_LOCAL_GLOBAL_80_BINARY64_V1 = "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
 
 
+class DevelopableProposalSelectionLawV1(str, Enum):
+    """КАК выбрано предложение, давшее карту: шарнир или ARAP, и чем это записано.
+
+    Карта шарнира, принятая в бюджете запроса, раньше уходила в сертификат, даже если ARAP
+    растянул бы её меньше (при бюджете 20 % шарнир в 15 % побеждал ARAP в 2 %). Закон
+    «лучшее предложение»: если сертифицированное растяжение карты шарнира выше
+    `DEVELOPABLE_ISOMETRIC_ENOUGH`, ARAP тоже строит карту (тот же суд, тот же бюджет, та же
+    решётка), и остаётся карта с МЕНЬШИМ сертифицированным растяжением; равенство решает
+    шарнир. Имя записывает победителя и его причину, а числа обоих лежат рядом:
+
+    * `HINGE_ISOMETRIC_ENOUGH_V1` — шарнир не растянут выше порога, ARAP не пробовался;
+    * `ARAP_AFTER_HINGE_REFUSED_V1` — шарнир отказан именем ДО привязки, карту дал ARAP
+      (последняя запись `previous_refusals` — отказ шарнира);
+    * `BEST_HINGE_WON_V1` / `BEST_ARAP_WON_V1` — обе карты приняты, выбрана меньшая;
+    * `HINGE_KEPT_ARAP_UNAVAILABLE_V1` — ARAP не получил положений (потолок работы, матрица
+      не положительна), остаётся карта шарнира;
+    * `HINGE_KEPT_ARAP_REFUSED_V1` — карта ARAP названно отказана (`arap_refusal`), остаётся
+      карта шарнира.
+    """
+
+    HINGE_ISOMETRIC_ENOUGH_V1 = "HINGE_ISOMETRIC_ENOUGH_V1"
+    ARAP_AFTER_HINGE_REFUSED_V1 = "ARAP_AFTER_HINGE_REFUSED_V1"
+    BEST_HINGE_WON_V1 = "BEST_HINGE_WON_V1"
+    BEST_ARAP_WON_V1 = "BEST_ARAP_WON_V1"
+    HINGE_KEPT_ARAP_UNAVAILABLE_V1 = "HINGE_KEPT_ARAP_UNAVAILABLE_V1"
+    HINGE_KEPT_ARAP_REFUSED_V1 = "HINGE_KEPT_ARAP_REFUSED_V1"
+
+
 class DevelopableStretchLawV1(str, Enum):
     """Чем судится растяжение: сингулярные числа `G_s^-1 G_c` без корней.
 
@@ -1102,8 +1130,8 @@ class DevelopableStraightChainLawV1(str, Enum):
     INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1 = "INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1"
 
 
-DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 5)
-"""Допуск растяжения развёртки: 20 % относительно. Точная дробь.
+DEFAULT_DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 5)
+"""Допуск растяжения развёртки ПО УМОЛЧАНИЮ: 20 % относительно. Точная дробь.
 
 Решение ВЛАДЕЛЬЦА (`DECISIONS.md`, 2026-10-03, «КРИВИЗНА, СТУПЕНЬ 2: S1» — бюджет был
 `1/50`; тот же день, «Устраивают растяжения до 20%» — стал `1/5`): относительное
@@ -1115,9 +1143,43 @@ DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 5)
 поверхности относится к длине на карте как число из `[1/(1+b), 1+b]` (двусторонне:
 развёртка и сжимает, и растягивает, в отличие от проекции).
 
-Допуск владеет ЯДРО: его читают построитель (судить), валидатор (пересчитать) и
-записывает сертификат (`DevelopableStretchCertificateV1.stretch_budget`).
+Допуск — политика ЗАПРОСА: `DecalRequestV1.developable_stretch_budget` (точная дробь из
+`(0, MAX_DEVELOPABLE_STRETCH_BUDGET]`), а это значение несёт запрос без собственного поля —
+старые запросы и тесты. Его читает построитель (судить), перечитывает валидатор (сверяя запись
+с ЗАПРОСОМ, а не с константой) и записывает сертификат
+(`DevelopableStretchCertificateV1.stretch_budget`).
 """
+
+MAX_DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 2)
+"""Наибольший допуск растяжения, который вправе назвать запрос: 50 %. Точная дробь.
+
+Выше этой границы «развёртка» перестаёт быть развёрткой поверхности (сингулярные числа
+расходятся в полтора раза), и запрос с таким допуском получает именованный отказ
+(`POLICY_MISMATCH` на `developable_stretch_budget`), а не карту, судимую ничем.
+"""
+
+DEVELOPABLE_ISOMETRIC_ENOUGH = Fraction(1, 50)
+"""Порог «достаточно изометрично»: 2 % относительно. Точная дробь.
+
+Карта шарнира, чьё сертифицированное растяжение не больше этого порога, ЛУЧШЕЙ не ищется:
+ARAP не пробуется, и байты такой карты прежние. Выше порога ARAP тоже строит карту, и
+побеждает та, у которой растяжение меньше (равенство — шарнир). Это не допуск приёма (приём
+судит бюджет запроса), а порог цены поиска: он решает, стоит ли тратить второе предложение.
+Прежний бюджет приёма развёртки (`1/50` до решения владельца «до 20 %»).
+"""
+
+
+def developable_stretch_budget_is_lawful(budget: Fraction) -> bool:
+    """Допуск растяжения законен: положителен и не выше `MAX_DEVELOPABLE_STRETCH_BUDGET`."""
+
+    return 0 < budget <= MAX_DEVELOPABLE_STRETCH_BUDGET
+
+
+DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1 = ExactRationalV1(
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET.numerator,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET.denominator,
+)
+"""Допуск по умолчанию в проводной форме: значение поля запроса, когда оно не названо."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1257,6 +1319,13 @@ class DevelopableUnfoldCertificateV1:
     домен здесь, а не на ступень ниже. `snapped_vertex_count` и `snap_residual` — сколько вершин
     сдвинула привязка карты к решётке и наибольшее смещение по оси в единицах
     решётки.
+
+    `proposal_selection_law` — КАК выбрано предложение (`DevelopableProposalSelectionLawV1`);
+    `hinge_chart_worst_band_squared_upper` и `arap_chart_worst_band_squared_upper` —
+    сертифицированные верхние границы квадрата растяжения КАРТ двух предложений (`None`:
+    предложение карты не дало либо не пробовалось), `arap_refusal` — имя отказа карты ARAP при
+    `HINGE_KEPT_ARAP_REFUSED_V1` (иначе пусто). Число победителя равно
+    `stretch.worst_band_squared_upper`.
     """
 
     certificate_id: PlanarityCertificateId
@@ -1284,6 +1353,10 @@ class DevelopableUnfoldCertificateV1:
     snapped_source_positions: frozenset[SnappedSourcePositionV1]
     straight_chain_law: DevelopableStraightChainLawV1
     declared_straight_chains: tuple[DevelopableDeclaredChainV1, ...]
+    proposal_selection_law: DevelopableProposalSelectionLawV1
+    hinge_chart_worst_band_squared_upper: ExactRationalV1 | None
+    arap_chart_worst_band_squared_upper: ExactRationalV1 | None
+    arap_refusal: str
 
     def __post_init__(self) -> None:
         if self.exact:

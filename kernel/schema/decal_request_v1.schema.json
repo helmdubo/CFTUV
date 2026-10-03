@@ -68,6 +68,9 @@
         "decal_request_id": {
           "$ref": "#/$defs/DecalRequestId"
         },
+        "developable_stretch_budget": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
         "interaction_policy_id": {
           "enum": [
             "INTRAPATCH_POLICY_B_V1"
@@ -175,6 +178,26 @@
       "required": [
         "$type",
         "symbol"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
       ],
       "type": "object"
     },

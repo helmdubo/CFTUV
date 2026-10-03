@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import types
-from dataclasses import fields, is_dataclass
+from dataclasses import field, fields, is_dataclass
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -13,6 +13,25 @@ from .ids import OpaqueId
 
 class ContractSchemaError(TypeError):
     pass
+
+
+WIRE_OMIT_WHEN_DEFAULT = "wire_omit_when_default"
+
+
+def wire_default_field(default: Any):
+    """Поле записи с умолчанием, которое НЕ пишется на провод, пока равно умолчанию.
+
+    Нужно для аддитивной политики запроса: запись, не называющая поле, остаётся
+    побитово той же (канонические байты, хэши, хранимые фикстуры), а прежний провод читается
+    как умолчание. Значение, равное умолчанию, на проводе всегда опущено (форма одна);
+    кодек отвергает запись, где оно названо явно. В схеме такое поле необязательно.
+    """
+
+    return field(default=default, metadata={WIRE_OMIT_WHEN_DEFAULT: True})
+
+
+def is_wire_default_field(record_field: Any) -> bool:
+    return bool(record_field.metadata.get(WIRE_OMIT_WHEN_DEFAULT))
 
 
 def json_schema_for(root_type: type[Any], schema_id: str) -> dict[str, Any]:
@@ -83,9 +102,10 @@ def json_schema_for(root_type: type[Any], schema_id: str) -> dict[str, Any]:
         hints = get_type_hints(record_type)
         properties: dict[str, Any] = {"$type": {"const": name}}
         required = ["$type"]
-        for field in fields(record_type):
-            properties[field.name] = schema_for(hints[field.name])
-            required.append(field.name)
+        for item in fields(record_type):
+            properties[item.name] = schema_for(hints[item.name])
+            if not is_wire_default_field(item):
+                required.append(item.name)
         definitions[name] = {
             "type": "object",
             "properties": properties,

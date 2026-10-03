@@ -7,6 +7,8 @@ from enum import Enum
 
 from ..ids import ChainUseId, DecalRequestId, PolicyId
 from ..numeric import ExactAngleV1, MetricLengthV1, MetricSpace
+from ..schema import wire_default_field
+from .metric import DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1, ExactRationalV1
 
 
 DECAL_REQUEST_SCHEMA_V1 = "cftuv.envelope.decal_request.v1"
@@ -55,6 +57,16 @@ class OwnershipPolicyId(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class DecalRequestV1:
+    """Политика одного запроса. Ровно один владелец допуска растяжения развёртки.
+
+    `developable_stretch_budget` — допуск растяжения развёртки (точная дробь из
+    `(0, MAX_DEVELOPABLE_STRETCH_BUDGET]`; законность — в `validate_decal_request`). Запись без
+    поля читается как `DEFAULT_DEVELOPABLE_STRETCH_BUDGET` (1/5), а на проводе значение по
+    умолчанию опущено, поэтому прежние запросы, их хэши и фикстуры побитово те же. Допуск
+    входит в идентичность исполнения, и метрика снапшота обязана нести сертификат,
+    записанный ПОД ЭТИМ допуском (иначе запрос не компилируется, а отказ назван).
+    """
+
     schema_version: str
     decal_request_id: DecalRequestId
     selected_chain_use_ids: frozenset[ChainUseId]
@@ -71,4 +83,7 @@ class DecalRequestV1:
     ownership_policy_id: OwnershipPolicyId
     material_policy_id: PolicyId
     uv_policy_id: PolicyId
+    developable_stretch_budget: ExactRationalV1 = wire_default_field(
+        DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1
+    )
 

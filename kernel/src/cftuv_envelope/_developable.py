@@ -1,9 +1,10 @@
 """Ступень DEVELOPABLE: домен как ПРИВЯЗАННАЯ К РЕШЁТКЕ развёртка, судимая точным растяжением.
 
-Модуль внутренний и ничем не владеет: допуск растяжения — `contracts.metric.
-DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложение и решётку делает `_unfold`,
-суд — `_stretch`, ярлыки вершин — `_fan_closure`. Здесь они складываются в
-сертификат и в целочисленную карту, а отказы называются теми именами, что
+Модуль внутренний и ничем не владеет: допуск растяжения — политика ЗАПРОСА
+(`DecalRequestV1.developable_stretch_budget`; параметр `budget`, значение по умолчанию —
+`contracts.metric.DEFAULT_DEVELOPABLE_STRETCH_BUDGET`), топологию диска, предложение и
+решётку делает `_unfold`, суд — `_stretch`, ярлыки вершин — `_fan_closure`. Здесь они
+складываются в сертификат и в целочисленную карту, а отказы называются теми именами, что
 перечислены в `outcomes`.
 
 ПОРЯДОК, и в нём вся идея.
@@ -18,12 +19,21 @@ DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложени
    шарнира само за бюджетом (растяжение либо переворот: `_arap_can_help`), пробуется ARAP
    (`_arap.arap_proposal`, старт — положения шарнира); его положения судит ТОТ ЖЕ суд
    (тот же бюджет, те же предикаты, та же простота границы). Принят домен, который
-   шарнир принимал, — его байты прежние: ARAP до него не доходит. Самонакрытие у шарнира
+   шарнир принимал, — его положения прежние; ARAP пробуется на нём лишь как соперник по
+   шагу 3в. Самонакрытие у шарнира
    В БЮДЖЕТЕ и без переворотов (спираль, кольцо без разреза: поверхность поворачивает
    больше оборота) ARAP не лечит: он только снижает искажение и из развёртки с нулевым
    искажением не выходит, — такой отказ остаётся прежним и по тексту. Отказ ARAP несёт
    числа обоих предложений; принявший ARAP сертификат называет закон (`proposal_law`) и
    отказ шарнира (`previous_refusals[-1]`).
+3в. ЛУЧШЕЕ ПРЕДЛОЖЕНИЕ (`DevelopableProposalSelectionLawV1`). Карта шарнира, ПРИНЯТАЯ в бюджете
+   запроса, раньше уходила в сертификат, даже если ARAP растянул бы её меньше. Теперь: если
+   сертифицированное растяжение принятой карты шарнира выше `DEVELOPABLE_ISOMETRIC_ENOUGH`
+   (1/50), ARAP тоже строит карту (`_Unfolding.competing_arap`, тот же суд, бюджет и решётка),
+   и остаётся карта с МЕНЬШИМ сертифицированным растяжением; равенство решает шарнир. Оба
+   числа и победитель пишутся в сертификат; ARAP, которому не дали положений либо чью карту
+   отказали, оставляет карту шарнира с именем причины (`HINGE_KEPT_ARAP_*`). Карта шарнира не
+   выше порога остаётся побитово прежней: ARAP не пробуется.
 4. СТУПЕНИ РЕШЁТКИ КАРТЫ: `S' = k · S` для `k` из `UNFOLD_CHART_SCALE_FACTORS`
    (`S` — масштаб решётки источника). Первая ступень, на которой привязанная карта
    в бюджете растяжения, без перевёрнутых треугольников и с простой границей, и
@@ -45,6 +55,7 @@ DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложени
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import replace
 from fractions import Fraction
 from hashlib import sha256
@@ -58,7 +69,7 @@ from ._straight_chain import (
     declared_chain_records,
     lattice_displacement,
 )
-from ._stretch import measure_stretch, stretch_refusal_text, stretch_violations
+from ._stretch import band_bounds, measure_stretch, stretch_refusal_text, stretch_violations
 from ._unfold import (
     UnfoldTopologyV1,
     chart_metres,
@@ -69,10 +80,12 @@ from ._unfold import (
     snap_to_chart_lattice,
 )
 from .contracts.metric import (
-    DEVELOPABLE_STRETCH_BUDGET,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
+    DEVELOPABLE_ISOMETRIC_ENOUGH,
     AffineReconstructionLawV1,
     DevelopableLiftLawV1,
     DevelopableProposalLawV1,
+    DevelopableProposalSelectionLawV1,
     DevelopableStraightChainLawV1,
     DevelopableUnfoldCertificateV1,
     DevelopableUnfoldTreeLawV1,
@@ -204,6 +217,7 @@ def _certificate(
     classes,
     previous_refusals,
     chain_records,
+    selection,
 ):
     moved, residual = displacement
     return DevelopableUnfoldCertificateV1(
@@ -244,6 +258,10 @@ def _certificate(
             DevelopableStraightChainLawV1.INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1
         ),
         declared_straight_chains=chain_records,
+        proposal_selection_law=selection[0],
+        hinge_chart_worst_band_squared_upper=selection[1],
+        arap_chart_worst_band_squared_upper=selection[2],
+        arap_refusal=selection[3],
     )
 
 
@@ -290,6 +308,7 @@ class _Unfolding:
         self.proposal = hinge_proposal(self.topology, snapped)
         self.proposal_law = DevelopableProposalLawV1.BINARY64_HINGE_V1
         self.proposal_name = "hinge"
+        self.selection_law = DevelopableProposalSelectionLawV1.HINGE_ISOMETRIC_ENOUGH_V1
         #: Хвост текста отказов ПОСЛЕ привязки у ARAP (у шарнира пусто: тексты прежние).
         self.proposal_note = ""
         self.classes = classify_interior_vertices(
@@ -366,11 +385,8 @@ class _Unfolding:
             numbers = "; the hinge proposal's " + stretch_refusal_text(
                 self.raw.certificate, worst_vertex=_vertex_name(worst_defect_vertex(self.classes))
             )
-        self.proposal = replace(self.proposal, coordinates=arap.coordinates)
-        self.proposal_law = DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
-        self.proposal_name = "ARAP"
-        self.exact = exact_metres(arap.coordinates)
-        self.raw = measure_stretch(self.topology.triangles, self.snapped, self.exact, self.budget)
+        self._swap_in_arap(arap)
+        self.selection_law = DevelopableProposalSelectionLawV1.ARAP_AFTER_HINGE_REFUSED_V1
         self.previous_refusals = (*self.previous_refusals, hinge_refusal.outcome.value)
         self.proposal_note = (
             f" [{self.proposal_law.value} after the hinge proposal was refused: "
@@ -380,7 +396,39 @@ class _Unfolding:
         if refused is not None:
             raise refusal(refused.outcome, f"{refused}{self.proposal_note}") from hinge_refusal
 
+    def _swap_in_arap(self, arap) -> None:
+        """Положения ARAP вместо положений шарнира: предложение, закон, точные дроби и измерение."""
+
+        self.proposal = replace(self.proposal, coordinates=arap.coordinates)
+        self.proposal_law = DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+        self.proposal_name = "ARAP"
+        self.exact = exact_metres(arap.coordinates)
+        self.raw = measure_stretch(self.topology.triangles, self.snapped, self.exact, self.budget)
+
+    def competing_arap(self):
+        """Копия с положениями ARAP при ПРИНЯТОМ шарнире: соперник, а не замена.
+
+        Шарнир не отказан, поэтому `previous_refusals` копии — след лестницы без записи об
+        отказе шарнира. `ArapProposalUnavailable` (потолок работы, матрица не положительна)
+        поднимается как есть; предложение, которое не прошло суд до привязки, — именованный
+        отказ с текстом, называющим соперника. Сам `self` не меняется.
+        """
+
+        arap = arap_proposal(self.topology, self.proposal, self.snapped)
+        rival = copy(self)
+        rival._swap_in_arap(arap)
+        rival.selection_law = DevelopableProposalSelectionLawV1.BEST_ARAP_WON_V1
+        rival.proposal_note = (
+            f" [{rival.proposal_law.value} as the competing proposal: the hinge chart is "
+            "accepted but stretched beyond the isometric threshold]"
+        )
+        refused = rival.unsound_proposal_refusal()
+        if refused is not None:
+            raise refusal(refused.outcome, f"{refused}{rival.proposal_note}") from None
+        return rival
+
     def certificate(self, trial, chart_scale, facts, displacement):
+        arap = self.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
         return _certificate(
             source_revision=self.source_revision,
             patch_domain_id=self.patch_domain_id,
@@ -397,6 +445,12 @@ class _Unfolding:
             classes=self.classes,
             previous_refusals=self.previous_refusals,
             chain_records=self.records,
+            selection=(
+                self.selection_law,
+                None if arap else facts.certificate.worst_band_squared_upper,
+                facts.certificate.worst_band_squared_upper if arap else None,
+                "",
+            ),
         )
 
     def failure_text(self, last) -> str:
@@ -452,6 +506,84 @@ def _search_lattice(unfolding: _Unfolding, chains):
     return None, last
 
 
+def _chart_of(unfolding: _Unfolding) -> DevelopableChartV1:
+    """Карта предложения `unfolding`, прошедшего суд до привязки, либо именованный отказ."""
+
+    chart, last = _search_lattice(unfolding, unfolding.chains)
+    if chart is not None:
+        return chart
+    if unfolding.chains:
+        free_chart, free_last = _search_lattice(unfolding, ())
+        if free_chart is not None:
+            raise refusal(
+                NamedOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
+                "the chart is within the stretch budget with free chain lines, but the "
+                "declared straight chains cannot be straight in it ("
+                + bent_chain_text(unfolding.records)
+                + "); "
+                + unfolding.failure_text(last)
+                + unfolding.proposal_note,
+            )
+        last = free_last
+    band = unfolding.raw.certificate.worst_band_squared_upper
+    steps = tuple(factor * unfolding.source_scale for factor in UNFOLD_CHART_SCALE_FACTORS)
+    raise refusal(
+        NamedOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE,
+        "the unsnapped proposal is within budget "
+        f"(worst_band_squared<={band.numerator / band.denominator:.9e}), but no chart "
+        f"lattice step in {steps} kept it; {unfolding.failure_text(last)}"
+        f"{unfolding.proposal_note}",
+    )
+
+
+def _band(chart: DevelopableChartV1) -> ExactRationalV1:
+    return chart.certificate.stretch.worst_band_squared_upper
+
+
+def _value(rational: ExactRationalV1) -> Fraction:
+    return Fraction(rational.numerator, rational.denominator)
+
+
+def _with_selection(chart, law, hinge_band, arap_band, arap_refusal="") -> DevelopableChartV1:
+    certificate = replace(
+        chart.certificate,
+        proposal_selection_law=law,
+        hinge_chart_worst_band_squared_upper=hinge_band,
+        arap_chart_worst_band_squared_upper=arap_band,
+        arap_refusal=arap_refusal,
+    )
+    return DevelopableChartV1(certificate, chart.nodes, chart.chart_scale)
+
+
+def _best_proposal(unfolding: _Unfolding, chart: DevelopableChartV1) -> DevelopableChartV1:
+    """Закон «лучшее предложение»: шарнир выше порога изометрии соревнуется с ARAP.
+
+    Карта ARAP, которой нет (не дали положений либо отказана), не теряется: остаётся карта
+    шарнира, а причина записана в сертификате. Равенство сертифицированных границ решает шарнир.
+    """
+
+    from .planar_metric import PlanarMetricAdmissionError
+
+    law = DevelopableProposalSelectionLawV1
+    if unfolding.proposal_name != "hinge":
+        return chart
+    hinge_band = _band(chart)
+    if _value(hinge_band) <= band_bounds(DEVELOPABLE_ISOMETRIC_ENOUGH)[1]:
+        return chart
+    try:
+        rival = _chart_of(unfolding.competing_arap())
+    except ArapProposalUnavailable:
+        return _with_selection(chart, law.HINGE_KEPT_ARAP_UNAVAILABLE_V1, hinge_band, None)
+    except PlanarMetricAdmissionError as error:
+        return _with_selection(
+            chart, law.HINGE_KEPT_ARAP_REFUSED_V1, hinge_band, None, error.outcome.value
+        )
+    arap_band = _band(rival)
+    if _value(arap_band) < _value(hinge_band):
+        return _with_selection(rival, law.BEST_ARAP_WON_V1, hinge_band, arap_band)
+    return _with_selection(chart, law.BEST_HINGE_WON_V1, hinge_band, arap_band)
+
+
 def build_developable_chart(
     *,
     source_revision,
@@ -461,11 +593,13 @@ def build_developable_chart(
     required_ids,
     source_scale: int | None,
     previous_refusals: tuple[str, ...] = (),
-    budget: Fraction = DEVELOPABLE_STRETCH_BUDGET,
+    budget: Fraction = DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     declared_straight_chains: tuple = (),
 ) -> DevelopableChartV1:
     """Карта и сертификат развёртки домена, либо именованный отказ.
 
+    `budget` — допуск растяжения запроса (законность `(0, 1/2]` проверяют публичные строители метрики
+    и валидатор, а не этот внутренний: тесты изолируют переворот от растяжения большим допуском).
     `snapped` — точные привязанные 3D-позиции вершин владельца (до проекции),
     `owner_triangles` — его треугольники, `source_scale` — масштаб решётки
     источника (`None` — привязки источника не было, и карта не определена),
@@ -490,28 +624,4 @@ def build_developable_chart(
         declared_straight_chains=declared_straight_chains,
     )
     unfolding.settle_proposal()
-    chart, last = _search_lattice(unfolding, unfolding.chains)
-    if chart is not None:
-        return chart
-    if unfolding.chains:
-        free_chart, free_last = _search_lattice(unfolding, ())
-        if free_chart is not None:
-            raise refusal(
-                NamedOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
-                "the chart is within the stretch budget with free chain lines, but the "
-                "declared straight chains cannot be straight in it ("
-                + bent_chain_text(unfolding.records)
-                + "); "
-                + unfolding.failure_text(last)
-                + unfolding.proposal_note,
-            )
-        last = free_last
-    band = unfolding.raw.certificate.worst_band_squared_upper
-    steps = tuple(factor * source_scale for factor in UNFOLD_CHART_SCALE_FACTORS)
-    raise refusal(
-        NamedOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE,
-        "the unsnapped proposal is within budget "
-        f"(worst_band_squared<={band.numerator / band.denominator:.9e}), but no chart "
-        f"lattice step in {steps} kept it; {unfolding.failure_text(last)}"
-        f"{unfolding.proposal_note}",
-    )
+    return _best_proposal(unfolding, _chart_of(unfolding))

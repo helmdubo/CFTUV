@@ -178,6 +178,19 @@
           ],
           "type": "string"
         },
+        "arap_chart_worst_band_squared_upper": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arap_refusal": {
+          "type": "string"
+        },
         "boundary_loop_count": {
           "type": "integer"
         },
@@ -205,6 +218,16 @@
         "exact_plane_normal": {
           "$ref": "#/$defs/ExactVector3V1"
         },
+        "hinge_chart_worst_band_squared_upper": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "lift_law": {
           "enum": [
             "UNFOLDED_SOURCE_TRIANGLES_V1"
@@ -224,6 +247,17 @@
           "enum": [
             "BINARY64_HINGE_V1",
             "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
+          ],
+          "type": "string"
+        },
+        "proposal_selection_law": {
+          "enum": [
+            "HINGE_ISOMETRIC_ENOUGH_V1",
+            "ARAP_AFTER_HINGE_REFUSED_V1",
+            "BEST_HINGE_WON_V1",
+            "BEST_ARAP_WON_V1",
+            "HINGE_KEPT_ARAP_UNAVAILABLE_V1",
+            "HINGE_KEPT_ARAP_REFUSED_V1"
           ],
           "type": "string"
         },
@@ -311,7 +345,11 @@
         "previous_refusals",
         "snapped_source_positions",
         "straight_chain_law",
-        "declared_straight_chains"
+        "declared_straight_chains",
+        "proposal_selection_law",
+        "hinge_chart_worst_band_squared_upper",
+        "arap_chart_worst_band_squared_upper",
+        "arap_refusal"
       ],
       "type": "object"
     },

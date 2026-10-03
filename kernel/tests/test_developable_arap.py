@@ -29,7 +29,7 @@ from cftuv_envelope._stretch import measure_stretch, stretch_violations
 from cftuv_envelope._unfold import exact_metres, hinge_proposal, owner_topology
 from cftuv_envelope.codec import canonical_json_bytes
 from cftuv_envelope.contracts.metric import (
-    DEVELOPABLE_STRETCH_BUDGET,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     CurvatureLadderPolicyV1,
     DevelopableProposalLawV1,
     ExactRationalV1,
@@ -295,7 +295,7 @@ def test_a_refusal_after_both_proposals_names_both_with_their_worst_numbers():
     text = str(error)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     arap_band, hinge_band = _bands(text)[:2]
-    assert float((1 + DEVELOPABLE_STRETCH_BUDGET) ** 2) < arap_band < hinge_band
+    assert float((1 + DEFAULT_DEVELOPABLE_STRETCH_BUDGET) ** 2) < arap_band < hinge_band
     assert "worst_vertex=v:g1_2" in text
 
 
@@ -339,7 +339,7 @@ def test_the_proposal_pins_one_vertex_and_runs_the_declared_iterations():
 
 def test_the_proposal_lowers_the_worst_stretch_of_the_hinge_chart():
     topology, hinge, snapped = _fold_grid_inputs(ARAP_FIXTURE_DROP)
-    budget = DEVELOPABLE_STRETCH_BUDGET
+    budget = DEFAULT_DEVELOPABLE_STRETCH_BUDGET
     proposal = arap.arap_proposal(topology, hinge, snapped)
     worst = []
     for coordinates in (hinge.coordinates, proposal.coordinates):
@@ -407,8 +407,10 @@ def test_the_envelope_solver_agrees_with_an_independent_dense_solution():
 #: платформы, ни от версии Python (в `sum` над float CPython 3.12 суммирует иначе, чем 3.11).
 #: Перезаписан 2026-10-03 решением владельца «до 20 %»: другая фикстура (шарнир теперь отказывает при невязке 0.3, а не
 #: 0.05) и записанный бюджет `1/5`; сам ARAP (80 итераций, порядок операций) не менялся.
+#: Перезаписан 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): четыре новых поля сертификата; прежнее значение
+#: (`0f5562b4...`) восстанавливается их вычёркиванием (`test_developable_best_proposal`), сам ARAP не менялся.
 ARAP_RECORD_SHA256 = (
-    "0f5562b4075975f8025776f36ac4b52d6b3c85773f9c4ed06443f79ff807e6b2"
+    "2edc14cb58431d28d8b63fc74274e980bb9006f3d1b6bff3154aff03c7d7eae4"
 )
 
 

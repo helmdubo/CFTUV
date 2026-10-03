@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from fractions import Fraction
 
 import pytest
 
@@ -46,7 +47,7 @@ def _refusal(parts, **overrides) -> PlanarMetricAdmissionError:
     return failure.value
 
 
-def _issues(record, parts):
+def _issues(record, parts, **options):
     vertices, faces, triangles = parts
     return validate_embedding_certified_rational_affine_planar_metric(
         record,
@@ -57,6 +58,7 @@ def _issues(record, parts):
         expected_patch_domain_id=DOMAIN,
         expected_source_lineage=frozenset(),
         surface_triangles=triangles,
+        **options,
     )
 
 
@@ -313,8 +315,11 @@ def test_the_validator_catches_a_forged_budget_or_chart_scale_or_trial_count():
     record = build_metric(parts, ladder=ON)
     certificate = record.metric.planarity_certificate
     budget = replace(certificate.stretch, stretch_budget=ExactRationalV1(1, 10))
+    # Допуск — политика запроса: запись под чужим допуском ловится против ЗАПРОСА (1/5), а снапшот без запроса
+    # судится под собственным записанным допуском и подделку допуска не видит (она закрыта связью с запросом).
+    assert _issues(_tampered(record, stretch=budget), parts, developable_stretch_budget=Fraction(1, 5))
+    assert not _issues(_tampered(record, stretch=budget), parts, developable_stretch_budget=Fraction(1, 10))
     for forged in (
-        _tampered(record, stretch=budget),
         _tampered(record, chart_scale=certificate.chart_scale * 2),
         _tampered(record, chart_scale_trials=certificate.chart_scale_trials + 1),
         _tampered(record, previous_refusals=()),

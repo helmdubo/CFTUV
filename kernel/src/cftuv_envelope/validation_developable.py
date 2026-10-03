@@ -22,8 +22,18 @@
    фиксированном порядке, число итераций названо законом, поэтому предложение
    воспроизводится побитово, а карту после него судит тот же ТОЧНЫЙ суд, что перечитывает
    пересчёт (карта ARAP не принимается на слово: растяжение и граница измерены заново).
-   Билдер сам решает, нужен ли ARAP (шарнир отказал по названной причине), поэтому
-   подмена закона в записи расходится с пересчётом, а не проходит.
+   Билдер сам решает, нужен ли ARAP (шарнир отказал по названной причине либо принятая карта
+   шарнира растянута выше `DEVELOPABLE_ISOMETRIC_ENOUGH`), поэтому подмена закона в записи
+   расходится с пересчётом, а не проходит. У закона «лучшее предложение» пересчёт строит ОБА
+   предложения заново и сверяет оба числа, победителя и причину, а проводная проверка
+   (`_check_proposal_selection`) видит расхождение закона выбора с самими записанными числами.
+
+ДОПУСК — ПОЛИТИКА ЗАПРОСА. Запись сверяется не с константой, а с допуском запроса
+(`developable_stretch_budget`): снапшот, проверяемый вместе с запросом, обязан нести
+сертификат, записанный под ЭТИМ допуском, и пересчёт строит карту под ним. Снапшот без запроса
+(`developable_stretch_budget=None`) проверяется под собственным записанным допуском, законным
+по `developable_stretch_budget_is_lawful`; связать его с запросом дело
+`validate_snapshot_request_references`.
 """
 
 from __future__ import annotations
@@ -35,23 +45,26 @@ from ._developable import (
     UNFOLD_CHART_SCALE_FACTORS,
     build_developable_chart,
 )
-from ._stretch import stretch_violations
+from ._stretch import band_bounds, stretch_violations
 from .contracts.metric import (
-    DEVELOPABLE_STRETCH_BUDGET,
+    DEVELOPABLE_ISOMETRIC_ENOUGH,
     AffineChartOrientationV1,
     AffineFrameSelectionLawV1,
     AffineReconstructionLawV1,
     DevelopableFanClosureLawV1,
     DevelopableLiftLawV1,
     DevelopableProposalLawV1,
+    DevelopableProposalSelectionLawV1,
     DevelopableStraightChainLawV1,
     DevelopableStretchLawV1,
     DevelopableUnfoldCertificateV1,
     DevelopableUnfoldTreeLawV1,
     PlanarityAdmissionLawV1,
     VertexDevelopabilityClassV1,
+    developable_stretch_budget_is_lawful,
 )
 from .numeric import LocalPoint3V1
+from .outcomes import NamedOutcome
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
@@ -68,21 +81,36 @@ def _fraction(value) -> Fraction:
     return Fraction(value.numerator, value.denominator)
 
 
+def _arap_after_refusal(certificate) -> bool:
+    """ARAP — единственное предложение, потому что шарнир отказан именем (а не соперник шарнира)."""
+
+    return (
+        certificate.proposal_selection_law
+        is DevelopableProposalSelectionLawV1.ARAP_AFTER_HINGE_REFUSED_V1
+    )
+
+
 def ladder_trace(certificate) -> tuple[str, ...]:
-    """След ступеней НИЖЕ развёртки: у ARAP последняя запись — отказ шарнира, не лестницы."""
+    """След ступеней НИЖЕ развёртки: у ARAP после отказа шарнира последняя запись — отказ шарнира."""
 
     trace = certificate.previous_refusals
-    if certificate.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1:
+    if _arap_after_refusal(certificate):
         return trace[:-1]
     return trace
+
+
+def _policy_budget(certificate, budget) -> Fraction:
+    """Допуск, под которым судится запись: ЗАПРОС; без запроса — собственный записанный допуск."""
+
+    return _fraction(certificate.stretch.stretch_budget) if budget is None else budget
 
 
 def _point(value) -> tuple[Fraction, Fraction, Fraction]:
     return _fraction(value.x), _fraction(value.y), _fraction(value.z)
 
 
-def check_developable_certificate(issues, path, metric) -> None:
-    """Запись метрики с сертификатом развёртки согласована сама с собой."""
+def check_developable_certificate(issues, path, metric, developable_stretch_budget=None) -> None:
+    """Запись метрики с сертификатом развёртки согласована сама с собой (и с допуском запроса)."""
 
     certificate = metric.planarity_certificate
     if (
@@ -121,7 +149,8 @@ def check_developable_certificate(issues, path, metric) -> None:
             "counter-clockwise against the owner Patch",
         )
     _check_frame(issues, path, metric, certificate)
-    _check_judgement(issues, path, metric, certificate)
+    _check_judgement(issues, path, metric, certificate, developable_stretch_budget)
+    _check_proposal_selection(issues, path, certificate)
     recorded = {item.source_vertex_id for item in certificate.snapped_source_positions}
     if recorded != set(certificate.source_vertex_ids) or len(recorded) != len(
         certificate.snapped_source_positions
@@ -175,9 +204,7 @@ def _check_ladder_trace(issues, path, certificate) -> None:
             "an unfolded chart is tried only after a named near-planar refusal: "
             "the ladder trace must name a ladder trigger",
         )
-    arap = certificate.proposal_law is (
-        DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
-    )
+    arap = _arap_after_refusal(certificate)
     if arap and (
         len(certificate.previous_refusals) != len(trace) + 1
         or certificate.previous_refusals[-1]
@@ -288,14 +315,17 @@ def _on_chord_in_order(points) -> bool:
     return bool(reach)
 
 
-def _check_judgement(issues, path, metric, certificate) -> None:
+def _check_judgement(issues, path, metric, certificate, budget=None) -> None:
     stretch = certificate.stretch
-    if _fraction(stretch.stretch_budget) != DEVELOPABLE_STRETCH_BUDGET:
+    recorded = _fraction(stretch.stretch_budget)
+    if recorded != _policy_budget(certificate, budget) or not developable_stretch_budget_is_lawful(
+        recorded
+    ):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("stretch", "stretch_budget"),
-            "recorded stretch budget is not the one the law declares",
+            "recorded stretch budget is not the request's lawful developable_stretch_budget",
         )
     for outcome in stretch_violations(stretch):
         add_issue(
@@ -313,6 +343,50 @@ def _check_judgement(issues, path, metric, certificate) -> None:
         )
 
 
+def _check_proposal_selection(issues, path, certificate) -> None:
+    """Закон выбора предложения согласован с записанными числами и победителем.
+
+    Читается только сама запись: победитель (`proposal_law`), оба числа и порог изометрии
+    обязаны сходиться. Расхождение с пересчётом ловит `validate_developable_recomputation`.
+    """
+
+    law = DevelopableProposalSelectionLawV1
+    selection = certificate.proposal_selection_law
+    hinge = certificate.hinge_chart_worst_band_squared_upper
+    rival = certificate.arap_chart_worst_band_squared_upper
+    arap_won = certificate.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+    shape = {
+        law.HINGE_ISOMETRIC_ENOUGH_V1: (False, True, False),
+        law.ARAP_AFTER_HINGE_REFUSED_V1: (True, False, True),
+        law.BEST_HINGE_WON_V1: (False, True, True),
+        law.BEST_ARAP_WON_V1: (True, True, True),
+        law.HINGE_KEPT_ARAP_UNAVAILABLE_V1: (False, True, False),
+        law.HINGE_KEPT_ARAP_REFUSED_V1: (False, True, False),
+    }[selection]
+    sound = (arap_won, hinge is not None, rival is not None) == shape
+    if sound:
+        chosen = _fraction(rival if arap_won else hinge)
+        sound = chosen == _fraction(certificate.stretch.worst_band_squared_upper)
+        if hinge is not None:
+            isometric = _fraction(hinge) <= band_bounds(DEVELOPABLE_ISOMETRIC_ENOUGH)[1]
+            sound = sound and isometric == (selection is law.HINGE_ISOMETRIC_ENOUGH_V1)
+        if selection is law.BEST_HINGE_WON_V1:
+            sound = sound and _fraction(hinge) <= _fraction(rival)
+        if selection is law.BEST_ARAP_WON_V1:
+            sound = sound and _fraction(rival) < _fraction(hinge)
+    named = certificate.arap_refusal in {item.value for item in NamedOutcome}
+    sound = sound and named == (selection is law.HINGE_KEPT_ARAP_REFUSED_V1)
+    sound = sound and (selection is law.HINGE_KEPT_ARAP_REFUSED_V1 or not certificate.arap_refusal)
+    if not sound:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("proposal_selection_law",),
+            "the proposal selection law disagrees with the recorded hinge and ARAP chart "
+            "stretch numbers, the winning proposal law or the isometric threshold",
+        )
+
+
 def validate_developable_recomputation(
     metric,
     *,
@@ -321,6 +395,7 @@ def validate_developable_recomputation(
     surface_triangles,
     owner_patch_id,
     declared_straight_chains=(),
+    developable_stretch_budget=None,
 ) -> tuple[ValidationIssue, ...]:
     """Построить карту и сертификат заново и сравнить с записью на равенство.
 
@@ -336,6 +411,15 @@ def validate_developable_recomputation(
         return ()
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2", "planarity_certificate")
+    budget = _policy_budget(certificate, developable_stretch_budget)
+    if not developable_stretch_budget_is_lawful(budget):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            "the unfolded chart cannot be recomputed under a stretch budget outside (0, 1/2]",
+        )
+        return tuple(issues)
     if any(not isinstance(item.position, LocalPoint3V1) for item in source_vertices):
         add_issue(
             issues,
@@ -370,6 +454,7 @@ def validate_developable_recomputation(
             source_scale=grid.source_scale if grid.snapping_law.snaps_source else None,
             previous_refusals=ladder_trace(certificate),
             declared_straight_chains=tuple(declared_straight_chains),
+            budget=budget,
         )
     except PlanarMetricAdmissionError as error:
         add_issue(

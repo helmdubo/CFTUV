@@ -22,6 +22,7 @@ from .contracts import (
     tessellation,
 )
 from .ids import OpaqueId
+from .schema import is_wire_default_field
 from ._metric_wire import (
     MetricNormalWireDispositionV1,
     MetricWireCompatibilityReceiptV1,
@@ -109,7 +110,10 @@ def to_canonical_data(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
         result: dict[str, Any] = {"$type": type(value).__name__}
         for field in fields(value):
-            result[field.name] = to_canonical_data(getattr(value, field.name))
+            held = getattr(value, field.name)
+            if is_wire_default_field(field) and held == field.default:
+                continue
+            result[field.name] = to_canonical_data(held)
         return result
     if isinstance(value, tuple):
         return [to_canonical_data(item) for item in value]
@@ -215,8 +219,9 @@ def _decode_as(data: Any, annotation: Any) -> Any:
                 f"expected record {annotation.__name__}, got {data.get('$type')}"
             )
         expected = {field.name for field in fields(annotation)} | {"$type"}
+        required = {field.name for field in fields(annotation) if not is_wire_default_field(field)} | {"$type"}
         extra = set(data) - expected
-        missing = expected - set(data)
+        missing = required - set(data)
         if extra or missing:
             raise ContractCodecError(
                 f"{annotation.__name__} field mismatch; extra={sorted(extra)}, missing={sorted(missing)}"
@@ -225,7 +230,13 @@ def _decode_as(data: Any, annotation: Any) -> Any:
         kwargs = {
             field.name: _decode_as(data[field.name], hints[field.name])
             for field in fields(annotation)
+            if field.name in data
         }
+        for field in fields(annotation):
+            if is_wire_default_field(field) and field.name in kwargs and kwargs[field.name] == field.default:
+                raise ContractCodecError(
+                    f"{annotation.__name__}.{field.name} equals its default and must be omitted on the wire"
+                )
         return annotation(**kwargs)
     if annotation is bool:
         if type(data) is not bool:

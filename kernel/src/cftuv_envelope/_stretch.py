@@ -1,7 +1,8 @@
 """Сертификат растяжения развёртки: точный суд по Грамам, без корней и допусков вычисления.
 
-Модуль внутренний, как `_width_distortion`: допуск ему не принадлежит (его владеет
-`contracts.metric.DEVELOPABLE_STRETCH_BUDGET`), он ничего не округляет и возвращает
+Модуль внутренний, как `_width_distortion`: допуск ему не принадлежит (его называет ЗАПРОС,
+`DecalRequestV1.developable_stretch_budget`; умолчание ядра —
+`contracts.metric.DEFAULT_DEVELOPABLE_STRETCH_BUDGET`), он ничего не округляет и возвращает
 запись. Судит ли запись, решает вызывающий.
 
 МАТЕМАТИКА. Треугольник источника задан рёбрами `e1 = p1 - p0`, `e2 = p2 - p0`
@@ -32,7 +33,7 @@ from fractions import Fraction
 from math import isqrt
 
 from .contracts.metric import (
-    DEVELOPABLE_STRETCH_BUDGET,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     DevelopableStretchCertificateV1,
     DevelopableStretchLawV1,
     ExactRationalV1,
@@ -240,7 +241,7 @@ def stretch_refusal_text(certificate, *, worst_vertex=None) -> str:
 
 
 __all__ = (
-    "DEVELOPABLE_STRETCH_BUDGET",
+    "DEFAULT_DEVELOPABLE_STRETCH_BUDGET",
     "StretchFactsV1",
     "band_bounds",
     "band_squared_upper",

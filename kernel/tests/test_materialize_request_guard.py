@@ -22,6 +22,7 @@ from functools import lru_cache
 
 import pytest
 
+from cftuv_envelope.contracts.metric import ExactRationalV1
 from cftuv_envelope.ids import DecalRequestId, PolicyId
 from cftuv_envelope.materialize.admit import (
     OUTPUT_POLICY_FIELDS,
@@ -110,6 +111,7 @@ def test_a_request_with_another_id_is_refused_by_name_and_the_detail_names_the_f
         ("selected_chain_use_ids", frozenset()),
         ("max_subturn_value_id", None),
         ("angular_profile_selection_policy_id", None),
+        ("developable_stretch_budget", ExactRationalV1(7, 20)),
     ),
 )
 def test_every_plan_affecting_field_is_guarded(field, value):
