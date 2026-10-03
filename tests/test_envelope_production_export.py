@@ -5,7 +5,10 @@
 1. ПОДГОТОВКА НЕ ПЕРЕСТРАИВАЕТСЯ. Закон UV — параметр материализации, а не
    часть ключа кэша подготовок: нажатие продукта после отладочной кнопки берёт
    те же подготовки (счётчики сборок контроллера не растут), а холодное
-   нажатие наполняет кэши тем же вычислителем, что и отладка.
+   нажатие наполняет кэши так же, как отладка (ключи и счёт сборок те же), но
+   ОДНОЙ задачей на домен: подготовка и материализация, без отладочного прогона.
+   Результаты доменов кэшируются в сессии: то же нажатие не считает ничего, а
+   правка выделения пересчитывает только затронутые домены.
 2. РАЗМЕЩЕНИЕ НЕ МЕНЯЕТ ОТВЕТ. Домен считает воркер либо родитель одним и тем
    же `produce_domain`: результаты (батч, исход, счётчики, дайджест) равны на
    нуле воркеров, на двух настоящих воркерах и в пуле «в процессе».
@@ -48,6 +51,7 @@ from cftuv.envelope_domain_pool import (  # noqa: E402
 from cftuv.envelope_production_export import (  # noqa: E402
     MATERIALIZED,
     OUTCOME_DOMAIN_RAISED,
+    PLACEMENT_CACHED,
     PLACEMENT_FALLBACK,
     PLACEMENT_UNAVAILABLE,
     PLACEMENT_WORKER,
@@ -99,7 +103,13 @@ class _InProcessPool:
     def run(self, tasks):
         results = {}
         for task, _frame in order_by_cost(tasks):
-            self.kinds.append("production" if task.production is not None else "other")
+            self.kinds.append(
+                "production"
+                if task.production is not None
+                else "cold"
+                if task.cold is not None
+                else "other"
+            )
             if task.task_id in self.drop:
                 continue
             if task.task_id in self.fail:
@@ -304,7 +314,9 @@ def test_the_in_process_pool_reproduces_the_sequential_answer(monkeypatch, _pool
     assert _counter(run, POOL_DISPATCHED) == ROW
     assert _counter(run, POOL_TASK_FALLBACK) == 0
     assert _counter(run, POOL_UNAVAILABLE) == 0
-    assert "production" in pool.kinds
+    # Холодная сессия: каждый домен — одна холодная задача (подготовка и материализация),
+    # а отладочного прогона и пикла готовой подготовки нет вовсе.
+    assert pool.kinds == ["cold"] * ROW
     assert _counter(expected, POOL_WORKERS) is None
 
 
@@ -338,11 +350,16 @@ def test_real_workers_reproduce_the_sequential_answer_bit_for_bit(_pool_always):
     assert [item.placement for item in run.results] == [PLACEMENT_WORKER] * ROW
     assert _counter(run, POOL_WORKERS) == 2
     assert _counter(run, POOL_TASK_FALLBACK) == 0
-    # Тёплое нажатие на живых воркерах: подготовки взяты из кэша сессии.
-    warm, _ = _production(bundle, controller, workers=2)
-    assert _counter(warm, production.PRODUCTION_PREPARATION_BUILDS) == 0
-    assert [item.placement for item in warm.results] == [PLACEMENT_WORKER] * ROW
-    assert _answers(warm) == _answers(expected)
+    # Тот же alpha и те же рёбра: результаты лежат в кэше сессии, воркеры не нужны.
+    same, _ = _production(bundle, controller, workers=2)
+    assert [item.placement for item in same.results] == [PLACEMENT_CACHED] * ROW
+    assert _answers(same) == _answers(expected)
+    # Другой alpha на живых воркерах: подготовки взяты из кэша сессии (пиклом), покрытие
+    # и материализация посчитаны заново.
+    far, _ = _production(bundle, controller, workers=2, alpha=0.5)
+    assert _counter(far, production.PRODUCTION_PREPARATION_BUILDS) == 0
+    assert [item.placement for item in far.results] == [PLACEMENT_WORKER] * ROW
+    assert _answers(far) == _answers(_production(bundle, workers=0, alpha=0.5)[0])
 
 
 # --------------------------------------------------------------------------
@@ -410,7 +427,8 @@ def test_a_preparation_that_cannot_be_shipped_is_a_named_fallback(
     bundle = quad_row_bundle(ROW)
     controller = EnvelopeDebugSessionController()
     _debug_build(bundle, controller)
-    expected, _ = _production(bundle, controller, workers=0)
+    # Другой alpha: результаты прежнего лежали бы в кэше, и до пула дело не дошло бы.
+    expected, _ = _production(bundle, workers=0, alpha=0.5)
     blobs = controller.preparation_blobs
     original = blobs.blob_of
     victim = next(iter(controller._conveyor_preparation_cache.values()))
@@ -424,7 +442,7 @@ def test_a_preparation_that_cannot_be_shipped_is_a_named_fallback(
     _in_process_session(monkeypatch, _InProcessPool())
     capsys.readouterr()
 
-    run, _ = _production(bundle, controller, workers=2)
+    run, _ = _production(bundle, controller, workers=2, alpha=0.5)
 
     assert _counter(run, POOL_TASK_FALLBACK) == 1
     assert [item.placement for item in run.results].count(PLACEMENT_FALLBACK) == 1
@@ -616,6 +634,318 @@ def test_equality_ignores_the_seconds_and_the_placement_but_nothing_else():
     assert dataclasses.replace(second, placement="worker", seconds=9.0) == first
     assert dataclasses.replace(second, content_digest="x") != first
     assert dataclasses.replace(second, counters=()) != first
+
+
+# --------------------------------------------------------------------------
+# 4. Холодный домен — одна задача; результаты доменов лежат в сессии
+# --------------------------------------------------------------------------
+
+
+def _edges(*extra):
+    return frozenset(range(ROW)) | frozenset(extra)
+
+
+def _press(bundle, controller, edges, *, workers=0, alpha=ALPHA, **kwargs):
+    return run_production(
+        controller,
+        bundle,
+        edges,
+        alpha,
+        source_object_key="object",
+        source_data_key="mesh",
+        density=None,
+        workers=workers,
+        **kwargs,
+    )
+
+
+def _hits(run):
+    return _counter(run, production.PRODUCTION_RESULT_CACHE_HIT)
+
+
+def _misses(run):
+    return _counter(run, production.PRODUCTION_RESULT_CACHE_MISS)
+
+
+def test_a_cold_press_never_runs_the_debug_evaluator(monkeypatch):
+    """Холодный домен — подготовка и материализация одной задачей, без отладочного прогона.
+
+    Прежний холодный путь гнал отладочный вычислитель по всем доменам (подготовка, покрытие,
+    контур) и считал покрытие второй раз. Вычислитель, который падает при вызове, это
+    доказывает: прогон проходит, а кэши наполнены так же, как после кнопки отладки.
+    """
+
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("the product press must not run the debug evaluator")
+
+    monkeypatch.setattr(controller, "evaluate_staged", forbidden)
+
+    run, _ = _production(bundle, controller)
+
+    assert run.cold and all(item.is_materialized for item in run.results)
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW
+    assert controller.build_counts["PATCH_METRIC"] == ROW
+    assert controller.build_counts["DOMAIN_GEOMETRY"] == ROW
+
+
+def test_a_cold_answer_is_the_answer_of_a_domain_on_a_cached_preparation():
+    bundle = quad_row_bundle(ROW)
+    cold, _ = _production(bundle)
+    controller = EnvelopeDebugSessionController()
+    _debug_build(bundle, controller)
+
+    warm, _ = _production(bundle, controller)
+
+    assert cold.cold and not warm.cold
+    assert _answers(cold) == _answers(warm)
+
+
+def test_the_same_press_is_served_from_the_result_cache_and_computes_nothing(monkeypatch):
+    bundle = quad_row_bundle(ROW)
+    first, controller = _production(bundle)
+    builds = controller.build_counts
+    assert (_hits(first), _misses(first)) == (0, ROW)
+    pool = _InProcessPool()
+    _in_process_session(monkeypatch, pool)
+
+    again, _ = _production(bundle, controller, workers=2)
+
+    assert _answers(again) == _answers(first)
+    assert [item.placement for item in again.results] == [PLACEMENT_CACHED] * ROW
+    assert (_hits(again), _misses(again)) == (ROW, 0)
+    assert not again.cold
+    assert controller.build_counts == builds
+    # Пул не спрашивали вовсе: считать нечего, и в профиле нет ни одной задачи.
+    assert pool.kinds == []
+    assert _counter(again, POOL_DISPATCHED) == 0
+    assert all(item.seconds == 0.0 for item in again.results)
+    assert "results cached 5, computed 0" in production.production_timing_text(again)
+    assert "results cached 0, computed 5" in production.production_timing_text(first)
+
+
+def test_another_alpha_or_another_law_is_another_key_and_the_preparations_stay():
+    bundle = quad_row_bundle(ROW)
+    first, controller = _production(bundle)
+    laws = sorted(production.PRODUCTION_TOPOLOGY_LAWS - {production.PRODUCTION_TOPOLOGY_LAW})
+    assert laws
+
+    wider, _ = _production(bundle, controller, alpha=0.5)
+    other_law, _ = _production(bundle, controller, topology_law=laws[0])
+
+    for run in (wider, other_law):
+        assert (_hits(run), _misses(run)) == (0, ROW)
+        assert _counter(run, production.PRODUCTION_PREPARATION_BUILDS) == 0
+        assert not run.cold
+    assert [item.content_digest for item in wider.results] != [
+        item.content_digest for item in first.results
+    ]
+    assert {item.decal_topology_law for item in other_law.results} == {laws[0]}
+    # Прежний ключ жив: тот же alpha и закон — снова из кэша.
+    back, _ = _production(bundle, controller)
+    assert (_hits(back), _misses(back)) == (ROW, 0)
+    assert _answers(back) == _answers(first)
+
+
+def test_a_selection_edit_recomputes_only_the_domains_it_touches():
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+    _press(bundle, controller, _edges())
+
+    top = _press(bundle, controller, _edges(ROW + 2))
+    seam = _press(bundle, controller, _edges(2 * ROW + 1))
+    both = _press(bundle, controller, _edges(ROW + 2, 2 * ROW + 1))
+
+    # Верхнее ребро патча 2 меняет выделение ОДНОГО домена: он считается заново, остальные — из кэша.
+    assert (_hits(top), _misses(top)) == (ROW - 1, 1)
+    assert _counter(top, production.PRODUCTION_PREPARATION_BUILDS) == 1
+    assert [item.placement for item in top.results].count(PLACEMENT_CACHED) == ROW - 1
+    assert top.results[2].placement == "parent"
+    # Шов между патчами 0 и 1 касается двух доменов.
+    assert (_hits(seam), _misses(seam)) == (ROW - 2, 2)
+    assert _counter(seam, production.PRODUCTION_PREPARATION_BUILDS) == 2
+    # Оба правки вместе: каждый домен уже считался под своим выделением, и считать нечего.
+    assert (_hits(both), _misses(both)) == (ROW, 0)
+    assert _counter(both, production.PRODUCTION_PREPARATION_BUILDS) == 0
+
+
+def test_the_result_cache_is_bounded_and_forgets_the_least_recently_used(monkeypatch):
+    from cftuv import envelope_debug_session
+
+    monkeypatch.setattr(envelope_debug_session, "PRODUCTION_RESULT_CACHE_LIMIT", 3)
+    bundle = quad_row_bundle(ROW)
+    first, controller = _production(bundle)
+
+    assert controller.production_result_count == 3
+    # Остались три последних домена; первые два вытеснены и считаются заново.
+    again, _ = _production(bundle, controller)
+
+    assert (_hits(again), _misses(again)) == (3, 2)
+    assert _answers(again) == _answers(first)
+    assert [item.placement for item in again.results] == [
+        "parent",
+        "parent",
+        PLACEMENT_CACHED,
+        PLACEMENT_CACHED,
+        PLACEMENT_CACHED,
+    ]
+    assert controller.production_result_count == 3
+
+
+def test_a_session_reset_drops_the_cached_results():
+    bundle = quad_row_bundle(ROW)
+    _first, controller = _production(bundle)
+    assert controller.production_result_count == ROW
+
+    controller.clear()
+
+    assert controller.production_result_count == 0
+    again, _ = _production(bundle, controller)
+    assert again.cold and (_hits(again), _misses(again)) == (0, ROW)
+
+
+def test_an_exception_inside_a_domain_is_named_and_never_cached(monkeypatch):
+    from cftuv_envelope.materialize import domain as kernel_domain
+
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+    original = kernel_domain.materialize_domain
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("kernel bug")
+
+    monkeypatch.setattr(kernel_domain, "materialize_domain", broken)
+    raised, _ = _production(bundle, controller)
+
+    assert {item.outcome for item in raised.results} == {OUTCOME_DOMAIN_RAISED}
+    assert controller.production_result_count == 0
+    # Исключение — не ответ: после починки домены считаются заново, а не берутся из кэша.
+    monkeypatch.setattr(kernel_domain, "materialize_domain", original)
+    fixed, _ = _production(bundle, controller)
+
+    assert (_hits(fixed), _misses(fixed)) == (0, ROW)
+    assert all(item.is_materialized for item in fixed.results)
+    # Подготовки при этом уже были собраны исключённой прогонкой и взяты из кэша.
+    assert _counter(fixed, production.PRODUCTION_PREPARATION_BUILDS) == 0
+
+
+@pytest.mark.parametrize("injection", ("fail", "drop"))
+def test_a_failed_cold_task_is_named_counted_and_computed_in_the_parent(
+    injection, monkeypatch, capsys, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    expected, _ = _production(bundle, workers=0)
+    _in_process_session(monkeypatch, _InProcessPool(**{injection: (2,)}))
+    capsys.readouterr()
+
+    run, controller = _production(bundle, workers=2)
+
+    assert _counter(run, POOL_TASK_FALLBACK) == 1
+    assert _counter(run, POOL_DISPATCHED) == ROW
+    placements = [item.placement for item in run.results]
+    assert placements.count(PLACEMENT_FALLBACK) == 1
+    assert placements.count(PLACEMENT_WORKER) == ROW - 1
+    console = capsys.readouterr().out
+    assert POOL_TASK_FALLBACK in console
+    assert _answers(run) == _answers(expected)
+    # Подготовка домена, который считал родитель, в кэше сессии так же, как у воркерских.
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == ROW
+    assert controller.production_result_count == ROW
+
+
+def test_an_unavailable_pool_is_named_and_the_parent_computes_the_cold_domains(
+    monkeypatch, capsys, _pool_always
+):
+    bundle = quad_row_bundle(ROW)
+    expected, _ = _production(bundle, workers=0)
+    _in_process_session(
+        monkeypatch, DomainPool(2, python_executable="C:/nowhere/python.exe")
+    )
+    capsys.readouterr()
+
+    run, _ = _production(bundle, workers=2)
+
+    assert _counter(run, POOL_UNAVAILABLE) == 1
+    assert _counter(run, POOL_DISPATCHED) == 0
+    assert {item.placement for item in run.results} == {PLACEMENT_UNAVAILABLE}
+    out = capsys.readouterr().out
+    assert POOL_UNAVAILABLE in out
+    assert _answers(run) == _answers(expected)
+
+
+def test_a_metric_refusal_in_a_cold_worker_task_is_named_like_the_parents(
+    monkeypatch, _pool_always
+):
+    pin_near_planar_only(monkeypatch)
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    expected, _ = _production(bundle, workers=0)
+    pool = _InProcessPool()
+    _in_process_session(monkeypatch, pool)
+
+    run, controller = _production(bundle, workers=2)
+
+    assert _answers(run) == _answers(expected)
+    refused = [item for item in run.results if not item.is_materialized]
+    assert [item.outcome for item in refused] == ["NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"]
+    # Домен, чью выгрузку воркер отказал, воркеру «не уходил»: он не отправлен и не упал.
+    assert _counter(run, POOL_DISPATCHED) == ROW - 1
+    assert _counter(run, POOL_TASK_FALLBACK) == 0
+    assert pool.kinds == ["cold"] * ROW
+    # Отказ запомнен кэшем метрики сессии, и следующее нажатие называет его тем же исходом.
+    again, _ = _production(bundle, controller, workers=2)
+    assert _answers(again) == _answers(expected)
+    assert (_hits(again), _misses(again)) == (ROW - 1, 0)
+
+
+def test_the_cold_task_answers_in_process_with_the_preparation_and_the_snapshot(
+    monkeypatch, _pool_always
+):
+    """Задача «холодный домен» целиком: ответ несёт подготовку, батч и (при выгрузке) снапшот."""
+
+    bundle = quad_row_bundle(ROW)
+    kinds: list = []
+
+    class Recorder(_InProcessPool):
+        def run(self, tasks):
+            kinds.extend(task for task in tasks)
+            return super().run(tasks)
+
+    _in_process_session(monkeypatch, Recorder())
+
+    run, _ = _production(bundle, workers=2)
+
+    exported = [task for task in kinds if task.export is not None]
+    assert len(exported) == ROW and all(task.cold is not None for task in kinds)
+    reply = solve_task(exported[0])
+    assert reply.ok and reply.error == "" and reply.queue_domain is None
+    assert reply.prepared is not None and reply.snapshot is not None
+    assert reply.production == run.results[exported[0].patch_id]
+    assert reply.production.placement == PLACEMENT_WORKER
+    assert any(item.stage == "QUEUE_PREPARE" for item in reply.export_timings)
+    assert pickle.loads(pickle.dumps(reply)).production == reply.production
+
+
+def test_cold_tasks_are_ranked_like_full_domains_and_not_like_coverage_only_tasks():
+    from cftuv.envelope_production_export import ColdProductionInputV1
+
+    cold = DomainTaskV1(
+        0, 1, "x", "y" * 500_000, None, "0.25", frozenset(), cold=ColdProductionInputV1()
+    )
+    warm = DomainTaskV1(
+        1, 2, "x", None, None, "0.25", frozenset(),
+        production=ProductionInputV1(b"z" * 500_000),
+    )
+
+    ordered = order_by_cost([warm, cold])
+
+    assert [task.task_id for task, _frame in ordered] == [0, 1]
+    frame = dict((task.task_id, frame) for task, frame in ordered)
+    assert pool_module._frame_cost(cold, frame[0]) == float(len(frame[0]))
+    assert pool_module._frame_cost(warm, frame[1]) == len(frame[1]) / (
+        pool_module.COVERAGE_FRAME_COST_DIVISOR
+    )
 
 
 # --------------------------------------------------------------------------
