@@ -112,7 +112,14 @@ from ..robust.grid import GridSpecV1, snap_value
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
 from .lift import ENCLOSURE_BITS, sqrt_sum_binary64
-from .offset_normal import OFFSET_NORMAL_LAW, blend, min_gap_cosine, source_vertex_normals
+from .offset_normal import (
+    OFFSET_NORMAL_LAW,
+    blend,
+    min_gap_cosine,
+    opposition_note,
+    opposition_totals,
+    source_vertex_normals,
+)
 
 LOCATIONS = "MATERIALIZE_SURFACE_LIFT_LOCATIONS"
 CANDIDATES = "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES"
@@ -236,6 +243,8 @@ class SurfaceLiftV1:
     #: Треугольники, чью ненулевую проекцию привязка к решётке обнулила (подмножество
     #: `degenerate_projections`; остальные там — точно вырожденные).
     collapsed_by_snapping: int = 0
+    #: Допущенные противостояния нормали вершины нормали треугольника (`offset_normal.OppositionV1`): запись.
+    opposition: tuple = ()
 
     @staticmethod
     def from_triangles(
@@ -244,6 +253,7 @@ class SurfaceLiftV1:
         snapped_vertices: int = 0,
         snap_residual=Fraction(0),
         collapsed_by_snapping: int = 0,
+        opposition: tuple = (),
     ) -> "SurfaceLiftV1":
         """`items` — `(имя, три точки карты в единицах решётки, три 3D-вершины[, три нормали[, грань]])`."""
 
@@ -268,6 +278,7 @@ class SurfaceLiftV1:
             int(snapped_vertices),
             Fraction(snap_residual),
             int(collapsed_by_snapping),
+            tuple(opposition),
         )
 
     def bind(self, budget) -> "BoundSurfaceLiftV1":
@@ -351,7 +362,8 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         exact,
         chart,
     )
-    normals = source_vertex_normals(owned, position) if unfolded else None
+    tolerated: list = []
+    normals = source_vertex_normals(owned, position, tolerated) if unfolded else None
     return SurfaceLiftV1.from_triangles(
         (
             (
@@ -374,6 +386,7 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
             if _twice_area(tuple(exact[vertex] for vertex in item.vertex_ids))
             and not _twice_area(tuple(chart[vertex] for vertex in item.vertex_ids))
         ),
+        tuple(tolerated),
     )
 
 
@@ -472,6 +485,7 @@ class BoundSurfaceLiftV1:
             (DEGENERATE, self._lift.degenerate_projections),
             (COLLAPSED, self._lift.collapsed_by_snapping),
             (CHART_SNAPPED, self._lift.snapped_vertices),
+            *opposition_totals(self._lift.opposition),
         )
 
     def note(self) -> str:
@@ -488,6 +502,11 @@ class BoundSurfaceLiftV1:
             f"continuation_ambiguous_points={self._tally[AMBIGUOUS]} "
             f"continuation_exact_ties={self._tally[EXACT_TIES]}"
         )
+
+    def opposition_note(self) -> str:
+        """Допущенные противостояния нормали вершины нормали треугольника (глубина в допуске); пусто, если их нет."""
+
+        return opposition_note(self._lift.opposition)
 
     def gap_note(self) -> str:
         """Наименьший `n_v . n_T` подъёма для диагностики; пусто, если нормалей вершин нет."""

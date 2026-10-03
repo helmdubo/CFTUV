@@ -180,6 +180,7 @@ def _diagnostics(
     sourced=None,
     clip_note: str = "",
     chords=None,
+    opposition_note: str = "",
 ):
     """Диагностики батча: near-planar, рестарт `u`, деградировавшие митры, положение вершин `src:`."""
 
@@ -209,21 +210,9 @@ def _diagnostics(
             _near_planar_numbers(certificate, onto_surface, lift_note),
         )
     if planarity is PlanarityKind.DEVELOPABLE_UNFOLDED:
-        add(
-            GeometryDiagnosticSeverity.INFO,
-            NamedOutcome.DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES,
-            "domain",
-            (),
-            _developable_numbers(prepared.context.frame.planarity_certificate, lift_note),
+        _developable_diagnostics(
+            prepared.context.frame.planarity_certificate, lift_note, gap_note, opposition_note, add
         )
-        if gap_note:
-            add(
-                GeometryDiagnosticSeverity.INFO,
-                NamedOutcome.DEVELOPABLE_OFFSET_MIN_GAP_COSINE,
-                "domain",
-                (),
-                gap_note,
-            )
     if clip_note:
         add(
             GeometryDiagnosticSeverity.INFO,
@@ -261,6 +250,24 @@ def _diagnostics(
                 f"{corner.corner_relation_id}: {corner.reason}",
             )
     return result
+
+
+def _developable_diagnostics(certificate, lift_note, gap_note, opposition_note, add) -> None:
+    """Диагностики домена-развёртки: числа растяжения, зазор смещения, допущенное противостояние нормалей."""
+
+    add(
+        GeometryDiagnosticSeverity.INFO,
+        NamedOutcome.DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES,
+        "domain",
+        (),
+        _developable_numbers(certificate, lift_note),
+    )
+    for note, outcome in (
+        (gap_note, NamedOutcome.DEVELOPABLE_OFFSET_MIN_GAP_COSINE),
+        (opposition_note, NamedOutcome.SURFACE_OFFSET_OPPOSITION_TOLERATED),
+    ):
+        if note:
+            add(GeometryDiagnosticSeverity.INFO, outcome, "domain", (), note)
 
 
 def _lift_diagnostics(sourced, add) -> None:
@@ -708,7 +715,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             plane.gap_note(),
             sourced,
             "" if cut is None else cut.note,
-            chords,
+            chords, plane.opposition_note(),
         ),
     )
     batch = replace(

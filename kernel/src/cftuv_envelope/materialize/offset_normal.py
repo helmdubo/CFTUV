@@ -16,17 +16,58 @@
 Знак нормали треугольника — обход вершин владельца (`SurfaceTriangleV1.vertex_ids`); карта
 развёртки против часовой стрелки согласована с владельцем по построению, поэтому лицевая
 сторона батча — именно эта.
+
+ДОПУСК ГЛУБИНЫ ПРОТИВОСТОЯНИЯ (`SURFACE_OFFSET_OPPOSITION_TOLERATED`). Нормаль смещения над
+точкой треугольника `T` — нормированное барицентрическое смешение нормалей трёх его вершин `n_i`,
+и смещённая поверхность лежит над плоскостью `T` на `offset · (смесь · n_T) / |смесь|`. Знак «против»
+(`n_v · n_T <= 0`) поэтому значит не «смещение внутрь поверхности вообще», а «в углу `v` смещённая
+поверхность уходит ПОД плоскость `T` на `offset · |cos|`». У треугольника-иголки (`building` патч 89:
+угол при вершине `building:34` — 0.17°, вес нормали нуль, косинус −3.08e-4) это микроны, и отказ целого
+домена за них — не защита, а потеря патча. Закон: противостояние допускается, если ГРАНИЦА ГЛУБИНЫ не
+больше `OFFSET_OPPOSITION_DEPTH_TOLERANCE` на опорном смещении `OFFSET_REFERENCE_METRES` (умолчание хоста
+`DEFAULT_DECAL_OFFSET`, 0.02 м; настоящее смещение хозяин задаёт при записи, ядро его не знает, и
+глубина растёт с ним линейно — это сказано в диагностике). Граница СТРОГАЯ: числитель смеси не меньше
+`−D`, где `D = max(0, −min_i n_i · n_T)` (смесь — выпуклая комбинация), а длина смеси не меньше `μ`,
+наименьшего `n_i · u` по единичной средней `u` трёх нормалей (`|смесь| >= смесь · u >= μ`); значит
+глубина не больше `offset · D / μ`. `μ <= 0` — границы нет, отказ остаётся. Сравнение — точные дроби
+двух binary64 (`D`, `μ`). Допущенные треугольники и худшая глубина ЗАПИСАНЫ (счётчики материализатора,
+диагностика с именем треугольника и вершины); глубже допуска — прежний именованный отказ.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from fractions import Fraction
 from hashlib import sha256
 
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
 
 OFFSET_NORMAL_LAW = "SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1"
+
+#: Наибольшая глубина (метры) смещённой поверхности под плоскостью треугольника источника, при которой
+#: противостояние нормали вершины его нормали допускается. Запись реестра допусков
+#: `SURFACE_OFFSET_OPPOSITION_DEPTH_V1`: 0.1 мм — доля толщины листа декали и далеко ниже видимого.
+OFFSET_OPPOSITION_DEPTH_TOLERANCE = Fraction(1, 10_000)
+
+#: Смещение (метры), при котором глубина судится: умолчание хоста (`DEFAULT_DECAL_OFFSET`, сверено тестом
+#: хоста). Той же записи реестра: допуск глубины без смещения ничего не значит.
+OFFSET_REFERENCE_METRES = Fraction(1, 50)
+
+OPPOSITION_TOLERATED = "MATERIALIZE_OFFSET_OPPOSITIONS_TOLERATED"
+OPPOSITION_WORST_DEPTH = "MATERIALIZE_OFFSET_OPPOSITION_WORST_DEPTH_NANOMETRES"
+NANOMETRES_PER_METRE = 10**9
+
+
+@dataclass(frozen=True, slots=True)
+class OppositionV1:
+    """Допущенное противостояние: треугольник, вершина с худшим косинусом, косинус и граница глубины (метры)."""
+
+    triangle: str
+    vertex: str
+    cosine: float
+    depth: float
 
 
 def _vector(first, second):
@@ -60,12 +101,38 @@ def _refusal(detail: str) -> MaterializationRefusal:
     )
 
 
-def source_vertex_normals(triangles, position) -> dict:
+def opposition_bound(normals, triangle_normal):
+    """`(худший косинус, граница глубины в метрах, в допуске ли)` либо `None`, если границы нет (`μ <= 0`).
+
+    `normals` — три единичные нормали вершин треугольника, `triangle_normal` — его единичная нормаль.
+    Граница `offset · D / μ` на опорном смещении (см. докстринг модуля); допуск судит ТОЧНОЕ
+    сравнение дробей двух binary64 `D` и `μ`: `offset · D <= tolerance · μ`, без деления.
+    """
+
+    worst = min(_dot(normal, triangle_normal) for normal in normals)
+    total = tuple(normals[0][axis] + normals[1][axis] + normals[2][axis] for axis in range(3))
+    if not _length(total):
+        return None
+    mean = _unit(total)
+    floor = min(_dot(normal, mean) for normal in normals)
+    if not floor > 0.0:
+        return None
+    reach = max(0.0, -worst)
+    within = (
+        OFFSET_REFERENCE_METRES * Fraction(reach)
+        <= OFFSET_OPPOSITION_DEPTH_TOLERANCE * Fraction(floor)
+    )
+    return worst, float(OFFSET_REFERENCE_METRES) * reach / floor, within
+
+
+def source_vertex_normals(triangles, position, tolerated=None) -> dict:
     """`vertex_id -> единичная нормаль смещения` по треугольникам владельца.
 
     `triangles` — треугольники владельца (по имени), `position` — точные привязанные
     3D-позиции вершин. Отказывает, если нормаль вершины нулевая либо смотрит против
-    нормали своего треугольника.
+    нормали своего треугольника. `tolerated` — список для допущенных противостояний
+    (`OppositionV1`): с ним противостояние в допуске глубины не отказ, а запись; без него
+    (`None`) закон строгий, как прежде.
     """
 
     corners = {
@@ -97,13 +164,59 @@ def source_vertex_normals(triangles, position) -> dict:
             )
         result[vertex] = _unit(vector)
     for item in triangles:
-        for vertex in item.vertex_ids:
-            if not _dot(result[vertex], unit[item.triangle_id]) > 0.0:
-                raise _refusal(
-                    f"the offset normal of vertex {vertex.value} opposes the normal "
-                    f"of its triangle {item.triangle_id.value}"
-                )
+        _judge_opposition(item, result, unit[item.triangle_id], tolerated)
     return result
+
+
+def _judge_opposition(item, result, triangle_normal, tolerated) -> None:
+    """Противостояние нормалей вершин треугольника его нормали: отказ либо допущенная запись."""
+
+    normals = tuple(result[vertex] for vertex in item.vertex_ids)
+    opposing = [
+        vertex for vertex, normal in zip(item.vertex_ids, normals) if not _dot(normal, triangle_normal) > 0.0
+    ]
+    if not opposing:
+        return
+    bound = opposition_bound(normals, triangle_normal)
+    if tolerated is not None and bound is not None and bound[2]:
+        tolerated.append(OppositionV1(item.triangle_id.value, opposing[0].value, bound[0], bound[1]))
+        return
+    depth = "" if bound is None else (
+        f" (depth bound {bound[1]:.6g} m at the reference offset {float(OFFSET_REFERENCE_METRES):g} m "
+        f"against the tolerance {float(OFFSET_OPPOSITION_DEPTH_TOLERANCE):g} m)"
+    )
+    raise _refusal(
+        f"the offset normal of vertex {opposing[0].value} opposes the normal "
+        f"of its triangle {item.triangle_id.value}{depth}"
+    )
+
+
+def opposition_totals(tolerated) -> tuple[tuple[str, int], ...]:
+    """Счётчики допущенных противостояний; пусто, если допускать было нечего (счётчики прежних доменов те же)."""
+
+    if not tolerated:
+        return ()
+    worst = max(item.depth for item in tolerated)
+    return (
+        (OPPOSITION_TOLERATED, len(tolerated)),
+        (OPPOSITION_WORST_DEPTH, math.ceil(worst * NANOMETRES_PER_METRE)),
+    )
+
+
+def opposition_note(tolerated) -> str:
+    """Строка диагностики допущенных противостояний: худший треугольник, вершина, косинус, глубина."""
+
+    if not tolerated:
+        return ""
+    worst = max(tolerated, key=lambda item: (item.depth, item.triangle))
+    return (
+        f"{len(tolerated)} source triangles tolerated: the vertex offset normal opposes the triangle at a "
+        f"corner, so the offset surface dips below its plane by offset * |cosine|; worst depth "
+        f"{worst.depth * NANOMETRES_PER_METRE:.0f} nm at the reference offset "
+        f"{float(OFFSET_REFERENCE_METRES):g} m (triangle {worst.triangle}, vertex {worst.vertex}, "
+        f"cosine {worst.cosine:.9g}; depth scales linearly with the host offset), within the tolerance "
+        f"{float(OFFSET_OPPOSITION_DEPTH_TOLERANCE):g} m"
+    )
 
 
 def min_gap_cosine(triangles):

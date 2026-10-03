@@ -133,6 +133,7 @@ class TolerancePolicyIdV1(str, Enum):
     CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1 = "CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1"
     CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1 = "CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1"
     DEVELOPABLE_CONE_RELIEF_GAP_V1 = "DEVELOPABLE_CONE_RELIEF_GAP_V1"
+    SURFACE_OFFSET_OPPOSITION_DEPTH_V1 = "SURFACE_OFFSET_OPPOSITION_DEPTH_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -206,6 +207,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER = "CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER"
     CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE = "CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE"
     DEVELOPABLE_PROPOSAL_TARGET = "DEVELOPABLE_PROPOSAL_TARGET"
+    SURFACE_OFFSET_NORMAL_OPPOSITION = "SURFACE_OFFSET_NORMAL_OPPOSITION"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -247,6 +249,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     SHRINK_BOUNDARY_FAN_ANGLE_TARGET_TO_LEAVE_A_GAP = (
         "SHRINK_BOUNDARY_FAN_ANGLE_TARGET_TO_LEAVE_A_GAP"
+    )
+    TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH = (
+        "TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH"
     )
 
 
@@ -1580,6 +1585,54 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_developable_cone_relief.py"
             "::test_an_excess_that_costs_more_than_the_budget_is_refused_by_name_with_the_relief_numbers"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.SURFACE_OFFSET_OPPOSITION_DEPTH_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 10_000)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Наибольшая глубина (0.1 мм), на которую смещённая поверхность декали над развёрткой вправе уйти ПОД "
+            "плоскость треугольника источника в углу, где нормаль смещения вершины смотрит против нормали треугольника "
+            "(`n_v . n_T <= 0`), чтобы домен всё же строился: закон `SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1` отказывает "
+            "`SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE` и за микроны (патч 89 `building`: треугольник-иголка с углом 0.17° "
+            "при вершине `building:34`, вес нормали нуль, косинус -3.08e-4, глубина 6 мкм). Граница строгая: "
+            "`offset * D / mu`, где `D` — худший отрицательный косинус угла треугольника, `mu` — наименьший косинус "
+            "его нормали вершины к средней (длина смеси нормалей не меньше `mu`). Глубина судится на опорном смещении "
+            "`OFFSET_REFERENCE_METRES` = 0.02 м (умолчание хоста `DEFAULT_DECAL_OFFSET`, сверено тестом хоста): "
+            "настоящее смещение хозяин задаёт при записи, ядро его не знает, и глубина растёт с ним линейно, "
+            "что названо в строке диагностики. Глубже допуска или без границы (`mu <= 0`) отказ остаётся прежним."
+        ),
+        authority=(
+            "materialize.offset_normal.OFFSET_OPPOSITION_DEPTH_TOLERANCE, OFFSET_REFERENCE_METRES; DECISIONS.md "
+            "2026-10-03 (решение оркестратора по делегированию владельца: допуск знака нормали смещения у иголки, "
+            "LEFTOVER A, патч 89)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.SURFACE_OFFSET_NORMAL_OPPOSITION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_OFFSET_OPPOSITIONS_TOLERATED",
+            "MATERIALIZE_OFFSET_OPPOSITION_WORST_DEPTH_NANOMETRES",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.materialize.offset_normal.OFFSET_OPPOSITION_DEPTH_TOLERANCE",
+            "cftuv_envelope.materialize.offset_normal.OFFSET_REFERENCE_METRES",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_offset_normal_opposition.py"
+            "::test_the_step_patch_needle_is_tolerated_with_its_depth_recorded"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_offset_normal_opposition.py"
+            "::test_an_opposition_deeper_than_the_tolerance_keeps_the_refusal"
         ),
     ),
 )
