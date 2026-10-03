@@ -974,12 +974,17 @@ def cover_prepared(
     )
 
 
+class CoverageCancelled(RuntimeError):
+    """Покрытие ползунка остановлено по заказу (`cancel`): сцены нет и не будет."""
+
+
 def recompute_queue_coverage(
     entries,
     alpha_text: str,
     *,
     profile=None,
     coverage_pool=None,
+    cancel=None,
 ) -> EnvelopeQueueSceneV1:
     """Лёгкий путь ползунка: только покрытие на ГОТОВЫХ подготовках.
 
@@ -991,14 +996,26 @@ def recompute_queue_coverage(
     которых он не вернул (малая партия, отказ задачи), считаются здесь, тем же
     `cover_prepared`. Подготовку запись домена берёт у вызывающего: воркеру её
     не возвращают.
+
+    `cancel` (`threading.Event`, фоновое превью alpha): между задачами пула и между доменами
+    родителя проверяется, не снят ли заказ; снятый заказ — `CoverageCancelled`, а не неполная
+    сцена. Без `cancel` вызов тот же, что и был.
     """
 
     entries = tuple(entries)
     pooled = (
-        {} if coverage_pool is None else coverage_pool.cover(entries, alpha_text)
+        {}
+        if coverage_pool is None
+        else (
+            coverage_pool.cover(entries, alpha_text)
+            if cancel is None
+            else coverage_pool.cover(entries, alpha_text, cancel)
+        )
     )
     domains = []
     for patch_id, patch_domain_id, prepared in entries:
+        if cancel is not None and cancel.is_set():
+            raise CoverageCancelled("slider coverage cancelled between domains")
         done = pooled.get(patch_domain_id)
         if done is None:
             domains.append(
@@ -1517,6 +1534,7 @@ __all__ = (
     "CONTOUR_MERGED_SAME_CHAIN_GROUPS",
     "CONTOUR_MERGED_SAME_CHAIN_SEPARATORS",
     "CONTOUR_MERGE_BOUNDARY_UNRESOLVED",
+    "CoverageCancelled",
     "ENVELOPE_DEBUG_ENGINE_LEGACY",
     "ENVELOPE_DEBUG_ENGINE_QUEUE",
     "EnvelopeQueueCoveredFaceV1",

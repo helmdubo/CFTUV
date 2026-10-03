@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .envelope_alpha_preview_gp import draw_alpha_preview_row
 from .envelope_worker_python import draw_worker_python_row
 
 
@@ -52,6 +53,7 @@ def draw_envelope_debug_box(layout, settings) -> None:
     envelope_box.prop(settings, "envelope_debug_workers")
     draw_worker_python_row(envelope_box)
     envelope_box.prop(settings, "envelope_debug_alpha")
+    draw_alpha_preview_row(envelope_box)
     envelope_box.operator(
         "hotspotuv.build_envelope_topology_debug",
         text="Build Topology Debug",

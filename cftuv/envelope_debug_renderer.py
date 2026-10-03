@@ -1414,84 +1414,6 @@ def redraw_envelope_queue_layers(
     )
 
 
-def update_queue_alpha(
-    controller,
-    source_name,
-    alpha,
-    *,
-    density,
-    settings=None,
-    profile=None,
-) -> str | None:
-    """Пересчёт покрытия очереди на ТЁПЛОЙ подготовке плюс перерисовка слоёв.
-
-    `None` — тёплого кэша нет (кнопку ещё не нажимали, движок другой либо
-    источник сменился). Тогда ползунок не считает ВООБЩЕ: подготовка стоит
-    десятки миллисекунд на домен, и запускать её на каждое движение мыши
-    значило бы подвесить интерфейс.
-
-    Покрытие считают воркеры пула, если кнопка уже подняла их на заказанное
-    `settings.envelope_debug_workers` (ползунок пул не стартует), иначе — этот
-    процесс; ответ тот же, а работа пула называется в строке панели так же, как
-    после кнопки (`queue_timing_text`).
-    """
-
-    from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
-    from .envelope_queue_export import (
-        ENVELOPE_DEBUG_ENGINE_QUEUE,
-        queue_timing_text,
-        recompute_queue_coverage,
-    )
-    from .envelope_request_policy import normalize_envelope_fan_density
-
-    session = getattr(controller, "queue_session", None)
-    if (
-        session is None
-        or str(session.source_object_name) != str(source_name)
-        or not session.entries
-    ):
-        return None
-    if session.density != normalize_envelope_fan_density(density):
-        return "Fan Density changed; press Build"
-    started = time.perf_counter()
-    pool_profile = EnvelopeDebugProfileBuilderV1(
-        str(source_name), ENVELOPE_DEBUG_ENGINE_QUEUE
-    )
-    open_pool = getattr(controller, "slider_coverage_pool", None)
-    coverage_pool = (
-        None
-        if open_pool is None
-        else open_pool(
-            int(getattr(settings, "envelope_debug_workers", 0) or 0),
-            pool_profile,
-        )
-    )
-    scene = recompute_queue_coverage(
-        session.entries,
-        str(float(alpha)),
-        profile=profile,
-        coverage_pool=coverage_pool,
-    )
-    summary = redraw_envelope_queue_layers(
-        source_name,
-        session.exact_scenes,
-        scene,
-        visibility_by_layer=(
-            visibility_from_settings(settings)
-            if settings is not None
-            else None
-        ),
-        profile=profile,
-    )
-    if summary is None:
-        return None
-    elapsed = (time.perf_counter() - started) * 1000.0
-    timing = queue_timing_text(
-        scene, None if coverage_pool is None else pool_profile.snapshot()
-    )
-    return f"{timing} | alpha redraw {elapsed:.0f} ms"
-
-
 def render_envelope_topology_debug_scene(
     scene,
     source_obj,
@@ -1544,6 +1466,5 @@ __all__ = (
     "render_queue_scene",
     "render_refused_domains",
     "render_staged_envelope_debug",
-    "update_queue_alpha",
     "visibility_from_settings",
 )

@@ -184,6 +184,105 @@ def test_frontier_runtime_is_free_of_blender():
     )
 
 
+def test_alpha_preview_core_is_free_of_blender_runtime():
+    """Планировщик фонового превью alpha не импортирует `bpy`: таймеры и цель приходят параметрами.
+
+    Тогда его закон (пауза, слияние, один полёт, устаревшее) проверяется без Blender, а поток счёта,
+    которому он принадлежит, не может незаметно дотянуться до данных Blender через импорт.
+    """
+
+    leaked = {"bpy", "bmesh", "mathutils"} & _imported_roots(
+        HOST_PACKAGE / "envelope_alpha_preview.py"
+    )
+    assert not leaked, (
+        f"envelope_alpha_preview.py импортирует {sorted(leaked)}. Данные Blender читает и пишет "
+        "только главный поток (envelope_alpha_preview_gp: begin/valid/apply)."
+    )
+
+
+#: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ счёта превью: питоновские объекты,
+#: захваченные на главном потоке, ядро и отмена. Ни `bpy`, ни настроек, ни контроллера.
+_PREVIEW_COMPUTE_NAMES = frozenset(
+    {
+        "entries",
+        "alpha_text",
+        "coverage_pool",
+        "cancel",
+        "recompute_queue_coverage",
+        "CoverageCancelled",
+        "PreviewCancelled",
+        "exc",
+        "str",
+    }
+)
+
+
+def test_the_alpha_preview_worker_thread_function_touches_no_blender_data():
+    """AGENTS.md (хост): данные Blender из потока не читаются и не пишутся.
+
+    Поток счёта исполняет `compute` из `_begin`; все её имена обязаны быть из названного набора.
+    Новое имя (`bpy`, `settings`, `controller`, `context`) — повод остановиться и вынести это в
+    `_apply`/`_validity`, которые идут на главном потоке.
+    """
+
+    path = HOST_PACKAGE / "envelope_alpha_preview_gp.py"
+    begin = next(
+        node
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.FunctionDef) and node.name == "_begin"
+    )
+    compute = next(
+        node
+        for node in ast.walk(begin)
+        if isinstance(node, ast.FunctionDef) and node.name == "compute"
+    )
+    used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
+    used -= {arg.arg for arg in compute.args.args}
+    foreign = used - _PREVIEW_COMPUTE_NAMES
+    assert not foreign, (
+        f"функция потока счёта превью использует {sorted(foreign)}: потоку нельзя ничего, "
+        "что читает или пишет данные Blender."
+    )
+
+
+def test_the_alpha_slider_callback_only_orders_the_preview():
+    """Калбэк `update` ползунка alpha не считает и не рисует на главном потоке.
+
+    Прежний путь (`update_queue_alpha`: покрытие, пул и перерисовка слоёв прямо в калбэке) стоил 0.3 с
+    на `2` и до 1.2 с на `building` на КАЖДОЕ движение мыши. Возврат к нему ловится здесь.
+    """
+
+    path = HOST_PACKAGE / "operators.py"
+    callback = next(
+        node
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_update_envelope_debug_alpha"
+    )
+    names = {node.id for node in ast.walk(callback) if isinstance(node, ast.Name)} | {
+        node.module or ""
+        for node in ast.walk(callback)
+        if isinstance(node, ast.ImportFrom)
+    }
+    assert "schedule_alpha_preview" in {
+        alias.name
+        for node in ast.walk(callback)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    heavy = {
+        "update_queue_alpha",
+        "recompute_queue_coverage",
+        "redraw_envelope_queue_layers",
+    }
+    assert not (heavy & names), sorted(heavy & names)
+    assert not any(
+        "update_queue_alpha" in _source_text(item)
+        for item in _python_files(HOST_PACKAGE)
+        if item.name != "operators.py"
+    ), "update_queue_alpha удалён (синхронный счёт в калбэке); его возврат — регресс"
+
+
 # --------------------------------------------------------------------------
 # 2. Мёртвый код
 # --------------------------------------------------------------------------
@@ -381,7 +480,9 @@ MODULE_LINE_ALLOWANCE = {
     # свойство с границами панели (+11), импорт политики запроса списком (+6), допуск в вызове построения (+3), помощник
     # `_live_session` и фабрика `_request_policy_update` на обе ручки запроса (две копии поиска сессии по девять строк
     # заменены одним помощником — −3 нетто). Ради потолка ничего не склеено. Число поднято осознанно, до фактического.
-    "cftuv/operators.py": 2031,
+    # 2031 -> 2015. −16: калбэк ползунка alpha стал заказом фонового превью (`envelope_alpha_preview_gp`), а прежний
+    # синхронный счёт и перерисовка ушли вместе с `update_queue_alpha`. Число опущено до фактического.
+    "cftuv/operators.py": 2015,
     # 2000 -> 2004. +4: проверка нормали плоскости сменила предмет. Прежде
     # валидатор требовал побитового равенства `A × B`, то есть закреплял
     # КОНКРЕТНЫЙ вывод нормали, а не свойство плоскости, и любой другой (лучше

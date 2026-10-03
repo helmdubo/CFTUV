@@ -56,6 +56,7 @@ from .envelope_queue_export import (
     POOL_UNAVAILABLE,
     POOL_WALL_STAGE,
     POOL_WORKERS,
+    CoverageCancelled,
     _measure,
     _queue_snapshot_and_request,
     cover_prepared,
@@ -343,8 +344,12 @@ def _worth_the_pool(shipped) -> bool:
     return sum(len(blob) for _, blob in shipped) >= COVERAGE_POOL_MIN_BYTES
 
 
-def _run_tasks(domain_pool, tasks, profile):
-    """Задачи в пул под стадией стены: `(run | None, причина отказа пула | "")`."""
+def _run_tasks(domain_pool, tasks, profile, cancel=None):
+    """Задачи в пул под стадией стены: `(run | None, причина отказа пула | "")`.
+
+    `cancel` (`threading.Event`) уходит в пул только когда задан: подставные пулы без этого параметра
+    остаются совместимы.
+    """
 
     from .envelope_domain_pool import DomainPoolUnavailable
 
@@ -354,7 +359,11 @@ def _run_tasks(domain_pool, tasks, profile):
     failure = ""
     try:
         with _measure(profile, POOL_WALL_STAGE):
-            run = domain_pool.run(tasks)
+            run = (
+                domain_pool.run(tasks)
+                if cancel is None
+                else domain_pool.run(tasks, cancel=cancel)
+            )
     except DomainPoolUnavailable as exc:
         failure = str(exc)
     except Exception as exc:  # noqa: BLE001 - пул не должен ронять Build
@@ -532,7 +541,9 @@ class SliderCoveragePool:
         self._blobs = blobs
         self._profile = profile
 
-    def cover(self, entries, alpha_text: str) -> dict:
+    def cover(self, entries, alpha_text: str, cancel=None) -> dict:
+        """`{patch_domain_id: запись}` посчитанных воркерами; `cancel` снят — `CoverageCancelled`."""
+
         from .envelope_domain_pool import DomainTaskV1
 
         shipped, shipping_failures = _ship_preparations(
@@ -561,7 +572,11 @@ class SliderCoveragePool:
             )
             for index, ((patch_id, domain_id, _), blob) in enumerate(shipped)
         ]
-        run, failure = _run_tasks(self._domain_pool, tasks, self._profile)
+        run, failure = _run_tasks(self._domain_pool, tasks, self._profile, cancel)
+        if cancel is not None and cancel.is_set():
+            # Задачи, которых отмена не дала взять, не «упали»: они не считаются ни отказом, ни
+            # откатом в родителя, а заказ остановлен целиком.
+            raise CoverageCancelled("slider coverage cancelled at the pool boundary")
         done: dict = {}
         fallbacks = len(shipping_failures)
         dispatched = 0
