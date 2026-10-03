@@ -432,7 +432,9 @@ def test_a_proven_non_closing_vertex_in_budget_is_accepted_and_labelled_near_dev
 
 
 def test_the_same_vertex_beyond_the_budget_is_refused():
-    error = _refusal(_perturbed_fold_grid(0.05))
+    """Сдвиг 0.2 не вмещается в бюджет ни у шарнира, ни у ARAP (при 0.05 ARAP уже вмещает)."""
+
+    error = _refusal(_perturbed_fold_grid(0.2))
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
 
 
