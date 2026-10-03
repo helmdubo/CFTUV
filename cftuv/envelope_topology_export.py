@@ -7,7 +7,8 @@ this immutable result; it never rebuilds host analysis.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
 
@@ -34,12 +35,19 @@ SELECTION_COMPLETED_DIAGNOSTIC_CODE = "PARTIAL_CHAIN_SELECTION_COMPLETED"
 
 @dataclass(frozen=True, slots=True)
 class EnvelopeTopologyExportV1:
-    """SourceRevision-scoped host topology prepared exactly once."""
+    """SourceRevision-scoped host topology prepared exactly once.
+
+    `developable_stretch_budget` — допуск растяжения развёртки ЗАПРОСА (`None`: умолчание ядра). Это политика
+    запроса, не факт топологии: она едет здесь только потому, что метрика домена (сертификат развёртки в снапшоте)
+    строится из этого экспорта и обязана быть записана под ТЕМ ЖЕ допуском, что и запрос (ядро не компилирует
+    иначе). Ключи кэшей метрики и геометрии сессии содержат этот допуск.
+    """
 
     source_revision_value: str
     analysis_bundle: AnalysisBundle
     host_chains: tuple[object, ...]
     patch_domain_id_by_patch: Mapping[int, str]
+    developable_stretch_budget: Fraction | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -47,6 +55,13 @@ class EnvelopeTopologyExportV1:
             "patch_domain_id_by_patch",
             MappingProxyType(dict(self.patch_domain_id_by_patch)),
         )
+
+    def with_developable_stretch_budget(self, budget: Fraction | None):
+        """Тот же экспорт под допуском запроса `budget`; тяжёлые части общие, копии нет."""
+
+        if budget == self.developable_stretch_budget:
+            return self
+        return replace(self, developable_stretch_budget=budget)
 
 
 @dataclass(frozen=True, slots=True)

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass, replace
+from fractions import Fraction
 
 from .envelope_metric_export import EnvelopePatchMetricExportV1
 from .envelope_topology_export import (
@@ -87,6 +88,8 @@ class HostExportInputV1:
     alpha: float
     request_id: str
     density: object
+    #: Допуск растяжения запроса (`None`: умолчание ядра): метрика домена записывается под ним.
+    developable_stretch_budget: Fraction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +165,7 @@ def build_host_export_input(
         alpha,
         request_id,
         density,
+        topology_export.developable_stretch_budget,
     )
 
 
@@ -192,6 +196,7 @@ def patch_metric_from_worker(
             topology_export.analysis_bundle, frozenset({patch_id})
         ),
         result.snapshot,
+        topology_export.developable_stretch_budget,
     )
 
 
@@ -270,6 +275,7 @@ def task_inputs(task):
         export.bundle,
         export.host_chains,
         {int(task.patch_id): task.domain_id},
+        export.developable_stretch_budget,
     )
     inputs = TaskInputsV1(None, None, profile, task.task_id, True)
     try:
@@ -285,6 +291,7 @@ def task_inputs(task):
             export.alpha,
             decal_request_id_value=export.request_id,
             density=export.density,
+            developable_stretch_budget=export.developable_stretch_budget,
         )
     except EnvelopeHostAdapterError as error:
         return inputs.result(snapshot=snapshot, refusal=_refusal(error))
