@@ -173,6 +173,37 @@ class LiftTriangleV1:
     face: str = ""
 
 
+def _upper_root(value: Fraction) -> Fraction:
+    """Рациональная верхняя граница `sqrt(value)` с точностью порядка `2^-24` относительной: `ceil(sqrt(v D^2)) / D`."""
+
+    scale = 1 << 24
+    scaled = value * scale * scale
+    whole = -(-scaled.numerator // scaled.denominator)
+    root = math.isqrt(whole)
+    return Fraction(root if root * root == whole else root + 1, scale)
+
+
+def _lipschitz_square(triangle: LiftTriangleV1) -> Fraction:
+    """`sigma^2` аффинного подъёма треугольника: наибольшее собственное число `J^T J`, сверху (точно по рациональным)."""
+
+    (ax, ay), (bx, by), (cx, cy) = triangle.chart
+    e1x, e1y, e2x, e2y = bx - ax, by - ay, cx - ax, cy - ay
+    det = e1x * e2y - e1y * e2x
+    first = [q - r for q, r in zip(triangle.corners[1], triangle.corners[0])]
+    second = [q - r for q, r in zip(triangle.corners[2], triangle.corners[0])]
+    cross = sum(q * r for q, r in zip(first, second))
+    gram = ((sum(q * q for q in first), cross), (cross, sum(q * q for q in second)))
+    # `M^-1 = [[e2y, -e2x], [-e1y, e1x]] / det`; `J^T J = M^-T G M^-1` — симметричная 2x2 `[[p, q], [q, r]]`.
+    rows = ((e2y, -e2x), (-e1y, e1x))
+    entries = [
+        sum(rows[k][i] * gram[k][m] * rows[m][j] for k in range(2) for m in range(2)) / (det * det)
+        for i, j in ((0, 0), (0, 1), (1, 1))
+    ]
+    p, q, r = entries
+    half = (p - r) / 2
+    return (p + r) / 2 + _upper_root(half * half + q * q)
+
+
 def _triangle(name, chart, corners, normals=(), face="") -> LiftTriangleV1 | None:
     (ax, ay), (bx, by), (cx, cy) = chart
     area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
@@ -432,6 +463,7 @@ class BoundSurfaceLiftV1:
         }
         self._max_outside = 0.0
         self._normal_by_position: dict = {}
+        self._stretch: dict = {}
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
@@ -664,6 +696,21 @@ class BoundSurfaceLiftV1:
         """Треугольники подъёма по имени (проекции треугольников источника владельца)."""
 
         return self._lift.triangles
+
+    def stretch_square(self, triangle: LiftTriangleV1) -> Fraction:
+        """ВЕРХНЯЯ граница квадрата длины источника (метры 3D ядра) на ячейку карты В ЭТОМ треугольнике: для нанометров.
+
+        Единица карты — не всегда `1 / scale` (приведённый репер домена несёт свой масштаб и бывает косым), поэтому
+        берётся из самого треугольника: его подъём аффинен с матрицей `J` (3x2), и смещение на карте длиной `d` ячеек в
+        3D не длиннее `d * sigma`, где `sigma^2` — наибольшее собственное число `J^T J` (корень — рациональной верхней
+        границей, `_upper_root`). Число локально: у крутого треугольника оно велико, и общая для домена оценка
+        описывала бы его, а не вершину, о которой запись. Это ОЦЕНКА для чисел записи: ответов она не решает.
+        """
+
+        found = self._stretch.get(triangle.name)
+        if found is None:
+            found = self._stretch[triangle.name] = _lipschitz_square(triangle)
+        return found
 
     def window(self, point):
         """Outward-округлённая рамка `(xmin, xmax, ymin, ymax)` точки: фильтр, ответа не меняет."""

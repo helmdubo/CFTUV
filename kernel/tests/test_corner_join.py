@@ -1,7 +1,7 @@
 """JOIN мягкого излома одной цепи (`CORNER_JOIN_SOFT_BEND_V1`): ядро, проверяющий, потоки.
 
 Фикстура — пятиугольник с ВОГНУТОЙ вершиной `(10, 0)` между рёбрами `(0,0)-(10,0)` и
-`(10,0)-(20,-2)`: поворот вправо на `atan(1/5) = 11.31°`, `δ/π = 0.0628 < 1/6`. Два
+`(10,0)-(20,-2)`: поворот вправо на `atan(1/5) = 11.31°`, `δ/π = 0.0628 < 1/4`. Два
 маршрута — два куска; общая запись `chain-source` в `data_record_lineage` делает их
 одной цепью хоста. Числа, на которых стоят утверждения, посчитаны НЕ проверяемым кодом:
 длины рёбер `10` и `sqrt(104)` известны из входа, `tan(δ/2) = 0.0990` — из геометрии.
@@ -10,7 +10,7 @@
 |------------------------------------------------------------------------|------|
 | мягкий излом одной цепи — JOIN: `k = 0`, закон, запись с причиной       | `..._soft_bend_in_one_source_chain_joins` |
 | без общей записи хоста закон инертен: прежний счёт, причина названа     | `..._without_a_shared_source_lineage_the_profile_law_stands` |
-| угол от 30° и интервал поверх порога — прежний закон, названы           | `..._hard_and_uncertain_bends_keep_the_profile_by_name` |
+| угол от 45° и интервал поверх порога — прежний закон, названы           | `..._hard_and_uncertain_bends_keep_the_profile_by_name` |
 | подделанная или пропавшая запись — именованный отказ                    | `..._a_tampered_or_missing_record_is_refused` |
 | поток: `s` копится сквозь угол, регион один, шва нет, перекладина       | `..._the_flow_accumulates_s_through_the_join_without_a_seam` |
 | без JOIN те же два куска — два региона и шов                            | `..._without_the_join_the_pieces_stay_two_regions_with_a_seam` |
@@ -68,11 +68,13 @@ from reference_factories import _interval, straight_snapshot
 
 UV = PolicyId("UV_DIRECT_STRIP_V1")
 SOFT_FAR = (20.0, -2.0)
-HARD_FAR = (20.0, -6.0)
-#: `δ/π` для поворота на `atan(1/5)` и на `atan(3/5)`: 0.062833 и 0.172021.
+HARD_FAR = (20.0, -15.0)
+#: Поворот на `atan(1.1) = 47.7°` (`δ/π = 0.2651`): широкий интервал накрывает порог 1/4, точка не решает.
+WIDE_FAR = (20.0, -11.0)
+#: `δ/π` для поворота на `atan(1/5)` и `atan(3/2)`: 0.062833 и 0.312833.
 SOFT_BOUNDS = ("0.0628", "0.0629")
-HARD_BOUNDS = ("0.1720", "0.1721")
-WIDE_BOUNDS = ("0.1600", "0.1800")
+HARD_BOUNDS = ("0.3128", "0.3129")
+WIDE_BOUNDS = ("0.2450", "0.2700")
 SHARED = kernel.LineageId("chain-source:patch:wall")
 
 
@@ -243,7 +245,7 @@ def test_a_soft_bend_in_one_source_chain_joins(density):
     assert record.shared_source_lineage_ids == frozenset({SHARED})
     assert record.incoming_chain_use_id.value == "use:in:use"
     assert record.outgoing_chain_use_id.value == "use:out:use"
-    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 6)
+    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 4)
     assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
     assert selection.resolved_hidden_edge_count == 0
     assert selection.certificate_id == record.selection_certificate_id
@@ -276,14 +278,14 @@ def test_without_a_shared_source_lineage_the_profile_law_stands(density):
 
 
 @pytest.mark.parametrize(
-    ("bounds", "reason"),
+    ("far", "bounds", "reason"),
     (
-        (HARD_BOUNDS, CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT),
-        (WIDE_BOUNDS, CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD),
+        (HARD_FAR, HARD_BOUNDS, CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT),
+        (WIDE_FAR, WIDE_BOUNDS, CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD),
     ),
 )
-def test_hard_and_uncertain_bends_keep_the_profile_by_name(bounds, reason):
-    snapshot, request = _snapshot(HARD_FAR, bounds)
+def test_hard_and_uncertain_bends_keep_the_profile_by_name(far, bounds, reason):
+    snapshot, request = _snapshot(far, bounds)
     prepared = _prepared(snapshot, _density_request(request, 1))
     record, selection = _record(prepared), _selection(prepared)
     assert record.treatment is CornerTreatmentV1.ANGULAR_PROFILE
@@ -291,6 +293,20 @@ def test_hard_and_uncertain_bends_keep_the_profile_by_name(bounds, reason):
     assert record.shared_source_lineage_ids == frozenset({SHARED})
     assert selection.selection_law is SelectionLaw.HUBER_EMANATED_DENSITY_FLOOR_V1
     assert selection.resolved_hidden_edge_count == 1
+
+
+def test_the_kinks_of_a_flat_wall_that_the_old_threshold_refused_join_now():
+    """Излом 35° (контур плоской стены `sagging_wall`: 31–36°) был веером при пороге 30° и стал продолжением при 45°."""
+
+    snapshot, request = _snapshot((20.0, -7.0), ("0.1944", "0.1945"))
+    prepared = _prepared(snapshot, _density_request(request, 1))
+    record, selection = _record(prepared), _selection(prepared)
+    assert record.treatment is CornerTreatmentV1.JOIN_CONTINUATION
+    assert record.reason is CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN
+    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 4)
+    assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+    assert selection.resolved_hidden_edge_count == 0
+    assert not corner_treatment_errors(prepared.compilation)
 
 
 def test_a_tampered_or_missing_record_is_refused():
@@ -534,7 +550,7 @@ def _forged_join_plan(projections):
         outgoing_chain_use_id=next(iter(projection.snapshot.chain_uses)).chain_use_id,
         treatment=CornerTreatmentV1.JOIN_CONTINUATION,
         reason=CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN,
-        threshold_over_pi=ExactRatioV1(1, 6),
+        threshold_over_pi=ExactRatioV1(1, 4),
         reflex_excess_over_pi=_interval("0.0100", "0.0200"),
         shared_source_lineage_ids=frozenset({kernel.LineageId("chain-source:forged")}),
     )
@@ -673,7 +689,7 @@ def _ring_snapshot(sides=RING_SIDES, alpha="2"):
     """Плоский патч с круглым отверстием из `sides` отрезков: цепь отверстия замкнута из `sides` кусков одной цепи.
 
     Отверстие обходится по часовой стрелке (патч слева), каждый поворот — вправо на 360/sides градусов, то
-    есть вогнутый для патча на ту же долю π: при `sides >= 13` каждый излом меньше 30° и получает JOIN.
+    есть вогнутый для патча на ту же долю π: при `sides >= 9` каждый излом меньше 45° и получает JOIN.
     """
 
     inner, outer = _ring_points(RING_INNER, sides), _ring_points(RING_OUTER, sides)
