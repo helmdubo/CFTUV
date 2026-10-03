@@ -46,6 +46,11 @@
    «run Merge by Distance» ДО анализа, виновное ребро остаётся выделенным, источник не тронут;
    после слияния вершин (bmesh `remove_doubles`, в памяти) та же кнопка строит декаль.
 
+14. ПРАВКА МЕША ПЕРЕСЧИТЫВАЕТ ТОЛЬКО ЗАТРОНУТЫЙ ДОМЕН: вершина одного патча сдвинута (ревизия источника
+   другая), второй домен берётся из хранилища по содержимому (`content reused 1 results`, подготовка
+   одна, а не две), меш равен мешу холодной сессии на правленом источнике (позиции и число граней), то же
+   на двух воркерах; возврат вершины на место не считает ничего.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_PRODUCTION_MESH_BLENDER_SMOKE_OK
@@ -288,6 +293,59 @@ def _run_workers_do_not_change_the_mesh(reference_digest):
         sequential,
         reference_digest,
     )
+
+
+def _move_left_corner(source, shift):
+    """Сдвиг вершины 0 (лежит только в левом патче; не на шве) с обновлением нормалей, как делает правка в UI."""
+
+    import bmesh
+
+    bm = bmesh.from_edit_mesh(source.data)
+    bm.verts.ensure_lookup_table()
+    bm.verts[0].co.x += shift
+    bm.normal_update()
+    bmesh.update_edit_mesh(source.data)
+
+
+def _decal_points(decal):
+    return sorted(tuple(round(axis, 6) for axis in item.co) for item in decal.data.vertices)
+
+
+def _run_an_edit_recomputes_only_the_domain_it_touches(*, workers):
+    from cftuv import envelope_queue_pool
+
+    original = envelope_queue_pool.COVERAGE_POOL_MIN_BYTES
+    envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    try:
+        source = _fresh_scene(workers=workers)
+        original_points = _decal_points(_press())
+        before = _preparation_builds()
+
+        _move_left_corner(source, -0.25)
+        decal = _press()
+
+        assert _preparation_builds() - before == 1, _decal_settings().timing
+        assert "content reused 1 results" in _decal_settings().timing, _decal_settings().timing
+        assert _decal_settings().status == "MATERIALIZED 2 / refused 0"
+        edited_points, edited_polygons = _decal_points(decal), len(decal.data.polygons)
+        assert edited_points != original_points
+
+        # Возврат вершины на место: оба домена в хранилище, считать нечего, меш тот же.
+        builds = _preparation_builds()
+        _move_left_corner(source, 0.25)
+        back = _press()
+        assert _preparation_builds() == builds, _decal_settings().timing
+        assert _decal_points(back) == original_points
+
+        # Та же правка на холодной сессии даёт тот же меш (позиции и число граней).
+        _controller().clear()
+        _move_left_corner(source, -0.25)
+        cold = _press()
+        assert "content reused" not in _decal_settings().timing, _decal_settings().timing
+        assert _decal_points(cold) == edited_points
+        assert len(cold.data.polygons) == edited_polygons
+    finally:
+        envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
 
 
 def _run_nothing_selected_is_refused_by_name():
@@ -914,6 +972,8 @@ def _main():
     _run_offset_is_a_scene_setting()
     warm_digest = _run_warm_press_after_a_debug_build_reuses_the_preparations()
     _run_workers_do_not_change_the_mesh(warm_digest)
+    _run_an_edit_recomputes_only_the_domain_it_touches(workers=0)
+    _run_an_edit_recomputes_only_the_domain_it_touches(workers=2)
     _run_nothing_selected_is_refused_by_name()
     _run_a_zero_length_edge_is_named_selected_and_never_repaired()
     _run_a_long_source_name_never_multiplies_the_decal()

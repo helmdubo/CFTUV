@@ -7,10 +7,8 @@ module without changing the accepted Envelope semantics.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import inspect
-import json
 import math
 import time
 from contextlib import nullcontext
@@ -22,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from .model_enums import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_CURVATURE_LADDER_POLICY, HOST_GRID_POLICY, HOST_NEAR_PLANAR_FRAME_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
+from .envelope_host_labels import stable_token, typed_id
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
@@ -274,17 +273,11 @@ def _load_kernel():
 
 
 def _stable_token(kind: str, revision: str, *parts: object) -> str:
-    payload = json.dumps(
-        (kind, revision, parts),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+    return stable_token(kind, revision, *parts)
 
 
 def _typed_value(kind: str, revision: str, *parts: object) -> str:
-    return f"host-v0:{kind}:{_stable_token(kind, revision, *parts)}"
+    return typed_id(kind, _stable_token(kind, revision, *parts))
 
 
 def _revision_value(source_revision) -> str:

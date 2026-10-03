@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Callable, Hashable, TYPE_CHECKING
 
+from .envelope_content_store import ContentStoreV1
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_export_input import (
@@ -211,6 +212,14 @@ class EnvelopeDebugSessionController:
         # законов, поэтому тот же ключ даёт тот же ответ без единого покрытия. Вытеснение
         # — по давности обращения (`PRODUCTION_RESULT_CACHE_LIMIT`).
         self._production_result_cache: OrderedDict[tuple, object] = OrderedDict()
+        # Подготовки и результаты продуктового пути ПО СОДЕРЖИМОМУ домена: смена ревизии источника их не
+        # сбрасывает (правка меша пересчитывает только домены, чьё содержимое изменилось), а `clear()` —
+        # полный сброс — сбрасывает. Ключи и перенос на ревизию — `envelope_content_store`.
+        self._content_store = ContentStoreV1(on_forget=self._forget_preparation_blob)
+        # Ключ содержимого домена по `(ревизия, домен, выделение, плотность, допуск)`: ключ — функция входа
+        # домена, а вход при этих пяти один, поэтому повторное нажатие не строит ни вход, ни ключ заново.
+        # Привязка живёт, пока жива ревизия.
+        self._content_bindings: dict[tuple, str] = {}
         # Замечания проверки снапшота домена по тождеству снапшота и допуску растяжения запроса: от alpha они
         # не зависят, а запрос к снапшоту собирается на КАЖДОМ нажатии. Запись держит сам снапшот (занятое
         # тождество не уходит другому).
@@ -240,6 +249,20 @@ class EnvelopeDebugSessionController:
     @property
     def queue_session(self) -> QueueSessionStateV1 | None:
         return self._queue_session
+
+    @property
+    def content_store(self) -> ContentStoreV1:
+        return self._content_store
+
+    def content_binding(self, binding: tuple) -> str | None:
+        return self._content_bindings.get(binding)
+
+    def bind_content_key(self, binding: tuple, key: str) -> None:
+        self._content_bindings[binding] = key
+
+    def _forget_preparation_blob(self, prepared) -> None:
+        if self._preparation_blobs is not None:
+            self._preparation_blobs.discard(prepared)
 
     @property
     def preparation_blobs(self):
@@ -285,6 +308,14 @@ class EnvelopeDebugSessionController:
         return SliderCoveragePool(pool, self.preparation_blobs, profile)
 
     def clear(self) -> None:
+        """Полный сброс сессии: кэши ревизии, хранилище по содержимому и пиклы подготовок."""
+
+        self._drop_revision_scoped()
+        self._content_store.clear()
+        if self._preparation_blobs is not None:
+            self._preparation_blobs.clear()
+
+    def _drop_revision_scoped(self) -> None:
         self._source_state_by_object.clear()
         self._analysis_bundle_cache.clear()
         self._topology_export_cache.clear()
@@ -294,10 +325,16 @@ class EnvelopeDebugSessionController:
         self._conveyor_preparation_cache.clear()
         self._production_result_cache.clear()
         self._snapshot_issues.clear()
-        if self._preparation_blobs is not None:
-            self._preparation_blobs.clear()
+        self._content_bindings.clear()
         self._queue_session = None
         self._invalidation_count += 1
+
+    def _invalidate_revision_scoped(self) -> None:
+        """Смена ревизии источника: кэши ревизии сброшены, хранилище по содержимому и его пиклы живут."""
+
+        self._drop_revision_scoped()
+        if self._preparation_blobs is not None:
+            self._preparation_blobs.retain(self._content_store.holds)
 
     def _prepare_source(
         self,
@@ -309,7 +346,7 @@ class EnvelopeDebugSessionController:
         state = (source_data_key, source_revision_value)
         previous = self._source_state_by_object.get(source_object_key)
         if previous is not None and previous != state:
-            self.clear()
+            self._invalidate_revision_scoped()
             if profile is not None:
                 profile.set_counter("SESSION_CACHE_INVALIDATED", 1)
         self._source_state_by_object[source_object_key] = state
