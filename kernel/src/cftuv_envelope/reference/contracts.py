@@ -117,6 +117,9 @@ class ReferenceOutcome(str, Enum):
     # прежним адаптивным путём, потому что закон рациональных лучей не
     # применён (причина названа `CanonicalFanRaysRefusalV1`).
     CANONICAL_FAN_RAYS_LAW_NOT_APPLIED = "CANONICAL_FAN_RAYS_LAW_NOT_APPLIED"
+    # Диагностика, не отказ: узкая полоса поворота не построила власть веера
+    # (причина названа в сообщении), и лучи привязаны в прежнем окне Вороного.
+    ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED = "ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED"
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"

@@ -129,6 +129,7 @@ class TolerancePolicyIdV1(str, Enum):
     )
     CLIP_DIAGONAL_CHORD_DEPTH_V1 = "CLIP_DIAGONAL_CHORD_DEPTH_V1"
     CORNER_JOIN_SOFT_BEND_THRESHOLD_V1 = "CORNER_JOIN_SOFT_BEND_THRESHOLD_V1"
+    ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1 = "ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -198,6 +199,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
     SOURCE_FACE_CLIP_AT_DIAGONALS = "SOURCE_FACE_CLIP_AT_DIAGONALS"
     CORNER_TREATMENT_BEFORE_COUNT_LAW = "CORNER_TREATMENT_BEFORE_COUNT_LAW"
+    DENSITY_NARROW_BAND_RAY_BINDING = "DENSITY_NARROW_BAND_RAY_BINDING"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -228,6 +230,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
         "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
     )
     JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN = "JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN"
+    BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL = (
+        "BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL"
+    )
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1358,6 +1363,54 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"
             "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(Fraction(1, 57)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Полуширина окна ординала адаптивного веера вокруг луча РАВНОУГОЛЬНОГО идеала, "
+            "тангенс: 1/57 (1.005 градуса). Прежнее окно — окно Вороного между серединами углов "
+            "с соседними лучами — шириной в полшага веера, а поиск минимальной общей высоты ставил "
+            "луч на прямую наименьшей высоты решётки карты вне зависимости от равного шага (d1 "
+            "`building`: 23 набора шагов у 167 прямых углов, 57.8/32.2, 46.8/43.2, 36/54…). "
+            "Полоса — то же окно при ФАНТОМНЫХ соседях идеала на ±2·omega (рациональный поворот "
+            "3248/114/3250, радикалов не добавляет): луч привязывается к рациональному направлению "
+            "в пределах omega от равного шага, победитель тот же (минимальная общая высота, затем "
+            "ближайший к идеалу). Подшаг `<= pi/q` проверяется ТОЧНО по настоящим соседям идеала и "
+            "полосой не ослаблен. Власть называет закон окна предикатом "
+            "ADAPTIVE_FAN_NARROW_ROTATION_BAND; байты власти окна Вороного заморожены. Отказ полосы "
+            "(исчерпание точной работы, неустановимый чарт, пустое окно) назван диагностикой и "
+            "счётчиком, веер ищет прежнее окно Вороного."
+        ),
+        authority=(
+            "adaptive_density_band.ADAPTIVE_FAN_NARROW_ROTATION_BAND; compile.FAN_WINDOW_LAW; "
+            "DECISIONS.md 2026-10-03 (RIGHT-ANGLE-STABLE: лучи равны шагу идеала, а не ближайшей "
+            "простой прямой решётки; решение владельца, принятое оркестратором)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.DENSITY_NARROW_BAND_RAY_BINDING,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("CONVEYOR_FAN_NARROW_BAND_REFUSED",),
+        declaration_sites=(
+            "cftuv_envelope.reference.adaptive_density_band."
+            "ADAPTIVE_FAN_NARROW_BAND_HALF_TANGENT",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_fan_narrow_band.py"
+            "::test_a_bound_ray_stays_within_the_band_of_the_equal_step_ideal"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_fan_narrow_band.py"
+            "::test_a_band_that_cannot_hold_a_ray_is_a_named_refusal_and_the_voronoi_window_decides"
         ),
     ),
 )

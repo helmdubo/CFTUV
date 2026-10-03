@@ -99,19 +99,25 @@ def legacy_count_law(monkeypatch):
     отключённым законом: закон молчит ровно так, как молчит у не канонических
     углов.
 
-    RIGHT-ANGLE-STABLE (2026-10-03) добавил два закона на тех же полевых углах:
-    допуск восстановления масштаба художника (0.1 градуса вместо 7e-6 рад) и
-    таблицу рациональных поворотов на НЕподнятых канонических углах. Оба
-    молчат так же: допуск возвращён на прежнее значение, а таблица читает тот
-    же канонический факт закона шума (`canonical_noise_fact`), который здесь
-    отключён. Машинерия adaptive/atlas остаётся живой для честных углов; её
-    регрессия держится на тех же полевых данных.
+    RIGHT-ANGLE-STABLE (2026-10-03) добавил три закона на тех же полевых углах:
+    допуск восстановления масштаба художника (0.1 градуса вместо 7e-6 рад),
+    таблицу рациональных поворотов на НЕподнятых канонических углах и узкую
+    полосу поворота вокруг равноугольного идеала вместо окна Вороного. Все три
+    молчат так же: допуск возвращён на прежнее значение, таблица читает тот же
+    канонический факт закона шума (`canonical_noise_fact`), который здесь
+    отключён, а закон окна возвращён на окно Вороного. Машинерия adaptive/atlas
+    остаётся живой для честных углов; её регрессия держится на тех же полевых
+    данных.
     """
 
     from cftuv_envelope import _canonical_angle as canonical_module
     from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR
     from cftuv_envelope.reference import angular as angular_module
+    from cftuv_envelope.reference import compile as compile_module
     from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+    from cftuv_envelope.reference.adaptive_density_band import WINDOW_LAW_VORONOI
+
+    monkeypatch.setattr(compile_module, "FAN_WINDOW_LAW", WINDOW_LAW_VORONOI)
 
     monkeypatch.setattr(noise_module, "canonical_noise_fact", lambda *a, **k: None)
     monkeypatch.setattr(angular_module, "canonical_noise_fact", lambda *a, **k: None)

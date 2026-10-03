@@ -67,17 +67,22 @@ WORK_CAP_EXCEEDED = "DOMAIN_WORK_CAP_EXCEEDED"
 PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
+PIN_FANS_FLAG = "--pin-fans"
+#: Законы вееров ДО RIGHT-ANGLE-STABLE (2026-10-03): допуск восстановления 7e-6 рад,
+#: граница шума привязки 1/1000, таблица лучей только лифтованного `(1/2, 4, 6)`, окно луча
+#: Вороного. Единственное имя закрепки веера.
+FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE = "FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE_V1"
 
 
 def split_pins(argv) -> tuple[list[str], dict[str, str]]:
-    """Позиционные аргументы и закрепки: `--pin-lift ИМЯ`, `--pin-frame ИМЯ`, `--pin-ladder ИМЯ`."""
+    """Позиционные аргументы и закрепки: `--pin-lift`, `--pin-frame`, `--pin-ladder`, `--pin-fans`."""
 
     positional: list[str] = []
     pins: dict[str, str] = {}
     items = list(argv)
     while items:
         item = items.pop(0)
-        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG, PIN_LADDER_FLAG):
+        if item in (PIN_LIFT_FLAG, PIN_FRAME_FLAG, PIN_LADDER_FLAG, PIN_FANS_FLAG):
             if not items:
                 raise SystemExit(f"{item} needs a policy name")
             pins[item] = items.pop(0)
@@ -115,6 +120,36 @@ def install_ladder_pin(policy_name: str) -> None:
     from cftuv.surface_ir import HostCurvatureLadderPolicy
 
     export_module.HOST_CURVATURE_LADDER_POLICY = HostCurvatureLadderPolicy(policy_name)
+
+
+def install_fans_pin(name: str) -> None:
+    """Закрепить законы вееров ядра ДО RIGHT-ANGLE-STABLE на время ЭТОГО процесса.
+
+    Четыре константы ядра возвращаются на прежние значения; сам код ядра не меняется.
+    """
+
+    if name != FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE:
+        raise SystemExit(f"unknown fan-laws pin: {name}")
+    from fractions import Fraction
+
+    from cftuv_envelope import _canonical_angle as canonical_module
+    from cftuv_envelope import _density_policy as policy_module
+    from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR
+    from cftuv_envelope.reference import compile as compile_module
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+    from cftuv_envelope.reference.adaptive_density_band import WINDOW_LAW_VORONOI
+
+    canonical_module.CANONICAL_RESTORATION_ARTIST_ERROR = AUTHOR_ANGULAR_ERROR
+    canonical_module._TOLERANCE_OVER_PI = (
+        AUTHOR_ANGULAR_ERROR / canonical_module.PI_RATIONAL_UPPER_BOUND
+    )
+    noise_module.NOISE_DIRECTION_SINE_BOUND = Fraction(1, 1000)
+    policy_module.CANONICAL_ROTATION_TABLE = {
+        key: row
+        for key, row in policy_module.CANONICAL_ROTATION_TABLE.items()
+        if key == (Fraction(1, 2), 4, 6)
+    }
+    compile_module.FAN_WINDOW_LAW = WINDOW_LAW_VORONOI
 
 
 def snapshot_sha256(name: str) -> str:
@@ -393,6 +428,15 @@ def _main() -> None:
         # лестницей хоста те же домены уходят на ступень ниже, и это другой ответ.
         install_ladder_pin(pinned_ladder)
         substitutions.append(f"HOST_CURVATURE_LADDER_POLICY_PINNED:{pinned_ladder}")
+    pinned_fans = pins.get(PIN_FANS_FLAG)
+    if pinned_fans:
+        # Четвёртая ИМЕНОВАННАЯ закрепка: таблица якорных локусов заморожена на лучах
+        # прежних законов веера (допуск 7e-6 рад, окно Вороного, таблица только поднятого
+        # d4). RIGHT-ANGLE-STABLE ставит лучи иначе — ответ сдвигается ПО ЗАМЫСЛУ, и точный
+        # локус, сравниваемый побитово, перестаёт находиться, хотя математика фронта та же.
+        # Ворота проверяют математику фронта, а не выбор лучей; законы лучей держат тесты ядра.
+        install_fans_pin(pinned_fans)
+        substitutions.append(f"KERNEL_FAN_LAWS_PINNED:{pinned_fans}")
     if name == "building_full_snapshot.json":
         # Классификация OUTER/HOLE у многопетлевых патчей идёт в продакшне
         # через временный UV-unwrap внутри Blender. Без Blender шага НЕ

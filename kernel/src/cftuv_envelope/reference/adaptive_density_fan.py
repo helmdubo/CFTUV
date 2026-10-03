@@ -35,6 +35,7 @@ from .adaptive_density_atlas import (
     termination_piece,
     validate_atlas_structure,
 )
+from . import adaptive_density_band as _band
 from .common import ReferenceGeometryError, stable_id
 from .metric import ExactPlanarMetric
 from .planar_types import ExactPlanarVector
@@ -71,36 +72,17 @@ ADAPTIVE_FAN_PROVEN_PREDICATES = frozenset(
 _RESOURCE_HEIGHT_CAP = 1_000_000
 _BOX_REFINEMENT_CAP = 96
 
-# Объявленный кап точной работы поиска минимального D*.
-#
-# Высота одна не является ресурсом: исчерпывающий проход по высотам стоит
-# квадратично, поэтому `_RESOURCE_HEIGHT_CAP` ограничивает не работу, а только
-# номер последней высоты, и при узком окне фронт уходит в счёт без исхода.
-#
-# Закон бюджета D*. Доказанная высота останова (закон Фарея,
-# `_termination_height`) для окна ширины w равна floor(1/w) + 2, а atlas
-# поднимает её в chart-invariant норму множителем модуля коробки; на поле
-# она достигает 4.3e7 и 1.0e8, то есть высота останова НЕ является бюджетом.
-# Стоимость же прохода известна точно:
-#   * одна карта — внутри sealed-интервала перечисляются только числители,
-#     то есть примерно w*h + 1 пробников на высоту h и окно;
-#   * atlas — перебирается вся оболочка max-нормы, а примитивных ковекторов
-#     ровно высоты h не больше 8h (периметр квадрата [-h, h]^2), то есть
-#     проход по высотам 1..H для веера из k окон стоит не больше
-#     sum_{h<=H} 8*h*k = 4*H*(H+1)*k пробников.
-#
-# Литерал выведен из худшего случая ЗАМОРОЖЕННОГО корпуса, а не из потолка:
-# самая глубокая зелёная власть поля (building.002, explicit density 4,
-# corner relation 60fc81c8…) имеет минимальную общую высоту 4492 при k = 2 и
-# тратит ровно 9 035 единиц (см. тест
-# `test_deepest_green_field_authority_stays_far_below_the_work_cap`).
-# Кап — эта величина с запасом в 14 раз, округлённая до степени двойки:
-#   9 035 * 14.5 ~ 131 000  ->  1 << 17 = 131 072.
-# В atlas-ветви тот же литерал по закону 4*H*(H+1) означает исчерпывающий
-# chart-invariant проход примерно до высоты 180.
-#
-# Кап тратится на все k окон сразу: больший k честно уменьшает достижимую
-# высоту, а не удорожает прогон.
+# Объявленный кап точной работы поиска минимального D* (реестр допусков:
+# `DENSITY_EXACT_WORK_CAP_V1`). Высота останова Фарея `floor(1/w) + 2` на поле
+# достигает 4.3e7, то есть бюджетом НЕ является. Стоимость прохода известна точно:
+# одна карта — около `w*h + 1` пробников на высоту h и окно; atlas — примитивных
+# ковекторов высоты h не больше 8h, проход по высотам 1..H для k окон не больше
+# `4*H*(H+1)*k`. Литерал выведен из худшего случая ЗАМОРОЖЕННОГО корпуса:
+# building.002, explicit density 4, corner relation 60fc81c8…, общая высота 4492
+# при k = 2, ровно 9 035 единиц (тест
+# `test_deepest_green_field_authority_stays_far_below_the_work_cap`); запас 14x,
+# степень двойки: 9 035 * 14.5 ~ 131 000 -> `1 << 17`. Кап тратится на все k окон
+# сразу: больший k уменьшает достижимую высоту, а не удорожает прогон.
 _DENSITY_EXACT_WORK_CAP = 1 << 17
 
 
@@ -322,9 +304,10 @@ def _window_envelopes(ideal):
     records = []
     metric = ideal.metric
     for ordinal in range(1, len(ideal) - 1):
-        left_values = metric.density_expressions(ideal[ordinal - 1])
+        previous, following = _band.window_neighbours(ideal, ordinal)
+        left_values = metric.density_expressions(previous)
         center_values = metric.density_expressions(ideal[ordinal])
-        right_values = metric.density_expressions(ideal[ordinal + 1])
+        right_values = metric.density_expressions(following)
         # Для projective slope нормирующий множитель midpoint не нужен.
         left = _vector(
             left_values[0] + center_values[0],
@@ -381,9 +364,11 @@ def _window_envelopes(ideal):
 
 class _IdealTuple(tuple):
     metric: ExactPlanarMetric
+    window_law: str
+    band_cache: dict
 
 
-def _covectors(metric, ideal_unit_normals):
+def _covectors(metric, ideal_unit_normals, window_law: str = _band.WINDOW_LAW_VORONOI):
     covectors = []
     for normal in ideal_unit_normals:
         nx, ny = metric.density_expressions(normal)
@@ -396,6 +381,8 @@ def _covectors(metric, ideal_unit_normals):
         )
     values = _IdealTuple(covectors)
     values.metric = metric
+    values.window_law = window_law
+    values.band_cache = {}
     return values
 
 
@@ -665,13 +652,14 @@ def _box_is_feasible(metric, ideal, orientation, q, boxes) -> bool:
             _candidate_vector(lower, use_x, sign, metric),
             _candidate_vector(upper, use_x, sign, metric),
         )
+        previous, following = _band.window_neighbours(ideal, ordinal)
         if any(
             not _inside_ordinal(
                 metric,
                 item,
-                ideal[ordinal - 1],
+                previous,
                 ideal[ordinal],
-                ideal[ordinal + 1],
+                following,
             )
             for item in pair
         ):
@@ -777,13 +765,14 @@ def _local_record(record):
 
 def _local_candidate(metric, ideal, ordinal, vector, q) -> bool:
     candidate = _vector(*vector, metric)
+    previous, following = _band.window_neighbours(ideal, ordinal)
     return (
         _inside_ordinal(
             metric,
             candidate,
-            ideal[ordinal - 1],
+            previous,
             ideal[ordinal],
-            ideal[ordinal + 1],
+            following,
         )
         and _subturn(
             metric,
@@ -1070,9 +1059,7 @@ def _legacy_full_fan_valid(
             and _inside_ordinal(
                 metric,
                 candidate,
-                ideal[ordinal - 1],
-                ideal[ordinal],
-                ideal[ordinal + 1],
+                *_band.window_triple(ideal, ordinal),
             )
             and (
                 Fraction(record[2].upper)
@@ -1416,10 +1403,11 @@ def certify_adaptive_density_fan(
     *,
     binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
     resource_height_cap: int = _RESOURCE_HEIGHT_CAP,
+    window_law: str = _band.WINDOW_LAW_VORONOI,
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Построить одну V2-власть полного coupled Density-веера."""
 
-    ideal = _covectors(metric, ideal_unit_normals)
+    ideal = _covectors(metric, ideal_unit_normals, window_law)
     _, records = _window_envelopes(ideal)
     return _certify_adaptive_density_fan_prepared(
         metric,
@@ -1566,7 +1554,9 @@ def _certify_adaptive_density_fan_prepared(
             last_height=height - 1,
             primitive_candidate_counts=previous_counts,
         ),
-        proven_predicates=ADAPTIVE_FAN_PROVEN_PREDICATES,
+        proven_predicates=_band.window_law_predicates(
+            ideal.window_law, ADAPTIVE_FAN_PROVEN_PREDICATES
+        ),
     )
 
 
@@ -1579,7 +1569,8 @@ def _verify_authority_structure(supplied, ideal_count) -> None:
         or supplied.minimal_common_height < 1
         or type(supplied.exhaustive_previous_height) is not int
         or type(supplied.termination_height_upper_bound) is not int
-        or supplied.proven_predicates != ADAPTIVE_FAN_PROVEN_PREDICATES
+        or supplied.proven_predicates
+        not in _band.known_predicate_sets(ADAPTIVE_FAN_PROVEN_PREDICATES)
         or supplied.exhaustive_previous_height
         != supplied.minimal_common_height - 1
         or len(supplied.binding_reasons)
@@ -1788,7 +1779,7 @@ def _verify_adaptive_density_fan(
 ) -> None:
     """Независимо связать sealed V2 с production metric/ideal facts."""
 
-    ideal = _covectors(metric, ideal_unit_normals)
+    ideal = _covectors(metric, ideal_unit_normals, _band.authority_window_law(supplied))
     _verify_authority_structure(supplied, len(ideal))
     records, boxes, sealed_intervals = _decode_authority_windows(supplied)
     _verify_window_envelopes(metric, ideal, supplied.ordinal_windows)
@@ -1922,9 +1913,10 @@ def verify_adaptive_density_fan(
 
 def _boundary_scores(metric, ideal, ordinal, slope, use_x, sign):
     vector = _candidate_vector(slope, use_x, sign, metric)
-    px, py = metric.density_expressions(ideal[ordinal - 1])
+    previous, following = _band.window_neighbours(ideal, ordinal)
+    px, py = metric.density_expressions(previous)
     ix, iy = metric.density_expressions(ideal[ordinal])
-    fx, fy = metric.density_expressions(ideal[ordinal + 1])
+    fx, fy = metric.density_expressions(following)
     return (
         _sign(
             _dual_dot(
@@ -1968,9 +1960,10 @@ def _verify_atlas_window(metric, ideal, item) -> None:
         invalid=AdaptiveDensityFanInvalid,
     )
     ordinal = item.ordinal
-    left_values = metric.density_expressions(ideal[ordinal - 1])
+    previous, following = _band.window_neighbours(ideal, ordinal)
+    left_values = metric.density_expressions(previous)
     center_values = metric.density_expressions(ideal[ordinal])
-    right_values = metric.density_expressions(ideal[ordinal + 1])
+    right_values = metric.density_expressions(following)
     left = _vector(
         left_values[0] + center_values[0],
         left_values[1] + center_values[1],
@@ -2022,9 +2015,7 @@ def _verify_atlas_window(metric, ideal, item) -> None:
         if not _inside_ordinal(
             metric,
             vector,
-            ideal[ordinal - 1],
-            ideal[ordinal],
-            ideal[ordinal + 1],
+            *_band.window_triple(ideal, ordinal),
         ):
             raise AdaptiveDensityFanInvalid(
                 "atlas piece is outside the production ordinal"
