@@ -79,13 +79,18 @@ def _neighbour_is_inside_the_double_band(metric, vector, neighbour) -> bool:
     return _sign(dot * dot - cosine * cosine * norms, metric) >= 0
 
 
-def _rotated_by_double_band(metric, vector, sign: int):
-    """Единичный ковектор, повёрнутый на `sign * 2 * omega` в двойственной метрике."""
+def _rotated_by_double_band(metric, vector, sign: int, orientation: int):
+    """Единичный ковектор, повёрнутый на `sign * 2 * omega` в сторону ОРИЕНТАЦИИ угла.
+
+    `orientation` — `_expected_orientation` сектора: предыдущий сосед веера лежит на
+    `-orientation` от центра, следующий — на `+orientation` (так же ставит соседей
+    `_subturn_boundary_vectors`). Без ориентации стороны менялись бы местами на CW.
+    """
 
     from .adaptive_density_fan import _quarter_turn, _vector
 
     cosine, sine = _double_band_trig()
-    perpendicular = _quarter_turn(metric, vector, 1)
+    perpendicular = _quarter_turn(metric, vector, orientation)
     x, y = metric.density_expressions(vector)
     px, py = metric.density_expressions(perpendicular)
     return _vector(
@@ -106,11 +111,13 @@ def window_neighbours(ideal, ordinal: int):
         return ideal[ordinal - 1], ideal[ordinal + 1]
     cache = ideal.band_cache
     if ordinal not in cache:
+        if ideal.band_orientation is None:
+            raise ValueError("the narrow band needs the turn orientation of the sector")
         center, metric = ideal[ordinal], ideal.metric
         cache[ordinal] = tuple(
             real
             if _neighbour_is_inside_the_double_band(metric, center, real)
-            else _rotated_by_double_band(metric, center, sign)
+            else _rotated_by_double_band(metric, center, sign, ideal.band_orientation)
             for real, sign in ((ideal[ordinal - 1], -1), (ideal[ordinal + 1], 1))
         )
     return cache[ordinal]

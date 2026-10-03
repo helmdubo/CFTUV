@@ -36,6 +36,7 @@ from cftuv_envelope.reference.adaptive_density_band import (
     WINDOW_LAW_VORONOI,
     authority_window_law,
     window_law_predicates,
+    window_neighbours,
 )
 from cftuv_envelope.reference.adaptive_density_fan import (
     ADAPTIVE_FAN_PROVEN_PREDICATES,
@@ -64,6 +65,7 @@ KERNEL = Path(__file__).resolve().parents[1]
 HONEST = KERNEL / "fixtures" / "binding_noise_canonical_v1" / "building004_patch0"
 OMEGA_DEGREES = math.degrees(math.atan(float(ADAPTIVE_FAN_NARROW_BAND_HALF_TANGENT)))
 ORIENTATION = TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+CLOCKWISE = TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
 
 
 def _euclidean_metric() -> ExactPlanarMetric:
@@ -74,14 +76,14 @@ def _euclidean_metric() -> ExactPlanarMetric:
     )
 
 
-def _ideal(incoming, outgoing, count):
+def _ideal(incoming, outgoing, count, orientation=ORIENTATION):
     metric = _euclidean_metric()
     ideal = _interpolated_normals(
         metric,
         ExactPlanarVector.from_values(*incoming),
         ExactPlanarVector.from_values(*outgoing),
         count,
-        ORIENTATION,
+        orientation,
         huber_density=True,
     )
     return metric, ideal
@@ -121,16 +123,20 @@ def test_the_band_is_one_declared_quantity():
         ((1, 0), (0, 1), 3, 6),   # 90 градусов, три луча на 22.5/45/67.5
     ),
 )
+@pytest.mark.parametrize("clockwise", (False, True))
 def test_a_bound_ray_stays_within_the_band_of_the_equal_step_ideal(
-    incoming, outgoing, count, q
+    incoming, outgoing, count, q, clockwise
 ):
-    metric, ideal = _ideal(incoming, outgoing, count)
+    orientation = CLOCKWISE if clockwise else ORIENTATION
+    if clockwise:
+        outgoing = (outgoing[0], -outgoing[1])
+    metric, ideal = _ideal(incoming, outgoing, count, orientation)
     band = certify_adaptive_density_fan(
-        metric, ideal, ORIENTATION, q,
+        metric, ideal, orientation, q,
         binding_reasons=(None,) * count, window_law=WINDOW_LAW_NARROW_BAND,
     )
     voronoi = certify_adaptive_density_fan(
-        metric, ideal, ORIENTATION, q, binding_reasons=(None,) * count,
+        metric, ideal, orientation, q, binding_reasons=(None,) * count,
     )
     assert authority_window_law(band) == WINDOW_LAW_NARROW_BAND
     assert authority_window_law(voronoi) == WINDOW_LAW_VORONOI
@@ -146,9 +152,90 @@ def test_a_bound_ray_stays_within_the_band_of_the_equal_step_ideal(
     # Контроль: полоса действительно уже окна Вороного на этих данных.
     assert worst_voronoi > worst_band
     # Обе власти проверяются НЕЗАВИСИМО: полное перевыведение и запечатанная структура.
-    verify_adaptive_density_fan(metric, ideal, ORIENTATION, band)
-    verify_adaptive_density_fan(metric, ideal, ORIENTATION, voronoi)
+    verify_adaptive_density_fan(metric, ideal, orientation, band)
+    verify_adaptive_density_fan(metric, ideal, orientation, voronoi)
     verify_sealed_adaptive_density_fan(band, ideal_count=len(ideal))
+
+
+def _unit(*pair):
+    return ExactPlanarVector.from_values(*pair)
+
+
+def _band_ideal(normals, orientation):
+    metric = _euclidean_metric()
+    return _covectors(
+        metric,
+        tuple(_unit(*item) for item in normals),
+        WINDOW_LAW_NARROW_BAND,
+        orientation,
+    )
+
+
+_HALF = sp.Rational(1, 2)
+_ROOT3 = sp.sqrt(3) / 2
+
+
+@pytest.mark.parametrize("clockwise", (False, True))
+def test_the_phantom_neighbours_follow_the_turn_orientation_of_the_sector(clockwise):
+    """Предыдущий фантом лежит на `-ориентация * 2*omega` от центра, следующий — на `+`.
+
+    Сектор против часовой (0 -> 30 -> 60 -> 90) и по часовой (90 -> 60 -> 30 -> 0), центр
+    ординала 1; настоящие соседи далеко (30 градусов), поэтому оба — фантомы. Без
+    ориентации на CW стороны менялись бы местами: «предыдущий» фантом 57.99 вместо 62.01.
+    """
+
+    if clockwise:
+        normals = ((0, 1), (_HALF, _ROOT3), (_ROOT3, _HALF), (1, 0))
+        orientation, direction = CLOCKWISE, -1
+    else:
+        normals = ((1, 0), (_ROOT3, _HALF), (_HALF, _ROOT3), (0, 1))
+        orientation, direction = ORIENTATION, 1
+    ideal = _band_ideal(normals, orientation)
+    previous, following = window_neighbours(ideal, 1)
+    center = _degrees(ideal[1])
+    assert _degrees(previous) == pytest.approx(center - direction * 2 * OMEGA_DEGREES, abs=1e-6)
+    assert _degrees(following) == pytest.approx(center + direction * 2 * OMEGA_DEGREES, abs=1e-6)
+    # Окно ординала лежит между ТЕМИ ЖЕ сторонами: предыдущий фантом ближе к предыдущему лучу.
+    before = _degrees(ideal[0])
+    assert abs(_degrees(previous) - before) < abs(center - before)
+
+
+@pytest.mark.parametrize("clockwise", (False, True))
+def test_a_window_with_one_real_and_one_phantom_neighbour_is_two_sided(clockwise):
+    """Смешанный случай: настоящий сосед на 1.16 градуса (ближе `2*omega`), другой — фантом.
+
+    Окно обязано быть двусторонним: настоящий сосед остаётся собой, а фантом лежит на
+    `2*omega` В СТОРОНУ следующего луча. Односторонняя ошибка (фантом с обратной стороны)
+    сужала бы окно молча.
+    """
+
+    if clockwise:
+        normals = (
+            (sp.Rational(120, 169), sp.Rational(119, 169)),  # 44.76
+            (sp.Rational(21, 29), sp.Rational(20, 29)),      # 43.60
+            (1, 0),
+        )
+        orientation, direction = CLOCKWISE, -1
+    else:
+        normals = (
+            (sp.Rational(119, 169), sp.Rational(120, 169)),  # 45.24
+            (sp.Rational(20, 29), sp.Rational(21, 29)),      # 46.40
+            (0, 1),
+        )
+        orientation, direction = ORIENTATION, 1
+    ideal = _band_ideal(normals, orientation)
+    previous, following = window_neighbours(ideal, 1)
+    center = _degrees(ideal[1])
+    assert previous is ideal[0]
+    assert abs(_degrees(ideal[0]) - center) < 2 * OMEGA_DEGREES
+    assert _degrees(following) == pytest.approx(center + direction * 2 * OMEGA_DEGREES, abs=1e-6)
+
+
+def test_the_band_without_the_turn_orientation_is_refused_by_name():
+    metric = _euclidean_metric()
+    ideal = _covectors(metric, tuple(_unit(*item) for item in ((1, 0), (_ROOT3, _HALF), (0, 1))), WINDOW_LAW_NARROW_BAND)
+    with pytest.raises(ValueError, match="turn orientation"):
+        window_neighbours(ideal, 1)
 
 
 def test_a_fan_step_narrower_than_the_band_keeps_the_ray_between_the_supports(monkeypatch):

@@ -853,8 +853,10 @@ def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, 
     )
     refused = compile_reference_envelopes(snapshot_loaded, request)
     # Шум вне границ молчит ДВАЖДЫ и по двум решениям: счёт на тугом пороге
-    # (закон шума) и лучи привязанного веера (закон лучей, та же причина).
-    assert len(refused.compilation.diagnostics) == 4
+    # (закон шума) и лучи привязанного веера (закон лучей, та же причина). Закон лучей
+    # называет только угол, у которого ЕСТЬ строка таблицы (поднятый d2 `H = 2`); у тугого
+    # d2 `H = 1` строки нет намеренно, и шум закону лучей нечем называть.
+    assert len(refused.compilation.diagnostics) == 3
     diagnostics = [
         item
         for item in refused.compilation.diagnostics
@@ -865,7 +867,7 @@ def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, 
         for item in refused.compilation.diagnostics
         if item.outcome is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
     ]
-    assert len(diagnostics) == len(rays) == 2
+    assert (len(diagnostics), len(rays)) == (2, 1)
     assert all(
         item.message.startswith("BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS")
         for item in rays

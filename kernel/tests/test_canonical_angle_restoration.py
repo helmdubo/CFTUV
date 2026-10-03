@@ -219,6 +219,28 @@ def test_canonical_relation_set_is_the_minimal_paid_one():
         assert absent not in declared
 
 
+def test_no_canonical_relation_lies_within_the_restoration_tolerance_of_the_join_threshold():
+    """Допуск восстановления действует на ЛЮБОЕ отношение: оно не вправе съесть порог JOIN.
+
+    Угол в пределах допуска от отношения `u` заменяется точным `u` (замкнутый конец). Если
+    `u` стоит на пороге мягкого излома или ближе допуска к нему, угол чуть ниже порога
+    восстановился бы на порог, и `softness` (замкнутый конец равен порогу) перестал бы давать
+    JOIN. Порог и допуск читаются из кода, а не записываются числом: порог JOIN меняется
+    решением владельца (1/6 -> 1/4), и тест обязан сказать, когда расширение набора
+    отношений (например, `1/4`) его нарушит.
+    """
+
+    from cftuv_envelope._canonical_angle import _TOLERANCE_OVER_PI
+    from cftuv_envelope._corner_treatment import JOIN_THRESHOLD_OVER_PI
+
+    for relation, canonical in CANONICAL_REFLEX_EXCESS_RELATIONS:
+        assert abs(canonical - JOIN_THRESHOLD_OVER_PI) > _TOLERANCE_OVER_PI, (
+            relation,
+            "a canonical relation inside the restoration tolerance of the JOIN threshold "
+            "would make corners just below the threshold stop joining",
+        )
+
+
 @pytest.mark.parametrize(
     ("vertex", "kind", "cosine", "squared_sine"),
     WALL_2_001_CORNERS,

@@ -366,9 +366,15 @@ class _IdealTuple(tuple):
     metric: ExactPlanarMetric
     window_law: str
     band_cache: dict
+    band_orientation: int | None
 
 
-def _covectors(metric, ideal_unit_normals, window_law: str = _band.WINDOW_LAW_VORONOI):
+def _covectors(
+    metric,
+    ideal_unit_normals,
+    window_law: str = _band.WINDOW_LAW_VORONOI,
+    orientation: TurnOrientation | None = None,
+):
     covectors = []
     for normal in ideal_unit_normals:
         nx, ny = metric.density_expressions(normal)
@@ -383,6 +389,9 @@ def _covectors(metric, ideal_unit_normals, window_law: str = _band.WINDOW_LAW_VO
     values.metric = metric
     values.window_law = window_law
     values.band_cache = {}
+    values.band_orientation = (
+        None if orientation is None else _expected_orientation(orientation)
+    )
     return values
 
 
@@ -1407,7 +1416,7 @@ def certify_adaptive_density_fan(
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Построить одну V2-власть полного coupled Density-веера."""
 
-    ideal = _covectors(metric, ideal_unit_normals, window_law)
+    ideal = _covectors(metric, ideal_unit_normals, window_law, orientation)
     _, records = _window_envelopes(ideal)
     return _certify_adaptive_density_fan_prepared(
         metric,
@@ -1779,7 +1788,9 @@ def _verify_adaptive_density_fan(
 ) -> None:
     """Независимо связать sealed V2 с production metric/ideal facts."""
 
-    ideal = _covectors(metric, ideal_unit_normals, _band.authority_window_law(supplied))
+    ideal = _covectors(
+        metric, ideal_unit_normals, _band.authority_window_law(supplied), orientation
+    )
     _verify_authority_structure(supplied, len(ideal))
     records, boxes, sealed_intervals = _decode_authority_windows(supplied)
     _verify_window_envelopes(metric, ideal, supplied.ordinal_windows)

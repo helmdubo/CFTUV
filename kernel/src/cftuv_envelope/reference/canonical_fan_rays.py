@@ -40,7 +40,9 @@ d0, d1, d3 неподнятый канонический прямой угол �
 без записи таблицы (тугой d2 `H=1`: его ведёт закон шума привязки) закону не
 принадлежит, и он молчит НЕ отказом — таблица сказала всё, что могла, а
 ответ прежний. Угол, чьи лучи привязки не требуют (рациональны в обеих
-геометриях), остаётся равноугольным идеалом и записи не получает.
+геометриях), остаётся равноугольным идеалом и записи не получает. Без привязки к
+решётке (вычислительная геометрия равна исходной) шум нулевой, и таблица ставит
+лучи так же, как при привязке: порядок причин — сначала СТРОКА таблицы, потом шум.
 
 ЭТО ЭВРИСТИКА, МЕНЯЮЩАЯ ОТВЕТ, поэтому она не молчит (п. 4 `AGENTS.md`): запись
 `CanonicalRationalRotationFanAuthorityV1` — власть веера в самой спеке плана, а
@@ -185,8 +187,7 @@ def _fan_holds(metric, ideal, q: int, orientation) -> bool:
     )
 
 
-def _authority(selection, fact, count, q, rays, vectors):
-    canonical = fact.canonical
+def _authority(selection, relation, canonical, count, q, rays, vectors):
     return CanonicalRationalRotationFanAuthorityV1(
         authority_id=stable_id(
             "canonical-rational-rotation-fan-authority-v1",
@@ -199,7 +200,7 @@ def _authority(selection, fact, count, q, rays, vectors):
         ),
         ray_law=RAYS_LAW,
         selection_certificate_id=selection.certificate_id,
-        canonical_relation=fact.relation,
+        canonical_relation=relation,
         canonical_reflex_excess_over_pi=ExactRatioV1(
             canonical.numerator, canonical.denominator
         ),
@@ -232,22 +233,17 @@ def _decide(context, spec, selection, count: int) -> CanonicalFanRaysDecision:
     contract = huber_density_value_contract(selection.max_subturn_value_id)
     if contract is None:
         return _SILENT
-    fact = noise.canonical_noise_fact(context, spec, selection)
-    if fact is None:
-        # Факта нет: селектор видит сырое число (закон не про этот угол), либо
-        # привязки нет, либо шум привязки вне границ — и только последнее названо.
-        applicability = noise.canonical_noise_applicability(context, spec, selection)
-        if applicability.canonical is not None and applicability.refusal is not None:
-            return CanonicalFanRaysDecision(
-                None, refusals.BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS
-            )
-        return _SILENT
+    applicability = noise.canonical_noise_applicability(context, spec, selection)
+    if applicability.canonical is None:
+        return _SILENT  # селектор видит сырое число: закон не про этот угол
+    relation, canonical = applicability.canonical
     q = contract[0]
     lifted = count != selection.resolved_hidden_edge_count
-    rays = canonical_rotation_rays(fact.canonical, count + 1, q)
+    rays = canonical_rotation_rays(canonical, count + 1, q)
     if rays is None:
-        # У поднятого угла лучи ищет атлас, и это названо. Неподнятый угол без
-        # записи — не область таблицы: закон ничего не говорит о его лучах.
+        # СТРОКА СПРАШИВАЕТСЯ ПЕРВОЙ: у поднятого угла лучи ищет атлас, и это названо;
+        # неподнятый угол без строки — не область таблицы, и шум привязки закону нечем
+        # называть (тугой d2 `H = 1`: строки нет намеренно).
         return (
             CanonicalFanRaysDecision(
                 None, refusals.NO_CANONICAL_ROTATION_TABLE_ENTRY
@@ -255,6 +251,13 @@ def _decide(context, spec, selection, count: int) -> CanonicalFanRaysDecision:
             if lifted
             else _SILENT
         )
+    if applicability.refusal is not None:
+        return CanonicalFanRaysDecision(
+            None, refusals.BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS
+        )
+    # Факта шума нет, отказа нет: привязки нет, вычислительная геометрия равна исходной,
+    # шум нулевой, и таблица ставит лучи так же, как при привязке (без этого конгруэнтные
+    # углы получали две формы: таблицу при привязке и полосу без неё).
     from .direction_binding import has_rational_density_support_direction
 
     ideal = rotation_ideal(context, spec, count, rays)
@@ -275,7 +278,7 @@ def _decide(context, spec, selection, count: int) -> CanonicalFanRaysDecision:
             None, refusals.CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE
         )
     return CanonicalFanRaysDecision(
-        _authority(selection, fact, count, q, rays, vectors), None
+        _authority(selection, relation, canonical, count, q, rays, vectors), None
     )
 
 

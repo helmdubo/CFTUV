@@ -916,3 +916,88 @@ def test_binding_noise_outside_the_declared_bound_is_named_for_the_rays_of_an_un
         CanonicalFanRaysRefusalV1.BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS.value
     }
     assert _table_fans(refused.compilation) == []
+
+
+# --------------------------------------------------------------------------
+# 7. Внешний аудит RIGHT-ANGLE-STABLE: нулевой шум без привязки и порядок причин
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("density", "count", "row"),
+    (
+        (3, 2, ((7, 4), (4, 7))),
+        (4, 3, ((12, 5), (1, 1), (5, 12))),
+    ),
+)
+def test_without_a_binding_the_table_applies_at_zero_noise(
+    monkeypatch, density, count, row
+):
+    """Привязки нет — вычислительная геометрия равна исходной, шум нулевой, таблица действует.
+
+    Без этого точный прямой угол на евклидовой карте получал полосу (5,3)/(3,5) =
+    30.96/28.07/30.96, а тот же угол с привязкой — таблицу (7,4) = 29.74/30.51/29.74:
+    конгруэнтные углы, две формы, и ни одна не названа (п. 4).
+    """
+
+    import reference_factories as rf
+
+    rf._ANGULAR_CASES.setdefault(
+        "exact-right-angle", ((0.0, -1.0), (-5.0, 0.0), ("0.5", "0.5"))
+    )
+    snapshot, request = rf.angular_snapshot("exact-right-angle")
+    request = _at_density(request, density)
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    compilation = result.compilation
+    assert compilation.evaluation_geometry_binding is None
+    (spec,) = _specs(compilation)
+    authority = spec.direction_fan_authority
+    assert type(authority) is CanonicalRationalRotationFanAuthorityV1
+    assert authority.ray_rotation_pairs == row
+    assert spec.resolved_hidden_edge_count == count
+    context = _context(snapshot, compilation)
+    seal_angular_support_cache(context)
+    steps = _fan_degrees(context, spec)
+    for ordinal, (a, b) in enumerate(row):
+        assert sum(steps[: ordinal + 1]) == pytest.approx(
+            math.degrees(math.atan2(b, a)), abs=1e-8
+        )
+    assert _refusals(compilation) == []
+    # Контроль: с выключенной таблицей тот же угол идёт другим путём и в другую форму.
+    with monkeypatch.context() as scoped:
+        scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
+        other = compile_reference_envelopes(snapshot, request).compilation
+    (other_spec,) = _specs(other)
+    assert type(other_spec.direction_fan_authority) is not (
+        CanonicalRationalRotationFanAuthorityV1
+    )
+
+
+def test_a_tight_d2_corner_without_a_row_is_not_named_by_the_noise_refusal(monkeypatch):
+    """Строка таблицы спрашивается ПЕРЕД шумом: у тугого d2 `H = 1` строки нет и называть нечем."""
+
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+
+    snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 2)
+    monkeypatch.setattr(noise_module, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 10**6))
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT
+    named = {
+        item.envelope_spec_id
+        for item in result.compilation.diagnostics
+        if item.outcome is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
+    }
+    unlifted = {
+        spec.envelope_spec_id.value
+        for spec in _specs(result.compilation)
+        if getattr(spec, "evaluation_subturn_count_lift", None) is None
+    }
+    lifted = {
+        spec.envelope_spec_id.value
+        for spec in _specs(result.compilation)
+        if getattr(spec, "evaluation_subturn_count_lift", None) is not None
+    }
+    assert unlifted and lifted
+    assert not (named & unlifted)
+    assert named == lifted

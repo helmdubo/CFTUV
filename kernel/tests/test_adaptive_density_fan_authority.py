@@ -122,6 +122,11 @@ def legacy_count_law(monkeypatch):
     monkeypatch.setattr(noise_module, "canonical_noise_fact", lambda *a, **k: None)
     monkeypatch.setattr(angular_module, "canonical_noise_fact", lambda *a, **k: None)
     monkeypatch.setattr(
+        noise_module,
+        "canonical_noise_applicability",
+        lambda *a, **k: noise_module.NoiseApplicability(None, None, None),
+    )
+    monkeypatch.setattr(
         canonical_module, "CANONICAL_RESTORATION_ARTIST_ERROR", AUTHOR_ANGULAR_ERROR
     )
     monkeypatch.setattr(
