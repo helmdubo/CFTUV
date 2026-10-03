@@ -13,6 +13,17 @@ DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложени
    `DEVELOPABLE_STRETCH_BUDGET_EXCEEDED` с худшим треугольником и худшей вершиной:
    привязка не спасает карту, которая плоха сама. Простота границы до привязки —
    тоже здесь: перекрытие спирали живёт при любом масштабе решётки.
+3б. ВТОРОЕ ПРЕДЛОЖЕНИЕ (`ARAP_TRIGGER_OUTCOMES`). Только после ИМЕНОВАННОГО отказа
+   шарнира на шаге 3 (растяжение, переворот, самонакрытие), и только когда искажение
+   шарнира само за бюджетом (растяжение либо переворот: `_arap_can_help`), пробуется ARAP
+   (`_arap.arap_proposal`, старт — положения шарнира); его положения судит ТОТ ЖЕ суд
+   (тот же бюджет, те же предикаты, та же простота границы). Принят домен, который
+   шарнир принимал, — его байты прежние: ARAP до него не доходит. Самонакрытие у шарнира
+   В БЮДЖЕТЕ и без переворотов (спираль, кольцо без разреза: поверхность поворачивает
+   больше оборота) ARAP не лечит: он только снижает искажение и из развёртки с нулевым
+   искажением не выходит, — такой отказ остаётся прежним и по тексту. Отказ ARAP несёт
+   числа обоих предложений; принявший ARAP сертификат называет закон (`proposal_law`) и
+   отказ шарнира (`previous_refusals[-1]`).
 4. СТУПЕНИ РЕШЁТКИ КАРТЫ: `S' = k · S` для `k` из `UNFOLD_CHART_SCALE_FACTORS`
    (`S` — масштаб решётки источника). Первая ступень, на которой привязанная карта
    в бюджете растяжения, без перевёрнутых треугольников и с простой границей, и
@@ -34,9 +45,11 @@ DEVELOPABLE_STRETCH_BUDGET`, топологию диска, предложени
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 from hashlib import sha256
 
+from ._arap import ArapProposalUnavailable, arap_proposal
 from ._embedding import _NONE, _OVERLAP, _segment_relation2
 from ._fan_closure import classify_interior_vertices, worst_defect_vertex
 from ._straight_chain import (
@@ -75,6 +88,18 @@ from .outcomes import NamedOutcome
 #: Ступени решётки карты как кратные масштаба решётки источника: ячейка карты
 #: `1/(k S)` метра. `2` — наименьшая, при которой решётка очереди равна единице.
 UNFOLD_CHART_SCALE_FACTORS = (2, 8, 32)
+
+#: Отказы шарнирного предложения, после которых пробуется ARAP: растяжение, переворот и
+#: самонакрытие границы лечатся другим положением вершин. Остальные отказы (топология
+#: диска, вырожденный треугольник, нет привязки источника) стоят ДО предложения и
+#: положениями не лечатся.
+ARAP_TRIGGER_OUTCOMES = frozenset(
+    {
+        NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED,
+        NamedOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED,
+        NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
+    }
+)
 
 
 def _rational(value: Fraction | int) -> ExactRationalV1:
@@ -170,6 +195,7 @@ def _certificate(
     required_ids,
     topology,
     proposal,
+    proposal_law,
     chart_scale,
     trials,
     facts,
@@ -194,7 +220,7 @@ def _certificate(
         source_vertex_ids=frozenset(required_ids),
         reconstruction_law=AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1,
         tree_law=DevelopableUnfoldTreeLawV1.CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1,
-        proposal_law=DevelopableProposalLawV1.BINARY64_HINGE_V1,
+        proposal_law=proposal_law,
         lift_law=DevelopableLiftLawV1.UNFOLDED_SOURCE_TRIANGLES_V1,
         root_triangle_id=proposal.root_triangle_id,
         chart_scale=chart_scale,
@@ -262,6 +288,10 @@ class _Unfolding:
         self.budget = budget
         self.topology = owner_topology(owner_triangles, snapped)
         self.proposal = hinge_proposal(self.topology, snapped)
+        self.proposal_law = DevelopableProposalLawV1.BINARY64_HINGE_V1
+        self.proposal_name = "hinge"
+        #: Хвост текста отказов ПОСЛЕ привязки у ARAP (у шарнира пусто: тексты прежние).
+        self.proposal_note = ""
         self.classes = classify_interior_vertices(
             self.topology, snapped, patch_domain_id.value
         )
@@ -272,23 +302,83 @@ class _Unfolding:
         )
         self.records: tuple = ()
 
-    def refuse_unsound_proposal(self) -> None:
-        """Суд ДО привязки: самонакрытие и растяжение предложения не лечатся решёткой.
+    def unsound_proposal_refusal(self):
+        """Суд ДО привязки: отказ (самонакрытие, растяжение, переворот) либо `None`.
 
-        Записи объявленных цепей строятся уже после него: карту, которой не будет, они не нужны.
+        Решётка этого не лечит: плохая сама карта плоха при любом масштабе.
         """
 
         overlap = boundary_overlaps(self.topology, self.exact)
         if overlap[0]:
-            raise refusal(
+            return refusal(
                 NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
-                "the hinge unfolding covers itself before any snapping: "
+                f"the {self.proposal_name} unfolding covers itself before any snapping: "
                 + _overlap_text(*overlap),
             )
         facts = self.raw.certificate
         if facts.triangles_outside_budget or facts.chart_flipped_triangle_count:
-            raise _stretch_failure(self.raw, self.classes, "the hinge proposal before snapping: ")
+            return _stretch_failure(
+                self.raw, self.classes, f"the {self.proposal_name} proposal before snapping: "
+            )
+        return None
+
+    def settle_proposal(self) -> None:
+        """Предложение, прошедшее суд до привязки: шарнир, а после его ИМЕНОВАННОГО отказа — ARAP.
+
+        Записи объявленных цепей строятся уже после суда: карту, которой не будет, они не нужны.
+        """
+
+        refused = self.unsound_proposal_refusal()
+        if refused is not None:
+            self.adopt_arap(refused)
         self.records = declared_chain_records(self.chains, self.topology, self.snapped)
+
+    def _arap_can_help(self, hinge_refusal) -> bool:
+        """ARAP лечит ИСКАЖЕНИЕ: отказ шарнира названный и растяжение либо переворот шарнира за бюджетом.
+
+        Самонакрытие границы при растяжении в бюджете и без переворотов — свойство самой
+        поверхности (развёртка уже не искажена, ARAP из неё не выходит): отказ остаётся
+        прежним, без второго предложения.
+        """
+
+        facts = self.raw.certificate
+        distorted = bool(facts.triangles_outside_budget or facts.chart_flipped_triangle_count)
+        return hinge_refusal.outcome in ARAP_TRIGGER_OUTCOMES and distorted
+
+    def adopt_arap(self, hinge_refusal) -> None:
+        """Второе предложение: ARAP от положений шарнира; тот же суд, отказ несёт оба предложения.
+
+        Отказ шарнира, которого ARAP не лечит (`_arap_can_help`), остаётся как есть. Нехватка
+        самого ARAP (потолок работы, матрица не положительна) называется в том же отказе:
+        тихого пропуска второго предложения нет.
+        """
+
+        if not self._arap_can_help(hinge_refusal):
+            raise hinge_refusal
+        try:
+            arap = arap_proposal(self.topology, self.proposal, self.snapped)
+        except ArapProposalUnavailable as unavailable:
+            raise refusal(hinge_refusal.outcome, f"{hinge_refusal}; {unavailable}") from hinge_refusal
+        # У отказа шарнира по самонакрытию в тексте нет чисел растяжения, а «лучше ли ARAP
+        # шарнира» без них не видно: берём их из записи измерения шарнира.
+        numbers = ""
+        if hinge_refusal.outcome is NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP:
+            numbers = "; the hinge proposal's " + stretch_refusal_text(
+                self.raw.certificate, worst_vertex=_vertex_name(worst_defect_vertex(self.classes))
+            )
+        self.proposal = replace(self.proposal, coordinates=arap.coordinates)
+        self.proposal_law = DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+        self.proposal_name = "ARAP"
+        self.exact = exact_metres(arap.coordinates)
+        self.raw = measure_stretch(self.topology.triangles, self.snapped, self.exact, self.budget)
+        self.previous_refusals = (*self.previous_refusals, hinge_refusal.outcome.value)
+        self.proposal_note = (
+            f" [{self.proposal_law.value} after the hinge proposal was refused: "
+            f"{hinge_refusal.outcome.value}: {hinge_refusal}{numbers}]"
+        )
+        refused = self.unsound_proposal_refusal()
+        if refused is not None:
+            raise refusal(refused.outcome, f"{refused}{self.proposal_note}") from hinge_refusal
 
     def certificate(self, trial, chart_scale, facts, displacement):
         return _certificate(
@@ -298,6 +388,7 @@ class _Unfolding:
             required_ids=self.required_ids,
             topology=self.topology,
             proposal=self.proposal,
+            proposal_law=self.proposal_law,
             chart_scale=chart_scale,
             trials=trial,
             facts=facts,
@@ -398,7 +489,7 @@ def build_developable_chart(
         budget=budget,
         declared_straight_chains=declared_straight_chains,
     )
-    unfolding.refuse_unsound_proposal()
+    unfolding.settle_proposal()
     chart, last = _search_lattice(unfolding, unfolding.chains)
     if chart is not None:
         return chart
@@ -411,7 +502,8 @@ def build_developable_chart(
                 "declared straight chains cannot be straight in it ("
                 + bent_chain_text(unfolding.records)
                 + "); "
-                + unfolding.failure_text(last),
+                + unfolding.failure_text(last)
+                + unfolding.proposal_note,
             )
         last = free_last
     band = unfolding.raw.certificate.worst_band_squared_upper
@@ -420,5 +512,6 @@ def build_developable_chart(
         NamedOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE,
         "the unsnapped proposal is within budget "
         f"(worst_band_squared<={band.numerator / band.denominator:.9e}), but no chart "
-        f"lattice step in {steps} kept it; {unfolding.failure_text(last)}",
+        f"lattice step in {steps} kept it; {unfolding.failure_text(last)}"
+        f"{unfolding.proposal_note}",
     )

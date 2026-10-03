@@ -16,13 +16,25 @@
    ЗАНОВО из привязанных позиций источника и треугольников снапшота и сравниваются
    с записью на равенство. Предложение развёртки детерминировано (binary64 с
    фиксированным порядком операций), поэтому равенство точное, а не «в допуске».
+
+   У сертификата второго предложения (`ARAP_LOCAL_GLOBAL_80_BINARY64_V1`) пересчёт
+   тот же и ЗВУЧЕН по той же причине: ARAP — только `+ - * /` и `sqrt` в
+   фиксированном порядке, число итераций названо законом, поэтому предложение
+   воспроизводится побитово, а карту после него судит тот же ТОЧНЫЙ суд, что перечитывает
+   пересчёт (карта ARAP не принимается на слово: растяжение и граница измерены заново).
+   Билдер сам решает, нужен ли ARAP (шарнир отказал по названной причине), поэтому
+   подмена закона в записи расходится с пересчётом, а не проходит.
 """
 
 from __future__ import annotations
 
 from fractions import Fraction
 
-from ._developable import UNFOLD_CHART_SCALE_FACTORS, build_developable_chart
+from ._developable import (
+    ARAP_TRIGGER_OUTCOMES,
+    UNFOLD_CHART_SCALE_FACTORS,
+    build_developable_chart,
+)
 from ._stretch import stretch_violations
 from .contracts.metric import (
     DEVELOPABLE_STRETCH_BUDGET,
@@ -43,8 +55,26 @@ from .numeric import LocalPoint3V1
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
+#: Законы предложения, которые ядро объявляет: шарнир и (после его именованного отказа) ARAP.
+DECLARED_PROPOSAL_LAWS = frozenset(
+    {
+        DevelopableProposalLawV1.BINARY64_HINGE_V1,
+        DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+    }
+)
+
+
 def _fraction(value) -> Fraction:
     return Fraction(value.numerator, value.denominator)
+
+
+def ladder_trace(certificate) -> tuple[str, ...]:
+    """След ступеней НИЖЕ развёртки: у ARAP последняя запись — отказ шарнира, не лестницы."""
+
+    trace = certificate.previous_refusals
+    if certificate.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1:
+        return trace[:-1]
+    return trace
 
 
 def _point(value) -> tuple[Fraction, Fraction, Fraction]:
@@ -64,7 +94,7 @@ def check_developable_certificate(issues, path, metric) -> None:
         or certificate.exact
         or certificate.tree_law
         is not DevelopableUnfoldTreeLawV1.CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1
-        or certificate.proposal_law is not DevelopableProposalLawV1.BINARY64_HINGE_V1
+        or certificate.proposal_law not in DECLARED_PROPOSAL_LAWS
         or certificate.lift_law is not DevelopableLiftLawV1.UNFOLDED_SOURCE_TRIANGLES_V1
         or certificate.straight_chain_law
         is not DevelopableStraightChainLawV1.INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1
@@ -126,6 +156,9 @@ def _check_ladder_trace(issues, path, certificate) -> None:
     записанный след проверяется не пересчётом, а ДОПУСТИМОСТЬЮ: он непуст и называет
     только триггеры лестницы. Подмена одного допустимого имени другим карту не
     меняет — карту пересчёт проверяет целиком.
+
+    След ARAP-сертификата заканчивается отказом шарнира: именем из `ARAP_TRIGGER_OUTCOMES`
+    (ARAP пробуется только после него); шарнирный сертификат такой записи не несёт.
     """
 
     from .planar_metric import LADDER_TRIGGER_OUTCOMES, PLANE_NORMAL_UNDEFINED_TRACE
@@ -133,7 +166,7 @@ def _check_ladder_trace(issues, path, certificate) -> None:
     allowed = {item.value for item in LADDER_TRIGGER_OUTCOMES} | {
         PLANE_NORMAL_UNDEFINED_TRACE
     }
-    trace = certificate.previous_refusals
+    trace = ladder_trace(certificate)
     if not trace or any(item not in allowed for item in trace):
         add_issue(
             issues,
@@ -141,6 +174,21 @@ def _check_ladder_trace(issues, path, certificate) -> None:
             path + ("previous_refusals",),
             "an unfolded chart is tried only after a named near-planar refusal: "
             "the ladder trace must name a ladder trigger",
+        )
+    arap = certificate.proposal_law is (
+        DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+    )
+    if arap and (
+        len(certificate.previous_refusals) != len(trace) + 1
+        or certificate.previous_refusals[-1]
+        not in {item.value for item in ARAP_TRIGGER_OUTCOMES}
+    ):
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("previous_refusals",),
+            "the second (ARAP) proposal is tried only after a named refusal of the "
+            "hinge proposal: the trace must end with that refusal",
         )
 
 
@@ -320,7 +368,7 @@ def validate_developable_recomputation(
             ),
             required_ids=required_ids,
             source_scale=grid.source_scale if grid.snapping_law.snaps_source else None,
-            previous_refusals=certificate.previous_refusals,
+            previous_refusals=ladder_trace(certificate),
             declared_straight_chains=tuple(declared_straight_chains),
         )
     except PlanarMetricAdmissionError as error:
