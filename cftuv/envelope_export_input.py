@@ -31,6 +31,7 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 
 from .envelope_metric_export import EnvelopePatchMetricExportV1
+from .envelope_request_policy import topology_chart_reach_cap
 from .envelope_topology_export import (
     EnvelopeTopologyExportV1,
     build_analysis_bundle_id_view,
@@ -90,6 +91,9 @@ class HostExportInputV1:
     density: object
     #: Допуск растяжения запроса (`None`: умолчание ядра): метрика домена записывается под ним.
     developable_stretch_budget: Fraction | None = None
+    #: Досягаемость полосовой карты запроса (`None`: умолчание ядра): воркер собирает запрос, и его идентичность
+    #: обязана совпасть с запросом родителя. Саму полосу воркер не строит: отказ целого патча родитель разрешает полосой.
+    chart_reach_cap: Fraction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +170,7 @@ def build_host_export_input(
         request_id,
         density,
         topology_export.developable_stretch_budget,
+        topology_chart_reach_cap(topology_export),
     )
 
 
@@ -292,6 +297,7 @@ def task_inputs(task):
             decal_request_id_value=export.request_id,
             density=export.density,
             developable_stretch_budget=export.developable_stretch_budget,
+            chart_reach_cap=export.chart_reach_cap,
         )
     except EnvelopeHostAdapterError as error:
         return inputs.result(snapshot=snapshot, refusal=_refusal(error))

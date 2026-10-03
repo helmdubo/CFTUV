@@ -22,10 +22,12 @@ from typing import TYPE_CHECKING
 
 from .model_enums import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_CURVATURE_LADDER_POLICY, HOST_GRID_POLICY, HOST_NEAR_PLANAR_FRAME_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
+from .envelope_chart_band import BeyondChartReach, chart_band_request, chart_points, refuse_alpha_beyond_reach
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
     envelope_decal_request_id_value,
+    topology_chart_reach_cap,
 )
 from .envelope_angle_certificate import (
     SnapshotExportRejected,
@@ -85,6 +87,10 @@ class EnvelopeDebugHostOutcome(str, Enum):
     DEVELOPABLE_CHART_SELF_OVERLAP = "DEVELOPABLE_CHART_SELF_OVERLAP"
     DEVELOPABLE_CHART_LATTICE_TOO_COARSE = "DEVELOPABLE_CHART_LATTICE_TOO_COARSE"
     DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT = "DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT"
+    DEVELOPABLE_BAND_SUPPORT_DISCONNECTED = "DEVELOPABLE_BAND_SUPPORT_DISCONNECTED"
+    CHART_REACH_SHORT_OF_CAP = "CHART_REACH_SHORT_OF_CAP"
+    DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED = "DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED"
+    REQUEST_ALPHA_EXCEEDS_CHART_REACH = "REQUEST_ALPHA_EXCEEDS_CHART_REACH"
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED = "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED"
     ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID = "ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID"
@@ -114,6 +120,8 @@ METRIC_STAGE_OUTCOMES = frozenset(
         EnvelopeDebugHostOutcome.DEVELOPABLE_REQUIRES_SOURCE_SNAP, EnvelopeDebugHostOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED,
         EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED, EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
         EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE, EnvelopeDebugHostOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
+        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_SUPPORT_DISCONNECTED, EnvelopeDebugHostOutcome.CHART_REACH_SHORT_OF_CAP,
+        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
     }
 )
 
@@ -1253,6 +1261,7 @@ def _build_angular_relations(
     launch_id_by_ref: dict[tuple[int, int, int], object],
     record_by_ref: dict[tuple[int, int, int], _HostChainRecord],
     vertex_ids: dict[int, object],
+    triangle_ids: dict[int, object],
     profile: EnvelopeDebugProfileBuilderV1 | None = None,
 ):
     scalar = lambda value: sympy.Rational(str(float(value)))
@@ -1322,7 +1331,8 @@ def _build_angular_relations(
         patch_id = int(patch_id)
         domain_id = patch_domains[patch_id]
         frame = frames[patch_id]
-        coordinates = point_map(frame)
+        coordinates = chart_points(point_map(frame), frame)
+        charted = getattr(frame.planarity_certificate, "support_triangle_ids", None)
         metric = kernel.ExactPlanarMetric.from_descriptor(frame)
         kernel_vertex_for_host = vertex_ids
 
@@ -1360,6 +1370,9 @@ def _build_angular_relations(
             for face in host_face_by_patch[patch_id]:
                 if physical_edge_id not in face.edge_cycle:
                     continue
+                if charted is not None and charted.isdisjoint(triangle_ids[int(item)] for item in face.triangle_ids):
+                    # Вершины грани могут стоять на карте-полосе, а сама грань - вне носителя: её проекция не карта.
+                    raise BeyondChartReach(face)
                 ordinal = face.edge_cycle.index(physical_edge_id)
                 cycle = tuple(
                     coordinates[kernel_vertex_for_host[int(item)]]
@@ -1441,12 +1454,17 @@ def _build_angular_relations(
                     "BoundaryCorner source vertex is absent from PatchSurfaceIR",
                     patch_domain_id=domain_id.value,
                 )
-            incoming_normal, incoming_tangent = owner_support(
-                record_by_ref[prev_ref], anchor_vertex_id
-            )
-            outgoing_normal, outgoing_tangent = owner_support(
-                record_by_ref[next_ref], anchor_vertex_id
-            )
+            try:
+                incoming_normal, incoming_tangent = owner_support(
+                    record_by_ref[prev_ref], anchor_vertex_id
+                )
+                outgoing_normal, outgoing_tangent = owner_support(
+                    record_by_ref[next_ref], anchor_vertex_id
+                )
+            except BeyondChartReach:
+                # Карта-полоса не знает вершин дальше досягаемости: угол, чьи опоры или грани вне носителя, фронт не видит.
+                stage_counters["ANGULAR_CORNERS_BEYOND_CHART_REACH"] += 1
+                continue
             incoming_vector = vector(incoming_normal)
             outgoing_vector = vector(outgoing_normal)
             incoming_tangent_vector = vector(incoming_tangent)
@@ -1640,8 +1658,9 @@ def _host_outcome_for(outcome):
 
 def _rational_affine_metric(
     kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains, budget,
+    chart_band=None,
 ):
-    """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses)."""
+    """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses; `chart_band`: the band policy)."""
 
     from cftuv_envelope.contracts.metric import CurvatureLadderPolicyV1, NearPlanarFramePolicyV1, NearPlanarLiftLawV1
     from cftuv_envelope.declared_chains import declared_straight_chain_vertices
@@ -1659,6 +1678,7 @@ def _rational_affine_metric(
             curvature_ladder=CurvatureLadderPolicyV1(HOST_CURVATURE_LADDER_POLICY.value),
             declared_straight_chains=declared_straight_chain_vertices(*chains, patch_domain_id),
             developable_stretch_budget=budget,
+            **({} if chart_band is None else {"chart_band": chart_band}),
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
@@ -2093,6 +2113,9 @@ def build_envelope_analysis_snapshot(
                 owner_patch_id=patch_ids[patch_id], source_vertices=source_vertices, surface_ir=surface_ir,
                 chains=(physical_chains, chain_uses),
                 budget=getattr(topology_export, "developable_stretch_budget", None),
+                chart_band=chart_band_request(
+                    getattr(topology_export, "chart_band", None), edge_ids, physical_chains, chain_uses, patch_domains[patch_id]
+                ),
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
@@ -2121,6 +2144,7 @@ def build_envelope_analysis_snapshot(
             launch_id_by_ref=launch_id_by_ref,
             record_by_ref=record_by_ref,
             vertex_ids=vertex_ids,
+            triangle_ids=triangle_ids,
             profile=profile,
         )
 
@@ -2201,11 +2225,12 @@ def build_envelope_decal_request(
     density=None,
     developable_stretch_budget=None,
     snapshot_issues_of=None,
+    chart_reach_cap=None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request; `snapshot_issues_of(snapshot, stretch_budget)` — замечания снапшота из памяти сессии (допуск растяжения ЭТОГО запроса), `None` — считаются здесь."""
 
     kernel, _ = _load_kernel()
-    angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget)
+    angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget, chart_reach_cap)
     if not selected_physical_edge_ids:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
@@ -2269,6 +2294,7 @@ def build_envelope_decal_request(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED,
             f"requested alpha must be finite and non-negative: {alpha}",
         )
+    refuse_alpha_beyond_reach(snapshot, alpha_decimal)
     request_id = kernel.DecalRequestId(
         envelope_decal_request_id_value(
             _typed_value,
@@ -2670,6 +2696,7 @@ def evaluate_envelope_debug_staged(
                     developable_stretch_budget=getattr(
                         topology_export, "developable_stretch_budget", None
                     ),
+                    chart_reach_cap=topology_chart_reach_cap(topology_export),
                 )
         except EnvelopeHostAdapterError as exc:
             diagnostic = exc.diagnostic()

@@ -60,6 +60,8 @@ def with_affine_metric(
     near_planar_frame_policy=None,
     curvature_ladder=None,
     developable_stretch_budget=None,
+    chart_band=None,
+    declared_straight_chains=None,
 ):
     """Снапшот с честной аффинной метрикой вместо его плоского кадра.
 
@@ -99,6 +101,12 @@ def with_affine_metric(
             {}
             if developable_stretch_budget is None
             else {"developable_stretch_budget": developable_stretch_budget}
+        ),
+        **({} if chart_band is None else {"chart_band": chart_band}),
+        **(
+            {}
+            if declared_straight_chains is None
+            else {"declared_straight_chains": declared_straight_chains}
         ),
     )
     return dataclasses.replace(

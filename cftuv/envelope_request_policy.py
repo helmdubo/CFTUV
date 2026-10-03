@@ -88,6 +88,31 @@ ENVELOPE_MAX_STRETCH_PERCENT_RANGE = (1, 50)
 DEFAULT_ENVELOPE_STRETCH_BUDGET = Fraction(DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT, 100)
 
 
+# Досягаемость полосовой карты — политика запроса (`DecalRequestV1.chart_reach_cap`, метры): наибольшая alpha, для которой
+# карта-полоса вокруг выбранных цепей вправе быть картой домена, не развёртывающегося целиком. Умолчание — полметра (решение
+# оркестратора, владелец делегировал технический выбор); ручки на панели нет: полоса — запасной путь после отказа целого патча.
+# Совпадение с умолчанием ядра (1/2) сверяет исполнительная проверка (`tests/test_envelope_request_policy.py`).
+DEFAULT_ENVELOPE_CHART_REACH_CAP = Fraction(1, 2)
+
+
+def envelope_chart_reach_cap(cap) -> Fraction | None:
+    """`None` (запрос несёт умолчание ядра) либо точная дробь метров; значение, равное умолчанию, - `None`."""
+
+    if cap is None:
+        return None
+    value = Fraction(cap)
+    if value <= 0:
+        raise ValueError("chart reach cap must be a positive length in metres")
+    return None if value == DEFAULT_ENVELOPE_CHART_REACH_CAP else value
+
+
+def topology_chart_reach_cap(topology_export) -> Fraction | None:
+    """Досягаемость запроса, которую несёт выгрузка топологии (`None`: умолчание либо полосы нет)."""
+
+    band = getattr(topology_export, "chart_band", None)
+    return None if band is None else envelope_chart_reach_cap(band.reach_cap)
+
+
 def envelope_stretch_budget(percent) -> Fraction | None:
     """`None` (запрос несёт умолчание ядра) либо точная дробь `percent / 100`.
 
@@ -113,7 +138,8 @@ class EnvelopeAngularPolicyV1:
     """Канонические поля запроса, выбранные одной host-властью.
 
     `developable_stretch_budget` — допуск растяжения развёртки запроса (`None`: умолчание ядра).
-    Он едет в этой же записи, чтобы идентичность запроса и сам запрос получали его от одного владельца.
+    Он едет в этой же записи, чтобы идентичность запроса и сам запрос получали его от одного владельца. Так же едет
+    `chart_reach_cap` - досягаемость полосовой карты (`None`: умолчание ядра).
     """
 
     density: int | None
@@ -122,6 +148,7 @@ class EnvelopeAngularPolicyV1:
     value_id: object
     exact_value: object
     developable_stretch_budget: Fraction | None = None
+    chart_reach_cap: Fraction | None = None
 
     @property
     def signature(self) -> tuple[str, ...]:
@@ -158,12 +185,15 @@ def normalize_envelope_fan_density(value) -> int | None:
     raise TypeError("Fan Density must be None, exact int, or exact str")
 
 
-def envelope_angular_policy(kernel, density, developable_stretch_budget=None) -> EnvelopeAngularPolicyV1:
-    """Возвращает старый закон для None и Huber Density A для 0..4; допуск растяжения едет вместе."""
+def envelope_angular_policy(
+    kernel, density, developable_stretch_budget=None, chart_reach_cap=None
+) -> EnvelopeAngularPolicyV1:
+    """Возвращает старый закон для None и Huber Density A для 0..4; допуск растяжения и досягаемость едут вместе."""
 
     normalized = normalize_envelope_fan_density(density)
     if developable_stretch_budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
         developable_stretch_budget = None
+    chart_reach_cap = envelope_chart_reach_cap(chart_reach_cap)
     if normalized is None:
         return EnvelopeAngularPolicyV1(
             None,
@@ -172,6 +202,7 @@ def envelope_angular_policy(kernel, density, developable_stretch_budget=None) ->
             kernel.MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1,
             kernel.ExactAngleV1(kernel.ExactAngleSymbol.PI_OVER_3),
             developable_stretch_budget,
+            chart_reach_cap,
         )
     value_contracts = (
         (
@@ -203,14 +234,19 @@ def envelope_angular_policy(kernel, density, developable_stretch_budget=None) ->
         value_id,
         kernel.ExactAngleV1(symbol),
         developable_stretch_budget,
+        chart_reach_cap,
     )
 
 
 def envelope_request_policy_signature(request) -> tuple[str, ...]:
-    """Канонический ключ только тех полей, от которых зависит подготовка: веер и допуск растяжения."""
+    """Канонический ключ только тех полей, от которых зависит подготовка: веер, допуск растяжения и досягаемость.
+
+    Досягаемость входит, лишь когда она не умолчание: подпись запроса без поля побитово прежняя, а полоса другой
+    досягаемости - другая карта, и подготовка не должна жить под чужим ключом.
+    """
 
     exact_value = request.max_subturn_exact_value
-    return tuple(
+    key = tuple(
         _enum_value(item)
         for item in (
             request.angular_profile_selection_policy_id,
@@ -219,6 +255,13 @@ def envelope_request_policy_signature(request) -> tuple[str, ...]:
             exact_value.symbol,
         )
     ) + (_budget_text(request.developable_stretch_budget),)
+    cap = request.chart_reach_cap
+    if (cap.numerator, cap.denominator) == (
+        DEFAULT_ENVELOPE_CHART_REACH_CAP.numerator,
+        DEFAULT_ENVELOPE_CHART_REACH_CAP.denominator,
+    ):
+        return key
+    return key + (f"reach={_budget_text(cap)}",)
 
 
 def envelope_decal_request_id_value(
@@ -237,11 +280,13 @@ def envelope_decal_request_id_value(
     )
     if policy.density is not None:
         base = typed_value("decal-request-density", base, policy.signature)
-    if policy.developable_stretch_budget is None:
+    if policy.developable_stretch_budget is not None:
+        base = typed_value(
+            "decal-request-stretch", base, _budget_text(policy.developable_stretch_budget)
+        )
+    if policy.chart_reach_cap is None:
         return base
-    return typed_value(
-        "decal-request-stretch", base, _budget_text(policy.developable_stretch_budget)
-    )
+    return typed_value("decal-request-reach", base, _budget_text(policy.chart_reach_cap))
 
 
 def build_envelope_request_contract(
@@ -271,6 +316,12 @@ def build_envelope_request_contract(
             )
         }
     )
+    cap = angular_policy.chart_reach_cap
+    reach = (
+        {}
+        if cap is None
+        else {"chart_reach_cap": kernel.ExactRationalV1(cap.numerator, cap.denominator)}
+    )
     return kernel.DecalRequestV1(
         schema_version=kernel.DECAL_REQUEST_SCHEMA_V1,
         decal_request_id=request_id,
@@ -289,10 +340,12 @@ def build_envelope_request_contract(
         material_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_MATERIAL_V1"),
         uv_policy_id=kernel.PolicyId(uv_policy_id),
         **stretch,
+        **reach,
     )
 
 
 __all__ = (
+    "DEFAULT_ENVELOPE_CHART_REACH_CAP",
     "DEFAULT_ENVELOPE_FAN_DENSITY",
     "DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT",
     "DEFAULT_ENVELOPE_STRETCH_BUDGET",
@@ -305,9 +358,11 @@ __all__ = (
     "EnvelopeAngularPolicyV1",
     "build_envelope_request_contract",
     "envelope_angular_policy",
+    "envelope_chart_reach_cap",
     "envelope_decal_request_id_value",
     "envelope_request_policy_signature",
     "envelope_stretch_budget",
     "normalize_envelope_fan_density",
     "request_alpha_decimal",
+    "topology_chart_reach_cap",
 )

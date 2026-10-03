@@ -180,6 +180,50 @@
       ],
       "type": "object"
     },
+    "BandBoundarySideV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BandBoundarySideV1"
+        },
+        "chain_use_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ChainUseId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "physical_edge_id": {
+          "$ref": "#/$defs/PhysicalEdgeId"
+        },
+        "role": {
+          "enum": [
+            "RIM",
+            "ORIGINAL_BOUNDARY",
+            "REACH_WALL"
+          ],
+          "type": "string"
+        },
+        "start_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "role",
+        "physical_edge_id",
+        "start_vertex_id",
+        "end_vertex_id",
+        "chain_use_id"
+      ],
+      "type": "object"
+    },
     "BoundaryConstraintId": {
       "additionalProperties": false,
       "properties": {
@@ -626,6 +670,254 @@
       ],
       "type": "object"
     },
+    "DevelopableBandChartCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DevelopableBandChartCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1",
+            "DEVELOPABLE_UNFOLD_V1",
+            "DEVELOPABLE_BAND_CHART_V1"
+          ],
+          "type": "string"
+        },
+        "arap_chart_worst_band_squared_upper": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arap_refusal": {
+          "type": "string"
+        },
+        "boundary_loop_count": {
+          "type": "integer"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "chart_boundary_overlap_count": {
+          "type": "integer"
+        },
+        "chart_reach_margin_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "chart_scale": {
+          "type": "integer"
+        },
+        "chart_scale_trials": {
+          "type": "integer"
+        },
+        "declared_straight_chains": {
+          "items": {
+            "$ref": "#/$defs/DevelopableDeclaredChainV1"
+          },
+          "type": "array"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "excluded_triangle_count": {
+          "type": "integer"
+        },
+        "first_excluded_triangle_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SurfaceTriangleId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hinge_chart_worst_band_squared_upper": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lift_law": {
+          "enum": [
+            "UNFOLDED_SOURCE_TRIANGLES_V1"
+          ],
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "previous_refusals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "proposal_law": {
+          "enum": [
+            "BINARY64_HINGE_V1",
+            "ARAP_LOCAL_GLOBAL_80_BINARY64_V1",
+            "ARAP_CONE_RELIEF_80_BINARY64_V1"
+          ],
+          "type": "string"
+        },
+        "proposal_selection_law": {
+          "enum": [
+            "HINGE_ISOMETRIC_ENOUGH_V1",
+            "ARAP_AFTER_HINGE_REFUSED_V1",
+            "BEST_HINGE_WON_V1",
+            "BEST_ARAP_WON_V1",
+            "HINGE_KEPT_ARAP_UNAVAILABLE_V1",
+            "HINGE_KEPT_ARAP_REFUSED_V1"
+          ],
+          "type": "string"
+        },
+        "proposal_worst_band_squared_upper": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "reach_cap": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "root_triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        },
+        "selected_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "snap_residual": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "snapped_source_positions": {
+          "items": {
+            "$ref": "#/$defs/SnappedSourcePositionV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "snapped_vertex_count": {
+          "type": "integer"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "straight_chain_law": {
+          "enum": [
+            "INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1"
+          ],
+          "type": "string"
+        },
+        "stretch": {
+          "$ref": "#/$defs/DevelopableStretchCertificateV1"
+        },
+        "strip_boundary": {
+          "items": {
+            "$ref": "#/$defs/BandBoundarySideV1"
+          },
+          "type": "array"
+        },
+        "support_law": {
+          "enum": [
+            "FACES_WITHIN_EUCLIDEAN_REACH_V1"
+          ],
+          "type": "string"
+        },
+        "support_reach": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "support_triangle_ids": {
+          "items": {
+            "$ref": "#/$defs/SurfaceTriangleId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tree_law": {
+          "enum": [
+            "CANONICAL_BFS_SMALLEST_TRIANGLE_ID_V1"
+          ],
+          "type": "string"
+        },
+        "vertex_classes": {
+          "items": {
+            "$ref": "#/$defs/DevelopableVertexClassV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "source_revision",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law",
+        "tree_law",
+        "proposal_law",
+        "lift_law",
+        "root_triangle_id",
+        "chart_scale",
+        "chart_scale_trials",
+        "stretch",
+        "proposal_worst_band_squared_upper",
+        "snapped_vertex_count",
+        "snap_residual",
+        "vertex_classes",
+        "boundary_loop_count",
+        "chart_boundary_overlap_count",
+        "previous_refusals",
+        "snapped_source_positions",
+        "straight_chain_law",
+        "declared_straight_chains",
+        "proposal_selection_law",
+        "hinge_chart_worst_band_squared_upper",
+        "arap_chart_worst_band_squared_upper",
+        "arap_refusal",
+        "selected_chain_use_ids",
+        "reach_cap",
+        "support_law",
+        "support_reach",
+        "support_triangle_ids",
+        "excluded_triangle_count",
+        "first_excluded_triangle_id",
+        "strip_boundary",
+        "chart_reach_margin_squared"
+      ],
+      "type": "object"
+    },
     "DevelopableDeclaredChainV1": {
       "additionalProperties": false,
       "properties": {
@@ -757,7 +1049,8 @@
           "enum": [
             "EXACT_SOURCE_PLANE_V1",
             "NEAR_PLANAR_PROJECTION_V1",
-            "DEVELOPABLE_UNFOLD_V1"
+            "DEVELOPABLE_UNFOLD_V1",
+            "DEVELOPABLE_BAND_CHART_V1"
           ],
           "type": "string"
         },
@@ -1082,7 +1375,8 @@
           "enum": [
             "EXACT_SOURCE_PLANE_V1",
             "NEAR_PLANAR_PROJECTION_V1",
-            "DEVELOPABLE_UNFOLD_V1"
+            "DEVELOPABLE_UNFOLD_V1",
+            "DEVELOPABLE_BAND_CHART_V1"
           ],
           "type": "string"
         },
@@ -1660,7 +1954,8 @@
           "enum": [
             "EXACT_SOURCE_PLANE_V1",
             "NEAR_PLANAR_PROJECTION_V1",
-            "DEVELOPABLE_UNFOLD_V1"
+            "DEVELOPABLE_UNFOLD_V1",
+            "DEVELOPABLE_BAND_CHART_V1"
           ],
           "type": "string"
         },
@@ -2492,6 +2787,9 @@
             },
             {
               "$ref": "#/$defs/DevelopableUnfoldCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/DevelopableBandChartCertificateV1"
             }
           ]
         },

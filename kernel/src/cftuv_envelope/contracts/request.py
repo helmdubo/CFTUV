@@ -8,7 +8,7 @@ from enum import Enum
 from ..ids import ChainUseId, DecalRequestId, PolicyId
 from ..numeric import ExactAngleV1, MetricLengthV1, MetricSpace
 from ..schema import wire_default_field
-from .metric import DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1, ExactRationalV1
+from .metric import DEFAULT_CHART_REACH_CAP_V1, DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1, ExactRationalV1
 
 
 DECAL_REQUEST_SCHEMA_V1 = "cftuv.envelope.decal_request.v1"
@@ -65,6 +65,13 @@ class DecalRequestV1:
     умолчанию опущено, поэтому прежние запросы, их хэши и фикстуры побитово те же. Допуск
     входит в идентичность исполнения, и метрика снапшота обязана нести сертификат,
     записанный ПОД ЭТИМ допуском (иначе запрос не компилируется, а отказ назван).
+
+    `chart_reach_cap` — досягаемость полосовой карты, метры (точная дробь из `(0, MAX_CHART_REACH_CAP]`; законность — в
+    `validate_decal_request`). Запись без поля читается как `DEFAULT_CHART_REACH_CAP` (полметра), на проводе значение по
+    умолчанию опущено, поэтому прежние запросы, их хэши и фикстуры побитово те же. Это политика запроса, как и допуск
+    растяжения: полосовая карта (`DevelopableBandChartCertificateV1`) записана под ЭТОЙ досягаемостью, и alpha запроса
+    выше неё получает именованный отказ `REQUEST_ALPHA_EXCEEDS_CHART_REACH`. На домены, которые развёрнуты целиком,
+    поле не влияет.
     """
 
     schema_version: str
@@ -86,4 +93,5 @@ class DecalRequestV1:
     developable_stretch_budget: ExactRationalV1 = wire_default_field(
         DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1
     )
+    chart_reach_cap: ExactRationalV1 = wire_default_field(DEFAULT_CHART_REACH_CAP_V1)
 

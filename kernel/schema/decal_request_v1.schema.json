@@ -65,6 +65,9 @@
           ],
           "type": "string"
         },
+        "chart_reach_cap": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
         "decal_request_id": {
           "$ref": "#/$defs/DecalRequestId"
         },

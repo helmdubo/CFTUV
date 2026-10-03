@@ -61,7 +61,7 @@ from ..contracts.geometry_batch import (
     GeometryDiagnosticSeverity,
     GeometryDiagnosticV1,
 )
-from ..contracts.metric import AffineChartOrientationV1, NearPlanarLiftLawV1
+from ..contracts.metric import AffineChartOrientationV1, DevelopableBandChartCertificateV1, NearPlanarLiftLawV1
 from ..exact_sqrt_sum import (
     ExactCanonicalizationWorkBudgetExhausted,
     SqrtSumV1,
@@ -268,6 +268,20 @@ def _developable_diagnostics(certificate, lift_note, gap_note, opposition_note, 
     ):
         if note:
             add(GeometryDiagnosticSeverity.INFO, outcome, "domain", (), note)
+    if type(certificate) is DevelopableBandChartCertificateV1:
+        # Грани патча вне носителя полосы не вошли в карту: названо, а не молча отброшено (числа - в сертификате).
+        number = certificate.chart_reach_margin_squared
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.FACE_BEYOND_CHART_REACH,
+            "domain",
+            (),
+            f"excluded_triangles={certificate.excluded_triangle_count} "
+            f"first={certificate.first_excluded_triangle_id.value} "
+            f"support_triangles={len(certificate.support_triangle_ids)} "
+            f"reach_cap_m={certificate.reach_cap.numerator / certificate.reach_cap.denominator:.6g} "
+            f"reach_margin_m={(number.numerator / number.denominator) ** 0.5:.6g}",
+        )
 
 
 def _lift_diagnostics(sourced, add) -> None:

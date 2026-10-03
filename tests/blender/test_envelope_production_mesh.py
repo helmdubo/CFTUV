@@ -606,6 +606,38 @@ def _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset():
     return decal
 
 
+def _run_a_band_chart_rescues_a_domain_the_whole_patch_refuses():
+    """ПОЛОСА: пирамида (веер вокруг поднятой вершины) целиком не разворачивается, а полоса у одного шва - да.
+
+    Один выбранный шов: носитель - три треугольника из четырёх (четвёртый дальше досягаемости 0.5 м), открытый веер
+    разворачивается изометрично, кнопка строит оба домена. Красные контроли той же сцены: основание выбрано целиком -
+    носитель весь патч, отказ метрики прежний и назван; alpha выше досягаемости - `REQUEST_ALPHA_EXCEEDS_CHART_REACH`.
+    """
+
+    from test_envelope_debug_bridge import _budget_refused_second_patch_offset
+
+    settings = _settings()
+    for base, alpha, expected in (
+        (False, 0.25, "MATERIALIZED 2 / refused 0"),
+        (True, 0.25, "MATERIALIZED 1 / refused 1 (DEVELOPABLE_STRETCH_BUDGET_EXCEEDED)"),
+        (False, 0.75, "MATERIALIZED 1 / refused 1 (REQUEST_ALPHA_EXCEEDS_CHART_REACH)"),
+    ):
+        controller = _controller()
+        if controller is not None:
+            controller.clear()
+        _reset_scene()
+        _build_two_patch_seam(
+            second_patch_apex=_budget_refused_second_patch_offset(), second_patch_whole_base=base
+        )
+        settings.envelope_debug_engine = "QUEUE"
+        settings.envelope_debug_alpha = alpha
+        settings.envelope_debug_workers = 0
+        _decal_settings().offset = 0.02
+        assert bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"FINISHED"}
+        assert _decal_settings().status == expected, (base, alpha, _decal_settings().status)
+    print("BAND:", expected)
+
+
 def _polygon_points(mesh, polygon):
     return [mesh.vertices[index].co.copy() for index in polygon.vertices]
 
@@ -922,6 +954,7 @@ def _main():
     _run_undo_after_a_press_in_edit_mode_keeps_the_scene_consistent()
     _run_undo_after_the_debug_button_and_after_clear_keeps_the_scene_consistent()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
+    _run_a_band_chart_rescues_a_domain_the_whole_patch_refuses()
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     _run_a_fold_welds_the_shared_chain_into_single_vertices()
     _run_a_decal_across_a_fold_stays_on_the_surface()

@@ -103,8 +103,9 @@ from .._embedding import (
     _segment_relation2,
 )
 from ..contracts.metric import (
-    DevelopableUnfoldCertificateV1,
+    DevelopableBandChartCertificateV1,
     NearPlanarProjectionCertificateV1,
+    is_unfolded_certificate,
 )
 from ..exact_sqrt_sum import SqrtSumV1
 from ..numeric import LocalPoint3V1
@@ -301,7 +302,7 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
     """
 
     certificate = frame.planarity_certificate
-    unfolded = type(certificate) is DevelopableUnfoldCertificateV1
+    unfolded = is_unfolded_certificate(certificate)
     if unfolded:
         recorded = certificate.snapped_source_positions
     elif type(certificate) is NearPlanarProjectionCertificateV1:
@@ -339,6 +340,13 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         ),
         default=Fraction(0),
     )
+    # Полоса кладётся на треугольники НОСИТЕЛЯ из сертификата (карта покрывает только их), а граница, чью простоту
+    # судит привязка, - граница носителя: грани носителя целые, поэтому их циклы и есть эта граница.
+    support = (
+        certificate.support_triangle_ids
+        if type(certificate) is DevelopableBandChartCertificateV1
+        else None
+    )
     owner_faces = {
         face.face_id
         for face in snapshot.surface_ir.source_faces
@@ -349,6 +357,7 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
             item
             for item in snapshot.surface_ir.surface_triangles
             if item.source_face_id in owner_faces
+            and (support is None or item.triangle_id in support)
         ),
         key=lambda item: item.triangle_id.value,
     )
@@ -358,6 +367,7 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
             face
             for face in snapshot.surface_ir.source_faces
             if face.patch_id == owner_patch_id
+            and (support is None or any(item in support for item in face.triangle_ids))
         ],
         exact,
         chart,

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from ._band_chart import build_band_chart
 from ._developable import (
     ARAP_TRIGGER_OUTCOMES,
     UNFOLD_CHART_SCALE_FACTORS,
@@ -52,6 +53,7 @@ from .contracts.metric import (
     AffineChartOrientationV1,
     AffineFrameSelectionLawV1,
     AffineReconstructionLawV1,
+    DevelopableBandChartCertificateV1,
     DevelopableFanClosureLawV1,
     DevelopableLiftLawV1,
     DevelopableProposalLawV1,
@@ -63,9 +65,11 @@ from .contracts.metric import (
     PlanarityAdmissionLawV1,
     VertexDevelopabilityClassV1,
     developable_stretch_budget_is_lawful,
+    is_unfolded_certificate,
 )
 from .numeric import LocalPoint3V1
 from .outcomes import NamedOutcome
+from .validation_band import check_band_certificate
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
@@ -118,10 +122,16 @@ def check_developable_certificate(issues, path, metric, developable_stretch_budg
     """Запись метрики с сертификатом развёртки согласована сама с собой (и с допуском запроса)."""
 
     certificate = metric.planarity_certificate
+    banded = type(certificate) is DevelopableBandChartCertificateV1
     if (
         certificate.patch_domain_id != metric.patch_domain_id
         or certificate.source_revision != metric.source_revision
-        or certificate.admission_law is not PlanarityAdmissionLawV1.DEVELOPABLE_UNFOLD_V1
+        or certificate.admission_law
+        is not (
+            PlanarityAdmissionLawV1.DEVELOPABLE_BAND_CHART_V1
+            if banded
+            else PlanarityAdmissionLawV1.DEVELOPABLE_UNFOLD_V1
+        )
         or certificate.reconstruction_law
         is not AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1
         or certificate.exact
@@ -167,6 +177,8 @@ def check_developable_certificate(issues, path, metric, developable_stretch_budg
             "snapped positions must cover the certificate source vertices exactly once",
         )
     _check_ladder_trace(issues, path, certificate)
+    if banded:
+        check_band_certificate(issues, path, metric, certificate)
     for item in certificate.vertex_classes:
         undecided = (
             item.developability_class
@@ -195,13 +207,18 @@ def _check_ladder_trace(issues, path, certificate) -> None:
     (ARAP пробуется только после него); шарнирный сертификат такой записи не несёт.
     """
 
-    from .planar_metric import LADDER_TRIGGER_OUTCOMES, PLANE_NORMAL_UNDEFINED_TRACE
+    from .planar_metric import BAND_TRIGGER_OUTCOMES, LADDER_TRIGGER_OUTCOMES, PLANE_NORMAL_UNDEFINED_TRACE
 
     allowed = {item.value for item in LADDER_TRIGGER_OUTCOMES} | {
         PLANE_NORMAL_UNDEFINED_TRACE
     }
     trace = ladder_trace(certificate)
-    if not trace or any(item not in allowed for item in trace):
+    below = trace
+    if type(certificate) is DevelopableBandChartCertificateV1:
+        # Полоса пробуется после отказа развёртки ЦЕЛОГО патча: след - отказ near-planar и именованный отказ целого.
+        named = {item.value for item in BAND_TRIGGER_OUTCOMES}
+        below = trace[:1] if len(trace) == 2 and trace[1] in named else ()
+    if not below or any(item not in allowed for item in below):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
@@ -405,6 +422,41 @@ def _check_proposal_selection(issues, path, certificate) -> None:
         )
 
 
+def _recomputation_inputs(
+    metric, budget, *, source_vertices, source_faces, surface_triangles, owner_patch_id, declared_straight_chains
+) -> dict:
+    """Входы построителя карты: привязанные позиции источника по ОБЪЯВЛЕННОМУ закону решётки метрики, треугольники патча."""
+
+    from .validation_metric import _source_embedding_inputs, position_under_grid_law
+
+    faces, required_ids, positions = _source_embedding_inputs(
+        source_vertices=source_vertices,
+        source_faces=source_faces,
+        owner_patch_id=owner_patch_id,
+    )
+    face_ids = {face.face_id for face in faces}
+    grid = metric.grid_certificate
+    return dict(
+        source_revision=metric.source_revision,
+        patch_domain_id=metric.patch_domain_id,
+        snapped={
+            vertex_id: position_under_grid_law(
+                LocalPoint3V1(*(float(axis) for axis in position)),
+                metric.grid_certificate,
+            )
+            for vertex_id, position in positions.items()
+        },
+        owner_triangles=tuple(
+            item for item in surface_triangles if item.source_face_id in face_ids
+        ),
+        required_ids=required_ids,
+        source_scale=grid.source_scale if grid.snapping_law.snaps_source else None,
+        previous_refusals=ladder_trace(metric.planarity_certificate),
+        declared_straight_chains=tuple(declared_straight_chains),
+        budget=budget,
+    )
+
+
 def validate_developable_recomputation(
     metric,
     *,
@@ -414,21 +466,32 @@ def validate_developable_recomputation(
     owner_patch_id,
     declared_straight_chains=(),
     developable_stretch_budget=None,
+    chart_band=None,
 ) -> tuple[ValidationIssue, ...]:
     """Построить карту и сертификат заново и сравнить с записью на равенство.
 
     `declared_straight_chains` — вершины объявленных прямыми цепей домена ИЗ СНАПШОТА
-    (`declared_chains`), а не из записи: запись метрики этого не заявляет, а проверяет.
+    (`declared_chains`), а не из записи: запись метрики этого не заявляет, а проверяет. `chart_band`
+    (`ChartBandRequestV1` по выбору и досягаемости, ЗАПИСАННЫМ в сертификате полосы, и цепям снапшота) нужен только
+    сертификату полосы: пересчёт строит носитель, развёртку, границу и запас тем же построителем.
     """
 
     from .planar_metric import PlanarMetricAdmissionError
-    from .validation_metric import _source_embedding_inputs, position_under_grid_law
 
     certificate = metric.planarity_certificate
-    if type(certificate) is not DevelopableUnfoldCertificateV1:
+    if not is_unfolded_certificate(certificate):
         return ()
+    banded = type(certificate) is DevelopableBandChartCertificateV1
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2", "planarity_certificate")
+    if banded and chart_band is None:
+        add_issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path,
+            "a band chart cannot be recomputed without the selected chains and the reach cap",
+        )
+        return tuple(issues)
     budget = _policy_budget(certificate, developable_stretch_budget)
     if not developable_stretch_budget_is_lawful(budget):
         add_issue(
@@ -446,34 +509,25 @@ def validate_developable_recomputation(
             "an unfolded chart cannot be recomputed without local coordinates",
         )
         return tuple(issues)
-    faces, required_ids, positions = _source_embedding_inputs(
+    inputs = _recomputation_inputs(
+        metric,
+        budget,
         source_vertices=source_vertices,
         source_faces=source_faces,
+        surface_triangles=surface_triangles,
         owner_patch_id=owner_patch_id,
+        declared_straight_chains=declared_straight_chains,
     )
-    snapped = {
-        vertex_id: position_under_grid_law(
-            LocalPoint3V1(*(float(axis) for axis in position)),
-            metric.grid_certificate,
-        )
-        for vertex_id, position in positions.items()
-    }
-    face_ids = {face.face_id for face in faces}
-    grid = metric.grid_certificate
     try:
-        expected = build_developable_chart(
-            source_revision=metric.source_revision,
-            patch_domain_id=metric.patch_domain_id,
-            snapped=snapped,
-            owner_triangles=tuple(
-                item for item in surface_triangles if item.source_face_id in face_ids
-            ),
-            required_ids=required_ids,
-            source_scale=grid.source_scale if grid.snapping_law.snaps_source else None,
-            previous_refusals=ladder_trace(certificate),
-            declared_straight_chains=tuple(declared_straight_chains),
-            budget=budget,
-        )
+        expected = build_band_chart(band=chart_band, **inputs) if banded else build_developable_chart(**inputs)
+        if expected is None:
+            add_issue(
+                issues,
+                ValidationCode.SURFACE_METRIC,
+                path,
+                "the band support is the whole patch: a band chart is not a chart of this domain",
+            )
+            return tuple(issues)
     except PlanarMetricAdmissionError as error:
         add_issue(
             issues,

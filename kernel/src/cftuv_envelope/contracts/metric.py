@@ -9,9 +9,11 @@ from math import gcd, isfinite
 
 from ..numeric import CertifiedDecimalIntervalV1
 from ..ids import (
+    ChainUseId,
     ReferenceMetricId,
     LineageId,
     PatchDomainId,
+    PhysicalEdgeId,
     PlanarityCertificateId,
     RuntimeMetricId,
     SourceFaceId,
@@ -41,6 +43,10 @@ class PlanarityAdmissionLawV1(str, Enum):
     # проекция на плоскость, а привязанная к решётке шарнирная развёртка по
     # дереву смежности, и судит её растяжение (`DevelopableStretchCertificateV1`).
     DEVELOPABLE_UNFOLD_V1 = "DEVELOPABLE_UNFOLD_V1"
+    # Источник не развёртывается ЦЕЛИКОМ (именованный отказ ступени выше), но развёртывается
+    # его ПОЛОСА вокруг выбранных цепей: карта — развёртка носителя из треугольников в
+    # пределах досягаемости запроса, а власть — запас до стены досягаемости в сертификате.
+    DEVELOPABLE_BAND_CHART_V1 = "DEVELOPABLE_BAND_CHART_V1"
 
 
 class GridSnappingLawV1(str, Enum):
@@ -1193,6 +1199,37 @@ DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1 = ExactRationalV1(
 )
 """Допуск по умолчанию в проводной форме: значение поля запроса, когда оно не названо."""
 
+# ВНИМАНИЕ: как и допуск растяжения, это СМЫСЛ каждого запроса без поля `chart_reach_cap` (на проводе умолчание
+# опущено): менять число можно только вместе с новой версией схемы запроса.
+DEFAULT_CHART_REACH_CAP = Fraction(1, 2)
+"""Досягаемость полосовой карты ПО УМОЛЧАНИЮ: полметра. Точная дробь, метры.
+
+Политика ЗАПРОСА (`DecalRequestV1.chart_reach_cap`): наибольшая alpha, для которой карта-полоса вокруг выбранных
+цепей вправе быть единственной картой домена. Полметра покрывает типичные ширины декалей на стенах и сводах (решение
+оркестратора, владелец делегировал технический выбор): ползунок alpha ниже полуметра полосу не пересобирает, а выше —
+получает именованный отказ `REQUEST_ALPHA_EXCEEDS_CHART_REACH`, а не молчаливо усечённую полосу.
+"""
+
+MAX_CHART_REACH_CAP = Fraction(100)
+"""Наибольшая досягаемость, которую вправе назвать запрос: сто метров. Точная дробь.
+
+Выше этого «полоса» перестаёт быть полосой (носитель карты — весь патч), и запрос получает именованный отказ
+(`POLICY_MISMATCH` на `chart_reach_cap`), а не карту без стены досягаемости.
+"""
+
+
+def chart_reach_cap_is_lawful(cap: Fraction) -> bool:
+    """Досягаемость законна: положительна и не выше `MAX_CHART_REACH_CAP`."""
+
+    return 0 < cap <= MAX_CHART_REACH_CAP
+
+
+DEFAULT_CHART_REACH_CAP_V1 = ExactRationalV1(
+    DEFAULT_CHART_REACH_CAP.numerator,
+    DEFAULT_CHART_REACH_CAP.denominator,
+)
+"""Досягаемость по умолчанию в проводной форме: значение поля запроса, когда оно не названо."""
+
 
 @dataclass(frozen=True, slots=True)
 class DevelopableStretchCertificateV1:
@@ -1309,6 +1346,30 @@ class DevelopableDeclaredChainV1:
             raise ValueError("the worst vertex is an interior vertex of the chain")
 
 
+def _check_unfold_record(record, name: str, law: PlanarityAdmissionLawV1) -> None:
+    """Общие условия записи карты развёртки: у целого патча и у полосы они одни."""
+
+    if record.exact:
+        raise ValueError(f"{name} describes a non-exact chart")
+    if record.admission_law is not law:
+        raise ValueError(f"{name} requires {law.value}")
+    if record.chart_scale <= 0 or record.chart_scale_trials <= 0:
+        raise ValueError("the chart scale and its trial count are positive")
+    if (
+        record.snapped_vertex_count < 0
+        or record.boundary_loop_count < 0
+        or record.chart_boundary_overlap_count < 0
+    ):
+        raise ValueError("unfold counts must be non-negative")
+    if record.snapped_vertex_count > len(record.source_vertex_ids):
+        raise ValueError("a snapped vertex is a source vertex")
+    classified = {item.vertex_id for item in record.vertex_classes}
+    if len(classified) != len(record.vertex_classes):
+        raise ValueError("a vertex is classified once")
+    if not classified <= record.source_vertex_ids:
+        raise ValueError("a classified vertex is a source vertex")
+
+
 @dataclass(frozen=True, slots=True)
 class DevelopableUnfoldCertificateV1:
     """Запись о том, что домен РАЗВЁРНУТ: дерево, предложение, растяжение, ярлыки.
@@ -1372,27 +1433,157 @@ class DevelopableUnfoldCertificateV1:
     arap_refusal: str
 
     def __post_init__(self) -> None:
-        if self.exact:
-            raise ValueError("DevelopableUnfoldCertificateV1 describes a non-exact chart")
-        if self.admission_law is not PlanarityAdmissionLawV1.DEVELOPABLE_UNFOLD_V1:
-            raise ValueError(
-                "DevelopableUnfoldCertificateV1 requires DEVELOPABLE_UNFOLD_V1"
-            )
-        if self.chart_scale <= 0 or self.chart_scale_trials <= 0:
-            raise ValueError("the chart scale and its trial count are positive")
-        if (
-            self.snapped_vertex_count < 0
-            or self.boundary_loop_count < 0
-            or self.chart_boundary_overlap_count < 0
+        _check_unfold_record(
+            self, "DevelopableUnfoldCertificateV1", PlanarityAdmissionLawV1.DEVELOPABLE_UNFOLD_V1
+        )
+
+
+class BandSupportLawV1(str, Enum):
+    """Каким законом выбран НОСИТЕЛЬ полосовой карты. Предложение — не власть: власть — запас в сертификате.
+
+    `FACES_WITHIN_EUCLIDEAN_REACH_V1`: грань источника входит в носитель, если хоть одна её вершина лежит не дальше
+    `D = (1 + b) * cap` (евклидово расстояние в 3D по привязанным позициям, точная дробь) от рёбер выбранных цепей;
+    носитель — связная компонента таких граней (по общим рёбрам), содержащая выбранные цепи. Целыми гранями, а не
+    треугольниками: полигон грани, примыкающей к ободу, обязан иметь координаты всех своих вершин. `b` — допуск
+    растяжения запроса: по сертификату растяжения путь длиной `alpha` на карте — не длиннее `(1 + b) * alpha` на
+    поверхности, поэтому грань дальше `D` от обода при `alpha <= cap` в карту не попадает.
+    """
+
+    FACES_WITHIN_EUCLIDEAN_REACH_V1 = "FACES_WITHIN_EUCLIDEAN_REACH_V1"
+
+
+class BandBoundaryRoleV1(str, Enum):
+    """Чем является сторона границы носителя: ободом, куском исходной границы или стеной досягаемости.
+
+    `RIM` — сторона выбранной цепи (из неё растёт фронт); `ORIGINAL_BOUNDARY` — сторона прочей цепи границы патча
+    (стена, как и без полосы); `REACH_WALL` — ребро, где носитель обрезан по досягаемости: границы патча там нет,
+    стена искусственная, и сертификат доказывает, что фронт `alpha <= cap` до неё не доходит.
+    """
+
+    RIM = "RIM"
+    ORIGINAL_BOUNDARY = "ORIGINAL_BOUNDARY"
+    REACH_WALL = "REACH_WALL"
+
+
+@dataclass(frozen=True, slots=True)
+class BandBoundarySideV1:
+    """Направленная сторона границы носителя (внутренность носителя слева, обход петли на карте против часовой).
+
+    Ребро и концы названы по источнику; `chain_use_id` — использование цепи границы патча (обод либо прочая
+    цепь), у стены досягаемости его нет.
+    """
+
+    role: BandBoundaryRoleV1
+    physical_edge_id: PhysicalEdgeId
+    start_vertex_id: SourceVertexId
+    end_vertex_id: SourceVertexId
+    chain_use_id: ChainUseId | None
+
+    def __post_init__(self) -> None:
+        if (self.role is BandBoundaryRoleV1.REACH_WALL) != (self.chain_use_id is None):
+            raise ValueError("a reach wall side carries no ChainUse, every other side carries one")
+        if self.start_vertex_id == self.end_vertex_id:
+            raise ValueError("a boundary side joins two distinct vertices")
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopableBandChartCertificateV1:
+    """Запись о том, что ПОЛОСА вокруг выбранных цепей РАЗВЁРНУТА: носитель, стена досягаемости, запас до неё.
+
+    Домен не развёртывается целиком (именованный отказ целого патча лежит в `previous_refusals`), но
+    развёртывается носитель из граней в пределах досягаемости запроса: карта — обычная привязанная к решётке
+    развёртка носителя (все поля до `arap_refusal` те же, что у `DevelopableUnfoldCertificateV1`, и судит их тот же
+    суд растяжения, но по треугольникам носителя), а к ней записаны:
+
+    * `selected_chain_use_ids`, `reach_cap`, `support_law`, `support_reach` — вход и закон выбора носителя;
+    * `support_triangle_ids` — треугольники носителя (из них подъём берёт позиции и треугольники), и сколько
+      треугольников патча в носитель не вошло: `excluded_triangle_count`, первый по имени;
+    * `strip_boundary` — граница носителя по сторонам: обод, куски исходной границы, стена досягаемости;
+    * `chart_reach_margin_squared` — ВЛАСТЬ: наименьший квадрат расстояния на карте (метры) между ободом и стеной
+      досягаемости. Он не меньше `reach_cap^2`: фронт ширины `alpha <= reach_cap` растёт внутри `alpha`-окрестности
+      обода на карте и до стены не доходит, поэтому усечённый носитель отвечает так же, как отвечал бы целый патч.
+
+    Поля до `arap_refusal` повторяют `DevelopableUnfoldCertificateV1` НАМЕРЕННО: запись самостоятельная (разбор по
+    вайр-идентичности, не по наследованию: кодек выбирает члены объединения по `issubclass`), а тест закрепляет
+    совпадение имён, типов и порядка. `source_vertex_ids` — вершины носителя; `previous_refusals` кончается отказом
+    целого патча (а у ARAP после него — отказом шарнира).
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    admission_law: PlanarityAdmissionLawV1
+    exact: bool
+    exact_plane_normal: ExactVector3V1
+    source_vertex_ids: frozenset[SourceVertexId]
+    reconstruction_law: AffineReconstructionLawV1
+    tree_law: DevelopableUnfoldTreeLawV1
+    proposal_law: DevelopableProposalLawV1
+    lift_law: DevelopableLiftLawV1
+    root_triangle_id: SurfaceTriangleId
+    chart_scale: int
+    chart_scale_trials: int
+    stretch: DevelopableStretchCertificateV1
+    proposal_worst_band_squared_upper: ExactRationalV1
+    snapped_vertex_count: int
+    snap_residual: ExactRationalV1
+    vertex_classes: frozenset[DevelopableVertexClassV1]
+    boundary_loop_count: int
+    chart_boundary_overlap_count: int
+    previous_refusals: tuple[str, ...]
+    snapped_source_positions: frozenset[SnappedSourcePositionV1]
+    straight_chain_law: DevelopableStraightChainLawV1
+    declared_straight_chains: tuple[DevelopableDeclaredChainV1, ...]
+    proposal_selection_law: DevelopableProposalSelectionLawV1
+    hinge_chart_worst_band_squared_upper: ExactRationalV1 | None
+    arap_chart_worst_band_squared_upper: ExactRationalV1 | None
+    arap_refusal: str
+    selected_chain_use_ids: frozenset[ChainUseId]
+    reach_cap: ExactRationalV1
+    support_law: BandSupportLawV1
+    support_reach: ExactRationalV1
+    support_triangle_ids: frozenset[SurfaceTriangleId]
+    excluded_triangle_count: int
+    first_excluded_triangle_id: SurfaceTriangleId | None
+    strip_boundary: tuple[BandBoundarySideV1, ...]
+    chart_reach_margin_squared: ExactRationalV1
+
+    def __post_init__(self) -> None:
+        _check_unfold_record(
+            self, "DevelopableBandChartCertificateV1", PlanarityAdmissionLawV1.DEVELOPABLE_BAND_CHART_V1
+        )
+        if not self.selected_chain_use_ids or not self.support_triangle_ids or not self.previous_refusals:
+            raise ValueError("a band chart names its rim, its support and the refusal that led to it")
+        if self.excluded_triangle_count < 0 or (self.first_excluded_triangle_id is None) != (
+            self.excluded_triangle_count == 0
         ):
-            raise ValueError("unfold counts must be non-negative")
-        if self.snapped_vertex_count > len(self.source_vertex_ids):
-            raise ValueError("a snapped vertex is a source vertex")
-        classified = {item.vertex_id for item in self.vertex_classes}
-        if len(classified) != len(self.vertex_classes):
-            raise ValueError("a vertex is classified once")
-        if not classified <= self.source_vertex_ids:
-            raise ValueError("a classified vertex is a source vertex")
+            raise ValueError("an excluded triangle is named exactly when one was counted")
+        if self.reach_cap.numerator <= 0 or self.support_reach.numerator <= 0:
+            raise ValueError("the reach cap and the support reach are positive")
+        if not self.strip_boundary or any(
+            (item.role is BandBoundaryRoleV1.RIM) != (item.chain_use_id in self.selected_chain_use_ids)
+            for item in self.strip_boundary
+            if item.chain_use_id is not None
+        ):
+            raise ValueError("a rim side is a side of a selected ChainUse and no other side is")
+        if not any(item.role is BandBoundaryRoleV1.REACH_WALL for item in self.strip_boundary):
+            raise ValueError("a band chart is cut by a reach wall: without one it is the whole patch")
+        margin = Fraction(
+            self.chart_reach_margin_squared.numerator, self.chart_reach_margin_squared.denominator
+        )
+        cap = Fraction(self.reach_cap.numerator, self.reach_cap.denominator)
+        if margin < cap * cap:
+            raise ValueError("the chart distance from the rim to the reach wall is at least the reach cap")
+
+
+UNFOLDED_CERTIFICATE_TYPES = (DevelopableUnfoldCertificateV1, DevelopableBandChartCertificateV1)
+"""Сертификаты карты развёртки (целого патча и полосы): разбор по вайр-типу, не по наследованию."""
+
+
+def is_unfolded_certificate(certificate: object) -> bool:
+    """Карта домена — развёртка: целого патча либо её полосы."""
+
+    return type(certificate) in UNFOLDED_CERTIFICATE_TYPES
 
 
 @dataclass(frozen=True, slots=True)
@@ -1414,6 +1605,7 @@ class RationalAffinePlanarMetricV2:
         ExactSourcePlaneCertificateV1
         | NearPlanarProjectionCertificateV1
         | DevelopableUnfoldCertificateV1
+        | DevelopableBandChartCertificateV1
     )
     source_lineage: frozenset[LineageId]
     grid_certificate: IntegerGridCertificateV1
@@ -1439,7 +1631,12 @@ class EmbeddingCertifiedRationalAffinePlanarMetricV1:
                 key=lambda item: item.value,
             )
         )
-        if snap.source_vertex_ids != source_ids:
+        # Привязка источника и её доказательство вложения - факты ЦЕЛОГО патча (одна решётка на все выделения), а
+        # карта полосы покрывает только носитель: её вершины входят в доказательство, но не исчерпывают его.
+        if type(self.metric.planarity_certificate) is DevelopableBandChartCertificateV1:
+            if not set(source_ids) <= set(snap.source_vertex_ids):
+                raise ValueError("a band chart vertex is outside the snap embedding vertices")
+        elif snap.source_vertex_ids != source_ids:
             raise ValueError("snap embedding vertices differ from the V2 metric")
         projection = self.near_planar_projection_embedding_certificate
         planarity = self.metric.planarity_certificate

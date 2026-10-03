@@ -30,6 +30,9 @@ class EnvelopePatchMetricExportV1:
     snapshot: envelope_kernel.AnalysisSnapshotV1
     #: Допуск растяжения, под которым записан сертификат развёртки снапшота (ключ кэшей сессии).
     developable_stretch_budget: Fraction | None = None
+    #: Ключ ПОЛОСЫ (`None` - метрика целого патча): карта полосы зависит от выделения и досягаемости запроса, поэтому
+    #: ключ кэшей сессии для неё шире `(ревизия, домен, допуск)`.
+    band_key: tuple | None = None
 
     @property
     def metric_descriptor(self):
@@ -43,6 +46,26 @@ class EnvelopeDomainGeometryExportV1:
     patch_domain_id: str
     snapshot: envelope_kernel.AnalysisSnapshotV1
     developable_stretch_budget: Fraction | None = None
+    band_key: tuple | None = None
+
+
+def band_key_of(topology_export: EnvelopeTopologyExportV1, patch_id: int) -> tuple | None:
+    """Ключ полосы патча: досягаемость и выбранные рёбра ЭТОГО патча, либо `None`, если политики полосы нет.
+
+    Выбранные рёбра других патчей в ключ не входят: они не меняют полосу этого, а кэш метрики патча не должен
+    пересобираться из-за чужого выделения.
+    """
+
+    policy = topology_export.chart_band
+    if policy is None:
+        return None
+    own = {
+        int(edge)
+        for record in topology_export.host_chains
+        if record.patch_id == int(patch_id)
+        for edge in record.canonical_edge_ids
+    }
+    return (policy.reach_cap, frozenset(policy.selected_physical_edge_ids) & own)
 
 
 def build_envelope_patch_metric_export(
@@ -84,6 +107,7 @@ def build_envelope_patch_metric_export(
         analysis_view,
         snapshot,
         topology_export.developable_stretch_budget,
+        band_key_of(topology_export, patch_id),
     )
 
 
@@ -101,6 +125,7 @@ def build_envelope_domain_geometry_export(
             metric_export.patch_domain_id,
             metric_export.snapshot,
             metric_export.developable_stretch_budget,
+            metric_export.band_key,
         )
     with profile.measure(
         "DOMAIN_GEOMETRY_EXPORT",
@@ -112,12 +137,14 @@ def build_envelope_domain_geometry_export(
             metric_export.patch_domain_id,
             metric_export.snapshot,
             metric_export.developable_stretch_budget,
+            metric_export.band_key,
         )
 
 
 __all__ = (
     "EnvelopeDomainGeometryExportV1",
     "EnvelopePatchMetricExportV1",
+    "band_key_of",
     "build_envelope_domain_geometry_export",
     "build_envelope_patch_metric_export",
 )

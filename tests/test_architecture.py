@@ -358,7 +358,14 @@ MODULE_LINE_ALLOWANCE = {
     # 2915 -> 2918. +3 за память замечаний снапшота (PERF MATERIALIZE-SPEED): параметр `snapshot_issues_of` у
     # `build_envelope_decal_request` и его вызов с допуском растяжения запроса (замечания от допуска зависят, и память
     # сессии ключует по нему). Число поднято осознанно, до фактического.
-    "cftuv/envelope_request_export.py": 2918,
+    # 2918 -> 2945. +27 за полосовую карту (ПОЛОСА-C1): четыре исхода хоста (`EnvelopeDebugHostOutcome`) и три из них в
+    # `METRIC_STAGE_OUTCOMES` (+7), параметр `chart_band` метрики и его вызов (+5), пропуск углов вне карты-полосы
+    # (`ANGULAR_CORNERS_BEYOND_CHART_REACH`: перехват `BeyondChartReach` вокруг двух опор, проверка грани вне носителя и
+    # параметр `triangle_ids` построителя углов, +12), политика досягаемости в запросе и отказ по alpha (`chart_reach_cap`, +3
+    # вызова помощников). Сама логика полосы (выбор цепей, триггеры, отказ по alpha, координаты карты-полосы) вынесена в
+    # `envelope_chart_band.py`, чтобы файл не рос ею. Блокер HOST_REQUEST_EXPORT_COMPLEXITY по-прежнему открыт. Число поднято
+    # осознанно, до фактического.
+    "cftuv/envelope_request_export.py": 2945,
     # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
     # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
     # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель
@@ -410,7 +417,12 @@ MODULE_LINE_ALLOWANCE = {
     # проверки снапшота и его проводка в сверку метрики, проверка границ допуска в `validate_decal_request` и связь снапшота с
     # запросом в двух местах (`validate_snapshot_request_references`, `validate_cross_contract_references`). Строки оформлены
     # обычно, а не склеены под потолок. Число поднято осознанно, до фактического.
-    "kernel/src/cftuv_envelope/validation.py": 1750,
+    # 1750 -> 1753. +3 за полосовую карту (ПОЛОСА-C1): проверка политики полосы против запроса в двух местах
+    # (`validate_snapshot_request_references`, `validate_cross_contract_references`), проверка законности `chart_reach_cap` в
+    # `validate_decal_request`, сверка покрытия вершин метрикой (полоса покрывает носитель, а не весь патч) и ссылка на помощников
+    # `validation_band` в импортах. Сами проверки живут в `validation_band.py` и `validation_metric.metric_covers_patch`.
+    # Число поднято осознанно, до фактического.
+    "kernel/src/cftuv_envelope/validation.py": 1753,
 }
 
 

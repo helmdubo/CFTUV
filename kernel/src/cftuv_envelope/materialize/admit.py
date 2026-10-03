@@ -32,11 +32,11 @@ from enum import Enum
 from fractions import Fraction
 
 from ..contracts.metric import (
-    DevelopableUnfoldCertificateV1,
     ExactSourcePlaneCertificateV1,
     NearPlanarLiftLawV1,
     NearPlanarProjectionCertificateV1,
     RationalAffinePlanarMetricV2,
+    is_unfolded_certificate,
 )
 from .._stretch import stretch_refusal_text, stretch_violations
 from .._width_distortion import (
@@ -234,7 +234,7 @@ def admit_domain(
         planarity = PlanarityKind.PLANAR_EXACT
     elif isinstance(certificate, NearPlanarProjectionCertificateV1):
         planarity = PlanarityKind.NEAR_PLANAR
-    elif isinstance(certificate, DevelopableUnfoldCertificateV1):
+    elif is_unfolded_certificate(certificate):
         planarity = PlanarityKind.DEVELOPABLE_UNFOLDED
     else:
         return AdmissionV1(

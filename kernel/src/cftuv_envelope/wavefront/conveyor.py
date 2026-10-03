@@ -74,6 +74,7 @@ from ..contracts.envelopes import (
     StripEnvelopeSpec,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
+from ..contracts.metric import DevelopableBandChartCertificateV1
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
     DecalRequestV1,
@@ -194,6 +195,9 @@ class ConveyorOutcome(str, Enum):
     EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED = (
         "EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED"
     )
+    # Домен покрыт картой-ПОЛОСОЙ (`DevelopableBandChartCertificateV1`), а alpha покрытия больше её досягаемости
+    # (`chart_reach_cap`): стена досягаемости усекла бы фронт. Имя то же, что у отказа запроса в ядре и в хосте.
+    REQUEST_ALPHA_EXCEEDS_CHART_REACH = "REQUEST_ALPHA_EXCEEDS_CHART_REACH"
 
 
 Counters = tuple[tuple[str, int], ...]
@@ -1690,6 +1694,27 @@ def _empty_coverage(
     )
 
 
+def _coverage_refusal(prepared, alpha: Fraction) -> tuple[ConveyorOutcome, str] | None:
+    """`(исход, деталь)`, если покрытие спрашивать нельзя, иначе `None`.
+
+    Подготовка не `EXACT` - покрывать нечего. Домен покрыт картой-полосой, а alpha (метры) больше её досягаемости -
+    стена досягаемости усекла бы фронт: отказ, а не усечённое покрытие. У карты целого патча стены досягаемости нет.
+    """
+
+    if prepared.outcome is not ConveyorOutcome.EXACT:
+        return ConveyorOutcome.PREPARATION_IS_NOT_EXACT, prepared.outcome.value
+    certificate = getattr(getattr(prepared.context, "frame", None), "planarity_certificate", None)
+    if type(certificate) is not DevelopableBandChartCertificateV1:
+        return None
+    reach = Fraction(certificate.reach_cap.numerator, certificate.reach_cap.denominator)
+    if alpha <= reach:
+        return None
+    return (
+        ConveyorOutcome.REQUEST_ALPHA_EXCEEDS_CHART_REACH,
+        f"alpha={float(alpha):.6g} m is beyond the chart reach cap {float(reach):.6g} m of the band chart",
+    )
+
+
 def conveyor_coverage(
     prepared: ConveyorPreparationV1,
     alpha: LocalLengthV1 | Decimal | int | str | None = None,
@@ -1719,15 +1744,9 @@ def conveyor_coverage(
     scale = 1 if prepared.lattice is None else prepared.lattice.scale
     lattice_alpha = alpha_fraction * scale
 
-    if prepared.outcome is not ConveyorOutcome.EXACT:
-        return _empty_coverage(
-            ConveyorOutcome.PREPARATION_IS_NOT_EXACT,
-            prepared.outcome.value,
-            prepared,
-            alpha_fraction,
-            lattice_alpha,
-            clock,
-        )
+    refusal = _coverage_refusal(prepared, alpha_fraction)
+    if refusal is not None:
+        return _empty_coverage(*refusal, prepared, alpha_fraction, lattice_alpha, clock)
 
     started = time.perf_counter()
     instance_ids, issue = _instance_ids_by_spec(prepared, alpha_value)

@@ -21,6 +21,7 @@ from .contracts.metric import (
     Binary64Vector3V1,
     CurvatureLadderPolicyV1,
     DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
+    DevelopableBandChartCertificateV1,
     DerivedBinary64AffineViewV1,
     ExactMatrix2V1,
     ExactPoint2V1,
@@ -53,6 +54,7 @@ from ._embedding import (
     patch_plane_normal as _embedding_patch_plane_normal,
     projection_violation,
 )
+from ._band_chart import band_metric_id, build_band_chart
 from ._developable import build_developable_chart
 from ._plane_basis import chart_of_positions, reduced_frame
 from ._width_distortion import (
@@ -851,6 +853,48 @@ LADDER_TRIGGER_OUTCOMES = frozenset(
 )
 
 
+#: Именованные отказы развёртки ЦЕЛОГО патча, после которых пробуется ПОЛОСА вокруг выбранных цепей (если вызывающий её
+#: назвал): носитель из граней в пределах досягаемости запроса может развернуться там, где целый патч нет. Отказы входа
+#: (нет привязки источника, нет треугольников) полосу не лечат и остаются как есть.
+BAND_TRIGGER_OUTCOMES = frozenset(
+    {
+        NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED,
+        NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
+        NamedOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED,
+        NamedOutcome.DEVELOPABLE_SUPPORT_NOT_A_DISK,
+        NamedOutcome.PERIODIC_CUT_REQUIRED,
+    }
+)
+
+
+def _unfolded_chart(*, trace, chart_band, **inputs):
+    """Развёртка целого патча; после её именованного отказа из `BAND_TRIGGER_OUTCOMES` - полоса, если она названа.
+
+    Принятый целый патч до полосы не доходит (его байты прежние). Отказ полосы несёт свой исход и отказ целого патча;
+    носитель, равный всему патчу, ничего не меняет, и остаётся отказ целого патча.
+    """
+
+    try:
+        return build_developable_chart(previous_refusals=(trace,), **inputs)
+    except PlanarMetricAdmissionError as whole:
+        if chart_band is None or whole.outcome not in BAND_TRIGGER_OUTCOMES:
+            raise
+        try:
+            banded = build_band_chart(
+                previous_refusals=(trace, whole.outcome.value),
+                band=chart_band,
+                **inputs,
+            )
+        except PlanarMetricAdmissionError as final:
+            raise PlanarMetricAdmissionError(
+                final.outcome,
+                f"{final} [after the whole-patch unfolding {whole.outcome.value}: {str(whole)[:240]}]",
+            ) from whole
+        if banded is None:
+            raise whole
+        return banded
+
+
 def _developable_frame(chart, required_ids):
     """Репер карты развёртки: `(origin, A, B, Gram, inverse, coordinates)`.
 
@@ -894,6 +938,7 @@ def _developable_rung(
     surface_triangles,
     declared_straight_chains=(),
     developable_stretch_budget=None,
+    chart_band=None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Последняя ступень лестницы: развёртка после именованного отказа near-planar.
 
@@ -902,7 +947,9 @@ def _developable_rung(
     привязки источника, и развёртки) несёт и свой исход, и отказ near-planar, после
     которого она пробовалась. `developable_stretch_budget` — допуск растяжения ЗАПРОСА
     (`DecalRequestV1.developable_stretch_budget`): `None` — умолчание ядра, значение вне
-    `(0, 1/2]` — `ValueError`; снапшот и запрос обязаны называть один допуск.
+    `(0, 1/2]` — `ValueError`; снапшот и запрос обязаны называть один допуск. `chart_band` (`ChartBandRequestV1`) -
+    выбранные цепи домена и досягаемость запроса: после именованного отказа развёртки ЦЕЛОГО патча пробуется полоса
+    вокруг них (`BAND_TRIGGER_OUTCOMES`), и тогда карта покрывает только носитель полосы.
     """
 
     if developable_stretch_budget is None:
@@ -923,7 +970,9 @@ def _developable_rung(
             enforce_embedding=enforce_embedding,
         )
         certificate = grid_facts.certificate
-        chart = build_developable_chart(
+        chart = _unfolded_chart(
+            trace=trace,
+            chart_band=chart_band,
             source_revision=source_revision,
             patch_domain_id=patch_domain_id,
             snapped=dict(grid_facts.positions),
@@ -934,7 +983,6 @@ def _developable_rung(
             source_scale=(
                 certificate.source_scale if certificate.snapping_law.snaps_source else None
             ),
-            previous_refusals=(trace,),
             declared_straight_chains=declared_straight_chains,
             budget=developable_stretch_budget,
         )
@@ -942,19 +990,24 @@ def _developable_rung(
         raise PlanarMetricAdmissionError(
             final.outcome, f"{final} [after near-planar {trace}: {str(refused)[:240]}]"
         ) from refused
+    if type(chart.certificate) is DevelopableBandChartCertificateV1:
+        required_ids = tuple(sorted(chart.certificate.source_vertex_ids, key=lambda item: item.value))
+        metric_id = band_metric_id(
+            source_revision, patch_domain_id, chart_band.selected_chain_use_ids, chart_band.reach_cap, required_ids
+        )
+    else:
+        metric_id = _stable_id(
+            "reference-metric",
+            source_revision.value,
+            patch_domain_id.value,
+            required_ids[0].value,
+            *(item.value for item in required_ids),
+        )
     origin, first, second, gram, inverse, coordinates = _developable_frame(
         chart, required_ids
     )
     metric = _metric_record(
-        metric_id=ReferenceMetricId(
-            _stable_id(
-                "reference-metric",
-                source_revision.value,
-                patch_domain_id.value,
-                required_ids[0].value,
-                *(item.value for item in required_ids),
-            )
-        ),
+        metric_id=ReferenceMetricId(metric_id),
         patch_domain_id=patch_domain_id,
         source_revision=source_revision,
         origin=origin,
@@ -984,9 +1037,10 @@ def _build_embedding_certified_metric(
     ),
     declared_straight_chains: tuple = (),
     developable_stretch_budget=None,
+    chart_band=None,
     **arguments,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
-    """Лестница метрики: EXACT -> NEAR_PLANAR -> DEVELOPABLE.
+    """Лестница метрики: EXACT -> NEAR_PLANAR -> DEVELOPABLE (целый патч, затем полоса, если названа).
 
     Без лестницы (`NEAR_PLANAR_ONLY_V1`, по умолчанию) — ровно прежний путь
     построения. С лестницей развёртка пробуется ТОЛЬКО после именованного отказа
@@ -1029,6 +1083,7 @@ def _build_embedding_certified_metric(
             surface_triangles=arguments["surface_triangles"],
             declared_straight_chains=tuple(declared_straight_chains),
             developable_stretch_budget=developable_stretch_budget,
+            chart_band=chart_band,
         )
 
 
@@ -1056,6 +1111,7 @@ def build_embedding_certified_rational_affine_planar_metric(
     ),
     declared_straight_chains: tuple = (),
     developable_stretch_budget=None,
+    chart_band=None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -1074,6 +1130,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         curvature_ladder=curvature_ladder,
         declared_straight_chains=declared_straight_chains,
         developable_stretch_budget=developable_stretch_budget,
+        chart_band=chart_band,
     )
 
 
@@ -1101,6 +1158,7 @@ def build_rational_affine_planar_metric(
     ),
     declared_straight_chains: tuple = (),
     developable_stretch_budget=None,
+    chart_band=None,
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -1120,6 +1178,7 @@ def build_rational_affine_planar_metric(
         curvature_ladder=curvature_ladder,
         declared_straight_chains=declared_straight_chains,
         developable_stretch_budget=developable_stretch_budget,
+        chart_band=chart_band,
     ).metric
 
 

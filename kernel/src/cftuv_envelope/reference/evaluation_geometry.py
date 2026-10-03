@@ -16,6 +16,7 @@ from ..contracts.envelopes import (
     CertifiedBoundHiddenSupportSpecV1,
 )
 from ..contracts.metric import (
+    DevelopableBandChartCertificateV1,
     ExactPoint2V1,
     ExactRationalV1,
     ExactVector2V1,
@@ -252,14 +253,23 @@ def _declared_internal_corner_ids(snapshot, chain: PhysicalChainV1) -> set:
 
 def _declared_straight_chains(
     compilation: ReferenceEnvelopeCompilationV1,
+    frame=None,
 ) -> tuple[PhysicalChainV1, ...]:
+    """Объявленные прямыми цепи домена; у карты-ПОЛОСЫ - только те, что целиком на её карте.
+
+    Полоса покрывает носитель вокруг выбранных цепей, и цепь границы патча, которую носитель режет (длинная
+    стена уходит дальше досягаемости), остаётся на карте обычной ломаной без выпрямления: у её вершин вне носителя нет
+    координат, а прямизна части цепи в карте требовалась бы только от цепей, на которых лежит фронт (они целиком
+    внутри носителя). Тот же отбор у построителя карты (`_Unfolding`: цепь с вершиной вне карты пропускается).
+    """
+
     snapshot = compilation.analysis_snapshot
     domain_chain_ids = {
         item.physical_chain_id
         for item in snapshot.chain_uses
         if item.patch_domain_id == compilation.plan_key.patch_domain_id
     }
-    return tuple(
+    chains = tuple(
         chain
         for chain in sorted(
             snapshot.physical_chains,
@@ -270,6 +280,10 @@ def _declared_straight_chains(
         and len(chain.ordered_source_vertex_ids) >= 3
         and not _declared_internal_corner_ids(snapshot, chain)
     )
+    if type(getattr(frame, "planarity_certificate", None)) is DevelopableBandChartCertificateV1:
+        charted = {item.source_vertex_id for item in frame.exact_source_vertex_coordinates}
+        return tuple(chain for chain in chains if charted.issuperset(chain.ordered_source_vertex_ids))
+    return chains
 
 
 def _base_nodes(
@@ -767,7 +781,7 @@ def build_evaluation_geometry_binding(
         raise EvaluationGeometryBindingInvalid(
             "chart lattice requires RationalAffinePlanarMetricV2"
         )
-    declared_chains = _declared_straight_chains(compilation)
+    declared_chains = _declared_straight_chains(compilation, frame)
     if declared_chains:
         return _v2_binding(
             compilation,
@@ -838,7 +852,7 @@ def verify_evaluation_geometry_binding(
         raise EvaluationGeometryBindingInvalid(
             "declared chart lattice requires evaluation geometry binding"
         )
-    declared_chains = _declared_straight_chains(compilation)
+    declared_chains = _declared_straight_chains(compilation, frame)
     support_ids = _expected_support_ids(compilation)
     if declared_chains:
         if type(binding) is not ChainStraightEvaluationGeometryBindingV2:
