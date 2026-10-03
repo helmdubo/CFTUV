@@ -187,6 +187,7 @@ from cftuv.envelope_debug_renderer import (
     envelope_debug_text_name,
 )
 from cftuv.envelope_request_policy import (
+    DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
     MEASURED_REQUEST_ALPHA,
     envelope_angular_policy,
     request_alpha_decimal,
@@ -606,6 +607,9 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
                 f"{UNMEASURED_REQUEST_POLICY_KNOB}: UI density readback mismatch"
             )
         _pin_measured_alpha(settings)
+        # Третья ручка запроса: допуск растяжения (панель «Max stretch»). Кнопка без пина унесла бы допуск ползунка
+        # владельца, а прямой вызов ворот строит запрос с умолчанием; паритет идентичности запроса держит пин.
+        settings.envelope_debug_max_stretch = DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT
         text_name = _invalidate_sidecar(obj)
         report["sidecar_absent_before_operator"] = True
         report["operator_invoked"] = True
@@ -632,6 +636,11 @@ def _run_operator(obj, label, density: int, edge_indices=None) -> dict:
                 "requested": str(MEASURED_REQUEST_ALPHA),
                 "effective": sidecar.get("requested_alpha"),
                 "id": "requested_alpha",
+            },
+            "max_stretch": {
+                "requested": DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
+                "effective": int(settings.envelope_debug_max_stretch),
+                "id": "developable_stretch_budget",
             },
         }
         report["parity_projection"] = _button_parity_projection(sidecar)

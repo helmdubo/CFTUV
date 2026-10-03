@@ -888,6 +888,7 @@ def run_production(
     uv_policy_id: str = PRODUCTION_UV_POLICY,
     topology_law: str = PRODUCTION_TOPOLOGY_LAW,
     domain_pool=_FROM_SETTINGS,
+    developable_stretch_budget=None,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -915,7 +916,7 @@ def run_production(
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
-    )
+    ).with_developable_stretch_budget(developable_stretch_budget)
     _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export
     )

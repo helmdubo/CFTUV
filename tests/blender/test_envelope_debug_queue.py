@@ -270,6 +270,38 @@ def _run_density_sequence_keys_preparation_and_invalidates_only_warm_session():
     assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [0, 0]
 
 
+def _run_max_stretch_is_a_request_policy_keyed_into_the_preparation():
+    """«Max stretch» — политика запроса: смена сбрасывает только тёплую сессию, ключ подготовки несёт допуск.
+
+    20 % — умолчание панели и ядра (запрос побитово прежний); 35 % — другой запрос с другим ключом
+    подготовки и другой метрикой сессии; возврат к 20 % берёт всё из кэша.
+    """
+
+    settings = _settings()
+    controller = _controller()
+    assert settings.envelope_debug_max_stretch == 20
+    prop = settings.bl_rna.properties["envelope_debug_max_stretch"]
+    assert (prop.hard_min, prop.hard_max) == (1, 50)
+    preparations = controller.build_counts["CONVEYOR_PREPARATION"]
+    metrics = controller.build_counts["PATCH_METRIC"]
+
+    settings.envelope_debug_max_stretch = 35
+    assert controller.queue_session is None
+    assert settings.envelope_debug_queue_timing == "Max stretch changed; press Build"
+    assert bpy.ops.hotspotuv.build_exact_reference_envelope_debug() == {"FINISHED"}
+    domains = len(_profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS"))
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [1] * domains and domains > 0
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == preparations + domains
+    assert controller.build_counts["PATCH_METRIC"] == metrics + domains
+
+    settings.envelope_debug_max_stretch = 20
+    assert controller.queue_session is None
+    assert bpy.ops.hotspotuv.build_exact_reference_envelope_debug() == {"FINISHED"}
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == preparations + domains
+    assert controller.build_counts["PATCH_METRIC"] == metrics + domains
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_HIT") == [1] * domains
+
+
 def _run_budget_refusal_lands_on_the_metric_stage():
     """Отказ бюджета невязки на очереди — ступень METRIC, как и на LEGACY.
 
@@ -359,6 +391,7 @@ def _main():
     _run_alpha_change_reuses_the_preparation(source_obj, payload)
     _run_repeat_press_hits_the_preparation_cache()
     _run_density_sequence_keys_preparation_and_invalidates_only_warm_session()
+    _run_max_stretch_is_a_request_policy_keyed_into_the_preparation()
     _visibility_toggle_hides_only_queue(source_obj)
     _run_budget_refusal_lands_on_the_metric_stage()
     print("ENVELOPE_QUEUE_BLENDER_SMOKE_OK")

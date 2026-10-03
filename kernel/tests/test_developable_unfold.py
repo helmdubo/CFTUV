@@ -34,7 +34,7 @@ from cftuv_envelope._stretch import (
 )
 from cftuv_envelope.codec import canonical_json_bytes
 from cftuv_envelope.contracts.metric import (
-    DEVELOPABLE_STRETCH_BUDGET,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     DevelopableFanClosureLawV1,
     DevelopableUnfoldCertificateV1,
     ExactRationalV1,
@@ -58,14 +58,17 @@ from developable_factories import REVISION, DOMAIN, developable_chart
 
 #: Золотой дайджест сертификата складки 90°: карта на целых узлах, растяжение 1, без объявленных цепей.
 FOLD_STRIP_CERTIFICATE_SHA256 = (
-    "f492bc8c1476dc46f20111c64bf9a8c8d9df20848d5f024c18fc69f97a059f78"
+    "946877f2c015965a1b14041576eba1d5a2a19eed5d67cd5a5801734607726a20"
 )
 
 #: Тот же сертификат при прежнем бюджете `1/50` (до решения владельца 2026-10-03 «до 20 %»). Единственное, чем
 #: он отличается от золотого, — записанный `stretch_budget`: карта, узлы и все числа растяжения прежние.
 FOLD_STRIP_CERTIFICATE_SHA256_AT_ONE_FIFTIETH = (
-    "ef2baa0b4b8960afc567974cb3d6cf2da03f3cfbbaf0affec574281e42c53670"
+    "9602eddb03cd1e0219495def2880a2b4c0de81a859572905049fb31bc43f8a33"
 )
+# Оба дайджеста перезаписаны 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): сертификат получил четыре поля
+# выбора предложения. Прежние значения (`f492bc8c...` при 1/5, `ef2baa0b...` при 1/50) восстанавливаются
+# вычёркиванием ровно этих полей — это закрыто тестом `test_the_new_certificate_fields_are_the_only_bytes_that_changed`.
 
 
 def _digest(record) -> str:
@@ -155,7 +158,7 @@ def test_the_budget_is_the_only_byte_that_the_owners_twenty_percent_changed_in_t
 def test_the_developable_budget_is_one_fifth_and_the_near_planar_width_budget_stays_one_fiftieth():
     from cftuv_envelope.contracts.metric import NEAR_PLANAR_WIDTH_BUDGET
 
-    assert DEVELOPABLE_STRETCH_BUDGET == Fraction(1, 5)
+    assert DEFAULT_DEVELOPABLE_STRETCH_BUDGET == Fraction(1, 5)
     assert NEAR_PLANAR_WIDTH_BUDGET == Fraction(1, 50)
 
 
@@ -183,7 +186,7 @@ def test_the_fold_chart_gram_equals_the_source_gram_bitwise():
 def test_a_gentle_bevel_is_within_the_stretch_budget(segments):
     chart = developable_chart(factories.bevel_strip(segments))
     certificate = chart.certificate
-    _low, high = band_bounds(DEVELOPABLE_STRETCH_BUDGET)
+    _low, high = band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
     assert _band(certificate) <= high
     assert not stretch_violations(certificate.stretch)
     # Развёртка сохраняет длину ленты: segments + 1 квад по единице вдоль неё.
@@ -208,7 +211,7 @@ def test_a_quarter_cylinder_of_sixteen_segments_unfolds_to_its_arc_length():
     assert abs((max(ys) - min(ys)) / scale - polyline) < 1e-4
     assert abs(polyline - math.pi / 2) < 1e-3  # 16 хорд против дуги
     assert (max(xs) - min(xs)) / scale == pytest.approx(1.0, abs=1e-9)
-    assert _band(chart.certificate) <= band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1]
+    assert _band(chart.certificate) <= band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)[1]
 
 
 # --------------------------------------------------------------------------
@@ -222,7 +225,7 @@ def test_a_cone_sector_with_the_apex_on_the_boundary_is_an_ordinary_sector():
     assert not stretch_violations(certificate.stretch)
     # Вершина на границе — веер разомкнут: замкнутых вееров, значит ярлыков, нет.
     assert certificate.vertex_classes == frozenset()
-    assert _band(certificate) <= band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1]
+    assert _band(certificate) <= band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)[1]
 
 
 def test_a_cone_with_an_interior_apex_is_beyond_the_stretch_budget_by_name():
@@ -240,7 +243,7 @@ def test_a_gentle_cone_with_an_interior_apex_is_within_the_twenty_percent_budget
     certificate = developable_chart(factories.cone(8, boundary_apex=False)).certificate
     assert certificate.proposal_law.value == "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
     assert not stretch_violations(certificate.stretch)
-    assert 1.0 < float(_band(certificate)) <= float(band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1])
+    assert 1.0 < float(_band(certificate)) <= float(band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)[1])
 
 
 def test_a_half_sphere_is_beyond_the_stretch_budget():
@@ -260,7 +263,7 @@ def test_a_saddle_is_refused_and_names_the_vertex_with_the_excess_angle():
 def test_a_gentle_saddle_is_within_the_twenty_percent_budget():
     certificate = developable_chart(factories.dome(saddle=True)).certificate
     assert not stretch_violations(certificate.stretch)
-    assert float(_band(certificate)) <= float(band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1])
+    assert float(_band(certificate)) <= float(band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)[1])
 
 
 def test_a_spiral_ribbon_covers_itself_by_name():
@@ -371,13 +374,13 @@ def _gram(scale_squared, base=(Fraction(1), Fraction(0), Fraction(1))):
 
 
 def test_the_stretch_predicate_is_exact_at_both_ends_of_the_band():
-    low, high = band_bounds(DEVELOPABLE_STRETCH_BUDGET)
+    low, high = band_bounds(DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
     unit = (Fraction(1), Fraction(0), Fraction(1))
-    assert in_stretch_band(unit, unit, DEVELOPABLE_STRETCH_BUDGET)
-    assert in_stretch_band(unit, _gram(high), DEVELOPABLE_STRETCH_BUDGET)
-    assert in_stretch_band(unit, _gram(low), DEVELOPABLE_STRETCH_BUDGET)
-    assert not in_stretch_band(unit, _gram(high + Fraction(1, 10**9)), DEVELOPABLE_STRETCH_BUDGET)
-    assert not in_stretch_band(unit, _gram(low - Fraction(1, 10**9)), DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, unit, DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, _gram(high), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, _gram(low), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert not in_stretch_band(unit, _gram(high + Fraction(1, 10**9)), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert not in_stretch_band(unit, _gram(low - Fraction(1, 10**9)), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
 
 
 def test_the_stretch_predicate_sees_a_shear_that_a_trace_would_hide():
@@ -385,15 +388,15 @@ def test_the_stretch_predicate_sees_a_shear_that_a_trace_would_hide():
 
     unit = (Fraction(1), Fraction(0), Fraction(1))
     shear = lambda s: (Fraction(1), s, 1 + s * s)  # noqa: E731
-    assert in_stretch_band(unit, shear(Fraction(1, 100)), DEVELOPABLE_STRETCH_BUDGET)
-    assert in_stretch_band(unit, shear(Fraction(1, 5)), DEVELOPABLE_STRETCH_BUDGET)
-    assert not in_stretch_band(unit, shear(Fraction(1, 2)), DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, shear(Fraction(1, 100)), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, shear(Fraction(1, 5)), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
+    assert not in_stretch_band(unit, shear(Fraction(1, 2)), DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
 
 
 def test_a_degenerate_chart_triangle_is_outside_the_band_and_has_no_finite_bound():
     unit = (Fraction(1), Fraction(0), Fraction(1))
     flat = (Fraction(1), Fraction(1), Fraction(1))
-    assert not in_stretch_band(unit, flat, DEVELOPABLE_STRETCH_BUDGET)
+    assert not in_stretch_band(unit, flat, DEFAULT_DEVELOPABLE_STRETCH_BUDGET)
     assert band_squared_upper(unit, flat) is None
 
 

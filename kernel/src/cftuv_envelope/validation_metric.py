@@ -420,6 +420,8 @@ def _check_width_distortion_record(issues, path, metric) -> None:
 
 def validate_rational_affine_planar_metric(
     metric: RationalAffinePlanarMetricV2,
+    *,
+    developable_stretch_budget: Fraction | None = None,
 ) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
@@ -457,7 +459,7 @@ def validate_rational_affine_planar_metric(
     elif type(certificate) is NearPlanarProjectionCertificateV1:
         _check_near_planar_certificate(issues, certificate_path, metric)
     elif type(certificate) is DevelopableUnfoldCertificateV1:
-        check_developable_certificate(issues, certificate_path, metric)
+        check_developable_certificate(issues, certificate_path, metric, developable_stretch_budget)
     else:
         # Ниже сертификат читается по полям, которых у неизвестного типа может
         # не быть вовсе. Разбор кончается здесь названным отказом, а не
@@ -980,7 +982,7 @@ def validate_width_distortion_recomputation(
 
 
 def validate_metric_against_source(
-    metric: RationalAffinePlanarMetricV2, snapshot, owner_patch_id
+    metric: RationalAffinePlanarMetricV2, snapshot, owner_patch_id, developable_stretch_budget=None
 ) -> tuple[ValidationIssue, ...]:
     """Сверка метрики снапшота с источником снапшота: карта и искажение ширины.
 
@@ -1004,6 +1006,7 @@ def validate_metric_against_source(
             declared_straight_chains=declared_straight_chain_vertices(
                 snapshot.physical_chains, snapshot.chain_uses, metric.patch_domain_id
             ),
+            developable_stretch_budget=developable_stretch_budget,
         )
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
@@ -1062,6 +1065,7 @@ def _validate_developable_embedding_record(
     surface_triangles,
     owner_patch_id,
     declared_straight_chains=(),
+    developable_stretch_budget=None,
 ):
     """Обёртка с картой развёртки: решётка источника пересчитана, карта - заново.
 
@@ -1118,6 +1122,7 @@ def _validate_developable_embedding_record(
                 surface_triangles=surface_triangles,
                 owner_patch_id=owner_patch_id,
                 declared_straight_chains=declared_straight_chains,
+                developable_stretch_budget=developable_stretch_budget,
             )
         )
     return tuple(issues)
@@ -1134,11 +1139,14 @@ def validate_embedding_certified_rational_affine_planar_metric(
     expected_source_lineage: frozenset[LineageId],
     surface_triangles: tuple[SurfaceTriangleV1, ...] | None = None,
     declared_straight_chains: tuple = (),
+    developable_stretch_budget: Fraction | None = None,
 ) -> tuple[ValidationIssue, ...]:
     """Recompute evidence and bind it to caller-owned source identity.
 
     ``declared_straight_chains`` (ordered vertex ids per chain, ``declared_chains``) is an
     authority input of the same kind for an unfolded chart: the chains the host declared straight.
+    ``developable_stretch_budget`` is the request policy an unfolded chart must be recorded
+    under (``None``: the chart's own recorded budget, which must still be lawful).
 
     The three ``expected_*`` values are authority inputs, not conveniences:
     an integration must obtain them from its trusted source envelope.  Passing
@@ -1147,7 +1155,11 @@ def validate_embedding_certified_rational_affine_planar_metric(
     binding while believing it used the complete validator.
     """
 
-    issues = list(validate_rational_affine_planar_metric(record.metric))
+    issues = list(
+        validate_rational_affine_planar_metric(
+            record.metric, developable_stretch_budget=developable_stretch_budget
+        )
+    )
     path = ("EmbeddingCertifiedRationalAffinePlanarMetricV1",)
     faces, required_ids, positions = _source_embedding_inputs(
         source_vertices=source_vertices,
@@ -1175,6 +1187,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
             surface_triangles=surface_triangles,
             owner_patch_id=owner_patch_id,
             declared_straight_chains=declared_straight_chains,
+            developable_stretch_budget=developable_stretch_budget,
         )
     grid, normal, off_plane, expected_coordinates, sign = (
         _recompute_embedding_inputs(

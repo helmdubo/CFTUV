@@ -347,10 +347,17 @@ def _developable_numbers(certificate, lift_note: str) -> str:
             classes.get(item.developability_class.value, 0) + 1
         )
     labels = " ".join(f"{name}={classes[name]}" for name in sorted(classes)) or "none"
+    hinge = certificate.hinge_chart_worst_band_squared_upper
+    rival = certificate.arap_chart_worst_band_squared_upper
+    chart = "ARAP" if certificate.proposal_law.value.startswith("ARAP") else "HINGE"
     return (
         f"worst_band_squared<={number(stretch.worst_band_squared_upper):.9g} "
         f"stretch_budget={number(stretch.stretch_budget):.6g} "
         f"triangles_measured={stretch.triangles_measured} "
+        f"proposal={chart} proposal_selection={certificate.proposal_selection_law.value} "
+        f"hinge_band_squared<={'none' if hinge is None else format(number(hinge), '.9g')} "
+        f"arap_band_squared<={'none' if rival is None else format(number(rival), '.9g')} "
+        f"arap_refusal={certificate.arap_refusal or 'none'} "
         f"chart_scale={certificate.chart_scale} "
         f"chart_scale_trials={certificate.chart_scale_trials} "
         f"proposal_snapped_vertices={certificate.snapped_vertex_count} "

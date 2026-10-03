@@ -7,6 +7,7 @@ alpha.  They may therefore be reused by the explicit debug session.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -27,6 +28,8 @@ class EnvelopePatchMetricExportV1:
     patch_domain_id: str
     analysis_view: AnalysisBundleIdView
     snapshot: envelope_kernel.AnalysisSnapshotV1
+    #: Допуск растяжения, под которым записан сертификат развёртки снапшота (ключ кэшей сессии).
+    developable_stretch_budget: Fraction | None = None
 
     @property
     def metric_descriptor(self):
@@ -39,6 +42,7 @@ class EnvelopeDomainGeometryExportV1:
     patch_id: int
     patch_domain_id: str
     snapshot: envelope_kernel.AnalysisSnapshotV1
+    developable_stretch_budget: Fraction | None = None
 
 
 def build_envelope_patch_metric_export(
@@ -79,6 +83,7 @@ def build_envelope_patch_metric_export(
         domain_id,
         analysis_view,
         snapshot,
+        topology_export.developable_stretch_budget,
     )
 
 
@@ -95,6 +100,7 @@ def build_envelope_domain_geometry_export(
             metric_export.patch_id,
             metric_export.patch_domain_id,
             metric_export.snapshot,
+            metric_export.developable_stretch_budget,
         )
     with profile.measure(
         "DOMAIN_GEOMETRY_EXPORT",
@@ -105,6 +111,7 @@ def build_envelope_domain_geometry_export(
             metric_export.patch_id,
             metric_export.patch_domain_id,
             metric_export.snapshot,
+            metric_export.developable_stretch_budget,
         )
 
 

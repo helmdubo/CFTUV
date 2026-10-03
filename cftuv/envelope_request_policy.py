@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from fractions import Fraction
 
 
 # Измеренное значение alpha приёмки — ОДИН узел на оба инструмента.
@@ -78,15 +79,49 @@ DEFAULT_ENVELOPE_FAN_DENSITY = "1"
 _DENSITY_IDENTIFIERS = frozenset(item[0] for item in ENVELOPE_FAN_DENSITY_ITEMS)
 
 
+# Допуск растяжения развёртки — политика запроса (`DecalRequestV1.developable_stretch_budget`), а на панели —
+# целые проценты («Max stretch»): процент / 100 есть точная дробь, без двоичного `FloatProperty`. Умолчание панели
+# (20 %) — решение владельца; совпадение с умолчанием ядра (1/5) сверяет исполняемая проверка
+# (`tests/test_envelope_request_policy.py`), а не договорённость.
+DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT = 20
+ENVELOPE_MAX_STRETCH_PERCENT_RANGE = (1, 50)
+DEFAULT_ENVELOPE_STRETCH_BUDGET = Fraction(DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT, 100)
+
+
+def envelope_stretch_budget(percent) -> Fraction | None:
+    """`None` (запрос несёт умолчание ядра) либо точная дробь `percent / 100`.
+
+    Принимает только точный int в границах панели; бул и float — ошибка, а не округление.
+    Значение, равное умолчанию, возвращается как `None`: запрос с умолчанием побитово прежний.
+    """
+
+    if percent is None:
+        return None
+    low, high = ENVELOPE_MAX_STRETCH_PERCENT_RANGE
+    if type(percent) is not int or not low <= percent <= high:
+        raise ValueError(f"Max stretch must be an exact int percent in {low}..{high}")
+    budget = Fraction(percent, 100)
+    return None if budget == DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
+
+
+def _budget_text(budget) -> str:
+    return f"{budget.numerator}/{budget.denominator}"
+
+
 @dataclass(frozen=True, slots=True)
 class EnvelopeAngularPolicyV1:
-    """Канонические поля запроса, выбранные одной host-властью."""
+    """Канонические поля запроса, выбранные одной host-властью.
+
+    `developable_stretch_budget` — допуск растяжения развёртки запроса (`None`: умолчание ядра).
+    Он едет в этой же записи, чтобы идентичность запроса и сам запрос получали его от одного владельца.
+    """
 
     density: int | None
     selection_policy_id: object
     parameter_id: object
     value_id: object
     exact_value: object
+    developable_stretch_budget: Fraction | None = None
 
     @property
     def signature(self) -> tuple[str, ...]:
@@ -123,10 +158,12 @@ def normalize_envelope_fan_density(value) -> int | None:
     raise TypeError("Fan Density must be None, exact int, or exact str")
 
 
-def envelope_angular_policy(kernel, density) -> EnvelopeAngularPolicyV1:
-    """Возвращает старый закон для None и Huber Density A для 0..4."""
+def envelope_angular_policy(kernel, density, developable_stretch_budget=None) -> EnvelopeAngularPolicyV1:
+    """Возвращает старый закон для None и Huber Density A для 0..4; допуск растяжения едет вместе."""
 
     normalized = normalize_envelope_fan_density(density)
+    if developable_stretch_budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
+        developable_stretch_budget = None
     if normalized is None:
         return EnvelopeAngularPolicyV1(
             None,
@@ -134,6 +171,7 @@ def envelope_angular_policy(kernel, density) -> EnvelopeAngularPolicyV1:
             kernel.MaxSubturnParameterId.LINEAR_REFLEX_MAX_SUBTURN_V1,
             kernel.MaxSubturnValueId.LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1,
             kernel.ExactAngleV1(kernel.ExactAngleSymbol.PI_OVER_3),
+            developable_stretch_budget,
         )
     value_contracts = (
         (
@@ -164,11 +202,12 @@ def envelope_angular_policy(kernel, density) -> EnvelopeAngularPolicyV1:
         kernel.MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_A_V1,
         value_id,
         kernel.ExactAngleV1(symbol),
+        developable_stretch_budget,
     )
 
 
 def envelope_request_policy_signature(request) -> tuple[str, ...]:
-    """Канонический ключ только тех полей, от которых зависит fan preparation."""
+    """Канонический ключ только тех полей, от которых зависит подготовка: веер и допуск растяжения."""
 
     exact_value = request.max_subturn_exact_value
     return tuple(
@@ -179,7 +218,7 @@ def envelope_request_policy_signature(request) -> tuple[str, ...]:
             request.max_subturn_value_id,
             exact_value.symbol,
         )
-    )
+    ) + (_budget_text(request.developable_stretch_budget),)
 
 
 def envelope_decal_request_id_value(
@@ -189,16 +228,20 @@ def envelope_decal_request_id_value(
     explicit_value: str | None,
     policy: EnvelopeAngularPolicyV1,
 ) -> str:
-    """Сохраняет V1-id для None и добавляет policy signature для Density."""
+    """Сохраняет V1-id для None и добавляет policy signature для Density и допуска растяжения."""
 
     base = explicit_value or typed_value(
         "decal-request",
         source_revision_value,
         tuple(sorted(item.value for item in selected_chain_ids)),
     )
-    if policy.density is None:
+    if policy.density is not None:
+        base = typed_value("decal-request-density", base, policy.signature)
+    if policy.developable_stretch_budget is None:
         return base
-    return typed_value("decal-request-density", base, policy.signature)
+    return typed_value(
+        "decal-request-stretch", base, _budget_text(policy.developable_stretch_budget)
+    )
 
 
 def build_envelope_request_contract(
@@ -218,6 +261,16 @@ def build_envelope_request_contract(
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
         raise ValueError(f"unknown UV policy {uv_policy_id!r}")
 
+    budget = angular_policy.developable_stretch_budget
+    stretch = (
+        {}
+        if budget is None
+        else {
+            "developable_stretch_budget": kernel.ExactRationalV1(
+                budget.numerator, budget.denominator
+            )
+        }
+    )
     return kernel.DecalRequestV1(
         schema_version=kernel.DECAL_REQUEST_SCHEMA_V1,
         decal_request_id=request_id,
@@ -235,12 +288,16 @@ def build_envelope_request_contract(
         ownership_policy_id=kernel.OwnershipPolicyId.TOTAL_DISJOINT_RESOLVED_COVERAGE_V1,
         material_policy_id=kernel.PolicyId("ENVELOPE_DEBUG_NO_MATERIAL_V1"),
         uv_policy_id=kernel.PolicyId(uv_policy_id),
+        **stretch,
     )
 
 
 __all__ = (
     "DEFAULT_ENVELOPE_FAN_DENSITY",
+    "DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT",
+    "DEFAULT_ENVELOPE_STRETCH_BUDGET",
     "ENVELOPE_FAN_DENSITY_ITEMS",
+    "ENVELOPE_MAX_STRETCH_PERCENT_RANGE",
     "ENVELOPE_UV_POLICIES",
     "ENVELOPE_UV_POLICY_DEBUG_NO_UV",
     "ENVELOPE_UV_POLICY_DIRECT_STRIP",
@@ -250,6 +307,7 @@ __all__ = (
     "envelope_angular_policy",
     "envelope_decal_request_id_value",
     "envelope_request_policy_signature",
+    "envelope_stretch_budget",
     "normalize_envelope_fan_density",
     "request_alpha_decimal",
 )

@@ -20,6 +20,7 @@ from .contracts.metric import (
     Binary64SourceVertexCoordinateV1,
     Binary64Vector3V1,
     CurvatureLadderPolicyV1,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     DerivedBinary64AffineViewV1,
     ExactMatrix2V1,
     ExactPoint2V1,
@@ -45,6 +46,7 @@ from .contracts.metric import (
     RuntimePredicateFilterContractV1,
     RuntimePredicateFilterLawV1,
     RuntimePredicateResultV1,
+    developable_stretch_budget_is_lawful,
 )
 from ._embedding import (
     build_projection_embedding_certificate,
@@ -891,15 +893,22 @@ def _developable_rung(
     enforce_embedding,
     surface_triangles,
     declared_straight_chains=(),
+    developable_stretch_budget=None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Последняя ступень лестницы: развёртка после именованного отказа near-planar.
 
     Привязка источника та же, что на ступенях ниже (`resolve_source_grid`), позиции
     берутся ДО проекции на плоскость: развёртка плоскости не знает. Отказ ступени (и
     привязки источника, и развёртки) несёт и свой исход, и отказ near-planar, после
-    которого она пробовалась.
+    которого она пробовалась. `developable_stretch_budget` — допуск растяжения ЗАПРОСА
+    (`DecalRequestV1.developable_stretch_budget`): `None` — умолчание ядра, значение вне
+    `(0, 1/2]` — `ValueError`; снапшот и запрос обязаны называть один допуск.
     """
 
+    if developable_stretch_budget is None:
+        developable_stretch_budget = DEFAULT_DEVELOPABLE_STRETCH_BUDGET
+    if not developable_stretch_budget_is_lawful(developable_stretch_budget):
+        raise ValueError(f"the developable stretch budget {developable_stretch_budget} must lie in (0, 1/2]")
     faces, required_ids, positions = _source_scope(
         owner_patch_id=owner_patch_id,
         source_vertices=source_vertices,
@@ -927,6 +936,7 @@ def _developable_rung(
             ),
             previous_refusals=(trace,),
             declared_straight_chains=declared_straight_chains,
+            budget=developable_stretch_budget,
         )
     except PlanarMetricAdmissionError as final:
         raise PlanarMetricAdmissionError(
@@ -973,6 +983,7 @@ def _build_embedding_certified_metric(
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
     declared_straight_chains: tuple = (),
+    developable_stretch_budget=None,
     **arguments,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Лестница метрики: EXACT -> NEAR_PLANAR -> DEVELOPABLE.
@@ -1017,6 +1028,7 @@ def _build_embedding_certified_metric(
             enforce_embedding=arguments.get("enforce_embedding", True),
             surface_triangles=arguments["surface_triangles"],
             declared_straight_chains=tuple(declared_straight_chains),
+            developable_stretch_budget=developable_stretch_budget,
         )
 
 
@@ -1043,6 +1055,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
     declared_straight_chains: tuple = (),
+    developable_stretch_budget=None,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -1060,6 +1073,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         near_planar_frame_policy=near_planar_frame_policy,
         curvature_ladder=curvature_ladder,
         declared_straight_chains=declared_straight_chains,
+        developable_stretch_budget=developable_stretch_budget,
     )
 
 
@@ -1086,6 +1100,7 @@ def build_rational_affine_planar_metric(
         CurvatureLadderPolicyV1.NEAR_PLANAR_ONLY_V1
     ),
     declared_straight_chains: tuple = (),
+    developable_stretch_budget=None,
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -1104,6 +1119,7 @@ def build_rational_affine_planar_metric(
         near_planar_frame_policy=near_planar_frame_policy,
         curvature_ladder=curvature_ladder,
         declared_straight_chains=declared_straight_chains,
+        developable_stretch_budget=developable_stretch_budget,
     ).metric
 
 

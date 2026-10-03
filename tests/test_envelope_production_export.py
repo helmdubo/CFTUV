@@ -542,21 +542,21 @@ def test_the_console_shows_how_much_of_the_stretch_budget_an_unfolded_domain_use
     import re
     from types import SimpleNamespace
 
-    from cftuv_envelope.contracts.metric import DEVELOPABLE_STRETCH_BUDGET
+    from cftuv_envelope.contracts.metric import DEFAULT_DEVELOPABLE_STRETCH_BUDGET
 
     bundle = quad_row_bundle(ROW, lifted_corner=1.0)
     run, _ = _production(bundle)
     unfolded = run.results[ROW - 1]
     line = next(item for item in unfolded.diagnostics if item.startswith("DEVELOPABLE_LIFT_ONTO_UNFOLDED"))
     band = float(re.search(r"worst_band_squared<=([0-9.e+-]+)", line).group(1))
-    budget = float(DEVELOPABLE_STRETCH_BUDGET) * 100.0
+    budget = float(DEFAULT_DEVELOPABLE_STRETCH_BUDGET) * 100.0
     expected = math.ceil((math.sqrt(band) - 1.0) * 1000.0 - 1e-9) / 10.0
     assert budget == pytest.approx(20.0)
 
     lines = production.developable_stretch_lines(run.results)
     assert lines == [
         f"[CFTUV][Production] STRETCH patch {unfolded.patch_id} (domain ...{unfolded.domain_id[-6:]}): "
-        f"stretch <= {expected:.1f} % (budget 20 %)"
+        f"stretch <= {expected:.1f} % (budget 20 %, chart HINGE)"
     ]
     receipt = SimpleNamespace(skipped=(), warnings=(), domains=(), weld_counters=(), offset_counters=())
     assert lines[0] in production.receipt_console_lines(receipt, run.results)
@@ -567,20 +567,30 @@ def test_the_console_shows_how_much_of_the_stretch_budget_an_unfolded_domain_use
 def test_the_stretch_line_rounds_up_and_names_the_largest_of_several_domains():
     from types import SimpleNamespace
 
-    def domain(patch, band, budget="0.2"):
+    def domain(patch, band, budget="0.2", chart="HINGE"):
         text = (
             f"DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES: worst_band_squared<={band} "
-            f"stretch_budget={budget} triangles_measured=3"
+            f"stretch_budget={budget} triangles_measured=3 proposal={chart} "
+            "proposal_selection=BEST_ARAP_WON_V1 hinge_band_squared<=1.2 arap_band_squared<=1.0001 arap_refusal=none"
         )
         return SimpleNamespace(patch_id=patch, domain_id=f"domain-{patch:06d}", diagnostics=(text, "OTHER: x"))
 
-    results = [domain(7, "1.44"), domain(3, "1.0001"), SimpleNamespace(patch_id=1, domain_id="d1", diagnostics=())]
+    results = [
+        domain(7, "1.44"),
+        domain(3, "1.0001", chart="ARAP"),
+        SimpleNamespace(patch_id=1, domain_id="d1", diagnostics=()),
+    ]
     assert production.developable_stretch_lines(results) == [
-        "[CFTUV][Production] STRETCH patch 3 (domain ...000003): stretch <= 0.1 % (budget 20 %)",
-        "[CFTUV][Production] STRETCH patch 7 (domain ...000007): stretch <= 20.0 % (budget 20 %)",
-        "[CFTUV][Production] STRETCH: 2 developable domains, the largest stretch <= 20.0 % (patch 7, budget 20 %)",
+        "[CFTUV][Production] STRETCH patch 3 (domain ...000003): stretch <= 0.1 % (budget 20 %, chart ARAP)",
+        "[CFTUV][Production] STRETCH patch 7 (domain ...000007): stretch <= 20.0 % (budget 20 %, chart HINGE)",
+        "[CFTUV][Production] STRETCH: 2 developable domains, the largest stretch <= 20.0 % "
+        "(patch 7, budget 20 %, chart HINGE)",
     ]
     assert production.developable_stretch_lines([]) == []
+    # Бюджет читается из записи ядра, а не из константы хоста: допуск запроса 35 % виден в строке.
+    assert production.developable_stretch_lines([domain(5, "1.69", budget="0.35")]) == [
+        "[CFTUV][Production] STRETCH patch 5 (domain ...000005): stretch <= 30.0 % (budget 35 %, chart HINGE)"
+    ]
 
 
 def test_the_offset_normals_are_visible_to_the_equality_and_to_the_json_line(tmp_path):
@@ -1391,3 +1401,55 @@ def test_the_json_row_names_the_law_and_its_counters(tmp_path):
         >= item["counters"]["MATERIALIZE_FACES_EMITTED"] + item["counters"]["MATERIALIZE_QUADS"]
         for item in materialized
     )
+
+
+# --------------------------------------------------------------------------
+# Допуск растяжения запроса: метрика, воркеры, кэши сессии, консоль
+# --------------------------------------------------------------------------
+
+
+def _developable_line(run) -> str:
+    unfolded = run.results[ROW - 1]
+    return next(item for item in unfolded.diagnostics if item.startswith("DEVELOPABLE_LIFT_ONTO_UNFOLDED"))
+
+
+def test_the_requests_stretch_budget_reaches_the_unfolded_domain_the_workers_and_the_console(
+    monkeypatch, _pool_always
+):
+    from fractions import Fraction
+
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    budget = Fraction(7, 20)
+    default, _ = _production(bundle, workers=0)
+    sequential, _ = _production(bundle, workers=0, developable_stretch_budget=budget)
+    assert "stretch_budget=0.2 " in _developable_line(default)
+    assert "stretch_budget=0.35 " in _developable_line(sequential)
+    assert "(budget 20 %, chart HINGE)" in production.developable_stretch_lines(default.results)[0]
+    assert "(budget 35 %, chart HINGE)" in production.developable_stretch_lines(sequential.results)[0]
+    # Метрику холодного домена строит воркер: допуск едет в его задаче, ответ тот же, что у родителя.
+    _in_process_session(monkeypatch, _InProcessPool())
+    pooled, _ = _production(bundle, workers=2, developable_stretch_budget=budget)
+    assert _answers(pooled) == _answers(sequential)
+    assert "stretch_budget=0.35 " in _developable_line(pooled)
+    assert _answers(pooled) != _answers(default)
+
+
+def test_the_session_keeps_one_metric_and_one_result_per_budget_and_reuses_each():
+    from fractions import Fraction
+
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    controller = EnvelopeDebugSessionController()
+    first, _ = _production(bundle, controller)
+    assert controller.build_counts["PATCH_METRIC"] == ROW
+    wide, _ = _production(bundle, controller, developable_stretch_budget=Fraction(7, 20))
+    assert controller.build_counts["PATCH_METRIC"] == 2 * ROW
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 2 * ROW
+    again, _ = _production(bundle, controller)
+    again_wide, _ = _production(bundle, controller, developable_stretch_budget=Fraction(7, 20))
+    assert controller.build_counts["PATCH_METRIC"] == 2 * ROW
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == 2 * ROW
+    assert (_hits(again), _misses(again)) == (ROW, 0)
+    assert (_hits(again_wide), _misses(again_wide)) == (ROW, 0)
+    assert "stretch_budget=0.2 " in _developable_line(again)
+    assert "stretch_budget=0.35 " in _developable_line(again_wide)
+    assert _answers(again) == _answers(first) and _answers(again_wide) == _answers(wide)

@@ -1053,6 +1053,7 @@ def _queue_snapshot_and_request(
             alpha,
             decal_request_id_value=request_id,
             density=density,
+            developable_stretch_budget=getattr(topology_export, "developable_stretch_budget", None),
         )
     return snapshot, request
 

@@ -98,6 +98,7 @@ class TolerancePolicyIdV1(str, Enum):
         "NEAR_PLANAR_WIDTH_DISTORTION_RELATIVE_V1"
     )
     DEVELOPABLE_STRETCH_RELATIVE_V1 = "DEVELOPABLE_STRETCH_RELATIVE_V1"
+    DEVELOPABLE_ISOMETRIC_ENOUGH_V1 = "DEVELOPABLE_ISOMETRIC_ENOUGH_V1"
     SURFACE_LIFT_EXTRAPOLATION_CELLS_V1 = "SURFACE_LIFT_EXTRAPOLATION_CELLS_V1"
     NEAR_PLANAR_REPRESENTATION_NOISE_V1 = "NEAR_PLANAR_REPRESENTATION_NOISE_V1"
     CANONICAL_RESTORATION_ARTIST_SCALE_V1 = (
@@ -182,6 +183,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
 
     NEAR_PLANAR_ADMISSION = "NEAR_PLANAR_ADMISSION"
     DEVELOPABLE_ADMISSION = "DEVELOPABLE_ADMISSION"
+    DEVELOPABLE_PROPOSAL_SELECTION = "DEVELOPABLE_PROPOSAL_SELECTION"
     SURFACE_LIFT_POINT_LOCATION = "SURFACE_LIFT_POINT_LOCATION"
     NEAR_PLANAR_CERTIFICATE_RECOMPUTATION = (
         "NEAR_PLANAR_CERTIFICATE_RECOMPUTATION"
@@ -216,6 +218,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
 
     ADMIT_OR_REJECT_PROJECTION = "ADMIT_OR_REJECT_PROJECTION"
     ADMIT_OR_REJECT_UNFOLDED_CHART = "ADMIT_OR_REJECT_UNFOLDED_CHART"
+    TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART = (
+        "TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART"
+    )
     EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND = "EXTEND_NEAREST_TRIANGLE_WITHIN_BOUND"
     RECOMPUTE_DECLARED_CERTIFICATE_ONLY = "RECOMPUTE_DECLARED_CERTIFICATE_ONLY"
     ADMIT_OR_REJECT_GRID_SCALE = "ADMIT_OR_REJECT_GRID_SCALE"
@@ -1026,7 +1031,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         scope=(
             "Во сколько раз длина вдоль поверхности источника вправе отличаться от "
             "длины на привязанной к решётке карте развёртки, В ОБЕ СТОРОНЫ: `1 + b`, "
-            "`b = 1/5` (20 %). Условие приёма развёртки: оба квадрата сингулярных чисел "
+            "`b` — политика ЗАПРОСА (`DecalRequestV1.developable_stretch_budget`, "
+            "из `(0, 1/2]`), по умолчанию `b = 1/5` (20 %). Условие приёма развёртки: "
+            "оба квадрата сингулярных чисел "
             "отображения треугольник источника -> треугольник карты лежат в "
             "`[1/(1+b)^2, (1+b)^2]`, что решается тремя знаками рациональных "
             "чисел (корни `det(G_c - lambda G_s)`), без корней и допуска "
@@ -1051,7 +1058,8 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
         telemetry_counters=(),
         declaration_sites=(
-            "cftuv_envelope.contracts.metric.DEVELOPABLE_STRETCH_BUDGET",
+            "cftuv_envelope.contracts.metric.DEFAULT_DEVELOPABLE_STRETCH_BUDGET",
+            "cftuv_envelope.contracts.metric.MAX_DEVELOPABLE_STRETCH_BUDGET",
         ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_developable_unfold.py"
@@ -1060,6 +1068,48 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_developable_unfold.py"
             "::test_a_cone_with_an_interior_apex_is_beyond_the_stretch_budget_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.DEVELOPABLE_ISOMETRIC_ENOUGH_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 50)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Порог «достаточно изометрично» для выбора предложения развёртки: `b = 1/50` (2 %). "
+            "Карта шарнира, принятая в бюджете запроса, чья сертифицированная верхняя граница "
+            "квадрата растяжения не больше `(1 + b)^2`, остаётся как есть и второе предложение "
+            "(ARAP) не пробуется. Выше порога ARAP тоже строит карту (тот же суд, тот же бюджет "
+            "запроса, та же решётка), и побеждает карта с МЕНЬШИМ сертифицированным растяжением; "
+            "равенство решает шарнир. Порог не допуск приёма (приём судит бюджет запроса), а цена "
+            "поиска: он решает, стоит ли тратить второе предложение. Оба числа и победитель "
+            "записаны в сертификате (`DevelopableProposalSelectionLawV1`), валидатор пересчитывает "
+            "оба предложения."
+        ),
+        authority=(
+            "DevelopableProposalSelectionLawV1; DECISIONS.md 2026-10-03 (STRETCH-BUDGET-POLICY + "
+            "BEST-PROPOSAL: прежний бюджет приёма 1/50 стал порогом поиска лучшего предложения)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.DEVELOPABLE_PROPOSAL_SELECTION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.TRY_SECOND_PROPOSAL_AND_KEEP_THE_LESS_STRETCHED_CHART
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=(
+            "cftuv_envelope.contracts.metric.DEVELOPABLE_ISOMETRIC_ENOUGH",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_best_proposal.py"
+            "::test_a_hinge_chart_within_the_isometric_threshold_never_tries_arap"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_best_proposal.py"
+            "::test_a_hinge_chart_beyond_the_isometric_threshold_also_tries_arap"
         ),
     ),
     TolerancePolicyV1(

@@ -40,7 +40,7 @@ def build_metric(parts, *, ladder=CurvatureLadderPolicyV1.NEAR_PLANAR_THEN_DEVEL
     return build_embedding_certified_rational_affine_planar_metric(**options)
 
 
-def developable_domain(parts, route_names, *, alpha="0.2"):
+def developable_domain(parts, route_names, *, alpha="0.2", developable_stretch_budget=None):
     """Снапшот и запрос домена-развёртки: честные 3D-позиции, метрика через лестницу.
 
     Помощник `straight_snapshot` берёт плоские многоугольники и разделяет грани по
@@ -94,6 +94,7 @@ def developable_domain(parts, route_names, *, alpha="0.2"):
         near_planar_lift_law=NearPlanarLiftLawV1.SOURCE_TRIANGLES_V1,
         near_planar_frame_policy=NearPlanarFramePolicyV1.REDUCED_INTEGER_PLANE_LATTICE_BASIS_V1,
         curvature_ladder=CurvatureLadderPolicyV1.NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1,
+        developable_stretch_budget=developable_stretch_budget,
     )
     return snapshot, request
 

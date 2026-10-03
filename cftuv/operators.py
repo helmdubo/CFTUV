@@ -38,7 +38,13 @@ from .debug import (
 )
 from .envelope_debug_panel import draw_envelope_debug_box
 from .envelope_domain_pool import DEFAULT_POOL_WORKERS
-from .envelope_request_policy import DEFAULT_ENVELOPE_FAN_DENSITY, ENVELOPE_FAN_DENSITY_ITEMS
+from .envelope_request_policy import (
+    DEFAULT_ENVELOPE_FAN_DENSITY,
+    DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
+    ENVELOPE_FAN_DENSITY_ITEMS,
+    ENVELOPE_MAX_STRETCH_PERCENT_RANGE,
+    envelope_stretch_budget,
+)
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .model import MeshPreflightReport, UVSettings
 from .solve import (
@@ -164,6 +170,13 @@ def _update_envelope_debug_visibility(settings, _context):
         print(f"[CFTUV][EnvelopeDebug] Visibility update failed: {exc}")
 
 
+def _live_session(context):
+    """Сессия окна, если кнопка её уже создала; сама ничего не создаёт."""
+
+    manager = None if context is None else context.window_manager
+    return None if manager is None else getattr(manager, "_cftuv_envelope_debug_session", None)
+
+
 def _update_envelope_debug_alpha(settings, context):
     """Ползунок alpha на движке QUEUE: покрытие и слои, без единой компиляции.
 
@@ -176,15 +189,7 @@ def _update_envelope_debug_alpha(settings, context):
     if str(settings.envelope_debug_engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
         return
     source_name = str(settings.envelope_debug_source_object).strip()
-    controller = (
-        getattr(
-            context.window_manager,
-            "_cftuv_envelope_debug_session",
-            None,
-        )
-        if context is not None and context.window_manager is not None
-        else None
-    )
+    controller = _live_session(context)
     if not source_name or controller is None:
         return
     try:
@@ -207,21 +212,20 @@ def _update_envelope_debug_alpha(settings, context):
         settings.envelope_debug_queue_timing = status
 
 
-def _update_envelope_debug_fan_density(settings, context):
-    """Смена плотности требует Build, но не выбрасывает keyed preparation."""
+def _request_policy_update(label):
+    """Смена политики запроса (плотность, допуск растяжения) требует Build, но не выбрасывает keyed preparation."""
 
-    controller = (
-        getattr(
-            context.window_manager,
-            "_cftuv_envelope_debug_session",
-            None,
-        )
-        if context is not None and context.window_manager is not None
-        else None
-    )
-    if controller is not None:
-        controller.invalidate_queue_session()
-    settings.envelope_debug_queue_timing = "Fan Density changed; press Build"
+    def update(settings, context):
+        controller = _live_session(context)
+        if controller is not None:
+            controller.invalidate_queue_session()
+        settings.envelope_debug_queue_timing = f"{label} changed; press Build"
+
+    return update
+
+
+_update_envelope_debug_fan_density = _request_policy_update("Fan Density")
+_update_envelope_debug_max_stretch = _request_policy_update("Max stretch")
 
 
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
@@ -270,6 +274,17 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "Angular fan segment density; higher values create more segments"
         ),
         update=_update_envelope_debug_fan_density,
+    )
+    envelope_debug_max_stretch: IntProperty(
+        name="Max stretch (%)",
+        default=DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
+        min=ENVELOPE_MAX_STRETCH_PERCENT_RANGE[0],
+        max=ENVELOPE_MAX_STRETCH_PERCENT_RANGE[1],
+        description=(
+            "Largest accepted stretch of an unfolded decal domain, "
+            "percent of source length"
+        ),
+        update=_update_envelope_debug_max_stretch,
     )
     envelope_debug_workers: IntProperty(
         name="Workers", default=DEFAULT_POOL_WORKERS, min=0, max=32,
@@ -1494,6 +1509,9 @@ class _EnvelopeDebugBuildBase:
                     source_object_key=source_object_key,
                     source_data_key=source_data_key,
                     engine=engine, density=settings.envelope_debug_fan_density,
+                    developable_stretch_budget=envelope_stretch_budget(
+                        settings.envelope_debug_max_stretch
+                    ),
                     workers=settings.envelope_debug_workers,
                 )
                 topology_scene = evaluation.topology_scene

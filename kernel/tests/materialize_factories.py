@@ -59,6 +59,7 @@ def with_affine_metric(
     near_planar_lift_law=None,
     near_planar_frame_policy=None,
     curvature_ladder=None,
+    developable_stretch_budget=None,
 ):
     """Снапшот с честной аффинной метрикой вместо его плоского кадра.
 
@@ -93,6 +94,11 @@ def with_affine_metric(
             {}
             if curvature_ladder is None
             else {"curvature_ladder": curvature_ladder}
+        ),
+        **(
+            {}
+            if developable_stretch_budget is None
+            else {"developable_stretch_budget": developable_stretch_budget}
         ),
     )
     return dataclasses.replace(

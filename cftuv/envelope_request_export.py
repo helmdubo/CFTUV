@@ -1639,7 +1639,7 @@ def _host_outcome_for(outcome):
 
 
 def _rational_affine_metric(
-    kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains,
+    kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains, budget,
 ):
     """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses)."""
 
@@ -1658,6 +1658,7 @@ def _rational_affine_metric(
             near_planar_frame_policy=NearPlanarFramePolicyV1(HOST_NEAR_PLANAR_FRAME_POLICY.value),
             curvature_ladder=CurvatureLadderPolicyV1(HOST_CURVATURE_LADDER_POLICY.value),
             declared_straight_chains=declared_straight_chain_vertices(*chains, patch_domain_id),
+            developable_stretch_budget=budget,
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
@@ -2091,6 +2092,7 @@ def build_envelope_analysis_snapshot(
                 kernel, source_revision=source_revision, patch_domain_id=patch_domains[patch_id],
                 owner_patch_id=patch_ids[patch_id], source_vertices=source_vertices, surface_ir=surface_ir,
                 chains=(physical_chains, chain_uses),
+                budget=getattr(topology_export, "developable_stretch_budget", None),
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
@@ -2197,11 +2199,12 @@ def build_envelope_decal_request(
     *,
     decal_request_id_value: str | None = None,
     density=None,
+    developable_stretch_budget=None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request."""
 
     kernel, _ = _load_kernel()
-    angular_policy = envelope_angular_policy(kernel, density)
+    angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget)
     if not selected_physical_edge_ids:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
@@ -2661,6 +2664,9 @@ def evaluate_envelope_debug_staged(
                     alpha,
                     decal_request_id_value=global_request_id,
                     density=density,
+                    developable_stretch_budget=getattr(
+                        topology_export, "developable_stretch_budget", None
+                    ),
                 )
         except EnvelopeHostAdapterError as exc:
             diagnostic = exc.diagnostic()

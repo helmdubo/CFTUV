@@ -6,8 +6,9 @@
 UV, атрибуты граней). Здесь только Blender: выделение, настройки, регистрация и
 строки статуса.
 
-ВЫДЕЛЕНИЕ, ПЛОТНОСТЬ, ALPHA, ВОРКЕРЫ — те же настройки панели Envelope Debug
-(`envelope_debug_alpha`, `envelope_debug_fan_density`, `envelope_debug_workers`),
+ВЫДЕЛЕНИЕ, ПЛОТНОСТЬ, ДОПУСК РАСТЯЖЕНИЯ, ALPHA, ВОРКЕРЫ — те же настройки панели Envelope Debug
+(`envelope_debug_alpha`, `envelope_debug_fan_density`, `envelope_debug_max_stretch`,
+`envelope_debug_workers`),
 и та же сессия контроллера на окне: нажатие сразу после отладочной кнопки
 берёт готовые подготовки из её кэша, не собирая ни одной. Движок отладки
 (LEGACY/QUEUE) не читается: продуктовый путь — очередь.
@@ -139,6 +140,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             receipt_status_text,
             run_production,
         )
+        from .envelope_request_policy import envelope_stretch_budget
 
         settings = context.scene.hotspotuv_settings
         mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
@@ -181,6 +183,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_object_key=source_object_key,
                 source_data_key=source_data_key,
                 density=settings.envelope_debug_fan_density,
+                developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
                 workers=settings.envelope_debug_workers,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу

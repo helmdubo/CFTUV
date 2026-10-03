@@ -73,6 +73,7 @@ class CompiledEnvelopeCacheKeyV1:
                     "ownership_policy_id",
                     "material_policy_id",
                     "uv_policy_id",
+                    "developable_stretch_budget",
                 )
             ),
         )
@@ -186,11 +187,11 @@ class EnvelopeDebugSessionController:
         ] = {}
         self._topology_export_cache: dict[str, EnvelopeTopologyExportV1] = {}
         self._patch_metric_cache: dict[
-            tuple[str, str],
+            tuple[str, str, object],
             EnvelopePatchMetricExportV1 | _CachedMetricFailure,
         ] = {}
         self._domain_geometry_cache: dict[
-            tuple[str, str], EnvelopeDomainGeometryExportV1
+            tuple[str, str, object], EnvelopeDomainGeometryExportV1
         ] = {}
         self._compiled_envelope_cache: dict[
             CompiledEnvelopeCacheKeyV1, object
@@ -446,7 +447,7 @@ class EnvelopeDebugSessionController:
         """Есть ли метрика патча в кэше. Счётчиков не пишет: это вопрос, не сборка."""
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (topology_export.source_revision_value, domain_id)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget)
         return key in self._patch_metric_cache
 
     def get_patch_metric(
@@ -466,7 +467,7 @@ class EnvelopeDebugSessionController:
         """
 
         domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
-        key = (topology_export.source_revision_value, domain_id)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget)
         cached = self._patch_metric_cache.get(key)
         if cached is not None:
             self._record_cache(
@@ -537,6 +538,7 @@ class EnvelopeDebugSessionController:
         key = (
             metric_export.source_revision_value,
             metric_export.patch_domain_id,
+            metric_export.developable_stretch_budget,
         )
         cached = self._domain_geometry_cache.get(key)
         if cached is not None:
@@ -724,6 +726,7 @@ class EnvelopeDebugSessionController:
         engine: str = "LEGACY",
         density,
         workers: int = 0,
+        developable_stretch_budget=None,
     ):
         from .envelope_domain_pool import get_domain_pool
         from .envelope_queue_export import (
@@ -740,7 +743,7 @@ class EnvelopeDebugSessionController:
             source_object_key,
             source_data_key,
             profile=profile,
-        )
+        ).with_developable_stretch_budget(developable_stretch_budget)
         if profile is not None:
             profile.set_counter(
                 "COMPILED_ENVELOPE_CACHE_ENABLED",
@@ -880,6 +883,7 @@ def evaluate_envelope_debug_staged(
     engine: str = "LEGACY",
     density=None,
     workers: int = 0,
+    developable_stretch_budget=None,
 ):
     """Compatibility entry point with optional persistent session reuse.
 
@@ -900,7 +904,7 @@ def evaluate_envelope_debug_staged(
         topology_export = build_envelope_topology_export(
             analysis_bundle,
             profile=profile,
-        )
+        ).with_developable_stretch_budget(developable_stretch_budget)
         run = (
             evaluate_envelope_queue_staged
             if str(engine) == ENVELOPE_DEBUG_ENGINE_QUEUE
@@ -928,6 +932,7 @@ def evaluate_envelope_debug_staged(
         engine=engine,
         density=density,
         workers=workers,
+        developable_stretch_budget=developable_stretch_budget,
     )
 
 
