@@ -299,6 +299,12 @@ class CanonicalFanRaysRefusalV1(str, Enum):
     CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE = (
         "CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE"
     )
+    # Угол канонический, но шум привязки к решётке вышел за объявленные границы
+    # закона шума (`EvaluationBindingNoiseRefusalV1` называет, за какую именно):
+    # закон лучей опирается на тот же факт и молчит вместе с ним.
+    BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS = (
+        "BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS"
+    )
 
 
 class EvaluationBindingNoiseEffectV1(str, Enum):

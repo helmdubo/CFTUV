@@ -25,15 +25,31 @@
 ГАРАНТИЯ НЕ ОСЛАБЛЕНА. Подшаг `<= pi/q` и порядок лучей проверяются точной
 арифметикой на КАЖДОМ секторе вычислительной геометрии, включая последний с
 шумом привязки; провал — именованный отказ, не допуск. Для `(1/2, 4, 6)`
-запас по потолку 7.4 градуса при шуме привязки не больше 0.057 (объявленный
-синус `1/1000`); замер поля — до 0.017 (`2.89e-4` рад).
+запас по потолку 7.4 градуса при шуме не больше 0.143 (объявленный синус
+`1/400`: допуск восстановления 0.1 градуса плюс шум привязки к решётке);
+замер поля — до 0.017 (`2.89e-4` рад) сверх восстановленного отклонения.
+
+ОБЛАСТЬ ДЕЙСТВИЯ (RIGHT-ANGLE-STABLE, 2026-10-03). Закон действует на КАЖДОМ
+каноническом угле, чьи лучи пришлось бы ПРИВЯЗЫВАТЬ, а не только на поднятом:
+d0, d1, d3 неподнятый канонический прямой угол получает ту же таблицу
+(`(1/2, 2, 2)`, `(1/2, 2, 3)`, `(1/2, 3, 5)`). Прежде такие лучи ставила
+построчная привязка B(w) либо адаптивный атлас в ШИРОКОМ окне Вороного (между
+серединами соседних лучей идеала) и брали луч наименьшей высоты — прямую
+решётки карты, а не равный шаг: на d1 `building` 182 угла давали 23 набора
+шагов (36 раз 45/45, остальные 57.8/32.2, 46.8/43.2, 36/54…). Неподнятый угол
+без записи таблицы (тугой d2 `H=1`: его ведёт закон шума привязки) закону не
+принадлежит, и он молчит НЕ отказом — таблица сказала всё, что могла, а
+ответ прежний. Угол, чьи лучи привязки не требуют (рациональны в обеих
+геометриях), остаётся равноугольным идеалом и записи не получает.
 
 ЭТО ЭВРИСТИКА, МЕНЯЮЩАЯ ОТВЕТ, поэтому она не молчит (п. 4 `AGENTS.md`): запись
 `CanonicalRationalRotationFanAuthorityV1` — власть веера в самой спеке плана, а
 отказ закона называет причину (`CanonicalFanRaysRefusalV1`) в диагностике ядра
 и в счётчике `CONVEYOR_CANONICAL_FAN_RAYS_LAW_REFUSED`:
 
-* нет записи таблицы для `(u, H + 1, q)` — прежний атлас;
+* нет записи таблицы для `(u, H + 1, q)` у ПОДНЯТОГО угла — прежний атлас;
+* шум привязки вне объявленных границ закона — прежний путь на
+  вычислительной геометрии (`BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS`);
 * луч иррационален в карте (корень из определителя Грама не рационален) —
   прежний атлас;
 * точная проверка подшага провалилась — прежний атлас.
@@ -58,8 +74,10 @@ from .._density_policy import (
 )
 from ..contracts.envelopes import (
     AdaptiveDensityAngularEnvelopeSpecV2,
+    AngularEnvelopeSpec,
     CanonicalFanRaysLawV1,
     CanonicalRationalRotationFanAuthorityV1,
+    CertifiedBoundHiddenSupportSpecV1,
 )
 from ..numeric import ExactRatioV1
 from .common import stable_id
@@ -212,18 +230,30 @@ def canonical_fan_rays_decision(context, spec, selection) -> CanonicalFanRaysDec
 def _decide(context, spec, selection, count: int) -> CanonicalFanRaysDecision:
     refusals = CanonicalFanRaysRefusalV1
     contract = huber_density_value_contract(selection.max_subturn_value_id)
-    fact = (
-        None
-        if contract is None
-        else noise.canonical_noise_fact(context, spec, selection)
-    )
+    if contract is None:
+        return _SILENT
+    fact = noise.canonical_noise_fact(context, spec, selection)
     if fact is None:
+        # Факта нет: селектор видит сырое число (закон не про этот угол), либо
+        # привязки нет, либо шум привязки вне границ — и только последнее названо.
+        applicability = noise.canonical_noise_applicability(context, spec, selection)
+        if applicability.canonical is not None and applicability.refusal is not None:
+            return CanonicalFanRaysDecision(
+                None, refusals.BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS
+            )
         return _SILENT
     q = contract[0]
+    lifted = count != selection.resolved_hidden_edge_count
     rays = canonical_rotation_rays(fact.canonical, count + 1, q)
     if rays is None:
-        return CanonicalFanRaysDecision(
-            None, refusals.NO_CANONICAL_ROTATION_TABLE_ENTRY
+        # У поднятого угла лучи ищет атлас, и это названо. Неподнятый угол без
+        # записи — не область таблицы: закон ничего не говорит о его лучах.
+        return (
+            CanonicalFanRaysDecision(
+                None, refusals.NO_CANONICAL_ROTATION_TABLE_ENTRY
+            )
+            if lifted
+            else _SILENT
         )
     from .direction_binding import has_rational_density_support_direction
 
@@ -249,6 +279,21 @@ def _decide(context, spec, selection, count: int) -> CanonicalFanRaysDecision:
     )
 
 
+def _binds_rays(spec) -> bool:
+    """Лучи спеки привязаны: поднятый или адаптивный веер либо построчная привязка.
+
+    Спека с несвязанными опорами (равноугольный идеал, рациональный в обеих
+    геометриях) закону не принадлежит: ему нечего заменять.
+    """
+
+    if isinstance(spec, AdaptiveDensityAngularEnvelopeSpecV2):
+        return True
+    return any(
+        isinstance(item, CertifiedBoundHiddenSupportSpecV1)
+        for item in spec.hidden_supports
+    )
+
+
 def _selection_of(context, spec):
     return next(
         item
@@ -260,9 +305,10 @@ def _selection_of(context, spec):
 def canonical_fan_rays_error(context, spec) -> str | None:
     """Пересчитать закон по сырой геометрии и назвать первое расхождение со спекой.
 
-    Спека, не поднятая лифтом, законом не затрагивается. Лифтованная обязана
-    нести ровно ту власть, что получилась бы: ни атласа там, где закон
-    применим, ни власти закона там, где он молчит или отказал.
+    Спека, чьи лучи привязывать не пришлось, законом не затрагивается. Спека с
+    привязанными лучами (лифт, атлас, построчная привязка) обязана нести ровно
+    ту власть, что получилась бы: ни атласа там, где закон применим, ни власти
+    закона там, где он молчит или отказал.
 
     Исход считается ОДИН раз на контекст и запись: проверку зовут и сверка
     причин привязки, и потребление опор, а сверка лучей стоит точной работы.
@@ -270,10 +316,9 @@ def canonical_fan_rays_error(context, spec) -> str | None:
     идентификатором не получит чужого исхода.
     """
 
-    if (
-        type(spec) is not AdaptiveDensityAngularEnvelopeSpecV2
-        or spec.evaluation_subturn_count_lift is None
-    ):
+    if not isinstance(spec, AngularEnvelopeSpec) or not _binds_rays(spec):
+        return None
+    if huber_density_value_contract(_selection_of(context, spec).max_subturn_value_id) is None:
         return None
     cache = context.evaluation_noise_cache
     key = ("rays-error", spec)
@@ -283,7 +328,7 @@ def canonical_fan_rays_error(context, spec) -> str | None:
 
 
 def _rays_error(context, spec) -> str | None:
-    authority = spec.direction_fan_authority
+    authority = getattr(spec, "direction_fan_authority", None)
     carries = type(authority) is CanonicalRationalRotationFanAuthorityV1
     decision = canonical_fan_rays_decision(
         context, spec, _selection_of(context, spec)
@@ -298,7 +343,7 @@ def _rays_error(context, spec) -> str | None:
         )
     if not carries:
         return (
-            "canonical fan rays law applies to this lifted angle, but its "
+            "canonical fan rays law applies to this canonical angle, but its "
             "fan is not the canonical rotation fan"
         )
     expected = decision.authority
@@ -360,14 +405,21 @@ def canonical_fan_rays_diagnostics(context, specs) -> tuple:
         (
             item
             for item in specs
-            if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
-            and item.evaluation_subturn_count_lift is not None
+            if isinstance(item, AngularEnvelopeSpec)
+            and item.resolved_hidden_edge_count > 0
+            and _binds_rays(item)
+            and not (
+                type(item) is AdaptiveDensityAngularEnvelopeSpecV2
+                and type(item.direction_fan_authority)
+                is CanonicalRationalRotationFanAuthorityV1
+            )
         ),
         key=lambda item: item.envelope_spec_id.value,
     ):
-        decision = canonical_fan_rays_decision(
-            context, spec, _selection_of(context, spec)
-        )
+        selection = _selection_of(context, spec)
+        if huber_density_value_contract(selection.max_subturn_value_id) is None:
+            continue
+        decision = canonical_fan_rays_decision(context, spec, selection)
         if decision.refusal is None:
             continue
         diagnostics.append(
@@ -375,9 +427,10 @@ def canonical_fan_rays_diagnostics(context, specs) -> tuple:
                 outcome=ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED,
                 severity=ReferenceDiagnosticSeverity.INFO,
                 message=(
-                    f"{decision.refusal.value}: the rays of a lifted "
-                    "canonical angle are found by the adaptive atlas on the "
-                    "evaluation geometry, not set by the rotation table"
+                    f"{decision.refusal.value}: the rays of a canonical "
+                    "angle are bound by the adaptive atlas or the per-ray "
+                    "window on the evaluation geometry, not set by the "
+                    "rotation table"
                 ),
                 envelope_spec_id=spec.envelope_spec_id.value,
             )

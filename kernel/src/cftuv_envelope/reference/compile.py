@@ -801,12 +801,8 @@ def _attach_direction_bindings(
                     selection,
                     density_contract[0],
                 )
-                rays = (
-                    None
-                    if lift is None
-                    else canonical_fan_rays_decision(context, spec, selection)
-                )
-                if rays is not None and rays.authority is not None:
+                rays = canonical_fan_rays_decision(context, spec, selection)
+                if lift is not None and rays.authority is not None:
                     # ЗАКОН `CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1`: лучи
                     # лифтованного канонического угла вычислены по таблице
                     # поворотов, атласу искать нечего (`canonical_fan_rays.py`).
@@ -858,6 +854,16 @@ def _attach_direction_bindings(
                 )
             )
             if not any(needs_binding) and lift is None:
+                continue
+            if is_density and lift is None and rays.authority is not None:
+                # Тот же закон на НЕподнятом каноническом угле (d0, d1, d3):
+                # привязывать пришлось бы лучи равноугольного идеала, и запись
+                # таблицы ставит их ровно, а не прямой малой высоты в широком
+                # окне Вороного (RIGHT-ANGLE-STABLE, `canonical_fan_rays.py`).
+                changed_specs.remove(original_spec)
+                changed_specs.add(
+                    _adaptive_density_spec(spec, rays.authority, None)
+                )
                 continue
             binding_reasons = (
                 tuple(
