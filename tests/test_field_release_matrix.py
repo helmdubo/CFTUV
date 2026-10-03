@@ -23,6 +23,13 @@ xfail и skip им ЗАПРЕЩЕНЫ НАВСЕГДА, и запрет испо
 фронт обязан замкнуть свою цепочку граней — это и есть `FaceOutcome.EXACT`),
 ТОЧНЫЕ ЛОКУСЫ и семантические `participants`.
 
+ТАБЛИЦА ЯКОРЕЙ СНЯТА НА ПРОДУКТОВЫХ ЗАКОНАХ (2026-10-03). Строки, которые законы веера RIGHT-ANGLE-STABLE и
+JOIN 45° сдвинули, пересняты текущим ядром (`artifacts/field_gate_freeze/refreeze_anchor_loci.py`; в строке
+`rerecorded.moved_by` названо, какой закон сдвинул сколько якорей), и ворота идут БЕЗ закрепок старых законов:
+закрепка веера и закрепка порога JOIN остались только красными контролями
+(`test_anchor_gate_goes_red_when_an_old_law_is_re_enabled`) — ворота, не краснеющие при возврате старого закона,
+перестали бы видеть закон.
+
 НЕ заморожен ИСТОРИЧЕСКИЙ СЧЁТЧИК УЗЛОВ. Ни 45, ни 49 не объявлены властью:
 какое из двух чисел верно, ещё не доказано, и заморозить любое значило бы
 решить открытый вопрос тестом. Вместо счётчика заморожены ЯКОРНЫЕ ЛОКУСЫ —
@@ -113,7 +120,13 @@ PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
 PIN_FANS_FLAG = "--pin-fans"
-LEGACY_FANS = "FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE_V1"
+PIN_JOIN_FLAG = "--pin-join"
+# Закрепки законов вееров и порога JOIN — ТОЛЬКО красные контроли ворот якорей: ворота идут без них.
+_FAN_SUFFIX = "BEFORE_RIGHT_ANGLE_STABLE_V1"
+OLD_FAN_LAWS = f"FAN_LAWS_{_FAN_SUFFIX}"
+OLD_FAN_RAY_WINDOW = f"FAN_RAY_WINDOW_{_FAN_SUFFIX}"
+OLD_FAN_ROTATION_TABLE = f"FAN_ROTATION_TABLE_{_FAN_SUFFIX}"
+OLD_JOIN_THRESHOLD = "JOIN_SOFT_BEND_THRESHOLD_30_V1"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
 LEGACY_FRAME = "CANONICAL_ONLY_V1"
 NEAR_PLANAR_ONLY = "NEAR_PLANAR_ONLY_V1"
@@ -125,16 +138,18 @@ def route(
     pin_frame: str | None = None,
     pin_ladder: str | None = None,
     pin_fans: str | None = None,
+    pin_join: str | None = None,
 ) -> dict:
     """Полный маршрут слепка в отдельном процессе под капом работы.
 
     `pin_lift` и `pin_frame` — ИМЕНОВАННЫЕ закрепки закона укладки и политики репера
     хоста (только для ворот математики фронта, см. `test_walls_012_is_exact` и
     таблицу якорей): по умолчанию маршрут идёт настоящими законами хоста, закрепка
-    едет в `substitutions` ответа.
+    едет в `substitutions` ответа. `pin_fans` и `pin_join` возвращают старые законы
+    веера и порог JOIN 30° и нужны ТОЛЬКО красным контролям ворот якорей.
     """
 
-    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}|{pin_fans}"
+    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}|{pin_fans}|{pin_join}"
     if key in _CACHE:
         return _CACHE[key]
     if snapshot == BUILDING:
@@ -161,6 +176,8 @@ def route(
         command += [PIN_LADDER_FLAG, pin_ladder]
     if pin_fans is not None:
         command += [PIN_FANS_FLAG, pin_fans]
+    if pin_join is not None:
+        command += [PIN_JOIN_FLAG, pin_join]
     try:
         finished = subprocess.run(
             command,
@@ -194,13 +211,15 @@ def domain(
     pin_frame: str | None = None,
     pin_ladder: str | None = None,
     pin_fans: str | None = None,
+    pin_join: str | None = None,
 ) -> dict:
-    for record in route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans)["domains"]:
+    result = route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans, pin_join)
+    for record in result["domains"]:
         if record["patch_id"] == patch_id:
             return record
     raise AssertionError(
         f"DOMAIN_ABSENT: у {snapshot} нет домена патча {patch_id}; "
-        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans)['domains']]}"
+        f"есть {[r['patch_id'] for r in result['domains']]}"
     )
 
 
@@ -355,22 +374,48 @@ def test_walls_012_is_exact():
 # ---------------------------------------------------------------------------
 
 
-#: Якорные локусы, которые закон JOIN снял ПО ЗАМЫСЛУ (`DECISIONS.md` 2026-10-03, порог 45°): излом 31–36° контура
-#: `walls.001` стал продолжением полосы (митра, `k = 0`), и веерные локусы этого угла не рождаются. Список ЗАМКНУТ и
-#: проверяется в обе стороны: любой другой пропавший якорь — по-прежнему `ANCHOR_LOCUS_DISAPPEARED`, а вернувшийся
-#: из этого списка — `RETIRED_ANCHOR_REAPPEARED` (список устарел). Ключ — (слепок, патч), значение — `point` якорей.
-RETIRED_BY_JOIN = {
-    (WALLS_001, 0): (
-        {
-            "x": [[1, [689088961381241, 18997346225]], [2337272717435410121, [287181, 18997346225]]],
-            "y": [[1, [21754, 1]]],
-        },
-        {
-            "x": [[1, [396921733550701, 20739843475]], [186598057874827424549, [16893, 20739843475]]],
-            "y": [[1, [21754, 1]]],
-        },
-    ),
-}
+#: Закрепки законов веера и порога JOIN в подмене ответа маршрута. Ворота якорей обязаны идти БЕЗ них: таблица снята на
+#: продуктовых законах (`rerecorded` в `anchor_loci.json`), и закрепка старого закона ослепила бы ворота на продукте.
+PRODUCT_LAW_PIN_PREFIXES = ("KERNEL_FAN_LAWS_PINNED:", "KERNEL_JOIN_THRESHOLD_PINNED:")
+
+
+def anchor_findings(
+    snapshot: str,
+    patch_id: int,
+    pin_lift: str | None = None,
+    pin_frame: str | None = None,
+    pin_fans: str | None = None,
+    pin_join: str | None = None,
+) -> dict:
+    """Расхождение маршрута с таблицей якорей: ОДНА функция и для ворот, и для красных контролей.
+
+    `missing` — якорь не найден; `drifted` — найден, но состав `participants` другой; `reappeared` — локус из
+    `retired_by_join` (его снял закон JOIN 45° по замыслу) снова на месте.
+    """
+
+    table = anchors(snapshot, patch_id)
+    present = {
+        locus_key(locus): locus
+        for locus in domain(
+            snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join
+        )["loci"]
+    }
+    missing = []
+    drifted = []
+    for anchor in table["anchors"]:
+        found = present.get(locus_key(anchor))
+        if found is None:
+            missing.append(anchor["point"])
+        elif found["participants"] != anchor["participants"]:
+            drifted.append(
+                (anchor["point"], anchor["participants"], found["participants"])
+            )
+    reappeared = [
+        retired["point"]
+        for retired in table.get("retired_by_join", ())
+        if locus_key(retired) in present
+    ]
+    return {"missing": missing, "drifted": drifted, "reappeared": reappeared}
 
 
 @pytest.mark.parametrize(
@@ -388,82 +433,123 @@ RETIRED_BY_JOIN = {
     ],
 )
 def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_frame):
-    """Каждый якорный локус на месте, и его `participants` не изменились.
+    """Каждый якорный локус на месте, и его `participants` не изменились — на ПРОДУКТОВЫХ законах.
 
-    Якорный локус — тот, который ОБЕ математики выдают в побитово одинаковых
-    точных `(t, точка)`. Число узлов при этом НЕ проверяется: ремонт вправе
-    добавить или снять локусы, но не вправе сдвинуть согласованные.
+    Якорные локусы строк 2.001, walls.001, walls.012, building п17/п109 сняты ТЕКУЩИМ ядром (законы веера
+    RIGHT-ANGLE-STABLE, JOIN 45°, SNAP-NOISE; в строке `rerecorded.moved_by` названо, какой закон сдвинул старые
+    якоря); строки п91/п121 `building` законы не двигали, и они остались пересечением двух математик (`6ce0227` и
+    `1dbf712`). Число узлов при этом НЕ проверяется: ремонт вправе добавить или снять локусы, но не вправе сдвинуть
+    записанные. `retired_by_join` — локусы, которые порог JOIN 30° даёт на этих же законах веера и которых при
+    45° нет: вернулись — закон JOIN откачен.
     """
 
     table = anchors(snapshot, patch_id)
-    # Таблица якорей записана на лучах прежних законов веера (допуск 7e-6 рад, окно Вороного,
-    # таблица только поднятого d4): ворота держат математику фронта, а не выбор лучей. Закрепка
-    # не немая: её имя едет в `substitutions`, а законы лучей держат тесты ядра.
-    assert (
-        f"KERNEL_FAN_LAWS_PINNED:{LEGACY_FANS}"
-        in route(snapshot, None, pin_frame, None, LEGACY_FANS)["substitutions"]
+    substitutions = route(snapshot, None, pin_frame)["substitutions"]
+    pinned = [item for item in substitutions if item.startswith(PRODUCT_LAW_PIN_PREFIXES)]
+    assert not pinned, (
+        f"ANCHOR_GATE_ON_PINNED_LAWS: ворота якорей {snapshot} п{patch_id} идут на закрепке {pinned}; "
+        "таблица снята на продуктовых законах, а закрепка — только красный контроль."
     )
     if pin_frame is not None:
         # Закрепка не немая: прогон с ней несёт её имя в ответе маршрута.
-        assert (
-            f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pin_frame}"
-            in route(snapshot, None, pin_frame, None, LEGACY_FANS)["substitutions"]
-        )
-    present = {
-        locus_key(locus): locus
-        for locus in domain(snapshot, patch_id, None, pin_frame, None, LEGACY_FANS)["loci"]
-    }
-    retired = RETIRED_BY_JOIN.get((snapshot, patch_id), ())
-    assert all(point in [anchor["point"] for anchor in table["anchors"]] for point in retired), (
-        f"RETIRED_ANCHOR_UNKNOWN: в {snapshot} п{patch_id} нет якоря из RETIRED_BY_JOIN"
+        assert f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pin_frame}" in substitutions
+    assert table["anchor_loci"] == len(table["anchors"])
+    assert not (
+        {locus_key(retired) for retired in table.get("retired_by_join", ())}
+        & {locus_key(anchor) for anchor in table["anchors"]}
+    ), "RETIRED_ANCHOR_IS_AN_ANCHOR: локус одновременно обязан быть и не быть."
+    findings = anchor_findings(snapshot, patch_id, None, pin_frame)
+    assert not findings["reappeared"], (
+        f"RETIRED_ANCHOR_REAPPEARED: {len(findings['reappeared'])} локусов, снятых порогом JOIN 45°, "
+        f"{snapshot} п{patch_id} снова на месте: закон JOIN откачен или таблица устарела."
     )
-    missing = []
-    drifted = []
-    reappeared = []
-    for anchor in table["anchors"]:
-        key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)
-        found = present.get(key)
-        if anchor["point"] in retired:
-            if found is not None:
-                reappeared.append(anchor["point"])
-            continue
-        if found is None:
-            missing.append(anchor["point"])
-        elif found["participants"] != anchor["participants"]:
-            drifted.append((anchor["point"], anchor["participants"],
-                            found["participants"]))
-    assert not reappeared, (
-        f"RETIRED_ANCHOR_REAPPEARED: {len(reappeared)} якорей {snapshot} п{patch_id} снова на месте: "
-        "список RETIRED_BY_JOIN устарел."
-    )
-    assert not missing, (
-        f"ANCHOR_LOCUS_DISAPPEARED: {len(missing)} из {len(table['anchors'])} "
+    assert not findings["missing"], (
+        f"ANCHOR_LOCUS_DISAPPEARED: {len(findings['missing'])} из {len(table['anchors'])} "
         f"якорных локусов {snapshot} п{patch_id} исчезли."
     )
-    assert not drifted, (
-        f"ANCHOR_PARTICIPANTS_DRIFTED: у {len(drifted)} якорных локусов "
-        f"{snapshot} п{patch_id} поехал состав участников: {drifted[:2]}"
+    assert not findings["drifted"], (
+        f"ANCHOR_PARTICIPANTS_DRIFTED: у {len(findings['drifted'])} якорных локусов "
+        f"{snapshot} п{patch_id} поехал состав участников: {findings['drifted'][:2]}"
+    )
+
+
+#: КРАСНЫЕ КОНТРОЛИ ворот якорей: возврат ОДНОГО старого закона обязан дать находку, иначе ворота не видят закон.
+#: Строка: (слепок, патч, закрепка укладки, закрепка репера, закрепка веера, закрепка JOIN, находка, id). Что чем
+#: двигается — ИЗМЕРЕНО переснятием (`rerecorded.moved_by` в `anchor_loci.json`): окно луча (узкая полоса поворота
+#: вместо окна Вороного) двигает якоря walls.001 / walls.012 / building п109; строка таблицы лучей двигает якоря
+#: стены 2.001 и building п17 ТОЛЬКО вместе с окном (канонический угол ушёл от поиска в окне Вороного к строке
+#: таблицы, и возврат одного из двух старых лучей не возвращает); порог JOIN — walls.001. Допуск восстановления 0.1° и
+#: граница шума 1/400 в этих доменах не двигают НИ ОДНОГО якоря (замер на d0): эти ворота их закон не видят, его
+#: держат тесты ядра (границы допуска 0.0999 / 0.1001 в `kernel/tests/test_canonical_angle_restoration.py`).
+RED_CONTROLS = [
+    pytest.param(WALL_2_001, 0, None, None, OLD_FAN_LAWS, None, "missing", id="wall_2_001-all-old-fan-laws"),
+    pytest.param(
+        WALL_2_001, 0, None, None, f"{OLD_FAN_ROTATION_TABLE},{OLD_FAN_RAY_WINDOW}", None, "missing",
+        id="wall_2_001-old-rotation-table-and-ray-window",
+    ),
+    pytest.param(WALLS_001, 0, None, None, OLD_FAN_LAWS, None, "missing", id="walls_001-all-old-fan-laws"),
+    pytest.param(WALLS_001, 0, None, None, OLD_FAN_RAY_WINDOW, None, "missing", id="walls_001-old-ray-window"),
+    pytest.param(WALLS_001, 0, None, None, None, OLD_JOIN_THRESHOLD, "reappeared", id="walls_001-old-join-threshold"),
+    pytest.param(
+        WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, OLD_FAN_RAY_WINDOW, None, "missing", id="walls_012-old-ray-window"
+    ),
+    pytest.param(BUILDING, 17, None, None, OLD_FAN_LAWS, None, "missing", id="building_17-all-old-fan-laws"),
+    pytest.param(
+        BUILDING, 109, None, LEGACY_FRAME, OLD_FAN_LAWS, None, "missing", id="building_109-all-old-fan-laws"
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "snapshot,patch_id,pin_lift,pin_frame,pin_fans,pin_join,finding", RED_CONTROLS
+)
+def test_anchor_gate_goes_red_when_an_old_law_is_re_enabled(
+    snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join, finding
+):
+    """Те же ворота (`anchor_findings`) на маршруте со старым законом краснеют именно тем, чем должны.
+
+    Контроль честный: закрепка едет в `substitutions`, а домен на старом законе по-прежнему строится (`EXACT`) — то
+    есть находка есть следствие другого ответа, а не отказа маршрута. Без этих контролей ворота, снятые на
+    продуктовых законах, могли бы незаметно ослепнуть (например, таблица пересняла бы то, что считает ядро, а
+    сравнение перестало бы что-либо различать).
+    """
+
+    substitutions = route(snapshot, pin_lift, pin_frame, None, pin_fans, pin_join)["substitutions"]
+    if pin_fans is not None:
+        assert f"KERNEL_FAN_LAWS_PINNED:{pin_fans}" in substitutions
+    if pin_join is not None:
+        assert f"KERNEL_JOIN_THRESHOLD_PINNED:{pin_join}" in substitutions
+    record = domain(snapshot, patch_id, pin_lift, pin_frame, None, pin_fans, pin_join)
+    assert record["outcome"] == "EXACT", (
+        f"RED_CONTROL_ROUTE_REFUSED: {snapshot} п{patch_id} на старом законе отказал {record['outcome']!r}: "
+        "контроль не доказывает чувствительность ворот."
+    )
+    findings = anchor_findings(snapshot, patch_id, pin_lift, pin_frame, pin_fans, pin_join)
+    assert findings[finding], (
+        f"ANCHOR_GATE_IS_BLIND: возврат старого закона ({pin_fans or pin_join}) не дал находки {finding!r} "
+        f"у {snapshot} п{patch_id}: ворота якорей не видят этот закон."
     )
 
 
 def test_walls_012_anchor_loci_survive():
-    """Отдельно от параметризации: у walls.012 якорей всего два, и они живы.
+    """Отдельно от параметризации: walls.012 держит ВСЕ 12 локусов текущего ядра.
 
-    Ворота слабые НАМЕРЕННО и об этом сказано вслух: на сломанной вершине
-    распространение обрывалось ДО остальных десяти локусов, поэтому в якоря
-    они не попали — согласия двух математик по ним нет. Сильные ворота
-    walls.012 — `test_walls_012_is_exact` (бывшее красное, теперь зелёное).
+    До переснятия якорей было два: на сломанной вершине распространение обрывалось ДО остальных десяти локусов, и
+    согласия двух математик по ним не было. Ядро строит домен целиком (`test_walls_012_is_exact`), таблица снята
+    его текущим ответом, и ворота теперь сильные. Законы укладки и репера закреплены (математика фронта на
+    полевой геометрии), законы веера и JOIN — продуктовые.
     """
 
     table = anchors(WALLS_012, 0)
-    assert table["anchor_loci"] == 2
-    present = {
-        locus_key(locus)
-        for locus in domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, None, LEGACY_FANS)["loci"]
-    }
-    for anchor in table["anchors"]:
-        key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)
-        assert key in present, f"ANCHOR_LOCUS_DISAPPEARED: {anchor['point']}"
+    record = domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)
+    assert table["anchor_loci"] == len(table["anchors"]) == record["skeleton_nodes"] == 12
+    assert route(WALLS_012, LEGACY_LIFT, LEGACY_FRAME)["substitutions"] == [
+        f"HOST_NEAR_PLANAR_LIFT_POLICY_PINNED:{LEGACY_LIFT}",
+        f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{LEGACY_FRAME}",
+    ]
+    findings = anchor_findings(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)
+    assert not findings["missing"], f"ANCHOR_LOCUS_DISAPPEARED: {findings['missing'][:2]}"
+    assert not findings["drifted"], f"ANCHOR_PARTICIPANTS_DRIFTED: {findings['drifted'][:2]}"
 
 
 def test_walls_012_patch_0_refuses_under_the_surface_law():
