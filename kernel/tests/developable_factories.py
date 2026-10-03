@@ -187,8 +187,12 @@ def fold_grid(rows=4):
     return surface(points, cycles)
 
 
-def dome(rings=4, sides=8, radius=1.0, *, saddle=False):
-    """Купол (или седло) над кругом: центр и кольца; вершины внутри — не развёртываются."""
+def dome(rings=4, sides=8, radius=1.0, *, saddle=False, saddle_height=0.5):
+    """Купол (или седло) над кругом: центр и кольца; вершины внутри — не развёртываются.
+
+    `saddle_height` — множитель высоты седла `h = saddle_height * rho^2 * cos(2 theta)`: 0.5
+    развёртка вмещает в бюджет 20 % (ARAP, 9.9 %), 1.0 — нет (26.5 %).
+    """
 
     points = {"c": (0.0, 0.0, radius if not saddle else 0.0)}
     cycles = []
@@ -199,7 +203,7 @@ def dome(rings=4, sides=8, radius=1.0, *, saddle=False):
             rho = radius * math.sin(phi)
             height = radius * math.cos(phi)
             if saddle:
-                height = 0.5 * rho * rho * math.cos(2.0 * theta)
+                height = saddle_height * rho * rho * math.cos(2.0 * theta)
             points[f"p{ring}_{k}"] = (rho * math.cos(theta), rho * math.sin(theta), height)
     for k in range(sides):
         cycles.append(["c", f"p1_{k}", f"p1_{(k + 1) % sides}"])

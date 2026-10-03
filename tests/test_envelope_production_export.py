@@ -531,6 +531,58 @@ def test_an_unfolded_domain_is_materialized_with_a_vertex_offset_normal_law():
     assert abs(length - 1.0) < 1e-12
 
 
+def test_the_console_shows_how_much_of_the_stretch_budget_an_unfolded_domain_used():
+    """Решение владельца «растяжения до 20 %»: артист видит, сколько растяжения на деле израсходовала развёртка.
+
+    Домен берётся целиком из настоящего пути (изогнутый квад лестницы S1), число читается из его диагностики
+    независимо от разбора хоста и округляется вверх до десятой: строка «не больше» не врёт.
+    """
+
+    import math
+    import re
+    from types import SimpleNamespace
+
+    from cftuv_envelope.contracts.metric import DEVELOPABLE_STRETCH_BUDGET
+
+    bundle = quad_row_bundle(ROW, lifted_corner=1.0)
+    run, _ = _production(bundle)
+    unfolded = run.results[ROW - 1]
+    line = next(item for item in unfolded.diagnostics if item.startswith("DEVELOPABLE_LIFT_ONTO_UNFOLDED"))
+    band = float(re.search(r"worst_band_squared<=([0-9.e+-]+)", line).group(1))
+    budget = float(DEVELOPABLE_STRETCH_BUDGET) * 100.0
+    expected = math.ceil((math.sqrt(band) - 1.0) * 1000.0 - 1e-9) / 10.0
+    assert budget == pytest.approx(20.0)
+
+    lines = production.developable_stretch_lines(run.results)
+    assert lines == [
+        f"[CFTUV][Production] STRETCH patch {unfolded.patch_id} (domain ...{unfolded.domain_id[-6:]}): "
+        f"stretch <= {expected:.1f} % (budget 20 %)"
+    ]
+    receipt = SimpleNamespace(skipped=(), warnings=(), domains=(), weld_counters=(), offset_counters=())
+    assert lines[0] in production.receipt_console_lines(receipt, run.results)
+    # Планарные соседи растяжения не имеют: строки у них нет.
+    assert not production.developable_stretch_lines(run.results[:-1])
+
+
+def test_the_stretch_line_rounds_up_and_names_the_largest_of_several_domains():
+    from types import SimpleNamespace
+
+    def domain(patch, band, budget="0.2"):
+        text = (
+            f"DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES: worst_band_squared<={band} "
+            f"stretch_budget={budget} triangles_measured=3"
+        )
+        return SimpleNamespace(patch_id=patch, domain_id=f"domain-{patch:06d}", diagnostics=(text, "OTHER: x"))
+
+    results = [domain(7, "1.44"), domain(3, "1.0001"), SimpleNamespace(patch_id=1, domain_id="d1", diagnostics=())]
+    assert production.developable_stretch_lines(results) == [
+        "[CFTUV][Production] STRETCH patch 3 (domain ...000003): stretch <= 0.1 % (budget 20 %)",
+        "[CFTUV][Production] STRETCH patch 7 (domain ...000007): stretch <= 20.0 % (budget 20 %)",
+        "[CFTUV][Production] STRETCH: 2 developable domains, the largest stretch <= 20.0 % (patch 7, budget 20 %)",
+    ]
+    assert production.developable_stretch_lines([]) == []
+
+
 def test_the_offset_normals_are_visible_to_the_equality_and_to_the_json_line(tmp_path):
     """Нормали смещают вершины меша, но в дайджест батча не входят: у них свой дайджест."""
 

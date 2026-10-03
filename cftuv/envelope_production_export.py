@@ -75,6 +75,7 @@ from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
 )
+from .envelope_stretch_lines import developable_stretch_lines
 from .surface_ir import (
     HOST_DECAL_TOPOLOGY_POLICY,
     HOST_NEAR_PLANAR_LIFT_POLICY,
@@ -1086,6 +1087,7 @@ def receipt_console_lines(receipt, results) -> list[str]:
             + (f": {detail}" if detail else "")
         )
     lines.extend(diagnostic_summary_lines(results))
+    lines.extend(developable_stretch_lines(results))
     weld = dict(getattr(receipt, "weld_counters", ()) or ())
     if weld.get(COUNTER_WELD_GROUPS):
         lines.append(
@@ -1191,6 +1193,7 @@ __all__ = (
     "ProductionDomainResultV1",
     "ProductionInputV1",
     "ProductionRunV1",
+    "developable_stretch_lines",
     "diagnostic_summary_lines",
     "export_production_json",
     "prepare_for_production",

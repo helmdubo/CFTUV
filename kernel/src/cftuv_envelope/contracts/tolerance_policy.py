@@ -1018,7 +1018,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.DEVELOPABLE_STRETCH_RELATIVE_V1,
         category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
-        value=_rational(Fraction(1, 50)),
+        value=_rational(Fraction(1, 5)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.DIMENSIONLESS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
@@ -1026,7 +1026,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         scope=(
             "Во сколько раз длина вдоль поверхности источника вправе отличаться от "
             "длины на привязанной к решётке карте развёртки, В ОБЕ СТОРОНЫ: `1 + b`, "
-            "`b = 1/50`. Условие приёма развёртки: оба квадрата сингулярных чисел "
+            "`b = 1/5` (20 %). Условие приёма развёртки: оба квадрата сингулярных чисел "
             "отображения треугольник источника -> треугольник карты лежат в "
             "`[1/(1+b)^2, (1+b)^2]`, что решается тремя знаками рациональных "
             "чисел (корни `det(G_c - lambda G_s)`), без корней и допуска "
@@ -1040,8 +1040,8 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
         authority=(
             "DevelopableStretchLawV1.EXACT_GRAM_SINGULAR_VALUE_BAND_V1; DECISIONS.md "
-            "2026-10-03 (КРИВИЗНА, СТУПЕНЬ 2: S1 DEVELOPABLE_UNFOLDED_V1, тот же "
-            "бюджет, что у near-planar)"
+            "2026-10-03 (КРИВИЗНА, СТУПЕНЬ 2: S1 DEVELOPABLE_UNFOLDED_V1; бюджет "
+            "1/50 -> 1/5 решением владельца «Устраивают растяжения до 20%»)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.DEVELOPABLE_ADMISSION,
         allowed_effect=(
