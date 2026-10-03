@@ -180,6 +180,8 @@ def _density_request(request, density=1):
     value, symbol = {
         1: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_1_V1, kernel.ExactAngleSymbol.PI_OVER_3),
         2: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1, kernel.ExactAngleSymbol.PI_OVER_4),
+        3: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_3_V1, kernel.ExactAngleSymbol.PI_OVER_5),
+        4: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1, kernel.ExactAngleSymbol.PI_OVER_6),
     }[density]
     return dataclasses.replace(
         request,
@@ -307,6 +309,25 @@ def test_the_kinks_of_a_flat_wall_that_the_old_threshold_refused_join_now():
     assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
     assert selection.resolved_hidden_edge_count == 0
     assert not corner_treatment_errors(prepared.compilation)
+
+
+@pytest.mark.parametrize("density", (1, 2, 3, 4))
+def test_a_soft_bend_wider_than_the_density_step_still_joins(density):
+    """Излом `atan(3/4) = 36.87°` (`δ/π = 0.2048 < 1/4`) — JOIN на ЛЮБОЙ плотности, а не только там, где `π/q` его покрывает.
+
+    Шире потолка d3 (36°) и d4 (30°): прежняя проверка опор требовала от JOIN подшаг `<= π/q` и отказывала доменом
+    `DOMAIN_GEOMETRY_REFUSED` (поле: `wall_noise_top`, d4 отказ, d2 строился). У JOIN веера нет, плотность его не читает.
+    """
+
+    snapshot, request = _snapshot((20.0, -7.5), ("0.2048", "0.2049"))
+    request = _density_request(request, density)
+    prepared = _prepared(snapshot, request)
+    record, selection = _record(prepared), _selection(prepared)
+    assert record.treatment is CornerTreatmentV1.JOIN_CONTINUATION
+    assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+    assert selection.resolved_hidden_edge_count == 0
+    assert dict(prepared.counters)["CONVEYOR_MITERED_CORNERS"] == 1
+    _materialized(prepared, request)
 
 
 def test_a_tampered_or_missing_record_is_refused():

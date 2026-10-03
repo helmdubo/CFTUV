@@ -1205,7 +1205,8 @@ def test_explicit_density_refuses_instead_of_degraded_miter(monkeypatch):
         prepared.outcome
         is module.ConveyorOutcome.DENSITY_SEALED_FAN_INVALID
     )
-    assert prepared.detail == "DENSITY_SEALED_FAN_INVALID"
+    # Отказ геометрии несёт имя исхода и причину (`_geometry_refusal_detail`): одно имя владельцу не говорит, что не доказано.
+    assert prepared.detail.startswith("DENSITY_SEALED_FAN_INVALID")
     assert prepared.regions == ()
     assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
 

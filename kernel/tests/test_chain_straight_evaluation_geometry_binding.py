@@ -354,7 +354,8 @@ def test_forged_v1_is_refused_by_reference_and_queue(monkeypatch):
         patch_domain_id=domain.patch_domain_id,
     )
     assert prepared.outcome is conveyor.ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED
-    assert prepared.detail == (
+    # Имя исхода, затем причина (`_geometry_refusal_detail`).
+    assert prepared.detail.startswith(
         kernel.ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID.value
     )
 

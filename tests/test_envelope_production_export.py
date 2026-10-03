@@ -653,12 +653,15 @@ def test_a_preparation_that_is_not_exact_is_named_by_the_kernel_and_never_covere
         _prepared_domain(),
         outcome=ConveyorOutcome.PREPARATION_IS_NOT_EXACT,
         compilation=None,
+        detail="INNER_REASON: the predicate that was not proven",
     )
 
     refused = produce_domain(3, "domain", prepared, "0.25")
 
     assert refused.outcome == "COVERAGE_IS_NOT_EXACT"
     assert refused.detail.startswith("preparation:")
+    # Строка отказа в консоли несёт внутреннюю причину подготовки, а не только её имя.
+    assert refused.detail.endswith("INNER_REASON: the predicate that was not proven")
     assert refused.patch_id == 3 and refused.batch is None
 
 
