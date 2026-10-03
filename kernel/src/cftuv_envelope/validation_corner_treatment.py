@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from ._corner_treatment import CORNER_TREATMENT_LAW, JOIN_THRESHOLD_OVER_PI, recompute_record
+from ._corner_treatment import CORNER_TREATMENT_LAW, JOIN_BEND_BOUND_OVER_PI, recompute_record
 from .contracts.analysis import CertifiedReflexAngleMeasureV1
 from .contracts.envelopes import CornerTreatmentReasonV1, CornerTreatmentV1, SelectionLaw
 from .validation_issues import ValidationCode, add_issue
@@ -46,8 +46,8 @@ def validate_plan_corner_treatments(issues, plan) -> None:
             (_joined(certificate) and certificate.resolved_hidden_edge_count != 0, "JOIN corner must resolve k = 0"),
             (
                 (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator)
-                != (JOIN_THRESHOLD_OVER_PI.numerator, JOIN_THRESHOLD_OVER_PI.denominator),
-                "treatment record names another JOIN threshold",
+                != (JOIN_BEND_BOUND_OVER_PI.numerator, JOIN_BEND_BOUND_OVER_PI.denominator),
+                "treatment record names another JOIN bend bound",
             ),
             (
                 join != (record.reason is CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN),

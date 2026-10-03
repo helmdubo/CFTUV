@@ -99,7 +99,14 @@ from .source_lift import (
     settle_emitted_faces,
     source_step_of,
 )
-from .stations import chain_station_table, source_chain_by_span
+from .stations import (
+    SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
+    SKIP_JOIN_CORNER_NOT_ADJACENT,
+    SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT,
+    chain_station_table,
+    junction_to_withdraw,
+    source_chain_by_span,
+)
 from .uv_law import UV_DIRECT_STRIP_V1
 
 MATERIALIZER_CONTRACT = "cftuv.envelope.materializer.v1"
@@ -336,6 +343,29 @@ def _table_diagnostics(table, add) -> None:
             flow_key,
             (chain_id,),
             f"{flow_key}: the closed flow is opened at {opening}; the corner {closing} -> {opening} is the cut",
+        )
+    same_chain = getattr(table, "same_chain_joins", ())
+    skips = getattr(table, "skips", ())
+    refused = {
+        reason: sum(1 for _where, name in skips if name == reason)
+        for reason in (
+            SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
+            SKIP_JOIN_CORNER_NOT_ADJACENT,
+            SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT,
+        )
+    }
+    if same_chain or any(refused.values()):
+        kinds = {}
+        for _vertex, _first, _second, kind in same_chain:
+            kinds[kind] = kinds.get(kind, 0) + 1
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.CORNER_JOIN_SAME_PCHAIN_V1,
+            "domain",
+            (),
+            f"{len(same_chain)} junctions of one host chain continued without a seam "
+            f"({', '.join(f'{name}={kinds[name]}' for name in sorted(kinds)) or 'none'}); "
+            f"kept as corners: {', '.join(f'{name}={count}' for name, count in refused.items())}",
         )
 
 
@@ -762,33 +792,46 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
 
 
 def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built:
-    table = chain_station_table(prepared, budget)
-    spans = source_chain_by_span(prepared)
-    clock.lap("STATIONS")
-    items, stats, match = _covered_regions(
-        prepared, coverage, table, spans, budget, clock
-    )
-    items, chords = station_chord_vertices(prepared, items, table)
-    clock.lap("CHORD_STATIONS")
-    lines: list[str] = []
-    notes: list[str] = []
-    try:
-        batch, frame_faces, lift_counters, lift, topology = _assemble(
-            prepared, coverage, request, admission, budget, clock,
-            (items, table, lines, notes, chords), law,
+    withdrawn: frozenset = frozenset()
+    while True:
+        table = (
+            chain_station_table(prepared, budget, withdrawn)
+            if withdrawn
+            else chain_station_table(prepared, budget)
         )
-    except MaterializationRefusal as refusal:
-        # Отказ поздней стадии несёт числа ранних: сколько граней пришло и куда
-        # они ушли, что станция пропустила и почему. Для `STATION_CHAIN_UNNAMED`
-        # причину пропуска пишем в деталь: сама грань её не знает.
-        extra = (
-            table.skip_text()
-            if refusal.outcome is MaterializationOutcome.STATION_CHAIN_UNNAMED
-            else ""
+        spans = source_chain_by_span(prepared)
+        clock.lap("STATIONS")
+        items, stats, match = _covered_regions(
+            prepared, coverage, table, spans, budget, clock
         )
-        raise refusal.augmented(
-            extra, (*match.counters(), *table.counters, *chords.counters())
-        ) from None
+        items, chords = station_chord_vertices(prepared, items, table)
+        clock.lap("CHORD_STATIONS")
+        lines: list[str] = []
+        notes: list[str] = []
+        try:
+            batch, frame_faces, lift_counters, lift, topology = _assemble(
+                prepared, coverage, request, admission, budget, clock,
+                (items, table, lines, notes, chords), law,
+            )
+            break
+        except MaterializationRefusal as refusal:
+            # Конфликт станций, который сводится к стыку закона `CORNER_JOIN_SAME_PCHAIN_V1`, снимает этот стык
+            # (он остаётся углом, пропуск назван) и строит домен заново; иначе отказ идёт дальше как был.
+            vertex = junction_to_withdraw(table, refusal.station_conflict)
+            if vertex is not None and vertex not in withdrawn:
+                withdrawn = withdrawn | {vertex}
+                continue
+            # Отказ поздней стадии несёт числа ранних: сколько граней пришло и куда
+            # они ушли, что станция пропустила и почему. Для `STATION_CHAIN_UNNAMED`
+            # причину пропуска пишем в деталь: сама грань её не знает.
+            extra = (
+                table.skip_text()
+                if refusal.outcome is MaterializationOutcome.STATION_CHAIN_UNNAMED
+                else ""
+            )
+            raise refusal.augmented(
+                extra, (*match.counters(), *table.counters, *chords.counters())
+            ) from None
     lines.extend(notes)
     return _Built(
         batch,

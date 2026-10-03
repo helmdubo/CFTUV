@@ -1409,25 +1409,32 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.CORNER_JOIN_SOFT_BEND_THRESHOLD_V1,
         category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
-        value=_rational(Fraction(1, 4)),
+        value=_rational(Fraction(1, 2)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.DIMENSIONLESS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
         scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
         scope=(
-            "Порог мягкого излома ОДНОЙ цепи источника, доля π рефлексного избытка: 1/4 = 45° (решение "
-            "владельца 2026-10-03: сначала 1/6 = 30°, тот же CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера, "
-            "затем 1/4 по его жалобе на веера на изломах 31–36° плоской стены). Вогнутый угол "
-            "между двумя кусками одной цепи хоста (общая запись `chain-source` ЕГО патча), чей СЕРТИФИЦИРОВАННЫЙ "
-            "интервал δ/π лежит строго ниже порога, получает `k = 0` (митра прямого скелета) под законом "
-            "CORNER_JOIN_SOFT_BEND_V1, и материализатор ведёт полосу сквозь угол одним потоком (u "
-            "непрерывна, шва нет). Интервал поверх порога и угол от порога идут прежним законом счёта "
-            "под именами REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD / REFLEX_EXCESS_NOT_SOFT; каждый угол "
-            "несёт запись CornerTreatmentRecordV1, проверяющий пересчитывает её по сырому снапшоту."
+            "ПРЕДЕЛ ИЗГИБА закона CORNER_JOIN_SAME_PCHAIN_V1, доля π рефлексного избытка: 1/2 = четверть оборота "
+            "= 90°, ИСКЛЮЧИТЕЛЬНЫЙ (JOIN при δ/π < 1/2; точный прямой угол и острее — именованный угол: у прямого "
+            "излом билинейной UV доходил до 1.0–1.15 alpha). Решение владельца 2026-10-04: JOIN решает ТОЖДЕСТВО ЦЕПИ, а не порог угла (прежде здесь стоял "
+            "порог выбора: 1/6 = 30° — CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера, затем 1/4 = 45° по жалобе "
+            "на веера шумного верха; владелец хотел шов только там, где сходятся фронты РАЗНЫХ pChain). Вогнутый "
+            "угол между двумя кусками одной цепи хоста (общая запись `chain-source` ЕГО патча), чей "
+            "СЕРТИФИЦИРОВАННЫЙ интервал δ/π лежит строго ниже предела, получает `k = 0` "
+            "(митра прямого скелета) под законом CORNER_JOIN_SOFT_BEND_V1, и материализатор ведёт полосу сквозь "
+            "угол одним потоком (u непрерывна, шва нет). Предел не выбор, а то, что проверяющий опор принимает "
+            "(JOIN_EVALUATION_SUBTURN_Q = 2: изгиб в геометрии вычисления не шире четверти оборота). Интервал "
+            "поверх предела и угол шире него идут прежним законом счёта под именами "
+            "REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD / REFLEX_EXCESS_NOT_SOFT; куски разных цепей — "
+            "SOURCE_CHAIN_UNPROVEN; каждый угол несёт запись CornerTreatmentRecordV1, проверяющий пересчитывает "
+            "её по сырому снапшоту. Выпуклые и вырожденные в карте стыки одной цепи записи угла не имеют: их "
+            "ведёт материализатор по тому же тождеству и тому же пределу (`STATION_SAME_PCHAIN_JOINS`, "
+            "пропуск `STATION_SKIP_JOIN_BEND_BEYOND_QUARTER_TURN`)."
         ),
         authority=(
-            "_corner_treatment.JOIN_THRESHOLD_OVER_PI; SelectionLaw.CORNER_JOIN_SOFT_BEND_V1; "
-            "DECISIONS.md 2026-10-03 (JOIN-FLOW: мягкий излом < 30° одной цепи — митра вместо фаски)"
+            "_corner_treatment.JOIN_BEND_BOUND_OVER_PI; SelectionLaw.CORNER_JOIN_SOFT_BEND_V1; "
+            "DECISIONS.md 2026-10-03 (JOIN-FLOW: излом одной цепи — митра вместо фаски), 2026-10-04 (JOIN по тождеству цепи)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW,
         allowed_effect=TolerancePolicyAllowedEffectV1.JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN,
@@ -1435,14 +1442,16 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
         telemetry_counters=(
             "STATION_JOIN_CORNERS",
+            "STATION_SAME_PCHAIN_JOINS",
             "STATION_FLOWS",
             "STATION_SKIP_JOIN_CORNER_NOT_ADJACENT",
+            "STATION_SKIP_JOIN_BEND_BEYOND_QUARTER_TURN",
             "STATION_FLOW_CYCLES_OPENED",
             "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
             "MATERIALIZE_QUADS_UV_BILINEAR",
         ),
         declaration_sites=(
-            "cftuv_envelope._corner_treatment.JOIN_THRESHOLD_OVER_PI",
+            "cftuv_envelope._corner_treatment.JOIN_BEND_BOUND_OVER_PI",
         ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"

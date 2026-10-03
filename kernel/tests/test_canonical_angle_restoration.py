@@ -219,26 +219,40 @@ def test_canonical_relation_set_is_the_minimal_paid_one():
         assert absent not in declared
 
 
-def test_no_canonical_relation_lies_within_the_restoration_tolerance_of_the_join_threshold():
-    """Допуск восстановления действует на ЛЮБОЕ отношение: оно не вправе съесть порог JOIN.
+def test_no_canonical_relation_lies_within_the_restoration_tolerance_of_the_join_bend_bound():
+    """Допуск восстановления действует на ЛЮБОЕ отношение: оно не вправе сдвинуть решение JOIN.
 
-    Угол в пределах допуска от отношения `u` заменяется точным `u` (замкнутый конец). Если
-    `u` стоит на пороге мягкого излома или ближе допуска к нему, угол чуть ниже порога
-    восстановился бы на порог, и `softness` (замкнутый конец равен порогу) перестал бы давать
-    JOIN. Порог и допуск читаются из кода, а не записываются числом: порог JOIN меняется
-    решением владельца (1/6 -> 1/4), и тест обязан сказать, когда расширение набора
-    отношений (например, `1/4`) его нарушит.
+    Угол в пределах допуска от отношения `u` заменяется точным `u` (замкнутый конец). Предел
+    изгиба JOIN исключителен (`bend_reason`: JOIN при `δ/π < предел`), поэтому отношение РОВНО на
+    пределе безопасно — угол чуть ниже и чуть выше него восстанавливается на сам предел и решается
+    одинаково (так и задумано: прямой угол и его шум — угол, а не JOIN). Опасно отношение
+    ближе допуска к пределу, но НЕ на нём: угол по ту сторону восстановился бы на другую.
+    Предел и допуск читаются из кода, а не записываются числом.
     """
 
     from cftuv_envelope._canonical_angle import _TOLERANCE_OVER_PI
-    from cftuv_envelope._corner_treatment import JOIN_THRESHOLD_OVER_PI
+    from cftuv_envelope._corner_treatment import JOIN_BEND_BOUND_OVER_PI
 
     for relation, canonical in CANONICAL_REFLEX_EXCESS_RELATIONS:
-        assert abs(canonical - JOIN_THRESHOLD_OVER_PI) > _TOLERANCE_OVER_PI, (
+        assert canonical == JOIN_BEND_BOUND_OVER_PI or abs(canonical - JOIN_BEND_BOUND_OVER_PI) > _TOLERANCE_OVER_PI, (
             relation,
-            "a canonical relation inside the restoration tolerance of the JOIN threshold "
-            "would make corners just below the threshold stop joining",
+            "a canonical relation near, but not on, the JOIN bend bound would flip the "
+            "decision for corners on the far side of the restoration tolerance",
         )
+
+
+def test_the_right_angle_noise_of_the_field_stays_a_corner_through_the_restored_canonical_angle():
+    """Шум поля 90° ± 0.03° восстанавливается на точные 1/2 и остаётся углом (предел исключителен); 89.7° — JOIN, 90.4° — угол."""
+
+    from cftuv_envelope._corner_treatment import bend_reason
+
+    for degrees in ("-0.03", "-0.005", "0", "0.0053", "0.03"):
+        interval, _restoration = selector_reflex_excess_interval(_degrees_off_right_angle_interval(degrees))
+        assert bend_reason(interval) is not None, degrees
+    interval, restoration = selector_reflex_excess_interval(_degrees_off_right_angle_interval("-0.30"))
+    assert restoration is None and bend_reason(interval) is None
+    interval, restoration = selector_reflex_excess_interval(_degrees_off_right_angle_interval("0.40"))
+    assert restoration is None and bend_reason(interval) is not None
 
 
 @pytest.mark.parametrize(

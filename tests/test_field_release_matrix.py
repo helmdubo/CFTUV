@@ -474,7 +474,7 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_fra
 #: КРАСНЫЕ КОНТРОЛИ ворот якорей: возврат ОДНОГО старого закона обязан дать находку, иначе ворота не видят закон.
 #: Строка: (слепок, патч, закрепка укладки, закрепка репера, закрепка веера, закрепка JOIN, находка, id). Что чем
 #: двигается — ИЗМЕРЕНО переснятием (`rerecorded.moved_by` в `anchor_loci.json`): окно луча (узкая полоса поворота
-#: вместо окна Вороного) двигает якоря walls.001 / walls.012 / building п109; строка таблицы лучей двигает якоря
+#: вместо окна Вороного) двигает якоря walls.012 / building п109 (у walls.001 п0 вееров не осталось, см. ниже); строка таблицы лучей двигает якоря
 #: стены 2.001 и building п17 ТОЛЬКО вместе с окном (канонический угол ушёл от поиска в окне Вороного к строке
 #: таблицы, и возврат одного из двух старых лучей не возвращает); порог JOIN — walls.001. Допуск восстановления 0.1° и
 #: граница шума 1/400 в этих доменах не двигают НИ ОДНОГО якоря (замер на d0): эти ворота их закон не видят, его
@@ -485,8 +485,9 @@ RED_CONTROLS = [
         WALL_2_001, 0, None, None, f"{OLD_FAN_ROTATION_TABLE},{OLD_FAN_RAY_WINDOW}", None, "missing",
         id="wall_2_001-old-rotation-table-and-ray-window",
     ),
-    pytest.param(WALLS_001, 0, None, None, OLD_FAN_LAWS, None, "missing", id="walls_001-all-old-fan-laws"),
-    pytest.param(WALLS_001, 0, None, None, OLD_FAN_RAY_WINDOW, None, "missing", id="walls_001-old-ray-window"),
+    # walls.001 п0 больше не держит красных контролей веера: с JOIN по тождеству цепи (2026-10-04) три излома двери по
+    # 45° стали продолжением полосы, и в домене НЕТ ни одного веера — старые законы веера не двигают ни одного якоря
+    # (контроль слеп по построению). Законы веера держат стена 2.001, walls.012 и building п17/п109 ниже.
     pytest.param(WALLS_001, 0, None, None, None, OLD_JOIN_THRESHOLD, "reappeared", id="walls_001-old-join-threshold"),
     pytest.param(
         WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, OLD_FAN_RAY_WINDOW, None, "missing", id="walls_012-old-ray-window"
@@ -602,12 +603,13 @@ def test_walls_012_patch_0_is_unfolded_and_its_declared_straight_chains_are_plac
 
 
 def test_walls_001_door_domain_builds():
-    """Домен-дверь: EXACT, 11 узлов, 8 граней (при пороге JOIN 30° было 12 и 9 — как в полевом профиле).
+    """Домен-дверь: EXACT, 8 узлов, 5 граней (при пороге JOIN 45° было 11 и 8, при 30° — 12 и 9, как в полевом профиле).
 
-    ПОРОГ JOIN 45° (`DECISIONS.md` 2026-10-03). Излом контура двери 31–36° при пороге 30° шёл прежним законом счёта, а
-    при 45° стал JOIN (продолжение полосы, `k = 0`): скелет двери даёт на один узел и одну грань меньше (ИЗМЕРЕНО на
-    обоих порогах: 12 и 9 при 30°, 11 и 8 при 45°). Полевые 12 и 9 принадлежат порогу 30°; новые числа — следствие решения
-    владельца, а не дрейф скелета.
+    JOIN ПО ТОЖДЕСТВУ ЦЕПИ (`DECISIONS.md` 2026-10-04). Излом контура двери 31–36° при пороге 30° шёл прежним законом счёта,
+    при пороге 45° стал JOIN (продолжение полосы, `k = 0`), а три излома ровно по 45° оставались веерами. Закон тождества
+    цепи продолжает и их (предел изгиба — четверть оборота): скелет двери даёт ещё три узла и три грани меньше
+    (ИЗМЕРЕНО на трёх законах: 12 и 9 при 30°, 11 и 8 при 45°, 8 и 5 при тождестве цепи). Прежние числа принадлежат
+    прежним порогам; новые — следствие решения владельца, а не дрейф скелета.
 
     ПРО СЧЁТЧИК УЗЛОВ ЗДЕСЬ. Запрет морозить исторический счёт узлов
     относится к спорной паре 45/49 у стены 2.001, где неизвестно, какое число
@@ -624,9 +626,9 @@ def test_walls_001_door_domain_builds():
     assert record["outcome"] == "EXACT"
     assert record["coverage_outcome"] == "EXACT"
     assert record["face_outcome"] == "EXACT"
-    assert record["counters"]["CONVEYOR_FACES"] == 8
-    assert record["faces"] == 8
-    assert record["counters"]["CONVEYOR_SKELETON_NODES"] == 11
+    assert record["counters"]["CONVEYOR_FACES"] == 5
+    assert record["faces"] == 5
+    assert record["counters"]["CONVEYOR_SKELETON_NODES"] == 8
     assert record["counters"]["CONVEYOR_LATTICE_SCALE"] == 16384
 
 
