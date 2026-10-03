@@ -1031,7 +1031,11 @@ def _queue_snapshot_and_request(
     profile=None,
     topology_export=None,
     domain_snapshot_provider=None,
+    snapshot_issues_of=None,
 ):
+    """Снапшот домена и запрос к нему. `snapshot_issues_of(snapshot)` — замечания снапшота из кэша сессии:
+    снапшот от alpha не зависит, и его проверка на каждом нажатии (сотни доменов) — лишняя работа родителя."""
+
     from .envelope_request_export import (
         build_envelope_analysis_snapshot,
         build_envelope_decal_request,
@@ -1053,6 +1057,7 @@ def _queue_snapshot_and_request(
             alpha,
             decal_request_id_value=request_id,
             density=density,
+            snapshot_issues=None if snapshot_issues_of is None else snapshot_issues_of(snapshot),
         )
     return snapshot, request
 

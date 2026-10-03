@@ -33,6 +33,8 @@ from fractions import Fraction
 from math import gcd, isqrt, lcm
 import random
 
+from .float_filter import clear_table as _clear_float_centres
+
 
 # Наблюдение за тем, ЧЕМ решается знак. Заведено вместе с самой величиной,
 # потому что вопрос среза — «можно ли сравнивать точно и дёшево» — без этих
@@ -654,6 +656,8 @@ def reset_factorization_memory() -> None:
     _FACTORIZATION_MEMO.clear()
     _SQUAREFREE_MEMO.clear()
     _PRIME_SUPPORT_MEMO.clear()
+    # Центры binary64 (`float_filter`) держат сами величины: граница работы домена освобождает и их.
+    _clear_float_centres()
 
 
 @contextmanager
@@ -941,6 +945,51 @@ def _prime_universe_from_q_values(
                 f"факторизация {radicand} не восстановила исходное число"
             )
     return tuple(sorted(primes))
+
+
+def prime_universe_remembered(
+    q_values: tuple[int | Fraction, ...],
+    budget: ExactWorkBudgetV1 | None = None,
+    store: dict | None = None,
+    build=None,
+) -> tuple[int, ...]:
+    """`_prime_universe_from_q_values` (или `build` — его подмена вызывающим) с памятью подготовки: `store` (словарь) держит результат и разложения.
+
+    Вселенная простых зависит только от наборa `q` (скоростей линий), а не от alpha; считать её заново на каждом
+    покрытии — это разложение двухсотбитных чисел (ро-Поллард и взаимно простой базис) на КАЖДОМ нажатии. Здесь
+    результат и разложения, которые вызов положил в память канонизации, записываются в `store` (он едет с подготовкой
+    в пикле) и при повторе возвращаются в память процесса, КАК БУДТО вызов их посчитал: дальнейшее `squarefree_split`
+    радикандов `q` находит их там же, где нашло бы после счёта. Ответ побитово тот же (разложение единственно);
+    меняется цена, и бюджет повтор не тратит. Сбой (нехватка бюджета, отрицательное `q`) в `store` не пишется.
+    """
+
+    build = _prime_universe_from_q_values if build is None else build
+    if store is None:
+        return build(q_values, budget)
+    key = ("prime-universe", tuple(Fraction(value) for value in q_values))
+    found = store.get(key)
+    if found is None:
+        before = set(_FACTORIZATION_MEMO)
+        universe = build(q_values, budget)
+        # Разложения, которые вызов дал ИЛИ нашёл готовыми (подготовка раскладывала те же радиканды раньше): ничего
+        # из этого воркер на чужой подготовке заранее не знает. Простые вселенной раскладываются сами в себя.
+        numbers = {number for number in _FACTORIZATION_MEMO if number not in before}
+        for value in q_values:
+            q = Fraction(value)
+            numbers.add(q.numerator * q.denominator)
+        delta = tuple(
+            (number, _FACTORIZATION_MEMO[number])
+            for number in sorted(numbers)
+            if number in _FACTORIZATION_MEMO
+        ) + tuple((prime, ((prime, 1),)) for prime in universe)
+        store[key] = (universe, delta)
+        return universe
+    universe, delta = found
+    for number, pairs in delta:
+        _FACTORIZATION_MEMO.setdefault(number, pairs)
+        for prime, _power in pairs:
+            _register_prime(prime)
+    return universe
 
 
 def _support_from_prime_universe(

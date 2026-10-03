@@ -206,6 +206,9 @@ class EnvelopeDebugSessionController:
         # законов, поэтому тот же ключ даёт тот же ответ без единого покрытия. Вытеснение
         # — по давности обращения (`PRODUCTION_RESULT_CACHE_LIMIT`).
         self._production_result_cache: OrderedDict[tuple, object] = OrderedDict()
+        # Замечания проверки снапшота домена по тождеству снапшота: он от alpha не зависит, а запрос к нему
+        # собирается на КАЖДОМ нажатии. Запись держит сам снапшот (занятое тождество не уходит другому).
+        self._snapshot_issues: dict[int, tuple[object, tuple]] = {}
         # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
         # считается в них): живут и чистятся вместе с кэшем подготовок.
         self._preparation_blobs = None
@@ -240,6 +243,18 @@ class EnvelopeDebugSessionController:
             self._preparation_blobs = PreparationBlobsV1()
         return self._preparation_blobs
 
+    def snapshot_issues(self, snapshot) -> tuple:
+        """`validate_analysis_snapshot(snapshot)`: считается один раз на объект снапшота за сессию."""
+
+        known = self._snapshot_issues.get(id(snapshot))
+        if known is None or known[0] is not snapshot:
+            from .envelope_request_export import _load_kernel
+
+            kernel, _ = _load_kernel()
+            known = (snapshot, tuple(kernel.validate_analysis_snapshot(snapshot)))
+            self._snapshot_issues[id(snapshot)] = known
+        return known[1]
+
     def slider_coverage_pool(self, workers: int, profile):
         """Пул покрытия для ползунка alpha либо `None`: тогда считает родитель.
 
@@ -264,6 +279,7 @@ class EnvelopeDebugSessionController:
         self._compiled_envelope_cache.clear()
         self._conveyor_preparation_cache.clear()
         self._production_result_cache.clear()
+        self._snapshot_issues.clear()
         if self._preparation_blobs is not None:
             self._preparation_blobs.clear()
         self._queue_session = None

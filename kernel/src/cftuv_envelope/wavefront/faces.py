@@ -202,6 +202,7 @@ from itertools import product
 from math import prod
 
 from ..exact_sqrt_sum import ExactWorkBudgetV1
+from ..float_filter import orientation_sign, polygon_sign
 from .event_time import SupportLineV1
 from .events import EventKind
 from .polygon import PolygonV1, signed_double_area
@@ -493,12 +494,35 @@ def orientation(
     спрошенный про ЗНАК: `(b - a) x (c - a)`. Величина здесь не нужна и не
     возвращается — читать `SqrtSumV1` по частям нельзя, а `.sign()` отвечает
     целиком (сначала целочисленная оболочка, при неудаче сопряжение).
+
+    Перед точным путём стоит фильтр binary64 (`float_filter`): он либо доказывает
+    знак с запасом по границе ошибки, либо возвращает `None`, и тогда считается
+    прежнее точное выражение. Ответ от фильтра не зависит; зависит только цена.
     """
 
+    decided = orientation_sign(first, second, third)
+    if decided is not None:
+        return decided
     return (
         (second[0] - first[0]) * (third[1] - first[1])
         - (second[1] - first[1]) * (third[0] - first[0])
     ).sign(budget=budget)
+
+
+def shoelace_sign(
+    points: tuple[Point, ...],
+    budget: ExactWorkBudgetV1 | None = None,
+) -> int:
+    """Знак `doubled_shoelace(points)`: тот же ответ, без самой площади.
+
+    Площадь нужна не всем: ушам, кольцам и четырёхгранью достаточно знака. Фильтр
+    binary64 решает его, когда площадь далека от нуля; иначе — прежняя точная сумма.
+    """
+
+    decided = polygon_sign(points)
+    if decided is not None:
+        return decided
+    return doubled_shoelace(tuple(points)).sign(budget=budget)
 
 
 def segments_cross(
@@ -1138,10 +1162,21 @@ def doubled_shoelace(
 
     Произведение `SqrtSumV1` замкнуто (`sqrt(a)*sqrt(b) = g*sqrt(ab/g^2)`),
     поэтому площадь остаётся канонической величиной и сравнима побитово.
+
+    От трёх точек площадь берётся веером от первой: `sum (p_i - p_0) x (p_i+1 - p_0)` — это тот же многочлен, что и
+    сумма трапеций, а значит и та же каноническая величина, но с двумя произведениями на треугольник вместо шести.
     """
 
     total = SqrtSumV1.zero()
     size = len(points)
+    if size >= 3:
+        origin_x, origin_y = points[0]
+        previous_x, previous_y = points[1][0] - origin_x, points[1][1] - origin_y
+        for index in range(2, size):
+            next_x, next_y = points[index][0] - origin_x, points[index][1] - origin_y
+            total = total + (previous_x * next_y - previous_y * next_x)
+            previous_x, previous_y = next_x, next_y
+        return total
     for index in range(size):
         x0, y0 = points[index]
         x1, y1 = points[(index + 1) % size]

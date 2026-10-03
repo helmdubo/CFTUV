@@ -294,6 +294,36 @@ def test_the_slider_alpha_reaches_the_coverage_and_the_preparation_is_still_reus
     assert areas(far)
 
 
+def test_the_snapshot_is_validated_once_per_session_not_on_every_press(monkeypatch):
+    """Снапшот домена от alpha не зависит: замечания к нему — память сессии, а не работа каждого нажатия."""
+
+    import cftuv_envelope as kernel
+    import cftuv_envelope.validation as validation
+
+    explicit, internal = [], []
+    real_explicit, real_internal = kernel.validate_analysis_snapshot, validation.validate_analysis_snapshot
+    monkeypatch.setattr(
+        kernel, "validate_analysis_snapshot", lambda item: explicit.append(item) or real_explicit(item)
+    )
+    monkeypatch.setattr(
+        validation, "validate_analysis_snapshot", lambda item: internal.append(item) or real_internal(item)
+    )
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+    first, _ = _production(bundle, controller, alpha=0.25)
+    # Холодное нажатие проверяет снапшоты (в том числе в выгрузке и подготовке); тёплое с другой alpha — ни одного.
+    after_first = (len(explicit), len(internal))
+    assert after_first[0] >= ROW
+    second, _ = _production(bundle, controller, alpha=0.5)
+    assert (len(explicit), len(internal)) == after_first
+    assert [item.outcome for item in second.results] == [item.outcome for item in first.results]
+    # Память живёт с сессией: после `clear()` снапшот проверяется заново.
+    snapshot = explicit[0]
+    assert controller.snapshot_issues(snapshot) is controller.snapshot_issues(snapshot)
+    controller.clear()
+    assert not controller._snapshot_issues
+
+
 # --------------------------------------------------------------------------
 # 2. Размещение не меняет ответ
 # --------------------------------------------------------------------------

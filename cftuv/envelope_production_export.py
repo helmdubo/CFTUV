@@ -483,6 +483,7 @@ def _inputs_of(run: _RunInputsV1, entry_key, provider):
         density=run.density,
         topology_export=run.topology_export,
         domain_snapshot_provider=provider,
+        snapshot_issues_of=run.controller.snapshot_issues,
     )
 
 
