@@ -2091,7 +2091,8 @@ def build_envelope_analysis_snapshot(
             frame = _rational_affine_metric(
                 kernel, source_revision=source_revision, patch_domain_id=patch_domains[patch_id],
                 owner_patch_id=patch_ids[patch_id], source_vertices=source_vertices, surface_ir=surface_ir,
-                chains=(physical_chains, chain_uses), budget=getattr(topology_export, "developable_stretch_budget", None),
+                chains=(physical_chains, chain_uses),
+                budget=getattr(topology_export, "developable_stretch_budget", None),
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
@@ -2197,7 +2198,8 @@ def build_envelope_decal_request(
     alpha: float,
     *,
     decal_request_id_value: str | None = None,
-    density=None, developable_stretch_budget=None,
+    density=None,
+    developable_stretch_budget=None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request."""
 
@@ -2661,7 +2663,10 @@ def evaluate_envelope_debug_staged(
                     frozenset(selected_edges_by_domain[domain_id]),
                     alpha,
                     decal_request_id_value=global_request_id,
-                    density=density, developable_stretch_budget=getattr(topology_export, "developable_stretch_budget", None),
+                    density=density,
+                    developable_stretch_budget=getattr(
+                        topology_export, "developable_stretch_budget", None
+                    ),
                 )
         except EnvelopeHostAdapterError as exc:
             diagnostic = exc.diagnostic()

@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
+from .envelope_request_policy import DEFAULT_ENVELOPE_STRETCH_BUDGET
 
 if TYPE_CHECKING:
     from .surface_ir import AnalysisBundle
@@ -55,10 +56,16 @@ class EnvelopeTopologyExportV1:
             "patch_domain_id_by_patch",
             MappingProxyType(dict(self.patch_domain_id_by_patch)),
         )
+        # Явное умолчание (1/5) и «не назван» — один и тот же запрос: форма одна, иначе ключи кэшей метрики
+        # и геометрии сессии расщепились бы на два одинаковых.
+        if self.developable_stretch_budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
+            object.__setattr__(self, "developable_stretch_budget", None)
 
     def with_developable_stretch_budget(self, budget: Fraction | None):
         """Тот же экспорт под допуском запроса `budget`; тяжёлые части общие, копии нет."""
 
+        if budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
+            budget = None
         if budget == self.developable_stretch_budget:
             return self
         return replace(self, developable_stretch_budget=budget)

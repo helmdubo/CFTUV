@@ -91,13 +91,20 @@ def _tampered(record, **changes):
     return replace(record, metric=replace(record.metric, planarity_certificate=certificate))
 
 
+def _patch_arap(monkeypatch, replacement):
+    """Подмена второго предложения вместе со сбросом памяти построителя: память ключуется входами, а не кодом."""
+
+    monkeypatch.setattr(developable, "arap_proposal", replacement)
+    developable.clear_developable_chart_memory()
+
+
 def _rival_positions(monkeypatch, transform):
     """Подставляет ARAP, чьи положения — преобразованные положения шарнира (иное — только они)."""
 
     def rival(topology, proposal, snapped):
         return SimpleNamespace(coordinates=transform(proposal.coordinates))
 
-    monkeypatch.setattr(developable, "arap_proposal", rival)
+    _patch_arap(monkeypatch, rival)
 
 
 def _scaled(factor: float):
@@ -115,7 +122,7 @@ def test_a_hinge_chart_within_the_isometric_threshold_never_tries_arap(monkeypat
     def forbidden(*_args, **_kwargs):
         raise AssertionError("ARAP was tried for a hinge chart that is isometric enough")
 
-    monkeypatch.setattr(developable, "arap_proposal", forbidden)
+    _patch_arap(monkeypatch, forbidden)
     for parts in (factories.fold_strip(), factories.bevel_strip(4), factories.quarter_cylinder(8)):
         certificate = developable_chart(parts).certificate
         assert certificate.proposal_law is HINGE
@@ -135,7 +142,7 @@ def test_a_hinge_chart_beyond_the_isometric_threshold_also_tries_arap(monkeypatc
         tried.append(True)
         return original(*arguments)
 
-    monkeypatch.setattr(developable, "arap_proposal", spy)
+    _patch_arap(monkeypatch, spy)
     certificate = developable_chart(_contested()).certificate
     assert tried == [True]
     hinge = _value(certificate.hinge_chart_worst_band_squared_upper)
@@ -184,7 +191,7 @@ def test_arap_without_positions_keeps_the_hinge_chart_by_name(monkeypatch):
     def unavailable(*_args, **_kwargs):
         raise ArapProposalUnavailable("the work cap")
 
-    monkeypatch.setattr(developable, "arap_proposal", unavailable)
+    _patch_arap(monkeypatch, unavailable)
     chart = developable_chart(_contested())
     certificate = chart.certificate
     assert certificate.proposal_selection_law is Selection.HINGE_KEPT_ARAP_UNAVAILABLE_V1
@@ -207,7 +214,7 @@ def test_the_kept_hinge_chart_is_the_same_chart_whatever_the_second_proposal_did
     def unavailable(*_args, **_kwargs):
         raise ArapProposalUnavailable("the work cap")
 
-    monkeypatch.setattr(developable, "arap_proposal", unavailable)
+    _patch_arap(monkeypatch, unavailable)
     kept = developable_chart(_contested())
     _rival_positions(monkeypatch, _scaled(3.0))
     refused = developable_chart(_contested())
@@ -284,7 +291,7 @@ def test_a_hinge_chart_within_the_threshold_has_the_same_nodes_with_and_without_
     def forbidden(*_args, **_kwargs):
         raise AssertionError("no second proposal below the threshold")
 
-    monkeypatch.setattr(developable, "arap_proposal", forbidden)
+    _patch_arap(monkeypatch, forbidden)
     assert developable_chart(parts).nodes == with_law.nodes
 
 
@@ -317,7 +324,7 @@ def test_the_validator_accepts_every_selection_law_the_builder_writes(monkeypatc
     def unavailable(*_args, **_kwargs):
         raise ArapProposalUnavailable("the work cap")
 
-    monkeypatch.setattr(developable, "arap_proposal", unavailable)
+    _patch_arap(monkeypatch, unavailable)
     kept = build_metric(parts, ladder=ON)
     assert kept.metric.planarity_certificate.proposal_selection_law is Selection.HINGE_KEPT_ARAP_UNAVAILABLE_V1
     assert _issues(kept, parts) == ()
@@ -413,3 +420,67 @@ def test_a_refusal_of_the_hinge_chart_does_not_try_the_competition():
     with pytest.raises(PlanarMetricAdmissionError) as failure:
         developable_chart(factories.dome())
     assert failure.value.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
+
+
+# --------------------------------------------------------------------------
+# Память построителя: карта, собранная пять раз, платит соперника ARAP один раз
+# --------------------------------------------------------------------------
+
+
+def test_a_second_identical_build_comes_from_the_memory_and_costs_no_second_arap(monkeypatch):
+    calls = []
+    original = developable.arap_proposal
+
+    def spy(*arguments):
+        calls.append(True)
+        return original(*arguments)
+
+    _patch_arap(monkeypatch, spy)
+    parts = _contested()
+    first = developable_chart(parts)
+    second = developable_chart(parts)
+    assert calls == [True]
+    assert first.certificate == second.certificate and first.nodes == second.nodes
+    assert first is not second and first.nodes is not second.nodes
+
+
+def test_the_validator_recomputation_reuses_the_chart_the_builder_just_made(monkeypatch):
+    calls = []
+    original = developable.arap_proposal
+
+    def spy(*arguments):
+        calls.append(True)
+        return original(*arguments)
+
+    _patch_arap(monkeypatch, spy)
+    parts = _contested()
+    record = build_metric(parts, ladder=ON)
+    assert _issues(record, parts) == ()
+    assert _issues(record, parts) == ()
+    assert calls == [True]
+
+
+def test_every_input_of_the_builder_is_part_of_the_memory_key():
+    parts = _contested()
+    base = developable_chart(parts)
+    other_budget = developable_chart(parts, budget=Fraction(1, 4))
+    other_trace = developable_chart(parts, previous_refusals=("NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",))
+    assert other_budget.certificate.stretch.stretch_budget == ExactRationalV1(1, 4)
+    assert other_budget.certificate != base.certificate
+    assert other_trace.certificate.previous_refusals == ("NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED",)
+    assert base.certificate.previous_refusals == ()
+
+
+def test_a_caller_that_edits_the_returned_nodes_does_not_corrupt_the_memory():
+    parts = _contested()
+    first = developable_chart(parts)
+    expected = dict(first.nodes)
+    first.nodes.clear()
+    assert developable_chart(parts).nodes == expected
+
+
+def test_a_refusal_is_not_remembered_and_stays_a_refusal():
+    for _ in range(2):
+        with pytest.raises(PlanarMetricAdmissionError) as failure:
+            developable_chart(factories.dome())
+        assert failure.value.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED

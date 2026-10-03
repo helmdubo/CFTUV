@@ -315,17 +315,21 @@ def _on_chord_in_order(points) -> bool:
     return bool(reach)
 
 
+def _ratio_text(value) -> str:
+    return "none" if value is None else f"{value.numerator}/{value.denominator}"
+
+
 def _check_judgement(issues, path, metric, certificate, budget=None) -> None:
     stretch = certificate.stretch
     recorded = _fraction(stretch.stretch_budget)
-    if recorded != _policy_budget(certificate, budget) or not developable_stretch_budget_is_lawful(
-        recorded
-    ):
+    lawful = developable_stretch_budget_is_lawful(recorded)
+    if recorded != _policy_budget(certificate, budget) or not lawful:
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("stretch", "stretch_budget"),
-            "recorded stretch budget is not the request's lawful developable_stretch_budget",
+            f"recorded={_ratio_text(recorded)} request={_ratio_text(budget)}: the recorded stretch "
+            "budget is not the request's lawful developable_stretch_budget",
         )
     for outcome in stretch_violations(stretch):
         add_issue(

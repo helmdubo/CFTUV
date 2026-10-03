@@ -17,6 +17,16 @@ from ec0_adapter import load_projection
 set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_developable_chart_memory():
+    """Память построителя карты развёртки (по входам) не переживает тест: он подменяет внутренности построителя."""
+
+    from cftuv_envelope._developable import clear_developable_chart_memory
+
+    clear_developable_chart_memory()
+    yield
+
+
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "session_a_v5"
 CASE_PATHS = tuple(sorted((FIXTURE_ROOT / "cases").glob("*.json")))
 

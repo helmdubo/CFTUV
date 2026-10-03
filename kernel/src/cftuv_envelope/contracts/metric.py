@@ -1130,6 +1130,10 @@ class DevelopableStraightChainLawV1(str, Enum):
     INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1 = "INTERIOR_NODES_ON_ENDPOINT_SEGMENT_V1"
 
 
+# ВНИМАНИЕ: это значение — СМЫСЛ каждого запроса, где поле `developable_stretch_budget` опущено (на проводе
+# умолчание не пишется, `schema.wire_default_field`). Изменение числа молча меняет смысл всех хранимых запросов
+# без поля (60 фикстур, сохранённые прогоны): его можно менять только вместе с новой версией схемы запроса
+# (`DECAL_REQUEST_SCHEMA_V1` -> V2) и явной миграцией, а не правкой константы.
 DEFAULT_DEVELOPABLE_STRETCH_BUDGET = Fraction(1, 5)
 """Допуск растяжения развёртки ПО УМОЛЧАНИЮ: 20 % относительно. Точная дробь.
 

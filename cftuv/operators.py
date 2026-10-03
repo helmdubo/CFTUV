@@ -38,7 +38,13 @@ from .debug import (
 )
 from .envelope_debug_panel import draw_envelope_debug_box
 from .envelope_domain_pool import DEFAULT_POOL_WORKERS
-from .envelope_request_policy import DEFAULT_ENVELOPE_FAN_DENSITY, DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT, ENVELOPE_FAN_DENSITY_ITEMS, ENVELOPE_MAX_STRETCH_PERCENT_RANGE, envelope_stretch_budget
+from .envelope_request_policy import (
+    DEFAULT_ENVELOPE_FAN_DENSITY,
+    DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
+    ENVELOPE_FAN_DENSITY_ITEMS,
+    ENVELOPE_MAX_STRETCH_PERCENT_RANGE,
+    envelope_stretch_budget,
+)
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .model import MeshPreflightReport, UVSettings
 from .solve import (
@@ -274,19 +280,40 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         default=DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
         min=ENVELOPE_MAX_STRETCH_PERCENT_RANGE[0],
         max=ENVELOPE_MAX_STRETCH_PERCENT_RANGE[1],
-        description="Largest accepted stretch of an unfolded decal domain, percent of source length",
+        description=(
+            "Largest accepted stretch of an unfolded decal domain, "
+            "percent of source length"
+        ),
         update=_update_envelope_debug_max_stretch,
     )
     envelope_debug_workers: IntProperty(
         name="Workers", default=DEFAULT_POOL_WORKERS, min=0, max=32,
         description="Queue domain worker processes (0 or 1: sequential)",
     )
-    envelope_debug_queue_timing: StringProperty(name="Envelope Queue Timing", default="")
-    envelope_debug_source_object: StringProperty(name="Envelope Debug Source", default="")
-    envelope_debug_status: StringProperty(name="Envelope Debug Status", default="Not built")
-    envelope_debug_outcome: StringProperty(name="Envelope Debug Outcome", default="")
-    envelope_debug_stage_summary: StringProperty(name="Envelope Stage Summary", default="")
-    envelope_debug_domain_status: StringProperty(name="Envelope Domain Status", default="")
+    envelope_debug_queue_timing: StringProperty(
+        name="Envelope Queue Timing",
+        default="",
+    )
+    envelope_debug_source_object: StringProperty(
+        name="Envelope Debug Source",
+        default="",
+    )
+    envelope_debug_status: StringProperty(
+        name="Envelope Debug Status",
+        default="Not built",
+    )
+    envelope_debug_outcome: StringProperty(
+        name="Envelope Debug Outcome",
+        default="",
+    )
+    envelope_debug_stage_summary: StringProperty(
+        name="Envelope Stage Summary",
+        default="",
+    )
+    envelope_debug_domain_status: StringProperty(
+        name="Envelope Domain Status",
+        default="",
+    )
     envelope_debug_show_domains: BoolProperty(
         name="Domains",
         default=True,
@@ -1482,7 +1509,9 @@ class _EnvelopeDebugBuildBase:
                     source_object_key=source_object_key,
                     source_data_key=source_data_key,
                     engine=engine, density=settings.envelope_debug_fan_density,
-                    developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
+                    developable_stretch_budget=envelope_stretch_budget(
+                        settings.envelope_debug_max_stretch
+                    ),
                     workers=settings.envelope_debug_workers,
                 )
                 topology_scene = evaluation.topology_scene

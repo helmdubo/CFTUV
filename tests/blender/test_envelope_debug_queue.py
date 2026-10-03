@@ -280,7 +280,8 @@ def _run_max_stretch_is_a_request_policy_keyed_into_the_preparation():
     settings = _settings()
     controller = _controller()
     assert settings.envelope_debug_max_stretch == 20
-    assert (settings.bl_rna.properties["envelope_debug_max_stretch"].hard_min, settings.bl_rna.properties["envelope_debug_max_stretch"].hard_max) == (1, 50)
+    prop = settings.bl_rna.properties["envelope_debug_max_stretch"]
+    assert (prop.hard_min, prop.hard_max) == (1, 50)
     preparations = controller.build_counts["CONVEYOR_PREPARATION"]
     metrics = controller.build_counts["PATCH_METRIC"]
 

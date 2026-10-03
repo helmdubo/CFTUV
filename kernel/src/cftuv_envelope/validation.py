@@ -646,7 +646,11 @@ def _junction_route_pairs(topology: object) -> frozenset[JunctionRoutePairV1]:
     return frozenset()
 
 
-def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1, *, developable_stretch_budget=None) -> tuple[ValidationIssue, ...]:
+def validate_analysis_snapshot(
+    snapshot: AnalysisSnapshotV1,
+    *,
+    developable_stretch_budget=None,
+) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     if snapshot.schema_version != ANALYSIS_SNAPSHOT_SCHEMA_V1:
         _issue(issues, ValidationCode.SCHEMA_VERSION, ("schema_version",), "unsupported snapshot schema")
@@ -832,7 +836,9 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1, *, developable_stre
             required_vertices = patch_vertices.get(domain.owner_patch_id, set())
             if full_surface and coordinate_ids != required_vertices:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates",), "exact affine coordinates must cover all and only owner-patch surface vertices")
-            for source_issue in validate_metric_against_source(descriptor, snapshot, domain.owner_patch_id, developable_stretch_budget):
+            for source_issue in validate_metric_against_source(
+                descriptor, snapshot, domain.owner_patch_id, developable_stretch_budget
+            ):
                 _issue(issues, source_issue.code, path + source_issue.path[1:], source_issue.message)
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
@@ -1060,9 +1066,19 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
             code = ValidationCode.SCHEMA_VERSION if field == "schema_version" else ValidationCode.POLICY_MISMATCH
             _issue(issues, code, (field,), "unsupported v1 value")
     for field in angular_request_policy_mismatches(request):
-        _issue(issues, ValidationCode.POLICY_MISMATCH, (field,), "unsupported angular policy tuple")
+        _issue(
+            issues,
+            ValidationCode.POLICY_MISMATCH,
+            (field,),
+            "unsupported angular policy tuple",
+        )
     if not developable_stretch_budget_is_lawful(_fraction(request.developable_stretch_budget)):
-        _issue(issues, ValidationCode.POLICY_MISMATCH, ("developable_stretch_budget",), "developable stretch budget must lie in (0, 1/2]")
+        _issue(
+            issues,
+            ValidationCode.POLICY_MISMATCH,
+            ("developable_stretch_budget",),
+            "developable stretch budget must lie in (0, 1/2]",
+        )
     if not request.selected_chain_use_ids:
         _issue(issues, ValidationCode.MISSING_REFERENCE, ("selected_chain_use_ids",), "at least one ChainUse is required")
     return tuple(issues)
@@ -1074,7 +1090,12 @@ def validate_snapshot_request_references(
 ) -> tuple[ValidationIssue, ...]:
     """Validate the complete public compile input before any scope resolution."""
 
-    issues = list(validate_analysis_snapshot(snapshot, developable_stretch_budget=_fraction(request.developable_stretch_budget)))
+    issues = list(
+        validate_analysis_snapshot(
+            snapshot,
+            developable_stretch_budget=_fraction(request.developable_stretch_budget),
+        )
+    )
     issues.extend(validate_decal_request(request))
     use_ids = _values(snapshot.chain_uses, "chain_use_id")
     _require_refs(
@@ -1446,7 +1467,12 @@ def validate_cross_contract_references(
     plans: tuple[CompiledPatchEvaluationPlanV1, ...],
     geometry_batches: tuple[GeometryBatchV1, ...] = (),
 ) -> tuple[ValidationIssue, ...]:
-    issues = list(validate_analysis_snapshot(snapshot, developable_stretch_budget=_fraction(request.developable_stretch_budget)))
+    issues = list(
+        validate_analysis_snapshot(
+            snapshot,
+            developable_stretch_budget=_fraction(request.developable_stretch_budget),
+        )
+    )
     issues.extend(validate_decal_request(request))
     use_by_id = {item.chain_use_id: item for item in snapshot.chain_uses}
     domain_by_id = {item.patch_domain_id: item for item in snapshot.patch_domains}

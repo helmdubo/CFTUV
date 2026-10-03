@@ -166,6 +166,8 @@ def test_a_snapshot_recorded_under_another_budget_than_the_requests_does_not_com
     assert result.compilation is None
     assert result.diagnostics[0].outcome.value == "REFERENCE_INPUT_CONTRACT_INVALID"
     assert "stretch_budget" in result.diagnostics[0].message
+    # Одно чтение: отказ называет ОБА числа — записанное в сертификате и названное запросом.
+    assert "recorded=7/20 request=1/5" in result.diagnostics[0].message
 
 
 def test_the_default_snapshot_and_the_default_request_still_agree():

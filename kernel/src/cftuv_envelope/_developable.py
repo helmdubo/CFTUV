@@ -55,6 +55,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from copy import copy
 from dataclasses import replace
 from fractions import Fraction
@@ -584,6 +585,51 @@ def _best_proposal(unfolding: _Unfolding, chart: DevelopableChartV1) -> Developa
     return _with_selection(chart, law.BEST_HINGE_WON_V1, hinge_band, arap_band)
 
 
+#: Память построителя в ПРОЦЕССЕ. Карта домена — чистая функция своих входов (binary64 с фиксированным порядком
+#: операций, точные дроби), а собирается она около пяти раз: построение метрики и четыре проверки снапшота
+#: (выгрузка хоста, декодированные байты, запрос, компиляция), и соперник ARAP платился бы в каждой сборке. Ключ — ВСЕ
+#: входы построителя (позиции, треугольники, допуск, след лестницы, прямые цепи), поэтому хит возвращает ровно ту
+#: карту, что построил бы вызов; успехи запоминаются, отказы нет (они пересборки не порождают). Размер ограничен
+#: давностью обращения; тесты, подменяющие внутренности построителя, сбрасывают память
+#: (`clear_developable_chart_memory`).
+CHART_MEMORY_ENTRIES = 16
+_chart_memory: OrderedDict = OrderedDict()
+
+
+def clear_developable_chart_memory() -> None:
+    _chart_memory.clear()
+
+
+def _memory_key(
+    source_revision,
+    patch_domain_id,
+    snapped,
+    owner_triangles,
+    required_ids,
+    source_scale,
+    previous_refusals,
+    budget,
+    declared_straight_chains,
+) -> tuple:
+    return (
+        source_revision,
+        patch_domain_id,
+        tuple(sorted((vertex.value, tuple(position)) for vertex, position in snapped.items())),
+        tuple(sorted(owner_triangles, key=lambda item: item.triangle_id.value)),
+        tuple(required_ids),
+        source_scale,
+        tuple(previous_refusals),
+        Fraction(budget),
+        tuple(tuple(chain) for chain in declared_straight_chains),
+    )
+
+
+def _detached(chart: DevelopableChartV1) -> DevelopableChartV1:
+    """Тот же результат с собственным словарём узлов: вызывающий не портит память."""
+
+    return DevelopableChartV1(chart.certificate, dict(chart.nodes), chart.chart_scale)
+
+
 def build_developable_chart(
     *,
     source_revision,
@@ -595,6 +641,51 @@ def build_developable_chart(
     previous_refusals: tuple[str, ...] = (),
     budget: Fraction = DEFAULT_DEVELOPABLE_STRETCH_BUDGET,
     declared_straight_chains: tuple = (),
+) -> DevelopableChartV1:
+    """Карта и сертификат развёртки домена (из памяти процесса, если входы те же), либо именованный отказ."""
+
+    key = _memory_key(
+        source_revision,
+        patch_domain_id,
+        snapped,
+        owner_triangles,
+        required_ids,
+        source_scale,
+        previous_refusals,
+        budget,
+        declared_straight_chains,
+    )
+    kept = _chart_memory.get(key)
+    if kept is None:
+        kept = _chart_memory[key] = _build_developable_chart(
+            source_revision=source_revision,
+            patch_domain_id=patch_domain_id,
+            snapped=snapped,
+            owner_triangles=owner_triangles,
+            required_ids=required_ids,
+            source_scale=source_scale,
+            previous_refusals=previous_refusals,
+            budget=budget,
+            declared_straight_chains=declared_straight_chains,
+        )
+        while len(_chart_memory) > CHART_MEMORY_ENTRIES:
+            _chart_memory.popitem(last=False)
+    else:
+        _chart_memory.move_to_end(key)
+    return _detached(kept)
+
+
+def _build_developable_chart(
+    *,
+    source_revision,
+    patch_domain_id,
+    snapped,
+    owner_triangles,
+    required_ids,
+    source_scale: int | None,
+    previous_refusals: tuple[str, ...],
+    budget: Fraction,
+    declared_straight_chains: tuple,
 ) -> DevelopableChartV1:
     """Карта и сертификат развёртки домена, либо именованный отказ.
 
