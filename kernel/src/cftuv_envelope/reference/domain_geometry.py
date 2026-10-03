@@ -4,6 +4,12 @@ Runtime domain geometry is defined only by BoundaryLoopV1, its ordered
 ChainUses, PhysicalChain edge/vertex identity, and explicit constraints.
 Source-face cycles remain contributor evidence and never become runtime
 arrangement boundaries.
+
+ОДНО ИСКЛЮЧЕНИЕ, названное и записанное (DECISIONS.md, «ПОЛОСОВАЯ КАРТА»): у домена с сертификатом полосы
+(`DevelopableBandChartCertificateV1`) карта покрывает только носитель вокруг выбранных цепей, и граница домена —
+петля из СТОРОН СЕРТИФИКАТА (`strip_boundary`): обод, куски исходной границы патча (с их `ChainUse`) и стена
+досягаемости. Стена — граница сертификата, а не цикл грани: её рёбра записаны в сертификате и пересчитываются
+валидатором из снапшота, а этот модуль цикл грани не читает.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from ..contracts.analysis import (
     ChainUseConstraintTargetV1,
     PhysicalEdgeSequenceConstraintTargetV1,
 )
+from ..contracts.metric import BandBoundaryRoleV1, DevelopableBandChartCertificateV1
 from ..ids import PatchDomainId, PhysicalEdgeId, SourceFaceId
 from .common import (
     GeometryContext,
@@ -300,6 +307,8 @@ def _explicit_barrier_segments(
     context: GeometryContext,
     constraints_by_edge: dict[PhysicalEdgeId, set],
     boundary_edge_ids: frozenset[PhysicalEdgeId],
+    *,
+    beyond_chart_skipped: bool = False,
 ) -> tuple[BlockingBoundarySegment, ...]:
     explicit_constraints = tuple(
         constraint
@@ -317,6 +326,8 @@ def _explicit_barrier_segments(
     result = []
     for edge_id in sorted(explicit_edge_ids - boundary_edge_ids, key=lambda item: item.value):
         edge = context.source_edges_by_id[edge_id]
+        if beyond_chart_skipped and not {edge.vertex_a_id, edge.vertex_b_id} <= context.points_by_id.keys():
+            continue
         constraints = constraints_by_edge.get(edge_id, ())
         constraint_ids = frozenset(
             item.boundary_constraint_id.value for item in constraints
@@ -384,6 +395,97 @@ def _explicit_barrier_segments(
     return tuple(result)
 
 
+def _reach_wall_segment(context: GeometryContext, loop_id: str, side):
+    """Сегмент стены досягаемости: ребро сертификата без `ChainUse` и без цепи."""
+
+    domain_id = context.compilation.plan_key.patch_domain_id
+    support_id = stable_id("chart-reach-wall-support", domain_id, side.physical_edge_id)
+    provenance = make_reference_provenance(
+        support_ids=frozenset({support_id}),
+        physical_edge_ids=frozenset({side.physical_edge_id.value}),
+        boundary_loop_ids=frozenset({loop_id}),
+        patch_domain_ids=frozenset({domain_id.value}),
+    )
+    return make_segment(
+        stable_id("band-reach-wall-edge", domain_id, side.physical_edge_id),
+        context.points_by_id[side.start_vertex_id],
+        context.points_by_id[side.end_vertex_id],
+        support_ids=frozenset({support_id}),
+        provenance=provenance,
+        start_certificates=frozenset({source_vertex_certificate(side.start_vertex_id)}),
+        end_certificates=frozenset({source_vertex_certificate(side.end_vertex_id)}),
+    )
+
+
+def _band_boundary_loop(
+    context: GeometryContext,
+    certificate: DevelopableBandChartCertificateV1,
+    constraints_by_edge: dict[PhysicalEdgeId, set],
+) -> PlanarLoop:
+    """Единственная внешняя петля полосы по сторонам сертификата, в порядке обхода и с выровненной намоткой."""
+
+    domain_id = context.compilation.plan_key.patch_domain_id
+    loop_id = stable_id("band-chart-boundary-loop", domain_id)
+    segments = []
+    for side in certificate.strip_boundary:
+        if side.role is BandBoundaryRoleV1.REACH_WALL:
+            segments.append(_reach_wall_segment(context, loop_id, side))
+            continue
+        chain_use = context.uses_by_id.get(side.chain_use_id)
+        if chain_use is None or chain_use.patch_domain_id != domain_id:
+            raise _fail(f"band boundary side {side.physical_edge_id} names an unknown ChainUse of this domain")
+        segments.append(
+            _loop_segment(
+                context,
+                boundary_loop_id=chain_use.boundary_loop_id,
+                chain_use=chain_use,
+                start_id=side.start_vertex_id,
+                end_id=side.end_vertex_id,
+                edge_id=side.physical_edge_id,
+                constraint_ids=frozenset(
+                    item.boundary_constraint_id.value
+                    for item in constraints_by_edge.get(side.physical_edge_id, ())
+                ),
+            )
+        )
+    planar_loop = PlanarLoop(loop_id, tuple(segments))
+    _validate_closed_loop(planar_loop)
+    return _normalize_loop_winding(context, planar_loop, BoundaryLoopKind.OUTER)
+
+
+def _band_domain_geometry(
+    context: GeometryContext,
+    certificate: DevelopableBandChartCertificateV1,
+    constraints_by_edge: dict[PhysicalEdgeId, set],
+) -> SparsePatchDomainGeometryV1:
+    """Домен полосы: одна внешняя петля сертификата, без дыр; барьеры - только внутри карты."""
+
+    loop = _band_boundary_loop(context, certificate, constraints_by_edge)
+    support = certificate.support_triangle_ids
+    geometry = SparsePatchDomainGeometryV1(
+        patch_domain_id=context.compilation.plan_key.patch_domain_id,
+        outer_loops=(loop,),
+        hole_loops=(),
+        explicit_barriers=_explicit_barrier_segments(
+            context,
+            constraints_by_edge,
+            frozenset(
+                PhysicalEdgeId(edge_id)
+                for segment in loop.segments
+                for edge_id in segment.provenance.physical_edge_ids
+            ),
+            beyond_chart_skipped=True,
+        ),
+        source_face_contributor_ids=frozenset(
+            item.source_face_id
+            for item in context.snapshot.surface_ir.surface_triangles
+            if item.triangle_id in support
+        ),
+    )
+    geometry.domain_regions
+    return geometry
+
+
 def build_sparse_patch_domain_geometry(
     context: GeometryContext,
 ) -> SparsePatchDomainGeometryV1:
@@ -407,6 +509,9 @@ def build_sparse_patch_domain_geometry(
         for edge_id in _constraint_edges(context, constraint):
             constraints_by_edge.setdefault(edge_id, set()).add(constraint)
 
+    certificate = context.frame.planarity_certificate
+    if type(certificate) is DevelopableBandChartCertificateV1:
+        return _band_domain_geometry(context, certificate, constraints_by_edge)
     planar_by_id = {
         loop.boundary_loop_id: _build_boundary_loop(
             context, loop, constraints_by_edge

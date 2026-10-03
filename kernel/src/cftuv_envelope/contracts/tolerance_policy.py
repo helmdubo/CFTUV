@@ -135,6 +135,7 @@ class TolerancePolicyIdV1(str, Enum):
     CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1 = "CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1"
     DEVELOPABLE_CONE_RELIEF_GAP_V1 = "DEVELOPABLE_CONE_RELIEF_GAP_V1"
     SURFACE_OFFSET_OPPOSITION_DEPTH_V1 = "SURFACE_OFFSET_OPPOSITION_DEPTH_V1"
+    CHART_REACH_CAP_V1 = "CHART_REACH_CAP_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -210,6 +211,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE = "CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE"
     DEVELOPABLE_PROPOSAL_TARGET = "DEVELOPABLE_PROPOSAL_TARGET"
     SURFACE_OFFSET_NORMAL_OPPOSITION = "SURFACE_OFFSET_NORMAL_OPPOSITION"
+    BAND_CHART_ADMISSION = "BAND_CHART_ADMISSION"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -257,6 +259,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH = (
         "TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH"
+    )
+    ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN = (
+        "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN"
     )
 
 
@@ -1683,6 +1688,50 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_offset_normal_opposition.py"
             "::test_an_opposition_deeper_than_the_tolerance_keeps_the_refusal"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CHART_REACH_CAP_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 2)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Досягаемость карты-ПОЛОСЫ (`DevelopableBandChartCertificateV1`), метры: наибольшая alpha, для которой "
+            "носитель вокруг выбранных цепей вправе быть единственной картой домена, не развёртывающегося целиком. "
+            "Политика ЗАПРОСА (`DecalRequestV1.chart_reach_cap`, из `(0, MAX_CHART_REACH_CAP = 100]`), по умолчанию "
+            "полметра. Носитель выбирается как предложение (грани не дальше `(1 + b) * cap` от обода), а ВЛАСТЬ — "
+            "запас в сертификате: наименьший квадрат расстояния НА КАРТЕ между ободом и стеной досягаемости не меньше "
+            "`cap^2` (точная дробь), иначе `CHART_REACH_SHORT_OF_CAP`. alpha запроса выше досягаемости — "
+            "`REQUEST_ALPHA_EXCEEDS_CHART_REACH` и в проверке запроса, и в покрытии, а не усечённое покрытие. Полоса "
+            "пробуется только после именованного отказа развёртки ЦЕЛОГО патча; принятый целый патч до неё не доходит "
+            "и его байты прежние."
+        ),
+        authority=(
+            "DevelopableBandChartCertificateV1.chart_reach_margin_squared; DECISIONS.md 2026-10-03 (ПОЛОСОВАЯ КАРТА: "
+            "решение владельца «идея полосовой карты принята», досягаемость 0.5 м по умолчанию — выбор оркестратора по "
+            "делегированию владельца)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.BAND_CHART_ADMISSION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=(
+            "cftuv_envelope.contracts.metric.DEFAULT_CHART_REACH_CAP",
+            "cftuv_envelope.contracts.metric.MAX_CHART_REACH_CAP",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_band.py"
+            "::test_the_arch_front_arc_materializes_through_a_band_chart"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_band.py"
+            "::test_an_alpha_beyond_the_reach_cap_is_a_named_refusal"
         ),
     ),
 )

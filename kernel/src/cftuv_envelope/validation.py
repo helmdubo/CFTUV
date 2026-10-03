@@ -136,7 +136,8 @@ from .validation_issues import (
 )
 from .validation_source_edges import source_edge_zero_length_issues
 from .validation_corner_treatment import validate_plan_corner_treatments, validate_plan_corner_treatments_against_snapshot
-from .validation_metric import fraction_of as _fraction, validate_metric_against_source, validate_rational_affine_planar_metric
+from .validation_band import band_policy_issues, chart_reach_cap_issues
+from .validation_metric import fraction_of as _fraction, metric_covers_patch, validate_metric_against_source, validate_rational_affine_planar_metric
 
 
 def _values(records: frozenset[object], attribute: str) -> set[OpaqueId]:
@@ -833,7 +834,7 @@ def validate_analysis_snapshot(
             coordinate_ids = set(coordinate_by_id)
             _require_refs(issues, coordinate_ids, vertex_ids, path + ("exact_source_vertex_coordinates",))
             required_vertices = patch_vertices.get(domain.owner_patch_id, set())
-            if full_surface and coordinate_ids != required_vertices:
+            if full_surface and not metric_covers_patch(certificate, coordinate_ids, required_vertices):
                 _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates",), "exact affine coordinates must cover all and only owner-patch surface vertices")
             for source_issue in validate_metric_against_source(
                 descriptor, snapshot, domain.owner_patch_id, developable_stretch_budget
@@ -1078,6 +1079,7 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
             ("developable_stretch_budget",),
             "developable stretch budget must lie in (0, 1/2]",
         )
+    issues.extend(chart_reach_cap_issues(request))
     if not request.selected_chain_use_ids:
         _issue(issues, ValidationCode.MISSING_REFERENCE, ("selected_chain_use_ids",), "at least one ChainUse is required")
     return tuple(issues)
@@ -1096,6 +1098,7 @@ def validate_snapshot_request_references(
         )
     issues = list(snapshot_issues)
     issues.extend(validate_decal_request(request))
+    issues.extend(band_policy_issues(snapshot, request))
     use_ids = _values(snapshot.chain_uses, "chain_use_id")
     _require_refs(
         issues,
@@ -1472,6 +1475,7 @@ def validate_cross_contract_references(
             developable_stretch_budget=_fraction(request.developable_stretch_budget),
         )
     )
+    issues.extend(band_policy_issues(snapshot, request))
     issues.extend(validate_decal_request(request))
     use_by_id = {item.chain_use_id: item for item in snapshot.chain_uses}
     domain_by_id = {item.patch_domain_id: item for item in snapshot.patch_domains}

@@ -508,6 +508,8 @@ def test_angular_stage_counters_separate_zero_output_from_no_corners():
         "ANGULAR_CUT_VERTICES_CONSIDERED": 0,
         "ANGULAR_CUT_CHART_COLLINEAR": 0,
         "ANGULAR_CUT_REFLEX_RELATIONS": 0,
+        # Карты-полосы у фикстуры нет: счёт углов вне досягаемости объявлен нулём.
+        "ANGULAR_CORNERS_BEYOND_CHART_REACH": 0,
     }
     assert len(snapshot.corner_relations) == 1
 

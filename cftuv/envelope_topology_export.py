@@ -35,6 +35,18 @@ SELECTION_COMPLETED_DIAGNOSTIC_CODE = "PARTIAL_CHAIN_SELECTION_COMPLETED"
 
 
 @dataclass(frozen=True, slots=True)
+class ChartBandPolicyV1:
+    """Политика полосовой карты ЗАПРОСА: досягаемость и выделение (физические рёбра хоста).
+
+    Полоса зависит от выбора цепей, а метрика патча - нет, поэтому выделение едет отдельно от факта топологии: ядро
+    строит полосу вокруг цепей домена, у которых есть выбранное ребро, и только если целый патч не развёртывается.
+    """
+
+    reach_cap: Fraction
+    selected_physical_edge_ids: frozenset[int]
+
+
+@dataclass(frozen=True, slots=True)
 class EnvelopeTopologyExportV1:
     """SourceRevision-scoped host topology prepared exactly once.
 
@@ -49,6 +61,7 @@ class EnvelopeTopologyExportV1:
     host_chains: tuple[object, ...]
     patch_domain_id_by_patch: Mapping[int, str]
     developable_stretch_budget: Fraction | None = None
+    chart_band: ChartBandPolicyV1 | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -69,6 +82,22 @@ class EnvelopeTopologyExportV1:
         if budget == self.developable_stretch_budget:
             return self
         return replace(self, developable_stretch_budget=budget)
+
+    def with_chart_band(self, reach_cap: Fraction | None, selected_physical_edge_ids):
+        """Тот же экспорт с политикой полосы запроса: `reach_cap=None` - умолчание ядра (полметра)."""
+
+        from .envelope_request_policy import DEFAULT_ENVELOPE_CHART_REACH_CAP
+
+        policy = ChartBandPolicyV1(
+            DEFAULT_ENVELOPE_CHART_REACH_CAP if reach_cap is None else Fraction(reach_cap),
+            frozenset(int(item) for item in selected_physical_edge_ids),
+        )
+        return self if policy == self.chart_band else replace(self, chart_band=policy)
+
+    def without_chart_band(self):
+        """Тот же экспорт без полосы: метрика ЦЕЛОГО патча, как она кэшируется независимо от выделения."""
+
+        return self if self.chart_band is None else replace(self, chart_band=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,6 +518,7 @@ def stage_domain_inputs(
 
 
 __all__ = (
+    "ChartBandPolicyV1",
     "SELECTION_COMPLETED_DIAGNOSTIC_CODE",
     "SELECTION_COMPLETION_COUNTERS",
     "AnalysisBundleIdView",

@@ -115,6 +115,7 @@ def _build_two_patch_seam(
     nonplanar_second_patch=False,
     second_patch_offset=0.001,
     second_patch_apex=None,
+    second_patch_whole_base=True,
 ):
     """Два патча через шов из одного ребра; второй при желании выведен из плоскости.
 
@@ -128,6 +129,11 @@ def _build_two_patch_seam(
     `SOURCE_ONLY_GRID_SNAP_V1` привязка источника кладёт в плоскость ТОЧНО всё,
     что ближе половины ячейки, поэтому «кривой патч» и «патч, отвергаемый
     бюджетом планарности» — это два разных числа, а не одно.
+
+    `second_patch_whole_base` (только с `second_patch_apex`): выбрано всё ОСНОВАНИЕ пирамиды, а не один шов. Полоса вокруг
+    одного шва (носитель — три треугольника из четырёх) строит пирамиду и спасает её от отказа метрики; выбор всего
+    основания делает обод всем контуром патча, носитель — всем патчем, и отказ целого патча остаётся (так смоки отказа
+    по-прежнему упражняют ступень метрики). Полоса — отдельный смок продуктового меша.
     """
 
     mesh = bpy.data.meshes.new("EnvelopeTwoPatchMesh")
@@ -159,7 +165,14 @@ def _build_two_patch_seam(
     assert shared_index is not None
     obj = bpy.data.objects.new("EnvelopeTwoPatch", mesh)
     bpy.context.scene.collection.objects.link(obj)
-    _enter_edge_selection(obj, (shared_index,))
+    selected = [shared_index]
+    if second_patch_apex is not None and second_patch_whole_base:
+        selected += [
+            edge.index
+            for edge in mesh.edges
+            if set(edge.vertices) <= {1, 2, 4, 5} and edge.index != shared_index
+        ]
+    _enter_edge_selection(obj, selected)
     return obj
 
 

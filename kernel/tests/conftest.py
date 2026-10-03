@@ -21,9 +21,11 @@ set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
 def _fresh_developable_chart_memory():
     """Память построителя карты развёртки (по входам) не переживает тест: он подменяет внутренности построителя."""
 
+    from cftuv_envelope._band_chart import clear_band_chart_memory
     from cftuv_envelope._developable import clear_developable_chart_memory
 
     clear_developable_chart_memory()
+    clear_band_chart_memory()
     yield
 
 

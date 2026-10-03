@@ -813,9 +813,10 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
     ]
     assert literals == [], ast.dump(literals[0]) if literals else ""
 
-    # И потребляемая власть — та самая, у которой все двадцать имён (четыре —
+    # И потребляемая власть — та самая, у которой все двадцать три имени (четыре —
     # исходы сертификата искажения ширины NEAR_PLANAR V2, десять — исходы развёртки
-    # S1 DEVELOPABLE: лестница кривизны живёт внутри построителя метрики).
+    # S1 DEVELOPABLE: лестница кривизны живёт внутри построителя метрики; три — отказы
+    # полосовой карты: ступень полосы живёт там же).
     members = _frozenset_members(_module(HOST_EXPORT), "METRIC_STAGE_OUTCOMES")
     assert members == {
         "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
@@ -838,6 +839,9 @@ def test_field_gate_consumes_the_host_metric_stage_authority():
         "DEVELOPABLE_CHART_SELF_OVERLAP",
         "DEVELOPABLE_CHART_LATTICE_TOO_COARSE",
         "DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT",
+        "DEVELOPABLE_BAND_SUPPORT_DISCONNECTED",
+        "CHART_REACH_SHORT_OF_CAP",
+        "DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED",
     }
 
 

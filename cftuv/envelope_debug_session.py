@@ -21,6 +21,7 @@ from .envelope_export_input import (
 from .envelope_metric_export import (
     EnvelopeDomainGeometryExportV1,
     EnvelopePatchMetricExportV1,
+    band_key_of,
     build_envelope_domain_geometry_export,
     build_envelope_patch_metric_export,
 )
@@ -78,6 +79,7 @@ class CompiledEnvelopeCacheKeyV1:
                     "material_policy_id",
                     "uv_policy_id",
                     "developable_stretch_budget",
+                    "chart_reach_cap",
                 )
             ),
         )
@@ -504,7 +506,65 @@ class EnvelopeDebugSessionController:
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
         build: Callable[[], EnvelopePatchMetricExportV1] | None = None,
     ) -> EnvelopePatchMetricExportV1:
-        """Метрика патча из кэша либо собранная и запомненная.
+        """Метрика патча: целого (кэш не зависит от выделения), а после её именованного отказа - полоса.
+
+        Полоса вокруг выбранных цепей строится ТОЛЬКО когда политика полосы названа (`topology_export.chart_band`) и
+        целый патч не развернулся по причине из триггеров лестницы; её кэш ключуется выделением и досягаемостью, поэтому
+        смена выделения не пересобирает метрики целых патчей. Воркеры пула полос не строят: их отказ целого патча
+        (`build`) разрешает родитель.
+        """
+
+        from .envelope_chart_band import band_trigger_host_outcomes
+        from .envelope_request_export import EnvelopeHostAdapterError
+
+        try:
+            return self._whole_patch_metric(
+                topology_export.without_chart_band(), patch_id, profile=profile, build=build
+            )
+        except EnvelopeHostAdapterError as refused:
+            if topology_export.chart_band is None or refused.outcome not in band_trigger_host_outcomes():
+                raise
+            return self._band_patch_metric(topology_export, patch_id, profile=profile)
+
+    def _band_patch_metric(
+        self,
+        topology_export: EnvelopeTopologyExportV1,
+        patch_id: int,
+        *,
+        profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    ) -> EnvelopePatchMetricExportV1:
+        """Метрика-полоса патча из кэша либо собранная; отказ полосы запоминается так же, как отказ целого патча."""
+
+        from .envelope_request_export import EnvelopeHostAdapterError
+
+        domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
+        band_key = band_key_of(topology_export, patch_id)
+        key = (topology_export.source_revision_value, domain_id, topology_export.developable_stretch_budget, band_key)
+        cached = self._patch_metric_cache.get(key)
+        if cached is None:
+            try:
+                cached = build_envelope_patch_metric_export(topology_export, patch_id, profile=profile)
+            except EnvelopeHostAdapterError as exc:
+                cached = _CachedMetricFailure(exc.outcome, str(exc), exc.patch_domain_id)
+            self._patch_metric_cache[key] = cached
+            self._build_counts["PATCH_METRIC"] += 1
+            self._cache_build_counts[("PATCH_METRIC", key)] = self._cache_build_counts.get(("PATCH_METRIC", key), 0) + 1
+            self._record_cache(profile, "PATCH_METRIC", False, patch_domain_id=domain_id, cache_key=key)
+        else:
+            self._record_cache(profile, "PATCH_METRIC", True, patch_domain_id=domain_id, cache_key=key)
+        if isinstance(cached, _CachedMetricFailure):
+            cached.raise_error()
+        return cached
+
+    def _whole_patch_metric(
+        self,
+        topology_export: EnvelopeTopologyExportV1,
+        patch_id: int,
+        *,
+        profile: EnvelopeDebugProfileBuilderV1 | None = None,
+        build: Callable[[], EnvelopePatchMetricExportV1] | None = None,
+    ) -> EnvelopePatchMetricExportV1:
+        """Метрика целого патча из кэша либо собранная и запомненная.
 
         `build` — готовая выгрузка, которую сделал воркер пула (либо её отказ:
         она поднимает `EnvelopeHostAdapterError`). Она проходит кэш как промах со
@@ -585,7 +645,7 @@ class EnvelopeDebugSessionController:
             metric_export.source_revision_value,
             metric_export.patch_domain_id,
             metric_export.developable_stretch_budget,
-        )
+        ) + (() if metric_export.band_key is None else (metric_export.band_key,))
         cached = self._domain_geometry_cache.get(key)
         if cached is not None:
             self._record_cache(
@@ -774,6 +834,7 @@ class EnvelopeDebugSessionController:
         density,
         workers: int = 0,
         developable_stretch_budget=None,
+        chart_reach_cap=None,
     ):
         from .envelope_domain_pool import get_domain_pool
         from .envelope_queue_export import (
@@ -791,7 +852,9 @@ class EnvelopeDebugSessionController:
             source_object_key,
             source_data_key,
             profile=profile,
-        ).with_developable_stretch_budget(developable_stretch_budget)
+        ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
+            chart_reach_cap, selected_physical_edge_ids
+        )
         if profile is not None:
             profile.set_counter(
                 "COMPILED_ENVELOPE_CACHE_ENABLED",
@@ -932,6 +995,7 @@ def evaluate_envelope_debug_staged(
     density=None,
     workers: int = 0,
     developable_stretch_budget=None,
+    chart_reach_cap=None,
 ):
     """Compatibility entry point with optional persistent session reuse.
 
@@ -952,7 +1016,9 @@ def evaluate_envelope_debug_staged(
         topology_export = build_envelope_topology_export(
             analysis_bundle,
             profile=profile,
-        ).with_developable_stretch_budget(developable_stretch_budget)
+        ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
+            chart_reach_cap, selected_physical_edge_ids
+        )
         run = (
             evaluate_envelope_queue_staged
             if str(engine) == ENVELOPE_DEBUG_ENGINE_QUEUE
@@ -981,6 +1047,7 @@ def evaluate_envelope_debug_staged(
         density=density,
         workers=workers,
         developable_stretch_budget=developable_stretch_budget,
+        chart_reach_cap=chart_reach_cap,
     )
 
 

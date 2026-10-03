@@ -1058,6 +1058,7 @@ def _queue_snapshot_and_request(
         build_envelope_analysis_snapshot,
         build_envelope_decal_request,
     )
+    from .envelope_request_policy import topology_chart_reach_cap
 
     with _measure(profile, "SNAPSHOT_EXPORT", patch_domain_id):
         if domain_snapshot_provider is None:
@@ -1077,6 +1078,7 @@ def _queue_snapshot_and_request(
             density=density,
             developable_stretch_budget=getattr(topology_export, "developable_stretch_budget", None),
             snapshot_issues_of=snapshot_issues_of,
+            chart_reach_cap=topology_chart_reach_cap(topology_export),
         )
     return snapshot, request
 

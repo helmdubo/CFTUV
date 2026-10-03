@@ -30,6 +30,7 @@ from .contracts.metric import (
     ExactMatrix2V1,
     ExactPoint3V1,
     ExactRationalV1,
+    DevelopableBandChartCertificateV1,
     DevelopableUnfoldCertificateV1,
     ExactSourcePlaneCertificateV1,
     ExactVector3V1,
@@ -41,7 +42,10 @@ from .contracts.metric import (
     NearPlanarWidthDistortionLawV1,
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
+    is_unfolded_certificate,
 )
+from ._band_chart import band_certificate_id, band_metric_id
+from .chart_band import chart_band_request
 from .contracts.analysis import SourceVertexV1
 from .contracts.surface import SourceFaceV1, SurfaceTriangleV1
 from .ids import LineageId, PatchDomainId, SourceRevision
@@ -458,7 +462,7 @@ def validate_rational_affine_planar_metric(
             )
     elif type(certificate) is NearPlanarProjectionCertificateV1:
         _check_near_planar_certificate(issues, certificate_path, metric)
-    elif type(certificate) is DevelopableUnfoldCertificateV1:
+    elif is_unfolded_certificate(certificate):
         check_developable_certificate(issues, certificate_path, metric, developable_stretch_budget)
     else:
         # Ниже сертификат читается по полям, которых у неизвестного типа может
@@ -481,7 +485,7 @@ def validate_rational_affine_planar_metric(
     if (
         metric.frame_selection_law
         is AffineFrameSelectionLawV1.UNFOLDED_DEVELOPMENT_FRAME_V1
-    ) is not (type(certificate) is DevelopableUnfoldCertificateV1):
+    ) is not is_unfolded_certificate(certificate):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
@@ -866,13 +870,26 @@ def _check_embedding_metric_identity_authority(
                 path + ("metric", field),
                 f"{field} differs from caller-owned source identity",
             )
-    expected_metric_id = _stable_id(
-        "reference-metric",
-        metric.source_revision.value,
-        metric.patch_domain_id.value,
-        required_ids[0].value,
-        *(item.value for item in required_ids),
-    )
+    certificate = metric.planarity_certificate
+    banded = type(certificate) is DevelopableBandChartCertificateV1
+    if banded:
+        # Карта полосы покрывает носитель, а имя метрики несёт выбор цепей и досягаемость.
+        required_ids = tuple(sorted(certificate.source_vertex_ids, key=lambda item: item.value))
+        expected_metric_id = band_metric_id(
+            metric.source_revision,
+            metric.patch_domain_id,
+            certificate.selected_chain_use_ids,
+            fraction_of(certificate.reach_cap),
+            required_ids,
+        )
+    else:
+        expected_metric_id = _stable_id(
+            "reference-metric",
+            metric.source_revision.value,
+            metric.patch_domain_id.value,
+            required_ids[0].value,
+            *(item.value for item in required_ids),
+        )
     if metric.reference_metric_id.value != expected_metric_id:
         add_issue(
             issues,
@@ -880,15 +897,19 @@ def _check_embedding_metric_identity_authority(
             path + ("metric", "reference_metric_id"),
             "reference metric ID differs from deterministic source recomputation",
         )
-    certificate = metric.planarity_certificate
     kind = {
         ExactSourcePlaneCertificateV1: "exact-source-plane",
         DevelopableUnfoldCertificateV1: "developable-unfold",
     }.get(type(certificate), "near-planar-projection")
-    expected_certificate_id = _stable_id(
-        kind,
-        metric.source_revision.value,
-        metric.patch_domain_id.value,
+    expected_certificate_id = (
+        band_certificate_id(
+            metric.source_revision,
+            metric.patch_domain_id,
+            certificate.selected_chain_use_ids,
+            fraction_of(certificate.reach_cap),
+        )
+        if banded
+        else _stable_id(kind, metric.source_revision.value, metric.patch_domain_id.value)
     )
     if certificate.certificate_id.value != expected_certificate_id:
         add_issue(
@@ -981,6 +1002,26 @@ def validate_width_distortion_recomputation(
     return tuple(issues)
 
 
+def metric_covers_patch(certificate, coordinate_ids, patch_vertices) -> bool:
+    """Координаты метрики покрывают ровно вершины патча; у полосы - вершины носителя, подмножество вершин патча."""
+
+    if type(certificate) is DevelopableBandChartCertificateV1:
+        return set(coordinate_ids) <= set(patch_vertices)
+    return set(coordinate_ids) == set(patch_vertices)
+
+
+def _recorded_band(snapshot, metric, certificate):
+    """Вход полосы по выбору и досягаемости, ЗАПИСАННЫМ в сертификате, и цепям снапшота."""
+
+    return chart_band_request(
+        snapshot.physical_chains,
+        snapshot.chain_uses,
+        certificate.selected_chain_use_ids,
+        metric.patch_domain_id,
+        fraction_of(certificate.reach_cap),
+    )
+
+
 def validate_metric_against_source(
     metric: RationalAffinePlanarMetricV2, snapshot, owner_patch_id, developable_stretch_budget=None
 ) -> tuple[ValidationIssue, ...]:
@@ -993,10 +1034,12 @@ def validate_metric_against_source(
     сертификат искажения ширины пересчитывается из треугольников снапшота.
     """
 
-    if type(metric.planarity_certificate) is DevelopableUnfoldCertificateV1:
+    certificate = metric.planarity_certificate
+    if is_unfolded_certificate(certificate):
         # Карта развёртки не восстанавливает позиции источника аффинно: она ЕГО
         # развёртка. Вместо сверки `origin + u*A + v*B` карта и сертификат строятся
-        # заново из треугольников снапшота и сравниваются на равенство.
+        # заново из треугольников снапшота и сравниваются на равенство. Полоса пересчитывается по выбору цепей и
+        # досягаемости, ЗАПИСАННЫМ в сертификате; с запросом их сверяет `validation_band.band_policy_issues`.
         return validate_developable_recomputation(
             metric,
             source_vertices=snapshot.source_vertices,
@@ -1007,6 +1050,11 @@ def validate_metric_against_source(
                 snapshot.physical_chains, snapshot.chain_uses, metric.patch_domain_id
             ),
             developable_stretch_budget=developable_stretch_budget,
+            chart_band=(
+                _recorded_band(snapshot, metric, certificate)
+                if type(certificate) is DevelopableBandChartCertificateV1
+                else None
+            ),
         )
     issues: list[ValidationIssue] = []
     path = ("RationalAffinePlanarMetricV2",)
@@ -1066,6 +1114,7 @@ def _validate_developable_embedding_record(
     owner_patch_id,
     declared_straight_chains=(),
     developable_stretch_budget=None,
+    chart_band=None,
 ):
     """Обёртка с картой развёртки: решётка источника пересчитана, карта - заново.
 
@@ -1123,6 +1172,7 @@ def _validate_developable_embedding_record(
                 owner_patch_id=owner_patch_id,
                 declared_straight_chains=declared_straight_chains,
                 developable_stretch_budget=developable_stretch_budget,
+                chart_band=chart_band,
             )
         )
     return tuple(issues)
@@ -1140,6 +1190,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
     surface_triangles: tuple[SurfaceTriangleV1, ...] | None = None,
     declared_straight_chains: tuple = (),
     developable_stretch_budget: Fraction | None = None,
+    chart_band=None,
 ) -> tuple[ValidationIssue, ...]:
     """Recompute evidence and bind it to caller-owned source identity.
 
@@ -1147,6 +1198,8 @@ def validate_embedding_certified_rational_affine_planar_metric(
     authority input of the same kind for an unfolded chart: the chains the host declared straight.
     ``developable_stretch_budget`` is the request policy an unfolded chart must be recorded
     under (``None``: the chart's own recorded budget, which must still be lawful).
+    ``chart_band`` (``chart_band.ChartBandRequestV1`` from the chains of the snapshot) is what a band chart is
+    recomputed with.
 
     The three ``expected_*`` values are authority inputs, not conveniences:
     an integration must obtain them from its trusted source envelope.  Passing
@@ -1175,7 +1228,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
         expected_patch_domain_id=expected_patch_domain_id,
         expected_source_lineage=expected_source_lineage,
     )
-    if type(record.metric.planarity_certificate) is DevelopableUnfoldCertificateV1:
+    if is_unfolded_certificate(record.metric.planarity_certificate):
         return _validate_developable_embedding_record(
             issues,
             path,
@@ -1188,6 +1241,7 @@ def validate_embedding_certified_rational_affine_planar_metric(
             owner_patch_id=owner_patch_id,
             declared_straight_chains=declared_straight_chains,
             developable_stretch_budget=developable_stretch_budget,
+            chart_band=chart_band,
         )
     grid, normal, off_plane, expected_coordinates, sign = (
         _recompute_embedding_inputs(
