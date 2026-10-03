@@ -14,7 +14,7 @@
 (`chart_grid_for`). Сравнение ТОЧНОЕ: квадрат расстояния двух binary64-точек — рациональное
 число (`Fraction` от float точен), бюджет — рациональный квадрат.
 
-ЧТО ЗАКОН НЕ ДЕЛАЕТ МОЛЧА.
+ЧТО ЗАКОН НЕ ДЕЛАЕТ МОЛЧА (позиции двигает вершинам `src:` и, под своим счётчиком, узлам `node:`).
 * Смещение больше бюджета — вершина остаётся на подъёме узла, и это называется:
   `SOURCE_VERTEX_DISPLACED_BY_LATTICE` (счёт и худшая вершина с числами). Так остаются
   вершины внутренностей объявленных прямых цепей (`evaluation_geometry`: сдвиг вдоль хорды
@@ -25,9 +25,12 @@
   бюджет, но тонкая грань могла бы от этого перевернуться (замер `building`: сливер высотой в
   доли ячейки из двух узлов на ребре и вершины источника — ровно такая грань). Поэтому
   ориентация КАЖДОГО канонического треугольника с подвинутой вершиной сверяется с ориентацией
-  до подъёма (знак скалярного произведения векторов площади); перевернувшийся треугольник
-  возвращает свои вершины на узлы (`SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION`, счёт), и
-  проверка идёт до неподвижной точки (откат вершины меняет соседние треугольники).
+  до подъёма (знак скалярного произведения векторов площади). Перевернувшийся треугольник
+  лечится в два шага: (1) УЗЛЫ СЛЕДУЮТ — доменные вершины `node:` этого треугольника сдвигаются
+  на тот же вектор, что вершина `src:`, ради которой он перевернулся (см. ниже); (2) если
+  треугольник всё равно переворачивается либо у него нет свободного узла, вершины `src:`
+  возвращаются на узлы (`SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION`, счёт). Проверка идёт до
+  неподвижной точки (след узла и откат вершины меняют соседние треугольники).
   КАНОНИЧЕСКИЙ треугольник — треугольник закона `TRIANGLES_V1` СЛИТОЙ грани (уши
   `tessellate.triangulate_exact` её контура — ровно то, что закон выпускает). Позиции вершин не
   вправе зависеть от закона топологии (семантический дайджест у законов один), поэтому проверка
@@ -36,6 +39,23 @@
   сварки), а части слитого пробега под `PLANAR_POLYGONS_V1` — не разбиение слитой грани.
   Закон принимает канонические треугольники готовыми (`lift_source_vertices`), собирает их
   `materialize.domain`.
+
+УЗЛЫ СЛЕДУЮТ (`SOURCE_VERTEX_LIFT_NODES_FOLLOWED`). Замер `building` (патчи 1 и 11, плотности 1-4):
+грань-веер из пяти вершин — иголка шириной 6 мкм вдоль ребра источника длиной 0.49 м и треугольник
+13 мм у его конца; вершина `src:` на конце ребра встаёт в позицию хоста на 0.17 мм и поворачивает
+замыкающее ребро поперёк иголки — контур самопересекается, ни одной триангуляции у него нет, и вершина
+оставалась на узле (сварка с соседом, чей подъём прошёл, расходилась на 0.196 мм:
+`ADAPTER_WELD_POSITION_MISMATCH`). Иголка — не ошибка кода, а шум привязки: ребро источника и линия
+решётки отстоят на микроны, а бюджет подъёма — ячейка. Сдвигать надо не контур грани, а иголку ЦЕЛИКОМ:
+доменные вершины `node:` перевернувшегося треугольника сдвигаются на ТОТ ЖЕ вектор, что подвинутая
+вершина `src:` (жёсткий перенос: треугольник сохраняет форму и ориентацию точно), и так до неподвижной
+точки по цепочке иголки (`building` патч 1: узлы 54, 29, 28). Узлы доменные (`location:node:k` не
+сваривается никогда), поэтому перенос не трогает сварку; за пределы бюджета он не выходит (вектор тот же,
+что у `src:`: не больше ячейки), а новые перевороты ловит та же проверка. Откат вершины `src:` убирает её
+узлы. Узел, которому нужны два разных вектора (его треугольники у двух подвинутых вершин `src:`), и
+треугольник без свободного узла лечению не поддаются: вершины возвращаются на узлы, как и раньше. Числа —
+счётчик `MATERIALIZE_NODES_FOLLOWED_SOURCE_LIFT` (пишется, только когда закон сработал, чтобы счётчики
+доменов, где он не нужен, не менялись) и строка диагностики.
 
 ПЛОСКОСТЬ. Вершина исходника лежит на плоскости домена не точно: плоскость проходит через
 позиции, привязанные к решётке источника домена, а хостовая позиция — не привязана, то есть
@@ -86,6 +106,7 @@ LIFTED = "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST"
 DISPLACED = "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE"
 UNAVAILABLE = "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE"
 ORIENTATION_KEPT = "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION"
+FOLLOWED = "MATERIALIZE_NODES_FOLLOWED_SOURCE_LIFT"
 
 #: Счётчики ГРАНЕЙ после сдвига: зависят от закона топологии, как все счётчики граней.
 FACES_OFF_PLANE = "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES"
@@ -94,6 +115,7 @@ TRIANGLES_FLIPPED_BY_LIFT = "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT"
 NANOMETRES_PER_METRE = 10**9
 
 _PREFIX = "src:"
+_NODE_PREFIX = "node:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +140,11 @@ class SourceLiftV1:
     max_lifted_displacement: float
     #: Бюджет в метрах (ячейка источника × число ячеек), либо `None`.
     budget: float | None
+    #: Узлы `node:`, сдвинутые вместе с вершиной `src:` (жёсткий перенос иголки), и вершины `src:`, чей вектор они несут.
+    followed: int = 0
+    followed_drivers: int = 0
+    #: Наибольший вектор переноса узлов, метры.
+    max_follow_displacement: float = 0.0
 
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
@@ -125,6 +152,7 @@ class SourceLiftV1:
             (DISPLACED, self.displaced),
             (UNAVAILABLE, self.unavailable),
             (ORIENTATION_KEPT, self.kept_for_orientation),
+            *(((FOLLOWED, self.followed),) if self.followed else ()),
         )
 
     def lifted_note(self) -> str:
@@ -148,6 +176,13 @@ class SourceLiftV1:
         return (
             f"{self.kept_for_orientation} source vertices stay at their lattice lift: the "
             "host position would turn a face contour over"
+        )
+
+    def followed_note(self) -> str:
+        return (
+            f"{self.followed} domain nodes moved rigidly with {self.followed_drivers} lifted source "
+            f"vertices (largest move {self.max_follow_displacement:.6g} m, within the budget "
+            f"{self.budget:.6g} m): the host position would otherwise turn a thin face over"
         )
 
 
@@ -256,23 +291,16 @@ def lift_source_vertices(positions, triangles, host_positions, step) -> SourceLi
         index: _area_vector(tuple(positions[key] for key in keys))
         for index, keys in contours
     }
-    kept = 0
-    while allowed:
-        proposed = {**positions, **allowed}
-        flipped = _flipped_contours(contours, before, proposed, allowed)
-        if not flipped:
-            break
-        by_index = dict(contours)
-        reverted = {
-            key for index in flipped for key in by_index[index] if key in allowed
-        }
-        kept += len(reverted)
-        for key in reverted:
-            del allowed[key]
-    final = {**positions, **allowed}
+    kept, followers = _settle_orientation(positions, contours, before, allowed)
+    final = {**positions, **allowed, **_followed_positions(positions, allowed, followers)}
     changed = {key for key, host in allowed.items() if positions[key] != host}
     biggest = max(
         (_distance_squared(positions[key], allowed[key]) for key in changed),
+        default=Fraction(0),
+    )
+    carried = {driver for driver in followers.values() if driver in changed}
+    follow_biggest = max(
+        (_distance_squared(positions[driver], allowed[driver]) for driver in carried),
         default=Fraction(0),
     )
     return SourceLiftV1(
@@ -288,7 +316,66 @@ def lift_source_vertices(positions, triangles, host_positions, step) -> SourceLi
         ),
         max_lifted_displacement=math.sqrt(float(biggest)),
         budget=None if budget is None else float(budget),
+        followed=len(followers),
+        followed_drivers=len(carried),
+        max_follow_displacement=math.sqrt(float(follow_biggest)),
     )
+
+
+def _followed_positions(positions, allowed, followers) -> dict:
+    """Позиции узлов, которые следуют за вершиной `src:`: тот же вектор подвижки, binary64 покоординатно."""
+
+    result = {}
+    for key, driver in followers.items():
+        here, there, moved = positions[key], positions[driver], allowed[driver]
+        result[key] = LocalPoint3V1(
+            here.x + (moved.x - there.x),
+            here.y + (moved.y - there.y),
+            here.z + (moved.z - there.z),
+        )
+    return result
+
+
+def _settle_orientation(positions, contours, before, allowed):
+    """`(возвращено, {узел: вершина src:})`: неподвижная точка проверки ориентации; `allowed` изменяется.
+
+    Перевернувшийся треугольник чинится по очереди: (1) у него ровно ОДНА подвинутая вершина `src:` (своя
+    либо та, чей вектор несёт его узел) и есть узел `node:`, который ещё не следует, — эти узлы следуют за ней
+    (жёсткий перенос); (2) иначе вершины `src:` его подвинутых вершин возвращаются на узлы, а их узлы
+    перестают следовать. Каждый проход либо прибавляет следующий узел, либо возвращает вершину, поэтому
+    неподвижная точка достигается за конечное число проходов.
+    """
+
+    by_index = dict(contours)
+    followers: dict = {}
+    kept = 0
+    while allowed:
+        proposed = {**positions, **allowed, **_followed_positions(positions, allowed, followers)}
+        flipped = _flipped_contours(
+            contours, before, proposed, {*allowed, *followers}
+        )
+        if not flipped:
+            break
+        reverted: set = set()
+        for index in flipped:
+            keys = by_index[index]
+            drivers = {key for key in keys if key in allowed and allowed[key] != positions[key]}
+            drivers |= {followers[key] for key in keys if key in followers}
+            free = [
+                key
+                for key in keys
+                if key.startswith(_NODE_PREFIX) and key not in followers
+            ]
+            if len(drivers) == 1 and free:
+                (driver,) = drivers
+                followers.update((key, driver) for key in free)
+            else:
+                reverted |= drivers or {key for key in keys if key in allowed}
+        for key in reverted:
+            del allowed[key]
+        kept += len(reverted)
+        followers = {key: driver for key, driver in followers.items() if driver in allowed}
+    return kept, followers
 
 
 @dataclass(frozen=True, slots=True)

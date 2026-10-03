@@ -248,30 +248,8 @@ def _diagnostics(
             (),
             chords.skipped_note(),
         )
-    if sourced is not None and sourced.moved:
-        add(
-            GeometryDiagnosticSeverity.INFO,
-            NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1,
-            "domain",
-            (),
-            sourced.lifted_note(),
-        )
-    if sourced is not None and sourced.displaced:
-        add(
-            GeometryDiagnosticSeverity.WARNING,
-            NamedOutcome.SOURCE_VERTEX_DISPLACED_BY_LATTICE,
-            "domain",
-            (),
-            sourced.displaced_note(),
-        )
-    if sourced is not None and sourced.kept_for_orientation:
-        add(
-            GeometryDiagnosticSeverity.WARNING,
-            NamedOutcome.SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION,
-            "domain",
-            (),
-            sourced.orientation_note(),
-        )
+    if sourced is not None:
+        _lift_diagnostics(sourced, add)
     _table_diagnostics(table, add)
     for region in prepared.regions:
         for corner in region.degraded_miter_corners:
@@ -283,6 +261,40 @@ def _diagnostics(
                 f"{corner.corner_relation_id}: {corner.reason}",
             )
     return result
+
+
+def _lift_diagnostics(sourced, add) -> None:
+    """Диагностики закона положения вершин `src:`: подвинутые, оставленные, возвращённые, узлы-спутники."""
+
+    steps = (
+        (
+            sourced.moved,
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1,
+            sourced.lifted_note,
+        ),
+        (
+            sourced.displaced,
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.SOURCE_VERTEX_DISPLACED_BY_LATTICE,
+            sourced.displaced_note,
+        ),
+        (
+            sourced.kept_for_orientation,
+            GeometryDiagnosticSeverity.WARNING,
+            NamedOutcome.SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION,
+            sourced.orientation_note,
+        ),
+        (
+            sourced.followed,
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.SOURCE_VERTEX_LIFT_NODES_FOLLOWED,
+            sourced.followed_note,
+        ),
+    )
+    for count, severity, outcome, note in steps:
+        if count:
+            add(severity, outcome, "domain", (), note())
 
 
 def _table_diagnostics(table, add) -> None:

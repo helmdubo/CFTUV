@@ -225,6 +225,10 @@ class NamedOutcome(str, Enum):
     SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION = (
         "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION"
     )
+    # Позиция хоста перевернула бы тонкую грань, и доменные узлы `node:` её треугольника сдвинуты
+    # на тот же вектор, что вершина `src:` (жёсткий перенос иголки): вершина лежит в позиции хоста, а
+    # сварка с соседом сохранена. Пишется, только когда узел реально сдвинут; числа — в строке.
+    SOURCE_VERTEX_LIFT_NODES_FOLLOWED = "SOURCE_VERTEX_LIFT_NODES_FOLLOWED"
     # Закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1` (`materialize/chord_station`): внутренние вершины
     # объявленных прямых цепей стоят в точной точке хорды (проекция по Граму из привязки), а не на узле
     # решётки. Диагностика пишется, только когда хоть одна вершина реально сдвинута; числа — в строке.

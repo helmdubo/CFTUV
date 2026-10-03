@@ -22,6 +22,7 @@ from cftuv_envelope.materialize.source_lift import (
     DISPLACED,
     FACES_OFF_PLANE,
     FACES_TRIANGULATED_AFTER_LIFT,
+    FOLLOWED,
     LIFTED,
     ORIENTATION_KEPT,
     SOURCE_VERTEX_LIFT_BUDGET_CELLS,
@@ -128,8 +129,8 @@ def test_an_unknown_host_position_or_cell_is_counted_and_nothing_moves(missing):
     assert dict(result.counters())[UNAVAILABLE] == 1
 
 
-def test_a_thin_face_the_host_position_would_turn_over_keeps_its_nodes():
-    """Сливер высотой в доли ячейки: подъём вершины в хостовую позицию его перевернул бы."""
+def test_a_thin_face_the_host_position_would_turn_over_moves_its_nodes_with_the_vertex():
+    """Сливер высотой в доли ячейки: подъём вершины его перевернул бы, и его узлы сдвигаются вместе с ней."""
 
     positions = {
         "node:0": _point(0.0),
@@ -141,8 +142,51 @@ def test_a_thin_face_the_host_position_would_turn_over_keeps_its_nodes():
 
     result = lift_source_vertices(positions, [triangle], host, STEP)
 
+    assert _bits(result.positions["src:c"]) == _bits(host["c"])
+    assert (result.lifted, result.kept_for_orientation) == (1, 0)
+    assert (result.followed, result.followed_drivers) == (2, 1)
+    # Тот же вектор подвижки, покоординатно в binary64: треугольник перенесён жёстко.
+    shift = (host["c"].x - positions["src:c"].x, host["c"].y - positions["src:c"].y)
+    for key in ("node:0", "node:1"):
+        assert result.positions[key].x == positions[key].x + shift[0]
+        assert result.positions[key].y == positions[key].y + shift[1]
+        assert result.positions[key].z == positions[key].z
+    before = _area_z(*(positions[key] for key in triangle))
+    after = _area_z(*(result.positions[key] for key in triangle))
+    assert before * after > 0.0
+    assert result.max_follow_displacement == pytest.approx(3e-5)
+    assert result.max_follow_displacement <= result.budget
+    assert dict(result.counters())[FOLLOWED] == 2
+    assert dict(result.counters())[ORIENTATION_KEPT] == 0
+    assert "moved rigidly" in result.followed_note()
+
+
+def test_a_domain_where_nothing_follows_has_no_follow_counter():
+    """Закон, который не сработал, ничего не пишет: счётчики прежних доменов остаются прежними."""
+
+    positions = {"node:0": _point(0.0), "node:1": _point(1.0), "src:a": _point(0.5, 1.0)}
+    result = lift_source_vertices(
+        positions, [("node:0", "node:1", "src:a")], {"a": _point(0.5 + 0.01, 1.0)}, STEP
+    )
+    assert result.followed == 0
+    assert FOLLOWED not in dict(result.counters())
+
+
+def test_a_thin_face_without_a_free_node_keeps_the_lattice_lift():
+    """Три вершины `src:`: узлов, которым можно следовать, нет, и перевернувшая грань вершина остаётся на узле."""
+
+    positions = {
+        "src:a": _point(0.0),
+        "src:b": _point(1.0),
+        "src:c": _point(0.5, 0.00001),
+    }
+    host = {"a": _point(0.0), "b": _point(1.0), "c": _point(0.5, -0.00002)}
+    triangle = ("src:a", "src:b", "src:c")
+
+    result = lift_source_vertices(positions, [triangle], host, STEP)
+
     assert result.positions == positions
-    assert (result.lifted, result.kept_for_orientation) == (0, 1)
+    assert (result.lifted, result.kept_for_orientation, result.followed) == (2, 1, 0)
     assert dict(result.counters())[ORIENTATION_KEPT] == 1
     assert "turn a face contour over" in result.orientation_note()
 
@@ -151,13 +195,18 @@ def test_a_reverted_vertex_is_rechecked_against_its_neighbours_to_a_fixed_point(
     """Откат вершины меняет соседние грани: проверка идёт, пока что-то откатывается."""
 
     positions = {
-        "node:0": _point(0.0),
-        "node:1": _point(1.0),
+        "src:n0": _point(0.0),
+        "src:n1": _point(1.0),
         "src:a": _point(0.5, 0.00001),
         "src:b": _point(0.5, -1.0),
     }
-    host = {"a": _point(0.5, -0.00002), "b": _point(0.5, -1.0 - 0.01)}
-    faces = [("node:0", "node:1", "src:a"), ("node:1", "node:0", "src:b")]
+    host = {
+        "n0": _point(0.0),
+        "n1": _point(1.0),
+        "a": _point(0.5, -0.00002),
+        "b": _point(0.5, -1.0 - 0.01),
+    }
+    faces = [("src:n0", "src:n1", "src:a"), ("src:n1", "src:n0", "src:b")]
 
     result = lift_source_vertices(positions, faces, host, STEP)
 
@@ -167,6 +216,77 @@ def test_a_reverted_vertex_is_rechecked_against_its_neighbours_to_a_fixed_point(
         before = _area_z(positions[first], positions[second], positions[third])
         after = _area_z(*(result.positions[key] for key in (first, second, third)))
         assert before * after > 0.0, (first, second, third)
+
+
+def _no_ear_turned(result, positions, faces):
+    for keys in faces:
+        before = _area_z(*(positions[key] for key in keys))
+        after = _area_z(*(result.positions[key] for key in keys))
+        assert before * after > 0.0, keys
+
+
+def test_following_runs_along_a_chain_of_needles_to_a_fixed_point():
+    """Узел, за которым сдвинулся узел, переворачивает ЕГО иголку: следует и тот, пока контур не устоит."""
+
+    positions = {
+        "node:0": _point(0.0, 0.0),
+        "node:1": _point(0.5, -0.000003),
+        "node:2": _point(0.25, -0.00002),
+        "node:3": _point(0.1, -0.00002),
+        "src:s": _point(1.0, 0.0),
+    }
+    host = {"s": _point(1.0, -0.00004)}
+    faces = [
+        ("node:0", "src:s", "node:1"),
+        ("node:1", "node:2", "node:0"),
+        ("node:2", "node:3", "node:0"),
+    ]
+
+    result = lift_source_vertices(positions, faces, host, STEP)
+
+    assert (result.lifted, result.kept_for_orientation) == (1, 0)
+    assert (result.followed, result.followed_drivers) == (4, 1)
+    for key in ("node:0", "node:1", "node:2", "node:3"):
+        assert result.positions[key].y == positions[key].y + (host["s"].y - positions["src:s"].y)
+        assert result.positions[key].x == positions[key].x
+    _no_ear_turned(result, positions, faces)
+
+
+def test_a_node_that_needs_two_different_vectors_gives_the_vertices_back():
+    """Узел в иголках двух подвинутых вершин не может следовать за обеими: обе возвращаются на узлы."""
+
+    positions = {
+        "node:0": _point(0.0),
+        "node:1": _point(1.0),
+        "src:a": _point(0.5, 0.00001),
+        "src:b": _point(0.5, -0.00001),
+    }
+    host = {"a": _point(0.5, -0.00002), "b": _point(0.5, 0.00002)}
+    faces = [("node:0", "node:1", "src:a"), ("node:1", "node:0", "src:b")]
+
+    result = lift_source_vertices(positions, faces, host, STEP)
+
+    assert result.positions == positions
+    assert (result.lifted, result.kept_for_orientation, result.followed) == (0, 2, 0)
+
+
+def test_a_follower_that_breaks_a_fixed_neighbour_takes_its_driver_back_with_its_nodes():
+    """Узлы, следовавшие за вершиной, ломают грань с неподвижной вершиной `src:`: откат убирает и вершину, и узлы."""
+
+    positions = {
+        "node:0": _point(0.0),
+        "node:1": _point(1.0),
+        "src:a": _point(0.5, 0.00001),
+        "src:u": _point(0.5, -0.000003),
+    }
+    host = {"a": _point(0.5, -0.00002), "u": _point(0.5, -0.000003)}
+    faces = [("node:0", "node:1", "src:a"), ("src:u", "node:0", "node:1")]
+
+    result = lift_source_vertices(positions, faces, host, STEP)
+
+    assert result.positions == positions
+    assert (result.lifted, result.kept_for_orientation, result.followed) == (1, 1, 0)
+    assert FOLLOWED not in dict(result.counters())
 
 
 def _area_z(a, b, c):
@@ -241,7 +361,8 @@ def test_the_lift_takes_canonical_triangles_so_the_positions_cannot_see_the_emit
     again = lift_source_vertices(positions, iter(triangles), host, STEP)
 
     assert first.positions == again.positions
-    assert first.kept_for_orientation == 1 and first.lifted == 1
+    # Сливер вершины `t` не перевернулся: его узлы сдвинулись вместе с ней, обе вершины в позиции хоста.
+    assert (first.kept_for_orientation, first.lifted, first.followed) == (0, 2, 2)
 
 
 # --------------------------------------------------------------------------

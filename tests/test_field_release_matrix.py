@@ -100,17 +100,15 @@ WORK_CAP_SECONDS = {
 }
 
 # Заранее одобренные ИМЕНОВАННЫЕ отказы. Всё, чего здесь нет, — дефект.
-APPROVED_NAMED_REFUSALS = {
-    # building, патч 89. До NEAR_PLANAR V2 — `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`
-    # (невязка 1.89 см против 1.25 см); под укладкой на поверхность отказывала ширина
-    # (один треугольник из 12, 5.43 м вдоль, перпендикулярен плоскости карты, `min cos²`
-    # = 1.891e-06). С лестницей S1 (DEVELOPABLE) домен пробует развёртку и отказывает
-    # ТОЧНЕЕ: развёртка по растяжению в бюджете (ступенька трёх плоскостей, 12
-    # треугольников, внутренних вершин нет), но вершина `building:34` — граничная с
-    # веером 360.167° (> 2π): границы карты у неё перекрываются на 0.167°, и карта —
-    # не вложение. Прежнее имя этого отказа держит закрепка лестницы
-    # (`test_building_patch_89_still_refuses_by_width_on_the_near_planar_rung`).
-    (BUILDING, 89): "HOST_EXPORT_REJECTED:DEVELOPABLE_CHART_SELF_OVERLAP",
+APPROVED_NAMED_REFUSALS: dict = {
+    # Пусто с третьим предложением развёртки (`_cone_relief`, LEFTOVER A). Патч 89 `building`
+    # (ступенька 1.6 см, 12 треугольников): до NEAR_PLANAR V2 отказывал
+    # `NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED`, под укладкой на поверхность — шириной (один
+    # треугольник перпендикулярен плоскости карты, `min cos²` = 1.891e-06; это имя держит закрепка
+    # лестницы, `test_building_patch_89_still_refuses_by_width_on_the_near_planar_rung`), с лестницей
+    # S1 — самонакрытием (вершина `building:34`, веер 360.167° > 2π). Запас угла у такой вершины
+    # даёт карту в бюджете растяжения с простой границей: домен EXACT. Следующий отказ патча 89 —
+    # на материализации (закон нормали смещения), не здесь: `tests/test_building_lift_leftovers.py`.
 }
 
 _CACHE: dict[str, dict] = {}
@@ -684,13 +682,14 @@ def test_building_patch_89_still_refuses_by_width_on_the_near_planar_rung():
     assert "min_cos_squared=1.891285054e-06" in record["detail"]
 
 
-def test_building_patch_89_refuses_on_the_unfolding_with_its_numbers():
-    """Ступенька развёртывается, но вершина с веером 360.167° перекрывает границу карты."""
+def test_building_patch_89_is_exact_on_the_unfolding_through_the_cone_relief():
+    """Ступенька развёртывается; вершина с веером 360.167° получает запас угла, и карта вкладывается."""
 
     record = domain(BUILDING, 89)
-    assert record["stage"] == "HOST_EXPORT"
-    assert "boundary edge pairs of the chart meet or overlap" in record["detail"]
-    assert "[after near-planar NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in record["detail"]
+    assert record["stage"] == "QUEUE"
+    assert record["outcome"] == "EXACT"
+    assert record["coverage_outcome"] == "EXACT"
+    assert record["face_outcome"] == "EXACT"
 
 
 @pytest.mark.parametrize("patch_id", BUILDING_PATCHES)

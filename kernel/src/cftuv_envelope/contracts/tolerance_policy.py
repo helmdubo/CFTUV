@@ -1199,7 +1199,10 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "позициям), и наибольшее отклонение пишется счётчиком. Контур, "
             "который положенная вершина перевернула бы, остаётся на узлах под именем "
             "SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION; выпущенная грань с "
-            "перевернувшимся ухом режется на уши под своим счётчиком."
+            "перевернувшимся ухом режется на уши под своим счётчиком. Прежде чем вернуть "
+            "вершину, закон сдвигает доменные узлы `node:` перевернувшегося треугольника на "
+            "ТОТ ЖЕ вектор (жёсткий перенос иголки, не больше бюджета) под именем "
+            "SOURCE_VERTEX_LIFT_NODES_FOLLOWED."
         ),
         authority=(
             "materialize.source_lift.SOURCE_VERTEX_LIFT_BUDGET_CELLS; закон "
@@ -1220,6 +1223,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
             "MATERIALIZE_SOURCE_VERTICES_HOST_POSITION_UNAVAILABLE",
             "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION",
+            "MATERIALIZE_NODES_FOLLOWED_SOURCE_LIFT",
             "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
             "MATERIALIZE_FACES_TRIANGULATED_AFTER_SOURCE_LIFT",
             "MATERIALIZE_TRIANGLES_FLIPPED_BY_SOURCE_LIFT",
