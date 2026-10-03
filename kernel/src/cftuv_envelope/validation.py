@@ -135,11 +135,7 @@ from .validation_issues import (
 )
 from .validation_source_edges import source_edge_zero_length_issues
 from .validation_corner_treatment import validate_plan_corner_treatments, validate_plan_corner_treatments_against_snapshot
-from .validation_metric import (
-    fraction_of as _fraction,
-    validate_metric_against_source,
-    validate_rational_affine_planar_metric,
-)
+from .validation_metric import fraction_of as _fraction, validate_metric_against_source, validate_rational_affine_planar_metric
 
 
 def _values(records: frozenset[object], attribute: str) -> set[OpaqueId]:
