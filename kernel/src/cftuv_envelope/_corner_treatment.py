@@ -54,6 +54,10 @@ CORNER_TREATMENT_LAW = "CORNER_TREATMENT_V1"
 #: 45° = π/4 рефлексного избытка (было 30° = π/6, порог главного UV-солвера): владелец увидел веера на изломах плоской
 #: стены 31–36° и 30–45° шума верха (`sagging_wall`, `rounded_wall_noise_top`) и сдвинул порог. Запись реестра допусков.
 JOIN_THRESHOLD_OVER_PI = Fraction(1, 4)
+#: Подшаг, который JOIN держит в геометрии вычисления: `q = 2` (изгиб <= pi/2, слабейший потолок Density A). У JOIN веера нет, и его
+#: изгиб ограничивает ЗАКОН УГЛА (порог выше, на сырых опорах), а не потолок `pi/q` плотности: иначе излом 30-45 градусов строился
+#: на d1/d2 и отказывал целым доменом на d3/d4 (`BINDING_INSIDE_OWN_ORDINAL_WINDOW`, DECISIONS.md 2026-10-03, JOIN-BEND-DENSITY).
+JOIN_EVALUATION_SUBTURN_Q = 2
 
 
 def shared_source_lineage(chain_a, chain_b, owner_patch_id) -> frozenset:

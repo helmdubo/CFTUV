@@ -1,0 +1,15 @@
+{
+ "fixture_id": "wall_noise_top_join_density4_v1",
+ "why": "мягкий излом одной цепи (JOIN, k = 0) шире подшага Fan Density 4: угол в геометрии вычисления 35.96 градуса при потолке pi/6 = 30; до исправления подготовка отказывала DOMAIN_GEOMETRY_REFUSED / BINDING_INSIDE_OWN_ORDINAL_WINDOW на d4 (на d2 домен строился)",
+ "source": "E:/testscene.blend, меш wall_noise_top после remove_doubles(1e-6) копии в памяти (ребро нулевой длины 6-19 слито, как это сделал владелец), все швы выделены, alpha 0.25, Fan Density 4; выгрузка headless кнопкой Build Decal Mesh (build_envelope_analysis_snapshot + build_envelope_decal_request, коды ядра aa231cb)",
+ "domains": {
+  "wall_noise_top_patch1": {
+   "object_name": "wall_noise_top",
+   "patch_id": 1
+  },
+  "wall_noise_top_patch2": {
+   "object_name": "wall_noise_top",
+   "patch_id": 2
+  }
+ }
+}

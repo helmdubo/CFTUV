@@ -24,11 +24,13 @@ from ..contracts.envelopes import (
     ExactTurnSignV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
+    SelectionLaw,
     StripEnvelopeSpec,
 )
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
 )
+from .._corner_treatment import JOIN_EVALUATION_SUBTURN_Q
 from .._canonical_angle import (
     canonical_count_is_tight,
     canonical_rotation_denominator,
@@ -1399,7 +1401,9 @@ def _angular_support_data_uncached(
                 ideal,
                 sector.turn_orientation,
                 certificates,
-                density_contract[0],
+                JOIN_EVALUATION_SUBTURN_Q
+                if selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+                else density_contract[0],
             )
         elif spec.resolved_hidden_edge_count == 1:
             _verify_k1_recipe_direction_bindings(

@@ -1451,7 +1451,7 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     except ReferenceGeometryError as exc:
         clock.add("DOMAIN_BUILD", started)
         return None, _refused(
-            _geometry_refusal_outcome(exc), exc.outcome.value, clock
+            _geometry_refusal_outcome(exc), _geometry_refusal_detail(exc), clock
         )
     clock.add("DOMAIN_BUILD", started)
     if not domain.domain_regions:
@@ -1467,7 +1467,7 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
     except ReferenceGeometryError as exc:
         clock.add("ARRIVAL_LAWS", started)
         return None, _refused(
-            _geometry_refusal_outcome(exc), exc.outcome.value, clock
+            _geometry_refusal_outcome(exc), _geometry_refusal_detail(exc), clock
         )
     clock.add("ARRIVAL_LAWS", started)
     if reading.detail is not None:
@@ -1521,6 +1521,13 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
         lattice,
         binding_residual,
     ), None
+
+
+def _geometry_refusal_detail(exc: ReferenceGeometryError) -> str:
+    """Имя исхода и причина отказа геометрии: одно имя исхода владельцу не называет, какой предикат не доказан."""
+
+    reason = " ".join(str(exc).split())
+    return f"{exc.outcome.value}: {reason[:240]}" if reason else exc.outcome.value
 
 
 def _geometry_refusal_outcome(

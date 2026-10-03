@@ -207,9 +207,10 @@ def admit_domain(
     """
 
     if prepared.outcome.value != "EXACT":
+        inner = getattr(prepared, "detail", "")  # причина отказа подготовки, а не только её имя
         return AdmissionV1(
             MaterializationOutcome.COVERAGE_IS_NOT_EXACT,
-            f"preparation:{prepared.outcome.value}",
+            f"preparation:{prepared.outcome.value}" + (f": {inner}" if inner else ""),
         )
     if coverage.outcome.value != "EXACT":
         return AdmissionV1(
