@@ -11,9 +11,15 @@
 больше 90°, вершина 27 чуть меньше. Пары воспроизводят `dot_exact` слепка
 побитово, поэтому это НЕ синтетика, похожая на поле, а само поле.
 
-Отрицательный контроль — класс `building.003`: увод оси 0.85 мм, отклонение
-3.3e-4 рад, в 48 раз за допуском намерения. Его пара `(cos, sin)` взята из
-принятого корпуса (`tests/test_envelope_angle_certificate.FIELD_REFLEX_CORNERS`).
+Допуск восстановления — масштаба художника, 0.1 градуса (1745e-6 рад), решением
+владельца 2026-10-03 (RIGHT-ANGLE-STABLE): шум моделирования поля 0.005–0.03
+градуса переходил границу замкнутой ячейки плотности и давал на одинаковых
+углах двери разный счёт. Класс `building.003` (увод оси 0.85 мм, 3.3e-4 рад =
+0.019 градуса; пара `(cos, sin)` взята из принятого корпуса,
+`tests/test_envelope_angle_certificate.FIELD_REFLEX_CORNERS`) раньше был
+отрицательным контролем «в 48 раз за допуском 7e-6», теперь он ВНУТРИ
+допуска. Отрицательный контроль теперь — честные почти прямые углы поля,
+которые идут сырым числом: `building.004` патч 0 (90.56) и 90.40 градуса.
 """
 
 from __future__ import annotations
@@ -43,7 +49,10 @@ from cftuv_envelope import (
     ValidationCode,
     canonical_json_bytes,
 )
-from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR
+from cftuv_envelope._authoring_intent import (
+    AUTHOR_ANGULAR_ERROR,
+    CANONICAL_RESTORATION_ARTIST_ERROR,
+)
 from cftuv_envelope._canonical_angle import (
     CANONICAL_ANGLE_RESTORATION_PREDICATES,
     CANONICAL_SUBTURN_FAN_LAW,
@@ -210,6 +219,28 @@ def test_canonical_relation_set_is_the_minimal_paid_one():
         assert absent not in declared
 
 
+def test_no_canonical_relation_lies_within_the_restoration_tolerance_of_the_join_threshold():
+    """Допуск восстановления действует на ЛЮБОЕ отношение: оно не вправе съесть порог JOIN.
+
+    Угол в пределах допуска от отношения `u` заменяется точным `u` (замкнутый конец). Если
+    `u` стоит на пороге мягкого излома или ближе допуска к нему, угол чуть ниже порога
+    восстановился бы на порог, и `softness` (замкнутый конец равен порогу) перестал бы давать
+    JOIN. Порог и допуск читаются из кода, а не записываются числом: порог JOIN меняется
+    решением владельца (1/6 -> 1/4), и тест обязан сказать, когда расширение набора
+    отношений (например, `1/4`) его нарушит.
+    """
+
+    from cftuv_envelope._canonical_angle import _TOLERANCE_OVER_PI
+    from cftuv_envelope._corner_treatment import JOIN_THRESHOLD_OVER_PI
+
+    for relation, canonical in CANONICAL_REFLEX_EXCESS_RELATIONS:
+        assert abs(canonical - JOIN_THRESHOLD_OVER_PI) > _TOLERANCE_OVER_PI, (
+            relation,
+            "a canonical relation inside the restoration tolerance of the JOIN threshold "
+            "would make corners just below the threshold stop joining",
+        )
+
+
 @pytest.mark.parametrize(
     ("vertex", "kind", "cosine", "squared_sine"),
     WALL_2_001_CORNERS,
@@ -229,14 +260,35 @@ def test_wall_2_001_noise_is_inside_the_authoring_intent_tolerance(
         assert restoration is None
         return
     assert restoration is not None, vertex
-    assert restoration.deviation_upper_bound_radians <= AUTHOR_ANGULAR_ERROR
+    assert (
+        restoration.deviation_upper_bound_radians
+        <= CANONICAL_RESTORATION_ARTIST_ERROR
+    )
     assert restoration.deviation_upper_bound_radians > 0
-    # Слепок числит эти отклонения в 1.1e-6..2.9e-6 рад; допуск — 7e-6.
+    # Слепок числит эти отклонения в 1.1e-6..2.9e-6 рад: далеко внутри допуска.
     assert float(restoration.deviation_upper_bound_radians) < 3e-6
 
 
-def test_building_003_drift_is_honestly_outside_the_tolerance():
-    """Отрицательный контроль: 0.85 мм — это 3.3e-4 рад, в 48 раз за допуском."""
+def _degrees_off_right_angle_interval(degrees: str):
+    """Интервал доли `u = δ/π` угла, отклонённого от прямого на `degrees` градусов."""
+
+    value = Decimal("0.5") + Decimal(degrees) / Decimal(180)
+    return CertifiedDecimalIntervalV1(
+        value,
+        value,
+        IntervalEndpointKind.CLOSED,
+        IntervalEndpointKind.CLOSED,
+        Decimal("1E-28"),
+    )
+
+
+def test_building_003_drift_is_inside_the_artist_scale_tolerance():
+    """0.85 мм на `building.003` — 3.3e-4 рад, 0.019 градуса: шум моделирования, не намерение.
+
+    До решения 2026-10-03 это был отрицательный контроль (в 48 раз за допуском
+    7e-6); допуск восстановления масштаба художника накрывает этот класс, и
+    он получает канонический факт, а тот же селектор видит ровно `1/2`.
+    """
 
     interval = _building_003_interval()
     deviation = max(
@@ -246,11 +298,58 @@ def test_building_003_drift_is_honestly_outside_the_tolerance():
     radians = deviation * PI_RATIONAL_UPPER_BOUND
     assert radians > AUTHOR_ANGULAR_ERROR
     assert 3.3e-4 < float(radians) < 3.4e-4
-    assert canonical_reflex_excess_restoration(interval) is None
-    # И сырое число идёт к селектору тем же объектом, без подмены.
-    selector_interval, restoration = selector_reflex_excess_interval(interval)
-    assert selector_interval is interval
-    assert restoration is None
+    restoration = canonical_reflex_excess_restoration(interval)
+    assert restoration is not None
+    assert restoration.canonical_excess_over_pi == Fraction(1, 2)
+    assert restoration.deviation_upper_bound_radians <= CANONICAL_RESTORATION_ARTIST_ERROR
+    selector_interval, applied = selector_reflex_excess_interval(interval)
+    assert applied is restoration or applied == restoration
+    assert Fraction(selector_interval.lower) == Fraction(selector_interval.upper) == Fraction(1, 2)
+
+
+@pytest.mark.parametrize(
+    ("degrees", "inside"),
+    [
+        ("0.0053", True),   # вершина 245 двери `building` патча 10, d2: H=2 вместо H=1
+        ("-0.0269", True),  # `building` патч 6, вершина 58
+        ("0.0883", True),   # `building` патч 110, вершина 313
+        ("0.0999", True),   # у самой границы допуска изнутри
+        ("0.1001", False),  # у самой границы допуска снаружи
+        ("0.4034", False),  # `building` патч 109, вершина 317: честный почти прямой
+        ("0.5626", False),  # `building.004` патч 0, вершина 11
+        ("-1.8448", False),  # `building` патч 11, вершина 271
+    ],
+)
+def test_an_honest_near_right_corner_is_outside_the_tolerance(degrees, inside):
+    """Граница допуска — 0.1 градуса: ниже восстановление, выше — сырое число, без подмены.
+
+    Отрицательный контроль не геометрический, а о границе: честный почти
+    прямой угол (от 0.4 градуса, поле) НЕ превращается в канонический, идёт к
+    селектору тем же объектом и остаётся честным и названным — его счёт по
+    границе замкнутой ячейки решает его собственное число.
+    """
+
+    interval = _degrees_off_right_angle_interval(degrees)
+    restoration = canonical_reflex_excess_restoration(interval)
+    selector_interval, applied = selector_reflex_excess_interval(interval)
+    if inside:
+        assert restoration is not None
+        assert restoration.canonical_excess_over_pi == Fraction(1, 2)
+        assert restoration.deviation_upper_bound_radians <= CANONICAL_RESTORATION_ARTIST_ERROR
+        assert Fraction(selector_interval.lower) == Fraction(1, 2)
+    else:
+        assert restoration is None
+        assert selector_interval is interval
+        assert applied is None
+
+
+def test_the_artist_scale_tolerance_is_a_separate_declared_quantity_from_the_grid_one():
+    """Две двери — две величины: привязка источника держит 7e-6, восстановление — 0.1 градуса."""
+
+    assert AUTHOR_ANGULAR_ERROR == Fraction(7, 10**6)
+    assert CANONICAL_RESTORATION_ARTIST_ERROR == Fraction(1745, 10**6)
+    degrees = float(CANONICAL_RESTORATION_ARTIST_ERROR) * 180 / 3.141592653589793
+    assert 0.0999 < degrees <= 0.1
 
 
 def test_wall_2_001_twins_get_one_selection_on_every_density():
@@ -329,7 +428,10 @@ def test_restoration_certificate_is_recorded_exactly_where_the_law_says():
         is CanonicalReflexAngleRelationV1.CANONICAL_REFLEX_EXCESS_PI_OVER_2
     )
     assert record.canonical_reflex_excess_over_pi == ExactRatioV1(1, 2)
-    assert record.tolerance_radians == ExactRationalV1(7, 10**6)
+    assert record.tolerance_radians == ExactRationalV1(
+        CANONICAL_RESTORATION_ARTIST_ERROR.numerator,
+        CANONICAL_RESTORATION_ARTIST_ERROR.denominator,
+    )
     assert record.proven_predicates == CANONICAL_ANGLE_RESTORATION_PREDICATES
     selection = next(iter(compiled.compilation.profile_selection_certificates))
     assert record.selection_certificate_id == selection.certificate_id
@@ -561,9 +663,12 @@ def test_plan_validator_binds_the_restoration_to_its_selection(projections):
             Decimal("0.0000001"),
         ),
         deviation_upper_bound_radians=ExactRationalV1(1, 10**6),
-        tolerance_radians=ExactRationalV1(7, 10**6),
+        tolerance_radians=ExactRationalV1(
+            CANONICAL_RESTORATION_ARTIST_ERROR.numerator,
+            CANONICAL_RESTORATION_ARTIST_ERROR.denominator,
+        ),
         tolerance_policy_id=(
-            kernel.AngleTolerancePolicyIdV1.AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1
+            kernel.AngleTolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1
         ),
         proven_predicates=CANONICAL_ANGLE_RESTORATION_PREDICATES,
     )

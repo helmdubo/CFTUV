@@ -954,7 +954,7 @@
         },
         "tolerance_policy_id": {
           "enum": [
-            "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
+            "CANONICAL_RESTORATION_ARTIST_SCALE_V1"
           ],
           "type": "string"
         },

@@ -87,7 +87,7 @@ class TolerancePolicyCategoryV1(str, Enum):
 class TolerancePolicyIdV1(str, Enum):
     """Имена допусков. Ключ реестра и единственная законная ссылка на допуск.
 
-    `AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1` намеренно совпадает буква в
+    `CANONICAL_RESTORATION_ARTIST_SCALE_V1` намеренно совпадает буква в
     букву с членом `AngleTolerancePolicyIdV1`: докстринг того перечисления
     обещал, что имя станет ключом реестра, когда реестр появится. Обещание
     исполняется сверкой в тесте, а не совпадением по памяти.
@@ -100,8 +100,8 @@ class TolerancePolicyIdV1(str, Enum):
     DEVELOPABLE_STRETCH_RELATIVE_V1 = "DEVELOPABLE_STRETCH_RELATIVE_V1"
     SURFACE_LIFT_EXTRAPOLATION_CELLS_V1 = "SURFACE_LIFT_EXTRAPOLATION_CELLS_V1"
     NEAR_PLANAR_REPRESENTATION_NOISE_V1 = "NEAR_PLANAR_REPRESENTATION_NOISE_V1"
-    AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1 = (
-        "AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1"
+    CANONICAL_RESTORATION_ARTIST_SCALE_V1 = (
+        "CANONICAL_RESTORATION_ARTIST_SCALE_V1"
     )
     AUTHOR_ANGULAR_ERROR_SOURCE_GRID_INTENT_V1 = (
         "AUTHOR_ANGULAR_ERROR_SOURCE_GRID_INTENT_V1"
@@ -129,6 +129,7 @@ class TolerancePolicyIdV1(str, Enum):
     )
     CLIP_DIAGONAL_CHORD_DEPTH_V1 = "CLIP_DIAGONAL_CHORD_DEPTH_V1"
     CORNER_JOIN_SOFT_BEND_THRESHOLD_V1 = "CORNER_JOIN_SOFT_BEND_THRESHOLD_V1"
+    ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1 = "ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -198,6 +199,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
     SOURCE_FACE_CLIP_AT_DIAGONALS = "SOURCE_FACE_CLIP_AT_DIAGONALS"
     CORNER_TREATMENT_BEFORE_COUNT_LAW = "CORNER_TREATMENT_BEFORE_COUNT_LAW"
+    DENSITY_NARROW_BAND_RAY_BINDING = "DENSITY_NARROW_BAND_RAY_BINDING"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -228,6 +230,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
         "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
     )
     JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN = "JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN"
+    BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL = (
+        "BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL"
+    )
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -382,9 +387,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
     ),
     TolerancePolicyV1(
-        id=TolerancePolicyIdV1.AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1,
+        id=TolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1,
         category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
-        value=_rational(Fraction(7, 10**6)),
+        value=_rational(Fraction(1745, 10**6)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.RADIANS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
@@ -392,16 +397,28 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         scope=(
             "Восстановление задуманного ОТНОШЕНИЯ сторон до селектора "
             "плотности: угол, отклонившийся от прямого не более чем на "
-            "объявленную авторскую ошибку, заменяется СИМВОЛИЧЕСКИМ "
-            "каноническим фактом. Ниже по конвейеру решения идут на точной "
-            "рациональной доле π, а не на интервале."
+            "допуск масштаба художника (1745e-6 рад = 0.099985 градуса, "
+            "недобор до 0.1), заменяется СИМВОЛИЧЕСКИМ каноническим фактом. "
+            "Ниже по конвейеру решения идут на точной рациональной доле π, а "
+            "не на интервале. Поле: шум моделирования 0.005–0.03 градуса "
+            "(вершина 245 двери `building` патча 10, 90.0053 градуса, за "
+            "прежним допуском 0.0004 градуса переходила границу замкнутой "
+            "ячейки d2: H=2 вместо H=1), честные почти прямые углы начинаются "
+            "с 0.4 градуса (`building.004` патч 0, 90.56) и допуском не "
+            "покрываются: они идут сырым числом и называются в записях "
+            "корня счёта. ГАРАНТИЯ ПОДШАГА МЯГКАЯ: на восстановленном тугом "
+            "угле (d2 `H = 1`, d4) последний сектор может превысить `pi/q` до "
+            "0.1 градуса плюс шум привязки к решётке (граница шума — запись "
+            "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1, 1/400); остальные "
+            "секторы — точные повороты и проверяются точно."
         ),
         authority=(
-            "AngleTolerancePolicyIdV1.AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1; "
+            "AngleTolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1; "
             "CanonicalAngleRestorationLawV1."
             "AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1; "
-            "DECISIONS.md 2026-08-03 (продуктовый путь аудита: восстановление "
-            "канонического авторского угла вместо сдвига границ ячеек)"
+            "DECISIONS.md 2026-08-03 (восстановление канонического авторского "
+            "угла вместо сдвига границ ячеек) и 2026-10-03 (RIGHT-ANGLE-STABLE: "
+            "допуск восстановления поднят с 7e-6 рад до масштаба художника)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.CANONICAL_ANGLE_RESTORATION,
         allowed_effect=(
@@ -411,7 +428,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
         telemetry_counters=(),
         declaration_sites=(
-            "cftuv_envelope._authoring_intent.AUTHOR_ANGULAR_ERROR",
+            "cftuv_envelope._authoring_intent.CANONICAL_RESTORATION_ARTIST_ERROR",
         ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_canonical_angle_restoration.py"
@@ -419,7 +436,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_canonical_angle_restoration.py"
-            "::test_building_003_drift_is_honestly_outside_the_tolerance"
+            "::test_an_honest_near_right_corner_is_outside_the_tolerance"
         ),
     ),
     TolerancePolicyV1(
@@ -463,15 +480,15 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.SUBTURN_GUARANTEE_ON_CANONICAL_SUPPORTS_V1,
         category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
-        value=_rational(Fraction(7, 10**6)),
+        value=_rational(Fraction(1745, 10**6)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.RADIANS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
         scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
         scope=(
-            "ТРЕТЬЯ дверь того же допуска: лучи веера ставятся точными "
+            "ВТОРАЯ дверь допуска восстановления: лучи веера ставятся точными "
             "поворотами на канонический подшаг, а невязка между канонической "
-            "опорой и сырой ограничена той же авторской ошибкой "
+            "опорой и сырой ограничена тем же допуском восстановления "
             "(предикат RESIDUAL_IS_BOUNDED_BY_THE_AUTHORING_INTENT_TOLERANCE). "
             "Власть применяется ТОЛЬКО там, где закон на сырых опорах отказал; "
             "где старый проходит, не меняется ни байта."
@@ -492,7 +509,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
         telemetry_counters=(),
         declaration_sites=(
-            "cftuv_envelope._authoring_intent.AUTHOR_ANGULAR_ERROR",
+            "cftuv_envelope._authoring_intent.CANONICAL_RESTORATION_ARTIST_ERROR",
         ),
         positive_fixture=(
             f"{_KERNEL_TESTS}/test_canonical_angle_restoration.py"
@@ -540,7 +557,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_canonical_angle_restoration.py"
-            "::test_building_003_drift_is_honestly_outside_the_tolerance"
+            "::test_an_honest_near_right_corner_is_outside_the_tolerance"
         ),
     ),
     TolerancePolicyV1(
@@ -1089,7 +1106,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1,
         category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
-        value=_rational(Fraction(1, 1000)),
+        value=_rational(Fraction(1, 400)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.DIMENSIONLESS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
@@ -1101,8 +1118,10 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "каноническому вееру, лучи — точные повороты. Число — ОБЪЯВЛЕННЫЙ "
             "синус углового шума: sin поворота направления каждого из двух "
             "рёбер при привязке и отклонение поворота между опорами от "
-            "канонического угла не больше 1/1000 (проверяется точно, в "
-            "квадратах, без корней). Рядом структурное условие: боковой сдвиг "
+            "канонического угла не больше 1/400 (около 0.143 градуса; "
+            "проверяется точно, в квадратах, без корней). Граница накрывает "
+            "допуск восстановления (синус 0.1 градуса — 1.745e-3) плюс шум "
+            "привязки к решётке поля (до 3e-4). Рядом структурное условие: боковой сдвиг "
             "каждого ребра не больше одной ячейки решётки — сам по себе он "
             "угол не ограничивает, поэтому угловое условие отдельное. Шум вне "
             "границ закону не принадлежит: ответ решает прежний закон, а "
@@ -1352,6 +1371,54 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"
             "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.ADAPTIVE_FAN_NARROW_ROTATION_BAND_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(Fraction(1, 57)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "Полуширина окна ординала адаптивного веера вокруг луча РАВНОУГОЛЬНОГО идеала, "
+            "тангенс: 1/57 (1.005 градуса). Прежнее окно — окно Вороного между серединами углов "
+            "с соседними лучами — шириной в полшага веера, а поиск минимальной общей высоты ставил "
+            "луч на прямую наименьшей высоты решётки карты вне зависимости от равного шага (d1 "
+            "`building`: 23 набора шагов у 167 прямых углов, 57.8/32.2, 46.8/43.2, 36/54…). "
+            "Полоса — то же окно при ФАНТОМНЫХ соседях идеала на ±2·omega (рациональный поворот "
+            "3248/114/3250, радикалов не добавляет): луч привязывается к рациональному направлению "
+            "в пределах omega от равного шага, победитель тот же (минимальная общая высота, затем "
+            "ближайший к идеалу). Подшаг `<= pi/q` проверяется ТОЧНО по настоящим соседям идеала и "
+            "полосой не ослаблен. Власть называет закон окна предикатом "
+            "ADAPTIVE_FAN_NARROW_ROTATION_BAND; байты власти окна Вороного заморожены. Отказ полосы "
+            "(исчерпание точной работы, неустановимый чарт, пустое окно) назван диагностикой и "
+            "счётчиком, веер ищет прежнее окно Вороного."
+        ),
+        authority=(
+            "adaptive_density_band.ADAPTIVE_FAN_NARROW_ROTATION_BAND; compile.FAN_WINDOW_LAW; "
+            "DECISIONS.md 2026-10-03 (RIGHT-ANGLE-STABLE: лучи равны шагу идеала, а не ближайшей "
+            "простой прямой решётки; решение владельца, принятое оркестратором)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.DENSITY_NARROW_BAND_RAY_BINDING,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.BIND_FAN_RAYS_WITHIN_NARROW_BAND_OF_THE_EQUAL_STEP_IDEAL
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=("CONVEYOR_FAN_NARROW_BAND_REFUSED",),
+        declaration_sites=(
+            "cftuv_envelope.reference.adaptive_density_band."
+            "ADAPTIVE_FAN_NARROW_BAND_HALF_TANGENT",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_fan_narrow_band.py"
+            "::test_a_bound_ray_stays_within_the_band_of_the_equal_step_ideal"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_fan_narrow_band.py"
+            "::test_a_band_that_cannot_hold_a_ray_is_a_named_refusal_and_the_voronoi_window_decides"
         ),
     ),
 )

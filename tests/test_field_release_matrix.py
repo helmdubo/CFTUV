@@ -112,6 +112,8 @@ _CACHE: dict[str, dict] = {}
 PIN_LIFT_FLAG = "--pin-lift"
 PIN_FRAME_FLAG = "--pin-frame"
 PIN_LADDER_FLAG = "--pin-ladder"
+PIN_FANS_FLAG = "--pin-fans"
+LEGACY_FANS = "FAN_LAWS_BEFORE_RIGHT_ANGLE_STABLE_V1"
 LEGACY_LIFT = "CERTIFIED_PLANE_V1"
 LEGACY_FRAME = "CANONICAL_ONLY_V1"
 NEAR_PLANAR_ONLY = "NEAR_PLANAR_ONLY_V1"
@@ -122,6 +124,7 @@ def route(
     pin_lift: str | None = None,
     pin_frame: str | None = None,
     pin_ladder: str | None = None,
+    pin_fans: str | None = None,
 ) -> dict:
     """Полный маршрут слепка в отдельном процессе под капом работы.
 
@@ -131,7 +134,7 @@ def route(
     едет в `substitutions` ответа.
     """
 
-    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}"
+    key = f"{snapshot}|{pin_lift}|{pin_frame}|{pin_ladder}|{pin_fans}"
     if key in _CACHE:
         return _CACHE[key]
     if snapshot == BUILDING:
@@ -156,6 +159,8 @@ def route(
         command += [PIN_FRAME_FLAG, pin_frame]
     if pin_ladder is not None:
         command += [PIN_LADDER_FLAG, pin_ladder]
+    if pin_fans is not None:
+        command += [PIN_FANS_FLAG, pin_fans]
     try:
         finished = subprocess.run(
             command,
@@ -188,13 +193,14 @@ def domain(
     pin_lift: str | None = None,
     pin_frame: str | None = None,
     pin_ladder: str | None = None,
+    pin_fans: str | None = None,
 ) -> dict:
-    for record in route(snapshot, pin_lift, pin_frame, pin_ladder)["domains"]:
+    for record in route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans)["domains"]:
         if record["patch_id"] == patch_id:
             return record
     raise AssertionError(
         f"DOMAIN_ABSENT: у {snapshot} нет домена патча {patch_id}; "
-        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame, pin_ladder)['domains']]}"
+        f"есть {[r['patch_id'] for r in route(snapshot, pin_lift, pin_frame, pin_ladder, pin_fans)['domains']]}"
     )
 
 
@@ -372,15 +378,22 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_fra
     """
 
     table = anchors(snapshot, patch_id)
+    # Таблица якорей записана на лучах прежних законов веера (допуск 7e-6 рад, окно Вороного,
+    # таблица только поднятого d4): ворота держат математику фронта, а не выбор лучей. Закрепка
+    # не немая: её имя едет в `substitutions`, а законы лучей держат тесты ядра.
+    assert (
+        f"KERNEL_FAN_LAWS_PINNED:{LEGACY_FANS}"
+        in route(snapshot, None, pin_frame, None, LEGACY_FANS)["substitutions"]
+    )
     if pin_frame is not None:
         # Закрепка не немая: прогон с ней несёт её имя в ответе маршрута.
         assert (
             f"HOST_NEAR_PLANAR_FRAME_POLICY_PINNED:{pin_frame}"
-            in route(snapshot, None, pin_frame)["substitutions"]
+            in route(snapshot, None, pin_frame, None, LEGACY_FANS)["substitutions"]
         )
     present = {
         locus_key(locus): locus
-        for locus in domain(snapshot, patch_id, None, pin_frame)["loci"]
+        for locus in domain(snapshot, patch_id, None, pin_frame, None, LEGACY_FANS)["loci"]
     }
     missing = []
     drifted = []
@@ -415,7 +428,7 @@ def test_walls_012_anchor_loci_survive():
     assert table["anchor_loci"] == 2
     present = {
         locus_key(locus)
-        for locus in domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME)["loci"]
+        for locus in domain(WALLS_012, 0, LEGACY_LIFT, LEGACY_FRAME, None, LEGACY_FANS)["loci"]
     }
     for anchor in table["anchors"]:
         key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)

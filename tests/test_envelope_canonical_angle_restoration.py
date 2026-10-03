@@ -48,10 +48,14 @@ ANGLES_PATH = (
 )
 
 import cftuv_envelope as kernel  # noqa: E402
-from cftuv_envelope._authoring_intent import AUTHOR_ANGULAR_ERROR  # noqa: E402
+from cftuv_envelope._authoring_intent import (  # noqa: E402
+    AUTHOR_ANGULAR_ERROR,
+    CANONICAL_RESTORATION_ARTIST_ERROR,
+)
 from cftuv_envelope._canonical_angle import (  # noqa: E402
     PI_RATIONAL_UPPER_BOUND,
     canonical_reflex_excess_restoration,
+    selector_reflex_excess_interval,
 )
 from cftuv_envelope.reference.angle_measure import (  # noqa: E402
     reflex_angle_intervals_over_pi,
@@ -175,8 +179,13 @@ def test_field_noise_is_inside_the_declared_authoring_intent_tolerance():
     assert all(1.0e-6 < value < 2.9e-6 for value in restored.values()), restored
 
 
-def test_building_003_drift_stays_raw_and_keeps_its_previous_count():
-    """Отрицательный контроль: 3.3e-4 рад не восстанавливается ни на одной d."""
+def test_building_003_drift_is_restored_by_the_artist_scale_tolerance():
+    """3.3e-4 рад (0.019 градуса) — шум моделирования: допуск масштаба художника его накрывает.
+
+    До решения 2026-10-03 (RIGHT-ANGLE-STABLE) допуск восстановления был 7e-6 рад, и этот
+    угол был отрицательным контролем «в 48 раз за допуском»; его счёт расходился со счётом
+    точного близнеца. Теперь он каноничен и считается как близнец.
+    """
 
     cosine, sine = BUILDING_003_TERMS
     _, excess = reflex_angle_intervals_over_pi(
@@ -190,12 +199,16 @@ def test_building_003_drift_stays_raw_and_keeps_its_previous_count():
     radians = deviation * PI_RATIONAL_UPPER_BOUND
     assert radians > AUTHOR_ANGULAR_ERROR
     assert 47 < float(radians / AUTHOR_ANGULAR_ERROR) < 49
-    assert canonical_reflex_excess_restoration(excess) is None
-    # Счёт у него остаётся тем, что был до карточки: на d2 — ВЕРХНЯЯ ячейка
-    # (C=3, H=2), то есть ровно то, чем угол отличался от точного близнеца.
+    restoration = canonical_reflex_excess_restoration(excess)
+    assert restoration is not None
+    assert restoration.deviation_upper_bound_radians <= CANONICAL_RESTORATION_ARTIST_ERROR
+    # Сырой интервал, поданный селектору без восстановления, лёг бы в ВЕРХНЮЮ ячейку
+    # (C=3, H=2): ровно то, чем угол отличался от точного близнеца.
     assert _resolve_huber_density_bucket_interval(excess, 4) == 3
-    # Для сравнения — ячейка канонической доли на той же плотности. Разница
-    # ячеек и есть то, что восстановление даёт углам стены и НЕ даёт этому.
+    # С восстановлением селектор видит канонический факт и ячейку близнеца (C=2).
+    selector_interval, applied = selector_reflex_excess_interval(excess)
+    assert applied == restoration
+    assert _resolve_huber_density_bucket_interval(selector_interval, 4) == 2
     assert (
         _resolve_huber_density_bucket_interval(
             _CanonicalHalf(),

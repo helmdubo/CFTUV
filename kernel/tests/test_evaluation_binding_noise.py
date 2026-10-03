@@ -672,11 +672,14 @@ def _interval(lower: Fraction, upper: Fraction):
     ("lower", "upper", "found"),
     (
         (Fraction(1, 2), Fraction(1, 2), True),
-        # Внутри допуска намерения (7e-6 рад): восстанавливается и тоже канон.
+        # Внутри допуска восстановления (0.1 градуса, `u` до 5.55e-4): восстанавливается и тоже канон.
         (Fraction(1, 2) + Fraction(1, 10**8), Fraction(1, 2) + Fraction(1, 10**8), True),
         (Fraction(1, 2) - Fraction(1, 10**8), Fraction(1, 2) - Fraction(1, 10**8), True),
+        (Fraction(1, 2) + Fraction(1, 10**4), Fraction(1, 2) + Fraction(1, 10**4), True),
+        (Fraction(1, 2) - Fraction(5, 10**4), Fraction(1, 2) - Fraction(5, 10**4), True),
         # Вне допуска — честное число, закона нет.
-        (Fraction(1, 2) + Fraction(1, 10**4), Fraction(1, 2) + Fraction(1, 10**4), False),
+        (Fraction(1, 2) + Fraction(6, 10**4), Fraction(1, 2) + Fraction(6, 10**4), False),
+        (Fraction(1, 2) + Fraction(1, 10**3), Fraction(1, 2) + Fraction(1, 10**3), False),
         (Fraction(3, 5), Fraction(3, 5), False),
     ),
 )
@@ -849,8 +852,26 @@ def test_a_refusal_of_the_law_is_named_in_the_diagnostics_and_counted(compiled, 
         noise, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, math.ceil(1 / ceiling) + 1)
     )
     refused = compile_reference_envelopes(snapshot_loaded, request)
-    diagnostics = refused.compilation.diagnostics
-    assert len(diagnostics) == 2
+    # Шум вне границ молчит ДВАЖДЫ и по двум решениям: счёт на тугом пороге
+    # (закон шума) и лучи привязанного веера (закон лучей, та же причина). Закон лучей
+    # называет только угол, у которого ЕСТЬ строка таблицы (поднятый d2 `H = 2`); у тугого
+    # d2 `H = 1` строки нет намеренно, и шум закону лучей нечем называть.
+    assert len(refused.compilation.diagnostics) == 3
+    diagnostics = [
+        item
+        for item in refused.compilation.diagnostics
+        if item.outcome is ReferenceOutcome.EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED
+    ]
+    rays = [
+        item
+        for item in refused.compilation.diagnostics
+        if item.outcome is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
+    ]
+    assert (len(diagnostics), len(rays)) == (2, 1)
+    assert all(
+        item.message.startswith("BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS")
+        for item in rays
+    )
     for item in diagnostics:
         assert item.outcome is ReferenceOutcome.EVALUATION_BINDING_NOISE_LAW_NOT_APPLIED
         assert item.message.startswith(

@@ -718,19 +718,23 @@ def test_density_h3_reduced_turn_fraction_is_valid(projections):
     )
 
 
-# FAN-CANONICAL-COUNT: на поле d4 лифтованных углов теперь три (строгий закон и два
+# FAN-CANONICAL-COUNT: на поле d4 лифтованных углов четыре (два строгих закона и два
 # закона предела канонического веера), и «первый попавшийся» из frozenset давал
-# зависимость от порядка итерации. Закон выбирается явно, угол — по наименьшему id.
+# зависимость от порядка итерации. Закон выбирается явно, угол — по суффиксу
+# отношения угла (RIGHT-ANGLE-STABLE добавил второй строгий: восстановленный
+# угол 90.022 градуса), а при `None` — по наименьшему id среди углов закона.
 @pytest.mark.parametrize(
-    ("lift_law", "sign", "cosine_squared"),
+    ("lift_law", "corner", "sign", "cosine_squared"),
     (
         (
             "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1",
+            "b689264248",
             "NEGATIVE",
             (45522878206665163396, 31361032006103445049292403005),
         ),
         (
             "EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_AT_CANONICAL_EXACT_LIMIT_V1",
+            None,
             "POSITIVE",
             (1004508684634765249, 5017274161018234127482566533),
         ),
@@ -739,6 +743,7 @@ def test_density_h3_reduced_turn_fraction_is_valid(projections):
 def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
     projections,
     lift_law,
+    corner,
     sign,
     cosine_squared,
     monkeypatch,
@@ -774,6 +779,7 @@ def test_density_evaluation_h_lift_authorizes_effective_plan_cardinality(
             if type(item) is AdaptiveDensityAngularEnvelopeSpecV2
             and item.evaluation_subturn_count_lift is not None
             and item.evaluation_subturn_count_lift.lift_law.value == lift_law
+            and (corner is None or item.source_relation_id.value.endswith(corner))
         ),
         key=lambda item: item.envelope_spec_id.value,
     )

@@ -675,6 +675,10 @@ class _ArrivalLawsV1:
     #: только когда ненулевые.
     canonical_rays_fan_count: int = 0
     canonical_rays_refused_count: int = 0
+    #: Вееры, чьи лучи узкая полоса поворота привязать не смогла (причина названа в
+    #: диагностике ядра), и они привязаны в прежнем окне Вороного. Счётчик выходит
+    #: только когда ненулевой.
+    narrow_band_refused_count: int = 0
 
 
 _EXACT_LIMIT_LIFT_LAWS = frozenset(
@@ -759,6 +763,11 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         sum(
             item.outcome
             is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
+            for item in context.compilation.diagnostics
+        ),
+        sum(
+            item.outcome
+            is ReferenceOutcome.ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED
             for item in context.compilation.diagnostics
         ),
     )
@@ -1196,6 +1205,15 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
             ),
         )
         if reading.canonical_rays_refused_count
+        else ()
+    ) + (
+        (
+            (
+                "CONVEYOR_FAN_NARROW_BAND_REFUSED",
+                reading.narrow_band_refused_count,
+            ),
+        )
+        if reading.narrow_band_refused_count
         else ()
     )
 

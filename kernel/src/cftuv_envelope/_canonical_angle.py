@@ -12,12 +12,17 @@
 ЧТО ИМЕННО ЗДЕСЬ ПРОИСХОДИТ, и чего здесь НЕ происходит.
 
 * Происходит: восстановление ЗАДУМАННОГО отношения. Если авторский угол
-  отклоняется от канонического в пределах уже объявленного допуска намерения
-  `_authoring_intent.AUTHOR_ANGULAR_ERROR` (7e-6 рад), селектор получает
-  СИМВОЛИЧЕСКИЙ канонический факт (`CANONICAL_REFLEX_EXCESS_PI_OVER_2`), а не
-  сырое число. Это тот же допуск и та же категория (AUTHORING_INTENT), что и
-  у привязки источника к решётке: там восстанавливается задуманное ПОЛОЖЕНИЕ
-  вершины, здесь — задуманное ОТНОШЕНИЕ сторон.
+  отклоняется от канонического не больше допуска намерения
+  `_authoring_intent.CANONICAL_RESTORATION_ARTIST_ERROR` (1745e-6 рад, то есть
+  0.1 градуса с недобором), селектор получает СИМВОЛИЧЕСКИЙ канонический факт
+  (`CANONICAL_REFLEX_EXCESS_PI_OVER_2`), а не сырое число. Категория та же
+  (AUTHORING_INTENT), величина своя: привязка источника к решётке
+  восстанавливает задуманное ПОЛОЖЕНИЕ вершины и держит `AUTHOR_ANGULAR_ERROR`
+  (7e-6 рад), здесь восстанавливается задуманное ОТНОШЕНИЕ сторон, и допуск —
+  масштаба художника: шум моделирования поля 0.005–0.03 градуса (вершина 245
+  двери `building`, 90.0053 градуса, переходила границу замкнутой ячейки
+  d2 при допуске 0.0004 градуса), честные почти прямые углы — от 0.4 градуса.
+  Решение владельца, 2026-10-03.
 
 * НЕ происходит: закон счёта не меняется ни на йоту. Жёсткая гарантия
   максимума (`MIN_K/ceil`, подшаг ≤ π/q) остаётся прежней властью и
@@ -70,7 +75,7 @@ from .contracts.envelopes import (
 )
 from .contracts.metric import ExactRationalV1
 from .numeric import ExactRatioV1, IntervalEndpointKind
-from ._authoring_intent import AUTHOR_ANGULAR_ERROR
+from ._authoring_intent import CANONICAL_RESTORATION_ARTIST_ERROR
 
 
 # π = 3.14159265358979323846264338327950288... — последняя записанная цифра
@@ -115,7 +120,7 @@ CANONICAL_ANGLE_RESTORATION_LAW = (
 )
 
 CANONICAL_ANGLE_TOLERANCE_POLICY_ID = (
-    AngleTolerancePolicyIdV1.AUTHOR_ANGULAR_ERROR_AUTHORING_INTENT_V1
+    AngleTolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1
 )
 
 CANONICAL_SUBTURN_FAN_LAW = (
@@ -182,11 +187,11 @@ def _ratio(value: Fraction) -> ExactRatioV1:
     return ExactRatioV1(item.numerator, item.denominator)
 
 
-# Тот же допуск, выраженный в ДОЛЯХ π. Величина производная и считается один
+# Допуск восстановления, выраженный в ДОЛЯХ π. Величина производная и считается один
 # раз: сравнивать в долях дешевле, чем умножать каждое отклонение на π, а
 # результат тот же — обе части неравенства положительны. Направление ошибки
 # сохранено: делитель — верхняя граница π, значит порог в долях занижен.
-_TOLERANCE_OVER_PI = AUTHOR_ANGULAR_ERROR / PI_RATIONAL_UPPER_BOUND
+_TOLERANCE_OVER_PI = CANONICAL_RESTORATION_ARTIST_ERROR / PI_RATIONAL_UPPER_BOUND
 
 
 def _deviation_over_pi(interval, canonical: Fraction) -> Fraction:
@@ -304,7 +309,7 @@ def build_canonical_angle_restoration_certificate(
         deviation_upper_bound_radians=_rational(
             restoration.deviation_upper_bound_radians
         ),
-        tolerance_radians=_rational(AUTHOR_ANGULAR_ERROR),
+        tolerance_radians=_rational(CANONICAL_RESTORATION_ARTIST_ERROR),
         tolerance_policy_id=CANONICAL_ANGLE_TOLERANCE_POLICY_ID,
         proven_predicates=CANONICAL_ANGLE_RESTORATION_PREDICATES,
     )
@@ -332,8 +337,11 @@ def canonical_angle_restoration_error(
     if Fraction(
         certificate.tolerance_radians.numerator,
         certificate.tolerance_radians.denominator,
-    ) != AUTHOR_ANGULAR_ERROR:
-        return "canonical angle restoration tolerance differs from AUTHOR_ANGULAR_ERROR"
+    ) != CANONICAL_RESTORATION_ARTIST_ERROR:
+        return (
+            "canonical angle restoration tolerance differs from "
+            "CANONICAL_RESTORATION_ARTIST_ERROR"
+        )
     if certificate.source_reflex_excess_over_pi != source_interval:
         return "canonical angle restoration cites another source angle"
     restoration = canonical_reflex_excess_restoration(source_interval)

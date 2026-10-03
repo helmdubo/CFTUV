@@ -58,6 +58,7 @@ from cftuv_envelope.reference.metric import ExactPlanarMetric
 from cftuv_envelope.reference.planar_types import ExactPlanarVector
 from cftuv_envelope.reference.common import GeometryContext, ReferenceGeometryError
 from cftuv_envelope.reference.contracts import CanonicalFanRaysRefusalV1
+from cftuv_envelope.reference.evaluation_binding_noise import NOISE_DIRECTION_SINE_BOUND
 from cftuv_envelope.reference.validation import validate_reference_geometry_payload
 from cftuv_envelope.wavefront import prepare_conveyor
 
@@ -69,8 +70,8 @@ EXACT_FIXTURE = KERNEL / "fixtures" / "density4_exact_limit_v1"
 #: `(12, 5)`, `(1, 1)`, `(5, 12)` дают лучи на 22.62, 45 и 67.38 градуса.
 TABLE_ROW = ((12, 5), (1, 1), (5, 12))
 FIRST_SECTOR = math.degrees(math.atan2(5, 12))
-#: Объявленный синус шума привязки закона `1/1000` в градусах: шум последнего сектора.
-NOISE_BOUND_DEGREES = math.degrees(math.asin(1 / 1000))
+#: Объявленный синус шума привязки закона в градусах (`1/400`, около 0.143): шум последнего сектора.
+NOISE_BOUND_DEGREES = math.degrees(math.asin(float(NOISE_DIRECTION_SINE_BOUND)))
 MIDDLE_SECTOR = math.degrees(math.atan2(1, 1) - math.atan2(5, 12))
 
 STRICT = EvaluationGeometrySubturnCountLiftLawV1.EVALUATION_GEOMETRY_SUBTURN_COUNT_LIFTED_V1
@@ -91,16 +92,43 @@ CANONICAL_CASES = (
 )
 
 
+#: Плотность -> (значение запроса, символ угла, q); запросы d0, d1 слепки не несут.
+DENSITY_VALUES = {
+    0: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_0_V1, kernel.ExactAngleSymbol.PI_OVER_2, 2),
+    1: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_1_V1, kernel.ExactAngleSymbol.PI_OVER_3, 3),
+    2: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_2_V1, kernel.ExactAngleSymbol.PI_OVER_4, 4),
+    3: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_3_V1, kernel.ExactAngleSymbol.PI_OVER_5, 5),
+    4: (kernel.MaxSubturnValueId.LINEAR_REFLEX_DENSITY_4_V1, kernel.ExactAngleSymbol.PI_OVER_6, 6),
+}
+
+
+def _at_density(request, density: int):
+    """Тот же запрос на другой плотности: меняются значение, символ угла и политика."""
+
+    value_id, symbol, _ = DENSITY_VALUES[density]
+    return replace(
+        request,
+        angular_profile_selection_policy_id=(
+            kernel.AngularProfileSelectionPolicyId.HUBER_EMANATED_COUNT_DENSITY_A_V1
+        ),
+        max_subturn_parameter_id=kernel.MaxSubturnParameterId.LINEAR_REFLEX_DENSITY_A_V1,
+        max_subturn_value_id=value_id,
+        max_subturn_exact_value=kernel.ExactAngleV1(symbol),
+    )
+
+
 def _load(folder: Path, name: str, density: int):
     base = folder / name
-    return (
-        kernel.AnalysisSnapshotCodecV1.loads(
-            (base / "analysis_snapshot.json").read_bytes()
-        ),
-        kernel.DecalRequestCodecV1.loads(
-            (base / f"decal_request_density{density}.json").read_bytes()
-        ),
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+        (base / "analysis_snapshot.json").read_bytes()
     )
+    path = base / f"decal_request_density{density}.json"
+    if path.exists():
+        return snapshot, kernel.DecalRequestCodecV1.loads(path.read_bytes())
+    donor = kernel.DecalRequestCodecV1.loads(
+        (base / "decal_request_density4.json").read_bytes()
+    )
+    return snapshot, _at_density(donor, density)
 
 
 @pytest.fixture(scope="module")
@@ -233,7 +261,20 @@ def test_the_rotation_table_is_exactly_what_its_header_promises():
     finally:
         iv.prec = saved_precision
     assert canonical_rotation_rays(Fraction(1, 2), 4, 6) == TABLE_ROW
-    assert canonical_rotation_rays(Fraction(1, 2), 3, 4) is None
+    # Каждая плотность с НЕ тугим счётом прямого угла (d0, d1, d3, поднятый d2).
+    assert canonical_rotation_rays(Fraction(1, 2), 2, 2) == ((1, 1),)
+    assert canonical_rotation_rays(Fraction(1, 2), 2, 3) == ((1, 1),)
+    assert canonical_rotation_rays(Fraction(1, 2), 3, 4) == ((7, 4), (4, 7))
+    assert canonical_rotation_rays(Fraction(1, 2), 3, 5) == ((7, 4), (4, 7))
+    # Тугой d2 `H = 1` в таблице НАМЕРЕННО нет: его ведёт закон шума привязки.
+    assert canonical_rotation_rays(Fraction(1, 2), 2, 4) is None
+    assert set(CANONICAL_ROTATION_TABLE) == {
+        (Fraction(1, 2), 2, 2),
+        (Fraction(1, 2), 2, 3),
+        (Fraction(1, 2), 3, 4),
+        (Fraction(1, 2), 3, 5),
+        (Fraction(1, 2), 4, 6),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -663,22 +704,25 @@ def test_the_decision_is_made_once_per_spec_and_count(compiled):
 # --------------------------------------------------------------------------
 
 
-#: Каждый слепок с запросом на плотности ниже d4: что есть в корпусе, то и сверяется.
-OTHER_DENSITY_CASES = tuple(
-    (folder, name, density)
+#: Каждый слепок с запросом d2 (тугой счёт прямого угла: таблицы там нет).
+TIGHT_DENSITY_CASES = tuple(
+    (folder, name, 2)
     for folder, name in CANONICAL_CASES
-    for density in (0, 1, 2, 3)
-    if (folder / name / f"decal_request_density{density}.json").exists()
+    if (folder / name / "decal_request_density2.json").exists()
 )
 
 
-@pytest.mark.parametrize("folder,name,density", OTHER_DENSITY_CASES)
-def test_other_densities_are_byte_identical_with_and_without_the_law(
+@pytest.mark.parametrize("folder,name,density", TIGHT_DENSITY_CASES)
+def test_the_tight_density_is_byte_identical_with_and_without_the_law(
     monkeypatch, folder, name, density
 ):
-    """Закон работает только на тугом пороге d4: d2 и d3 равны прежним до байта."""
+    """На тугом d2 у закона лучей нет работы: он равен прежнему до байта.
 
-    assert density in (2, 3)
+    Канонический прямой угол d2 `H = 1` ведёт закон шума привязки, таблица
+    его не знает (намеренно), а поднятый d2 `H = 2` на этих слепках не встречается.
+    """
+
+    assert density == 2
     snapshot, request = _load(folder, name, density)
     with_law = compile_reference_envelopes(snapshot, request)
     with monkeypatch.context() as scoped:
@@ -687,3 +731,273 @@ def test_other_densities_are_byte_identical_with_and_without_the_law(
     assert with_law.outcome is without.outcome
     assert with_law.compilation == without.compilation
     assert _refusals(with_law.compilation) == []
+
+
+# --------------------------------------------------------------------------
+# 6. НЕподнятый канонический угол: та же таблица вместо привязки (RIGHT-ANGLE-STABLE)
+# --------------------------------------------------------------------------
+#
+# Полевой дефект (владелец, 2026-10-03: «в некоторых ситуациях угол 90 градусов
+# всё равно выстреливает какой-то рандом»): на d1 `building` 182 угла давали 23
+# набора шагов — прямую малой высоты в ШИРОКОМ окне Вороного ставила привязка
+# B(w) либо атлас, а не равный шаг. Закон лучей теперь действует и на неподнятых
+# канонических углах, чьи лучи пришлось бы привязывать (d0, d1, d3).
+
+UNLIFTED_DENSITIES = (0, 1, 3)
+
+
+def _table_fans(compilation):
+    return [
+        spec
+        for spec in _specs(compilation)
+        if type(getattr(spec, "direction_fan_authority", None))
+        is CanonicalRationalRotationFanAuthorityV1
+    ]
+
+
+@pytest.mark.parametrize("density", UNLIFTED_DENSITIES)
+def test_an_unlifted_canonical_corner_that_needed_binding_carries_the_table_fan(
+    compiled, density
+):
+    """Один ряд на плотность: лучи — точные повороты, шум привязки только в последнем секторе."""
+
+    q = DENSITY_VALUES[density][2]
+    placed = 0
+    for folder, name in CANONICAL_CASES:
+        snapshot, compilation = compiled(folder, name, density)
+        context = _context(snapshot, compilation)
+        seal_angular_support_cache(context)
+        for spec in _table_fans(compilation):
+            placed += 1
+            assert spec.evaluation_subturn_count_lift is None
+            authority = spec.direction_fan_authority
+            row = canonical_rotation_rays(
+                Fraction(1, 2), spec.resolved_hidden_edge_count + 1, q
+            )
+            assert row is not None
+            assert authority.ray_rotation_pairs == row
+            assert adaptive_density_structure_errors(spec) == ()
+            assert {support.direction_law for support in spec.hidden_supports} == {
+                AdaptiveBoundHiddenSupportDirectionLawV2.CANONICAL_RATIONAL_ROTATION_FAN_V1
+            }
+            steps = _fan_degrees(context, spec)
+            assert len(steps) == len(row) + 1
+            for ordinal, (a, b) in enumerate(row):
+                assert sum(steps[: ordinal + 1]) == pytest.approx(
+                    math.degrees(math.atan2(b, a)), abs=1e-8
+                )
+            last = 90.0 - math.degrees(math.atan2(row[-1][1], row[-1][0]))
+            assert steps[-1] == pytest.approx(last, abs=NOISE_BOUND_DEGREES)
+            assert max(steps) <= 180.0 / q + NOISE_BOUND_DEGREES
+    assert placed, f"no unlifted canonical corner of d{density} needed binding in the fixtures"
+
+
+@pytest.mark.parametrize("density", UNLIFTED_DENSITIES)
+def test_every_unlifted_table_fan_is_one_and_the_same_shape(compiled, density):
+    """Конгруэнтные углы — один веер с точностью до шума последнего сектора."""
+
+    shapes = set()
+    for folder, name in CANONICAL_CASES:
+        snapshot, compilation = compiled(folder, name, density)
+        context = _context(snapshot, compilation)
+        for spec in _table_fans(compilation):
+            shapes.add(tuple(round(item, 1) for item in _fan_degrees(context, spec)[:-1]))
+    assert len(shapes) == 1, shapes
+
+
+@pytest.mark.parametrize("density", (1, 3))
+def test_a_forged_ray_on_an_unlifted_corner_is_a_named_refusal(compiled, density):
+    for folder, name in CANONICAL_CASES:
+        snapshot, compilation = compiled(folder, name, density)
+        tables = _table_fans(compilation)
+        if not tables:
+            continue
+        spec = tables[0]
+        vectors = list(spec.direction_fan_authority.bound_primitive_integer_vectors)
+        x, y = vectors[0]
+        vectors[0] = (x + 1, y - 1) if (x + 1, y - 1) != (0, 0) else (x + 2, y)
+        forged = _forge_authority(spec, bound_primitive_integer_vectors=tuple(vectors))
+        error = _refused(snapshot, _replace_spec(compilation, spec, forged))
+        assert error.outcome is ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID
+        assert "exact ordinal rotation" in str(error)
+        return
+    pytest.fail("no unlifted table fan in the fixtures")
+
+
+@pytest.mark.parametrize("density", (1, 3))
+def test_a_per_ray_or_atlas_binding_where_the_unlifted_law_applies_is_refused(
+    compiled, monkeypatch, density
+):
+    """ОБРАТНАЯ сторона закона: канонический угол не вправе нести иную привязку, если закон применим."""
+
+    for folder, name in CANONICAL_CASES:
+        snapshot, request = _load(folder, name, density)
+        _, compilation = compiled(folder, name, density)
+        tables = _table_fans(compilation)
+        if not tables:
+            continue
+        with monkeypatch.context() as scoped:
+            scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
+            donor_compilation = compile_reference_envelopes(snapshot, request).compilation
+        spec = tables[0]
+        donor = next(
+            item
+            for item in _specs(donor_compilation)
+            if item.envelope_spec_id == spec.envelope_spec_id
+        )
+        assert type(getattr(donor, "direction_fan_authority", None)) is not (
+            CanonicalRationalRotationFanAuthorityV1
+        )
+        error = _refused(snapshot, _replace_spec(compilation, spec, donor))
+        assert error.outcome is ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID
+        assert "law applies" in str(error)
+        return
+    pytest.fail("no unlifted table fan in the fixtures")
+
+
+@pytest.mark.parametrize("density", (1, 3))
+def test_the_unlifted_table_authority_where_the_law_is_silent_is_refused(
+    compiled, monkeypatch, density
+):
+    for folder, name in CANONICAL_CASES:
+        snapshot, compilation = compiled(folder, name, density)
+        if not _table_fans(compilation):
+            continue
+        monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
+        error = _refused(snapshot, compilation)
+        assert error.outcome is ReferenceOutcome.REFERENCE_CANONICAL_SUBTURN_FAN_INVALID
+        assert "does not apply" in str(error)
+        return
+    pytest.fail("no unlifted table fan in the fixtures")
+
+
+def test_a_missing_table_row_of_an_unlifted_corner_is_not_a_refusal_and_the_old_path_decides(
+    monkeypatch,
+):
+    """Таблица не знает неподнятого угла — закон молчит и ничего не называет: ответ прежний."""
+
+    snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 3)
+    monkeypatch.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT
+    assert _refusals(result.compilation) == []
+    assert _table_fans(result.compilation) == []
+
+
+def test_an_unlifted_ray_irrational_in_the_chart_is_named_and_the_old_path_decides(monkeypatch):
+    snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 1)
+    monkeypatch.setattr(
+        direction_binding, "has_rational_density_support_direction", lambda *_: False
+    )
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT
+    names = _refusals(result.compilation)
+    assert set(names) <= {CanonicalFanRaysRefusalV1.CANONICAL_RAYS_IRRATIONAL_IN_CHART.value}
+    assert _table_fans(result.compilation) == []
+
+
+def test_binding_noise_outside_the_declared_bound_is_named_for_the_rays_of_an_unlifted_corner(
+    monkeypatch,
+):
+    """Шум вне границ закона шума: лучи привязывает прежний путь, и это названо (п. 4)."""
+
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+
+    snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 1)
+    default = compile_reference_envelopes(snapshot, request)
+    assert _refusals(default.compilation) == []
+    assert _table_fans(default.compilation)
+    monkeypatch.setattr(noise_module, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 10**6))
+    refused = compile_reference_envelopes(snapshot, request)
+    assert refused.outcome is ReferenceOutcome.EXACT
+    names = _refusals(refused.compilation)
+    assert names
+    assert set(names) == {
+        CanonicalFanRaysRefusalV1.BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS.value
+    }
+    assert _table_fans(refused.compilation) == []
+
+
+# --------------------------------------------------------------------------
+# 7. Внешний аудит RIGHT-ANGLE-STABLE: нулевой шум без привязки и порядок причин
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("density", "count", "row"),
+    (
+        (3, 2, ((7, 4), (4, 7))),
+        (4, 3, ((12, 5), (1, 1), (5, 12))),
+    ),
+)
+def test_without_a_binding_the_table_applies_at_zero_noise(
+    monkeypatch, density, count, row
+):
+    """Привязки нет — вычислительная геометрия равна исходной, шум нулевой, таблица действует.
+
+    Без этого точный прямой угол на евклидовой карте получал полосу (5,3)/(3,5) =
+    30.96/28.07/30.96, а тот же угол с привязкой — таблицу (7,4) = 29.74/30.51/29.74:
+    конгруэнтные углы, две формы, и ни одна не названа (п. 4).
+    """
+
+    import reference_factories as rf
+
+    rf._ANGULAR_CASES.setdefault(
+        "exact-right-angle", ((0.0, -1.0), (-5.0, 0.0), ("0.5", "0.5"))
+    )
+    snapshot, request = rf.angular_snapshot("exact-right-angle")
+    request = _at_density(request, density)
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT, result.diagnostics
+    compilation = result.compilation
+    assert compilation.evaluation_geometry_binding is None
+    (spec,) = _specs(compilation)
+    authority = spec.direction_fan_authority
+    assert type(authority) is CanonicalRationalRotationFanAuthorityV1
+    assert authority.ray_rotation_pairs == row
+    assert spec.resolved_hidden_edge_count == count
+    context = _context(snapshot, compilation)
+    seal_angular_support_cache(context)
+    steps = _fan_degrees(context, spec)
+    for ordinal, (a, b) in enumerate(row):
+        assert sum(steps[: ordinal + 1]) == pytest.approx(
+            math.degrees(math.atan2(b, a)), abs=1e-8
+        )
+    assert _refusals(compilation) == []
+    # Контроль: с выключенной таблицей тот же угол идёт другим путём и в другую форму.
+    with monkeypatch.context() as scoped:
+        scoped.setattr(_density_policy, "CANONICAL_ROTATION_TABLE", {})
+        other = compile_reference_envelopes(snapshot, request).compilation
+    (other_spec,) = _specs(other)
+    assert type(other_spec.direction_fan_authority) is not (
+        CanonicalRationalRotationFanAuthorityV1
+    )
+
+
+def test_a_tight_d2_corner_without_a_row_is_not_named_by_the_noise_refusal(monkeypatch):
+    """Строка таблицы спрашивается ПЕРЕД шумом: у тугого d2 `H = 1` строки нет и называть нечем."""
+
+    from cftuv_envelope.reference import evaluation_binding_noise as noise_module
+
+    snapshot, request = _load(NOISE_FIXTURE, "building_patch114", 2)
+    monkeypatch.setattr(noise_module, "NOISE_DIRECTION_SINE_BOUND", Fraction(1, 10**6))
+    result = compile_reference_envelopes(snapshot, request)
+    assert result.outcome is ReferenceOutcome.EXACT
+    named = {
+        item.envelope_spec_id
+        for item in result.compilation.diagnostics
+        if item.outcome is ReferenceOutcome.CANONICAL_FAN_RAYS_LAW_NOT_APPLIED
+    }
+    unlifted = {
+        spec.envelope_spec_id.value
+        for spec in _specs(result.compilation)
+        if getattr(spec, "evaluation_subturn_count_lift", None) is None
+    }
+    lifted = {
+        spec.envelope_spec_id.value
+        for spec in _specs(result.compilation)
+        if getattr(spec, "evaluation_subturn_count_lift", None) is not None
+    }
+    assert unlifted and lifted
+    assert not (named & unlifted)
+    assert named == lifted

@@ -848,9 +848,11 @@ def certify_adaptive_huber_density_direction_fan(
     orientation: TurnOrientation,
     max_subturn_q: int,
     binding_reasons: tuple[DirectionBindingReasonV1 | None, ...],
+    window_law: str | None = None,
 ) -> AdaptiveMinimalRationalFanAuthorityV2:
     """Сертифицировать одну V2-власть, когда старая B(w) пуста."""
 
+    from .adaptive_density_band import WINDOW_LAW_VORONOI
     from .adaptive_density_fan import certify_adaptive_density_fan
 
     return certify_adaptive_density_fan(
@@ -859,6 +861,7 @@ def certify_adaptive_huber_density_direction_fan(
         orientation,
         max_subturn_q,
         binding_reasons=binding_reasons,
+        window_law=WINDOW_LAW_VORONOI if window_law is None else window_law,
     )
 
 

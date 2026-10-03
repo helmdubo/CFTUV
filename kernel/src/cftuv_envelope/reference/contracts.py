@@ -117,6 +117,9 @@ class ReferenceOutcome(str, Enum):
     # прежним адаптивным путём, потому что закон рациональных лучей не
     # применён (причина названа `CanonicalFanRaysRefusalV1`).
     CANONICAL_FAN_RAYS_LAW_NOT_APPLIED = "CANONICAL_FAN_RAYS_LAW_NOT_APPLIED"
+    # Диагностика, не отказ: узкая полоса поворота не построила власть веера
+    # (причина названа в сообщении), и лучи привязаны в прежнем окне Вороного.
+    ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED = "ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED"
     JUNCTION_ROUTE_PAIRING_REQUIRED = "JUNCTION_ROUTE_PAIRING_REQUIRED"
     BARRIER_SPLIT_REQUIRED = "BARRIER_SPLIT_REQUIRED"
     BARRIER_BYPASS_UNSUPPORTED = "BARRIER_BYPASS_UNSUPPORTED"
@@ -298,6 +301,12 @@ class CanonicalFanRaysRefusalV1(str, Enum):
     # вычислительной геометрии: шум привязки больше запаса последнего сектора.
     CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE = (
         "CANONICAL_ROTATION_FAN_VIOLATES_SUBTURN_GUARANTEE"
+    )
+    # Угол канонический, но шум привязки к решётке вышел за объявленные границы
+    # закона шума (`EvaluationBindingNoiseRefusalV1` называет, за какую именно):
+    # закон лучей опирается на тот же факт и молчит вместе с ним.
+    BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS = (
+        "BINDING_NOISE_OUTSIDE_THE_DECLARED_BOUNDS"
     )
 
 

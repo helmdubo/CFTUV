@@ -137,19 +137,19 @@ from .contracts import (
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
+from .density_fan_binding import band_refusal_diagnostics, bind_density_fan
 from .direction_binding import (
     BINDING_SUBTURN_LE_DELTA_MAX,
     DirectionBindingCertificateUnproven,
     _certify_k1_recipe_direction_bindings,
     _verify_k1_recipe_direction_bindings,
     certify_direction_bindings,
-    certify_adaptive_huber_density_direction_fan,
-    certify_huber_density_bindings_with_adaptive_fallback,
     has_rational_density_support_direction,
     has_rational_support_direction,
     verify_direction_bindings,
 )
 from .metric import _DensityExactMemo
+from .adaptive_density_band import WINDOW_LAW_NARROW_BAND
 from .adaptive_density_fan import (
     AdaptiveDensityFanInvalid,
     DensityRationalAuthorityExhausted,
@@ -171,6 +171,13 @@ from .validation import (
     validate_reference_geometry_certificates,
     validate_reference_geometry_payload,
 )
+
+
+#: Закон окна луча, по которому продуктовый путь привязывает лучи равноугольного
+#: идеала (RIGHT-ANGLE-STABLE, `adaptive_density_fan.py`): узкая полоса поворота
+#: вместо окна Вороного. Прежнее окно — запасной закон отказа и закон тестов,
+#: замораживающих старую машинерию (они подменяют эту константу).
+FAN_WINDOW_LAW = WINDOW_LAW_NARROW_BAND
 
 
 def _stable_value(kind: str, *parts: object) -> str:
@@ -764,6 +771,7 @@ def _attach_direction_bindings(
         density_exact_memo=density_exact_memo,
     )
     changed_specs = set(compilation.envelope_specs)
+    band_refusals: list = []
     try:
         for spec in sorted(
             (
@@ -801,12 +809,8 @@ def _attach_direction_bindings(
                     selection,
                     density_contract[0],
                 )
-                rays = (
-                    None
-                    if lift is None
-                    else canonical_fan_rays_decision(context, spec, selection)
-                )
-                if rays is not None and rays.authority is not None:
+                rays = canonical_fan_rays_decision(context, spec, selection)
+                if lift is not None and rays.authority is not None:
                     # ЗАКОН `CANONICAL_FAN_RAYS_ON_CANONICAL_ANGLE_V1`: лучи
                     # лифтованного канонического угла вычислены по таблице
                     # поворотов, атласу искать нечего (`canonical_fan_rays.py`).
@@ -859,6 +863,16 @@ def _attach_direction_bindings(
             )
             if not any(needs_binding) and lift is None:
                 continue
+            if is_density and lift is None and rays.authority is not None:
+                # Тот же закон на НЕподнятом каноническом угле (d0, d1, d3):
+                # привязывать пришлось бы лучи равноугольного идеала, и запись
+                # таблицы ставит их ровно, а не прямой малой высоты в широком
+                # окне Вороного (RIGHT-ANGLE-STABLE, `canonical_fan_rays.py`).
+                changed_specs.remove(original_spec)
+                changed_specs.add(
+                    _adaptive_density_spec(spec, rays.authority, None)
+                )
+                continue
             binding_reasons = (
                 tuple(
                     (
@@ -881,30 +895,17 @@ def _attach_direction_bindings(
             )
             authority = None
             if is_density:
-                if lift is not None:
-                    certificates = (None,) * (
-                        spec.resolved_hidden_edge_count
-                    )
-                    authority = (
-                        certify_adaptive_huber_density_direction_fan(
-                            context.metric,
-                            ideal,
-                            sector.turn_orientation,
-                            density_contract[0],
-                            binding_reasons,
-                        )
-                    )
-                else:
-                    (
-                        certificates,
-                        authority,
-                    ) = certify_huber_density_bindings_with_adaptive_fallback(
-                        context.metric,
-                        ideal,
-                        sector.turn_orientation,
-                        density_contract[0],
-                        binding_reasons,
-                    )
+                certificates, authority = bind_density_fan(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                    density_contract[0],
+                    binding_reasons,
+                    lifted=lift is not None,
+                    law=FAN_WINDOW_LAW,
+                    spec_id=spec.envelope_spec_id.value,
+                    refusals=band_refusals,
+                )
             elif spec.resolved_hidden_edge_count == 1:
                 certificates = _certify_k1_recipe_direction_bindings(
                     context.metric,
@@ -1042,6 +1043,7 @@ def _attach_direction_bindings(
                 context,
                 changed_specs,
             ),
+            *band_refusal_diagnostics(band_refusals),
         ),
     )
     updated = _synchronize_effective_hidden_support_records(
