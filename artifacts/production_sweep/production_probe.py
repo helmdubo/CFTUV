@@ -253,6 +253,8 @@ def _run_stats() -> dict:
             "replaced": receipt.replaced,
             "seam_edges": receipt.seam_edges,
             "seam_edges_requested": receipt.seam_edges_requested,
+            "weld_counters": dict(receipt.weld_counters),
+            "offset_counters": dict(receipt.offset_counters),
             "skipped": [list(item) for item in receipt.skipped],
             "warnings": [list(item) for item in receipt.warnings],
             "domains": list(receipt.domains),

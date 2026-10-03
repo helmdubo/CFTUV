@@ -23,9 +23,9 @@
    шагу 3в. Самонакрытие у шарнира
    В БЮДЖЕТЕ и без переворотов (спираль, кольцо без разреза: поверхность поворачивает
    больше оборота) ARAP не лечит: он только снижает искажение и из развёртки с нулевым
-   искажением не выходит, — такой отказ остаётся прежним и по тексту. Отказ ARAP несёт
-   числа обоих предложений; принявший ARAP сертификат называет закон (`proposal_law`) и
-   отказ шарнира (`previous_refusals[-1]`).
+   искажением не выходит, — такой отказ идёт к третьему предложению (3г), а без него остаётся
+   прежним и по тексту. Отказ ARAP несёт числа обоих предложений; принявший ARAP сертификат
+   называет закон (`proposal_law`) и отказ шарнира (`previous_refusals[-1]`).
 3в. ЛУЧШЕЕ ПРЕДЛОЖЕНИЕ (`DevelopableProposalSelectionLawV1`). Карта шарнира, ПРИНЯТАЯ в бюджете
    запроса, раньше уходила в сертификат, даже если ARAP растянул бы её меньше. Теперь: если
    сертифицированное растяжение принятой карты шарнира выше `DEVELOPABLE_ISOMETRIC_ENOUGH`
@@ -34,6 +34,13 @@
    числа и победитель пишутся в сертификат; ARAP, которому не дали положений либо чью карту
    отказали, оставляет карту шарнира с именем причины (`HINGE_KEPT_ARAP_*`). Карта шарнира не
    выше порога остаётся побитово прежней: ARAP не пробуется.
+3г. ТРЕТЬЕ ПРЕДЛОЖЕНИЕ (`_cone_relief`). Самонакрытие в бюджете, у которого есть ГРАНИЧНАЯ
+   ВЕРШИНА с разомкнутым веером, не помещающимся в оборот (избыток в доли градуса: ступенька
+   на стене), лечится не положением, а целью: ARAP к целям, где угол при такой вершине сжат
+   до зазора (`CONE_RELIEF_NLERP_V1`), судит тот же суд. Это второе предложение ПОСЛЕ отказа
+   шарнира (соперником принятого шарнира оно не бывает): закон выбора — тот же
+   `ARAP_AFTER_HINGE_REFUSED_V1`, а победителя называет `proposal_law`. Спираль ленты
+   (вершины с избытком нет) и всё, что план не нашёл, остаётся прежним отказом по тексту.
 4. СТУПЕНИ РЕШЁТКИ КАРТЫ: `S' = k · S` для `k` из `UNFOLD_CHART_SCALE_FACTORS`
    (`S` — масштаб решётки источника). Первая ступень, на которой привязанная карта
    в бюджете растяжения, без перевёрнутых треугольников и с простой границей, и
@@ -62,6 +69,7 @@ from fractions import Fraction
 from hashlib import sha256
 
 from ._arap import ArapProposalUnavailable, arap_proposal
+from ._cone_relief import cone_relief_plan, relief_note, relieved_squares
 from ._embedding import _NONE, _OVERLAP, _segment_relation2
 from ._fan_closure import classify_interior_vertices, worst_defect_vertex
 from ._straight_chain import (
@@ -368,15 +376,50 @@ class _Unfolding:
     def adopt_arap(self, hinge_refusal) -> None:
         """Второе предложение: ARAP от положений шарнира; тот же суд, отказ несёт оба предложения.
 
-        Отказ шарнира, которого ARAP не лечит (`_arap_can_help`), остаётся как есть. Нехватка
-        самого ARAP (потолок работы, матрица не положительна) называется в том же отказе:
-        тихого пропуска второго предложения нет.
+        Отказ шарнира, которого ARAP не лечит (`_arap_can_help`), идёт к третьему предложению
+        (`adopt_cone_relief`) либо остаётся как есть. Нехватка самого ARAP
+        (потолок работы, матрица не положительна) называется в том же отказе: тихого пропуска
+        второго предложения нет.
         """
 
         if not self._arap_can_help(hinge_refusal):
+            self.adopt_cone_relief(hinge_refusal)
+            return
+        self._take_second_proposal(
+            hinge_refusal,
+            lambda: arap_proposal(self.topology, self.proposal, self.snapped),
+            DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+            "ARAP",
+        )
+
+    def adopt_cone_relief(self, hinge_refusal) -> None:
+        """Третье предложение: самонакрытие изометрии в бюджете при граничной вершине с избытком угла.
+
+        Без такой вершины в плане (`cone_relief_plan`) отказ шарнира остаётся как есть: спираль ленты
+        поверхностью накрывает себя без единой вершины-конуса, и целью её не вылечить.
+        """
+
+        plan = (
+            cone_relief_plan(self.topology, self.snapped)
+            if hinge_refusal.outcome is NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP
+            else ()
+        )
+        if not plan:
             raise hinge_refusal
+        targets = relieved_squares(self.topology, self.snapped, plan)
+        self._take_second_proposal(
+            hinge_refusal,
+            lambda: arap_proposal(self.topology, self.proposal, self.snapped, rest=targets),
+            DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1,
+            "cone-relief ARAP",
+            "; " + relief_note(plan),
+        )
+
+    def _take_second_proposal(self, hinge_refusal, build, law, name, extra: str = "") -> None:
+        """Положения второго предложения вместо шарнирных; тот же суд, отказ несёт оба предложения."""
+
         try:
-            arap = arap_proposal(self.topology, self.proposal, self.snapped)
+            arap = build()
         except ArapProposalUnavailable as unavailable:
             raise refusal(hinge_refusal.outcome, f"{hinge_refusal}; {unavailable}") from hinge_refusal
         # У отказа шарнира по самонакрытию в тексте нет чисел растяжения, а «лучше ли ARAP
@@ -386,23 +429,28 @@ class _Unfolding:
             numbers = "; the hinge proposal's " + stretch_refusal_text(
                 self.raw.certificate, worst_vertex=_vertex_name(worst_defect_vertex(self.classes))
             )
-        self._swap_in_arap(arap)
+        self._swap_in_arap(arap, law, name)
         self.selection_law = DevelopableProposalSelectionLawV1.ARAP_AFTER_HINGE_REFUSED_V1
         self.previous_refusals = (*self.previous_refusals, hinge_refusal.outcome.value)
         self.proposal_note = (
             f" [{self.proposal_law.value} after the hinge proposal was refused: "
-            f"{hinge_refusal.outcome.value}: {hinge_refusal}{numbers}]"
+            f"{hinge_refusal.outcome.value}: {hinge_refusal}{numbers}{extra}]"
         )
         refused = self.unsound_proposal_refusal()
         if refused is not None:
             raise refusal(refused.outcome, f"{refused}{self.proposal_note}") from hinge_refusal
 
-    def _swap_in_arap(self, arap) -> None:
-        """Положения ARAP вместо положений шарнира: предложение, закон, точные дроби и измерение."""
+    def _swap_in_arap(
+        self,
+        arap,
+        law=DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+        name: str = "ARAP",
+    ) -> None:
+        """Положения ARAP (с целями закона `law`) вместо положений шарнира: предложение, закон, дроби и измерение."""
 
         self.proposal = replace(self.proposal, coordinates=arap.coordinates)
-        self.proposal_law = DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
-        self.proposal_name = "ARAP"
+        self.proposal_law = law
+        self.proposal_name = name
         self.exact = exact_metres(arap.coordinates)
         self.raw = measure_stretch(self.topology.triangles, self.snapped, self.exact, self.budget)
 
@@ -429,7 +477,7 @@ class _Unfolding:
         return rival
 
     def certificate(self, trial, chart_scale, facts, displacement):
-        arap = self.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+        arap = self.proposal_law is not DevelopableProposalLawV1.BINARY64_HINGE_V1
         return _certificate(
             source_revision=self.source_revision,
             patch_domain_id=self.patch_domain_id,

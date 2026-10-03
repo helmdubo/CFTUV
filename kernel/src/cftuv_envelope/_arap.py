@@ -89,9 +89,21 @@ def _local_triangle(corners, indices) -> _LocalTriangle:
     (обход против часовой, как у предложения шарнира).
     """
 
-    squared_01 = squared_distance(corners[0], corners[1])
-    squared_02 = squared_distance(corners[0], corners[2])
-    squared_12 = squared_distance(corners[1], corners[2])
+    return _local_from_squares(
+        squared_distance(corners[0], corners[1]),
+        squared_distance(corners[0], corners[2]),
+        squared_distance(corners[1], corners[2]),
+        indices,
+    )
+
+
+def _local_from_squares(squared_01, squared_02, squared_12, indices) -> _LocalTriangle:
+    """Образ треугольника по трём квадратам сторон: ему можно дать и не изометричные длины (запас угла).
+
+    Образ с квадратами изометрии источника и есть `_local_triangle`; образ с чужими квадратами —
+    ЦЕЛЬ ARAP со смещённым углом (`_cone_relief`): энергия тянет треугольник к ней, а не к источнику.
+    """
+
     along = (squared_02 - squared_12 + squared_01) / 2
     height_squared = squared_02 - along * along / squared_01
     length = math.sqrt(float(squared_01))
@@ -283,9 +295,13 @@ def _work(first, triangle_count: int) -> int:
 
 
 def arap_proposal(
-    topology: UnfoldTopologyV1, proposal: UnfoldProposalV1, positions
+    topology: UnfoldTopologyV1, proposal: UnfoldProposalV1, positions, rest=None
 ) -> ArapProposalV1:
     """Положения карты по закону `ARAP_LOCAL_GLOBAL_80_BINARY64_V1`, старт — предложение шарнира.
+
+    `rest` — необязательные ЦЕЛИ: `{треугольник: (квадрат 01, квадрат 02, квадрат 12)}` для треугольников,
+    которым нужна не изометрия источника, а сторона со смещённым углом (запас угла у конуса,
+    `_cone_relief`); без него — прежний закон побитово.
 
     Бросает `ArapProposalUnavailable` (названная причина), если работа по структуре выше
     потолка либо матрица не положительна.
@@ -293,8 +309,11 @@ def arap_proposal(
 
     order = vertex_order(topology, proposal)
     index = {vertex: number for number, vertex in enumerate(order)}
+    rest = rest or {}
     triangles = [
-        _local_triangle(
+        _local_from_squares(*rest[item.triangle_id], tuple(index[vertex] for vertex in item.vertex_ids))
+        if item.triangle_id in rest
+        else _local_triangle(
             tuple(positions[vertex] for vertex in item.vertex_ids),
             tuple(index[vertex] for vertex in item.vertex_ids),
         )

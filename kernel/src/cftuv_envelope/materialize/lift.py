@@ -90,6 +90,11 @@ class PlaneLiftV1:
 
         return ""
 
+    def opposition_note(self) -> str:
+        """Допущенные противостояния нормалей: у плоскости одна нормаль на домен, противостоять нечему."""
+
+        return ""
+
 
 def _triple(value) -> tuple[Fraction, Fraction, Fraction]:
     return (

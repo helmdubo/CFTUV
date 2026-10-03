@@ -17,7 +17,8 @@
    с записью на равенство. Предложение развёртки детерминировано (binary64 с
    фиксированным порядком операций), поэтому равенство точное, а не «в допуске».
 
-   У сертификата второго предложения (`ARAP_LOCAL_GLOBAL_80_BINARY64_V1`) пересчёт
+   У сертификата второго предложения (`ARAP_LOCAL_GLOBAL_80_BINARY64_V1`, а при самонакрытии
+   изометрии с граничной вершиной-избытком — `ARAP_CONE_RELIEF_80_BINARY64_V1`) пересчёт
    тот же и ЗВУЧЕН по той же причине: ARAP — только `+ - * /` и `sqrt` в
    фиксированном порядке, число итераций названо законом, поэтому предложение
    воспроизводится побитово, а карту после него судит тот же ТОЧНЫЙ суд, что перечитывает
@@ -68,13 +69,17 @@ from .outcomes import NamedOutcome
 from .validation_issues import ValidationCode, ValidationIssue, add_issue
 
 
-#: Законы предложения, которые ядро объявляет: шарнир и (после его именованного отказа) ARAP.
-DECLARED_PROPOSAL_LAWS = frozenset(
+#: Законы семейства ARAP (второе предложение): простой ARAP — после именованного отказа шарнира либо соперником принятого
+#: шарнира, ARAP с запасом угла — только после отказа шарнира. Какой из случаев, говорит закон выбора, а не закон предложения.
+SECOND_PROPOSAL_LAWS = frozenset(
     {
-        DevelopableProposalLawV1.BINARY64_HINGE_V1,
         DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1,
+        DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1,
     }
 )
+
+#: Законы предложения, которые ядро объявляет: шарнир и (после его именованного отказа) ARAP либо ARAP с запасом угла.
+DECLARED_PROPOSAL_LAWS = SECOND_PROPOSAL_LAWS | {DevelopableProposalLawV1.BINARY64_HINGE_V1}
 
 
 def _fraction(value) -> Fraction:
@@ -91,7 +96,7 @@ def _arap_after_refusal(certificate) -> bool:
 
 
 def ladder_trace(certificate) -> tuple[str, ...]:
-    """След ступеней НИЖЕ развёртки: у ARAP после отказа шарнира последняя запись — отказ шарнира."""
+    """След ступеней НИЖЕ развёртки: у второго предложения после отказа шарнира последняя запись — отказ шарнира."""
 
     trace = certificate.previous_refusals
     if _arap_after_refusal(certificate):
@@ -204,18 +209,24 @@ def _check_ladder_trace(issues, path, certificate) -> None:
             "an unfolded chart is tried only after a named near-planar refusal: "
             "the ladder trace must name a ladder trigger",
         )
-    arap = _arap_after_refusal(certificate)
-    if arap and (
+    after = _arap_after_refusal(certificate)
+    relief = certificate.proposal_law is (
+        DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1
+    )
+    last = {NamedOutcome.DEVELOPABLE_CHART_SELF_OVERLAP.value} if relief else {
+        item.value for item in ARAP_TRIGGER_OUTCOMES
+    }
+    if after and (
         len(certificate.previous_refusals) != len(trace) + 1
-        or certificate.previous_refusals[-1]
-        not in {item.value for item in ARAP_TRIGGER_OUTCOMES}
+        or certificate.previous_refusals[-1] not in last
     ):
         add_issue(
             issues,
             ValidationCode.SURFACE_METRIC,
             path + ("previous_refusals",),
             "the second (ARAP) proposal is tried only after a named refusal of the "
-            "hinge proposal: the trace must end with that refusal",
+            "hinge proposal (the cone relief only after its self-overlap): the trace "
+            "must end with that refusal",
         )
 
 
@@ -350,15 +361,15 @@ def _check_judgement(issues, path, metric, certificate, budget=None) -> None:
 def _check_proposal_selection(issues, path, certificate) -> None:
     """Закон выбора предложения согласован с записанными числами и победителем.
 
-    Читается только сама запись: победитель (`proposal_law`), оба числа и порог изометрии
-    обязаны сходиться. Расхождение с пересчётом ловит `validate_developable_recomputation`.
+    Читается только сама запись: победитель (`proposal_law`, семейство ARAP включает запас угла у
+    конуса), оба числа и порог изометрии обязаны сходиться. Расхождение с пересчётом ловит `validate_developable_recomputation`.
     """
 
     law = DevelopableProposalSelectionLawV1
     selection = certificate.proposal_selection_law
     hinge = certificate.hinge_chart_worst_band_squared_upper
     rival = certificate.arap_chart_worst_band_squared_upper
-    arap_won = certificate.proposal_law is DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
+    arap_won = certificate.proposal_law in SECOND_PROPOSAL_LAWS
     shape = {
         law.HINGE_ISOMETRIC_ENOUGH_V1: (False, True, False),
         law.ARAP_AFTER_HINGE_REFUSED_V1: (True, False, True),
@@ -368,6 +379,9 @@ def _check_proposal_selection(issues, path, certificate) -> None:
         law.HINGE_KEPT_ARAP_REFUSED_V1: (False, True, False),
     }[selection]
     sound = (arap_won, hinge is not None, rival is not None) == shape
+    # Третье предложение (запас угла) бывает только ВТОРЫМ после отказа шарнира, соперником принятого оно не бывает.
+    if certificate.proposal_law is DevelopableProposalLawV1.ARAP_CONE_RELIEF_80_BINARY64_V1:
+        sound = sound and selection is law.ARAP_AFTER_HINGE_REFUSED_V1
     if sound:
         chosen = _fraction(rival if arap_won else hinge)
         sound = chosen == _fraction(certificate.stretch.worst_band_squared_upper)
