@@ -555,9 +555,13 @@ def _is_clipped(admission) -> bool:
 
 
 def _lifted(plane, points, cut):
-    """`(позиции, записи об источнике)` вершин: узлы подъёмом, новые вершины резки — как они подняты."""
+    """`(позиции, записи об источнике)` вершин: узлы подъёмом, новые вершины резки — как они подняты.
 
-    positions, names = lift_vertices(points, plane)
+    Вершины `src:`, привязанные к углу карты перед резкой (`cut.snapped`, `clip_snap`), поднимаются в угле: в домене
+    у вершины ОДНА точка карты, и уши выпущенных кусков, положение вершин и сварка с соседом читают её же.
+    """
+
+    positions, names = lift_vertices(points if cut is None else {**points, **cut.snapped}, plane)
     if cut is not None:
         positions.update((key, lifted[0]) for key, lifted in cut.lifted.items())
         names.update((key, lifted[1]) for key, lifted in cut.lifted.items())
@@ -651,7 +655,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
     if cut is not None:
-        points = {**points, **cut.points}
+        points = {**points, **cut.snapped, **cut.points}
         # Счёт закона топологии идёт по ТЕССЕЛЯЦИИ (входу резки); режет и называет куски резка, поэтому
         # здесь ни один многоугольник не делится по записи об источнике.
         names = {key: (None, None) for key in names}

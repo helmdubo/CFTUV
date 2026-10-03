@@ -73,6 +73,7 @@ from .lift import ENCLOSURE_BITS
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
 from .tessellate import (
     contour_is_simple,
+    convex_polygon_ring,
     convex_quad_ring,
     counter_clockwise_ring,
     fan_out,
@@ -83,7 +84,7 @@ from .tessellate import (
     uv_is_affine_in_chart,
 )
 from .uv_law import uv_direct_strip_v1
-from ..wavefront.faces import doubled_shoelace
+from ..wavefront.faces import doubled_shoelace, orientation
 
 #: 28 значащих цифр — точность десятичного контекста по умолчанию, на которой
 #: кодек читает `Decimal`: больше цифр кодек молча обрезал бы на круговом проходе.
@@ -513,6 +514,10 @@ FAN_FACES_NOT_STAR_FROM_APEX = "MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX"
 #: одной гранью; второе число — наибольший излом UV на диагонали показа, в тысячных alpha.
 QUADS_UV_BILINEAR = "MATERIALIZE_QUADS_UV_BILINEAR"
 QUADS_UV_BILINEAR_MAX_MILLI_ALPHA = "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA"
+#: То же для контура от пяти вершин (`QUAD_UV_BILINEAR_V1`, поправка 2026-10-03): прямые и почти прямые вершины
+#: фронта и Т-стыки соседей не делают грань потока неаффинной иначе, чем четырёхгранье из ее углов.
+POLYGONS_UV_BILINEAR = "MATERIALIZE_POLYGONS_UV_BILINEAR"
+POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA = "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA"
 
 
 def _rung_pieces(frame_face, key_of):
@@ -633,8 +638,8 @@ def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
     return polygons
 
 
-def _bilinear_quad(points, keys, budget, uv_of, unit, tally):
-    """Кольцо строго выпуклого четырёхгранья с билинейной UV (закон `QUAD_UV_BILINEAR_V1`) либо `None`.
+def _bilinear_ring(points, keys, budget, uv_of, unit, tally):
+    """Кольцо выпуклой грани потока с билинейной UV (закон `QUAD_UV_BILINEAR_V1`) либо `None`.
 
     Четырёхгранье ленты с неаффинной UV рождается ровно одним законом — станцией
     вершины цепи на перекладине угла JOIN (`RUNG_STATION_FROM_CHAIN_VERTEX_V1`):
@@ -643,15 +648,32 @@ def _bilinear_quad(points, keys, budget, uv_of, unit, tally):
     числа (`MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA`, тысячные alpha).
     Резать его по диагонали (`UV_NOT_AFFINE`) значило бы вернуть на ленту
     ребро, которого в топологии источника нет.
+
+    То же для контура от пяти вершин (`MATERIALIZE_POLYGONS_UV_BILINEAR`): его лишние вершины — вершины фронта
+    на хорде полосы (повороты в доли градуса) и Т-стыки соседей, а углов, строго поворачивающих влево, не меньше
+    четырёх. Выпуклость точная (`convex_polygon_ring`: ни одного правого поворота; простота контура доказана до
+    вызова, `_plane_ring`), вершины на прямой остаются в кольце грани. Контур с тремя углами (треугольник с вершинами
+    на сторонах) и невыпуклый ушами режутся по-прежнему. Число — запись, а не суд: излом UV грани считается тем же
+    `uv_affine_defect_milli`, в тысячных alpha.
     """
 
-    ring = convex_quad_ring(points, budget)
+    ring = convex_quad_ring(points, budget) if len(points) == 4 else convex_polygon_ring(points, budget)
     if ring is None:
         return None
-    defect = uv_affine_defect_milli(points, [uv_of(key) for key in keys], unit, budget)
-    tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA] = max(
-        tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA], int(defect)
+    size = len(ring)
+    corners = sum(
+        1
+        for position in range(size)
+        if orientation(
+            points[ring[position - 1]], points[ring[position]], points[ring[(position + 1) % size]], budget
+        )
+        > 0
     )
+    if corners < 4:
+        return None
+    defect = uv_affine_defect_milli(points, [uv_of(key) for key in keys], unit, budget)
+    name = QUADS_UV_BILINEAR_MAX_MILLI_ALPHA if size == 4 else POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA
+    tally[name] = max(tally[name], int(defect))
     return ring
 
 
@@ -661,10 +683,10 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
     плоскости контур от четырёх вершин — одна грань любой длины, если он прост и его
     UV аффинен (`_plane_ring`); строго выпуклое четырёхгранье с билинейной UV — тоже
-    одна грань, под своим именем (`_bilinear_quad`), но ТОЛЬКО у полосы потока И с
+    одна грань, под своим именем (`_bilinear_ring`), но ТОЛЬКО у полосы потока И с
     вершиной перекладины JOIN (`in_flow`: `FrameFaceV1.flow_key` и `is_rung` хотя бы у одной
     вершины контура): только такую UV рождает закон перекладины, а любое другое неаффинное
-    четырёхгранье режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
+    многоугольник режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
     источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
     решает `settle_topology`), контур длиннее — треугольники и
     `CURVED_STRIP_FACES_TRIANGULATED`.
@@ -677,14 +699,10 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
     if len(points) > 3:
         if exact_plane:
             ring, named = _plane_ring(points, keys, budget, uv_of)
-            if (
-                in_flow
-                and ring is None
-                and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE
-                and len(points) == 4
-            ):
-                ring = _bilinear_quad(points, keys, budget, uv_of, unit, tally)
-                named = named if ring is None else QUADS_UV_BILINEAR
+            if in_flow and ring is None and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE:
+                ring = _bilinear_ring(points, keys, budget, uv_of, unit, tally)
+                if ring is not None:
+                    named = QUADS_UV_BILINEAR if len(points) == 4 else POLYGONS_UV_BILINEAR
         else:
             ring = convex_quad_ring(points, budget)
             if ring is None:
@@ -837,6 +855,8 @@ def _settle_polygon_law(polygons, sources, tally):
         (FAN_FACES_NOT_STAR_FROM_APEX, tally[FAN_FACES_NOT_STAR_FROM_APEX]),
         (QUADS_UV_BILINEAR, tally[QUADS_UV_BILINEAR]),
         (QUADS_UV_BILINEAR_MAX_MILLI_ALPHA, tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA]),
+        (POLYGONS_UV_BILINEAR, tally[POLYGONS_UV_BILINEAR]),
+        (POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA, tally[POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA]),
     )
 
 

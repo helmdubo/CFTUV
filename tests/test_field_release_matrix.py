@@ -349,6 +349,24 @@ def test_walls_012_is_exact():
 # ---------------------------------------------------------------------------
 
 
+#: Якорные локусы, которые закон JOIN снял ПО ЗАМЫСЛУ (`DECISIONS.md` 2026-10-03, порог 45°): излом 31–36° контура
+#: `walls.001` стал продолжением полосы (митра, `k = 0`), и веерные локусы этого угла не рождаются. Список ЗАМКНУТ и
+#: проверяется в обе стороны: любой другой пропавший якорь — по-прежнему `ANCHOR_LOCUS_DISAPPEARED`, а вернувшийся
+#: из этого списка — `RETIRED_ANCHOR_REAPPEARED` (список устарел). Ключ — (слепок, патч), значение — `point` якорей.
+RETIRED_BY_JOIN = {
+    (WALLS_001, 0): (
+        {
+            "x": [[1, [689088961381241, 18997346225]], [2337272717435410121, [287181, 18997346225]]],
+            "y": [[1, [21754, 1]]],
+        },
+        {
+            "x": [[1, [396921733550701, 20739843475]], [186598057874827424549, [16893, 20739843475]]],
+            "y": [[1, [21754, 1]]],
+        },
+    ),
+}
+
+
 @pytest.mark.parametrize(
     "snapshot,patch_id,pin_frame",
     [
@@ -382,16 +400,29 @@ def test_anchor_loci_survive_with_their_participants(snapshot, patch_id, pin_fra
         locus_key(locus): locus
         for locus in domain(snapshot, patch_id, None, pin_frame)["loci"]
     }
+    retired = RETIRED_BY_JOIN.get((snapshot, patch_id), ())
+    assert all(point in [anchor["point"] for anchor in table["anchors"]] for point in retired), (
+        f"RETIRED_ANCHOR_UNKNOWN: в {snapshot} п{patch_id} нет якоря из RETIRED_BY_JOIN"
+    )
     missing = []
     drifted = []
+    reappeared = []
     for anchor in table["anchors"]:
         key = json.dumps([anchor["time"], anchor["point"]], sort_keys=True)
         found = present.get(key)
+        if anchor["point"] in retired:
+            if found is not None:
+                reappeared.append(anchor["point"])
+            continue
         if found is None:
             missing.append(anchor["point"])
         elif found["participants"] != anchor["participants"]:
             drifted.append((anchor["point"], anchor["participants"],
                             found["participants"]))
+    assert not reappeared, (
+        f"RETIRED_ANCHOR_REAPPEARED: {len(reappeared)} якорей {snapshot} п{patch_id} снова на месте: "
+        "список RETIRED_BY_JOIN устарел."
+    )
     assert not missing, (
         f"ANCHOR_LOCUS_DISAPPEARED: {len(missing)} из {len(table['anchors'])} "
         f"якорных локусов {snapshot} п{patch_id} исчезли."
@@ -474,7 +505,12 @@ def test_walls_012_patch_0_is_unfolded_and_its_declared_straight_chains_are_plac
 
 
 def test_walls_001_door_domain_builds():
-    """Домен-дверь: EXACT, 12 узлов, 9 граней — как в полевом профиле.
+    """Домен-дверь: EXACT, 11 узлов, 8 граней (при пороге JOIN 30° было 12 и 9 — как в полевом профиле).
+
+    ПОРОГ JOIN 45° (`DECISIONS.md` 2026-10-03). Излом контура двери 31–36° при пороге 30° шёл прежним законом счёта, а
+    при 45° стал JOIN (продолжение полосы, `k = 0`): скелет двери даёт на один узел и одну грань меньше (ИЗМЕРЕНО на
+    обоих порогах: 12 и 9 при 30°, 11 и 8 при 45°). Полевые 12 и 9 принадлежат порогу 30°; новые числа — следствие решения
+    владельца, а не дрейф скелета.
 
     ПРО СЧЁТЧИК УЗЛОВ ЗДЕСЬ. Запрет морозить исторический счёт узлов
     относится к спорной паре 45/49 у стены 2.001, где неизвестно, какое число
@@ -491,9 +527,9 @@ def test_walls_001_door_domain_builds():
     assert record["outcome"] == "EXACT"
     assert record["coverage_outcome"] == "EXACT"
     assert record["face_outcome"] == "EXACT"
-    assert record["counters"]["CONVEYOR_FACES"] == 9
-    assert record["faces"] == 9
-    assert record["counters"]["CONVEYOR_SKELETON_NODES"] == 12
+    assert record["counters"]["CONVEYOR_FACES"] == 8
+    assert record["faces"] == 8
+    assert record["counters"]["CONVEYOR_SKELETON_NODES"] == 11
     assert record["counters"]["CONVEYOR_LATTICE_SCALE"] == 16384
 
 

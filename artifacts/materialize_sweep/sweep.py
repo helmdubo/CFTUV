@@ -147,6 +147,8 @@ TOPOLOGY_COUNTER_KEYS = (
     "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
     "MATERIALIZE_QUADS_UV_BILINEAR",
     "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+    "MATERIALIZE_POLYGONS_UV_BILINEAR",
+    "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA",
     # Кольца потока (замкнутая цепь из одних мягких изломов разомкнута в одном месте), углы JOIN
     # вне домена, названные пропуски стыков и свободные рёбра резки внутри регионов потока.
     "STATION_FLOW_CYCLES_OPENED",

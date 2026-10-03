@@ -60,6 +60,15 @@
 (`SOURCE_VERTEX_LIFT_REFUSED_BY_FACE_ORIENTATION`, названо и посчитано), сварка с соседом тогда даёт
 `ADAPTER_WELD_POSITION_MISMATCH` — один и тот же именованный путь, что у канонических треугольников.
 
+ШУМ РЕШЁТКИ ПЕРЕД РЕЗКОЙ (`clip_snap`). Площадь кусков сходится точно, только если вершины многоугольника стоят на карте
+так же, как её углы и рёбра, а они округлены к решётке независимо. Два именованных допуска (правило 4 `AGENTS.md`):
+вершина `src:` не дальше `SOURCE_VERTEX_CORNER_SNAP_CELLS` ячеек от угла карты встаёт в угол ДО первой стадии, а знак вершины
+`node:` у прямой ВНУТРЕННЕГО ребра области нулевой, если она не дальше `NODE_EDGE_SNAP_CELLS` ячеек от неё (`_line`: игла
+между перекладиной и ребром источника не рождается). Первый двигает точку (`ClippedV1.snapped`), второй — знак; оба считаются
+(`MATERIALIZE_CLIP_SOURCE_VERTICES_SNAPPED_TO_CORNER`, `MATERIALIZE_CLIP_NODE_SIGNS_ZEROED_BY_EDGE_GAP` и их отказы и
+максимумы в нанометрах). Доказательство `_prove` читает тот же знак: вершина `node:` куска лежит в треугольнике с точностью
+до допуска по нормали к ребру.
+
 ЗАКОН ТОПОЛОГИИ. Резка берёт многоугольники `PLANAR_POLYGONS_V1` (как на точной плоскости: целый простой
 многоугольник с аффинной UV) при ЛЮБОМ запрошенном законе, и после резки закон решает форму кусков
 (`_split_for_law`): многоугольник целиком, строго выпуклое четырёхгранье либо уши. Вершины `clip:`, цепи
@@ -103,6 +112,15 @@ from .clip_cells import (
     build_cells,
     chord_of,
     nanometres,
+)
+from .clip_snap import (
+    NODE_EDGE_GAP_MAX,
+    NODE_EDGE_GAP_MAX_CELLS,
+    NODE_SIGNS_ZEROED,
+    CornerSnapV1,
+    milli_cells,
+    snap_source_vertices,
+    within_edge_gap,
 )
 from .coalesce import point_key
 from .frames import MaterializationRefusal
@@ -158,6 +176,9 @@ class ClippedV1:
     extra_lists: list
     #: `{ключ: точка}` новых вершин `clip:`.
     points: dict
+    #: `{ключ: точка в углу карты}` вершин `src:`, привязанных к углу ДО резки (`clip_snap`); домен кладёт их точки
+    #: во все последующие шаги, чтобы у вершины была одна точка карты.
+    snapped: dict
     #: `{ключ: (позиция, (имя треугольника, нормаль))}` новых вершин.
     lifted: dict
     counters: tuple
@@ -250,8 +271,16 @@ class ClipStageV1:
         self.corners = frozenset(corner for item in self.regions for corner in item.chart)
         self.by_point: dict = {} if shared is None else shared.by_point
         self.chords: dict = {} if shared is None else shared.chords
+        #: Вершины `src:` в нескольких ячейках от угла карты стоят в угле ДО резки (`clip_snap`); стадия-преемник
+        #: берёт итог предшественницы: узлы и знаки в кэше уже посчитаны по привязанным точкам.
+        self.snap: CornerSnapV1 = snap_source_vertices(plane, budget, points) if shared is None else shared.snap
+        #: Наибольшее расстояние (нанометры — оценка, и квадрат в ячейках) вершины `node:` от прямой внутреннего ребра,
+        #: чей знак обнулён допуском (`clip_snap`, закон 2), и квадраты длин рёбер областей (кэш).
+        self.node_gap = 0 if shared is None else shared.node_gap
+        self.node_gap_square = Fraction(0) if shared is None else shared.node_gap_square
+        self.edge_squares: dict = {}
         self.node_of_key: dict = {}
-        for key, point in points.items():
+        for key, point in self.snap.points.items():
             node = self._node(point)
             node.key = key
             self.node_of_key[key] = node
@@ -300,11 +329,28 @@ class ClipStageV1:
         if slot is None:
             value = self.plane.line_value(self.regions[ti], index, node.point)
             self.tally[PREDICATES] += 1
-            slot = node.cache[(self.keys[ti], index)] = (
-                value,
-                value.sign(budget=self.budget) * self.directions[ti],
-            )
+            sign = value.sign(budget=self.budget)
+            if sign and self.interior[ti][index] and node.key is not None and node.key.startswith("node:"):
+                sign = self._zeroed_by_gap(value, ti, index, sign)
+            slot = node.cache[(self.keys[ti], index)] = (value, sign * self.directions[ti])
         return slot
+
+    def _zeroed_by_gap(self, value, ti: int, index: int, sign: int) -> int:
+        """Знак вершины `node:` у ВНУТРЕННЕГО ребра области: нуль, если она в допуске от его прямой (`clip_snap`, закон 2)."""
+
+        square = self.edge_squares.get((ti, index))
+        if square is None:
+            chart = self.regions[ti].chart
+            first, second = chart[index], chart[(index + 1) % len(chart)]
+            square = self.edge_squares[(ti, index)] = (second[0] - first[0]) ** 2 + (second[1] - first[1]) ** 2
+        within, gap = within_edge_gap(value, square, self.budget)
+        if not within:
+            return sign
+        self.tally[NODE_SIGNS_ZEROED] += 1
+        stretch = max(self.plane.stretch_square(self.triangles[member]) for member in self.members[ti])
+        self.node_gap = max(self.node_gap, nanometres(gap * stretch))
+        self.node_gap_square = max(self.node_gap_square, gap)
+        return 0
 
     def _sign(self, node: _Node, ti: int, index: int) -> int:
         return self._line(node, ti, index)[1]
@@ -1011,16 +1057,26 @@ class ClipStageV1:
                 PREDICATES,
                 DIVISIONS,
             )
-        ) + (self._diagonal_counters() if self.faces_mode else ())
+        ) + self._snap_counters() + (self._diagonal_counters() if self.faces_mode else ())
         return ClippedV1(
             polygons=faces,
             cycles=refined,
             vertex_lists=lists,
             extra_lists=extras,
             points=dict(self.new_points),
+            snapped=dict(self.snap.moved),
             lifted=dict(self.lifted),
             counters=counters,
             note=self._note(),
+        )
+
+    def _snap_counters(self) -> tuple:
+        """Числа привязки вершин: углы (`src:`) и знаки у рёбер (`node:`), оба допуска названы (`clip_snap`)."""
+
+        return self.snap.counters + (
+            (NODE_SIGNS_ZEROED, self.tally[NODE_SIGNS_ZEROED]),
+            (NODE_EDGE_GAP_MAX, self.node_gap),
+            (NODE_EDGE_GAP_MAX_CELLS, milli_cells(self.node_gap_square)),
         )
 
     def _contour(self, cycle):

@@ -129,6 +129,8 @@ class TolerancePolicyIdV1(str, Enum):
     )
     CLIP_DIAGONAL_CHORD_DEPTH_V1 = "CLIP_DIAGONAL_CHORD_DEPTH_V1"
     CORNER_JOIN_SOFT_BEND_THRESHOLD_V1 = "CORNER_JOIN_SOFT_BEND_THRESHOLD_V1"
+    CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1 = "CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1"
+    CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1 = "CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -198,6 +200,8 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SOURCE_VERTEX_LIFT_AT_HOST_POSITION = "SOURCE_VERTEX_LIFT_AT_HOST_POSITION"
     SOURCE_FACE_CLIP_AT_DIAGONALS = "SOURCE_FACE_CLIP_AT_DIAGONALS"
     CORNER_TREATMENT_BEFORE_COUNT_LAW = "CORNER_TREATMENT_BEFORE_COUNT_LAW"
+    CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER = "CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER"
+    CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE = "CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -228,6 +232,12 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
         "KEEP_SOURCE_FACE_WHOLE_ACROSS_DIAGONAL_WITHIN_CHORD_DEPTH"
     )
     JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN = "JOIN_SOFT_BEND_OF_ONE_SOURCE_CHAIN"
+    SNAP_SOURCE_VERTEX_TO_TRIANGULATION_CORNER_WITHIN_GAP = (
+        "SNAP_SOURCE_VERTEX_TO_TRIANGULATION_CORNER_WITHIN_GAP"
+    )
+    ZERO_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE_WITHIN_GAP = (
+        "ZERO_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE_WITHIN_GAP"
+    )
 
 
 class TolerancePolicyPipelineStageV1(str, Enum):
@@ -1307,14 +1317,15 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.CORNER_JOIN_SOFT_BEND_THRESHOLD_V1,
         category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
-        value=_rational(Fraction(1, 6)),
+        value=_rational(Fraction(1, 4)),
         bound_law=None,
         units=TolerancePolicyUnitsV1.DIMENSIONLESS,
         coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
         scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
         scope=(
-            "Порог мягкого излома ОДНОЙ цепи источника, доля π рефлексного избытка: 1/6 = 30°, тот же "
-            "CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера (решение владельца 2026-10-03). Вогнутый угол "
+            "Порог мягкого излома ОДНОЙ цепи источника, доля π рефлексного избытка: 1/4 = 45° (решение "
+            "владельца 2026-10-03: сначала 1/6 = 30°, тот же CORNER_ANGLE_THRESHOLD_DEG главного UV-солвера, "
+            "затем 1/4 по его жалобе на веера на изломах 31–36° плоской стены). Вогнутый угол "
             "между двумя кусками одной цепи хоста (общая запись `chain-source` ЕГО патча), чей СЕРТИФИЦИРОВАННЫЙ "
             "интервал δ/π лежит строго ниже порога, получает `k = 0` (митра прямого скелета) под законом "
             "CORNER_JOIN_SOFT_BEND_V1, и материализатор ведёт полосу сквозь угол одним потоком (u "
@@ -1348,6 +1359,103 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"
             "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CLIP_SOURCE_VERTEX_CORNER_SNAP_CELLS_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(4),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.CHART_LATTICE_CELLS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "На сколько ячеек решётки карты вершина `src:` многоугольника домена вправе отстоять от угла "
+            "привязанной триангуляции подъёма, чтобы резка (ClipStageV1) поставила её В угол до первой стадии. "
+            "Образ вершины источника привязывается к решётке дважды независимо (мост домена и карта подъёма), "
+            "у вершины объявленной прямой цепи ещё и сдвиг вдоль хорды: замер `sagging_wall` — до 2.83 ячейки "
+            "(две по оси). Резка принимает многоугольник, только если площади кусков сходятся ТОЧНО, а такая "
+            "вершина площадь не сводит: 47 из 49 не-секторных треугольников домена — уши свеса, шовные уши и "
+            "уши «вершина не в углу». Четыре ячейки — запас над измеренным; дальше — другая геометрия, и "
+            "вершина остаётся с прежним путём. Привязка точная (квадрат расстояния на SqrtSumV1 под бюджетом); "
+            "отказы названы: угол занят другой вершиной либо двумя `src:` (слияние вершин), в допуск попали два "
+            "угла и больше. Привязанные точки идут во все последующие шаги домена (подъём, уши выпущенных "
+            "кусков, положение вершин `src:`), поэтому сварка с соседом по `location:src:` не расходится."
+        ),
+        authority=(
+            "materialize.clip_snap.SOURCE_VERTEX_CORNER_SNAP_CELLS; DECISIONS.md 2026-10-03 (SNAP-NOISE: "
+            "привязка шума решётки перед резкой)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.CLIP_SOURCE_VERTEX_AT_TRIANGULATION_CORNER,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.SNAP_SOURCE_VERTEX_TO_TRIANGULATION_CORNER_WITHIN_GAP
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_CLIP_SOURCE_VERTICES_SNAPPED_TO_CORNER",
+            "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_MAX_GAP_NANOMETRES",
+            "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_MAX_GAP_MILLICELLS",
+            "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_REFUSED_CORNER_TAKEN",
+            "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_REFUSED_CORNERS_AMBIGUOUS",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.materialize.clip_snap.SOURCE_VERTEX_CORNER_SNAP_CELLS",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_snap.py"
+            "::test_a_source_vertex_within_the_gap_of_a_corner_snaps_to_it"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_snap.py"
+            "::test_a_source_vertex_beyond_the_gap_keeps_its_point"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CLIP_NODE_SOURCE_EDGE_GAP_CELLS_V1,
+        category=TolerancePolicyCategoryV1.STRUCTURAL_QUANTIZATION,
+        value=_rational(1),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.CHART_LATTICE_CELLS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.CHART_LATTICE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "На сколько ячеек решётки карты вершина `node:` вправе отстоять от прямой ВНУТРЕННЕГО ребра источника "
+            "(общего у двух областей резки), чтобы её знак относительно этого ребра считался нулевым. Перекладина "
+            "полосы вдоль сетки меша лежит на ребре источника точно по построению, а на карте конец перекладины "
+            "отстоит от прямой на доли ячейки (замер `rounded_wall.001`: 0.011-0.29): резка отрезала от грани иглу "
+            "между перекладиной и ребром — площадь нулевая по смыслу, положительная точно (52 на `rounded_wall.001`, "
+            "12 на `sagging_wall`: длина в полосу, высота в микроны). Допуск стоит в ЗНАКЕ, вершина не двигается: "
+            "факты (s, r) и классы рёбер (источник, фронт, стена) остаются точными. Знак у вершины один для обоих "
+            "треугольников ребра, поэтому куски по-прежнему покрывают многоугольник точно, а доказательство «кусок в "
+            "замкнутом треугольнике» читает тот же знак: вершина куска лежит в его треугольнике с точностью до "
+            "допуска по нормали к ребру. Знаки вершин `src:` и `clip:`, а также неинтерьерных рёбер — точные."
+        ),
+        authority=(
+            "materialize.clip_snap.NODE_EDGE_SNAP_CELLS; DECISIONS.md 2026-10-03 (SNAP-NOISE: привязка шума "
+            "решётки перед резкой)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.ZERO_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE_WITHIN_GAP
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_CLIP_NODE_SIGNS_ZEROED_BY_EDGE_GAP",
+            "MATERIALIZE_CLIP_NODE_EDGE_GAP_MAX_NANOMETRES",
+            "MATERIALIZE_CLIP_NODE_EDGE_GAP_MAX_MILLICELLS",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.materialize.clip_snap.NODE_EDGE_SNAP_CELLS",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_snap.py"
+            "::test_a_node_within_the_gap_of_an_interior_edge_makes_no_needle"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_clip_snap.py"
+            "::test_a_node_beyond_the_gap_of_an_interior_edge_still_cuts_a_needle"
         ),
     ),
 )

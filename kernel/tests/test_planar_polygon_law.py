@@ -42,6 +42,8 @@ from cftuv_envelope.materialize.assemble import (
     POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE,
     QUADS_REFUSED_NOT_CONVEX,
     QUADS_UV_BILINEAR,
+    POLYGONS_UV_BILINEAR,
+    POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA,
     QUADS_UV_BILINEAR_MAX_MILLI_ALPHA,
     settle_topology,
     tessellate_faces,
@@ -112,6 +114,8 @@ LAW_NUMBERS = frozenset(
         # Закон `QUAD_UV_BILINEAR_V1` (перекладина угла JOIN): без угла JOIN оба нули.
         QUADS_UV_BILINEAR,
         QUADS_UV_BILINEAR_MAX_MILLI_ALPHA,
+        POLYGONS_UV_BILINEAR,
+        POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA,
     )
 )
 #: Счётчики, которые считают ГРАНИ (зависят от закона, как у пары прежних законов).
@@ -436,6 +440,64 @@ def test_a_non_affine_convex_quad_stays_whole_only_in_a_flow_at_a_rung(flow_key,
         assert [len(item) for item in polygons] == [4]
         assert tally[QUADS_UV_BILINEAR] == 1
         assert not tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE]
+
+
+# Контуры от пяти вершин: лишние вершины — вершины на хорде полосы и Т-стыки соседей. Неаффинный `k3` сдвигает `s` на 1.
+CONVEX_PENTAGON = ((0, 0), (4, 0), (6, 2), (3, 4), (-1, 3))
+#: Четыре угла и вершина на прямой: трапеция с Т-стыком соседа на основании.
+TRAPEZOID_WITH_T_VERTEX = ((0, 0), (2, 0), (4, 0), (5, 3), (-1, 3))
+#: Три угла и две вершины на сторонах: треугольник, а не билинейное четырёхгранье.
+TRIANGLE_WITH_SIDE_VERTICES = ((0, 0), (2, 0), (4, 0), (3, 3 / 2), (2, 3))
+CONCAVE_PENTAGON = ((0, 0), (6, 0), (6, 3), (3, 1), (0, 3))
+
+
+def _flow_tessellation(raw, *, flow_key, rung_keys, bent_key="k3"):
+    points = _points(raw)
+    frame, cycle = _frame(points)
+    frame.flow_key = flow_key
+    clean = _uv(cycle)
+
+    def bent(face, key):
+        s, r = clean(face, key)
+        return (s + SqrtSumV1.rational(Fraction(1)), r) if key == bent_key else (s, r)
+
+    tally = Counter()
+    polygons = tessellate_faces(
+        [frame], [cycle], BUDGET(), False, POLYGONS, True, tally, bent,
+        None, lambda face, key: key in rung_keys,
+    )[0]
+    return polygons, tally
+
+
+@pytest.mark.parametrize(
+    ("raw", "size"),
+    ((CONVEX_PENTAGON, 5), (TRAPEZOID_WITH_T_VERTEX, 5), (HEXAGON, 6)),
+    ids=("convex-pentagon", "quad-with-a-straight-vertex", "convex-hexagon"),
+)
+def test_a_non_affine_convex_polygon_of_a_flow_stays_whole_at_a_rung(raw, size):
+    """`QUAD_UV_BILINEAR_V1` от пяти вершин: не меньше четырёх углов, ни одного правого поворота, перекладина в потоке."""
+
+    polygons, tally = _flow_tessellation(raw, flow_key="flow:u0", rung_keys={"k1"})
+    assert [len(item) for item in polygons] == [size]
+    assert tally[POLYGONS_UV_BILINEAR] == 1 and tally[POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA] > 0
+    assert not tally[QUADS_UV_BILINEAR] and not tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE]
+
+
+@pytest.mark.parametrize(
+    ("raw", "flow_key", "rung_keys"),
+    (
+        (CONVEX_PENTAGON, None, {"k1"}),
+        (CONVEX_PENTAGON, "flow:u0", set()),
+        (TRIANGLE_WITH_SIDE_VERTICES, "flow:u0", {"k1"}),
+        (CONCAVE_PENTAGON, "flow:u0", {"k1"}),
+    ),
+    ids=("outside-a-flow", "flow-without-a-rung-vertex", "three-corners-only", "a-right-turn"),
+)
+def test_a_polygon_of_five_that_the_law_does_not_take_is_cut_by_its_ears_as_before(raw, flow_key, rung_keys):
+    polygons, tally = _flow_tessellation(raw, flow_key=flow_key, rung_keys=rung_keys)
+    assert [len(item) for item in polygons] == [3] * (len(raw) - 2)
+    assert tally[POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE] == 1
+    assert not tally[POLYGONS_UV_BILINEAR] and not tally[QUADS_UV_BILINEAR]
 
 
 @pytest.mark.parametrize("raw", (SELF_CROSSING, PENTAGRAM))
