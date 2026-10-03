@@ -29,6 +29,7 @@ from cftuv_envelope._stretch import measure_stretch, stretch_violations
 from cftuv_envelope._unfold import exact_metres, hinge_proposal, owner_topology
 from cftuv_envelope.codec import canonical_json_bytes
 from cftuv_envelope.contracts.metric import (
+    DEVELOPABLE_STRETCH_BUDGET,
     CurvatureLadderPolicyV1,
     DevelopableProposalLawV1,
     ExactRationalV1,
@@ -48,6 +49,12 @@ ON = CurvatureLadderPolicyV1.NEAR_PLANAR_THEN_DEVELOPABLE_UNFOLD_V1
 ARAP = DevelopableProposalLawV1.ARAP_LOCAL_GLOBAL_80_BINARY64_V1
 HINGE = DevelopableProposalLawV1.BINARY64_HINGE_V1
 BAND_PATTERN = re.compile(r"worst_band_squared<=([0-9.]+e[+-][0-9]+)")
+
+#: Невязка складки сеткой, при которой шарнир ЗА бюджетом 20 % (27.7 %), а ARAP в нём (10.2 %). Прежние 0.05 при
+#: бюджете 2 % делали то же самое; при 20 % шарнир (5.8 %) принимает сам, и ARAP до него не доходит.
+ARAP_FIXTURE_DROP = 0.3
+#: Невязка, при которой не вмещает ни шарнир (63 %), ни ARAP (24.4 %): красный контроль над 20 %.
+BEYOND_BOTH_DROP = 0.8
 
 
 def _wall_noise_top():
@@ -158,7 +165,7 @@ def test_an_overlap_of_an_in_budget_hinge_is_a_surface_property_and_not_given_to
 
 
 def test_the_arap_proposal_accepts_a_vertex_the_hinge_could_not_fit():
-    certificate = developable_chart(_perturbed_fold_grid(0.05)).certificate
+    certificate = developable_chart(_perturbed_fold_grid(ARAP_FIXTURE_DROP)).certificate
     assert certificate.proposal_law is ARAP
     assert certificate.previous_refusals == (
         NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED.value,
@@ -199,8 +206,26 @@ def test_the_hinge_flip_is_named_before_the_budget_allows_the_hinge_chart():
 # --------------------------------------------------------------------------
 
 
+def test_wall_noise_top_patch_three_is_accepted_by_arap_within_the_owners_twenty_percent():
+    """Решение владельца «до 20 %»: ARAP-карта `wall_noise_top` (18.7 %) принята, шарнир назван в трассе."""
+
+    certificate = developable_chart(_wall_noise_top()).certificate
+    band = certificate.stretch.worst_band_squared_upper
+    assert certificate.proposal_law is ARAP
+    assert certificate.previous_refusals == (
+        NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED.value,
+    )
+    assert 1.0 < band.numerator / band.denominator <= 1.41
+    assert not stretch_violations(certificate.stretch)
+    assert certificate.chart_boundary_overlap_count == 0
+
+
 def test_wall_noise_top_patch_three_reports_the_arap_numbers_and_the_hinge_numbers():
-    error = _refusal(_wall_noise_top())
+    """Отказ несёт числа обоих предложений; на пороге ниже 18.74 % (здесь 18 %) `wall_noise_top` ещё отказан."""
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        developable_chart(_wall_noise_top(), budget=Fraction(18, 100))
+    error = failure.value
     text = str(error)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     arap_band, hinge_band = _bands(text)[:2]
@@ -264,17 +289,19 @@ def test_just_below_those_budgets_the_domains_are_still_refused(parts, budget):
 
 
 def test_a_refusal_after_both_proposals_names_both_with_their_worst_numbers():
-    error = _refusal(_perturbed_fold_grid(0.2))
+    """Красный контроль над 20 %: ни шарнир (63 %), ни ARAP (24.4 %) — оба числа в отказе."""
+
+    error = _refusal(_perturbed_fold_grid(BEYOND_BOTH_DROP))
     text = str(error)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     arap_band, hinge_band = _bands(text)[:2]
-    assert 1.0404 < arap_band < hinge_band
+    assert float((1 + DEVELOPABLE_STRETCH_BUDGET) ** 2) < arap_band < hinge_band
     assert "worst_vertex=v:g1_2" in text
 
 
 def test_the_work_cap_is_a_named_refusal_and_not_a_silent_skip(monkeypatch):
     monkeypatch.setattr(arap, "ARAP_PROPOSAL_WORK_CAP", 10)
-    error = _refusal(_perturbed_fold_grid(0.05))
+    error = _refusal(_perturbed_fold_grid(ARAP_FIXTURE_DROP))
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     assert "the ARAP proposal was not tried" in str(error)
     assert "exceeds the cap 10" in str(error)
@@ -301,7 +328,7 @@ def _fold_grid_inputs(drop):
 
 
 def test_the_proposal_pins_one_vertex_and_runs_the_declared_iterations():
-    topology, hinge, snapped = _fold_grid_inputs(0.05)
+    topology, hinge, snapped = _fold_grid_inputs(ARAP_FIXTURE_DROP)
     proposal = arap.arap_proposal(topology, hinge, snapped)
     pinned = proposal.pinned_vertex_id
     assert proposal.iterations == arap.ARAP_PROPOSAL_ITERATIONS == 80
@@ -311,8 +338,8 @@ def test_the_proposal_pins_one_vertex_and_runs_the_declared_iterations():
 
 
 def test_the_proposal_lowers_the_worst_stretch_of_the_hinge_chart():
-    topology, hinge, snapped = _fold_grid_inputs(0.05)
-    budget = Fraction(1, 50)
+    topology, hinge, snapped = _fold_grid_inputs(ARAP_FIXTURE_DROP)
+    budget = DEVELOPABLE_STRETCH_BUDGET
     proposal = arap.arap_proposal(topology, hinge, snapped)
     worst = []
     for coordinates in (hinge.coordinates, proposal.coordinates):
@@ -375,11 +402,13 @@ def test_the_envelope_solver_agrees_with_an_independent_dense_solution():
 # Воспроизводимость побитово и золотой дайджест
 # --------------------------------------------------------------------------
 
-#: Золотой дайджест записи метрики ARAP-карты складки с невязкой 0.05 (весь сертификат и узлы).
+#: Золотой дайджест записи метрики ARAP-карты складки с невязкой `ARAP_FIXTURE_DROP` (весь сертификат и узлы).
 #: Закон бинарной арифметики с фиксированным порядком операций: дайджест не зависит ни от
 #: платформы, ни от версии Python (в `sum` над float CPython 3.12 суммирует иначе, чем 3.11).
+#: Перезаписан 2026-10-03 решением владельца «до 20 %»: другая фикстура (шарнир теперь отказывает при невязке 0.3, а не
+#: 0.05) и записанный бюджет `1/5`; сам ARAP (80 итераций, порядок операций) не менялся.
 ARAP_RECORD_SHA256 = (
-    "656ebdc744ee3c76439a8f3ebda71a7b859fbcf582f1a0fafabfb9bad71b2290"
+    "0f5562b4075975f8025776f36ac4b52d6b3c85773f9c4ed06443f79ff807e6b2"
 )
 
 
@@ -388,7 +417,7 @@ def _digest(record) -> str:
 
 
 def test_the_arap_chart_is_reproducible_bit_for_bit():
-    parts = _perturbed_fold_grid(0.05)
+    parts = _perturbed_fold_grid(ARAP_FIXTURE_DROP)
     first = developable_chart(parts)
     second = developable_chart(parts)
     assert first.nodes == second.nodes
@@ -397,7 +426,7 @@ def test_the_arap_chart_is_reproducible_bit_for_bit():
 
 
 def test_the_arap_metric_record_matches_its_golden_digest():
-    record = build_metric(_perturbed_fold_grid(0.05), ladder=ON)
+    record = build_metric(_perturbed_fold_grid(ARAP_FIXTURE_DROP), ladder=ON)
     assert record.metric.planarity_certificate.proposal_law is ARAP
     assert _digest(record) == ARAP_RECORD_SHA256
 
@@ -408,7 +437,7 @@ def test_the_arap_metric_record_matches_its_golden_digest():
 
 
 def test_the_validator_accepts_what_the_builder_wrote_with_the_arap_proposal():
-    parts = _perturbed_fold_grid(0.05)
+    parts = _perturbed_fold_grid(ARAP_FIXTURE_DROP)
     record = build_metric(parts, ladder=ON)
     certificate = record.metric.planarity_certificate
     assert certificate.proposal_law is ARAP
@@ -420,7 +449,7 @@ def test_the_validator_accepts_what_the_builder_wrote_with_the_arap_proposal():
 
 
 def test_the_validator_catches_a_proposal_law_swapped_for_the_hinge():
-    parts = _perturbed_fold_grid(0.05)
+    parts = _perturbed_fold_grid(ARAP_FIXTURE_DROP)
     record = build_metric(parts, ladder=ON)
     forged = _tampered(record, proposal_law=HINGE)
     messages = [item.message for item in _issues(forged, parts)]
@@ -428,7 +457,7 @@ def test_the_validator_catches_a_proposal_law_swapped_for_the_hinge():
 
 
 def test_the_validator_catches_an_arap_certificate_without_the_hinge_refusal():
-    parts = _perturbed_fold_grid(0.05)
+    parts = _perturbed_fold_grid(ARAP_FIXTURE_DROP)
     record = build_metric(parts, ladder=ON)
     trace = record.metric.planarity_certificate.previous_refusals
     for forged_trace in (
@@ -462,7 +491,7 @@ def test_the_validator_catches_an_arap_claim_on_a_domain_the_hinge_accepts():
 
 
 def test_the_validator_catches_a_moved_node_of_the_arap_chart():
-    parts = _perturbed_fold_grid(0.05)
+    parts = _perturbed_fold_grid(ARAP_FIXTURE_DROP)
     record = build_metric(parts, ladder=ON)
     coordinates = sorted(
         record.metric.exact_source_vertex_coordinates,

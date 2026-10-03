@@ -3,7 +3,7 @@
 Карта домена — привязанная к решётке шарнирная развёртка треугольников источника.
 Власть — точный сертификат растяжения (`DevelopableStretchCertificateV1`): все квадраты
 сингулярных чисел отображения треугольник источника -> треугольник карты в
-`[1/(1+b)², (1+b)²]`, `b = 1/50`, тремя знаками рациональных чисел. Фикстуры этого
+`[1/(1+b)², (1+b)²]`, `b = 1/5` (решение владельца: растяжения до 20 %), тремя знаками рациональных чисел. Фикстуры этого
 файла идут НАПРЯМУЮ через `build_developable_chart` (без лестницы метрики — она в C2):
 
 * складка 90° — растяжение тождественно единице, побитово (золотой дайджест);
@@ -58,6 +58,12 @@ from developable_factories import REVISION, DOMAIN, developable_chart
 
 #: Золотой дайджест сертификата складки 90°: карта на целых узлах, растяжение 1, без объявленных цепей.
 FOLD_STRIP_CERTIFICATE_SHA256 = (
+    "f492bc8c1476dc46f20111c64bf9a8c8d9df20848d5f024c18fc69f97a059f78"
+)
+
+#: Тот же сертификат при прежнем бюджете `1/50` (до решения владельца 2026-10-03 «до 20 %»). Единственное, чем
+#: он отличается от золотого, — записанный `stretch_budget`: карта, узлы и все числа растяжения прежние.
+FOLD_STRIP_CERTIFICATE_SHA256_AT_ONE_FIFTIETH = (
     "ef2baa0b4b8960afc567974cb3d6cf2da03f3cfbbaf0affec574281e42c53670"
 )
 
@@ -127,6 +133,32 @@ def test_a_fold_of_ninety_degrees_unfolds_with_stretch_exactly_one():
     assert _digest(certificate) == FOLD_STRIP_CERTIFICATE_SHA256
 
 
+def test_the_budget_is_the_only_byte_that_the_owners_twenty_percent_changed_in_the_fold_certificate():
+    """Бюджет 1/50 -> 1/5 меняет в принятом сертификате ровно записанный `stretch_budget`: карта и числа прежние."""
+
+    from dataclasses import replace
+
+    now = developable_chart(factories.fold_strip())
+    before = developable_chart(factories.fold_strip(), budget=Fraction(1, 50))
+    assert _digest(before.certificate) == FOLD_STRIP_CERTIFICATE_SHA256_AT_ONE_FIFTIETH
+    assert before.nodes == now.nodes
+    assert before.chart_scale == now.chart_scale
+    assert now.certificate.stretch.stretch_budget == ExactRationalV1(1, 5)
+    assert before.certificate.stretch.stretch_budget == ExactRationalV1(1, 50)
+    restored = replace(
+        now.certificate,
+        stretch=replace(now.certificate.stretch, stretch_budget=ExactRationalV1(1, 50)),
+    )
+    assert restored == before.certificate
+
+
+def test_the_developable_budget_is_one_fifth_and_the_near_planar_width_budget_stays_one_fiftieth():
+    from cftuv_envelope.contracts.metric import NEAR_PLANAR_WIDTH_BUDGET
+
+    assert DEVELOPABLE_STRETCH_BUDGET == Fraction(1, 5)
+    assert NEAR_PLANAR_WIDTH_BUDGET == Fraction(1, 50)
+
+
 def test_the_fold_chart_gram_equals_the_source_gram_bitwise():
     """σ ≡ 1 — не «около единицы»: Грам карты равен Граму источника как дроби."""
 
@@ -194,10 +226,21 @@ def test_a_cone_sector_with_the_apex_on_the_boundary_is_an_ordinary_sector():
 
 
 def test_a_cone_with_an_interior_apex_is_beyond_the_stretch_budget_by_name():
-    error = _refusal(factories.cone(8, boundary_apex=False))
+    """Красный контроль над 20 %: конус высотой 1.0 даёт 28.2 % (при высоте 0.5 — 7.3 %, он принят)."""
+
+    error = _refusal(factories.cone(8, rise=1.0, boundary_apex=False))
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     assert "worst_vertex=v:apex" in str(error)
     assert "outside_budget=1" in str(error)
+
+
+def test_a_gentle_cone_with_an_interior_apex_is_within_the_twenty_percent_budget():
+    """Владелец принял растяжения до 20 %: конус высотой 0.5 (7.3 %) принимается вторым предложением, ARAP."""
+
+    certificate = developable_chart(factories.cone(8, boundary_apex=False)).certificate
+    assert certificate.proposal_law.value == "ARAP_LOCAL_GLOBAL_80_BINARY64_V1"
+    assert not stretch_violations(certificate.stretch)
+    assert 1.0 < float(_band(certificate)) <= float(band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1])
 
 
 def test_a_half_sphere_is_beyond_the_stretch_budget():
@@ -207,9 +250,17 @@ def test_a_half_sphere_is_beyond_the_stretch_budget():
 
 
 def test_a_saddle_is_refused_and_names_the_vertex_with_the_excess_angle():
-    error = _refusal(factories.dome(saddle=True))
+    """Седло высотой 1.0 даёт 26.5 % — за 20 %; седло высотой 0.5 (9.9 %) принято."""
+
+    error = _refusal(factories.dome(saddle=True, saddle_height=1.0))
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     assert "worst_vertex=v:c" in str(error)
+
+
+def test_a_gentle_saddle_is_within_the_twenty_percent_budget():
+    certificate = developable_chart(factories.dome(saddle=True)).certificate
+    assert not stretch_violations(certificate.stretch)
+    assert float(_band(certificate)) <= float(band_bounds(DEVELOPABLE_STRETCH_BUDGET)[1])
 
 
 def test_a_spiral_ribbon_covers_itself_by_name():
@@ -301,7 +352,7 @@ def test_a_triangle_thinner_than_every_chart_cell_is_lattice_too_coarse_by_name(
 
 
 def test_the_second_chart_scale_takes_over_when_the_first_cell_is_too_coarse():
-    height = Fraction(3)
+    height = Fraction(1, 3)
     apex = (Fraction(50) + Fraction(1, 7), height, 0)
     first = _chart_of_single((0, 0, 0), (100, 0, 0), apex)
     assert first.certificate.chart_scale_trials == 2
@@ -335,7 +386,8 @@ def test_the_stretch_predicate_sees_a_shear_that_a_trace_would_hide():
     unit = (Fraction(1), Fraction(0), Fraction(1))
     shear = lambda s: (Fraction(1), s, 1 + s * s)  # noqa: E731
     assert in_stretch_band(unit, shear(Fraction(1, 100)), DEVELOPABLE_STRETCH_BUDGET)
-    assert not in_stretch_band(unit, shear(Fraction(1, 5)), DEVELOPABLE_STRETCH_BUDGET)
+    assert in_stretch_band(unit, shear(Fraction(1, 5)), DEVELOPABLE_STRETCH_BUDGET)
+    assert not in_stretch_band(unit, shear(Fraction(1, 2)), DEVELOPABLE_STRETCH_BUDGET)
 
 
 def test_a_degenerate_chart_triangle_is_outside_the_band_and_has_no_finite_bound():
@@ -432,9 +484,9 @@ def test_a_proven_non_closing_vertex_in_budget_is_accepted_and_labelled_near_dev
 
 
 def test_the_same_vertex_beyond_the_budget_is_refused():
-    """Сдвиг 0.2 не вмещается в бюджет ни у шарнира, ни у ARAP (при 0.05 ARAP уже вмещает)."""
+    """Сдвиг 0.8 не вмещается в бюджет 20 % ни у шарнира (63 %), ни у ARAP (24 %); при 0.3 ARAP вмещает (10 %)."""
 
-    error = _refusal(_perturbed_fold_grid(0.2))
+    error = _refusal(_perturbed_fold_grid(0.8))
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
 
 
@@ -483,7 +535,7 @@ def test_the_certificate_names_its_laws_budget_and_unit_normal():
     assert certificate.proposal_law.value == "BINARY64_HINGE_V1"
     assert certificate.lift_law.value == "UNFOLDED_SOURCE_TRIANGLES_V1"
     assert certificate.stretch.law.value == "EXACT_GRAM_SINGULAR_VALUE_BAND_V1"
-    assert certificate.stretch.stretch_budget == ExactRationalV1(1, 50)
+    assert certificate.stretch.stretch_budget == ExactRationalV1(1, 5)
     assert certificate.root_triangle_id.value == "face000:t01"
     assert (
         certificate.exact_plane_normal.x.numerator,

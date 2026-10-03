@@ -158,7 +158,7 @@ def test_an_embedding_refusal_is_a_trigger_and_the_spiral_overlap_is_named():
 
 
 def test_the_final_refusal_names_both_rungs():
-    error = _refusal(factories.cone(8, boundary_apex=False), ladder=ON)
+    error = _refusal(factories.cone(8, rise=1.0, boundary_apex=False), ladder=ON)
     assert error.outcome is NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED
     assert "worst_vertex=v:apex" in str(error)
     assert "after near-planar NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED" in str(error)
