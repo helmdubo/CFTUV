@@ -38,6 +38,9 @@ WINDOW_MANAGER_SESSION_ATTRIBUTE = "_cftuv_envelope_debug_session"
 #: Результат домена — батч с сеткой, поэтому запас считан в доменах: `building` (121) в
 #: четыре прогона при разных alpha.
 PRODUCTION_RESULT_CACHE_LIMIT = 512
+#: Предел памяти замечаний к снапшотам доменов (по давности): домены одной ревизии (сотни на `building`) в него
+#: входят с запасом, а сессия с несколькими мешами не копит снапшоты без счёта.
+SNAPSHOT_ISSUES_CACHE_LIMIT = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +211,7 @@ class EnvelopeDebugSessionController:
         self._production_result_cache: OrderedDict[tuple, object] = OrderedDict()
         # Замечания проверки снапшота домена по тождеству снапшота: он от alpha не зависит, а запрос к нему
         # собирается на КАЖДОМ нажатии. Запись держит сам снапшот (занятое тождество не уходит другому).
-        self._snapshot_issues: dict[int, tuple[object, tuple]] = {}
+        self._snapshot_issues: OrderedDict[int, tuple[object, tuple]] = OrderedDict()
         # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
         # считается в них): живут и чистятся вместе с кэшем подготовок.
         self._preparation_blobs = None
@@ -253,6 +256,10 @@ class EnvelopeDebugSessionController:
             kernel, _ = _load_kernel()
             known = (snapshot, tuple(kernel.validate_analysis_snapshot(snapshot)))
             self._snapshot_issues[id(snapshot)] = known
+            while len(self._snapshot_issues) > SNAPSHOT_ISSUES_CACHE_LIMIT:
+                self._snapshot_issues.popitem(last=False)
+        else:
+            self._snapshot_issues.move_to_end(id(snapshot))
         return known[1]
 
     def slider_coverage_pool(self, workers: int, profile):

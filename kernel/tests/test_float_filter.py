@@ -167,6 +167,52 @@ def test_the_fan_form_of_the_shoelace_is_the_same_canonical_value_as_the_trapezo
     assert doubled_shoelace(()).is_zero
 
 
+def _subnormal_coefficient_case():
+    """Аудит 0facffe: коэффициент `C` — денормал (ошибка `float(Fraction)` абсолютна до 2^-1075), `sqrt(M)` ~ 2^504
+    разгоняет её далеко за наименьшее нормальное число. Точный определитель `C*C2*M - 1 = 2^-20 > 0`."""
+
+    import sympy
+
+    modulus = int(sympy.nextprime(2**1009))
+    coefficient = Fraction(12898, 100 * 2**1075)  # (2^7 + 0.98) * 2^-1075
+    assert 0 < coefficient < Fraction(1, 2**1022)
+    partner = (1 + Fraction(1, 2**20)) / (coefficient * modulus)
+    zero = SqrtSumV1.zero()
+    one = SqrtSumV1.rational(1)
+    return (
+        (zero, zero),
+        (SqrtSumV1(((modulus, coefficient),)), one),
+        (one, SqrtSumV1(((modulus, partner),))),
+    )
+
+
+def test_a_subnormal_coefficient_is_never_read_in_binary64_and_the_exact_sign_is_kept():
+    triple = _subnormal_coefficient_case()
+    assert _exact_orientation(*triple) == 1
+    assert float_filter.centre_and_bound(triple[1][0]) is None
+    assert float_filter.orientation_sign(*triple) is None
+    assert orientation(*triple) == 1
+    assert float_filter.polygon_sign(triple) is None
+    assert shoelace_sign(triple) == doubled_shoelace(triple).sign() == 1
+
+
+def test_products_that_underflow_carry_the_format_floor_in_their_bound():
+    """Все координаты ~1e-160, произведения ~1e-321 — денормалы, где относительная граница исчезает вместе с ними."""
+
+    tiny = Fraction(1, 10**160)
+    zero = SqrtSumV1.zero()
+    first, second, third = (
+        (zero, zero),
+        (SqrtSumV1.radical(tiny, 2), SqrtSumV1.radical(tiny, 3)),
+        (SqrtSumV1.radical(tiny, 5), SqrtSumV1.radical(tiny, 7)),
+    )
+    exact = _exact_orientation(first, second, third)
+    assert exact == -1
+    assert float_filter.orientation_sign(first, second, third) is None
+    assert float_filter.polygon_sign((first, second, third)) is None
+    assert orientation(first, second, third) == exact
+
+
 def test_the_shoelace_sign_equals_the_exact_area_sign():
     rng = random.Random(11)
     decided = 0

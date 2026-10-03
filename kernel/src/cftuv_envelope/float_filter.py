@@ -36,8 +36,10 @@ from sys import float_info
 #: Единица округления binary64 и вдвое более широкий запас, которым считаются все границы.
 _UNIT = 2.0 ** -53
 _SLACK = 2.0 ** -52
-#: Абсолютная добавка на денормалы: ошибка `float(Fraction)` у величин меньше `2^-1022` не больше `2^-1075`, а
-#: наименьшее нормальное число binary64 на много порядков больше. Не допуск: значение — свойство формата.
+#: Абсолютная добавка на денормалы: недобор произведения даёт абсолютную ошибку не больше `2^-1075` на действие, а
+#: наименьшее нормальное число binary64 на много порядков больше. Она входит в границу каждого произведения (иначе у
+#: пары малых множителей граница исчезает вместе с самим произведением), а координата с коэффициентом меньше неё
+#: фильтру не отдаётся вовсе (`_measure`). Не допуск: значение — свойство формата.
 _FLOOR = float_info.min
 #: Граница ошибки, которой заведомо не хватает значения: определитель должен её ПЕРЕБИТЬ.
 _MARGIN = 1.0 + 1e-9
@@ -53,7 +55,13 @@ def _measure(value) -> tuple[object, float | None, float]:
     weight = 0.0
     try:
         for radicand, coefficient in terms:
-            term = float(coefficient) * sqrt(radicand)
+            centre = float(coefficient)
+            # Коэффициент меньше наименьшего нормального числа (и нуль — недобор): ошибка `float(Fraction)` у него
+            # АБСОЛЮТНА (до 2^-1075), а не относительна, и умножение на `sqrt(m)` разгоняет её сколь угодно далеко
+            # за `_FLOOR`. Такую координату binary64 не берёт: точный путь.
+            if abs(centre) < _FLOOR:
+                raise OverflowError
+            term = centre * sqrt(radicand)
             total += term
             weight += abs(term)
     except OverflowError:
@@ -109,9 +117,9 @@ def orientation_sign(first, second, third) -> int | None:
     d4 = cx - ax
     e4 = ecx + eax + slack * abs(d4)
     left = d1 * d2
-    left_bound = abs(d1) * e2 + abs(d2) * e1 + e1 * e2 + slack * abs(left)
+    left_bound = abs(d1) * e2 + abs(d2) * e1 + e1 * e2 + slack * abs(left) + _FLOOR
     right = d3 * d4
-    right_bound = abs(d3) * e4 + abs(d4) * e3 + e3 * e4 + slack * abs(right)
+    right_bound = abs(d3) * e4 + abs(d4) * e3 + e3 * e4 + slack * abs(right) + _FLOOR
     value = left - right
     bound = (left_bound + right_bound + slack * abs(value)) * _MARGIN
     if abs(value) > bound:
@@ -149,9 +157,9 @@ def polygon_sign(points) -> int | None:
         vy = flat[2 * index + 1][1] - py
         evy = flat[2 * index + 1][2] + epy + slack * abs(vy)
         left = ux * vy
-        left_bound = abs(ux) * evy + abs(vy) * eux + eux * evy + slack * abs(left)
+        left_bound = abs(ux) * evy + abs(vy) * eux + eux * evy + slack * abs(left) + _FLOOR
         right = uy * vx
-        right_bound = abs(uy) * evx + abs(vx) * euy + euy * evx + slack * abs(right)
+        right_bound = abs(uy) * evx + abs(vx) * euy + euy * evx + slack * abs(right) + _FLOOR
         area = left - right
         total += area
         total_bound += left_bound + right_bound + slack * abs(area) + slack * abs(total)

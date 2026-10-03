@@ -203,6 +203,20 @@ def test_the_bounds_and_the_universe_travel_with_the_preparation_and_the_copy_fa
     assert clone.contact_memo.computed == 0
 
 
+def test_the_replay_respects_the_factorization_memory_limit(monkeypatch):
+    q_values = (Fraction(3), Fraction(5, 3), Fraction(12), Fraction(7, 5))
+    store = {}
+    exact.prime_universe_remembered(q_values, None, store)
+    delta = store[next(iter(store))][1]
+    assert len(delta) >= 3
+    exact.reset_factorization_memory()
+    monkeypatch.setattr(exact, "_FACTORIZATION_MEMO_ENTRIES", 2)
+    exact.prime_universe_remembered(q_values, None, store)
+    assert len(exact._FACTORIZATION_MEMO) <= 2
+    # Вытеснение — самое давнее, как в `_factorization_pairs`: последняя запись дельты на месте.
+    assert delta[-1][0] in exact._FACTORIZATION_MEMO
+
+
 def test_the_remembered_universe_equals_the_computed_one_and_a_failure_is_not_stored():
     q_values = (Fraction(3), Fraction(5, 3), Fraction(12), Fraction(7, 5))
     plain = exact._prime_universe_from_q_values(q_values)

@@ -986,7 +986,11 @@ def prime_universe_remembered(
         return universe
     universe, delta = found
     for number, pairs in delta:
-        _FACTORIZATION_MEMO.setdefault(number, pairs)
+        if number not in _FACTORIZATION_MEMO:
+            # Предел памяти тот же, что у `_factorization_pairs`: вытесняется самая давняя запись.
+            if len(_FACTORIZATION_MEMO) >= _FACTORIZATION_MEMO_ENTRIES:
+                del _FACTORIZATION_MEMO[next(iter(_FACTORIZATION_MEMO))]
+            _FACTORIZATION_MEMO[number] = pairs
         for prime, _power in pairs:
             _register_prime(prime)
     return universe

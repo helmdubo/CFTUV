@@ -324,6 +324,18 @@ def test_the_snapshot_is_validated_once_per_session_not_on_every_press(monkeypat
     assert not controller._snapshot_issues
 
 
+def test_the_snapshot_issues_memory_is_bounded_and_evicts_the_oldest(monkeypatch):
+    from cftuv import envelope_debug_session as session_module
+
+    monkeypatch.setattr(session_module, "SNAPSHOT_ISSUES_CACHE_LIMIT", 3)
+    controller = EnvelopeDebugSessionController()
+    bundle = quad_row_bundle(ROW)
+    _production(bundle, controller)
+    assert len(controller._snapshot_issues) <= 3
+    held = [item[0] for item in controller._snapshot_issues.values()]
+    assert len(held) == len({id(item) for item in held})
+
+
 # --------------------------------------------------------------------------
 # 2. Размещение не меняет ответ
 # --------------------------------------------------------------------------
