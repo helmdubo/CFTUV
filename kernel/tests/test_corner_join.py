@@ -1,16 +1,21 @@
-"""JOIN мягкого излома одной цепи (`CORNER_JOIN_SOFT_BEND_V1`): ядро, проверяющий, потоки.
+"""JOIN излома одной цепи по ТОЖДЕСТВУ цепи (`CORNER_JOIN_SAME_PCHAIN_V1`, `CORNER_JOIN_SOFT_BEND_V1`): ядро, проверяющий, потоки.
 
 Фикстура — пятиугольник с ВОГНУТОЙ вершиной `(10, 0)` между рёбрами `(0,0)-(10,0)` и
-`(10,0)-(20,-2)`: поворот вправо на `atan(1/5) = 11.31°`, `δ/π = 0.0628 < 1/4`. Два
+`(10,0)-(20,-2)`: поворот вправо на `atan(1/5) = 11.31°`, `δ/π = 0.0628 < 1/2`. Два
 маршрута — два куска; общая запись `chain-source` в `data_record_lineage` делает их
-одной цепью хоста. Числа, на которых стоят утверждения, посчитаны НЕ проверяемым кодом:
+одной цепью хоста (запись несут только эти два куска, не граничные цепи фикстуры).
+Числа, на которых стоят утверждения, посчитаны НЕ проверяемым кодом:
 длины рёбер `10` и `sqrt(104)` известны из входа, `tan(δ/2) = 0.0990` — из геометрии.
 
 | что проверяется                                                        | тест |
 |------------------------------------------------------------------------|------|
 | мягкий излом одной цепи — JOIN: `k = 0`, закон, запись с причиной       | `..._soft_bend_in_one_source_chain_joins` |
 | без общей записи хоста закон инертен: прежний счёт, причина названа     | `..._without_a_shared_source_lineage_the_profile_law_stands` |
-| угол от 45° и интервал поверх порога — прежний закон, названы           | `..._hard_and_uncertain_bends_keep_the_profile_by_name` |
+| угол шире четверти оборота и интервал поверх неё — прежний закон, названы | `..._hard_and_uncertain_bends_keep_the_profile_by_name` |
+| угол СТРОГО меньше четверти оборота — JOIN; точный прямой и острее — угол | `..._a_bend_below_a_quarter_turn_joins...`, `..._an_exact_right_angle_stays...` |
+| выпуклый и вырожденный стык ОДНОЙ цепи — поток без шва (записи угла нет)  | `..._a_convex_kink_of_one_source_chain...`, `..._a_collinear_junction...` |
+| выпуклый изгиб от четверти оборота (включая прямой) — угол, пропуск назван | `..._a_convex_kink_beyond_a_quarter_turn...` |
+| куски РАЗНЫХ цепей и снапшот без записей — стык остаётся швом (контроль)   | `..._convex_junction_of_two_chains...` |
 | подделанная или пропавшая запись — именованный отказ                    | `..._a_tampered_or_missing_record_is_refused` |
 | поток: `s` копится сквозь угол, регион один, шва нет, перекладина       | `..._the_flow_accumulates_s_through_the_join_without_a_seam` |
 | без JOIN те же два куска — два региона и шов                            | `..._without_the_join_the_pieces_stay_two_regions_with_a_seam` |
@@ -27,6 +32,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from decimal import Decimal
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
@@ -45,11 +51,13 @@ from cftuv_envelope.codec import CompiledPlanCodecV1
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.stations import (
+    SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
     SKIP_JOIN_CORNER_NOT_ADJACENT,
     SKIP_JOIN_CYCLE_OF_ONE_USE,
     SKIP_JOIN_USE_NOT_IN_DOMAIN_LOOPS,
     _flows,
     _join_successors,
+    _same_chain_successors,
 )
 from cftuv_envelope.planar_metric import fraction_from_exact
 from cftuv_envelope.reference.common import GeometryContext, ReferenceGeometryError
@@ -68,13 +76,14 @@ from reference_factories import _interval, straight_snapshot
 
 UV = PolicyId("UV_DIRECT_STRIP_V1")
 SOFT_FAR = (20.0, -2.0)
-HARD_FAR = (20.0, -15.0)
-#: Поворот на `atan(1.1) = 47.7°` (`δ/π = 0.2651`): широкий интервал накрывает порог 1/4, точка не решает.
-WIDE_FAR = (20.0, -11.0)
-#: `δ/π` для поворота на `atan(1/5)` и `atan(3/2)`: 0.062833 и 0.312833.
+#: Поворот вправо шире четверти оборота: направление `(-3, -10)`, то есть `180° - atan(10/3) = 106.7°` (`δ/π = 0.5928`).
+HARD_FAR = (7.0, -10.0)
+#: Поворот ровно на четверть оборота (`δ/π = 1/2`), но интервал накрывает предел 1/2: точка не решает.
+WIDE_FAR = (10.0, -10.0)
+#: `δ/π` для поворота на `atan(1/5)` и на 106.7°: 0.062833 и 0.592771.
 SOFT_BOUNDS = ("0.0628", "0.0629")
-HARD_BOUNDS = ("0.3128", "0.3129")
-WIDE_BOUNDS = ("0.2450", "0.2700")
+HARD_BOUNDS = ("0.5927", "0.5929")
+WIDE_BOUNDS = ("0.4700", "0.5300")
 SHARED = kernel.LineageId("chain-source:patch:wall")
 
 
@@ -106,6 +115,14 @@ def _chart_normal(descriptor, start: str, end: str):
             kernel.ExactRationalV1(ncy.numerator, ncy.denominator),
         ),
         descriptor.reference_metric_id,
+    )
+
+
+def _route_chain_ids(snapshot):
+    """Цепи маршрутов фикстуры (`use:<имя>:use`): граничные цепи, которые достраивает фабрика, в них не входят."""
+
+    return frozenset(
+        item.physical_chain_id for item in snapshot.chain_uses if item.chain_use_id.value.startswith("use:")
     )
 
 
@@ -160,9 +177,10 @@ def _snapshot(far=SOFT_FAR, bounds=SOFT_BOUNDS, *, shared=True, alpha="1"):
         kernel.CornerRelationId("corner"), kernel.SourceVertexId("v1"), sector_id, angle_id, False
     )
     record = SHARED if shared is True else shared
+    route_chains = _route_chain_ids(snapshot)
     chains = frozenset(
         dataclasses.replace(item, data_record_lineage=item.data_record_lineage | {record})
-        if record
+        if record and item.physical_chain_id in route_chains
         else item
         for item in snapshot.physical_chains
     )
@@ -247,7 +265,8 @@ def test_a_soft_bend_in_one_source_chain_joins(density):
     assert record.shared_source_lineage_ids == frozenset({SHARED})
     assert record.incoming_chain_use_id.value == "use:in:use"
     assert record.outgoing_chain_use_id.value == "use:out:use"
-    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 4)
+    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 2)
+    assert record.treatment_law == "CORNER_JOIN_SAME_PCHAIN_V1"
     assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
     assert selection.resolved_hidden_edge_count == 0
     assert selection.certificate_id == record.selection_certificate_id
@@ -298,14 +317,14 @@ def test_hard_and_uncertain_bends_keep_the_profile_by_name(far, bounds, reason):
 
 
 def test_the_kinks_of_a_flat_wall_that_the_old_threshold_refused_join_now():
-    """Излом 35° (контур плоской стены `sagging_wall`: 31–36°) был веером при пороге 30° и стал продолжением при 45°."""
+    """Излом 35° (контур плоской стены `sagging_wall`: 31–36°) был веером при пороге 30° и продолжением при 45°; JOIN решает цепь."""
 
     snapshot, request = _snapshot((20.0, -7.0), ("0.1944", "0.1945"))
     prepared = _prepared(snapshot, _density_request(request, 1))
     record, selection = _record(prepared), _selection(prepared)
     assert record.treatment is CornerTreatmentV1.JOIN_CONTINUATION
     assert record.reason is CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN
-    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 4)
+    assert (record.threshold_over_pi.numerator, record.threshold_over_pi.denominator) == (1, 2)
     assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
     assert selection.resolved_hidden_edge_count == 0
     assert not corner_treatment_errors(prepared.compilation)
@@ -564,14 +583,14 @@ def _forged_join_plan(projections):
     assert selection.resolved_hidden_edge_count == 0
     forged = dataclasses.replace(selection, selection_law=SelectionLaw.CORNER_JOIN_SOFT_BEND_V1)
     record = CornerTreatmentRecordV1(
-        treatment_law="CORNER_TREATMENT_V1",
+        treatment_law="CORNER_JOIN_SAME_PCHAIN_V1",
         corner_relation_id=selection.corner_relation_id,
         selection_certificate_id=selection.certificate_id,
         incoming_chain_use_id=next(iter(projection.snapshot.chain_uses)).chain_use_id,
         outgoing_chain_use_id=next(iter(projection.snapshot.chain_uses)).chain_use_id,
         treatment=CornerTreatmentV1.JOIN_CONTINUATION,
         reason=CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN,
-        threshold_over_pi=ExactRatioV1(1, 4),
+        threshold_over_pi=ExactRatioV1(1, 2),
         reflex_excess_over_pi=_interval("0.0100", "0.0200"),
         shared_source_lineage_ids=frozenset({kernel.LineageId("chain-source:forged")}),
     )
@@ -786,8 +805,11 @@ def _ring_snapshot(sides=RING_SIDES, alpha="2"):
                 False,
             )
         )
+    route_chains = _route_chain_ids(snapshot)
     chains = frozenset(
         dataclasses.replace(item, data_record_lineage=item.data_record_lineage | {SHARED})
+        if item.physical_chain_id in route_chains
+        else item
         for item in snapshot.physical_chains
     )
     snapshot = dataclasses.replace(
@@ -867,3 +889,356 @@ def test_flow_faces_keep_the_instance_names_in_their_provenance():
         if item.value.startswith("claim:")
     }
     assert named and named <= flow_claims
+
+
+# --------------------------------------------------------------------------
+# JOIN по ТОЖДЕСТВУ цепи: предел изгиба — четверть оборота, а не порог угла
+# --------------------------------------------------------------------------
+
+#: Поворот вправо на `atan(3.5) = 74.05°` (`δ/π = 0.41141`): шире прежнего порога 45°, уже четверти оборота.
+QUARTER_FAR = (13.0, -10.5)
+QUARTER_BOUNDS = ("0.4114", "0.4115")
+#: Поворот ровно на четверть оборота: точный прямой угол (`δ/π = 1/2`, замкнутый конец) — вне СТРОГОГО предела.
+RIGHT_ANGLE_BOUNDS = ("0.5000", "0.5000")
+
+
+@pytest.mark.parametrize("density", (1, 2, 3, 4))
+def test_a_bend_below_a_quarter_turn_joins_on_any_density(density):
+    """Излом 74° внутри одной цепи — JOIN (порог 45° прежнего закона его бы отверг) на любой плотности."""
+
+    snapshot, request = _snapshot(QUARTER_FAR, QUARTER_BOUNDS)
+    request = _density_request(request, density)
+    prepared = _prepared(snapshot, request)
+    record, selection = _record(prepared), _selection(prepared)
+    assert record.treatment is CornerTreatmentV1.JOIN_CONTINUATION
+    assert record.reason is CornerTreatmentReasonV1.SOFT_BEND_IN_ONE_SOURCE_CHAIN
+    assert selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+    assert selection.resolved_hidden_edge_count == 0
+    assert not corner_treatment_errors(prepared.compilation)
+    _result, counters = _materialized(prepared, request)
+    assert counters["STATION_FLOWS"] == 1 and counters["MATERIALIZE_REGIONS"] == 1
+    assert counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
+
+
+@pytest.mark.parametrize("density", (1, 2))
+def test_an_exact_right_angle_stays_a_named_corner_with_a_seam(density):
+    """Прямой угол ОДНОЙ цепи — не JOIN (строгий предел): излом билинейной UV доходил до 1.0 alpha (сдвиг текстуры на раме)."""
+
+    snapshot, request = _snapshot(WIDE_FAR, RIGHT_ANGLE_BOUNDS)
+    request = _density_request(request, density)
+    prepared = _prepared(snapshot, request)
+    record, selection = _record(prepared), _selection(prepared)
+    assert record.treatment is CornerTreatmentV1.ANGULAR_PROFILE
+    assert record.reason is CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT
+    assert record.shared_source_lineage_ids == frozenset({SHARED})
+    assert selection.selection_law is not SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+    assert not corner_treatment_errors(prepared.compilation)
+    _result, counters = _materialized(prepared, request)
+    assert counters["STATION_FLOWS"] == 0 and counters["MATERIALIZE_REGIONS"] >= 2
+
+
+def test_the_bend_bound_is_strict_and_names_every_reason_by_the_interval_alone():
+    """`bend_reason`: СТРОГО ниже предела — `None`; предел и выше — `NOT_SOFT`; интервал поверх предела — `CONTAINS`."""
+
+    from cftuv_envelope._corner_treatment import JOIN_BEND_BOUND_OVER_PI, bend_reason
+    from cftuv_envelope.numeric import CertifiedDecimalIntervalV1, IntervalEndpointKind
+
+    def half_open(lower, upper):
+        return CertifiedDecimalIntervalV1(
+            Decimal(lower), Decimal(upper), IntervalEndpointKind.CLOSED, IntervalEndpointKind.OPEN, Decimal("0.0001")
+        )
+
+    assert JOIN_BEND_BOUND_OVER_PI == Fraction(1, 2)
+    assert bend_reason(_interval("0.0100", "0.2000")) is None
+    assert bend_reason(half_open("0.4900", "0.5000")) is None  # δ < 1/2 доказано открытым верхом
+    # Точный прямой угол и интервал, упирающийся в предел закрытым концом, JOIN не получают.
+    assert bend_reason(_interval("0.5000", "0.5000")) is CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT
+    assert bend_reason(_interval("0.4900", "0.5000")) is CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD
+    assert bend_reason(_interval("0.4900", "0.5100")) is CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD
+    assert bend_reason(_interval("0.5000", "0.5100")) is CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT
+    assert bend_reason(_interval("0.5100", "0.6000")) is CornerTreatmentReasonV1.REFLEX_EXCESS_NOT_SOFT
+
+
+def test_the_identity_of_the_chain_decides_before_the_bend_bound():
+    """Куски разных цепей остаются углом при ЛЮБОМ изгибе; шире предела при одной цепи — тоже, но другим именем."""
+
+    soft, request = _snapshot(shared=False)
+    hard, hard_request = _snapshot(HARD_FAR, HARD_BOUNDS, shared=False)
+    for snapshot in (soft, hard):
+        (sector,) = snapshot.angular_owner_sectors
+        (angle,) = snapshot.reflex_angle_certificates
+        uses = {item.chain_use_id: item for item in snapshot.chain_uses}
+        chains = {item.physical_chain_id: item for item in snapshot.physical_chains}
+        from cftuv_envelope import _corner_treatment as law
+
+        treatment, reason, shared = law.decide(sector, angle.measure_payload, uses, chains)
+        assert (treatment, reason, shared) == (
+            CornerTreatmentV1.ANGULAR_PROFILE,
+            CornerTreatmentReasonV1.SOURCE_CHAIN_UNPROVEN,
+            frozenset(),
+        )
+
+
+# --------------------------------------------------------------------------
+# Выпуклые и вырожденные стыки ОДНОЙ цепи: записи угла нет, поток ведёт материализатор
+# --------------------------------------------------------------------------
+
+
+def _convex_snapshot(far=(20.0, 3.0), *, shared=True, alpha="1", chain_b="out"):
+    """Пятиугольник (или четырёхугольник) с ВЫПУКЛЫМ стыком `(10, 0)` между `in` и `out`; записи угла нет.
+
+    `shared`: `True` — общая запись владельца у обоих маршрутов; `False` — записей нет (снапшот старого хоста);
+    `LineageId` — запись вместо общей.
+    """
+
+    faces = (((0.0, 0.0), (10.0, 0.0), far, (20.0, 10.0), (0.0, 10.0)),) if far[0] >= 20.0 else (
+        ((0.0, 0.0), (10.0, 0.0), far, (0.0, far[1])),
+    )
+    snapshot, request = straight_snapshot(
+        faces=faces,
+        source_routes=(
+            {"name": "in", "points": ((0.0, 0.0), (10.0, 0.0))},
+            {"name": chain_b, "points": ((10.0, 0.0), far)},
+        ),
+        alpha=alpha,
+    )
+    snapshot = factories.with_affine_metric(snapshot)
+    record = SHARED if shared is True else shared
+    route_chains = _route_chain_ids(snapshot)
+    chains = frozenset(
+        dataclasses.replace(item, data_record_lineage=item.data_record_lineage | {record})
+        if record and item.physical_chain_id in route_chains
+        else item
+        for item in snapshot.physical_chains
+    )
+    return dataclasses.replace(snapshot, physical_chains=chains), request
+
+
+def _station_joins(prepared):
+    from cftuv_envelope.materialize.stations import chain_station_table
+
+    return chain_station_table(prepared, factories.budget())
+
+
+def test_a_convex_kink_of_one_source_chain_continues_the_strip_without_a_seam():
+    snapshot, request = _convex_snapshot()
+    assert not snapshot.corner_relations  # хост пишет запись только вогнутому стыку
+    prepared = _prepared(snapshot, request)
+    assert not prepared.compilation.corner_treatments
+    table = _station_joins(prepared)
+    ((vertex, before, after, kind),) = table.same_chain_joins
+    assert (vertex, before, after, kind) == ("v1", "use:in:use", "use:out:use", "CONVEX")
+    result, counters = _materialized(prepared, request)
+    assert counters["STATION_SAME_PCHAIN_JOINS"] == 1
+    assert counters["STATION_FLOWS"] == 1
+    assert counters["STATION_JOIN_CORNERS"] == 1
+    assert counters["MATERIALIZE_REGIONS"] == 1
+    assert counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
+    assert counters["MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"] >= 1
+    assert not result.batch.interface_chains
+    by_vertex = {key: value for (_region, key), value in _facts(result.batch).items()}
+    # `s` копится сквозь выпуклый стык: `10 + sqrt(109)`, а не `sqrt(109)`.
+    assert by_vertex["src:v1"] == pytest.approx((10.0, 0.0), abs=1e-9)
+    assert by_vertex["src:v2"] == pytest.approx((10.0 + math.sqrt(109.0), 0.0), abs=1e-9)
+    # Перекладина на биссектрисе: `r = alpha`, `s` — станция вершины цепи.
+    rung = [value for value in by_vertex.values() if abs(value[1] - 1.0) < 1e-9 and abs(value[0] - 10.0) < 1e-9]
+    assert len(rung) == 1
+    # Диагностика закона названа и несёт числа.
+    named = [item for item in result.batch.diagnostics if item.outcome.value == "CORNER_JOIN_SAME_PCHAIN_V1"]
+    assert len(named) == 1
+
+
+def test_a_convex_junction_of_two_chains_stays_a_corner_with_a_seam():
+    """Контроль: те же два куска без общей записи владельца (разные цепи либо старый снапшот) — два региона и шов."""
+
+    for shared in (False, kernel.LineageId("chain-source:neighbour-patch:wall")):
+        snapshot, request = _convex_snapshot(shared=shared)
+        prepared = _prepared(snapshot, request)
+        assert not _station_joins(prepared).same_chain_joins
+        _result, counters = _materialized(prepared, request)
+        assert counters["STATION_SAME_PCHAIN_JOINS"] == 0
+        assert counters["STATION_FLOWS"] == 0
+        assert counters["MATERIALIZE_REGIONS"] == 2
+        assert counters["MATERIALIZE_INTERFACE_CHAINS"] == 1
+
+
+def test_a_collinear_junction_of_one_source_chain_is_a_continuation_too():
+    """Стык двух кусков одной цепи в одну прямую (разрез шва у соседа) — тоже продолжение: `u` не начинается заново."""
+
+    snapshot, request = _convex_snapshot((20.0, 0.0))
+    prepared = _prepared(snapshot, request)
+    ((_vertex, _before, _after, kind),) = _station_joins(prepared).same_chain_joins
+    assert kind == "COLLINEAR"
+    result, counters = _materialized(prepared, request)
+    assert counters["STATION_FLOWS"] == 1 and counters["MATERIALIZE_REGIONS"] == 1
+    assert counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
+    by_vertex = {key: value for (_region, key), value in _facts(result.batch).items()}
+    assert by_vertex["src:v2"] == pytest.approx((20.0, 0.0), abs=1e-9)
+
+
+@pytest.mark.parametrize("far", ((4.0, 6.0), (10.0, 10.0)), ids=("135-degrees", "exact-right-angle"))
+def test_a_convex_kink_beyond_a_quarter_turn_stays_a_named_corner(far):
+    """Изгиб 135° и ТОЧНЫЙ прямой угол (строгий предел): поток не идёт, пропуск назван, шов остаётся."""
+
+    snapshot, request = _convex_snapshot(far)
+    prepared = _prepared(snapshot, request)
+    table = _station_joins(prepared)
+    assert not table.same_chain_joins
+    assert ("v1", SKIP_JOIN_BEND_BEYOND_QUARTER_TURN) in table.skips
+    _result, counters = _materialized(prepared, request)
+    assert counters["STATION_SKIP_JOIN_BEND_BEYOND_QUARTER_TURN"] == 1
+    assert counters["STATION_SAME_PCHAIN_JOINS"] == 0
+    assert counters["MATERIALIZE_REGIONS"] == 2 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 1
+
+
+def test_a_reflex_corner_with_a_profile_is_not_taken_by_the_convex_pass():
+    """Вогнутый стыки с записью (веер) остаётся за планом: здесь он не продолжается, даже при общей цепи."""
+
+    snapshot, request = _snapshot(HARD_FAR, HARD_BOUNDS)
+    prepared = _prepared(snapshot, _density_request(request, 1))
+    assert _record(prepared).treatment is CornerTreatmentV1.ANGULAR_PROFILE
+    assert not _station_joins(prepared).same_chain_joins
+
+
+def _same_chain_context(corner_pairs=()):
+    """Утиный контекст для `_same_chain_successors`: цепи несут запись владельца, вхождения идут по вершинам."""
+
+    chains = {
+        name: SimpleNamespace(physical_chain_id=name, data_record_lineage=frozenset({SHARED}))
+        for name in ("c1", "c2", "c3", "alien")
+    }
+    chains["alien"] = SimpleNamespace(physical_chain_id="alien", data_record_lineage=frozenset())
+    sectors = [
+        SimpleNamespace(
+            owner_sector_id=f"s{index}",
+            ordered_incident_chain_use_ids=(kernel.ChainUseId(first), kernel.ChainUseId(second)),
+        )
+        for index, (first, second) in enumerate(corner_pairs)
+    ]
+    relations = [SimpleNamespace(owner_sector_id=f"s{index}") for index in range(len(sectors))]
+    return SimpleNamespace(
+        snapshot=SimpleNamespace(angular_owner_sectors=tuple(sectors), corner_relations=tuple(relations)),
+        chains_by_id=chains,
+        directed_chain_vertices=lambda use: use.vertices,
+    )
+
+
+def _owned_use(name, chain, vertices):
+    return SimpleNamespace(
+        chain_use_id=kernel.ChainUseId(name),
+        physical_chain_id=chain,
+        owner_patch_id=kernel.PatchId("patch"),
+        vertices=tuple(kernel.SourceVertexId(item) for item in vertices),
+    )
+
+
+def _loop_edge(start, end, start_vertex, end_vertex):
+    return SimpleNamespace(start=start, end=end, start_vertex_id=start_vertex, end_vertex_id=end_vertex)
+
+
+def test_same_chain_successors_pair_by_the_shared_vertex_and_name_what_they_refuse():
+    uses = {
+        "a": _owned_use("a", "c1", ("v0", "v1")),
+        "b": _owned_use("b", "c2", ("v1", "v2")),
+        "x": _owned_use("x", "c3", ("v2", "v3")),
+        "w": _owned_use("w", "alien", ("v3", "v4")),
+    }
+    present = {
+        "a": [_loop_edge((0, 0), (10, 0), "v0", "v1")],
+        "b": [_loop_edge((10, 0), (20, 3), "v1", "v2")],
+        "x": [_loop_edge((20, 3), (20, 10), "v2", "v3")],
+        "w": [_loop_edge((20, 10), (0, 10), "v3", "v4")],
+    }
+    gram = (Fraction(1), Fraction(0), Fraction(1))
+    skips: list = []
+    successors: dict = {}
+    found = _same_chain_successors(_same_chain_context(), uses, present, skips, successors, gram)
+    # a -> b (v1) и b -> x (v2) продолжены; x -> w: w чужой цепи (записи владельца нет) — не стык этого закона.
+    assert successors == {"a": "b", "b": "x"}
+    assert [(item[0], item[1], item[2]) for item in found] == [("v1", "a", "b"), ("v2", "b", "x")]
+    assert not skips
+    # Вогнутый стык с записью угла (веер) закон не берёт.
+    skips, successors = [], {}
+    found = _same_chain_successors(_same_chain_context([("a", "b")]), uses, present, skips, successors, gram)
+    assert successors == {"b": "x"} and len(found) == 1
+    # Изгиб шире четверти оборота и ровно четверть: пропуск назван. Вход `a` (0,0)->(10,0), выход назад (10,0)->(4,6) либо вбок (10,0)->(10,10).
+    for bent in ((4, 6), (10, 10)):
+        sharp = dict(present, b=[_loop_edge((10, 0), bent, "v1", "v2")])
+        skips, successors = [], {}
+        found = _same_chain_successors(_same_chain_context(), uses, sharp, skips, successors, gram)
+        assert ("v1", SKIP_JOIN_BEND_BEYOND_QUARTER_TURN) in skips and "a" not in successors, bent
+    # Два вхождения начинаются в одной вершине: неоднозначно, назван пропуск и ни одно не выбрано.
+    uses_two = dict(uses, b2=_owned_use("b2", "c2", ("v1", "v5")))
+    present_two = dict(present, b2=[_loop_edge((10, 0), (10, 5), "v1", "v5")])
+    skips, successors = [], {}
+    _same_chain_successors(_same_chain_context(), uses_two, present_two, skips, successors, gram)
+    assert ("v1", SKIP_JOIN_CORNER_NOT_ADJACENT) in skips and "a" not in successors
+
+
+def _piece_chain_snapshot(polygon, route, *, alpha="1"):
+    """Один многоугольник и маршрут из нескольких кусков ОДНОЙ цепи (общая запись владельца у всех), без записей углов."""
+
+    snapshot, request = straight_snapshot(
+        faces=(polygon,),
+        source_routes=tuple(
+            {"name": f"p{index}", "points": (start, end)}
+            for index, (start, end) in enumerate(zip(route, route[1:]))
+        ),
+        alpha=alpha,
+    )
+    snapshot = factories.with_affine_metric(snapshot)
+    route_chains = _route_chain_ids(snapshot)
+    chains = frozenset(
+        dataclasses.replace(item, data_record_lineage=item.data_record_lineage | {SHARED})
+        if item.physical_chain_id in route_chains
+        else item
+        for item in snapshot.physical_chains
+    )
+    return dataclasses.replace(snapshot, physical_chains=chains), request
+
+
+#: Короткий кусок `(10,0)-(11,1)` между двумя выпуклыми изломами по 45°: биссектрисы сходятся в узле события на высоте
+#: `sqrt(2) / (2 tan(22.5°)) = 1.707`; при `alpha = 2` узел внутри покрытия, при `alpha = 1` — нет.
+EVENT_POLYGON = ((0.0, 0.0), (10.0, 0.0), (11.0, 1.0), (11.0, 10.0), (0.0, 10.0))
+EVENT_ROUTE = ((0.0, 0.0), (10.0, 0.0), (11.0, 1.0), (11.0, 10.0))
+
+
+def test_a_short_piece_between_two_convex_kinks_flows_while_the_fronts_do_not_meet():
+    snapshot, request = _piece_chain_snapshot(EVENT_POLYGON, EVENT_ROUTE, alpha="1")
+    prepared = _prepared(snapshot, request)
+    assert len(_station_joins(prepared).same_chain_joins) == 2
+    _result, counters = _materialized(prepared, request)
+    assert counters["STATION_SAME_PCHAIN_JOINS"] == 2
+    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 0
+    assert counters["MATERIALIZE_REGIONS"] == 1 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 0
+
+
+def test_the_event_node_of_a_short_piece_withdraws_one_junction_by_name_instead_of_refusing_the_domain():
+    """Узел события скелета (три пробега одного потока в одной вершине) станции не сводится: стык снят, шов назван.
+
+    Раньше (до закона) стык был швом всегда; закон продолжает все, а там, где у узла нет единой станции
+    (`STATION_VALUE_CONFLICT`), домен снимает ровно один стык за раз и строится заново — без отказа домену.
+    """
+
+    snapshot, request = _piece_chain_snapshot(EVENT_POLYGON, EVENT_ROUTE, alpha="2")
+    prepared = _prepared(snapshot, request)
+    # Без снятия домен отказал бы именованным `STATION_VALUE_CONFLICT` (три ответа, стык двух из них не соседний).
+    import cftuv_envelope.materialize.domain as domain_module
+
+    real = domain_module.junction_to_withdraw
+    domain_module.junction_to_withdraw = lambda table, runs: None
+    try:
+        coverage = conveyor_coverage(prepared, None)
+        refused = materialize_domain(
+            prepared, coverage, request=dataclasses.replace(request, uv_policy_id=UV), decal_topology_law=DecalTopologyLawV1.TRIANGLES_V1
+        )
+    finally:
+        domain_module.junction_to_withdraw = real
+    assert refused.outcome is MaterializationOutcome.BATCH_DID_NOT_VALIDATE
+    assert "STATION_VALUE_CONFLICT" in refused.detail
+    result, counters = _materialized(prepared, request)
+    assert counters["STATION_SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT"] == 1
+    assert counters["STATION_SAME_PCHAIN_JOINS"] == 1
+    assert counters["MATERIALIZE_REGIONS"] == 2 and counters["MATERIALIZE_INTERFACE_CHAINS"] == 1
+    named = [item for item in result.batch.diagnostics if item.outcome.value == "CORNER_JOIN_SAME_PCHAIN_V1"]
+    assert len(named) == 1

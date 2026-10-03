@@ -214,6 +214,11 @@ class NamedOutcome(str, Enum):
     # там `s` начинается заново, а вершина разреза несёт два набора `(s, r)` в двух регионах
     # (`FLOW_CYCLE_OPENED`). Шов один — на этом стыке; остальной поток непрерывен.
     U_RESTARTS_AT_CLOSED_FLOW_OPENING = "U_RESTARTS_AT_CLOSED_FLOW_OPENING"
+    # Стыки двух кусков ОДНОЙ цепи хоста без записи угла (выпуклые и вырожденные в карте) продолжены потоком
+    # (`CORNER_JOIN_SAME_PCHAIN_V1`, решение владельца 2026-10-04): `u` течёт сквозь стык, шва нет. Диагностика несёт
+    # числа: сколько стыков продолжено (`CONVEX` / `COLLINEAR`) и сколько осталось углами из-за изгиба шире четверти
+    # оборота (`JOIN_BEND_BEYOND_QUARTER_TURN`) либо неоднозначного стыка (`JOIN_CORNER_NOT_ADJACENT`).
+    CORNER_JOIN_SAME_PCHAIN_V1 = "CORNER_JOIN_SAME_PCHAIN_V1"
     # Острая вогнутая вершина оставлена МИТРОВАННОЙ (веер не записался): мягкого
     # угла в этом месте нет, и меш показывает именно митру.
     DEGRADED_MITER_CORNER_IN_GEOMETRY = "DEGRADED_MITER_CORNER_IN_GEOMETRY"

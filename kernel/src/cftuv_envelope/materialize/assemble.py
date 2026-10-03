@@ -346,10 +346,15 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, ta
                 continue
             rung = None if frame_face.is_fan else _rung_station(table, given, run_id, value)
             if rung is None:
+                answered = ", ".join(
+                    f"{name}=(s {decimal_of(given_value[0], table.scale):.6f}, r {decimal_of(given_value[1], table.scale):.6f})"
+                    for name, given_value in (*given.items(), (run_id, value))
+                )
                 raise MaterializationRefusal(
                     MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
                     f"STATION_VALUE_CONFLICT: vertex {key} in region {region} "
-                    f"has two (s, r) answers from owner {frame_face.face.owner}",
+                    f"has two (s, r) answers from owner {frame_face.face.owner}: {answered}",
+                    station_conflict=(run_id, *given),
                 )
             given[run_id] = value
             facts[slot] = rung

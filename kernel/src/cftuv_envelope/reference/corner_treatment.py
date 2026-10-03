@@ -1,6 +1,6 @@
 """Обработка вогнутого угла ДО закона счёта: компиляция и пересчёт записей по сырому снапшоту.
 
-Сам закон (порог 45°, «одна цепь» владельца, причины) — в `_corner_treatment.py`:
+Сам закон («одна цепь» владельца, предел изгиба четверть оборота, причины) — в `_corner_treatment.py`:
 его читает и проверяющий плана, которому `reference` недоступен. Здесь остаётся то,
 что нужно только компиляции: выбор счёта угла под JOIN (`resolve_corner_selection`)
 и пересчёт каждой записи компиляции при сборке `GeometryContext`
@@ -19,7 +19,7 @@ from dataclasses import replace
 
 from .._corner_treatment import (  # noqa: F401  (имена закона остаются здесь же по старому пути)
     CORNER_TREATMENT_LAW,
-    JOIN_THRESHOLD_OVER_PI,
+    JOIN_BEND_BOUND_OVER_PI,
     decide,
     recompute_record,
     treatment_record,

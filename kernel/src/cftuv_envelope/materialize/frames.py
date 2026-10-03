@@ -46,6 +46,9 @@ class MaterializationRefusal(Exception):
 
     `counters` — числа, которые стадия успела посчитать до отказа: отказ без
     чисел не отличить от «не дошли», а потеря граней именно такой отказ.
+    `station_conflict` — пробеги (`StationRunV1.run_id`), давшие вершине региона два ответа `(s, r)`: новый
+    пробег первым, затем прежние. Не пусто только у `STATION_VALUE_CONFLICT` станций; по нему домен снимает
+    стык закона `CORNER_JOIN_SAME_PCHAIN_V1`, из-за которого пробеги сошлись в одном регионе.
     """
 
     def __init__(
@@ -53,11 +56,13 @@ class MaterializationRefusal(Exception):
         outcome: MaterializationOutcome,
         detail: str,
         counters: tuple[tuple[str, int], ...] = (),
+        station_conflict: tuple[str, ...] = (),
     ):
         super().__init__(f"{outcome.value}: {detail}")
         self.outcome = outcome
         self.detail = detail
         self.counters = tuple(counters)
+        self.station_conflict = tuple(station_conflict)
 
     def augmented(
         self, extra: str = "", counters: tuple[tuple[str, int], ...] = ()
@@ -65,7 +70,10 @@ class MaterializationRefusal(Exception):
         """Тот же исход с пояснением в хвосте детали и добавленными числами."""
 
         return MaterializationRefusal(
-            self.outcome, f"{self.detail}{extra}", (*self.counters, *counters)
+            self.outcome,
+            f"{self.detail}{extra}",
+            (*self.counters, *counters),
+            self.station_conflict,
         )
 
 

@@ -36,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from fractions import Fraction
 
+from .._corner_treatment import shared_source_lineage
 from ..contracts.envelopes import CornerTreatmentV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..planar_metric import fraction_from_exact
@@ -67,6 +68,15 @@ SKIP_JOIN_USE_NOT_IN_DOMAIN_LOOPS = "JOIN_USE_NOT_IN_DOMAIN_LOOPS"
 #: Угол JOIN замкнутой цепи из ОДНОГО вхождения: потока нет (его пробеги — по кадру на
 #: пробег, как без JOIN), и это названо, а не потеряно.
 SKIP_JOIN_CYCLE_OF_ONE_USE = "JOIN_CYCLE_OF_ONE_USE"
+#: Стык двух кусков ОДНОЙ цепи хоста без записи угла (хост пишет запись каждому вогнутому стыку, то есть стык
+#: выпуклый либо вырожденный в карте), чей изгиб в карте НЕ МЕНЬШЕ четверти оборота (`dot_G(вход, выход) <= 0`; имя
+#: «beyond» включает саму четверть): тот же СТРОГИЙ предел, что у JOIN вогнутого угла (`δ/π < 1/2`). Поток через него
+#: не идёт, угол остаётся углом (шов): у прямого угла излом билинейной UV доходил до 1.0–1.15 alpha.
+SKIP_JOIN_BEND_BEYOND_QUARTER_TURN = "JOIN_BEND_BEYOND_QUARTER_TURN"
+#: Стык закона `CORNER_JOIN_SAME_PCHAIN_V1`, снятый доменом после конфликта станций (`STATION_VALUE_CONFLICT`): вершина
+#: события скелета (короткий кусок между двумя выпуклыми стыками вырождается, и две биссектрисы сходятся в узле)
+#: получила бы три разных `s` от трёх пробегов одного потока; единой станции узла у закона нет. Стык остаётся углом (шов).
+SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT = "JOIN_WITHDRAWN_AT_STATION_CONFLICT"
 #: Имя кадра первого вхождения замкнутого потока (`FLOW_CYCLE_OPENED`): суффикс к ключу потока.
 OPENING_FRAME_SUFFIX = "@opening"
 STATION_SKIP_REASONS = (
@@ -82,6 +92,8 @@ STATION_SKIP_REASONS = (
     SKIP_JOIN_CORNER_NOT_ADJACENT,
     SKIP_JOIN_USE_NOT_IN_DOMAIN_LOOPS,
     SKIP_JOIN_CYCLE_OF_ONE_USE,
+    SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
+    SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT,
 )
 
 
@@ -269,6 +281,9 @@ class ChainStationTableV1:
     #: Разрезы замкнутых потоков: `(ключ потока, вхождение-замыкатель, вхождение-открыватель,
     #: цепь открывателя)`. Каждый — диагностика `U_RESTARTS_AT_CLOSED_FLOW_OPENING`.
     cuts: tuple = field(default=(), compare=False)
+    #: Стыки закона `CORNER_JOIN_SAME_PCHAIN_V1` БЕЗ записи угла (выпуклые и вырожденные в карте): `(вершина,
+    #: вхождение до, вхождение после, `COLLINEAR` | `CONVEX`)`. Вогнутые стыки несёт план (`CornerTreatmentRecordV1`).
+    same_chain_joins: tuple = field(default=(), compare=False)
 
     def join_station(self, run_a: str, run_b: str):
         """`s` вершины угла JOIN между двумя пробегами (в любом порядке) либо `None`."""
@@ -649,6 +664,97 @@ def _join_successors(context, uses: dict, present, skips: list):
     return successors, outside
 
 
+def _dot_g(gram, left, right) -> Fraction:
+    """`<left, right>_G` решёточных векторов, точно."""
+
+    g00, g01, g11 = gram
+    return g00 * left[0] * right[0] + g01 * (left[0] * right[1] + left[1] * right[0]) + g11 * left[1] * right[1]
+
+
+def _arm(edge, vertex_id: str):
+    """`(узел, вектор от узла вдоль ребра)` конца ребра петли, лежащего в вершине, либо `None`."""
+
+    if edge.start_vertex_id == vertex_id and edge.end_vertex_id != vertex_id:
+        return edge.start, (edge.end[0] - edge.start[0], edge.end[1] - edge.start[1])
+    if edge.end_vertex_id == vertex_id and edge.start_vertex_id != vertex_id:
+        return edge.end, (edge.start[0] - edge.end[0], edge.start[1] - edge.end[1])
+    return None
+
+
+def _same_chain_successors(context, uses: dict, present, skips: list, successors: dict, gram, withdrawn=frozenset()):
+    """Стыки закона `CORNER_JOIN_SAME_PCHAIN_V1` БЕЗ записи угла: `[(вершина, до, после, вид), ...]`; пополняет `successors`.
+
+    Решение владельца (2026-10-04): «одна цепь» — факт хоста, а не порог угла. Любой стык двух кусков ОДНОЙ цепи
+    ВЛАДЕЛЬЦА (общая запись `chain-source` его патча) продолжает полосу: `u` течёт сквозь стык, регион один, шва нет.
+    Вогнутые стыки (хост пишет им запись угла) решает план — `_join_successors`; здесь остальные: у них записи нет,
+    потому что стык выпуклый либо вырожденный в карте, и перекладина на биссектрисе та же, что у митры вогнутого
+    JOIN (`RUNG_STATION_FROM_CHAIN_VERTEX_V1`: `s_a + s_b = 2 s_v`, равноскоростная биссектриса симметрична).
+    Предел изгиба один и тот же и СТРОГИЙ: меньше четверти оборота в карте (`dot_G(вход, выход) > 0`), четверть и
+    шире — названный пропуск `JOIN_BEND_BEYOND_QUARTER_TURN`, угол остаётся углом (шов). Вид стыка (`COLLINEAR` | `CONVEX`) читается в той же
+    карте решётки, что у всей таблицы, точной арифметикой.
+
+    Стык — это вершина, где вхождение домена КОНЧАЕТСЯ, а другое НАЧИНАЕТСЯ (в направлении `ChainUse`). Куски разных
+    цепей и снапшоты без записей `chain-source` (запись не доказана) сюда не попадают: закон инертен, как у вогнутого
+    JOIN. Вхождение без рёбер в петлях домена стыка не образует (поток не выходит за границу домена).
+    """
+
+    snapshot = context.snapshot
+    sectors = {item.owner_sector_id: item for item in snapshot.angular_owner_sectors}
+    reflex_pairs = set()
+    for relation in snapshot.corner_relations:
+        sector = sectors.get(relation.owner_sector_id)
+        if sector is not None and sector.ordered_incident_chain_use_ids:
+            ids = sector.ordered_incident_chain_use_ids
+            reflex_pairs.add((ids[0].value, ids[-1].value))
+            reflex_pairs.add((ids[-1].value, ids[0].value))
+    ends: dict[str, list[str]] = {}
+    starts: dict[str, list[str]] = {}
+    for use_id in sorted(present):
+        use = uses.get(use_id)
+        if use is None:
+            continue
+        vertices = context.directed_chain_vertices(use)
+        ends.setdefault(vertices[-1].value, []).append(use_id)
+        starts.setdefault(vertices[0].value, []).append(use_id)
+    found = []
+    for where in sorted(ends):
+        for first_id in ends[where]:
+            first = uses[first_id]
+            eligible = [
+                second_id
+                for second_id in starts.get(where, ())
+                if second_id != first_id
+                and (first_id, second_id) not in reflex_pairs
+                and shared_source_lineage(
+                    context.chains_by_id[first.physical_chain_id],
+                    context.chains_by_id[uses[second_id].physical_chain_id],
+                    first.owner_patch_id,
+                )
+            ]
+            if not eligible:
+                continue
+            if len(eligible) != 1 or len(ends[where]) != 1 or first_id in successors or eligible[0] in successors.values():
+                skips.append((where, SKIP_JOIN_CORNER_NOT_ADJACENT))
+                continue
+            second_id = eligible[0]
+            if where in withdrawn:
+                skips.append((where, SKIP_JOIN_WITHDRAWN_AT_STATION_CONFLICT))
+                continue
+            arms_a = [item for item in (_arm(edge, where) for edge in present[first_id]) if item]
+            arms_b = [item for item in (_arm(edge, where) for edge in present[second_id]) if item]
+            if len(arms_a) != 1 or len(arms_b) != 1 or arms_a[0][0] != arms_b[0][0]:
+                skips.append((where, SKIP_JOIN_CORNER_NOT_ADJACENT))
+                continue
+            left, right = arms_a[0][1], arms_b[0][1]
+            if _dot_g(gram, left, right) >= 0:
+                skips.append((where, SKIP_JOIN_BEND_BEYOND_QUARTER_TURN))
+                continue
+            successors[first_id] = second_id
+            kind = "COLLINEAR" if left[0] * right[1] - left[1] * right[0] == 0 else "CONVEX"
+            found.append((where, first_id, second_id, kind))
+    return found
+
+
 def _flows(use_ids, successors: dict) -> list:
     """Вхождения, выстроенные в потоки: `[([u1, u2, ...], замкнут), ...]`, детерминированно.
 
@@ -700,7 +806,7 @@ def _use_order(context, uses, use_id, loop_edges, skips, unnamed):
     return chain_use, ordered
 
 
-def chain_station_table(prepared, budget) -> ChainStationTableV1:
+def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStationTableV1:
     """Таблица станций домена по ГОТОВОЙ подготовке очереди. Точно, под бюджетом.
 
     Порядок работы: (1) все рёбра всех петель всех регионов собираются со своим
@@ -717,6 +823,9 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
     Бюджет нужен потому, что каждый РАДИКАЛ длины — новый радиканд, то есть
     факторизация; исчерпание поднимает `ExactCanonicalizationWorkBudgetExhausted`
     наверх, и материализатор называет его своим исходом.
+
+    `withdrawn` — вершины стыков закона `CORNER_JOIN_SAME_PCHAIN_V1`, которые домен снял после конфликта станций
+    (`junction_to_withdraw`): такой стык остаётся углом, пропуск назван.
     """
 
     context = prepared.context
@@ -734,6 +843,7 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
     joins: dict = {}
     cuts: list = []
     successors, outside = _join_successors(context, uses, by_use, skips)
+    same_chain = _same_chain_successors(context, uses, by_use, skips, successors, gram, frozenset(withdrawn))
     flows = _flows(by_use, successors)
     for flow, closed in flows:
         accumulated = None
@@ -789,13 +899,36 @@ def chain_station_table(prepared, budget) -> ChainStationTableV1:
             ("STATION_JOIN_CORNERS", len(joins)),
             ("STATION_FLOW_CYCLES_OPENED", len(cuts)),
             ("STATION_JOIN_CORNERS_OUT_OF_DOMAIN", outside),
+            ("STATION_SAME_PCHAIN_JOINS", len(same_chain)),
         ),
         skips=tuple(skips),
         flow_of_run=flow_of_run,
         joins=joins,
         frame_of_run=frame_of_run,
         cuts=tuple(cuts),
+        same_chain_joins=tuple(same_chain),
     )
+
+
+def junction_to_withdraw(table: ChainStationTableV1, run_ids) -> str | None:
+    """Вершина стыка `CORNER_JOIN_SAME_PCHAIN_V1`, которую снимает конфликт станций пробегов `run_ids`, либо `None`.
+
+    Конфликт: вершина региона получила от нескольких пробегов ОДНОГО потока ответы, которые не сводятся
+    перекладиной стыка (узел события скелета, где сошлись биссектрисы трёх кусков). Снимается один стык за раз,
+    детерминированно: сначала входящий в вхождение НОВОГО пробега, затем исходящий из него, затем те же у прежних.
+    Стыки вогнутого JOIN плана не снимаются: их решает счёт угла, а не материализатор.
+    """
+
+    entering = {second: vertex for vertex, _first, second, _kind in table.same_chain_joins}
+    leaving = {first: vertex for vertex, first, _second, _kind in table.same_chain_joins}
+    for run_id in run_ids:
+        run = table.runs.get(run_id)
+        if run is None:
+            continue
+        for index in (entering, leaving):
+            if run.chain_use_id in index:
+                return index[run.chain_use_id]
+    return None
 
 
 def station_of(run: StationRunV1, point) -> SqrtSumV1:
