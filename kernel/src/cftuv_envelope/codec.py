@@ -90,30 +90,109 @@ def _canonical_decimal(value: Decimal) -> str:
     return text
 
 
+#: Кодировщик тех же настроек, что у `json.dumps(..., ensure_ascii=False, allow_nan=False, sort_keys=True,
+#: separators=(",", ":"))`: `dumps` с такими ключами строит НОВЫЙ `JSONEncoder` на каждый вызов, а ключ
+#: сортировки множества считается на каждый его элемент (на батче `building` — тысячи вызовов). Байты те же.
+_ENCODER = json.JSONEncoder(
+    ensure_ascii=False,
+    allow_nan=False,
+    sort_keys=True,
+    separators=(",", ":"),
+)
+
+
+def _build_text_encoder():
+    """`value -> str` тех же настроек без объекта `JSONEncoder` на каждый вызов.
+
+    `JSONEncoder.encode` собирает C-кодировщик (`c_make_encoder`) заново на КАЖДЫЙ вызов, а ключей
+    сортировки на батче тысячи (семь микросекунд на вызов, четверть времени дайджеста). Здесь тот же
+    C-кодировщик собирается один раз с теми же параметрами, что `JSONEncoder` отдаёт ему при
+    `ensure_ascii=False, allow_nan=False, sort_keys=True, check_circular=False, separators=(",", ":")`;
+    круговой ссылки в каноническом дереве из `dict`/`list`/`str`/`int` быть не может. Нет C-версии (не
+    CPython) — прежний путь через `_ENCODER`.
+    """
+
+    try:
+        from json.encoder import c_make_encoder, encode_basestring
+    except ImportError:  # pragma: no cover - не CPython
+        return _ENCODER.encode
+    if c_make_encoder is None:  # pragma: no cover - не CPython
+        return _ENCODER.encode
+
+    def unsupported(value):  # pragma: no cover - дерево собирает `to_canonical_data`
+        raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+
+    iterencode = c_make_encoder(
+        None, unsupported, encode_basestring, None, ":", ",", True, False, False
+    )
+
+    def encode(value) -> str:
+        return "".join(iterencode(value, 0))
+
+    return encode
+
+
+_encode_text = _build_text_encoder()
+
+#: `класс -> (имена его полей, {имя: умолчание})` для записей, которые идут обычным путём (не `OpaqueId`,
+#: не `Enum`, не `Decimal`): `dataclasses.fields` строит кортеж на каждый вызов, а записей в батче тысячи.
+#: Словарь умолчаний — поля «опускается на проводе, пока равно умолчанию» (`schema.wire_default_field`):
+#: быстрый путь пропускает их тем же условием, что и обычный.
+_RECORD_FIELDS: dict[type, tuple[tuple[str, ...], dict[str, Any]]] = {}
+
+#: Классы идентификаторов (`OpaqueId` и наследники), уже встреченные обычным путём: почти каждое поле
+#: записи — идентификатор, и `isinstance` по цепочке типов на каждом из них — лишняя цена.
+_OPAQUE_KINDS: set[type] = set()
+
+
 def _json_sort_key(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    return _encode_text(value).encode("utf-8")
 
 
 def to_canonical_data(value: Any) -> Any:
+    kind = type(value)
+    known = _RECORD_FIELDS.get(kind)
+    if known is not None:
+        names, wire_defaults = known
+        result: dict[str, Any] = {"$type": kind.__name__}
+        if wire_defaults:
+            for name in names:
+                held = getattr(value, name)
+                if name in wire_defaults and held == wire_defaults[name]:
+                    continue
+                result[name] = to_canonical_data(held)
+        else:
+            for name in names:
+                result[name] = to_canonical_data(getattr(value, name))
+        return result
+    if kind is str or kind is int or kind is bool or value is None:
+        return value
+    if kind in _OPAQUE_KINDS:
+        return {"$id_type": kind.__name__, "value": value.value}
+    # Точные `tuple`/`frozenset` не бывают ни `OpaqueId`, ни `Enum`, ни `Decimal`, ни записью: ветки ниже
+    # для них те же, а четыре проверки типа до них не нужны.
+    if kind is tuple:
+        return [to_canonical_data(item) for item in value]
+    if kind is frozenset:
+        return sorted([to_canonical_data(item) for item in value], key=_json_sort_key)
     if isinstance(value, OpaqueId):
+        _OPAQUE_KINDS.add(kind)
         return {"$id_type": type(value).__name__, "value": value.value}
     if isinstance(value, Enum):
         return value.value
     if isinstance(value, Decimal):
         return _canonical_decimal(value)
     if is_dataclass(value) and not isinstance(value, type):
-        result: dict[str, Any] = {"$type": type(value).__name__}
+        result = {"$type": type(value).__name__}
         for field in fields(value):
             held = getattr(value, field.name)
             if is_wire_default_field(field) and held == field.default:
                 continue
             result[field.name] = to_canonical_data(held)
+        _RECORD_FIELDS[kind] = (
+            tuple(field.name for field in fields(value)),
+            {field.name: field.default for field in fields(value) if is_wire_default_field(field)},
+        )
         return result
     if isinstance(value, tuple):
         return [to_canonical_data(item) for item in value]
@@ -134,13 +213,7 @@ def to_canonical_data(value: Any) -> Any:
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(
-        to_canonical_data(value),
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    return _encode_text(to_canonical_data(value)).encode("utf-8")
 
 
 def _reject_constant(value: str) -> None:

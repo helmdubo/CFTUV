@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-from ..wavefront.faces import contour_crossings, doubled_shoelace, orientation
+from ..wavefront.faces import contour_crossings, orientation, shoelace_sign
 
 
 def _ear_contains_vertex(points, budget, a: int, b: int, c: int, w: int) -> bool:
@@ -76,7 +76,7 @@ def triangulate_exact(points, budget):
     count = len(points)
     if count < 3:
         return None
-    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    total = shoelace_sign(points, budget)
     if total == 0:
         return None
     ring = list(range(count))
@@ -149,7 +149,7 @@ def triangulate_from_apex(points, apex, budget):
     count = len(points)
     if count < 3 or not 0 <= apex < count:
         return None
-    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    total = shoelace_sign(points, budget)
     if total == 0:
         return None
     ring = list(range(count))
@@ -177,7 +177,7 @@ def convex_quad_ring(points, budget):
 
     if len(points) != 4:
         return None
-    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    total = shoelace_sign(points, budget)
     if total == 0:
         return None
     ring = (0, 1, 2, 3) if total > 0 else (3, 2, 1, 0)
@@ -196,7 +196,7 @@ def convex_quad_ring(points, budget):
 def counter_clockwise_ring(points, budget):
     """Кольцо индексов против часовой по знаку площади контура; `None` — площадь нуль."""
 
-    total = doubled_shoelace(tuple(points)).sign(budget=budget)
+    total = shoelace_sign(points, budget)
     if total == 0:
         return None
     count = len(points)

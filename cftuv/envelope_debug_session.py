@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Callable, Hashable, TYPE_CHECKING
 
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -38,6 +39,9 @@ WINDOW_MANAGER_SESSION_ATTRIBUTE = "_cftuv_envelope_debug_session"
 #: Результат домена — батч с сеткой, поэтому запас считан в доменах: `building` (121) в
 #: четыре прогона при разных alpha.
 PRODUCTION_RESULT_CACHE_LIMIT = 512
+#: Предел памяти замечаний к снапшотам доменов (по давности): домены одной ревизии (сотни на `building`) в него
+#: входят с запасом, а сессия с несколькими мешами не копит снапшоты без счёта.
+SNAPSHOT_ISSUES_CACHE_LIMIT = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +211,10 @@ class EnvelopeDebugSessionController:
         # законов, поэтому тот же ключ даёт тот же ответ без единого покрытия. Вытеснение
         # — по давности обращения (`PRODUCTION_RESULT_CACHE_LIMIT`).
         self._production_result_cache: OrderedDict[tuple, object] = OrderedDict()
+        # Замечания проверки снапшота домена по тождеству снапшота и допуску растяжения запроса: от alpha они
+        # не зависят, а запрос к снапшоту собирается на КАЖДОМ нажатии. Запись держит сам снапшот (занятое
+        # тождество не уходит другому).
+        self._snapshot_issues: OrderedDict[tuple[int, object], tuple[object, tuple]] = OrderedDict()
         # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
         # считается в них): живут и чистятся вместе с кэшем подготовок.
         self._preparation_blobs = None
@@ -241,6 +249,26 @@ class EnvelopeDebugSessionController:
             self._preparation_blobs = PreparationBlobsV1()
         return self._preparation_blobs
 
+    def snapshot_issues(self, snapshot, stretch_budget=None) -> tuple:
+        """`validate_analysis_snapshot(snapshot, developable_stretch_budget=...)`: один раз на объект снапшота
+        и допуск растяжения за сессию (замечания зависят от допуска, как и сам запрос; `stretch_budget` —
+        любое число с `numerator`/`denominator`, `None` — допуск самого снапшота)."""
+
+        budget = None if stretch_budget is None else Fraction(stretch_budget.numerator, stretch_budget.denominator)
+        key = (id(snapshot), budget)
+        known = self._snapshot_issues.get(key)
+        if known is None or known[0] is not snapshot:
+            from .envelope_request_export import _load_kernel
+
+            kernel, _ = _load_kernel()
+            known = (snapshot, tuple(kernel.validate_analysis_snapshot(snapshot, developable_stretch_budget=budget)))
+            self._snapshot_issues[key] = known
+            while len(self._snapshot_issues) > SNAPSHOT_ISSUES_CACHE_LIMIT:
+                self._snapshot_issues.popitem(last=False)
+        else:
+            self._snapshot_issues.move_to_end(key)
+        return known[1]
+
     def slider_coverage_pool(self, workers: int, profile):
         """Пул покрытия для ползунка alpha либо `None`: тогда считает родитель.
 
@@ -265,6 +293,7 @@ class EnvelopeDebugSessionController:
         self._compiled_envelope_cache.clear()
         self._conveyor_preparation_cache.clear()
         self._production_result_cache.clear()
+        self._snapshot_issues.clear()
         if self._preparation_blobs is not None:
             self._preparation_blobs.clear()
         self._queue_session = None

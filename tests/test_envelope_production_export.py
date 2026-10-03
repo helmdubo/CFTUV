@@ -294,6 +294,77 @@ def test_the_slider_alpha_reaches_the_coverage_and_the_preparation_is_still_reus
     assert areas(far)
 
 
+def test_the_snapshot_is_validated_once_per_session_not_on_every_press(monkeypatch):
+    """Снапшот домена от alpha не зависит: замечания к нему — память сессии, а не работа каждого нажатия."""
+
+    import cftuv_envelope as kernel
+    import cftuv_envelope.validation as validation
+
+    explicit, internal = [], []
+    real_explicit, real_internal = kernel.validate_analysis_snapshot, validation.validate_analysis_snapshot
+    monkeypatch.setattr(
+        kernel,
+        "validate_analysis_snapshot",
+        lambda item, **kwargs: explicit.append(item) or real_explicit(item, **kwargs),
+    )
+    monkeypatch.setattr(
+        validation,
+        "validate_analysis_snapshot",
+        lambda item, **kwargs: internal.append(item) or real_internal(item, **kwargs),
+    )
+    bundle = quad_row_bundle(ROW)
+    controller = EnvelopeDebugSessionController()
+    first, _ = _production(bundle, controller, alpha=0.25)
+    # Холодное нажатие проверяет снапшоты (в том числе в выгрузке и подготовке); тёплое с другой alpha — ни одного.
+    after_first = (len(explicit), len(internal))
+    assert after_first[0] >= ROW
+    second, _ = _production(bundle, controller, alpha=0.5)
+    assert (len(explicit), len(internal)) == after_first
+    assert [item.outcome for item in second.results] == [item.outcome for item in first.results]
+    # Память живёт с сессией: после `clear()` снапшот проверяется заново.
+    snapshot = explicit[0]
+    assert controller.snapshot_issues(snapshot) is controller.snapshot_issues(snapshot)
+    controller.clear()
+    assert not controller._snapshot_issues
+
+
+def test_the_snapshot_issues_memory_is_keyed_by_the_requests_stretch_budget(monkeypatch):
+    """Замечания к снапшоту зависят от допуска растяжения запроса: один снапшот под другим допуском не берётся из памяти."""
+
+    from fractions import Fraction
+
+    import cftuv_envelope as kernel
+
+    controller = EnvelopeDebugSessionController()
+    _production(quad_row_bundle(ROW), controller)
+    snapshot = next(iter(controller._snapshot_issues.values()))[0]
+    seen = []
+    real = kernel.validate_analysis_snapshot
+    monkeypatch.setattr(
+        kernel,
+        "validate_analysis_snapshot",
+        lambda item, **kwargs: seen.append(kwargs.get("developable_stretch_budget")) or real(item, **kwargs),
+    )
+    wide = Fraction(7, 20)
+    first = controller.snapshot_issues(snapshot, wide)
+    assert seen == [wide]
+    assert controller.snapshot_issues(snapshot, wide) is first and seen == [wide]
+    controller.snapshot_issues(snapshot, Fraction(1, 10))
+    assert seen == [wide, Fraction(1, 10)]
+
+
+def test_the_snapshot_issues_memory_is_bounded_and_evicts_the_oldest(monkeypatch):
+    from cftuv import envelope_debug_session as session_module
+
+    monkeypatch.setattr(session_module, "SNAPSHOT_ISSUES_CACHE_LIMIT", 3)
+    controller = EnvelopeDebugSessionController()
+    bundle = quad_row_bundle(ROW)
+    _production(bundle, controller)
+    assert len(controller._snapshot_issues) <= 3
+    held = [item[0] for item in controller._snapshot_issues.values()]
+    assert len(held) == len({id(item) for item in held})
+
+
 # --------------------------------------------------------------------------
 # 2. Размещение не меняет ответ
 # --------------------------------------------------------------------------

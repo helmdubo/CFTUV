@@ -170,6 +170,21 @@ def test_a_snapshot_recorded_under_another_budget_than_the_requests_does_not_com
     assert "recorded=7/20 request=1/5" in result.diagnostics[0].message
 
 
+def test_precomputed_snapshot_issues_belong_to_one_budget():
+    """Память хоста ключует замечания к снапшоту по допуску запроса: без него несогласие допусков пропало бы."""
+
+    snapshot, request = _bound_domain(THIRTY_FIVE_PERCENT)
+    asked = request.developable_stretch_budget
+    own = kernel.validate_analysis_snapshot(
+        snapshot, developable_stretch_budget=Fraction(asked.numerator, asked.denominator)
+    )
+    full = kernel.validate_snapshot_request_references(snapshot, request)
+    assert full, "the budget disagreement between the certificate and the request is named"
+    assert kernel.validate_snapshot_request_references(snapshot, request, own) == full
+    blind = kernel.validate_analysis_snapshot(snapshot)
+    assert kernel.validate_snapshot_request_references(snapshot, request, blind) != full
+
+
 def test_the_default_snapshot_and_the_default_request_still_agree():
     snapshot, request = developable_domain(factories.quarter_cylinder(), ("r0a", "r0b"), alpha="0.8")
     assert kernel.validate_snapshot_request_references(snapshot, request) == ()

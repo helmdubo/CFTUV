@@ -30,7 +30,7 @@ alpha (в поле `bf6` — 1/4). Сравнивать «до конца» с �
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
 
@@ -39,6 +39,7 @@ from ..exact_sqrt_sum import (
     ExactWorkBudgetV1,
     _divide_with_prime_universe,
     _prime_universe_from_q_values,
+    prime_universe_remembered,
 )
 from .faces import (
     EdgeKey,
@@ -110,19 +111,14 @@ class CoverageV1:
         ).sign(budget=self.work_budget) >= 0
 
 
-def _value(
-    line: SupportLineV1,
-    point: Point,
-    alpha: Fraction,
-    budget: ExactWorkBudgetV1 | None = None,
-) -> SqrtSumV1:
-    """`a*x + b*y - c - alpha*sqrt(q)`. Ноль — на самом фронте, точно."""
+def _value(line: SupportLineV1, point: Point, front: SqrtSumV1) -> SqrtSumV1:
+    """`a*x + b*y - c - alpha*sqrt(q)`. Ноль — на самом фронте, точно. `front` — `alpha*sqrt(q)` грани."""
 
     return (
         point[0].scaled(line.a)
         + point[1].scaled(line.b)
         - SqrtSumV1.rational(line.c)
-        - SqrtSumV1.radical(alpha, line.q, budget)
+        - front
     )
 
 
@@ -140,7 +136,9 @@ def clip_to_halfplane(
     полуплоскость выпукла, а грань скелета односвязна.
     """
 
-    values = [_value(line, point, alpha, budget) for point in points]
+    # Фронт грани `alpha*sqrt(q)` один на все её вершины: считать радикал (разложение `q`) на каждую вершину незачем.
+    front = SqrtSumV1.radical(alpha, line.q, budget)
+    values = [_value(line, point, front) for point in points]
     signs = [value.sign(budget=budget) for value in values]
     if all(sign <= 0 for sign in signs):
         return points
@@ -201,14 +199,45 @@ def _line_of(face: FaceV1) -> SupportLineV1:
     return face.line
 
 
+#: Недавние ТОЧНЫЕ покрытия: `(тождество разбиения, alpha) -> (разбиение, покрытие)`. Покрытие региона считают
+#: дважды за одно нажатие: `conveyor_coverage` берёт из него площади, а материализатор (`region_contours`) —
+#: сами контуры, причём тем же вызовом с теми же разбиением и alpha. Функция чистая, разбиение — замороженная
+#: запись, поэтому второй вызов получает прежнее значение; запись держит само разбиение, и занятое тождество
+#: не может достаться другому. Бюджет — цена, не ответ (`work_budget` вне тождества покрытия): попадание несёт
+#: бюджет СПРАШИВАЮЩЕГО, а не бюджет первого вызова. Отказы (не точное разбиение, отрицательная alpha) не
+#: запоминаются. Предел записей мал: домен выпускает один-два региона, а тяжёлые точки не должны копиться.
+_RECENT: dict[tuple[int, Fraction], tuple[FacePartitionV1, CoverageV1]] = {}
+_RECENT_LIMIT = 8
+
+
 def coverage_at(
     partition: FacePartitionV1,
     alpha: Fraction,
     work_budget: ExactWorkBudgetV1 | None = None,
+    store: dict | None = None,
 ) -> CoverageV1:
-    """Покрытие к моменту alpha по граням скелета, с точной площадью."""
+    """Покрытие к моменту alpha по граням скелета, с точной площадью. `store` — память подготовки (вселенная простых)."""
 
     alpha = Fraction(alpha)
+    key = (id(partition), alpha)
+    known = _RECENT.pop(key, None)
+    if known is not None:
+        _RECENT[key] = known
+        return replace(known[1], work_budget=work_budget)
+    result = _coverage_at(partition, alpha, work_budget, store)
+    if result.outcome is CoverageOutcome.EXACT:
+        _RECENT[key] = (partition, result)
+        while len(_RECENT) > _RECENT_LIMIT:
+            del _RECENT[next(iter(_RECENT))]
+    return result
+
+
+def _coverage_at(
+    partition: FacePartitionV1,
+    alpha: Fraction,
+    work_budget: ExactWorkBudgetV1 | None,
+    store: dict | None,
+) -> CoverageV1:
     if partition.outcome is not FaceOutcome.EXACT:
         return CoverageV1(
             CoverageOutcome.PARTITION_IS_NOT_EXACT,
@@ -229,8 +258,8 @@ def coverage_at(
         )
 
     face_lines = tuple(_line_of(face) for face in partition.faces)
-    prime_universe = _prime_universe_from_q_values(
-        tuple(line.q for line in face_lines), work_budget
+    prime_universe = prime_universe_remembered(
+        tuple(line.q for line in face_lines), work_budget, store, _prime_universe_from_q_values
     )
     covered: list[FaceCoverageV1] = []
     total = SqrtSumV1.zero()

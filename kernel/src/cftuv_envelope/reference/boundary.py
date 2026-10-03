@@ -14,6 +14,7 @@ from .common import (
     SourceSupportSegment,
     stable_id,
 )
+from .alpha_bounds import bounds_of_contacts, sign_against
 from .contracts import (
     ComponentEffectiveAlphaV1,
     ReferenceDiagnosticSeverity,
@@ -105,23 +106,46 @@ def _remembered(memo: ContactCandidatesMemoV1 | None, key: tuple, compute):
     return found
 
 
+def _contact_key(tag, source, boundary):
+    segment = boundary.segment
+    return (
+        tag,
+        source.support_id,
+        point_key(source.start),
+        point_key(source.end),
+        segment.segment_id,
+        point_key(segment.start),
+        point_key(segment.end),
+    )
+
+
 def _contacts_of(context, source, boundary, memo):
     """`_contact_candidates` через память подготовки (`None` — как раньше, без неё)."""
 
-    segment = boundary.segment
     return _remembered(
         memo,
-        (
-            "contacts",
-            source.support_id,
-            point_key(source.start),
-            point_key(source.end),
-            segment.segment_id,
-            point_key(segment.start),
-            point_key(segment.end),
-        ),
+        _contact_key("contacts", source, boundary),
         lambda: _contact_candidates(context, source, boundary),
     )
+
+
+def _contacts_bounded(context, source, boundary, memo):
+    """`((alpha, station, point), оболочка alpha)` по контактам пары: оболочки (`alpha_bounds`) едут с подготовкой."""
+
+    contacts = _contacts_of(context, source, boundary, memo)
+    bounds = _remembered(
+        memo, _contact_key("bounds", source, boundary), lambda: bounds_of_contacts(contacts)
+    )
+    return zip(contacts, bounds)
+
+
+def _blocking_of(domain_geometry, memo):
+    """`domain_geometry.blocking_segments` через память подготовки: свойство строит кортеж и точные вогнутые углы заново на каждый вызов.
+
+    Граница домена от alpha не зависит, а вызывается она на КАЖДЫЙ опорный интервал каждого покрытия.
+    """
+
+    return _remembered(memo, ("blocking", domain_geometry.patch_domain_id), lambda: domain_geometry.blocking_segments)
 
 
 def _source_length(context, source, memo):
@@ -286,15 +310,15 @@ def resolve_component_alphas(
             best_split = None
             best_bypass = None
             endpoint_events = []
-            for boundary in domain_geometry.blocking_segments:
+            for boundary in _blocking_of(domain_geometry, contact_memo):
                 if source.physical_edge_id.value in boundary.segment.provenance.physical_edge_ids:
                     continue
-                for alpha, station, point in _contacts_of(
+                for (alpha, station, point), bounds in _contacts_bounded(
                     context, source, boundary, contact_memo
                 ):
-                    if exact_sign(alpha) == 0:
+                    if sign_against(alpha, bounds, sp.Integer(0)) == 0:
                         continue
-                    if exact_sign(alpha - requested) > 0:
+                    if sign_against(alpha, bounds, requested) > 0:
                         continue
                     source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
@@ -325,7 +349,7 @@ def resolve_component_alphas(
                     elif (
                         boundary.role is BoundaryRole.EXPLICIT_BARRIER
                         and not interior
-                        and exact_sign(requested - alpha) > 0
+                        and sign_against(alpha, bounds, requested) < 0
                     ):
                         candidate = (alpha, event_key, construction)
                         if (

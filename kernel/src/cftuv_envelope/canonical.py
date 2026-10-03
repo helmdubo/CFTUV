@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from hashlib import sha256
 
 from .codec import canonical_json_bytes
@@ -38,7 +38,40 @@ def semantic_plan_digest(plan: CompiledPatchEvaluationPlanV1) -> SemanticPlanDig
     return SemanticPlanDigest(_digest(canonical_json_bytes(plan)))
 
 
+#: Последний подсчитанный дайджест: `(части батча по тождеству, дайджест)`. Материализатор считает дайджест
+#: при сборке, а валидатор пересчитывает его при проверке, и оба зовут эту функцию с батчами, у которых одни и те
+#: же кортежи (`replace` меняет только поле дайджеста). Дайджест — чистая функция проекции, а части батча —
+#: замороженные записи и кортежи, поэтому второй вызов с ТЕМИ ЖЕ объектами возвращает прежнее значение. Запись
+#: держит сами объекты, и занятое тождество не может достаться другому: подмена хоть одной части (новый
+#: кортеж, пусть и равный) даёт промах и честный пересчёт. Память одна запись: хвост воркера не копится.
+_LAST_DIGEST: tuple[tuple, GeometryBatchSemanticDigest] | None = None
+
+
+#: Ключ памяти — ВСЕ поля батча, кроме самого дайджеста (его-то и считают). Список выводится из записи, а не
+#: пишется руками: новое поле батча попадает в ключ само, и устаревший ключ не даст чужого попадания.
+_KEY_FIELDS = tuple(
+    item.name for item in fields(GeometryBatchV1) if item.name != "semantic_digest"
+)
+
+
+def _projection_parts(batch: GeometryBatchV1) -> tuple:
+    return tuple(getattr(batch, name) for name in _KEY_FIELDS)
+
+
 def geometry_batch_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSemanticDigest:
+    global _LAST_DIGEST
+    parts = _projection_parts(batch)
+    last = _LAST_DIGEST
+    if last is not None and all(
+        old is new for old, new in zip(last[0], parts)
+    ):
+        return last[1]
+    digest = _compute_semantic_digest(batch)
+    _LAST_DIGEST = (parts, digest)
+    return digest
+
+
+def _compute_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSemanticDigest:
     boundary_vertex_keys = {
         key
         for chain in batch.boundary_chains

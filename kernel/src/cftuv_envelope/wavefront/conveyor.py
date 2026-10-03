@@ -1573,9 +1573,10 @@ def _region_coverage(
     lattice_alpha: Fraction,
     instance_ids: dict[str, str],
     work_budget: ExactWorkBudgetV1 | None = None,
+    store: dict | None = None,
 ) -> ConveyorRegionCoverageV1:
     owner_names = dict(region.owner_by_edge)
-    covered = coverage_at(region.partition, lattice_alpha, work_budget)
+    covered = coverage_at(region.partition, lattice_alpha, work_budget, store)
     faces = tuple(
         ConveyorFaceCoverageV1(
             region_id=region.region_id,
@@ -1746,8 +1747,9 @@ def conveyor_coverage(
     if budget is not None:
         budget.at_stage("COVERAGE")
     try:
+        store = None if prepared.contact_memo is None else prepared.contact_memo.entries
         regions = tuple(
-            _region_coverage(region, lattice_alpha, instance_ids, budget)
+            _region_coverage(region, lattice_alpha, instance_ids, budget, store)
             for region in prepared.regions
         )
     except ExactCanonicalizationWorkBudgetExhausted as exhausted:

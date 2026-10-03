@@ -355,7 +355,10 @@ MODULE_LINE_ALLOWANCE = {
     # `developable_stretch_budget` в вызове ядра, в `build_envelope_decal_request` и в вызове запроса постадийного прогона.
     # Строки оформлены обычно (по одному аргументу), а не склеены ради потолка: аудит нашёл склейки нечитаемыми. Блокер
     # HOST_REQUEST_EXPORT_COMPLEXITY по-прежнему открыт.
-    "cftuv/envelope_request_export.py": 2915,
+    # 2915 -> 2918. +3 за память замечаний снапшота (PERF MATERIALIZE-SPEED): параметр `snapshot_issues_of` у
+    # `build_envelope_decal_request` и его вызов с допуском растяжения запроса (замечания от допуска зависят, и память
+    # сессии ключует по нему). Число поднято осознанно, до фактического.
+    "cftuv/envelope_request_export.py": 2918,
     # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
     # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
     # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель

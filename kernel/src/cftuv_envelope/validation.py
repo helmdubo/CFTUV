@@ -680,10 +680,9 @@ def validate_analysis_snapshot(
     boundary_ids = _check_unique(issues, snapshot.boundary_constraints, "boundary_constraint_id", "boundary_constraints")
     angular_sector_ids = _check_unique(issues, snapshot.angular_owner_sectors, "owner_sector_id", "angular_owner_sectors")
     angle_certificate_ids = _check_unique(issues, snapshot.reflex_angle_certificates, "certificate_id", "reflex_angle_certificates")
-    corner_relation_ids = _check_unique(issues, snapshot.corner_relations, "corner_relation_id", "corner_relations")
-    junction_relation_ids = _check_unique(issues, snapshot.junction_relations, "junction_relation_id", "junction_relations")
-    terminal_relation_ids = _check_unique(issues, snapshot.terminal_relations, "terminal_relation_id", "terminal_relations")
-    del corner_relation_ids, junction_relation_ids, terminal_relation_ids
+    _check_unique(issues, snapshot.corner_relations, "corner_relation_id", "corner_relations")
+    _check_unique(issues, snapshot.junction_relations, "junction_relation_id", "junction_relations")
+    _check_unique(issues, snapshot.terminal_relations, "terminal_relation_id", "terminal_relations")
 
     metric_domain_ids = [item.patch_domain_id for item in snapshot.surface_metric_descriptors]
     if len(metric_domain_ids) != len(set(metric_domain_ids)):
@@ -1087,15 +1086,15 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
 def validate_snapshot_request_references(
     snapshot: AnalysisSnapshotV1,
     request: DecalRequestV1,
+    snapshot_issues: tuple[ValidationIssue, ...] | None = None,
 ) -> tuple[ValidationIssue, ...]:
-    """Validate the complete public compile input before any scope resolution."""
+    """Complete compile-input check; `snapshot_issues` — готовое `validate_analysis_snapshot(snapshot, developable_stretch_budget=<допуск ЭТОГО запроса>)`: замечания зависят от допуска, готовый кортеж принадлежит одному допуску."""
 
-    issues = list(
-        validate_analysis_snapshot(
-            snapshot,
-            developable_stretch_budget=_fraction(request.developable_stretch_budget),
+    if snapshot_issues is None:
+        snapshot_issues = validate_analysis_snapshot(
+            snapshot, developable_stretch_budget=_fraction(request.developable_stretch_budget)
         )
-    )
+    issues = list(snapshot_issues)
     issues.extend(validate_decal_request(request))
     use_ids = _values(snapshot.chain_uses, "chain_use_id")
     _require_refs(

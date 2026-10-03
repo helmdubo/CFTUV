@@ -2200,8 +2200,9 @@ def build_envelope_decal_request(
     decal_request_id_value: str | None = None,
     density=None,
     developable_stretch_budget=None,
+    snapshot_issues_of=None,
 ) -> envelope_kernel.DecalRequestV1:
-    """Compile whole-chain selection into one immutable debug request."""
+    """Compile whole-chain selection into one immutable debug request; `snapshot_issues_of(snapshot, stretch_budget)` — замечания снапшота из памяти сессии (допуск растяжения ЭТОГО запроса), `None` — считаются здесь."""
 
     kernel, _ = _load_kernel()
     angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget)
@@ -2285,7 +2286,9 @@ def build_envelope_decal_request(
         angular_policy,
     )
     issues = kernel.validate_decal_request(request)
-    issues += kernel.validate_snapshot_request_references(snapshot, request)
+    issues += kernel.validate_snapshot_request_references(
+        snapshot, request, snapshot_issues_of and snapshot_issues_of(snapshot, request.developable_stretch_budget)
+    )
     if issues:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
