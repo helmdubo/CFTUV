@@ -43,6 +43,7 @@ from .contracts.metric import (
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
     is_unfolded_certificate,
+    source_vertex_of_chart_vertex,
 )
 from ._band_chart import band_certificate_id, band_metric_id
 from .chart_band import chart_band_request
@@ -1002,6 +1003,12 @@ def validate_width_distortion_recomputation(
     return tuple(issues)
 
 
+def chart_source_vertices(coordinates) -> set:
+    """Вершины источника, которым принадлежат вершины карты: правая копия вершины разреза кольца - её вершина."""
+
+    return {source_vertex_of_chart_vertex(item) for item in coordinates}
+
+
 def metric_covers_patch(certificate, coordinate_ids, patch_vertices) -> bool:
     """Координаты метрики покрывают ровно вершины патча; у полосы - вершины носителя, подмножество вершин патча."""
 
@@ -1013,12 +1020,15 @@ def metric_covers_patch(certificate, coordinate_ids, patch_vertices) -> bool:
 def _recorded_band(snapshot, metric, certificate):
     """Вход полосы по выбору и досягаемости, ЗАПИСАННЫМ в сертификате, и цепям снапшота."""
 
+    tightened = certificate.tightened
     return chart_band_request(
         snapshot.physical_chains,
         snapshot.chain_uses,
         certificate.selected_chain_use_ids,
         metric.patch_domain_id,
         fraction_of(certificate.reach_cap),
+        None if tightened is None else fraction_of(tightened.requested_reach_cap),
+        None if tightened is None else tightened.refused_outcome,
     )
 
 

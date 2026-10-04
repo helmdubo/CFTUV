@@ -137,7 +137,7 @@ from .validation_issues import (
 from .validation_source_edges import source_edge_zero_length_issues
 from .validation_corner_treatment import validate_plan_corner_treatments, validate_plan_corner_treatments_against_snapshot
 from .validation_band import band_policy_issues, chart_reach_cap_issues
-from .validation_metric import fraction_of as _fraction, metric_covers_patch, validate_metric_against_source, validate_rational_affine_planar_metric
+from .validation_metric import chart_source_vertices, fraction_of as _fraction, metric_covers_patch, validate_metric_against_source, validate_rational_affine_planar_metric
 
 
 def _values(records: frozenset[object], attribute: str) -> set[OpaqueId]:
@@ -831,7 +831,7 @@ def validate_analysis_snapshot(
                 item.source_vertex_id: item.domain_coordinate
                 for item in descriptor.exact_source_vertex_coordinates
             }
-            coordinate_ids = set(coordinate_by_id)
+            coordinate_ids = chart_source_vertices(coordinate_by_id)
             _require_refs(issues, coordinate_ids, vertex_ids, path + ("exact_source_vertex_coordinates",))
             required_vertices = patch_vertices.get(domain.owner_patch_id, set())
             if full_surface and not metric_covers_patch(certificate, coordinate_ids, required_vertices):

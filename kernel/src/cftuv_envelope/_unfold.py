@@ -231,11 +231,8 @@ def _connected(triangles, opposite) -> int:
     return len(seen)
 
 
-def owner_topology(owner_triangles, positions) -> UnfoldTopologyV1:
-    """Диск треугольников владельца либо именованный отказ.
-
-    `positions` — привязанные точные позиции вершин источника (до проекции).
-    """
+def _raw_topology(owner_triangles, positions):
+    """Топология треугольников владельца без суждения о диске: `(топология, числа V E F chi петли)`."""
 
     triangles = tuple(
         sorted(owner_triangles, key=lambda item: item.triangle_id.value)
@@ -269,26 +266,48 @@ def owner_topology(owner_triangles, positions) -> UnfoldTopologyV1:
         f"V={len(fans)} E={edge_count} F={len(triangles)} "
         f"chi={euler} boundary_loops={loops}"
     )
-    if euler == 0 and loops == 2:
+    return (
+        UnfoldTopologyV1(
+            triangles=triangles,
+            by_id={item.triangle_id: item for item in triangles},
+            opposite=opposite,
+            fans=fans,
+            boundary_sides=boundary,
+            boundary_loop_count=loops,
+            euler_characteristic=euler,
+        ),
+        numbers,
+    )
+
+
+def owner_topology(owner_triangles, positions) -> UnfoldTopologyV1:
+    """Диск треугольников владельца либо именованный отказ.
+
+    `positions` — привязанные точные позиции вершин источника (до проекции).
+    """
+
+    topology, numbers = _raw_topology(owner_triangles, positions)
+    if topology.euler_characteristic == 0 and topology.boundary_loop_count == 2:
         raise refusal(
             NamedOutcome.PERIODIC_CUT_REQUIRED,
             f"the owner triangles form a ring ({numbers}): a chart needs a cut "
             "and a holonomy, which this stage does not carry",
         )
-    if euler != 1 or loops != 1:
+    if topology.euler_characteristic != 1 or topology.boundary_loop_count != 1:
         raise refusal(
             NamedOutcome.DEVELOPABLE_SUPPORT_NOT_A_DISK,
             f"the owner triangles are not a disk ({numbers})",
         )
-    return UnfoldTopologyV1(
-        triangles=triangles,
-        by_id={item.triangle_id: item for item in triangles},
-        opposite=opposite,
-        fans=fans,
-        boundary_sides=boundary,
-        boundary_loop_count=loops,
-        euler_characteristic=euler,
-    )
+    return topology
+
+
+def annulus_topology(owner_triangles, positions) -> UnfoldTopologyV1 | None:
+    """Топология кольца (`chi = 0`, две граничные петли) либо `None`: диск и прочее решает `owner_topology`."""
+
+    topology, _numbers = _raw_topology(owner_triangles, positions)
+    if topology.euler_characteristic == 0 and topology.boundary_loop_count == 2:
+        return topology
+    return None
 
 
 def _third_vertex(first, second, near_first, near_second, base, *, right: bool):

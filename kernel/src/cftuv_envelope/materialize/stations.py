@@ -38,6 +38,7 @@ from fractions import Fraction
 
 from .._corner_treatment import shared_source_lineage
 from ..contracts.envelopes import CornerTreatmentV1
+from ..contracts.metric import CUT_RIGHT_COPY_MARK
 from ..exact_sqrt_sum import SqrtSumV1
 from ..planar_metric import fraction_from_exact
 from ..reference.planar_types import ConstructionKind
@@ -359,7 +360,7 @@ def length_squared_g(
 
 
 def _segment_vertex_id(segment, *, at_start: bool) -> str | None:
-    """Исходная вершина конца сегмента по его сертификатам построения."""
+    """Вершина КАРТЫ у конца сегмента по его сертификатам построения (у разреза кольца - с правой копией)."""
 
     certificates = (
         segment.start_constructions if at_start else segment.end_constructions
@@ -371,6 +372,16 @@ def _segment_vertex_id(segment, *, at_start: bool) -> str | None:
         for name in item.source_vertex_ids
     }
     return next(iter(names)) if len(names) == 1 else None
+
+
+def source_vertex_name(name: str | None) -> str | None:
+    """Вершина источника по имени вершины карты: правая копия вершины разреза кольца (`<вершина>|cut:R`) - её вершина.
+
+    Цепь границы знает вершины источника, и пара «начало - конец» ребра обода у вершины разреза обязана находиться в
+    цепи; а имя `src:` у каждой копии своё (две точки карты), и только положение и ссылка сварки у них общие.
+    """
+
+    return name[: -len(CUT_RIGHT_COPY_MARK)] if name is not None and name.endswith(CUT_RIGHT_COPY_MARK) else name
 
 
 def _single(values) -> str | None:
@@ -464,8 +475,8 @@ def _collect_loops(prepared, skips: list | None = None):
                         keys[index],
                         nodes[index],
                         nodes[(index + 1) % size],
-                        start_id,
-                        end_id,
+                        source_vertex_name(start_id),
+                        source_vertex_name(end_id),
                         chain_id,
                         use_id,
                         edge_id,

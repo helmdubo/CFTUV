@@ -67,6 +67,7 @@ from ..ids import (
 from ..numeric import LocalCoordinateV1
 from ..exact_sqrt_sum import SqrtSumV1
 from .admit import MaterializationOutcome
+from .audit import location_key as _location_key
 from .coalesce import lattice_node, point_key
 from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
@@ -1053,33 +1054,41 @@ def edge_kind(facts, region, a, b, lattice_alpha) -> str:
 
 
 def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
-    """Граничные и интерфейсные цепи по ключам вершин СЛИТЫХ контуров."""
+    """Граничные и интерфейсные цепи по ключам вершин СЛИТЫХ контуров.
+
+    Полуребро знает место своих концов (`_location_key`): две копии вершины разреза кольца - одно место, поэтому ребро
+    разреза с двух сторон - ОДНО ребро между гранями (интерфейс, где станции `(s, r)` разные), а не две стены границы.
+    Ключи цепи остаются ключами вершин батча (первой из двух сторон).
+    """
 
     owner_of: dict = {}
     for index, cycle in enumerate(cycles):
         size = len(cycle)
         for position in range(size):
-            half = (cycle[position][0], cycle[(position + 1) % size][0])
+            first, second = cycle[position][0], cycle[(position + 1) % size][0]
+            half = (_location_key(first), _location_key(second))
             if half in owner_of:
                 raise MaterializationRefusal(
                     MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
                     f"HALF_EDGE_SHARED_IN_ONE_DIRECTION: {half}",
                 )
-            owner_of[half] = index
+            owner_of[half] = (index, first, second)
     boundary: dict = {}
     interface: dict = {}
     cut_pairs = layout.cut_pairs(frame_faces)
-    for (a, b), index in owner_of.items():
+    for (place_a, place_b), (index, a, b) in owner_of.items():
         region = layout.region_of(frame_faces[index])
-        other = owner_of.get((b, a))
-        if other is None:
+        opposite = owner_of.get((place_b, place_a))
+        if opposite is None:
             kind = edge_kind(facts, region, a, b, lattice_alpha)
             boundary.setdefault((kind, region), []).append((a, b))
             continue
+        other, other_start, other_end = opposite
         other_region = layout.region_of(frame_faces[other])
-        if other_region != region and region < other_region:
-            if frozenset((region, other_region)) in cut_pairs and all(
-                facts[(region, key)] == facts[(other_region, key)] for key in (a, b)
+        if (region, index) < (other_region, other) and (other_region != region or (a, b) != (other_end, other_start)):
+            if other_region != region and frozenset((region, other_region)) in cut_pairs and all(
+                facts[(region, key)] == facts[(other_region, twin)]
+                for key, twin in ((a, other_end), (b, other_start))
             ):
                 continue  # технический край разомкнутого кольца: UV на нём не рвётся, это не шов
             interface.setdefault((region, other_region), []).append((a, b))
@@ -1154,7 +1163,7 @@ def _vertex_records(positions, cycles, face_prov):
         GeometryVertexV1(
             vert_key=VertexKey(key),
             position=position,
-            semantic_location_ref=SemanticLocationId(f"location:{key}"),
+            semantic_location_ref=SemanticLocationId(f"location:{_location_key(key)}"),
             provenance=_merge_provenance(vertex_prov[key]),
         )
         for key, position in positions.items()

@@ -277,7 +277,25 @@ def _developable_diagnostics(certificate, lift_note, gap_note, opposition_note, 
         if note:
             add(GeometryDiagnosticSeverity.INFO, outcome, "domain", (), note)
     if type(certificate) is DevelopableBandChartCertificateV1:
-        # Грани патча вне носителя полосы не вошли в карту: названо, а не молча отброшено (числа - в сертификате).
+        _band_diagnostics(certificate, add)
+
+
+def _band_diagnostics(certificate, add) -> None:
+    """Диагностики карты-полосы: суженная досягаемость, грани вне носителя и записанные числа разреза кольца."""
+
+    if certificate.tightened is not None:
+        asked = certificate.tightened.requested_reach_cap
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.CHART_REACH_TIGHTENED_FOR_SEAM,
+            "domain",
+            (),
+            f"requested_reach_cap_m={asked.numerator / asked.denominator:.6g} "
+            f"reach_cap_m={certificate.reach_cap.numerator / certificate.reach_cap.denominator:.6g} "
+            f"after={certificate.tightened.refused_outcome}",
+        )
+    # Грани патча вне носителя полосы не вошли в карту: названо, а не молча отброшено (числа - в сертификате).
+    if certificate.excluded_triangle_count:
         number = certificate.chart_reach_margin_squared
         add(
             GeometryDiagnosticSeverity.INFO,
@@ -290,6 +308,25 @@ def _developable_diagnostics(certificate, lift_note, gap_note, opposition_note, 
             f"reach_cap_m={certificate.reach_cap.numerator / certificate.reach_cap.denominator:.6g} "
             f"reach_margin_m={(number.numerator / number.denominator) ** 0.5:.6g}",
         )
+    cut = certificate.cut
+    if cut is None:
+        return
+    residual, deviation = cut.seam_residual_squared, cut.bisector_deviation_sine_squared
+    where = f"cut_vertex={cut.cut_vertex_id.value} path_edges={len(cut.path_vertex_ids) - 1}"
+    add(
+        GeometryDiagnosticSeverity.INFO,
+        NamedOutcome.PERIODIC_CUT_SEAM_RESIDUAL,
+        "domain",
+        (),
+        f"{where} seam_residual_m={(residual.numerator / residual.denominator) ** 0.5:.6g}",
+    )
+    add(
+        GeometryDiagnosticSeverity.INFO,
+        NamedOutcome.PERIODIC_CUT_BISECTOR_DEVIATION,
+        "domain",
+        (),
+        f"{where} bisector_sine={(deviation.numerator / deviation.denominator) ** 0.5:.6g}",
+    )
 
 
 def _lift_diagnostics(sourced, add) -> None:

@@ -2,7 +2,7 @@
 
 Модуль внутренний и ничем не владеет: носитель выбирает `_band_support`, развёртку носителя (шарнир, ARAP, решётка,
 суд растяжения) делает `_developable.build_developable_chart` на ТРЕУГОЛЬНИКАХ носителя, а здесь они складываются в
-`DevelopableBandChartCertificateV1`. Новое — три вещи.
+`DevelopableBandChartCertificateV1`. Новое — четыре вещи.
 
 1. ГРАНИЦА носителя по сторонам. Обход границы носителя (внутренность слева) даёт петлю; каждая сторона получает роль
    по снапшоту: сторона выбранной цепи — `RIM`, сторона прочей цепи границы патча — `ORIGINAL_BOUNDARY`, ребро без
@@ -11,9 +11,16 @@
 2. ЗАПАС — ВЛАСТЬ. Наименьший квадрат расстояния НА КАРТЕ между ободом и стеной досягаемости (точная дробь, метры). Он
    не меньше `cap^2`: фронт ширины `alpha <= cap` растёт внутри `alpha`-окрестности обода на карте (евклидова карта
    развёртки, стены фронт не расширяют), поэтому до стены не доходит и усечённый носитель отвечает так же, как отвечал
-   бы целый патч. Меньше — именованный отказ `CHART_REACH_SHORT_OF_CAP`, а не усечённое покрытие.
+   бы целый патч. Меньше — именованный отказ `CHART_REACH_SHORT_OF_CAP`, а не усечённое покрытие. Носитель, равный
+   всему патчу, стены досягаемости не имеет: у диска это не полоса (отказ целого патча остаётся), у кольца — разрез по
+   всему патчу без запаса, и тогда `alpha` досягаемостью не ограничена.
 3. ИДЕНТИЧНОСТЬ. Метрика и сертификат полосы зависят от выбора цепей и досягаемости, поэтому их имена несут и то и другое
    (иначе две полосы одного домена были бы одним объектом).
+4. КОЛЬЦО. Носитель вокруг замкнутой цепи — кольцо, карта у кольца одна — развёртка диска, и кольцо режется по пути
+   рёбер от вершины обода до дальней петли (`_annulus_cut`): вершины пути раздваиваются, грани по правую сторону пути
+   переименовываются, края разреза становятся сторонами `CUT_LEFT` / `CUT_RIGHT` границы (стенами очереди, как и стена
+   досягаемости), а в сертификат ложится `BandCutV1`: голономия склейки и два судимых числа (шов и отклонение от
+   биссектрисы). Любое из них за допуском — именованный отказ, а не карта с щелью.
 
 Цена: расстояния считаются точно, но кандидаты отбираются плавающими числами с запасом `2^-20` (классификация и записанный
 запас всегда точные).
@@ -26,13 +33,27 @@ from dataclasses import fields
 from fractions import Fraction
 from hashlib import sha256
 
+from ._annulus_cut import (
+    SEAM_RESIDUAL_BOUND,
+    bisector_numbers,
+    cut_strip,
+    is_right_copy,
+    right_copy,
+    ring_cut_path,
+    seam_fit,
+    seam_prefix,
+    source_vertex_of,
+)
 from ._band_support import band_support, point_segment_distance_squared
 from ._developable import DevelopableChartV1, build_developable_chart, _memory_key
-from ._unfold import owner_topology, refusal
+from ._unfold import annulus_topology, owner_topology, refusal
 from .contracts.metric import (
     BandBoundaryRoleV1,
     BandBoundarySideV1,
+    BandCutCornerV1,
+    BandCutV1,
     BandSupportLawV1,
+    BandTightenedV1,
     DevelopableBandChartCertificateV1,
     ExactRationalV1,
     MAX_CHART_REACH_CAP,
@@ -79,10 +100,37 @@ def band_metric_id(source_revision, patch_domain_id, selected, cap, required_ids
     )
 
 
-def _boundary_cycle(topology, band) -> tuple:
-    """Стороны границы носителя в порядке обхода, роли назначены; начало — сторона с наименьшим именем ребра."""
+def _cut_side(start, end, cut_edges, edge, name):
+    """Роль стороны разреза (`CUT_LEFT` / `CUT_RIGHT`) либо `None`, если сторона не лежит на пути разреза."""
+
+    if frozenset((source_vertex_of(start), source_vertex_of(end))) not in cut_edges:
+        return None
+    if is_right_copy(start) != is_right_copy(end):
+        raise refusal(
+            NamedOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
+            f"the cut side {name} joins a left copy of a vertex to a right one",
+        )
+    if edge is None:
+        raise refusal(
+            NamedOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
+            f"the cut side {name} has no physical edge: the cut runs along edges of the source between faces",
+        )
+    return BandBoundaryRoleV1.CUT_RIGHT if is_right_copy(start) else BandBoundaryRoleV1.CUT_LEFT
+
+
+def _boundary_cycle(topology, band, cutting=None) -> tuple:
+    """Стороны границы носителя в порядке обхода, роли назначены; начало — сторона с наименьшим именем ребра.
+
+    `cutting` (`RingStripV1`) — разрез кольца: имена вершин карты у копий пути не совпадают с именами источника, поэтому
+    пары `ChainUse` ищутся по вершинам источника, а стороны на пути разреза получают роли края разреза.
+    """
 
     selected = band.selected_chain_use_ids
+    cut_edges = (
+        frozenset()
+        if cutting is None
+        else frozenset(frozenset(pair) for pair in zip(cutting.path, cutting.path[1:]))
+    )
     use_of: dict = {}
     ambiguous: set = set()
     for pair, use_id, edge in band.boundary_uses:
@@ -96,12 +144,17 @@ def _boundary_cycle(topology, band) -> tuple:
         end = triangle.vertex_ids[(ordinal + 1) % 3]
         edge = triangle.physical_edge_ids[ordinal]
         name = f"{start.value}->{end.value}"
-        if (start, end) in ambiguous:
+        role = _cut_side(start, end, cut_edges, edge, name)
+        if role is not None:
+            sides.append(BandBoundarySideV1(role, edge, start, end, None))
+            continue
+        pair = (source_vertex_of(start), source_vertex_of(end))
+        if pair in ambiguous:
             raise refusal(
                 NamedOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
                 f"the support boundary side {name} belongs to more than one ChainUse",
             )
-        known = use_of.get((start, end))
+        known = use_of.get(pair)
         if known is not None:
             use_id, chain_edge = known
             if edge is not None and edge != chain_edge:
@@ -112,7 +165,7 @@ def _boundary_cycle(topology, band) -> tuple:
             role = BandBoundaryRoleV1.RIM if use_id in selected else BandBoundaryRoleV1.ORIGINAL_BOUNDARY
             sides.append(BandBoundarySideV1(role, chain_edge, start, end, use_id))
             continue
-        if (end, start) in use_of:
+        if pair[::-1] in use_of:
             raise refusal(
                 NamedOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
                 f"the support boundary side {name} runs against its ChainUse: the owner interior is not on its left",
@@ -203,7 +256,7 @@ def rim_to_wall_gap_squared(nodes: dict, sides, chart_scale: int) -> Fraction | 
     return Fraction(exact) / (chart_scale * chart_scale)
 
 
-def _certificate(unfold, band, support, reach, sides, margin, source_revision, patch_domain_id):
+def _certificate(unfold, band, support, reach, sides, margin, source_revision, patch_domain_id, cut=None):
     values = {item.name: getattr(unfold, item.name) for item in fields(unfold)}
     values.update(
         certificate_id=PlanarityCertificateId(
@@ -218,7 +271,13 @@ def _certificate(unfold, band, support, reach, sides, margin, source_revision, p
         excluded_triangle_count=support.excluded_count,
         first_excluded_triangle_id=support.first_excluded,
         strip_boundary=sides,
-        chart_reach_margin_squared=_rational(margin),
+        chart_reach_margin_squared=None if margin is None else _rational(margin),
+        cut=cut,
+        tightened=(
+            None
+            if band.requested_reach_cap is None
+            else BandTightenedV1(_rational(band.requested_reach_cap), band.tightened_after)
+        ),
     )
     return DevelopableBandChartCertificateV1(**values)
 
@@ -304,28 +363,46 @@ def _build(
         raise ValueError(f"the chart reach cap {band.reach_cap} must lie in (0, {MAX_CHART_REACH_CAP}] m")
     reach = (1 + Fraction(budget)) * Fraction(band.reach_cap)
     support = band_support(owner_triangles, snapped, band.rim_edges, reach)
-    if not support.excluded_count:
+    in_support = {
+        vertex: snapped[vertex]
+        for vertex in {vertex for item in support.triangles for vertex in item.vertex_ids}
+    }
+    triangles, charted, cutting, straight = support.triangles, in_support, None, declared_straight_chains
+    from .planar_metric import PlanarMetricAdmissionError
+
+    try:
+        ring = annulus_topology(support.triangles, in_support)
+    except PlanarMetricAdmissionError:
+        # Носитель - весь патч, и его топологию целый патч уже назвал: полоса ничего не меняет.
+        if support.excluded_count:
+            raise
+        ring = None
+    if not support.excluded_count and ring is None:
         return None
-    vertices = sorted(
-        {vertex for item in support.triangles for vertex in item.vertex_ids}, key=lambda item: item.value
-    )
-    in_support = {vertex: snapped[vertex] for vertex in vertices}
+    if ring is not None:
+        # Кольцо: карта одна - развёртка диска, и кольцо режется по пути от вершины обода до дальней петли.
+        cutting = cut_strip(ring, ring_cut_path(ring, in_support, band.rim_edges))
+        triangles = cutting.triangles
+        charted = {**in_support, **{right_copy(vertex): in_support[vertex] for vertex in cutting.path}}
+        # Цепь, объявленная прямой, через вершину разреза карта не проводит: её вершины стоят на обеих сторонах разреза.
+        straight = tuple(chain for chain in declared_straight_chains if not set(chain) & set(cutting.path))
+    vertices = sorted(charted, key=lambda item: item.value)
     chart = build_developable_chart(
         source_revision=source_revision,
         patch_domain_id=patch_domain_id,
-        snapped=in_support,
-        owner_triangles=support.triangles,
+        snapped=charted,
+        owner_triangles=triangles,
         required_ids=tuple(vertices),
         source_scale=source_scale,
         previous_refusals=previous_refusals,
         budget=budget,
-        declared_straight_chains=declared_straight_chains,
+        declared_straight_chains=straight,
     )
-    topology = owner_topology(support.triangles, in_support)
-    sides = _boundary_cycle(topology, band)
+    topology = owner_topology(triangles, charted)
+    sides = _boundary_cycle(topology, band, cutting)
     margin = rim_to_wall_gap_squared(chart.nodes, sides, chart.chart_scale)
     cap = Fraction(band.reach_cap)
-    if margin is None or margin < cap * cap:
+    if support.excluded_count and (margin is None or margin < cap * cap):
         shown = "none" if margin is None else f"{float(margin) ** 0.5:.6g} m"
         raise refusal(
             NamedOutcome.CHART_REACH_SHORT_OF_CAP,
@@ -333,7 +410,82 @@ def _build(
             f"{float(cap):.6g} m (support reach {float(reach):.6g} m, {support.excluded_count} triangles "
             "beyond the support): the strip is curled or the support is too thin",
         )
+    cut = None if cutting is None else _cut_record(cutting, chart, sides, cap if support.excluded_count else None)
     certificate = _certificate(
-        chart.certificate, band, support, reach, sides, margin, source_revision, patch_domain_id
+        chart.certificate, band, support, reach, sides, margin, source_revision, patch_domain_id, cut
     )
     return DevelopableChartV1(certificate, chart.nodes, chart.chart_scale)
+
+
+def cut_measurements(path, nodes: dict, chart_scale: int, sides, cap=None) -> tuple:
+    """Измерения разреза по карте и границе полосы: `(cos, sin, tx, ty, остаток^2, верхняя граница sin^2 d, судья, вершин шва)`.
+
+    Одна функция на построитель и валидатор: запись сверяется с тем же измерением, а не с его копией. `cap` - досягаемость
+    у полосы со стеной (шов судится по префиксу пути в её пределах, `_annulus_cut.seam_prefix`), `None` - у целого кольца.
+    Углы вершины разреза читаются по сторонам границы полосы (внутренность слева): копия `a` начинает сторону, которая
+    не край разреза, копия `b` кончает такую сторону.
+    """
+
+    from .reference.evaluation_binding_noise import NOISE_DIRECTION_SINE_BOUND
+
+    apex = path[0]
+    uncut = [item for item in sides if item.role not in (BandBoundaryRoleV1.CUT_LEFT, BandBoundaryRoleV1.CUT_RIGHT)]
+    out = [item for item in uncut if source_vertex_of(item.start_vertex_id) == apex]
+    back = [item for item in uncut if source_vertex_of(item.end_vertex_id) == apex]
+    if len(out) != 1 or len(back) != 1:
+        raise refusal(
+            NamedOutcome.PERIODIC_CUT_PATH_UNAVAILABLE,
+            f"the cut vertex {apex.value} has {len(out)} outgoing and {len(back)} incoming sides of the strip boundary",
+        )
+    first = path[1]
+    corner_a, corner_b = out[0].start_vertex_id, back[0].end_vertex_id
+    measured = seam_prefix(nodes, path, chart_scale, cap)
+    cosine, sine, shift_x, shift_y, residual = seam_fit(nodes, measured, chart_scale)
+    deviation, passes = bisector_numbers(
+        nodes,
+        corner_a,
+        out[0].end_vertex_id,
+        right_copy(first) if is_right_copy(corner_a) else first,
+        corner_b,
+        back[0].start_vertex_id,
+        right_copy(first) if is_right_copy(corner_b) else first,
+        NOISE_DIRECTION_SINE_BOUND,
+    )
+    return cosine, sine, shift_x, shift_y, residual, deviation, passes, len(measured)
+
+
+def _cut_record(cutting, chart, sides, cap) -> BandCutV1:
+    """Голономия и два судимых числа разреза кольца; число за допуском - именованный отказ."""
+
+    from .reference.evaluation_binding_noise import NOISE_DIRECTION_SINE_BOUND
+
+    apex = cutting.path[0]
+    cosine, sine, shift_x, shift_y, residual, deviation, passes, counted = cut_measurements(
+        cutting.path, chart.nodes, chart.chart_scale, sides, cap
+    )
+    if residual > SEAM_RESIDUAL_BOUND * SEAM_RESIDUAL_BOUND:
+        raise refusal(
+            NamedOutcome.PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED,
+            f"after the best rigid motion the two copies of the cut path differ by {float(residual) ** 0.5:.6g} m, "
+            f"more than the seam bound {float(SEAM_RESIDUAL_BOUND):.6g} m (cut vertex {apex.value}, "
+            f"{counted} of {len(cutting.path)} path vertices within the reach)",
+        )
+    if not passes:
+        raise refusal(
+            NamedOutcome.PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED,
+            f"the cut leaves {apex.value} at sin^2 d <= {float(deviation):.6g} from the bisector of the glued corner, "
+            f"beyond the direction bound {float(NOISE_DIRECTION_SINE_BOUND) ** 2:.6g}: the wedge left uncovered at "
+            "the seam is no longer noise",
+        )
+    return BandCutV1(
+        cut_vertex_id=apex,
+        path_vertex_ids=cutting.path,
+        right_corners=frozenset(BandCutCornerV1(triangle, vertex) for triangle, vertex in cutting.right_corners),
+        rotation_cosine=_rational(cosine),
+        rotation_sine=_rational(sine),
+        translation_x=_rational(shift_x),
+        translation_y=_rational(shift_y),
+        seam_residual_squared=_rational(residual),
+        bisector_deviation_sine_squared=_rational(deviation),
+        seam_vertex_count=counted,
+    )

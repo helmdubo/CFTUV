@@ -90,6 +90,7 @@ import math
 from dataclasses import dataclass
 from fractions import Fraction
 
+from ..contracts.metric import CUT_RIGHT_COPY_MARK
 from ..numeric import LocalPoint3V1
 from .tessellate import triangulate_exact
 
@@ -116,6 +117,17 @@ NANOMETRES_PER_METRE = 10**9
 
 _PREFIX = "src:"
 _NODE_PREFIX = "node:"
+
+
+def source_vertex_key(key: str) -> str:
+    """`SourceVertexId.value` по ключу `src:<вершина карты>`: правая копия вершины разреза кольца - её вершина.
+
+    Две копии (`src:<вершина>` и `src:<вершина>|cut:R`) - две точки карты и одна точка источника: подъём кладёт обе в позицию
+    хоста этой вершины, поэтому швом UV они расходятся, а в 3D совпадают побитово.
+    """
+
+    name = key[len(_PREFIX):]
+    return name[: -len(CUT_RIGHT_COPY_MARK)] if name.endswith(CUT_RIGHT_COPY_MARK) else name
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,7 +287,7 @@ def lift_source_vertices(positions, triangles, host_positions, step) -> SourceLi
     displaced = unavailable = 0
     worst = None
     for key in names:
-        host = host_positions.get(key[len(_PREFIX):])
+        host = host_positions.get(source_vertex_key(key))
         if budget_squared is None or not isinstance(host, LocalPoint3V1):
             unavailable += 1
             continue

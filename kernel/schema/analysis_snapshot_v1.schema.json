@@ -206,7 +206,9 @@
           "enum": [
             "RIM",
             "ORIGINAL_BOUNDARY",
-            "REACH_WALL"
+            "REACH_WALL",
+            "CUT_LEFT",
+            "CUT_RIGHT"
           ],
           "type": "string"
         },
@@ -221,6 +223,105 @@
         "start_vertex_id",
         "end_vertex_id",
         "chain_use_id"
+      ],
+      "type": "object"
+    },
+    "BandCutCornerV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BandCutCornerV1"
+        },
+        "triangle_id": {
+          "$ref": "#/$defs/SurfaceTriangleId"
+        },
+        "vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "triangle_id",
+        "vertex_id"
+      ],
+      "type": "object"
+    },
+    "BandCutV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BandCutV1"
+        },
+        "bisector_deviation_sine_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "cut_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "path_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "right_corners": {
+          "items": {
+            "$ref": "#/$defs/BandCutCornerV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "rotation_cosine": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "rotation_sine": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "seam_residual_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "seam_vertex_count": {
+          "type": "integer"
+        },
+        "translation_x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "translation_y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "cut_vertex_id",
+        "path_vertex_ids",
+        "right_corners",
+        "rotation_cosine",
+        "rotation_sine",
+        "translation_x",
+        "translation_y",
+        "seam_residual_squared",
+        "bisector_deviation_sine_squared",
+        "seam_vertex_count"
+      ],
+      "type": "object"
+    },
+    "BandTightenedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BandTightenedV1"
+        },
+        "refused_outcome": {
+          "type": "string"
+        },
+        "requested_reach_cap": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "requested_reach_cap",
+        "refused_outcome"
       ],
       "type": "object"
     },
@@ -708,13 +809,30 @@
           "type": "integer"
         },
         "chart_reach_margin_squared": {
-          "$ref": "#/$defs/ExactRationalV1"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "chart_scale": {
           "type": "integer"
         },
         "chart_scale_trials": {
           "type": "integer"
+        },
+        "cut": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BandCutV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "declared_straight_chains": {
           "items": {
@@ -860,6 +978,16 @@
           },
           "type": "array",
           "uniqueItems": true
+        },
+        "tightened": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BandTightenedV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "tree_law": {
           "enum": [

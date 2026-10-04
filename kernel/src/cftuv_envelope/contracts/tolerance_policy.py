@@ -136,6 +136,7 @@ class TolerancePolicyIdV1(str, Enum):
     DEVELOPABLE_CONE_RELIEF_GAP_V1 = "DEVELOPABLE_CONE_RELIEF_GAP_V1"
     SURFACE_OFFSET_OPPOSITION_DEPTH_V1 = "SURFACE_OFFSET_OPPOSITION_DEPTH_V1"
     CHART_REACH_CAP_V1 = "CHART_REACH_CAP_V1"
+    PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1 = "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -262,6 +263,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN = (
         "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN"
+    )
+    ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL = (
+        "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL"
     )
 
 
@@ -1717,7 +1721,8 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "полметра. Носитель выбирается как предложение (грани не дальше `(1 + b) * cap` от обода), а ВЛАСТЬ — "
             "запас в сертификате: наименьший квадрат расстояния НА КАРТЕ между ободом и стеной досягаемости не меньше "
             "`cap^2` (точная дробь), иначе `CHART_REACH_SHORT_OF_CAP`. alpha запроса выше досягаемости — "
-            "`REQUEST_ALPHA_EXCEEDS_CHART_REACH` и в проверке запроса, и в покрытии, а не усечённое покрытие. Полоса "
+            "`REQUEST_ALPHA_EXCEEDS_CHART_REACH` и в проверке запроса, и в покрытии, а не усечённое покрытие (у кольца, "
+            "целиком лежащего в досягаемости, стены нет и alpha не ограничена). Полоса "
             "пробуется только после именованного отказа развёртки ЦЕЛОГО патча; принятый целый патч до неё не доходит "
             "и его байты прежние."
         ),
@@ -1744,6 +1749,50 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_developable_band.py"
             "::test_an_alpha_beyond_the_reach_cap_is_a_named_refusal"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 500)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.METRES,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_LOCAL_INTRINSIC,
+        scaling_law=TolerancePolicyScalingLawV1.ABSOLUTE_INDEPENDENT_OF_EXTENT,
+        scope=(
+            "Шов РАЗРЕЗА кольца полосовой карты (`BandCutV1`), метры: после лучшего движения плоскости (метод "
+            "наименьших квадратов) две копии пути разреза расходятся на карте не больше. Это `PERIODIC_CUT_SEAM_RESIDUAL` — "
+            "наибольшее расхождение `|p_R - (R p_L + t)|` по вершинам пути В ПРЕДЕЛАХ ДОСЯГАЕМОСТИ от вершины разреза (там "
+            "декаль и есть; у целого кольца без стены — по всему пути); больше — именованный отказ "
+            "`PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED` с числом. Цилиндр даёт нуль (сдвиг), конус — до ячейки решётки карты, "
+            "двойная кривизна — настоящее число: сфера радиуса 1 м, обод — экватор: рёбра 0.2 м, досягаемость 1/4 — 0.42 мм; "
+            "рёбра 0.1 м, 1/5 — 0.90 мм; рёбра 0.2 м, 1/2 — 7.6 мм (две копии одной кривой на кривизне неконгруэнтны, ARAP "
+            "лишь распределяет несовпадение; по всему носителю шире — 6.3 и 26 мм, и это число судило бы ширину носителя, а "
+            "не шов). 2 мм — один процент ширины декали 0.25 м; подъём кладёт обе копии вершины в одну 3D-точку, поэтому "
+            "шов — рассогласование UV по `v`, а не щель в поверхности. Рядом — отклонение разреза от биссектрисы склеенного "
+            "угла (`PERIODIC_CUT_BISECTOR_DEVIATION`): его судит `NOISE_DIRECTION_SINE_BOUND` реестра шума направления, не "
+            "вторая граница."
+        ),
+        authority=(
+            "BandCutV1.seam_residual_squared; DECISIONS.md 2026-10-04 (ПОЛОСОВАЯ КАРТА, C2: разрез кольца; оценка плана 0.5 мм "
+            "не пережила измерения по пути в пределах досягаемости, граница 2 мм выбрана по замеру сферы; число записано "
+            "всегда, граница - одна строка реестра)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.BAND_CHART_ADMISSION,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL
+        ),
+        changes_topology=False,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(),
+        declaration_sites=("cftuv_envelope._annulus_cut.SEAM_RESIDUAL_BOUND",),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_band_ring.py"
+            "::test_a_dome_ring_materializes_with_a_curvature_seam_inside_the_registered_bounds"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_developable_band_ring.py"
+            "::test_a_seam_beyond_the_registered_bound_is_a_named_refusal_with_the_number"
         ),
     ),
 )

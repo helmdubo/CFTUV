@@ -96,6 +96,7 @@ import math
 from dataclasses import dataclass
 from fractions import Fraction
 
+from .._annulus_cut import chart_faces, source_vertex_of, strip_of
 from .._embedding import (
     _NONE,
     _boundary_occurrences,
@@ -361,19 +362,24 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
         ),
         key=lambda item: item.triangle_id.value,
     )
-    _refuse_flipped(owned, exact, chart)
-    _refuse_snapped_boundary(
-        [
-            face
-            for face in snapshot.surface_ir.source_faces
-            if face.patch_id == owner_patch_id
-            and (support is None or any(item in support for item in face.triangle_ids))
-        ],
-        exact,
-        chart,
-    )
+    faces = [
+        face
+        for face in snapshot.surface_ir.source_faces
+        if face.patch_id == owner_patch_id
+        and (support is None or any(item in support for item in face.triangle_ids))
+    ]
     tolerated: list = []
+    # Нормали смещения - по ВЕЕРУ вершины источника (целому), а не по половине веера у копии вершины разреза: обе копии
+    # - одна точка поверхности и одна нормаль.
     normals = source_vertex_normals(owned, position, tolerated) if unfolded else None
+    cut = getattr(certificate, "cut", None)
+    if cut is not None:
+        strip = strip_of(owned, cut)
+        owned = sorted(strip.triangles, key=lambda item: item.triangle_id.value)
+        faces = chart_faces(faces, strip)
+        position = {**position, **{vertex: position[source_vertex_of(vertex)] for vertex in strip.right_vertices()}}
+    _refuse_flipped(owned, exact, chart)
+    _refuse_snapped_boundary(faces, exact, chart)
     return SurfaceLiftV1.from_triangles(
         (
             (
@@ -382,7 +388,7 @@ def surface_lift_of(frame, snapshot, owner_patch_id, scale: int) -> SurfaceLiftV
                 tuple(position[vertex] for vertex in item.vertex_ids),
                 ()
                 if normals is None
-                else tuple(normals[vertex] for vertex in item.vertex_ids),
+                else tuple(normals[source_vertex_of(vertex)] for vertex in item.vertex_ids),
                 item.source_face_id.value,
             )
             for item in owned

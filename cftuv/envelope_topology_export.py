@@ -40,10 +40,19 @@ class ChartBandPolicyV1:
 
     Полоса зависит от выбора цепей, а метрика патча - нет, поэтому выделение едет отдельно от факта топологии: ядро
     строит полосу вокруг цепей домена, у которых есть выбранное ребро, и только если целый патч не развёртывается.
+
+    `alpha` (метры, точная дробь, `None` - неизвестна) нужна ОДНОМУ решению сессии: суженной досягаемости
+    (`envelope_chart_band.tightened_export`). Ключ полосы (`band_key_of`) её не содержит: полоса под досягаемостью запроса от
+    alpha не зависит, и кэш метрик не пересобирается ползунком. `tightened_reach_cap` и `tightened_after` называют карту,
+    которую сессия пересобрала ОДИН раз после отказа (`CHART_REACH_TIGHTENED_FOR_SEAM`); они у экспорта запроса пусты и
+    заполняются только копией для этой пересборки (`with_band_tightened`).
     """
 
     reach_cap: Fraction
     selected_physical_edge_ids: frozenset[int]
+    alpha: Fraction | None = None
+    tightened_reach_cap: Fraction | None = None
+    tightened_after: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,16 +92,29 @@ class EnvelopeTopologyExportV1:
             return self
         return replace(self, developable_stretch_budget=budget)
 
-    def with_chart_band(self, reach_cap: Fraction | None, selected_physical_edge_ids):
-        """Тот же экспорт с политикой полосы запроса: `reach_cap=None` - умолчание ядра (полметра)."""
+    def with_chart_band(self, reach_cap: Fraction | None, selected_physical_edge_ids, alpha: Fraction | None = None):
+        """Тот же экспорт с политикой полосы запроса: `reach_cap=None` - умолчание ядра (полметра); `alpha` - метры или `None`."""
 
         from .envelope_request_policy import DEFAULT_ENVELOPE_CHART_REACH_CAP
 
         policy = ChartBandPolicyV1(
             DEFAULT_ENVELOPE_CHART_REACH_CAP if reach_cap is None else Fraction(reach_cap),
             frozenset(int(item) for item in selected_physical_edge_ids),
+            None if alpha is None else Fraction(alpha),
         )
         return self if policy == self.chart_band else replace(self, chart_band=policy)
+
+    def with_band_tightened(self, tightened_reach_cap: Fraction, refused_outcome: str):
+        """Копия для ОДНОЙ пересборки полосы под суженной досягаемостью: запрос остаётся при своей, карта - под `tightened`."""
+
+        if self.chart_band is None:
+            raise ValueError("a band is tightened only under a band policy")
+        return replace(
+            self,
+            chart_band=replace(
+                self.chart_band, tightened_reach_cap=Fraction(tightened_reach_cap), tightened_after=str(refused_outcome)
+            ),
+        )
 
     def without_chart_band(self):
         """Тот же экспорт без полосы: метрика ЦЕЛОГО патча, как она кэшируется независимо от выделения."""
