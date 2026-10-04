@@ -239,6 +239,7 @@ def compute_row(patch_id: int, density, alpha_value=ALPHA_VALUE, alpha_text=ALPH
     canon.reset_factorization_memory()
     canon.reset_unbudgeted_work()
     canon.reset_sign_counts()
+    _reset_backend_counts()
     started = time.perf_counter()
     host_seconds = 0.0
     answer: dict
@@ -286,7 +287,47 @@ def compute_row(patch_id: int, density, alpha_value=ALPHA_VALUE, alpha_text=ALPH
     price["seconds"] = round(time.perf_counter() - started, 3)
     price["leaked_unbudgeted"] = canon.UNBUDGETED_WORK.spent
     price["sign_counts"] = dict(canon.SIGN_COUNTS)
+    price.update(_backend_price())
     return {"patch_id": patch_id, "density": density, "answer": answer, "price": price}
+
+
+def _install_symbolic_backend() -> None:
+    """`CFTUV_SYMBOLIC_BACKEND=SYMPY|NATIVE_EXACT|SHADOW` ставит режим символьного бэкенда в воркере.
+
+    Переменную читает ТОЛЬКО харнесс ворот: продукт режим не выбирает (умолчание `SYMPY`), а
+    `SHADOW` идёт с политикой записи расхождений, чтобы один прогон собрал их все
+    (`artifacts/sympy_off_hot_path/`).
+    """
+
+    name = os.environ.get("CFTUV_SYMBOLIC_BACKEND", "")
+    if not name:
+        return
+    from cftuv_envelope.reference import symbolic_backend
+
+    symbolic_backend.set_backend_mode(symbolic_backend.SymbolicBackendV1(name))
+    symbolic_backend.set_disagreement_policy(symbolic_backend.DisagreementPolicyV1.RECORD)
+
+
+def _backend_price() -> dict:
+    """Счётчики символьного бэкенда этого домена; пусто, пока режим `SYMPY`."""
+
+    from cftuv_envelope.reference import planar_types, symbolic_backend
+
+    if symbolic_backend.backend_mode() is symbolic_backend.SymbolicBackendV1.SYMPY:
+        return {}
+    return {
+        "symbolic_backend": symbolic_backend.backend_mode().value,
+        "backend_counts": dict(sorted(symbolic_backend.BACKEND_COUNTS.items())),
+        "backend_disagreements": list(symbolic_backend.DISAGREEMENTS[:20]),
+        "backend_text_differences": list(planar_types.TEXT_DIFFERENCES[:20]),
+    }
+
+
+def _reset_backend_counts() -> None:
+    from cftuv_envelope.reference import planar_types, symbolic_backend
+
+    symbolic_backend.reset_backend_counts()
+    planar_types.TEXT_DIFFERENCES.clear()
 
 
 def init_worker(quiet: bool = True):
@@ -298,6 +339,7 @@ def init_worker(quiet: bool = True):
     """
 
     pool_sweep.init_worker(quiet=quiet)
+    _install_symbolic_backend()
     shims = os.environ.get("NUMERIC_REPR_SHIMS", "")
     if shims:
         import proto_shims

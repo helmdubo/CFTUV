@@ -19,6 +19,17 @@ import sympy as sp
 from mpmath import iv
 
 from ..exact_sqrt_sum import SqrtSumV1
+from . import symbolic_backend as _backend
+from .native_exact import (
+    NativeSignUndecided,
+    OutsideNativeField,
+    RadicalSumV1,
+    _NATIVE_OF_TEXT,
+    from_sympy as _native_from_sympy,
+    native_text as _native_text,
+    to_sympy as _native_to_sympy,
+)
+from .symbolic_backend import SymbolicBackendV1
 
 
 class CertifiedPredicateUndecidable(ValueError):
@@ -34,6 +45,8 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
         return value.as_expr()
     if isinstance(value, sp.Expr):
         return value
+    if type(value) is RadicalSumV1:
+        return _native_to_sympy(value)
     if isinstance(value, Decimal):
         return sp.Rational(str(value))
     if isinstance(value, Fraction):
@@ -72,10 +85,16 @@ def exact_normalize(value: sp.Expr) -> sp.Expr:
     (`length_g`, `unit_g`, `angle_g`) по-прежнему проходят через `factor`.
     """
 
+    if type(value) is RadicalSumV1:
+        # Родная величина канонична по построению: нормализовать нечего.
+        return value
     if value.is_Rational:
         return value
     SYMBOLIC_FALLBACK_COUNTS["normalize"] += 1
-    return sp.factor(value)
+    result = sp.factor(value)
+    if _backend.backend_mode() is SymbolicBackendV1.SHADOW:
+        _shadow_same_value("exact_normalize", value, result)
+    return result
 
 
 # srepr рационального числа — это ровно `Integer(n)` или `Rational(p, q)`:
@@ -135,11 +154,25 @@ class ExactScalar:
 
     @classmethod
     def from_value(
-        cls, value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str
+        cls,
+        value: ExactScalar | RadicalSumV1 | sp.Expr | Decimal | Fraction | int | float | str,
     ) -> ExactScalar:
         if isinstance(value, cls):
             return value
-        return cls(_canonical_expr(_expr(value)))
+        if type(value) is RadicalSumV1:
+            text, emulated = _native_text(value)
+            _backend.count("exact_scalar_text", "native" if emulated else "native_via_sympy")
+            return cls(text)
+        expression = _expr(value)
+        result = cls(_canonical_expr(expression))
+        if _backend.backend_mode() is SymbolicBackendV1.SHADOW and not expression.is_Rational:
+            _shadow_text(expression, result.expression)
+        return result
+
+    def native(self) -> RadicalSumV1:
+        """Значение в родной арифметике (память по строке); вне поля — `OutsideNativeField`."""
+
+        return _NATIVE_OF_TEXT(self.expression)
 
     def as_expr(
         self,
@@ -219,20 +252,60 @@ def _certified_interval_sign(expression: sp.Expr, precision: int = 80) -> int | 
     return None
 
 
-def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> int:
-    expression = _expr(value)
-    # Знак рационального числа решается сравнением числителя с нулём и не
-    # требует ни факторизации, ни машины предположений SymPy. Это ~99.8%
-    # вызовов в реальном прогоне evaluator'а.
-    if expression.is_Rational:
-        # Знак берётся из числителя напрямую. `expression.is_positive` даёт тот
-        # же ответ, но запускает машину предположений SymPy: на ЕЩЁ НЕ
-        # ВИДЕННОМ числе это 39 мкс против 0.03 мкс у `.p` — 400x. В поле
-        # каждая точка пересечения уникальна, поэтому «ещё не виденное» — это
-        # почти каждый вызов; в микробенчмарке на одном и том же значении
-        # разницы не видно, потому что SymPy кеширует вывод на объекте.
-        # Знаменатель Rational всегда положителен, знак живёт в числителе.
-        return (expression.p > 0) - (expression.p < 0)
+def _shadow_same_value(site: str, left: sp.Expr, right: sp.Expr) -> None:
+    """Теневая сверка «функция сохранила значение»: оба выражения читаются родной арифметикой."""
+
+    try:
+        same = not (_native_from_sympy(left) - _native_from_sympy(right)).terms
+    except OutsideNativeField:
+        _backend.count(site, "shadow_outside_field")
+        return
+    _backend.count(site, "shadow_checked")
+    if not same:
+        _backend.disagreement(site, f"{sp.srepr(left)} != {sp.srepr(right)}")
+
+
+#: Образцы расхождения ТЕКСТА (дайджесты): шагу 3 нужно знать, какие строки меняются.
+TEXT_DIFFERENCES: list[tuple[str, str]] = []
+#: То же, но только для ОДНОЧЛЕННЫХ величин (текст собран без sympy): их расхождение — не «другая форма
+#: суммы», а ошибка эмуляции, и в образцах оно не должно тонуть среди многочленных.
+SINGLE_TERM_TEXT_DIFFERENCES: list[tuple[str, str]] = []
+
+
+def _shadow_text(expression: sp.Expr, legacy_text: str) -> None:
+    """Сверка строки `ExactScalar`: значение обязано совпасть, текст — считается отдельно."""
+
+    site = "exact_scalar_text"
+    try:
+        native = _native_from_sympy(expression)
+        legacy_value = _NATIVE_OF_TEXT(legacy_text)
+    except OutsideNativeField:
+        _backend.count(site, "shadow_outside_field")
+        return
+    _backend.count(site, "shadow_checked")
+    if (native - legacy_value).terms:
+        _backend.disagreement(site, f"value of {legacy_text}")
+        return
+    text, emulated = _native_text(native)
+    if text == legacy_text:
+        _backend.count(site, "text_equal" if emulated else "text_equal_via_sympy")
+        return
+    _backend.count(site, "text_differs" if emulated else "text_differs_via_sympy")
+    if len(TEXT_DIFFERENCES) < 100:
+        TEXT_DIFFERENCES.append((legacy_text, text))
+    if emulated and len(SINGLE_TERM_TEXT_DIFFERENCES) < 50:
+        SINGLE_TERM_TEXT_DIFFERENCES.append((legacy_text, text))
+
+
+def _native_sign_or_none(value: RadicalSumV1, site: str) -> int | None:
+    try:
+        return value.signum()
+    except NativeSignUndecided:
+        _backend.count(site, "sign_undecided")
+        return None
+
+
+def _exact_sign_symbolic(expression: sp.Expr) -> int:
     SYMBOLIC_FALLBACK_COUNTS["sign"] += 1
     # Сначала пробуем доказать знак дешёвой интервальной оболочкой; точный
     # символьный путь ниже остаётся для случаев, где оболочка накрывает ноль.
@@ -257,6 +330,54 @@ def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float |
     if negative is True:
         return -1
     raise CertifiedPredicateUndecidable(f"cannot prove sign of {sp.srepr(candidate)}")
+
+
+def _exact_sign_of_irrational(expression: sp.Expr) -> int:
+    """Знак нерационального выражения под выбранным символьным бэкендом."""
+
+    mode = _backend.backend_mode()
+    if mode is SymbolicBackendV1.SYMPY:
+        return _exact_sign_symbolic(expression)
+    try:
+        native = _native_from_sympy(expression)
+    except OutsideNativeField:
+        _backend.count("exact_sign", "outside_field")
+        return _exact_sign_symbolic(expression)
+    sign = _native_sign_or_none(native, "exact_sign")
+    if mode is SymbolicBackendV1.NATIVE_EXACT:
+        if sign is None:
+            return _exact_sign_symbolic(expression)
+        _backend.count("exact_sign", "native")
+        return sign
+    legacy = _exact_sign_symbolic(expression)
+    if sign is not None:
+        _backend.count("exact_sign", "shadow_checked")
+        if sign != legacy:
+            _backend.disagreement("exact_sign", f"{sp.srepr(expression)}: native {sign}, sympy {legacy}")
+    return legacy
+
+
+def exact_sign(value: ExactScalar | RadicalSumV1 | sp.Expr | Decimal | Fraction | int | float | str) -> int:
+    if type(value) is RadicalSumV1:
+        # Родная величина решается родной арифметикой в любом режиме; уступка sympy — по имени.
+        sign = _native_sign_or_none(value, "exact_sign")
+        if sign is not None:
+            return sign
+        return _exact_sign_symbolic(_native_to_sympy(value))
+    expression = _expr(value)
+    # Знак рационального числа решается сравнением числителя с нулём и не
+    # требует ни факторизации, ни машины предположений SymPy. Это ~99.8%
+    # вызовов в реальном прогоне evaluator'а.
+    if expression.is_Rational:
+        # Знак берётся из числителя напрямую. `expression.is_positive` даёт тот
+        # же ответ, но запускает машину предположений SymPy: на ЕЩЁ НЕ
+        # ВИДЕННОМ числе это 39 мкс против 0.03 мкс у `.p` — 400x. В поле
+        # каждая точка пересечения уникальна, поэтому «ещё не виденное» — это
+        # почти каждый вызов; в микробенчмарке на одном и том же значении
+        # разницы не видно, потому что SymPy кеширует вывод на объекте.
+        # Знаменатель Rational всегда положителен, знак живёт в числителе.
+        return (expression.p > 0) - (expression.p < 0)
+    return _exact_sign_of_irrational(expression)
 
 
 def exact_equal(left: ExactScalar | sp.Expr, right: ExactScalar | sp.Expr) -> bool:
@@ -350,6 +471,9 @@ class ExactPlanarPoint:
     def from_values(cls, x: object, y: object) -> ExactPlanarPoint:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
 
+    def natives(self) -> tuple[RadicalSumV1, RadicalSumV1]:
+        return self.x.native(), self.y.native()
+
     def expressions(
         self,
         transaction_memo: dict[str, sp.Expr] | None = None,
@@ -368,6 +492,9 @@ class ExactPlanarVector:
     @classmethod
     def from_values(cls, x: object, y: object) -> ExactPlanarVector:
         return cls(ExactScalar.from_value(x), ExactScalar.from_value(y))
+
+    def natives(self) -> tuple[RadicalSumV1, RadicalSumV1]:
+        return self.x.native(), self.y.native()
 
     def expressions(
         self,

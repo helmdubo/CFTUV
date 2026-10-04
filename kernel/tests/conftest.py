@@ -16,6 +16,31 @@ from ec0_adapter import load_projection
 # аудита; продуктовый путь аудит не включает никогда.
 set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
 
+# `CFTUV_SYMBOLIC_BACKEND=SHADOW|NATIVE_EXACT` гоняет ВЕСЬ набор ядра под выбранным символьным
+# бэкендом (SHADOW с политикой RAISE: любое расхождение значений роняет тест, на котором случилось).
+# Без переменной действует умолчание `SYMPY` (`reference/symbolic_backend.py`).
+_SYMBOLIC_BACKEND = os.environ.get("CFTUV_SYMBOLIC_BACKEND", "")
+if _SYMBOLIC_BACKEND:
+    from cftuv_envelope.reference import symbolic_backend as _symbolic_backend
+
+    _symbolic_backend.set_backend_mode(_symbolic_backend.SymbolicBackendV1(_SYMBOLIC_BACKEND))
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Под выбранным бэкендом сессия печатает свод счётчиков: сколько сверено и чем решено."""
+
+    if not _SYMBOLIC_BACKEND:
+        return
+    from cftuv_envelope.reference import planar_types
+
+    counts = dict(sorted(_symbolic_backend.BACKEND_COUNTS.items()))
+    print(
+        f"\nSYMBOLIC_BACKEND_SUMMARY {_SYMBOLIC_BACKEND} "
+        f"text_differences={len(planar_types.TEXT_DIFFERENCES)} {counts}"
+    )
+    for legacy, native in planar_types.SINGLE_TERM_TEXT_DIFFERENCES[:4]:
+        print(f"SINGLE_TERM_TEXT_DIFFERENCE legacy={legacy[:300]} native={native[:300]}")
+
 
 @pytest.fixture(autouse=True)
 def _fresh_developable_chart_memory():

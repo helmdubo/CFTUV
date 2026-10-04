@@ -17,6 +17,13 @@ from ..contracts.metric import (
     RationalAffinePlanarMetricV2,
 )
 from ..robust.grid import GridSpecV1, record_snap
+from . import symbolic_backend as _backend
+from .native_exact import (
+    OutsideNativeField,
+    RadicalSumV1,
+    from_sympy as _native_from_sympy,
+)
+from .symbolic_backend import SymbolicBackendV1
 from .planar_types import (
     ConstructionCertificate,
     ExactPlanarPoint,
@@ -41,6 +48,30 @@ def _matrix(value: ExactMatrix2V1) -> tuple[tuple[sp.Expr, sp.Expr], ...]:
         (_scalar(value.m00), _scalar(value.m01)),
         (_scalar(value.m10), _scalar(value.m11)),
     )
+
+
+def _native_pair(vector) -> tuple[RadicalSumV1, RadicalSumV1]:
+    """Компоненты вектора в родной арифметике: свои `natives()` либо прочтение выражений sympy."""
+
+    natives = getattr(vector, "natives", None)
+    if natives is not None:
+        return natives()
+    x, y = vector.expressions()
+    return _native_from_sympy(x), _native_from_sympy(y)
+
+
+def _shadow_against_native(site: str, legacy: sp.Expr, compute_native) -> None:
+    """Теневая сверка одного значения: ответ sympy остаётся ответом, родной сверяется по значению."""
+
+    try:
+        native = compute_native()
+        expected = _native_from_sympy(legacy)
+    except OutsideNativeField:
+        _backend.count(site, "shadow_outside_field")
+        return
+    _backend.count(site, "shadow_checked")
+    if (native - expected).terms:
+        _backend.disagreement(site, f"native {native!r} != sympy {sp.srepr(legacy)}")
 
 
 class SnapDisplacementExceedsBudget(ValueError):
@@ -235,6 +266,7 @@ class _DensityExactMemo:
         "sreprs",
         "subturns",
         "support_segments",
+        "native_gram",
     )
 
     def __init__(self) -> None:
@@ -246,6 +278,8 @@ class _DensityExactMemo:
         self.sreprs: dict[sp.Expr, str] = {}
         self.subturns: dict[tuple, bool] = {}
         self.support_segments: dict[tuple, tuple] = {}
+        # Грамм в `Fraction` для родной арифметики (ключ `"gram"`); считается по требованию.
+        self.native_gram: dict[str, tuple] = {}
 
     def __reduce__(self):
         # Кэш — не часть значения, и пересылается ПУСТЫМ. Причина не
@@ -344,7 +378,41 @@ class ExactPlanarMetric:
         rx, ry = right.expressions()
         gx = self.gram[0][0] * rx + self.gram[0][1] * ry
         gy = self.gram[1][0] * rx + self.gram[1][1] * ry
-        return exact_normalize(lx * gx + ly * gy)
+        result = exact_normalize(lx * gx + ly * gy)
+        if _backend.backend_mode() is SymbolicBackendV1.SHADOW:
+            _shadow_against_native("dot_g", result, lambda: self.dot_g_native(left, right))
+        return result
+
+    def _native_gram(self) -> tuple:
+        remembered = self._density_exact_memo.native_gram
+        cached = remembered.get("gram")
+        if cached is None:
+            cached = remembered["gram"] = tuple(
+                tuple(Fraction(int(entry.p), int(entry.q)) for entry in row)
+                for row in self.gram
+            )
+        return cached
+
+    def dot_g_native(self, left, right) -> RadicalSumV1:
+        """`dot_g` в родной арифметике: то же значение, без sympy и без `factor`."""
+
+        lx, ly = _native_pair(left)
+        rx, ry = _native_pair(right)
+        (g00, g01), (g10, g11) = self._native_gram()
+        gx = rx.scaled(g00) + ry.scaled(g01)
+        gy = rx.scaled(g10) + ry.scaled(g11)
+        return lx * gx + ly * gy
+
+    def length_g_native(self, vector) -> RadicalSumV1:
+        """`length_g` в родной арифметике; корень из нерационального — вне поля (уступка sympy)."""
+
+        squared = self.dot_g_native(vector, vector)
+        if squared.signum() <= 0:
+            raise ValueError("zero vector has no metric length")
+        rational = squared.as_rational()
+        if rational is None:
+            raise OutsideNativeField("metric length of an irrational square")
+        return RadicalSumV1.sqrt_of_rational(rational)
 
     def density_expressions(
         self,
@@ -363,7 +431,10 @@ class ExactPlanarMetric:
         squared = self.dot_g(vector, vector)
         if exact_sign(squared) <= 0:
             raise ValueError("zero vector has no metric length")
-        return sp.sqrt(exact_normalize(squared))
+        result = sp.sqrt(exact_normalize(squared))
+        if _backend.backend_mode() is SymbolicBackendV1.SHADOW:
+            _shadow_against_native("length_g", result, lambda: self.length_g_native(vector))
+        return result
 
     def unit_g(self, vector: ExactPlanarVector) -> ExactPlanarVector:
         return vector_scale(vector, 1 / self.length_g(vector))
