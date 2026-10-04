@@ -7,8 +7,15 @@
 2. ИЗОГНУТЫЙ ПАТЧ (граненый цилиндр, развёртываемая поверхность): точки лежат НА гранях меша (до 1e-9), а их
    положение отличается от аналитического отступа по окружности не больше допуска растяжения запроса;
 3. ГРАНИЦА ПАТЧА: ширина больше патча обрывает луч на границе и называется `PREVIEW_CLIPPED_AT_PATCH_BOUNDARY`;
-   острый угол режется пределом митры (`PREVIEW_MITRE_LIMITED`), сторона без грани — `PREVIEW_SIDE_WITHOUT_FACE`;
-   ничего из этого не молчит;
+   рефлексный угол острее предела митры режется фаской из двух точек (`PREVIEW_MITRE_LIMITED`), угол без веера
+   (`PREVIEW_CORNER_WITHOUT_FAN`), патч уже двух ширин (`PREVIEW_OFFSET_FOLDS_BACK`), сторона без грани
+   (`PREVIEW_SIDE_WITHOUT_FACE`) — ничего из этого не молчит;
+3b. УГЛЫ И КОНЦЫ: выпуклый угол (в том числе острый, в том числе острый в развёртке изогнутой стены, в том числе в
+   вершине граней с разными нормалями) — митра на ширине от обеих сторон, рефлексный — пересечение смещённых линий,
+   очень острый рефлексный — две точки фаски; ни одна точка превью не лежит в исходной вершине. Конец пути
+   скользит по неразрешённому граничному ребру патча, когда угол веера меньше прямого, иначе — перпендикуляр;
+3c. СНИМОК ВЛАДЕЛЬЦА: стена `rounded_wall.001` из сцены (фикстура `artifacts/decal_width_live`): ни одна вершина
+   превью не стоит в вершине патча, каждая — на ширине от своих сторон, нижний левый угол (85.33 градуса) — митра;
 4. ДВА ПАТЧА через шов: у каждого патча своя линия, по одной с каждой стороны шва;
 5. ЦЕНА: превью на границе патча из сотен рёбер считается за миллисекунды (замер на `building` — в смоке);
 6. АВТОМАТ ИНСТРУМЕНТА: радиальное смещение, Ctrl, Shift, число с клавиатуры, подтверждение, отмена возвращает
@@ -17,6 +24,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -43,11 +51,14 @@ from cftuv.envelope_width_adjust import (  # noqa: E402
     WidthEventV1,
 )
 from cftuv.envelope_width_preview import (  # noqa: E402
-    OUTCOME_BEVEL_JOIN,
     OUTCOME_CLIPPED,
+    OUTCOME_FOLDS_BACK,
     OUTCOME_MITRE_LIMITED,
     OUTCOME_NO_FACE,
+    OUTCOME_NO_FAN,
     PREVIEW_BINARY64_V1,
+    _Counts,
+    _run_points,
     build_preview_inputs,
     chain_centroid,
     compute_width_preview,
@@ -222,7 +233,6 @@ def test_a_corner_of_the_chain_is_a_mitre_at_the_width_from_both_sides(frame):
     right = _add(origin, _scale(u, 5.0))  # нижняя сторона: прямая по u, правая: прямая по v через (5, 0)
     assert abs(_line_distance(corner, origin, u) - width) <= TOLERANCE
     assert abs(_line_distance(corner, right, v) - width) <= TOLERANCE
-    assert preview.outcome(OUTCOME_BEVEL_JOIN) == 0
 
 
 def test_the_four_sides_of_a_patch_make_one_closed_loop_inward():
@@ -272,15 +282,18 @@ def test_the_same_input_gives_the_same_answer():
 # --------------------------------------------------------------------------
 
 
-def _cylinder(segments, stacks, *, radius=1.0, height=0.5):
-    """Полуцилиндр `theta` в `[0, pi]`: развёртываемая поверхность из четырёхугольников."""
+def _cylinder(segments, stacks, *, radius=1.0, height=0.5, lean=0.0):
+    """Полуцилиндр `theta` в `[0, pi]`: развёртываемая поверхность из четырёхугольников.
+
+    `lean` поднимает ряд на столько на шаг дуги: грани становятся параллелограммами, угол цепи в развёртке — острым.
+    """
 
     mesh = _Mesh()
     ids = {}
     for j in range(stacks + 1):
         for i in range(segments + 1):
             angle = math.pi * i / segments
-            ids[i, j] = mesh.vertex((radius * math.cos(angle), radius * math.sin(angle), height * j))
+            ids[i, j] = mesh.vertex((radius * math.cos(angle), radius * math.sin(angle), height * j + lean * i))
     for j in range(stacks):
         for i in range(segments):
             mesh.face(0, (ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1]))
@@ -343,8 +356,8 @@ def test_a_width_beyond_a_planar_patch_is_clipped_and_named():
     assert "preview, not final" in preview.status_text()
 
 
-def test_a_very_sharp_corner_is_cut_by_the_mitre_limit_and_named():
-    """Путь ломается под 20 градусов, а грани лежат С ВНЕШНЕЙ стороны излома: митра ушла бы в шип."""
+def test_a_corner_whose_faces_touch_only_at_the_vertex_has_no_fan_and_splits_into_two_ends_by_name():
+    """Две грани касаются в одной вершине без общего ребра: веера между сторонами нет, путь режется и называется."""
 
     turn = math.radians(20.0)
     mesh = _Mesh()
@@ -359,13 +372,18 @@ def test_a_very_sharp_corner_is_cut_by_the_mitre_limit_and_named():
     mesh.face(0, (a, b, p, q))
     mesh.face(0, (b, c, r, s))
     inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(a, b), mesh.edge(b, c)])])
+    width = 0.05
 
-    preview = compute_width_preview(inputs, 0.05)
+    preview = compute_width_preview(inputs, width)
 
-    assert preview.outcome(OUTCOME_MITRE_LIMITED) == 1
-    assert preview.outcome(OUTCOME_BEVEL_JOIN) == 1
-    assert len(preview.polylines[0]) == 4  # два конца и две точки фаски вместо шипа
-    assert OUTCOME_MITRE_LIMITED in preview.status_text()
+    assert preview.outcome(OUTCOME_NO_FAN) == 1 and OUTCOME_NO_FAN in preview.status_text()
+    assert len(inputs.runs) == 2 and all(not run.closed for run in inputs.runs)
+    first, second = preview.polylines[0], preview.polylines[3]  # по линии и два торца на путь
+    for line in (first, second):
+        assert all(math.dist(point, (0.0, 0.0, 0.0)) > width / 2.0 for point in line)  # вершины среди точек нет
+    assert all(abs(_line_distance(point, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) - width) <= TOLERANCE for point in first)
+    direction = (math.cos(turn), math.sin(turn), 0.0)
+    assert all(abs(_line_distance(point, (0.0, 0.0, 0.0), direction) - width) <= TOLERANCE for point in second)
 
 
 def test_a_selected_edge_without_a_face_in_the_patch_is_named_and_never_dropped_silently():
@@ -378,6 +396,353 @@ def test_a_selected_edge_without_a_face_in_the_patch_is_named_and_never_dropped_
     assert preview.polylines == ()
     assert preview.outcome(OUTCOME_NO_FACE) == 3
     assert OUTCOME_NO_FACE in preview.status_text()
+
+
+# --------------------------------------------------------------------------
+# 3b. Углы пути: острые, рефлексные, на кривой, с разными нормалями
+# --------------------------------------------------------------------------
+
+
+def _has_point(points, expected, tolerance=1e-9):
+    return any(math.dist(point, expected) <= tolerance for point in points)
+
+
+def _parallelogram(angle_degrees, *, along=4.0, across=3.0):
+    """Параллелограмм с углом `angle` в начале координат: сторона `V->A` по x, сторона `V->B` под углом."""
+
+    angle = math.radians(angle_degrees)
+    mesh = _Mesh()
+    v = mesh.vertex((0.0, 0.0, 0.0))
+    a = mesh.vertex((along, 0.0, 0.0))
+    far = (across * math.cos(angle), across * math.sin(angle), 0.0)
+    b = mesh.vertex(far)
+    c = mesh.vertex(_add((along, 0.0, 0.0), far))
+    mesh.face(0, (v, a, c, b))
+    return mesh, (v, a, b), far
+
+
+def test_an_acute_corner_of_60_degrees_is_the_mitre_at_the_width_from_both_sides_and_never_the_vertex():
+    mesh, (v, a, b), far = _parallelogram(60.0)
+    width = 0.5
+    inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(v, a), mesh.edge(v, b)])])
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    assert len(line) == 3  # два конца и одна точка угла
+    corner = (math.sqrt(3.0) * width, width, 0.0)  # биссектриса 30 градусов, ширина / sin(30) = две ширины от вершины
+    assert _has_point(line, corner)
+    assert abs(math.dist(corner, (0.0, 0.0, 0.0)) - 2.0 * width) <= TOLERANCE
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) - width) <= TOLERANCE
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), _unit(far)) - width) <= TOLERANCE
+    # Внутренние углы концов 120 градусов (не меньше прямого): конец — перпендикуляр к стороне.
+    assert _has_point(line, (4.0, width, 0.0))
+    assert _has_point(line, _add(far, _scale((math.sin(math.radians(60.0)), -0.5, 0.0), width)))
+    assert not _has_point(line, (0.0, 0.0, 0.0), width / 2.0)
+
+
+def test_a_chain_end_at_an_acute_boundary_slides_along_the_unselected_edge_instead_of_collapsing_to_the_vertex():
+    mesh, (v, a, b), far = _parallelogram(60.0)
+    width = 0.5
+    inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(v, a)])])  # ребро V->B не выбрано
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    assert len(line) == 2
+    slid = (width / math.tan(math.radians(60.0)), width, 0.0)  # на ребре V->B: ширина / sin(60) от вершины
+    assert _has_point(line, slid)
+    assert _line_distance(slid, (0.0, 0.0, 0.0), _unit(far)) <= TOLERANCE  # точка лежит на граничном ребре
+    assert abs(math.dist(slid, (0.0, 0.0, 0.0)) - width / math.sin(math.radians(60.0))) <= TOLERANCE
+    assert abs(_line_distance(slid, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) - width) <= TOLERANCE
+    assert _has_point(line, (4.0, width, 0.0))  # у другого конца угол 120 градусов: перпендикуляр
+    caps = preview.polylines[1:]
+    assert len(caps) == 2 and any(_has_point(cap, slid) and _has_point(cap, (0.0, 0.0, 0.0)) for cap in caps)
+
+
+def test_a_reflex_corner_is_the_point_where_the_offset_lines_meet():
+    mesh, ids = _grid(2, 2, 1.0, patch=lambda i, j: 1 if (i, j) == (1, 1) else 0)  # Г-образный патч, клетка (1, 1) чужая
+    chain = _edges_between(mesh, ids, [((1, 1), (2, 1)), ((1, 1), (1, 2))])
+    inputs = build_preview_inputs(mesh.surface(), [(0, chain)])
+    width = 0.3
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    assert len(line) == 3
+    corner = (1.0 - width, 1.0 - width, 0.0)
+    assert _has_point(line, corner)  # угол 270 градусов: биссектриса 135 градусов, ширина / sin(135) от вершины
+    assert abs(math.dist(corner, (1.0, 1.0, 0.0)) - width * math.sqrt(2.0)) <= TOLERANCE
+    assert _has_point(line, (2.0, 1.0 - width, 0.0)) and _has_point(line, (1.0 - width, 2.0, 0.0))
+
+
+def _fan_mesh(count, step_degrees, *, radius=3.0):
+    """Веер из `count` треугольников вокруг центра: `(меш, центр, вершины обода)`; щель — остаток до 360 градусов."""
+
+    mesh = _Mesh()
+    centre = mesh.vertex((0.0, 0.0, 0.0))
+    rim = [
+        mesh.vertex((radius * math.cos(math.radians(step_degrees * k)), radius * math.sin(math.radians(step_degrees * k)), 0.0))
+        for k in range(count + 1)
+    ]
+    for k in range(count):
+        mesh.face(0, (centre, rim[k], rim[k + 1]))
+    return mesh, centre, rim
+
+
+def test_a_very_sharp_reflex_corner_is_cut_by_the_mitre_limit_into_two_offset_points_never_the_vertex():
+    mesh, centre, rim = _fan_mesh(7, 50.0)  # внутренний угол в центре 350 градусов: митра длиннее предела
+    chain = [mesh.edge(centre, rim[0]), mesh.edge(centre, rim[7])]
+    inputs = build_preview_inputs(mesh.surface(), [(0, chain)])
+    width = 0.2
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcome(OUTCOME_MITRE_LIMITED) == 1 and OUTCOME_MITRE_LIMITED in preview.status_text()
+    line = preview.polylines[0]
+    assert len(line) == 4  # два конца и две точки фаски
+    origin = (0.0, 0.0, 0.0)
+    first = (0.0, width, 0.0)  # перпендикуляр к ребру центр-обод(0) внутрь веера
+    second = _scale((math.cos(math.radians(260.0)), math.sin(math.radians(260.0)), 0.0), width)
+    assert _has_point(line, first) and _has_point(line, second)
+    assert abs(_line_distance(first, origin, (1.0, 0.0, 0.0)) - width) <= TOLERANCE
+    assert abs(_line_distance(second, origin, (math.cos(math.radians(350.0)), math.sin(math.radians(350.0)), 0.0)) - width) <= TOLERANCE
+    assert not any(math.dist(point, origin) < width / 2.0 for point in line)
+    # Конец у обода: внутренний угол грани 65 градусов (меньше прямого) — точка скользит по ребру обода.
+    rim_a, rim_b = mesh.vertices[rim[0]].position, mesh.vertices[rim[1]].position
+    slid = _add(rim_a, _scale(_unit(_sub(rim_b, rim_a)), width / math.sin(math.radians(65.0))))
+    assert _has_point(line, slid, 1e-9)
+
+
+def test_a_very_sharp_convex_corner_is_still_the_exact_mitre_far_along_the_bisector():
+    """20 градусов внутри ОДНОЙ грани: пересечение смещённых линий лежит в `ширина / sin(10)` от вершины."""
+
+    angle = math.radians(20.0)
+    mesh = _Mesh()
+    o = mesh.vertex((0.0, 0.0, 0.0))
+    a = mesh.vertex((5.0, 0.0, 0.0))
+    b = mesh.vertex((5.0 * math.cos(angle), 5.0 * math.sin(angle), 0.0))
+    mesh.face(0, (o, a, b))
+    inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(o, a), mesh.edge(o, b)])])
+    width = 0.2
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    reach = width / math.sin(math.radians(10.0))
+    corner = _scale((math.cos(math.radians(10.0)), math.sin(math.radians(10.0)), 0.0), reach)
+    assert len(line) == 3 and _has_point(line, corner)
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) - width) <= TOLERANCE
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), (math.cos(angle), math.sin(angle), 0.0)) - width) <= TOLERANCE
+
+
+def test_a_patch_narrower_than_two_widths_folds_the_offset_back_and_names_it():
+    mesh, ids = _grid(6, 1, 0.5)  # полоса 3.0 x 0.5
+    cells = (
+        [((i, 0), (i + 1, 0)) for i in range(6)]
+        + [((6, 0), (6, 1))]
+        + [((i, 1), (i + 1, 1)) for i in range(6)]
+        + [((0, 0), (0, 1))]
+    )
+    inputs = build_preview_inputs(mesh.surface(), [(0, _edges_between(mesh, ids, cells))])
+
+    folded = compute_width_preview(inputs, 0.4)  # 0.4 + 0.4 больше 0.5: смещённые линии пересеклись
+    inside = compute_width_preview(inputs, 0.2)
+
+    assert folded.outcome(OUTCOME_FOLDS_BACK) >= 1 and OUTCOME_FOLDS_BACK in folded.status_text()
+    assert inside.outcomes == ()
+    ring = inside.polylines[0]
+    assert sorted({round(point[1], 12) for point in ring}) == [0.2, 0.3]
+
+
+def test_an_interior_edge_gets_a_line_on_each_side_and_perpendicular_ends_at_a_closed_fan():
+    mesh, ids = _grid(4, 4, 1.0)
+    inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(ids[2, 2], ids[3, 2])])])
+    width = 0.3
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    assert len(inputs.runs) == 2  # одно ребро с двух граней патча: две стороны, два пути
+    lines = [preview.polylines[0], preview.polylines[3]]
+    assert sorted(round(line[0][1], 12) for line in lines) == [1.7, 2.3]
+    assert all(sorted(point[0] for point in line) == [2.0, 3.0] for line in lines)
+
+
+# --------------------------------------------------------------------------
+# 3c. Угол на кривой поверхности и при разных нормалях граней
+# --------------------------------------------------------------------------
+
+
+def test_a_right_corner_on_a_curved_patch_is_the_mitre_in_the_development_and_lies_on_the_mesh():
+    segments, stacks, radius, width = 48, 8, 1.0, 0.3
+    mesh, ids = _cylinder(segments, stacks, radius=radius)
+    arc = 40
+    cells = [((i, 0), (i + 1, 0)) for i in range(arc)] + [((0, j), (0, j + 1)) for j in range(stacks)]
+    inputs = build_preview_inputs(mesh.surface(), [(0, _edges_between(mesh, ids, cells))])
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    step = math.pi / segments
+    inner = radius * math.cos(step / 2.0)
+    for point in line:  # каждая точка лежит на плоскости грани меша
+        facet = min(segments - 1, int(math.atan2(point[1], point[0]) / step))
+        middle = (facet + 0.5) * step
+        assert abs(point[0] * math.cos(middle) + point[1] * math.sin(middle) - inner) <= TOLERANCE
+    corner = [
+        point
+        for point in line
+        if abs(point[2] - width) <= 1e-9 and abs(radius * math.atan2(point[1], point[0]) - width) <= 1e-3
+    ]
+    assert len(corner) == 1  # митра: ширина вдоль дуги и ширина вверх; не вершина (она в нуле дуги и высоты)
+    assert abs(radius * math.atan2(corner[0][1], corner[0][0]) - width) <= float(DEFAULT_ENVELOPE_STRETCH_BUDGET) * width
+    # Прямые углы нижнего ряда ближе ширины к углу цепи отданы митре и не торчат назад.
+    assert min(radius * math.atan2(point[1], point[0]) for point in line if point[2] <= width + 1e-9) >= width - 1e-3
+
+
+def test_an_acute_corner_in_the_chart_of_a_curved_patch_is_the_mitre_and_never_the_vertex():
+    """Грани — параллелограммы на цилиндре (низ ряда ползёт вверх): внутренний угол в развёртке меньше прямого."""
+
+    segments, stacks, radius, width, lean = 48, 8, 1.0, 0.3, 0.03
+    mesh, ids = _cylinder(segments, stacks, radius=radius, lean=lean)
+    arc = 40
+    cells = [((i, 0), (i + 1, 0)) for i in range(arc)] + [((0, j), (0, j + 1)) for j in range(stacks)]
+    inputs = build_preview_inputs(mesh.surface(), [(0, _edges_between(mesh, ids, cells))])
+    chord = 2.0 * radius * math.sin(math.pi / segments / 2.0)  # шаг ряда в развёртке
+    bottom = math.hypot(chord, lean)
+    theta = math.pi / 2.0 - math.atan2(lean, chord)
+    assert math.degrees(theta) < 70.0  # угол цепи в развёртке острый
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    # Развёртка: s вдоль дуги от левой цепи, z вверх; верхняя точка пересечения смещённых линий.
+    expected_s, expected_z = width, (width * bottom + width * lean) / chord
+    corner = [
+        point
+        for point in line
+        if abs(radius * math.atan2(point[1], point[0]) - expected_s) <= 2e-3 and abs(point[2] - expected_z) <= 2e-3
+    ]
+    assert len(corner) == 1
+    assert math.dist(corner[0], mesh.vertices[ids[0, 0]].position) > width  # не исходная вершина цепи
+    assert abs(math.dist(corner[0], mesh.vertices[ids[0, 0]].position) - width / math.sin(theta / 2.0)) <= 2e-3
+
+
+def test_a_corner_vertex_shared_by_faces_with_different_normals_takes_each_direction_in_its_own_face():
+    """Грани сложены по ребру V-P2 (излом 40 градусов), биссектриса угла 90 градусов ложится ровно на излом."""
+
+    mesh = _Mesh()
+    v = mesh.vertex((0.0, 0.0, 0.0))
+    p1 = mesh.vertex((3.0, 0.0, 0.0))
+    crease = (math.cos(math.radians(45.0)), math.sin(math.radians(45.0)), 0.0)
+    p2 = mesh.vertex(_scale(crease, 3.0))
+    flat = (0.0, 3.0, 0.0)
+    fold = math.radians(40.0)
+    turned = _add(
+        _add(_scale(flat, math.cos(fold)), _scale(_cross(crease, flat), math.sin(fold))),
+        _scale(crease, _dot(crease, flat) * (1.0 - math.cos(fold))),
+    )
+    p3 = mesh.vertex(turned)
+    mesh.face(0, (v, p1, p2))
+    mesh.face(0, (v, p2, p3))
+    inputs = build_preview_inputs(mesh.surface(), [(0, [mesh.edge(v, p1), mesh.edge(v, p3)])])
+    width = 0.5
+
+    preview = compute_width_preview(inputs, width)
+
+    assert preview.outcomes == ()
+    line = preview.polylines[0]
+    corner = _scale(crease, width * math.sqrt(2.0))  # угол 45 + 45 градусов в развёртке: митра лежит на изломе
+    assert len(line) == 3 and _has_point(line, corner)
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)) - width) <= TOLERANCE
+    assert abs(_line_distance(corner, (0.0, 0.0, 0.0), _unit(turned)) - width) <= TOLERANCE  # и до второй цепи ширина
+
+
+# --------------------------------------------------------------------------
+# 3d. Снимок владельца: изогнутая стена `rounded_wall.001`, нижний левый угол
+# --------------------------------------------------------------------------
+
+#: Входы превью настоящего меша сцены (`artifacts/decal_width_live/export_preview_fixture.py`, Blender 4.5, все швы).
+WALL_FIXTURE = Path(__file__).resolve().parents[1] / "artifacts" / "decal_width_live" / "rounded_wall_001_preview_inputs.json"
+#: Патч снимка владельца (внутренняя грань изогнутой стены) и вершина его нижнего левого угла (внутренний угол 85.33).
+WALL_PATCH = 3
+WALL_CORNER = (-28.315, -29.199, 45.534)
+
+
+def _load_wall():
+    payload = json.loads(WALL_FIXTURE.read_text(encoding="utf-8"))
+    surface = PatchSurfaceIR(
+        SourceRevision(payload["mesh"], "fixture"),
+        tuple(SourceVertex(vertex, tuple(position)) for vertex, position in payload["vertices"]),
+        tuple(SourceEdge(edge, tuple(ends), tuple(faces)) for edge, ends, faces in payload["edges"]),
+        tuple(
+            SourceFace(
+                item["face_id"],
+                item["patch_id"],
+                tuple(item["vertex_cycle"]),
+                tuple(item["edge_cycle"]),
+                tuple(item["polygon_normal"]),
+                (),
+            )
+            for item in payload["faces"]
+        ),
+        (),
+    )
+    return surface, [(patch, tuple(edges)) for patch, edges in payload["selected_by_patch"]]
+
+
+@pytest.mark.parametrize("width", (0.25, 0.4))
+def test_the_owner_wall_has_no_preview_vertex_stuck_at_a_patch_vertex_and_every_vertex_is_at_the_width(width):
+    surface, selected = _load_wall()
+    inputs = build_preview_inputs(surface, selected)
+    counts = _Counts()
+    vertices = [item.position for item in surface.vertices]
+    seen = 0
+
+    for run in inputs.runs:
+        for point, _normal, sources, clipped, _gentle in _run_points(inputs, run, width, counts):
+            seen += 1
+            assert not clipped
+            assert min(math.dist(point, position) for position in vertices) > 1e-3 * width, (run.patch_id, point)
+            for source in sources:
+                side = run.sides[source]
+                distance = _line_distance(point, side.start, _unit(_sub(side.end, side.start)))
+                assert abs(distance - width) <= 5e-3 * width, (run.patch_id, point, distance)  # грани почти плоские
+
+    assert seen > 100 and counts.clipped == 0 and counts.mitre == 0
+
+
+@pytest.mark.parametrize("width", (0.25, 0.4))
+def test_the_owner_wall_lower_left_corner_is_the_mitre_of_the_acute_chart_angle_and_not_the_patch_vertex(width):
+    surface, selected = _load_wall()
+    inputs = build_preview_inputs(surface, selected)
+    run = next(
+        item
+        for item in inputs.runs
+        if item.patch_id == WALL_PATCH and any(math.dist(side.start, WALL_CORNER) <= 5e-3 for side in item.sides)
+    )
+    index = next(i for i, side in enumerate(run.sides) if math.dist(side.start, WALL_CORNER) <= 5e-3)
+    before, after = run.sides[index - 1], run.sides[index]
+    corner = after.start
+    first, second = _sub(before.start, corner), _sub(after.end, corner)
+    theta = math.acos(_dot(first, second) / (math.sqrt(_dot(first, first)) * math.sqrt(_dot(second, second))))
+    assert 80.0 < math.degrees(theta) < 90.0  # острый угол: тот, что раньше схлопывал точку отступа в вершину
+
+    points = [item[0] for item in _run_points(inputs, run, width, _Counts())]
+    nearest = min(points, key=lambda point: math.dist(point, corner))
+
+    assert abs(math.dist(nearest, corner) - width / math.sin(theta / 2.0)) <= 1e-6
+    assert abs(_line_distance(nearest, before.start, _unit(_sub(before.end, before.start))) - width) <= 1e-5
+    assert abs(_line_distance(nearest, after.start, _unit(_sub(after.end, after.start))) - width) <= 1e-5
+    preview = compute_width_preview(inputs, width)
+    assert preview.outcome(OUTCOME_CLIPPED) == 0 and preview.outcome(OUTCOME_NO_FAN) == 0
 
 
 # --------------------------------------------------------------------------
