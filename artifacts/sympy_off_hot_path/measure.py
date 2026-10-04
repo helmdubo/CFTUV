@@ -93,7 +93,7 @@ def run(args) -> dict:
     for repetition in range(args.reps):
         for patch_id in patches:
             for mode in modes:
-                env = dict(os.environ, CFTUV_SYMBOLIC_BACKEND="" if mode == "SYMPY" else mode)
+                env = dict(os.environ, CFTUV_SYMBOLIC_BACKEND=mode)
                 done = subprocess.run(
                     [sys.executable, str(Path(__file__).resolve()), "--child",
                      str(patch_id), str(args.density)],

@@ -1,6 +1,6 @@
 """Символьный бэкенд эталона: родная арифметика РАВНА sympy по значению, режимы не меняют ответ.
 
-Шаг 2 плана SYMPY-OFF-HOT-PATH. Что проверяется и чем:
+Шаги 2–3 плана SYMPY-OFF-HOT-PATH. Что проверяется и чем:
 
 1. ЗНАЧЕНИЯ. Сумма корней по квадратным классам (`RadicalSumV1`, без факторизации) складывает,
    умножает, делит и решает знак так же, как независимая каноническая форма `SqrtSumV1`
@@ -12,7 +12,7 @@
    сетке знаков, знаменателей и радикандов; многочленная идёт через sympy и помечена.
 3. ВЫХОД ЗА ПОЛЕ. Тригонометрия, вложенные радикалы и корень из суммы — `OutsideNativeField` с
    кодом, а не догадка; `exact_sign` уступает sympy и считает уступку.
-4. РЕЖИМЫ. Умолчание `SYMPY`; контекст возвращает режим; `SHADOW` ловит ПОДМЕНЁННЫЙ неверный ответ
+4. РЕЖИМЫ. Умолчание `NATIVE_EXACT` (шаг 3), `SYMPY` и `SHADOW` выбираемы; контекст возвращает режим; `SHADOW` ловит ПОДМЕНЁННЫЙ неверный ответ
    родной стороны (отрицательный контроль: сверка, не умеющая краснеть, — не сверка), `RECORD`
    копит расхождения, `RAISE` бросает `EXACT_SYMBOLIC_BACKEND_DISAGREEMENT`.
 5. СКВОЗНО. Те же резолюции alpha и покрытие полевой подготовки под `SYMPY`, `SHADOW` и
@@ -110,9 +110,18 @@ def _same_as_oracle(native: R, expression) -> bool:
     bool(os.environ.get("CFTUV_SYMBOLIC_BACKEND")),
     reason="the suite is being run under a chosen backend",
 )
-def test_the_default_backend_is_sympy():
-    assert sb.backend_mode() is sb.SymbolicBackendV1.SYMPY
+def test_the_default_backend_is_native_exact():
+    assert sb.DEFAULT_BACKEND is sb.SymbolicBackendV1.NATIVE_EXACT
+    assert sb.backend_mode() is sb.SymbolicBackendV1.NATIVE_EXACT
     assert sb.disagreement_policy() is sb.DisagreementPolicyV1.RAISE
+
+
+def test_every_backend_stays_selectable_and_the_context_restores_the_default():
+    default = sb.backend_mode()
+    for mode in sb.SymbolicBackendV1:
+        with sb.symbolic_backend(mode):
+            assert sb.backend_mode() is mode
+        assert sb.backend_mode() is default
 
 
 def test_arithmetic_matches_the_canonical_oracle_on_a_random_corpus():

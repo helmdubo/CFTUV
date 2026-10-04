@@ -16,9 +16,9 @@ from ec0_adapter import load_projection
 # аудита; продуктовый путь аудит не включает никогда.
 set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
 
-# `CFTUV_SYMBOLIC_BACKEND=SHADOW|NATIVE_EXACT` гоняет ВЕСЬ набор ядра под выбранным символьным
+# `CFTUV_SYMBOLIC_BACKEND=SYMPY|SHADOW|NATIVE_EXACT` гоняет ВЕСЬ набор ядра под выбранным символьным
 # бэкендом (SHADOW с политикой RAISE: любое расхождение значений роняет тест, на котором случилось).
-# Без переменной действует умолчание `SYMPY` (`reference/symbolic_backend.py`).
+# Без переменной действует умолчание `DEFAULT_BACKEND` = `NATIVE_EXACT` (`reference/symbolic_backend.py`).
 _SYMBOLIC_BACKEND = os.environ.get("CFTUV_SYMBOLIC_BACKEND", "")
 if _SYMBOLIC_BACKEND:
     from cftuv_envelope.reference import symbolic_backend as _symbolic_backend

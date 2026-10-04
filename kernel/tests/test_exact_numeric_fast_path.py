@@ -26,6 +26,12 @@ from cftuv_envelope.reference.planar_types import (
     exact_sign,
 )
 from cftuv_envelope.reference import planar_types
+from cftuv_envelope.reference.symbolic_backend import (
+    BACKEND_COUNTS,
+    SymbolicBackendV1,
+    reset_backend_counts,
+    symbolic_backend,
+)
 
 
 def _slow_canonical(value: sp.Expr) -> str:
@@ -109,14 +115,43 @@ def test_rational_corpus_never_touches_the_symbolic_path():
     assert dict(SYMBOLIC_FALLBACK_COUNTS) == before
 
 
-def test_algebraic_values_still_take_the_symbolic_path():
-    """Радикалы обязаны сохранить прежнее поведение, а не тихо просочиться."""
+def test_algebraic_values_take_the_path_their_backend_names():
+    """Радикалы идут тем путём, который назвал бэкенд, а не просачиваются молча.
+
+    До шага 3 SYMPY-OFF-HOT-PATH здесь стояло «алгебраическое значение всегда идёт символьным
+    путём»; умолчание теперь `NATIVE_EXACT`, и честное утверждение — по режимам, с именованным
+    счётом каждого решения (AGENTS.md, пункт 4).
+    """
 
     algebraic = sp.Rational(3, 7) + sp.Rational(2, 5) * sp.sqrt(sp.Rational(13, 3))
-    before = SYMBOLIC_FALLBACK_COUNTS["sign"]
-    assert exact_sign(algebraic) == 1
-    assert SYMBOLIC_FALLBACK_COUNTS["sign"] == before + 1
-    assert exact_sign(-algebraic) == -1
+    # Сумма рациональных кратных корней из рациональных — поле родной арифметики.
+    with symbolic_backend(SymbolicBackendV1.SYMPY):
+        before = SYMBOLIC_FALLBACK_COUNTS["sign"]
+        assert exact_sign(algebraic) == 1
+        assert SYMBOLIC_FALLBACK_COUNTS["sign"] == before + 1
+        assert exact_sign(-algebraic) == -1
+    with symbolic_backend(SymbolicBackendV1.NATIVE_EXACT):
+        reset_backend_counts()
+        before = SYMBOLIC_FALLBACK_COUNTS["sign"]
+        assert exact_sign(algebraic) == 1
+        assert exact_sign(-algebraic) == -1
+        assert SYMBOLIC_FALLBACK_COUNTS["sign"] == before
+        assert BACKEND_COUNTS["exact_sign.native"] == 2
+        assert "exact_sign.outside_field" not in BACKEND_COUNTS
+
+
+def test_values_outside_the_native_field_still_take_the_symbolic_path_by_name():
+    """Вложенный радикал вне поля: уступка sympy записана под именем, ответ верный."""
+
+    nested = sp.sqrt(10 - 2 * sp.sqrt(5)) - 2
+    with symbolic_backend(SymbolicBackendV1.NATIVE_EXACT):
+        reset_backend_counts()
+        before = SYMBOLIC_FALLBACK_COUNTS["sign"]
+        assert exact_sign(nested) == 1
+        assert exact_sign(-nested) == -1
+        assert SYMBOLIC_FALLBACK_COUNTS["sign"] == before + 2
+        assert BACKEND_COUNTS["exact_sign.outside_field"] == 2
+        assert "exact_sign.native" not in BACKEND_COUNTS
 
 
 # --------------------------------------------------------------------------

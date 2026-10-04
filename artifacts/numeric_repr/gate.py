@@ -294,9 +294,9 @@ def compute_row(patch_id: int, density, alpha_value=ALPHA_VALUE, alpha_text=ALPH
 def _install_symbolic_backend() -> None:
     """`CFTUV_SYMBOLIC_BACKEND=SYMPY|NATIVE_EXACT|SHADOW` ставит режим символьного бэкенда в воркере.
 
-    Переменную читает ТОЛЬКО харнесс ворот: продукт режим не выбирает (умолчание `SYMPY`), а
-    `SHADOW` идёт с политикой записи расхождений, чтобы один прогон собрал их все
-    (`artifacts/sympy_off_hot_path/`).
+    Переменную читает ТОЛЬКО харнесс ворот: продукт режим не выбирает (умолчание модуля —
+    `symbolic_backend.DEFAULT_BACKEND` = `NATIVE_EXACT`), а `SHADOW` идёт с политикой записи
+    расхождений, чтобы один прогон собрал их все (`artifacts/sympy_off_hot_path/`).
     """
 
     name = os.environ.get("CFTUV_SYMBOLIC_BACKEND", "")

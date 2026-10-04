@@ -184,7 +184,7 @@ ANSWER_KEYS = (
 
 
 def compute_row(patch_id: int, density, *args, **kwargs):
-    """Строка домена; под не-умолчательным символьным бэкендом несёт его счётчики (вне `ANSWER_KEYS`)."""
+    """Строка домена; под любым символьным бэкендом кроме `SYMPY` несёт его счётчики (вне `ANSWER_KEYS`)."""
 
     gate._reset_backend_counts()
     row = _compute_row(patch_id, density, *args, **kwargs)

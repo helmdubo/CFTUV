@@ -55,7 +55,7 @@ def _run_domain(mode, patch_id, domain_id, snapshot, request, planar_types, back
     except Exception as error:  # noqa: BLE001 - исход домена, а не авария прогона
         answer = {"outcome": f"EXCEPTION/{type(error).__name__}", "detail": str(error)[:300]}
     finally:
-        backend.set_backend_mode(backend.SymbolicBackendV1.SYMPY)
+        backend.set_backend_mode(backend.DEFAULT_BACKEND)
     return {
         "answer": answer,
         "seconds": round(time.perf_counter() - started, 3),
