@@ -30,9 +30,17 @@
 * `request_id` — метка запроса: он уже не входит в ключ подготовки сессии, а результат несёт id
   запроса, при котором посчитан (`envelope_host_labels.REQUEST_SCOPED_KINDS`).
 
-ЧТО ВХОДИТ СВЕРХ ВХОДА ВОРКЕРА: выделенные рёбра домена (они у задачи отдельно), нормализованная
-плотность веера и допуск растяжения запроса, политики хоста, которые читает выгрузка снапшота
-(планарность, решётка, репер, закон подъёма, лестница кривизны), и версии контрактов ядра.
+ЧТО ВХОДИТ СВЕРХ ВХОДА ВОРКЕРА: выделенные рёбра домена (они у задачи отдельно), подпись политики запроса
+(`envelope_angular_policy` от плотности и допуска растяжения вместе с умолчанием допуска: правка таблицы
+веера или умолчания меняет ключ), политики хоста, которые читает выгрузка снапшота (планарность, решётка,
+репер, закон подъёма, лестница кривизны), схемы контрактов ядра и ОТПЕЧАТОК КОДА.
+
+ОТПЕЧАТОК КОДА (`code_identity`) — не версия: `cftuv_envelope.__version__` не менялась за десяток слияний ядра.
+Это sha256 по содержимому всех .py пакета ядра и пакета хоста тем же законом, что у установщика
+(`tools/blender_check_install.py --fingerprint`; тест держит равенство), посчитанный один раз за процесс.
+Хранилище по содержимому ПРОЦЕССНО-ЛОКАЛЬНО: оно никогда не пишется на диск (`ContentStoreV1` не
+сериализуется, тест архитектуры это держит), поэтому запись не переживает процесс, а код процесса не меняется
+под ней; отпечаток в ключе — второй замок на случай, если ключ когда-нибудь окажется вне процесса.
 
 Тип, которого кодировщик не знает, — `ContentKeyUnsupported`: домен тогда просто не адресуется по
 содержимому и считается как раньше, а ключ с молча пропущенным значением не получается никогда.
@@ -43,7 +51,9 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
+import os
 from enum import Enum
 from fractions import Fraction
 
@@ -152,15 +162,54 @@ def _patch_ranks(export) -> dict[int, int]:
     return ranks
 
 
+def package_fingerprint(root: str) -> str:
+    """sha256 по содержимому всех .py каталога: ТОТ ЖЕ закон, что у `tools/blender_check_install.py`.
+
+    Путь внутри пакета и содержимое с переводами строк, приведёнными к LF: копия того же кода в CRLF и в LF
+    даёт один отпечаток.
+    """
+
+    if not root or not os.path.isdir(root):
+        return "<нет каталога>"
+    digest = hashlib.sha256()
+    for current, directories, files in os.walk(root):
+        directories[:] = sorted(item for item in directories if item != "__pycache__")
+        for name in sorted(files):
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(current, name)
+            digest.update(os.path.relpath(path, root).replace("\\", "/").encode())
+            with open(path, "rb") as handle:
+                digest.update(handle.read().replace(b"\r\n", b"\n"))
+    return digest.hexdigest()[:16]
+
+
+@functools.lru_cache(maxsize=None)
+def _fingerprint_once(root: str) -> str:
+    return package_fingerprint(root)
+
+
+def code_identity() -> tuple[str, str]:
+    """`(отпечаток ядра, отпечаток хоста)` кода ЭТОГО процесса: считается один раз (около 40 мс)."""
+
+    try:
+        import cftuv_envelope as kernel
+    except ImportError as exc:
+        raise ContentKeyUnsupported(f"the kernel is not importable: {exc}") from exc
+    return (
+        _fingerprint_once(os.path.dirname(kernel.__file__)),
+        _fingerprint_once(os.path.dirname(os.path.abspath(__file__))),
+    )
+
+
 def _policy_constants() -> tuple:
-    """Политики хоста, которые читает выгрузка снапшота, и версии контрактов ядра."""
+    """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра и отпечаток кода."""
 
     from . import envelope_request_export as export
 
     try:
         import cftuv_envelope as kernel
         from cftuv_envelope.contracts.geometry_batch import GEOMETRY_BATCH_SCHEMA_V1
-        from cftuv_envelope.version import __version__
     except ImportError as exc:
         raise ContentKeyUnsupported(f"the kernel is not importable: {exc}") from exc
     return (
@@ -169,16 +218,42 @@ def _policy_constants() -> tuple:
         export.HOST_NEAR_PLANAR_FRAME_POLICY.value,
         export.HOST_NEAR_PLANAR_LIFT_POLICY.value,
         export.HOST_CURVATURE_LADDER_POLICY.value,
-        __version__,
+        code_identity(),
         kernel.ANALYSIS_SNAPSHOT_SCHEMA_V1,
         GEOMETRY_BATCH_SCHEMA_V1,
     )
 
 
-def _normalized_budget(budget):
-    from .envelope_request_policy import DEFAULT_ENVELOPE_STRETCH_BUDGET
+def _request_policy_signature(density, budget) -> tuple:
+    """Подпись политики запроса: ровно то, что `envelope_angular_policy` строит из плотности и допуска.
 
-    return None if budget == DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
+    Плотность в ключе — число 0..4, а что за веер оно значит, решает таблица политики; подпись берёт её
+    значение, поэтому правка таблицы или умолчания допуска растяжения (в том числе подменой константы
+    модуля) даёт другой ключ, а не устаревший результат.
+    """
+
+    from . import envelope_request_policy as policy
+
+    try:
+        import cftuv_envelope as kernel
+
+        angular = policy.envelope_angular_policy(kernel, density, budget)
+    except (ImportError, TypeError, ValueError) as exc:
+        raise ContentKeyUnsupported(f"the request policy is not signable: {exc}") from exc
+    default = policy.DEFAULT_ENVELOPE_STRETCH_BUDGET
+    spent = angular.developable_stretch_budget
+    return (
+        angular.signature,
+        angular.density,
+        None if spent is None else (spent.numerator, spent.denominator),
+        (default.numerator, default.denominator),
+    )
+
+
+def _normalized_budget(budget):
+    from . import envelope_request_policy as policy
+
+    return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
 def domain_content_key(export, selected_edge_ids) -> str:
@@ -197,10 +272,17 @@ def domain_content_key(export, selected_edge_ids) -> str:
             continue
         value = getattr(export, name)
         if name == "density":
-            value = normalize_envelope_fan_density(value)
+            try:
+                value = normalize_envelope_fan_density(value)
+            except (TypeError, ValueError) as exc:
+                raise ContentKeyUnsupported(f"density is not canonical: {exc}") from exc
         elif name == "developable_stretch_budget":
             value = _normalized_budget(value)
         parts.append(f"{name}={encoder.encode(value)}")
+    parts.append(
+        "policy="
+        + encoder.encode(_request_policy_signature(export.density, export.developable_stretch_budget))
+    )
     parts.append("selected=" + encoder.encode(tuple(sorted(int(item) for item in selected_edge_ids))))
     return hashlib.sha256("\x1e".join(parts).encode("utf-8")).hexdigest()
 
@@ -215,6 +297,8 @@ __all__ = (
     "CONTENT_KEY_SCHEMA",
     "ContentKeyUnsupported",
     "EXCLUDED_FIELDS",
+    "code_identity",
     "domain_content_key",
+    "package_fingerprint",
     "result_slot",
 )

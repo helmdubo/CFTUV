@@ -238,6 +238,29 @@ def test_a_host_token_outside_the_record_is_named_not_renamed():
     assert mapper("host-v0:decal-request:" + "d" * 24) == "host-v0:decal-request:" + "d" * 24
 
 
+def test_every_host_id_prefix_names_its_unrecorded_token():
+    """`host-debug-diagnostic:<токен>` и любой другой префикс `host-<имя>:` с токеном — не молчаливый остаток."""
+
+    token = "a" * 24
+    recorded = DomainLabelingV1("R", "Q", 0, (HostTokenV1("patch-domain", "R", (0,), token),))
+    _moved, mapper = relabeled(recorded, "R2", "Q2", 0)
+
+    assert mapper(f"host-debug-diagnostic:{token}") == f"host-debug-diagnostic:{_moved.tokens[0].token}"
+    with pytest.raises(RelabelIncomplete, match="host-debug-diagnostic"):
+        mapper("host-debug-diagnostic:" + "e" * 24)
+    with pytest.raises(RelabelIncomplete, match="host-anything-new"):
+        mapper("host-anything-new:" + "f" * 24)
+    # Идентичности с ревизией и индексом токена не несут и остатком не называются.
+    digest = "9" * 64
+    for text in (
+        f"host-vertex:host-source:{digest}:name:5",
+        f"host-edge:host-source:{digest}:name:7",
+        f"host-source:{digest}:name",
+        f"host-face:R:3",
+    ):
+        mapper(text)
+
+
 def test_a_patch_token_that_does_not_start_with_the_patch_of_the_domain_is_refused():
     labeling = DomainLabelingV1("R", "Q", 2, (HostTokenV1("chain-use", "R", (9, 0, 0, ()), "a" * 24),))
 

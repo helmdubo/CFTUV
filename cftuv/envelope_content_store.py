@@ -24,6 +24,16 @@
 двумя холодными: геометрия, UV, швы, нормали и числа те же, порядок граней и номера владельцев — метки
 первого вычисления. Тесты держат именно это равенство (`tests/content_equivalence.py`), а не более сильное.
 
+ПРОЦЕССНО-ЛОКАЛЬНО. Хранилище живёт и умирает с процессом: оно держит живые объекты подготовок и результатов и
+НИКОГДА не пишется на диск. `ContentStoreV1.__reduce_ex__` отказывает в любой сериализации (pickle, copy), а тест
+архитектуры запрещает коду хоста класть хранилище в файл: запись, пережившая смену кода, была бы устаревшим
+результатом; ключ несёт отпечаток кода, но замком служит именно отсутствие диска.
+
+ПАМЯТЬ — это не только хранилище. Предел `CONTENT_STORE_ENTRY_LIMIT` (около 1 МБ на запись) держит саму запись;
+сверху живут перенесённые копии результатов текущей ревизии в кэше ревизии (`PRODUCTION_RESULT_CACHE_LIMIT`, 512
+результатов, сбрасываются при смене ревизии) и пиклы тех подготовок, которые хранилище держит (порядка 6 МБ на 122
+домена). Худший случай — от двух до трёх хранилищ, а не одно; цифры измерены и записаны в DECISIONS.
+
 Модуль не знает ни Blender, ни ядра на уровне импорта: ядро берётся лениво, как у продуктового пути.
 """
 
@@ -33,6 +43,7 @@ import io
 import pickle
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
+from enum import Enum
 
 from .envelope_host_labels import (
     DomainLabelingV1,
@@ -90,6 +101,9 @@ class ContentStoreV1:
         self._by_preparation: dict[int, str] = {}
         self._result_ids: dict[int, int] = {}
         self._on_forget = on_forget
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError("ContentStoreV1 is process-local and is never serialised")
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -205,10 +219,20 @@ def _rewritten(value, move: LabelMapV1):
 
     strings: list[str] = []
     index: dict[str, int | None] = {}
+    str_subclass: dict[type, bool] = {}
 
     class _Out(pickle.Pickler):
         def persistent_id(self, item):
-            if type(item) is not str:
+            kind = type(item)
+            if kind is not str:
+                foreign = str_subclass.get(kind)
+                if foreign is None:
+                    # Член `str`-перечисления — константа без идентичностей; любой другой потомок `str`
+                    # обход бы пропустил молча, поэтому он называется.
+                    foreign = issubclass(kind, str) and not issubclass(kind, Enum)
+                    str_subclass[kind] = foreign
+                if foreign:
+                    raise RelabelIncomplete(f"{kind.__qualname__} is a str subclass: its value cannot be renamed")
                 return None
             found = index.get(item, _MISSING)
             if found is _MISSING:

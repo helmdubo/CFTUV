@@ -233,9 +233,76 @@ def test_a_chain_source_lineage_outside_the_record_is_named_not_moved():
         carried_to_run(foreign, relabel)
 
 
+def test_a_str_subclass_in_a_result_is_named_not_skipped():
+    """Обход переписывает `type(x) is str`; потомок `str` обход пропустил бы молча, поэтому он называется."""
+
+    class Tag(str):
+        pass
+
+    before, _cold, relabel = _pair(1)
+    foreign = dataclasses.replace(before, detail=Tag("host-vertex:" + before.labels.revision + ":5"))
+
+    with pytest.raises(ContentRelabelFailed, match="str subclass"):
+        carried_to_run(foreign, relabel)
+
+
+def _walk(value, seen):
+    """Каждый узел графа результата: датаклассы по полям, контейнеры по элементам."""
+
+    if id(value) in seen:
+        return
+    seen.add(id(value))
+    yield value
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        for item in dataclasses.fields(value):
+            yield from _walk(getattr(value, item.name), seen)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _walk(key, seen)
+            yield from _walk(item, seen)
+    elif isinstance(value, (tuple, list, set, frozenset)):
+        for item in value:
+            yield from _walk(item, seen)
+
+
+def test_no_value_of_a_result_is_a_str_subclass_outside_the_enums():
+    """Обход переноса видит `type(x) is str`: потомков `str` в настоящих батчах быть не должно (кроме перечислений)."""
+
+    import enum
+
+    results = []
+    for lifted in (0.0, 1.0):  # плоские домены и развёрнутый (нормали вершин)
+        bundle = with_revision(quad_row_bundle(ROW, lifted_corner=lifted), "row")
+        results += [cold_domain(bundle, patch, EDGES)[0] for patch in range(ROW)]
+    assert any(item.vertex_normals for item in results)
+
+    strings = 0
+    for result in results:
+        for value in _walk(result, set()):
+            if isinstance(value, str) and not isinstance(value, enum.Enum):
+                assert type(value) is str, (type(value), value)
+                strings += 1
+    assert strings > 1000
+
+
 # --------------------------------------------------------------------------
 # Хранилище
 # --------------------------------------------------------------------------
+
+
+def test_the_store_is_process_local_and_refuses_every_serialisation():
+    import copy
+
+    store = ContentStoreV1()
+    store.register_preparation("k", object(), object())
+
+    for dump in (pickle.dumps, copy.copy, copy.deepcopy):
+        with pytest.raises(TypeError, match="process-local"):
+            dump(store)
+    from cftuv.envelope_debug_session import EnvelopeDebugSessionController
+
+    with pytest.raises(TypeError, match="process-local"):
+        pickle.dumps(EnvelopeDebugSessionController())
 
 
 def _labeled():

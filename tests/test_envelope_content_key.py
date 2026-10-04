@@ -304,14 +304,80 @@ def test_every_host_policy_that_the_export_reads_changes_the_key(row, monkeypatc
     assert domain_content_key(export, selected) != baseline
 
 
-def test_the_kernel_version_changes_the_key(row, monkeypatch):
-    import cftuv_envelope.version as version
+def test_the_code_identity_changes_the_key(row, monkeypatch):
+    from cftuv import envelope_content_key
+
+    export, selected = _domains(row)[2]
+    baseline = domain_content_key(export, selected)
+    kernel, host = envelope_content_key.code_identity()
+
+    monkeypatch.setattr(envelope_content_key, "code_identity", lambda: (kernel + "+x", host))
+    assert domain_content_key(export, selected) != baseline
+    monkeypatch.setattr(envelope_content_key, "code_identity", lambda: (kernel, host + "+x"))
+    assert domain_content_key(export, selected) != baseline
+
+
+def test_the_code_identity_is_the_fingerprint_the_installer_computes():
+    """Отпечаток кода — не `__version__` (она не менялась за десяток слияний ядра), а sha256 по содержимому .py."""
+
+    import subprocess
+
+    from cftuv.envelope_content_key import code_identity
+
+    repository = Path(__file__).resolve().parents[1]
+    printed = subprocess.run(
+        [sys.executable, str(repository / "tools" / "blender_check_install.py"), "--fingerprint"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    expected = dict(line.strip().split(": ") for line in printed.strip().splitlines())
+
+    assert code_identity() == (expected["cftuv_envelope"], expected["cftuv"])
+    assert all(len(item) == 16 for item in code_identity())
+
+
+def test_the_fingerprint_follows_the_content_of_the_sources_and_not_their_line_endings(tmp_path):
+    from cftuv.envelope_content_key import package_fingerprint
+
+    package = tmp_path / "package"
+    (package / "inner").mkdir(parents=True)
+    (package / "a.py").write_bytes(b"x = 1\r\ny = 2\r\n")
+    (package / "inner" / "b.py").write_bytes(b"z = 3\n")
+    (package / "notes.txt").write_text("not a source")
+    first = package_fingerprint(str(package))
+
+    (package / "a.py").write_bytes(b"x = 1\ny = 2\n")  # те же строки в LF
+    (package / "notes.txt").write_text("changed, still not a source")
+    assert package_fingerprint(str(package)) == first
+    (package / "inner" / "b.py").write_bytes(b"z = 4\n")  # правка одного файла
+    changed = package_fingerprint(str(package))
+    assert changed != first
+    (package / "inner" / "b.py").rename(package / "inner" / "c.py")  # то же содержимое под другим именем
+    assert package_fingerprint(str(package)) != changed
+    assert package_fingerprint(str(tmp_path / "missing")) == "<нет каталога>"
+
+
+def test_a_constant_of_the_request_policy_changes_the_key(row, monkeypatch):
+    """Подмена константы политики запроса между нажатиями — другой ключ, а не устаревший результат."""
+
+    from cftuv import envelope_request_policy as policy
 
     export, selected = _domains(row)[2]
     baseline = domain_content_key(export, selected)
 
-    monkeypatch.setattr(version, "__version__", version.__version__ + "+x")
+    monkeypatch.setattr(policy, "DEFAULT_ENVELOPE_STRETCH_BUDGET", Fraction(1, 4))
+    assert domain_content_key(export, selected) != baseline
+    monkeypatch.undo()
+    assert domain_content_key(export, selected) == baseline
 
+    real = policy.envelope_angular_policy
+
+    def other_fan(kernel, density, budget=None):
+        angular = real(kernel, density, budget)
+        return dataclasses.replace(angular, selection_policy_id="ANOTHER_TABLE")
+
+    monkeypatch.setattr(policy, "envelope_angular_policy", other_fan)
     assert domain_content_key(export, selected) != baseline
 
 

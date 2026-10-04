@@ -62,6 +62,10 @@ PATCH_SCOPED_KINDS = frozenset(
 )
 
 _TOKEN_IN_ID = re.compile(r"host-v0:([a-z][a-z0-9-]*):([0-9a-f]{24})")
+#: Остальные идентичности хоста с токеном сразу за префиксом (`host-debug-diagnostic:<токен>`): любой префикс
+#: `host-<имя>:` с токеном в 24 hex за ним. `host-vertex:<ревизия>:<n>` и подобные несут ревизию и индекс, а не
+#: токен (за двоеточием у них `host-source:` и 64 hex, которые под `{24}` с границей не подходят).
+_DIRECT_HOST_TOKEN = re.compile(r"host-(?!v0:)([a-z][a-z0-9-]*):([0-9a-f]{24})(?![0-9a-f])")
 _BARE_TOKEN = re.compile(r"(?<![0-9a-f])[0-9a-f]{24}(?![0-9a-f])")
 _CHAIN_SOURCE_TAIL = re.compile(r"^chain-source:.*:([0-9a-f]{24})$")
 
@@ -221,6 +225,9 @@ class LabelMapV1:
         for kind, token in _TOKEN_IN_ID.findall(value):
             if kind not in REQUEST_SCOPED_KINDS and token not in self.tokens:
                 raise RelabelIncomplete(f"host token {kind}:{token} is not in the record")
+        for kind, token in _DIRECT_HOST_TOKEN.findall(value):
+            if token not in self.tokens:
+                raise RelabelIncomplete(f"host token host-{kind}:{token} is not in the record")
         tail = _CHAIN_SOURCE_TAIL.match(value)
         if tail is not None and tail.group(1) not in self.tokens:
             raise RelabelIncomplete(f"chain-source token {tail.group(1)} is not in the record")

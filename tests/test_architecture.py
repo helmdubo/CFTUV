@@ -832,3 +832,74 @@ def test_host_exact_work_exemptions_name_a_registered_reason():
     reasons = _exact_work_budget_ban().EXEMPTION_REASONS
     for key, (_, reason) in _HOST_EXACT_WORK_EXEMPTIONS.items():
         assert reason in reasons, (key, reason)
+
+
+# --------------------------------------------------------------------------
+# 10. Хранилище по содержимому процессно-локально
+# --------------------------------------------------------------------------
+
+_STORE_NAMES = frozenset({"content_store", "_content_store", "ContentStoreV1"})
+_SERIALISING_CALLS = frozenset(
+    {
+        ("pickle", "dump"),
+        ("pickle", "dumps"),
+        ("json", "dump"),
+        ("json", "dumps"),
+        ("marshal", "dump"),
+        ("marshal", "dumps"),
+        ("shelve", "open"),
+    }
+)
+#: Модули, которых у хранилища быть не должно: у него нет ни диска, ни базы.
+_STORE_FORBIDDEN_IMPORTS = frozenset(
+    {"os", "pathlib", "shelve", "marshal", "sqlite3", "dbm", "tempfile", "shutil", "json"}
+)
+
+
+def _mentions_store(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id in _STORE_NAMES:
+            return True
+        if isinstance(child, ast.Attribute) and child.attr in _STORE_NAMES:
+            return True
+    return False
+
+
+def test_the_content_store_is_never_serialised_to_disk():
+    """`ContentStoreV1` держит живые объекты подготовок и результатов ЭТОГО процесса и на диск не пишется.
+
+    Запись, пережившая смену кода, была бы устаревшим результатом (ключ несёт отпечаток кода, но замок —
+    отсутствие диска). Рантайм-замок: `ContentStoreV1.__reduce_ex__` отказывает в сериализации
+    (тест в `tests/test_envelope_content_store.py`); здесь — статический: хост не отдаёт
+    хранилище в pickle/json/marshal/shelve, а модуль хранилища не импортирует ни файловых, ни БД-модулей и
+    не зовёт `open`/`pickle.dump`/`pickle.load` (его `pickle` работает только с `BytesIO`).
+    """
+
+    offenders = []
+    for path in _python_files(HOST_PACKAGE):
+        source = _source_text(path)
+        if "content_store" not in source and "ContentStoreV1" not in source:
+            continue
+        for node in ast.walk(_parse(path)):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and (node.func.value.id, node.func.attr) in _SERIALISING_CALLS
+            ):
+                continue
+            arguments = [*node.args, *(item.value for item in node.keywords)]
+            if any(_mentions_store(argument) for argument in arguments):
+                offenders.append(f"{_relative(path)}:{node.lineno} {node.func.value.id}.{node.func.attr}")
+    assert not offenders, "хранилище по содержимому отдано сериализатору:\n" + "\n".join(offenders)
+
+    store_module = HOST_PACKAGE / "envelope_content_store.py"
+    imported = _imported_roots(store_module)
+    assert not imported & _STORE_FORBIDDEN_IMPORTS, sorted(imported & _STORE_FORBIDDEN_IMPORTS)
+    for node in ast.walk(_parse(store_module)):
+        if isinstance(node, ast.Call):
+            function = node.func
+            name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
+            assert name not in {"open", "write_bytes", "write_text"}, (name, node.lineno)
+            if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
+                assert (function.value.id, function.attr) not in {("pickle", "dump"), ("pickle", "load")}, node.lineno

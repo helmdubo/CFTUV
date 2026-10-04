@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,7 @@ SHARED_CORNER = 2
 LIFT = (10.0, 2.0, 0.4)
 COUNTERS = (
     production.PRODUCTION_CONTENT_KEYED,
+    production.PRODUCTION_CONTENT_REGISTERED,
     production.PRODUCTION_CONTENT_RESULT_REUSED,
     production.PRODUCTION_CONTENT_PREPARATION_REUSED,
     production.PRODUCTION_CONTENT_RELABELED,
@@ -132,6 +134,76 @@ def test_a_vertex_edit_computes_only_the_domain_that_owns_the_vertex(pool, row):
     assert run.cold
     assert all(item.batch.source_revision.value.startswith("host-source:" + edited.source_revision.digest) for item in run.results)
     _same_answer(run, _cold(edited))
+
+
+@pytest.mark.parametrize("move", ((10.0, 2.5, 0.0), LIFT), ids=("in-plane", "lifted"))
+def test_the_edit_of_a_vertex_that_is_no_seam_of_a_neighbour_keeps_the_weld_of_a_cold_run(pool, row, move):
+    """Красный контроль сварки: сосед по шву пересчитан, домен по ту сторону шва взят из хранилища.
+
+    Правый верхний угол ряда принадлежит только последнему квадрату (на шве его нет), а общий шов с четвёртым
+    квадратом сваривается по вершинам, чьи позиции в двух доменах побитово равны. Если бы нетронутый домен
+    был устаревшим, счётчики сварки и сам сваренный меш разошлись бы с холодным прогоном.
+    """
+
+    controller = EnvelopeDebugSessionController()
+    _press(row, controller)
+    edited = moved_vertex(row, LAST_CORNER, move)
+
+    run = _press(edited, controller)
+    cold = _cold(edited)
+
+    assert _numbers(run)["CONTENT_RESULT_REUSED"] == ROW - 1
+    arrays, reference = build_mesh_arrays(run.results, 0.001), build_mesh_arrays(cold.results, 0.001)
+    assert arrays.weld_counters == reference.weld_counters
+    assert arrays.weld_counters and dict(arrays.weld_counters)["ADAPTER_WELD_GROUPS"] > 0
+    assert arrays.seam_counters == reference.seam_counters
+    assert [(patch, outcome) for patch, outcome, _detail in arrays.warnings] == [
+        (patch, outcome) for patch, outcome, _detail in reference.warnings
+    ]
+    assert dict(arrays.weld_counters)["ADAPTER_WELD_POSITION_MISMATCH"] == 0
+    _same_answer(run, cold)
+
+
+def test_the_registered_counter_tells_the_keyed_from_the_stored(row, monkeypatch):
+    from cftuv.envelope_debug_profile import EnvelopeDebugProfileBuilderV1
+    from cftuv.envelope_debug_session import evaluate_envelope_debug_staged
+
+    first = _press(row, EnvelopeDebugSessionController(), workers=0)
+    assert _numbers(first)["CONTENT_KEYED"] == _numbers(first)["CONTENT_REGISTERED"] == ROW
+
+    # Снапшот домена взят из кэша ревизии (его построила кнопка отладки, а не выгрузка под записью токенов):
+    # домен ключён, но переносить его результат потом было бы нечем.
+    controller = EnvelopeDebugSessionController()
+    evaluate_envelope_debug_staged(
+        row, EDGES, ALPHA, profile=EnvelopeDebugProfileBuilderV1("row", "QUEUE"), controller=controller,
+        source_object_key="object", source_data_key="mesh", engine="QUEUE", density=None, workers=0,
+    )
+    monkeypatch.setattr(controller, "has_patch_metric", lambda *_a, **_k: False)
+
+    run = _press(row, controller, workers=0)
+
+    assert _numbers(run)["CONTENT_KEYED"] == ROW and _numbers(run)["CONTENT_REGISTERED"] == 0
+    assert len(controller.content_store) == 0
+
+
+def test_a_constant_of_the_request_policy_changed_between_presses_is_a_miss(pool, row, monkeypatch):
+    """Подмена константы политики запроса БЕЗ `clear()`: на другой ревизии ключ её видит, ничего не берётся устаревшим.
+
+    На ТОЙ ЖЕ ревизии кэши ревизии (прежние, ключ — запрос) подмены не видят: так было до хранилища и остаётся
+    (записано в DECISIONS); хранилище же ключится подписью политики и умолчанием допуска растяжения.
+    """
+
+    from cftuv import envelope_request_policy as policy
+
+    controller = EnvelopeDebugSessionController()
+    _press(row, controller)
+    monkeypatch.setattr(policy, "DEFAULT_ENVELOPE_STRETCH_BUDGET", Fraction(1, 4))
+    pool.kinds.clear()
+
+    run = _press(moved_vertex(row, LAST_CORNER, LIFT), controller)
+
+    assert _numbers(run)["CONTENT_RESULT_REUSED"] == 0 and _numbers(run)["PREPARATION_BUILDS"] == ROW
+    assert pool.kinds == ["cold"] * ROW
 
 
 def test_a_vertex_of_two_domains_computes_both(pool, row):

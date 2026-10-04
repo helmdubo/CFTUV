@@ -122,6 +122,9 @@ PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
 #: результат либо подготовка взяты оттуда при другой ревизии, результаты, перенесённые на ревизию прогона,
 #: и переносы, которых не вышло (домен тогда считается заново, причина названа строкой консоли).
 PRODUCTION_CONTENT_KEYED = "PRODUCTION_CONTENT_KEYED"
+#: Из ключённых: сколько доменов этого прогона легло в хранилище. Меньше `KEYED` — домен, чей снапшот строили не
+#: под записью токенов (он взят из кэша ревизии), и результат с исключением: переносить их потом нечем.
+PRODUCTION_CONTENT_REGISTERED = "PRODUCTION_CONTENT_REGISTERED"
 PRODUCTION_CONTENT_RESULT_REUSED = "PRODUCTION_CONTENT_RESULT_REUSED"
 PRODUCTION_CONTENT_PREPARATION_REUSED = "PRODUCTION_CONTENT_PREPARATION_REUSED"
 PRODUCTION_CONTENT_RELABELED = "PRODUCTION_CONTENT_RELABELED"
@@ -549,6 +552,7 @@ class _RunInputsV1:
     #: прогона, и переносы, которых не вышло (`(патч, причина)`).
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
+    registered: list = field(default_factory=list)
 
 
 def _inputs_of(run: _RunInputsV1, entry_key, provider):
@@ -877,6 +881,7 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     store = controller.content_store
     store.register_preparation(entry.content_key, prepared, result.labels)
     store.register_result(entry.content_key, _slot(run), result)
+    run.registered.append(entry.patch_id)
 
 
 def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
@@ -1150,6 +1155,7 @@ def _record_content_counters(profile, run: _RunInputsV1, entries) -> None:
         PRODUCTION_CONTENT_KEYED,
         sum(1 for item in entries if item.content_key is not None),
     )
+    profile.set_counter(PRODUCTION_CONTENT_REGISTERED, len(run.registered))
     profile.set_counter(
         PRODUCTION_CONTENT_RESULT_REUSED,
         sum(1 for item in entries if item.reuse == "result"),
