@@ -20,11 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import preview_now, set_preview
+from .envelope_width_live import preview_now, set_preview, width_problem
 
-NO_BUILD = "no decal built yet: press Build Decal Mesh"
-NO_SOURCE = "the source of the last Build Decal Mesh is gone"
-NO_PREVIEW = "the last Build Decal Mesh has no chain to draw"
 NO_VIEW = "Adjust Decal Width needs a 3D View"
 
 
@@ -53,19 +50,12 @@ def _controller_of(context):
 
 
 def poll_problem(context) -> str:
-    """Почему инструмент недоступен (пусто — доступен): нет записи кнопки либо источника."""
+    """Почему инструмент недоступен активному объекту (пусто — доступен): у него нет своей свежей декали.
 
-    import bpy
+    Ответ один на кнопку, поле, клавишу и калбэк ползунка: `envelope_width_live.width_problem`.
+    """
 
-    controller = _controller_of(context)
-    record = None if controller is None else controller.width_build
-    if record is None:
-        return NO_BUILD
-    if bpy.data.objects.get(record.source_name) is None:
-        return NO_SOURCE
-    if not record.preview_inputs.runs:
-        return NO_PREVIEW
-    return ""
+    return width_problem(context)
 
 
 def window_region(area):
@@ -167,9 +157,6 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
 
 __all__ = (
     "AdjustRuntimeV1",
-    "NO_BUILD",
-    "NO_PREVIEW",
-    "NO_SOURCE",
     "NO_VIEW",
     "ViewScaleV1",
     "apply_step",

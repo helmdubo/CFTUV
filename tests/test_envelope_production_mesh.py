@@ -873,13 +873,16 @@ class _Layout:
     def prop(self, _data, name, **_kwargs):
         self.calls.append(("prop", name))
 
-    def label(self, *, text):
+    def label(self, *, text, icon=None):
         self.calls.append(("label", text))
 
 
 def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatch):
+    from cftuv import envelope_width_live
     from cftuv.envelope_debug_panel import draw_decal_mesh_rows
 
+    # Ширина здесь доступна: что она делает с активным объектом, проверяет тест ниже и тесты живой ширины.
+    monkeypatch.setattr(envelope_width_live, "width_problem", lambda _context: "")
     bpy_module = sys.modules["bpy"]
     mesh_settings = SimpleNamespace(
         status="MATERIALIZED 2 / refused 1 (X)", timing="Decal warm 0.10 s"
@@ -908,6 +911,44 @@ def test_the_panel_draws_the_button_the_settings_and_the_status_lines(monkeypatc
     absent = _Layout()
     draw_decal_mesh_rows(absent)
     assert absent.calls == []
+
+
+def test_the_width_rows_are_disabled_and_name_the_reason_when_the_active_object_has_no_own_decal(monkeypatch):
+    """Поле «Decal width» отключено, а вместо статуса стоит причина: «Build Decal Mesh first for <объект>»."""
+
+    from cftuv import envelope_width_live
+    from cftuv.envelope_debug_panel import draw_decal_mesh_rows
+
+    monkeypatch.setattr(
+        sys.modules["bpy"],
+        "context",
+        SimpleNamespace(
+            scene=SimpleNamespace(
+                hotspotuv_decal_mesh=SimpleNamespace(status="", timing=""),
+                hotspotuv_settings=SimpleNamespace(),
+            )
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(envelope_width_live, "width_problem", lambda _context: "Build Decal Mesh first for B")
+    closed = _Layout()
+    closed.enabled = True
+
+    draw_decal_mesh_rows(closed)
+
+    assert closed.enabled is False
+    assert ("prop", "envelope_debug_alpha") in closed.calls  # поле на месте, но недоступно
+    assert ("operator", "hotspotuv.adjust_decal_width", "Adjust Decal Width") in closed.calls
+    assert ("label", "Build Decal Mesh first for B") in closed.calls
+
+    monkeypatch.setattr(envelope_width_live, "width_problem", lambda _context: "")
+    opened = _Layout()
+    opened.enabled = False
+
+    draw_decal_mesh_rows(opened)
+
+    assert opened.enabled is True
+    assert not [item for item in opened.calls if item[0] == "label"]
 
 
 # --------------------------------------------------------------------------

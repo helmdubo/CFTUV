@@ -12,7 +12,11 @@
    результат побитово равен прямому прогону холодной сессии на той же ширине, превью после применения снято;
 5. ЦЕЛЬ: нет записи кнопки — ничего; другая плотность или допуск — названная причина и превью снято; правка меша
    после кнопки, исчезнувший объект, новая кнопка во время счёта — отброшено с причиной;
-6. ИСТОРИЯ: после Undo/Redo превью снято, а расхождение ползунка и меша (`cftuv_decal_width` меша) заказывает пересчёт.
+6. ИСТОРИЯ: после Undo/Redo превью снято, а расхождение ползунка и меша (`cftuv_decal_width` меша) заказывает пересчёт;
+7. ЦЕЛЬ — СОБСТВЕННАЯ ДЕКАЛЬ АКТИВНОГО ОБЪЕКТА: нет декали, декаль другого источника, запись кнопки про другой объект,
+   сброшенная сессия, чужая ревизия — каждое названо «Build Decal Mesh first for <объект>»; ползунок на чужом объекте
+   ничего не заказывает и не рисует; смена активного снимает превью, но не принятый заказ; поле подтягивается к
+   ширине меша без пересчёта; удалённая декаль снова делает инструмент недоступным.
 """
 
 from __future__ import annotations
@@ -54,13 +58,38 @@ def _no_pool_outlives_the_module():
 # --------------------------------------------------------------------------
 
 
-class _Decal:
-    """Объект декали: режим, имя и меш, чьи свойства (`keys`, индекс) хранят ширину записи."""
+class _Props:
+    """Свойства объекта Blender, как их читает хост: `keys`, индекс, `get`."""
 
+    type = "MESH"
     mode = "OBJECT"
-    name = "row.CFTUV_Decal"
+    parent = None
 
-    def __init__(self, width) -> None:
+    def __init__(self, name, **props) -> None:
+        self.name = name
+        self._props = dict(props)
+
+    def keys(self):
+        return list(self._props)
+
+    def __getitem__(self, key):
+        return self._props[key]
+
+    def get(self, key, default=None):
+        return self._props.get(key, default)
+
+
+class _Decal(_Props):
+    """Объект декали: режим, имя, метки сборки и меш, чьи свойства (`keys`, индекс) хранят ширину записи."""
+
+    def __init__(self, width, *, source="row", revision="") -> None:
+        super().__init__(
+            "row.CFTUV_Decal",
+            **{
+                production_mesh.DECAL_SOURCE_PROPERTY: source,
+                production_mesh.DECAL_REVISION_PROPERTY: revision,
+            },
+        )
         self.data = {production_mesh.DECAL_WIDTH_PROPERTY: width}
 
 
@@ -78,6 +107,17 @@ class _FakeBpy(types.ModuleType):
         self.app = types.SimpleNamespace(timers=self.timers)
 
 
+class _Settings(types.SimpleNamespace):
+    """Настройки сцены; `hook` — калбэк `update` ползунка (как в Blender: срабатывает на каждую запись ширины)."""
+
+    hook = None
+
+    def __setattr__(self, name, value) -> None:
+        super().__setattr__(name, value)
+        if name == "envelope_debug_alpha" and self.hook is not None:
+            self.hook(self)
+
+
 def _settings(**overrides):
     values = dict(
         envelope_debug_alpha=0.25,
@@ -86,7 +126,7 @@ def _settings(**overrides):
         envelope_debug_workers=0,
     )
     values.update(overrides)
-    return types.SimpleNamespace(**values)
+    return _Settings(**values)
 
 
 def _mesh_settings():
@@ -122,15 +162,18 @@ class _World:
         self.run = _direct(self.bundle, self.controller, alpha)
         self.settings = _settings(envelope_debug_alpha=alpha)
         self.mesh_settings = _mesh_settings()
-        self.decal = _Decal(alpha)
-        self.objects = {"row": types.SimpleNamespace(name="row", mode="OBJECT"), decal_key(): self.decal}
+        self.digest_now = self.bundle.source_revision.digest
+        self.decal = _Decal(alpha, revision=f"host-source:{self.digest_now}:row")
+        self.objects = {"row": _Props("row"), decal_key(): self.decal}
+        self.decal.parent = self.objects["row"]
         self.fake = _FakeBpy(
             settings=self.settings, mesh_settings=self.mesh_settings, objects=self.objects
         )
         self.written: list = []
-        self.digest_now = self.bundle.source_revision.digest
         monkeypatch.setitem(sys.modules, "bpy", self.fake)
-        monkeypatch.setattr(production_mesh, "find_decal_object", lambda source: self.objects.get(decal_key()))
+        monkeypatch.setattr(
+            production_mesh, "find_decal_object", lambda source: self.objects.get(f"{source.name}.CFTUV_Decal")
+        )
         monkeypatch.setattr(production_mesh, "rewrite_decal_mesh", self._rewrite)
         monkeypatch.setattr(live, "_current_digest", lambda source: self.digest_now)
         self.record = live.remember_build(
@@ -148,6 +191,7 @@ class _World:
         self.context = types.SimpleNamespace(
             window_manager=types.SimpleNamespace(_cftuv_envelope_debug_session=self.controller),
             scene=self.fake.context.scene,
+            active_object=self.objects["row"],
         )
 
     def _rewrite(self, source, results, *, offset, material_name, width):
@@ -551,7 +595,170 @@ def test_loading_a_file_forgets_the_build_and_the_preview_of_every_controller():
     descriptor.__set__(manager, controller)
     controller.width_build = object()
     controller.width_preview = object()
+    controller.width_target = "row"
 
     descriptor.forget_width_state()
 
     assert controller.width_build is None and controller.width_preview is None
+    assert controller.width_target is None
+
+
+# --------------------------------------------------------------------------
+# 7. Цель — собственная декаль активного объекта
+# --------------------------------------------------------------------------
+
+
+def _probe(world, **changes):
+    values = dict(
+        object_name="row.CFTUV_Decal",
+        source_name="row",
+        revision=f"host-source:{world.digest_now}:row",
+    )
+    values.update(changes)
+    return live.DecalProbeV1(**values)
+
+
+def test_the_availability_predicate_names_every_reason_and_passes_only_a_fresh_own_decal(monkeypatch):
+    import dataclasses
+
+    world = _World(monkeypatch)
+    controller = world.controller
+    need = "Build Decal Mesh first for row"
+
+    assert live.availability_problem(controller, None, None) == live.NO_ACTIVE
+    assert live.availability_problem(controller, "row", None) == need  # у объекта нет декали
+    assert live.availability_problem(controller, "row", _probe(world, source_name="other")) == (
+        f"{need}: its decal was built for other"  # декаль чужого источника
+    )
+    assert live.availability_problem(controller, "row", _probe(world, source_name="")).endswith("another object")
+    fresh = EnvelopeDebugSessionController()
+    assert live.availability_problem(fresh, "row", _probe(world)) == f"{need}: this window holds no build session"
+    assert live.availability_problem(controller, "other", _probe(world, source_name="other")) == (
+        "Build Decal Mesh first for other: the build session of this window belongs to row"  # запись кнопки про другой
+    )
+    assert live.availability_problem(controller, "row", _probe(world, revision="host-source:other:row")) == (
+        f"{need}: its decal is from another revision of the source"
+    )
+    stale = dataclasses.replace(world.record, invalidation_count=world.record.invalidation_count - 1)
+    controller.width_build = stale  # сессия сброшена после записи
+    assert live.availability_problem(controller, "row", _probe(world)) == f"{need}: the source changed since the last build"
+    blank = dataclasses.replace(world.record, preview_inputs=types.SimpleNamespace(runs=()))
+    controller.width_build = blank
+    assert live.availability_problem(controller, "row", _probe(world)) == live.NO_PREVIEW
+
+    controller.width_build = world.record
+    assert live.availability_problem(controller, "row", _probe(world)) == ""
+    assert live.availability_problem(controller, "row", _probe(world, revision="")) == ""  # пустая декаль ревизии не помнит
+
+
+def test_the_availability_follows_the_active_object_and_its_own_decal(monkeypatch):
+    world = _World(monkeypatch)
+    context = world.context
+
+    assert live.width_problem(context) == ""
+    context.active_object = _Props("other")  # другой меш без своей декали
+    assert live.width_problem(context) == "Build Decal Mesh first for other"
+    context.active_object = None
+    assert live.width_problem(context) == live.NO_ACTIVE
+    context.active_object = _Props("light")
+    context.active_object.type = "LIGHT"
+    assert live.width_problem(context) == live.NO_ACTIVE
+    context.active_object = world.decal  # активна сама декаль: цель — её источник
+    assert live.width_problem(context) == ""
+
+    context.active_object = world.objects["row"]
+    del world.objects[decal_key()]  # декаль удалена: инструмент снова недоступен
+    assert live.width_problem(context) == "Build Decal Mesh first for row"
+    world.objects[decal_key()] = world.decal
+    assert live.width_problem(context) == ""
+
+    # Сборка для другого объекта заменила запись: у первого декаль есть, а сессия уже не про него.
+    other = _Props("other")
+    other_decal = _Decal(0.25, source="other", revision=f"host-source:{world.digest_now}:other")
+    other_decal.name = "other.CFTUV_Decal"
+    world.objects.update({"other": other, other_decal.name: other_decal})
+    context.active_object = other
+    assert live.width_problem(context) == (
+        "Build Decal Mesh first for other: the build session of this window belongs to row"
+    )
+
+
+def test_a_slider_change_on_an_object_without_its_own_decal_orders_nothing_and_leaves_no_lines(monkeypatch):
+    world = _World(monkeypatch)
+    world.context.active_object = _Props("other")
+
+    world.drag(0.4, 0.5)
+
+    assert world.scheduler is None and world.controller.width_preview is None and world.written == []
+    live.preview_now(world.controller, 0.4, OFFSET)  # чужие линии
+    assert world.controller.width_preview is not None
+    world.drag(0.6)
+    assert world.controller.width_preview is None and world.scheduler is None
+    world.context.active_object = world.objects["row"]  # вернулись к своему: путь ползунка работает
+    world.drag(0.7)
+    assert world.scheduler.counters.requested == 1 and world.controller.width_preview is not None
+
+
+def test_a_change_of_the_active_object_drops_the_preview_but_not_an_order_already_accepted(monkeypatch):
+    world = _World(monkeypatch)
+    context = world.context
+    world.drag(0.4)
+    assert world.controller.width_target == "row" and world.controller.width_preview is not None
+    assert live.follow_active_object(context) is False  # активный тот же: ничего не сброшено
+    assert world.controller.width_preview is not None
+
+    context.active_object = _Props("other")
+    assert live.follow_active_object(context) is True
+    assert world.controller.width_target == "other" and world.controller.width_preview is None
+    assert world.scheduler.busy  # принятый заказ про декаль `row`: он не пропал и завершится ею
+    live.settle_width_live(world.controller)
+    assert [item[3] for item in world.written] == [0.4]
+    assert live.follow_active_object(context) is False  # то же состояние повторно не сбрасывает
+
+    context.active_object = None
+    assert live.follow_active_object(context) is True and world.controller.width_target is None
+    context.active_object = world.objects["row"]
+    assert live.follow_active_object(context) is True and world.controller.width_target == "row"
+
+
+def test_the_deleted_decal_takes_the_preview_lines_with_it(monkeypatch):
+    world = _World(monkeypatch)
+    world.drag(0.4)
+    assert world.controller.width_preview is not None
+
+    del world.objects[decal_key()]
+
+    assert live.follow_active_object(world.context) is False  # активный объект тот же
+    assert world.controller.width_preview is None  # но линий без декали не остаётся
+    assert live.width_problem(world.context) == "Build Decal Mesh first for row"
+
+
+def test_the_width_field_follows_the_meshs_own_width_without_ordering_a_recompute(monkeypatch):
+    world = _World(monkeypatch)
+    world.settings.envelope_debug_alpha = 0.9  # ползунок ушёл, пока был другой объект (хука ещё нет)
+    world.settings.hook = lambda settings: live.schedule_width_live(settings, world.context)
+    assert live.sync_width_field(world.context) is True
+    assert world.settings.envelope_debug_alpha == 0.25  # ширина собственного меша
+    assert world.scheduler is None and world.controller.width_preview is None  # калбэк пересчёта не заказал
+    assert live.sync_width_field(world.context) is False  # уже равны
+
+    world.settings.envelope_debug_alpha = 0.4  # запись пользователя заказывает, как и прежде
+    assert world.scheduler.counters.requested == 1
+    world.decal.data[production_mesh.DECAL_WIDTH_PROPERTY] = 0.3
+    assert live.sync_width_field(world.context) is False and world.settings.envelope_debug_alpha == 0.4  # заказ в пути
+
+    live.settle_width_live(world.controller)
+    world.context.active_object = _Props("other")
+    world.settings.hook = None
+    world.settings.envelope_debug_alpha = 0.8
+    assert live.sync_width_field(world.context) is False and world.settings.envelope_debug_alpha == 0.8
+
+
+def test_the_target_is_remembered_by_the_build_and_forgotten_with_the_session(monkeypatch):
+    world = _World(monkeypatch)
+    assert world.controller.width_target == "row"
+
+    assert live.retarget(world.controller, "row") is False
+    assert live.retarget(world.controller, "other") is True and world.controller.width_target == "other"
+    world.controller.clear()
+    assert world.controller.width_target is None

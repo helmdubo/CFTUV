@@ -17,7 +17,14 @@
 4. ОТМЕНА (Undo): применение таймером не создаёт и не освобождает датаблоков; после шага отмены, поставленного
    ДО точного результата (как у модального оператора), `ed.undo`/`ed.redo` оставляют сцену целой, а расхождение
    ползунка и меша после Redo сверяет `reconcile_after_history` и заказывает пересчёт;
-5. РЕГИСТРАЦИЯ: оператор `hotspotuv.adjust_decal_width` объявлен с UNDO, оверлей и обработчики истории стоят.
+5. РЕГИСТРАЦИЯ: оператор `hotspotuv.adjust_decal_width` объявлен с UNDO, оверлей и обработчики (история, загрузка,
+   depsgraph) стоят;
+6. ЦЕЛЬ — СОБСТВЕННАЯ ДЕКАЛЬ АКТИВНОГО ОБЪЕКТА (ошибка владельца: «аджастмент есть, а сетки для аджастмента нет»):
+   сборка на меше A, переход на меш B без декали — инструмент недоступен с причиной «Build Decal Mesh first for B»
+   (`poll` оператора, `begin_adjust` клавиши, путь ползунка ничего не заказывает и не рисует); сборка на B открывает
+   его, возврат к A закрывает (запись кнопки одна на окно); смена активного снимает превью, но принятый заказ
+   доезжает до декали прежнего объекта; поле подтягивается к ширине меша без пересчёта; активная декаль ведёт к своему
+   источнику; удаление декали закрывает инструмент и снимает линии.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -359,6 +366,153 @@ def _run_timer_writes_keep_the_scene_and_the_undo_history_consistent():
     print("UNDO timer-applied width writes: datablocks unchanged, undo/redo clean, history reconciled")
 
 
+def _twin(source, name):
+    """Второй меш: копия источника (те же швы) под другим именем, без декали."""
+
+    twin = source.copy()
+    twin.data = source.data.copy()
+    twin.name = name
+    bpy.context.scene.collection.objects.link(twin)
+    return twin
+
+
+def _activate(obj):
+    """Активным становится `obj` в режиме Object (как щелчок в 3D View)."""
+
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for item in bpy.context.view_layer.objects:
+        item.select_set(item == obj)
+    bpy.context.view_layer.objects.active = obj
+
+
+def _build_on(obj):
+    seam = [edge.index for edge in obj.data.edges if edge.use_seam]
+    assert seam
+    _activate(obj)
+    _enter_edge_selection(obj, seam)
+    assert bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"FINISHED"}
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return bpy.data.objects[f"{obj.name}.CFTUV_Decal"]
+
+
+def _drop_sync_timer():
+    from cftuv.envelope_width_modal import _sync_once
+
+    if bpy.app.timers.is_registered(_sync_once):
+        bpy.app.timers.unregister(_sync_once)
+
+
+def _view_context():
+    """Контекст с областью 3D View: у фонового Blender её нет, а `poll` оператора спрашивает о ней первой."""
+
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        area=SimpleNamespace(type="VIEW_3D"),
+        active_object=bpy.context.view_layer.objects.active,
+        window_manager=bpy.context.window_manager,
+        scene=bpy.context.scene,
+    )
+
+
+def _run_the_tool_belongs_to_the_active_objects_own_decal():
+    from cftuv.envelope_width_live import follow_active_object, preview_now, sync_width_field, width_problem
+    from cftuv.envelope_width_modal import HOTSPOTUV_OT_AdjustDecalWidth, _after_depsgraph, _sync_once
+    from cftuv.envelope_width_session import ViewScaleV1, begin_adjust, poll_problem
+
+    source = _fresh()
+    _press(source)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    controller, settings = _controller(), _settings()
+    name_a, name_b = source.name, source.name + "B"
+    view = ViewScaleV1(pivot=(100.0, 100.0), metres_per_pixel=0.002)
+    poll = HOTSPOTUV_OT_AdjustDecalWidth.poll
+
+    # A построен: инструмент доступен, ширина живая.
+    assert width_problem(bpy.context) == "" and poll(_view_context())
+    settings.envelope_debug_alpha = 0.33
+    _pump()
+    assert abs(_width_property(DECAL) - 0.33) < 1e-6
+
+    # Новая ширина на A ещё в пути, а активным становится B без декали: превью снято, заказ A не пропал.
+    settings.envelope_debug_alpha = 0.36
+    assert controller.width_preview is not None and _scheduler().busy
+    twin = _twin(source, name_b)
+    _activate(twin)
+    _after_depsgraph()  # то, что делает обработчик depsgraph при смене активного
+    assert controller.width_target == name_b and controller.width_preview is None
+    assert bpy.app.timers.is_registered(_sync_once)
+    _drop_sync_timer()
+    assert _scheduler().busy, "the order accepted for A is not dropped silently"
+
+    # B без своей декали: причина названа, кнопка (poll) закрыта, клавиша (invoke) называет ту же причину.
+    reason = f"Build Decal Mesh first for {name_b}"
+    assert poll_problem(bpy.context) == reason == width_problem(bpy.context)
+    assert not poll(_view_context())
+    refusal = begin_adjust(bpy.context, (200.0, 100.0), view)
+    assert refusal == reason, refusal
+    requested = _scheduler().counters.requested
+    settings.envelope_debug_alpha = 0.5  # поле чужого объекта: ничего не заказывается, чужих линий нет
+    assert _scheduler().counters.requested == requested and controller.width_preview is None
+    _pump()  # заказ A (0.36) доехал до ЕГО декали, а 0.5 на B никуда не ушло
+    assert abs(_width_property(DECAL) - 0.36) < 1e-6, _width_property(DECAL)
+    digest_a = _digest()
+    assert name_b + ".CFTUV_Decal" not in bpy.data.objects
+    assert _scheduler().counters.applied == 2 and _scheduler().counters.requested == requested
+    print(f"TARGET: B without a decal -> {reason!r}; the order for A applied, none for B")
+
+    # Сборка на B открывает инструмент для B и закрывает для A (запись кнопки одна на окно).
+    decal_b = _build_on(twin)
+    assert width_problem(bpy.context) == "" and poll(_view_context())
+    assert abs(_width_property(decal_b.name) - 0.5) < 1e-6
+    _activate(source)
+    _after_depsgraph()
+    _drop_sync_timer()
+    problem_a = width_problem(bpy.context)
+    assert problem_a == (
+        f"Build Decal Mesh first for {name_a}: the build session of this window belongs to {name_b}"
+    ), problem_a
+    assert not poll(_view_context()) and begin_adjust(bpy.context, (200.0, 100.0), view) == problem_a
+    assert abs(_width_property(DECAL) - 0.36) < 1e-6
+
+    # Вернулись к B: поле подтягивается к ширине ЕГО меша (ползунок ушёл, пока был A), пересчёт не заказан.
+    settings.envelope_debug_alpha = 0.9
+    _activate(twin)
+    _after_depsgraph()
+    assert controller.width_target == name_b
+    before = (controller.width_live.counters.requested, _width_property(decal_b.name))
+    assert sync_width_field(bpy.context) is True
+    assert abs(float(settings.envelope_debug_alpha) - 0.5) < 1e-6
+    assert (controller.width_live.counters.requested, _width_property(decal_b.name)) == before
+    _drop_sync_timer()
+
+    # Активна сама декаль B: цель — её источник.
+    _activate(decal_b)
+    assert width_problem(bpy.context) == ""
+    _activate(twin)
+
+    # Декаль B удалена: инструмент снова недоступен, линии под ней сняты, ползунок ничего не заказывает.
+    preview_now(controller, 0.4, 0.02)
+    assert controller.width_preview is not None
+    mesh_b = decal_b.data
+    bpy.data.objects.remove(decal_b)
+    bpy.data.meshes.remove(mesh_b)
+    assert follow_active_object(bpy.context) is False  # активный тот же, но цели под линиями нет
+    assert controller.width_preview is None
+    assert width_problem(bpy.context) == reason and not poll(_view_context())
+    requested = controller.width_live.counters.requested
+    settings.envelope_debug_alpha = 0.7
+    assert controller.width_live.counters.requested == requested and controller.width_preview is None
+    print(f"TARGET: decal of B deleted -> {width_problem(bpy.context)!r}")
+
+    # Перестроили B: снова доступен.
+    _build_on(twin)
+    assert width_problem(bpy.context) == "" and poll(_view_context())
+    assert _digest() == digest_a, "the decal of A is not touched by anything done for B"
+    print("TARGET: A -> B without decal -> build B -> A closed -> decal deleted -> rebuilt: availability follows the active object")
+
+
 def _run_blender_events_become_the_events_of_the_automaton():
     """Перевод событий оператора: те же правила, что исполняет `modal`; события здесь — подставные."""
 
@@ -391,13 +545,23 @@ def _run_blender_events_become_the_events_of_the_automaton():
 
 
 def _run_the_tool_is_registered_with_undo_and_the_overlay_and_history_handlers_stand():
-    from cftuv.envelope_width_modal import HOTSPOTUV_OT_AdjustDecalWidth, _after_history, _after_load
+    from cftuv.envelope_width_modal import (
+        HOTSPOTUV_OT_AdjustDecalWidth,
+        _after_depsgraph,
+        _after_history,
+        _after_load,
+    )
     from cftuv.envelope_width_overlay import line_segments, overlay_registered
 
     assert hasattr(bpy.ops.hotspotuv, "adjust_decal_width")
     assert set(HOTSPOTUV_OT_AdjustDecalWidth.bl_options) == {"UNDO", "BLOCKING"}
     assert overlay_registered()
-    for name, handler in (("undo_post", _after_history), ("redo_post", _after_history), ("load_post", _after_load)):
+    for name, handler in (
+        ("undo_post", _after_history),
+        ("redo_post", _after_history),
+        ("load_post", _after_load),
+        ("depsgraph_update_post", _after_depsgraph),
+    ):
         assert handler in getattr(bpy.app.handlers, name), name
     assert line_segments([((0, 0, 0), (1, 0, 0), (1, 1, 0))]) == [(0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 1, 0)]
     assert not bpy.ops.hotspotuv.adjust_decal_width.poll()  # фоновый Blender: нет области 3D View
@@ -424,6 +588,7 @@ def _main():
         envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
     _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
+    _run_the_tool_belongs_to_the_active_objects_own_decal()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()

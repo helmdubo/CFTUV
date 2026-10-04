@@ -13,6 +13,11 @@
 - ЛКМ либо Enter подтверждают: ширина уходит в ползунок один раз, точный пересчёт заказывает планировщик
   (фон), шаг отмены один на всё перетаскивание; ПКМ либо Esc отменяют, ничего не менялось.
 
+Доступность: инструмент (`poll`, подсказка отключённой кнопки через `poll_message_set`), поле «Decal width» панели
+и калбэк ползунка требуют у АКТИВНОГО объекта собственную построенную декаль и запись кнопки этого окна про него
+(`envelope_width_live.width_problem`); `invoke` называет ту же причину строкой. Смена активного объекта снимает превью
+и подтягивает поле к ширине его меша (обработчик depsgraph).
+
 Регистрация живёт здесь и зовётся из `register_production_operator` (рядом с «Build Decal Mesh»): класс,
 клавиша, оверлей и обработчики Undo/Redo/загрузки файла.
 """
@@ -33,7 +38,7 @@ from .envelope_width_adjust import (
     PHASE_CONFIRMED,
     WidthEventV1,
 )
-from .envelope_width_live import reconcile_after_history
+from .envelope_width_live import follow_active_object, reconcile_after_history, sync_width_field
 from .envelope_width_overlay import register_overlay, unregister_overlay
 from .envelope_width_session import (
     NO_VIEW,
@@ -115,9 +120,19 @@ class HOTSPOTUV_OT_AdjustDecalWidth(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         area = context.area
-        return area is not None and area.type == "VIEW_3D" and not poll_problem(context)
+        if area is None or area.type != "VIEW_3D":
+            return False
+        problem = poll_problem(context)
+        if problem:
+            cls.poll_message_set(problem)  # подсказка отключённой кнопки: у активного объекта нет своей декали
+            return False
+        return True
 
     def invoke(self, context, event):
+        problem = poll_problem(context)
+        if problem:  # клавиша и вызов из Python: та же причина строкой, а не молчаливый отказ
+            self.report({"WARNING"}, problem)
+            return {"CANCELLED"}
         view = view_scale_of(context)
         if view is None:
             self.report({"WARNING"}, NO_VIEW)
@@ -167,6 +182,31 @@ _KEYMAPS: list = []
 _HISTORY_DELAY = 0.05
 
 
+def _sync_once():
+    try:
+        sync_width_field()
+    except Exception as exc:  # noqa: BLE001 - подтягивание поля называется строкой, а не молчит
+        print(f"[CFTUV][WidthLive] field sync failed: {type(exc).__name__}: {exc}", flush=True)
+    return None
+
+
+@persistent
+def _after_depsgraph(*_args) -> None:
+    """Смена активного объекта: превью снято, поле «Decal width» подтягивается к ширине меша нового объекта.
+
+    Обработчик depsgraph вызывается часто, поэтому здесь только дешёвая сверка имени (`follow_active_object`);
+    запись в свойство — отложенным таймером, не из обработчика.
+    """
+
+    try:
+        changed = follow_active_object(bpy.context)
+    except Exception as exc:  # noqa: BLE001 - отказ слежения называется строкой консоли, а не молчит
+        print(f"[CFTUV][WidthLive] follow active object failed: {type(exc).__name__}: {exc}", flush=True)
+        return
+    if changed and not bpy.app.timers.is_registered(_sync_once):
+        bpy.app.timers.register(_sync_once, first_interval=_HISTORY_DELAY)
+
+
 def _reconcile_once():
     try:
         reconcile_after_history()
@@ -196,7 +236,12 @@ def _after_load(*_args) -> None:
 
 
 #: Обработчики истории: список `bpy.app.handlers` -> наш обработчик.
-_HANDLERS = (("undo_post", _after_history), ("redo_post", _after_history), ("load_post", _after_load))
+_HANDLERS = (
+    ("undo_post", _after_history),
+    ("redo_post", _after_history),
+    ("load_post", _after_load),
+    ("depsgraph_update_post", _after_depsgraph),
+)
 
 
 def _chord_conflicts(wm) -> list:
@@ -263,8 +308,9 @@ def unregister_width_tools() -> None:
         handlers = getattr(bpy.app.handlers, name)
         while handler in handlers:
             handlers.remove(handler)
-    if bpy.app.timers.is_registered(_reconcile_once):
-        bpy.app.timers.unregister(_reconcile_once)
+    for timer in (_reconcile_once, _sync_once):
+        if bpy.app.timers.is_registered(timer):
+            bpy.app.timers.unregister(timer)
     unregister_overlay()
     while _KEYMAPS:
         keymap, item = _KEYMAPS.pop()

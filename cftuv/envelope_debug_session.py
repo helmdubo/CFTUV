@@ -250,6 +250,9 @@ class EnvelopeDebugSessionController:
         self.width_live = None
         self.width_build = None
         self.width_preview = None
+        #: Имя источника, чью декаль сейчас адресуют инструменты ширины (активный объект, `retarget`): смена его
+        #: снимает превью; запись кнопки (`width_build`) при этом остаётся, она про СВОЙ источник.
+        self.width_target = None
 
     def _preview_schedulers(self) -> tuple:
         return tuple(item for item in (self.alpha_preview, self.width_live) if item is not None)
@@ -358,6 +361,7 @@ class EnvelopeDebugSessionController:
         self._queue_session = None
         self.width_build = None
         self.width_preview = None
+        self.width_target = None
         self._invalidation_count += 1
 
     def _invalidate_revision_scoped(self) -> None:
@@ -1144,6 +1148,7 @@ class _WindowManagerSessionAttribute:
             controller.quiesce_preview("file loaded")
             controller.width_build = None
             controller.width_preview = None
+            controller.width_target = None
 
 
 def register_window_manager_session_attribute() -> None:

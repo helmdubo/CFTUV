@@ -408,6 +408,68 @@ def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
     }, callers
 
 
+#: Входы инструмента ширины и вопрос, который каждый из них обязан задавать: у АКТИВНОГО объекта есть своя декаль,
+#: а запись кнопки этого окна — про него (`envelope_width_live.availability_problem`). Запись кнопки одна на окно, и
+#: вход без этого вопроса правит декаль объекта, который уже не активен (ошибка владельца: «аджастмент есть, а сетки
+#: для аджастмента нет»).
+_WIDTH_ENTRY_POINTS = (
+    ("envelope_width_modal.py", "poll", "poll_problem"),
+    ("envelope_width_modal.py", "invoke", "poll_problem"),
+    ("envelope_width_session.py", "poll_problem", "width_problem"),
+    ("envelope_width_session.py", "begin_adjust", "poll_problem"),
+    ("envelope_width_live.py", "schedule_width_live", "width_problem"),
+    ("envelope_width_live.py", "reconcile_after_history", "width_problem"),
+    ("envelope_width_live.py", "draw_decal_width_rows", "width_problem"),
+    ("envelope_width_live.py", "sync_width_field", "width_problem"),
+    ("envelope_width_live.py", "follow_active_object", "width_problem"),
+    ("envelope_width_live.py", "width_problem", "availability_problem"),
+)
+
+
+def _called_names(function: ast.FunctionDef) -> set[str]:
+    return {
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+    }
+
+
+@pytest.mark.parametrize("module, function, question", _WIDTH_ENTRY_POINTS)
+def test_every_width_entry_point_asks_whether_the_active_object_has_its_own_decal(module, function, question):
+    path = HOST_PACKAGE / module
+    found = [
+        node
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+    assert found, f"{module}: функции {function} нет"
+    assert all(question in _called_names(node) for node in found), (
+        f"{module}:{function} не зовёт {question}: вход инструмента ширины обходит вопрос "
+        "«есть ли у активного объекта своя свежая декаль»."
+    )
+
+
+def test_the_width_tool_names_the_reason_on_the_disabled_button_and_follows_the_active_object():
+    """Отключённая кнопка называет причину (`poll_message_set`), а смена активного объекта идёт через depsgraph."""
+
+    path = HOST_PACKAGE / "envelope_width_modal.py"
+    poll = next(
+        node
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.FunctionDef) and node.name == "poll"
+    )
+    assert "poll_message_set" in _called_names(poll)
+    handlers = next(
+        node.value
+        for node in _parse(path).body
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "_HANDLERS" for t in node.targets)
+    )
+    registered = {
+        item.elts[0].value for item in handlers.elts if isinstance(item, ast.Tuple)
+    }
+    assert "depsgraph_update_post" in registered, sorted(registered)
+
+
 # --------------------------------------------------------------------------
 # 2. Мёртвый код
 # --------------------------------------------------------------------------
