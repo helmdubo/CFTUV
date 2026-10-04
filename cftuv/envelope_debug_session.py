@@ -243,18 +243,28 @@ class EnvelopeDebugSessionController:
         #: пока ползунок ничего не заказывал. Его поток считает на подготовках этой сессии, поэтому
         #: любой тяжёлый синхронный путь сперва зовёт `quiesce_preview`.
         self.alpha_preview = None
+        #: Живая ширина декали (`envelope_width_live`): планировщик точного пересчёта продуктового меша, запись
+        #: последнего «Build Decal Mesh» (`LastProductionBuildV1`: пакет анализа, выделение, ключи, входы превью)
+        #: и текущее мгновенное превью (`WidthPreviewStateV1`) либо `None`. Запись и превью — данные ревизии:
+        #: смена ревизии и полный сброс их роняют.
+        self.width_live = None
+        self.width_build = None
+        self.width_preview = None
+
+    def _preview_schedulers(self) -> tuple:
+        return tuple(item for item in (self.alpha_preview, self.width_live) if item is not None)
 
     def quiesce_preview(self, reason: str) -> None:
-        """Останавливает фоновое превью alpha и ждёт конца его потока (перед работой кнопки)."""
+        """Останавливает фоновые счёты (превью alpha и живая ширина) и ждёт конца их потоков (перед кнопкой)."""
 
-        if self.alpha_preview is not None:
-            self.alpha_preview.quiesce(reason)
+        for scheduler in self._preview_schedulers():
+            scheduler.quiesce(reason)
 
     def supersede_preview(self, reason: str) -> None:
-        """Снимает заказ превью и просит поток остановиться, не дожидаясь (калбэки свойств)."""
+        """Снимает заказы превью и просит потоки остановиться, не дожидаясь (калбэки свойств)."""
 
-        if self.alpha_preview is not None:
-            self.alpha_preview.supersede(reason)
+        for scheduler in self._preview_schedulers():
+            scheduler.supersede(reason)
 
     @property
     def build_counts(self) -> dict[str, int]:
@@ -346,6 +356,8 @@ class EnvelopeDebugSessionController:
         self._snapshot_issues.clear()
         self._content_bindings.clear()
         self._queue_session = None
+        self.width_build = None
+        self.width_preview = None
         self._invalidation_count += 1
 
     def _invalidate_revision_scoped(self) -> None:
@@ -1120,6 +1132,18 @@ class _WindowManagerSessionAttribute:
         for controller in self._controllers.values():
             controller.clear()
         self._controllers.clear()
+
+    def forget_width_state(self) -> None:
+        """Загрузка файла: запись кнопки и превью живой ширины говорят про сцену, которой больше нет.
+
+        Контроллер окна переживает загрузку (ключ — указатель окна, он может повториться), а имя источника
+        в новом файле может совпасть: устаревшее превью нарисовалось бы на чужом объекте.
+        """
+
+        for controller in self._controllers.values():
+            controller.quiesce_preview("file loaded")
+            controller.width_build = None
+            controller.width_preview = None
 
 
 def register_window_manager_session_attribute() -> None:

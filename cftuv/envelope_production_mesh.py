@@ -86,6 +86,10 @@ DECAL_DOMAIN_ATTRIBUTE = "cftuv_domain"
 DECAL_OWNER_ATTRIBUTE = "cftuv_owner"
 DECAL_REVISION_PROPERTY = "cftuv_source_revision"
 DECAL_SOURCE_PROPERTY = "cftuv_source_object"
+#: Ширина (alpha), с которой записан меш: свойство МЕША, а не объекта, чтобы Undo/Redo восстанавливали её вместе с
+#: геометрией (свойство объекта могло бы остаться от другого шага). Нужна живой ширине: после истории она
+#: сверяется со значением ползунка (`envelope_width_live.reconcile_after_history`).
+DECAL_WIDTH_PROPERTY = "cftuv_decal_width"
 #: Смещение над поверхностью по умолчанию, метры: прежнее значение декаль-режима.
 DEFAULT_DECAL_OFFSET = 0.02
 DEFAULT_DECAL_MATERIAL = "CFTUV_Decal"
@@ -94,6 +98,11 @@ DEFAULT_DECAL_MATERIAL = "CFTUV_Decal"
 ID_NAME_LIMIT_BYTES = 63
 
 OUTCOME_NAME_TAKEN = "DECAL_OBJECT_NAME_TAKEN"
+#: Перезапись меша на месте (живая ширина) не создаёт объектов: нет объекта либо он в Edit — отказ по имени.
+OUTCOME_DECAL_MISSING = "DECAL_OBJECT_MISSING"
+OUTCOME_DECAL_IN_EDIT_MODE = "DECAL_OBJECT_IN_EDIT_MODE"
+OUTCOME_DECAL_MESH_MISSING = "DECAL_MESH_MISSING"
+OUTCOME_MATERIAL_MISSING = "ADAPTER_MATERIAL_MISSING"
 OUTCOME_EMPTY_BATCH = "ADAPTER_EMPTY_BATCH"
 OUTCOME_NON_FINITE = "ADAPTER_NON_FINITE_BATCH"
 OUTCOME_NORMAL_MISSING = "ADAPTER_NORMAL_MISSING"
@@ -446,6 +455,16 @@ def _build_mesh(name: str, arrays: MeshArraysV1):
     """Меш из массивов и число РЕАЛЬНО помеченных швов: `(меш, помечено)`."""
 
     mesh = bpy.data.meshes.new(name)
+    return mesh, _fill_mesh(mesh, arrays)
+
+
+def _fill_mesh(mesh, arrays: MeshArraysV1) -> int:
+    """Геометрия, UV, атрибуты и швы в ПУСТОЙ меш; число реально помеченных швов.
+
+    Один код и для нового датаблока, и для перезаписи на месте: равенство результата кнопки и живой ширины
+    держится общим кодом записи, а не копией.
+    """
+
     mesh.from_pydata([tuple(item) for item in arrays.positions], [], list(arrays.faces))
     mesh.update()
     layer = mesh.uv_layers.new(name=DECAL_UV_LAYER)
@@ -466,7 +485,23 @@ def _build_mesh(name: str, arrays: MeshArraysV1):
             if tuple(sorted(edge.vertices)) in wanted:
                 edge.use_seam = True
                 marked += 1
-    return mesh, marked
+    return marked
+
+
+def _clear_mesh_in_place(mesh) -> None:
+    """Пустая геометрия БЕЗ смены датаблока: слои UV и атрибуты граней уходят вместе с ней.
+
+    `clear_geometry` в Blender 4.5 снимает и их (проверено смоком); оставшиеся от иной версии
+    снимаются явно, чтобы `_fill_mesh` не наткнулся на слой, не равный новым граням.
+    """
+
+    mesh.clear_geometry()
+    for layer in list(mesh.uv_layers):
+        mesh.uv_layers.remove(layer)
+    for name in (DECAL_DOMAIN_ATTRIBUTE, DECAL_OWNER_ATTRIBUTE):
+        attribute = mesh.attributes.get(name)
+        if attribute is not None:
+            mesh.attributes.remove(attribute)
 
 
 def _material_slot(mesh, material_name: str):
@@ -652,12 +687,20 @@ def _blank_arrays(arrays: MeshArraysV1) -> MeshArraysV1:
     )
 
 
+def find_decal_object(source_obj):
+    """Объект декали этого источника (по маркеру, как при пересборке) либо `None`; ничего не создаёт."""
+
+    found, _warnings = _find_decal(source_obj, decal_object_name(source_obj.name))
+    return found
+
+
 def write_decal_object(
     source_obj,
     results,
     *,
     offset: float = DEFAULT_DECAL_OFFSET,
     material_name: str = DEFAULT_DECAL_MATERIAL,
+    width: float | None = None,
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
 
@@ -684,6 +727,7 @@ def write_decal_object(
         warnings = warnings + _swap_mesh(existing, empty, name)
         existing[DECAL_REVISION_PROPERTY] = arrays.source_revision
         existing[DECAL_SOURCE_PROPERTY] = source_obj.name
+        _record_width(existing.data, width)
         return _receipt(blank, offset, material_name, object_name=existing.name,
                         replaced=True, mesh=existing.data, marked=0,
                         material_created=False, warnings=warnings)
@@ -698,9 +742,80 @@ def write_decal_object(
         decal = existing
     decal[DECAL_REVISION_PROPERTY] = arrays.source_revision
     decal[DECAL_SOURCE_PROPERTY] = source_obj.name
+    _record_width(mesh, width)
     return _receipt(arrays, offset, material_name, object_name=decal.name,
                     replaced=existing is not None, mesh=mesh, marked=marked,
                     material_created=material_created, warnings=warnings)
+
+
+def _record_width(mesh, width) -> None:
+    if width is not None:
+        mesh[DECAL_WIDTH_PROPERTY] = float(width)
+
+
+def rewrite_decal_mesh(
+    source_obj,
+    results,
+    *,
+    offset: float = DEFAULT_DECAL_OFFSET,
+    material_name: str = DEFAULT_DECAL_MATERIAL,
+    width: float | None = None,
+) -> ProductionWriteReceiptV1:
+    """Заменяет геометрию СУЩЕСТВУЮЩЕГО меша декали НА МЕСТЕ: тот же объект, тот же датаблок меша.
+
+    Путь живой ширины (`envelope_width_live`): его вызывает таймер, а таймер не вправе создавать и
+    освобождать датаблоки (`UNDO_REQUIRED_REASON`: без шага отмены следующий Ctrl+Z падает на висячем
+    указателе). Поэтому здесь нет ни `meshes.new`, ни `meshes.remove`, ни `materials.new`: объект и меш
+    должны быть, материал берётся существующий. Содержимое результата — побитово то же, что даёт
+    `write_decal_object` на тех же результатах (общие `build_mesh_arrays` и `_fill_mesh`; равенство держит
+    смок по `mesh_content_digest`). Нет объекта, нет меша или объект в Edit-режиме — именованный отказ
+    `ProductionWriteError`, а не создание нового.
+    """
+
+    arrays = build_mesh_arrays(results, offset)
+    existing, warnings = _find_decal(source_obj, decal_object_name(source_obj.name))
+    if existing is None:
+        raise ProductionWriteError(
+            OUTCOME_DECAL_MISSING, "no decal object of this source: press Build Decal Mesh"
+        )
+    if getattr(existing, "mode", "OBJECT") == "EDIT":
+        raise ProductionWriteError(
+            OUTCOME_DECAL_IN_EDIT_MODE,
+            f"{existing.name!r} is in Edit mode: leave it, the live width cannot rewrite its mesh",
+        )
+    mesh = existing.data
+    if mesh is None:
+        raise ProductionWriteError(OUTCOME_DECAL_MESH_MISSING, f"{existing.name!r} has no mesh")
+    warnings = warnings + _reassert_placement(existing, source_obj)
+    users = int(getattr(mesh, "users", 1))
+    if users > 1:
+        warnings.append(
+            (None, OUTCOME_MESH_SHARED, f"mesh {mesh.name!r} is shared by {users} objects: all of them changed")
+        )
+    _clear_mesh_in_place(mesh)
+    marked = _fill_mesh(mesh, arrays) if arrays.faces else 0
+    if not len(mesh.materials):
+        material = bpy.data.materials.get(material_name)
+        if material is None:
+            warnings.append(
+                (None, OUTCOME_MATERIAL_MISSING, f"material {material_name!r} is gone and is not created by the live width")
+            )
+        else:
+            mesh.materials.append(material)
+    existing[DECAL_REVISION_PROPERTY] = arrays.source_revision
+    existing[DECAL_SOURCE_PROPERTY] = source_obj.name
+    _record_width(mesh, width)
+    return _receipt(
+        arrays if arrays.faces else _blank_arrays(arrays),
+        offset,
+        material_name,
+        object_name=existing.name,
+        replaced=True,
+        mesh=mesh,
+        marked=marked,
+        material_created=False,
+        warnings=warnings,
+    )
 
 
 __all__ = (
@@ -710,14 +825,19 @@ __all__ = (
     "DECAL_REVISION_PROPERTY",
     "DECAL_SOURCE_PROPERTY",
     "DECAL_UV_LAYER",
+    "DECAL_WIDTH_PROPERTY",
     "DEFAULT_DECAL_MATERIAL",
     "DEFAULT_DECAL_OFFSET",
     "ID_NAME_LIMIT_BYTES",
     "MeshArraysV1",
     "OUTCOME_COLLECTION_REASSERTED",
+    "OUTCOME_DECAL_IN_EDIT_MODE",
+    "OUTCOME_DECAL_MESH_MISSING",
+    "OUTCOME_DECAL_MISSING",
     "OUTCOME_DUPLICATE_DECALS",
     "OUTCOME_EMPTY_BATCH",
     "OUTCOME_FLIPPED_VS_SOURCE",
+    "OUTCOME_MATERIAL_MISSING",
     "OUTCOME_MESH_SHARED",
     "OUTCOME_NAME_TAKEN",
     "OUTCOME_NON_FINITE",
@@ -731,6 +851,8 @@ __all__ = (
     "ProductionWriteReceiptV1",
     "build_mesh_arrays",
     "decal_object_name",
+    "find_decal_object",
     "mesh_content_digest",
+    "rewrite_decal_mesh",
     "write_decal_object",
 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .envelope_alpha_preview_gp import draw_alpha_preview_row
+from .envelope_width_live import draw_decal_width_rows
 from .envelope_worker_python import draw_worker_python_row
 
 
@@ -25,6 +26,7 @@ def draw_decal_mesh_rows(layout) -> None:
         text="Build Decal Mesh",
         icon="MESH_DATA",
     )
+    draw_decal_width_rows(layout)
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")
     row.prop(mesh_settings, "material_name", text="")

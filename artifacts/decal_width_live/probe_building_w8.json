@@ -1,0 +1,394 @@
+{
+ "button_at_last_width_s": 0.205,
+ "cancel": {
+  "cancel_return_ms": 24.6,
+  "counters": {
+   "applied": 1,
+   "cancelled": 0,
+   "coalesced": 0,
+   "failed": 0,
+   "invalid": 0,
+   "requested": 2,
+   "stale": 1,
+   "started": 2,
+   "unavailable": 0
+  },
+  "status": "ready width=0.47 (compute 2.23 s, apply 0.06 s) | superseded 1",
+  "steps_max_ms": 66.49
+ },
+ "capture": {
+  "edges": 767,
+  "faces": 312,
+  "ms": 19.0,
+  "named": {
+   "PREVIEW_DEGENERATE_SIDE": 0,
+   "PREVIEW_SIDE_WITHOUT_FACE": 0
+  },
+  "runs": 160,
+  "sides": 767
+ },
+ "cold_button_at_last_width_s": 13.197,
+ "cold_button_s": 15.151,
+ "decal_timing": "Decal warm 0.09 s | preparations reused 122, built 0 | results cached 122, computed 0 | 1012 faces, 1174 vertices",
+ "density": "2",
+ "drags": [
+  {
+   "apply_ms": 63.0,
+   "change_ms": [
+    4.391,
+    4.466,
+    4.614,
+    4.382,
+    4.996
+   ],
+   "compute_ms": 1963.3,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "decal_timing": "Decal warm 1.96 s | preparations reused 122, built 0 | results cached 0, computed 122 | pool wall 1319 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 1018 faces, 1172 vertices | live width 0.34",
+   "latency_ms": 2188.0,
+   "oversleep_ms": 245.88,
+   "preview_lines": 162,
+   "preview_ms": 4.763,
+   "preview_outcomes": {
+    "PREVIEW_BEVEL_JOIN": 149,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 204
+   },
+   "preview_points": 979,
+   "status": "ready width=0.34 (compute 1.96 s, apply 0.06 s) | superseded 4",
+   "steps_ms": [
+    0.01,
+    0.01,
+    0.0,
+    0.01,
+    0.01,
+    12.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.02,
+    0.02,
+    0.02,
+    0.03,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    64.32
+   ],
+   "values": [
+    0.3,
+    0.31,
+    0.32,
+    0.33,
+    0.34
+   ]
+  },
+  {
+   "apply_ms": 109.0,
+   "change_ms": [
+    5.037,
+    4.61,
+    4.357,
+    4.502,
+    5.094
+   ],
+   "compute_ms": 1411.8,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "decal_timing": "Decal warm 1.41 s | preparations reused 122, built 0 | results cached 0, computed 122 | pool wall 1312 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 1018 faces, 1176 vertices | live width 0.4",
+   "latency_ms": 1672.0,
+   "oversleep_ms": 266.12,
+   "preview_lines": 162,
+   "preview_ms": 4.88,
+   "preview_outcomes": {
+    "PREVIEW_BEVEL_JOIN": 162,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 218
+   },
+   "preview_points": 992,
+   "status": "ready width=0.4 (compute 1.41 s, apply 0.11 s) | superseded 4",
+   "steps_ms": [
+    0.01,
+    0.01,
+    0.01,
+    0.0,
+    0.01,
+    23.14,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    102.12
+   ],
+   "values": [
+    0.36,
+    0.37,
+    0.38,
+    0.39,
+    0.4
+   ]
+  },
+  {
+   "apply_ms": 78.0,
+   "change_ms": [
+    7.102,
+    4.698,
+    4.617,
+    4.409,
+    4.618
+   ],
+   "compute_ms": 1163.2,
+   "counters": {
+    "applied": 1,
+    "cancelled": 0,
+    "coalesced": 0,
+    "failed": 0,
+    "invalid": 0,
+    "requested": 0,
+    "stale": 0,
+    "started": 1,
+    "unavailable": 0
+   },
+   "decal_timing": "Decal warm 1.16 s | preparations reused 122, built 0 | results cached 0, computed 122 | pool wall 1063 ms on 8 workers (times above are per-domain sums) | worker Python 3.11.11 (bundled) | 1021 faces, 1186 vertices | live width 0.46",
+   "latency_ms": 1422.0,
+   "oversleep_ms": 16.51,
+   "preview_lines": 162,
+   "preview_ms": 4.489,
+   "preview_outcomes": {
+    "PREVIEW_BEVEL_JOIN": 184,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 246
+   },
+   "preview_points": 1018,
+   "status": "ready width=0.46 (compute 1.16 s, apply 0.08 s) | superseded 4",
+   "steps_ms": [
+    0.0,
+    0.01,
+    0.0,
+    0.0,
+    0.0,
+    11.5,
+    0.01,
+    0.01,
+    0.02,
+    0.02,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.02,
+    0.01,
+    0.02,
+    0.01,
+    0.02,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.02,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    0.01,
+    73.34
+   ],
+   "values": [
+    0.42,
+    0.43,
+    0.44,
+    0.45,
+    0.46
+   ]
+  }
+ ],
+ "equal": {
+  "cold": true,
+  "warm": true
+ },
+ "failure": null,
+ "last_width": 0.46000000834465027,
+ "mesh": "building",
+ "preview_scan": {
+  "0.05": {
+   "lines": 162,
+   "max_ms": 4.973,
+   "median_ms": 4.085,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 69,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 113
+   },
+   "points": 899
+  },
+  "0.1": {
+   "lines": 162,
+   "max_ms": 4.644,
+   "median_ms": 4.15,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 118,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 163
+   },
+   "points": 948
+  },
+  "0.25": {
+   "lines": 162,
+   "max_ms": 7.24,
+   "median_ms": 6.139,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 149,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 204
+   },
+   "points": 979
+  },
+  "0.5": {
+   "lines": 162,
+   "max_ms": 7.18,
+   "median_ms": 4.448,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 357,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 432
+   },
+   "points": 1192
+  },
+  "1.0": {
+   "lines": 162,
+   "max_ms": 4.934,
+   "median_ms": 4.549,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 505,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 592
+   },
+   "points": 1340
+  },
+  "2.0": {
+   "lines": 162,
+   "max_ms": 8.39,
+   "median_ms": 5.439,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 597,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 885
+   },
+   "points": 1434
+  },
+  "5.0": {
+   "lines": 162,
+   "max_ms": 7.214,
+   "median_ms": 6.496,
+   "outcomes": {
+    "PREVIEW_BEVEL_JOIN": 693,
+    "PREVIEW_CLIPPED_AT_PATCH_BOUNDARY": 1301
+   },
+   "points": 1533
+  }
+ },
+ "root": "E:\\GITHUB\\CFTUV\\.claude\\worktrees\\agent-a68400898ee68b6fb",
+ "selected_edges": 458,
+ "summary": {
+  "apply_ms_median": 78.0,
+  "change_ms_max": 7.102,
+  "change_ms_median": 4.614,
+  "compute_ms_median": 1411.8,
+  "latency_ms_max": 2188.0,
+  "latency_ms_median": 1672.0,
+  "preview_ms_median": 4.763,
+  "step_ms_max": 102.12
+ },
+ "warm_button_s": 0.189,
+ "workers": 8
+}
