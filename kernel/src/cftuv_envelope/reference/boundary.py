@@ -9,6 +9,10 @@ import sympy as sp
 
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
+from . import symbolic_backend as _backend
+from .boundary_native import compare_contacts, contact_candidates_native
+from .native_exact import NativeExactError, NativeSignUndecided
+from .symbolic_backend import SymbolicBackendV1
 from .common import (
     GeometryContext,
     SourceSupportSegment,
@@ -154,8 +158,22 @@ def _source_length(context, source, memo):
     return _remembered(
         memo,
         ("length", source.support_id, point_key(source.start), point_key(source.end)),
-        lambda: context.metric.length_g(point_sub(source.end, source.start)),
+        lambda: _length_of(context, point_sub(source.end, source.start)),
     )
+
+
+def _length_of(context, direction):
+    """Длина отрезка в метрике контекста; в `NATIVE_EXACT` — родная, с названной уступкой sympy."""
+
+    if _backend.backend_mode() is SymbolicBackendV1.NATIVE_EXACT:
+        try:
+            return context.metric.length_g_native(direction)
+        except NativeExactError as refusal:
+            _backend.count(
+                "source_length",
+                "sign_undecided" if isinstance(refusal, NativeSignUndecided) else "outside_field",
+            )
+    return context.metric.length_g(direction)
 
 
 def build_domain_geometry(
@@ -167,6 +185,36 @@ def build_domain_geometry(
 
 
 def _contact_candidates(
+    context: GeometryContext,
+    source: SourceSupportSegment,
+    boundary: BlockingBoundarySegment,
+) -> tuple[tuple[sp.Expr, sp.Expr, ExactPlanarPoint], ...]:
+    """Контакты пары под выбранным символьным бэкендом (`symbolic_backend`).
+
+    `SYMPY` — прежний путь. `NATIVE_EXACT` — родной двойник (`boundary_native`), alpha и station в
+    нём `RadicalSumV1`; уступка sympy названа и посчитана. `SHADOW` — оба пути, ответ sympy.
+    """
+
+    mode = _backend.backend_mode()
+    if mode is SymbolicBackendV1.SYMPY:
+        return _contact_candidates_sympy(context, source, boundary)
+    try:
+        native = contact_candidates_native(context, source, boundary)
+    except NativeExactError as refusal:
+        _backend.count(
+            "contact_candidates",
+            "sign_undecided" if isinstance(refusal, NativeSignUndecided) else "outside_field",
+        )
+        return _contact_candidates_sympy(context, source, boundary)
+    if mode is SymbolicBackendV1.NATIVE_EXACT:
+        _backend.count("contact_candidates", "native")
+        return native
+    legacy = _contact_candidates_sympy(context, source, boundary)
+    compare_contacts(legacy, native)
+    return legacy
+
+
+def _contact_candidates_sympy(
     context: GeometryContext,
     source: SourceSupportSegment,
     boundary: BlockingBoundarySegment,

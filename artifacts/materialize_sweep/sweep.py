@@ -183,7 +183,18 @@ ANSWER_KEYS = (
 )
 
 
-def compute_row(
+def compute_row(patch_id: int, density, *args, **kwargs):
+    """Строка домена; под не-умолчательным символьным бэкендом несёт его счётчики (вне `ANSWER_KEYS`)."""
+
+    gate._reset_backend_counts()
+    row = _compute_row(patch_id, density, *args, **kwargs)
+    extra = gate._backend_price()
+    if extra:
+        row["symbolic_backend_report"] = extra
+    return row
+
+
+def _compute_row(
     patch_id: int,
     density,
     topology: str = "TRIANGLES_V1",

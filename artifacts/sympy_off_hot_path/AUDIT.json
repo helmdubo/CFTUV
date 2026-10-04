@@ -1,0 +1,863 @@
+{
+ "schema": "sympy_off_hot_path_audit_v1",
+ "basis_sha": "6288950",
+ "profile": {
+  "tool": "cProfile via artifacts/numeric_repr/attribute.py profile",
+  "domains": [
+   "building patch 6",
+   "building patch 7",
+   "building patch 1"
+  ],
+  "density": 2,
+  "profile_total_seconds": 72.11,
+  "sympy_plus_mpmath_inclusive_share": 0.3407
+ },
+ "share_by_class": {
+  "A_REPLACED_HOT": 0.249,
+  "B_KEEP_DENSITY_OR_TRIG": 0.0805,
+  "A_LATER": 0.011,
+  "A_DONE": 0.0002
+ },
+ "sites": [
+  {
+   "site": "reference/boundary.py:_contact_candidates",
+   "seconds": 6.886,
+   "share_of_profile": 0.0955,
+   "entry_calls": 79206,
+   "sympy_s": 6.886,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/metric.py:dot_g",
+   "seconds": 4.996,
+   "share_of_profile": 0.0693,
+   "entry_calls": 158886,
+   "sympy_s": 4.996,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/planar_types.py:interval_enclosure",
+   "seconds": 2.632,
+   "share_of_profile": 0.0365,
+   "entry_calls": 184290,
+   "sympy_s": 0.013,
+   "mpmath_s": 2.619,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/planar_types.py:exact_normalize",
+   "seconds": 2.232,
+   "share_of_profile": 0.031,
+   "entry_calls": 19534,
+   "sympy_s": 2.232,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/angular.py:_huber_density_interpolated_normals",
+   "seconds": 0.956,
+   "share_of_profile": 0.0133,
+   "entry_calls": 12644,
+   "sympy_s": 0.956,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_subturn",
+   "seconds": 0.809,
+   "share_of_profile": 0.0112,
+   "entry_calls": 3768,
+   "sympy_s": 0.809,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_dual_dot",
+   "seconds": 0.747,
+   "share_of_profile": 0.0104,
+   "entry_calls": 13447,
+   "sympy_s": 0.747,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angular.py:_density_dot_expression",
+   "seconds": 0.712,
+   "share_of_profile": 0.0099,
+   "entry_calls": 27045,
+   "sympy_s": 0.712,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/planar_types.py:_certified_interval_sign",
+   "seconds": 0.662,
+   "share_of_profile": 0.0092,
+   "entry_calls": 91301,
+   "sympy_s": 0,
+   "mpmath_s": 0.662,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_covectors",
+   "seconds": 0.41,
+   "share_of_profile": 0.0057,
+   "entry_calls": 16200,
+   "sympy_s": 0.41,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angular.py:_density_unit_from_squared",
+   "seconds": 0.399,
+   "share_of_profile": 0.0055,
+   "entry_calls": 5535,
+   "sympy_s": 0.399,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "wavefront/conveyor.py:_rational_after_scaling",
+   "seconds": 0.294,
+   "share_of_profile": 0.0041,
+   "entry_calls": 3480,
+   "sympy_s": 0.294,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/adaptive_density_band.py:_neighbour_is_inside_the_double_band",
+   "seconds": 0.28,
+   "share_of_profile": 0.0039,
+   "entry_calls": 350,
+   "sympy_s": 0.28,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "_density_policy.py:density_interval_enclosure",
+   "seconds": 0.244,
+   "share_of_profile": 0.0034,
+   "entry_calls": 31036,
+   "sympy_s": 0.015,
+   "mpmath_s": 0.229,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/planar_types.py:point_sub",
+   "seconds": 0.197,
+   "share_of_profile": 0.0027,
+   "entry_calls": 26702,
+   "sympy_s": 0.197,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/direction_binding.py:density_support_direction_rationality",
+   "seconds": 0.164,
+   "share_of_profile": 0.0023,
+   "entry_calls": 3255,
+   "sympy_s": 0.164,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angular.py:_density_srepr",
+   "seconds": 0.157,
+   "share_of_profile": 0.0022,
+   "entry_calls": 1105,
+   "sympy_s": 0.157,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/planar_types.py:_canonical_expr",
+   "seconds": 0.156,
+   "share_of_profile": 0.0022,
+   "entry_calls": 282,
+   "sympy_s": 0.156,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "interactions/arrival.py:_density_support_line",
+   "seconds": 0.136,
+   "share_of_profile": 0.0019,
+   "entry_calls": 1593,
+   "sympy_s": 0.136,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/metric.py:length_g",
+   "seconds": 0.118,
+   "share_of_profile": 0.0016,
+   "entry_calls": 3761,
+   "sympy_s": 0.118,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_inside_ordinal",
+   "seconds": 0.101,
+   "share_of_profile": 0.0014,
+   "entry_calls": 560,
+   "sympy_s": 0.101,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/boundary.py:<lambda>",
+   "seconds": 0.099,
+   "share_of_profile": 0.0014,
+   "entry_calls": 727,
+   "sympy_s": 0.099,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/planar_types.py:_parse_expr_uncached",
+   "seconds": 0.097,
+   "share_of_profile": 0.0013,
+   "entry_calls": 6835,
+   "sympy_s": 0.097,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_quarter_turn",
+   "seconds": 0.09,
+   "share_of_profile": 0.0012,
+   "entry_calls": 2478,
+   "sympy_s": 0.09,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/common.py:_owner_normal_g",
+   "seconds": 0.086,
+   "share_of_profile": 0.0012,
+   "entry_calls": 1432,
+   "sympy_s": 0.086,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/validation.py:_density_interval_contains_oriented_support_delta",
+   "seconds": 0.078,
+   "share_of_profile": 0.0011,
+   "entry_calls": 15120,
+   "sympy_s": 0.078,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_oriented_cross",
+   "seconds": 0.078,
+   "share_of_profile": 0.0011,
+   "entry_calls": 1742,
+   "sympy_s": 0.078,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_rotate_q",
+   "seconds": 0.076,
+   "share_of_profile": 0.0011,
+   "entry_calls": 642,
+   "sympy_s": 0.076,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_band.py:_rotated_by_double_band",
+   "seconds": 0.072,
+   "share_of_profile": 0.001,
+   "entry_calls": 560,
+   "sympy_s": 0.072,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/planar_types.py:exact_sign",
+   "seconds": 0.06,
+   "share_of_profile": 0.0008,
+   "entry_calls": 44,
+   "sympy_s": 0.06,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/angular.py:_density_exact_sign",
+   "seconds": 0.053,
+   "share_of_profile": 0.0007,
+   "entry_calls": 15541,
+   "sympy_s": 0.013,
+   "mpmath_s": 0.04,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angular.py:_density_left_unit_normal",
+   "seconds": 0.053,
+   "share_of_profile": 0.0007,
+   "entry_calls": 4796,
+   "sympy_s": 0.053,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_slope",
+   "seconds": 0.053,
+   "share_of_profile": 0.0007,
+   "entry_calls": 210,
+   "sympy_s": 0.053,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/common.py:_polygon_signed_area",
+   "seconds": 0.048,
+   "share_of_profile": 0.0007,
+   "entry_calls": 4242,
+   "sympy_s": 0.048,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/planar_types.py:point_add",
+   "seconds": 0.037,
+   "share_of_profile": 0.0005,
+   "entry_calls": 3264,
+   "sympy_s": 0.037,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/planar_types.py:vector_scale",
+   "seconds": 0.033,
+   "share_of_profile": 0.0005,
+   "entry_calls": 4128,
+   "sympy_s": 0.033,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_window_envelopes",
+   "seconds": 0.029,
+   "share_of_profile": 0.0004,
+   "entry_calls": 175,
+   "sympy_s": 0.029,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_chart_for_window",
+   "seconds": 0.017,
+   "share_of_profile": 0.0002,
+   "entry_calls": 105,
+   "sympy_s": 0.017,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angle_measure.py:angular_fraction_of_pi",
+   "seconds": 0.017,
+   "share_of_profile": 0.0002,
+   "entry_calls": 231,
+   "sympy_s": 0.017,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/validation.py:_interval_contains_oriented_support_delta",
+   "seconds": 0.016,
+   "share_of_profile": 0.0002,
+   "entry_calls": 1152,
+   "sympy_s": 0.016,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/angular.py:_density_directions_agree",
+   "seconds": 0.016,
+   "share_of_profile": 0.0002,
+   "entry_calls": 296,
+   "sympy_s": 0.016,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/radical_rationality.py:_read",
+   "seconds": 0.015,
+   "share_of_profile": 0.0002,
+   "entry_calls": 384,
+   "sympy_s": 0.015,
+   "mpmath_s": 0,
+   "klass": "A_DONE"
+  },
+  {
+   "site": "envelope_request_export.py:<genexpr>",
+   "seconds": 0.012,
+   "share_of_profile": 0.0002,
+   "entry_calls": 2745,
+   "sympy_s": 0.012,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/metric.py:oriented_cross",
+   "seconds": 0.012,
+   "share_of_profile": 0.0002,
+   "entry_calls": 2020,
+   "sympy_s": 0.012,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "wavefront/conveyor.py:_read_arrival_law",
+   "seconds": 0.011,
+   "share_of_profile": 0.0002,
+   "entry_calls": 145,
+   "sympy_s": 0.011,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "envelope_request_export.py:owner_support",
+   "seconds": 0.01,
+   "share_of_profile": 0.0001,
+   "entry_calls": 1746,
+   "sympy_s": 0.01,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "envelope_request_export.py:exact_rational",
+   "seconds": 0.01,
+   "share_of_profile": 0.0001,
+   "entry_calls": 288,
+   "sympy_s": 0.01,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_vector",
+   "seconds": 0.01,
+   "share_of_profile": 0.0001,
+   "entry_calls": 7228,
+   "sympy_s": 0.01,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/alpha_bounds.py:alpha_bounds",
+   "seconds": 0.008,
+   "share_of_profile": 0.0001,
+   "entry_calls": 5450,
+   "sympy_s": 0,
+   "mpmath_s": 0.008,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/metric.py:owner_normal_g",
+   "seconds": 0.006,
+   "share_of_profile": 0.0001,
+   "entry_calls": 1552,
+   "sympy_s": 0.006,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "envelope_request_export.py:_build_angular_relations",
+   "seconds": 0.006,
+   "share_of_profile": 0.0001,
+   "entry_calls": 963,
+   "sympy_s": 0.006,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/common.py:_point_sub",
+   "seconds": 0.006,
+   "share_of_profile": 0.0001,
+   "entry_calls": 716,
+   "sympy_s": 0.006,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/angular.py:_density_runtime_vector",
+   "seconds": 0.006,
+   "share_of_profile": 0.0001,
+   "entry_calls": 5862,
+   "sympy_s": 0.006,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/compile.py:_exact_turn_witness",
+   "seconds": 0.006,
+   "share_of_profile": 0.0001,
+   "entry_calls": 360,
+   "sympy_s": 0.006,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/metric.py:unit_g",
+   "seconds": 0.005,
+   "share_of_profile": 0.0001,
+   "entry_calls": 432,
+   "sympy_s": 0.005,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/common.py:build",
+   "seconds": 0.004,
+   "share_of_profile": 0.0001,
+   "entry_calls": 848,
+   "sympy_s": 0.004,
+   "mpmath_s": 0,
+   "klass": "A_LATER"
+  },
+  {
+   "site": "reference/angle_measure.py:rational_intervals_over_pi",
+   "seconds": 0.004,
+   "share_of_profile": 0.0001,
+   "entry_calls": 300,
+   "sympy_s": 0.004,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/boundary.py:resolve_component_alphas",
+   "seconds": 0.004,
+   "share_of_profile": 0.0001,
+   "entry_calls": 1693,
+   "sympy_s": 0.004,
+   "mpmath_s": 0,
+   "klass": "A_REPLACED_HOT"
+  },
+  {
+   "site": "reference/direction_binding.py:bound_unit_normal_from_vector",
+   "seconds": 0.004,
+   "share_of_profile": 0.0001,
+   "entry_calls": 315,
+   "sympy_s": 0.004,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  },
+  {
+   "site": "reference/adaptive_density_fan.py:_subturn_boundary",
+   "seconds": 0.004,
+   "share_of_profile": 0.0001,
+   "entry_calls": 576,
+   "sympy_s": 0.004,
+   "mpmath_s": 0,
+   "klass": "B_KEEP_DENSITY_OR_TRIG"
+  }
+ ],
+ "modules": {
+  "_density_policy.py": {
+   "class": "B_KEEP",
+   "why": "интервальные оболочки sin/cos/atan/pi (iv.*): тригонометрия угла, не сумма корней",
+   "features": [
+    "mp.iv",
+    "mp.iv.atan2",
+    "mp.iv.cos",
+    "mp.iv.mpf",
+    "mp.iv.pi",
+    "mp.iv.sin",
+    "mp.iv.sqrt",
+    "sp.Expr",
+    "sp.atan",
+    "sp.atan2",
+    "sp.cos",
+    "sp.pi",
+    "sp.sin"
+   ]
+  },
+  "interactions/equality_locus.py": {
+   "class": "A_LATER",
+   "why": "только Expr в аннотациях: арифметика идёт через ExactScalar",
+   "features": [
+    "sp.Expr"
+   ]
+  },
+  "interactions/policy_b.py": {
+   "class": "A_LATER",
+   "why": "Expr/Integer: клей Policy B, значения читает ExactScalar",
+   "features": [
+    "sp.Expr",
+    "sp.Integer"
+   ]
+  },
+  "reference/adaptive_density_band.py": {
+   "class": "B_KEEP",
+   "why": "полоса веера плотности: значения q=5 вложенные радикалы",
+   "features": [
+    "sp.Rational"
+   ]
+  },
+  "reference/adaptive_density_fan.py": {
+   "class": "B_KEEP",
+   "why": "sqrt(5) и sqrt(10-2*sqrt(5)) при q=5 (вложенный радикал); q=2,3,4,6 — класс (а), отложено",
+   "features": [
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Rational",
+    "sp.cancel",
+    "sp.sqrt",
+    "sp.sympify"
+   ]
+  },
+  "reference/alpha_bounds.py": {
+   "class": "REPLACED_HOT",
+   "why": "оболочка alpha: родная для RadicalSumV1, mpmath остаётся для выражений sympy",
+   "features": [
+    "mp.iv",
+    "mp.iv.prec",
+    "mp.libmp.to_rational",
+    "sp.Expr"
+   ]
+  },
+  "reference/angle_measure.py": {
+   "class": "B_KEEP",
+   "why": "atan2/pi: сертифицированные углы, тригонометрия",
+   "features": [
+    "mp.iv",
+    "mp.iv.atan2",
+    "mp.iv.pi",
+    "mp.iv.prec",
+    "mp.libmp",
+    "mp.libmp.to_rational",
+    "sp.Expr",
+    "sp.atan2",
+    "sp.factor",
+    "sp.pi"
+   ]
+  },
+  "reference/angular.py": {
+   "class": "B_KEEP",
+   "why": "roots, cos/sin/atan2/pi, expand: плотность Хубера и подшаги веера",
+   "features": [
+    "mp.iv",
+    "mp.iv.prec",
+    "sp.Expr",
+    "sp.Rational",
+    "sp.Symbol",
+    "sp.atan2",
+    "sp.cancel",
+    "sp.cos",
+    "sp.expand",
+    "sp.pi",
+    "sp.roots",
+    "sp.sin",
+    "sp.sqrt",
+    "sp.srepr",
+    "sp.sympify"
+   ]
+  },
+  "reference/arrangement.py": {
+   "class": "A_LATER",
+   "why": "Expr — хранение координат; предикаты уже на SqrtSumV1 (exact_quadratic_value)",
+   "features": [
+    "sp.Expr",
+    "sp.Integer",
+    "sp.sympify"
+   ]
+  },
+  "reference/boundary.py": {
+   "class": "REPLACED_HOT",
+   "why": "_contact_candidates: родной двойник boundary_native",
+   "features": [
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Rational"
+   ]
+  },
+  "reference/cap.py": {
+   "class": "A_LATER",
+   "why": "Expr только в аннотациях типов: арифметика идёт через ExactScalar",
+   "features": [
+    "sp.Expr"
+   ]
+  },
+  "reference/common.py": {
+   "class": "A_LATER",
+   "why": "Rational/Integer: клей построения контекста",
+   "features": [
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Rational"
+   ]
+  },
+  "reference/compile.py": {
+   "class": "B_KEEP",
+   "why": "expand/cancel в точном свидетельстве поворота плотности",
+   "features": [
+    "sp.cancel",
+    "sp.expand"
+   ]
+  },
+  "reference/direction_binding.py": {
+   "class": "B_KEEP",
+   "why": "sqrt(5), десятичные оболочки направлений плотности (iv)",
+   "features": [
+    "mp.iv",
+    "mp.iv.prec",
+    "mp.libmp",
+    "mp.libmp.to_rational",
+    "sp.Expr",
+    "sp.Rational",
+    "sp.sqrt"
+   ]
+  },
+  "reference/direction_window_exact.py": {
+   "class": "A_LATER",
+   "why": "Expr только в аннотациях типов: арифметика идёт через ExactScalar",
+   "features": [
+    "sp.Expr"
+   ]
+  },
+  "reference/junction.py": {
+   "class": "A_LATER",
+   "why": "Expr только в аннотациях типов: арифметика идёт через ExactScalar",
+   "features": [
+    "sp.Expr"
+   ]
+  },
+  "reference/metric.py": {
+   "class": "REPLACED_HOT",
+   "why": "dot_g/length_g: родные двойники; floor/сквозная привязка к решётке (snap_exact_point) — отложено",
+   "features": [
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Rational",
+    "sp.floor",
+    "sp.sqrt",
+    "sp.srepr"
+   ]
+  },
+  "reference/native_exact.py": {
+   "class": "BRIDGE",
+   "why": "мост sympy <-> RadicalSumV1: from_sympy, to_sympy, текст srepr",
+   "features": [
+    "sp.Add",
+    "sp.Basic",
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Rational",
+    "sp.cancel",
+    "sp.factor",
+    "sp.sqrt",
+    "sp.srepr",
+    "sp.sympify"
+   ]
+  },
+  "reference/planar_types.py": {
+   "class": "REPLACED_HOT",
+   "why": "exact_sign, exact_normalize, ExactScalar (srepr); sympy остаётся обменным типом",
+   "features": [
+    "mp.iv",
+    "mp.iv.mpf",
+    "mp.iv.prec",
+    "mp.iv.sqrt",
+    "sp.Add",
+    "sp.Expr",
+    "sp.Integer",
+    "sp.Q",
+    "sp.Q.negative",
+    "sp.Q.positive",
+    "sp.Rational",
+    "sp.ask",
+    "sp.cancel",
+    "sp.factor",
+    "sp.sqrt",
+    "sp.srepr",
+    "sp.sympify"
+   ]
+  },
+  "reference/radical_rationality.py": {
+   "class": "A_DONE",
+   "why": "уже без факторизации тем же алгоритмом классов (дубль native_exact; объединить на шаге 3)",
+   "features": [
+    "sp.Expr",
+    "sp.srepr"
+   ]
+  },
+  "reference/raw_coverage.py": {
+   "class": "A_LATER",
+   "why": "Rational: разбор запрошенной alpha",
+   "features": [
+    "sp.Rational"
+   ]
+  },
+  "reference/strip.py": {
+   "class": "A_LATER",
+   "why": "Expr только в аннотациях типов: арифметика идёт через ExactScalar",
+   "features": [
+    "sp.Expr"
+   ]
+  },
+  "reference/validation.py": {
+   "class": "B_KEEP",
+   "why": "cos(pi*r): оболочки угла проверки полезной нагрузки",
+   "features": [
+    "sp.Expr",
+    "sp.Rational",
+    "sp.cos",
+    "sp.pi",
+    "sp.sqrt"
+   ]
+  },
+  "source_grid.py": {
+   "class": "B_KEEP",
+   "why": "sqrt синуса угла и angular_fraction_of_pi: шаг решётки по углу",
+   "features": [
+    "sp.Rational",
+    "sp.sqrt"
+   ]
+  },
+  "surface_cone_angle.py": {
+   "class": "B_KEEP",
+   "why": "iv.cos/pi: угол конуса, интервальная тригонометрия",
+   "features": [
+    "mp.iv",
+    "mp.iv.cos",
+    "mp.iv.mpf",
+    "mp.iv.pi",
+    "mp.iv.prec",
+    "mp.libmp",
+    "mp.libmp.to_rational"
+   ]
+  },
+  "wavefront/conveyor.py": {
+   "class": "A_LATER",
+   "why": "radsimp/simplify в _rational_after_scaling: значение sympy -> Fraction, холодное",
+   "features": [
+    "sp.Rational",
+    "sp.radsimp",
+    "sp.simplify",
+    "sp.sympify"
+   ]
+  }
+ },
+ "host_modules": {
+  "envelope_debug_renderer.py": {
+   "class": "A_LATER",
+   "why": "float(sympify(srepr)) при рисовании отладочных точек: холодный путь рендера, читается родным мостом"
+  },
+  "envelope_export_input.py": {
+   "class": "HOST_WARMUP",
+   "why": "прогрев ленивой подгрузки sympy в родителе (sympy.Symbol('warm') + 1): ~0.35 с на процесс, пока в ядре остаётся класс (б)"
+  },
+  "envelope_request_export.py": {
+   "class": "A_LATER",
+   "why": "Rational(str(float)) при выгрузке координат и factor в exact_rational: холодный экспорт хоста"
+  }
+ }
+}

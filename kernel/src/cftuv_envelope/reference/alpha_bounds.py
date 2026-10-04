@@ -20,6 +20,7 @@ import sympy as sp
 from mpmath import iv
 from mpmath.libmp import to_rational
 
+from .native_exact import RadicalSumV1
 from .planar_types import IntervalEnclosureUnsupported, exact_sign, interval_enclosure
 
 #: Точность оболочки в битах: оболочка уже ширины 2^-100 от значения порядка единицы, то есть касание
@@ -30,6 +31,11 @@ BOUND_PRECISION_BITS = 128
 def alpha_bounds(alpha) -> tuple[Fraction, Fraction] | None:
     """`(low, high)`: строгая оболочка значения `alpha` (`sympy`) точными дробями либо `None` (не посчитана)."""
 
+    if type(alpha) is RadicalSumV1:
+        exact = alpha.as_rational()
+        if exact is not None:
+            return exact, exact
+        return alpha.enclosure(BOUND_PRECISION_BITS)
     if alpha.is_Rational:
         exact = Fraction(int(alpha.p), int(alpha.q))
         return exact, exact
@@ -59,4 +65,7 @@ def sign_against(alpha, bounds, requested) -> int:
 def bounds_of_contacts(contacts) -> tuple:
     """Оболочки alpha всех контактов `((alpha, station, point), ...)` в том же порядке."""
 
-    return tuple(alpha_bounds(alpha) if isinstance(alpha, sp.Expr) else None for alpha, _station, _point in contacts)
+    return tuple(
+        alpha_bounds(alpha) if isinstance(alpha, (sp.Expr, RadicalSumV1)) else None
+        for alpha, _station, _point in contacts
+    )

@@ -1,0 +1,533 @@
+{
+ "schema": "sympy_off_hot_path_receipt_v1",
+ "sha": "6288950",
+ "gate_shadow": [
+  {
+   "file": "final_gate_d12_SHADOW.json",
+   "domain_rows": 244,
+   "counts": {
+    "contact_candidates.shadow_checked": 17378,
+    "dot_g.shadow_checked": 96452,
+    "exact_normalize.shadow_checked": 74486,
+    "exact_scalar_text.shadow_checked": 760,
+    "exact_scalar_text.text_equal": 760,
+    "exact_sign.outside_field": 152,
+    "exact_sign.shadow_checked": 60679,
+    "length_g.shadow_checked": 19794
+   },
+   "shadow_checked_calls": 269549,
+   "disagreements": 0,
+   "text_differences": 0
+  },
+  {
+   "file": "final_gate_d4_SHADOW.json",
+   "domain_rows": 122,
+   "counts": {
+    "contact_candidates.shadow_checked": 8689,
+    "dot_g.shadow_checked": 48226,
+    "exact_normalize.shadow_checked": 37243,
+    "exact_scalar_text.shadow_checked": 380,
+    "exact_scalar_text.text_equal": 380,
+    "exact_sign.outside_field": 76,
+    "exact_sign.shadow_checked": 30552,
+    "length_g.shadow_checked": 9897
+   },
+   "shadow_checked_calls": 134987,
+   "disagreements": 0,
+   "text_differences": 0
+  }
+ ],
+ "gate_native": [
+  {
+   "file": "final_gate_d12_NATIVE_EXACT.json",
+   "domain_rows": 244,
+   "counts": {
+    "contact_candidates.native": 17378,
+    "exact_scalar_text.native": 814,
+    "exact_sign.native": 949,
+    "exact_sign.outside_field": 152
+   },
+   "shadow_checked_calls": 0,
+   "disagreements": 0,
+   "text_differences": 0
+  },
+  {
+   "file": "final_gate_d4_NATIVE_EXACT.json",
+   "domain_rows": 122,
+   "counts": {
+    "contact_candidates.native": 8689,
+    "exact_scalar_text.native": 407,
+    "exact_sign.native": 687,
+    "exact_sign.outside_field": 76
+   },
+   "shadow_checked_calls": 0,
+   "disagreements": 0,
+   "text_differences": 0
+  }
+ ],
+ "sweep_shadow": [
+  {
+   "file": "final_sweep_SHADOW.json",
+   "domain_rows": 366,
+   "counts": {
+    "contact_candidates.shadow_checked": 26067,
+    "dot_g.shadow_checked": 144906,
+    "exact_normalize.shadow_checked": 111729,
+    "exact_scalar_text.shadow_checked": 1758,
+    "exact_scalar_text.text_equal": 1758,
+    "exact_sign.outside_field": 228,
+    "exact_sign.shadow_checked": 92077,
+    "length_g.shadow_checked": 29691
+   },
+   "shadow_checked_calls": 406228,
+   "disagreements": 0,
+   "text_differences": 0
+  }
+ ],
+ "sweep_native": [
+  {
+   "file": "final_sweep_NATIVE_EXACT.json",
+   "domain_rows": 366,
+   "counts": {
+    "contact_candidates.native": 26067,
+    "exact_scalar_text.native": 2442,
+    "exact_sign.native": 1636,
+    "exact_sign.outside_field": 228
+   },
+   "shadow_checked_calls": 0,
+   "disagreements": 0,
+   "text_differences": 0
+  }
+ ],
+ "scene_exports": {
+  "domains": 16,
+  "answer_mismatches": 0,
+  "shadow_checked_calls": 67868,
+  "disagreements": 0,
+  "text_differences": 0,
+  "shadow_counts": {
+   "contact_candidates.shadow_checked": 5020,
+   "dot_g.shadow_checked": 25124,
+   "exact_normalize.shadow_checked": 17444,
+   "exact_scalar_text.shadow_checked": 36,
+   "exact_scalar_text.text_equal": 36,
+   "exact_sign.shadow_checked": 15216,
+   "length_g.shadow_checked": 5028
+  },
+  "native_counts": {
+   "contact_candidates.native": 5020,
+   "exact_scalar_text.native": 32,
+   "exact_sign.native": 172
+  },
+  "seconds_sum": {
+   "SYMPY": 13.56,
+   "SHADOW": 16.29,
+   "NATIVE_EXACT": 10.76
+  }
+ },
+ "recorded_by_hand": {
+  "basis": "6288950",
+  "default_mode_gates": {
+   "numeric_repr_gate_d1_d2_vs_6288950": "IDENTICAL (ANSWER diffs 0)",
+   "numeric_repr_gate_d4_vs_6288950_tree": "IDENTICAL",
+   "materialize_sweep_d1_d2_d4_vs_6288950": "IDENTICAL",
+   "architecture": "532 passed",
+   "host_full": "1262 passed, 8 skipped",
+   "kernel_14_shards": "4976 passed, 2 skipped (4944 + 25 test_symbolic_backend + 7 test_symbolic_backend_audit)",
+   "blender_4_5_headless_smokes": "6 of 6 OK (alpha_preview, chain_completion, debug_bridge, debug_queue, domain_pool, production_mesh)"
+  },
+  "kernel_suite_under_SHADOW_policy_RAISE": {
+   "shards": "14/14 green",
+   "shadow_checked_comparisons": 807927,
+   "disagreements": 0,
+   "exact_scalar_text_single_term": {
+    "checked": 97209,
+    "equal": 97201,
+    "differ": 8,
+    "differ_where": "test_wavefront_differential.py only: the legacy sympy form is an unrationalized quotient 2*(-1+6*sqrt(2))/(-12+sqrt(2)) whose value is -sqrt(2); native text is the canonical single-term form"
+   },
+   "exact_scalar_text_multi_term_via_sympy": {
+    "checked": 126113,
+    "equal": 98456,
+    "differ": 27657,
+    "differ_where": "values equal, forms differ: legacy keeps the history of the sympy expression (unreduced radicands such as 4912396459410973329313969), native text is factor(cancel(flat sum)); concentrated in test_sem_clb_02_chain_straight_regression and the wavefront differential corpora"
+   },
+   "outside_field_named_not_guessed": {
+    "exact_sign": 3979,
+    "exact_scalar_text": 6677
+   }
+  },
+  "kernel_suite_under_NATIVE_EXACT_informational": {
+   "shards_green": "13 of 14; shard 5 has exactly one failure",
+   "single_failure": "kernel/tests/test_exact_numeric_fast_path.py::test_algebraic_values_still_take_the_symbolic_path asserts the legacy counter SYMBOLIC_FALLBACK_COUNTS['sign'] += 1 for an algebraic value, which the native path no longer takes (by design; step 3 rewrites the assertion)",
+   "frozen_digests_changed": 0
+  },
+  "default_path_overhead_vs_base": {
+   "building_patch6_d2_cold_seconds_interleaved_3x": {
+    "base_6288950": [
+     11.37,
+     10.93,
+     10.78
+    ],
+    "after_SYMPY_default": [
+     10.62,
+     10.6,
+     10.66
+    ]
+   },
+   "verdict": "no regression (median 10.93 -> 10.62)"
+  },
+  "preparation_pickle_building_patch6_d2": {
+   "SYMPY_bytes": 651968,
+   "NATIVE_EXACT_bytes": 684489,
+   "SYMPY_loads_ms": 67.3,
+   "NATIVE_EXACT_loads_ms": 46.0
+  },
+  "profile_building_patch6_d2_cProfile_tottime_sums": {
+   "SYMPY": {
+    "seconds": 27.3,
+    "sympy_share": 0.257,
+    "mpmath_share": 0.047
+   },
+   "NATIVE_EXACT": {
+    "seconds": 21.53,
+    "sympy_share": 0.102,
+    "mpmath_share": 0.008
+   },
+   "combined_p6_p7_p1_base": {
+    "seconds": 72.11,
+    "sympy_share": 0.282,
+    "sympy_plus_mpmath_inclusive_share": 0.3407
+   }
+  },
+  "leaked_unbudgeted_max_over_NATIVE_EXACT_gate_rows": 0
+ },
+ "measure": {
+  "density": 2,
+  "reps": 3,
+  "method": "artifacts/sympy_off_hot_path/measure.py: one process per sample, modes interleaved per repetition, warm-up domain 100, cold = host export + run_queue_domain at alpha 0.45, warm = cover_prepared at alpha 0.30 / 0.45 (best of two)",
+  "summary": {
+   "SYMPY": {
+    "6": {
+     "cold_median": 11.295,
+     "cold_min": 11.078,
+     "warm_median": 0.0595,
+     "warm_min": 0.0591,
+     "prepare_median": 7.946,
+     "first_coverage_median": 2.885,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    },
+    "7": {
+     "cold_median": 7.428,
+     "cold_min": 6.918,
+     "warm_median": 0.0499,
+     "warm_min": 0.0377,
+     "prepare_median": 5.404,
+     "first_coverage_median": 1.657,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    },
+    "1": {
+     "cold_median": 10.405,
+     "cold_min": 10.118,
+     "warm_median": 0.0446,
+     "warm_min": 0.0313,
+     "prepare_median": 7.298,
+     "first_coverage_median": 2.802,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    }
+   },
+   "NATIVE_EXACT": {
+    "6": {
+     "cold_median": 9.169,
+     "cold_min": 9.001,
+     "warm_median": 0.0472,
+     "warm_min": 0.0463,
+     "prepare_median": 8.046,
+     "first_coverage_median": 0.794,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    },
+    "7": {
+     "cold_median": 6.045,
+     "cold_min": 5.475,
+     "warm_median": 0.0412,
+     "warm_min": 0.0326,
+     "prepare_median": 5.077,
+     "first_coverage_median": 0.602,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    },
+    "1": {
+     "cold_median": 8.482,
+     "cold_min": 7.868,
+     "warm_median": 0.0243,
+     "warm_min": 0.0222,
+     "prepare_median": 7.572,
+     "first_coverage_median": 0.646,
+     "outcomes": [
+      "EXACT/EXACT"
+     ]
+    }
+   }
+  },
+  "speedup": {
+   "6": {
+    "cold_median": 1.232,
+    "first_coverage_median": 3.634,
+    "warm_median": 1.261
+   },
+   "7": {
+    "cold_median": 1.229,
+    "first_coverage_median": 2.752,
+    "warm_median": 1.211
+   },
+   "1": {
+    "cold_median": 1.227,
+    "first_coverage_median": 4.337,
+    "warm_median": 1.835
+   }
+  },
+  "samples": {
+   "SYMPY": {
+    "6": [
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 11.398,
+      "host_seconds": 0.341,
+      "prepare_seconds": 8.141,
+      "first_coverage_seconds": 2.885,
+      "warm_seconds": [
+       0.0991,
+       0.0645
+      ]
+     },
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 11.078,
+      "host_seconds": 0.316,
+      "prepare_seconds": 7.946,
+      "first_coverage_seconds": 2.785,
+      "warm_seconds": [
+       0.0884,
+       0.0595
+      ]
+     },
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 11.295,
+      "host_seconds": 0.32,
+      "prepare_seconds": 7.892,
+      "first_coverage_seconds": 3.05,
+      "warm_seconds": [
+       0.0905,
+       0.0591
+      ]
+     }
+    ],
+    "7": [
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 7.428,
+      "host_seconds": 0.341,
+      "prepare_seconds": 5.404,
+      "first_coverage_seconds": 1.657,
+      "warm_seconds": [
+       0.1508,
+       0.0549
+      ]
+     },
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 7.607,
+      "host_seconds": 0.34,
+      "prepare_seconds": 5.489,
+      "first_coverage_seconds": 1.755,
+      "warm_seconds": [
+       0.1224,
+       0.0499
+      ]
+     },
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 6.918,
+      "host_seconds": 0.353,
+      "prepare_seconds": 5.058,
+      "first_coverage_seconds": 1.476,
+      "warm_seconds": [
+       0.1464,
+       0.0377
+      ]
+     }
+    ],
+    "1": [
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 10.118,
+      "host_seconds": 0.267,
+      "prepare_seconds": 7.021,
+      "first_coverage_seconds": 2.802,
+      "warm_seconds": [
+       0.1083,
+       0.0475
+      ]
+     },
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 10.405,
+      "host_seconds": 0.284,
+      "prepare_seconds": 7.298,
+      "first_coverage_seconds": 2.798,
+      "warm_seconds": [
+       0.087,
+       0.0313
+      ]
+     },
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 10.818,
+      "host_seconds": 0.281,
+      "prepare_seconds": 7.633,
+      "first_coverage_seconds": 2.876,
+      "warm_seconds": [
+       0.113,
+       0.0446
+      ]
+     }
+    ]
+   },
+   "NATIVE_EXACT": {
+    "6": [
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 9.218,
+      "host_seconds": 0.318,
+      "prepare_seconds": 8.046,
+      "first_coverage_seconds": 0.821,
+      "warm_seconds": [
+       0.109,
+       0.0463
+      ]
+     },
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 9.169,
+      "host_seconds": 0.336,
+      "prepare_seconds": 8.068,
+      "first_coverage_seconds": 0.737,
+      "warm_seconds": [
+       0.0991,
+       0.0478
+      ]
+     },
+     {
+      "patch": 6,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 9.001,
+      "host_seconds": 0.324,
+      "prepare_seconds": 7.853,
+      "first_coverage_seconds": 0.794,
+      "warm_seconds": [
+       0.1013,
+       0.0472
+      ]
+     }
+    ],
+    "7": [
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 6.269,
+      "host_seconds": 0.324,
+      "prepare_seconds": 5.316,
+      "first_coverage_seconds": 0.602,
+      "warm_seconds": [
+       0.0776,
+       0.0412
+      ]
+     },
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 6.045,
+      "host_seconds": 0.33,
+      "prepare_seconds": 5.077,
+      "first_coverage_seconds": 0.609,
+      "warm_seconds": [
+       0.0637,
+       0.0326
+      ]
+     },
+     {
+      "patch": 7,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 5.475,
+      "host_seconds": 0.329,
+      "prepare_seconds": 4.704,
+      "first_coverage_seconds": 0.425,
+      "warm_seconds": [
+       0.0753,
+       0.0429
+      ]
+     }
+    ],
+    "1": [
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 8.63,
+      "host_seconds": 0.271,
+      "prepare_seconds": 7.685,
+      "first_coverage_seconds": 0.646,
+      "warm_seconds": [
+       0.0953,
+       0.038
+      ]
+     },
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 7.868,
+      "host_seconds": 0.262,
+      "prepare_seconds": 6.902,
+      "first_coverage_seconds": 0.679,
+      "warm_seconds": [
+       0.0754,
+       0.0222
+      ]
+     },
+     {
+      "patch": 1,
+      "outcome": "EXACT/EXACT",
+      "cold_seconds": 8.482,
+      "host_seconds": 0.254,
+      "prepare_seconds": 7.572,
+      "first_coverage_seconds": 0.641,
+      "warm_seconds": [
+       0.0991,
+       0.0243
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
