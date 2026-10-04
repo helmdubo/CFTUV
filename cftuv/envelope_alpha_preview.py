@@ -178,6 +178,10 @@ class AlphaPreviewScheduler:
     объект с `finished`, `cancel()`, `join(timeout)`, `result()`.
     `timers` — объект с `register(function, first_interval)` и
     `is_registered(function)` (во Blender — `bpy.app.timers`).
+    `label` — имя величины в строках статуса (`alpha` у отладки, `width` у живой ширины декали).
+    `hold() -> bool` — старт откладывается, пока вернул `True`: два планировщика одного контроллера
+    (отладка и живая ширина) делят подготовки сессии и пул, поэтому не летят одновременно; заказ при
+    этом не теряется и стартует, когда второй вернулся.
     """
 
     def __init__(
@@ -193,7 +197,11 @@ class AlphaPreviewScheduler:
         debounce: float = DEBOUNCE_SECONDS,
         poll: float = POLL_SECONDS,
         quiesce_timeout: float = QUIESCE_TIMEOUT_SECONDS,
+        label: str = "alpha",
+        hold: Callable[[], bool] | None = None,
     ) -> None:
+        self._label = label
+        self._hold = hold
         self._begin = begin
         self._apply = apply
         self._valid = valid
@@ -312,7 +320,7 @@ class AlphaPreviewScheduler:
             return
         except Exception as exc:  # noqa: BLE001 - причина идёт в статус и консоль
             self._counts["failed"] += 1
-            self._report_failure(f"alpha={request.alpha:.4g} compute", exc)
+            self._report_failure(f"{self._label}={request.alpha:.4g} compute", exc)
             return
         if request.sequence != self._sequence:
             self._discard_as_stale(request)
@@ -320,18 +328,18 @@ class AlphaPreviewScheduler:
         reason = None if self._valid is None else self._valid(request, job)
         if reason:
             self._counts["invalid"] += 1
-            self._set_phase(STATUS_INVALID, f"discarded alpha={request.alpha:.4g}: {reason}")
+            self._set_phase(STATUS_INVALID, f"discarded {self._label}={request.alpha:.4g}: {reason}")
             return
         started = self._clock()
         try:
             self._apply(request, job, value)
         except PreviewUnavailable as exc:
             self._counts["invalid"] += 1
-            self._set_phase(STATUS_INVALID, f"discarded alpha={request.alpha:.4g}: {exc}")
+            self._set_phase(STATUS_INVALID, f"discarded {self._label}={request.alpha:.4g}: {exc}")
             return
         except Exception as exc:  # noqa: BLE001
             self._counts["failed"] += 1
-            self._report_failure(f"alpha={request.alpha:.4g} apply", exc)
+            self._report_failure(f"{self._label}={request.alpha:.4g} apply", exc)
             return
         finished = self._clock()
         self._counts["applied"] += 1
@@ -354,6 +362,8 @@ class AlphaPreviewScheduler:
             return
         if self._clock() < self._deadline:
             return
+        if self._hold is not None and self._hold():
+            return
         request, self._pending = self._pending, None
         try:
             job = self._begin(request)
@@ -363,7 +373,7 @@ class AlphaPreviewScheduler:
             return
         except Exception as exc:  # noqa: BLE001
             self._counts["failed"] += 1
-            self._report_failure(f"alpha={request.alpha:.4g} start", exc)
+            self._report_failure(f"{self._label}={request.alpha:.4g} start", exc)
             return
         self._job = job
         self._job_request = request
@@ -373,6 +383,8 @@ class AlphaPreviewScheduler:
         if self._job is not None:
             return self._poll
         if self._pending is not None:
+            if self._hold is not None and self._clock() >= self._deadline:
+                return self._poll  # срок назрел, но старт придержан: опрос, а не вращение вхолостую
             return max(MIN_DELAY_SECONDS, min(self._poll, self._deadline - self._clock()))
         return None
 
@@ -457,12 +469,12 @@ class AlphaPreviewScheduler:
     def _compose(self) -> str:
         latest = self._pending or self._job_request
         if self._phase == STATUS_COMPUTING:
-            alpha = "" if latest is None else f" alpha={latest.alpha:.4g}"
+            alpha = "" if latest is None else f" {self._label}={latest.alpha:.4g}"
             text = f"computing{alpha}..."
         elif self._phase == STATUS_READY:
             applied = self.last_applied
             text = "ready" if applied is None else (
-                f"ready alpha={applied.alpha:.4g} (compute {applied.compute_seconds:.2f} s, "
+                f"ready {self._label}={applied.alpha:.4g} (compute {applied.compute_seconds:.2f} s, "
                 f"apply {applied.apply_seconds:.2f} s)"
             )
         else:

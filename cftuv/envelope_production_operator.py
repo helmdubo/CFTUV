@@ -48,6 +48,7 @@ from .envelope_production_mesh import (
     write_decal_object,
 )
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
+from .envelope_width_live import remember_build
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
 UNDO_REQUIRED_REASON = (
@@ -199,11 +200,30 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 offset=float(mesh_settings.offset),
                 material_name=str(mesh_settings.material_name).strip()
                 or DEFAULT_DECAL_MATERIAL,
+                width=float(settings.envelope_debug_alpha),
             )
         except ProductionWriteError as exc:
             mesh_settings.status = f"Decal mesh not written: {exc.outcome}"
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        # Запись для живой ширины: пакет анализа, выделение, плотность и допуск этого нажатия. Меш уже записан:
+        # сбой записи не отменяет кнопку, а называется строкой консоли, и ширина тогда не живая до следующего нажатия.
+        try:
+            remember_build(
+                controller,
+                source_obj.name,
+                bundle,
+                run,
+                source_object_key=source_object_key,
+                source_data_key=source_data_key,
+                selected=selected,
+                density=settings.envelope_debug_fan_density,
+                stretch_percent=int(settings.envelope_debug_max_stretch),
+                width=float(settings.envelope_debug_alpha),
+            )
+        except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку
+            controller.width_build = None
+            print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)
         # Строка и уровень отчёта — по КВИТАНЦИИ: пропуск писателя (`ADAPTER_*`)
         # и мягкая находка стоят в них наравне с отказом продуктового пути.
         mesh_settings.status = receipt_status_text(receipt)
@@ -226,6 +246,8 @@ _CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh)
 def register_production_operator() -> None:
     """Регистрация настроек, оператора и свойства сцены. Повтор безопасен."""
 
+    from .envelope_width_modal import register_width_tools
+
     for cls in _CLASSES:
         if getattr(cls, "is_registered", False):
             bpy.utils.unregister_class(cls)
@@ -235,11 +257,15 @@ def register_production_operator() -> None:
         SETTINGS_ATTRIBUTE,
         PointerProperty(type=HOTSPOTUV_DecalMeshSettings),
     )
+    register_width_tools()
 
 
 def unregister_production_operator() -> None:
     """Снятие в обратном порядке; без регистрации не делает ничего."""
 
+    from .envelope_width_modal import unregister_width_tools
+
+    unregister_width_tools()
     if hasattr(bpy.types.Scene, SETTINGS_ATTRIBUTE):
         delattr(bpy.types.Scene, SETTINGS_ATTRIBUTE)
     for cls in reversed(_CLASSES):

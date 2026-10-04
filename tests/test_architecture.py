@@ -283,6 +283,131 @@ def test_the_alpha_slider_callback_only_orders_the_preview():
     ), "update_queue_alpha удалён (синхронный счёт в калбэке); его возврат — регресс"
 
 
+def _module_level_import_roots(path: Path) -> set[str]:
+    """Корни импортов ТОЛЬКО верхнего уровня модуля (ленивые импорты внутри функций не в счёт)."""
+
+    roots: set[str] = set()
+    for node in _parse(path).body:
+        if isinstance(node, ast.Import):
+            roots |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots.add(node.module.split(".")[0])
+    return roots
+
+
+def test_the_width_preview_and_adjust_cores_and_the_live_glue_load_without_blender():
+    """Превью ширины и автомат инструмента не знают Blender вовсе; склейка живой ширины тянет `bpy` лишь лениво.
+
+    Тогда геометрия превью и закон инструмента проверяются без Blender, а модуль, который их держит, не может
+    незаметно дотянуться до данных Blender на импорте.
+    """
+
+    for name in ("envelope_width_preview.py", "envelope_width_adjust.py"):
+        leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / name)
+        assert not leaked, f"{name} импортирует {sorted(leaked)}: превью и автомат чистые"
+    for name in ("envelope_width_live.py", "envelope_width_session.py"):
+        leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _module_level_import_roots(HOST_PACKAGE / name)
+        assert not leaked, f"{name} импортирует {sorted(leaked)} на верхнем уровне: только лениво, внутри функций"
+
+
+#: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ точного пересчёта живой ширины: объекты,
+#: захваченные на главном потоке (пакет анализа, выделение, ключи, пул, допуск), прогон продуктового пути и отмена.
+_WIDTH_COMPUTE_NAMES = frozenset(
+    {
+        "run_production",
+        "ProductionCancelled",
+        "PreviewCancelled",
+        "controller",
+        "bundle",
+        "selected",
+        "alpha",
+        "object_key",
+        "data_key",
+        "density",
+        "budget",
+        "pool",
+        "cancel",
+        "exc",
+        "str",
+    }
+)
+
+
+def test_the_width_live_worker_thread_function_touches_no_blender_data():
+    """Поток точного пересчёта ширины исполняет `compute` из `_begin`: имена только из названного набора.
+
+    Контроллер и пакет анализа — питоновские объекты сессии, не данные Blender; `bpy`, объекты, настройки и
+    контекст читает только главный поток (`_begin`, `_validity`, `_apply`).
+    """
+
+    path = HOST_PACKAGE / "envelope_width_live.py"
+    begin = next(
+        node
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.FunctionDef) and node.name == "_begin"
+    )
+    compute = next(
+        node
+        for node in ast.walk(begin)
+        if isinstance(node, ast.FunctionDef) and node.name == "compute"
+    )
+    used = {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}
+    used -= {arg.arg for arg in compute.args.args}
+    foreign = used - _WIDTH_COMPUTE_NAMES
+    assert not foreign, (
+        f"функция потока точной ширины использует {sorted(foreign)}: потоку нельзя ничего, "
+        "что читает или пишет данные Blender."
+    )
+    calls = {
+        node.func.id
+        for node in ast.walk(compute)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "run_production" in calls
+
+
+def test_the_width_overlay_only_draws_and_never_computes_the_geometry():
+    """Обработчик отрисовки рисует готовые линии: формулы геометрии живут в чистой функции, которую тестируют."""
+
+    path = HOST_PACKAGE / "envelope_width_overlay.py"
+    names = {node.id for node in ast.walk(_parse(path)) if isinstance(node, ast.Name)} | {
+        alias.name
+        for node in ast.walk(_parse(path))
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert not ({"compute_width_preview", "build_preview_inputs", "chain_centroid"} & names)
+    assert "envelope_width_preview" not in _imported_roots(path)
+
+
+def _writer_references(path: Path) -> set[str]:
+    """Какие писатели меша декали модуль вызывает либо импортирует (по AST, а не по тексту)."""
+
+    found = set()
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.Call):
+            callee = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+            found.add(callee)
+        elif isinstance(node, ast.ImportFrom):
+            found |= {alias.name for alias in node.names}
+    return found & {"rewrite_decal_mesh", "write_decal_object"}
+
+
+def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
+    """Превью не пишется в меш: писатели зовут только точные пути (кнопка и точный результат живой ширины)."""
+
+    callers = {}
+    for path in _python_files(HOST_PACKAGE):
+        if path.name == "envelope_production_mesh.py":
+            continue
+        for writer in _writer_references(path):
+            callers.setdefault(writer, set()).add(path.name)
+    assert callers == {
+        "rewrite_decal_mesh": {"envelope_width_live.py"},
+        "write_decal_object": {"envelope_production_operator.py"},
+    }, callers
+
+
 # --------------------------------------------------------------------------
 # 2. Мёртвый код
 # --------------------------------------------------------------------------

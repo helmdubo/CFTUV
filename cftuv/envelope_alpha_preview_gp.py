@@ -213,6 +213,10 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             valid=lambda request, job: _validity(controller, request, job),
             timers=_BpyTimers(),
             on_change=_tag_redraw,
+            # Живая ширина делит с отладкой подготовки сессии и пул: два потока счёта разом не летят.
+            hold=lambda: bool(
+                controller.width_live is not None and controller.width_live.in_flight
+            ),
         )
         controller.alpha_preview = scheduler
     return scheduler
@@ -227,7 +231,14 @@ def schedule_alpha_preview(settings, context) -> None:
     """
 
     from .envelope_queue_export import ENVELOPE_DEBUG_ENGINE_QUEUE
+    from .envelope_width_live import schedule_width_live
 
+    # Продуктовый меш: ширина декали живая независимо от движка отладки. Сбой её заказа называется строкой
+    # консоли и не гасит превью отладки ниже.
+    try:
+        schedule_width_live(settings, context)
+    except Exception as exc:  # noqa: BLE001 - сбой заказа называется строкой консоли, а не гасит отладку
+        print(f"[CFTUV][WidthLive] order failed: {type(exc).__name__}: {exc}", flush=True)
     if str(settings.envelope_debug_engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
         return
     source_name = str(settings.envelope_debug_source_object).strip()

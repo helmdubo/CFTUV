@@ -108,6 +108,7 @@ PRODUCTION_TOPOLOGY_LAWS = frozenset(item.value for item in HostDecalTopologyPol
 
 MATERIALIZED = "MATERIALIZED"
 OUTCOME_PREPARATION_UNAVAILABLE = "PREPARATION_UNAVAILABLE"
+OUTCOME_PRODUCTION_CANCELLED = "PRODUCTION_CANCELLED"
 OUTCOME_DOMAIN_RAISED = "PRODUCTION_DOMAIN_RAISED"
 
 #: Стадия профиля продукта и числа, которые он называет.
@@ -144,6 +145,14 @@ PLACEMENT_CACHED = "cache"
 #: Домен считал родитель, и причина названа: те же имена, что у отладки.
 PLACEMENT_UNAVAILABLE = "parent:ENVELOPE_DOMAIN_POOL_UNAVAILABLE"
 PLACEMENT_FALLBACK = "parent:ENVELOPE_DOMAIN_POOL_TASK_FALLBACK"
+
+
+class ProductionCancelled(RuntimeError):
+    """Прогон остановлен по заказу (`cancel`): результата нет и не будет, кэши сессии целы.
+
+    Это НЕ отказ домена: ни один домен не назван отказавшим и ничего не посчитано родителем
+    взамен недоделанного пулом. Бросается только когда вызывающий передал `cancel`.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,9 +565,18 @@ class _RunInputsV1:
     profile: object
     #: Что хранилище по содержимому сделало в ЭТОМ прогоне: патчи, чей результат перенесён на ревизию
     #: прогона, и переносы, которых не вышло (`(патч, причина)`).
+    #: `threading.Event` заказа остановки либо `None` (кнопка не отменяется).
+    cancel: object = None
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
+
+
+def _check_cancel(run: _RunInputsV1) -> None:
+    """Точки остановки: до работы родителя над доменом и сразу после возврата пула."""
+
+    if run.cancel is not None and run.cancel.is_set():
+        raise ProductionCancelled(f"{OUTCOME_PRODUCTION_CANCELLED}: the order was superseded")
 
 
 def _inputs_of(run: _RunInputsV1, entry_key, provider):
@@ -814,6 +832,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
     ответ тот же: код тот же. Исключение подготовки называется, а не уходит в кнопку.
     """
 
+    _check_cancel(run)
     snapshot, request = inputs
     started = time.perf_counter()
     try:
@@ -980,6 +999,7 @@ def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
 
     for item in ready:
         if item.domain_id not in done:
+            _check_cancel(run)
             done[item.domain_id] = _placed(
                 item.carried
                 if item.carried is not None
@@ -1088,7 +1108,10 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     if not (sent_cold or _worth_the_pool(shipped)):
         shipped = []
     tasks = _worker_tasks(run, ready, shipped, sent_cold) if (shipped or sent_cold) else []
-    pooled, failure = _run_tasks(domain_pool, tasks, run.profile) if tasks else (None, "")
+    pooled, failure = (
+        _run_tasks(domain_pool, tasks, run.profile, cancel=run.cancel) if tasks else (None, "")
+    )
+    _check_cancel(run)  # остановленный пул отдал только сделанное: докончить за него нельзя
     entry_of = {item.domain_id: item for item in (*ready, *cold)}
     done: dict[str, ProductionDomainResultV1] = {}
     refused: dict[str, object] = {}
@@ -1151,6 +1174,8 @@ class ProductionRunV1:
     cold: bool
     profile: object
     wall_seconds: float
+    #: `((патч, (рёбра хоста, чью полосу строит домен патча), ...), ...)`: ровно то, что превью ширины рисует.
+    selected_by_patch: tuple = ()
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -1168,6 +1193,12 @@ class ProductionRunV1:
 
 
 _FROM_SETTINGS = object()
+
+
+def _domain_of(run: _RunInputsV1, patch_id) -> str:
+    from .envelope_request_export import _typed_value
+
+    return _typed_value("patch-domain", run.revision, patch_id)
 
 
 def _domain_results(entries, done, refused):
@@ -1265,6 +1296,8 @@ def run_production(
     domain_pool=_FROM_SETTINGS,
     developable_stretch_budget=None,
     chart_reach_cap=None,
+    cancel=None,
+    quiesce: bool = True,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -1273,6 +1306,11 @@ def run_production(
     материализацию одной задачей. Счётчики сборок контроллера в профиле
     (`PRODUCTION_*_BUILDS`) и счётчики кэша результатов — доказательство повторного
     использования, а не секунды.
+
+    `cancel` (`threading.Event`) — заказ остановки для прогона в фоновом потоке (живая ширина):
+    после его установки пул не берёт новые задачи, родитель не начинает новый домен, а прогон бросает
+    `ProductionCancelled`. `quiesce=False` у такого прогона обязателен: он сам идёт в потоке планировщика
+    превью и не вправе останавливать тот же планировщик из потока счёта; кнопка оставляет `True`.
     """
 
     from .envelope_domain_pool import get_domain_pool
@@ -1284,7 +1322,8 @@ def run_production(
     if topology_law not in PRODUCTION_TOPOLOGY_LAWS:
         raise ValueError(f"unknown decal topology law {topology_law!r}")
     # Поток превью alpha считает на тех же подготовках, что и эта кнопка: сперва стоп и ожидание.
-    controller.quiesce_preview("Build Decal Mesh")
+    if quiesce:
+        controller.quiesce_preview("Build Decal Mesh")
     started = time.perf_counter()
     profile = EnvelopeDebugProfileBuilderV1(
         getattr(analysis_bundle.source_revision, "source_name", "source"),
@@ -1313,8 +1352,10 @@ def run_production(
         topology_law,
         controller.worker_export_hooks(topology_export, profile),
         profile,
+        cancel=cancel,
     )
     entries = _scan(run)
+    _check_cancel(run)
     cold = any(item.is_cold for item in entries)
     work = [item for item in entries if item.needs_work]
     pool = (
@@ -1338,6 +1379,10 @@ def run_production(
         cold=cold,
         profile=profile.snapshot(),
         wall_seconds=time.perf_counter() - started,
+        selected_by_patch=tuple(
+            (int(patch_id), tuple(sorted(run.selected_by_domain[_domain_of(run, patch_id)])))
+            for patch_id in run.patch_ids
+        ),
     )
 
 
