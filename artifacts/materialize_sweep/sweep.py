@@ -21,7 +21,19 @@ snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), 
 
 `--workers 0` — тот же цикл в ЭТОМ процессе (последовательно, один воркер).
 `--only 6,11` — подмножество доменов. Код возврата `compare` — 1 при любом
-расхождении неценовых полей.
+расхождении неценовых полей, не разрешённом спецификацией.
+
+Срез, который меняет ответ осознанно, сравнивается по СПЕЦИФИКАЦИИ закона — данным в
+`specs/<имя>.json`, а не флагами с зашитым списком: `compare base.json new.json --spec chord_station`.
+Что в спецификации (какие домены, какие поля, дайджесты, счётчики и диагностики вправе измениться, какие
+инварианты обязаны держаться), как её писать и три вида вердикта (`IDENTICAL`, `EXPECTED-CHANGE (spec X):
+N domains`, `UNEXPECTED ...`) — в `expected_change.py`. `compare --list-specs` перечисляет сохранённые.
+Закон, которого у среза нет флагом (`--chord-station off`, `--source-lift off`, `--near-planar-law
+SOURCE_TRIANGLES_V1` — ДО резки), даёт запись «до» на том же дереве; иначе «до» берётся из прогона основы.
+
+Счётчики, которых нет в `COUNTER_KEYS` и `TOPOLOGY_COUNTER_KEYS` (числа резки `MATERIALIZE_CLIP_*`, станции
+перекладин и прочее, что ядро добавило после списков), пишутся в `untracked_counters` строки и сравниваются
+наравне с остальными: новый счётчик ядра не пропадает из ворот молча. Отсутствующий счётчик равен нулю везде.
 
 `--topology QUAD_STRIPS_V1|PLANAR_POLYGONS_V1` — закон топологии декали (по
 умолчанию `TRIANGLES_V1`, как у ядра). Закон пишется в заголовок записи, а НЕ в `ANSWER_KEYS`, и числа
@@ -38,7 +50,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import statistics
 import subprocess
 import sys
@@ -51,6 +62,10 @@ GATE = ROOT / "artifacts" / "numeric_repr"
 if str(GATE) not in sys.path:
     sys.path.insert(0, str(GATE))
 
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import expected_change  # noqa: E402  (спецификация ожидаемого изменения: общая с `gate.py`)
 import gate  # noqa: E402  (тянет pool_sweep и пути харнесса)
 import pool_sweep  # noqa: E402
 
@@ -168,6 +183,10 @@ LAW_DEPENDENT_COUNTERS = (
     "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
     "MATERIALIZE_TRIANGLES_UV_REVERSED",
 )
+#: Всё, что свип пишет в `counters` и `topology_counters`; остальные счётчики ядра идут в `untracked_counters`.
+TRACKED_COUNTER_KEYS = frozenset(COUNTER_KEYS) | frozenset(TOPOLOGY_COUNTER_KEYS)
+#: Счётчики цены (бюджет точной работы): не ответ, их сводка — `work_spent`.
+PRICE_COUNTER_PREFIXES = ("EXACT_WORK_",)
 ANSWER_KEYS = (
     "prepare_outcome",
     "coverage_outcome",
@@ -177,6 +196,7 @@ ANSWER_KEYS = (
     "offset_normals_digest",
     "semantic_digest",
     "counters",
+    "untracked_counters",
     "diagnostics",
     "chart",
     "planarity",
@@ -200,6 +220,7 @@ def _compute_row(
     topology: str = "TRIANGLES_V1",
     source_lift: str = "on",
     chord_station: str = "on",
+    near_planar_law: str = "",
 ):
     ctx = pool_sweep._CTX
     if chord_station == "off":
@@ -273,7 +294,7 @@ def _compute_row(
         prepared,
         coverage,
         request=request,
-        near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
+        near_planar_lift_law=NearPlanarLiftLawV1(near_planar_law or HOST_NEAR_PLANAR_LIFT_POLICY.value),
         decal_topology_law=DecalTopologyLawV1(topology),
     )
     row["materialize_seconds"] = round(time.perf_counter() - work_started, 4)
@@ -288,6 +309,11 @@ def _compute_row(
     row["counters"] = {key: counters[key] for key in COUNTER_KEYS if key in counters}
     row["topology_counters"] = {
         key: counters[key] for key in TOPOLOGY_COUNTER_KEYS if key in counters
+    }
+    row["untracked_counters"] = {
+        key: value
+        for key, value in sorted(counters.items())
+        if key not in TRACKED_COUNTER_KEYS and not key.startswith(PRICE_COUNTER_PREFIXES)
     }
     row["work_spent"] = counters.get("EXACT_WORK_SPENT", 0)
     row["diagnostics"] = list(result.diagnostics)
@@ -307,6 +333,21 @@ def _source_lift_option(args) -> str:
 
 def _chord_station_option(args) -> str:
     return getattr(args, "chord_station", "on")
+
+
+def _near_planar_law_option(args) -> str:
+    return getattr(args, "near_planar_law", "") or ""
+
+
+def _row_arguments(args, patch_id: int, density: int) -> tuple:
+    return (
+        patch_id,
+        density,
+        args.topology,
+        _source_lift_option(args),
+        _chord_station_option(args),
+        _near_planar_law_option(args),
+    )
 
 
 def _git(*args: str) -> str:
@@ -392,6 +433,7 @@ def run(args) -> dict:
         "topology": args.topology,
         "source_lift": _source_lift_option(args),
         "chord_station": _chord_station_option(args),
+        "near_planar_law": _near_planar_law_option(args) or "product",
         "workers": args.workers,
         "python": sys.version.split()[0],
         "cores": os.cpu_count(),
@@ -402,35 +444,12 @@ def run(args) -> dict:
         started = time.perf_counter()
         if args.workers == 0:
             gate.init_worker(quiet=True)
-            rows = [
-                compute_row(
-                    pid,
-                    density,
-                    args.topology,
-                    _source_lift_option(args),
-                    _chord_station_option(args),
-                )
-                for pid in order
-            ]
+            rows = [compute_row(*_row_arguments(args, pid, density)) for pid in order]
         else:
             with ProcessPoolExecutor(
                 max_workers=args.workers, initializer=gate.init_worker
             ) as pool:
-                rows = list(
-                    pool.map(
-                        _task,
-                        [
-                            (
-                                pid,
-                                density,
-                                args.topology,
-                                _source_lift_option(args),
-                                _chord_station_option(args),
-                            )
-                            for pid in order
-                        ],
-                    )
-                )
+                rows = list(pool.map(_task, [_row_arguments(args, pid, density) for pid in order]))
         wall = time.perf_counter() - started
         rows.sort(key=lambda row: row["patch_id"])
         summary = summarize(rows)
@@ -443,137 +462,78 @@ def run(args) -> dict:
     return record
 
 
-#: Приставки счётчиков, которых вправе не быть в прежней записи (числа самого среза). Ничего короче этих
-#: приставок `--ignore-counters` не принимает: приставка `MATERIALIZE_` спрятала бы весь ответ.
-IGNORABLE_COUNTER_PREFIXES = ("MATERIALIZE_CHORD_STATIONS_",)
-
-#: Что вправе измениться у домена из `--expect-changed` (закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`),
-#: поимённо; ВСЁ прочее — исход, деталь, счётчики граней и четырёхгранья, закон топологии, уход от
-#: плоскости, возвраты сдвига по ориентации, диагностики — обязано совпасть.
-CHANGED_COUNTERS = (
-    "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
-    "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
-    # Подъём ищет треугольники для сдвинутых точек: числа поиска зависят от положения точки.
-    "MATERIALIZE_SURFACE_LIFT_PREDICATES",
-    "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES",
+#: Дайджесты строки (`allow.digests` спецификации) и прочие скалярные поля ответа (`allow.fields`).
+DIGEST_FIELDS = ("content_digest", "offset_normals_digest", "semantic_digest")
+ANSWER_FIELDS = ("prepare_outcome", "coverage_outcome", "materialization", "detail", "chart", "planarity")
+VOCABULARY = expected_change.Vocabulary(
+    digests=frozenset(DIGEST_FIELDS),
+    fields=frozenset(ANSWER_FIELDS),
+    counters=TRACKED_COUNTER_KEYS,
 )
-#: Диагностики, чьи строки вправе появиться, исчезнуть либо смениться числами: сам закон и закон
-#: положения хоста (счёт подвинутых и оставленных вершин).
-CHANGED_DIAGNOSTICS = (
-    "SOURCE_VERTEX_STATIONED_ON_CHORD_V1",
-    "SOURCE_VERTEX_CHORD_STATION_SKIPPED",
-    "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
-    "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
-)
-#: Числа в строках `NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES` и `SOURCE_EDGES_LIFTED_ONTO_SURFACE`, которые
-#: считает подъём по новым точкам; остальные числа этих строк обязаны совпасть.
-LIFT_SEARCH_NUMBERS = re.compile(
-    r" (?:extrapolated_points|max_outside_cells|continuation_ambiguous_points"
-    r"|continuation_exact_ties|predicates|divisions)=\S+"
+UNTRACKED_NOT_COMPARED = (
+    "untracked_counters (unlisted kernel counters, e.g. MATERIALIZE_CLIP_*) are not in a compared record; "
+    "they are not compared on those rows - re-run the old record with the current sweep.py"
 )
 
 
-def _ignored(key: str, ignore_counters) -> bool:
-    return any(
-        key == item or (item in IGNORABLE_COUNTER_PREFIXES and key.startswith(item))
-        for item in ignore_counters
+def _row_view(row: dict, across_topology: bool, with_untracked: bool, notes=()) -> expected_change.RowView:
+    """Ответ строки: поля, ВСЕ счётчики одним словарём (отсутствующий равен нулю), диагностики; цена не входит.
+
+    Между законами топологии не сравниваются дайджест содержания, числа закона и закон-зависимые счётчики.
+    """
+
+    fields = {key: row.get(key) for key in ANSWER_FIELDS + DIGEST_FIELDS}
+    skipped = LAW_DEPENDENT_COUNTERS if across_topology else ()
+    counters = {key: value for key, value in (row.get("counters") or {}).items() if key not in skipped}
+    if across_topology:
+        fields.pop("content_digest")
+    else:
+        counters.update(row.get("topology_counters") or {})
+    if with_untracked:
+        counters.update(row.get("untracked_counters") or {})
+    return expected_change.RowView(
+        fields=fields,
+        counters=counters,
+        diagnostics=tuple(row.get("diagnostics") or ()),
+        ok=row.get("materialization") == "MATERIALIZED",
+        notes=notes,
     )
 
 
-def _nonzero(counters):
-    """Счётчики без нулей: отсутствующее число равно нулю, и новый нулевой счётчик не делает записи разными."""
+def pair_views(across_topology: bool = False):
+    """`(base_row, new_row) -> (RowView, RowView)`: нераспознанные счётчики сравниваются, когда записаны в ОБЕИХ строках."""
 
-    return None if counters is None else {key: value for key, value in counters.items() if value}
+    def views(base_row: dict, new_row: dict):
+        both = "untracked_counters" in base_row and "untracked_counters" in new_row
+        answered = "counters" in base_row or "counters" in new_row
+        notes = (UNTRACKED_NOT_COMPARED,) if answered and not both else ()
+        return (
+            _row_view(base_row, across_topology, both, notes),
+            _row_view(new_row, across_topology, both),
+        )
 
-
-def _answer_view(row: dict, across_topology: bool, ignore_counters=()) -> dict:
-    """Поля строки, которые обязаны совпасть; между законами — без закон-зависимого."""
-
-    view = {key: row.get(key) for key in ANSWER_KEYS}
-    if across_topology:
-        view.pop("content_digest")
-    else:
-        # Числа закона топологии (грани, четырёхгранья, уход от плоскости) — тоже ответ, пока закон один.
-        # Отсутствующий ключ равен нулю (`_nonzero`): прежняя запись без новых счётчиков остаётся сравнимой.
-        view["topology_counters"] = _nonzero(row.get("topology_counters"))
-    skipped = LAW_DEPENDENT_COUNTERS if across_topology else ()
-    view["counters"] = {
-        key: value
-        for key, value in (row.get("counters") or {}).items()
-        if key not in skipped and not _ignored(key, ignore_counters)
-    }
-    return view
+    return views
 
 
-def _changed_view(row: dict) -> dict:
-    """Ответ домена БЕЗ того, что закон вправе менять (списки `CHANGED_*`): остаток обязан совпасть."""
+def compare(paths, across_topology: bool = False, spec=None, partial: bool = False) -> int:
+    """Записи сравниваются с первой: ответ побитово тот же, кроме разрешённого спецификацией (`expected_change.py`).
 
-    view = _answer_view(row, False, IGNORABLE_COUNTER_PREFIXES)
-    view.pop("semantic_digest")
-    view.pop("content_digest")
-    view["counters"] = {
-        key: value for key, value in view["counters"].items() if key not in CHANGED_COUNTERS
-    }
-    view["diagnostics"] = [
-        LIFT_SEARCH_NUMBERS.sub("", line)
-        for line in (view["diagnostics"] or [])
-        if line.split(":", 1)[0] not in CHANGED_DIAGNOSTICS
-    ]
-    return view
-
-
-def _digests_moved(first: dict, second: dict) -> bool:
-    return any(first.get(key) != second.get(key) for key in ("semantic_digest", "content_digest"))
-
-
-def compare(
-    paths,
-    across_topology: bool = False,
-    expect_changed=None,
-    ignore_counters=(),
-) -> int:
-    """Прогоны побитово равны по ответу. `expect_changed` — номера патчей, чей ответ ОБЯЗАН сдвинуться.
-
-    Для среза, который меняет ответ осознанно (закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1`): дайджест
-    сдвигается ровно у перечисленных доменов (иначе проблема: срез тронул лишнее либо не дошёл), а у
-    остальных совпадает всё. У перечисленных доменов сравнение НЕ отключено: исход, деталь, грани,
-    четырёхгранья, закон топологии, уход от плоскости, возвраты по ориентации и все счётчики, кроме
-    поимённого списка `CHANGED_COUNTERS` и приставки закона, обязаны совпасть; диагностики — кроме строк
-    `CHANGED_DIAGNOSTICS` и чисел поиска подъёма (`LIFT_SEARCH_NUMBERS`). `ignore_counters` — точные
-    имена либо приставки из `IGNORABLE_COUNTER_PREFIXES` (чисел, которых в прежней записи нет).
+    Без `spec` любое расхождение неценовых полей — `UNEXPECTED`. Со `spec` изменяются ТОЛЬКО объявленные домены и
+    ТОЛЬКО разрешённое им; объявленный домен, который не изменился, и лишний изменившийся домен — проблемы.
+    `partial` — прогон части доменов: объявленные домены вне записей не ошибка.
     """
 
     records = [json.loads(Path(item).read_text(encoding="utf-8")) for item in paths]
-    expected = None if expect_changed is None else {str(item) for item in expect_changed}
-    problems = []
-    base = records[0]
-    for other, path in zip(records[1:], paths[1:]):
-        for density in sorted(set(base["runs"]) & set(other["runs"])):
-            left = base["runs"][density]["domains"]
-            right = other["runs"][density]["domains"]
-            if set(left) != set(right):
-                problems.append(f"{path} d{density}: domain sets differ")
-            for patch in sorted(set(left) & set(right), key=int):
-                if expected is not None and patch in expected:
-                    if not _digests_moved(left[patch], right[patch]):
-                        problems.append(f"{path} d{density} patch{patch}: expected change is absent")
-                    elif not right[patch].get("semantic_digest"):
-                        # Пустой дайджест — отказ, а не сдвиг ответа.
-                        problems.append(f"{path} d{density} patch{patch}: semantic_digest is empty")
-                    first, second = _changed_view(left[patch]), _changed_view(right[patch])
-                    for key in first:
-                        if first[key] != second[key]:
-                            problems.append(f"{path} d{density} patch{patch}: {key} differs beyond the law")
-                    continue
-                first = _answer_view(left[patch], across_topology, ignore_counters)
-                second = _answer_view(right[patch], across_topology, ignore_counters)
-                for key in first:
-                    if first[key] != second[key]:
-                        problems.append(f"{path} d{density} patch{patch}: {key} differs")
-    for line in problems[:40]:
-        print(line)
-    print("IDENTICAL" if not problems else f"DIFFERENT ({len(problems)})")
-    return 1 if problems else 0
+    report = expected_change.evaluate(
+        records,
+        [str(item) for item in paths],
+        spec,
+        pair_views(across_topology),
+        VOCABULARY,
+        partial,
+    )
+    expected_change.print_report(report)
+    return report.exit_code
 
 
 def main() -> int:
@@ -603,27 +563,41 @@ def main() -> int:
         default="on",
         help="off: закон SOURCE_VERTEX_STATIONED_ON_CHORD_V1 выключен (грани на узлах решётки, как до закона)",
     )
+    runner.add_argument(
+        "--near-planar-law",
+        dest="near_planar_law",
+        choices=("SOURCE_TRIANGLES_V1", "SOURCE_TRIANGLES_CLIPPED_V1", "SOURCE_FACES_CLIPPED_V1"),
+        default="",
+        help="закон подъёма near-planar доменов (по умолчанию продуктовый); SOURCE_TRIANGLES_V1 — запись ДО резки",
+    )
     comparer = sub.add_parser("compare")
-    comparer.add_argument("paths", nargs="+")
+    comparer.add_argument("paths", nargs="*")
     comparer.add_argument("--across-topology", action="store_true")
     comparer.add_argument(
-        "--expect-changed",
+        "--spec",
         default=None,
-        help="номера патчей через запятую: дайджест ОБЯЗАН сдвинуться ровно у них, у остальных всё совпадает",
+        help="спецификация ожидаемого изменения: имя из specs/ либо путь к .json (без неё любое расхождение — UNEXPECTED)",
     )
     comparer.add_argument(
-        "--ignore-counters",
-        default="",
-        help="точные имена счётчиков либо приставка MATERIALIZE_CHORD_STATIONS_ через запятую (числа самого среза)",
+        "--partial",
+        action="store_true",
+        help="прогон части доменов (--only): объявленные спецификацией домены вне записей — примечание, не ошибка",
     )
+    comparer.add_argument("--list-specs", action="store_true", help="перечислить сохранённые спецификации")
     args = parser.parse_args()
     if args.command == "compare":
-        expected = None if args.expect_changed is None else [int(x) for x in args.expect_changed.split(",") if x]
-        ignored = tuple(item for item in args.ignore_counters.split(",") if item)
-        for item in ignored:
-            if item not in COUNTER_KEYS and item not in IGNORABLE_COUNTER_PREFIXES:
-                parser.error(f"--ignore-counters: {item!r} is neither a counter name nor an allowed prefix")
-        return compare(args.paths, args.across_topology, expected, ignored)
+        if args.list_specs:
+            expected_change.print_stored_specs("sweep")
+            return 0
+        if len(args.paths) < 2:
+            parser.error("compare needs at least two records (the first is the base)")
+        spec = None
+        if args.spec is not None:
+            try:
+                spec = expected_change.load_spec(args.spec, "sweep", VOCABULARY)
+            except expected_change.SpecError as error:
+                parser.error(str(error))
+        return compare(args.paths, args.across_topology, spec, args.partial)
     record = run(args)
     Path(args.out).write_text(
         json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1),

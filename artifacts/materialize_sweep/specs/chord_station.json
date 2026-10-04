@@ -1,0 +1,99 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "chord_station",
+  "tool": "sweep",
+  "law": "SOURCE_VERTEX_STATIONED_ON_CHORD_V1",
+  "about": "Вершина прямой цепи встаёт на хорду: дайджесты сдвигаются у 13 доменов building (DECISIONS 2026-10-03, основа 85801ab) и у домена 89, до которого дошли поздние законы резки; запись «до» — `sweep.py run --chord-station off`.",
+  "groups": [
+    {
+      "name": "released_domains",
+      "domains": {"explicit": [0, 1, 3, 7, 11, 15, 17, 19, 105, 114, 115]},
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest"],
+        "counters": [
+          "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+          "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+          "MATERIALIZE_SURFACE_LIFT_PREDICATES",
+          "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES"
+        ],
+        "diagnostics": [
+          {"prefix": "SOURCE_VERTEX_STATIONED_ON_CHORD_V1"},
+          {"prefix": "SOURCE_VERTEX_CHORD_STATION_SKIPPED"},
+          {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"},
+          {"prefix": "SOURCE_VERTEX_DISPLACED_BY_LATTICE"}
+        ]
+      }
+    },
+    {
+      "name": "released_curved_domains",
+      "domains": {"explicit": [106, 109]},
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest"],
+        "counters": [
+          "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+          "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE",
+          "MATERIALIZE_SURFACE_LIFT_PREDICATES",
+          "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES",
+          "MATERIALIZE_SURFACE_LIFT_EXTRAPOLATED_POINTS",
+          "MATERIALIZE_SURFACE_LIFT_ON_EDGE_POINTS",
+          "MATERIALIZE_CLIP_DIAGONAL_CUTS_AVOIDED",
+          "MATERIALIZE_CLIP_DIAGONAL_PIECES_ACROSS",
+          "MATERIALIZE_CLIP_DIVISIONS",
+          "MATERIALIZE_CLIP_FACES_CUT",
+          "MATERIALIZE_CLIP_FACES_IN_ONE_TRIANGLE",
+          "MATERIALIZE_CLIP_FACES_OVERHANG_TRIANGULATED",
+          "MATERIALIZE_CLIP_PIECES_EMITTED",
+          "MATERIALIZE_CLIP_PREDICATES",
+          "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_MAX_GAP_MILLICELLS",
+          "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_MAX_GAP_NANOMETRES",
+          "MATERIALIZE_CLIP_SOURCE_VERTICES_SNAPPED_TO_CORNER",
+          "MATERIALIZE_CLIP_FLOW_FREE_CUT_EDGES"
+        ],
+        "diagnostics": [
+          {"prefix": "SOURCE_VERTEX_STATIONED_ON_CHORD_V1"},
+          {"prefix": "SOURCE_VERTEX_CHORD_STATION_SKIPPED"},
+          {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"},
+          {"prefix": "SOURCE_VERTEX_DISPLACED_BY_LATTICE"},
+          {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE", "numbers": ["faces_in_one_triangle", "faces_cut", "pieces", "overhang_faces", "predicates", "divisions", "pieces_across", "cuts_avoided"]},
+          {"prefix": "NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES", "numbers": ["extrapolated_points", "max_outside_cells", "continuation_ambiguous_points", "continuation_exact_ties"]}
+        ]
+      }
+    },
+    {
+      "name": "domain_reached_by_later_laws",
+      "domains": {"explicit": [89]},
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest", "offset_normals_digest"],
+        "counters": [
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_VERTICES",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_SOURCE_VERTICES_LIFTED_AT_HOST",
+          "MATERIALIZE_SOURCE_VERTICES_DISPLACED_BY_LATTICE"
+        ],
+        "counter_prefixes": ["MATERIALIZE_CLIP_", "MATERIALIZE_SURFACE_LIFT_"],
+        "diagnostics": [
+          {"prefix": "SOURCE_VERTEX_STATIONED_ON_CHORD_V1"},
+          {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"},
+          {"prefix": "SOURCE_VERTEX_DISPLACED_BY_LATTICE"},
+          {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"},
+          {"prefix": "DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES"}
+        ]
+      }
+    }
+  ],
+  "allow_everywhere": {
+    "counter_prefixes": ["MATERIALIZE_CHORD_STATIONS_"]
+  },
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": ["MATERIALIZE_FACES_LOST", "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"],
+    "no_refusal": true
+  }
+}

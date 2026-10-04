@@ -1,0 +1,88 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "join_same_pchain",
+  "tool": "sweep",
+  "law": "CORNER_JOIN_SAME_PCHAIN_V1",
+  "about": "JOIN решает тождество цепи хоста: меняются ТОЛЬКО домены, где ядро записало стык потока (STATION_JOIN_CORNERS > 0 в новой записи) — на building при PLANAR_POLYGONS_V1 это 0, 1, 2, 3, 6, 7, 15, 92, 106, 109 (DECISIONS 2026-10-04, база 4404607, закон f3f4d6d); у остальных домены побитово те же. Для следующего закона потоков скопируйте и подправьте allow.",
+  "groups": [
+    {
+      "name": "flow_domains_planar",
+      "domains": {
+        "where": [
+          {"side": "new", "counter": "STATION_JOIN_CORNERS", "op": "gt", "value": 0},
+          {"side": "either", "field": "planarity", "op": "eq", "value": "ExactSourcePlaneCertificateV1"}
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest"],
+        "counters": [
+          "MATERIALIZE_BOUNDARY_CHAINS",
+          "MATERIALIZE_INTERFACE_CHAINS",
+          "MATERIALIZE_REGIONS",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_POLYGON_FACES_EMITTED",
+          "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED",
+          "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+          "MATERIALIZE_QUADS_UV_BILINEAR",
+          "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+          "MATERIALIZE_POLYGONS_UV_BILINEAR",
+          "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA",
+          "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
+          "STATION_FLOWS",
+          "STATION_JOIN_CORNERS",
+          "STATION_SAME_PCHAIN_JOINS"
+        ],
+        "counter_prefixes": ["STATION_SKIP_JOIN_"],
+        "diagnostics": [
+          {"prefix": "CORNER_JOIN_SAME_PCHAIN_V1"}
+        ]
+      }
+    },
+    {
+      "name": "flow_domains_curved",
+      "domains": {
+        "where": [
+          {"side": "new", "counter": "STATION_JOIN_CORNERS", "op": "gt", "value": 0},
+          {"side": "either", "field": "planarity", "op": "ne", "value": "ExactSourcePlaneCertificateV1"}
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest"],
+        "counters": [
+          "MATERIALIZE_BOUNDARY_CHAINS",
+          "MATERIALIZE_INTERFACE_CHAINS",
+          "MATERIALIZE_REGIONS",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_POLYGON_FACES_EMITTED",
+          "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED",
+          "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+          "MATERIALIZE_QUADS_UV_BILINEAR",
+          "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+          "MATERIALIZE_POLYGONS_UV_BILINEAR",
+          "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA",
+          "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
+          "STATION_FLOWS",
+          "STATION_JOIN_CORNERS",
+          "STATION_SAME_PCHAIN_JOINS"
+        ],
+        "counter_prefixes": ["STATION_SKIP_JOIN_", "MATERIALIZE_CLIP_"],
+        "diagnostics": [
+          {"prefix": "CORNER_JOIN_SAME_PCHAIN_V1"},
+          {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"}
+        ]
+      }
+    }
+  ],
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": ["MATERIALIZE_FACES_LOST", "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"],
+    "no_refusal": true
+  }
+}
