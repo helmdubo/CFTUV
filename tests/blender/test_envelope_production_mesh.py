@@ -56,6 +56,13 @@
    же хранилище другая alpha выше досягаемости отказывает `REQUEST_ALPHA_EXCEEDS_CHART_REACH`, выбор всего
    основания — отказом метрики целого патча, возврат выбора — прежним мешем; холодная сессия даёт тот же меш.
 
+16. КОЛЬЦО КУПОЛА ПОД СУЖЕННОЙ ДОСЯГАЕМОСТЬЮ: купол метрового радиуса с выбранным краем целиком — носитель вокруг замкнутой
+   цепи есть кольцо, и при умолчании досягаемости (полметра) шов разреза отказывает (`PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED`,
+   7.6 мм). Кнопка пересобирает карту ОДИН раз под собственной досягаемостью декали `alpha * (1 + b)` (0.3 м при alpha 0.25) и
+   строит декаль (`CHART_REACH_TIGHTENED_FOR_SEAM`); другая alpha — другая суженная карта (0.36 м при 0.3), а не устаревшая:
+   отказ карты запроса не пересобирается, подготовка домена пересчитывается, прежняя alpha возвращает прежний меш из кэша;
+   суженная карта, отказавшая и сама (0.48 м при 0.4: шов 7.2 мм), остаётся названным отказом без третьей попытки.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_PRODUCTION_MESH_BLENDER_SMOKE_OK
@@ -775,6 +782,113 @@ def _run_a_band_chart_rescues_a_domain_the_whole_patch_refuses():
     print("BAND:", expected)
 
 
+DOME = "RingDome"
+
+
+def _rim_edges(source):
+    """Рёбра экватора купола (z = 0): весь край патча."""
+
+    mesh = source.data
+    return [edge.index for edge in mesh.edges if all(abs(mesh.vertices[item].co.z) < 1e-6 for item in edge.vertices)]
+
+
+def _build_dome_ring(sides=16, rings=8, radius=1.0):
+    """Купол над кругом (меш в памяти, не сохраняется), выбран весь край: носитель вокруг него - кольцо."""
+
+    import math
+
+    _reset_scene()
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    vertices = [(0.0, 0.0, radius)]
+    for ring in range(1, rings + 1):
+        phi = (math.pi / 2) * ring / rings
+        for k in range(sides):
+            theta = 2 * math.pi * k / sides
+            vertices.append((radius * math.sin(phi) * math.cos(theta), radius * math.sin(phi) * math.sin(theta), radius * math.cos(phi)))
+
+    def index(ring, k):
+        return 1 + (ring - 1) * sides + (k % sides)
+
+    faces = [(0, index(1, k), index(1, k + 1)) for k in range(sides)]
+    for ring in range(1, rings):
+        for k in range(sides):
+            faces.append((index(ring, k), index(ring + 1, k), index(ring + 1, k + 1), index(ring, k + 1)))
+    mesh = bpy.data.meshes.new(DOME)
+    mesh.from_pydata(vertices, (), faces)
+    mesh.update()
+    source = bpy.data.objects.new(DOME, mesh)
+    bpy.context.scene.collection.objects.link(source)
+    bpy.context.view_layer.objects.active = source
+    rim = _rim_edges(source)
+    assert len(rim) == sides
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    settings.envelope_debug_workers = 0
+    _decal_settings().offset = 0.02
+    _decal_settings().material_name = "CFTUV_Decal"
+    _enter_edge_selection(source, rim)
+    return source
+
+
+def _tightened_reaches(controller):
+    """Суженные досягаемости полос в кэше метрик сессии (метры, по возрастанию): хвост ключа `(досягаемость, рёбра, ("tightened", cap))`.
+
+    `FloatProperty` Blender хранит binary32, поэтому alpha 0.3 приходит как 0.30000001192...; сравнивать надо с допуском.
+    """
+
+    return sorted(
+        float(key[3][2][1])
+        for key in controller._patch_metric_cache
+        if len(key) == 4 and isinstance(key[3], tuple) and len(key[3]) == 3 and key[3][2][0] == "tightened"
+    )
+
+
+def _assert_reaches(controller, expected):
+    found = _tightened_reaches(controller)
+    assert len(found) == len(expected) and all(abs(a - b) < 1e-6 for a, b in zip(found, expected)), (found, expected)
+
+
+def _run_a_dome_ring_is_built_under_the_tightened_reach_and_an_alpha_change_rebuilds_it():
+    from cftuv.envelope_production_mesh import mesh_content_digest
+
+    source = _build_dome_ring()
+    settings = _settings()
+    controller = _controller()
+
+    def press(alpha):
+        settings.envelope_debug_alpha = alpha
+        if bpy.context.mode != "EDIT_MESH":
+            bpy.context.view_layer.objects.active = source
+            _enter_edge_selection(source, _rim_edges(source))
+        assert bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"FINISHED"}
+        return _decal_settings().status, mesh_content_digest(bpy.data.objects[DOME + ".CFTUV_Decal"].data)
+
+    status, narrow = press(0.25)
+    assert status == "MATERIALIZED 1 / refused 0", status
+    _assert_reaches(controller, [0.3])
+    metrics = controller.build_counts["PATCH_METRIC"]
+    # Другая alpha: суженная карта под 0.3 * 6/5 = 9/25 (не прежняя 3/10, а своя), отказ карты запроса не пересобран.
+    status, wider = press(0.3)
+    assert status == "MATERIALIZED 1 / refused 0", status
+    _assert_reaches(controller, [0.3, 0.36])
+    assert controller.build_counts["PATCH_METRIC"] == metrics + 1
+    assert wider != narrow
+    # Прежняя alpha: тот же меш из кэша результатов, ни одной сборки метрики.
+    status, again = press(0.25)
+    assert status == "MATERIALIZED 1 / refused 0", status
+    assert again == narrow and controller.build_counts["PATCH_METRIC"] == metrics + 1
+    # Суженная карта под 0.4 * 6/5 = 12/25 отказывает сама (шов 7.2 мм): названный отказ стоит, попытка одна, и она в кэше.
+    status, _refused = press(0.4)
+    assert status == "MATERIALIZED 0 / refused 1 (PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED)", status
+    _assert_reaches(controller, [0.3, 0.36, 0.48])
+    spent = controller.build_counts["PATCH_METRIC"]
+    status, _again = press(0.4)
+    assert status.endswith("(PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED)") and controller.build_counts["PATCH_METRIC"] == spent
+    print("DOME RING tightened reaches:", _tightened_reaches(controller))
+
+
 def _polygon_points(mesh, polygon):
     return [mesh.vertices[index].co.copy() for index in polygon.vertices]
 
@@ -1094,6 +1208,7 @@ def _main():
     _run_undo_after_the_debug_button_and_after_clear_keeps_the_scene_consistent()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     _run_a_band_chart_rescues_a_domain_the_whole_patch_refuses()
+    _run_a_dome_ring_is_built_under_the_tightened_reach_and_an_alpha_change_rebuilds_it()
     _run_the_content_store_keeps_every_band_decision(workers=0)
     _run_the_content_store_keeps_every_band_decision(workers=2)
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()

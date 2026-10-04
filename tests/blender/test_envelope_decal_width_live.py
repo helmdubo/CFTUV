@@ -24,7 +24,10 @@
    (`poll` оператора, `begin_adjust` клавиши, путь ползунка ничего не заказывает и не рисует); сборка на B открывает
    его, возврат к A закрывает (запись кнопки одна на окно); смена активного снимает превью, но принятый заказ
    доезжает до декали прежнего объекта; поле подтягивается к ширине меша без пересчёта; активная декаль ведёт к своему
-   источнику; удаление декали закрывает инструмент и снимает линии.
+   источнику; удаление декали закрывает инструмент и снимает линии;
+7. КОЛЬЦО КУПОЛА ПОД СУЖЕННОЙ ДОСЯГАЕМОСТЬЮ: карта купола при умолчании досягаемости отказывает швом, кнопка строит её под
+   `alpha * (1 + b)` (0.3 м при ширине 0.25); ширина 0.3 через путь ползунка пересобирает карту под 0.36 м (своя
+   карта, а не прежняя 0.3 м), меш применён на месте и ПОБИТОВО равен прямому нажатию в холодной сессии.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -52,13 +55,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_envelope_debug_bridge import _enter_edge_selection  # noqa: E402
 from test_envelope_production_mesh import (  # noqa: E402
     DECAL,
+    DOME,
     SOURCE,
     _assert_scene_links_only_live_objects,
+    _build_dome_ring,
     _decal_objects,
+    _decal_settings,
     _enable_background_undo,
     _fresh_scene,
     _redo_and_check,
+    _rim_edges,
     _settings,
+    _assert_reaches,
     _walk_every_datablock,
 )
 
@@ -224,6 +232,48 @@ def _run_five_changes(*, workers):
         f"(compute {latency.compute_seconds * 1000:.0f}, apply {latency.apply_seconds * 1000:.0f})"
     )
     return source
+
+
+def _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width():
+    from cftuv.envelope_production_mesh import mesh_content_digest
+
+    source = _build_dome_ring()
+    controller = _controller()
+    for name in ("width_live", "alpha_preview"):
+        old = getattr(controller, name)
+        if old is not None and bpy.app.timers.is_registered(old._callback):
+            bpy.app.timers.unregister(old._callback)
+        setattr(controller, name, None)
+    settings = _settings()
+
+    def press():
+        bpy.context.view_layer.objects.active = source
+        _enter_edge_selection(source, _rim_edges(source))
+        assert bpy.ops.hotspotuv.build_envelope_decal_mesh() == {"FINISHED"}
+        return _decal_settings().status, mesh_content_digest(bpy.data.objects[DOME + ".CFTUV_Decal"].data)
+
+    settings.envelope_debug_alpha = 0.25
+    status, narrow = press()
+    assert status == "MATERIALIZED 1 / refused 0", status
+    _assert_reaches(controller, [0.3])
+    _drag((0.3,))
+    _pump()
+    scheduler = _scheduler()
+    counters = scheduler.counters
+    assert (counters.started, counters.applied, counters.stale, counters.failed, counters.invalid) == (1, 1, 0, 0, 0), counters
+    assert scheduler.status_text.startswith("ready width=0.3"), scheduler.status_text
+    _assert_reaches(controller, [0.3, 0.36])
+    live = mesh_content_digest(bpy.data.objects[DOME + ".CFTUV_Decal"].data)
+    assert live != narrow
+    # Побитово то же, что у кнопки на холодной сессии при ширине 0.3.
+    controller.clear()
+    controller.width_live = None
+    settings.envelope_debug_alpha = 0.3
+    controller.supersede_preview("direct press")
+    status, direct = press()
+    assert status == "MATERIALIZED 1 / refused 0", status
+    assert direct == live
+    print("DOME RING width tool: tightened reach rebuilt for 0.3, same mesh as a cold button press")
 
 
 def _status_lines():
@@ -589,6 +639,7 @@ def _main():
     _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()
+    _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()
