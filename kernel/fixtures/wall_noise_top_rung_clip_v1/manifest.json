@@ -1,0 +1,15 @@
+{
+ "fixture_id": "wall_noise_top_rung_clip_v1",
+ "why": "домен, где вершины резки (`clip:`) стоят на перекладине JOIN ТОЧНО: перекладинный закон (RUNG_STATION_FROM_CHAIN_VERTEX_V1) отвечает им сам, и закон ребра (RUNG_CHORD_STATION_V1) обязан дать тот же ответ побитово (дайджест батча один). Это доказательство того, что закон ребра ничего не меняет там, где отвечал перекладинный: он отвечает только там, где тот отказывал.",
+ "source": "E:/testScene.blend, меш wall_noise_top (без слияния), все швы выделены, патч 3, Fan Density 2, Max stretch 42 %, alpha 0.5; выгрузка headless маршрутом кнопки Build Decal Mesh (run_production, воркеры 0): (snapshot, request) перехвачены на входе prepare_conveyor. Патчи 0 и 2 той же сцены хост отказывает до ядра (NEAR_PLANAR_OWNER_TRIANGLE_DEGENERATE, ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE) и сюда не входят.",
+ "domains": {
+  "patch_3": {
+   "object_name": "wall_noise_top",
+   "patch_id": 3,
+   "patch_domain_id": "host-v0:patch-domain:c9d908a839cd9dfc3ce32062"
+  }
+ },
+ "alpha": "0.5",
+ "density": 2,
+ "max_stretch_percent": 42
+}

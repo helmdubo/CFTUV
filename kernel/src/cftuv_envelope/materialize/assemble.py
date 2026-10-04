@@ -251,6 +251,9 @@ class Layout:
 #: Число закона `RUNG_STATION_FROM_CHAIN_VERTEX_V1`: вершин на перекладине JOIN,
 #: получивших станцию вершины цепи вместо двух ответов двух пробегов.
 RUNG_STATIONS_FROM_CHAIN_VERTEX = "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"
+#: Число закона `RUNG_CHORD_STATION_V1`: новых вершин резки на ОБЩЕМ ребре двух граней потока, получивших станцию
+#: интерполяцией фактов концов ребра вдоль него (точно), потому что аффинные карты двух пробегов в ней не сошлись.
+RUNG_CHORD_STATIONS = "MATERIALIZE_RUNG_CHORD_STATIONS"
 
 
 def _rung_station(table, answers: dict, run_id: str, value):
@@ -272,6 +275,39 @@ def _rung_station(table, answers: dict, run_id: str, value):
     if not (other_s + value[0] - station - station).is_zero:
         return None
     return station, value[1]
+
+
+def _chord_station(chord, point, region, anchors, budget):
+    """`(s, r)` новой вершины на ребре `(u, v)` контура: интерполяция фактов концов ребра вдоль него, либо `None`.
+
+    Закон `RUNG_CHORD_STATION_V1`. Перекладина JOIN (общее ребро двух граней потока, биссектриса угла) несёт
+    станцию вершины цепи, а не аффинную станцию пробега (`_rung_station`): `s` вдоль неё постоянна, `r` общая.
+    Это выполняется ТОЧНО, пока перекладина лежит на биссектрисе. Привязка вершины `src:` к углу карты перед
+    резкой (`clip_snap`, допуск `SOURCE_VERTEX_CORNER_SNAP_CELLS`) сдвигает конец перекладины на доли ячеек, и
+    новая вершина резки на ней стоит рядом с биссектрисой, а не на ней: два пробега дают ей разные `(s, r)`, и
+    `_rung_station` честно отказывает. Единственный ответ для вершины на ОБЩЕМ ребре — линейный вдоль ребра между
+    фактами его концов (`share = (p - u) / (v - u)`, `(s, r) = u + (v - u) * share`): на биссектрисе он равен
+    `_rung_station` точно (оба конца уже подчиняются перекладине), а при сдвинутом конце расходится с аффинной
+    картой пробега на тот же сдвиг, что назван счётчиком привязки. Новых допусков нет; вершина, лежащая вне ребра
+    (точная проверка второй координаты) или вне отрезка, ответа не получает, и конфликт остаётся конфликтом.
+    """
+
+    u_key, v_key, u_point, v_point = chord
+    u_fact = anchors.get((region, u_key))
+    v_fact = anchors.get((region, v_key))
+    if u_fact is None or v_fact is None:
+        return None
+    axis = 0 if not (v_point[0] - u_point[0]).is_zero else 1
+    span = v_point[axis] - u_point[axis]
+    if span.is_zero:
+        return None
+    share = (point[axis] - u_point[axis]).divided_by(span, budget)
+    other = 1 - axis
+    if not ((point[other] - u_point[other]) - (v_point[other] - u_point[other]) * share).is_zero:
+        return None
+    if share.sign(budget=budget) < 0 or (SqrtSumV1.rational(1) - share).sign(budget=budget) < 0:
+        return None
+    return tuple(start + (end - start) * share for start, end in zip(u_fact, v_fact))
 
 
 def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
@@ -309,14 +345,19 @@ def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
                             tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
 
 
-def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None):
+def station_values(
+    frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None, chords=None, anchors=None
+):
     """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ.
 
-    Второй ответ на вершину региона допустим ровно в одном случае — на
-    перекладине угла JOIN (`_rung_station`); он считается в `tally`. Станцию вершины
+    Второй ответ на вершину региона допустим в двух случаях. Первый — перекладина угла JOIN
+    (`_rung_station`); он считается в `tally`. Станцию вершины
     цепи на перекладине получает и стык двух регионов разомкнутого кольца
     (`_unify_across_frames`). `rungs` — множество `(регион, ключ)` вершин, получивших её:
     только четырёхгранье, в котором такая вершина есть, может нести билинейную UV.
+    Второй — новая вершина резки на ОБЩЕМ ребре граней (`RUNG_CHORD_STATION_V1`, `_chord_station`): `chords[i][ключ]` —
+    ребро `(u, v, точка u, точка v)` контура `i`-й грани, на котором она лежит, `anchors` — факты вершин контура
+    (результат прежнего вызова). Закон действует, только если ВСЕ ответившие грани называют одно и то же ребро.
     """
 
     rungs = set() if rungs is None else rungs
@@ -324,8 +365,10 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, ta
     facts: dict = {}
     roots: dict = {}
     answers: dict = {}
-    for frame_face, cycle in zip(frame_faces, cycles):
+    edges_of: dict = {}
+    for index, (frame_face, cycle) in enumerate(zip(frame_faces, cycles)):
         region = layout.region_of(frame_face)
+        face_chords = None if chords is None else chords[index]
         line = frame_face.line
         root = roots.get(line.q)
         if root is None:
@@ -339,12 +382,24 @@ def station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, ta
             )
             value = (station, transverse_of(line, point, root))
             slot = (region, key)
+            chord = None if face_chords is None else face_chords.get(key)
+            edges_of.setdefault(slot, set()).add(None if chord is None else frozenset(chord[:2]))
             known = facts.setdefault(slot, value)
             given = answers.setdefault(slot, {})
             if known == value or given.get(run_id) == value:
                 given.setdefault(run_id, value)
                 continue
             rung = None if frame_face.is_fan else _rung_station(table, given, run_id, value)
+            on_one_edge = chord is not None and anchors is not None and len(edges_of[slot]) == 1
+            if rung is None and on_one_edge and not frame_face.is_fan:
+                interpolated = _chord_station(chord, point, region, anchors, budget)
+                if interpolated is not None:
+                    given[run_id] = value
+                    if facts[slot] != interpolated:
+                        facts[slot] = interpolated
+                        if tally is not None:
+                            tally[RUNG_CHORD_STATIONS] += 1
+                    continue
             if rung is None:
                 answered = ", ".join(
                     f"{name}=(s {decimal_of(given_value[0], table.scale):.6f}, r {decimal_of(given_value[1], table.scale):.6f})"

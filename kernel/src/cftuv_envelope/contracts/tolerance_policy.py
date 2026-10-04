@@ -1547,6 +1547,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_MAX_GAP_MILLICELLS",
             "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_REFUSED_CORNER_TAKEN",
             "MATERIALIZE_CLIP_SOURCE_VERTEX_SNAP_REFUSED_CORNERS_AMBIGUOUS",
+            # Следствие привязки на перекладине JOIN: новая вершина резки на ребре, сдвинутом привязкой, получает станцию
+            # интерполяцией по ребру (`RUNG_CHORD_STATION_V1`), а не отказ `STATION_VALUE_CONFLICT`.
+            "MATERIALIZE_RUNG_CHORD_STATIONS",
         ),
         declaration_sites=(
             "cftuv_envelope.materialize.clip_snap.SOURCE_VERTEX_CORNER_SNAP_CELLS",
