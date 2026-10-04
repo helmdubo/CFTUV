@@ -85,6 +85,7 @@ from .._canonical_angle import (
     build_canonical_subturn_fan_authority,
     selector_reflex_excess_interval,
 )
+from .._corner_fold import CornerFoldFacts
 from .._density_policy import huber_density_value_contract
 from .canonical_fan_rays import (
     canonical_fan_rays_decision,
@@ -1629,6 +1630,7 @@ def compile_reference_envelopes(
     angle_certificates = {
         item.certificate_id: item for item in snapshot.reflex_angle_certificates
     }
+    corner_folds = CornerFoldFacts(snapshot)
     for relation in sorted(snapshot.corner_relations, key=lambda item: item.corner_relation_id.value):
         sector = owner_sectors.get(relation.owner_sector_id)
         if sector is None or sector.patch_domain_id != patch_domain_id:
@@ -1640,7 +1642,7 @@ def compile_reference_envelopes(
         )
         resolved_selection, treatment, failure = resolve_corner_selection(
             request, relation, sector, angle_certificates.get(relation.reflex_angle_certificate_id),
-            selection_id, uses_by_id, chains_by_id, _resolve_angular_profile_selection,
+            selection_id, uses_by_id, chains_by_id, _resolve_angular_profile_selection, corner_folds,
         )
         if failure is not None:
             return _failure(*failure)

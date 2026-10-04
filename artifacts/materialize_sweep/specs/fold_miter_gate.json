@@ -1,0 +1,30 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "fold_miter_gate",
+  "tool": "gate",
+  "law": "CORNER_MITER_ON_FOLD_V1",
+  "about": "Митра на изломе (решение владельца 2026-10-05, основа f362871), ворота `numeric_repr`: ANSWER расходится ровно на патче 89 здания (вершины 40, 46, 121 стали митрой со швом вместо веера; d1, d2, d4), только в отпечатках геометрии, глубоких внутренностей подготовки и числах граней/отрезков; исход, деталь, решётка, число регионов подготовки, счётчики хоста и сетка (`fp_deep_lattice`) — те же. Остальные 121 домен побитово те же. Патч 89 — домен-развёртка (DevelopableUnfoldCertificateV1): складка кольца вершины 46 около 1.86 градуса, у вершины 121 лежит треугольник ширины 0.02 м под прямым углом к соседям.",
+  "domains": {"explicit": [89]},
+  "must_change": "each",
+  "allow": {
+    "digests": [
+      "fp_geometry",
+      "fp_geometry_value",
+      "fp_structural_counters",
+      "fp_deep_bridge",
+      "fp_deep_bridge_value",
+      "fp_deep_skeleton",
+      "fp_deep_skeleton_value",
+      "fp_deep_partition",
+      "fp_deep_partition_value",
+      "fp_deep_owners",
+      "fp_deep_owners_value"
+    ],
+    "fields": ["n_faces", "n_segments"]
+  },
+  "require": {
+    "changed_any_of": ["fp_geometry", "fp_geometry_value"],
+    "unchanged": ["outcome", "detail", "lattice_scale", "n_regions", "fp_meta", "fp_host_counters", "fp_deep_lattice"],
+    "no_refusal": true
+  }
+}

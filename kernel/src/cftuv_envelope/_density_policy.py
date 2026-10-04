@@ -16,6 +16,7 @@ from .contracts.envelopes import (
     MinimalityLowerBound,
     SelectionIntervalCertificateV1,
     SelectionLaw,
+    ZERO_SUPPORT_SELECTION_LAWS,
 )
 from .contracts.request import (
     AngularProfileSelectionPolicyId,
@@ -269,10 +270,10 @@ def selection_certificate_contract_error(
 
     hidden_count = certificate.resolved_hidden_edge_count
     interval = certificate.selection_interval_certificate
-    # JOIN мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`): счёт `k = 0` под своим
-    # законом, интервальная запись — прежняя запись политики (её доказательство
-    # остаётся в силе и проверяется тем же `selection_interval_proof_error`).
-    joined = certificate.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+    # JOIN мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`) и митра на изломе (`CORNER_MITER_ON_FOLD_V1`): счёт `k = 0` под
+    # своим законом, интервальная запись — прежняя запись политики (её доказательство остаётся в силе и
+    # проверяется тем же `selection_interval_proof_error`).
+    joined = certificate.selection_law in ZERO_SUPPORT_SELECTION_LAWS
     if (
         certificate.selection_policy_id
         is AngularProfileSelectionPolicyId.MIN_K_FOR_MAX_SUBTURN_V1
@@ -334,7 +335,7 @@ def selection_certificate_contract_error(
             if valid
             else (
                 "Density A certificate must encode "
-                "(C-1)/q < u <= C/q and H=max(1,C-1), or H=0 under CORNER_JOIN_SOFT_BEND_V1"
+                "(C-1)/q < u <= C/q and H=max(1,C-1), or H=0 under CORNER_JOIN_SOFT_BEND_V1 / CORNER_MITER_ON_FOLD_V1"
             )
         )
     return "unsupported angular selection policy"

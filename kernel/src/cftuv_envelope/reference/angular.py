@@ -24,8 +24,8 @@ from ..contracts.envelopes import (
     ExactTurnSignV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
-    SelectionLaw,
     StripEnvelopeSpec,
+    ZERO_SUPPORT_SELECTION_LAWS,
 )
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
@@ -1402,7 +1402,7 @@ def _angular_support_data_uncached(
                 sector.turn_orientation,
                 certificates,
                 JOIN_EVALUATION_SUBTURN_Q
-                if selection.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
+                if selection.selection_law in ZERO_SUPPORT_SELECTION_LAWS
                 else density_contract[0],
             )
         elif spec.resolved_hidden_edge_count == 1:

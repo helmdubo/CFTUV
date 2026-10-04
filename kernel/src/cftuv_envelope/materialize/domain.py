@@ -368,6 +368,17 @@ def _table_diagnostics(table, add) -> None:
             f"({', '.join(f'{name}={kinds[name]}' for name in sorted(kinds)) or 'none'}); "
             f"kept as corners: {', '.join(f'{name}={count}' for name, count in refused.items())}",
         )
+    miters = getattr(table, "fold_miters", ())
+    if miters:
+        shown = ", ".join(sorted(miters)[:6])
+        add(
+            GeometryDiagnosticSeverity.INFO,
+            NamedOutcome.CORNER_MITER_ON_FOLD_V1,
+            "domain",
+            (),
+            f"{len(miters)} concave corners on a folded neighbourhood mitered with a seam on the bisector, no flow: "
+            f"{shown}" + (f" (+{len(miters) - 6} more)" if len(miters) > 6 else ""),
+        )
 
 
 def _near_planar_numbers(certificate, onto_surface: bool, lift_note: str) -> str:

@@ -72,6 +72,7 @@ from ..contracts.envelopes import (
     EvaluationGeometrySubturnCountLiftLawV1,
     SelectionLaw,
     StripEnvelopeSpec,
+    ZERO_SUPPORT_SELECTION_LAWS,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.metric import DevelopableBandChartCertificateV1
@@ -683,6 +684,8 @@ class _ArrivalLawsV1:
     #: диагностике ядра), и они привязаны в прежнем окне Вороного. Счётчик выходит
     #: только когда ненулевой.
     narrow_band_refused_count: int = 0
+    #: Углы закона митры на изломе из `mitered_corner_count`; счётчик выходит только когда ненулевой.
+    fold_mitered_count: int = 0
 
 
 _EXACT_LIMIT_LIFT_LAWS = frozenset(
@@ -774,6 +777,7 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
             is ReferenceOutcome.ADAPTIVE_FAN_NARROW_BAND_NOT_APPLIED
             for item in context.compilation.diagnostics
         ),
+        fans.fold_mitered_count,
     )
 
 
@@ -788,15 +792,22 @@ class _AngularFansV1:
     bound_direction_count: int
     exact_limit_lifted_count: int
     canonical_rays_count: int
+    #: Из `mitered_corner_count` — углы закона митры на изломе (`CORNER_MITER_ON_FOLD_V1`); счётчик выходит только
+    #: когда он ненулевой (ворота равенства ответа заморозили структурные счётчики).
+    fold_mitered_count: int = 0
 
 
-def _joined_corner(context: GeometryContext, spec) -> bool:
-    """Сертификат селекции спеки решил угол законом JOIN (`k = 0` по решению, не по плотности)."""
+def _zero_support_law(context: GeometryContext, spec):
+    """Закон угла, которым сертификат селекции спеки решил `k = 0` (JOIN либо митра на изломе), либо `None`."""
 
-    return any(
-        item.certificate_id == spec.selection_certificate_id
-        and item.selection_law is SelectionLaw.CORNER_JOIN_SOFT_BEND_V1
-        for item in context.compilation.profile_selection_certificates
+    return next(
+        (
+            item.selection_law
+            for item in context.compilation.profile_selection_certificates
+            if item.certificate_id == spec.selection_certificate_id
+            and item.selection_law in ZERO_SUPPORT_SELECTION_LAWS
+        ),
+        None,
     )
 
 
@@ -840,6 +851,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     rescaled_count = 0
     degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
+    fold_mitered = 0
     bound_directions = 0
     exact_limit_lifted = 0
     canonical_rays = 0
@@ -854,15 +866,18 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         if not isinstance(spec, AngularEnvelopeSpec):
             continue
         if spec.resolved_hidden_edge_count == 0:
-            if explicit_density and not _joined_corner(context, spec):
+            zero_support_law = _zero_support_law(context, spec)
+            if explicit_density and zero_support_law is None:
                 raise ReferenceGeometryError(
                     ReferenceOutcome.DENSITY_SEALED_FAN_INVALID,
                     "explicit Density emitted a zero-support angular fan",
                 )
             # `k = 0` — тот самый митрованный угол, и он законный член
             # семейства: скрытых опор нет, вставлять в фронт нечего. JOIN
-            # мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`) — та же митра.
+            # мягкого излома (`CORNER_JOIN_SOFT_BEND_V1`) и митра на изломе
+            # (`CORNER_MITER_ON_FOLD_V1`) — та же митра.
             mitered += 1
+            fold_mitered += zero_support_law is SelectionLaw.CORNER_MITER_ON_FOLD_V1
             continue
         fan, rescaled, corner = _one_fan(context, spec, speed_squared)
         if fan is None:
@@ -907,6 +922,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
         bound_directions,
         exact_limit_lifted,
         canonical_rays,
+        fold_mitered,
     )
 
 
@@ -1218,6 +1234,10 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
             ),
         )
         if reading.narrow_band_refused_count
+        else ()
+    ) + (
+        (("CONVEYOR_FOLD_MITERED_CORNERS", reading.fold_mitered_count),)
+        if reading.fold_mitered_count
         else ()
     )
 

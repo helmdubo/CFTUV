@@ -290,6 +290,9 @@ class ChainStationTableV1:
     #: Стыки JOIN ПЛАНА (вогнутый угол с записью `CornerTreatmentRecordV1`), ставшие потоком: `(вершина, вхождение до,
     #: вхождение после)`. Домен снимает такой стык только последним средством (`junction_to_withdraw`).
     plan_joins: tuple = field(default=(), compare=False)
+    #: Вершины углов `MITER_SEAM` плана (закон `CORNER_MITER_ON_FOLD_V1`) в петлях домена: митра `k = 0` со швом на
+    #: биссектрисе, потока нет. Угол только назван и посчитан (`STATION_FOLD_MITER_CORNERS`).
+    fold_miters: tuple = field(default=(), compare=False)
 
     def join_station(self, run_a: str, run_b: str):
         """`s` вершины угла JOIN между двумя пробегами (в любом порядке) либо `None`."""
@@ -680,6 +683,27 @@ def _join_successors(context, uses: dict, present, skips: list, withdrawn=frozen
     return successors, outside
 
 
+def _fold_miters(context, present) -> tuple:
+    """Вершины углов `MITER_SEAM` плана, у которых хоть одно вхождение имеет рёбра в петлях домена.
+
+    Записи плана идут по ВСЕМ углам патча, и угол чужой цепи домену не принадлежит. Потока у митры нет: угол остаётся
+    `k = 0` с швом на биссектрисе (так же, как JOIN, снятый после конфликта станций), `_join_successors` её не берёт.
+    """
+
+    relations = {item.corner_relation_id: item for item in context.snapshot.corner_relations}
+    vertices = []
+    for record in sorted(
+        context.compilation.corner_treatments,
+        key=lambda item: item.corner_relation_id.value,
+    ):
+        if record.treatment is not CornerTreatmentV1.MITER_SEAM:
+            continue
+        if record.incoming_chain_use_id.value in present or record.outgoing_chain_use_id.value in present:
+            vertex = relations[record.corner_relation_id].source_vertex_id
+            vertices.append(getattr(vertex, "value", vertex))
+    return tuple(vertices)
+
+
 def _dot_g(gram, left, right) -> Fraction:
     """`<left, right>_G` решёточных векторов, точно."""
 
@@ -861,6 +885,7 @@ def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStation
     plan_joined: list = []
     successors, outside = _join_successors(context, uses, by_use, skips, frozenset(withdrawn), plan_joined)
     same_chain = _same_chain_successors(context, uses, by_use, skips, successors, gram, frozenset(withdrawn))
+    fold_miters = _fold_miters(context, by_use)
     flows = _flows(by_use, successors)
     for flow, closed in flows:
         accumulated = None
@@ -917,6 +942,7 @@ def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStation
             ("STATION_FLOW_CYCLES_OPENED", len(cuts)),
             ("STATION_JOIN_CORNERS_OUT_OF_DOMAIN", outside),
             ("STATION_SAME_PCHAIN_JOINS", len(same_chain)),
+            ("STATION_FOLD_MITER_CORNERS", len(fold_miters)),
         ),
         skips=tuple(skips),
         flow_of_run=flow_of_run,
@@ -925,6 +951,7 @@ def chain_station_table(prepared, budget, withdrawn=frozenset()) -> ChainStation
         cuts=tuple(cuts),
         same_chain_joins=tuple(same_chain),
         plan_joins=tuple(plan_joined),
+        fold_miters=fold_miters,
     )
 
 
