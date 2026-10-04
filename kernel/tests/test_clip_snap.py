@@ -238,3 +238,50 @@ def test_the_cell_estimate_is_an_upper_bound_of_the_local_stretch_of_the_lift_no
         [("t0", ((0, 0), (10, 0), (10, 10)), ((0, 0, 0), (10, 0, 0), (0, 10, 0)))], scale=1
     ).bind(budget())
     assert Fraction(26180, 10_000) < skew.stretch_square(skew.triangles[0]) < Fraction(26190, 10_000)
+
+
+# --------------------------------------------------------------------------
+# Закон 2, пересечение: отрезок вдоль внутреннего ребра встаёт в общий угол, а не в точку у угла
+# --------------------------------------------------------------------------
+
+
+def crossing_of(offset: Fraction, ends: str = "node", edge: int = 0):
+    """`(стадия, пересечение)` отрезка вдоль диагонали (отступ `offset` ячеек по y) с `edge`-м ребром `t0`.
+
+    Ребра `t0`: 0 - низ `y = 0`, 1 - правый край `x = 400`, 2 - диагональ. Концы отрезка - вершины с префиксом `ends`:
+    `node:` стоит в допуске от диагонали (нулевой знак), `src:` знаки точные.
+    """
+
+    stage = ClipStageV1(square_lift(), budget(), {})
+    if edge == 0:
+        first, second = point(50, Fraction(50) - offset), point(-60, Fraction(-60) - offset)
+    else:
+        first, second = point(350, Fraction(350) - offset), point(450, Fraction(450) - offset)
+    nodes = []
+    for index, xy in enumerate((first, second)):
+        node = stage._node(xy)
+        node.key = f"{ends}:{index}"
+        nodes.append(node)
+    return stage, stage._crossing(nodes[0], nodes[1], 0, edge)
+
+
+@pytest.mark.parametrize("edge, corner", ((0, (0, 0)), (1, (SIDE, SIDE))), ids=("bottom-edge", "right-edge"))
+def test_a_crossing_of_a_segment_along_an_interior_edge_within_the_gap_is_the_corner_of_the_two_edges(edge, corner):
+    """Без этого пересечение лежит в долях ячейки за углом: точный знак отрицателен, и кусок не доказывается."""
+
+    stage, crossing = crossing_of(Fraction(3, 10), edge=edge)
+    assert tuple(axis.as_rational() for axis in crossing.point) == corner
+    assert crossing is stage._node(point(*corner))
+    # Исход записан тем же счётчиком нулей по допуску: одно пересечение, поставленное в угол.
+    assert stage.tally[clip_snap.NODE_SIGNS_ZEROED] == 1
+
+
+def test_a_crossing_beyond_the_gap_or_of_exact_ends_stays_exact():
+    # Отступ 1.5 по y: расстояние от диагонали `1.5 / sqrt(2) = 1.06 > 1` ячейки - допуска нет, пересечение `(1.5, 0)`.
+    stage, beyond = crossing_of(Fraction(3, 2))
+    assert tuple(axis.as_rational() for axis in beyond.point) == (Fraction(3, 2), 0)
+    assert stage.tally[clip_snap.NODE_SIGNS_ZEROED] == 0
+    # Концы `src:` допуска ребра не имеют (закон 2 - закон вершин `node:`): пересечение `(0.3, 0)` точное.
+    stage, exact = crossing_of(Fraction(3, 10), ends="src")
+    assert tuple(axis.as_rational() for axis in exact.point) == (Fraction(3, 10), 0)
+    assert stage.tally[clip_snap.NODE_SIGNS_ZEROED] == 0
