@@ -1,0 +1,54 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "fold_miter",
+  "tool": "sweep",
+  "law": "CORNER_MITER_ON_FOLD_V1",
+  "about": "Митра на изломе (решение владельца 2026-10-05, основа f362871): вогнутый угол, которого JOIN не взял, при складке окрестности свыше бюджета (CORNER_FOLD_SIN2_BUDGET_V1, sin^2 двугранного угла кольца-1 свыше 3/10000) и изгибе не шире четверти оборота (замкнуто) получает k = 0 со швом на биссектрисе вместо веера. Меняются ТОЛЬКО домены, где материализатор назвал такой угол (STATION_FOLD_MITER_CORNERS > 0 в новой записи) и чей сертификат планарности — не точная плоскость (на точной плоскости мера нуль тождественно): на building при PLANAR_POLYGONS_V1 это патч 89 (вершины 40, 46, 121; вершина 34 — веер, изгиб около 178 градусов), d1, d2, d4; остальные 121 домен побитово те же. Для следующего закона угла скопируйте и подправьте allow.",
+  "groups": [
+    {
+      "name": "fold_miter_domains_curved",
+      "domains": {
+        "where": [
+          {"side": "new", "counter": "STATION_FOLD_MITER_CORNERS", "op": "gt", "value": 0},
+          {"side": "either", "field": "planarity", "op": "ne", "value": "ExactSourcePlaneCertificateV1"}
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest", "offset_normals_digest"],
+        "counters": [
+          "MATERIALIZE_BOUNDARY_CHAINS",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_FACES_CONTOURED",
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_FACES_IN",
+          "MATERIALIZE_FACES_MERGED",
+          "MATERIALIZE_FAN_FACES",
+          "MATERIALIZE_INTERFACE_CHAINS",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_REGIONS",
+          "MATERIALIZE_STATION_CONSTANT_S",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_SURFACE_LIFT_CANDIDATE_TRIANGLES",
+          "MATERIALIZE_SURFACE_LIFT_LOCATIONS",
+          "MATERIALIZE_SURFACE_LIFT_PREDICATES",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+          "MATERIALIZE_VERTICES",
+          "STATION_FOLD_MITER_CORNERS"
+        ],
+        "counter_prefixes": ["MATERIALIZE_CLIP_"],
+        "diagnostics": [
+          {"prefix": "CORNER_MITER_ON_FOLD_V1"},
+          {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"}
+        ]
+      }
+    }
+  ],
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": ["MATERIALIZE_FACES_LOST", "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"],
+    "no_refusal": true
+  }
+}

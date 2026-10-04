@@ -1,0 +1,2889 @@
+{
+ "base": "f362871",
+ "meshes": [
+  {
+   "after": {
+    "edges": 791,
+    "faces": 368,
+    "mesh_digest": "d90cbc39578c3dcd781536869ccb3e7ec38495f08614efaffbf4f7d8f14003f7",
+    "seam_edges": 119,
+    "vertices": 419,
+    "wall_seconds": 18.662
+   },
+   "before": {
+    "edges": 791,
+    "faces": 368,
+    "mesh_digest": "d90cbc39578c3dcd781536869ccb3e7ec38495f08614efaffbf4f7d8f14003f7",
+    "seam_edges": 119,
+    "vertices": 419,
+    "wall_seconds": 20.016
+   },
+   "corners": [
+    {
+     "delta_deg": 4.8727,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 40
+    },
+    {
+     "delta_deg": 6.5121,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 41
+    },
+    {
+     "delta_deg": 8.5528,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 42
+    },
+    {
+     "delta_deg": 10.7615,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 43
+    },
+    {
+     "delta_deg": 12.3617,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 44
+    },
+    {
+     "delta_deg": 12.3565,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 45
+    },
+    {
+     "delta_deg": 10.7747,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 46
+    },
+    {
+     "delta_deg": 8.5388,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 47
+    },
+    {
+     "delta_deg": 6.5181,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 48
+    },
+    {
+     "delta_deg": 4.8786,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 49
+    },
+    {
+     "delta_deg": 28.151,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 67
+    },
+    {
+     "delta_deg": 3.612,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 52.775,
+     "ring1_fold_sin2": 0.6340467943108536,
+     "same_chain": true,
+     "vertex": 20
+    },
+    {
+     "delta_deg": 8.019,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 44.301,
+     "ring1_fold_sin2": 0.4877952539630259,
+     "same_chain": true,
+     "vertex": 23
+    },
+    {
+     "delta_deg": 7.8705,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 9.624,
+     "ring1_fold_sin2": 0.027951013679456203,
+     "same_chain": true,
+     "vertex": 26
+    },
+    {
+     "delta_deg": 0.9132,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 61.627,
+     "ring1_fold_sin2": 0.7741711398586145,
+     "same_chain": true,
+     "vertex": 30
+    },
+    {
+     "delta_deg": 1.448,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 31.162,
+     "ring1_fold_sin2": 0.2677648063072218,
+     "same_chain": true,
+     "vertex": 31
+    },
+    {
+     "delta_deg": 10.207,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 62.479,
+     "ring1_fold_sin2": 0.7864937072850664,
+     "same_chain": true,
+     "vertex": 32
+    },
+    {
+     "delta_deg": 18.9995,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 48.363,
+     "ring1_fold_sin2": 0.5585591265338122,
+     "same_chain": true,
+     "vertex": 53
+    },
+    {
+     "delta_deg": 2.3864,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 8.18,
+     "ring1_fold_sin2": 0.020246637310603815,
+     "same_chain": true,
+     "vertex": 54
+    },
+    {
+     "delta_deg": 4.0151,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 25.453,
+     "ring1_fold_sin2": 0.18470938306176526,
+     "same_chain": true,
+     "vertex": 55
+    },
+    {
+     "delta_deg": 1.994,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 14.993,
+     "ring1_fold_sin2": 0.06692207769724698,
+     "same_chain": true,
+     "vertex": 56
+    },
+    {
+     "delta_deg": 20.3022,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 26.36,
+     "ring1_fold_sin2": 0.19714357917811565,
+     "same_chain": true,
+     "vertex": 57
+    },
+    {
+     "delta_deg": 4.7447,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 42.106,
+     "ring1_fold_sin2": 0.4495778715612922,
+     "same_chain": true,
+     "vertex": 58
+    },
+    {
+     "delta_deg": 12.3384,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 37.797,
+     "ring1_fold_sin2": 0.37560347708453534,
+     "same_chain": true,
+     "vertex": 60
+    },
+    {
+     "delta_deg": 7.724,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 1.451,
+     "ring1_fold_sin2": 0.0006408272570442169,
+     "same_chain": true,
+     "vertex": 61
+    },
+    {
+     "delta_deg": 8.0741,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 57.855,
+     "ring1_fold_sin2": 0.7169090297520059,
+     "same_chain": true,
+     "vertex": 66
+    },
+    {
+     "delta_deg": 3.5044,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 2,
+     "ring1_dihedral_deg": 31.435,
+     "ring1_fold_sin2": 0.2719887419280559,
+     "same_chain": true,
+     "vertex": 117
+    },
+    {
+     "delta_deg": 22.6004,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 2.647,
+     "ring1_fold_sin2": 0.0021327218085675334,
+     "same_chain": true,
+     "vertex": 21
+    },
+    {
+     "delta_deg": 44.5674,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513575162075054,
+     "same_chain": true,
+     "vertex": 22
+    },
+    {
+     "delta_deg": 11.6613,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513237745929034,
+     "same_chain": true,
+     "vertex": 24
+    },
+    {
+     "delta_deg": 4.046,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513109853457917,
+     "same_chain": true,
+     "vertex": 25
+    },
+    {
+     "delta_deg": 19.2534,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513539490445492,
+     "same_chain": true,
+     "vertex": 29
+    },
+    {
+     "delta_deg": 12.4218,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513539490445492,
+     "same_chain": true,
+     "vertex": 30
+    },
+    {
+     "delta_deg": 33.672,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513660661708918,
+     "same_chain": true,
+     "vertex": 33
+    },
+    {
+     "delta_deg": 30.3732,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 3,
+     "ring1_dihedral_deg": 5.294,
+     "ring1_fold_sin2": 0.008513237745929034,
+     "same_chain": true,
+     "vertex": 35
+    },
+    {
+     "delta_deg": 18.3449,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 4.877,
+     "ring1_fold_sin2": 0.007226805750120843,
+     "same_chain": true,
+     "vertex": 52
+    },
+    {
+     "delta_deg": 3.6105,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 6.513,
+     "ring1_fold_sin2": 0.012864899975927765,
+     "same_chain": true,
+     "vertex": 53
+    },
+    {
+     "delta_deg": 16.7716,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 10.766,
+     "ring1_fold_sin2": 0.03489430955745319,
+     "same_chain": true,
+     "vertex": 55
+    },
+    {
+     "delta_deg": 7.7843,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 12.36,
+     "ring1_fold_sin2": 0.04581526170629343,
+     "same_chain": true,
+     "vertex": 56
+    },
+    {
+     "delta_deg": 30.3316,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 10.766,
+     "ring1_fold_sin2": 0.03489430955745319,
+     "same_chain": true,
+     "vertex": 58
+    },
+    {
+     "delta_deg": 2.4485,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 4,
+     "ring1_dihedral_deg": 6.513,
+     "ring1_fold_sin2": 0.012864899975927765,
+     "same_chain": true,
+     "vertex": 60
+    },
+    {
+     "delta_deg": 16.6992,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 5,
+     "ring1_dihedral_deg": 0.0,
+     "ring1_fold_sin2": 0.0,
+     "same_chain": true,
+     "vertex": 116
+    }
+   ],
+   "corners_changed": 0,
+   "corners_total": 42,
+   "counterfactual_if_every_corner_were_between_different_chains": {
+    "FAN / old reason (fold within budget)": 12,
+    "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER": 30
+   },
+   "delta_histogram_all_corners": {
+    "[0,15)": 30,
+    "[15,30)": 8,
+    "[30,45)": 4
+   },
+   "domains": {
+    "0": {
+     "content_digest_same": true,
+     "faces": [
+      33,
+      33
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.7339,
+      0.7287
+     ]
+    },
+    "1": {
+     "content_digest_same": true,
+     "faces": [
+      8,
+      8
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0514,
+      0.0523
+     ]
+    },
+    "2": {
+     "content_digest_same": true,
+     "faces": [
+      217,
+      217
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      2.0573,
+      1.9817
+     ]
+    },
+    "3": {
+     "content_digest_same": true,
+     "faces": [
+      57,
+      57
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.8306,
+      0.8214
+     ]
+    },
+    "4": {
+     "content_digest_same": true,
+     "faces": [
+      36,
+      36
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.46,
+      0.4492
+     ]
+    },
+    "5": {
+     "content_digest_same": true,
+     "faces": [
+      17,
+      17
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.1153,
+      0.1051
+     ]
+    }
+   },
+   "fan_corners_before": 0,
+   "host_stage_totals_seconds_after": {
+    "ANGULAR_RELATIONS": 0.555,
+    "BUNDLE_SLICE": 0.0,
+    "DOMAIN_GEOMETRY_EXPORT": 0.0,
+    "FRAME_ADMISSION": 5.427,
+    "HOST_CHAIN_COLLECTION": 0.0,
+    "PATCH_METRIC_EXPORT": 8.087,
+    "PRODUCTION_DOMAINS_WALL": 18.436,
+    "SEAM_PARTITION_NORMALIZATION": 0.005,
+    "SELECTION_SCOPE": 0.0,
+    "SNAPSHOT_VALIDATION": 2.072,
+    "TOPOLOGY_EXPORT": 0.005,
+    "TOPOLOGY_SCENE": 0.044
+   },
+   "mesh": "rounded_wall_noise_top",
+   "mesh_digest_same": true,
+   "policy_read_from_scene": {
+    "alpha": 0.2238786518573761,
+    "density": "2",
+    "max_stretch": 42,
+    "workers": 0
+   },
+   "ring1_dihedral_histogram_all_corners": {
+    "[0,0.1)": 12,
+    "[0.99,2)": 1,
+    "[10,20)": 4,
+    "[2,5)": 2,
+    "[20,45)": 7,
+    "[45,90.0001)": 5,
+    "[5,10)": 11
+   },
+   "same_chain_corners": 42
+  },
+  {
+   "after": {
+    "edges": 262,
+    "faces": 114,
+    "mesh_digest": "42994ea765bff3466336a7240095f3a5589dc93fedd0d9f884682c84671c31cd",
+    "seam_edges": 29,
+    "vertices": 147,
+    "wall_seconds": 6.379
+   },
+   "before": {
+    "edges": 262,
+    "faces": 114,
+    "mesh_digest": "42994ea765bff3466336a7240095f3a5589dc93fedd0d9f884682c84671c31cd",
+    "seam_edges": 29,
+    "vertices": 147,
+    "wall_seconds": 7.115
+   },
+   "corners": [
+    {
+     "delta_deg": 22.6514,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 2.296,
+     "ring1_fold_sin2": 0.0016047516901511404,
+     "same_chain": true,
+     "vertex": 4
+    },
+    {
+     "delta_deg": 34.1643,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 2.244,
+     "ring1_fold_sin2": 0.0015336565849938203,
+     "same_chain": true,
+     "vertex": 5
+    },
+    {
+     "delta_deg": 25.2437,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 3.758,
+     "ring1_fold_sin2": 0.004295578973340064,
+     "same_chain": true,
+     "vertex": 6
+    },
+    {
+     "delta_deg": 32.4892,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 3.171,
+     "ring1_fold_sin2": 0.0030595942901701133,
+     "same_chain": true,
+     "vertex": 7
+    },
+    {
+     "delta_deg": 36.1225,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 2.843,
+     "ring1_fold_sin2": 0.0024593156066590083,
+     "same_chain": true,
+     "vertex": 8
+    },
+    {
+     "delta_deg": 31.0873,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 0,
+     "ring1_dihedral_deg": 1.73,
+     "ring1_fold_sin2": 0.0009116046423383187,
+     "same_chain": true,
+     "vertex": 36
+    },
+    {
+     "delta_deg": 1.6457,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 22.683,
+     "ring1_fold_sin2": 0.1487112446154984,
+     "same_chain": true,
+     "vertex": 4
+    },
+    {
+     "delta_deg": 1.9102,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 34.219,
+     "ring1_fold_sin2": 0.3162533293655356,
+     "same_chain": true,
+     "vertex": 5
+    },
+    {
+     "delta_deg": 1.4843,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 25.294,
+     "ring1_fold_sin2": 0.1825538523856718,
+     "same_chain": true,
+     "vertex": 6
+    },
+    {
+     "delta_deg": 2.4973,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 34.069,
+     "ring1_fold_sin2": 0.31380915708077856,
+     "same_chain": true,
+     "vertex": 7
+    },
+    {
+     "delta_deg": 5.8397,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 32.93,
+     "ring1_fold_sin2": 0.29551339218024875,
+     "same_chain": true,
+     "vertex": 9
+    },
+    {
+     "delta_deg": 0.0087,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 61.251,
+     "ring1_fold_sin2": 0.7686698154131348,
+     "same_chain": true,
+     "vertex": 12
+    },
+    {
+     "delta_deg": 0.6206,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 22.683,
+     "ring1_fold_sin2": 0.1487112446154984,
+     "same_chain": true,
+     "vertex": 13
+    },
+    {
+     "delta_deg": 0.0426,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 33.191,
+     "ring1_fold_sin2": 0.2996851790431187,
+     "same_chain": true,
+     "vertex": 14
+    },
+    {
+     "delta_deg": 2.2568,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 25.294,
+     "ring1_fold_sin2": 0.1825538523856718,
+     "same_chain": true,
+     "vertex": 15
+    },
+    {
+     "delta_deg": 3.14,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 36.307,
+     "ring1_fold_sin2": 0.3505952643501153,
+     "same_chain": true,
+     "vertex": 16
+    },
+    {
+     "delta_deg": 0.0051,
+     "if_different_chains": "FAN / old reason (fold within budget)",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 0.314,
+     "ring1_fold_sin2": 2.9979274092744258e-05,
+     "same_chain": true,
+     "vertex": 24
+    },
+    {
+     "delta_deg": 1.0466,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 8.403,
+     "ring1_fold_sin2": 0.021357480654187307,
+     "same_chain": true,
+     "vertex": 30
+    },
+    {
+     "delta_deg": 0.2021,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 7.203,
+     "ring1_fold_sin2": 0.01572326535059936,
+     "same_chain": true,
+     "vertex": 31
+    },
+    {
+     "delta_deg": 6.8303,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 33.056,
+     "ring1_fold_sin2": 0.2975303565217968,
+     "same_chain": true,
+     "vertex": 32
+    },
+    {
+     "delta_deg": 17.3366,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 70.581,
+     "ring1_fold_sin2": 0.8894651673437842,
+     "same_chain": true,
+     "vertex": 33
+    },
+    {
+     "delta_deg": 3.4686,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 32.424,
+     "ring1_fold_sin2": 0.2874835508637125,
+     "same_chain": true,
+     "vertex": 34
+    },
+    {
+     "delta_deg": 2.8884,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "old": "JOIN_CONTINUATION/SOFT_BEND_IN_ONE_SOURCE_CHAIN",
+     "patch": 1,
+     "ring1_dihedral_deg": 30.95,
+     "ring1_fold_sin2": 0.26449009741036456,
+     "same_chain": true,
+     "vertex": 36
+    }
+   ],
+   "corners_changed": 0,
+   "corners_total": 23,
+   "counterfactual_if_every_corner_were_between_different_chains": {
+    "FAN / old reason (fold within budget)": 1,
+    "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER": 22
+   },
+   "delta_histogram_all_corners": {
+    "[0,15)": 16,
+    "[15,30)": 3,
+    "[30,45)": 4
+   },
+   "domains": {
+    "0": {
+     "content_digest_same": true,
+     "faces": [
+      53,
+      53
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.6261,
+      0.6668
+     ]
+    },
+    "1": {
+     "content_digest_same": true,
+     "faces": [
+      61,
+      61
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.7438,
+      0.7476
+     ]
+    }
+   },
+   "fan_corners_before": 0,
+   "host_stage_totals_seconds_after": null,
+   "mesh": "sagging_wall",
+   "mesh_digest_same": true,
+   "policy_read_from_scene": {
+    "alpha": 0.2238786518573761,
+    "density": "2",
+    "max_stretch": 42,
+    "workers": 0
+   },
+   "ring1_dihedral_histogram_all_corners": {
+    "[0.1,0.5)": 1,
+    "[0.99,2)": 1,
+    "[2,5)": 5,
+    "[20,45)": 12,
+    "[45,90.0001)": 2,
+    "[5,10)": 2
+   },
+   "same_chain_corners": 23
+  },
+  {
+   "after": {
+    "edges": 2447,
+    "faces": 1008,
+    "mesh_digest": "4b1a27b1fac9afd19d72fc9a16bbc8418c57a37e7fe5da858b91a42ebbad7184",
+    "seam_edges": 1349,
+    "vertices": 1308,
+    "wall_seconds": 57.043
+   },
+   "before": {
+    "edges": 2455,
+    "faces": 1012,
+    "mesh_digest": "b8a93c250faed267192a7dad23d77c75317d0257376b594cdf7f481c22a62698",
+    "seam_edges": 1353,
+    "vertices": 1312,
+    "wall_seconds": 56.821
+   },
+   "corners": [
+    {
+     "delta_deg": 178.1728,
+     "if_different_chains": "FAN / BEND_BEYOND_MITER_BOUND",
+     "new": "ANGULAR_PROFILE/BEND_BEYOND_MITER_BOUND",
+     "old": "ANGULAR_PROFILE/SOURCE_CHAIN_UNPROVEN",
+     "patch": 89,
+     "ring1_dihedral_deg": 90.0,
+     "ring1_fold_sin2": 1.0,
+     "same_chain": false,
+     "vertex": 34
+    },
+    {
+     "delta_deg": 35.914,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "MITER_SEAM/FOLDED_NEIGHBOURHOOD_MITER",
+     "old": "ANGULAR_PROFILE/SOURCE_CHAIN_UNPROVEN",
+     "patch": 89,
+     "ring1_dihedral_deg": 1.859,
+     "ring1_fold_sin2": 0.0010527417229481205,
+     "same_chain": false,
+     "vertex": 40
+    },
+    {
+     "delta_deg": 90.0,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "MITER_SEAM/FOLDED_NEIGHBOURHOOD_MITER",
+     "old": "ANGULAR_PROFILE/SOURCE_CHAIN_UNPROVEN",
+     "patch": 89,
+     "ring1_dihedral_deg": 1.859,
+     "ring1_fold_sin2": 0.0010527417229481205,
+     "same_chain": false,
+     "vertex": 46
+    },
+    {
+     "delta_deg": 89.7171,
+     "if_different_chains": "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER",
+     "new": "MITER_SEAM/FOLDED_NEIGHBOURHOOD_MITER",
+     "old": "ANGULAR_PROFILE/SOURCE_CHAIN_UNPROVEN",
+     "patch": 89,
+     "ring1_dihedral_deg": 90.0,
+     "ring1_fold_sin2": 1.0,
+     "same_chain": false,
+     "vertex": 121
+    }
+   ],
+   "corners_changed": 4,
+   "corners_total": 186,
+   "counterfactual_if_every_corner_were_between_different_chains": {
+    "FAN / BEND_BEYOND_MITER_BOUND": 1,
+    "FAN / old reason (fold within budget)": 182,
+    "MITER_SEAM / FOLDED_NEIGHBOURHOOD_MITER": 3
+   },
+   "delta_histogram_all_corners": {
+    "[105,120)": 1,
+    "[165,180)": 1,
+    "[30,45)": 1,
+    "[60,75)": 1,
+    "[75,90)": 3,
+    "[90,105)": 179
+   },
+   "domains": {
+    "0": {
+     "content_digest_same": true,
+     "faces": [
+      22,
+      22
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.1995,
+      0.2046
+     ]
+    },
+    "1": {
+     "content_digest_same": true,
+     "faces": [
+      54,
+      54
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.6827,
+      0.6884
+     ]
+    },
+    "10": {
+     "content_digest_same": true,
+     "faces": [
+      17,
+      17
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.1385,
+      0.1389
+     ]
+    },
+    "100": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0209,
+      0.0212
+     ]
+    },
+    "101": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0147,
+      0.0146
+     ]
+    },
+    "102": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0159,
+      0.0161
+     ]
+    },
+    "103": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.019,
+      0.0192
+     ]
+    },
+    "104": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0192,
+      0.0191
+     ]
+    },
+    "105": {
+     "content_digest_same": true,
+     "faces": [
+      9,
+      9
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0613,
+      0.0629
+     ]
+    },
+    "106": {
+     "content_digest_same": true,
+     "faces": [
+      20,
+      20
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.1413,
+      0.1422
+     ]
+    },
+    "107": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0139
+     ]
+    },
+    "108": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0133,
+      0.0134
+     ]
+    },
+    "109": {
+     "content_digest_same": true,
+     "faces": [
+      25,
+      25
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.2315,
+      0.2143
+     ]
+    },
+    "11": {
+     "content_digest_same": true,
+     "faces": [
+      55,
+      55
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.6546,
+      0.6559
+     ]
+    },
+    "110": {
+     "content_digest_same": true,
+     "faces": [
+      13,
+      13
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0794,
+      0.0787
+     ]
+    },
+    "111": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0158,
+      0.0158
+     ]
+    },
+    "112": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0171,
+      0.0139
+     ]
+    },
+    "113": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0122,
+      0.013
+     ]
+    },
+    "114": {
+     "content_digest_same": true,
+     "faces": [
+      12,
+      12
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0825,
+      0.1001
+     ]
+    },
+    "115": {
+     "content_digest_same": true,
+     "faces": [
+      12,
+      12
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0841,
+      0.0862
+     ]
+    },
+    "116": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0125,
+      0.0143
+     ]
+    },
+    "117": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.013,
+      0.0128
+     ]
+    },
+    "118": {
+     "content_digest_same": true,
+     "faces": [
+      5,
+      5
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0317,
+      0.0257
+     ]
+    },
+    "119": {
+     "content_digest_same": true,
+     "faces": [
+      5,
+      5
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0215,
+      0.0203
+     ]
+    },
+    "12": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0162,
+      0.016
+     ]
+    },
+    "120": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0284,
+      0.028
+     ]
+    },
+    "121": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0297,
+      0.0281
+     ]
+    },
+    "13": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0149,
+      0.0148
+     ]
+    },
+    "14": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0167,
+      0.0163
+     ]
+    },
+    "15": {
+     "content_digest_same": true,
+     "faces": [
+      50,
+      50
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.5902,
+      0.5918
+     ]
+    },
+    "16": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.016,
+      0.016
+     ]
+    },
+    "17": {
+     "content_digest_same": true,
+     "faces": [
+      27,
+      27
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.2684,
+      0.2675
+     ]
+    },
+    "18": {
+     "content_digest_same": true,
+     "faces": [
+      5,
+      5
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0286,
+      0.0282
+     ]
+    },
+    "19": {
+     "content_digest_same": true,
+     "faces": [
+      59,
+      59
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.3717,
+      0.3721
+     ]
+    },
+    "2": {
+     "content_digest_same": true,
+     "faces": [
+      6,
+      6
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0248,
+      0.0253
+     ]
+    },
+    "20": {
+     "content_digest_same": true,
+     "faces": [
+      22,
+      22
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.1201,
+      0.1209
+     ]
+    },
+    "21": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.014,
+      0.014
+     ]
+    },
+    "22": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.014,
+      0.0141
+     ]
+    },
+    "23": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0219,
+      0.0221
+     ]
+    },
+    "24": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0131,
+      0.0132
+     ]
+    },
+    "25": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0194,
+      0.0195
+     ]
+    },
+    "26": {
+     "content_digest_same": true,
+     "faces": [
+      3,
+      3
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0181,
+      0.0176
+     ]
+    },
+    "27": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0441,
+      0.0433
+     ]
+    },
+    "28": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0161,
+      0.0157
+     ]
+    },
+    "29": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.017,
+      0.0169
+     ]
+    },
+    "3": {
+     "content_digest_same": true,
+     "faces": [
+      12,
+      12
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0644,
+      0.0643
+     ]
+    },
+    "30": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0148
+     ]
+    },
+    "31": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0148,
+      0.0145
+     ]
+    },
+    "32": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0155,
+      0.0155
+     ]
+    },
+    "33": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0151,
+      0.0155
+     ]
+    },
+    "34": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0165,
+      0.0165
+     ]
+    },
+    "35": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0146
+     ]
+    },
+    "36": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0157,
+      0.0157
+     ]
+    },
+    "37": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0147,
+      0.0145
+     ]
+    },
+    "38": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0148,
+      0.0147
+     ]
+    },
+    "39": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0207,
+      0.021
+     ]
+    },
+    "4": {
+     "content_digest_same": true,
+     "faces": [
+      7,
+      7
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0348,
+      0.0361
+     ]
+    },
+    "40": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0154,
+      0.0156
+     ]
+    },
+    "41": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0171,
+      0.0169
+     ]
+    },
+    "42": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0158,
+      0.0158
+     ]
+    },
+    "43": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0161,
+      0.016
+     ]
+    },
+    "44": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0148,
+      0.015
+     ]
+    },
+    "45": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0156,
+      0.0158
+     ]
+    },
+    "46": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0144,
+      0.0147
+     ]
+    },
+    "47": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0151,
+      0.0155
+     ]
+    },
+    "48": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.014,
+      0.0157
+     ]
+    },
+    "49": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0141,
+      0.0142
+     ]
+    },
+    "5": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0156,
+      0.0151
+     ]
+    },
+    "50": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0142,
+      0.0144
+     ]
+    },
+    "51": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0143,
+      0.0142
+     ]
+    },
+    "52": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.015,
+      0.0153
+     ]
+    },
+    "53": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0154,
+      0.0155
+     ]
+    },
+    "54": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0151,
+      0.0154
+     ]
+    },
+    "55": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0152,
+      0.0153
+     ]
+    },
+    "56": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0142,
+      0.0144
+     ]
+    },
+    "57": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.014,
+      0.0145
+     ]
+    },
+    "58": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0142,
+      0.0146
+     ]
+    },
+    "59": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0141,
+      0.0141
+     ]
+    },
+    "6": {
+     "content_digest_same": true,
+     "faces": [
+      74,
+      74
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.8963,
+      0.8989
+     ]
+    },
+    "60": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.014,
+      0.0143
+     ]
+    },
+    "61": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0151,
+      0.2421
+     ]
+    },
+    "62": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0143,
+      0.0145
+     ]
+    },
+    "63": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0155
+     ]
+    },
+    "64": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0149,
+      0.0146
+     ]
+    },
+    "65": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0149
+     ]
+    },
+    "66": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0152,
+      0.0151
+     ]
+    },
+    "67": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0147,
+      0.0145
+     ]
+    },
+    "68": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0147,
+      0.0147
+     ]
+    },
+    "69": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0146,
+      0.0144
+     ]
+    },
+    "7": {
+     "content_digest_same": true,
+     "faces": [
+      60,
+      60
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.8569,
+      0.8592
+     ]
+    },
+    "70": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0146,
+      0.0145
+     ]
+    },
+    "71": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0146,
+      0.0144
+     ]
+    },
+    "72": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0146,
+      0.0149
+     ]
+    },
+    "73": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0144,
+      0.0155
+     ]
+    },
+    "74": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0145
+     ]
+    },
+    "75": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0154,
+      0.0158
+     ]
+    },
+    "76": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0156,
+      0.016
+     ]
+    },
+    "77": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0143,
+      0.0144
+     ]
+    },
+    "78": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0148,
+      0.0148
+     ]
+    },
+    "79": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0158,
+      0.0162
+     ]
+    },
+    "8": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0164,
+      0.0162
+     ]
+    },
+    "80": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.016,
+      0.0159
+     ]
+    },
+    "81": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0161,
+      0.0161
+     ]
+    },
+    "82": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.2576,
+      0.0148
+     ]
+    },
+    "83": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0146,
+      0.0146
+     ]
+    },
+    "84": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0166,
+      0.0156
+     ]
+    },
+    "85": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0143
+     ]
+    },
+    "86": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0156,
+      0.0176
+     ]
+    },
+    "87": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0161,
+      0.0159
+     ]
+    },
+    "88": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0145,
+      0.0146
+     ]
+    },
+    "89": {
+     "content_digest_same": false,
+     "faces": [
+      38,
+      34
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.2802,
+      0.2637
+     ]
+    },
+    "9": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0261,
+      0.0256
+     ]
+    },
+    "90": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0202,
+      0.0203
+     ]
+    },
+    "91": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0152,
+      0.0148
+     ]
+    },
+    "92": {
+     "content_digest_same": true,
+     "faces": [
+      6,
+      6
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0265,
+      0.0238
+     ]
+    },
+    "93": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0163,
+      0.016
+     ]
+    },
+    "94": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0156,
+      0.0158
+     ]
+    },
+    "95": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0162,
+      0.016
+     ]
+    },
+    "96": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0158,
+      0.0155
+     ]
+    },
+    "97": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0128,
+      0.0125
+     ]
+    },
+    "98": {
+     "content_digest_same": true,
+     "faces": [
+      4,
+      4
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0133,
+      0.0134
+     ]
+    },
+    "99": {
+     "content_digest_same": true,
+     "faces": [
+      10,
+      10
+     ],
+     "outcome": [
+      "MATERIALIZED",
+      "MATERIALIZED"
+     ],
+     "seconds_exact_rebuild_before_after": [
+      0.0467,
+      0.0483
+     ]
+    }
+   },
+   "fan_corners_before": 186,
+   "host_stage_totals_seconds_after": null,
+   "mesh": "building",
+   "mesh_digest_same": false,
+   "policy_read_from_scene": {
+    "alpha": 0.2238786518573761,
+    "density": "2",
+    "max_stretch": 42,
+    "workers": 0
+   },
+   "ring1_dihedral_histogram_all_corners": {
+    "[0,0.1)": 180,
+    "[0.5,0.99)": 2,
+    "[0.99,2)": 2,
+    "[45,90.0001)": 2
+   },
+   "same_chain_corners": 0
+  }
+ ],
+ "schema": "cftuv.corner_fold.field_receipt.v1",
+ "tool": "artifacts/production_sweep/production_probe.py machinery + per-corner capture of reference.compile.resolve_corner_selection (old = _corner_treatment.decide, new = the recorded treatment)",
+ "what": "CORNER_MITER_ON_FOLD_V1 at the owner's stored policy (alpha, Fan Density, Max stretch read from E:/testscene.blend scene settings, not overridden); headless Blender 4.5, workers 0, scene never saved"
+}

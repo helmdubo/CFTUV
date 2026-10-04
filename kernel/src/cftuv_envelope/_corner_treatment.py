@@ -36,6 +36,18 @@
   `δ/π = 1/2`, замкнутый конец) — вне предела (предел исключительный), и угол в допуске 0.1° от прямого, который
   восстанавливается на канонический, решается так же: прямой угол и его шум ведут себя одинаково (угол).
 
+ВТОРОЙ ЗАКОН — МИТРА НА ИЗЛОМЕ (`CORNER_MITER_ON_FOLD_V1`, решение владельца 2026-10-05). Угол, которого JOIN не взял
+(куски РАЗНЫХ цепей — `SOURCE_CHAIN_UNPROVEN` — либо изгиб за пределом JOIN), при СЛОЖЕННОЙ окрестности (мера
+`_corner_fold`: `sin^2` двугранного угла кольца-1 вершины внутри патча владельца свыше `CORNER_FOLD_SIN2_BUDGET`)
+получает не веер, а митру со швом на биссектрисе: `MITER_SEAM`, `k = 0`, потока нет (материализатор ведёт такой угол как
+JOIN, снятый при конфликте станций). Предел изгиба у митры ЗАМКНУТЫЙ: `δ/π <= 1/2`, прямой угол берёт митру (шов,
+а не поток: билинейного излома UV, ради которого предел JOIN исключительный, у шва нет; смещение митры на прямом угле
+— `sqrt(2) alpha`). Складка свыше бюджета при изгибе шире (либо не доказанном в пределах) остаётся веером под именем
+`BEND_BEYOND_MITER_BOUND`. Складка в бюджете, нулевая и неизмеримая (нет позиций, пустое кольцо) оставляют прежнее
+решение и прежнюю причину БЕЗ ИЗМЕНЕНИЙ: ответ не меняется, новой записи не требуется (п. 4 `AGENTS.md`), планы всех
+плоских доменов побитово те же. Решающий закон записи — `treatment_law` (`law_of`): записи с причинами митры несут
+`CORNER_MITER_ON_FOLD_V1`, остальные — `CORNER_JOIN_SAME_PCHAIN_V1`.
+
 Известное следствие, которое нельзя вывести из кода: хост режет цепь на куски не
 только в изломах, но и в вершинах разбиения шва (`cut_vertices_by_pair`), где
 у владельца излом может быть ≈ 0°; такой стык двух кусков одной цепи владельца
@@ -49,15 +61,26 @@ from __future__ import annotations
 from fractions import Fraction
 
 from ._canonical_angle import selector_reflex_excess_interval
+from ._corner_fold import CORNER_FOLD_SIN2_BUDGET
 from .contracts.envelopes import (
     CornerTreatmentReasonV1,
     CornerTreatmentRecordV1,
     CornerTreatmentV1,
+    SelectionLaw,
 )
 from .contracts.lineage import owner_chain_source_prefix
 from .numeric import ExactRatioV1, IntervalEndpointKind
 
 CORNER_TREATMENT_LAW = "CORNER_JOIN_SAME_PCHAIN_V1"
+#: Имя закона МИТРЫ НА ИЗЛОМЕ в `CornerTreatmentRecordV1.treatment_law` (причины `MITER_LAW_REASONS`).
+CORNER_MITER_LAW = "CORNER_MITER_ON_FOLD_V1"
+#: Причины, которые пишет закон митры: решает он, а не JOIN.
+MITER_LAW_REASONS = frozenset(
+    {
+        CornerTreatmentReasonV1.FOLDED_NEIGHBOURHOOD_MITER,
+        CornerTreatmentReasonV1.BEND_BEYOND_MITER_BOUND,
+    }
+)
 #: ПРЕДЕЛ ИЗГИБА JOIN, доля π рефлексного избытка: 1/2 = четверть оборота = 90°, ИСКЛЮЧИТЕЛЬНЫЙ (JOIN при `δ/π < 1/2`; прежде
 #: здесь стоял порог выбора 1/4 = 45°, до него 1/6 = 30°: решал угол; теперь решает тождество цепи, а предел — строго
 #: меньше четверти оборота). Запись реестра допусков.
@@ -90,11 +113,25 @@ def bend_reason(interval) -> CornerTreatmentReasonV1 | None:
     return CornerTreatmentReasonV1.REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD
 
 
+#: Закон счёта сертификата селекции по обработке угла. У веера (`ANGULAR_PROFILE`) закона угла нет: счёт плотности.
+SELECTION_LAW_OF_TREATMENT = {
+    CornerTreatmentV1.JOIN_CONTINUATION: SelectionLaw.CORNER_JOIN_SOFT_BEND_V1,
+    CornerTreatmentV1.MITER_SEAM: SelectionLaw.CORNER_MITER_ON_FOLD_V1,
+}
+
+
+def law_of(reason) -> str:
+    """Закон, который решил запись с этой причиной: митра на изломе либо JOIN по тождеству цепи."""
+
+    return CORNER_MITER_LAW if reason in MITER_LAW_REASONS else CORNER_TREATMENT_LAW
+
+
 def decide(sector, measure, uses_by_id, chains_by_id):
-    """`(обработка, причина, общая линия)` одного угла по сырым фактам.
+    """Решение закона JOIN: `(обработка, причина, общая линия)` одного угла по сырым фактам.
 
     Порядок решения — порядок закона: сначала тождество цепи (две опоры ОДНОЙ цепи владельца?), затем предел
-    изгиба. Куски разных цепей остаются углом под своим счётом с причиной `SOURCE_CHAIN_UNPROVEN`.
+    изгиба. Куски разных цепей остаются углом под своим счётом с причиной `SOURCE_CHAIN_UNPROVEN`. Решение угла целиком
+    (JOIN, затем митра на изломе) — `decide_corner`.
     """
 
     incoming, outgoing = (
@@ -124,12 +161,42 @@ def decide(sector, measure, uses_by_id, chains_by_id):
     )
 
 
+def _fold_decision(decision, sector, measure, relation, fold):
+    """Закон МИТРЫ НА ИЗЛОМЕ над решением, которое JOIN не взял; `decision` возвращается, если закон ничего не меняет.
+
+    Складка в бюджете, нулевая и неизмеримая не меняют ничего. Складка свыше бюджета: изгиб не шире четверти оборота
+    (`δ/π <= 1/2`, ЗАМКНУТО, по верхней границе сертифицированного интервала) — митра со швом, иначе веер под именем
+    `BEND_BEYOND_MITER_BOUND`. Общая линия цепи (`shared`) переносится как факт, а не как основание.
+    """
+
+    sin2 = fold.sin2_at(relation.source_vertex_id, sector.owner_patch_id)
+    if sin2 is None or sin2 <= CORNER_FOLD_SIN2_BUDGET:
+        return decision
+    interval, _restoration = selector_reflex_excess_interval(measure.reflex_excess_over_pi)
+    if Fraction(interval.upper) <= JOIN_BEND_BOUND_OVER_PI:
+        return CornerTreatmentV1.MITER_SEAM, CornerTreatmentReasonV1.FOLDED_NEIGHBOURHOOD_MITER, decision[2]
+    return CornerTreatmentV1.ANGULAR_PROFILE, CornerTreatmentReasonV1.BEND_BEYOND_MITER_BOUND, decision[2]
+
+
+def decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold):
+    """`(обработка, причина, общая линия)` одного угла по сырым фактам: решение угла целиком.
+
+    Порядок решения — порядок законов: сначала JOIN (`decide`: тождество цепи, предел изгиба), затем, если JOIN угол
+    не взял, МИТРА НА ИЗЛОМЕ (`fold` — `_corner_fold.CornerFoldFacts` того же снапшота).
+    """
+
+    decision = decide(sector, measure, uses_by_id, chains_by_id)
+    if decision[0] is CornerTreatmentV1.JOIN_CONTINUATION:
+        return decision
+    return _fold_decision(decision, sector, measure, relation, fold)
+
+
 def treatment_record(relation, sector, selection_id, measure, decision) -> CornerTreatmentRecordV1:
-    """Запись одного угла по решению `decide`."""
+    """Запись одного угла по решению `decide_corner`."""
 
     treatment, reason, shared = decision
     return CornerTreatmentRecordV1(
-        treatment_law=CORNER_TREATMENT_LAW,
+        treatment_law=law_of(reason),
         corner_relation_id=relation.corner_relation_id,
         selection_certificate_id=selection_id,
         incoming_chain_use_id=sector.ordered_incident_chain_use_ids[0],
@@ -144,10 +211,12 @@ def treatment_record(relation, sector, selection_id, measure, decision) -> Corne
     )
 
 
-def recompute_record(relation, sector, selection_id, measure, uses_by_id, chains_by_id) -> CornerTreatmentRecordV1:
+def recompute_record(
+    relation, sector, selection_id, measure, uses_by_id, chains_by_id, fold
+) -> CornerTreatmentRecordV1:
     """Запись угла, пересчитанная ЗАНОВО по сырым фактам снапшота (то, чем сверяются компиляция и план)."""
 
     return treatment_record(
         relation, sector, selection_id, measure,
-        decide(sector, measure, uses_by_id, chains_by_id),
+        decide_corner(sector, measure, uses_by_id, chains_by_id, relation, fold),
     )

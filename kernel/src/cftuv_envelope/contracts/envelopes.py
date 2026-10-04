@@ -220,6 +220,19 @@ class SelectionLaw(str, Enum):
     # скелета, полоса продолжается через вершину. Счёт по плотности этому углу
     # не задаётся; решение и его причина — `CornerTreatmentRecordV1`.
     CORNER_JOIN_SOFT_BEND_V1 = "CORNER_JOIN_SOFT_BEND_V1"
+    # Митра на изломе окрестности (`CORNER_MITER_ON_FOLD_V1`, `_corner_fold`): угол, чья окрестность в патче владельца
+    # СЛОЖЕНА (`sin^2` двугранного угла кольца-1 свыше бюджета), получает `k = 0` — митру прямого скелета со ШВОМ на
+    # биссектрисе, без потока. Счёт по плотности такому углу не задаётся; решение и причина — `CornerTreatmentRecordV1`.
+    CORNER_MITER_ON_FOLD_V1 = "CORNER_MITER_ON_FOLD_V1"
+
+
+#: Законы, под которыми счёт угла `k = 0` решён ЗАКОНОМ УГЛА, а не плотностью: у них нет веера и нет скрытых опор, а
+#: интервальная запись сертификата — прежняя запись политики. Одно место перечня на все двери (контракт сертификата,
+#: проверяющий плана, компиляция, очередь): закон, добавленный в одно из них и забытый в другом, остался бы углом с
+#: `k = 0`, принятым на слово.
+ZERO_SUPPORT_SELECTION_LAWS = frozenset(
+    {SelectionLaw.CORNER_JOIN_SOFT_BEND_V1, SelectionLaw.CORNER_MITER_ON_FOLD_V1}
+)
 
 
 class MinimalityLowerBound(str, Enum):
@@ -426,6 +439,8 @@ class CornerTreatmentV1(str, Enum):
 
     JOIN_CONTINUATION = "CORNER_JOIN_CONTINUATION"
     ANGULAR_PROFILE = "CORNER_ANGULAR_PROFILE"
+    # Митра `k = 0` со швом на биссектрисе, потока нет (`CORNER_MITER_ON_FOLD_V1`): складка окрестности угла.
+    MITER_SEAM = "CORNER_MITER_SEAM"
 
 
 class CornerTreatmentReasonV1(str, Enum):
@@ -439,6 +454,12 @@ class CornerTreatmentReasonV1(str, Enum):
     # Хост не доказал, что два куска — одна цепь ВЛАДЕЛЬЦА угла (нет общей записи
     # `chain-source` его патча): ядро знает «не доказано», а не «цепи разные».
     SOURCE_CHAIN_UNPROVEN = "SOURCE_CHAIN_UNPROVEN"
+    # Закон `CORNER_MITER_ON_FOLD_V1`: окрестность угла сложена свыше бюджета, изгиб не шире четверти оборота
+    # (ЗАМКНУТЫЙ предел: прямой угол берёт митру) — `MITER_SEAM`.
+    FOLDED_NEIGHBOURHOOD_MITER = "FOLDED_NEIGHBOURHOOD_MITER"
+    # Окрестность сложена свыше бюджета, но изгиб шире четверти оборота либо не доказан в её пределах: митра
+    # неприменима, угол остаётся веером под счётом плотности (на здании `building` вершина 34 патча 89, изгиб ~178 градусов).
+    BEND_BEYOND_MITER_BOUND = "BEND_BEYOND_MITER_BOUND"
 
 
 @dataclass(frozen=True, slots=True)

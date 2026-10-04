@@ -136,6 +136,7 @@ class TolerancePolicyIdV1(str, Enum):
     DEVELOPABLE_CONE_RELIEF_GAP_V1 = "DEVELOPABLE_CONE_RELIEF_GAP_V1"
     SURFACE_OFFSET_OPPOSITION_DEPTH_V1 = "SURFACE_OFFSET_OPPOSITION_DEPTH_V1"
     CHART_REACH_CAP_V1 = "CHART_REACH_CAP_V1"
+    CORNER_FOLD_SIN2_BUDGET_V1 = "CORNER_FOLD_SIN2_BUDGET_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -262,6 +263,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN = (
         "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN"
+    )
+    MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND = (
+        "MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND"
     )
 
 
@@ -1460,6 +1464,55 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_corner_join.py"
             "::test_hard_and_uncertain_bends_keep_the_profile_by_name"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.CORNER_FOLD_SIN2_BUDGET_V1,
+        category=TolerancePolicyCategoryV1.AUTHORING_INTENT,
+        value=_rational(Fraction(3, 10000)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.SOURCE_ANGLE_MEASURE,
+        scaling_law=TolerancePolicyScalingLawV1.NOT_SCALED,
+        scope=(
+            "БЮДЖЕТ ИЗЛОМА ОКРЕСТНОСТИ закона CORNER_MITER_ON_FOLD_V1 (решение владельца 2026-10-05): `sin^2` двугранного "
+            "угла между двумя треугольниками источника кольца-1 вершины вогнутого угла внутри патча владельца, максимум по "
+            "парам, в ТОЧНЫХ рациональных позициях снапшота; 3/10000 — это `sin^2(1 градус) = 3.0459e-4`, округлённый "
+            "ВНИЗ (0.992 градуса). Угол, которого JOIN не взял (куски разных цепей либо изгиб за пределом JOIN), при "
+            "мере СВЫШЕ бюджета и изгибе не шире четверти оборота (`δ/π <= 1/2`, ЗАМКНУТО: прямой угол берёт митру) "
+            "получает `k = 0` — митру со швом на биссектрисе, без потока (SelectionLaw.CORNER_MITER_ON_FOLD_V1, "
+            "CornerTreatmentV1.MITER_SEAM, причина FOLDED_NEIGHBOURHOOD_MITER); складка свыше бюджета при изгибе шире "
+            "остаётся веером под именем BEND_BEYOND_MITER_BOUND. Мера в бюджете, нулевая (точная плоскость: `n1 x n2` "
+            "тождественно нуль) и неизмеримая (нет позиций, кольцо пусто) не меняют ничего: прежнее решение и прежняя "
+            "причина, планы плоских доменов побитово те же. Допуск решает только, митра это или веер; сам угол и его "
+            "изгиб он не двигает."
+        ),
+        authority=(
+            "_corner_fold.CORNER_FOLD_SIN2_BUDGET; SelectionLaw.CORNER_MITER_ON_FOLD_V1; "
+            "DECISIONS.md 2026-10-05 (МИТРА НА ИЗЛОМЕ: складка окрестности угла — шов на биссектрисе вместо веера)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.CORNER_TREATMENT_BEFORE_COUNT_LAW,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "STATION_FOLD_MITER_CORNERS",
+            "CONVEYOR_MITERED_CORNERS",
+            "CONVEYOR_FOLD_MITERED_CORNERS",
+            "CONVEYOR_RATIONAL_VERTEX_FANS",
+        ),
+        declaration_sites=(
+            "cftuv_envelope._corner_fold.CORNER_FOLD_SIN2_BUDGET",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_corner_fold.py"
+            "::test_a_folded_neighbourhood_miters_a_corner_within_the_bend_bound"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_corner_fold.py"
+            "::test_a_fold_within_the_budget_keeps_the_fan_and_its_old_reason"
         ),
     ),
     TolerancePolicyV1(

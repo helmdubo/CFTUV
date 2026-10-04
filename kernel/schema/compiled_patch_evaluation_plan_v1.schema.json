@@ -856,7 +856,8 @@
           "enum": [
             "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
             "HUBER_EMANATED_DENSITY_FLOOR_V1",
-            "CORNER_JOIN_SOFT_BEND_V1"
+            "CORNER_JOIN_SOFT_BEND_V1",
+            "CORNER_MITER_ON_FOLD_V1"
           ],
           "type": "string"
         },
@@ -1529,6 +1530,7 @@
               "U_RESTARTS_AT_DOMAIN_BORDER",
               "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
               "CORNER_JOIN_SAME_PCHAIN_V1",
+              "CORNER_MITER_ON_FOLD_V1",
               "DEGRADED_MITER_CORNER_IN_GEOMETRY",
               "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
               "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
@@ -1732,7 +1734,9 @@
             "SOFT_BEND_IN_ONE_SOURCE_CHAIN",
             "REFLEX_EXCESS_NOT_SOFT",
             "REFLEX_EXCESS_INTERVAL_CONTAINS_THRESHOLD",
-            "SOURCE_CHAIN_UNPROVEN"
+            "SOURCE_CHAIN_UNPROVEN",
+            "FOLDED_NEIGHBOURHOOD_MITER",
+            "BEND_BEYOND_MITER_BOUND"
           ],
           "type": "string"
         },
@@ -1755,7 +1759,8 @@
         "treatment": {
           "enum": [
             "CORNER_JOIN_CONTINUATION",
-            "CORNER_ANGULAR_PROFILE"
+            "CORNER_ANGULAR_PROFILE",
+            "CORNER_MITER_SEAM"
           ],
           "type": "string"
         },
@@ -2300,6 +2305,7 @@
             "U_RESTARTS_AT_DOMAIN_BORDER",
             "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
             "CORNER_JOIN_SAME_PCHAIN_V1",
+            "CORNER_MITER_ON_FOLD_V1",
             "DEGRADED_MITER_CORNER_IN_GEOMETRY",
             "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
             "SOURCE_VERTEX_DISPLACED_BY_LATTICE",
@@ -3567,6 +3573,7 @@
             "U_RESTARTS_AT_DOMAIN_BORDER",
             "U_RESTARTS_AT_CLOSED_FLOW_OPENING",
             "CORNER_JOIN_SAME_PCHAIN_V1",
+            "CORNER_MITER_ON_FOLD_V1",
             "DEGRADED_MITER_CORNER_IN_GEOMETRY",
             "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1",
             "SOURCE_VERTEX_DISPLACED_BY_LATTICE",

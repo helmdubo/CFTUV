@@ -235,6 +235,10 @@ class NamedOutcome(str, Enum):
     # числа: сколько стыков продолжено (`CONVEX` / `COLLINEAR`) и сколько осталось углами из-за изгиба шире четверти
     # оборота (`JOIN_BEND_BEYOND_QUARTER_TURN`) либо неоднозначного стыка (`JOIN_CORNER_NOT_ADJACENT`).
     CORNER_JOIN_SAME_PCHAIN_V1 = "CORNER_JOIN_SAME_PCHAIN_V1"
+    # Вогнутый угол на СЛОЖЕННОЙ окрестности (`CORNER_MITER_ON_FOLD_V1`, решение владельца 2026-10-05) оставлен МИТРОЙ
+    # со швом на биссектрисе вместо веера (`k = 0`, потока нет). Диагностика несёт число таких углов домена и вершины
+    # (пишется, только когда хоть один есть).
+    CORNER_MITER_ON_FOLD_V1 = "CORNER_MITER_ON_FOLD_V1"
     # Острая вогнутая вершина оставлена МИТРОВАННОЙ (веер не записался): мягкого
     # угла в этом месте нет, и меш показывает именно митру.
     DEGRADED_MITER_CORNER_IN_GEOMETRY = "DEGRADED_MITER_CORNER_IN_GEOMETRY"
