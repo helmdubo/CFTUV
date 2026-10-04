@@ -113,6 +113,20 @@ class PreparationBlobsV1:
     def clear(self) -> None:
         self._items.clear()
 
+    def discard(self, prepared) -> None:
+        """Пикл одной подготовки (она ушла из хранилища по содержимому)."""
+
+        item = self._items.get(id(prepared))
+        if item is not None and item[0] is prepared:
+            del self._items[id(prepared)]
+
+    def retain(self, keep) -> None:
+        """Оставляет пиклы подготовок, для которых `keep(подготовка)` истинно: остальные никто не держит."""
+
+        for key, (prepared, _blob) in list(self._items.items()):
+            if not keep(prepared):
+                del self._items[key]
+
 
 def solve_coverage_task(task):
     """Воркер: покрытие и запись хоста на присланной подготовке.

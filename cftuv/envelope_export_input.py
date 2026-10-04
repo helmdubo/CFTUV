@@ -30,6 +30,7 @@ import importlib
 from dataclasses import dataclass, replace
 from fractions import Fraction
 
+from .envelope_host_labels import record_host_tokens
 from .envelope_metric_export import EnvelopePatchMetricExportV1
 from .envelope_request_policy import topology_chart_reach_cap
 from .envelope_topology_export import (
@@ -241,6 +242,9 @@ class TaskInputsV1:
     profile: object
     task_id: int
     exported: bool
+    #: Записанные токены идентичностей хоста домена (`DomainLabelingV1`), когда снапшот и запрос выгрузил
+    #: воркер: по ним результат переносится на другую ревизию. Нет выгрузки в воркере — нет и записи.
+    labeling: object | None = None
 
     def result(self, **fields):
         from .envelope_domain_pool import DomainTaskResultV1
@@ -283,25 +287,31 @@ def task_inputs(task):
         export.developable_stretch_budget,
     )
     inputs = TaskInputsV1(None, None, profile, task.task_id, True)
-    try:
-        snapshot = build_envelope_patch_metric_export(
-            topology, task.patch_id, profile=profile
-        ).snapshot
-    except EnvelopeHostAdapterError as error:
-        return inputs.result(refusal=_refusal(error))
-    try:
-        request = build_envelope_decal_request(
-            snapshot,
-            task.selected_edges,
-            export.alpha,
-            decal_request_id_value=export.request_id,
-            density=export.density,
-            developable_stretch_budget=export.developable_stretch_budget,
-            chart_reach_cap=export.chart_reach_cap,
-        )
-    except EnvelopeHostAdapterError as error:
-        return inputs.result(snapshot=snapshot, refusal=_refusal(error))
-    return replace(inputs, snapshot=snapshot, request=request)
+    with record_host_tokens() as log:
+        try:
+            snapshot = build_envelope_patch_metric_export(
+                topology, task.patch_id, profile=profile
+            ).snapshot
+        except EnvelopeHostAdapterError as error:
+            return inputs.result(refusal=_refusal(error))
+        try:
+            request = build_envelope_decal_request(
+                snapshot,
+                task.selected_edges,
+                export.alpha,
+                decal_request_id_value=export.request_id,
+                density=export.density,
+                developable_stretch_budget=export.developable_stretch_budget,
+                chart_reach_cap=export.chart_reach_cap,
+            )
+        except EnvelopeHostAdapterError as error:
+            return inputs.result(snapshot=snapshot, refusal=_refusal(error))
+    return replace(
+        inputs,
+        snapshot=snapshot,
+        request=request,
+        labeling=log.labeling(export.source_revision_value, export.request_id, task.patch_id),
+    )
 
 
 def solve_exported_task(task):

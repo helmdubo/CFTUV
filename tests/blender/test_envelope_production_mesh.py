@@ -46,6 +46,16 @@
    «run Merge by Distance» ДО анализа, виновное ребро остаётся выделенным, источник не тронут;
    после слияния вершин (bmesh `remove_doubles`, в памяти) та же кнопка строит декаль.
 
+14. ПРАВКА МЕША ПЕРЕСЧИТЫВАЕТ ТОЛЬКО ЗАТРОНУТЫЙ ДОМЕН: вершина одного патча сдвинута (ревизия источника
+   другая), второй домен берётся из хранилища по содержимому (`content reused 1 results`, подготовка
+   одна, а не две), меш равен мешу холодной сессии на правленом источнике (позиции и число граней), то же
+   на двух воркерах; возврат вершины на место не считает ничего;
+
+15. ХРАНИЛИЩЕ ПО СОДЕРЖИМОМУ НЕ ОБХОДИТ РЕШЕНИЕ О ПОЛОСЕ: пирамида с картой-полосой (целый патч отказывает,
+   полоса у одного шва спасает) переживает правку соседа из хранилища (`content reused 1 results`), а при том
+   же хранилище другая alpha выше досягаемости отказывает `REQUEST_ALPHA_EXCEEDS_CHART_REACH`, выбор всего
+   основания — отказом метрики целого патча, возврат выбора — прежним мешем; холодная сессия даёт тот же меш.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_PRODUCTION_MESH_BLENDER_SMOKE_OK
@@ -288,6 +298,133 @@ def _run_workers_do_not_change_the_mesh(reference_digest):
         sequential,
         reference_digest,
     )
+
+
+def _move_left_corner(source, shift):
+    """Сдвиг вершины 0 (лежит только в левом патче; не на шве) с обновлением нормалей, как делает правка в UI."""
+
+    import bmesh
+
+    bm = bmesh.from_edit_mesh(source.data)
+    bm.verts.ensure_lookup_table()
+    bm.verts[0].co.x += shift
+    bm.normal_update()
+    bmesh.update_edit_mesh(source.data)
+
+
+def _decal_points(decal):
+    return sorted(tuple(round(axis, 6) for axis in item.co) for item in decal.data.vertices)
+
+
+def _run_an_edit_recomputes_only_the_domain_it_touches(*, workers):
+    from cftuv import envelope_queue_pool
+
+    original = envelope_queue_pool.COVERAGE_POOL_MIN_BYTES
+    envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    try:
+        source = _fresh_scene(workers=workers)
+        original_points = _decal_points(_press())
+        before = _preparation_builds()
+
+        _move_left_corner(source, -0.25)
+        decal = _press()
+
+        assert _preparation_builds() - before == 1, _decal_settings().timing
+        assert "content reused 1 results" in _decal_settings().timing, _decal_settings().timing
+        assert _decal_settings().status == "MATERIALIZED 2 / refused 0"
+        edited_points, edited_polygons = _decal_points(decal), len(decal.data.polygons)
+        assert edited_points != original_points
+
+        # Возврат вершины на место: оба домена в хранилище, считать нечего, меш тот же.
+        builds = _preparation_builds()
+        _move_left_corner(source, 0.25)
+        back = _press()
+        assert _preparation_builds() == builds, _decal_settings().timing
+        assert _decal_points(back) == original_points
+
+        # Та же правка на холодной сессии даёт тот же меш (позиции и число граней).
+        _controller().clear()
+        _move_left_corner(source, -0.25)
+        cold = _press()
+        assert "content reused" not in _decal_settings().timing, _decal_settings().timing
+        assert _decal_points(cold) == edited_points
+        assert len(cold.data.polygons) == edited_polygons
+    finally:
+        envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
+
+
+def _select_pyramid_edges(source, *, whole_base):
+    """Выбор рёбер пирамиды: один шов либо весь шов и основание (выбор цепей домена определяет полосу)."""
+
+    import bmesh
+
+    bm = bmesh.from_edit_mesh(source.data)
+    bm.edges.ensure_lookup_table()
+    seam = {item.index for item in bm.edges if {vertex.index for vertex in item.verts} == {1, 4}}
+    base = {item.index for item in bm.edges if {vertex.index for vertex in item.verts} <= {1, 2, 4, 5}} - seam
+    assert len(seam) == 1 and base
+    _enter_edge_selection(source, seam | base if whole_base else seam)
+
+
+def _run_the_content_store_keeps_every_band_decision(*, workers):
+    """Пирамида с картой-полосой: хранилище по содержимому не обходит ни выбор цепей, ни досягаемость, ни alpha."""
+
+    from cftuv import envelope_queue_pool
+    from test_envelope_debug_bridge import _budget_refused_second_patch_offset
+
+    original = envelope_queue_pool.COVERAGE_POOL_MIN_BYTES
+    envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = 0
+    settings = _settings()
+    try:
+        _reset_scene()
+        controller = _controller()
+        if controller is not None:
+            controller.clear()
+        source = _build_two_patch_seam(
+            second_patch_apex=_budget_refused_second_patch_offset(), second_patch_whole_base=False
+        )
+        settings.envelope_debug_engine = "QUEUE"
+        settings.envelope_debug_alpha = 0.25
+        settings.envelope_debug_workers = workers
+        _decal_settings().offset = 0.02
+        both = "MATERIALIZED 2 / refused 0"
+        assert _press() and _decal_settings().status == both, _decal_settings().status
+
+        # Правка соседа (вершина 0 лежит только в левом патче): пирамида с полосой берётся из хранилища.
+        _move_left_corner(source, -0.25)
+        edited = _press()
+        assert _decal_settings().status == both, _decal_settings().status
+        assert "content reused 1 results" in _decal_settings().timing, _decal_settings().timing
+        edited_points, edited_polygons = _decal_points(edited), len(edited.data.polygons)
+
+        # Подготовка полосы в хранилище, а alpha выше досягаемости (1/2 м): отказ запроса, как у холодного домена.
+        settings.envelope_debug_alpha = 0.75
+        _press()
+        beyond = "MATERIALIZED 1 / refused 1 (REQUEST_ALPHA_EXCEEDS_CHART_REACH)"
+        assert _decal_settings().status == beyond, _decal_settings().status
+        settings.envelope_debug_alpha = 0.25
+
+        # Выбор всего основания: другая полоса (носитель — весь патч), отказ метрики целого патча остаётся.
+        _select_pyramid_edges(source, whole_base=True)
+        _press()
+        refused = "MATERIALIZED 1 / refused 1 (DEVELOPABLE_STRETCH_BUDGET_EXCEEDED)"
+        assert _decal_settings().status == refused, _decal_settings().status
+
+        # Возврат к одному шву: тот же меш, что после правки.
+        _select_pyramid_edges(source, whole_base=False)
+        back = _press()
+        assert _decal_settings().status == both, _decal_settings().status
+        assert _decal_points(back) == edited_points and len(back.data.polygons) == edited_polygons
+
+        # Холодная сессия на правленом источнике даёт тот же меш.
+        _controller().clear()
+        cold = _press()
+        assert _decal_settings().status == both and "content reused" not in _decal_settings().timing
+        assert _decal_points(cold) == edited_points and len(cold.data.polygons) == edited_polygons
+    finally:
+        envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
+        settings.envelope_debug_alpha = 0.25
+    print("BAND CONTENT STORE: workers", workers, "ok")
 
 
 def _run_nothing_selected_is_refused_by_name():
@@ -946,6 +1083,8 @@ def _main():
     _run_offset_is_a_scene_setting()
     warm_digest = _run_warm_press_after_a_debug_build_reuses_the_preparations()
     _run_workers_do_not_change_the_mesh(warm_digest)
+    _run_an_edit_recomputes_only_the_domain_it_touches(workers=0)
+    _run_an_edit_recomputes_only_the_domain_it_touches(workers=2)
     _run_nothing_selected_is_refused_by_name()
     _run_a_zero_length_edge_is_named_selected_and_never_repaired()
     _run_a_long_source_name_never_multiplies_the_decal()
@@ -955,6 +1094,8 @@ def _main():
     _run_undo_after_the_debug_button_and_after_clear_keeps_the_scene_consistent()
     _run_an_unfolded_domain_is_written_with_a_vertex_normal_offset()
     _run_a_band_chart_rescues_a_domain_the_whole_patch_refuses()
+    _run_the_content_store_keeps_every_band_decision(workers=0)
+    _run_the_content_store_keeps_every_band_decision(workers=2)
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     _run_a_fold_welds_the_shared_chain_into_single_vertices()
     _run_a_decal_across_a_fold_stays_on_the_surface()

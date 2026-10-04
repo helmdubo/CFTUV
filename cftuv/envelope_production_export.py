@@ -42,6 +42,21 @@
 ровно их. Вытеснение — по давности (`PRODUCTION_RESULT_CACHE_LIMIT`), а исключение
 внутри домена (`PRODUCTION_DOMAIN_RAISED`) в кэш не кладётся.
 
+ХРАНИЛИЩЕ ПО СОДЕРЖИМОМУ (`envelope_content_store`) переживает смену ревизии источника. Кэши выше
+ключатся ревизией, а она — хэш всего меша: правка вершины или шва делала холодными ВСЕ домены. Домен
+без метрики в кэше ревизии получает ключ содержимого (`envelope_content_key`: вход воркера без ревизии,
+`alpha` и id запроса, номера патчей — рангами); с тем же ключом его подготовка и результат берутся из
+хранилища, а результат переносится на ревизию, запрос и номер патча прогона в воркере пула
+(`ProductionInputV1.relabel`), параллельно. Холодным остаётся домен, чьё содержимое изменилось.
+Что именно перенос обещает и чего нет — в `envelope_content_store`; перенос, которого не вышло, назван
+(`PRODUCTION_CONTENT_RELABEL_FAILED`), а домен посчитан заново.
+
+ПОЛОСА В РОДИТЕЛЕ. Воркер строит метрику ЦЕЛОГО патча; после её именованного отказа полосу вокруг выбранных цепей
+строит родитель (`get_patch_metric`). Решение о полосе зависит от выбора цепей домена и досягаемости запроса, поэтому
+оба входят и в ключ содержимого, и в привязку ключа (`_band_key`), а перенесённый результат не обходит его; отказ
+запроса по alpha выше досягаемости полосы строитель запроса даёт на каждом нажатии, и для домена на подготовке из
+хранилища он берётся тем же `refuse_alpha_beyond_reach` (`_alpha_refusal`).
+
 ОТКАЗ НАЗВАН НА КАЖДОМ УРОВНЕ. Домен, чей вход не выгрузился, называется
 исходом хоста (`EnvelopeDebugHostOutcome`); домен, который материализатор
 отклонил, — исходом ядра (`MaterializationOutcome`); исключение внутри домена —
@@ -61,7 +76,10 @@ import traceback
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from .envelope_content_key import result_slot
+from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
+from .envelope_host_labels import record_host_tokens
 from .envelope_production_weld import (
     COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
     COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
@@ -106,6 +124,18 @@ PRODUCTION_REFUSED = "PRODUCTION_REFUSED"
 #: Домены, чей результат лежал в кэше сессии, и домены, которые пришлось считать.
 PRODUCTION_RESULT_CACHE_HIT = "PRODUCTION_RESULT_CACHE_HIT"
 PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
+#: Хранилище по содержимому домена (`envelope_content_store`): домены с ключом содержимого, домены, чей
+#: результат либо подготовка взяты оттуда при другой ревизии, результаты, перенесённые на ревизию прогона,
+#: и переносы, которых не вышло (домен тогда считается заново, причина названа строкой консоли).
+PRODUCTION_CONTENT_KEYED = "PRODUCTION_CONTENT_KEYED"
+#: Из ключённых: сколько доменов этого прогона легло в хранилище. Меньше `KEYED` — домен, чей снапшот строили не
+#: под записью токенов (он взят из кэша ревизии), и результат с исключением: переносить их потом нечем.
+PRODUCTION_CONTENT_REGISTERED = "PRODUCTION_CONTENT_REGISTERED"
+PRODUCTION_CONTENT_RESULT_REUSED = "PRODUCTION_CONTENT_RESULT_REUSED"
+PRODUCTION_CONTENT_PREPARATION_REUSED = "PRODUCTION_CONTENT_PREPARATION_REUSED"
+PRODUCTION_CONTENT_RELABELED = "PRODUCTION_CONTENT_RELABELED"
+PRODUCTION_CONTENT_RELABEL_FAILED = "PRODUCTION_CONTENT_RELABEL_FAILED"
+PRODUCTION_CONTENT_UNKEYED = "PRODUCTION_CONTENT_UNKEYED"
 
 PLACEMENT_WORKER = "worker"
 PLACEMENT_PARENT = "parent"
@@ -129,6 +159,11 @@ class ProductionInputV1:
     blob: bytes
     uv_policy_id: str = PRODUCTION_UV_POLICY
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
+    #: Перенос результата на ревизию и запрос прогона (`RelabelV1`) делает воркер, параллельно; `None` — без
+    #: переноса (подготовка этой ревизии). `carried` — `blob` это не подготовка, а готовый результат из
+    #: хранилища по содержимому: воркер только переносит его.
+    relabel: object | None = None
+    carried: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +219,10 @@ class ProductionDomainResultV1:
     decal_topology_law: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
+    #: Запись идентичностей хоста, при которых посчитан результат (`DomainLabelingV1`), либо `None`: по ней
+    #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
+    #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
+    labels: object | None = field(default=None, compare=False, repr=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -382,7 +421,11 @@ def solve_cold_production_task(task):
     return inputs.result(
         prepared=prepared,
         production=_placed(
-            replace(produced, seconds=produced.seconds + prepare_seconds),
+            replace(
+                produced,
+                seconds=produced.seconds + prepare_seconds,
+                labels=inputs.labeling,
+            ),
             PLACEMENT_WORKER,
         ),
         snapshot=inputs.snapshot if inputs.exported else None,
@@ -398,19 +441,43 @@ def solve_production_task(task):
 
     from .envelope_domain_pool import DomainTaskResultV1
 
-    prepared = pickle.loads(task.production.blob)
-    result = produce_domain(
-        task.patch_id,
-        task.domain_id,
-        prepared,
-        task.alpha_text,
-        uv_policy_id=task.production.uv_policy_id,
-        topology_law=task.production.topology_law,
+    production = task.production
+    payload = pickle.loads(production.blob)
+    result = (
+        payload
+        if production.carried
+        else produce_domain(
+            task.patch_id,
+            _domain_of_preparation(task.domain_id, production.relabel),
+            payload,
+            task.alpha_text,
+            uv_policy_id=production.uv_policy_id,
+            topology_law=production.topology_law,
+        )
     )
+    if production.relabel is not None:
+        try:
+            result = carried_to_run(result, production.relabel)
+        except ContentRelabelFailed:
+            # Родитель повторит перенос, получит тот же отказ, назовёт его и посчитает домен заново.
+            pass
     return DomainTaskResultV1(
         task.task_id,
         production=_placed(result, PLACEMENT_WORKER),
     )
+
+
+def _domain_of_preparation(domain_id: str, relabel) -> str:
+    """Домен, на подготовке которого считают: подготовка из хранилища несёт идентичности СВОЕЙ ревизии.
+
+    Результат получает id домена той ревизии, при которой подготовка посчитана, и переносится целиком
+    (`relabel_result`); id домена текущей ревизии, подставленный в него до переноса, был бы единственной
+    строкой результата, которой нет в записи подготовки.
+    """
+
+    if relabel is None or relabel.base is None:
+        return domain_id
+    return relabel.base.domain_id()
 
 
 def _placed(result: ProductionDomainResultV1, placement: str):
@@ -440,14 +507,33 @@ class _DomainEntryV1:
     export: object | None = None
     result_key: tuple | None = None
     cached: object | None = None
+    #: Ключ содержимого домена (`None`: не адресуется по содержимому), запись идентичностей подготовки из
+    #: хранилища и что оттуда взято: `result` либо `preparation` (пусто: ничего).
+    content_key: str | None = None
+    labeling: object | None = None
+    reuse: str = ""
+    #: Готовый результат из хранилища по содержимому, ещё НЕ перенесённый на ревизию прогона: перенос — работа
+    #: (воркера либо родителя), поэтому домен остаётся в `needs_work`, но не считается и не холоден.
+    carried: object | None = None
 
     @property
     def is_cold(self) -> bool:
-        return self.failure is None and self.prepared is None
+        return (
+            self.failure is None
+            and self.prepared is None
+            and self.cached is None
+            and self.carried is None
+        )
 
     @property
     def needs_work(self) -> bool:
         return self.failure is None and self.cached is None
+
+    @property
+    def computes(self) -> bool:
+        """Домену нужно ПОСЧИТАТЬ ответ (а не взять готовый из кэша ревизии или из хранилища)."""
+
+        return self.needs_work and self.carried is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +554,11 @@ class _RunInputsV1:
     topology_law: str
     hooks: object
     profile: object
+    #: Что хранилище по содержимому сделало в ЭТОМ прогоне: патчи, чей результат перенесён на ревизию
+    #: прогона, и переносы, которых не вышло (`(патч, причина)`).
+    relabeled: list = field(default_factory=list)
+    relabel_failures: list = field(default_factory=list)
+    registered: list = field(default_factory=list)
 
 
 def _inputs_of(run: _RunInputsV1, entry_key, provider):
@@ -520,6 +611,150 @@ def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs)
     )
 
 
+def _slot(run: _RunInputsV1) -> tuple:
+    """Слот результата в хранилище содержимого: alpha и законы материализации прогона."""
+
+    return result_slot(
+        run.alpha_text,
+        run.uv_policy_id,
+        run.topology_law,
+        HOST_NEAR_PLANAR_LIFT_POLICY.value,
+    )
+
+
+def _bound_entry(run: _RunInputsV1, patch_id, domain_id, selected):
+    """Домен, чей ключ содержимого уже известен при этой ревизии и чей результат лежит в кэше ревизии.
+
+    Ключ — функция входа домена, а вход при ревизии, выделении, плотности, допуске и полосе один: по привязке
+    `(ревизия, домен, выделение, плотность, допуск, ключ полосы)` повторное нажатие не строит ни вход воркера, ни ключ.
+    """
+
+    binding = _binding(run, patch_id, domain_id, selected)
+    key = None if binding is None else run.controller.content_binding(binding)
+    if key is None:
+        return None
+    cached = run.controller.peek_production_result(("content", key, run.revision, _slot(run)))
+    if cached is None:
+        return None
+    return _DomainEntryV1(
+        patch_id, domain_id, selected, cached=cached, content_key=key, reuse="result"
+    )
+
+
+def _band_key(run: _RunInputsV1, patch_id):
+    """Ключ полосы домена: досягаемость запроса и выбранные рёбра патча (`None`: политики полосы нет).
+
+    Полосу строит родитель после отказа целого патча, и она зависит ровно от этого: привязка и ключ содержимого
+    несут его, поэтому смена досягаемости или выбора цепей домена при той же ревизии и тех же рёбрах домена не
+    отдаёт прежний ответ.
+    """
+
+    from .envelope_metric_export import band_key_of
+
+    return band_key_of(run.topology_export, patch_id)
+
+
+def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
+    from .envelope_request_policy import normalize_envelope_fan_density
+
+    try:
+        density = normalize_envelope_fan_density(run.density)
+    except (TypeError, ValueError):
+        return None
+    return (
+        run.revision,
+        domain_id,
+        selected,
+        density,
+        run.topology_export.developable_stretch_budget,
+        _band_key(run, patch_id),
+    )
+
+
+def _alpha_refusal(run: _RunInputsV1, prepared):
+    """Отказ ЗАПРОСА по alpha у домена на подготовке из хранилища: карта-полоса короче alpha прогона, либо `None`.
+
+    Подготовка alpha-независима, но полоса действует лишь до своей досягаемости, и этот отказ строитель запроса
+    даёт на КАЖДОМ нажатии (`refuse_alpha_beyond_reach`). Домен на подготовке из хранилища запроса не строит,
+    поэтому тот же отказ берётся тут, по снапшоту подготовки: без него alpha выше досягаемости дошла бы до
+    материализации и ответила другим, не хостовым исходом. Недопустимую alpha называет сам строитель запроса.
+    """
+
+    from .envelope_chart_band import refuse_alpha_beyond_reach
+    from .envelope_request_export import EnvelopeHostAdapterError
+    from .envelope_request_policy import request_alpha_decimal
+
+    try:
+        refuse_alpha_beyond_reach(prepared.context.snapshot, request_alpha_decimal(run.alpha))
+    except EnvelopeHostAdapterError as exc:
+        return exc
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> _DomainEntryV1:
+    """Домен без метрики в кэше ревизии: из хранилища по содержимому, либо холодный с ключом.
+
+    Правка меша меняет ревизию и сбрасывает кэши ревизии, но домен, чьё содержимое то же, имеет тот же
+    ключ: готовый результат из хранилища идёт на перенос к ревизии прогона (`carried`), а готовая
+    подготовка идёт воркеру как подготовка из кэша. Домен, которого в хранилище нет, считается как
+    раньше — с ключом, чтобы по окончании лечь в хранилище. Домен, чей вход ключ не умеет кодировать,
+    считается как раньше без ключа (счётчик `PRODUCTION_CONTENT_UNKEYED`).
+    """
+
+    from .envelope_content_key import ContentKeyUnsupported, domain_content_key
+
+    cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
+    try:
+        key = domain_content_key(export, selected, _band_key(run, patch_id))
+    except ContentKeyUnsupported:
+        return cold
+    controller = run.controller
+    binding = _binding(run, patch_id, domain_id, selected)
+    if binding is not None:
+        controller.bind_content_key(binding, key)
+    slot = _slot(run)
+    cold = replace(cold, content_key=key)
+    result_key = ("content", key, run.revision, slot)
+    cached = controller.peek_production_result(result_key)
+    if cached is not None:
+        return replace(cold, export=None, cached=cached, reuse="result")
+    found = controller.content_store.find(key)
+    if found is None:
+        return cold
+    stored = controller.content_store.result(key, slot)
+    if stored is not None:
+        labels = stored.labels
+        if labels.revision == run.revision and labels.patch_id == patch_id:
+            controller.remember_production_result(result_key, stored)
+            return replace(cold, export=None, cached=stored, reuse="result")
+        return replace(
+            cold, carried=stored, result_key=result_key, labeling=found.labeling, reuse="result"
+        )
+    refusal = _alpha_refusal(run, found.prepared)
+    if refusal is not None:
+        return replace(cold, export=None, failure=refusal)
+    return replace(
+        cold,
+        prepared=found.prepared,
+        labeling=found.labeling,
+        result_key=result_key,
+        reuse="preparation",
+    )
+
+
+def _note_relabel_failure(run: _RunInputsV1, patch_id, exc) -> None:
+    """Перенос не вышел: счётчик и строка консоли; домен при этом считается заново, а не пропадает."""
+
+    run.relabel_failures.append((patch_id, str(exc)))
+    print(
+        f"[CFTUV][Production] {PRODUCTION_CONTENT_RELABEL_FAILED}: patch {patch_id}: {exc}; "
+        "the domain is computed anew",
+        flush=True,
+    )
+
+
 def _scan(run: _RunInputsV1):
     """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно.
 
@@ -540,11 +775,15 @@ def _scan(run: _RunInputsV1):
     for patch_id in run.patch_ids:
         domain_id = _typed_value("patch-domain", run.revision, patch_id)
         selected = frozenset(run.selected_by_domain[domain_id])
+        bound = _bound_entry(run, patch_id, domain_id, selected)
+        if bound is not None:
+            entries.append(bound)
+            continue
         export = run.hooks.export_provider(
             patch_id, run.alpha, run.request_id, run.density
         )
         if export is not None:
-            entries.append(_DomainEntryV1(patch_id, domain_id, selected, export=export))
+            entries.append(_content_entry(run, patch_id, domain_id, selected, export))
             continue
         try:
             inputs = _inputs_of(run, (patch_id, domain_id, selected), snapshots)
@@ -627,15 +866,17 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     elif answered:
         replay_export_records(run.profile, reply)
     inputs = entry.inputs
+    parent_log = None
     if inputs is None:
-        try:
-            inputs = _inputs_of(
-                run,
-                (entry.patch_id, entry.domain_id, entry.selected),
-                run.hooks.snapshot_provider,
-            )
-        except EnvelopeHostAdapterError as exc:
-            return exc, None
+        with record_host_tokens() as parent_log:
+            try:
+                inputs = _inputs_of(
+                    run,
+                    (entry.patch_id, entry.domain_id, entry.selected),
+                    run.hooks.snapshot_provider,
+                )
+            except EnvelopeHostAdapterError as exc:
+                return exc, None
     request = inputs[1]
     if reply is not None and reply.ok and reply.production is not None:
         prepared = reply.prepared
@@ -650,10 +891,127 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
         result = reply.production
     else:
         result = _produce_cold_in_parent(run, entry, inputs, placement)
+        result = _labeled_by_parent(run, entry.patch_id, result, parent_log)
     _remember(
         run, _result_key(run, entry.domain_id, entry.selected, request), result
     )
+    _register_content(run, entry, request, result)
     return None, result
+
+
+def _labeled_by_parent(run: _RunInputsV1, patch_id, result, log):
+    """Результат домена, снапшот которого строил родитель: запись его токенов (если запись полна)."""
+
+    if log is None:
+        return result
+    labeling = log.labeling(run.revision, run.request_id, patch_id)
+    return replace(result, labels=labeling) if labeling.has_domain_token() else result
+
+
+def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result) -> None:
+    """Подготовка и результат холодного домена — в хранилище по содержимому, если у них есть запись токенов.
+
+    Домен, чья запись неполна (снапшот строили не под записью), и исключение внутри домена (оно не ответ)
+    в хранилище не попадают: перенести такой результат на другую ревизию точно было бы нечем.
+    """
+
+    controller = run.controller
+    if entry.content_key is None or result.labels is None or result.outcome == OUTCOME_DOMAIN_RAISED:
+        return
+    prepared = controller.peek_conveyor_preparation(
+        run.revision, entry.domain_id, entry.selected, request
+    )
+    if prepared is None:
+        return
+    store = controller.content_store
+    store.register_preparation(entry.content_key, prepared, result.labels)
+    store.register_result(entry.content_key, _slot(run), result)
+    run.registered.append(entry.patch_id)
+
+
+def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
+    """`(отказ входа | None, результат)`: домен на готовой подготовке либо готовом результате доведён до прогона.
+
+    Результат считался на подготовке (или лежал в хранилище), то есть в идентичностях своей записи: он ложится
+    в хранилище как есть (слот занимает первый) и переносится на ревизию и запрос прогона (воркер уже мог
+    это сделать; при тех же идентичностях перенос — тот же объект). Перенос, которого не вышло, — названная
+    причина и домен, посчитанный заново с нуля: устаревший ответ не отдаётся.
+    """
+
+    controller = run.controller
+    if result.outcome == OUTCOME_DOMAIN_RAISED:
+        return None, result
+    key, labeling = item.content_key, item.labeling
+    if key is None and item.prepared is not None:
+        held = controller.content_store.key_of(item.prepared)
+        if held is not None:
+            key, labeling = held[0], held[1].labeling
+    if key is None:
+        _remember(run, item.result_key, result)
+        return None, result
+    based = result if result.labels is not None else replace(result, labels=labeling)
+    controller.content_store.register_result(key, _slot(run), based)
+    if item.carried is None and not item.reuse:
+        # Подготовка этой ревизии (кэш ревизии): идентичности те же, что у прогона, переносить нечего.
+        _remember(run, item.result_key, based)
+        return None, based
+    try:
+        moved = carried_to_run(based, RelabelV1(run.revision, run.request_id, item.patch_id))
+        if moved.domain_id != item.domain_id:
+            raise ContentRelabelFailed("the domain id moved to another value")
+    except ContentRelabelFailed as exc:
+        _note_relabel_failure(run, item.patch_id, exc)
+        controller.content_store.forget(key)
+        anew = replace(item, prepared=None, carried=None, labeling=None, reuse="", result_key=None)
+        return _adopt_cold(run, anew, None, PLACEMENT_PARENT)
+    foreign = item.carried.labels if item.carried is not None else item.labeling
+    if foreign is not None and (
+        foreign.revision != run.revision or foreign.patch_id != item.patch_id
+    ):
+        run.relabeled.append(item.patch_id)
+    if item.carried is not None:
+        moved = replace(moved, seconds=0.0, placement=PLACEMENT_CACHED)
+    _remember(run, item.result_key, moved)
+    return None, moved
+
+
+def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
+    """Домены на готовой подготовке либо результате: посчитанное воркером берётся, остальное делает родитель."""
+
+    for item in ready:
+        if item.domain_id not in done:
+            done[item.domain_id] = _placed(
+                item.carried
+                if item.carried is not None
+                else produce_domain(
+                    item.patch_id,
+                    item.labeling.domain_id() if item.labeling is not None else item.domain_id,
+                    item.prepared,
+                    run.alpha_text,
+                    uv_policy_id=run.uv_policy_id,
+                    topology_law=run.topology_law,
+                ),
+                placement.get(item.domain_id, PLACEMENT_PARENT),
+            )
+        input_refusal, finished = _finish_ready(run, item, done[item.domain_id])
+        if input_refusal is not None:
+            refused[item.domain_id] = input_refusal
+            del done[item.domain_id]
+        else:
+            done[item.domain_id] = finished
+
+
+def _production_input(run: _RunInputsV1, entry: _DomainEntryV1, blob: bytes) -> ProductionInputV1:
+    """Вход задачи на готовой подготовке либо готовом результате: перенос на прогон делает воркер."""
+
+    relabel = None
+    if entry.carried is not None:
+        relabel = RelabelV1(run.revision, run.request_id, entry.patch_id)
+    elif entry.labeling is not None:
+        relabel = RelabelV1(run.revision, run.request_id, entry.patch_id, entry.labeling)
+    return ProductionInputV1(
+        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None
+    )
 
 
 def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
@@ -661,7 +1019,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
 
     from .envelope_domain_pool import DomainTaskV1
 
-    selected_of = {item.domain_id: item.selected for item in ready}
+    entry_of = {item.domain_id: item for item in ready}
     tasks = [
         DomainTaskV1(
             index,
@@ -670,10 +1028,10 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             None,
             None,
             run.alpha_text,
-            selected_of[domain_id],
-            production=ProductionInputV1(blob, run.uv_policy_id, run.topology_law),
+            entry_of[domain_id].selected,
+            production=_production_input(run, entry_of[domain_id], blob),
         )
-        for index, ((patch_id, domain_id, _prepared), blob) in enumerate(shipped)
+        for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
     laws = ColdProductionInputV1(run.uv_policy_id, run.topology_law)
     for entry in cold:
@@ -717,7 +1075,10 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     )
 
     controller = run.controller
-    triples = [(item.patch_id, item.domain_id, item.prepared) for item in ready]
+    triples = [
+        (item.patch_id, item.domain_id, item.prepared if item.carried is None else item.carried)
+        for item in ready
+    ]
     shipped, shipping_failures = (
         _ship_preparations(triples, controller.preparation_blobs, lambda item: item[2])
         if domain_pool is not None and triples
@@ -767,20 +1128,7 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
         fallbacks += 1
         _note_task_fallback(domain_id, reason)
         placement[domain_id] = PLACEMENT_FALLBACK
-    for item in ready:
-        if item.domain_id not in done:
-            done[item.domain_id] = _placed(
-                produce_domain(
-                    item.patch_id,
-                    item.domain_id,
-                    item.prepared,
-                    run.alpha_text,
-                    uv_policy_id=run.uv_policy_id,
-                    topology_law=run.topology_law,
-                ),
-                placement.get(item.domain_id, PLACEMENT_PARENT),
-            )
-        _remember(run, item.result_key, done[item.domain_id])
+    _complete_ready(run, ready, done, refused, placement)
     for item in cold:
         if item.domain_id in handled:
             continue
@@ -847,6 +1195,28 @@ def _domain_results(entries, done, refused):
     return results
 
 
+def _record_content_counters(profile, run: _RunInputsV1, entries) -> None:
+    profile.set_counter(
+        PRODUCTION_CONTENT_KEYED,
+        sum(1 for item in entries if item.content_key is not None),
+    )
+    profile.set_counter(PRODUCTION_CONTENT_REGISTERED, len(run.registered))
+    profile.set_counter(
+        PRODUCTION_CONTENT_RESULT_REUSED,
+        sum(1 for item in entries if item.reuse == "result"),
+    )
+    profile.set_counter(
+        PRODUCTION_CONTENT_PREPARATION_REUSED,
+        sum(1 for item in entries if item.reuse == "preparation"),
+    )
+    profile.set_counter(PRODUCTION_CONTENT_RELABELED, len(run.relabeled))
+    profile.set_counter(PRODUCTION_CONTENT_RELABEL_FAILED, len(run.relabel_failures))
+    profile.set_counter(
+        PRODUCTION_CONTENT_UNKEYED,
+        sum(1 for item in entries if item.export is not None and item.content_key is None),
+    )
+
+
 def _record_run_counters(profile, controller, builds_before, entries, results, cold):
     builds_after = controller.build_counts
     for name, key in (
@@ -862,10 +1232,14 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     profile.set_counter(PRODUCTION_COLD_FILL, int(cold))
     profile.set_counter(
         PRODUCTION_RESULT_CACHE_HIT,
-        sum(1 for item in entries if item.failure is None and item.cached is not None),
+        sum(
+            1
+            for item in entries
+            if item.failure is None and (item.cached is not None or item.carried is not None)
+        ),
     )
     profile.set_counter(
-        PRODUCTION_RESULT_CACHE_MISS, sum(1 for item in entries if item.needs_work)
+        PRODUCTION_RESULT_CACHE_MISS, sum(1 for item in entries if item.computes)
     )
     profile.set_counter(PRODUCTION_DOMAINS, len(results))
     profile.set_counter(
@@ -951,12 +1325,13 @@ def run_production(
     with profile.measure("PRODUCTION_DOMAINS_WALL"):
         done, refused = _dispatch(
             run,
-            [item for item in work if item.prepared is not None],
-            [item for item in work if item.prepared is None],
+            [item for item in work if item.prepared is not None or item.carried is not None],
+            [item for item in work if item.prepared is None and item.carried is None],
             pool,
         )
     results = _domain_results(entries, done, refused)
     _record_run_counters(profile, controller, builds_before, entries, results, cold)
+    _record_content_counters(profile, run, entries)
     return ProductionRunV1(
         results=tuple(results),
         revision=revision,
@@ -1123,10 +1498,25 @@ def production_timing_text(run: ProductionRunV1) -> str:
     builds = run.counter(PRODUCTION_PREPARATION_BUILDS)
     cached = run.counter(PRODUCTION_RESULT_CACHE_HIT)
     computed = run.counter(PRODUCTION_RESULT_CACHE_MISS)
+    content = (run.counter(PRODUCTION_CONTENT_RESULT_REUSED) or 0) + (
+        run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED) or 0
+    )
     return (
         f"Decal {kind} {run.wall_seconds:.2f} s | preparations reused {reused}, "
         f"built {builds} | results cached {cached}, computed {computed}"
+        f"{_content_timing_suffix(run, content)}"
         f"{_pool_timing_suffix(run.profile)}"
+    )
+
+
+def _content_timing_suffix(run: ProductionRunV1, content: int) -> str:
+    """` | content reused R results, P preparations`, когда хранилище по содержимому что-то отдало."""
+
+    if not content:
+        return ""
+    return (
+        f" | content reused {run.counter(PRODUCTION_CONTENT_RESULT_REUSED)} results, "
+        f"{run.counter(PRODUCTION_CONTENT_PREPARATION_REUSED)} preparations"
     )
 
 
