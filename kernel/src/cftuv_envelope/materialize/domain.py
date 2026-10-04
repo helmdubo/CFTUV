@@ -74,6 +74,7 @@ from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
 from .audit import audit_batch
 from .assemble import (
+    RUNG_CHORD_STATIONS,
     RUNG_STATIONS_FROM_CHAIN_VERTEX,
     Layout,
     assemble_batch,
@@ -784,7 +785,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             *sourced.counters(),
             *faces_after.counters(),
             *(() if cut is None else cut.counters),
-            (RUNG_STATIONS_FROM_CHAIN_VERTEX, tally[RUNG_STATIONS_FROM_CHAIN_VERTEX]),
+            *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS)),
         ),
         plane,
         topology,
@@ -815,8 +816,10 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
             )
             break
         except MaterializationRefusal as refusal:
-            # Конфликт станций, который сводится к стыку закона `CORNER_JOIN_SAME_PCHAIN_V1`, снимает этот стык
-            # (он остаётся углом, пропуск назван) и строит домен заново; иначе отказ идёт дальше как был.
+            # Конфликт станций, который сводится к стыку потока (закон `CORNER_JOIN_SAME_PCHAIN_V1` либо JOIN плана),
+            # снимает этот стык (он остаётся углом, пропуск назван) и строит домен заново; иначе отказ идёт дальше
+            # как был. Домен не отказывает из-за стыка: сперва конфликт пытаются свести перекладиной и ребром
+            # (`station_values`), и лишь потом стык снимается.
             vertex = junction_to_withdraw(table, refusal.station_conflict)
             if vertex is not None and vertex not in withdrawn:
                 withdrawn = withdrawn | {vertex}

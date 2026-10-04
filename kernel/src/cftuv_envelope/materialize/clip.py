@@ -1194,6 +1194,36 @@ def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flow
     return stage.run(cycles, polygons, law, seam, fans, cuts)
 
 
+def _chords_of(cycles, refined) -> list:
+    """Ребро контура у каждой новой вершины каждой грани: `[{ключ: (u, v, точка u, точка v)}, ...]`.
+
+    `cycles` — контуры граней до резки, `refined` — они же с вершинами рёбер (`ClippedV1.cycles`, точки привязанные):
+    вершина, которой нет в первом, лежит на ребре между ближайшими вершинами исходного контура по обе стороны от неё.
+    Нужно закону `RUNG_CHORD_STATION_V1` (`assemble._chord_station`): единственный ответ для вершины на ОБЩЕМ ребре
+    двух граней потока — интерполяция фактов концов ребра, а концы берутся из контура, а не из резки.
+    """
+
+    found = []
+    for cycle, contour in zip(cycles, refined):
+        original = {key for key, _point in cycle}
+        anchors = [position for position, (key, _point) in enumerate(contour) if key in original]
+        chords = {}
+        if anchors:
+            count = len(contour)
+            for position, (key, _point) in enumerate(contour):
+                if key in original:
+                    continue
+                before, after = position, position
+                while contour[before % count][0] not in original:
+                    before -= 1
+                while contour[after % count][0] not in original:
+                    after += 1
+                first, last = contour[before % count], contour[after % count]
+                chords[key] = (first[0], last[0], first[1], last[1])
+        found.append(chords)
+    return found
+
+
 def cut_domain(
     plane,
     budget,
@@ -1226,7 +1256,17 @@ def cut_domain(
         stage = ClipStageV1(plane, budget, points)
         stage.flows = flows
         clipped = stage.run(cycles, polygons, law, seam, fans)
-    extra = station_values(frame_faces, clipped.extra_lists, layout, table, lattice_alpha, budget, tally)
+    extra = station_values(
+        frame_faces,
+        clipped.extra_lists,
+        layout,
+        table,
+        lattice_alpha,
+        budget,
+        tally,
+        chords=_chords_of(cycles, clipped.cycles),
+        anchors=facts,
+    )
     for slot, value in extra.items():
         known = facts.setdefault(slot, value)
         if known != value:

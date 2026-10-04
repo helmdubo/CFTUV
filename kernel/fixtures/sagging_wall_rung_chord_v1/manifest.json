@@ -1,0 +1,18 @@
+{
+ "fixture_id": "sagging_wall_rung_chord_v1",
+ "why": "REFUSED patch 0 (domain ...85cef2): BATCH_DID_NOT_VALIDATE: STATION_VALUE_CONFLICT: vertex clip:22 in region 5 has two (s, r) answers (поле, ширина декали >= 0.381, Max stretch 42 %). Перекладина JOIN между двумя кусками стены лежит на биссектрисе точно, пока вершина src: стоит на месте; привязка вершины src: к углу карты перед резкой (clip_snap) сдвигает её на 1.4 ячейки, новая вершина резки на перекладине получает от двух пробегов разные (s, r) (s 1.4787 против 1.2568, r 0.380920 против 0.380923), и `_rung_station` честно отказывает. Закон RUNG_CHORD_STATION_V1 отдаёт ей интерполяцию фактов концов общего ребра; снятие стыков (JOIN_WITHDRAWN_AT_STATION_CONFLICT) теперь доступно и стыку JOIN плана.",
+ "source": "E:/testScene.blend, меш sagging_wall, все швы выделены, Fan Density 2, Max stretch 42 %; выгрузка headless маршрутом кнопки Build Decal Mesh (run_production, воркеры 0): (snapshot, request) каждого домена перехвачены на входе prepare_conveyor. Два запроса — alpha 0.6 (числа поля: clip:22, s 1.478734 / 1.256765) и alpha 0.4. Порог измерен на коммите 8531c1a: патч 0 строился на alpha 0.2..0.38 и отказывал на alpha >= 0.381 (первая вершина резки на перекладине рождается при r = 0.3809), на Fan Density 1, 2 и 4 одинаково. Снапшот у обеих alpha один и тот же побитово.",
+ "domains": {
+  "patch_0": {
+   "object_name": "sagging_wall",
+   "patch_id": 0,
+   "patch_domain_id": "host-v0:patch-domain:f74074909d5da9862e85cef2"
+  }
+ },
+ "alphas": [
+  "0.4",
+  "0.6"
+ ],
+ "density": 2,
+ "max_stretch_percent": 42
+}
