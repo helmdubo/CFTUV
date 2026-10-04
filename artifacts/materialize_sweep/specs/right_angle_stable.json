@@ -1,0 +1,36 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "right_angle_stable",
+  "tool": "gate",
+  "law": "RIGHT-ANGLE-STABLE (CANONICAL_RESTORATION_ARTIST_ERROR, лучи веера равными долями)",
+  "about": "Предсказуемые веера (DECISIONS 2026-10-03, основа 85ac03b, слияние 1b55bf0): ANSWER `numeric_repr/gate.py` расходится ровно на доменах building с изменившимися углами (d1 15, d2 8, d3 19, d4 8 доменов), только в отпечатках геометрии, глубоких внутренностей подготовки и числах граней/отрезков; исход, деталь, масштаб решётки, число регионов, счётчики хоста и сетка (`fp_deep_lattice`) — те же.",
+  "domains": {
+    "by_density": {
+      "1": [0, 1, 4, 6, 7, 10, 11, 15, 17, 105, 106, 109, 110, 114, 115],
+      "2": [6, 10, 11, 15, 105, 106, 109, 110],
+      "3": [0, 1, 3, 4, 6, 7, 10, 11, 15, 17, 19, 20, 99, 105, 106, 109, 110, 114, 115],
+      "4": [6, 10, 11, 15, 105, 106, 109, 110]
+    }
+  },
+  "must_change": "each",
+  "allow": {
+    "digests": [
+      "fp_geometry",
+      "fp_geometry_value",
+      "fp_structural_counters",
+      "fp_deep_bridge",
+      "fp_deep_bridge_value",
+      "fp_deep_skeleton",
+      "fp_deep_skeleton_value",
+      "fp_deep_partition",
+      "fp_deep_partition_value",
+      "fp_deep_owners",
+      "fp_deep_owners_value"
+    ],
+    "fields": ["n_faces", "n_segments"]
+  },
+  "require": {
+    "changed_any_of": ["fp_geometry", "fp_geometry_value"],
+    "no_refusal": true
+  }
+}

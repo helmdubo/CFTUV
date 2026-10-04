@@ -1,0 +1,57 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "clip_by_faces",
+  "tool": "sweep",
+  "law": "SOURCE_FACES_CLIPPED_V1",
+  "about": "Резка граней по настоящим рёбрам источника: меняются ТОЛЬКО кривые домены (сертификат планарности не точная плоскость), плоские побитово те же; запись «до» — `sweep.py run --near-planar-law SOURCE_TRIANGLES_V1` на том же дереве. Для закона по треугольникам скопируйте и смените law.",
+  "domains": {
+    "where": [
+      {"side": "either", "field": "planarity", "op": "ne", "value": "ExactSourcePlaneCertificateV1"}
+    ]
+  },
+  "must_change": "each",
+  "allow": {
+    "digests": ["semantic_digest", "content_digest", "offset_normals_digest"],
+    "counters": [
+      "MATERIALIZE_FACES_EMITTED",
+      "MATERIALIZE_QUADS",
+      "MATERIALIZE_TRIANGLES",
+      "MATERIALIZE_VERTICES",
+      "MATERIALIZE_STATION_FACTS",
+      "MATERIALIZE_STATION_CONSTANT_S",
+      "MATERIALIZE_BOUNDARY_EDGES",
+      "MATERIALIZE_MERGED_RUNS_SPLIT_AT_RUNGS",
+      "MATERIALIZE_POLYGON_FACES_EMITTED",
+      "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED",
+      "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+      "MATERIALIZE_POLYGONS_UV_BILINEAR",
+      "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA",
+      "MATERIALIZE_QUADS_UV_BILINEAR",
+      "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+      "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX",
+      "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+      "MATERIALIZE_CURVED_STRIP_FACES_TRIANGULATED",
+      "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG",
+      "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
+      "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES",
+      "MATERIALIZE_QUADS_SPLIT_OFFSET_NORMALS_DIFFER"
+    ],
+    "counter_prefixes": ["MATERIALIZE_CLIP_", "MATERIALIZE_SURFACE_LIFT_"],
+    "diagnostics": [
+      {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"},
+      {"prefix": "NEAR_PLANAR_LIFT_ONTO_SOURCE_TRIANGLES"},
+      {"prefix": "DEVELOPABLE_LIFT_ONTO_UNFOLDED_SOURCE_TRIANGLES"},
+      {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"}
+    ]
+  },
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": [
+      "MATERIALIZE_FACES_LOST",
+      "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
+      "MATERIALIZE_TRIANGLES_UV_REVERSED"
+    ],
+    "no_refusal": true
+  }
+}

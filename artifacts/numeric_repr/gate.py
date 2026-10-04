@@ -29,6 +29,15 @@ PRICE (расхождение ПЕРЕЧИСЛЯЕТСЯ, но не ошибка
     python artifacts/numeric_repr/gate.py selftest baseline.json   # отрицательные контроли
 
 `--only 6,11` — подмножество доменов (сравнение тогда идёт по пересечению).
+
+Срез, который меняет ОТВЕТ осознанно (закон веера), сравнивается по спецификации ожидаемого изменения, а не
+глазами: `compare base.json new.json --spec right_angle_stable` (`--partial` при `--only`, `--list-specs`).
+Спецификация — данные в `artifacts/materialize_sweep/specs/*.json`, её схема и правила — в
+`artifacts/materialize_sweep/expected_change.py`; последняя строка вывода — один из трёх вердиктов:
+`IDENTICAL`, `EXPECTED-CHANGE (spec X): N domains`, `UNEXPECTED (spec X): K problems; first: ...`.
+Без `--spec` любое расхождение ответа — `UNEXPECTED`. ЦЕНА (секунды, бюджет работы) спецификацией не
+судится: она перечисляется и ошибкой не бывает.
+
 Fan Density передаётся аргументом `density=` в `build_envelope_decal_request`
 (0..4, `None` — старый закон), ровно как это делает панель.
 """
@@ -57,6 +66,13 @@ for _entry in (str(SPIKE), str(DIAG)):
         sys.path.insert(0, _entry)
 
 import pool_sweep  # noqa: E402  (модуль лёгкий: на импорте только stdlib)
+
+SWEEP_TOOL = ROOT / "artifacts" / "materialize_sweep"
+if str(SWEEP_TOOL) not in sys.path:
+    # В конец, не в начало: в каталоге свипа лежит свой `make_receipt.py`, и он не должен затенять соседний.
+    sys.path.append(str(SWEEP_TOOL))
+
+import expected_change  # noqa: E402  (спецификация ожидаемого изменения: общая со `sweep.py`)
 
 ALPHA_VALUE = pool_sweep.ALPHA_VALUE
 ALPHA_TEXT = pool_sweep.ALPHA_TEXT
@@ -489,9 +505,62 @@ def _flat_price(price: dict) -> dict:
     return flat
 
 
-def compare_records(base: dict, new: dict) -> dict:
-    """Сравнить прогон с эталоном: ANSWER строго, PRICE — перечислить."""
+#: Виды отпечатков ответа домена (`allow.digests` спецификации); остальные поля ответа — `allow.fields`.
+ANSWER_DIGEST_KEYS = (
+    "fp_meta",
+    "fp_geometry",
+    "fp_geometry_value",
+    "fp_structural_counters",
+    "fp_host_counters",
+    "fp_deep_bridge",
+    "fp_deep_bridge_value",
+    "fp_deep_skeleton",
+    "fp_deep_skeleton_value",
+    "fp_deep_partition",
+    "fp_deep_partition_value",
+    "fp_deep_owners",
+    "fp_deep_owners_value",
+    "fp_deep_lattice",
+)
+ANSWER_FIELD_KEYS = (
+    "outcome",
+    "detail",
+    "lattice_scale",
+    "n_regions",
+    "n_faces",
+    "n_segments",
+    "repr_has_address",
+    "deep_sympy_nodes",
+    "deep_unstable_repr_nodes",
+)
+VOCABULARY = expected_change.Vocabulary(
+    digests=frozenset(ANSWER_DIGEST_KEYS),
+    fields=frozenset(ANSWER_FIELD_KEYS),
+    counters=frozenset(),
+)
 
+
+def _answer_view(row: dict):
+    """Ответ строки ворот: ANSWER целиком (цена в виде не живёт)."""
+
+    answer = row["answer"]
+    return expected_change.RowView(fields=dict(answer), counters={}, ok=answer.get("outcome") == "EXACT/EXACT")
+
+
+def answer_pair_views(base_row: dict, new_row: dict):
+    return _answer_view(base_row), _answer_view(new_row)
+
+
+def load_spec(reference: str | None):
+    """Спецификация ожидаемого изменения по имени из `specs/` либо пути; `None` — без спецификации."""
+
+    return None if reference is None else expected_change.load_spec(reference, "gate", VOCABULARY)
+
+
+def compare_records(base: dict, new: dict, spec=None, partial: bool = False) -> dict:
+    """Сравнить прогон с эталоном: ANSWER по спецификации (без неё — строго), PRICE — перечислить."""
+
+    report = expected_change.evaluate([base, new], ["base", "new"], spec, answer_pair_views, VOCABULARY, partial)
     answer_diffs = []
     repr_only = []
     price_changes: dict[str, dict] = {}
@@ -509,10 +578,9 @@ def compare_records(base: dict, new: dict) -> dict:
         common = sorted(set(b_dom) & set(n_dom), key=int)
         for patch in common:
             b_ans, n_ans = b_dom[patch]["answer"], n_dom[patch]["answer"]
-            keys = sorted(set(b_ans) | set(n_ans))
             differing = [
-                key for key in keys
-                if b_ans.get(key, "<absent>") != n_ans.get(key, "<absent>")
+                change.name
+                for change in expected_change.diff_views(*answer_pair_views(b_dom[patch], n_dom[patch]))
             ]
             if differing:
                 value_keys_same = all(
@@ -566,9 +634,10 @@ def compare_records(base: dict, new: dict) -> dict:
     for slot in price_changes.values():
         for key in ("sum_base", "sum_new", "worst_abs"):
             slot[key] = round(slot[key], 3)
-    verdict = "IDENTICAL" if not (answer_diffs or repr_only or structural) else "MISMATCH"
     return {
-        "verdict": verdict,
+        "verdict": expected_change.verdict_line(report),
+        "report": report,
+        "spec": None if spec is None else spec.name,
         "answer_diffs": answer_diffs,
         "answer_repr_only_diffs": repr_only,
         "structural": structural,
@@ -577,6 +646,12 @@ def compare_records(base: dict, new: dict) -> dict:
         "base_sha": base.get("sha"),
         "new_sha": new.get("sha"),
     }
+
+
+def verdict_is_clean(result: dict) -> bool:
+    """`IDENTICAL` либо `EXPECTED-CHANGE`: ворота пройдены (код возврата 0)."""
+
+    return result["report"].exit_code == 0
 
 
 def print_comparison(result: dict) -> None:
@@ -597,18 +672,20 @@ def print_comparison(result: dict) -> None:
             f"  {key}: {slot['domains_changed']} domains, sum "
             f"{slot['sum_base']} -> {slot['sum_new']}"
         )
-    for entry in result["structural"]:
-        print("STRUCTURAL", _short(entry, 300))
-    for entry in result["answer_repr_only_diffs"][:20]:
-        print("ANSWER REPR-ONLY DIFF", _short(entry, 300))
-    for entry in result["answer_diffs"][:20]:
-        print("ANSWER DIFF", _short(entry, 300))
-    print(
-        f"ANSWER diffs={len(result['answer_diffs'])} "
-        f"repr-only={len(result['answer_repr_only_diffs'])} "
-        f"structural={len(result['structural'])}"
-    )
-    print("VERDICT", result["verdict"])
+    report = result["report"]
+    if report.problems or result["spec"] is None:
+        for entry in result["structural"]:
+            print("STRUCTURAL", _short(entry, 300))
+        for entry in result["answer_repr_only_diffs"][:20]:
+            print("ANSWER REPR-ONLY DIFF", _short(entry, 300))
+        for entry in result["answer_diffs"][:20]:
+            print("ANSWER DIFF", _short(entry, 300))
+        print(
+            f"ANSWER diffs={len(result['answer_diffs'])} "
+            f"repr-only={len(result['answer_repr_only_diffs'])} "
+            f"structural={len(result['structural'])}"
+        )
+    expected_change.print_report(report)
 
 
 # --------------------------------------------------------------------------
@@ -621,10 +698,10 @@ def selftest(base_path: Path, live: bool, live_patch: int | None) -> int:
     report = {}
     failed = False
 
-    def expect(name: str, record: dict, want: str) -> None:
+    def expect(name: str, record: dict, want: str, spec=None) -> None:
         nonlocal failed
-        got = compare_records(base, record)
-        ok = got["verdict"] == want
+        got = compare_records(base, record, spec)
+        ok = got["verdict"].split(" ", 1)[0].split(":", 1)[0] == want
         report[name] = {"want": want, "got": got["verdict"], "ok": ok,
                         "answer_diffs": len(got["answer_diffs"]),
                         "price_keys": len(got["price_changes"])}
@@ -644,25 +721,25 @@ def selftest(base_path: Path, live: bool, live_patch: int | None) -> int:
     slot["fp_geometry"] = slot["fp_geometry"][:-1] + (
         "0" if slot["fp_geometry"][-1] != "0" else "1"
     )
-    expect("fingerprint_bit_flip_detected", twin, "MISMATCH")
+    expect("fingerprint_bit_flip_detected", twin, "UNEXPECTED")
     # 2. бит во внутренностях
     twin = copy.deepcopy(base)
     slot = twin["runs"][density]["domains"][ok_patch]["answer"]
     slot["fp_deep_skeleton"] = "0" * 12
-    expect("deep_skeleton_bit_flip_detected", twin, "MISMATCH")
+    expect("deep_skeleton_bit_flip_detected", twin, "UNEXPECTED")
     # 3. структурный счётчик ответа
     twin = copy.deepcopy(base)
     slot = twin["runs"][density]["domains"][ok_patch]["answer"]
     slot["n_faces"] += 1
-    expect("answer_face_count_detected", twin, "MISMATCH")
+    expect("answer_face_count_detected", twin, "UNEXPECTED")
     # 4. исход
     twin = copy.deepcopy(base)
     twin["runs"][density]["domains"][ok_patch]["answer"]["outcome"] = "REFUSED/NONE"
-    expect("outcome_change_detected", twin, "MISMATCH")
+    expect("outcome_change_detected", twin, "UNEXPECTED")
     # 5. выпавший домен
     twin = copy.deepcopy(base)
     del twin["runs"][density]["domains"][ok_patch]
-    expect("missing_domain_detected", twin, "MISMATCH")
+    expect("missing_domain_detected", twin, "UNEXPECTED")
     # 6. ЦЕНА не должна ронять ворота
     twin = copy.deepcopy(base)
     price = twin["runs"][density]["domains"][ok_patch]["price"]
@@ -671,6 +748,22 @@ def selftest(base_path: Path, live: bool, live_patch: int | None) -> int:
     price["EXACT_WORK_GCD_OPERATIONS"] = 1
     price["stage_seconds"] = {"SKELETON": 0.001}
     expect("price_only_change_is_not_failure", twin, "IDENTICAL")
+    # 7. спецификация ожидаемого изменения: разрешённое поле проходит, соседнее — валит, неизменный объявленный домен — валит
+    spec = expected_change.parse_spec(
+        {
+            "schema": expected_change.SPEC_SCHEMA, "name": "selftest", "tool": "gate", "law": "SELFTEST",
+            "about": "selftest", "domains": {"by_density": {density: [int(ok_patch)]}}, "allow": {"fields": ["n_faces"]},
+        },
+        "gate",
+        VOCABULARY,
+    )
+    twin = copy.deepcopy(base)
+    twin["runs"][density]["domains"][ok_patch]["answer"]["n_faces"] += 1
+    expect("spec_allows_the_declared_field", twin, "EXPECTED-CHANGE", spec)
+    slot = twin["runs"][density]["domains"][ok_patch]["answer"]
+    slot["fp_geometry"] = slot["fp_geometry"][:-1] + ("0" if slot["fp_geometry"][-1] != "0" else "1")
+    expect("spec_rejects_another_field", twin, "UNEXPECTED", spec)
+    expect("spec_declared_domain_unchanged_fails", copy.deepcopy(base), "UNEXPECTED", spec)
     if live:
         report["live"] = _live_negative_control(base, density, live_patch)
         failed |= not report["live"]["ok"]
@@ -711,6 +804,13 @@ def _live_negative_control(base, density, live_patch):
 # --------------------------------------------------------------------------
 
 
+def _spec_or_exit(parser, reference):
+    try:
+        return load_spec(reference)
+    except expected_change.SpecError as error:
+        parser.error(str(error))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -722,11 +822,15 @@ def main() -> int:
     run.add_argument("--baseline", default=None)
     run.add_argument("--order", default=None, help="json прошлого прогона: порядок задач")
     run.add_argument("--only", default="", help="patch id через запятую")
+    run.add_argument("--spec", default=None, help="со --baseline: спецификация ожидаемого изменения (имя из specs/ либо путь)")
 
     cmp_ = sub.add_parser("compare")
-    cmp_.add_argument("baseline")
-    cmp_.add_argument("new")
+    cmp_.add_argument("baseline", nargs="?")
+    cmp_.add_argument("new", nargs="?")
     cmp_.add_argument("--json-out", default=None)
+    cmp_.add_argument("--spec", default=None, help="спецификация ожидаемого изменения: имя из specs/ либо путь к .json")
+    cmp_.add_argument("--partial", action="store_true", help="прогон части доменов (--only): объявленные домены вне записей — примечание")
+    cmp_.add_argument("--list-specs", action="store_true", help="перечислить сохранённые спецификации")
 
     test = sub.add_parser("selftest")
     test.add_argument("baseline")
@@ -743,20 +847,26 @@ def main() -> int:
         print(f"[gate] wrote {args.out} ({Path(args.out).stat().st_size} bytes)")
         if args.baseline:
             base = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-            result = compare_records(base, record)
+            result = compare_records(base, record, _spec_or_exit(parser, args.spec), bool(args.only))
             print_comparison(result)
-            return 0 if result["verdict"] == "IDENTICAL" else 1
+            return 0 if verdict_is_clean(result) else 1
         return 0
     if args.mode == "compare":
+        if args.list_specs:
+            expected_change.print_stored_specs("gate")
+            return 0
+        if not args.baseline or not args.new:
+            parser.error("compare needs <baseline.json> <new.json>")
         base = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
         new = json.loads(Path(args.new).read_text(encoding="utf-8"))
-        result = compare_records(base, new)
+        result = compare_records(base, new, _spec_or_exit(parser, args.spec), args.partial)
         print_comparison(result)
         if args.json_out:
             Path(args.json_out).write_text(
-                json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8"
+                json.dumps({key: value for key, value in result.items() if key != "report"}, ensure_ascii=False, indent=1),
+                encoding="utf-8",
             )
-        return 0 if result["verdict"] == "IDENTICAL" else 1
+        return 0 if verdict_is_clean(result) else 1
     return selftest(Path(args.baseline), args.live, args.live_patch)
 
 

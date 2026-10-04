@@ -24,6 +24,14 @@
 
 Код возврата 1 при любом расхождении. Список кривых доменов с числами (грани, четырёхгранья, треугольники,
 вершины `clip:`, свес, секунды резки) печатается всегда.
+
+Что вправе измениться и у каких доменов, судит та же спецификация, что у `sweep.py compare` и `gate.py compare`
+(`specs/clip_by_faces.json` для закона по граням, `specs/clip_by_triangles.json` для закона по треугольникам;
+`--spec` выбирает другую): плоские домены (не названные в спецификации) совпадают во ВСЁМ — все поля, все счётчики
+ядра, диагностики, — кривые меняются только разрешённым, и каждый кривой домен обязан измениться. Геометрические
+инварианты кривых (вершины на месте, шовные цепи те же, площадь UV та же, ...) остаются доказательством самой
+резки (`judge`) и входят в тот же вердикт строкой GEOMETRY. Последняя строка — один из трёх вердиктов:
+`IDENTICAL`, `EXPECTED-CHANGE (spec X): N domains`, `UNEXPECTED (spec X): K problems; first: ...`.
 """
 
 from __future__ import annotations
@@ -43,6 +51,12 @@ if str(GATE) not in sys.path:
 
 import gate  # noqa: E402  (тянет pool_sweep и пути харнесса)
 import pool_sweep  # noqa: E402
+
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import expected_change  # noqa: E402  (спецификация ожидаемого изменения: общая с `sweep.py` и `gate.py`)
+import sweep  # noqa: E402  (вид строки и словарь имён сравнения: те же слова на всех воротах)
 
 SCHEMA = "clip_gate_v1"
 ALPHA_TEXT = pool_sweep.ALPHA_TEXT
@@ -179,6 +193,35 @@ def judge(base, cut, planar: bool) -> list[str]:
     return problems
 
 
+#: Спецификация по умолчанию для закона резки (`--law`).
+DEFAULT_SPECS = {
+    "SOURCE_FACES_CLIPPED_V1": "clip_by_faces",
+    "SOURCE_TRIANGLES_CLIPPED_V1": "clip_by_triangles",
+}
+
+
+def _answer_row(result, planarity: str) -> dict:
+    """Ответ материализации в виде строки свипа: её читает то же сравнение (`sweep.pair_views`), что и записи свипа."""
+
+    return {
+        "prepare_outcome": "EXACT",
+        "coverage_outcome": "EXACT",
+        "materialization": result.outcome.value,
+        "detail": result.detail[:300],
+        "content_digest": result.content_digest,
+        "offset_normals_digest": result.offset_normals_digest,
+        "semantic_digest": "" if result.batch is None else result.batch.semantic_digest.value,
+        "planarity": planarity,
+        "counters": {
+            key: value
+            for key, value in sorted(dict(result.counters).items())
+            if not key.startswith(sweep.PRICE_COUNTER_PREFIXES)
+        },
+        "untracked_counters": {},
+        "diagnostics": list(result.diagnostics),
+    }
+
+
 def _numbers(result) -> dict:
     counters = dict(result.counters)
     return {
@@ -247,6 +290,10 @@ def compute_pair(patch_id: int, density, topology: str, law_name: str = "SOURCE_
         base=_numbers(base),
         clipped=_numbers(cut),
         chart=frame.chart_orientation.value,
+        answers={
+            "base": _answer_row(base, type(frame.planarity_certificate).__name__),
+            "clipped": _answer_row(cut, type(frame.planarity_certificate).__name__),
+        },
     )
     return row
 
@@ -255,10 +302,19 @@ def _task(args):
     return compute_pair(*args)
 
 
-def run(args) -> dict:
+def run(args, spec) -> dict:
     from concurrent.futures import ProcessPoolExecutor
 
-    record = {"schema": SCHEMA, "topology": args.topology, "law": args.law, "alpha": ALPHA_TEXT, "runs": {}}
+    record = {
+        "schema": SCHEMA,
+        "topology": args.topology,
+        "law": args.law,
+        "spec": spec.name,
+        "alpha": ALPHA_TEXT,
+        "runs": {},
+    }
+    answers = {"base": {"runs": {}}, "clipped": {"runs": {}}}
+    geometry = []
     for density in (int(item) for item in args.densities.split(",")):
         order = [int(x) for x in args.only.split(",")] if args.only else gate._default_order()
         started = time.perf_counter()
@@ -266,13 +322,18 @@ def run(args) -> dict:
             rows = list(pool.map(_task, [(pid, density, args.topology, args.law) for pid in order]))
         rows.sort(key=lambda row: row["patch_id"])
         record["runs"][str(density)] = {"wall": round(time.perf_counter() - started, 1), "domains": rows}
+        for side in answers:
+            answers[side]["runs"][str(density)] = {
+                "domains": {str(row["patch_id"]): row["answers"][side] for row in rows if "answers" in row}
+            }
         done = [row for row in rows if row.get("status") == "MATERIALIZED"]
         planar = [row for row in done if row["planar"]]
         curved = [row for row in done if not row["planar"]]
         failed = [row for row in rows if row.get("problems")]
+        geometry += [(density, row) for row in failed]
         print(
             f"[clip_gate] d{density}: {len(rows)} domains, {len(done)} materialized, {len(planar)} planar identical-checked, "
-            f"{len(curved)} curved, failures {len(failed)}",
+            f"{len(curved)} curved, geometry failures {len(failed)}",
             flush=True,
         )
         for row in curved:
@@ -286,8 +347,18 @@ def run(args) -> dict:
                 f"clip s {c['seconds']}",
                 flush=True,
             )
-        for row in failed:
-            print(f"    FAIL patch {row['patch_id']}: {row['problems']}", flush=True)
+    report = expected_change.evaluate(
+        [answers["base"], answers["clipped"]],
+        ["SOURCE_TRIANGLES_V1", args.law],
+        spec,
+        sweep.pair_views(False),
+        sweep.VOCABULARY,
+    )
+    for density, row in geometry:
+        report.problems.append(f"d{density} patch{row['patch_id']}: GEOMETRY {row['problems']}")
+    record["verdict"] = expected_change.verdict_line(report)
+    record["problems"] = len(report.problems)
+    expected_change.print_report(report)
     return record
 
 
@@ -300,14 +371,19 @@ def main() -> int:
     parser.add_argument("--topology", default="PLANAR_POLYGONS_V1")
     parser.add_argument("--law", default="SOURCE_FACES_CLIPPED_V1", choices=("SOURCE_FACES_CLIPPED_V1", "SOURCE_TRIANGLES_CLIPPED_V1"))
     parser.add_argument("--out", required=True)
-    args = parser.parse_args()
-    record = run(args)
-    Path(args.out).write_text(json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1), encoding="utf-8")
-    bad = sum(
-        1 for run_ in record["runs"].values() for row in run_["domains"] if row.get("problems")
+    parser.add_argument(
+        "--spec",
+        default=None,
+        help="спецификация ожидаемого изменения (имя из specs/ либо путь); по умолчанию по закону: clip_by_faces / clip_by_triangles",
     )
-    print("VERDICT", "CLEAN" if not bad else f"FAILED ({bad})")
-    return 1 if bad else 0
+    args = parser.parse_args()
+    try:
+        spec = expected_change.load_spec(args.spec or DEFAULT_SPECS[args.law], "sweep", sweep.VOCABULARY)
+    except expected_change.SpecError as error:
+        parser.error(str(error))
+    record = run(args, spec)
+    Path(args.out).write_text(json.dumps(record, ensure_ascii=False, sort_keys=True, indent=1), encoding="utf-8")
+    return 1 if record["problems"] else 0
 
 
 if __name__ == "__main__":
