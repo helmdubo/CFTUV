@@ -1,0 +1,15 @@
+{
+ "fixture_id": "sagging_wall_convex_partition_v1",
+ "why": "домен, где кусок полосы потока с неаффинной UV и невыпуклым контуром шёл в уши (UV_NOT_AFFINE): 13 из 49 кусков патча 1 меша sagging_wall дают 49 граней-ушей, а резка по граням источника множит их до 151 грани на домен. Все 13 имеют источник внизу и общие с соседом рёбра вверху, поэтому разрез по s = const кончился бы на цепи источника (T-стык шва) и закон отказан бы по шву; закон CONVEX_PARTITION_BY_DIAGONALS_V1 режет их диагоналями между своими вершинами на 27 частей вместо 49 ушей (151 -> 88 граней домена), вершин не рождает.",
+ "source": "E:/testScene.blend, меш sagging_wall, все швы выделены, Fan Density 2, Max stretch 42 %, alpha 0.987 (слайдер, float32: 0.9869999885559082); выгрузка headless маршрутом кнопки Build Decal Mesh (run_production, воркеры 0): (snapshot, request) перехвачены на входе prepare_conveyor. Патч 0 того же меша на той же alpha — снимок фикстуры sagging_wall_rung_chord_v1 с другой alpha запроса (два куска: складка UV и непростой образ).",
+ "domains": {
+  "patch_1": {
+   "object_name": "sagging_wall",
+   "patch_id": 1,
+   "patch_domain_id": "host-v0:patch-domain:6ee7d491b97a4b35803a7f6d"
+  }
+ },
+ "alpha": "0.9869999885559082",
+ "density": 2,
+ "max_stretch_percent": 42
+}

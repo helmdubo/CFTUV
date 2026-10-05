@@ -758,6 +758,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
         uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
         lattice_alpha=lattice_alpha,
         is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
+        partition=True,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
@@ -791,12 +792,11 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     polygons, sourced, faces_after = _at_host_positions(
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
-    positions = sourced.positions
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=cycles if cut is None else cut.cycles,
         vertex_cycles=None if cut is None else cut.vertex_lists,
-        positions=positions,
+        positions=sourced.positions,
         polygons=polygons,
         facts=facts,
         layout=layout,

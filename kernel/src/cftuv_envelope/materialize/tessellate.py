@@ -267,31 +267,45 @@ def uv_is_affine_in_chart(points, values, budget) -> bool:
     for second in range(1, count):
         for third in range(second + 1, count):
             if orientation(points[0], points[second], points[third], budget) != 0:
-                base = (second, third)
+                base = (0, second, third)
                 break
         if base is not None:
             break
     if base is None:
         return False
-    second, third = base
-    origin = points[0]
-    ux, uy = points[second][0] - origin[0], points[second][1] - origin[1]
-    vx, vy = points[third][0] - origin[0], points[third][1] - origin[1]
-    det = ux * vy - uy * vx
-    for index in range(1, count):
-        if index in base:
-            continue
-        qx, qy = points[index][0] - origin[0], points[index][1] - origin[1]
-        first_weight = qx * vy - qy * vx
-        second_weight = ux * qy - uy * qx
-        for component in (0, 1):
-            f0 = values[0][component]
-            left = det * (values[index][component] - f0)
-            right = first_weight * (values[second][component] - f0) + second_weight * (
-                values[third][component] - f0
-            )
-            if not (left - right).is_zero:
-                return False
+    frame = affine_frame(points, base)
+    return all(
+        uv_vertex_on_affine_map(points, values, base, frame, index) for index in range(1, count) if index not in base
+    )
+
+
+def affine_frame(points, base):
+    """Карта, решённая по трём неколлинеарным вершинам `base = (i0, i1, i2)`: `(начало, (ux, uy, vx, vy), det)`. Точно."""
+
+    origin = points[base[0]]
+    ux, uy = points[base[1]][0] - origin[0], points[base[1]][1] - origin[1]
+    vx, vy = points[base[2]][0] - origin[0], points[base[2]][1] - origin[1]
+    return origin, (ux, uy, vx, vy), ux * vy - uy * vx
+
+
+def uv_vertex_on_affine_map(points, values, base, frame, index) -> bool:
+    """Вершина `index` лежит на аффинной карте `frame` (`affine_frame` по `base`). Точно, без допусков.
+
+    Тождество `uv_is_affine_in_chart` для ОДНОЙ вершины: `det (f(q) - f0) = (q' x v) (f1 - f0) + (u x q') (f2 - f0)`,
+    `u = p1 - p0`, `v = p2 - p0`, `q' = q - p0`. Вынесено, чтобы разбиение диагоналями (`assemble._convex_faces`) запоминало
+    ответ на пару «основание, вершина» и не повторяло дорогое произведение иррациональных `(s, r)` на каждой части.
+    """
+
+    origin, (ux, uy, vx, vy), det = frame
+    qx, qy = points[index][0] - origin[0], points[index][1] - origin[1]
+    first_weight = qx * vy - qy * vx
+    second_weight = ux * qy - uy * qx
+    for component in (0, 1):
+        f0 = values[base[0]][component]
+        left = det * (values[index][component] - f0)
+        right = first_weight * (values[base[1]][component] - f0) + second_weight * (values[base[2]][component] - f0)
+        if not (left - right).is_zero:
+            return False
     return True
 
 

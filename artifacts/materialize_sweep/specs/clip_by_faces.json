@@ -44,6 +44,9 @@
       {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"}
     ]
   },
+  "allow_everywhere": {
+    "counter_prefixes": ["MATERIALIZE_CONVEX_PARTITION_"]
+  },
   "require": {
     "changed_any_of": ["semantic_digest", "content_digest"],
     "non_empty": ["semantic_digest"],
