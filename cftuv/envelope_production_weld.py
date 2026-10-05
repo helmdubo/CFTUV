@@ -46,7 +46,9 @@
 (`half_edge_conflicts` видит лишь повторные полурёбра). Поэтому шов проверяется ПО ЦЕПЯМ БАТЧЕЙ, точно:
 у каждой пары соседних `src:` на цепи `boundary:SOURCE` берётся число вершин между ними в каждом домене, и
 пара, у которой оно в двух доменах различно, — T-стык (`seam_report`; запись, а не ремонт: вершины не
-подтягиваются). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
+подтягиваются). Туда же — пара соседних `src:` одного домена, между которыми у другого домена той же цепи стоит ещё `src:`: так
+выглядит точка, растворённая лишь с одной стороны (закон ядра `SILHOUETTE_SOURCE_DOTS_V1` решает место сразу во всех доменах,
+и эта проверка его страхует). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
 
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
 по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча.
@@ -279,6 +281,33 @@ def weld_vertices(domains, offset: float) -> WeldV1:
     )
 
 
+def _anchors_between(anchored) -> int:
+    """Пары соседних `src:` одного домена, между которыми у другого домена в той же цепи стоит ещё `src:` (вершина растворена лишь с одной стороны).
+
+    Счёт по числу вершин `node:`/`clip:` между соседними `src:` такого шва не видит: пара, соседняя у одного домена, у другого
+    не пара вовсе. Каждая такая пара — T-стык: вершина другого домена лежит на ребре этого.
+    """
+
+    where: dict = {}
+    consecutive: dict = {}
+    for number, chain_id, anchors in anchored:
+        consecutive[(number, chain_id)] = {frozenset(pair) for pair in zip(anchors, anchors[1:])}
+        for key in anchors:
+            where.setdefault((number, key), chain_id)
+    numbers = {number for number, _chain_id, _anchors in anchored}
+    open_pairs = set()
+    for (number, _chain_id), pairs in consecutive.items():
+        for pair in pairs:
+            if len(pair) != 2:
+                continue
+            first, second = sorted(pair)
+            for other in numbers - {number}:
+                chain = where.get((other, first))
+                if chain is not None and chain == where.get((other, second)) and pair not in consecutive[(other, chain)]:
+                    open_pairs.add(pair)
+    return len(open_pairs)
+
+
 def seam_report(batches) -> tuple:
     """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям батчей.
 
@@ -288,7 +317,8 @@ def seam_report(batches) -> tuple:
 
     by_pair: dict = {}
     clip_vertices = 0
-    for batch in batches:
+    anchored: list = []
+    for number, batch in enumerate(batches):
         for chain in getattr(batch, "boundary_chains", ()) or ():
             kind = chain.semantic_boundary_id.value.split(":")[1]
             if kind not in ("SOURCE", "WALL"):
@@ -298,9 +328,11 @@ def seam_report(batches) -> tuple:
             clip_vertices += sum(1 for key in keys if key.startswith("clip:"))
             if kind != "SOURCE":
                 continue
+            anchored.append((number, chain.semantic_boundary_id.value, [keys[index] for index in anchors]))
             for first, second in zip(anchors, anchors[1:]):
                 by_pair.setdefault(frozenset((keys[first], keys[second])), []).append(second - first - 1)
     junctions = sum(1 for counts in by_pair.values() if len(counts) > 1 and len(set(counts)) > 1)
+    junctions += _anchors_between(anchored)
     return (
         (COUNTER_SEAM_T_JUNCTIONS, junctions),
         (COUNTER_SEAM_CLIP_VERTICES, clip_vertices),

@@ -116,6 +116,27 @@ class BatchAuditV1:
         )
 
 
+def batch_shape_counters(batch) -> tuple[tuple[str, int], ...]:
+    """Числа материализатора, которые батч выражает сам: грани, вершины, факты, цепи (порядок — как в ответе домена)."""
+
+    return (
+        # Треугольники — СУММА `n - 2` по граням: от выбора диагонали она не
+        # зависит, поэтому под любым законом топологии это одно и то же число.
+        ("MATERIALIZE_TRIANGLES", sum(len(face.ordered_vert_keys) - 2 for face in batch.faces)),
+        ("MATERIALIZE_FACES_EMITTED", len(batch.faces)),
+        ("MATERIALIZE_QUADS", sum(1 for face in batch.faces if len(face.ordered_vert_keys) == 4)),
+        ("MATERIALIZE_VERTICES", len(batch.vertices)),
+        ("MATERIALIZE_REGIONS", len(batch.semantic_regions)),
+        ("MATERIALIZE_STATION_FACTS", len(batch.station_facts)),
+        (
+            "MATERIALIZE_STATION_CONSTANT_S",
+            sum(1 for fact in batch.station_facts if fact.station_model_id.value == "CONSTANT_PHYSICAL_ENDPOINT_S"),
+        ),
+        ("MATERIALIZE_BOUNDARY_CHAINS", len(batch.boundary_chains)),
+        ("MATERIALIZE_INTERFACE_CHAINS", len(batch.interface_chains)),
+    )
+
+
 def _cross(a, b, c):
     ux, uy, uz = b.x - a.x, b.y - a.y, b.z - a.z
     vx, vy, vz = c.x - a.x, c.y - a.y, c.z - a.z

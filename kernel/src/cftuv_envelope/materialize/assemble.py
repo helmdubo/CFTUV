@@ -1177,7 +1177,7 @@ def lift_vertices(points, plane):
     )
 
 
-def _paths(edges):
+def paths_of(edges):
     """Максимальные неветвящиеся пути по полурёбрам: `[(a, ..., z), ...]`.
 
     Путь рвётся в вершине, где входов или выходов не один; цикл без разрыва
@@ -1231,6 +1231,15 @@ def edge_kind(facts, region, a, b, lattice_alpha) -> str:
     return "WALL"
 
 
+def _own_half_edge(owner_of: dict, half: tuple, entry: tuple) -> None:
+    if half in owner_of:
+        raise MaterializationRefusal(
+            MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
+            f"HALF_EDGE_SHARED_IN_ONE_DIRECTION: {half}",
+        )
+    owner_of[half] = entry
+
+
 def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
     """Граничные и интерфейсные цепи по ключам вершин СЛИТЫХ контуров.
 
@@ -1244,13 +1253,43 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
         size = len(cycle)
         for position in range(size):
             first, second = cycle[position][0], cycle[(position + 1) % size][0]
-            half = (_location_key(first), _location_key(second))
-            if half in owner_of:
-                raise MaterializationRefusal(
-                    MaterializationOutcome.BATCH_DID_NOT_VALIDATE,
-                    f"HALF_EDGE_SHARED_IN_ONE_DIRECTION: {half}",
-                )
-            owner_of[half] = (index, first, second)
+            _own_half_edge(owner_of, (_location_key(first), _location_key(second)), (index, first, second))
+    return _chains_from(owner_of, frame_faces, layout, facts, lattice_alpha)
+
+
+def chains_of_faces(frame_faces, polygons, layout, facts, lattice_alpha, continuous: Counter, reverse: bool = False):
+    """Граничные и интерфейсные цепи по ИТОГОВЫМ граням (кольцам многоугольников каждой слитой грани), закон `SILHOUETTE_TOPOLOGY_V1`.
+
+    Закон растворяет рёбра между гранями одного региона и вершины между двумя рёбрами, поэтому контур слитой грани (он описывает
+    ГРАНИ ДО растворения) уже не говорит, где в итоговой сетке кончается ребро: узел контуров нескольких слитых граней одного
+    региона после растворения рёбер между ними — вершина степени два, и цепи строятся по кольцам итога, а не по контурам.
+    Полуребро грани номер `index` принадлежит слитой грани `index` (тем же порядком, что у `chains_of`). Кольца граней обходятся
+    против контуров на CW-карте (`reverse`: так их кладёт тесселяция, чтобы нормаль смотрела наружу), и цепи идут в направлении
+    контуров, как у `chains_of`: направление цепи входит в дайджест батча.
+
+    ШОВ — ТАМ, ГДЕ UV РВЁТСЯ. Общее ребро граней двух РАЗНЫХ регионов, у которого факты `(s, r)` на обоих концах ТОЧНО равны
+    (UV на нём одна с обеих сторон: граница владения между секторами одного веера, технический край разомкнутого кольца), не
+    интерфейс: шва там нет, а хост метит швом ровно интерфейсные цепи. Сколько таких рёбер не вошло в интерфейсы,
+    записывается в `continuous` (`CONTINUOUS_INTERFACE_EDGES`): каждый такой край назван числом, а не потерян.
+    """
+
+    owner_of: dict = {}
+    for index, face_polygons in enumerate(polygons):
+        for ring in face_polygons:
+            size = len(ring)
+            for position in range(size):
+                first, second = ring[position], ring[(position + 1) % size]
+                if reverse:
+                    first, second = second, first
+                _own_half_edge(owner_of, (_location_key(first), _location_key(second)), (index, first, second))
+    return _chains_from(owner_of, frame_faces, layout, facts, lattice_alpha, continuous)
+
+
+#: Число закона `SILHOUETTE_TOPOLOGY_V1`: рёбра между регионами с ТОЧНО непрерывной UV, не ставшие интерфейсом (шва нет).
+CONTINUOUS_INTERFACE_EDGES = "MATERIALIZE_SILHOUETTE_CONTINUOUS_INTERFACE_EDGES"
+
+
+def _chains_from(owner_of, frame_faces, layout, facts, lattice_alpha, continuous=None):
     boundary: dict = {}
     interface: dict = {}
     cut_pairs = layout.cut_pairs(frame_faces)
@@ -1264,15 +1303,19 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
         other, other_start, other_end = opposite
         other_region = layout.region_of(frame_faces[other])
         if (region, index) < (other_region, other) and (other_region != region or (a, b) != (other_end, other_start)):
-            if other_region != region and frozenset((region, other_region)) in cut_pairs and all(
+            if other_region != region and (continuous is not None or frozenset((region, other_region)) in cut_pairs) and all(
                 facts[(region, key)] == facts[(other_region, twin)]
                 for key, twin in ((a, other_end), (b, other_start))
             ):
-                continue  # технический край разомкнутого кольца: UV на нём не рвётся, это не шов
+                # UV на ребре не рвётся, это не шов: технический край разомкнутого кольца потока, а под законом силуэта —
+                # любое ребро между регионами с равными фактами (границы владения секторов одного веера)
+                if continuous is not None and frozenset((region, other_region)) not in cut_pairs:
+                    continuous[CONTINUOUS_INTERFACE_EDGES] += 1
+                continue
             interface.setdefault((region, other_region), []).append((a, b))
     boundary_chains = []
     for (kind, region), edges in sorted(boundary.items()):
-        for number, path in enumerate(_paths(edges)):
+        for number, path in enumerate(paths_of(edges)):
             boundary_chains.append(
                 GeometryBoundaryChainV1(
                     SemanticBoundaryId(f"boundary:{kind}:{region}:{number}"),
@@ -1281,7 +1324,7 @@ def chains_of(frame_faces, cycles, layout, facts, lattice_alpha):
             )
     interface_chains = []
     for (left, right), edges in sorted(interface.items()):
-        for number, path in enumerate(_paths(edges)):
+        for number, path in enumerate(paths_of(edges)):
             interface_chains.append(
                 GeometryInterfaceChainV1(
                     SemanticInterfaceId(f"interface:{left}:{right}:{number}"),
@@ -1403,6 +1446,7 @@ def assemble_batch(
     diagnostics,
     vertex_cycles=None,
     merged_frames=None,
+    chains=None,
 ):
     """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`.
 
@@ -1412,7 +1456,9 @@ def assemble_batch(
     её зовут ПОСЛЕ подъёма всех точек: счётчики подъёма копятся в подъёме. `vertex_cycles` —
     все вершины каждой грани, если они шире контура (закон `SOURCE_TRIANGLES_CLIPPED_V1`:
     вершина внутри грани — вершина её кусков, но не цепи); без него вершины граней — контуры. `merged_frames` — происхождение
-    граней, слитых законом `SILHOUETTE_TOPOLOGY_V1` из нескольких слитых граней (`_face_records`).
+    граней, слитых законом `SILHOUETTE_TOPOLOGY_V1` из нескольких слитых граней (`_face_records`). `chains` — `(граничные,
+    интерфейсные)`, построенные законом `SILHOUETTE_TOPOLOGY_V1` по кольцам итоговых граней (`chains_of_faces`); без них цепи
+    строятся по контурам (`chains_of`).
     """
 
     material = MaterialId(request.material_policy_id.value)
@@ -1461,8 +1507,8 @@ def assemble_batch(
         )
         for (region, key), (s, r) in facts.items()
     )
-    boundary_chains, interface_chains = chains_of(
-        frame_faces, cycles, layout, facts, lattice_alpha
+    boundary_chains, interface_chains = (
+        chains_of(frame_faces, cycles, layout, facts, lattice_alpha) if chains is None else chains
     )
     return GeometryBatchV1(
         schema_version=GEOMETRY_BATCH_SCHEMA_V1,
