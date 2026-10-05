@@ -492,6 +492,7 @@ STORED = {
     "clip_by_triangles": "sweep",
     "join_same_pchain": "sweep",
     "right_angle_stable": "gate",
+    "stations_laws": "sweep",
 }
 
 

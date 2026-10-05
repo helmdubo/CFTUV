@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from itertools import combinations
 from decimal import (
     ROUND_HALF_EVEN,
     Context,
@@ -33,6 +34,7 @@ from decimal import (
     localcontext,
 )
 from fractions import Fraction
+from typing import NamedTuple
 
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
@@ -70,8 +72,46 @@ from .admit import MaterializationOutcome
 from .coalesce import lattice_node, point_key
 from .frames import FrameFaceV1, MaterializationRefusal
 from .lift import ENCLOSURE_BITS
+from .convex_partition import (
+    DIAGONALS as PARTITION_DIAGONALS,
+    FACES_EMITTED as PARTITION_FACES_EMITTED,
+    PIECES_PARTITIONED,
+    PIECES_REFUSED as PARTITION_PIECES_REFUSED,
+    REASON_AREA as PARTITION_REASON_AREA,
+    REASON_NO_GAIN as PARTITION_REASON_NO_GAIN,
+    REASON_UV_FOLD as PARTITION_REASON_UV_FOLD,
+    REFUSED_PREFIX as PARTITION_REFUSED_PREFIX,
+    PartitionRefusalV1,
+    partition_counters,
+    plan_partition,
+    verify_partition,
+)
+from .slabs import (
+    CUTS as SLAB_CUTS,
+    FACES_EMITTED as SLAB_FACES_EMITTED,
+    FACES_SLIVER as SLAB_FACES_SLIVER,
+    FACES_THIN as SLAB_FACES_THIN,
+    PIECES_DECOMPOSED as SLAB_PIECES_DECOMPOSED,
+    PIECES_REFUSED as SLAB_PIECES_REFUSED,
+    REASON_NOT_A_SUBDIVISION,
+    REASON_NOT_ADMITTED,
+    REASON_NOT_ON_CONTOUR,
+    REFUSED_PREFIX as SLAB_REFUSED_PREFIX,
+    REFUSED_WOULD_HAVE_FACES as SLAB_REFUSED_WOULD_HAVE_FACES,
+    VERTICES_INSERTED as SLAB_VERTICES_INSERTED,
+    EdgeLedgerV1,
+    SlabRefusalV1,
+    SlabSinkV1,
+    SlabVertexV1,
+    endpoint_refusal,
+    face_notes,
+    plan_slabs,
+    slab_counters,
+    verify_plan,
+)
 from .stations import ChainStationTableV1, station_of, transverse_of, transverse_root
 from .tessellate import (
+    affine_frame,
     contour_is_simple,
     convex_polygon_ring,
     convex_quad_ring,
@@ -82,9 +122,10 @@ from .tessellate import (
     triangulate_from_apex,
     uv_affine_defect_milli,
     uv_is_affine_in_chart,
+    uv_vertex_on_affine_map,
 )
 from .uv_law import uv_direct_strip_v1
-from ..wavefront.faces import doubled_shoelace, orientation
+from ..wavefront.faces import doubled_shoelace, orientation, shoelace_sign
 
 #: 28 значащих цифр — точность десятичного контекста по умолчанию, на которой
 #: кодек читает `Decimal`: больше цифр кодек молча обрезал бы на круговом проходе.
@@ -476,6 +517,7 @@ def tessellate_faces(
     uv_values=None,
     lattice_alpha=None,
     is_rung=None,
+    slab_sink=None,
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -496,6 +538,9 @@ def tessellate_faces(
     `is_rung(грань, ключ)` — вершина получила станцию вершины цепи на перекладине JOIN
     (`station_values`, `rungs`): билинейным четырёхгранье может быть ТОЛЬКО с такой
     вершиной; без `is_rung` закон закрыт и неаффинное четырёхгранье режется (`UV_NOT_AFFINE`).
+    `slab_sink` (`SlabSinkV1`) включает закон станций (`SLAB_DECOMPOSITION_BY_STATIONS_V1`) для кусков с неаффинной
+    UV, которые прежде шли в уши: он же принимает новые вершины закона (вызывающий вставляет их в контуры и факты);
+    без него закона нет и ответ прежний побитово.
     """
 
     if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
@@ -511,6 +556,7 @@ def tessellate_faces(
             uv_values,
             1 if lattice_alpha is None else lattice_alpha,
             is_rung,
+            slab_sink,
         )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
@@ -698,6 +744,29 @@ def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
     return polygons
 
 
+def _strictly_convex_ring(points, budget):
+    """Кольцо выпуклого контура (вершины на прямой допустимы) не меньше чем с четырьмя строго левыми поворотами, либо `None`.
+
+    Геометрическая половина закона `QUAD_UV_BILINEAR_V1` (`_bilinear_ring`): дешёвые знаки без UV. Такой контур допустим
+    ВСЕГДА — аффинной UV либо билинейной, — поэтому разбиение диагоналями (`_convex_faces`) решает «допустима ли часть»
+    по нему, не считая UV (точная проверка аффинности на иррациональных `(s, r)` — самая дорогая операция куска).
+    """
+
+    ring = convex_quad_ring(points, budget) if len(points) == 4 else convex_polygon_ring(points, budget)
+    if ring is None:
+        return None
+    size = len(ring)
+    corners = sum(
+        1
+        for position in range(size)
+        if orientation(
+            points[ring[position - 1]], points[ring[position]], points[ring[(position + 1) % size]], budget
+        )
+        > 0
+    )
+    return ring if corners >= 4 else None
+
+
 def _bilinear_ring(points, keys, budget, uv_of, unit, tally):
     """Кольцо выпуклой грани потока с билинейной UV (закон `QUAD_UV_BILINEAR_V1`) либо `None`.
 
@@ -717,27 +786,236 @@ def _bilinear_ring(points, keys, budget, uv_of, unit, tally):
     `uv_affine_defect_milli`, в тысячных alpha.
     """
 
-    ring = convex_quad_ring(points, budget) if len(points) == 4 else convex_polygon_ring(points, budget)
+    ring = _strictly_convex_ring(points, budget)
     if ring is None:
         return None
     size = len(ring)
-    corners = sum(
-        1
-        for position in range(size)
-        if orientation(
-            points[ring[position - 1]], points[ring[position]], points[ring[(position + 1) % size]], budget
-        )
-        > 0
-    )
-    if corners < 4:
-        return None
     defect = uv_affine_defect_milli(points, [uv_of(key) for key in keys], unit, budget)
     name = QUADS_UV_BILINEAR_MAX_MILLI_ALPHA if size == 4 else POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA
     tally[name] = max(tally[name], int(defect))
     return ring
 
 
-def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1, in_flow=False):
+class _SlabScope(NamedTuple):
+    """Что закон станций знает о куске: чьи рёбра чьи, к какой грани кадра он относится и куда писать новые вершины."""
+
+    sink: SlabSinkV1
+    ledger: object
+    frame_index: int
+    frame_face: object
+    contour: frozenset
+
+
+def _refused_slab(tally, refusal: SlabRefusalV1) -> None:
+    """Отказ закона станций записан по имени причины; сколько граней дал бы кусок, тоже (если разбиение было)."""
+
+    tally[SLAB_PIECES_REFUSED] += 1
+    tally[SLAB_REFUSED_PREFIX + refusal.reason] += 1
+    tally[SLAB_REFUSED_WOULD_HAVE_FACES] += refusal.would_have
+
+
+def _merge_scratch(tally, scratch) -> None:
+    """Числа, накопленные вхолостую на куске, — в общий счёт: излом UV берёт наибольший, остальное складывается."""
+
+    for name, value in scratch.items():
+        if name.endswith("_MAX_MILLI_ALPHA"):
+            tally[name] = max(tally[name], value)
+        else:
+            tally[name] += value
+
+
+def _admitted_polygons(faces, coords, node_keys, look, budget, reverse, in_flow, unit, scratch):
+    """Части разбиения (узлы против часовой на карте) допускаются ПРЕЖНИМ законом куска: `(многоугольники, площадь, имя)`.
+
+    Треугольник — как есть; многоугольник — аффинная UV (`_plane_ring`) либо, у полосы потока, строго выпуклая грань с
+    билинейной UV (`_bilinear_ring`). Числа допуска копятся в `scratch`, а не в счёте домена: они войдут в него, только
+    если разбиение примут целиком. Часть, которую закон не берёт, — `(None, None, имя причины)`.
+    """
+
+    emitted: list = []
+    total = SqrtSumV1.zero()
+    for nodes in faces:
+        face_points = tuple(coords[node] for node in nodes)
+        face_keys = tuple(node_keys[node] for node in nodes)
+        ring = tuple(range(len(nodes)))
+        if len(nodes) > 3:
+            ring, named = _plane_ring(face_points, face_keys, budget, look.__getitem__)
+            if ring is None and in_flow and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE:
+                ring = _bilinear_ring(face_points, face_keys, budget, look.__getitem__, unit, scratch)
+                if ring is not None:
+                    scratch[QUADS_UV_BILINEAR if len(nodes) == 4 else POLYGONS_UV_BILINEAR] += 1
+            elif ring is not None and named is not None:
+                scratch[named] += 1
+            if ring is None:
+                return None, None, named
+            scratch[POLYGON_FACES_EMITTED] += int(len(ring) > 4)
+        total = total + doubled_shoelace(tuple(face_points[index] for index in ring))
+        emitted.append(_ring_polygon(face_keys, ring, reverse))
+    return tuple(emitted), total, None
+
+
+def _refused_partition(tally, refusal: PartitionRefusalV1) -> None:
+    """Отказ закона разбиения диагоналями записан по имени причины."""
+
+    tally[PARTITION_PIECES_REFUSED] += 1
+    tally[PARTITION_REFUSED_PREFIX + refusal.reason] += 1
+
+
+def _convex_faces(piece, cycle, budget, reverse, tally, uv_of, unit, in_flow):
+    """Грани куска по закону `CONVEX_PARTITION_BY_DIAGONALS_V1` либо `None` (кусок остаётся на ушах, отказ назван).
+
+    Диагонали только между вершинами куска: новых вершин нет, шва и T-стыков закон не касается. Часть допустима прежним
+    законом куска (`_admitted_polygons`: треугольник, аффинная UV либо строго выпуклый многоугольник потока); число
+    частей наименьшее (`plan_partition`). Доказательство планарного разбиения (`verify_partition`), та же ориентация
+    образа каждой части в UV, что у образа куска (складки нет) и точная сумма площадей — иначе уши, отказ назван.
+    """
+
+    points = tuple(point for _key, point in cycle)
+    keys = tuple(key for key, _point in cycle)
+    look = {key: tuple(uv_of(key)) for key in keys}
+    values = [look[key] for key in keys]
+    frames: dict = {}
+    on_map: dict = {}
+
+    def affine(verts) -> bool:
+        """UV аффинна на вершинах части: по канонической основе (три наименьших неколлинеарных индекса), ответы запомнены."""
+
+        ordered = sorted(verts)
+        base = next(
+            (
+                (first, second, third)
+                for first, second, third in combinations(ordered, 3)
+                if orientation(points[first], points[second], points[third], budget)
+            ),
+            None,
+        )
+        if base is None:
+            return False
+        frame = frames.get(base)
+        if frame is None:
+            frame = frames[base] = affine_frame(points, base)
+        for index in ordered:
+            if index in base:
+                continue
+            found = on_map.get((base, index))
+            if found is None:
+                found = on_map[(base, index)] = uv_vertex_on_affine_map(points, values, base, frame, index)
+            if not found:
+                return False
+        return True
+
+    def admissible(verts) -> bool:
+        """Часть допустима прежним законом: строго выпуклая у потока (UV не нужна) либо с аффинной UV.
+
+        Части режутся допустимыми диагоналями, поэтому каждая — простой многоугольник по построению; закон куска
+        (`_admitted_polygons`) всё равно проверяет выпущенные части заново.
+        """
+
+        if in_flow and _strictly_convex_ring(tuple(points[index] for index in verts), budget) is not None:
+            return True
+        return affine(verts)
+
+    plan = plan_partition(points, budget, admissible)
+    if isinstance(plan, PartitionRefusalV1):
+        _refused_partition(tally, plan)
+        return None
+    if len(plan.pieces) >= len(points) - 2:
+        _refused_partition(tally, PartitionRefusalV1(PARTITION_REASON_NO_GAIN))
+        return None
+    bad = verify_partition(points, plan, budget)
+    if bad is not None:
+        _refused_partition(tally, bad)
+        return None
+    piece_sign = shoelace_sign(tuple(look[keys[index]] for index in plan.order), budget)
+    if not piece_sign or any(
+        shoelace_sign(tuple(look[keys[index]] for index in part), budget) != piece_sign for part in plan.pieces
+    ):
+        _refused_partition(tally, PartitionRefusalV1(PARTITION_REASON_UV_FOLD))
+        return None
+    scratch: Counter = Counter()
+    emitted, total, _named = _admitted_polygons(plan.pieces, points, keys, look, budget, reverse, in_flow, unit, scratch)
+    if emitted is None or not (total - piece.doubled_area).is_zero:
+        _refused_partition(tally, PartitionRefusalV1(PARTITION_REASON_AREA))
+        return None
+    _merge_scratch(tally, scratch)
+    tally[PIECES_PARTITIONED] += 1
+    tally[PARTITION_FACES_EMITTED] += len(plan.pieces)
+    tally[PARTITION_DIAGONALS] += len(plan.pieces) - 1
+    return emitted
+
+
+def _slab_faces(piece, cycle, budget, reverse, tally, uv_of, unit, in_flow, scope):
+    """Грани куска по закону `SLAB_DECOMPOSITION_BY_STATIONS_V1` либо `None` (кусок остаётся на ушах, отказ назван).
+
+    Порядок: разбиение образа в UV (`plan_slabs`), доказательство планарного разбиения (`verify_plan`), закон шва
+    для концов разрезов (`endpoint_refusal`: новая вершина только на свободном ребре и только на ребре контура
+    грани кадра), допуск КАЖДОЙ трапеции прежним законом (треугольник, аффинная UV либо строго выпуклый
+    многоугольник потока с билинейной UV) и точное замыкание площади куска. Новые вершины и числа пишутся лишь
+    при успехе: отказ не оставляет следов, кроме названного счёта.
+    """
+
+    points = tuple(point for _key, point in cycle)
+    keys = tuple(key for key, _point in cycle)
+    values = tuple(tuple(uv_of(key)) for key in keys)
+    ledger = scope.ledger()
+
+    def may_insert(first_index: int, second_index: int):
+        """Закон шва: новая вершина только на свободное ребро, лежащее на контуре грани кадра."""
+
+        first, second = keys[first_index], keys[second_index]
+        reason = endpoint_refusal(ledger.kind(scope.frame_face, first, second))
+        if reason is None and (first, second) not in scope.contour and (second, first) not in scope.contour:
+            reason = REASON_NOT_ON_CONTOUR
+        return reason
+
+    plan = plan_slabs(points, values, budget, may_insert)
+    if isinstance(plan, SlabRefusalV1):
+        _refused_slab(tally, plan)
+        return None
+    interior, bad = verify_plan(points, values, plan, budget)
+    if bad is not None:
+        _refused_slab(tally, SlabRefusalV1(bad.reason, bad.detail, len(plan.faces)))
+        return None
+    count = len(points)
+    base = len(scope.sink.vertices)
+    node_keys = [*keys, *(f"slab:{base + number}" for number in range(len(plan.points)))]
+    coords = [*points, *(item.point for item in plan.points)]
+    look = {key: value for key, value in zip(node_keys, [*values, *(item.value for item in plan.points)])}
+    scratch: Counter = Counter()
+    faces = [face if plan.map_sign > 0 else tuple(reversed(face)) for face in plan.faces]
+    emitted, total, named = _admitted_polygons(faces, coords, node_keys, look, budget, reverse, in_flow, unit, scratch)
+    if emitted is None:
+        _refused_slab(tally, SlabRefusalV1(REASON_NOT_ADMITTED, str(named), len(plan.faces)))
+        return None
+    if not (total - piece.doubled_area).is_zero:
+        _refused_slab(tally, SlabRefusalV1(REASON_NOT_A_SUBDIVISION, "areas", len(plan.faces)))
+        return None
+    thin, sliver = face_notes(points, values, plan, unit, budget)
+    _merge_scratch(tally, scratch)
+    tally[SLAB_PIECES_DECOMPOSED] += 1
+    tally[SLAB_FACES_EMITTED] += len(plan.faces)
+    tally[SLAB_CUTS] += interior
+    tally[SLAB_VERTICES_INSERTED] += len(plan.points)
+    tally[SLAB_FACES_THIN] += thin
+    tally[SLAB_FACES_SLIVER] += sliver
+    for number, item in enumerate(plan.points):
+        scope.sink.add(
+            SlabVertexV1(
+                scope.frame_index,
+                node_keys[count + number],
+                keys[item.edge[0]],
+                keys[item.edge[1]],
+                item.share,
+                item.point,
+                item.value,
+            )
+        )
+    return tuple(emitted)
+
+
+def _contour_polygons(
+    piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1, in_flow=False, scope=None
+):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
     `piece` — то, чьи владелец и площадь контур обязан замкнуть. На точной
@@ -745,9 +1023,11 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
     UV аффинен (`_plane_ring`); строго выпуклое четырёхгранье с билинейной UV — тоже
     одна грань, под своим именем (`_bilinear_ring`), но ТОЛЬКО у полосы потока И с
     вершиной перекладины JOIN (`in_flow`: `FrameFaceV1.flow_key` и `is_rung` хотя бы у одной
-    вершины контура): только такую UV рождает закон перекладины, а любое другое неаффинное
-    многоугольник режется по-прежнему (`UV_NOT_AFFINE`). На укладке на треугольники
-    источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
+    вершины контура): только такую UV рождает закон перекладины. Любое другое неаффинное
+    многоугольник сперва идёт в закон станций (`SLAB_DECOMPOSITION_BY_STATIONS_V1`, `scope`: без него закона нет),
+    при его названном отказе — в разбиение диагоналями между своими вершинами (`CONVEX_PARTITION_BY_DIAGONALS_V1`:
+    новых вершин нет) и только при втором названном отказе режется по-прежнему (`UV_NOT_AFFINE`, уши). На укладке на
+    треугольники источника целым остаётся только строго выпуклое четырёхгранье (его плоскостность
     решает `settle_topology`), контур длиннее — треугольники и
     `CURVED_STRIP_FACES_TRIANGULATED`.
     """
@@ -763,6 +1043,12 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
                 ring = _bilinear_ring(points, keys, budget, uv_of, unit, tally)
                 if ring is not None:
                     named = QUADS_UV_BILINEAR if len(points) == 4 else POLYGONS_UV_BILINEAR
+            if scope is not None and ring is None and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE:
+                slab = _slab_faces(piece, cycle, budget, reverse, tally, uv_of, unit, in_flow, scope)
+                if slab is None:
+                    slab = _convex_faces(piece, cycle, budget, reverse, tally, uv_of, unit, in_flow)
+                if slab is not None:
+                    return slab
         else:
             ring = convex_quad_ring(points, budget)
             if ring is None:
@@ -790,18 +1076,32 @@ def _contour_polygons(piece, cycle, budget, reverse, exact_plane, tally, uv_of, 
 
 
 def _polygon_law_faces(
-    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1, is_rung=None
+    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1, is_rung=None, slab_sink=None
 ):
     """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — `_fan_faces`, ленты — многоугольники.
 
     Слитый пробег режется по перекладинам на грани своих рёбер-источников
     (`_rung_pieces`): площадь каждой части замыкается точно, и сумма частей
-    равна площади слитой грани. `unit` — единица записи излома билинейной UV.
+    равна площади слитой грани. `unit` — единица записи излома билинейной UV. `slab_sink` включает закон станций
+    для кусков, чья UV неаффинна и которым не хватило билинейного закона (`_slab_faces`).
     """
 
     key_of = {point_key(point): key for cycle in cycles for key, point in cycle}
+    ledger_memo: list = []
+
+    def ledger():
+        """Владение рёбрами домена по ВСЕМ частям всех слитых граней: считается один раз, когда оно понадобилось."""
+
+        if not ledger_memo:
+            every = []
+            for other, other_cycle in zip(frame_faces, cycles):
+                parts = None if other.is_fan else _rung_pieces(other, key_of)
+                every.extend((other, part_cycle) for _part, part_cycle in (parts or [(None, other_cycle)]))
+            ledger_memo.append(EdgeLedgerV1(every, uv_values, unit))
+        return ledger_memo[0]
+
     result = []
-    for frame_face, cycle in zip(frame_faces, cycles):
+    for index, (frame_face, cycle) in enumerate(zip(frame_faces, cycles)):
         face = frame_face.face
         if frame_face.is_fan:
             result.append(
@@ -826,6 +1126,16 @@ def _polygon_law_faces(
             for part, _cycle_of_part in pieces:
                 total = total + part.doubled_area
             _closes_the_area(total, face.doubled_area, face.owner, "run part areas")
+        scope = None
+        if slab_sink is not None:
+            size = len(cycle)
+            scope = _SlabScope(
+                slab_sink,
+                ledger,
+                index,
+                frame_face,
+                frozenset((cycle[at][0], cycle[(at + 1) % size][0]) for at in range(size)),
+            )
         polygons = []
         for part, part_cycle in pieces:
             polygons.extend(
@@ -841,6 +1151,7 @@ def _polygon_law_faces(
                     getattr(frame_face, "flow_key", None) is not None
                     and is_rung is not None
                     and any(is_rung(frame_face, key) for key, _point in part_cycle),
+                    scope,
                 )
             )
         result.append(tuple(polygons))
@@ -917,6 +1228,8 @@ def _settle_polygon_law(polygons, sources, tally):
         (QUADS_UV_BILINEAR_MAX_MILLI_ALPHA, tally[QUADS_UV_BILINEAR_MAX_MILLI_ALPHA]),
         (POLYGONS_UV_BILINEAR, tally[POLYGONS_UV_BILINEAR]),
         (POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA, tally[POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA]),
+        *slab_counters(tally),
+        *partition_counters(tally),
     )
 
 

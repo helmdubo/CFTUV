@@ -93,6 +93,7 @@ from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
+from .slabs import SlabSinkV1
 from .source_lift import (
     host_positions_of,
     lift_source_vertices,
@@ -669,6 +670,38 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     return final, sourced, faces_after
 
 
+def _tessellated(domain, how):
+    """`(грани, контуры, точки)`: тесселяция слитых граней и вершины, которые она родила.
+
+    `domain` — `(грани кадра, контуры, точки, факты, раскладка, вершины перекладин)`, `how` — `(счёт закона, бюджет, закон
+    тесселяции, точная плоскость, кадр по часовой, alpha решётки)`. Закон станций (`SLAB_DECOMPOSITION_BY_STATIONS_V1`) мог
+    родить вершины на рёбрах контуров: они такие же вершины грани, как узлы, — в контуре (цепи батча), в точках (подъём) и в
+    фактах `(s, r)` региона (`facts` дописывается здесь).
+    """
+
+    frame_faces, cycles, points, facts, layout, rungs = domain
+    tally, budget, law, exact_plane, chart_cw, lattice_alpha = how
+    sink = SlabSinkV1()
+    polygons = tessellate_faces(
+        frame_faces,
+        cycles,
+        budget,
+        reverse=chart_cw,
+        law=law,
+        exact_plane=exact_plane,
+        tally=tally,
+        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
+        lattice_alpha=lattice_alpha,
+        is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
+        slab_sink=sink,
+    )
+    if sink:
+        cycles = sink.refined_cycles(cycles, budget)
+        points = {**points, **sink.points()}
+        facts.update(sink.facts(lambda index: layout.region_of(frame_faces[index])))
+    return polygons, cycles, points
+
+
 def _assemble(prepared, coverage, request, admission, budget, clock, parts, law):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена."""
 
@@ -692,17 +725,9 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     )
     clipped = _is_clipped(admission)
     tessellation_law = _tessellation_law(clipped, law)
-    polygons = tessellate_faces(
-        frame_faces,
-        cycles,
-        budget,
-        reverse=chart_cw,
-        law=tessellation_law,
-        exact_plane=_on_exact_plane(admission) or clipped,
-        tally=tally,
-        uv_values=lambda frame_face, key: facts[(layout.region_of(frame_face), key)],
-        lattice_alpha=lattice_alpha,
-        is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
+    polygons, cycles, points = _tessellated(
+        (frame_faces, cycles, points, facts, layout, rungs),
+        (tally, budget, tessellation_law, _on_exact_plane(admission) or clipped, chart_cw, lattice_alpha),
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
