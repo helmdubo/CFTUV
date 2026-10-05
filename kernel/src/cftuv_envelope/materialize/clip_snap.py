@@ -104,19 +104,30 @@ class CornerSnapV1:
 
 
 def _corner_grid(plane):
-    """`({(ячейка сетки): [(угол, float x, float y)]}, {угол: наибольшее растяжение его треугольников})`."""
+    """`({(ячейка сетки): [(угол, float x, float y)]}, {угол: [треугольники угла]})`.
+
+    Растяжение угла (`_corner_stretch`) считается по требованию: оно нужно только углам, в которые вершина встала.
+    """
 
     step = float(SOURCE_VERTEX_CORNER_SNAP_CELLS)
-    stretch: dict = {}
+    owners: dict = {}
     for triangle in plane.triangles:
-        square = plane.stretch_square(triangle)
         for corner in triangle.chart:
-            stretch[corner] = max(stretch.get(corner, Fraction(0)), square)
+            owners.setdefault(corner, []).append(triangle)
     grid: dict = {}
-    for corner in sorted(stretch):
+    for corner in sorted(owners):
         x, y = float(corner[0]), float(corner[1])
         grid.setdefault((math.floor(x / step), math.floor(y / step)), []).append((corner, x, y))
-    return grid, stretch
+    return grid, owners
+
+
+def _corner_stretch(plane, owners, corner) -> Fraction:
+    """Наибольшее растяжение подъёма в треугольниках угла (не меньше нуля)."""
+
+    stretch = Fraction(0)
+    for triangle in owners[corner]:
+        stretch = max(stretch, plane.stretch_square(triangle))
+    return stretch
 
 
 def _near_corners(grid, point, plane):
@@ -156,7 +167,7 @@ def _snap_to_corners(plane, budget, points, tally) -> tuple:
     if not candidates:
         return {}, 0, Fraction(0)
     limit = SqrtSumV1.rational(SOURCE_VERTEX_CORNER_SNAP_CELLS * SOURCE_VERTEX_CORNER_SNAP_CELLS)
-    grid, stretch = _corner_grid(plane)
+    grid, owners = _corner_grid(plane)
     taken = {point_key(point) for point in points.values()}
     proposals: dict = {}
     for key in candidates:
@@ -185,7 +196,7 @@ def _snap_to_corners(plane, budget, points, tally) -> tuple:
         moved[key] = target
         tally[SOURCE_VERTICES_SNAPPED] += 1
         upper = gap.enclosure(ENCLOSURE_BITS)[1]
-        widest = max(widest, nanometres(upper * stretch[corner]))
+        widest = max(widest, nanometres(upper * _corner_stretch(plane, owners, corner)))
         widest_square = max(widest_square, upper)
     return moved, widest, widest_square
 

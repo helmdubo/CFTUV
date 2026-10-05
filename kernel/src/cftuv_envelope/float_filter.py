@@ -21,6 +21,9 @@
 вызывающий идёт прежним точным путём. Порога в смысле допуска здесь нет: фильтр
 не меняет ответ, а только решает, платить ли за него точной арифметикой.
 
+ПРЯМАЯ. `line_estimate` — тот же фильтр для знака точки у прямой с ЦЕЛЫМИ концами (`dx * (y - y0) - dy * (x - x0)`): резка спрашивает его
+на каждую пару «узел, ребро области» (`materialize.clip._slot`) и строит точное значение, только когда оно нужно.
+
 ПАМЯТЬ. Центр и граница координаты считаются один раз на объект: таблица ключится
 `id(объект)` и держит САМ объект, поэтому занятый ключ не может достаться другому
 живому значению. Таблицу сбрасывает `reset_factorization_memory` на границе домена, а предел записей — целиком. Результат от таблицы не
@@ -125,6 +128,46 @@ def orientation_sign(first, second, third) -> int | None:
     if abs(value) > bound:
         return 1 if value > 0.0 else -1
     return None
+
+
+def line_estimate(point, start_x: float, start_y: float, step_x: float, step_y: float) -> tuple[float, float] | None:
+    """`(значение, граница)` ориентации точки у прямой: `step_x * (y - start_y) - step_y * (x - start_x)`, либо `None`.
+
+    `|точное - значение| <= граница`: тот же порядок оценки, что у `orientation_sign` (центр и граница каждой координаты
+    из таблицы, ошибки разности, произведений и суммы по первому порядку с запасом вдвое, `_MARGIN`). Концы прямой и
+    шаг — float, ТОЧНО представляющие целые (вызывающий не отдаёт сюда ничего другого): ошибки у них нет. Знак доказан,
+    если `|значение| > граница`; это же значение решает «дальше допуска от прямой» (`|значение| > граница + допуск`).
+    `None` — координату binary64 не берёт: вызывающий идёт точным путём.
+    """
+
+    get = _TABLE.get
+    entry_x = get(id(point[0]))
+    if entry_x is None:
+        entry_x = _measure(point[0])
+    centre_x = entry_x[1]
+    if centre_x is None:
+        return None
+    entry_y = get(id(point[1]))
+    if entry_y is None:
+        entry_y = _measure(point[1])
+    centre_y = entry_y[1]
+    if centre_y is None:
+        return None
+    slack = _SLACK
+    along_y = centre_y - start_y
+    error_y = entry_y[2] + slack * abs(along_y)
+    along_x = centre_x - start_x
+    error_x = entry_x[2] + slack * abs(along_x)
+    first = step_x * along_y
+    second = step_y * along_x
+    value = first - second
+    bound = (
+        abs(step_x) * error_y
+        + abs(step_y) * error_x
+        + slack * (abs(first) + abs(second) + abs(value))
+        + _FLOOR
+    ) * _MARGIN
+    return value, bound
 
 
 def polygon_sign(points) -> int | None:
