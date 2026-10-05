@@ -1,0 +1,45 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "convex_partition",
+  "tool": "sweep",
+  "law": "CONVEX_PARTITION_BY_DIAGONALS_V1",
+  "about": "Кусок потока с неаффинной UV и невыпуклым контуром, которому прежде оставались уши (UV_NOT_AFFINE), режется на допустимые части диагоналями между своими вершинами (до 8 вершин — наименьшее число частей, длиннее — жадное слияние; новых вершин нет). Меняются ТОЛЬКО домены, где закон сработал (счётчик MATERIALIZE_CONVEX_PARTITION_PIECES в новой записи больше нуля): на building при PLANAR_POLYGONS_V1 это 6, 106, 109, при законах TRIANGLES_V1 и QUAD_STRIPS_V1 только 106 и 109 (резка берёт многоугольники при любом запрошенном законе); у остальных домены побитово те же. Запись «до» — тот же `sweep.py run` на основе f362871. Число итоговых граней при законах TRIANGLES_V1 и QUAD_STRIPS_V1 вправе вырасти (резка складывает уши обратно в многоугольник, а разбиение остаётся разбиением); при PLANAR_POLYGONS_V1 — продуктовом законе — оно не растёт ни на одном домене.",
+  "domains": {
+    "where": [
+      {"side": "new", "counter": "MATERIALIZE_CONVEX_PARTITION_PIECES", "op": "gt", "value": 0}
+    ]
+  },
+  "must_change": "each",
+  "allow": {
+    "digests": ["semantic_digest", "content_digest"],
+    "counters": [
+      "MATERIALIZE_FACES_EMITTED",
+      "MATERIALIZE_QUADS",
+      "MATERIALIZE_TRIANGLES",
+      "MATERIALIZE_VERTICES",
+      "MATERIALIZE_STATION_FACTS",
+      "MATERIALIZE_POLYGON_FACES_EMITTED",
+      "MATERIALIZE_POLYGON_FACES_CONCAVE_EMITTED",
+      "MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE",
+      "MATERIALIZE_QUADS_UV_BILINEAR",
+      "MATERIALIZE_QUADS_UV_BILINEAR_MAX_MILLI_ALPHA",
+      "MATERIALIZE_POLYGONS_UV_BILINEAR",
+      "MATERIALIZE_POLYGONS_UV_BILINEAR_MAX_MILLI_ALPHA"
+    ],
+    "counter_prefixes": ["MATERIALIZE_CLIP_", "MATERIALIZE_CONVEX_PARTITION_", "MATERIALIZE_SURFACE_LIFT_"],
+    "diagnostics": [
+      {"prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"},
+      {"prefix": "SOURCE_VERTEX_LIFTED_AT_HOST_POSITION_V1"}
+    ]
+  },
+  "allow_everywhere": {
+    "counter_prefixes": ["MATERIALIZE_CONVEX_PARTITION_"]
+  },
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": ["MATERIALIZE_FACES_LOST", "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"],
+    "non_increasing": ["MATERIALIZE_POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE"],
+    "no_refusal": true
+  }
+}

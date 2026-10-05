@@ -1,40 +1,47 @@
-"""Закон `CONVEX_PARTITION_BY_DIAGONALS_V1`: кусок, которому не хватило закона станций, режется на НАИМЕНЬШЕЕ число допустимых граней диагоналями между его же вершинами.
+"""Закон `CONVEX_PARTITION_BY_DIAGONALS_V1`: кусок, у которого нет аффинной и билинейной грани целиком, режется на допустимые грани диагоналями между его же вершинами вместо ушей.
 
-ЗАЧЕМ. Закон станций (`slabs`) ставит новую вершину на ребро куска, а ребро источника и ребро, общее у двух
-кусков, новых вершин не терпят (шов с соседним доменом, T-стык соседа): у куска полосы потока, у которого источник
-внизу, а общий с соседом фронт вверху, отказывают ВСЕ разрезы (`REFUSED_ENDPOINT_ON_SEAM_EDGE`). Остаются уши, а
-они — самое дорогое разбиение: диагональ на каждую вершину сверх третьей. Но допустимая грань не обязана быть
-треугольником: строго выпуклый многоугольник потока с билинейной UV уже допускается (`QUAD_UV_BILINEAR_V1`,
-`_bilinear_ring`), аффинный многоугольник — тем более, а ушам эта допустимость не нужна. Диагональ между двумя
-СУЩЕСТВУЮЩИМИ вершинами не рождает вершин и не касается шва.
+ЗАЧЕМ. Кусок полосы потока с неаффинной UV и невыпуклым контуром (`_bilinear_ring` требует строгой выпуклости) шёл в
+уши (`UV_NOT_AFFINE`): диагональ на каждую вершину сверх третьей, тонкие треугольники, а резка по граням источника
+множит каждое ухо (`sagging_wall`, alpha 0.987: 57 граней-ушей дают 224 грани меша на 29 граней источника). Допустимая
+грань, однако, не обязана быть треугольником: строго выпуклый многоугольник потока с билинейной UV уже допускается
+(`QUAD_UV_BILINEAR_V1`, `_bilinear_ring`), аффинный — тем более, а ушам эта допустимость не нужна.
 
-ЗАКОН. Грань куска — кольцо его вершин (кольцо против часовой на карте). Закон ищет разбиение кольца
-непересекающимися внутренними диагоналями, в котором КАЖДАЯ часть допустима тем же законом, что и целый кусок
-(`admissible`: треугольник; аффинная UV; строго выпуклый многоугольник потока с билинейной UV), а число частей
-наименьшее. Поиск — точное запоминающее разбиение по частям-подкольцам (подкольцо — циклический отрезок исходного
-порядка вершин): целиком допустимое подкольцо — одна часть; иначе перебор диагоналей по возрастанию пары индексов,
-первая из равных по числу частей побеждает (детерминизм). Диагональ допустима, когда ни одно ребро подкольца её не
-пересекает трансверсально, ни одна другая вершина не лежит на ней, и она входит в угол каждого своего конца внутрь
-(знак `orientation` каждого шага точный). Допусков нет.
+ПОЧЕМУ ДИАГОНАЛИ, А НЕ РАЗРЕЗЫ ПО СТАНЦИЯМ. Разрез по `s = const` из вершины фронта кончается на ребре источника: новая
+вершина на цепи, общей с соседним доменом, — T-стык шва (хост сваривает только `src:`; `clip.seam_edges`,
+`ADAPTER_SEAM_T_JUNCTIONS`, `clip_gate`: шовные цепи побитово те же). У кусков потока источник внизу, а всё остальное —
+общие рёбра соседей, поэтому ни один такой разрез не законен: ядро не ставит новых вершин на цепь источника или стены
+(политику шва не открывает). Диагональ между двумя СУЩЕСТВУЮЩИМИ вершинами не рождает вершин и шва не касается.
 
-ДОКАЗАТЕЛЬСТВО. Тот же довод, что у закона станций: каждая часть — простой многоугольник положительной ориентации;
-полурёбра частей сокращаются парами (диагонали по одной в каждую сторону), а остаток — ровно контур куска. Тогда части
-покрывают кусок один раз без щелей и наложений. Дополнительно (вызывающий): ориентация образа каждой части в UV та
-же, что у образа куска (складка UV не вызывается разбиением), сумма площадей частей равна площади куска точно.
-Отказ любого пункта — кусок остаётся на ушах (прежний путь, побитово) под ИМЕНЕМ причины. Разбиение не короче ушей
-(`n - 2` частей: у куска вне потока допустимы одни треугольники) выигрыша не даёт — `NO_GAIN_OVER_EARS`, уши прежние
-побитово, а не другая триангуляция того же числа граней.
+ЗАКОН. Грань куска — кольцо его вершин (против часовой на карте). Часть допустима, когда она (`admissible`) треугольник,
+либо строго выпуклый многоугольник потока (билинейная UV, UV не нужна), либо имеет аффинную UV. Закон ищет разбиение
+кольца непересекающимися внутренними диагоналями на допустимые части.
 
-ГРАНИЦА РАБОТЫ — ИМЕНОВАННАЯ. Поиск стоит порядка `n^4` знаков на кусок (измерено на случайных, почти сплошь
-невыпуклых контурах: 10 вершин — до 0.12 с, 12 — до 0.9 с, 14 — до 7 с, 16 — до 30 с); куски потока поля имеют до 9
-вершин. Кусок длиннее `MAX_VERTICES` не ищется и отказан `TOO_MANY_VERTICES`: это граница работы, а не геометрии, и
-она записана числом отказов, ответ ушей остаётся прежним.
+* Кусок до `EXACT_VERTICES` вершин — ТОЧНОЕ наименьшее число частей: запоминающее разбиение по подкольцам (подкольцо —
+  циклический отрезок исходного порядка вершин; диагонали по возрастанию пары индексов, первая из равных по числу частей
+  побеждает). Диагональ допустима, когда ни одно ребро подкольца её не пересекает трансверсально, ни одна другая вершина
+  не лежит на ней и она входит в угол каждого конца внутрь (знак `orientation` каждого шага точный).
+* Длиннее — жадное слияние Hertel - Mehlhorn без потолка по вершинам: старт — те же уши (`triangulate_exact`), диагонали
+  в порядке номеров концов по возрастанию, диагональ снимается, когда объединение двух её частей допустимо, и обход
+  повторяется, пока снимать нечего (`O(n)` проверок допустимости на проход). Ни одна диагональ результата уже не
+  снимается, а число частей не больше четырёх оптимальных (граница Hertel - Mehlhorn для любой триангуляции).
+
+Почему точный поиск остался для малых кусков. На поле жадный даёт столько же частей (142 против 141 на 70 кусках), но ДРУГИЕ
+диагонали из равных по числу: у типичного пятиугольника ленты `A B C D E` с невыпуклой `D` точный берёт `A - D`, жадный
+`B - D`, и после резки по граням источника это 165 против 153 граней меша на `sagging_wall` (+7.8 %, предел 5 % нарушен).
+Точный поиск на малых кусках стоит до 0.03 с, а жадный нужен там, где точный дорог: `n^4` знаков на 12 вершинах это до
+0.9 с, на 14 — до 7 с.
+
+ДОКАЗАТЕЛЬСТВО (точно, допусков нет). Каждая часть — простой многоугольник положительной ориентации; полурёбра частей
+сокращаются парами (диагонали по одной в каждую сторону), а остаток — ровно контур куска. Тогда части покрывают кусок
+один раз без щелей и наложений. Дополнительно (вызывающий): ориентация образа каждой части в UV та же, что у образа
+куска (складка UV не вызывается разбиением), сумма площадей частей равна площади куска точно. Отказ любого пункта —
+кусок остаётся на ушах (прежний путь, побитово) под ИМЕНЕМ причины. Разбиение не короче ушей (`n - 2` частей: у куска
+вне потока допустимы одни треугольники) выигрыша не даёт — `NO_GAIN_OVER_EARS`, уши прежние побитово, а не другая
+триангуляция того же числа граней. Куска, оставленного на ушах из-за длины, нет: потолка по вершинам нет.
 
 ИЗМЕРЕНО НА ПОЛЕ (headless, кнопка, `E:/testScene.blend`, Fan Density 2; грани / рёбра / грани с углом меньше пяти градусов в
-меше). `sagging_wall`, alpha 0.987, Max stretch 42 %: 224 / 416 / 43 -> 153 / 302 / 26, ушей 57 граней (15 кусков) -> 4 (1 кусок
-со складкой UV); `rounded_wall_noise_top`, alpha 0.5, 42 %: 557 / 1051 / 33 -> 472 / 910 / 19, ушей 78 -> 0; `building`,
-alpha 0.25: 1012 / 2248 / 24 -> 998 / 2235 / 16, ушей 25 -> 0; меш `2` и домены без ушей побитово те же;
-`ADAPTER_SEAM_T_JUNCTIONS` = 0 везде (вершин закон не рождает).
+меше; «до» — закон выключен на том же дереве). См. DECISIONS 2026-10-05: `sagging_wall` alpha 0.987 (Max stretch 42 %),
+`rounded_wall_noise_top` alpha 0.5 (42 %), `building` d2, меш `2`; `ADAPTER_SEAM_T_JUNCTIONS` = 0 везде (вершин закон не рождает).
 """
 
 from __future__ import annotations
@@ -44,26 +51,28 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from ..wavefront.faces import orientation, segments_cross, shoelace_sign
-from .tessellate import contour_is_simple, counter_clockwise_ring
+from .tessellate import contour_is_simple, counter_clockwise_ring, triangulate_exact
 
-#: Наибольшее число вершин куска, для которого ищется разбиение (граница работы: число отказов записано).
-MAX_VERTICES = 12
+#: Кусок до стольких вершин ищется точно (наименьшее число частей), длиннее — жадным слиянием: граница метода, не отказ.
+EXACT_VERTICES = 8
 
 #: Имена чисел закона (они же ключи счётчиков материализатора). Нулевые числа в счётчики не пишутся.
 PIECES_PARTITIONED = "MATERIALIZE_CONVEX_PARTITION_PIECES"
+PIECES_EXACT = "MATERIALIZE_CONVEX_PARTITION_PIECES_EXACT"
+PIECES_GREEDY = "MATERIALIZE_CONVEX_PARTITION_PIECES_GREEDY"
 FACES_EMITTED = "MATERIALIZE_CONVEX_PARTITION_FACES_EMITTED"
 DIAGONALS = "MATERIALIZE_CONVEX_PARTITION_DIAGONALS"
 PIECES_REFUSED = "MATERIALIZE_CONVEX_PARTITION_PIECES_REFUSED"
 REFUSED_PREFIX = "MATERIALIZE_CONVEX_PARTITION_REFUSED_"
 
-REASON_TOO_MANY_VERTICES = "TOO_MANY_VERTICES"
+REASON_NO_TRIANGULATION = "NO_TRIANGULATION"
 REASON_NO_PARTITION = "NO_ADMISSIBLE_PARTITION"
 REASON_NO_GAIN = "NO_GAIN_OVER_EARS"
 REASON_NOT_A_SUBDIVISION = "NOT_A_SUBDIVISION"
 REASON_UV_FOLD = "UV_FOLD"
 REASON_AREA = "AREA_DOES_NOT_CLOSE"
 REASONS = (
-    REASON_TOO_MANY_VERTICES,
+    REASON_NO_TRIANGULATION,
     REASON_NO_PARTITION,
     REASON_NO_GAIN,
     REASON_NOT_A_SUBDIVISION,
@@ -74,10 +83,14 @@ REASONS = (
 
 @dataclass(frozen=True, slots=True)
 class PartitionPlanV1:
-    """Части куска: кольца индексов входного кольца против часовой на карте; диагоналей на единицу меньше частей."""
+    """Части куска: кольца индексов входного кольца против часовой на карте; диагоналей на единицу меньше частей.
+
+    `exact` — части найдены точным поиском (кусок до `EXACT_VERTICES` вершин), иначе жадным слиянием.
+    """
 
     pieces: tuple
     order: tuple
+    exact: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,26 +146,8 @@ def _valid_diagonal(ring, first: int, second: int, budget) -> bool:
     return _enters_interior(ring, first, end, budget) and _enters_interior(ring, second, start, budget)
 
 
-def plan_partition(points, budget, admissible):
-    """`PartitionPlanV1` с наименьшим числом допустимых частей либо `PartitionRefusalV1`.
-
-    `points[i]` — точка карты вершины простого кольца; `admissible(кольцо индексов против часовой)` — допустима ли
-    часть (вызывающий отвечает прежним законом куска, ответ запоминается здесь). Кусок целиком допустим — одна часть.
-    """
-
-    count = len(points)
-    if count > MAX_VERTICES:
-        return PartitionRefusalV1(REASON_TOO_MANY_VERTICES, f"{count} vertices")
-    ring = counter_clockwise_ring(tuple(points), budget)
-    if ring is None:
-        return PartitionRefusalV1(REASON_NOT_A_SUBDIVISION, "zero area")
-    verdicts: dict = {}
-
-    def allowed(verts) -> bool:
-        found = verdicts.get(verts)
-        if found is None:
-            found = verdicts[verts] = len(verts) == 3 or bool(admissible(verts))
-        return found
+def _plan_exact(points, ring, budget, allowed):
+    """Части с наименьшим числом допустимых частей (запоминающее разбиение по подкольцам) либо `None`."""
 
     @lru_cache(maxsize=None)
     def solve(verts):
@@ -182,9 +177,73 @@ def plan_partition(points, budget, admissible):
         return best
 
     total, pieces = solve(tuple(ring))
-    if total is None:
-        return PartitionRefusalV1(REASON_NO_PARTITION, f"{count} vertices")
-    return PartitionPlanV1(pieces, tuple(ring))
+    return None if total is None else pieces
+
+
+def _merged_ring(first, second, start, end):
+    """Кольцо объединения двух частей по общей диагонали: у `first` ребро `start -> end`, у `second` — `end -> start`."""
+
+    at = first.index(start)
+    rotated_first = first[at:] + first[:at]
+    at = second.index(end)
+    rotated_second = second[at:] + second[:at]
+    return rotated_first[1:] + (start,) + rotated_second[2:]
+
+
+def _plan_greedy(triangles, allowed):
+    """Части жадным слиянием Hertel - Mehlhorn от триангуляции `triangles` (индексы входного кольца против часовой)."""
+
+    faces = dict(enumerate(triangles))
+    owner = {edge: number for number, face in faces.items() for edge in zip(face, face[1:] + face[:1])}
+    diagonals = sorted({(min(a, b), max(a, b)) for a, b in owner if (b, a) in owner})
+    created = len(faces)
+    merged = True
+    while merged:
+        merged = False
+        for low, high in diagonals:
+            if (low, high) not in owner or (high, low) not in owner:
+                continue
+            first, second = owner[(low, high)], owner[(high, low)]
+            union = _merged_ring(faces[first], faces[second], low, high)
+            if not allowed(union):
+                continue
+            for number in (first, second):
+                face = faces.pop(number)
+                for edge in zip(face, face[1:] + face[:1]):
+                    del owner[edge]
+            faces[created] = union
+            owner.update((edge, created) for edge in zip(union, union[1:] + union[:1]))
+            created += 1
+            merged = True
+    return tuple(sorted(face[face.index(min(face)) :] + face[: face.index(min(face))] for face in faces.values()))
+
+
+def plan_partition(points, budget, admissible):
+    """`PartitionPlanV1` либо `PartitionRefusalV1`: часть куска допустима, когда её признал `admissible(кольцо индексов)`.
+
+    Кусок до `EXACT_VERTICES` вершин — наименьшее число частей, длиннее — жадное слияние (см. докстринг модуля). Кусок
+    целиком допустим — одна часть. Ответ `admissible` запоминается здесь.
+    """
+
+    ring = counter_clockwise_ring(tuple(points), budget)
+    triangles = None if ring is None else triangulate_exact(points, budget)
+    if triangles is None:
+        return PartitionRefusalV1(REASON_NO_TRIANGULATION, f"{len(points)} vertices")
+    verdicts: dict = {}
+
+    def allowed(verts) -> bool:
+        found = verdicts.get(verts)
+        if found is None:
+            found = verdicts[verts] = len(verts) == 3 or bool(admissible(verts))
+        return found
+
+    exact = len(points) <= EXACT_VERTICES
+    if allowed(tuple(ring)):
+        return PartitionPlanV1((tuple(ring),), tuple(ring), exact)
+    pieces = _plan_exact(points, ring, budget, allowed) if exact else _plan_greedy(triangles, allowed)
+    if pieces is None:
+        return PartitionRefusalV1(REASON_NO_PARTITION, f"{len(points)} vertices")
+    return PartitionPlanV1(pieces, tuple(ring), exact)
 
 
 def verify_partition(points, plan: PartitionPlanV1, budget):
@@ -216,6 +275,8 @@ def partition_counters(tally) -> tuple:
 
     names = (
         PIECES_PARTITIONED,
+        PIECES_EXACT,
+        PIECES_GREEDY,
         FACES_EMITTED,
         DIAGONALS,
         PIECES_REFUSED,

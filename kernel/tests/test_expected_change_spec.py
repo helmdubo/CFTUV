@@ -490,9 +490,9 @@ STORED = {
     "chord_station": "sweep",
     "clip_by_faces": "sweep",
     "clip_by_triangles": "sweep",
+    "convex_partition": "sweep",
     "join_same_pchain": "sweep",
     "right_angle_stable": "gate",
-    "stations_laws": "sweep",
 }
 
 

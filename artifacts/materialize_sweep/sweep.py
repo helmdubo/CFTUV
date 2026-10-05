@@ -29,9 +29,7 @@ snapshot` -> `build_envelope_decal_request` -> `run_queue_domain`, alpha 0.45), 
 инварианты обязаны держаться), как её писать и три вида вердикта (`IDENTICAL`, `EXPECTED-CHANGE (spec X):
 N domains`, `UNEXPECTED ...`) — в `expected_change.py`. `compare --list-specs` перечисляет сохранённые.
 Закон, которого у среза нет флагом (`--chord-station off`, `--source-lift off`, `--near-planar-law
-SOURCE_TRIANGLES_V1` — ДО резки, `--stations off` — законы станций и разбиения диагоналями), даёт запись «до» на том же
-дереве; иначе «до» берётся из прогона основы. `--stations-seam allow` открывает политику шва закона станций (контроль, не
-умолчание: вершины на цепях источника — T-стыки с соседним доменом).
+SOURCE_TRIANGLES_V1` — ДО резки), даёт запись «до» на том же дереве; иначе «до» берётся из прогона основы.
 
 Счётчики, которых нет в `COUNTER_KEYS` и `TOPOLOGY_COUNTER_KEYS` (числа резки `MATERIALIZE_CLIP_*`, станции
 перекладин и прочее, что ядро добавило после списков), пишутся в `untracked_counters` строки и сравниваются
@@ -223,22 +221,8 @@ def _compute_row(
     source_lift: str = "on",
     chord_station: str = "on",
     near_planar_law: str = "",
-    stations: str = "on",
-    stations_seam: str = "strict",
 ):
     ctx = pool_sweep._CTX
-    if stations == "off":
-        # Законы станций и разбиения диагоналями (`SLAB_DECOMPOSITION_BY_STATIONS_V1`, `CONVEX_PARTITION_BY_DIAGONALS_V1`)
-        # выключены: неаффинный кусок идёт в уши, как до законов (запись «до» на том же дереве).
-        from cftuv_envelope.materialize import assemble as assemble_module
-
-        assemble_module._slab_faces = lambda *args, **kwargs: None
-        assemble_module._convex_faces = lambda *args, **kwargs: None
-    if stations_seam == "allow":
-        # Политика шва ОТКРЫТА (решение владельца, не умолчание): закон станций ставит вершины и на ребро источника/стены.
-        from cftuv_envelope.materialize import slabs as slabs_module
-
-        slabs_module.SEAM_ENDPOINTS_ALLOWED = True
     if chord_station == "off":
         # Закон `SOURCE_VERTEX_STATIONED_ON_CHORD_V1` выключен: грани остаются на узлах решётки, как до
         # закона (ворота «закон — единственное изменение»: батч и дайджесты побитово прежние, кроме чисел
@@ -355,14 +339,6 @@ def _near_planar_law_option(args) -> str:
     return getattr(args, "near_planar_law", "") or ""
 
 
-def _stations_option(args) -> str:
-    return getattr(args, "stations", "on")
-
-
-def _stations_seam_option(args) -> str:
-    return getattr(args, "stations_seam", "strict")
-
-
 def _row_arguments(args, patch_id: int, density: int) -> tuple:
     return (
         patch_id,
@@ -371,8 +347,6 @@ def _row_arguments(args, patch_id: int, density: int) -> tuple:
         _source_lift_option(args),
         _chord_station_option(args),
         _near_planar_law_option(args),
-        _stations_option(args),
-        _stations_seam_option(args),
     )
 
 
@@ -460,8 +434,6 @@ def run(args) -> dict:
         "source_lift": _source_lift_option(args),
         "chord_station": _chord_station_option(args),
         "near_planar_law": _near_planar_law_option(args) or "product",
-        "stations": _stations_option(args),
-        "stations_seam": _stations_seam_option(args),
         "workers": args.workers,
         "python": sys.version.split()[0],
         "cores": os.cpu_count(),
@@ -597,20 +569,6 @@ def main() -> int:
         choices=("SOURCE_TRIANGLES_V1", "SOURCE_TRIANGLES_CLIPPED_V1", "SOURCE_FACES_CLIPPED_V1"),
         default="",
         help="закон подъёма near-planar доменов (по умолчанию продуктовый); SOURCE_TRIANGLES_V1 — запись ДО резки",
-    )
-    runner.add_argument(
-        "--stations",
-        dest="stations",
-        choices=("on", "off"),
-        default="on",
-        help="off: законы станций и разбиения диагоналями выключены (неаффинный кусок идёт в уши, как до законов)",
-    )
-    runner.add_argument(
-        "--stations-seam",
-        dest="stations_seam",
-        choices=("strict", "allow"),
-        default="strict",
-        help="allow: политика шва открыта — закон станций ставит вершины и на ребро источника (решение владельца)",
     )
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="*")

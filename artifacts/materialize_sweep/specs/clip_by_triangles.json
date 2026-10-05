@@ -45,7 +45,7 @@
     ]
   },
   "allow_everywhere": {
-    "counter_prefixes": ["MATERIALIZE_SLAB_", "MATERIALIZE_CONVEX_PARTITION_"]
+    "counter_prefixes": ["MATERIALIZE_CONVEX_PARTITION_"]
   },
   "require": {
     "changed_any_of": ["semantic_digest", "content_digest"],
