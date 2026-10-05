@@ -75,7 +75,8 @@
             "TOLERATE_OFFSET_NORMAL_OPPOSITION_WITHIN_DEPTH",
             "ADMIT_OR_REJECT_BAND_CHART_BY_REACH_MARGIN",
             "MITER_CORNER_ON_FOLDED_NEIGHBOURHOOD_WITHIN_BEND_BOUND",
-            "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL"
+            "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL",
+            "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
           ],
           "type": "string"
         },
@@ -104,7 +105,8 @@
             "CLIP_NODE_SIGN_AT_INTERIOR_SOURCE_EDGE",
             "DEVELOPABLE_PROPOSAL_TARGET",
             "SURFACE_OFFSET_NORMAL_OPPOSITION",
-            "BAND_CHART_ADMISSION"
+            "BAND_CHART_ADMISSION",
+            "SILHOUETTE_VERTEX_DISSOLVE"
           ],
           "type": "string"
         },
@@ -141,7 +143,8 @@
             "SOURCE_LOCAL_INTRINSIC",
             "SOURCE_ANGLE_MEASURE",
             "CHART_LATTICE",
-            "NOT_A_COORDINATE"
+            "NOT_A_COORDINATE",
+            "DECAL_UV_ALPHA_UNITS"
           ],
           "type": "string"
         },
@@ -185,7 +188,8 @@
             "SURFACE_OFFSET_OPPOSITION_DEPTH_V1",
             "CHART_REACH_CAP_V1",
             "CORNER_FOLD_SIN2_BUDGET_V1",
-            "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
+            "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1",
+            "SILHOUETTE_UV_SLIDE_V1"
           ],
           "type": "string"
         },
@@ -207,7 +211,8 @@
             "ABSOLUTE_INDEPENDENT_OF_EXTENT",
             "RELATIVE_TO_PATCH_EXTENT_WITH_FLOOR",
             "DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL",
-            "NOT_SCALED"
+            "NOT_SCALED",
+            "RELATIVE_TO_DECAL_ALPHA"
           ],
           "type": "string"
         },

@@ -136,6 +136,9 @@
           "type": "array",
           "uniqueItems": true
         },
+        "silhouette_uv_slide": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
         "uv_policy_id": {
           "$ref": "#/$defs/PolicyId"
         }

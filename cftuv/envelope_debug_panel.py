@@ -52,6 +52,7 @@ def draw_envelope_debug_box(layout, settings) -> None:
     envelope_box.prop(settings, "envelope_debug_engine")
     envelope_box.prop(settings, "envelope_debug_fan_density")
     envelope_box.prop(settings, "envelope_debug_max_stretch")
+    envelope_box.prop(settings, "envelope_debug_dissolve_uv_tolerance")
     envelope_box.prop(settings, "envelope_debug_workers")
     draw_worker_python_row(envelope_box)
     envelope_box.prop(settings, "envelope_debug_alpha")

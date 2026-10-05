@@ -88,6 +88,8 @@ class LastProductionBuildV1:
     preview_inputs: object
     #: Ширина (alpha), с которой кнопка записала меш.
     width: float
+    #: «Dissolve UV tolerance» (проценты ширины), с которой кнопка записала меш.
+    dissolve_percent: float = 0.390625
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +102,7 @@ class WidthLiveTargetV1:
     stretch_percent: int
     offset: float
     material_name: str
+    dissolve_percent: float = 0.390625
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +146,7 @@ def remember_build(
     density,
     stretch_percent: int,
     width: float,
+    dissolve_percent: float = 0.390625,
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -158,6 +162,7 @@ def remember_build(
         invalidation_count=controller.invalidation_count,
         preview_inputs=build_preview_inputs(bundle.patch_surface, run.selected_by_patch),
         width=float(width),
+        dissolve_percent=float(dissolve_percent),
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -226,6 +231,8 @@ def target_problem(controller, target: WidthLiveTargetV1) -> str:
         return POLICY_CHANGED.format(name="Fan Density")
     if int(target.stretch_percent) != record.stretch_percent:
         return POLICY_CHANGED.format(name="Max stretch")
+    if float(target.dissolve_percent) != record.dissolve_percent:
+        return POLICY_CHANGED.format(name="Dissolve UV tolerance")
     return ""
 
 
@@ -410,7 +417,7 @@ def _begin(controller, request):
 
     from .envelope_production_export import ProductionCancelled, run_production
     from .envelope_production_mesh import find_decal_object
-    from .envelope_request_policy import envelope_stretch_budget
+    from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
     target = request.payload
     problem = target_problem(controller, target)
@@ -432,6 +439,7 @@ def _begin(controller, request):
     object_key, data_key = record.source_object_key, record.source_data_key
     density = record.density
     budget = envelope_stretch_budget(record.stretch_percent)
+    slide = envelope_dissolve_uv_slide(record.dissolve_percent)
 
     def compute(cancel):
         try:
@@ -444,6 +452,7 @@ def _begin(controller, request):
                 source_data_key=data_key,
                 density=density,
                 developable_stretch_budget=budget,
+                silhouette_uv_slide=slide,
                 domain_pool=pool,
                 cancel=cancel,
                 quiesce=False,
@@ -552,6 +561,7 @@ def target_of(settings, mesh_settings, record: LastProductionBuildV1) -> WidthLi
         int(settings.envelope_debug_max_stretch),
         float(mesh_settings.offset),
         str(mesh_settings.material_name).strip() or "CFTUV_Decal",
+        float(settings.envelope_debug_dissolve_uv_tolerance),
     )
 
 

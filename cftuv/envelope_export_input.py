@@ -95,6 +95,8 @@ class HostExportInputV1:
     #: Досягаемость полосовой карты запроса (`None`: умолчание ядра): воркер собирает запрос, и его идентичность
     #: обязана совпасть с запросом родителя. Саму полосу воркер не строит: отказ целого патча родитель разрешает полосой.
     chart_reach_cap: Fraction | None = None
+    #: Допуск UV закона силуэта запроса (`None`: умолчание ядра): идентичность запроса воркера обязана совпасть с родительской.
+    silhouette_uv_slide: Fraction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +174,7 @@ def build_host_export_input(
         density,
         topology_export.developable_stretch_budget,
         topology_chart_reach_cap(topology_export),
+        topology_export.silhouette_uv_slide,
     )
 
 
@@ -303,6 +306,7 @@ def task_inputs(task):
                 density=export.density,
                 developable_stretch_budget=export.developable_stretch_budget,
                 chart_reach_cap=export.chart_reach_cap,
+                silhouette_uv_slide=export.silhouette_uv_slide,
             )
         except EnvelopeHostAdapterError as error:
             return inputs.result(snapshot=snapshot, refusal=_refusal(error))

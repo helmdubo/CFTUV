@@ -39,11 +39,8 @@ from .debug import (
 from .envelope_debug_panel import draw_envelope_debug_box
 from .envelope_domain_pool import DEFAULT_POOL_WORKERS
 from .envelope_request_policy import (
-    DEFAULT_ENVELOPE_FAN_DENSITY,
-    DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
-    ENVELOPE_FAN_DENSITY_ITEMS,
-    ENVELOPE_MAX_STRETCH_PERCENT_RANGE,
-    envelope_stretch_budget,
+    DEFAULT_ENVELOPE_FAN_DENSITY, DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT, ENVELOPE_DISSOLVE_UV_PROPERTY, ENVELOPE_FAN_DENSITY_ITEMS,
+    ENVELOPE_MAX_STRETCH_PERCENT_RANGE, envelope_dissolve_uv_slide, envelope_stretch_budget,
 )
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .model import MeshPreflightReport, UVSettings
@@ -210,6 +207,7 @@ def _request_policy_update(label):
 
 _update_envelope_debug_fan_density = _request_policy_update("Fan Density")
 _update_envelope_debug_max_stretch = _request_policy_update("Max stretch")
+_update_envelope_debug_dissolve_uv = _request_policy_update("Dissolve UV tolerance")
 
 
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
@@ -270,6 +268,7 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         ),
         update=_update_envelope_debug_max_stretch,
     )
+    envelope_debug_dissolve_uv_tolerance: FloatProperty(**ENVELOPE_DISSOLVE_UV_PROPERTY, update=_update_envelope_debug_dissolve_uv)
     envelope_debug_workers: IntProperty(
         name="Workers", default=DEFAULT_POOL_WORKERS, min=0, max=32,
         description="Queue domain worker processes (0 or 1: sequential)",
@@ -1493,9 +1492,8 @@ class _EnvelopeDebugBuildBase:
                     source_object_key=source_object_key,
                     source_data_key=source_data_key,
                     engine=engine, density=settings.envelope_debug_fan_density,
-                    developable_stretch_budget=envelope_stretch_budget(
-                        settings.envelope_debug_max_stretch
-                    ),
+                    developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
+                    silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                     workers=settings.envelope_debug_workers,
                 )
                 topology_scene = evaluation.topology_scene

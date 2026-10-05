@@ -138,6 +138,7 @@ class TolerancePolicyIdV1(str, Enum):
     CHART_REACH_CAP_V1 = "CHART_REACH_CAP_V1"
     CORNER_FOLD_SIN2_BUDGET_V1 = "CORNER_FOLD_SIN2_BUDGET_V1"
     PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1 = "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
+    SILHOUETTE_UV_SLIDE_V1 = "SILHOUETTE_UV_SLIDE_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -165,6 +166,7 @@ class TolerancePolicyCoordinateSpaceV1(str, Enum):
     SOURCE_ANGLE_MEASURE = "SOURCE_ANGLE_MEASURE"
     CHART_LATTICE = "CHART_LATTICE"
     NOT_A_COORDINATE = "NOT_A_COORDINATE"
+    DECAL_UV_ALPHA_UNITS = "DECAL_UV_ALPHA_UNITS"
 
 
 class TolerancePolicyScalingLawV1(str, Enum):
@@ -176,6 +178,7 @@ class TolerancePolicyScalingLawV1(str, Enum):
         "DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL"
     )
     NOT_SCALED = "NOT_SCALED"
+    RELATIVE_TO_DECAL_ALPHA = "RELATIVE_TO_DECAL_ALPHA"
 
 
 class TolerancePolicyAppliedStageV1(str, Enum):
@@ -214,6 +217,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     DEVELOPABLE_PROPOSAL_TARGET = "DEVELOPABLE_PROPOSAL_TARGET"
     SURFACE_OFFSET_NORMAL_OPPOSITION = "SURFACE_OFFSET_NORMAL_OPPOSITION"
     BAND_CHART_ADMISSION = "BAND_CHART_ADMISSION"
+    SILHOUETTE_VERTEX_DISSOLVE = "SILHOUETTE_VERTEX_DISSOLVE"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -270,6 +274,9 @@ class TolerancePolicyAllowedEffectV1(str, Enum):
     )
     ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL = (
         "ADMIT_OR_REJECT_RING_CUT_BY_SEAM_RESIDUAL"
+    )
+    DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE = (
+        "DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE"
     )
 
 
@@ -1380,7 +1387,10 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "(0.02 м -> 5 мм). УМОЛЧАНИЕ, РЕШЕНИЕ ВЛАДЕЛЬЦА ЖДЁТ: число меняется одной строкой "
             "константы. Ячейка, у которой хоть один кусок глубже допуска, режется по диагонали, как "
             "под SOURCE_TRIANGLES_CLIPPED_V1 (названа счётчиком, наибольшая глубина записана); точно "
-            "планарная грань диагональю не режется никогда."
+            "планарная грань диагональю не режется никогда. То же число — глубина хорды закона SILHOUETTE_TOPOLOGY_V1 "
+            "(materialize.silhouette): ребро между гранями одного региона растворяется, когда меньшая грань и грань "
+            "объединения лежат в нём от плоскости, вершина — когда растворённые вершины в нём от выпрямленного ребра; "
+            "наибольшее число записано (MATERIALIZE_SILHOUETTE_MAX_CHORD_NM). Одно значение, одно место."
         ),
         authority=(
             "materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET; NearPlanarLiftLawV1."
@@ -1401,6 +1411,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_CLIP_DIAGONAL_KEPT_FACE_UNMERGEABLE",
             "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_KEPT_NANOMETRES",
             "MATERIALIZE_CLIP_DIAGONAL_MAX_CHORD_OVER_BUDGET_NANOMETRES",
+            "MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED",
+            "MATERIALIZE_SILHOUETTE_KEPT_CHORD",
+            "MATERIALIZE_SILHOUETTE_MAX_CHORD_NM",
         ),
         declaration_sites=(
             "cftuv_envelope.materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET",
@@ -1802,6 +1815,59 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         negative_fixture=(
             f"{_KERNEL_TESTS}/test_developable_band.py"
             "::test_an_alpha_beyond_the_reach_cap_is_a_named_refusal"
+        ),
+    ),
+    TolerancePolicyV1(
+        id=TolerancePolicyIdV1.SILHOUETTE_UV_SLIDE_V1,
+        category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
+        value=_rational(Fraction(1, 256)),
+        bound_law=None,
+        units=TolerancePolicyUnitsV1.DIMENSIONLESS,
+        coordinate_space=TolerancePolicyCoordinateSpaceV1.DECAL_UV_ALPHA_UNITS,
+        scaling_law=TolerancePolicyScalingLawV1.RELATIVE_TO_DECAL_ALPHA,
+        scope=(
+            "Наибольший сдвиг UV (расстояние в UV, то есть доля alpha: `UV = (s, r) / alpha`), который закон топологии "
+            "SILHOUETTE_TOPOLOGY_V1 вправе внести растворением вершины на прямой между двумя рёбрами: UV, которую грань "
+            "получила бы в месте растворённой вершины интерполяцией вдоль выпрямленного ребра (по проекции вершины на ребро), "
+            "отличается от прежней не больше. Проверяется у КАЖДОЙ растворённой вершины между концами итогового ребра, в "
+            "каждом регионе соседних граней. Тот же допуск — предел остатка у слияния рёбер: ребро между гранями одного "
+            "региона растворяется, когда ОДНА аффинная карта (наименьшие квадраты по вершинам объединения; любая карта с "
+            "остатком до допуска годится) приближает UV всех вершин не хуже, и тогда UV показа любой триангуляции и прежняя UV "
+            "граней различаются внутри не больше удвоенного допуска; нуль — прежнее точное правило (UV ТОЧНО аффинна). "
+            "Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`, из `[0, MAX_SILHOUETTE_UV_SLIDE = 1/16]`), умолчание "
+            "1/256 alpha (8 пикселей тайла 2048 при ширине декали в один тайл; выбор плана S1, владелец делегировал), на панели "
+            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены закон не растворяет вовсе. Наибольшие "
+            "сдвиг и остаток записаны (MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA, ..._MAX_UV_RESIDUAL_MILLI_ALPHA, "
+            "тысячные alpha), и проверка закона пересчитывает их независимо."
+        ),
+        authority=(
+            "materialize.silhouette (SILHOUETTE_TOPOLOGY_V1); DECISIONS.md 2026-10-05 (SILHOUETTE-TOPOLOGY S1: запрос "
+            "владельца «сетка, где рёбра и вершины декали создают силуэт»)"
+        ),
+        applied_stage=TolerancePolicyAppliedStageV1.SILHOUETTE_VERTEX_DISSOLVE,
+        allowed_effect=(
+            TolerancePolicyAllowedEffectV1.DISSOLVE_VERTEX_ON_STRAIGHTENED_EDGE_WITHIN_CHORD_AND_UV_SLIDE
+        ),
+        changes_topology=True,
+        preview_or_final=TolerancePolicyPipelineStageV1.FINAL_PRODUCT_PATH,
+        telemetry_counters=(
+            "MATERIALIZE_SILHOUETTE_VERTICES_DISSOLVED",
+            "MATERIALIZE_SILHOUETTE_KEPT_UV",
+            "MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA",
+            "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE",
+            "MATERIALIZE_SILHOUETTE_MAX_UV_RESIDUAL_MILLI_ALPHA",
+        ),
+        declaration_sites=(
+            "cftuv_envelope.contracts.metric.DEFAULT_SILHOUETTE_UV_SLIDE",
+            "cftuv_envelope.contracts.metric.MAX_SILHOUETTE_UV_SLIDE",
+        ),
+        positive_fixture=(
+            f"{_KERNEL_TESTS}/test_silhouette_topology.py"
+            "::test_a_vertex_on_a_straight_line_within_the_slide_is_dissolved_and_the_slide_is_recorded"
+        ),
+        negative_fixture=(
+            f"{_KERNEL_TESTS}/test_silhouette_topology.py"
+            "::test_a_vertex_whose_uv_would_slide_beyond_the_request_is_kept_by_name"
         ),
     ),
     TolerancePolicyV1(

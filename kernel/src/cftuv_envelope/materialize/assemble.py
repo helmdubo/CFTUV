@@ -1348,8 +1348,12 @@ def _vertex_records(positions, cycles, face_prov):
     )
 
 
-def _face_records(frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material):
-    """Грани батча: по записи на каждый многоугольник тесселяции, UV — на вершину региона."""
+def _face_records(frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material, merged=None):
+    """Грани батча: по записи на каждый многоугольник тесселяции, UV — на вершину региона.
+
+    `merged` — `{(номер слитой грани, многоугольник): (номера других слитых граней)}`: грань, в которую закон
+    `SILHOUETTE_TOPOLOGY_V1` растворил ребро между слитыми гранями одного региона, несёт происхождение всех.
+    """
 
     uv_cache: dict = {}
 
@@ -1361,9 +1365,10 @@ def _face_records(frame_faces, face_prov, polygons, layout, facts, lattice_alpha
         return slot
 
     faces = []
-    for item, prov, polygon_list in zip(frame_faces, face_prov, polygons):
+    for index, (item, prov, polygon_list) in enumerate(zip(frame_faces, face_prov, polygons)):
         region = layout.region_of(item)
         for polygon in polygon_list:
+            others = () if merged is None else merged.get((index, tuple(polygon)), ())
             faces.append(
                 GeometryFaceV1(
                     face_id=GeometryFaceId(f"face:{len(faces)}"),
@@ -1373,7 +1378,7 @@ def _face_records(frame_faces, face_prov, polygons, layout, facts, lattice_alpha
                     ),
                     semantic_region_id=Layout.region_id(region),
                     ownership_claim_id=layout.claim_id(item.claim_key),
-                    provenance=prov,
+                    provenance=_merge_provenance((prov, *(face_prov[other] for other in others))) if others else prov,
                     material_id=material,
                 )
             )
@@ -1397,6 +1402,7 @@ def assemble_batch(
     contract_versions,
     diagnostics,
     vertex_cycles=None,
+    merged_frames=None,
 ):
     """Все записи батча, без дайджеста: `GeometryBatchV1` с `pending`.
 
@@ -1405,7 +1411,8 @@ def assemble_batch(
     под `QUAD_STRIPS_V1`, четырёхгранья. `diagnostics` — функция без аргументов,
     её зовут ПОСЛЕ подъёма всех точек: счётчики подъёма копятся в подъёме. `vertex_cycles` —
     все вершины каждой грани, если они шире контура (закон `SOURCE_TRIANGLES_CLIPPED_V1`:
-    вершина внутри грани — вершина её кусков, но не цепи); без него вершины граней — контуры.
+    вершина внутри грани — вершина её кусков, но не цепи); без него вершины граней — контуры. `merged_frames` — происхождение
+    граней, слитых законом `SILHOUETTE_TOPOLOGY_V1` из нескольких слитых граней (`_face_records`).
     """
 
     material = MaterialId(request.material_policy_id.value)
@@ -1432,7 +1439,7 @@ def assemble_batch(
         for index in region_prov
     )
     faces = _face_records(
-        frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material
+        frame_faces, face_prov, polygons, layout, facts, lattice_alpha, material, merged_frames
     )
     model_of = {
         layout.region_of(item): item.station_model for item in frame_faces

@@ -63,6 +63,9 @@ class EnvelopeTopologyExportV1:
     запроса, не факт топологии: она едет здесь только потому, что метрика домена (сертификат развёртки в снапшоте)
     строится из этого экспорта и обязана быть записана под ТЕМ ЖЕ допуском, что и запрос (ядро не компилирует
     иначе). Ключи кэшей метрики и геометрии сессии содержат этот допуск.
+
+    `silhouette_uv_slide` — допуск UV закона силуэта запроса (`None`: умолчание ядра). Метрике он не нужен: едет здесь, чтобы запрос,
+    собранный из этого экспорта (родителем и воркером), нёс то же число, что видит материализатор.
     """
 
     source_revision_value: str
@@ -71,6 +74,7 @@ class EnvelopeTopologyExportV1:
     patch_domain_id_by_patch: Mapping[int, str]
     developable_stretch_budget: Fraction | None = None
     chart_band: ChartBandPolicyV1 | None = None
+    silhouette_uv_slide: Fraction | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -91,6 +95,14 @@ class EnvelopeTopologyExportV1:
         if budget == self.developable_stretch_budget:
             return self
         return replace(self, developable_stretch_budget=budget)
+
+    def with_silhouette_uv_slide(self, slide: Fraction | None):
+        """Тот же экспорт под допуском UV запроса `slide` (`None` и умолчание - одно и то же); тяжёлые части общие."""
+
+        from .envelope_request_policy import envelope_silhouette_uv_slide
+
+        slide = envelope_silhouette_uv_slide(slide)
+        return self if slide == self.silhouette_uv_slide else replace(self, silhouette_uv_slide=slide)
 
     def with_chart_band(self, reach_cap: Fraction | None, selected_physical_edge_ids, alpha: Fraction | None = None):
         """Тот же экспорт с политикой полосы запроса: `reach_cap=None` - умолчание ядра (полметра); `alpha` - метры или `None`."""

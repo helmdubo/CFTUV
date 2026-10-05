@@ -311,7 +311,7 @@ def test_the_width_preview_and_adjust_cores_and_the_live_glue_load_without_blend
 
 
 #: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ точного пересчёта живой ширины: объекты,
-#: захваченные на главном потоке (пакет анализа, выделение, ключи, пул, допуск), прогон продуктового пути и отмена.
+#: захваченные на главном потоке (пакет анализа, выделение, ключи, пул, допуски растяжения и UV), прогон продуктового пути и отмена.
 _WIDTH_COMPUTE_NAMES = frozenset(
     {
         "run_production",
@@ -325,6 +325,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "data_key",
         "density",
         "budget",
+        "slide",
         "pool",
         "cancel",
         "exc",

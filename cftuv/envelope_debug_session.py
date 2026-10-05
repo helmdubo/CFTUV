@@ -951,7 +951,7 @@ class EnvelopeDebugSessionController:
         density,
         workers: int = 0,
         developable_stretch_budget=None,
-        chart_reach_cap=None,
+        chart_reach_cap=None, silhouette_uv_slide=None,
     ):
         from .envelope_domain_pool import get_domain_pool
         from .envelope_queue_export import (
@@ -969,9 +969,9 @@ class EnvelopeDebugSessionController:
             source_object_key,
             source_data_key,
             profile=profile,
-        ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
-            chart_reach_cap, selected_physical_edge_ids, policy_alpha(alpha)
-        )
+        ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
+            silhouette_uv_slide
+        ).with_chart_band(chart_reach_cap, selected_physical_edge_ids, policy_alpha(alpha))
         if profile is not None:
             profile.set_counter(
                 "COMPILED_ENVELOPE_CACHE_ENABLED",
@@ -1113,6 +1113,7 @@ def evaluate_envelope_debug_staged(
     workers: int = 0,
     developable_stretch_budget=None,
     chart_reach_cap=None,
+    silhouette_uv_slide=None,
 ):
     """Compatibility entry point with optional persistent session reuse.
 
@@ -1133,9 +1134,9 @@ def evaluate_envelope_debug_staged(
         topology_export = build_envelope_topology_export(
             analysis_bundle,
             profile=profile,
-        ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
-            chart_reach_cap, selected_physical_edge_ids
-        )
+        ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
+            silhouette_uv_slide
+        ).with_chart_band(chart_reach_cap, selected_physical_edge_ids)
         run = (
             evaluate_envelope_queue_staged
             if str(engine) == ENVELOPE_DEBUG_ENGINE_QUEUE
@@ -1165,6 +1166,7 @@ def evaluate_envelope_debug_staged(
         workers=workers,
         developable_stretch_budget=developable_stretch_budget,
         chart_reach_cap=chart_reach_cap,
+        silhouette_uv_slide=silhouette_uv_slide,
     )
 
 

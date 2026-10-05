@@ -141,7 +141,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             receipt_status_text,
             run_production,
         )
-        from .envelope_request_policy import envelope_stretch_budget
+        from .envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
         settings = context.scene.hotspotuv_settings
         mesh_settings = getattr(context.scene, SETTINGS_ATTRIBUTE)
@@ -185,6 +185,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 source_data_key=source_data_key,
                 density=settings.envelope_debug_fan_density,
                 developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
+                silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
@@ -219,6 +220,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 selected=selected,
                 density=settings.envelope_debug_fan_density,
                 stretch_percent=int(settings.envelope_debug_max_stretch),
+                dissolve_percent=float(settings.envelope_debug_dissolve_uv_tolerance),
                 width=float(settings.envelope_debug_alpha),
             )
         except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку

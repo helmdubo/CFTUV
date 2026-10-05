@@ -81,6 +81,13 @@ class DecalTopologyLawV1(str, Enum):
       `MATERIALIZE_FAN_FACES_NOT_STAR_FROM_APEX`. Вершины, UV, цепи и семантический дайджест
       те же, что у двух других законов; сумма `n - 2` по граням — то же число.
 
+    * `SILHOUETTE_TOPOLOGY_V1` — `PLANAR_POLYGONS_V1` плюс пост-проход `materialize.silhouette`: ребро между двумя
+      гранями одного региона в одной плоскости (в пределах глубины хорды) и с точно аффинной UV растворяется, вершина на
+      прямой между двумя рёбрами (не на цепи источника или стены) растворяется в пределах глубины хорды и сдвига UV запроса
+      (`DecalRequestV1.silhouette_uv_slide`). Вершины, цепи и семантический дайджест у него ДРУГИЕ, чем у трёх законов выше
+      (растворённых вершин в сетке нет): остальные законы побитово прежние, и каждое отступление названо счётчиком
+      `MATERIALIZE_SILHOUETTE_*`.
+
     Закон — политика ХОСТА, как закон укладки: ядро не выбирает его за хост и
     записывает в исход материализации (`MaterializationV1.decal_topology_law`),
     а не в `contract_versions` и не в диагностики батча: те входят в
@@ -90,6 +97,7 @@ class DecalTopologyLawV1(str, Enum):
     TRIANGLES_V1 = "TRIANGLES_V1"
     QUAD_STRIPS_V1 = "QUAD_STRIPS_V1"
     PLANAR_POLYGONS_V1 = "PLANAR_POLYGONS_V1"
+    SILHOUETTE_TOPOLOGY_V1 = "SILHOUETTE_TOPOLOGY_V1"
 
 
 @dataclass(frozen=True, slots=True)
