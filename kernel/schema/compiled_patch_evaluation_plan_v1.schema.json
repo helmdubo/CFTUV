@@ -1345,6 +1345,110 @@
       ],
       "type": "object"
     },
+    "ChainStationPlanV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStationPlanV1"
+        },
+        "flatness_budget": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "law": {
+          "enum": [
+            "CHAIN_STATION_PLAN_V1"
+          ],
+          "type": "string"
+        },
+        "physical_chain_id": {
+          "$ref": "#/$defs/PhysicalChainId"
+        },
+        "stations": {
+          "items": {
+            "$ref": "#/$defs/ChainStationV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "law",
+        "physical_chain_id",
+        "flatness_budget",
+        "stations"
+      ],
+      "type": "object"
+    },
+    "ChainStationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStationV1"
+        },
+        "disposition": {
+          "enum": [
+            "FREE",
+            "REQUIRED"
+          ],
+          "type": "string"
+        },
+        "inert_face_pairs": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/SourceFaceId"
+              },
+              {
+                "$ref": "#/$defs/SourceFaceId"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "INTERIOR_VERTEX",
+            "CHAIN_JOINT"
+          ],
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "TRANSVERSE_EDGES_INERT",
+            "FREE_UNDER_CHART",
+            "FOLD",
+            "GROUP_NOT_FLAT",
+            "BEND_BEYOND_STRAIGHT",
+            "CHORD_BEYOND_BUDGET",
+            "JUNCTION",
+            "NEIGHBOUR_SIDE_UNKNOWN",
+            "NOT_MANIFOLD",
+            "POSITIONS_UNAVAILABLE",
+            "CLOSED_CHAIN"
+          ],
+          "type": "string"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "ordinal",
+        "kind",
+        "disposition",
+        "reason",
+        "inert_face_pairs"
+      ],
+      "type": "object"
+    },
     "ChainUseId": {
       "additionalProperties": false,
       "properties": {
@@ -1378,6 +1482,13 @@
         "canonical_angle_restorations": {
           "items": {
             "$ref": "#/$defs/CanonicalAngleRestorationCertificateV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "chain_station_plans": {
+          "items": {
+            "$ref": "#/$defs/ChainStationPlanV1"
           },
           "type": "array",
           "uniqueItems": true
@@ -3685,6 +3796,23 @@
       ],
       "type": "object"
     },
+    "PhysicalChainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalChainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
     "PhysicalEdgeId": {
       "additionalProperties": false,
       "properties": {
@@ -4045,6 +4173,23 @@
       "properties": {
         "$id_type": {
           "const": "SharedSemanticAnchorId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceFaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceFaceId"
         },
         "value": {
           "minLength": 1,

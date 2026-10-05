@@ -85,6 +85,7 @@ from .._canonical_angle import (
     build_canonical_subturn_fan_authority,
     selector_reflex_excess_interval,
 )
+from .._chain_station import chain_station_plans
 from .._corner_fold import CornerFoldFacts
 from .._density_policy import huber_density_value_contract
 from .canonical_fan_rays import (
@@ -1974,6 +1975,7 @@ def compile_reference_envelopes(
         profile_selection_certificates=frozenset(selection_certificates),
         canonical_angle_restorations=frozenset(canonical_angle_restorations),
         corner_treatments=frozenset(corner_treatments),
+        chain_station_plans=chain_station_plans(snapshot, patch_domain_id),
         envelope_specs=all_specs,
         initial_front_spec=InitialFrontSpec(
             decal_request_id=request.decal_request_id,

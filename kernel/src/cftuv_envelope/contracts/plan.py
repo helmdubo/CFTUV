@@ -32,6 +32,8 @@ from ..ids import (
 from .metric import ExactPoint2V1, ExactRationalV1, ExactVector2V1
 from ..numeric import MetricLengthV1
 from ..outcomes import NamedOutcome
+from ..schema import wire_default_field
+from .chain_station import ChainStationPlanV1
 from .coverage import InteractionDeclarationV1, RawCoverageRef, ResolvedCoverageRef
 from .envelopes import (
     AngularProfileSelectionCertificateV1,
@@ -342,6 +344,10 @@ class CompiledPatchEvaluationPlanV1:
     # селекции под законом `CORNER_JOIN_SOFT_BEND_V1` без честной записи JOIN —
     # именованный отказ, а не принятое на слово `k = 0`.
     corner_treatments: frozenset[CornerTreatmentRecordV1] = frozenset()
+    # План станций цепей домена (`CHAIN_STATION_PLAN_V1`): какие внутренние вершины физической цепи декаль несёт, решено один раз
+    # по сырому снапшоту и одно для обоих доменов общей цепи. Проверяющий пересчитывает КАЖДУЮ запись
+    # (`validation_chain_station`). Пусто на проводе, пока пусто: план без записей — прежний план, байты те же.
+    chain_station_plans: frozenset[ChainStationPlanV1] = wire_default_field(frozenset())
 
 
 CompiledPatchEvaluationPlan = CompiledPatchEvaluationPlanV1

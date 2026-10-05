@@ -658,7 +658,11 @@ MODULE_LINE_ALLOWANCE = {
     # вынесен в `envelope_angular_sites.angular_sites`: правило про объявленные углы на гладких замкнутых петлях - свой модуль,
     # а файл на потолке растёт только вызовами. Число опущено до фактического: храповик затягивается там, где освободилось
     # место. Блокер HOST_REQUEST_EXPORT_COMPLEXITY по-прежнему открыт.
-    "cftuv/envelope_request_export.py": 2880,
+    # 2880 -> 2882. +2 за факт хоста «грани соседа шва» (`AnalysisSnapshotV1.seam_neighbour_faces`, план станций цепей): импорт
+    # помощника и его вызов в сборке снапшота; сама логика (какие грани соседа касаются внутренних вершин цепей) живёт в
+    # `envelope_seam_neighbours.py`, а срез поверхности несёт `envelope_topology_export._PatchSurfaceIdView.neighbour_faces`.
+    # Число поднято осознанно, до фактического.
+    "cftuv/envelope_request_export.py": 2882,
     # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
     # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
     # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель
@@ -717,7 +721,10 @@ MODULE_LINE_ALLOWANCE = {
     # `validate_decal_request`, сверка покрытия вершин метрикой (полоса покрывает носитель, а не весь патч) и ссылка на помощников
     # `validation_band` в импортах. Сами проверки живут в `validation_band.py` и `validation_metric.metric_covers_patch`.
     # Число поднято осознанно, до фактического.
-    "kernel/src/cftuv_envelope/validation.py": 1753,
+    # 1753 -> 1750. −3 при ДОБАВЛЕННЫХ проверках плана станций цепей и граней соседа шва: сами проверки живут в
+    # `validation_chain_station.py` (два вызова и одна строка импорта здесь), а место оплачено сведением семистрочного импорта
+    # `validation_issues` в одну строку. Число опущено до фактического: храповик затягивается там, где освободилось место.
+    "kernel/src/cftuv_envelope/validation.py": 1750,
 }
 
 

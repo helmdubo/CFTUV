@@ -23,6 +23,7 @@ from .surface_ir import HOST_CURVATURE_LADDER_POLICY, HOST_GRID_POLICY, HOST_NEA
 from .envelope_angular_sites import angular_sites
 from .envelope_chart_band import BeyondChartReach, chart_band_request, chart_edge_ends, chart_face_points, chart_points, cut_path_vertices, refuse_alpha_beyond_reach
 from .envelope_host_labels import stable_token, typed_id
+from .envelope_seam_neighbours import seam_neighbour_faces
 from .envelope_request_policy import (
     build_envelope_request_contract,
     envelope_angular_policy,
@@ -2125,6 +2126,7 @@ def build_envelope_analysis_snapshot(
         corner_relations,
         frozenset(),
         frozenset(terminal_relations),
+        seam_neighbour_faces=seam_neighbour_faces(kernel, revision, analysis_bundle, host_chains),
     )
     with _measure(profile, "SNAPSHOT_VALIDATION", angular_timing_domain):
         # Оба валидатора ядра, и над объектом, и над каноническими байтами:

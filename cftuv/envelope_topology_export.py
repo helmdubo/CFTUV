@@ -146,12 +146,29 @@ class _PatchGraphIdView:
 
 
 @dataclass(frozen=True, slots=True)
+class NeighbourFaceV1:
+    """Грань патча ВНЕ запроса: номера хоста, обход вершин и их положения (числа и кортежи: воркер пула получает их, как остальной срез).
+
+    Поле `patch_id` называется так нарочно: ключ содержимого домена кодирует номер патча рангом среди соседей по швам, и сдвиг номеров
+    не меняет ключа.
+    """
+
+    face_id: int
+    patch_id: int
+    vertex_cycle: tuple[int, ...]
+    positions: tuple[tuple[float, float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _PatchSurfaceIdView:
     source_revision: object
     vertices: tuple[object, ...]
     edges: tuple[object, ...]
     faces: tuple[object, ...]
     triangles: tuple[object, ...]
+    #: Грани патчей ВНЕ запроса, касающиеся вершин граней запроса (`NeighbourFaceV1`). Вторая сторона шва: решение по внутренней
+    #: вершине цепи (`CHAIN_STATION_PLAN_V1`) обязано видеть поверхность обеих сторон, а срез запроса — только свою.
+    neighbour_faces: tuple[NeighbourFaceV1, ...] = ()
 
     @property
     def vertex_by_id(self) -> dict[int, object]:
@@ -219,6 +236,19 @@ class AnalysisBundleIdView:
         vertex_ids = frozenset(
             int(vertex_id) for face in faces for vertex_id in face.vertex_cycle
         )
+        position_of = {int(item.vertex_id): item.position for item in surface.vertices}
+        # Вид вида (лёгкий вход воркера) уже несёт кольцо: его граней среди `surface.faces` нет, и оно переходит как есть.
+        neighbours = tuple(getattr(surface, "neighbour_faces", ())) + tuple(
+            NeighbourFaceV1(
+                int(item.face_id),
+                int(item.patch_id),
+                tuple(int(vertex_id) for vertex_id in item.vertex_cycle),
+                tuple(tuple(float(axis) for axis in position_of[int(vertex_id)]) for vertex_id in item.vertex_cycle),
+            )
+            for item in surface.faces
+            if int(item.patch_id) not in self.included_patch_ids
+            and not vertex_ids.isdisjoint(int(vertex_id) for vertex_id in item.vertex_cycle)
+        )
         object.__setattr__(
             self,
             "_patch_graph",
@@ -245,6 +275,7 @@ class AnalysisBundleIdView:
                     for item in surface.triangles
                     if int(item.source_face_id) in face_ids
                 ),
+                neighbours,
             ),
         )
 

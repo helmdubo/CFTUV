@@ -100,6 +100,13 @@
         "schema_version": {
           "type": "string"
         },
+        "seam_neighbour_faces": {
+          "items": {
+            "$ref": "#/$defs/SeamNeighbourFaceV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "source_revision": {
           "$ref": "#/$defs/SourceRevision"
         },
@@ -3048,6 +3055,40 @@
       "required": [
         "$id_type",
         "value"
+      ],
+      "type": "object"
+    },
+    "SeamNeighbourFaceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SeamNeighbourFaceV1"
+        },
+        "face_id": {
+          "$ref": "#/$defs/SourceFaceId"
+        },
+        "patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/LocalPoint3V1"
+          },
+          "type": "array"
+        },
+        "vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "face_id",
+        "patch_id",
+        "vertex_ids",
+        "positions"
       ],
       "type": "object"
     },
