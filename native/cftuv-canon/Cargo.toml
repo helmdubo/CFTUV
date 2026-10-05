@@ -1,0 +1,9 @@
+[package]
+name = "cftuv-canon"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true

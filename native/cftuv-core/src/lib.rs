@@ -5,19 +5,15 @@
 //! - `num`, `rat`, `pyfloat`: big integers, canonical rationals, CPython-exact float conversions;
 //! - `sqrt_sum`, `fused`, `products`: `SqrtSumV1` arithmetic (`exact_sqrt_sum.py`, `_fused`, `_radicand_products`);
 //! - `float_filter`: certified binary64 filters (`float_filter.py`);
-//! - `budget`, `pyrandom`, `factor`, `memory`: work budget, CPython `random.Random`, factorization and the
-//!   canonicalization memory (`exact_sqrt_sum.py` lines 88-1135);
+//! - the work budget, CPython `random.Random`, factorization and the canonicalization memory live in the
+//!   sibling crate `cftuv-canon`;
 //! - `codec`: the boundary buffer format shared with `cftuv_native/codec.py`.
 
-pub mod budget;
 pub mod codec;
-pub mod factor;
 pub mod float_filter;
 pub mod fused;
-pub mod memory;
 pub mod num;
 pub mod products;
 pub mod pyfloat;
-pub mod pyrandom;
 pub mod rat;
 pub mod sqrt_sum;
