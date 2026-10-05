@@ -114,6 +114,8 @@ class CellPlanV1:
     #: Грани из двух и более треугольников, которые не склеились ни в ячейку, ни в группу: `((грань, причина), ...)`.
     #: Причины: `MIXED_WINDING`, `NOT_ONE_LOOP`, `NO_HINGE`.
     unmergeable: tuple
+    #: Пары граней плана станций цепей (`CHAIN_STATION_PLAN_V1`), склеенные в группы: рёбра между ними не режут. Нуль — плана нет.
+    plan_pairs: int = 0
 
 
 def _edge_value(start, end, point) -> Fraction:
@@ -255,7 +257,39 @@ def _merged_cell(triangles, face: str, members) -> ClipCellV1 | str:
     )
 
 
-def build_cells(triangles, split=frozenset(), memo=None) -> CellPlanV1:
+def _plan_groups(names, inert, usable) -> tuple:
+    """`({имя грани: ключ группы}, число склеенных пар)`: грани, склеенные инертными рёбрами плана станций цепей (`CHAIN_STATION_PLAN_V1`).
+
+    `inert` — множество пар `frozenset({имя, имя})` граней источника по обе стороны инертного поперечного ребра `FREE`-вершины. Склеиваются
+    пары, обе грани которых есть у домена (чужой патч в подъёме не участвует) и `usable` (грань со складкой обхода или без одной петли в группу
+    не идёт: её треугольники режутся как прежде); связная компонента из двух и более граней — группа, её ключ `("p", наименьшее имя)`.
+    Рёбра между гранями группы не режут, как диагонали невыпуклой грани.
+    """
+
+    parent: dict = {}
+
+    def root(name):
+        parent.setdefault(name, name)
+        while parent[name] != name:
+            parent[name] = parent[parent[name]]
+            name = parent[name]
+        return name
+
+    pairs = 0
+    for pair in inert:
+        if len(pair) == 2:
+            first, second = sorted(pair)
+            if first in names and second in names and usable(first) and usable(second):
+                parent[root(first)] = root(second)
+                pairs += 1
+    found: dict = {}
+    for name in sorted(parent):
+        found.setdefault(root(name), []).append(name)
+    keys = {name: ("p", min(members)) for members in found.values() if len(members) >= 2 for name in members}
+    return keys, pairs if keys else 0
+
+
+def build_cells(triangles, split=frozenset(), memo=None, inert=frozenset()) -> CellPlanV1:
     """Ячейки резки по треугольникам подъёма; ячейки и группы из `split` (их ключи) остаются треугольниками.
 
     Порядок — по индексу первого треугольника, поэтому при `split` на всех ячейках области совпадают с
@@ -263,14 +297,40 @@ def build_cells(triangles, split=frozenset(), memo=None) -> CellPlanV1:
 
     `memo` — словарь вызывающего на ОДНИ треугольники (две стадии одной резки): склейка грани и оценка невыпуклой грани —
     чистые функции треугольников грани, и вторая стадия берёт их готовыми, а не считает заново на дробях.
+
+    `inert` — пары граней плана станций цепей: грани группы (`_plan_groups`) остаются треугольниками ОДНОЙ группы, рёбра между ними не режут, и
+    куски склеиваются в один контур (`ClipStageV1._glued`). Глубину хорды группы план доказал сам (допуск хорды в обоих направлениях и плоскость
+    вместе, `_chain_station`), поэтому оценка группы — нуль, а невыпуклая грань внутри неё сохраняет свою оценку `2ρ`: её защита от
+    складки остаётся.
     """
 
     memo = {} if memo is None else memo
     groups: dict = {}
     for index, item in enumerate(triangles):
         groups.setdefault(item.face or f"\0{index}", []).append(index)
+
+    def built_of(name):
+        built = memo.get(("cell", name))
+        if built is None:
+            built = memo[("cell", name)] = _merged_cell(triangles, name, groups[name])
+        return built
+
+    def usable(name) -> bool:
+        return len(groups[name]) < 2 or isinstance(built_of(name), ClipCellV1) or built_of(name) == "NOT_CONVEX"
+
+    planned, plan_pairs = _plan_groups(groups, inert, usable) if inert else ({}, 0)
+    group_flat: dict = {}
+    for name, key in planned.items():
+        group_flat[key] = max(
+            group_flat.get(key, Fraction(0)),
+            _non_convex_flat(triangles, name, groups[name], memo) if len(groups[name]) > 1 else Fraction(0),
+        )
     cells, unmergeable = [], []
     for face, members in groups.items():
+        key = planned.get(face)
+        if key is not None and key not in split:
+            cells.extend((index, _single(triangles, index, key, group_flat[key])) for index in members)
+            continue
         if len(members) == 1:
             built = None
         else:
@@ -295,7 +355,21 @@ def build_cells(triangles, split=frozenset(), memo=None) -> CellPlanV1:
                 unmergeable.append((face, built))
             cells.extend((index, _single(triangles, index)) for index in members)
     cells.sort(key=lambda entry: entry[0])
-    return CellPlanV1(tuple(cell for _index, cell in cells), tuple(unmergeable))
+    return CellPlanV1(tuple(cell for _index, cell in cells), tuple(unmergeable), plan_pairs)
+
+
+def _non_convex_flat(triangles, face, members, memo) -> Fraction:
+    """Оценка `(2ρ)^2` невыпуклой грани `face` (кэш `memo`) либо нуль: выпуклая и однотреугольная грани оценки группы не двигают."""
+
+    built = memo.get(("cell", face))
+    if built is None:
+        built = memo[("cell", face)] = _merged_cell(triangles, face, members)
+    if built != "NOT_CONVEX":
+        return Fraction(0)
+    flat = memo.get(("flat", face))
+    if flat is None:
+        flat = memo[("flat", face)] = _flat_square(triangles, members)
+    return flat
 
 
 def hinge_depth_square(jump_square: Fraction, column) -> Fraction:

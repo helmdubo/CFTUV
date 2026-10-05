@@ -62,6 +62,7 @@ from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
+from .._chain_station import inert_face_pairs
 from ..canonical import geometry_batch_semantic_digest
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
@@ -708,10 +709,22 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     return final, sourced, faces_after
 
 
-def _cut(plane, budget, admission, stage, tally):
+def _inert_pairs(prepared, silhouette: bool, admission) -> frozenset:
+    """Пары граней источника, по рёбрам которых резка не режет: план станций цепей (`CHAIN_STATION_PLAN_V1`), закон `SILHOUETTE_TOPOLOGY_V1`.
+
+    Только у резки по граням под законом силуэта: остальные законы план не читают (их ответы побитово прежние).
+    """
+
+    if silhouette and _is_clipped(admission) and admission.lift_law.clips_by_faces:
+        return inert_face_pairs(prepared.compilation.chain_station_plans)
+    return frozenset()
+
+
+def _cut(plane, budget, admission, stage, tally, inert=frozenset()):
     """Резка домена (закон `SOURCE_TRIANGLES_CLIPPED_V1`): `ClippedV1` либо `None`, если укладка без резки.
 
-    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`.
+    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`;
+    `inert` — пары граней плана станций цепей (`_inert_pairs`).
     """
 
     frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law = stage
@@ -731,6 +744,7 @@ def _cut(plane, budget, admission, stage, tally):
         law=law,
         by_faces=admission.lift_law.clips_by_faces,
         tally=tally,
+        inert=inert,
     )
 
 
@@ -787,7 +801,14 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally)
+    cut = _cut(
+        plane,
+        budget,
+        admission,
+        (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law),
+        tally,
+        _inert_pairs(prepared, silhouette, admission),
+    )
     if clipped:
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
