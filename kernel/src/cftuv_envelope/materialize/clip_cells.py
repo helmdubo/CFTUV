@@ -147,13 +147,25 @@ def _single(triangles, index: int, group=None, flat=None) -> ClipCellV1:
 def _loop_of(triangles, members):
     """`(петля вершин, диагонали)` либо `None`: одна простая петля после сокращения общих рёбер."""
 
+    # Вершина — пара «точка карты, угол 3D»: хеш дробей дорог, поэтому каждая вершина получает номер один раз, а рёбра
+    # и петля идут по номерам (равенство вершин — равенство номеров).
+    numbers: dict = {}
+    vertices: list = []
+
+    def number(item, position) -> int:
+        vertex = (item.chart[position], item.corners[position])
+        found = numbers.get(vertex)
+        if found is None:
+            found = numbers[vertex] = len(vertices)
+            vertices.append(vertex)
+        return found
+
     directed: dict = {}
     diagonals = []
     for index in members:
         item = triangles[index]
         for position in range(3):
-            first = (item.chart[position], item.corners[position])
-            second = (item.chart[(position + 1) % 3], item.corners[(position + 1) % 3])
+            first, second = number(item, position), number(item, (position + 1) % 3)
             if (second, first) in directed:
                 diagonals.append(directed.pop((second, first)))
             elif (first, second) in directed:
@@ -174,7 +186,7 @@ def _loop_of(triangles, members):
             return None
         loop.append(current)
         current = successor[current]
-    return (loop, diagonals) if len(loop) == len(successor) else None
+    return ([vertices[found] for found in loop], diagonals) if len(loop) == len(successor) else None
 
 
 def _hinge(triangles, diagonal, members) -> HingeV1 | None:
@@ -243,19 +255,28 @@ def _merged_cell(triangles, face: str, members) -> ClipCellV1 | str:
     )
 
 
-def build_cells(triangles, split=frozenset()) -> CellPlanV1:
+def build_cells(triangles, split=frozenset(), memo=None) -> CellPlanV1:
     """Ячейки резки по треугольникам подъёма; ячейки и группы из `split` (их ключи) остаются треугольниками.
 
     Порядок — по индексу первого треугольника, поэтому при `split` на всех ячейках области совпадают с
     треугольниками один в один, и резка побитово та же, что у `SOURCE_TRIANGLES_CLIPPED_V1`.
+
+    `memo` — словарь вызывающего на ОДНИ треугольники (две стадии одной резки): склейка грани и оценка невыпуклой грани —
+    чистые функции треугольников грани, и вторая стадия берёт их готовыми, а не считает заново на дробях.
     """
 
+    memo = {} if memo is None else memo
     groups: dict = {}
     for index, item in enumerate(triangles):
         groups.setdefault(item.face or f"\0{index}", []).append(index)
     cells, unmergeable = [], []
     for face, members in groups.items():
-        built = None if len(members) == 1 else _merged_cell(triangles, face, members)
+        if len(members) == 1:
+            built = None
+        else:
+            built = memo.get(("cell", face))
+            if built is None:
+                built = memo[("cell", face)] = _merged_cell(triangles, face, members)
         if built is None:
             cells.append((members[0], _single(triangles, members[0])))
         elif isinstance(built, ClipCellV1):
@@ -264,7 +285,10 @@ def build_cells(triangles, split=frozenset()) -> CellPlanV1:
             else:
                 cells.append((members[0], built))
         elif built == "NOT_CONVEX" and ("g", face, members[0]) not in split:
-            group, flat = ("g", face, members[0]), _flat_square(triangles, members)
+            flat = memo.get(("flat", face))
+            if flat is None:
+                flat = memo[("flat", face)] = _flat_square(triangles, members)
+            group = ("g", face, members[0])
             cells.extend((index, _single(triangles, index, group, flat)) for index in members)
         else:
             if built != "NOT_CONVEX":

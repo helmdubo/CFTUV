@@ -343,7 +343,9 @@ def test_the_key_inputs_are_exactly_what_the_stage_takes_and_cut_domain_passes(m
 def test_every_tolerance_constant_of_the_clip_modules_is_in_the_policy_or_named_as_no_policy():
     """Новая числовая постоянная в модулях резки без записи в `clip_policy` — красный тест, а не устаревший результат."""
 
-    not_a_policy = {"NANOMETRES_PER_METRE"}  # перевод единиц для чисел записи, ответа не решает
+    # Перевод единиц для чисел записи и параметры фильтра знака (`_FILTER_*`: фильтр доказывает знак либо уступает
+    # точному пути): ответа не решают.
+    not_a_policy = {"NANOMETRES_PER_METRE", "_FILTER_MARGIN", "_FILTER_COORDINATE_LIMIT"}
     flat = []
 
     def walk(value):

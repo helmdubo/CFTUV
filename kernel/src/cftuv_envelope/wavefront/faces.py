@@ -202,6 +202,7 @@ from itertools import product
 from math import prod
 
 from ..exact_sqrt_sum import ExactWorkBudgetV1
+from ..exact_sqrt_sum_fused import sum_of_products
 from ..float_filter import orientation_sign, polygon_sign
 from .event_time import SupportLineV1
 from .events import EventKind
@@ -1172,11 +1173,15 @@ def doubled_shoelace(
     if size >= 3:
         origin_x, origin_y = points[0]
         previous_x, previous_y = points[1][0] - origin_x, points[1][1] - origin_y
+        products = []
         for index in range(2, size):
             next_x, next_y = points[index][0] - origin_x, points[index][1] - origin_y
-            total = total + (previous_x * next_y - previous_y * next_x)
+            products.append((previous_x, next_y, 1))
+            products.append((previous_y, next_x, -1))
             previous_x, previous_y = next_x, next_y
-        return total
+        # Сумма всех произведений веера одним проходом: целыми над общим знаменателем, дробь — на член ответа
+        # (то же каноническое значение, что у суммы `total + (px * ny - py * nx)` по треугольникам).
+        return sum_of_products(products)
     for index in range(size):
         x0, y0 = points[index]
         x1, y1 = points[(index + 1) % size]

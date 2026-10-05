@@ -109,6 +109,7 @@ from ..contracts.metric import (
     is_unfolded_certificate,
 )
 from ..exact_sqrt_sum import SqrtSumV1
+from ..exact_sqrt_sum_fused import oriented_sum
 from ..numeric import LocalPoint3V1
 from ..robust.grid import GridSpecV1, snap_value
 from .admit import MaterializationOutcome
@@ -468,6 +469,11 @@ def _edge_value(start, end, point) -> SqrtSumV1:
     """Ориентация `(start, end, point)`: `(end - start) x (point - start)` точно."""
 
     dx, dy = end[0] - start[0], end[1] - start[1]
+    if dx.denominator == dy.denominator == start[0].denominator == start[1].denominator == 1:
+        # Целые концы (решётка карты): шаг и сдвиг целые, и значение собирается одной нормировкой дробей.
+        return oriented_sum(
+            point[0], point[1], dx.numerator, dy.numerator, dy.numerator * start[0].numerator - dx.numerator * start[1].numerator
+        )
     return (
         point[1].scaled(dx)
         - point[0].scaled(dy)

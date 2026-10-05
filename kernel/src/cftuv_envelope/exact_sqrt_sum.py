@@ -33,6 +33,8 @@ from fractions import Fraction
 from math import gcd, isqrt, lcm
 import random
 
+from ._radicand_products import accumulate_products as _accumulate_products
+from ._radicand_products import clear_products as _clear_radicand_products
 from .float_filter import clear_table as _clear_float_centres
 
 
@@ -689,6 +691,8 @@ def reset_factorization_memory() -> None:
     _PRIME_SUPPORT_MEMO.clear()
     # Центры binary64 (`float_filter`) держат сами величины: граница работы домена освобождает и их.
     _clear_float_centres()
+    # Произведения радикандов — радиканды одного домена: память не переживает его границы.
+    _clear_radicand_products()
 
 
 @contextmanager
@@ -1250,14 +1254,7 @@ def _multiply_integer_items(
     """
 
     merged: dict[int, int] = {}
-    for left_radicand, left_numerator in left:
-        for right_radicand, right_numerator in right:
-            common = gcd(left_radicand, right_radicand)
-            radicand = (left_radicand // common) * (right_radicand // common)
-            merged[radicand] = (
-                merged.get(radicand, 0)
-                + left_numerator * right_numerator * common
-            )
+    _accumulate_products(merged, left, right)
     return sorted(
         (radicand, value) for radicand, value in merged.items() if value
     )
@@ -1547,19 +1544,30 @@ class SqrtSumV1:
 
         if other.is_zero:
             raise ZeroSqrtSumDivisorError("деление на точный ноль")
-        numerator, denominator = self, other
+        # Сопряжённое по простому `p` (`E = A + B*sqrt(p)` -> `A - B*sqrt(p)`) — те же члены, у которых радиканд делится
+        # на `p`, сменили знак: `sqrt(k)*sqrt(p) = sqrt(k*p)` при `p` не делящем `k`. Всё считается целыми над общим
+        # знаменателем, дробь строится один раз на член ответа; простое выбирается тем же `_pick_prime` (память носителей
+        # и бюджет те же, что у цепочки `радикал -> произведение`), корень `sqrt(p)` оплачивается тем же `squarefree_split`.
+        numerator_common, numerator_items = _integer_form(self.terms)
+        denominator_common, denominator_items = _integer_form(other.terms)
         while True:
-            rational = denominator.as_rational()
-            if rational is not None:
-                return numerator.scaled(Fraction(1) / rational)
-            prime = _pick_prime(denominator.as_map(), budget)
-            outside, inside = _split_by_prime(denominator.as_map(), prime)
-            root = SqrtSumV1.radical(1, prime, budget)
-            conjugate = SqrtSumV1._from_map(outside) - (
-                SqrtSumV1._from_map(inside) * root
-            )
-            numerator = numerator * conjugate
-            denominator = denominator * conjugate
+            if len(denominator_items) <= 1 and all(radicand == 1 for radicand, _ in denominator_items):
+                return _scaled_by_reciprocal(
+                    numerator_common, numerator_items, denominator_common, denominator_items
+                )
+            prime = _pick_prime(dict(denominator_items), budget)
+            if squarefree_split(prime, budget) != (1, prime):
+                return _divided_by_generic(self, other, budget)
+            conjugate = [
+                (radicand, -value if radicand % prime == 0 else value)
+                for radicand, value in denominator_items
+            ]
+            numerator_items = _multiply_integer_items(numerator_items, conjugate)
+            denominator_items = _multiply_integer_items(denominator_items, conjugate)
+            numerator_common *= denominator_common
+            denominator_common *= denominator_common
+            numerator_common, numerator_items = _reduced_form(numerator_common, numerator_items)
+            denominator_common, denominator_items = _reduced_form(denominator_common, denominator_items)
 
     # ---- решения --------------------------------------------------------
 
@@ -1621,6 +1629,23 @@ class SqrtSumV1:
             return certified
         SIGN_COUNTS["closed_by_conjugation"] += 1
         return _exact_sign(self.as_map(), filter_bits, budget)
+
+
+def _divided_by_generic(
+    numerator: SqrtSumV1, denominator: SqrtSumV1, budget: "ExactWorkBudgetV1 | None"
+) -> SqrtSumV1:
+    """Деление домножением на сопряжённые через `SqrtSumV1` (прежняя цепочка): запасной путь целочисленного цикла."""
+
+    while True:
+        rational = denominator.as_rational()
+        if rational is not None:
+            return numerator.scaled(Fraction(1) / rational)
+        prime = _pick_prime(denominator.as_map(), budget)
+        outside, inside = _split_by_prime(denominator.as_map(), prime)
+        root = SqrtSumV1.radical(1, prime, budget)
+        conjugate = SqrtSumV1._from_map(outside) - (SqrtSumV1._from_map(inside) * root)
+        numerator = numerator * conjugate
+        denominator = denominator * conjugate
 
 
 # --------------------------------------------------------------------------

@@ -87,6 +87,18 @@
 узлах), под счётчиком. Прежний закон остаётся: без ячеек стадия работает по
 треугольникам, побитово как раньше.
 
+БЫСТРЫЕ ПУТИ СТАДИИ (ответ тот же побитово; тесты — `test_clip_speed_paths.py`, эталон — стадия без них). Точная арифметика на
+радикалах — почти вся цена резки, поэтому каждый путь либо ДОКАЗЫВАЕТ, либо уступает точному. (1) Знак точки у ребра области
+(`_slot`): целыми у рациональной точки, float-оценкой с границей ошибки (`float_filter.line_estimate`) у прочих; точное значение
+(`_value`) строится по требованию — для пересечения и для вершины, не доказанной далёкой от допуска закона 2. Число предикатов
+(`PREDICATES`) — число пар «узел, ребро», а не число построенных значений: счётчик ответа не зависит от пути. (2) Пересечение
+отрезка с прямой (`_crossing`) не зависит от области, у которой прямая — ребро (значения у соседей по ребру разных знаков, а
+`v0 / (v0 - v1)` одно), и от обхода отрезка: оно считается один раз на `(узел, узел, прямая)`; число `DIVISIONS` считает вызовы. (3) Куски
+накрыли многоугольник (`_closed`): равенство сумм площадей на радикалах — тождество, когда непарные рёбра кусков идут по рёбрам
+многоугольника через вершины на его прямых ТОЧНО (`_covers_by_construction`: вершина многоугольника — на двух своих рёбрах,
+пересечение отрезка двух таких узлов — на их общей прямой; пересечение, поставленное в угол допуском закона 2, прямой не
+доказывает). Не сошлось — прежняя точная сумма площадей: свес и проём названы тем же счётчиком.
+
 ПАМЯТЬ СТАДИИ (`clip_memo`). `cut_domain` отдаёт геометрическую резку (`clip_geometry`) точной памяти по содержимому её
 входа: те же многоугольники, точки, контуры, шов, веера, закон, треугольники подъёма и допуски (`clip_policy`) дают ту же
 резку побитово, и она не считается заново (ширина декали при насыщенном покрытии меняет только UV). Станции и `r` новых
@@ -95,14 +107,17 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cmp_to_key
 
+from .. import float_filter
 from ..contracts.geometry_batch import DecalTopologyLawV1
 from ..exact_sqrt_sum import SqrtSumV1
-from ..wavefront.faces import doubled_shoelace
+from ..exact_sqrt_sum_fused import product_added
+from ..wavefront.faces import doubled_shoelace, shoelace_sign
 from . import clip_cells, clip_snap, lift, lift_surface
 from .admit import MaterializationOutcome
 from .assemble import edge_kind, station_values
@@ -155,10 +170,32 @@ PREDICATES = "MATERIALIZE_CLIP_PREDICATES"
 DIVISIONS = "MATERIALIZE_CLIP_DIVISIONS"
 
 
-class _Node:
-    """Точка стадии: одна на `point_key`. Значения ориентации по треугольникам — кэш на узле."""
+#: Запас к границе float-оценки у допуска вершины `node:` (граница оценки сама посчитана в binary64).
+_FILTER_MARGIN = 1.0 + 1e-9
+#: Целые координаты рёбер области не крупнее: `float` представляет их и их разности ТОЧНО (предел `2^53`, запас в десять бит).
+_FILTER_COORDINATE_LIMIT = 1 << 40
 
-    __slots__ = ("point", "key", "window", "home", "cache")
+
+def _rational_pair(point):
+    """`(числитель x, знаменатель x, числитель y, знаменатель y)` рациональной точки либо `None`."""
+
+    out = []
+    for coordinate in point:
+        terms = coordinate.terms
+        if not terms:
+            out.extend((0, 1))
+        elif len(terms) == 1 and terms[0][0] == 1:
+            value = terms[0][1]
+            out.extend((value.numerator, value.denominator))
+        else:
+            return None
+    return tuple(out)
+
+
+class _Node:
+    """Точка стадии: одна на `point_key`. Знаки и значения ориентации по областям — кэши на узле."""
+
+    __slots__ = ("point", "key", "window", "home", "cache", "values", "rational")
 
     def __init__(self, point) -> None:
         self.point = point
@@ -166,7 +203,12 @@ class _Node:
         self.window = None
         #: Треугольник, на ребре которого узел родился при подразделении ребра (подъём — в нём).
         self.home: int | None = None
+        #: `{(ключ области, индекс ребра): (знак внутрь >= 0, обнулён допуском)}`: знак у ребра, а не значение.
         self.cache: dict = {}
+        #: `{(ключ области, индекс ребра): значение ориентации}`: точное значение, посчитанное по требованию.
+        self.values: dict = {}
+        #: Целочисленная запись рациональной точки (`_rational_pair`): знак у прямой считается целыми без `SqrtSumV1`.
+        self.rational = _rational_pair(point)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +244,8 @@ class _Cut:
     nodes: list
     #: Входной обход был по часовой: куски выпускаются в нём же.
     flip: bool
-    #: `[(треугольник, узлы куска, удвоенная площадь)]`; `None` — площадь не сошлась (свес).
+    #: `[(треугольник, узлы куска, None)]` (третье — место площади куска: её никто не читает, и она не считается);
+    #: `None` вместо списка — площадь не сошлась (свес).
     pieces: list | None
     by_ears: bool
     merged: int
@@ -253,19 +296,31 @@ class ClipStageV1:
         #: Группа невыпуклой грани у области (`None` — своя): диагонали внутри группы не режут.
         self.groups = tuple(getattr(item, "group", None) for item in self.regions)
         self.has_groups = any(group is not None for group in self.groups)
+        #: Угол карты -> номер (общий у стадий одной резки): рёбра и прямые областей ключуются номерами, а не дробями
+        #: (хеш дроби дорог, а каждое ребро спрашивается несколько раз).
+        self.point_ids: dict = {} if shared is None else shared.point_ids
+        edges = tuple(
+            tuple(
+                frozenset(
+                    (
+                        self.point_ids.setdefault(item.chart[index], len(self.point_ids)),
+                        self.point_ids.setdefault(item.chart[(index + 1) % len(item.chart)], len(self.point_ids)),
+                    )
+                )
+                for index in range(len(item.chart))
+            )
+            for item in self.regions
+        )
         owners: dict = {}
-        for ti, item in enumerate(self.regions):
-            for index in range(len(item.chart)):
-                edge = frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))
+        for ti, row in enumerate(edges):
+            for edge in row:
                 owners.setdefault(edge, []).append(ti)
 
         def is_shared(ti, index) -> bool:
-            item = self.regions[ti]
-            return len(owners[frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))]) > 1
+            return len(owners[edges[ti][index]]) > 1
 
         def is_inert(ti, index) -> bool:
-            item = self.regions[ti]
-            both = owners[frozenset((item.chart[index], item.chart[(index + 1) % len(item.chart)]))]
+            both = owners[edges[ti][index]]
             return len(both) == 2 and self.groups[ti] is not None and self.groups[both[0]] == self.groups[both[1]]
 
         #: `interior[ti][i]` — `i`-е ребро области `ti` общее у двух областей и режет: настоящее ребро меша либо
@@ -278,6 +333,14 @@ class ClipStageV1:
             for ti, item in enumerate(self.regions)
         )
         self.corners = frozenset(corner for item in self.regions for corner in item.chart)
+        #: Прямая ребра области (неупорядоченная пара углов карты) -> номер: ребро, общее у двух областей, одна прямая.
+        self.line_of: dict = {} if shared is None else shared.line_of
+        self.line_ids = tuple(tuple(self.line_of.setdefault(edge, len(self.line_of)) for edge in row) for row in edges)
+        #: Пересечения отрезков с прямыми `(узел, узел, прямая) -> узел` (`_crossing`): точка зависит от отрезка и прямой, а не от области и обхода.
+        self.crossings: dict = {} if shared is None else shared.crossings
+        #: Целочисленные константы ребра для фильтра знака (`_edge_constants`) и квадрат допуска закона 2 в float.
+        self.edge_constants: dict = {}
+        self.gap_cells_square = float(clip_snap.NODE_EDGE_SNAP_CELLS * clip_snap.NODE_EDGE_SNAP_CELLS)
         self.by_point: dict = {} if shared is None else shared.by_point
         self.chords: dict = {} if shared is None else shared.chords
         #: Вершины `src:` в нескольких ячейках от угла карты стоят в угле ДО резки (`clip_snap`); стадия-преемник
@@ -321,6 +384,8 @@ class ClipStageV1:
         self.avoided = 0
         self.kept_depth = Fraction(0)
         self.verdict: DiagonalVerdictV1 | None = None
+        #: Узлы, лежащие точно на прямых рёбер РЕЗАЕМОГО многоугольника: `{узел: {прямая}}`; живёт внутри `_cut`.
+        self.on: dict | None = None
 
     # ---- точки, знаки, пересечения ---------------------------------------
 
@@ -331,17 +396,96 @@ class ClipStageV1:
             found = self.by_point[identity] = _Node(point)
         return found
 
-    def _line(self, node: _Node, ti: int, index: int):
-        """`(значение, знак)` точки у `index`-го ребра треугольника `ti`; знак — внутрь `>= 0`."""
+    def _edge_constants(self, ti: int, index: int):
+        """`(x0, y0, dx, dy, допуск)` ребра области: целые начало и шаг (float тех же целых) и допуск закона 2 в float.
+
+        `None` — у ребра не целые либо слишком большие координаты: float-оценка не точна в константах, и знак решает
+        точный путь. Допуск — корень из `NODE_EDGE_SNAP_CELLS² · |ребро|²` сверху (запас `_FILTER_MARGIN` при сравнении).
+        """
+
+        key = (ti, index)
+        found = self.edge_constants.get(key, False)
+        if found is False:
+            chart = self.regions[ti].chart
+            (x0, y0), (x1, y1) = chart[index], chart[(index + 1) % len(chart)]
+            found = None
+            if (
+                x0.denominator == y0.denominator == x1.denominator == y1.denominator == 1
+                and max(abs(x0.numerator), abs(y0.numerator), abs(x1.numerator), abs(y1.numerator))
+                < _FILTER_COORDINATE_LIMIT
+            ):
+                x0, y0 = x0.numerator, y0.numerator
+                dx, dy = x1.numerator - x0, y1.numerator - y0
+                # Допуск закона 2: корень из `NODE_EDGE_SNAP_CELLS² · |ребро|²` (целые координаты: квадрат ребра — целое).
+                tolerance = math.sqrt(self.gap_cells_square * float(dx * dx + dy * dy))
+                found = (x0, y0, dx, dy, float(x0), float(y0), float(dx), float(dy), tolerance)
+            self.edge_constants[key] = found
+        return found
+
+    def _cheap_sign(self, node: _Node, constants, watch: bool):
+        """`(знак | None, дальше допуска)` точки у ребра без `SqrtSumV1`: целые у рациональной точки, float-оценка у прочих.
+
+        Знак — ТОЧНЫЙ, когда он не `None`: рациональная точка считается целыми (нуль тоже), иначе знак доказан границей
+        float-оценки (нуль оценка не доказывает: `None`). `дальше допуска` — доказано, что вершина `node:` дальше
+        `NODE_EDGE_SNAP_CELLS` ячеек от прямой (тогда `within_edge_gap` ответил бы «нет»); только при `watch`.
+        """
+
+        x0, y0, dx, dy, fx0, fy0, fdx, fdy, tolerance = constants
+        exact = node.rational
+        if exact is not None:
+            x_numerator, x_denominator, y_numerator, y_denominator = exact
+            numerator = dx * (y_numerator - y0 * y_denominator) * x_denominator - dy * (
+                x_numerator - x0 * x_denominator
+            ) * y_denominator
+            sign = (numerator > 0) - (numerator < 0)
+            if not sign or not watch:
+                return sign, False
+            try:
+                return sign, abs(numerator) / (x_denominator * y_denominator) > tolerance * _FILTER_MARGIN
+            except OverflowError:  # значение не берёт binary64: допуск решит точный путь
+                return sign, False
+        estimate = float_filter.line_estimate(node.point, fx0, fy0, fdx, fdy)
+        if estimate is None:
+            return None, False
+        value, bound = estimate
+        magnitude = abs(value)
+        if magnitude <= bound:
+            return None, False
+        return (1 if value > 0 else -1), watch and magnitude > (bound + tolerance) * _FILTER_MARGIN
+
+    def _value(self, node: _Node, ti: int, index: int):
+        """Точное значение ориентации точки у `index`-го ребра области `ti` (по требованию, кэш на узле)."""
+
+        key = (self.keys[ti], index)
+        value = node.values.get(key)
+        if value is None:
+            value = node.values[key] = self.plane.line_value(self.regions[ti], index, node.point)
+        return value
+
+    def _slot(self, node: _Node, ti: int, index: int):
+        """`(знак, обнулён допуском)` точки у `index`-го ребра области `ti`; знак — внутрь `>= 0`.
+
+        Знак считается один раз на пару «узел, ребро» (число — `PREDICATES`): сперва дёшево (`_cheap_sign`), затем точным
+        значением (`_value`). Значение, которое знаку не нужно (знак доказан, вершина далека от допуска), не строится.
+        """
 
         slot = node.cache.get((self.keys[ti], index))
         if slot is None:
-            value = self.plane.line_value(self.regions[ti], index, node.point)
             self.tally[PREDICATES] += 1
-            sign = value.sign(budget=self.budget)
-            if sign and self.interior[ti][index] and node.key is not None and node.key.startswith("node:"):
+            watch = self.interior[ti][index] and node.key is not None and node.key.startswith("node:")
+            constants = self._edge_constants(ti, index)
+            sign, far = (None, False) if constants is None else self._cheap_sign(node, constants, watch)
+            value = None
+            if sign is None:
+                value = self._value(node, ti, index)
+                sign = value.sign(budget=self.budget)
+            zeroed = False
+            if sign and watch and not far:
+                if value is None:
+                    value = self._value(node, ti, index)
                 sign = self._zeroed_by_gap(value, ti, index, sign)
-            slot = node.cache[(self.keys[ti], index)] = (value, sign * self.directions[ti])
+                zeroed = sign == 0
+            slot = node.cache[(self.keys[ti], index)] = (sign * self.directions[ti], zeroed)
         return slot
 
     def _zeroed_by_gap(self, value, ti: int, index: int, sign: int) -> int:
@@ -357,7 +501,10 @@ class ClipStageV1:
         return 0
 
     def _sign(self, node: _Node, ti: int, index: int) -> int:
-        return self._line(node, ti, index)[1]
+        slot = node.cache.get((self.keys[ti], index))
+        if slot is None:
+            slot = self._slot(node, ti, index)
+        return slot[0]
 
     def _edge_square(self, ti: int, index: int):
         """Квадрат длины `index`-го ребра области `ti` в ячейках (кэш)."""
@@ -380,8 +527,13 @@ class ClipStageV1:
             return False
         slot = node.cache.get((self.keys[ti], index))
         if slot is not None:
-            return slot[1] == 0 and not slot[0].is_zero
-        value = self.plane.line_value(self.regions[ti], index, node.point)
+            return slot[1]
+        constants = self._edge_constants(ti, index)
+        if constants is not None:
+            sign, far = self._cheap_sign(node, constants, True)
+            if far or sign == 0:
+                return False  # дальше допуска либо точный нуль: допуск не обнуляет
+        value = self._value(node, ti, index)
         return not value.is_zero and within_edge_gap(value, self._edge_square(ti, index), self.budget)[0]
 
     def _corner_of_gap(self, node: _Node, first: _Node, second: _Node, ti: int, index: int) -> _Node | None:
@@ -407,7 +559,7 @@ class ClipStageV1:
                 continue
             if not (self._zeroed_by_law(first, ti, neighbour) or self._zeroed_by_law(second, ti, neighbour)):
                 continue  # нуль точный (либо знака нет): отрезок лежит на ребре в самом деле, пересечение уже угол
-            value = self.plane.line_value(self.regions[ti], neighbour, node.point)
+            value = self._value(node, ti, neighbour)
             if value.is_zero or not within_edge_gap(value, self._edge_square(ti, neighbour), self.budget)[0]:
                 continue
             self.tally[NODE_SIGNS_ZEROED] += 1
@@ -418,13 +570,28 @@ class ClipStageV1:
     def _crossing(self, first: _Node, second: _Node, ti: int, index: int) -> _Node:
         """Точка отрезка на прямой ребра: `first + (second - first) * v0 / (v0 - v1)`, точно (в допуске от соседнего ребра - угол)."""
 
-        low, high = self._line(first, ti, index)[0], self._line(second, ti, index)[0]
+        self._slot(first, ti, index)
+        self._slot(second, ti, index)
         self.tally[DIVISIONS] += 1
-        share = low.divided_by(low - high, self.budget)
-        (x0, y0), (x1, y1) = first.point, second.point
-        node = self._node((x0 + (x1 - x0) * share, y0 + (y1 - y0) * share))
+        # Точка отрезка на прямой не зависит от области, у которой прямая — ребро (значения у соседа по ребру отличаются
+        # знаком, а `v0 / (v0 - v1)` — нет) и от обхода отрезка: один отрезок на одной прямой считается один раз.
+        remembered = (first, second, self.line_ids[ti][index])
+        node = self.crossings.get(remembered)
+        if node is None:
+            low, high = self._value(first, ti, index), self._value(second, ti, index)
+            share = low.divided_by(low - high, self.budget)
+            (x0, y0), (x1, y1) = first.point, second.point
+            node = self._node((product_added(x0, x1 - x0, share), product_added(y0, y1 - y0, share)))
+            self.crossings[remembered] = self.crossings[(second, first, remembered[2])] = node
         corner = self._corner_of_gap(node, first, second, ti, index)
-        return node if corner is None else corner
+        if corner is not None:
+            return corner
+        if self.on is not None:
+            # Точка отрезка лежит на его прямой ТОЧНО (тот же `share` у обеих осей), и на каждой прямой, где лежат оба конца.
+            shared = self.on.get(first, frozenset()) & self.on.get(second, frozenset())
+            if shared:
+                self.on[node] = self.on.get(node, frozenset()) | shared
+        return node
 
     def _window(self, node: _Node):
         if node.window is None:
@@ -598,15 +765,18 @@ class ClipStageV1:
         return doubled_shoelace(tuple(node.point for node in nodes))
 
     def _positive_pieces(self, groups):
-        """`[(ti, узлы, площадь)]` без кусков нулевой площади; обратный обход куска — отказ."""
+        """`[(ti, узлы, None)]` без кусков нулевой площади; обратный обход куска — отказ.
+
+        Знак площади — `shoelace_sign` (фильтр binary64, затем точная площадь): сама площадь куска нужна только суду
+        «куски покрыли многоугольник» (`_closed`), и считается там, если конструктивное доказательство не сошлось.
+        """
 
         found = []
         for ti, pieces in groups:
             for nodes in pieces:
-                area = self._area(nodes)
-                sign = area.sign(budget=self.budget)
+                sign = shoelace_sign(tuple(node.point for node in nodes), self.budget)
                 if sign > 0:
-                    found.append((ti, nodes, area))
+                    found.append((ti, nodes, None))
                 elif sign < 0:
                     raise MaterializationRefusal(
                         MaterializationOutcome.TESSELLATION_DID_NOT_CLOSE,
@@ -723,7 +893,11 @@ class ClipStageV1:
 
         members = self.members[ti]
         if len(members) == 1:
-            return self.triangles[members[0]], [self._line(node, ti, index)[0] for index in range(3)]
+            values = []
+            for index in range(3):
+                self._slot(node, ti, index)
+                values.append(self._value(node, ti, index))
+            return self.triangles[members[0]], values
         for member in members:
             triangle = self.triangles[member]
             values = self.plane.values_in(triangle, node.point)
@@ -776,30 +950,89 @@ class ClipStageV1:
         """Фаза 1: многоугольник режется замкнутыми треугольниками; куски приняты, если площадь сошлась ТОЧНО."""
 
         nodes = [self.node_of_key[key] for key in keys]
-        area = self._area(nodes)
-        flip = area.sign(budget=self.budget) < 0
+        sign = shoelace_sign(tuple(node.point for node in nodes), self.budget)
+        flip = sign < 0
         if flip:
             nodes.reverse()
-            area = -area
         points = tuple(node.point for node in nodes)
         convex = len(nodes) == 3 or not has_right_turn(points, range(len(nodes)), self.budget)
         candidates = self._candidates(nodes)
         by_ears, merged_count, kept_count = False, 0, 0
-        if convex:
-            groups = []
-            for ti in candidates:
-                piece = self._pruned(self._clip(nodes, ti))
-                if piece:
-                    groups.append((ti, [piece]))
-        else:
-            by_ears = True
-            groups, merged_count, kept_count = self._by_ears(nodes, self._ears(points), candidates)
-        pieces = self._positive_pieces(groups)
-        total = SqrtSumV1.zero()
-        for _ti, _piece, part in pieces:
-            total = total + part
-        closed = (total - area).is_zero
+        # Узлы, лежащие ТОЧНО на прямой ребра многоугольника (по построению): вершина на своих двух рёбрах, пересечение
+        # отрезка двух таких узлов — на их общей прямой. Нужны доказательству покрытия (`_covers_by_construction`).
+        self.on = {}
+        for index, node in enumerate(nodes):
+            for other in (nodes[index - 1], nodes[(index + 1) % len(nodes)]):
+                self.on[node] = self.on.get(node, frozenset()) | {frozenset((node, other))}
+        try:
+            if convex:
+                groups = []
+                for ti in candidates:
+                    piece = self._pruned(self._clip(nodes, ti))
+                    if piece:
+                        groups.append((ti, [piece]))
+            else:
+                by_ears = True
+                groups, merged_count, kept_count = self._by_ears(nodes, self._ears(points), candidates)
+            pieces = self._positive_pieces(groups)
+            closed = self._closed(nodes, pieces, sign)
+        finally:
+            self.on = None
         return _Cut(nodes, flip, pieces if closed else None, by_ears, merged_count, kept_count)
+
+    def _closed(self, nodes, pieces, sign: int) -> bool:
+        """Сумма удвоенных площадей кусков равна площади многоугольника ТОЧНО (куски накрыли его без свеса).
+
+        Точное равенство величин на радикалах — дорогая сумма произведений (замер: больше половины резки домена), а
+        равенство это — тождество, когда границы кусков складываются в границу многоугольника: площадь куска — сумма
+        `x_a y_b - x_b y_a` по его рёбрам, встречные рёбра соседних кусков сокращаются тождественно, и остаётся сумма по
+        непарным рёбрам. Если они идут по рёбрам многоугольника, а вершины между концами ребра лежат на его прямой
+        ТОЧНО (`on`), то сумма по пути равна `x_a y_b - x_b y_a` ребра, и невязка — нуль (`_covers_by_construction`).
+        Не сошлось доказательство — считается прежняя точная сумма: ответ тот же, цена прежняя.
+        """
+
+        if not pieces:
+            return sign == 0
+        if self._covers_by_construction(nodes, pieces):
+            return True
+        area = self._area(nodes)
+        total = SqrtSumV1.zero()
+        for _ti, piece, _part in pieces:
+            total = total + self._area(piece)
+        return (total - area).is_zero
+
+    def _covers_by_construction(self, nodes, pieces) -> bool:
+        """Непарные рёбра кусков — ровно рёбра многоугольника, подразделённые вершинами на их прямых (доказательство)."""
+
+        half: dict = {}
+        for _ti, piece, _part in pieces:
+            size = len(piece)
+            for position, node in enumerate(piece):
+                edge = (node, piece[(position + 1) % size])
+                if (edge[1], edge[0]) in half:
+                    del half[(edge[1], edge[0])]
+                elif edge in half:
+                    return False
+                else:
+                    half[edge] = None
+        successor: dict = {}
+        for start, end in half:
+            if start in successor:
+                return False
+            successor[start] = end
+        on, size, used = self.on, len(nodes), 0
+        for index in range(size):
+            first, last = nodes[index], nodes[(index + 1) % size]
+            line = frozenset((first, last))
+            current = first
+            while current is not last:
+                current = successor.get(current)
+                used += 1
+                if current is None or used > len(half):
+                    return False
+                if current is not last and line not in on.get(current, ()):
+                    return False
+        return used == len(half)
 
     def _emit(self, cut: _Cut, law, fan: bool = False, flow: bool = False):
         """Фаза 3: грани многоугольника в его обходе: куски либо (свес, невязка границы) уши с названным счётчиком.
@@ -925,7 +1158,7 @@ class ClipStageV1:
                     continue
                 piece = self._without_inert(loop, refined)
                 self.glued[id(piece)] = len(component)
-                out.append((component[0][0], piece, sum((item[2] for item in component), SqrtSumV1.zero())))
+                out.append((component[0][0], piece, None))
         return out
 
     def piece_chord(self, ti: int, piece) -> tuple:
@@ -1242,13 +1475,14 @@ def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flow
     оценка, по которой решено, остаётся верной.
     """
 
-    plan = build_cells(plane.triangles)
+    memo: dict = {}
+    plan = build_cells(plane.triangles, memo=memo)
     stage = ClipStageV1(plane, budget, points, plan.cells)
     cuts = stage.cuts_of(polygons)
     over = stage.over_budget(cuts)
     if over:
         stage = ClipStageV1(
-            plane, budget, points, build_cells(plane.triangles, frozenset(over)).cells, shared=stage
+            plane, budget, points, build_cells(plane.triangles, frozenset(over), memo).cells, shared=stage
         )
         cuts = stage.cuts_of(polygons)
     stage.verdict = DiagonalVerdictV1(over, plan.unmergeable)
