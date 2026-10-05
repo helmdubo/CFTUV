@@ -7,7 +7,8 @@
 //! - `float_filter`: certified binary64 filters (`float_filter.py`);
 //! - the work budget, CPython `random.Random`, factorization and the canonicalization memory live in the
 //!   sibling crate `cftuv-canon`;
-//! - `codec`: the boundary buffer format shared with `cftuv_native/codec.py`.
+//! - `codec`: the boundary buffer format shared with `cftuv_native/codec.py`;
+//! - `script`: the test-only differential entry (a whole script of number operations in one buffer).
 
 pub mod codec;
 pub mod float_filter;
@@ -16,4 +17,5 @@ pub mod num;
 pub mod products;
 pub mod pyfloat;
 pub mod rat;
+pub mod script;
 pub mod sqrt_sum;

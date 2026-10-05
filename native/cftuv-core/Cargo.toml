@@ -7,3 +7,9 @@ publish.workspace = true
 
 [dependencies]
 dashu-int.workspace = true
+
+# Only for `examples/bigint_bench.rs`: the day-1 representation microbench (dashu-int vs num-bigint).
+[dev-dependencies]
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"

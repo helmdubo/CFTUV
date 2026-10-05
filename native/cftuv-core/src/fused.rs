@@ -1,1 +1,199 @@
-//! Placeholder: filled in R1.
+//! Fused sqrt-sum kernels (`exact_sqrt_sum_fused.py`): several actions on `SqrtSumV1` with ONE fraction
+//! normalisation per result term. The values, terms and order are those of the plain chain; so are the
+//! coefficient types (`product_added` hands the base terms the product does not touch through as the same
+//! coefficient objects, which keeps an `int` an `int`).
+
+use std::cmp::Ordering;
+
+use crate::num::{self, IBig, UBig};
+use crate::products::{accumulate_products, Accumulator, ProductMemo};
+use crate::rat::{Coef, Rat};
+use crate::sqrt_sum::{IntForm, SqrtSum, Term};
+
+/// `step_x * y - step_y * x + offset` for integer steps and offset, with one normalisation per result term.
+pub fn oriented_sum(x: &SqrtSum, y: &SqrtSum, step_x: &IBig, step_y: &IBig, offset: &IBig) -> SqrtSum {
+    let (x_form, y_form) = (x.int_form(), y.int_form());
+    let scale = if x_form.common != y_form.common { num::lcm(&x_form.common, &y_form.common) } else { x_form.common.clone() };
+    let mut merged = Accumulator::with_capacity(x_form.items.len() + y_form.items.len() + 1);
+    if !step_x.is_zero() {
+        let factor = step_x * (&scale / &y_form.common);
+        for (radicand, numerator) in &y_form.items {
+            merged.add(radicand, numerator * &factor);
+        }
+    }
+    if !step_y.is_zero() {
+        let factor = step_y * (&scale / &x_form.common);
+        for (radicand, numerator) in &x_form.items {
+            merged.add(radicand, -(numerator * &factor));
+        }
+    }
+    if !offset.is_zero() {
+        merged.add(&UBig::ONE, offset * &scale);
+    }
+    from_scaled(merged, &scale)
+}
+
+/// `base + left * right` with one normalisation per result term.
+pub fn product_added(base: &SqrtSum, left: &SqrtSum, right: &SqrtSum, memo: &mut ProductMemo) -> SqrtSum {
+    if left.is_zero() || right.is_zero() {
+        return base.clone();
+    }
+    let (base_form, left_form, right_form) = (base.int_form(), left.int_form(), right.int_form());
+    let common = &left_form.common * &right_form.common;
+    let scale = if base_form.common != common { num::lcm(&base_form.common, &common) } else { common.clone() };
+    let mut product = Accumulator::new();
+    accumulate_products(&mut product, &left_form.items, &right_form.items, &IBig::from(&scale / &common), memo);
+    let factor = IBig::from(&scale / &base_form.common);
+    let mut out: Vec<Term> = Vec::with_capacity(product.len() + base.terms().len());
+    let mut base_index = 0;
+    let base_terms = base.terms();
+    let push_total = |out: &mut Vec<Term>, radicand: &UBig, total: IBig| {
+        if !total.is_zero() {
+            out.push(Term { radicand: radicand.clone(), coef: Coef::fraction(Rat::reduced(total, scale.clone())) });
+        }
+    };
+    let pass_through = |out: &mut Vec<Term>, term: &Term| {
+        if !term.coef.is_zero() {
+            out.push(term.clone());
+        }
+    };
+    for (radicand, value) in product.iter() {
+        // base terms below this radicand are untouched by the product: they pass through as the same objects
+        while base_index < base_terms.len() && base_terms[base_index].radicand < *radicand {
+            pass_through(&mut out, &base_terms[base_index]);
+            base_index += 1;
+        }
+        let matching = base_terms.get(base_index).filter(|term| term.radicand.cmp(radicand) == Ordering::Equal);
+        match matching {
+            Some(term) => {
+                if value.is_zero() {
+                    pass_through(&mut out, term);
+                } else {
+                    let numerator = &base_form.items[base_index].1;
+                    push_total(&mut out, radicand, value + numerator * &factor);
+                }
+                base_index += 1;
+            }
+            None => {
+                if !value.is_zero() {
+                    push_total(&mut out, radicand, value.clone());
+                }
+            }
+        }
+    }
+    for term in &base_terms[base_index..] {
+        pass_through(&mut out, term);
+    }
+    SqrtSum::from_terms_unchecked(out)
+}
+
+/// `sum sign_i * left_i * right_i` (the sign is `+1` or `-1`, any integer works) with ONE normalisation at the
+/// end. A zero factor skips its summand, as `__mul__` would.
+pub fn sum_of_products(products: &[(&SqrtSum, &SqrtSum, IBig)], memo: &mut ProductMemo) -> SqrtSum {
+    let mut scale = UBig::ONE;
+    let mut forms = Vec::with_capacity(products.len());
+    for (left, right, sign) in products {
+        if left.is_zero() || right.is_zero() {
+            continue;
+        }
+        let (left_form, right_form) = (left.int_form(), right.int_form());
+        let common = &left_form.common * &right_form.common;
+        if !common.is_one() {
+            scale = num::lcm(&scale, &common);
+        }
+        forms.push((left_form, right_form, sign, common));
+    }
+    let mut merged = Accumulator::new();
+    for (left_form, right_form, sign, common) in forms {
+        let weight = sign * IBig::from(&scale / &common);
+        accumulate_products(&mut merged, &left_form.items, &right_form.items, &weight, memo);
+    }
+    from_scaled(merged, &scale)
+}
+
+/// `(radicand, Fraction(value, scale))` for the non-zero values, by radicand.
+fn from_scaled(merged: Accumulator, scale: &UBig) -> SqrtSum {
+    IntForm { common: scale.clone(), items: merged.into_nonzero_items() }.into_sqrt_sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rat(n: i64, d: i64) -> Rat {
+        Rat::new(IBig::from(n), IBig::from(d)).unwrap()
+    }
+
+    fn frac(radicand: u64, n: i64, d: i64) -> Term {
+        Term { radicand: UBig::from(radicand), coef: Coef::fraction(rat(n, d)) }
+    }
+
+    fn int(radicand: u64, n: i64) -> Term {
+        Term { radicand: UBig::from(radicand), coef: Coef::int(IBig::from(n)) }
+    }
+
+    fn sum(terms: Vec<Term>) -> SqrtSum {
+        SqrtSum::from_terms(terms).unwrap()
+    }
+
+    #[test]
+    fn oriented_sum_equals_the_chain() {
+        let x = sum(vec![frac(1, 1, 2), frac(2, 1, 3)]);
+        let y = sum(vec![frac(2, 5, 4), frac(3, -1, 1)]);
+        let fused = oriented_sum(&x, &y, &IBig::from(3), &IBig::from(-2), &IBig::from(7));
+        let chain = y.scaled(&rat(3, 1)).sub(&x.scaled(&rat(-2, 1))).add(&SqrtSum::rational(&rat(7, 1)));
+        assert_eq!(fused, chain);
+        // zero steps and offset skip their parts
+        assert_eq!(oriented_sum(&x, &y, &IBig::ZERO, &IBig::ZERO, &IBig::ZERO), SqrtSum::zero());
+        assert_eq!(oriented_sum(&x, &y, &IBig::ZERO, &IBig::ZERO, &IBig::from(5)), SqrtSum::rational(&rat(5, 1)));
+    }
+
+    #[test]
+    fn product_added_equals_the_chain_and_keeps_untouched_base_types() {
+        let mut memo = ProductMemo::new();
+        let base = sum(vec![int(1, 2), int(5, 3), frac(7, 1, 3)]);
+        let left = sum(vec![frac(1, 1, 2), frac(5, 1, 1)]);
+        let right = sum(vec![frac(1, 3, 1), frac(2, 1, 2)]);
+        let fused = product_added(&base, &left, &right, &mut memo);
+        let chain = base.add(&left.mul(&right, &mut memo));
+        assert_eq!(fused, chain);
+        // radicand 7 is only in the base: the Fraction stays a Fraction; with an int base it stays an int
+        let int_base = sum(vec![int(7, 4)]);
+        let fused = product_added(&int_base, &left, &right, &mut memo);
+        let kept = fused.terms().iter().find(|term| term.radicand == UBig::from(7u8)).unwrap();
+        assert_eq!(kept.coef, Coef::int(IBig::from(4)));
+        let kept = product_added(&base, &left, &right, &mut memo);
+        assert_eq!(kept.terms().iter().find(|term| term.radicand == UBig::from(7u8)).unwrap().coef, Coef::fraction(rat(1, 3)));
+        // a zero factor returns the base untouched
+        assert_eq!(product_added(&int_base, &SqrtSum::zero(), &right, &mut memo), int_base);
+    }
+
+    #[test]
+    fn product_added_drops_terms_that_cancel() {
+        let mut memo = ProductMemo::new();
+        // base = 1; left*right = -1  ->  0
+        let base = sum(vec![int(1, 1)]);
+        let left = sum(vec![frac(1, 1, 1), frac(2, 1, 1)]);
+        let right = sum(vec![frac(1, 1, 1), frac(2, -1, 1)]);
+        assert!(product_added(&base, &left, &right, &mut memo).is_zero());
+        // a cancelled product term leaves the base term as the same object (here an int)
+        let left = sum(vec![frac(2, 1, 1)]);
+        let right = sum(vec![frac(3, 1, 1)]);
+        let base = sum(vec![int(6, 5)]);
+        // sqrt(2)*sqrt(3) = sqrt(6): total 1 + 5 = 6, a Fraction
+        assert_eq!(product_added(&base, &left, &right, &mut memo), sum(vec![frac(6, 6, 1)]));
+    }
+
+    #[test]
+    fn sum_of_products_equals_the_chain() {
+        let mut memo = ProductMemo::new();
+        let a = sum(vec![frac(1, 1, 2), frac(2, 1, 3)]);
+        let b = sum(vec![frac(2, 5, 4), frac(3, -1, 1)]);
+        let c = sum(vec![frac(1, 7, 5)]);
+        let products = [(&a, &b, IBig::ONE), (&b, &c, IBig::from(-1)), (&a, &SqrtSum::zero(), IBig::ONE), (&c, &a, IBig::ONE)];
+        let fused = sum_of_products(&products, &mut memo);
+        let chain = a.mul(&b, &mut memo).sub(&b.mul(&c, &mut memo)).add(&c.mul(&a, &mut memo));
+        assert_eq!(fused, chain);
+        assert!(sum_of_products(&[], &mut memo).is_zero());
+    }
+}
