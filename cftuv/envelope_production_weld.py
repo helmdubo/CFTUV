@@ -46,12 +46,13 @@
 (`half_edge_conflicts` видит лишь повторные полурёбра). Поэтому шов проверяется ПО ЦЕПЯМ БАТЧЕЙ, точно:
 у каждой пары соседних `src:` на цепи `boundary:SOURCE` берётся число вершин между ними в каждом домене, и
 пара, у которой оно в двух доменах различно, — T-стык (`seam_report`; запись, а не ремонт: вершины не
-подтягиваются). Туда же — пара соседних `src:` одного домена, между которыми у другого домена той же цепи стоит ещё `src:`: так
+подтягиваются). Туда же — пара соседних `src:` одного домена, между которыми у другого домена на цепи стоит ещё `src:`, каких у первого домена нет, и ни на одной цепи они не соседи: так
 выглядит точка, растворённая лишь с одной стороны (закон ядра `SILHOUETTE_SOURCE_DOTS_V1` решает место сразу во всех доменах,
 и эта проверка его страхует). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
 
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
-по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча.
+по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча. Цепи батча — тоже `frozenset`: `seam_report`
+идёт по ним в порядке имени цепи, а сверка пар — множества над всеми цепями, и квитанция не зависит от `PYTHONHASHSEED`.
 """
 
 from __future__ import annotations
@@ -281,29 +282,52 @@ def weld_vertices(domains, offset: float) -> WeldV1:
     )
 
 
-def _anchors_between(anchored) -> int:
-    """Пары соседних `src:` одного домена, между которыми у другого домена в той же цепи стоит ещё `src:` (вершина растворена лишь с одной стороны).
+def _run_between(anchors, pair, own) -> bool:
+    """Идёт ли по цепи (`anchors`) от одного конца `pair` к другому путь через `src:`, которых нет у домена пары (`own`)."""
+
+    for at, key in enumerate(anchors):
+        if key not in pair:
+            continue
+        for stop in range(at + 1, len(anchors)):
+            if anchors[stop] == key:
+                break
+            if anchors[stop] in pair:
+                between = anchors[at + 1 : stop]
+                if between and own.isdisjoint(between):
+                    return True
+                break
+    return False
+
+
+def _anchors_between(anchored, held) -> int:
+    """Пары соседних `src:` одного домена, между которыми у другого домена на цепи стоят ещё `src:`, каких у первого домена нет (вершина растворена лишь с одной стороны).
 
     Счёт по числу вершин `node:`/`clip:` между соседними `src:` такого шва не видит: пара, соседняя у одного домена, у другого
     не пара вовсе. Каждая такая пара — T-стык: вершина другого домена лежит на ребре этого.
+
+    Пара сверяется с соседними `src:` ВСЕХ цепей другого домена, а не одной (вершина стоит на стыке двух цепей, и «первая» цепь
+    зависела от `PYTHONHASHSEED`), и пара, соседняя хоть на одной цепи, шов не рвёт. Путь, замкнутый на ребро пары, — обход:
+    цепь `14 -> 21 -> 20 -> 19 -> 18 -> 13` соседа идёт вокруг ребра `(13, 14)` домена, у которого есть и ребро, и вершины обхода
+    (шестиугольный патч внутри кольца); это другой путь по источнику, а не то же ребро с лишней вершиной. Поэтому лишняя вершина
+    считается, только если её нет у домена пары вовсе (`held`: `src:` его цепей источника и стены). Ответ — множество, от
+    порядка цепей не зависит.
     """
 
-    where: dict = {}
+    runs: dict = {}
     consecutive: dict = {}
-    for number, chain_id, anchors in anchored:
-        consecutive[(number, chain_id)] = {frozenset(pair) for pair in zip(anchors, anchors[1:])}
-        for key in anchors:
-            where.setdefault((number, key), chain_id)
-    numbers = {number for number, _chain_id, _anchors in anchored}
+    for number, _chain_id, anchors in anchored:
+        runs.setdefault(number, []).append(anchors)
+        consecutive.setdefault(number, set()).update(frozenset(pair) for pair in zip(anchors, anchors[1:]))
+    numbers = sorted(consecutive)
     open_pairs = set()
-    for (number, _chain_id), pairs in consecutive.items():
-        for pair in pairs:
+    for number in numbers:
+        for pair in sorted(consecutive[number], key=sorted):
             if len(pair) != 2:
                 continue
-            first, second = sorted(pair)
-            for other in numbers - {number}:
-                chain = where.get((other, first))
-                if chain is not None and chain == where.get((other, second)) and pair not in consecutive[(other, chain)]:
+            for other in numbers:
+                if other == number or pair in consecutive[other]:
+                    continue
+                if any(_run_between(anchors, pair, held[number]) for anchors in runs[other]):
                     open_pairs.add(pair)
     return len(open_pairs)
 
@@ -313,26 +337,29 @@ def seam_report(batches) -> tuple:
 
     Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Батч без
     `boundary_chains` ничего не даёт. Точно, без допусков: ключи вершин, а не координаты.
+    Цепи батча — `frozenset` (порядок ходит с `PYTHONHASHSEED`), поэтому идут по имени цепи; ответ от порядка не зависит.
     """
 
     by_pair: dict = {}
     clip_vertices = 0
     anchored: list = []
+    held: dict = {}
     for number, batch in enumerate(batches):
-        for chain in getattr(batch, "boundary_chains", ()) or ():
+        for chain in sorted(getattr(batch, "boundary_chains", ()) or (), key=lambda item: item.semantic_boundary_id.value):
             kind = chain.semantic_boundary_id.value.split(":")[1]
             if kind not in ("SOURCE", "WALL"):
                 continue
             keys = [item.value for item in chain.ordered_vert_keys]
             anchors = [index for index, key in enumerate(keys) if key.startswith("src:")]
             clip_vertices += sum(1 for key in keys if key.startswith("clip:"))
+            held.setdefault(number, set()).update(keys[index] for index in anchors)
             if kind != "SOURCE":
                 continue
             anchored.append((number, chain.semantic_boundary_id.value, [keys[index] for index in anchors]))
             for first, second in zip(anchors, anchors[1:]):
                 by_pair.setdefault(frozenset((keys[first], keys[second])), []).append(second - first - 1)
     junctions = sum(1 for counts in by_pair.values() if len(counts) > 1 and len(set(counts)) > 1)
-    junctions += _anchors_between(anchored)
+    junctions += _anchors_between(anchored, held)
     return (
         (COUNTER_SEAM_T_JUNCTIONS, junctions),
         (COUNTER_SEAM_CLIP_VERTICES, clip_vertices),
