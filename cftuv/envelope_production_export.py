@@ -15,9 +15,9 @@
 влияющих на силуэт, `SILHOUETTE_TOPOLOGY_V1`). Он идёт в задачу пула (`ProductionInputV1`), в
 `produce_domain`, в результат домена (`decal_topology_law`) и в строку JSON; у трёх прежних
 законов сетка вершин и семантика от закона не зависят, у силуэтного вершины и цепи другие
-(растворённых вершин в сетке нет), и это названо счётчиками `MATERIALIZE_SILHOUETTE_*`. Точки на прямых цепях источника и
-стены решает общий по доменам закон `SILHOUETTE_SOURCE_DOTS_V1` (`envelope_production_dots`): он считается над ГОТОВЫМИ
-результатами прогона в конце `run_production` (результат домена в кэшах остаётся чистой функцией своего входа).
+(растворённых вершин в сетке нет), и это названо счётчиками `MATERIALIZE_SILHOUETTE_*`. Какие точки на прямых цепях источника и
+стены декаль не несёт, решено при компиляции (план станций цепей `CHAIN_STATION_PLAN_V1`) и исполнено в самом домене:
+результат домена в кэшах остаётся чистой функцией своего входа, а прогон над готовыми результатами ничего не решает.
 
 ЗАКОН UV — явный параметр. Запрос подготовки несёт отладочный
 `ENVELOPE_DEBUG_NO_UV_V1`, а продукту нужен `UV_DIRECT_STRIP_V1`. Подготовка от
@@ -85,7 +85,6 @@ from .envelope_content_key import result_slot
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_host_labels import record_host_tokens
-from .envelope_production_dots import dissolve_source_dots
 from .envelope_production_weld import (
     COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
     COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
@@ -128,10 +127,6 @@ PRODUCTION_DOMAIN_GEOMETRY_BUILDS = "PRODUCTION_DOMAIN_GEOMETRY_BUILDS"
 PRODUCTION_DOMAINS = "PRODUCTION_DOMAINS"
 PRODUCTION_MATERIALIZED = "PRODUCTION_MATERIALIZED"
 PRODUCTION_REFUSED = "PRODUCTION_REFUSED"
-#: Общее решение по точкам на прямых цепях источника и стены (`SILHOUETTE_SOURCE_DOTS_V1`, считается над готовыми результатами
-#: прогона): вершины, растворённые во всех доменах вместе, и нарушения независимой проверки (тогда не растворено ничего).
-PRODUCTION_SOURCE_DOTS_DISSOLVED = "PRODUCTION_SOURCE_DOTS_DISSOLVED"
-PRODUCTION_SOURCE_DOTS_UNVERIFIED = "PRODUCTION_SOURCE_DOTS_UNVERIFIED"
 #: Домены, чей результат лежал в кэше сессии, и домены, которые пришлось считать.
 PRODUCTION_RESULT_CACHE_HIT = "PRODUCTION_RESULT_CACHE_HIT"
 PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
@@ -1276,14 +1271,6 @@ def _record_content_counters(profile, run: _RunInputsV1, entries) -> None:
     )
 
 
-def _record_source_dots(profile, dots) -> None:
-    """Числа общего решения по точкам цепей источника и стены (`SILHOUETTE_SOURCE_DOTS_V1`); прогон не под законом силуэта их не пишет."""
-
-    if dots is not None:
-        profile.set_counter(PRODUCTION_SOURCE_DOTS_DISSOLVED, sum(len(item.removed) for item in dots.domains))
-        profile.set_counter(PRODUCTION_SOURCE_DOTS_UNVERIFIED, len(dots.problems))
-
-
 def _record_run_counters(profile, controller, builds_before, entries, results, cold):
     builds_after = controller.build_counts
     for name, key in (
@@ -1413,9 +1400,8 @@ def run_production(
             [item for item in work if item.prepared is None and item.carried is None],
             pool,
         )
-    results, dots = dissolve_source_dots(_domain_results(entries, done, refused), topology_export.silhouette_uv_slide)
+    results = _domain_results(entries, done, refused)
     _record_run_counters(profile, controller, builds_before, entries, results, cold)
-    _record_source_dots(profile, dots)
     _record_content_counters(profile, run, entries)
     return ProductionRunV1(
         results=tuple(results),
@@ -1679,8 +1665,6 @@ __all__ = (
     "PRODUCTION_PREPARATION_BUILDS",
     "PRODUCTION_PREPARATION_REUSED",
     "PRODUCTION_REFUSED",
-    "PRODUCTION_SOURCE_DOTS_DISSOLVED",
-    "PRODUCTION_SOURCE_DOTS_UNVERIFIED",
     "PRODUCTION_RESULT_CACHE_HIT",
     "PRODUCTION_RESULT_CACHE_MISS",
     "PRODUCTION_TOPOLOGY_LAW",

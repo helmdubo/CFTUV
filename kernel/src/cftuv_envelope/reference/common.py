@@ -25,6 +25,7 @@ from .._canonical_angle import (
     canonical_reflex_excess_restoration,
 )
 from .._annulus_cut import chart_cycle, chart_side_ends
+from .._chain_station import plan_errors as chain_station_plan_errors
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
@@ -213,6 +214,13 @@ class GeometryContext:
         if treatment_errors:
             raise ReferenceGeometryError(
                 ReferenceOutcome.CORNER_TREATMENT_INVALID, treatment_errors[0]
+            )
+        station_errors = chain_station_plan_errors(
+            snapshot, compilation.plan_key.patch_domain_id, compilation.chain_station_plans
+        )
+        if station_errors:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.CHAIN_STATION_PLAN_INVALID, station_errors[0]
             )
         from .evaluation_geometry import (
             EvaluationGeometryBindingInvalid,

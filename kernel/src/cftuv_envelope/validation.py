@@ -127,14 +127,9 @@ from .outcomes import NamedOutcome
 # на своём потолке в `tests/test_architecture.py`, и закон near-planar туда не
 # помещается. Потолок не поднимается — поднятие числа в таблице бюджетов есть
 # заявление о наращивании долга, а не способ найти место.
-from .validation_issues import (
-    ContractValidationError,
-    ValidationCode,
-    ValidationIssue,
-    add_issue as _issue,
-    raise_for_issues,
-)
+from .validation_issues import ContractValidationError, ValidationCode, ValidationIssue, add_issue as _issue, raise_for_issues
 from .validation_source_edges import source_edge_zero_length_issues
+from .validation_chain_station import seam_neighbour_face_issues, validate_plan_chain_stations, validate_plan_chain_stations_against_snapshot
 from .validation_corner_treatment import validate_plan_corner_treatments, validate_plan_corner_treatments_against_snapshot
 from .validation_band import band_policy_issues, chart_reach_cap_issues, silhouette_uv_slide_issues
 from .validation_metric import chart_source_vertices, fraction_of as _fraction, metric_covers_patch, validate_metric_against_source, validate_rational_affine_planar_metric
@@ -1047,7 +1042,7 @@ def validate_analysis_snapshot(
                     _issue(issues, ValidationCode.TERMINAL_RELATION, path, "START terminal is not the first physical-chain vertex")
                 if relation.endpoint_role is TerminalEndpointRole.END and relation.source_vertex_id != chain.ordered_source_vertex_ids[-1]:
                     _issue(issues, ValidationCode.TERMINAL_RELATION, path, "END terminal is not the last physical-chain vertex")
-    return source_edge_zero_length_issues(snapshot) + tuple(issues)
+    return source_edge_zero_length_issues(snapshot) + seam_neighbour_face_issues(snapshot) + tuple(issues)
 
 
 def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ...]:
@@ -1188,6 +1183,7 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
 
     _require_refs(issues, _check_unique(issues, plan.canonical_angle_restorations, "selection_certificate_id", "canonical_angle_restorations"), certificate_ids, ("canonical_angle_restorations", "selection_certificate_id"))
     validate_plan_corner_treatments(issues, plan)
+    validate_plan_chain_stations(issues, plan)
     for selection_id, message in canonical_restoration_reference_errors(plan.canonical_angle_restorations, certificate_by_id):
         _issue(issues, ValidationCode.CANONICAL_ANGLE_RESTORATION, ("canonical_angle_restorations", str(selection_id)), message)
 
@@ -1660,6 +1656,7 @@ def validate_cross_contract_references(
                     _issue(issues, ValidationCode.ANGULAR_SELECTION_UNCERTAIN, path, proof_error)
 
         validate_plan_corner_treatments_against_snapshot(issues, plan, snapshot, ("plans", str(plan.evaluation_plan_id)))
+        validate_plan_chain_stations_against_snapshot(issues, plan, snapshot, plan.plan_key.patch_domain_id, ("plans", str(plan.evaluation_plan_id)))
 
         for spec in plan.envelope_specs:
             path = ("plans", str(plan.evaluation_plan_id), "envelope_specs", str(spec.envelope_spec_id))

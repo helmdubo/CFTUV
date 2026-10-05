@@ -32,8 +32,9 @@
 8. под `SILHOUETTE_TOPOLOGY_V1` — пост-проход `silhouette` (после положения вершин, до цепей и дайджестов): ребро между
    гранями одного региона в одной плоскости с точно аффинной UV (в допуске запроса) и вершина на прямой, не лежащая на цепи
    источника или стены, растворяются; цепи батча строятся по кольцам итоговых граней, а ребро между регионами с равными
-   фактами `(s, r)` не интерфейс (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние). Точки на
-   прямых цепях источника и стены решает НЕ этот проход, а общий по всем доменам прогона (`source_dots`, над готовыми батчами);
+   фактами `(s, r)` не интерфейс (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние). Вершины цепей
+   источника и стены решает план станций цепей (`CHAIN_STATION_PLAN_V1`, компиляция): резка по граням не режет по инертным рёбрам
+   `FREE`-вершин (`clip`, `_inert_pairs`), а проход растворяет сами `FREE`-вершины (`MATERIALIZE_STATION_PLAN_*`);
 9. сборка, валидация `validate_geometry_batch`, дайджесты.
 
 Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
@@ -62,6 +63,7 @@ from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
+from .._chain_station import free_vertices, inert_face_pairs
 from ..canonical import geometry_batch_semantic_digest
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
@@ -708,10 +710,22 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     return final, sourced, faces_after
 
 
-def _cut(plane, budget, admission, stage, tally):
+def _inert_pairs(prepared, silhouette: bool, admission) -> frozenset:
+    """Пары граней источника, по рёбрам которых резка не режет: план станций цепей (`CHAIN_STATION_PLAN_V1`), закон `SILHOUETTE_TOPOLOGY_V1`.
+
+    Только у резки по граням под законом силуэта: остальные законы план не читают (их ответы побитово прежние).
+    """
+
+    if silhouette and _is_clipped(admission) and admission.lift_law.clips_by_faces:
+        return inert_face_pairs(prepared.compilation.chain_station_plans)
+    return frozenset()
+
+
+def _cut(plane, budget, admission, stage, tally, inert=frozenset()):
     """Резка домена (закон `SOURCE_TRIANGLES_CLIPPED_V1`): `ClippedV1` либо `None`, если укладка без резки.
 
-    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`.
+    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`;
+    `inert` — пары граней плана станций цепей (`_inert_pairs`).
     """
 
     frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law = stage
@@ -731,19 +745,24 @@ def _cut(plane, budget, admission, stage, tally):
         law=law,
         by_faces=admission.lift_law.clips_by_faces,
         tally=tally,
+        inert=inert,
     )
 
 
-def _shaped(clock, budget, request, mesh, frame, reverse):
-    """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой.
+def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
+    """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой; `None` вне закона.
 
     `mesh` — `(грани, контуры, вершины граней, позиции)`, `frame` — `(точки карты, факты, слитые грани, раскладка, alpha решётки)`;
     сдвиг UV берётся у запроса (`DecalRequestV1.silhouette_uv_slide`), `reverse` — кольца граней обходятся против контуров (CW-карта).
+    Вершины `src:<id>`, которые план станций цепей (`CHAIN_STATION_PLAN_V1`) назвал `FREE`, проход растворяет по плану.
     """
 
+    if not silhouette:
+        return None
     slide = request.silhouette_uv_slide
+    free = frozenset(f"src:{vertex}" for vertex in free_vertices(prepared.compilation.chain_station_plans))
     shaped = apply_silhouette(
-        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse), budget
+        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free), budget
     )
     clock.lap("SILHOUETTE")
     return shaped
@@ -787,7 +806,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally)
+    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally, _inert_pairs(prepared, silhouette, admission))
     if clipped:
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
@@ -803,11 +822,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
-    shaped = (
-        _shaped(clock, budget, request, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
-        if silhouette
-        else None
-    )
+    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=(cycles if cut is None else cut.cycles) if shaped is None else shaped.cycles,

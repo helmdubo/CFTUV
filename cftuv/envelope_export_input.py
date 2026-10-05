@@ -33,6 +33,7 @@ from fractions import Fraction
 from .envelope_host_labels import record_host_tokens
 from .envelope_metric_export import EnvelopePatchMetricExportV1
 from .envelope_request_policy import topology_chart_reach_cap
+from .envelope_seam_neighbours import narrowed_surface
 from .envelope_topology_export import (
     EnvelopeTopologyExportV1,
     build_analysis_bundle_id_view,
@@ -148,6 +149,11 @@ def build_host_export_input(
         topology_export.analysis_bundle, frozenset({patch_id})
     )
     graph = view.patch_graph
+    chains = tuple(
+        record
+        for record in topology_export.host_chains
+        if record.patch_id == patch_id
+    )
     bundle = _LightBundleV1(
         view.source_revision,
         _LightGraphV1(
@@ -158,17 +164,13 @@ def build_host_export_input(
             },
             {},
         ),
-        view.patch_surface,
+        narrowed_surface(view.patch_surface, chains),
         view.capabilities,
     )
     return HostExportInputV1(
         topology_export.source_revision_value,
         bundle,
-        tuple(
-            record
-            for record in topology_export.host_chains
-            if record.patch_id == patch_id
-        ),
+        chains,
         alpha,
         request_id,
         density,

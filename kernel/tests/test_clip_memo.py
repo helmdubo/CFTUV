@@ -250,7 +250,7 @@ def _perturbed(value):
 def test_every_named_input_of_the_stage_changes_the_key(monkeypatch):
     plane, _budget, policy, inputs = _captured(monkeypatch)
     base = clip_key(inputs, plane.triangles, policy)
-    assert set(inputs) == {"points", "cycles", "polygons", "law", "seam", "fans", "flows", "by_faces"}
+    assert set(inputs) == {"points", "cycles", "polygons", "law", "seam", "fans", "flows", "by_faces", "inert"}
     for name, value in inputs.items():
         changed = {**inputs, name: _perturbed(value)}
         assert clip_key(changed, plane.triangles, policy) != base, name

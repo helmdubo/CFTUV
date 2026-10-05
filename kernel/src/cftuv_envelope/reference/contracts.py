@@ -15,6 +15,7 @@ from ..contracts.envelopes import (
     ExactTurnSignV1,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
+from ..contracts.chain_station import ChainStationPlanV1
 from ..contracts.events import InitialFrontSpec
 from ..contracts.plan import (
     EvaluationGeometryBinding,
@@ -139,6 +140,8 @@ class ReferenceOutcome(str, Enum):
     # Запись обработки угла (`CORNER_TREATMENT_V1`) расходится с сырым
     # снапшотом либо с сертификатом селекции (`reference/corner_treatment.py`).
     CORNER_TREATMENT_INVALID = "CORNER_TREATMENT_INVALID"
+    # План станций цепей (`CHAIN_STATION_PLAN_V1`) расходится с сырым снапшотом.
+    CHAIN_STATION_PLAN_INVALID = "CHAIN_STATION_PLAN_INVALID"
     # Ящик вокруг ideal-веера не нашёл осуществимой точки за объявленный кап
     # уточнений. Это честное имя прежнего «UNDECIDABLE (BINDING_MONOTONE)»: тот
     # называл предикат, который никто не проверял, а не то, что кончилось.
@@ -242,6 +245,9 @@ class ReferenceEnvelopeCompilationV1:
     # коллекция по той же причине, что и восстановления: сертификат селекции —
     # замороженная запись закона счёта.
     corner_treatments: frozenset[CornerTreatmentRecordV1] = frozenset()
+    # План станций цепей домена (`CHAIN_STATION_PLAN_V1`): решение по каждой внутренней вершине каждой цепи, один раз,
+    # по сырому снапшоту (`_chain_station`). Материализатор читает его, а не решает вершины сам.
+    chain_station_plans: frozenset[ChainStationPlanV1] = frozenset()
 
 
 class EvaluationBindingNoiseLawV1(str, Enum):

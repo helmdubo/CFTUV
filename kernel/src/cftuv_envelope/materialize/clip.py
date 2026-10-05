@@ -166,6 +166,10 @@ FACES_OFF_CORNER_SUPPRESSED = "MATERIALIZE_CLIP_FACES_SOURCE_VERTEX_OFF_CORNER_S
 #: куски одного треугольника источника, оставленные порознь, диагонали ушей куска и ушей свеса. Нижняя оценка
 #: (дерево на каждую группу): число для глаз владельца и для сравнения со свипом, а не суд.
 FLOW_FREE_CUT_EDGES = "MATERIALIZE_CLIP_FLOW_FREE_CUT_EDGES"
+#: Числа плана станций цепей (`CHAIN_STATION_PLAN_V1`) у резки по граням: пары граней, склеенные инертными поперечными рёбрами `FREE`-вершин, и
+#: разрезы по этим рёбрам, которых резка не сделала. Пишутся, только когда у домена есть пары плана.
+PLAN_INERT_FACE_PAIRS = "MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS"
+PLAN_INERT_CUTS_AVOIDED = "MATERIALIZE_CLIP_PLAN_INERT_CUTS_AVOIDED"
 PREDICATES = "MATERIALIZE_CLIP_PREDICATES"
 DIVISIONS = "MATERIALIZE_CLIP_DIVISIONS"
 
@@ -384,6 +388,10 @@ class ClipStageV1:
         self.avoided = 0
         self.kept_depth = Fraction(0)
         self.verdict: DiagonalVerdictV1 | None = None
+        #: Пары граней плана станций цепей, склеенные в группы (`clip_cells.build_cells`); нуль — плана у резки нет.
+        self.plan_pairs = 0
+        #: Треугольники кусков, склеенные через рёбра групп плана станций цепей: рёзов, которых резка не сделала.
+        self.plan_glued = 0
         #: Узлы, лежащие точно на прямых рёбер РЕЗАЕМОГО многоугольника: `{узел: {прямая}}`; живёт внутри `_cut`.
         self.on: dict | None = None
 
@@ -1203,11 +1211,15 @@ class ClipStageV1:
         if self.groups[ti] is not None:
             if merged:
                 # Имя ГРАНИ группы, не треугольника `ti`: грань, пересечённая несколькими многоугольниками,
-                # считается целой один раз (у каждого многоугольника свой первый треугольник компоненты).
-                self.whole.add(self.groups[ti][1])
-                self.across += 1
-                self.avoided += merged - 1
-                self.kept_depth = max(self.kept_depth, self.regions[ti].flat_square)
+                # считается целой один раз (у каждого многоугольника свой первый треугольник компоненты). Группа плана станций
+                # цепей (`("p", имя)`) — не грань: её склейки считает `PLAN_INERT_CUTS_AVOIDED`, а оценка хорды — нуль плана.
+                if self.groups[ti][0] == "g":
+                    self.whole.add(self.groups[ti][1])
+                    self.across += 1
+                    self.avoided += merged - 1
+                    self.kept_depth = max(self.kept_depth, self.regions[ti].flat_square)
+                else:
+                    self.plan_glued += merged - 1
             return
         if len(self.members[ti]) < 2:
             return
@@ -1352,7 +1364,7 @@ class ClipStageV1:
                 PREDICATES,
                 DIVISIONS,
             )
-        ) + self._snap_counters() + (self._diagonal_counters() if self.faces_mode else ())
+        ) + self._snap_counters() + (self._diagonal_counters() if self.faces_mode else ()) + self._plan_counters()
         return ClippedV1(
             polygons=faces,
             cycles=refined,
@@ -1364,6 +1376,13 @@ class ClipStageV1:
             counters=counters,
             note=self._note(),
         )
+
+    def _plan_counters(self) -> tuple:
+        """Числа плана станций цепей: пары граней, склеенные инертными рёбрами, и разрезы, которых резка не сделала; без плана строк нет."""
+
+        if not self.plan_pairs:
+            return ()
+        return ((PLAN_INERT_FACE_PAIRS, self.plan_pairs), (PLAN_INERT_CUTS_AVOIDED, self.plan_glued))
 
     def _snap_counters(self) -> tuple:
         """Числа привязки вершин: углы (`src:`) и знаки у рёбер (`node:`), оба допуска названы (`clip_snap`)."""
@@ -1466,26 +1485,29 @@ def piece_triangles(polygons, points, budget):
     return found
 
 
-def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows=None) -> ClippedV1:
+def _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows=None, inert=frozenset()) -> ClippedV1:
     """Закон `SOURCE_FACES_CLIPPED_V1`: ячейки-грани, затем расщепление граней, у которых хорда глубже допуска.
 
     Стадия 1 режет по ячейкам и оценивает хорду каждого куска; грань с куском глубже допуска
     (`CLIP_DIAGONAL_CHORD_BUDGET`) расщепляется на свои треугольники и стадия 2 режет заново на тех же узлах
     (знаки ячеек, которые не расщеплялись, берутся из кэша). Куски остальных граней стадия 2 не меняет, так что
     оценка, по которой решено, остаётся верной.
+
+    `inert` — пары граней плана станций цепей (`CHAIN_STATION_PLAN_V1`): рёбра между ними не режут (`clip_cells.build_cells`).
     """
 
     memo: dict = {}
-    plan = build_cells(plane.triangles, memo=memo)
+    plan = build_cells(plane.triangles, memo=memo, inert=inert)
     stage = ClipStageV1(plane, budget, points, plan.cells)
     cuts = stage.cuts_of(polygons)
     over = stage.over_budget(cuts)
     if over:
         stage = ClipStageV1(
-            plane, budget, points, build_cells(plane.triangles, frozenset(over), memo).cells, shared=stage
+            plane, budget, points, build_cells(plane.triangles, frozenset(over), memo, inert).cells, shared=stage
         )
         cuts = stage.cuts_of(polygons)
     stage.verdict = DiagonalVerdictV1(over, plan.unmergeable)
+    stage.plan_pairs = plan.plan_pairs
     stage.flows = flows
     return stage.run(cycles, polygons, law, seam, fans, cuts)
 
@@ -1520,11 +1542,11 @@ def _chords_of(cycles, refined) -> list:
     return found
 
 
-def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces) -> ClippedV1:
+def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()) -> ClippedV1:
     """Геометрическая резка домена: ТО, что `cut_domain` отдаёт памяти; каждый её аргумент входит в ключ памяти."""
 
     if by_faces:
-        return _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows)
+        return _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows, inert)
     stage = ClipStageV1(plane, budget, points)
     stage.flows = flows
     return stage.run(cycles, polygons, law, seam, fans)
@@ -1564,12 +1586,14 @@ def cut_domain(
     law,
     by_faces=False,
     tally=None,
+    inert=frozenset(),
 ) -> ClippedV1:
     """Стадия резки домена: грани тесселяции -> куски; факты `(s, r)` новых вершин дописываются в `facts`.
 
     `points` — `{ключ: точка}` вершин до резки. Станции и `r` новой вершины — те же аффинные
     функции карты, что у остальных вершин её грани (точно); второй ответ на вершину региона —
-    отказ, как у `station_values`.
+    отказ, как у `station_values`. `inert` — пары граней источника, по рёбрам которых резка не режет (план станций цепей, закон по
+    граням); входит в ключ памяти как любой другой аргумент резки.
     """
 
     seam = seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
@@ -1588,6 +1612,7 @@ def cut_domain(
         fans=fans,
         flows=flows,
         by_faces=by_faces,
+        inert=inert,
     )
     clipped = replace(clipped, memo=memo)
     extra = station_values(

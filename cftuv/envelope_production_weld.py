@@ -47,8 +47,8 @@
 у каждой пары соседних `src:` на цепи `boundary:SOURCE` берётся число вершин между ними в каждом домене, и
 пара, у которой оно в двух доменах различно, — T-стык (`seam_report`; запись, а не ремонт: вершины не
 подтягиваются). Туда же — пара соседних `src:` одного домена, между которыми у другого домена на цепи стоит ещё `src:`, каких у первого домена нет, и ни на одной цепи они не соседи: так
-выглядит точка, растворённая лишь с одной стороны (закон ядра `SILHOUETTE_SOURCE_DOTS_V1` решает место сразу во всех доменах,
-и эта проверка его страхует). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
+выглядит точка, растворённая лишь с одной стороны (план станций цепей `CHAIN_STATION_PLAN_V1` решает вершину один раз по цепи, и оба
+домена общей цепи читают одно решение; эта проверка его страхует там, где домен оставил вершину по названной структурной причине). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
 
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
 по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча. Цепи батча — тоже `frozenset`: `seam_report`
@@ -313,22 +313,27 @@ def _anchors_between(anchored, held) -> int:
     порядка цепей не зависит.
     """
 
+    # Индекс по вершине: `{ключ: {(домен, номер цепи домена)}}`. Путь между концами пары (`_run_between`) бывает только на цепи, где есть ОБА
+    # конца, поэтому кандидаты пары — пересечение двух множеств, а не все домены: счёт линеен по числу пар (без квадрата по числу доменов).
     runs: dict = {}
     consecutive: dict = {}
+    where: dict = {}
     for number, _chain_id, anchors in anchored:
-        runs.setdefault(number, []).append(anchors)
+        chains = runs.setdefault(number, [])
+        for key in anchors:
+            where.setdefault(key, set()).add((number, len(chains)))
+        chains.append(anchors)
         consecutive.setdefault(number, set()).update(frozenset(pair) for pair in zip(anchors, anchors[1:]))
-    numbers = sorted(consecutive)
     open_pairs = set()
-    for number in numbers:
-        for pair in sorted(consecutive[number], key=sorted):
-            if len(pair) != 2:
+    for number, pairs in consecutive.items():
+        for pair in pairs:
+            if len(pair) != 2 or pair in open_pairs:
                 continue
-            for other in numbers:
-                if other == number or pair in consecutive[other]:
-                    continue
-                if any(_run_between(anchors, pair, held[number]) for anchors in runs[other]):
+            first, second = tuple(pair)
+            for other, at in where[first] & where[second]:
+                if other != number and pair not in consecutive[other] and _run_between(runs[other][at], pair, held[number]):
                     open_pairs.add(pair)
+                    break
     return len(open_pairs)
 
 
