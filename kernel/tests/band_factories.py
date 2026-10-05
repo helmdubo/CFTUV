@@ -6,14 +6,16 @@
 каждая вершина обода входит в две цепи.
 
 Фикстуры: `arch_intrados` (полуцилиндр свода, закрытый куполом апсиды: целиком не развёртывается, а полоса у переднего
-края - цилиндр, развёртка изометрична), `dome_rim` (купол над кругом, обод - часть его края) и `column_top`
-(замкнутая колонна: носитель вокруг верхнего кольца - кольцо, полоса его не берёт).
+края - цилиндр, развёртка изометрична), `dome_rim` (купол над кругом, обод - часть его края или весь край: кольцо) и
+`column_top` / `frustum_ring` (замкнутые колонна и усечённый конус: носитель вокруг верхнего кольца - кольцо, и оно режется
+по образующей: сдвиг у цилиндра, поворот у конуса).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import math
+from fractions import Fraction
 
 import cftuv_envelope as kernel
 from cftuv_envelope.chart_band import chart_band_request
@@ -22,6 +24,7 @@ from cftuv_envelope.contracts.metric import (
     GridSnappingLawV1,
     NearPlanarFramePolicyV1,
     NearPlanarLiftLawV1,
+    ExactRationalV1,
     PlanarityAdmissionLawV1,
 )
 from cftuv_envelope.declared_chains import declared_straight_chain_vertices
@@ -115,18 +118,22 @@ def dome_rim(sides=16, rings=4, radius=1.0, arc=5):
     return points, cycles, labels, route, ()
 
 
-def column_top(segments=8, rows=10, radius=1.0, step=0.1):
-    """Замкнутая колонна: кольцо квадов, обод - верхнее кольцо целиком (его грани дальше досягаемости не уходят).
+def column_top(segments=8, rows=10, radius=1.0, step=0.1, radius_top=None):
+    """Замкнутая колонна: кольцо квадов, обод - верхнее кольцо целиком.
 
     Метка вершины - полярная: нижнее кольцо снаружи, верхнее внутри (плоское вложение кольца). Целый патч - кольцо
-    (`PERIODIC_CUT_REQUIRED`), носитель у верхнего кольца - тоже кольцо: полоса его не берёт, и отказ остаётся названным.
+    (`PERIODIC_CUT_REQUIRED`), носитель у верхнего кольца - тоже кольцо: полоса режет его по образующей от вершины обода до
+    стены досягаемости (цилиндр: сдвиг). `radius_top` - радиус верхнего кольца (конус, `frustum_ring`): рёбра колец и
+    высота остаются, радиус меняется линейно по строкам.
     """
 
     points, labels, cycles = {}, {}, []
+    top = radius if radius_top is None else radius_top
     for j in range(rows + 1):
+        ring_radius = radius + (top - radius) * j / rows
         for k in range(segments):
             theta = 2.0 * math.pi * k / segments
-            points[f"c{j}_{k}"] = (radius * math.cos(theta), radius * math.sin(theta), step * j)
+            points[f"c{j}_{k}"] = (ring_radius * math.cos(theta), ring_radius * math.sin(theta), step * j)
             outer = 2.0 + 0.5 * (rows - j) / rows
             labels[f"c{j}_{k}"] = (outer * math.cos(theta), outer * math.sin(theta))
     for j in range(rows):
@@ -138,12 +145,37 @@ def column_top(segments=8, rows=10, radius=1.0, step=0.1):
     return points, cycles, labels, route, ()
 
 
-def band_domain(parts, *, alpha="0.25", reach_cap=None, ladder=LADDER, developable_stretch_budget=None):
+def frustum_ring(segments=16, rows=10, radius=1.0, radius_top=0.6, step=0.1):
+    """Усечённый конус: замкнутая колонна с радиусом, линейно меняющимся по строкам (развёртка - кольцевой сектор)."""
+
+    return column_top(segments=segments, rows=rows, radius=radius, step=step, radius_top=radius_top)
+
+
+def dome_ring(sides=16, rings=8, radius=1.0):
+    """Купол над кругом, обод - ВЕСЬ внешний край (замкнутая цепь из рёбер): носитель вокруг него - кольцо у экватора."""
+
+    points, cycles, labels, _route, extra = dome_rim(sides=sides, rings=rings, radius=radius, arc=sides)
+    route = tuple(f"p{rings}_{k % sides}" for k in range(sides + 1))
+    return points, cycles, labels, route, extra
+
+
+def band_domain(
+    parts,
+    *,
+    alpha="0.25",
+    reach_cap=None,
+    ladder=LADDER,
+    developable_stretch_budget=None,
+    select=None,
+    requested_reach_cap=None,
+    tightened_after=None,
+):
     """`(снапшот, запрос, названный вход полосы)` домена; метрика строится лестницей с полосой, если вход назван.
 
     `parts = (точки, циклы, метки, маршрут, дополнительные цепи)`; маршрут режется на цепи по одному ребру, дополнительные
-    цепи (боковые линии) остаются длинными и в выбор запроса не входят. `reach_cap=None` - полосы нет (метрика целого патча
-    либо её отказ).
+    цепи (боковые линии) остаются длинными и в выбор запроса не входят. `select` - номера цепей обода, выбранных запросом
+    (`None` - все). `reach_cap=None` - полосы нет (метрика целого патча либо её отказ). `requested_reach_cap` и
+    `tightened_after` - суженная карта: полоса строится под `reach_cap`, а запрос несёт запрошенную.
     """
 
     points, cycles, labels, route, extra = parts
@@ -159,7 +191,11 @@ def band_domain(parts, *, alpha="0.25", reach_cap=None, ladder=LADDER, developab
     snapshot, request = straight_snapshot(faces=face_cycles, source_routes=rim + side, alpha=alpha)
     request = dataclasses.replace(
         request,
-        selected_chain_use_ids=frozenset(ChainUseId(f"use:{item['name']}:use") for item in rim),
+        selected_chain_use_ids=frozenset(
+            ChainUseId(f"use:{item['name']}:use")
+            for index, item in enumerate(rim)
+            if select is None or index in select
+        ),
     )
     order = []
     for cycle in face_cycles:
@@ -177,6 +213,9 @@ def band_domain(parts, *, alpha="0.25", reach_cap=None, ladder=LADDER, developab
             for item in snapshot.source_vertices
         ),
     )
+    if reach_cap is not None:
+        cap = Fraction(reach_cap if requested_reach_cap is None else requested_reach_cap)
+        request = dataclasses.replace(request, chart_reach_cap=ExactRationalV1(cap.numerator, cap.denominator))
     domain = next(iter(snapshot.patch_domains))
     band = (
         None
@@ -187,6 +226,8 @@ def band_domain(parts, *, alpha="0.25", reach_cap=None, ladder=LADDER, developab
             request.selected_chain_use_ids,
             domain.patch_domain_id,
             reach_cap,
+            requested_reach_cap,
+            tightened_after,
         )
     )
     snapshot = with_affine_metric(

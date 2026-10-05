@@ -6,11 +6,13 @@ on the active WindowManager as ``_cftuv_envelope_debug_session``.
 
 from __future__ import annotations
 
+import sys
 from collections import OrderedDict
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Callable, Hashable, TYPE_CHECKING
 
+from .envelope_chart_band import policy_alpha, tightened_export
 from .envelope_content_store import ContentStoreV1
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
@@ -210,6 +212,10 @@ class EnvelopeDebugSessionController:
             tuple[str, str, frozenset[int], tuple[str, ...]], object
         ] = {}
         self._queue_session: QueueSessionStateV1 | None = None
+        # Суженная досягаемость последней разрешённой полосы домена (`None` - карта под досягаемостью запроса) по ключу
+        # `(ревизия, домен, допуск, ключ полосы)`. Суженная карта зависит от alpha, а подготовка - нет по построению:
+        # смена досягаемости убирает подготовки домена из кэша сессии (`_note_band_chart`).
+        self._band_chart_cap: dict[tuple, object] = {}
         # Результаты продуктового пути по доменам: функция подготовки (её ключ), alpha и
         # законов, поэтому тот же ключ даёт тот же ответ без единого покрытия. Вытеснение
         # — по давности обращения (`PRODUCTION_RESULT_CACHE_LIMIT`).
@@ -339,13 +345,20 @@ class EnvelopeDebugSessionController:
         return SliderCoveragePool(pool, self.preparation_blobs, profile)
 
     def clear(self) -> None:
-        """Полный сброс сессии: кэши ревизии, хранилище по содержимому и пиклы подготовок."""
+        """Полный сброс сессии: кэши ревизии, хранилище по содержимому, пиклы подготовок и память сертификата вложения ядра.
+
+        Память сертификата (`cftuv_envelope._embedding`) ключуется ЗНАЧЕНИЯМИ входа и потому смену ревизии источника
+        переживает, как хранилище по содержимому; полный сброс забывает и её (ядро могло и не загружаться - тогда ей нечего).
+        """
 
         self.quiesce_preview("session cleared")
         self._drop_revision_scoped()
         self._content_store.clear()
         if self._preparation_blobs is not None:
             self._preparation_blobs.clear()
+        embedding = sys.modules.get("cftuv_envelope._embedding")
+        if embedding is not None:
+            embedding.clear_embedding_memo()
 
     def _drop_revision_scoped(self) -> None:
         self._source_state_by_object.clear()
@@ -355,6 +368,7 @@ class EnvelopeDebugSessionController:
         self._domain_geometry_cache.clear()
         self._compiled_envelope_cache.clear()
         self._conveyor_preparation_cache.clear()
+        self._band_chart_cap.clear()
         self._production_result_cache.clear()
         self._snapshot_issues.clear()
         self._content_bindings.clear()
@@ -587,7 +601,38 @@ class EnvelopeDebugSessionController:
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
     ) -> EnvelopePatchMetricExportV1:
-        """Метрика-полоса патча из кэша либо собранная; отказ полосы запоминается так же, как отказ целого патча."""
+        """Метрика-полоса патча из кэша либо собранная; отказ полосы запоминается так же, как отказ целого патча.
+
+        Карта под досягаемостью запроса может отказать швом разреза кольца либо растяжением, хотя декали нужна лишь её
+        собственная досягаемость `alpha * (1 + b)`: тогда полоса пересобирается ОДИН раз под ней (`tightened_export`,
+        `CHART_REACH_TIGHTENED_FOR_SEAM`), со своим ключом кэша - точной досягаемостью. Отказ суженной карты остаётся
+        названным отказом, второй попытки нет. Отказ карты запроса от alpha не зависит и кэшируется один раз.
+        """
+
+        cached = self._cached_band_metric(topology_export, patch_id, profile)
+        narrow = None
+        if isinstance(cached, _CachedMetricFailure):
+            narrow = tightened_export(topology_export, cached.outcome)
+            if narrow is not None:
+                note = (
+                    f"[tightened: reach cap {float(topology_export.chart_band.reach_cap):.6g} m -> "
+                    f"{float(narrow.chart_band.tightened_reach_cap):.6g} m after {getattr(cached.outcome, 'value', cached.outcome)}] "
+                )
+                cached = self._cached_band_metric(narrow, patch_id, profile, note=note)
+        self._note_band_chart(topology_export, patch_id, None if narrow is None else narrow.chart_band.tightened_reach_cap)
+        if isinstance(cached, _CachedMetricFailure):
+            cached.raise_error()
+        return cached
+
+    def _cached_band_metric(
+        self,
+        topology_export: EnvelopeTopologyExportV1,
+        patch_id: int,
+        profile: EnvelopeDebugProfileBuilderV1 | None,
+        *,
+        note: str = "",
+    ):
+        """Метрика-полоса либо запомненный отказ под ключом полосы экспорта (`note` - приставка к тексту отказа)."""
 
         from .envelope_request_export import EnvelopeHostAdapterError
 
@@ -599,16 +644,34 @@ class EnvelopeDebugSessionController:
             try:
                 cached = build_envelope_patch_metric_export(topology_export, patch_id, profile=profile)
             except EnvelopeHostAdapterError as exc:
-                cached = _CachedMetricFailure(exc.outcome, str(exc), exc.patch_domain_id)
+                cached = _CachedMetricFailure(exc.outcome, note + str(exc), exc.patch_domain_id)
             self._patch_metric_cache[key] = cached
             self._build_counts["PATCH_METRIC"] += 1
             self._cache_build_counts[("PATCH_METRIC", key)] = self._cache_build_counts.get(("PATCH_METRIC", key), 0) + 1
             self._record_cache(profile, "PATCH_METRIC", False, patch_domain_id=domain_id, cache_key=key)
         else:
             self._record_cache(profile, "PATCH_METRIC", True, patch_domain_id=domain_id, cache_key=key)
-        if isinstance(cached, _CachedMetricFailure):
-            cached.raise_error()
         return cached
+
+    def _note_band_chart(self, topology_export: EnvelopeTopologyExportV1, patch_id: int, cap) -> None:
+        """Суженная досягаемость карты домена изменилась (alpha сменилась) - подготовки домена в кэше сессии устарели.
+
+        Подготовка очереди alpha-независима по построению, но у суженной карты носитель - функция alpha, и подготовка на
+        карте прежней досягаемости не отдаётся: её убирают здесь, до того как кто-либо за ней обратится (карту домена
+        разрешают раньше подготовки в каждом пути). Первая запись ничего не убирает: подготовок до неё не было.
+        """
+
+        revision = topology_export.source_revision_value
+        domain_id = topology_export.patch_domain_id_by_patch[int(patch_id)]
+        key = (revision, domain_id, topology_export.developable_stretch_budget, band_key_of(topology_export, patch_id))
+        known = self._band_chart_cap.get(key, cap)
+        self._band_chart_cap[key] = cap
+        if known == cap:
+            return
+        for stale in [item for item in self._conveyor_preparation_cache if item[0] == revision and item[1] == domain_id]:
+            prepared = self._conveyor_preparation_cache.pop(stale)
+            if not self._content_store.holds(prepared):
+                self._forget_preparation_blob(prepared)
 
     def _whole_patch_metric(
         self,
@@ -907,7 +970,7 @@ class EnvelopeDebugSessionController:
             source_data_key,
             profile=profile,
         ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
-            chart_reach_cap, selected_physical_edge_ids
+            chart_reach_cap, selected_physical_edge_ids, policy_alpha(alpha)
         )
         if profile is not None:
             profile.set_counter(

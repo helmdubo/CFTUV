@@ -53,7 +53,8 @@ def band_key_of(topology_export: EnvelopeTopologyExportV1, patch_id: int) -> tup
     """Ключ полосы патча: досягаемость и выбранные рёбра ЭТОГО патча, либо `None`, если политики полосы нет.
 
     Выбранные рёбра других патчей в ключ не входят: они не меняют полосу этого, а кэш метрики патча не должен
-    пересобираться из-за чужого выделения.
+    пересобираться из-за чужого выделения. Суженная карта (`tightened_reach_cap`: сессия пересобрала полосу под собственной
+    шириной декали) - другая карта: её ключ несёт метку и точную досягаемость, поэтому она не занимает ключ карты запроса.
     """
 
     policy = topology_export.chart_band
@@ -65,7 +66,8 @@ def band_key_of(topology_export: EnvelopeTopologyExportV1, patch_id: int) -> tup
         if record.patch_id == int(patch_id)
         for edge in record.canonical_edge_ids
     }
-    return (policy.reach_cap, frozenset(policy.selected_physical_edge_ids) & own)
+    key = (policy.reach_cap, frozenset(policy.selected_physical_edge_ids) & own)
+    return key if policy.tightened_reach_cap is None else key + (("tightened", policy.tightened_reach_cap),)
 
 
 def build_envelope_patch_metric_export(

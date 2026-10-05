@@ -338,12 +338,7 @@ class ClipStageV1:
     def _zeroed_by_gap(self, value, ti: int, index: int, sign: int) -> int:
         """Знак вершины `node:` у ВНУТРЕННЕГО ребра области: нуль, если она в допуске от его прямой (`clip_snap`, закон 2)."""
 
-        square = self.edge_squares.get((ti, index))
-        if square is None:
-            chart = self.regions[ti].chart
-            first, second = chart[index], chart[(index + 1) % len(chart)]
-            square = self.edge_squares[(ti, index)] = (second[0] - first[0]) ** 2 + (second[1] - first[1]) ** 2
-        within, gap = within_edge_gap(value, square, self.budget)
+        within, gap = within_edge_gap(value, self._edge_square(ti, index), self.budget)
         if not within:
             return sign
         self.tally[NODE_SIGNS_ZEROED] += 1
@@ -355,14 +350,72 @@ class ClipStageV1:
     def _sign(self, node: _Node, ti: int, index: int) -> int:
         return self._line(node, ti, index)[1]
 
+    def _edge_square(self, ti: int, index: int):
+        """Квадрат длины `index`-го ребра области `ti` в ячейках (кэш)."""
+
+        square = self.edge_squares.get((ti, index))
+        if square is None:
+            chart = self.regions[ti].chart
+            first, second = chart[index], chart[(index + 1) % len(chart)]
+            square = self.edge_squares[(ti, index)] = (second[0] - first[0]) ** 2 + (second[1] - first[1]) ** 2
+        return square
+
+    def _zeroed_by_law(self, node: _Node, ti: int, index: int) -> bool:
+        """Знак вершины у ребра обнулён допуском закона 2 (точное значение не нуль): ВОПРОС, а не вычисление резки.
+
+        Ничего не пишет в кэш знаков и не считает предикаты и нули по допуску: числа резки домена, которому этот вопрос
+        не дал угла, остаются теми же, что без него (свипы материализации сравнивают их побитово).
+        """
+
+        if node.key is None or not node.key.startswith("node:") or not self.interior[ti][index]:
+            return False
+        slot = node.cache.get((self.keys[ti], index))
+        if slot is not None:
+            return slot[1] == 0 and not slot[0].is_zero
+        value = self.plane.line_value(self.regions[ti], index, node.point)
+        return not value.is_zero and within_edge_gap(value, self._edge_square(ti, index), self.budget)[0]
+
+    def _corner_of_gap(self, node: _Node, first: _Node, second: _Node, ti: int, index: int) -> _Node | None:
+        """Угол области, в который встаёт пересечение `node` отрезка `first - second` с прямой ребра `index`, либо `None`.
+
+        Нуль знака вершины `node:` у внутреннего ребра - допуск (`_zeroed_by_gap`, закон 2), а не равенство. Отрезок, чей
+        конец обнулён допуском у соседнего ребра `j` (точный знак не нуль), закон считает идущим вдоль него, а его пересечение с прямой `index`,
+        посчитанное по самим точкам, отстоит от `j` на долю допуска и выходит за область: точный знак новой вершины
+        у `j` отрицателен, и её не принимают ни подъём (`_home`), ни доказательство (`_prove`: `CLIP_PIECE_LEFT_ITS_TRIANGLE`),
+        а острый кусок между ней и ребром выходит обратным (`CLIP_PIECE_REVERSED`). Тот же допуск ставит эту вершину
+        в общий угол рёбер `index` и `j`: пересечение прямых смежных рёбер - их угол, точно. Допуск - тот же
+        `NODE_EDGE_SNAP_CELLS` (вершина в допуске от ВНУТРЕННЕГО ребра `j`), исход - то же число нулей по допуску
+        (`NODE_SIGNS_ZEROED`). Без нулевого конца, у диагонали группы (`inert`) и у границы области вершина остаётся точной.
+        """
+
+        if self.inert[ti][index]:
+            return None
+        chart = self.regions[ti].chart
+        size = len(chart)
+        for step in (-1, 1):
+            neighbour = (index + step) % size
+            if not self.interior[ti][neighbour]:
+                continue
+            if not (self._zeroed_by_law(first, ti, neighbour) or self._zeroed_by_law(second, ti, neighbour)):
+                continue  # нуль точный (либо знака нет): отрезок лежит на ребре в самом деле, пересечение уже угол
+            value = self.plane.line_value(self.regions[ti], neighbour, node.point)
+            if value.is_zero or not within_edge_gap(value, self._edge_square(ti, neighbour), self.budget)[0]:
+                continue
+            self.tally[NODE_SIGNS_ZEROED] += 1
+            corner = chart[index] if step == -1 else chart[(index + 1) % size]
+            return self._node((SqrtSumV1.rational(corner[0]), SqrtSumV1.rational(corner[1])))
+        return None
+
     def _crossing(self, first: _Node, second: _Node, ti: int, index: int) -> _Node:
-        """Точка отрезка на прямой ребра: `first + (second - first) * v0 / (v0 - v1)`, точно."""
+        """Точка отрезка на прямой ребра: `first + (second - first) * v0 / (v0 - v1)`, точно (в допуске от соседнего ребра - угол)."""
 
         low, high = self._line(first, ti, index)[0], self._line(second, ti, index)[0]
         self.tally[DIVISIONS] += 1
         share = low.divided_by(low - high, self.budget)
         (x0, y0), (x1, y1) = first.point, second.point
-        return self._node((x0 + (x1 - x0) * share, y0 + (y1 - y0) * share))
+        node = self._node((x0 + (x1 - x0) * share, y0 + (y1 - y0) * share))
+        corner = self._corner_of_gap(node, first, second, ti, index)
+        return node if corner is None else corner
 
     def _window(self, node: _Node):
         if node.window is None:

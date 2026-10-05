@@ -112,7 +112,8 @@ def test_the_band_follows_the_whole_patch_refusal_and_names_it(arch):
     assert certificate.previous_refusals[0] == "NEAR_PLANAR_WIDTH_DISTORTION_BUDGET_EXCEEDED"
     assert certificate.previous_refusals[1] in {item.value for item in BAND_TRIGGER_OUTCOMES}
     sides = certificate.strip_boundary
-    assert {item.role for item in sides} == set(BandBoundaryRoleV1)
+    disk_roles = {BandBoundaryRoleV1.RIM, BandBoundaryRoleV1.ORIGINAL_BOUNDARY, BandBoundaryRoleV1.REACH_WALL}
+    assert {item.role for item in sides} == disk_roles and certificate.cut is None
     assert sum(item.role is BandBoundaryRoleV1.RIM for item in sides) == 8
     assert all((item.role is BandBoundaryRoleV1.REACH_WALL) == (item.chain_use_id is None) for item in sides)
     assert all(a.end_vertex_id == b.start_vertex_id for a, b in zip(sides, sides[1:] + sides[:1]))
@@ -151,11 +152,13 @@ def test_the_band_is_only_a_proposal_and_the_margin_is_the_authority(monkeypatch
     assert "after the whole-patch unfolding" in str(failure.value)
 
 
-def test_a_ring_support_stays_periodic_cut_required():
-    with pytest.raises(PlanarMetricAdmissionError) as failure:
-        factories.band_domain(factories.column_top(), reach_cap=CAP)
-    assert failure.value.outcome is NamedOutcome.PERIODIC_CUT_REQUIRED
-    assert "after the whole-patch unfolding PERIODIC_CUT_REQUIRED" in str(failure.value)
+def test_a_ring_support_is_cut_into_a_disk_band_instead_of_staying_periodic_cut_required():
+    """C2: носитель-кольцо режется по пути (`BandCutV1`); отказ `PERIODIC_CUT_REQUIRED` целого патча остаётся в следе."""
+
+    snapshot, _request, _band = factories.band_domain(factories.column_top(), reach_cap=CAP)
+    certificate = _certificate(snapshot)
+    assert type(certificate) is DevelopableBandChartCertificateV1 and certificate.cut is not None
+    assert certificate.previous_refusals[-1] == NamedOutcome.PERIODIC_CUT_REQUIRED.value
 
 
 def test_a_band_preparation_survives_the_pool_pickle_and_covers_after_the_trip(arch):

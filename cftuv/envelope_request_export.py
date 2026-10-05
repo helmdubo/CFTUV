@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING
 
 from .model_enums import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_CURVATURE_LADDER_POLICY, HOST_GRID_POLICY, HOST_NEAR_PLANAR_FRAME_POLICY, HOST_NEAR_PLANAR_LIFT_POLICY, HOST_PLANARITY_POLICY
-from .envelope_chart_band import BeyondChartReach, chart_band_request, chart_points, refuse_alpha_beyond_reach
+from .envelope_angular_sites import angular_sites
+from .envelope_chart_band import BeyondChartReach, chart_band_request, chart_edge_ends, chart_face_points, chart_points, cut_path_vertices, refuse_alpha_beyond_reach
 from .envelope_host_labels import stable_token, typed_id
 from .envelope_request_policy import (
     build_envelope_request_contract,
@@ -90,6 +91,9 @@ class EnvelopeDebugHostOutcome(str, Enum):
     CHART_REACH_SHORT_OF_CAP = "CHART_REACH_SHORT_OF_CAP"
     DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED = "DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED"
     REQUEST_ALPHA_EXCEEDS_CHART_REACH = "REQUEST_ALPHA_EXCEEDS_CHART_REACH"
+    PERIODIC_CUT_PATH_UNAVAILABLE = "PERIODIC_CUT_PATH_UNAVAILABLE"
+    PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED = "PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED"
+    PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED = "PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED"
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED = "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED"
     ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID = "ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID"
@@ -120,7 +124,8 @@ METRIC_STAGE_OUTCOMES = frozenset(
         EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_TRIANGLE_FLIPPED, EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_SELF_OVERLAP,
         EnvelopeDebugHostOutcome.DEVELOPABLE_CHART_LATTICE_TOO_COARSE, EnvelopeDebugHostOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT,
         EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_SUPPORT_DISCONNECTED, EnvelopeDebugHostOutcome.CHART_REACH_SHORT_OF_CAP,
-        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED,
+        EnvelopeDebugHostOutcome.DEVELOPABLE_BAND_BOUNDARY_UNRESOLVED, EnvelopeDebugHostOutcome.PERIODIC_CUT_PATH_UNAVAILABLE,
+        EnvelopeDebugHostOutcome.PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED, EnvelopeDebugHostOutcome.PERIODIC_CUT_BISECTOR_DEVIATION_EXCEEDED,
     }
 )
 
@@ -1171,75 +1176,6 @@ def _source_ids(kernel, revision: str, analysis_bundle: AnalysisBundle):
     return vertex_ids, edge_ids, face_ids, triangle_ids, patch_ids
 
 
-def _angular_sites(
-    patch,
-    patch_id: int,
-    normalized_refs_by_source,
-    record_by_ref: dict[tuple[int, int, int], _HostChainRecord],
-    domain_id,
-) -> tuple[tuple, ...]:
-    """Объявленные углы петли И вершины разреза — один перечень мест поворота.
-
-    Разрез изломанной физической цепочки создаёт стык, которого нет в
-    `loop.corners`: у хоста нет записи об угле внутри `BoundaryChain` —
-    именно это и есть чинимый дефект. Рефлексный стык без углового
-    комплекта превратился бы в ДВА `CapEnvelopeSpec` вместо веера, то есть
-    в тихую потерю; поэтому вершина разреза проходит РОВНО тот же вывод
-    меры, что и объявленный угол, и при недоступности сертифицированной
-    меры даёт именованный отказ, а не колпачки.
-
-    Ключ места остаётся тем же целым `corner_index` для объявленных углов:
-    идентичности углов на доменах без изломов обязаны не сдвинуться.
-    """
-
-    sites = []
-    for loop_index, loop in enumerate(patch.boundary_loops):
-        for corner_index, corner in enumerate(loop.corners):
-            refs = tuple(
-                normalized_refs_by_source.get(
-                    (patch_id, loop_index, int(index)), ()
-                )
-                for index in (corner.prev_chain_index, corner.next_chain_index)
-            )
-            if not all(refs):
-                raise EnvelopeHostAdapterError(
-                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                    "BoundaryCorner incident ChainUse references are incomplete",
-                    patch_domain_id=domain_id.value,
-                )
-            sites.append(
-                (
-                    loop_index,
-                    corner_index,
-                    False,
-                    int(corner.vert_index),
-                    refs[0][-1],
-                    refs[1][0],
-                )
-            )
-        for source_chain_index in range(len(loop.chains)):
-            refs = normalized_refs_by_source.get(
-                (patch_id, loop_index, source_chain_index), ()
-            )
-            if len(refs) < 2:
-                continue
-            adjacent = list(zip(refs, refs[1:], strict=False))
-            if record_by_ref[refs[0]].source_is_closed:
-                adjacent.append((refs[-1], refs[0]))
-            for incoming_ref, outgoing_ref in adjacent:
-                sites.append(
-                    (
-                        loop_index,
-                        f"cut:{incoming_ref[2]}",
-                        True,
-                        int(record_by_ref[incoming_ref].chain.vert_indices[-1]),
-                        incoming_ref,
-                        outgoing_ref,
-                    )
-                )
-    return tuple(sites)
-
-
 def _build_angular_relations(
     kernel,
     sympy,
@@ -1326,6 +1262,7 @@ def _build_angular_relations(
         frame = frames[patch_id]
         coordinates = chart_points(point_map(frame), frame)
         charted = getattr(frame.planarity_certificate, "support_triangle_ids", None)
+        cut_vertices = cut_path_vertices(frame)
         metric = kernel.ExactPlanarMetric.from_descriptor(frame)
         kernel_vertex_for_host = vertex_ids
 
@@ -1349,8 +1286,8 @@ def _build_angular_relations(
                     "BoundaryCorner anchor is not a physical ChainUse endpoint",
                     patch_domain_id=domain_id.value,
                 )
-            start = coordinates[kernel_vertex_for_host[start_vertex_id]]
-            end = coordinates[kernel_vertex_for_host[end_vertex_id]]
+            start_name, end_name = chart_edge_ends(frame, kernel_vertex_for_host[start_vertex_id], kernel_vertex_for_host[end_vertex_id])
+            start, end = coordinates[start_name], coordinates[end_name]
             tangent = (end[0] - start[0], end[1] - start[1])
             tangent_vector = vector(tangent)
             if metric.dot_g(tangent_vector, tangent_vector) == 0:
@@ -1367,10 +1304,7 @@ def _build_angular_relations(
                     # Вершины грани могут стоять на карте-полосе, а сама грань - вне носителя: её проекция не карта.
                     raise BeyondChartReach(face)
                 ordinal = face.edge_cycle.index(physical_edge_id)
-                cycle = tuple(
-                    coordinates[kernel_vertex_for_host[int(item)]]
-                    for item in face.vertex_cycle
-                )
+                cycle = chart_face_points(coordinates, frame, kernel_vertex_for_host, triangle_ids, face)
                 twice_area = sum(
                     cycle[index][0] * cycle[(index + 1) % len(cycle)][1]
                     - cycle[index][1] * cycle[(index + 1) % len(cycle)][0]
@@ -1429,7 +1363,7 @@ def _build_angular_relations(
             anchor_vertex_id,
             prev_ref,
             next_ref,
-        ) in _angular_sites(
+        ) in angular_sites(
             patch,
             patch_id,
             normalized_refs_by_source,
@@ -1441,12 +1375,20 @@ def _build_angular_relations(
                 if is_cut_vertex
                 else "ANGULAR_CORNERS_CONSIDERED"
             ] += 1
+            if prev_ref is None:
+                # Угол, выведенный хостом геометрически на петле из одной цепи: стыка цепей в нём нет (см. `angular_sites`).
+                stage_counters["ANGULAR_CORNERS_OFF_JUNCTION"] += 1
+                continue
             if anchor_vertex_id not in vertex_ids:
                 raise EnvelopeHostAdapterError(
                     EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                     "BoundaryCorner source vertex is absent from PatchSurfaceIR",
                     patch_domain_id=domain_id.value,
                 )
+            if vertex_ids[anchor_vertex_id] in cut_vertices:
+                # Вершина разреза кольца на карте раздвоена: её угол разрезан на два угла со стеной, и отношения нет.
+                stage_counters["ANGULAR_CORNERS_AT_RING_CUT"] += 1
+                continue
             try:
                 incoming_normal, incoming_tangent = owner_support(
                     record_by_ref[prev_ref], anchor_vertex_id

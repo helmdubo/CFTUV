@@ -84,8 +84,8 @@ def evaluate_strip_envelope(
         moved_support_id = stable_id("moving-support", source.support_id)
         start_terminal_id = stable_id("terminal-support", source.support_id, "start")
         end_terminal_id = stable_id("terminal-support", source.support_id, "end")
-        source_start_cert = source_vertex_certificate(source.source_vertex_start_id)
-        source_end_cert = source_vertex_certificate(source.source_vertex_end_id)
+        source_start_cert = source_vertex_certificate(source.start_certificate_id)
+        source_end_cert = source_vertex_certificate(source.end_certificate_id)
         moved_start_cert = support_vertex_certificate(
             moved_support_id, start_terminal_id
         )

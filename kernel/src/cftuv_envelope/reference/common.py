@@ -24,6 +24,7 @@ from .._canonical_angle import (
     canonical_angle_restoration_error,
     canonical_reflex_excess_restoration,
 )
+from .._annulus_cut import chart_cycle, chart_side_ends
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
@@ -149,6 +150,18 @@ class SourceSupportSegment:
     support_id: str
     front_component_id: str
     provenance: ReferenceProvenanceV1
+    #: Имена КАРТЫ концов сегмента (у разреза кольца у вершины две копии): ими называются вершины в сертификатах
+    #: построения; `source_vertex_*_id` остаются именами источника, как их читают контракты (чтения фронта, углы).
+    chart_start_id: SourceVertexId | None = None
+    chart_end_id: SourceVertexId | None = None
+
+    @property
+    def start_certificate_id(self) -> SourceVertexId:
+        return self.source_vertex_start_id if self.chart_start_id is None else self.chart_start_id
+
+    @property
+    def end_certificate_id(self) -> SourceVertexId:
+        return self.source_vertex_end_id if self.chart_end_id is None else self.chart_end_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +193,8 @@ class GeometryContext:
     # Память закона шума привязки на каноническом угле (канон, граница смещений,
     # канонический веер): входы контекста не меняются, пересчёт был бы повтором.
     evaluation_noise_cache: dict = field(default_factory=dict)
+    # Углы разреза кольца (`BandCutV1.right_corners`) как множество пар: читается один раз.
+    chart_name_cache: dict = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -287,6 +302,42 @@ class GeometryContext:
 
             verify_evaluation_direction_binding_reasons(context)
         return context
+
+    def _ring_cut(self):
+        """Разрез кольца карты-полосы (`BandCutV1`) либо `None`: у всех прочих карт вершины карты - вершины источника."""
+
+        return getattr(self.frame.planarity_certificate, "cut", None)
+
+    def chart_cycle_of(self, face) -> tuple:
+        """Цикл вершин грани в именах карты: у кольца с разрезом вершина пути на правой стороне - правая копия."""
+
+        cut = self._ring_cut()
+        if cut is None:
+            return face.vertex_cycle
+        corners = self.chart_name_cache.get("corners")
+        if corners is None:
+            corners = self.chart_name_cache["corners"] = frozenset(
+                (item.triangle_id, item.vertex_id) for item in cut.right_corners
+            )
+        return chart_cycle(face.vertex_cycle, face.triangle_ids, corners)
+
+    def chart_ends_of(self, start: SourceVertexId, end: SourceVertexId) -> tuple:
+        """Имена карты концов ребра границы `start -> end`: у разреза кольца у вершины две копии, и ребро знает свою."""
+
+        if self._ring_cut() is None:
+            return start, end
+        return chart_side_ends(self.frame.planarity_certificate.strip_boundary, start, end)
+
+    def _chart_segment_points(self, start_id: SourceVertexId, end_id: SourceVertexId) -> tuple:
+        """`(имя карты начала, имя карты конца, точка начала, точка конца)` ребра цепи на карте метрики."""
+
+        chart_start, chart_end = self.chart_ends_of(start_id, end_id)
+        if chart_start not in self.points_by_id or chart_end not in self.points_by_id:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_PLANAR_FRAME_REQUIRED,
+                f"planar metric lacks chain coordinate {start_id}->{end_id}",
+            )
+        return chart_start, chart_end, self.points_by_id[chart_start], self.points_by_id[chart_end]
 
     def directed_chain_vertices(self, chain_use: ChainUseV1) -> tuple[SourceVertexId, ...]:
         chain = self.chains_by_id[chain_use.physical_chain_id]
@@ -455,13 +506,10 @@ class GeometryContext:
         cycle_normals = []
         for face in adjacent_faces:
             edge_ordinal = face.edge_cycle.index(edge_id)
-            cycle_start = self.points_by_id[face.vertex_cycle[edge_ordinal]]
-            cycle_end = self.points_by_id[
-                face.vertex_cycle[(edge_ordinal + 1) % len(face.vertex_cycle)]
-            ]
-            cycle_points = tuple(
-                self.points_by_id[item] for item in face.vertex_cycle
-            )
+            names = self.chart_cycle_of(face)
+            cycle_start = self.points_by_id[names[edge_ordinal]]
+            cycle_end = self.points_by_id[names[(edge_ordinal + 1) % len(names)]]
+            cycle_points = tuple(self.points_by_id[item] for item in names)
             cycle_area_sign = self._sign(
                 self._polygon_signed_area(cycle_points)
             )
@@ -626,13 +674,7 @@ class GeometryContext:
         )
         result = []
         for ordinal, (start_id, end_id) in enumerate(pairs):
-            if start_id not in self.points_by_id or end_id not in self.points_by_id:
-                raise ReferenceGeometryError(
-                    ReferenceOutcome.REFERENCE_PLANAR_FRAME_REQUIRED,
-                    f"planar metric lacks chain coordinate {start_id}->{end_id}",
-                )
-            start = self.points_by_id[start_id]
-            end = self.points_by_id[end_id]
+            chart_start, chart_end, start, end = self._chart_segment_points(start_id, end_id)
             edge_id = self._edge_for_pair(chain, start_id, end_id)
             tangent = self._unit_g(self._point_sub(end, start))
             face_normal = self._face_side_normal(chain_use, edge_id, start, end, tangent)
@@ -680,6 +722,8 @@ class GeometryContext:
                     physical_edge_id=edge_id,
                     source_vertex_start_id=start_id,
                     source_vertex_end_id=end_id,
+                    chart_start_id=chart_start,
+                    chart_end_id=chart_end,
                     start=start,
                     end=end,
                     tangent=tangent,

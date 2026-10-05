@@ -76,6 +76,7 @@ import traceback
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from .envelope_chart_band import tightened_cap_of, tightening_is_current
 from .envelope_content_key import result_slot
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -750,6 +751,11 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
         return replace(
             cold, carried=stored, result_key=result_key, labeling=found.labeling, reuse="result"
         )
+    if not tightening_is_current(run.topology_export, found.prepared.context.snapshot):
+        # Карта подготовки сужена под ДРУГУЮ alpha: подготовка устарела (ключ содержимого от alpha не зависит), её убирают,
+        # и домен считается заново с тем же ключом - новая подготовка ляжет под него по окончании.
+        controller.content_store.forget(key)
+        return cold
     refusal = _alpha_refusal(run, found.prepared)
     if refusal is not None:
         return replace(cold, export=None, failure=refusal)
@@ -943,6 +949,9 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     if prepared is None:
         return
     store = controller.content_store
+    known = store.find(entry.content_key)
+    if known is not None and tightened_cap_of(known.prepared.context.snapshot) != tightened_cap_of(prepared.context.snapshot):
+        store.forget(entry.content_key)  # запись лежит на карте другой суженной досягаемости: новая подготовка её заменяет
     store.register_preparation(entry.content_key, prepared, result.labels)
     store.register_result(entry.content_key, _slot(run), result)
     run.registered.append(entry.patch_id)
@@ -1313,6 +1322,7 @@ def run_production(
     превью и не вправе останавливать тот же планировщик из потока счёта; кнопка оставляет `True`.
     """
 
+    from .envelope_chart_band import policy_alpha
     from .envelope_domain_pool import get_domain_pool
     from .envelope_topology_export import stage_domain_inputs
     from .envelope_worker_python import read_worker_python
@@ -1333,7 +1343,9 @@ def run_production(
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
-    ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(chart_reach_cap, selected)
+    ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
+        chart_reach_cap, selected, policy_alpha(alpha)
+    )
     _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export
     )

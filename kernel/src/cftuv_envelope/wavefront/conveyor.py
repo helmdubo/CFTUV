@@ -75,7 +75,7 @@ from ..contracts.envelopes import (
     ZERO_SUPPORT_SELECTION_LAWS,
 )
 from ..contracts.analysis import AnalysisSnapshotV1
-from ..contracts.metric import DevelopableBandChartCertificateV1
+from ..contracts.metric import DevelopableBandChartCertificateV1, band_is_reach_limited
 from ..contracts.request import (
     AngularProfileSelectionPolicyId,
     DecalRequestV1,
@@ -1718,13 +1718,14 @@ def _coverage_refusal(prepared, alpha: Fraction) -> tuple[ConveyorOutcome, str] 
     """`(исход, деталь)`, если покрытие спрашивать нельзя, иначе `None`.
 
     Подготовка не `EXACT` - покрывать нечего. Домен покрыт картой-полосой, а alpha (метры) больше её досягаемости -
-    стена досягаемости усекла бы фронт: отказ, а не усечённое покрытие. У карты целого патча стены досягаемости нет.
+    стена досягаемости усекла бы фронт: отказ, а не усечённое покрытие. У карты целого патча (и у целого кольца,
+    разрезанного по пути) стены досягаемости нет.
     """
 
     if prepared.outcome is not ConveyorOutcome.EXACT:
         return ConveyorOutcome.PREPARATION_IS_NOT_EXACT, prepared.outcome.value
     certificate = getattr(getattr(prepared.context, "frame", None), "planarity_certificate", None)
-    if type(certificate) is not DevelopableBandChartCertificateV1:
+    if type(certificate) is not DevelopableBandChartCertificateV1 or not band_is_reach_limited(certificate):
         return None
     reach = Fraction(certificate.reach_cap.numerator, certificate.reach_cap.denominator)
     if alpha <= reach:

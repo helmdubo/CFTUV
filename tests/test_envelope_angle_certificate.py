@@ -510,6 +510,10 @@ def test_angular_stage_counters_separate_zero_output_from_no_corners():
         "ANGULAR_CUT_REFLEX_RELATIONS": 0,
         # Карты-полосы у фикстуры нет: счёт углов вне досягаемости объявлен нулём.
         "ANGULAR_CORNERS_BEYOND_CHART_REACH": 0,
+        # Разреза кольца у фикстуры нет: счёт углов на пути разреза объявлен нулём.
+        "ANGULAR_CORNERS_AT_RING_CUT": 0,
+        # У фикстуры нет виртуальных углов петли из одной цепи: счёт объявлен нулём.
+        "ANGULAR_CORNERS_OFF_JUNCTION": 0,
     }
     assert len(snapshot.corner_relations) == 1
 

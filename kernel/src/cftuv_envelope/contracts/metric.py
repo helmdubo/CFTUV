@@ -8,6 +8,7 @@ from fractions import Fraction
 from math import gcd, isfinite
 
 from ..numeric import CertifiedDecimalIntervalV1
+from ..schema import wire_default_field
 from ..ids import (
     ChainUseId,
     ReferenceMetricId,
@@ -1453,24 +1454,45 @@ class BandSupportLawV1(str, Enum):
 
 
 class BandBoundaryRoleV1(str, Enum):
-    """Чем является сторона границы носителя: ободом, куском исходной границы или стеной досягаемости.
+    """Чем является сторона границы носителя: ободом, куском исходной границы, стеной досягаемости или краем разреза.
 
     `RIM` — сторона выбранной цепи (из неё растёт фронт); `ORIGINAL_BOUNDARY` — сторона прочей цепи границы патча
     (стена, как и без полосы); `REACH_WALL` — ребро, где носитель обрезан по досягаемости: границы патча там нет,
-    стена искусственная, и сертификат доказывает, что фронт `alpha <= cap` до неё не доходит.
+    стена искусственная, и сертификат доказывает, что фронт `alpha <= cap` до неё не доходит. `CUT_LEFT` и `CUT_RIGHT` —
+    две копии одного ребра разреза кольца (`BandCutV1`): на поверхности это одно ребро, на карте — две стены. Левая
+    копия носит имена вершин источника, правая — их правые копии (`<вершина>|cut:R`).
     """
 
     RIM = "RIM"
     ORIGINAL_BOUNDARY = "ORIGINAL_BOUNDARY"
     REACH_WALL = "REACH_WALL"
+    CUT_LEFT = "CUT_LEFT"
+    CUT_RIGHT = "CUT_RIGHT"
+
+
+#: Роли, у которых нет использования цепи: стена, которую поставила досягаемость, и края разреза.
+NO_CHAIN_USE_ROLES = frozenset(
+    {BandBoundaryRoleV1.REACH_WALL, BandBoundaryRoleV1.CUT_LEFT, BandBoundaryRoleV1.CUT_RIGHT}
+)
+
+#: Правая копия вершины разреза носит имя вершины источника и этот суффикс.
+CUT_RIGHT_COPY_MARK = "|cut:R"
+
+
+def source_vertex_of_chart_vertex(vertex_id: SourceVertexId) -> SourceVertexId:
+    """Вершина источника по имени вершины карты: правая копия вершины разреза - её вершина, прочие - они сами."""
+
+    if vertex_id.value.endswith(CUT_RIGHT_COPY_MARK):
+        return SourceVertexId(vertex_id.value[: -len(CUT_RIGHT_COPY_MARK)])
+    return vertex_id
 
 
 @dataclass(frozen=True, slots=True)
 class BandBoundarySideV1:
     """Направленная сторона границы носителя (внутренность носителя слева, обход петли на карте против часовой).
 
-    Ребро и концы названы по источнику; `chain_use_id` — использование цепи границы патча (обод либо прочая
-    цепь), у стены досягаемости его нет.
+    Ребро и концы названы по источнику (у правой копии разреза — по правым копиям вершин); `chain_use_id` —
+    использование цепи границы патча (обод либо прочая цепь), у стены досягаемости и сторон разреза его нет.
     """
 
     role: BandBoundaryRoleV1
@@ -1480,10 +1502,88 @@ class BandBoundarySideV1:
     chain_use_id: ChainUseId | None
 
     def __post_init__(self) -> None:
-        if (self.role is BandBoundaryRoleV1.REACH_WALL) != (self.chain_use_id is None):
-            raise ValueError("a reach wall side carries no ChainUse, every other side carries one")
+        if (self.role in NO_CHAIN_USE_ROLES) != (self.chain_use_id is None):
+            raise ValueError("a reach wall or cut side carries no ChainUse, every other side carries one")
         if self.start_vertex_id == self.end_vertex_id:
             raise ValueError("a boundary side joins two distinct vertices")
+
+
+@dataclass(frozen=True, slots=True)
+class BandCutCornerV1:
+    """Угол разреза: вершина `vertex_id` пути в треугольнике `triangle_id` принадлежит ПРАВОЙ копии (`<вершина>|cut:R`)."""
+
+    triangle_id: SurfaceTriangleId
+    vertex_id: SourceVertexId
+
+
+@dataclass(frozen=True, slots=True)
+class BandCutV1:
+    """Разрез КОЛЬЦА носителя: вершина, путь, голономия склейки и два судимых числа.
+
+    Носитель вокруг замкнутой цепи — кольцо (две граничные петли), а карта — диск, поэтому кольцо режется по
+    пути рёбер источника от вершины `cut_vertex_id` обода до дальней петли. Вершины пути раздваиваются: левая копия
+    носит имя вершины источника, правая — `<вершина>|cut:R` (`CUT_RIGHT_COPY_MARK`); оба имени лежат в одной точке
+    источника, и подъём кладёт обе копии в одну 3D-вершину (шов UV, а не дыра). Края разреза — стены очереди
+    (`CUT_LEFT`, `CUT_RIGHT` в `strip_boundary`): фронт идёт вдоль них, как вдоль любой стены, и никакого отождествления
+    сторон нет.
+
+    * `path_vertex_ids` — вершины пути в порядке от `cut_vertex_id` (первая) к дальней петле, имена источника;
+    * `right_corners` — углы (треугольник, вершина пути), ставшие правыми копиями: по ним треугольники и циклы граней
+      носителя переименовываются в имена карты (подъём, угловые отношения хоста), не пересчитывая веера вершин;
+    * `rotation_cosine`, `rotation_sine`, `translation_x`, `translation_y` — ГОЛОНОМИЯ: лучшее движение плоскости
+      `p -> R p + t` (метод наименьших квадратов по парам копий пути), переводящее левую копию пути в правую, в узлах
+      решётки карты. Сдвиг (цилиндр) — `cos = 1`, `sin = 0`; поворот (конус, купол) — иначе;
+    * `seam_residual_squared` — `PERIODIC_CUT_SEAM_RESIDUAL`: квадрат наибольшего расхождения `|p_R - (R p_L + t)|` после
+      лучшего движения, метры в квадрате, по первым `seam_vertex_count` вершинам пути: у полосы со стеной досягаемости —
+      вершины в пределах `reach_cap` от `cut_vertex_id` (там декаль и есть), у целого кольца — весь путь. Цилиндр — нуль,
+      конус — не больше ячейки, двойная кривизна — настоящее число; судит его реестр допусков
+      (`PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1`);
+    * `bisector_deviation_sine_squared` — `PERIODIC_CUT_BISECTOR_DEVIATION`: верхняя граница `sin^2 d`, где `d` — угол
+      между разрезом и биссектрисой склеенного угла вершины разреза (непокрытый клин у шва порядка `alpha * sin d`);
+      судит его `NOISE_DIRECTION_SINE_BOUND`.
+    """
+
+    cut_vertex_id: SourceVertexId
+    path_vertex_ids: tuple[SourceVertexId, ...]
+    right_corners: frozenset[BandCutCornerV1]
+    rotation_cosine: ExactRationalV1
+    rotation_sine: ExactRationalV1
+    translation_x: ExactRationalV1
+    translation_y: ExactRationalV1
+    seam_residual_squared: ExactRationalV1
+    bisector_deviation_sine_squared: ExactRationalV1
+    seam_vertex_count: int
+
+    def __post_init__(self) -> None:
+        if not 2 <= self.seam_vertex_count <= len(self.path_vertex_ids):
+            raise ValueError("the seam is measured over two or more vertices of the cut path")
+        if len(self.path_vertex_ids) < 2 or len(set(self.path_vertex_ids)) != len(self.path_vertex_ids):
+            raise ValueError("a cut path joins two or more distinct vertices")
+        if self.path_vertex_ids[0] != self.cut_vertex_id:
+            raise ValueError("a cut path starts at the cut vertex")
+        if any(item.value.endswith(CUT_RIGHT_COPY_MARK) for item in self.path_vertex_ids):
+            raise ValueError("a cut path names the vertices of the source, not their right copies")
+        if self.seam_residual_squared.numerator < 0 or self.bisector_deviation_sine_squared.numerator < 0:
+            raise ValueError("the seam residual and the bisector deviation are non-negative")
+        if not self.right_corners or any(item.vertex_id not in self.path_vertex_ids for item in self.right_corners):
+            raise ValueError("a right copy is a corner at a vertex of the cut path, and a cut has right copies")
+
+
+@dataclass(frozen=True, slots=True)
+class BandTightenedV1:
+    """Полоса построена под СУЖЕННОЙ досягаемостью: запрошенная и отказ, после которого она сужена.
+
+    `requested_reach_cap` - `chart_reach_cap` ЗАПРОСА (метры); `reach_cap` сертификата - суженная, `alpha * (1 + b)` в момент
+    сборки. Карта под запрошенной досягаемостью отказала по `refused_outcome` (`BAND_TIGHTEN_OUTCOMES`: шов разреза кольца
+    либо растяжение полосы), и хост пересобрал её один раз. Запрос сверяется с `requested_reach_cap`, а не с суженной.
+    """
+
+    requested_reach_cap: ExactRationalV1
+    refused_outcome: str
+
+    def __post_init__(self) -> None:
+        if self.requested_reach_cap.numerator <= 0 or not self.refused_outcome:
+            raise ValueError("a tightened band names a positive requested reach cap and the refusal that tightened it")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1502,6 +1602,12 @@ class DevelopableBandChartCertificateV1:
     * `chart_reach_margin_squared` — ВЛАСТЬ: наименьший квадрат расстояния на карте (метры) между ободом и стеной
       досягаемости. Он не меньше `reach_cap^2`: фронт ширины `alpha <= reach_cap` растёт внутри `alpha`-окрестности
       обода на карте и до стены не доходит, поэтому усечённый носитель отвечает так же, как отвечал бы целый патч.
+      `None` — стены досягаемости нет: носитель — весь патч (`excluded_triangle_count = 0`), он кольцо, разрезанное
+      по пути (`cut`), и усекать фронт нечему, поэтому `alpha` досягаемостью не ограничена;
+    * `cut` — только у кольца (носитель вокруг замкнутой цепи): разрез, голономия и два судимых числа (`BandCutV1`);
+      у носителя-диска поля нет и на проводе оно опущено, поэтому записи дисков побитово прежние;
+    * `tightened` — только у карты, построенной под СУЖЕННОЙ досягаемостью (`BandTightenedV1`): `reach_cap` - суженная,
+      запрошенная лежит в записи; без неё поля на проводе нет.
 
     Поля до `arap_refusal` повторяют `DevelopableUnfoldCertificateV1` НАМЕРЕННО: запись самостоятельная (разбор по
     вайр-идентичности, не по наследованию: кодек выбирает члены объединения по `issubclass`), а тест закрепляет
@@ -1546,7 +1652,9 @@ class DevelopableBandChartCertificateV1:
     excluded_triangle_count: int
     first_excluded_triangle_id: SurfaceTriangleId | None
     strip_boundary: tuple[BandBoundarySideV1, ...]
-    chart_reach_margin_squared: ExactRationalV1
+    chart_reach_margin_squared: ExactRationalV1 | None
+    cut: BandCutV1 | None = wire_default_field(None)
+    tightened: BandTightenedV1 | None = wire_default_field(None)
 
     def __post_init__(self) -> None:
         _check_unfold_record(
@@ -1566,14 +1674,37 @@ class DevelopableBandChartCertificateV1:
             if item.chain_use_id is not None
         ):
             raise ValueError("a rim side is a side of a selected ChainUse and no other side is")
-        if not any(item.role is BandBoundaryRoleV1.REACH_WALL for item in self.strip_boundary):
-            raise ValueError("a band chart is cut by a reach wall: without one it is the whole patch")
-        margin = Fraction(
-            self.chart_reach_margin_squared.numerator, self.chart_reach_margin_squared.denominator
-        )
-        cap = Fraction(self.reach_cap.numerator, self.reach_cap.denominator)
-        if margin < cap * cap:
-            raise ValueError("the chart distance from the rim to the reach wall is at least the reach cap")
+        walled = any(item.role is BandBoundaryRoleV1.REACH_WALL for item in self.strip_boundary)
+        if walled != (self.excluded_triangle_count > 0) or walled != (self.chart_reach_margin_squared is not None):
+            raise ValueError(
+                "a band chart is cut by a reach wall exactly when part of the patch lies beyond the reach, and "
+                "records its margin exactly then"
+            )
+        if not walled and self.cut is None:
+            raise ValueError("a band chart without a reach wall is the whole patch: only a ring cut open is one")
+        edges = 0 if self.cut is None else len(self.cut.path_vertex_ids) - 1
+        for role in (BandBoundaryRoleV1.CUT_LEFT, BandBoundaryRoleV1.CUT_RIGHT):
+            if sum(item.role is role for item in self.strip_boundary) != edges:
+                raise ValueError("a ring band names its cut path once as a left and once as a right wall")
+        if self.cut is not None and self.cut.cut_vertex_id not in self.source_vertex_ids:
+            raise ValueError("the cut vertex is a vertex of the band")
+        if self.tightened is not None and Fraction(
+            self.tightened.requested_reach_cap.numerator, self.tightened.requested_reach_cap.denominator
+        ) <= Fraction(self.reach_cap.numerator, self.reach_cap.denominator):
+            raise ValueError("a tightened reach cap is smaller than the requested one")
+        if walled:
+            margin = Fraction(
+                self.chart_reach_margin_squared.numerator, self.chart_reach_margin_squared.denominator
+            )
+            cap = Fraction(self.reach_cap.numerator, self.reach_cap.denominator)
+            if margin < cap * cap:
+                raise ValueError("the chart distance from the rim to the reach wall is at least the reach cap")
+
+
+def band_is_reach_limited(certificate: DevelopableBandChartCertificateV1) -> bool:
+    """Полоса усечена стеной досягаемости: часть патча дальше досягаемости (иначе это целый патч, разрезанное кольцо)."""
+
+    return certificate.excluded_triangle_count > 0
 
 
 UNFOLDED_CERTIFICATE_TYPES = (DevelopableUnfoldCertificateV1, DevelopableBandChartCertificateV1)
@@ -1634,7 +1765,7 @@ class EmbeddingCertifiedRationalAffinePlanarMetricV1:
         # Привязка источника и её доказательство вложения - факты ЦЕЛОГО патча (одна решётка на все выделения), а
         # карта полосы покрывает только носитель: её вершины входят в доказательство, но не исчерпывают его.
         if type(self.metric.planarity_certificate) is DevelopableBandChartCertificateV1:
-            if not set(source_ids) <= set(snap.source_vertex_ids):
+            if not {source_vertex_of_chart_vertex(item) for item in source_ids} <= set(snap.source_vertex_ids):
                 raise ValueError("a band chart vertex is outside the snap embedding vertices")
         elif snap.source_vertex_ids != source_ids:
             raise ValueError("snap embedding vertices differ from the V2 metric")

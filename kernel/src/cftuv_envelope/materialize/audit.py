@@ -47,6 +47,18 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 
+from ..contracts.metric import CUT_RIGHT_COPY_MARK
+
+
+def location_key(key: str) -> str:
+    """Ключ места вершины батча: правая копия вершины разреза кольца - то же место, что левая (одна вершина источника).
+
+    Хост сваривает вершины по ссылке места при побитовом равенстве позиций, поэтому две копии одной вершины шва меша
+    становятся одной вершиной с двумя наборами UV (шов), а не двумя вершинами в одной точке. Ребро меша - пара МЕСТ.
+    """
+
+    return key[: -len(CUT_RIGHT_COPY_MARK)] if key.endswith(CUT_RIGHT_COPY_MARK) else key
+
 
 #: Счётчик развода нормалей смещения внутри грани: целые миллиградусы (как нанометры у `source_lift`).
 OFFSET_NORMAL_SPREAD = "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG"
@@ -164,7 +176,9 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
         if vertex_normals and len(keys) >= 4:
             spread = max(spread, _normal_spread([vertex_normals[key.value] for key in keys]))
         for index in range(len(keys)):
-            directed[(keys[index], keys[(index + 1) % len(keys)])] += 1
+            directed[
+                (location_key(keys[index].value), location_key(keys[(index + 1) % len(keys)].value))
+            ] += 1
         normal = _area_vector(tuple(position[key] for key in keys))
         reference = (
             source_normal
@@ -193,7 +207,12 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
         undirected[frozenset((first, second))] += count
     boundary = {key for key, count in undirected.items() if count == 1}
     chain_edges = {
-        frozenset((chain.ordered_vert_keys[index], chain.ordered_vert_keys[index + 1]))
+        frozenset(
+            (
+                location_key(chain.ordered_vert_keys[index].value),
+                location_key(chain.ordered_vert_keys[index + 1].value),
+            )
+        )
         for chain in batch.boundary_chains
         for index in range(len(chain.ordered_vert_keys) - 1)
     }

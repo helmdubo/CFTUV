@@ -24,7 +24,7 @@ from ..contracts.analysis import (
     ChainUseConstraintTargetV1,
     PhysicalEdgeSequenceConstraintTargetV1,
 )
-from ..contracts.metric import BandBoundaryRoleV1, DevelopableBandChartCertificateV1
+from ..contracts.metric import NO_CHAIN_USE_ROLES, DevelopableBandChartCertificateV1
 from ..ids import PatchDomainId, PhysicalEdgeId, SourceFaceId
 from .common import (
     GeometryContext,
@@ -396,10 +396,14 @@ def _explicit_barrier_segments(
 
 
 def _reach_wall_segment(context: GeometryContext, loop_id: str, side):
-    """Сегмент стены досягаемости: ребро сертификата без `ChainUse` и без цепи."""
+    """Сегмент стены без `ChainUse` и без цепи: стена досягаемости либо край разреза кольца.
+
+    Две копии ребра разреза (`CUT_LEFT`, `CUT_RIGHT`) - одно физическое ребро и две стены на карте, поэтому роль входит в
+    имена: иначе обе стороны были бы одним сегментом.
+    """
 
     domain_id = context.compilation.plan_key.patch_domain_id
-    support_id = stable_id("chart-reach-wall-support", domain_id, side.physical_edge_id)
+    support_id = stable_id("chart-reach-wall-support", domain_id, side.physical_edge_id, side.role.value)
     provenance = make_reference_provenance(
         support_ids=frozenset({support_id}),
         physical_edge_ids=frozenset({side.physical_edge_id.value}),
@@ -407,7 +411,7 @@ def _reach_wall_segment(context: GeometryContext, loop_id: str, side):
         patch_domain_ids=frozenset({domain_id.value}),
     )
     return make_segment(
-        stable_id("band-reach-wall-edge", domain_id, side.physical_edge_id),
+        stable_id("band-reach-wall-edge", domain_id, side.physical_edge_id, side.role.value),
         context.points_by_id[side.start_vertex_id],
         context.points_by_id[side.end_vertex_id],
         support_ids=frozenset({support_id}),
@@ -428,7 +432,7 @@ def _band_boundary_loop(
     loop_id = stable_id("band-chart-boundary-loop", domain_id)
     segments = []
     for side in certificate.strip_boundary:
-        if side.role is BandBoundaryRoleV1.REACH_WALL:
+        if side.role in NO_CHAIN_USE_ROLES:
             segments.append(_reach_wall_segment(context, loop_id, side))
             continue
         chain_use = context.uses_by_id.get(side.chain_use_id)

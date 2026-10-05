@@ -12,6 +12,30 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from .contracts.analysis import ChainUseOrientation
+from .contracts.metric import MAX_CHART_REACH_CAP, chart_reach_cap_is_lawful
+from .outcomes import NamedOutcome
+
+#: Отказы полосы, после которых досягаемость можно СУЗИТЬ до собственной ширины декали (`tightened_reach_cap`): шов
+#: разреза кольца и растяжение полосы растут с шириной носителя, а носитель - от досягаемости, не от alpha.
+BAND_TIGHTEN_OUTCOMES = frozenset(
+    {NamedOutcome.PERIODIC_CUT_SEAM_RESIDUAL_EXCEEDED, NamedOutcome.DEVELOPABLE_STRETCH_BUDGET_EXCEEDED}
+)
+
+
+def tightened_reach_cap(reach_cap, alpha, budget) -> Fraction | None:
+    """Суженная досягаемость `alpha * (1 + b)` - собственный охват декали - либо `None`, если сужать нечего.
+
+    `None`: alpha неизвестна либо не положительна, суженная не меньше запрошенной (запрос и так не шире декали) либо вне
+    законной области (`chart_reach_cap_is_lawful`). Одна функция на хост и тесты: решение о сужении - арифметика, а не
+    политика хоста. Карта допустима до своей досягаемости, и `alpha * (1 + b) >= alpha`: декаль той же ширины в неё помещается.
+    """
+
+    if alpha is None or Fraction(alpha) <= 0:
+        return None
+    tight = Fraction(alpha) * (1 + Fraction(budget))
+    if tight >= Fraction(reach_cap) or not chart_reach_cap_is_lawful(tight) or tight > MAX_CHART_REACH_CAP:
+        return None
+    return tight
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +51,10 @@ class ChartBandRequestV1:
     reach_cap: Fraction
     rim_edges: tuple
     boundary_uses: tuple
+    #: Досягаемость ЗАПРОСА, которую суженная карта (`reach_cap` меньше неё) заменила, и отказ, после которого она сужена
+    #: (`BAND_TIGHTEN_OUTCOMES`); `None` у карты под досягаемостью запроса. Запись, а не решение: решает хост по alpha.
+    requested_reach_cap: Fraction | None = None
+    tightened_after: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,8 +88,24 @@ def directed_use_edges(chain, chain_use) -> tuple:
     return tuple(pairs)
 
 
-def chart_band_request(physical_chains, chain_uses, selected_chain_use_ids, patch_domain_id, reach_cap):
-    """`ChartBandRequestV1` домена либо `None`, если запрос не выбрал в нём ни одной цепи."""
+def chart_band_request(
+    physical_chains,
+    chain_uses,
+    selected_chain_use_ids,
+    patch_domain_id,
+    reach_cap,
+    requested_reach_cap=None,
+    tightened_after=None,
+):
+    """`ChartBandRequestV1` домена либо `None`, если запрос не выбрал в нём ни одной цепи.
+
+    `requested_reach_cap` и `tightened_after` называют суженную карту (см. `ChartBandRequestV1`): оба или ни одного.
+    """
+
+    if (requested_reach_cap is None) != (tightened_after is None):
+        raise ValueError("a tightened band names both the requested reach cap and the refusal that tightened it")
+    if requested_reach_cap is not None and Fraction(requested_reach_cap) <= Fraction(reach_cap):
+        raise ValueError("a tightened reach cap is smaller than the requested one")
 
     chains = {item.physical_chain_id: item for item in physical_chains}
     domain_uses = sorted(
@@ -85,13 +129,17 @@ def chart_band_request(physical_chains, chain_uses, selected_chain_use_ids, patc
         reach_cap=Fraction(reach_cap),
         rim_edges=tuple(rim),
         boundary_uses=tuple(boundary),
+        requested_reach_cap=None if requested_reach_cap is None else Fraction(requested_reach_cap),
+        tightened_after=tightened_after,
     )
 
 
 __all__ = (
+    "BAND_TIGHTEN_OUTCOMES",
     "ChartBandRequestV1",
     "RequestChartPolicyV1",
     "chart_band_request",
     "directed_use_edges",
     "request_chart_policy",
+    "tightened_reach_cap",
 )

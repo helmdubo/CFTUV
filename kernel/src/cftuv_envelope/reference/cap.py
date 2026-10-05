@@ -29,10 +29,10 @@ def evaluate_cap_envelope(
     )
     source = source_segments[0] if spec.endpoint_role.value == "START" else source_segments[-1]
     if spec.endpoint_role.value == "START":
-        source_vertex_id = source.source_vertex_start_id
+        source_vertex_id, certificate_id = source.source_vertex_start_id, source.start_certificate_id
         anchor = source.start
     else:
-        source_vertex_id = source.source_vertex_end_id
+        source_vertex_id, certificate_id = source.source_vertex_end_id, source.end_certificate_id
         anchor = source.end
     if source_vertex_id != spec.physical_terminal_source_vertex_id:
         raise ValueError("CapEnvelope physical endpoint does not match its incident strip")
@@ -58,7 +58,7 @@ def evaluate_cap_envelope(
         moved,
         support_ids=frozenset({support_id}),
         provenance=provenance,
-        start_certificates=frozenset({source_vertex_certificate(source_vertex_id)}),
+        start_certificates=frozenset({source_vertex_certificate(certificate_id)}),
         end_certificates=frozenset(
             {support_vertex_certificate(source.support_id, support_id)}
         ),
