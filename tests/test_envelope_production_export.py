@@ -1327,12 +1327,12 @@ def test_operators_that_write_datablocks_from_edit_mode_declare_undo():
 # --------------------------------------------------------------------------
 
 
-def test_the_host_asks_for_planar_polygons_and_its_names_are_the_kernels():
+def test_the_host_asks_for_the_silhouette_topology_and_its_names_are_the_kernels():
     from cftuv.surface_ir import HOST_DECAL_TOPOLOGY_POLICY, HostDecalTopologyPolicy
     from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 
-    assert HOST_DECAL_TOPOLOGY_POLICY is HostDecalTopologyPolicy.PLANAR_POLYGONS_V1
-    assert production.PRODUCTION_TOPOLOGY_LAW == "PLANAR_POLYGONS_V1"
+    assert HOST_DECAL_TOPOLOGY_POLICY is HostDecalTopologyPolicy.SILHOUETTE_TOPOLOGY_V1
+    assert production.PRODUCTION_TOPOLOGY_LAW == "SILHOUETTE_TOPOLOGY_V1"
     assert {item.value for item in HostDecalTopologyPolicy} == {
         item.value for item in DecalTopologyLawV1
     }
@@ -1348,10 +1348,12 @@ def _arities(result):
 def test_a_produced_domain_is_built_under_the_host_topology_law_and_names_it():
     prepared = _prepared_domain()
 
-    polygons = produce_domain(2, "domain", prepared, "0.25")
+    silhouette = produce_domain(2, "domain", prepared, "0.25")
+    polygons = produce_domain(2, "domain", prepared, "0.25", topology_law="PLANAR_POLYGONS_V1")
     quads = produce_domain(2, "domain", prepared, "0.25", topology_law="QUAD_STRIPS_V1")
     triangles = produce_domain(2, "domain", prepared, "0.25", topology_law="TRIANGLES_V1")
 
+    assert silhouette.decal_topology_law == "SILHOUETTE_TOPOLOGY_V1" and len(silhouette.batch.faces) <= len(polygons.batch.faces)
     assert polygons.decal_topology_law == "PLANAR_POLYGONS_V1" and 4 in _arities(polygons)
     assert quads.decal_topology_law == "QUAD_STRIPS_V1" and 4 in _arities(quads)
     assert triangles.decal_topology_law == "TRIANGLES_V1" and _arities(triangles) == {3}
@@ -1397,14 +1399,14 @@ def test_the_pool_task_carries_the_law_and_a_task_of_the_old_shape_still_reads()
     assert reply.production == produce_domain(
         4, "domain", prepared, "0.25", topology_law="TRIANGLES_V1"
     )
-    assert solve_task(task).production.decal_topology_law == "PLANAR_POLYGONS_V1"
+    assert solve_task(task).production.decal_topology_law == "SILHOUETTE_TOPOLOGY_V1"
     bad = dataclasses.replace(
         task, production=ProductionInputV1(blob, PRODUCTION_UV_POLICY, "SOMETHING_ELSE")
     )
     assert not solve_task(bad).ok
 
 
-@pytest.mark.parametrize("law", ("PLANAR_POLYGONS_V1", "QUAD_STRIPS_V1", "TRIANGLES_V1"))
+@pytest.mark.parametrize("law", ("SILHOUETTE_TOPOLOGY_V1", "PLANAR_POLYGONS_V1", "QUAD_STRIPS_V1", "TRIANGLES_V1"))
 def test_the_law_reaches_the_parent_and_the_pool_workers_alike(
     law, monkeypatch, _pool_always
 ):
@@ -1428,7 +1430,7 @@ def test_a_press_uses_the_host_law_by_default_and_refuses_an_unknown_one():
 
     run, _ = _production(bundle)
 
-    assert {item.decal_topology_law for item in run.results} == {"PLANAR_POLYGONS_V1"}
+    assert {item.decal_topology_law for item in run.results} == {"SILHOUETTE_TOPOLOGY_V1"}
     with pytest.raises(ValueError, match="unknown decal topology law"):
         _production(bundle, topology_law="SOMETHING_ELSE")
 
@@ -1443,7 +1445,7 @@ def test_the_json_row_names_the_law_and_its_counters(tmp_path):
     rows = json.loads(summary.read_text(encoding="utf-8"))["domains"]
     materialized = [item for item in rows if "batch_file" in item]
     assert materialized
-    assert {item["decal_topology_law"] for item in materialized} == {"PLANAR_POLYGONS_V1"}
+    assert {item["decal_topology_law"] for item in materialized} == {"SILHOUETTE_TOPOLOGY_V1"}
     assert all(item["counters"]["MATERIALIZE_QUADS"] > 0 for item in materialized)
     # Числа закона названы поимённо (причина каждого оставшегося треугольника видна в строке).
     assert all(

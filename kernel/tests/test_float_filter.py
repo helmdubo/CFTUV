@@ -10,7 +10,10 @@
    корпусе, а фильтр на этом корпусе РЕШАЕТ большую часть вопросов (иначе он был бы пустышкой);
 3. границы НАСТОЯЩИЕ: с отключённым запасом на ошибку (`_SLACK = 0`) тот же корпус ловит неверный знак на коллинеарных
    тройках, поэтому тест не пройдёт на фильтре без запаса;
-4. краевые значения (радикант за пределами `float`) уходят в точный путь, а не в исключение.
+4. краевые значения (радикант за пределами `float`) уходят в точный путь, а не в исключение;
+5. фильтр тождества аффинности (`affine_map_violated`, закон `SILHOUETTE_TOPOLOGY_V1`) называет только доказанное НАРУШЕНИЕ:
+   на точно аффинных значениях он молчит всегда, а там, где он говорит «нарушено», точное тождество
+   `tessellate.uv_vertex_on_affine_map` согласно.
 """
 
 from __future__ import annotations
@@ -244,3 +247,82 @@ def test_the_table_returns_the_same_centre_for_the_same_object_and_never_confuse
     for value, (centre, bound) in zip(values, first):
         enclosure_low, enclosure_high = value.enclosure(64)
         assert enclosure_low - Fraction(bound) <= Fraction(centre) <= enclosure_high + Fraction(bound)
+
+
+def _affine_case(rng: random.Random, perturbation):
+    """Четыре точки и значения `(s, r)` на них: ТОЧНО аффинная функция положения плюс `perturbation` в четвёртой вершине."""
+
+    from cftuv_envelope.materialize.tessellate import affine_frame
+
+    while True:
+        points = {key: _point(rng) for key in range(4)}
+        if _exact_orientation(points[0], points[1], points[2]) != 0:
+            break
+    slopes = [(Fraction(rng.randint(-5, 5), rng.randint(1, 4)), Fraction(rng.randint(-5, 5), rng.randint(1, 4))) for _ in range(2)]
+    origin = [_value(rng, rng.randint(0, 2)) for _ in range(2)]
+    values = {}
+    for key, point in points.items():
+        values[key] = tuple(
+            origin[component]
+            + (point[0] - points[0][0]).scaled(slopes[component][0])
+            + (point[1] - points[0][1]).scaled(slopes[component][1])
+            for component in range(2)
+        )
+    if perturbation is not None:
+        values[3] = (values[3][0] + perturbation, values[3][1])
+    return points, values, affine_frame(points, (0, 1, 2))
+
+
+def test_the_affine_filter_never_claims_a_violation_on_an_exactly_affine_map():
+    from cftuv_envelope.materialize.tessellate import uv_vertex_on_affine_map
+
+    rng = random.Random(20261005)
+    for _ in range(300):
+        points, values, frame = _affine_case(rng, None)
+
+        assert uv_vertex_on_affine_map(points, values, (0, 1, 2), frame, 3)
+        assert not float_filter.affine_map_violated(points, values, (0, 1, 2), 3)
+
+
+def test_the_affine_filter_names_only_violations_the_exact_identity_confirms_and_decides_the_clear_ones():
+    from cftuv_envelope.materialize.tessellate import uv_vertex_on_affine_map
+
+    rng = random.Random(20261006)
+    decided = clear = 0
+    for index in range(600):
+        size = (Fraction(1, 2), Fraction(1, 1000), Fraction(1, 10**9), Fraction(1, 10**14))[index % 4]
+        points, values, frame = _affine_case(rng, SqrtSumV1.rational(size))
+        exact_on_map = uv_vertex_on_affine_map(points, values, (0, 1, 2), frame, 3)
+        claimed = float_filter.affine_map_violated(points, values, (0, 1, 2), 3)
+
+        assert not (claimed and exact_on_map)
+        assert not exact_on_map  # возмущение рациональным числом всегда выводит вершину с карты
+        if size >= Fraction(1, 1000):
+            clear += 1
+            decided += int(claimed)
+    assert decided > clear // 2  # крупные нарушения фильтр обязан решать, иначе он пустышка
+
+
+def test_the_affine_filter_yields_when_a_number_is_beyond_binary64():
+    huge = SqrtSumV1.radical(Fraction(1), 10**400)
+    points = {0: (huge, huge), 1: (huge + SqrtSumV1.rational(1), huge), 2: (huge, huge + SqrtSumV1.rational(1)), 3: (huge, huge)}
+    values = {key: (SqrtSumV1.rational(Fraction(key)), SqrtSumV1.rational(Fraction(0))) for key in range(4)}
+
+    assert not float_filter.affine_map_violated(points, values, (0, 1, 2), 3)
+
+
+def test_an_affine_filter_without_error_slack_names_false_violations(monkeypatch):
+    """Границы настоящие: без запаса на ошибку (`_SLACK = 0`, `_MARGIN = 1`) тот же корпус точно аффинных карт ловит ложное нарушение."""
+
+    rng = random.Random(20261005)
+    float_filter.clear_table()
+    monkeypatch.setattr(float_filter, "_SLACK", 0.0)
+    monkeypatch.setattr(float_filter, "_MARGIN", 1.0)
+    monkeypatch.setattr(float_filter, "_FLOOR", 0.0)
+    false_claims = 0
+    for _ in range(300):
+        points, values, _frame = _affine_case(rng, None)
+        false_claims += int(float_filter.affine_map_violated(points, values, (0, 1, 2), 3))
+    float_filter.clear_table()
+
+    assert false_claims > 0

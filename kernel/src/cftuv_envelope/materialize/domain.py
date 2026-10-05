@@ -29,7 +29,10 @@
    (`settle_topology`): четырёхгранья, лёгшие на разные треугольники источника
    либо смещаемые по разным нормалям (развёртка), режутся каноническим `fan_out`,
    чтобы не выдать непланарную грань;
-8. сборка, валидация `validate_geometry_batch`, дайджесты.
+8. под `SILHOUETTE_TOPOLOGY_V1` — пост-проход `silhouette` (после положения вершин, до цепей и дайджестов): ребро между
+   гранями одного региона в одной плоскости с точно аффинной UV и вершина на прямой, не лежащая на цепи источника или стены,
+   растворяются (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние);
+9. сборка, валидация `validate_geometry_batch`, дайджесты.
 
 Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
 `EXACT_WORK_BUDGET_EXHAUSTED`, а не зависание; батч не прошёл валидатор —
@@ -53,6 +56,7 @@ from __future__ import annotations
 import time
 from collections import Counter
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
@@ -96,6 +100,7 @@ from .frames import MaterializationRefusal, resolve_frame
 from .lift import plane_lift_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
+from .silhouette import SilhouetteInputV1, apply_silhouette
 from .source_lift import (
     host_positions_of,
     lift_source_vertices,
@@ -724,7 +729,46 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     return final, sourced, faces_after
 
 
-def _assemble(prepared, coverage, request, admission, budget, clock, parts, law):
+def _cut(plane, budget, admission, stage, tally):
+    """Резка домена (закон `SOURCE_TRIANGLES_CLIPPED_V1`): `ClippedV1` либо `None`, если укладка без резки.
+
+    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`.
+    """
+
+    frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law = stage
+    if not _is_clipped(admission):
+        return None
+    return cut_domain(
+        plane,
+        budget,
+        frame_faces=frame_faces,
+        cycles=cycles,
+        points=points,
+        polygons=polygons,
+        facts=facts,
+        layout=layout,
+        table=table,
+        lattice_alpha=lattice_alpha,
+        law=law,
+        by_faces=admission.lift_law.clips_by_faces,
+        tally=tally,
+    )
+
+
+def _shaped(clock, budget, request, mesh, frame):
+    """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой.
+
+    `mesh` — `(грани, контуры, вершины граней, позиции)`, `frame` — `(точки карты, факты, слитые грани, раскладка, alpha решётки)`;
+    сдвиг UV берётся у запроса (`DecalRequestV1.silhouette_uv_slide`).
+    """
+
+    slide = request.silhouette_uv_slide
+    shaped = apply_silhouette(SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator)), budget)
+    clock.lap("SILHOUETTE")
+    return shaped
+
+
+def _assemble(prepared, coverage, request, admission, budget, clock, parts, law, silhouette=False):
     """Кадры, вершины, станции, тесселяция, батч — по слитым граням домена."""
 
     items, table, lines, notes, chords = parts
@@ -762,23 +806,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    cut = None
+    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally)
     if clipped:
-        cut = cut_domain(
-            plane,
-            budget,
-            frame_faces=frame_faces,
-            cycles=cycles,
-            points=points,
-            polygons=polygons,
-            facts=facts,
-            layout=layout,
-            table=table,
-            lattice_alpha=lattice_alpha,
-            law=law,
-            by_faces=admission.lift_law.clips_by_faces,
-            tally=tally,
-        )
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
     if cut is not None:
@@ -792,13 +821,16 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     polygons, sourced, faces_after = _at_host_positions(
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
+    mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
+    shaped = _shaped(clock, budget, request, mesh, (points, facts, frame_faces, layout, lattice_alpha)) if silhouette else None
     batch = assemble_batch(
         frame_faces=frame_faces,
-        cycles=cycles if cut is None else cut.cycles,
-        vertex_cycles=None if cut is None else cut.vertex_lists,
-        positions=sourced.positions,
-        polygons=polygons,
-        facts=facts,
+        cycles=(cycles if cut is None else cut.cycles) if shaped is None else shaped.cycles,
+        vertex_cycles=(None if cut is None else cut.vertex_lists) if shaped is None else shaped.vertex_cycles,
+        positions=sourced.positions if shaped is None else shaped.positions,
+        polygons=polygons if shaped is None else shaped.polygons,
+        facts=facts if shaped is None else shaped.facts,
+        merged_frames=None if shaped is None else shaped.merged_frames,
         layout=layout,
         scale=table.scale,
         lattice_alpha=lattice_alpha,
@@ -831,19 +863,21 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
             geometry_batch_semantic_digest(batch).sha256_hex
         ),
     )
+    if shaped is not None and shaped.note:
+        lines.append(shaped.note)
     clock.lap("ASSEMBLE")
     return (
         batch,
         frame_faces,
-        _lift_counters(plane, sourced, faces_after, cut, tally),
+        _lift_counters(plane, sourced, faces_after, cut, tally, () if shaped is None else shaped.counters),
         plane,
         topology,
         "" if cut is None else cut.memo,
     )
 
 
-def _lift_counters(plane, sourced, faces_after, cut, tally) -> tuple:
-    """Числа подъёма, привязки позиций хоста, граней, резки и ступеней станций: в порядке, в котором они пишутся в ответ."""
+def _lift_counters(plane, sourced, faces_after, cut, tally, shaped=()) -> tuple:
+    """Числа подъёма, привязки позиций хоста, граней, резки, ступеней станций и закона силуэта: в порядке, в котором они пишутся в ответ."""
 
     return (
         *plane.counters(),
@@ -851,10 +885,11 @@ def _lift_counters(plane, sourced, faces_after, cut, tally) -> tuple:
         *faces_after.counters(),
         *(() if cut is None else cut.counters),
         *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS)),
+        *shaped,
     )
 
 
-def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built:
+def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
     withdrawn: frozenset = frozenset()
     while True:
         table = (
@@ -874,7 +909,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
         try:
             batch, frame_faces, lift_counters, lift, topology, clip_memo = _assemble(
                 prepared, coverage, request, admission, budget, clock,
-                (items, table, lines, notes, chords), law,
+                (items, table, lines, notes, chords), law, silhouette,
             )
             break
         except MaterializationRefusal as refusal:
@@ -939,14 +974,21 @@ def materialize_domain(
     только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
     """
 
+    silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
     result = _materialize_domain(
-        prepared, coverage, request, work_budget, near_planar_lift_law, decal_topology_law
+        prepared,
+        coverage,
+        request,
+        work_budget,
+        near_planar_lift_law,
+        DecalTopologyLawV1.PLANAR_POLYGONS_V1 if silhouette else decal_topology_law,
+        silhouette,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
 
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -968,7 +1010,7 @@ def _materialize_domain(
         else exact_work_budget(stage="MATERIALIZE", domain_id=domain_id)
     )
     try:
-        built = _build(prepared, coverage, request, admission, budget, clock, law)
+        built = _build(prepared, coverage, request, admission, budget, clock, law, silhouette)
     except MaterializationRefusal as refusal:
         return _refused(
             refusal.outcome,

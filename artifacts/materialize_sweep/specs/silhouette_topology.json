@@ -1,0 +1,81 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "silhouette_topology",
+  "tool": "sweep",
+  "law": "SILHOUETTE_TOPOLOGY_V1",
+  "about": "Запись «до» - `sweep.py run --topology PLANAR_POLYGONS_V1` на основе 2794a29, запись «после» - `--topology SILHOUETTE_TOPOLOGY_V1` на дереве закона (тот же продуктовый закон укладки). Закон - надмножество PLANAR_POLYGONS_V1 плюс пост-проход: ребро между гранями одного региона в одной плоскости (глубина хорды 5 мм) с ТОЧНО аффинной UV растворяется, вершина на прямой между двумя рёбрами, не лежащая на цепи источника или стены, растворяется в пределах глубины хорды и сдвига UV запроса (1/256 alpha). Меняются ТОЛЬКО домены, где хоть одно ребро или хоть одна вершина растворена (счётчик MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED либо MATERIALIZE_SILHOUETTE_VERTICES_DISSOLVED в новой записи больше нуля): на building 19 из 122 доменов на каждой плотности (d1, d2, d4); у остальных ответ побитово тот же, кроме бухгалтерии закона (счётчики KEPT_*, у домена без растворения). Число граней, вершин, треугольников и граничных рёбер домена не растёт; потерянных граней и перевёрнутых относительно источника нет; ни один домен не отказан. Три прежних закона топологии (TRIANGLES_V1, QUAD_STRIPS_V1, PLANAR_POLYGONS_V1) побитово прежние на всех 366 строках (IDENTICAL без спецификации).",
+  "groups": [
+    {
+      "name": "edges_dissolved",
+      "domains": {
+        "where": [
+          {"side": "new", "counter": "MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED", "op": "gt", "value": 0}
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest", "offset_normals_digest"],
+        "counters": [
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_VERTICES",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_STATION_CONSTANT_S",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+          "MATERIALIZE_TRIANGLES_UV_REVERSED",
+          "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG"
+        ],
+        "counter_prefixes": ["MATERIALIZE_SILHOUETTE_"],
+        "diagnostics": [
+          {"prefix": "SILHOUETTE_TOPOLOGY_V1"}
+        ]
+      }
+    },
+    {
+      "name": "vertices_dissolved",
+      "domains": {
+        "where": [
+          {"side": "new", "counter": "MATERIALIZE_SILHOUETTE_VERTICES_DISSOLVED", "op": "gt", "value": 0}
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": ["semantic_digest", "content_digest", "offset_normals_digest"],
+        "counters": [
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_VERTICES",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_STATION_CONSTANT_S",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+          "MATERIALIZE_TRIANGLES_UV_REVERSED",
+          "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG"
+        ],
+        "counter_prefixes": ["MATERIALIZE_SILHOUETTE_"],
+        "diagnostics": [
+          {"prefix": "SILHOUETTE_TOPOLOGY_V1"}
+        ]
+      }
+    }
+  ],
+  "allow_everywhere": {
+    "counter_prefixes": ["MATERIALIZE_SILHOUETTE_"]
+  },
+  "require": {
+    "changed_any_of": ["semantic_digest", "content_digest"],
+    "non_empty": ["semantic_digest"],
+    "zero": ["MATERIALIZE_FACES_LOST", "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"],
+    "non_increasing": [
+      "MATERIALIZE_FACES_EMITTED",
+      "MATERIALIZE_VERTICES",
+      "MATERIALIZE_TRIANGLES",
+      "MATERIALIZE_BOUNDARY_EDGES",
+      "MATERIALIZE_STATION_FACTS"
+    ],
+    "no_refusal": true
+  }
+}

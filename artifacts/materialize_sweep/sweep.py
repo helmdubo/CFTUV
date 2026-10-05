@@ -35,7 +35,7 @@ SOURCE_TRIANGLES_V1` — ДО резки), даёт запись «до» на �
 перекладин и прочее, что ядро добавило после списков), пишутся в `untracked_counters` строки и сравниваются
 наравне с остальными: новый счётчик ядра не пропадает из ворот молча. Отсутствующий счётчик равен нулю везде.
 
-`--topology QUAD_STRIPS_V1|PLANAR_POLYGONS_V1` — закон топологии декали (по
+`--topology QUAD_STRIPS_V1|PLANAR_POLYGONS_V1|SILHOUETTE_TOPOLOGY_V1` — закон топологии декали (по
 умолчанию `TRIANGLES_V1`, как у ядра). Закон пишется в заголовок записи, а НЕ в `ANSWER_KEYS`, и числа
 закона лежат в отдельных полях строки (`topology_counters`), не в `counters`:
 иначе запись под законом по умолчанию разошлась бы с прежними. Два закона
@@ -546,7 +546,7 @@ def main() -> int:
     runner.add_argument("--out", required=True)
     runner.add_argument(
         "--topology",
-        choices=("TRIANGLES_V1", "QUAD_STRIPS_V1", "PLANAR_POLYGONS_V1"),
+        choices=("TRIANGLES_V1", "QUAD_STRIPS_V1", "PLANAR_POLYGONS_V1", "SILHOUETTE_TOPOLOGY_V1"),
         default="TRIANGLES_V1",
     )
     runner.add_argument(

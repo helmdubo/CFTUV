@@ -1231,6 +1231,37 @@ DEFAULT_CHART_REACH_CAP_V1 = ExactRationalV1(
 )
 """Досягаемость по умолчанию в проводной форме: значение поля запроса, когда оно не названо."""
 
+# ВНИМАНИЕ: СМЫСЛ каждого запроса без поля `silhouette_uv_slide` (на проводе умолчание опущено): менять число можно только
+# вместе с новой версией схемы запроса.
+DEFAULT_SILHOUETTE_UV_SLIDE = Fraction(1, 256)
+"""Сдвиг UV, который закон `SILHOUETTE_TOPOLOGY_V1` вправе внести растворением вершины: 1/256 alpha. Точная дробь, доли alpha.
+
+Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`): вершина, лежащая на прямой между соседями, растворяется, только если
+UV, которую грань получила бы в её месте от интерполяции вдоль ребра, отличается от прежней не больше этого числа
+(UV = `(s, r) / alpha`, поэтому доля alpha и расстояние UV — одно число). 1/256 alpha — 8 пикселей тайла 2048 при
+ширине декали в один тайл. Выбор плана S1 (владелец делегировал технический выбор); ручки на панели нет.
+"""
+
+MAX_SILHOUETTE_UV_SLIDE = Fraction(1, 16)
+"""Наибольший сдвиг UV, который вправе назвать запрос: 1/16 alpha. Точная дробь.
+
+Выше текстура уезжает на заметную долю тайла, и «растворить вершину» перестаёт быть невидимым: запрос получает именованный
+отказ (`POLICY_MISMATCH` на `silhouette_uv_slide`), а не молчаливое искажение UV.
+"""
+
+
+def silhouette_uv_slide_is_lawful(slide: Fraction) -> bool:
+    """Сдвиг UV законен: положителен и не выше `MAX_SILHOUETTE_UV_SLIDE`."""
+
+    return 0 < slide <= MAX_SILHOUETTE_UV_SLIDE
+
+
+DEFAULT_SILHOUETTE_UV_SLIDE_V1 = ExactRationalV1(
+    DEFAULT_SILHOUETTE_UV_SLIDE.numerator,
+    DEFAULT_SILHOUETTE_UV_SLIDE.denominator,
+)
+"""Сдвиг UV по умолчанию в проводной форме: значение поля запроса, когда оно не названо."""
+
 
 @dataclass(frozen=True, slots=True)
 class DevelopableStretchCertificateV1:

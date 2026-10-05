@@ -25,6 +25,7 @@ from .contracts.metric import (
     DevelopableBandChartCertificateV1,
     band_is_reach_limited,
     chart_reach_cap_is_lawful,
+    silhouette_uv_slide_is_lawful,
 )
 from .validation_issues import ValidationCode, add_issue
 
@@ -207,6 +208,16 @@ def chart_reach_cap_issues(request) -> tuple:
         return ()
     issues: list = []
     add_issue(issues, ValidationCode.POLICY_MISMATCH, ("chart_reach_cap",), "chart reach cap must lie in (0, 100] m")
+    return tuple(issues)
+
+
+def silhouette_uv_slide_issues(request) -> tuple:
+    """Сдвиг UV закона `SILHOUETTE_TOPOLOGY_V1` законен: положителен и не выше `MAX_SILHOUETTE_UV_SLIDE` (доля alpha)."""
+
+    if silhouette_uv_slide_is_lawful(_fraction(request.silhouette_uv_slide)):
+        return ()
+    issues: list = []
+    add_issue(issues, ValidationCode.POLICY_MISMATCH, ("silhouette_uv_slide",), "silhouette UV slide must lie in (0, 1/16] of alpha")
     return tuple(issues)
 
 

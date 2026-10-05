@@ -8,7 +8,12 @@ from enum import Enum
 from ..ids import ChainUseId, DecalRequestId, PolicyId
 from ..numeric import ExactAngleV1, MetricLengthV1, MetricSpace
 from ..schema import wire_default_field
-from .metric import DEFAULT_CHART_REACH_CAP_V1, DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1, ExactRationalV1
+from .metric import (
+    DEFAULT_CHART_REACH_CAP_V1,
+    DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1,
+    DEFAULT_SILHOUETTE_UV_SLIDE_V1,
+    ExactRationalV1,
+)
 
 
 DECAL_REQUEST_SCHEMA_V1 = "cftuv.envelope.decal_request.v1"
@@ -72,6 +77,12 @@ class DecalRequestV1:
     растяжения: полосовая карта (`DevelopableBandChartCertificateV1`) записана под ЭТОЙ досягаемостью, и alpha запроса
     выше неё получает именованный отказ `REQUEST_ALPHA_EXCEEDS_CHART_REACH`. На домены, которые развёрнуты целиком,
     поле не влияет.
+
+    `silhouette_uv_slide` — наибольший сдвиг UV, который закон топологии `SILHOUETTE_TOPOLOGY_V1` вправе внести растворением
+    вершины (доля alpha, точная дробь из `(0, MAX_SILHOUETTE_UV_SLIDE]`; законность — в `validate_decal_request`). Запись без
+    поля читается как `DEFAULT_SILHOUETTE_UV_SLIDE` (1/256), на проводе значение по умолчанию опущено, поэтому прежние
+    запросы, их хэши и фикстуры побитово те же. Поле читает только материализатор под этим законом; остальные законы топологии
+    его не видят.
     """
 
     schema_version: str
@@ -94,4 +105,5 @@ class DecalRequestV1:
         DEFAULT_DEVELOPABLE_STRETCH_BUDGET_V1
     )
     chart_reach_cap: ExactRationalV1 = wire_default_field(DEFAULT_CHART_REACH_CAP_V1)
+    silhouette_uv_slide: ExactRationalV1 = wire_default_field(DEFAULT_SILHOUETTE_UV_SLIDE_V1)
 

@@ -22,6 +22,7 @@ from cftuv.envelope_request_policy import (  # noqa: E402
     envelope_angular_policy,
     envelope_decal_request_id_value,
     envelope_request_policy_signature,
+    envelope_silhouette_uv_slide,
     envelope_stretch_budget,
 )
 
@@ -148,6 +149,42 @@ def test_a_non_default_budget_reaches_the_request_the_policy_signature_and_the_r
     density_policy, _ = build(None, 2)
     both_policy, _ = build(Fraction(7, 20), 2)
     assert len({request_id(default_policy), request_id(density_policy), request_id(wide_policy), request_id(both_policy)}) == 4
+
+
+def test_the_silhouette_slide_default_is_the_kernels_and_a_named_one_reaches_the_request_the_signature_and_the_id():
+    from decimal import Decimal
+    from fractions import Fraction
+
+    import cftuv_envelope as kernel
+    from cftuv.envelope_request_policy import DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE
+    from cftuv_envelope.contracts.metric import DEFAULT_SILHOUETTE_UV_SLIDE
+
+    assert DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE == DEFAULT_SILHOUETTE_UV_SLIDE == Fraction(1, 256)
+    assert envelope_silhouette_uv_slide(None) is None and envelope_silhouette_uv_slide(Fraction(1, 256)) is None
+    assert envelope_silhouette_uv_slide(Fraction(1, 128)) == Fraction(1, 128)
+    with pytest.raises(ValueError, match="positive fraction"):
+        envelope_silhouette_uv_slide(0)
+
+    def build(slide, reach=None):
+        policy = envelope_angular_policy(kernel, None, None, reach, slide)
+        return policy, build_envelope_request_contract(
+            kernel, kernel.DecalRequestId("request"), frozenset(), Decimal("0.25"), policy
+        )
+
+    default_policy, default = build(None)
+    named_policy, named = build(Fraction(1, 128))
+    assert default == _request() and b"silhouette_uv_slide" not in kernel.DecalRequestCodecV1.dumps(default)
+    assert named.silhouette_uv_slide == kernel.ExactRationalV1(1, 128)
+    assert envelope_request_policy_signature(named) == envelope_request_policy_signature(default) + ("slide=1/128",)
+
+    def request_id(policy):
+        return envelope_decal_request_id_value(lambda *parts: "|".join(str(item) for item in parts), "rev", (), "base", policy)
+
+    reach_policy, _ = build(None, Fraction(1, 4))
+    both_policy, both = build(Fraction(1, 128), Fraction(1, 4))
+    assert request_id(default_policy) == "base" and request_id(named_policy) != "base"
+    assert len({request_id(default_policy), request_id(named_policy), request_id(reach_policy), request_id(both_policy)}) == 4
+    assert envelope_request_policy_signature(both)[-2:] == ("reach=1/4", "slide=1/128")
 
 
 def test_every_host_caller_that_passes_the_fan_density_also_passes_the_stretch_budget():

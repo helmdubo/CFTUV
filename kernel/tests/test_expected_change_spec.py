@@ -495,6 +495,7 @@ STORED = {
     "fold_miter_gate": "gate",
     "join_same_pchain": "sweep",
     "right_angle_stable": "gate",
+    "silhouette_topology": "sweep",
 }
 
 

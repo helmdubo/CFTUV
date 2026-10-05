@@ -21,6 +21,10 @@
 вызывающий идёт прежним точным путём. Порога в смысле допуска здесь нет: фильтр
 не меняет ответ, а только решает, платить ли за него точной арифметикой.
 
+ТОЖДЕСТВО АФФИННОСТИ. `affine_map_violated` — тот же фильтр для точного тождества `uv_vertex_on_affine_map` (вершина лежит на аффинной
+карте значений, решённой по трём вершинам основы): доказывает только НАРУШЕНИЕ (невязка строго больше границы ошибки), а равенство
+и всё неопределённое уступает точному пути.
+
 ПАМЯТЬ. Центр и граница координаты считаются один раз на объект: таблица ключится
 `id(объект)` и держит САМ объект, поэтому занятый ключ не может достаться другому
 живому значению. Таблицу сбрасывает `reset_factorization_memory` на границе домена, а предел записей — целиком. Результат от таблицы не
@@ -168,3 +172,59 @@ def polygon_sign(points) -> int | None:
     if abs(total) > bound:
         return 1 if total > 0.0 else -1
     return None
+
+
+def affine_map_violated(points, values, base, index) -> bool:
+    """Доказано ли в binary64, что вершина `index` НЕ лежит на аффинной карте значений, решённой по основе `base` (три ключа).
+
+    Невязка тождества `det (f(q) - f0) - [(q' x v) (f1 - f0) + (u x q') (f2 - f0)]` (`u`, `v` — стороны основы, `q'` — вершина от
+    начала основы; `tessellate.uv_vertex_on_affine_map`) считается с границей ошибки тем же способом, что `orientation_sign`.
+    `True` — по какой-то из двух компонент `|невязка|` строго больше границы: нарушение доказано, точный путь вывод
+    подтвердит. `False` — не доказано (нуль, касание, число вне binary64): вызывающий идёт точным путём. Ответ не меняется,
+    меняется цена: вершины, чьё нарушение велико, не платят за произведение сумм корней.
+    """
+
+    slack = _SLACK
+    found = []
+    for key in (base[0], base[1], base[2], index):
+        for coordinate in points[key]:
+            entry = centre_and_bound(coordinate)
+            if entry is None:
+                return False
+            found.append(entry)
+        for value in values[key]:
+            entry = centre_and_bound(value)
+            if entry is None:
+                return False
+            found.append(entry)
+
+    def sub(first, second):
+        value = first[0] - second[0]
+        return value, first[1] + second[1] + slack * abs(value)
+
+    def add(first, second):
+        value = first[0] + second[0]
+        return value, first[1] + second[1] + slack * abs(value)
+
+    def mul(first, second):
+        value = first[0] * second[0]
+        return value, abs(first[0]) * second[1] + abs(second[0]) * first[1] + first[1] * second[1] + slack * abs(value) + _FLOOR
+
+    # по четыре записи на вершину: x, y, f0, f1 (`values` — пара компонент, `points` — пара координат)
+    x0, y0, a0, b0 = found[0:4]
+    x1, y1, a1, b1 = found[4:8]
+    x2, y2, a2, b2 = found[8:12]
+    xq, yq, aq, bq = found[12:16]
+    ux, uy = sub(x1, x0), sub(y1, y0)
+    vx, vy = sub(x2, x0), sub(y2, y0)
+    qx, qy = sub(xq, x0), sub(yq, y0)
+    det = sub(mul(ux, vy), mul(uy, vx))
+    first_weight = sub(mul(qx, vy), mul(qy, vx))
+    second_weight = sub(mul(ux, qy), mul(uy, qx))
+    for f0, f1, f2, fq in ((a0, a1, a2, aq), (b0, b1, b2, bq)):
+        left = mul(det, sub(fq, f0))
+        right = add(mul(first_weight, sub(f1, f0)), mul(second_weight, sub(f2, f0)))
+        residual = sub(left, right)
+        if abs(residual[0]) > residual[1] * _MARGIN:
+            return True
+    return False

@@ -94,6 +94,12 @@ DEFAULT_ENVELOPE_STRETCH_BUDGET = Fraction(DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT,
 # Совпадение с умолчанием ядра (1/2) сверяет исполнительная проверка (`tests/test_envelope_request_policy.py`).
 DEFAULT_ENVELOPE_CHART_REACH_CAP = Fraction(1, 2)
 
+# Сдвиг UV закона `SILHOUETTE_TOPOLOGY_V1` - политика запроса (`DecalRequestV1.silhouette_uv_slide`, доля alpha): наибольшее
+# расстояние UV, на которое растворение вершины вправе сдвинуть текстуру. Умолчание - 1/256 alpha (выбор плана S1, владелец
+# делегировал технический выбор); ручки на панели нет. Совпадение с умолчанием ядра сверяет исполнительная проверка
+# (`tests/test_envelope_request_policy.py`).
+DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE = Fraction(1, 256)
+
 
 def envelope_chart_reach_cap(cap) -> Fraction | None:
     """`None` (запрос несёт умолчание ядра) либо точная дробь метров; значение, равное умолчанию, - `None`."""
@@ -104,6 +110,17 @@ def envelope_chart_reach_cap(cap) -> Fraction | None:
     if value <= 0:
         raise ValueError("chart reach cap must be a positive length in metres")
     return None if value == DEFAULT_ENVELOPE_CHART_REACH_CAP else value
+
+
+def envelope_silhouette_uv_slide(slide) -> Fraction | None:
+    """`None` (запрос несёт умолчание ядра) либо точная дробь доли alpha; значение, равное умолчанию, - `None`."""
+
+    if slide is None:
+        return None
+    value = Fraction(slide)
+    if value <= 0:
+        raise ValueError("silhouette UV slide must be a positive fraction of alpha")
+    return None if value == DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE else value
 
 
 def topology_chart_reach_cap(topology_export) -> Fraction | None:
@@ -139,7 +156,8 @@ class EnvelopeAngularPolicyV1:
 
     `developable_stretch_budget` — допуск растяжения развёртки запроса (`None`: умолчание ядра).
     Он едет в этой же записи, чтобы идентичность запроса и сам запрос получали его от одного владельца. Так же едет
-    `chart_reach_cap` - досягаемость полосовой карты (`None`: умолчание ядра).
+    `chart_reach_cap` - досягаемость полосовой карты (`None`: умолчание ядра). Так же едет `silhouette_uv_slide` - сдвиг UV
+    закона `SILHOUETTE_TOPOLOGY_V1` (`None`: умолчание ядра).
     """
 
     density: int | None
@@ -149,6 +167,7 @@ class EnvelopeAngularPolicyV1:
     exact_value: object
     developable_stretch_budget: Fraction | None = None
     chart_reach_cap: Fraction | None = None
+    silhouette_uv_slide: Fraction | None = None
 
     @property
     def signature(self) -> tuple[str, ...]:
@@ -186,14 +205,15 @@ def normalize_envelope_fan_density(value) -> int | None:
 
 
 def envelope_angular_policy(
-    kernel, density, developable_stretch_budget=None, chart_reach_cap=None
+    kernel, density, developable_stretch_budget=None, chart_reach_cap=None, silhouette_uv_slide=None
 ) -> EnvelopeAngularPolicyV1:
-    """Возвращает старый закон для None и Huber Density A для 0..4; допуск растяжения и досягаемость едут вместе."""
+    """Возвращает старый закон для None и Huber Density A для 0..4; допуск растяжения, досягаемость и сдвиг UV едут вместе."""
 
     normalized = normalize_envelope_fan_density(density)
     if developable_stretch_budget == DEFAULT_ENVELOPE_STRETCH_BUDGET:
         developable_stretch_budget = None
     chart_reach_cap = envelope_chart_reach_cap(chart_reach_cap)
+    silhouette_uv_slide = envelope_silhouette_uv_slide(silhouette_uv_slide)
     if normalized is None:
         return EnvelopeAngularPolicyV1(
             None,
@@ -203,6 +223,7 @@ def envelope_angular_policy(
             kernel.ExactAngleV1(kernel.ExactAngleSymbol.PI_OVER_3),
             developable_stretch_budget,
             chart_reach_cap,
+            silhouette_uv_slide,
         )
     value_contracts = (
         (
@@ -235,14 +256,16 @@ def envelope_angular_policy(
         kernel.ExactAngleV1(symbol),
         developable_stretch_budget,
         chart_reach_cap,
+        silhouette_uv_slide,
     )
 
 
 def envelope_request_policy_signature(request) -> tuple[str, ...]:
-    """Канонический ключ только тех полей, от которых зависит подготовка: веер, допуск растяжения и досягаемость.
+    """Канонический ключ полей политики запроса: веер, допуск растяжения, досягаемость и сдвиг UV.
 
-    Досягаемость входит, лишь когда она не умолчание: подпись запроса без поля побитово прежняя, а полоса другой
-    досягаемости - другая карта, и подготовка не должна жить под чужим ключом.
+    Досягаемость и сдвиг UV входят, лишь когда они не умолчание: подпись запроса без поля побитово прежняя, а полоса другой
+    досягаемости - другая карта, и подготовка не должна жить под чужим ключом; запрос с другим сдвигом UV - другая сетка
+    декали (закон силуэта), и его результат не должен жить под ключом умолчания.
     """
 
     exact_value = request.max_subturn_exact_value
@@ -256,12 +279,18 @@ def envelope_request_policy_signature(request) -> tuple[str, ...]:
         )
     ) + (_budget_text(request.developable_stretch_budget),)
     cap = request.chart_reach_cap
-    if (cap.numerator, cap.denominator) == (
+    if (cap.numerator, cap.denominator) != (
         DEFAULT_ENVELOPE_CHART_REACH_CAP.numerator,
         DEFAULT_ENVELOPE_CHART_REACH_CAP.denominator,
     ):
-        return key
-    return key + (f"reach={_budget_text(cap)}",)
+        key += (f"reach={_budget_text(cap)}",)
+    slide = request.silhouette_uv_slide
+    if (slide.numerator, slide.denominator) != (
+        DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE.numerator,
+        DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE.denominator,
+    ):
+        key += (f"slide={_budget_text(slide)}",)
+    return key
 
 
 def envelope_decal_request_id_value(
@@ -284,9 +313,11 @@ def envelope_decal_request_id_value(
         base = typed_value(
             "decal-request-stretch", base, _budget_text(policy.developable_stretch_budget)
         )
-    if policy.chart_reach_cap is None:
+    if policy.chart_reach_cap is not None:
+        base = typed_value("decal-request-reach", base, _budget_text(policy.chart_reach_cap))
+    if policy.silhouette_uv_slide is None:
         return base
-    return typed_value("decal-request-reach", base, _budget_text(policy.chart_reach_cap))
+    return typed_value("decal-request-slide", base, _budget_text(policy.silhouette_uv_slide))
 
 
 def build_envelope_request_contract(
@@ -322,6 +353,12 @@ def build_envelope_request_contract(
         if cap is None
         else {"chart_reach_cap": kernel.ExactRationalV1(cap.numerator, cap.denominator)}
     )
+    slide = angular_policy.silhouette_uv_slide
+    silhouette = (
+        {}
+        if slide is None
+        else {"silhouette_uv_slide": kernel.ExactRationalV1(slide.numerator, slide.denominator)}
+    )
     return kernel.DecalRequestV1(
         schema_version=kernel.DECAL_REQUEST_SCHEMA_V1,
         decal_request_id=request_id,
@@ -341,6 +378,7 @@ def build_envelope_request_contract(
         uv_policy_id=kernel.PolicyId(uv_policy_id),
         **stretch,
         **reach,
+        **silhouette,
     )
 
 
@@ -348,6 +386,7 @@ __all__ = (
     "DEFAULT_ENVELOPE_CHART_REACH_CAP",
     "DEFAULT_ENVELOPE_FAN_DENSITY",
     "DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT",
+    "DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE",
     "DEFAULT_ENVELOPE_STRETCH_BUDGET",
     "ENVELOPE_FAN_DENSITY_ITEMS",
     "ENVELOPE_MAX_STRETCH_PERCENT_RANGE",
@@ -361,6 +400,7 @@ __all__ = (
     "envelope_chart_reach_cap",
     "envelope_decal_request_id_value",
     "envelope_request_policy_signature",
+    "envelope_silhouette_uv_slide",
     "envelope_stretch_budget",
     "normalize_envelope_fan_density",
     "request_alpha_decimal",
