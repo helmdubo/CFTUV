@@ -54,6 +54,17 @@ def _fresh_developable_chart_memory():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _fresh_clip_memo():
+    """Память стадии резки (по содержимому входа) не переживает тест: тесты, подсматривающие за стадией, видят её запуск."""
+
+    from cftuv_envelope.materialize.clip_memo import MEMO
+
+    MEMO.clear()
+    MEMO.reset_stats()
+    yield
+
+
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "session_a_v5"
 CASE_PATHS = tuple(sorted((FIXTURE_ROOT / "cases").glob("*.json")))
 

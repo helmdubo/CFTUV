@@ -110,6 +110,7 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "decal_topology_law",
         "seconds",
         "placement",
+        "clip_memo",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}
