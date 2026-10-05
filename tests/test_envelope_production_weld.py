@@ -452,3 +452,174 @@ def test_a_batch_without_chains_reports_nothing():
         "ADAPTER_SEAM_T_JUNCTIONS": 0,
         "ADAPTER_SEAM_CLIP_VERTICES": 0,
     }
+
+
+# --------------------------------------------------------------------------
+# Порядок цепей батча (`frozenset`, ходит с PYTHONHASHSEED) не меняет шов (walls.003: ложный T-стык у 3 из 6 зёрен)
+# --------------------------------------------------------------------------
+
+
+def _ring_around_a_hexagon():
+    """`walls.003`: патч-шестиугольник (домен 2) целиком в кольце (домен 0), цепь кольца обходит его шесть вершин.
+
+    Ребро `(13, 14)` есть только у шестиугольника; кольцо идёт `14 -> 21 -> 20 -> 19 -> 18 -> 13` одной цепью, а шестиугольник
+    режет тот же путь на три цепи. Пары пути совпадают, ребра `(13, 14)` у кольца нет вовсе: шва там нет.
+    """
+
+    hexagon = [
+        _chain("SOURCE", ["src:20", "src:19"], 0),
+        _chain("SOURCE", ["src:13", "src:14"], 1),
+        _chain("SOURCE", ["src:14", "src:21", "src:20"], 2),
+        _chain("SOURCE", ["src:19", "src:18", "src:13"], 3),
+    ]
+    ring = [
+        _chain("SOURCE", ["src:15", "src:14"], 0),
+        _chain("SOURCE", ["src:13", "src:12"], 1),
+        _chain("SOURCE", ["src:14", "src:21", "src:20", "src:19", "src:18", "src:13"], 4),
+    ]
+    return hexagon, ring
+
+
+def test_a_ring_chain_going_around_a_hexagon_patch_is_no_t_junction_in_any_chain_order():
+    from itertools import permutations
+
+    from cftuv.envelope_production_weld import seam_report
+
+    hexagon, ring = _ring_around_a_hexagon()
+    for hexagon_order in permutations(hexagon):
+        for ring_order in permutations(ring):
+            inner, outer = _batch(*hexagon_order), _batch(*ring_order)
+            assert dict(seam_report([inner, outer]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+            assert dict(seam_report([outer, inner]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+
+
+def test_an_edge_chain_next_to_a_bypass_chain_of_the_same_neighbour_is_no_t_junction_in_any_order():
+    from itertools import permutations
+
+    from cftuv.envelope_production_weld import seam_report
+
+    mine = _batch(_chain("SOURCE", ["src:13", "src:14"]))
+    neighbour = [
+        _chain("SOURCE", ["src:13", "src:14"], 0),
+        _chain("SOURCE", ["src:14", "src:21", "src:20", "src:19", "src:18", "src:13"], 1),
+        _chain("SOURCE", ["src:30", "src:31"], 2),
+    ]
+    for order in permutations(neighbour):
+        assert dict(seam_report([mine, _batch(*order)]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+        assert dict(seam_report([_batch(*order), mine]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+
+
+def test_a_bypass_through_vertices_the_other_domain_does_not_have_stays_a_t_junction_in_any_order():
+    from itertools import permutations
+
+    from cftuv.envelope_production_weld import seam_report
+
+    mine = _batch(_chain("SOURCE", ["src:13", "src:14"]))
+    neighbour = [
+        _chain("SOURCE", ["src:14", "src:21", "src:20", "src:19", "src:18", "src:13"], 1),
+        _chain("SOURCE", ["src:30", "src:31"], 2),
+    ]
+    for order in permutations(neighbour):
+        assert dict(seam_report([mine, _batch(*order)]))["ADAPTER_SEAM_T_JUNCTIONS"] == 1
+        assert dict(seam_report([_batch(*order), mine]))["ADAPTER_SEAM_T_JUNCTIONS"] == 1
+
+
+def test_a_vertex_ending_one_chain_and_starting_another_is_judged_on_the_chain_that_has_both_anchors():
+    from itertools import permutations
+
+    from cftuv.envelope_production_weld import seam_report
+
+    # `src:a` — конец цепи 0 и начало цепи 1; обе вершины пары лежат на цепи 1, и между ними там стоит `src:m`.
+    chains = [_chain("SOURCE", ["src:x", "src:a"], 0), _chain("SOURCE", ["src:a", "src:m", "src:b"], 1)]
+    mine = _batch(_chain("SOURCE", ["src:a", "src:b"]))
+    for order in permutations(chains):
+        assert dict(seam_report([mine, _batch(*order)]))["ADAPTER_SEAM_T_JUNCTIONS"] == 1
+
+
+#: Зонд для подпроцесса: модуль грузится по пути, цепи лежат в `frozenset` хешируемых записей (их порядок обхода зависит от
+#: `PYTHONHASHSEED`, как у `GeometryBatchV1.boundary_chains`). `walls003` — кольцо вокруг шестиугольника (ответ 0); `clean` —
+#: шесть мест «ребро рядом с обходом» (0); `genuine` — шесть мест, где у соседа между концами пары стоит вершина, которой у
+#: домена пары нет (6). Ответ каждого обязан быть одним и тем же на любом зерне.
+_HASH_SEED_PROBE = """
+import importlib.util, json, sys
+from dataclasses import dataclass
+
+spec = importlib.util.spec_from_file_location("weld_under_test", sys.argv[1])
+weld = importlib.util.module_from_spec(spec)
+sys.modules["weld_under_test"] = weld
+spec.loader.exec_module(weld)
+
+
+@dataclass(frozen=True)
+class Name:
+    value: str
+
+
+@dataclass(frozen=True)
+class Chain:
+    semantic_boundary_id: Name
+    ordered_vert_keys: tuple
+
+
+@dataclass(frozen=True)
+class Batch:
+    boundary_chains: frozenset
+
+
+def chain(number, keys):
+    return Chain(Name(f"boundary:SOURCE:0:{number}"), tuple(Name(key) for key in keys))
+
+
+def walls003():
+    hexagon = [[20, 19], [13, 14], [14, 21, 20], [19, 18, 13]]
+    ring = [[15, 14], [13, 12], [0, 23, 22, 15], [12, 17, 16, 1], [14, 21, 20, 19, 18, 13], [1, 4, 5, 6, 7, 0]]
+    return [
+        Batch(frozenset(chain(n, [f"src:{k}" for k in keys]) for n, keys in enumerate(group)))
+        for group in (hexagon, ring)
+    ]
+
+
+def places(genuine):
+    mine, theirs = [], []
+    for index in range(6):
+        a, b, m, c = (f"src:{index}{tag}" for tag in "abmc")
+        mine.append(chain(index, [a, b]))
+        theirs.append(chain(2 * index, [a, c, b] if genuine else [a, b]))
+        theirs.append(chain(2 * index + 1, [b, m, a]))
+    return [Batch(frozenset(mine)), Batch(frozenset(theirs))]
+
+
+scenes = {"walls003": walls003(), "clean": places(False), "genuine": places(True)}
+print(json.dumps({name: dict(weld.seam_report(batches)) for name, batches in scenes.items()}, sort_keys=True))
+"""
+
+_HASH_SEEDS = (0, 1, 2, 3, 4, 5, 6, 7)
+
+
+def _seam_report_by_hash_seed(module_path) -> dict:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    answers = {}
+    for seed in _HASH_SEEDS:
+        run = subprocess.run(
+            [sys.executable, "-c", _HASH_SEED_PROBE, str(module_path)],
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert run.returncode == 0, run.stderr
+        answers[seed] = json.loads(run.stdout)
+    return answers
+
+
+def test_the_seam_report_is_the_same_under_every_hash_seed():
+    answers = _seam_report_by_hash_seed(Path(weld.__file__))
+
+    none = {"ADAPTER_SEAM_T_JUNCTIONS": 0, "ADAPTER_SEAM_CLIP_VERTICES": 0}
+    six = {"ADAPTER_SEAM_T_JUNCTIONS": 6, "ADAPTER_SEAM_CLIP_VERTICES": 0}
+    assert answers == {seed: {"walls003": none, "clean": none, "genuine": six} for seed in _HASH_SEEDS}
