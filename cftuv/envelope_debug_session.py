@@ -6,6 +6,7 @@ on the active WindowManager as ``_cftuv_envelope_debug_session``.
 
 from __future__ import annotations
 
+import sys
 from collections import OrderedDict
 from dataclasses import dataclass
 from fractions import Fraction
@@ -344,13 +345,20 @@ class EnvelopeDebugSessionController:
         return SliderCoveragePool(pool, self.preparation_blobs, profile)
 
     def clear(self) -> None:
-        """Полный сброс сессии: кэши ревизии, хранилище по содержимому и пиклы подготовок."""
+        """Полный сброс сессии: кэши ревизии, хранилище по содержимому, пиклы подготовок и память сертификата вложения ядра.
+
+        Память сертификата (`cftuv_envelope._embedding`) ключуется ЗНАЧЕНИЯМИ входа и потому смену ревизии источника
+        переживает, как хранилище по содержимому; полный сброс забывает и её (ядро могло и не загружаться - тогда ей нечего).
+        """
 
         self.quiesce_preview("session cleared")
         self._drop_revision_scoped()
         self._content_store.clear()
         if self._preparation_blobs is not None:
             self._preparation_blobs.clear()
+        embedding = sys.modules.get("cftuv_envelope._embedding")
+        if embedding is not None:
+            embedding.clear_embedding_memo()
 
     def _drop_revision_scoped(self) -> None:
         self._source_state_by_object.clear()

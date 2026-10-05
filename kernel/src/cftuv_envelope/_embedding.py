@@ -8,11 +8,14 @@ failure count is an admission refusal or a validation issue.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cmp_to_key
 from hashlib import sha256
 import json
+import threading
 
 from .contracts.metric import (
     GridSnappingLawV1,
@@ -462,6 +465,61 @@ def _corner_unchanged(before, after, corner) -> bool:
     )
 
 
+#: Память сертификата вложения привязки источника: сколько записей держит (0 - памяти нет).
+#:
+#: Сертификат - O(n^2) точных предикатов по ВСЕМУ патчу и чистая функция своих аргументов, а один домен считает его
+#: снова и снова над теми же числами: лестница метрики зовёт его на ступени near-planar и на ступени развёртки, нажатие -
+#: на лестнице целого патча, карты запроса и суженной карты, валидатор снапшота - ещё дважды, повторное нажатие и шаг
+#: ширины - заново. Ключ - ВСЁ, что сертификат читает (позиции до и после привязки, грани, задуманные и неклассифицируемые
+#: углы, закон), значением, а не тождеством; запись - неизменяемая запись сертификата, попадание побитово равно промаху.
+#: Код входит в ключ через объект кода реализации: память живёт столько же, сколько модуль, и перезагрузка модуля начинает
+#: пустую. Вытеснение - по давности обращения.
+EMBEDDING_MEMO_LIMIT = 8
+
+_memo: OrderedDict = OrderedDict()
+_memo_lock = threading.Lock()
+_memo_limit = EMBEDDING_MEMO_LIMIT
+_memo_stats = {"hits": 0, "misses": 0}
+
+
+def embedding_memo_stats() -> dict:
+    """`{"hits", "misses", "entries"}`: сколько раз память ответила, сколько раз считали и сколько записей держится."""
+
+    with _memo_lock:
+        return {**_memo_stats, "entries": len(_memo)}
+
+
+def clear_embedding_memo() -> None:
+    """Забыть все записи и обнулить счётчики (полный сброс сессии хоста, тесты)."""
+
+    with _memo_lock:
+        _memo.clear()
+        _memo_stats["hits"] = _memo_stats["misses"] = 0
+
+
+@contextmanager
+def embedding_memo_limit(limit: int):
+    """На время блока память держит не больше `limit` записей (0 - выключена); записи и счётчики выхода не переживают."""
+
+    global _memo_limit
+    previous = _memo_limit
+    with _memo_lock:
+        _memo_limit = int(limit)
+        _memo.clear()
+        _memo_stats["hits"] = _memo_stats["misses"] = 0
+    try:
+        yield
+    finally:
+        with _memo_lock:
+            _memo_limit = previous
+            _memo.clear()
+            _memo_stats["hits"] = _memo_stats["misses"] = 0
+
+
+def _frozen_positions(positions) -> tuple:
+    return tuple(sorted(positions.items(), key=lambda item: item[0].value))
+
+
 def build_source_snap_embedding_certificate(
     *,
     before,
@@ -470,6 +528,48 @@ def build_source_snap_embedding_certificate(
     intended_corners,
     unclassifiable_corners=(),
     snapping_law,
+):
+    """Сертификат вложения привязки источника: из памяти по ЗНАЧЕНИЯМ аргументов либо посчитанный (см. `EMBEDDING_MEMO_LIMIT`)."""
+
+    faces, intended_corners, unclassifiable_corners = tuple(faces), tuple(intended_corners), tuple(unclassifiable_corners)
+    if _memo_limit <= 0:
+        return _compute_source_snap_embedding_certificate(
+            before, after, faces, intended_corners, unclassifiable_corners, snapping_law
+        )
+    key = (
+        _compute_source_snap_embedding_certificate.__code__,
+        snapping_law,
+        _frozen_positions(before),
+        None if after is before or after == before else _frozen_positions(after),
+        faces,
+        intended_corners,
+        unclassifiable_corners,
+    )
+    try:
+        with _memo_lock:
+            found = _memo.get(key)
+            if found is not None:
+                _memo.move_to_end(key)
+                _memo_stats["hits"] += 1
+                return found
+            _memo_stats["misses"] += 1
+    except TypeError:  # значение без хеша: ключа нет, и память не отвечает - считаем, как без неё
+        return _compute_source_snap_embedding_certificate(
+            before, after, faces, intended_corners, unclassifiable_corners, snapping_law
+        )
+    certificate = _compute_source_snap_embedding_certificate(
+        before, after, faces, intended_corners, unclassifiable_corners, snapping_law
+    )
+    with _memo_lock:
+        _memo[key] = certificate
+        _memo.move_to_end(key)
+        while len(_memo) > _memo_limit:
+            _memo.popitem(last=False)
+    return certificate
+
+
+def _compute_source_snap_embedding_certificate(
+    before, after, faces, intended_corners, unclassifiable_corners, snapping_law
 ):
     vertex_ids = tuple(sorted(before, key=lambda item: item.value))
     edges = _source_edge_occurrences(faces)

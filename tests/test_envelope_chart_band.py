@@ -642,3 +642,22 @@ def test_a_new_preparation_on_another_tightened_map_replaces_the_stored_one_and_
     controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: same)  # кэш сессии держит `new`
     production._register_content(run, entry, request, result)
     assert store.find("content-key").prepared is new  # та же досягаемость: запись остаётся
+
+
+def test_a_full_session_reset_forgets_the_embedding_memo_but_a_revision_change_keeps_it():
+    from fractions import Fraction as F
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope import _embedding
+
+    vertices = [kernel.SourceVertexId(f"v{index}") for index in range(3)]
+    positions = {item: (F(index), F(index * index), F(0)) for index, item in enumerate(vertices)}
+    with _embedding.embedding_memo_limit(4):
+        _embedding.build_source_snap_embedding_certificate(
+            before=positions, after=positions, faces=(), intended_corners=(), snapping_law=kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1
+        )
+        controller = session.EnvelopeDebugSessionController()
+        controller._invalidate_revision_scoped()
+        assert _embedding.embedding_memo_stats()["entries"] == 1
+        controller.clear()
+        assert _embedding.embedding_memo_stats()["entries"] == 0
