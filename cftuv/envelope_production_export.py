@@ -126,6 +126,10 @@ PRODUCTION_REFUSED = "PRODUCTION_REFUSED"
 #: Домены, чей результат лежал в кэше сессии, и домены, которые пришлось считать.
 PRODUCTION_RESULT_CACHE_HIT = "PRODUCTION_RESULT_CACHE_HIT"
 PRODUCTION_RESULT_CACHE_MISS = "PRODUCTION_RESULT_CACHE_MISS"
+#: Из посчитанных в этом прогоне доменов: чья резка взята из памяти стадии (`cftuv_envelope.materialize.clip_memo`, у
+#: воркера своя) и чья посчитана и записана в неё. Остальные — без резки либо память выключена.
+PRODUCTION_CLIP_MEMO_HITS = "PRODUCTION_CLIP_MEMO_HITS"
+PRODUCTION_CLIP_MEMO_MISSES = "PRODUCTION_CLIP_MEMO_MISSES"
 #: Хранилище по содержимому домена (`envelope_content_store`): домены с ключом содержимого, домены, чей
 #: результат либо подготовка взяты оттуда при другой ревизии, результаты, перенесённые на ревизию прогона,
 #: и переносы, которых не вышло (домен тогда считается заново, причина названа строкой консоли).
@@ -229,6 +233,8 @@ class ProductionDomainResultV1:
     decal_topology_law: str = ""
     seconds: float = field(default=0.0, compare=False)
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
+    #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`, пусто — резки нет): метка запуска, не ответ.
+    clip_memo: str = field(default="", compare=False)
     #: Запись идентичностей хоста, при которых посчитан результат (`DomainLabelingV1`), либо `None`: по ней
     #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
     #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
@@ -366,6 +372,7 @@ def produce_domain(
             offset_normals_digest=result.offset_normals_digest,
             decal_topology_law=result.decal_topology_law.value,
             seconds=time.perf_counter() - started,
+            clip_memo=result.clip_memo,
         )
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
         return _refusal(
@@ -1059,6 +1066,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             run.alpha_text,
             entry_of[domain_id].selected,
             production=_production_input(run, entry_of[domain_id], blob),
+            affinity=domain_id,
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
@@ -1076,6 +1084,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
                 entry.selected,
                 export=entry.export,
                 cold=laws,
+                affinity=entry.domain_id,
             )
         )
     return tasks
@@ -1220,7 +1229,7 @@ def _domain_results(entries, done, refused):
         elif entry.domain_id in refused:
             results.append(_host_refusal(entry, refused[entry.domain_id]))
         elif entry.cached is not None:
-            results.append(replace(entry.cached, seconds=0.0, placement=PLACEMENT_CACHED))
+            results.append(replace(entry.cached, seconds=0.0, placement=PLACEMENT_CACHED, clip_memo=""))
         elif entry.domain_id in done:
             results.append(done[entry.domain_id])
         else:
@@ -1281,6 +1290,9 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     profile.set_counter(
         PRODUCTION_RESULT_CACHE_MISS, sum(1 for item in entries if item.computes)
     )
+    computed = [result for entry, result in zip(entries, results) if entry.computes]
+    for name, label in ((PRODUCTION_CLIP_MEMO_HITS, "HIT"), (PRODUCTION_CLIP_MEMO_MISSES, "MISS")):
+        profile.set_counter(name, sum(1 for item in computed if item.clip_memo == label))
     profile.set_counter(PRODUCTION_DOMAINS, len(results))
     profile.set_counter(
         PRODUCTION_MATERIALIZED, sum(1 for item in results if item.is_materialized)
@@ -1562,8 +1574,16 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"Decal {kind} {run.wall_seconds:.2f} s | preparations reused {reused}, "
         f"built {builds} | results cached {cached}, computed {computed}"
         f"{_content_timing_suffix(run, content)}"
+        f"{_clip_memo_timing_suffix(run)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
+
+
+def _clip_memo_timing_suffix(run: ProductionRunV1) -> str:
+    """` | clip memo H hits, M misses`, когда у посчитанных доменов была резка с памятью стадии."""
+
+    hits, misses = run.counter(PRODUCTION_CLIP_MEMO_HITS), run.counter(PRODUCTION_CLIP_MEMO_MISSES)
+    return f" | clip memo {hits} hits, {misses} misses" if hits or misses else ""
 
 
 def _content_timing_suffix(run: ProductionRunV1, content: int) -> str:
@@ -1629,6 +1649,8 @@ __all__ = (
     "OUTCOME_DOMAIN_RAISED",
     "OUTCOME_PREPARATION_UNAVAILABLE",
     "PLACEMENT_CACHED",
+    "PRODUCTION_CLIP_MEMO_HITS",
+    "PRODUCTION_CLIP_MEMO_MISSES",
     "PRODUCTION_COLD_FILL",
     "PRODUCTION_DOMAINS",
     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS",

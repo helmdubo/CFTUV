@@ -722,6 +722,17 @@ class BoundSurfaceLiftV1:
             self._normal_by_position[(lifted.x, lifted.y, lifted.z)] = normal
         return lifted, (triangle.name, normal)
 
+    def replay_lifted(self, lifted: dict) -> None:
+        """Нормали смещения вершин, подъём которых взят из памяти резки (`clip_memo`), встают на свои позиции.
+
+        `lift_known` пишет нормаль по позиции подъёма; вершина, поднятая не здесь, а записью памяти, оставила бы
+        `offset_normals` без неё. Порядок записи — порядок рождения вершин (тот же, что в `lifted`).
+        """
+
+        for position, (_name, normal) in lifted.values():
+            if normal is not None:
+                self._normal_by_position[(position.x, position.y, position.z)] = normal
+
     @property
     def has_offset_normals(self) -> bool:
         return bool(self._normal_by_position)

@@ -38,7 +38,10 @@
 «не дошли».
 
 Каждая материализация считается с ХОЛОДНОЙ памятью канонизации, поэтому статьи
-`EXACT_WORK_*` — свойство входа, а не истории процесса.
+`EXACT_WORK_*` — свойство входа, а не истории процесса. Резка (`clip`) идёт через точную
+память по содержимому её входа (`clip_memo`): попавшая резка воспроизводит цену и записи
+памяти канонизации промаха, поэтому и `EXACT_WORK_*`, и всё остальное те же; как резка
+получена, говорит метка `MaterializationV1.clip_memo` (не ответ).
 
 ВСЁ ПИКЛИТСЯ: результат — замороженные записи из чисел, строк и множеств, а
 вход (`prepared`, `coverage`) воркер пула держит у себя, поэтому вызов можно
@@ -49,7 +52,7 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from typing import NamedTuple
 
@@ -138,6 +141,9 @@ class MaterializationV1:
     #: диагностики и не `contract_versions` батча — те входят в семантический
     #: дайджест, а он тесселяции не видит.
     decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1
+    #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`; пусто — резки нет): метка запуска, как секунды, а не
+    #: ответ, поэтому в сравнение не входит и в счётчики ответа не пишется.
+    clip_memo: str = field(default="", compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -574,6 +580,7 @@ class _Built(NamedTuple):
     lift_counters: tuple = ()
     lift: object = None
     topology_counters: tuple = ()
+    clip_memo: str = ""
 
 
 def _counters(built: _Built, budget):
@@ -828,15 +835,22 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law)
     return (
         batch,
         frame_faces,
-        (
-            *plane.counters(),
-            *sourced.counters(),
-            *faces_after.counters(),
-            *(() if cut is None else cut.counters),
-            *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS)),
-        ),
+        _lift_counters(plane, sourced, faces_after, cut, tally),
         plane,
         topology,
+        "" if cut is None else cut.memo,
+    )
+
+
+def _lift_counters(plane, sourced, faces_after, cut, tally) -> tuple:
+    """Числа подъёма, привязки позиций хоста, граней, резки и ступеней станций: в порядке, в котором они пишутся в ответ."""
+
+    return (
+        *plane.counters(),
+        *sourced.counters(),
+        *faces_after.counters(),
+        *(() if cut is None else cut.counters),
+        *((name, tally[name]) for name in (RUNG_STATIONS_FROM_CHAIN_VERTEX, RUNG_CHORD_STATIONS)),
     )
 
 
@@ -858,7 +872,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
         lines: list[str] = []
         notes: list[str] = []
         try:
-            batch, frame_faces, lift_counters, lift, topology = _assemble(
+            batch, frame_faces, lift_counters, lift, topology, clip_memo = _assemble(
                 prepared, coverage, request, admission, budget, clock,
                 (items, table, lines, notes, chords), law,
             )
@@ -896,6 +910,7 @@ def _build(prepared, coverage, request, admission, budget, clock, law) -> _Built
         (*chords.counters(), *lift_counters),
         lift,
         topology,
+        clip_memo,
     )
 
 
@@ -1013,4 +1028,5 @@ def _materialize_domain(
         vertex_normals=offset_normals,
         offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",
         offset_normals_digest=offset_normals_digest(offset_normals),
+        clip_memo=built.clip_memo,
     )

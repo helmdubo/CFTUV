@@ -86,6 +86,11 @@
 глубже допуска, расщепляется на треугольники и режется по диагонали (`cut_domain`: две стадии на общих
 узлах), под счётчиком. Прежний закон остаётся: без ячеек стадия работает по
 треугольникам, побитово как раньше.
+
+ПАМЯТЬ СТАДИИ (`clip_memo`). `cut_domain` отдаёт геометрическую резку (`clip_geometry`) точной памяти по содержимому её
+входа: те же многоугольники, точки, контуры, шов, веера, закон, треугольники подъёма и допуски (`clip_policy`) дают ту же
+резку побитово, и она не считается заново (ширина декали при насыщенном покрытии меняет только UV). Станции и `r` новых
+вершин (`station_values`) в память не входят: они зависят от alpha и считаются каждый раз.
 """
 
 from __future__ import annotations
@@ -98,6 +103,7 @@ from functools import cmp_to_key
 from ..contracts.geometry_batch import DecalTopologyLawV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..wavefront.faces import doubled_shoelace
+from . import clip_cells, clip_snap, lift, lift_surface
 from .admit import MaterializationOutcome
 from .assemble import edge_kind, station_values
 from .clip_cells import (
@@ -113,6 +119,7 @@ from .clip_cells import (
     chord_of,
     nanometres,
 )
+from .clip_memo import run_clip
 from .clip_snap import (
     NODE_EDGE_GAP_MAX,
     NODE_EDGE_GAP_MAX_CELLS,
@@ -183,6 +190,8 @@ class ClippedV1:
     lifted: dict
     counters: tuple
     note: str
+    #: Как стадия получена (`clip_memo.HIT/MISS/OFF/BYPASS`): метка запуска, а не ответ; в память не пишется.
+    memo: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1277,6 +1286,35 @@ def _chords_of(cycles, refined) -> list:
     return found
 
 
+def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces) -> ClippedV1:
+    """Геометрическая резка домена: ТО, что `cut_domain` отдаёт памяти; каждый её аргумент входит в ключ памяти."""
+
+    if by_faces:
+        return _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows)
+    stage = ClipStageV1(plane, budget, points)
+    stage.flows = flows
+    return stage.run(cycles, polygons, law, seam, fans)
+
+
+def clip_policy() -> tuple:
+    """Допуски и разрядность оболочек, которые читает резка, ЖИВЫМИ значениями: часть ключа памяти (`clip_memo`).
+
+    Каждое значение берётся из модуля, чьё имя его читает: `clip.py` держит свою копию допуска хорды, `clip_snap` и
+    `clip_cells` — свои. Тест держит полноту: новая постоянная допуска в модулях резки без записи здесь — красный тест.
+    """
+
+    return (
+        ("corner_snap_cells", clip_snap.SOURCE_VERTEX_CORNER_SNAP_CELLS),
+        ("node_edge_snap_cells", clip_snap.NODE_EDGE_SNAP_CELLS),
+        ("chord_budget", CLIP_DIAGONAL_CHORD_BUDGET),
+        ("chord_budget_cells", clip_cells.CLIP_DIAGONAL_CHORD_BUDGET),
+        (
+            "enclosure_bits",
+            (lift.ENCLOSURE_BITS, lift_surface.ENCLOSURE_BITS, clip_cells.ENCLOSURE_BITS, clip_snap.ENCLOSURE_BITS),
+        ),
+    )
+
+
 def cut_domain(
     plane,
     budget,
@@ -1303,12 +1341,21 @@ def cut_domain(
     seam = seam_edges(frame_faces, polygons, facts, layout, lattice_alpha)
     fans = [item.is_fan for item in frame_faces]
     flows = [getattr(item, "flow_key", None) is not None for item in frame_faces]
-    if by_faces:
-        clipped = _cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows)
-    else:
-        stage = ClipStageV1(plane, budget, points)
-        stage.flows = flows
-        clipped = stage.run(cycles, polygons, law, seam, fans)
+    clipped, memo = run_clip(
+        clip_geometry,
+        plane,
+        budget,
+        clip_policy(),
+        points=points,
+        cycles=cycles,
+        polygons=polygons,
+        law=law,
+        seam=seam,
+        fans=fans,
+        flows=flows,
+        by_faces=by_faces,
+    )
+    clipped = replace(clipped, memo=memo)
     extra = station_values(
         frame_faces,
         clipped.extra_lists,

@@ -17,6 +17,12 @@
 Либо ХОЛОДНЫЙ домен продуктового пути (`DomainTaskV1.cold`): подготовка и
 материализация одной задачей, без промежуточного прогона отладочного вычислителя.
 
+ПРИВЯЗКА ПЕРВОГО КРУГА (`plan_first_round`). Воркер держит память стадии резки (`cftuv_envelope.materialize.clip_memo`), и
+попадание в неё возможно, только если домен снова попал к тому же воркеру. Задачи идут тяжёлыми первыми, и первые `N` из них
+стартуют вместе на `N` воркерах в любом порядке, поэтому раздача этих `N` между воркерами длину прогона не меняет: задача с
+`DomainTaskV1.affinity` идёт к воркеру, который считал её в прошлый раз (если он жив и не занят другой задачей первого круга).
+Остальные задачи берут воркеры по очереди, как прежде. Это подсказка размещения: ответ от неё не зависит.
+
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
 `import bpy`. Воркер здесь — обычный `python -c`, который сам поднимает пакет
@@ -75,6 +81,9 @@ DEFAULT_POOL_WORKERS = min(8, os.cpu_count() or 1)
 
 #: Сколько ждать готовности воркера (импорт ядра и sympy на холодном диске).
 READY_TIMEOUT_SECONDS = 60.0
+
+#: Сколько ключей привязки помнит пул (при переполнении забывает все): запись — строка и число.
+MAX_AFFINITY_KEYS = 4096
 
 FRAME_HEADER = struct.Struct(">Q")
 PICKLE_PROTOCOL = 5
@@ -187,6 +196,8 @@ class DomainTaskV1:
     coverage: object | None = None
     production: object | None = None
     cold: object | None = None
+    #: Ключ привязки к воркеру (`plan_first_round`): задача с тем же ключом идёт к тому же воркеру, если он жив; пусто — без привязки.
+    affinity: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +340,30 @@ def order_by_cost(tasks) -> list[tuple[DomainTaskV1, bytes]]:
     framed = [(task, encode_frame(task)) for task in tasks]
     framed.sort(key=lambda item: (-_frame_cost(*item), item[0].task_id))
     return framed
+
+
+def plan_first_round(ordered, workers, last_worker) -> dict[int, int]:
+    """`{индекс воркера: позиция в ordered}`: первая задача каждого воркера.
+
+    `ordered` — пары `(задача, кадр)`, тяжёлые первыми; `workers` — индексы воркеров прогона; `last_worker` — `{ключ привязки:
+    индекс воркера}` прошлых прогонов. Первые `len(workers)` задач стартуют одновременно, поэтому между воркерами их можно
+    раздать как угодно без потери в длине прогона; задача, чей прежний воркер среди `workers` и ещё не взят, идёт к нему,
+    остальные — свободным воркерам по порядку.
+    """
+
+    free = list(workers)
+    plan: dict[int, int] = {}
+    unmatched: list[int] = []
+    for position in range(min(len(free), len(ordered))):
+        affinity = ordered[position][0].affinity
+        owner = last_worker.get(affinity) if affinity else None
+        if owner in free:
+            plan[owner] = position
+            free.remove(owner)
+        else:
+            unmatched.append(position)
+    plan.update(zip(free, unmatched))
+    return plan
 
 
 def _frame_cost(task: DomainTaskV1, frame: bytes) -> float:
@@ -755,6 +790,8 @@ class DomainPool:
         # Воркер однопоточен по кадрам: два одновременных `run` перемешали бы кадры. Раньше пулом
         # пользовался один главный поток; теперь превью alpha гонит `run` из потока счёта.
         self._run_lock = threading.Lock()
+        #: `{ключ привязки задачи: индекс воркера, который её считал}`; индексы воркеров не переиспользуются.
+        self._last_worker: dict[str, int] = {}
 
     @property
     def worker_count(self) -> int:
@@ -910,20 +947,29 @@ class DomainPool:
 
     def _run_locked(self, tasks, cancel) -> DomainPoolRunV1:
         self.ensure_started()
-        pending: queue.Queue = queue.Queue()
-        for item in order_by_cost(tasks):
-            pending.put(item)
-        results: dict[int, DomainTaskResultV1] = {}
+        ordered = order_by_cost(tasks)
         participants = list(self._workers)
+        first = plan_first_round(ordered, [item.index for item in participants], self._last_worker)
+        started = {worker: ordered[position] for worker, position in first.items()}
+        pending: queue.Queue = queue.Queue()
+        taken = set(first.values())
+        for position, item in enumerate(ordered):
+            if position not in taken:
+                pending.put(item)
+        results: dict[int, DomainTaskResultV1] = {}
 
         def feed(worker: _Worker) -> None:
+            item = started.get(worker.index)
             while True:
                 if cancel is not None and cancel.is_set():
                     return
-                try:
-                    task, frame = pending.get_nowait()
-                except queue.Empty:
-                    return
+                if item is None:
+                    try:
+                        item = pending.get_nowait()
+                    except queue.Empty:
+                        return
+                task, frame = item
+                item = None
                 try:
                     worker.send(frame)
                     reply = worker.receive()
@@ -944,6 +990,8 @@ class DomainPool:
                     )
                     return
                 results[task.task_id] = reply
+                if task.affinity:
+                    self._last_worker[task.affinity] = worker.index
 
         threads = [
             threading.Thread(target=feed, args=(worker,), daemon=True)
@@ -957,6 +1005,8 @@ class DomainPool:
             if worker.dead:
                 worker.close(grace=0.5)
         self._workers = [item for item in self._workers if not item.dead]
+        if len(self._last_worker) > MAX_AFFINITY_KEYS:
+            self._last_worker.clear()
         return DomainPoolRunV1(results, len(participants), self._interpreter)
 
     def close(self) -> None:
@@ -1052,6 +1102,7 @@ __all__ = (
     "order_by_cost",
     "package_directory",
     "peek_domain_pool",
+    "plan_first_round",
     "read_frame",
     "resolve_python_executable",
     "shutdown_domain_pool",

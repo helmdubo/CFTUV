@@ -205,6 +205,37 @@ class ExactWorkBudgetV1:
     def is_exhausted(self) -> bool:
         return self.cap is not None and self.spent > self.cap
 
+    def spent_by_article(self) -> tuple[int, ...]:
+        """Шесть статей в порядке `counters()` без суммы: то, что `replay` принимает обратно."""
+
+        return (
+            self.modular_squarings,
+            self.gcd_operations,
+            self.miller_rabin_rounds,
+            self.pollard_attempts,
+            self.radical_materializations,
+            self.exact_position_hydrations,
+        )
+
+    def replay(self, delta: tuple[int, ...]) -> bool:
+        """Повторить ЗАПИСАННУЮ цену стадии (разность `spent_by_article` до и после неё): `True` — добавлена.
+
+        Попавшая в память стадия не работает, а цена домена остаётся ценой домена: потолок — авторитет отказа и
+        не вправе зависеть от истории процесса. Если записанная цена не помещается в остаток потолка, счёт НЕ
+        меняется и возвращается `False`: вызывающий считает стадию заново, и отказ (если он будет) выпадет на
+        той же операции, что и без памяти, с теми же числами в детали.
+        """
+
+        if self.cap is not None and self.spent + sum(delta) > self.cap:
+            return False
+        self.modular_squarings += delta[0]
+        self.gcd_operations += delta[1]
+        self.miller_rabin_rounds += delta[2]
+        self.pollard_attempts += delta[3]
+        self.radical_materializations += delta[4]
+        self.exact_position_hydrations += delta[5]
+        return True
+
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
             ("EXACT_WORK_MODULAR_SQUARINGS", self.modular_squarings),
@@ -690,6 +721,60 @@ def isolated_factorization_memory():
         _FACTORIZATION_MEMO.update(factorization)
         _SQUAREFREE_MEMO.update(squarefree)
         _PRIME_SUPPORT_MEMO.update(support)
+
+
+@dataclass(frozen=True, slots=True)
+class FactorizationMemoryDeltaV1:
+    """Что стадия ДОБАВИЛА в память канонизации: записи трёх таблиц и доказанные ею простые.
+
+    Это цена, а не ответ (разложение единственно): стадия, взятая из памяти результатов, возвращает эти записи на
+    место, КАК БУДТО посчитала их сама, и стадии после неё платят за память столько же, сколько заплатили бы после
+    настоящего счёта (тот же приём, что у `prime_universe_remembered`, только с оплатой записанной цены, а не без неё).
+    """
+
+    factorizations: tuple
+    squarefree: tuple
+    supports: tuple
+    primes: tuple
+
+
+def factorization_memory_marker() -> tuple:
+    """Снимок ключей памяти: что в ней лежит СЕЙЧАС (для `factorization_memory_delta`)."""
+
+    return (
+        frozenset(_FACTORIZATION_MEMO),
+        frozenset(_SQUAREFREE_MEMO),
+        frozenset(_PRIME_SUPPORT_MEMO),
+        frozenset(_KNOWN_PRIME_SET),
+    )
+
+
+def factorization_memory_delta(marker: tuple) -> FactorizationMemoryDeltaV1:
+    """Записи, которых не было при `marker`, в порядке вставки."""
+
+    factorized, split, supported, primes = marker
+    return FactorizationMemoryDeltaV1(
+        tuple((key, value) for key, value in _FACTORIZATION_MEMO.items() if key not in factorized),
+        tuple((key, value) for key, value in _SQUAREFREE_MEMO.items() if key not in split),
+        tuple((key, value) for key, value in _PRIME_SUPPORT_MEMO.items() if key not in supported),
+        tuple(prime for prime in _KNOWN_PRIMES if prime not in primes),
+    )
+
+
+def replay_factorization_memory(delta: FactorizationMemoryDeltaV1) -> None:
+    """Вернуть записи `delta` в память; уже лежащие не трогаются, пределы таблиц те же, что у счёта."""
+
+    for key, value in delta.factorizations:
+        if key not in _FACTORIZATION_MEMO:
+            if len(_FACTORIZATION_MEMO) >= _FACTORIZATION_MEMO_ENTRIES:
+                del _FACTORIZATION_MEMO[next(iter(_FACTORIZATION_MEMO))]
+            _FACTORIZATION_MEMO[key] = value
+    for key, value in delta.squarefree:
+        _SQUAREFREE_MEMO.setdefault(key, value)
+    for key, value in delta.supports:
+        _PRIME_SUPPORT_MEMO.setdefault(key, value)
+    for prime in delta.primes:
+        _register_prime(prime)
 
 
 def _register_prime(prime: int) -> None:
