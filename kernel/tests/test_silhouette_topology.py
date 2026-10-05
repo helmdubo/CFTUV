@@ -4,8 +4,11 @@
 
 * СИНТЕТИКА (сетка прямоугольника с точными рациональными станциями): ребро между гранями одного региона в одной плоскости с
   точно аффинной UV растворяется; вершина на прямой между двумя рёбрами растворяется в пределах глубины хорды и сдвига UV
-  запроса; каждый отказ назван счётчиком (`KEPT_CHORD`, `KEPT_UV`, `KEPT_NOT_AFFINE`, `KEPT_NOT_SIMPLE`, `KEPT_JUNCTION`);
+  запроса; каждый отказ назван счётчиком (`KEPT_CHORD`, `KEPT_UV`, `KEPT_NOT_AFFINE`, `KEPT_NOT_SIMPLE`);
   ребро между регионами, контур, цепи источника и стены не растворяются никогда; порядок слияния — самое плоское первым.
+* ЦЕПИ ПО ИТОГОВЫМ ГРАНЯМ (S1c): узел контуров слитых граней одного региона — обычная вершина степени два и растворяется; цепи
+  строятся по кольцам итога (то же направление, что у контуров). ШОВ (SEAM): ребро между регионами с ТОЧНО равными фактами — не
+  интерфейс, число таких рёбер записано и пересчитано независимым обходом; разрыв UV остаётся интерфейсом.
 * ПРОВЕРКА ЗАКОНА (`verify_silhouette`) ловит испорченный итог: красные контроли — растворённая вершина стены, чужие факты,
   сдвиг и хорда сверх записанного, порванная граница, грань с растворённой вершиной.
 * ПОЛЕ (`sagging_wall`, alpha 0.987, Max stretch 42 %): доказательство слитых граней НЕЗАВИСИМЫМ точным предикатом (простота и
@@ -20,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections import Counter
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -40,7 +44,7 @@ from cftuv_envelope.ids import PolicyId
 from cftuv_envelope.materialize import domain as domain_module
 from cftuv_envelope.materialize import silhouette
 from cftuv_envelope.materialize.admit import MaterializationOutcome, materialization_request
-from cftuv_envelope.materialize.assemble import Layout, chains_of
+from cftuv_envelope.materialize.assemble import Layout, chains_of, chains_of_faces
 from cftuv_envelope.materialize.clip_cells import CLIP_DIAGONAL_CHORD_BUDGET
 from cftuv_envelope.materialize.domain import materialize_domain
 from cftuv_envelope.materialize.silhouette import SilhouetteInputV1, apply_silhouette, dissolve_silhouette, verify_silhouette
@@ -454,17 +458,95 @@ def test_exhausting_the_pass_budget_leaves_the_mesh_as_it_was_and_names_it(monke
     assert budget.spent_by_article() == before  # бюджет домена не тронут проходом, который не состоялся
 
 
-def test_a_vertex_where_the_contours_of_two_merged_faces_meet_is_kept_by_name():
-    """Вершина степени два в сетке граней, но узел контуров двух слитых граней одного региона: растворение развело бы цепи."""
+def test_a_vertex_where_the_contours_of_two_merged_faces_meet_is_dissolved_and_the_chains_follow_the_final_faces():
+    """S1c: узел контуров двух слитых граней одного региона после слияния — вершина степени два, она растворяется, цепи — по кольцам итога."""
 
     source = _grid(2, 1, split=1, same_region=True)
 
     result, counters = _run(source)
 
     assert counters[silhouette.EDGES_DISSOLVED] == 1 and len(_faces(result)) == 1
-    assert counters[silhouette.KEPT_JUNCTION] == 1
-    assert _key(1, 1) not in result.dissolved
+    assert result.dissolved == {_key(1, 1)} and counters[silhouette.VERTICES_DISSOLVED] == 1
     assert not verify_silhouette(source, result)
+    chained = {key.value for chain in result.boundary_chains for key in chain.ordered_vert_keys}
+    assert _key(1, 1) not in chained and _key(1, 0) in chained  # вершина источника остаётся
+    assert not result.interface_chains
+
+
+def test_a_run_of_merged_faces_dissolves_every_junction_and_every_chain_follows_the_final_faces():
+    source = _grid(4, 1, split=2, same_region=True)
+
+    result, counters = _run(source)
+
+    assert len(_faces(result)) == 1 and counters[silhouette.EDGES_DISSOLVED] == 3
+    assert result.dissolved == {_key(i, 1) for i in (1, 2, 3)}
+    assert not verify_silhouette(source, result)
+    boundary = {key.value for chain in result.boundary_chains for key in chain.ordered_vert_keys}
+    assert boundary == {key for key in result.positions}  # у итога нет вершины вне цепей: граница и есть вся сетка
+
+
+def _two_regions(*, discontinuous):
+    """Две соседние грани РАЗНЫХ регионов; общее ребро несёт одни и те же факты `(s, r)` с обеих сторон либо разные (разрыв UV)."""
+
+    source = _grid(2, 1, split=1)
+    if discontinuous:
+        region = source.layout.region_of(source.frame_faces[1])
+        facts = dict(source.facts)
+        for j in (0, 1):
+            facts[(region, _key(1, j))] = (R(Fraction(7)), R(Fraction(j)))
+        source = dataclasses.replace(source, facts=facts)
+    return source
+
+
+def test_an_edge_between_two_regions_with_equal_facts_is_not_an_interface_and_is_counted():
+    """Срез SEAM: UV с обеих сторон одна, шва нет; число таких рёбер записано, проверка пересчитала его независимым обходом граней."""
+
+    source = _two_regions(discontinuous=False)
+
+    result, counters = _run(source)
+
+    assert counters[silhouette.CONTINUOUS_INTERFACE_EDGES] == 1
+    assert not result.interface_chains and not verify_silhouette(source, result)
+
+
+def test_an_edge_between_two_regions_with_a_uv_discontinuity_stays_an_interface():
+    source = _two_regions(discontinuous=True)
+
+    result, counters = _run(source)
+
+    assert silhouette.CONTINUOUS_INTERFACE_EDGES not in counters
+    (chain,) = result.interface_chains
+    assert {key.value for key in chain.ordered_vert_keys} == {_key(1, 0), _key(1, 1)}
+    assert not verify_silhouette(source, result)
+
+
+@pytest.mark.parametrize("reverse", (False, True))
+def test_the_chains_of_an_unchanged_mesh_are_those_of_the_contours_in_the_direction_of_the_contours(reverse):
+    """Без растворения цепи по кольцам итога — те же, что по контурам (то же направление: оно входит в дайджест батча)."""
+
+    source = _grid(3, 2, split=2, same_region=False)
+    region = source.layout.region_of(source.frame_faces[1])
+    facts = dict(source.facts)
+    for j in (0, 1, 2):
+        facts[(region, _key(2, j))] = (R(Fraction(5)), R(Fraction(j)))  # шов UV: интерфейс остаётся в обоих разборах
+    rings = [[tuple(reversed(ring)) if reverse else tuple(ring) for ring in face_polygons] for face_polygons in source.polygons]
+
+    by_contours = chains_of(source.frame_faces, source.cycles, source.layout, facts, source.lattice_alpha)
+    by_faces = chains_of_faces(source.frame_faces, rings, source.layout, facts, source.lattice_alpha, Counter(), reverse)
+
+    assert by_faces == by_contours and by_contours[1]  # интерфейс непуст: сравнивать есть что
+
+
+def test_verification_catches_interface_chains_that_do_not_follow_the_uv_discontinuities():
+    source = _two_regions(discontinuous=True)
+    result, _counters = _run(source)
+    boundary_only = dataclasses.replace(result, interface_chains=frozenset())
+    wrong_number = dataclasses.replace(result, counters=(*result.counters, (silhouette.CONTINUOUS_INTERFACE_EDGES, 5)))
+    torn = dataclasses.replace(result, boundary_chains=frozenset(list(result.boundary_chains)[1:]))
+
+    assert "INTERFACE_DOES_NOT_MATCH_THE_UV_DISCONTINUITIES" in verify_silhouette(source, boundary_only)
+    assert "CONTINUOUS_INTERFACE_EDGES_DO_NOT_MATCH_THE_RECORDED_NUMBER" in verify_silhouette(source, wrong_number)
+    assert "OUTLINE_DOES_NOT_MATCH_THE_BOUNDARY_CHAINS" in verify_silhouette(source, torn)
 
 
 #: Высоты (мм) сетки 3 x 3 со случайным шумом (`random.Random(3)`, ±6 мм): грань, слитая по плоскости БОЛЬШЕЙ грани, ушла бы от своей

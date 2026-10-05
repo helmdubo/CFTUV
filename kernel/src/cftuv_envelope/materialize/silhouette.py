@@ -29,8 +29,9 @@
    выпрямленного ребра не дальше глубины хорды, а UV, которую даёт интерполяция вдоль выпрямленного ребра, отличается от
    прежней не больше `DecalRequestV1.silhouette_uv_slide` (запись реестра `SILHOUETTE_UV_SLIDE_V1`, политика запроса, доля alpha). Грани после
    растворения — простые контуры (точно), а в треугольнике выпрямления нет ни одной чужой вершины, поэтому грани не наезжают.
-   Вершины цепей источника и стены S1 не трогает никогда: они общие с соседними доменами по `location:src:`, и T-стыков шва
-   (`ADAPTER_SEAM_T_JUNCTIONS`) закон не рождает; вершины `clip:` внутри домена свободны.
+   Вершины цепей источника и стены этот проход не трогает никогда: они общие с соседними доменами по `location:src:`, и решить
+   их в одном домене значит открыть шов (`ADAPTER_SEAM_T_JUNCTIONS`); их решает глобальный проход по всем доменам прогона
+   (`materialize.source_dots`, срез S4); вершины `clip:` внутри домена свободны.
 
 ЧТО ПИШЕТСЯ. Любой отказ растворить назван счётчиком (`KEPT_*`), а наибольшие глубина хорды и сдвиг UV, на которые закон пошёл,
 записаны (нанометры и тысячные alpha; остаток UV слияний в пределах допуска — `MAX_UV_RESIDUAL_MILLI_ALPHA`). Нулевые числа в счётчики не пишутся: домен, где ничего не растворилось, не получает
@@ -42,17 +43,26 @@
 слияние отдало бы выбор UV триангуляции показа Blender'а. `sagging_wall` alpha 0.987: из 91 пары-кандидата патча 1 аффинны 13. Эти
 рёбра остаются (`KEPT_NOT_AFFINE`), каждое посчитано; чем больше ε, тем больше слияний (`EDGES_WITHIN_UV_TOLERANCE`).
 
-КОНТУРЫ. Цепи (`chains_of`) строятся по контурам слитых граней, а не по граням сетки, поэтому вершина, в которой сходятся
-контуры нескольких слитых граней одного региона (после растворения рёбер между ними она стала вершиной двух рёбер), не
-растворяется (`KEPT_JUNCTION`): растворение развело бы контуры, и граница цепей разошлась бы с границей сетки. Растворённая
-вершина уходит и из контуров, и из `vertex_cycles`, и из позиций и фактов станций.
+ЦЕПИ ПО ИТОГОВЫМ ГРАНЯМ (срез S1c). Контур слитой грани описывает грань ДО растворения: вершина, в которой сходятся контуры
+нескольких слитых граней одного региона (после растворения рёбер между ними она стала вершиной двух рёбер), в контурах остаётся
+узлом, хотя в сетке она вершина двух рёбер, и срез S1 её оставлял (`KEPT_JUNCTION`, 5/4/3/11/19 вершин на поле). Цепи теперь
+строятся по кольцам ИТОГОВЫХ граней (`assemble.chains_of_faces`), поэтому такая вершина — обычная вершина степени два и
+растворяется под теми же условиями, что любая: хорда и сдвиг UV, простота граней. Растворённая вершина уходит и из контуров (их
+читает только происхождение вершин), и из `vertex_cycles`, и из позиций и фактов станций.
+
+ШОВ ТАМ, ГДЕ UV РВЁТСЯ (срез SEAM). Хост метит швом ровно интерфейсные цепи батча, а интерфейс — общее ребро граней двух регионов:
+между двумя секторами одного веера (разные огибающие, один кадр веера) у ребра ОДНИ факты `(s, r)` на обоих концах, UV с обеих
+сторон та же, а шов ставился (на `building` 8 рёбер: острова UV рвались ни за чем). Под законом силуэта общее ребро регионов с
+ТОЧНО равными фактами на концах не интерфейс (`chains_of_faces`); число таких рёбер записано
+(`MATERIALIZE_SILHOUETTE_CONTINUOUS_INTERFACE_EDGES`, нулевое не пишется) и пересчитано проверкой независимым обходом граней.
 
 ПРОВЕРКА. `verify_silhouette` пересчитывает независимо от прохода: ни одна растворённая вершина не лежала на цепи источника или
 стены (по `chains_of` исходной сетки), у уцелевших вершин факты `(s, r)` те же точно, глубина хорды и сдвиг UV каждой растворённой
 вершины относительно ребра, которое её заменило в итоговой сетке (в каждом регионе граней ребра), не больше записанных
 максимумов, а те — не больше допусков (остаток каждого слияния в пределах допуска пересчитан тем же подбором карты), растворённые вершины покрыты рёбрами итога ровно по разу, грани образуют многообразие
-(полурёбра попарно разные, граница сократилась ровно растворёнными вершинами), а граница итоговых граней равна рёбрам граничных
-цепей по итоговым контурам. Любое расхождение — отказ `BATCH_DID_NOT_VALIDATE` с именем `SILHOUETTE:*`.
+(полурёбра попарно разные, граница сократилась ровно растворёнными вершинами), граница итоговых граней равна рёбрам граничных
+цепей, а интерфейсные цепи — рёбра между регионами с разрывной UV (рёбра с непрерывной UV посчитаны заново и равны записанному
+числу). Любое расхождение — отказ `BATCH_DID_NOT_VALIDATE` с именем `SILHOUETTE:*`.
 """
 
 from __future__ import annotations
@@ -66,7 +76,7 @@ from ..exact_sqrt_sum import ExactCanonicalizationWorkBudgetExhausted, exact_wor
 from ..float_filter import affine_map_violated, centre_and_bound
 from ..wavefront.faces import orientation, segments_cross
 from .admit import MaterializationOutcome
-from .assemble import chains_of, edge_kind
+from .assemble import CONTINUOUS_INTERFACE_EDGES, chains_of, chains_of_faces, edge_kind
 from .audit import location_key
 from .clip_cells import CLIP_DIAGONAL_CHORD_BUDGET
 from .frames import MaterializationRefusal
@@ -82,7 +92,6 @@ KEPT_UV = "MATERIALIZE_SILHOUETTE_KEPT_UV"
 KEPT_CHORD = "MATERIALIZE_SILHOUETTE_KEPT_CHORD"
 KEPT_NOT_AFFINE = "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE"
 KEPT_NOT_SIMPLE = "MATERIALIZE_SILHOUETTE_KEPT_NOT_SIMPLE"
-KEPT_JUNCTION = "MATERIALIZE_SILHOUETTE_KEPT_JUNCTION"
 EDGES_WITHIN_UV_TOLERANCE = "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE"
 MAX_UV_RESIDUAL_MILLI_ALPHA = "MATERIALIZE_SILHOUETTE_MAX_UV_RESIDUAL_MILLI_ALPHA"
 MAX_UV_SLIDE_MILLI_ALPHA = "MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA"
@@ -96,13 +105,13 @@ COUNTER_NAMES = (
     KEPT_CHORD,
     KEPT_NOT_AFFINE,
     KEPT_NOT_SIMPLE,
-    KEPT_JUNCTION,
     EDGES_WITHIN_UV_TOLERANCE,
     MAX_UV_RESIDUAL_MILLI_ALPHA,
     MAX_UV_SLIDE_MILLI_ALPHA,
     MAX_CHORD_NM,
     SKIPPED_WORK_BUDGET,
     SKIPPED_NOT_MANIFOLD,
+    CONTINUOUS_INTERFACE_EDGES,
 )
 
 NANOMETRES_PER_METRE = 10**9
@@ -125,6 +134,8 @@ class SilhouetteInputV1:
     layout: object
     lattice_alpha: Fraction
     uv_slide: Fraction
+    #: Кольца граней обходятся против контуров (CW-карта, `tessellate_faces(reverse=...)`): цепи идут в направлении контуров.
+    reverse: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +158,10 @@ class SilhouetteV1:
     runs: tuple = ()
     #: Слияния рёбер в пределах допуска UV (не точно аффинные): `((регион, кольцо объединения), ...)` — проверка пересчитывает их остаток.
     fits: tuple = ()
+    #: Цепи батча по КОЛЬЦАМ итоговых граней (`assemble.chains_of_faces`), а не по контурам граней до растворения; `None` —
+    #: сетка не многообразна, цепей по кольцам нет, их строят контуры (`assemble.chains_of`).
+    boundary_chains: frozenset | None = None
+    interface_chains: frozenset | None = None
 
 
 class _Facts:
@@ -299,12 +314,6 @@ class _Mesh:
         self.manifold = True
         self._xyz: dict = {}
         self._uv: dict = {}
-        #: Контуры слитых граней по ключам (цепи строятся по ним): растворённая вершина уходит и из контуров.
-        self.contours = [[key for key, _point in cycle] for cycle in source.cycles]
-        self.in_contours: dict = defaultdict(list)
-        for index, cycle in enumerate(self.contours):
-            for key in cycle:
-                self.in_contours[key].append(index)
         number = 0
         for index, face_polygons in enumerate(source.polygons):
             region = source.layout.region_of(source.frame_faces[index])
@@ -570,9 +579,6 @@ class _Mesh:
         if line is None:
             return False
         before, after = line
-        if not self._contour_line(key, before, after):
-            self.tally[KEPT_JUNCTION] += 1
-            return False
         left, right = frozenset((before, key)), frozenset((key, after))
         run = (*covered.get(left, ()), *covered.get(right, ()), key)
         low, high = sorted((before, after))  # концы по ключам: те же числа, что у проверки (обход ребра на округление не влияет)
@@ -595,30 +601,12 @@ class _Mesh:
             face.ring = tuple(item for item in face.ring if item != key)
             for edge in _pairs(face.ring):
                 self.half[edge] = number
-        for index in set(self.in_contours.pop(key, ())):
-            self.contours[index].remove(key)
         covered.pop(left, None)
         covered.pop(right, None)
         covered[frozenset((before, after))] = run
         self.tally[VERTICES_DISSOLVED] += 1
         self.max_chord = max(self.max_chord, worst)
         self.max_slide = max(self.max_slide, slide)
-        return True
-
-    def _contour_line(self, key, before, after) -> bool:
-        """В каждом контуре слитой грани, где есть вершина, её соседи — те же `before` и `after`.
-
-        Цепи строятся по контурам слитых граней, а не по граням сетки: вершина, в которой сходятся контуры трёх слитых граней
-        одного региона, после слияния граней стала вершиной двух рёбер, но её растворение развело бы контуры (полурёбра
-        соседних контуров перестали бы быть парой, и граница цепей разошлась бы с границей сетки).
-        """
-
-        pair = {before, after}
-        for index in self.in_contours.get(key, ()):
-            cycle = self.contours[index]
-            at = cycle.index(key)
-            if {cycle[at - 1], cycle[(at + 1) % len(cycle)]} != pair or cycle.count(key) != 1:
-                return False
         return True
 
     def _slide(self, numbers, before, after, run):
@@ -703,13 +691,16 @@ class _Mesh:
             polygons[index].append(face.ring)
             if len(face.frames) > 1:
                 merged[(index, face.ring)] = tuple(item for item in face.frames if item != index)
+        facts = {slot: value for slot, value in source.facts.items() if slot[1] not in gone}
+        boundary, interface, continuous = _chains(source, polygons, facts)
+        self.tally[CONTINUOUS_INTERFACE_EDGES] = continuous
         counters = _counters(self.tally, self.max_chord, self.max_slide, self.max_residual)
         changed = bool(self.tally[EDGES_DISSOLVED] or self.tally[VERTICES_DISSOLVED])
         note = "" if not changed else (
             f"{LAW}: faces {faces_before} -> {len(self.faces)} edges_dissolved={self.tally[EDGES_DISSOLVED]} "
             f"vertices_dissolved={self.tally[VERTICES_DISSOLVED]} kept_uv={self.tally[KEPT_UV]} "
             f"kept_chord={self.tally[KEPT_CHORD]} kept_not_affine={self.tally[KEPT_NOT_AFFINE]} "
-            f"kept_not_simple={self.tally[KEPT_NOT_SIMPLE]} kept_junction={self.tally[KEPT_JUNCTION]} max_chord_nm={_nanometres(self.max_chord)} "
+            f"kept_not_simple={self.tally[KEPT_NOT_SIMPLE]} max_chord_nm={_nanometres(self.max_chord)} "
             f"max_uv_slide_milli_alpha={_milli_alpha(self.max_slide)} within_uv_tolerance={self.tally[EDGES_WITHIN_UV_TOLERANCE]} "
             f"max_uv_residual_milli_alpha={_milli_alpha(self.max_residual)}"
         )
@@ -720,7 +711,7 @@ class _Mesh:
             if source.vertex_cycles is None
             else [[item for item in cycle if item[0] not in gone] for cycle in source.vertex_cycles],
             {key: value for key, value in source.positions.items() if key not in gone},
-            {slot: value for slot, value in source.facts.items() if slot[1] not in gone},
+            facts,
             merged,
             gone,
             counters,
@@ -728,7 +719,19 @@ class _Mesh:
             changed,
             tuple(sorted((*sorted(edge), run) for edge, run in covered.items())),
             tuple(self.fits),
+            boundary,
+            interface,
         )
+
+
+def _chains(source: SilhouetteInputV1, polygons, facts) -> tuple:
+    """`(граничные цепи, интерфейсные цепи, число рёбер с непрерывной UV)` по кольцам граней `polygons` (`assemble.chains_of_faces`)."""
+
+    continuous: Counter = Counter()
+    boundary, interface = chains_of_faces(
+        source.frame_faces, polygons, source.layout, facts, source.lattice_alpha, continuous, source.reverse
+    )
+    return boundary, interface, continuous[CONTINUOUS_INTERFACE_EDGES]
 
 
 def _counters(tally, max_chord: float, max_slide: float, max_residual: float = 0.0) -> tuple:
@@ -742,7 +745,10 @@ def _counters(tally, max_chord: float, max_slide: float, max_residual: float = 0
     return tuple((name, values[name]) for name in COUNTER_NAMES if values[name])
 
 
-def _unchanged(source: SilhouetteInputV1, counters: tuple) -> SilhouetteV1:
+def _unchanged(source: SilhouetteInputV1, counters: tuple, manifold: bool = True) -> SilhouetteV1:
+    """Сетка как была. Цепи — по её кольцам; сетка, где полуребро в двух гранях, цепей по кольцам не имеет (их строят контуры, как раньше)."""
+
+    boundary, interface, continuous = _chains(source, source.polygons, source.facts) if manifold else (None, None, 0)
     return SilhouetteV1(
         source.polygons,
         source.cycles,
@@ -751,8 +757,10 @@ def _unchanged(source: SilhouetteInputV1, counters: tuple) -> SilhouetteV1:
         source.facts,
         {},
         frozenset(),
-        counters,
+        (*counters, (CONTINUOUS_INTERFACE_EDGES, continuous)) if continuous else counters,
         "",
+        boundary_chains=boundary,
+        interface_chains=interface,
     )
 
 
@@ -765,7 +773,7 @@ def dissolve_silhouette(source: SilhouetteInputV1, budget) -> SilhouetteV1:
 
     mesh = _Mesh(source, budget)
     if not mesh.manifold:
-        return _unchanged(source, ((SKIPPED_NOT_MANIFOLD, 1),))
+        return _unchanged(source, ((SKIPPED_NOT_MANIFOLD, 1),), manifold=False)
     inner = budget if budget.cap is None else exact_work_budget(stage="MATERIALIZE", domain_id=budget.domain_id, cap=max(budget.remaining, 0))
     mesh.budget = inner
     faces_before = len(mesh.faces)
@@ -783,7 +791,7 @@ def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
     """Независимый пересчёт: имена нарушений (пусто — закон выполнен). Читает исходную сетку и итог, проход не зовёт."""
 
     if not result.changed:
-        return ()
+        return tuple(_verify_chains(source, result))
     problems: list = []
     walls = {
         key
@@ -879,16 +887,54 @@ def _outline(directed) -> set:
     return {frozenset(edge) for edge in directed if (edge[1], edge[0]) not in directed}
 
 
-def _verify_chains(source, result) -> list:
-    """Граница итоговых граней — ровно рёбра граничных цепей, построенных по итоговым контурам (тот же закон, что у аудита сетки)."""
-
-    boundary = chains_of(source.frame_faces, result.cycles, source.layout, result.facts, source.lattice_alpha)[0]
-    chain_edges = {
+def _chain_edges(chains) -> set:
+    return {
         frozenset((location_key(keys[at].value), location_key(keys[at + 1].value)))
-        for keys in (chain.ordered_vert_keys for chain in boundary)
+        for keys in (chain.ordered_vert_keys for chain in chains)
         for at in range(len(keys) - 1)
     }
-    return ["OUTLINE_DOES_NOT_MATCH_THE_BOUNDARY_CHAINS"] if _outline(_directed(result.polygons)) != chain_edges else []
+
+
+def _verify_chains(source, result) -> list:
+    """Граница итоговых граней — ровно рёбра граничных цепей, а интерфейсные цепи — ровно рёбра с разрывной UV (независимый обход граней).
+
+    Граница считается из полурёбер колец итога (тот же закон, что у аудита сетки); интерфейс — общие рёбра граней разных регионов
+    с неравными фактами на концах и ребра разреза кольца (у них копии вершин разные), а рёбра между регионами с ТОЧНО равными
+    фактами (UV одна) — не интерфейс, и их число равно записанному. Сетка без цепей по кольцам (`None`) проверять нечего.
+    """
+
+    if result.boundary_chains is None:
+        return []
+    found = []
+    if _outline(_directed(result.polygons)) != _chain_edges(result.boundary_chains):
+        found.append("OUTLINE_DOES_NOT_MATCH_THE_BOUNDARY_CHAINS")
+    owner: dict = {}
+    for index, face_polygons in enumerate(result.polygons):
+        region = source.layout.region_of(source.frame_faces[index])
+        for ring in face_polygons:
+            for a, b in _pairs(tuple(ring)):
+                owner[(location_key(a), location_key(b))] = (region, index, a, b)
+    cut = source.layout.cut_pairs(source.frame_faces)
+    expected, continuous = set(), set()
+    for (place_a, place_b), (region, index, a, b) in owner.items():
+        other = owner.get((place_b, place_a))
+        if other is None:
+            continue
+        other_region, other_index, other_a, other_b = other
+        edge = frozenset((place_a, place_b))
+        if region == other_region:
+            if index != other_index and (a, b) != (other_b, other_a):
+                expected.add(edge)
+        elif all(result.facts[(region, key)] == result.facts[(other_region, twin)] for key, twin in ((a, other_b), (b, other_a))):
+            if frozenset((region, other_region)) not in cut:
+                continuous.add(edge)
+        else:
+            expected.add(edge)
+    if expected != _chain_edges(result.interface_chains):
+        found.append("INTERFACE_DOES_NOT_MATCH_THE_UV_DISCONTINUITIES")
+    if len(continuous) != dict(result.counters).get(CONTINUOUS_INTERFACE_EDGES, 0):
+        found.append("CONTINUOUS_INTERFACE_EDGES_DO_NOT_MATCH_THE_RECORDED_NUMBER")
+    return found
 
 
 def _verify_topology(source, result) -> list:

@@ -411,6 +411,19 @@ def test_a_source_segment_with_a_vertex_on_one_side_only_is_a_t_junction():
     assert other == {"ADAPTER_SEAM_T_JUNCTIONS": 1, "ADAPTER_SEAM_CLIP_VERTICES": 0}
 
 
+def test_a_source_vertex_dissolved_on_one_side_only_is_a_t_junction_and_dissolved_on_both_sides_is_not():
+    from cftuv.envelope_production_weld import seam_report
+
+    kept = _batch(_chain("SOURCE", ["src:a", "src:m", "src:b"]))
+    dissolved = _batch(_chain("SOURCE", ["src:a", "src:b"]))
+
+    assert dict(seam_report([kept, dissolved]))["ADAPTER_SEAM_T_JUNCTIONS"] == 1
+    assert dict(seam_report([dissolved, kept]))["ADAPTER_SEAM_T_JUNCTIONS"] == 1  # порядок доменов не важен
+    assert dict(seam_report([dissolved, _batch(_chain("SOURCE", ["src:b", "src:a"]))]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+    # Цепи, у которых пара общая лишь по краю (другой участок цепи соседа), не T-стык: ни одной общей пары нет.
+    assert dict(seam_report([kept, _batch(_chain("SOURCE", ["src:b", "src:c"]))]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
+
+
 def test_a_segment_owned_by_one_domain_cannot_be_a_t_junction_and_the_front_is_not_a_seam():
     from cftuv.envelope_production_weld import seam_report
 

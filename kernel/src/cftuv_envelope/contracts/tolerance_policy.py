@@ -455,7 +455,14 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "угле (d2 `H = 1`, d4) последний сектор может превысить `pi/q` до "
             "0.1 градуса плюс шум привязки к решётке (граница шума — запись "
             "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1, 1/400); остальные "
-            "секторы — точные повороты и проверяются точно."
+            "секторы — точные повороты и проверяются точно. ВТОРОЕ МЕСТО (срез S4 "
+            "закона SILHOUETTE_TOPOLOGY_V1): тот же масштаб художника — предел "
+            "излома цепи источника или стены в вершине, которую закон "
+            "SILHOUETTE_SOURCE_DOTS_V1 считает точкой на прямой "
+            "(`materialize.source_dots.BEND_LIMIT`): излом не больше 0.1 градуса "
+            "— шум моделирования, а не угол; растворяется такая вершина лишь "
+            "под глубиной хорды и сдвигом UV запроса, и излом растворённых "
+            "записан (MATERIALIZE_SILHOUETTE_SOURCE_DOTS_MAX_BEND_MICRODEGREES)."
         ),
         authority=(
             "AngleTolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1; "
@@ -463,7 +470,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "AUTHORING_INTENT_CANONICAL_ANGLE_RESTORED_V1; "
             "DECISIONS.md 2026-08-03 (восстановление канонического авторского "
             "угла вместо сдвига границ ячеек) и 2026-10-03 (RIGHT-ANGLE-STABLE: "
-            "допуск восстановления поднят с 7e-6 рад до масштаба художника)"
+            "допуск восстановления поднят с 7e-6 рад до масштаба художника) и "
+            "2026-10-05 (SILHOUETTE-TOPOLOGY S4: тот же масштаб — излом точки на "
+            "прямой цепи источника)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.CANONICAL_ANGLE_RESTORATION,
         allowed_effect=(
@@ -1836,7 +1845,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "граней различаются внутри не больше удвоенного допуска; нуль — прежнее точное правило (UV ТОЧНО аффинна). "
             "Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`, из `[0, MAX_SILHOUETTE_UV_SLIDE = 1/16]`), умолчание "
             "1/256 alpha (8 пикселей тайла 2048 при ширине декали в один тайл; выбор плана S1, владелец делегировал), на панели "
-            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены закон не растворяет вовсе. Наибольшие "
+            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены проход по домену не растворяет: их решает общий "
+            "проход по доменам прогона (SILHOUETTE_SOURCE_DOTS_V1, `materialize.source_dots`) под тем же допуском: UV вдоль выпрямленного "
+            "ребра в каждом домене места не больше допуска. Наибольшие "
             "сдвиг и остаток записаны (MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA, ..._MAX_UV_RESIDUAL_MILLI_ALPHA, "
             "тысячные alpha), и проверка закона пересчитывает их независимо."
         ),

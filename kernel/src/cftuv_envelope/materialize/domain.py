@@ -30,8 +30,10 @@
    либо смещаемые по разным нормалям (развёртка), режутся каноническим `fan_out`,
    чтобы не выдать непланарную грань;
 8. под `SILHOUETTE_TOPOLOGY_V1` — пост-проход `silhouette` (после положения вершин, до цепей и дайджестов): ребро между
-   гранями одного региона в одной плоскости с точно аффинной UV и вершина на прямой, не лежащая на цепи источника или стены,
-   растворяются (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние);
+   гранями одного региона в одной плоскости с точно аффинной UV (в допуске запроса) и вершина на прямой, не лежащая на цепи
+   источника или стены, растворяются; цепи батча строятся по кольцам итоговых граней, а ребро между регионами с равными
+   фактами `(s, r)` не интерфейс (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние). Точки на
+   прямых цепях источника и стены решает НЕ этот проход, а общий по всем доменам прогона (`source_dots`, над готовыми батчами);
 9. сборка, валидация `validate_geometry_batch`, дайджесты.
 
 Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
@@ -79,7 +81,7 @@ from ..ids import GeometryDiagnosticId, LineageId, SemanticDigestValue
 from ..outcomes import NamedOutcome
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
-from .audit import audit_batch
+from .audit import audit_batch, batch_shape_counters
 from .assemble import (
     RUNG_CHORD_STATIONS,
     RUNG_STATIONS_FROM_CHAIN_VERTEX,
@@ -598,30 +600,7 @@ def _counters(built: _Built, budget):
         ("MATERIALIZE_MERGE_UNRESOLVED", built.stats.unresolved_groups),
         ("MATERIALIZE_FAN_FACES", sum(1 for item in frame_faces if item.is_fan)),
         ("MATERIALIZE_VERTEX_SOURCE_NAMES_DROPPED", built.dropped_names),
-        # Треугольники — СУММА `n - 2` по граням: от выбора диагонали она не
-        # зависит, поэтому под любым законом топологии это одно и то же число.
-        (
-            "MATERIALIZE_TRIANGLES",
-            sum(len(face.ordered_vert_keys) - 2 for face in batch.faces),
-        ),
-        ("MATERIALIZE_FACES_EMITTED", len(batch.faces)),
-        (
-            "MATERIALIZE_QUADS",
-            sum(1 for face in batch.faces if len(face.ordered_vert_keys) == 4),
-        ),
-        ("MATERIALIZE_VERTICES", len(batch.vertices)),
-        ("MATERIALIZE_REGIONS", len(batch.semantic_regions)),
-        ("MATERIALIZE_STATION_FACTS", len(batch.station_facts)),
-        (
-            "MATERIALIZE_STATION_CONSTANT_S",
-            sum(
-                1
-                for fact in batch.station_facts
-                if fact.station_model_id.value == "CONSTANT_PHYSICAL_ENDPOINT_S"
-            ),
-        ),
-        ("MATERIALIZE_BOUNDARY_CHAINS", len(batch.boundary_chains)),
-        ("MATERIALIZE_INTERFACE_CHAINS", len(batch.interface_chains)),
+        *batch_shape_counters(batch),
         *built.table.counters,
         *built.lift_counters,
         *built.topology_counters,
@@ -755,15 +734,17 @@ def _cut(plane, budget, admission, stage, tally):
     )
 
 
-def _shaped(clock, budget, request, mesh, frame):
+def _shaped(clock, budget, request, mesh, frame, reverse):
     """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой.
 
     `mesh` — `(грани, контуры, вершины граней, позиции)`, `frame` — `(точки карты, факты, слитые грани, раскладка, alpha решётки)`;
-    сдвиг UV берётся у запроса (`DecalRequestV1.silhouette_uv_slide`).
+    сдвиг UV берётся у запроса (`DecalRequestV1.silhouette_uv_slide`), `reverse` — кольца граней обходятся против контуров (CW-карта).
     """
 
     slide = request.silhouette_uv_slide
-    shaped = apply_silhouette(SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator)), budget)
+    shaped = apply_silhouette(
+        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse), budget
+    )
     clock.lap("SILHOUETTE")
     return shaped
 
@@ -822,7 +803,11 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
-    shaped = _shaped(clock, budget, request, mesh, (points, facts, frame_faces, layout, lattice_alpha)) if silhouette else None
+    shaped = (
+        _shaped(clock, budget, request, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
+        if silhouette
+        else None
+    )
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=(cycles if cut is None else cut.cycles) if shaped is None else shaped.cycles,
@@ -831,6 +816,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         polygons=polygons if shaped is None else shaped.polygons,
         facts=facts if shaped is None else shaped.facts,
         merged_frames=None if shaped is None else shaped.merged_frames,
+        chains=None if shaped is None or shaped.boundary_chains is None else (shaped.boundary_chains, shaped.interface_chains),
         layout=layout,
         scale=table.scale,
         lattice_alpha=lattice_alpha,
