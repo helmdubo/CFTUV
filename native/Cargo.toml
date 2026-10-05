@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["cftuv-core", "cftuv-python"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Proprietary"
+publish = false
+
+[workspace.dependencies]
+dashu-int = "0.6"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+debug = "line-tables-only"
+
+# Tests run optimised: the differential and property tests chew through big integers.
+[profile.test]
+opt-level = 3
