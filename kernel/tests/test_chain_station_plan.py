@@ -11,6 +11,8 @@
 | ровная полоса с обеих сторон — все внутренние вершины `FREE`, пары рёбер названы       | `..._a_flat_wall_frees_...` |
 | складка свыше допуска хорды — `REQUIRED:FOLD`, под допуском — `FREE`; допуск реестровый | `..._a_fold_over_the_budget_...`, `..._the_budget_is_...` |
 | каждое ребро в допуске, а лента дрейфует — `GROUP_NOT_FLAT` у вершин группы            | `..._a_drifting_strip_...` |
+| малые изломы копятся (пологая дуга): окно по линии держит каждый пропуск в допуске хорды   | `..._small_bends_that_drift_together_...` |
+| окно идёт через стык: цепь, разрезанная на куски, решается как целая, направление не важно  | `..._the_window_runs_across_a_joint_...`, `..._does_not_depend_...` |
 | чужая сторона шва не выгружена — `NEIGHBOUR_SIDE_UNKNOWN`; выгружена — решение то же    | `..._the_other_side_...` |
 | два домена общей цепи читают ОДНО решение (стороны меняются местами)                   | `..._both_domains_...` |
 | решение не зависит от других цепей и выбора: закон читает один снапшот                 | `..._selection_...` |
@@ -380,6 +382,86 @@ def test_a_joint_with_a_third_edge_of_another_seam_is_required_in_the_domain_tha
 
     assert [item.source_vertex_id.value for item in plans["chain:C0"].stations] == ["c1"]
     assert [item.source_vertex_id.value for item in plans["chain:C1"].stations] == ["c3"]
+
+
+def _arc(count, split=()):
+    """Лента, где цепь идёт по пологой параболе `y = k i^2`: излом в вершине ~1e-3 рад (в допуске), хорда по соседям 0.2 мм, а целиком дуга уходит далеко."""
+
+    sag = 2e-4
+    return World(count, split=split, bends={index: (sag * index * index, 0.0) for index in range(count + 1)})
+
+
+def _distance_to_line(world, names, name):
+    """Независимая мера: расстояние (метры) вершины `name` от прямой между `names[0]` и `names[-1]`, binary64."""
+
+    a, b, p = (world.position[item] for item in (names[0], names[-1], name))
+    w = [b[k] - a[k] for k in range(3)]
+    v = [p[k] - a[k] for k in range(3)]
+    cross = (v[1] * w[2] - v[2] * w[1], v[2] * w[0] - v[0] * w[2], v[0] * w[1] - v[1] * w[0])
+    return math.sqrt(sum(item * item for item in cross)) / math.sqrt(sum(item * item for item in w))
+
+
+def test_small_bends_that_drift_together_cannot_all_be_free_and_the_window_keeps_every_run_inside_the_budget():
+    world = _arc(24)
+    stations = _stations(world.snapshot())
+    by_name = {item.source_vertex_id.value: item for item in stations}
+
+    # каждая вершина по соседям проходит (излом и хорда в допуске), но вся дуга от первой до последней глубже допуска
+    assert len(stations) == 23
+    names = [f"c{index}" for index in range(25)]
+    assert max(_distance_to_line(world, names, name) for name in names) > BUDGET
+    carried = [name for name in names[1:-1] if by_name[name].disposition is REQUIRED]
+    assert carried and all(by_name[name].reason is R.RUN_CHORD_BEYOND_BUDGET for name in carried)
+    assert all(not by_name[name].inert_face_pairs for name in carried)
+    # независимо: между двумя несомыми (и концами линии) каждая пропущенная вершина отстоит от прямой, их соединяющей, не дальше допуска
+    anchors = ["c0", *carried, "c24"]
+    for left, right in zip(anchors, anchors[1:]):
+        inside = names[names.index(left) : names.index(right) + 1]
+        assert all(_distance_to_line(world, inside, name) <= BUDGET for name in inside)
+    # окно жадное: несомая вершина — первая, которую окно не вместило бы (с ней вместе пропущенные уже глубже допуска)
+    for name in carried:
+        at = names.index(name)
+        start = max(index for index in range(at) if names[index] == "c0" or names[index] in carried)
+        assert any(_distance_to_line(world, names[start : at + 2], item) > BUDGET for item in names[start + 1 : at + 1])
+    # без окна все вершины были бы свободны: тест различает закон и его отсутствие
+    free_without_window = [item for item in stations if item.disposition is FREE]
+    assert len(free_without_window) < 23
+
+
+def test_the_window_runs_across_a_joint_so_a_chain_cut_into_pieces_decides_like_the_whole_chain():
+    whole = {item.source_vertex_id.value: (item.disposition, item.reason) for item in _stations(_arc(24).snapshot())}
+    pieces = _plans(_arc(24, split=(12,)).snapshot())
+    joined = {
+        item.source_vertex_id.value: (item.disposition, item.reason) for plan in pieces.values() for item in plan.stations
+    }
+
+    assert whole == joined and set(whole) == {f"c{index}" for index in range(1, 24)}
+    assert {value[1] for value in whole.values()} >= {R.RUN_CHORD_BEYOND_BUDGET, R.TRANSVERSE_EDGES_INERT}
+    # стык решён один раз и записан в обоих кусках одинаково
+    (first, second) = (pieces["chain:C0"], pieces["chain:C1"])
+    assert first.stations[-1].source_vertex_id == second.stations[0].source_vertex_id == SourceVertexId("c12")
+    assert (first.stations[-1].disposition, first.stations[-1].reason) == (second.stations[0].disposition, second.stations[0].reason)
+
+
+def test_the_window_does_not_depend_on_which_end_of_a_piece_the_snapshot_lists_first():
+    """Куски цепи в снапшоте могут идти в любом направлении и порядке: решение то же."""
+
+    base = _arc(24, split=(12,))
+    flipped = _arc(24, split=(12,))
+    flipped.chains = [
+        dataclasses.replace(item, ordered_source_vertex_ids=tuple(reversed(item.ordered_source_vertex_ids)))
+        if index == 1
+        else item
+        for index, item in enumerate(flipped.chains)
+    ]
+    expected = {item.source_vertex_id.value: item.disposition for plan in _plans(base.snapshot()).values() for item in plan.stations}
+    # кусок `C1` записан от `c24` к `c12`: у линии те же вершины, окно идёт по той же линии
+    got = {
+        item.source_vertex_id.value: item.disposition
+        for plan in _plans(flipped.snapshot(physical_chains=frozenset(flipped.chains))).values()
+        for item in plan.stations
+    }
+    assert got == expected
 
 
 def test_the_free_reasons_are_exactly_the_two_that_free():

@@ -1426,6 +1426,7 @@
             "GROUP_NOT_FLAT",
             "BEND_BEYOND_STRAIGHT",
             "CHORD_BEYOND_BUDGET",
+            "RUN_CHORD_BEYOND_BUDGET",
             "JUNCTION",
             "NEIGHBOUR_SIDE_UNKNOWN",
             "NOT_MANIFOLD",

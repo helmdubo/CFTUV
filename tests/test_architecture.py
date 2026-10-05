@@ -1217,3 +1217,101 @@ def test_the_content_store_is_never_serialised_to_disk():
             assert name not in {"open", "write_bytes", "write_text"}, (name, node.lineno)
             if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
                 assert (function.value.id, function.attr) not in {("pickle", "dump"), ("pickle", "load")}, node.lineno
+
+
+# --------------------------------------------------------------------------
+# Порядок множеств батча в хосте
+# --------------------------------------------------------------------------
+#
+# `GeometryBatchV1.vertices / station_facts / semantic_regions / boundary_chains / interface_chains / diagnostics` — `frozenset`,
+# и порядок их обхода ходит с `PYTHONHASHSEED`. Хост, который идёт по ним «как лежат», выдаёт квитанцию, зависящую от зерна
+# процесса: на `walls.003` предупреждение `ADAPTER_SEAM_T_JUNCTIONS` появлялось у трёх зёрен из шести при побитово равном
+# меше (первая цепь вершины зависела от порядка цепей). Обход идёт через `sorted(...)`: порядок по ключу, а не по хешу.
+# Ловится прямой обход (`for`, включение) поля батча; множество, сначала сложенное в переменную, правило не видит —
+# его ловит подпроцессный тест на разных зёрнах (`test_envelope_production_weld.py`).
+
+_BATCH_FROZENSET_FIELDS = frozenset(
+    {
+        "vertices",
+        "station_facts",
+        "semantic_regions",
+        "boundary_chains",
+        "interface_chains",
+        "diagnostics",
+        "contract_versions",
+    }
+)
+
+
+def _batch_set_field(node: ast.AST) -> str | None:
+    """Имя поля-множества батча, если выражение его называет: `<...>batch.<поле>` либо `getattr(<...>, "<поле>", ...)`."""
+
+    if isinstance(node, ast.Attribute) and node.attr in _BATCH_FROZENSET_FIELDS:
+        owner = node.value
+        owner_name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+        return node.attr if owner_name == "batch" else None
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in _BATCH_FROZENSET_FIELDS
+    ):
+        return node.args[1].value
+    return None
+
+
+def _unsorted_batch_set_walks(tree: ast.AST) -> list[tuple[int, str]]:
+    """`(строка, поле)` обходов поля-множества батча мимо `sorted(...)`: в `for` и в источниках включений."""
+
+    found: list[tuple[int, str]] = []
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sorted":
+            return
+        field = _batch_set_field(node)
+        if field is not None:
+            found.append((node.lineno, field))
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            visit(node.iter)
+    return sorted(found)
+
+
+def test_the_batch_set_walk_rule_flags_an_unsorted_walk_and_passes_a_sorted_one():
+    unsorted = (
+        "for chain in batch.boundary_chains:\n"
+        "    pass\n"
+        "names = [k for k in getattr(batch, 'interface_chains', ()) or ()]\n"
+        "pairs = {v for v in result.batch.vertices}\n"
+    )
+    ordered = (
+        "for chain in sorted(batch.boundary_chains, key=len):\n"
+        "    pass\n"
+        "count = len(batch.vertices)\n"
+    )
+
+    assert _unsorted_batch_set_walks(ast.parse(unsorted)) == [
+        (1, "boundary_chains"),
+        (3, "interface_chains"),
+        (4, "vertices"),
+    ]
+    assert _unsorted_batch_set_walks(ast.parse(ordered)) == []
+
+
+def test_the_host_never_walks_a_batch_frozenset_in_hash_order():
+    offenders = [
+        f"{_relative(path)}:{line} .{field}"
+        for path in _python_files(HOST_PACKAGE)
+        for line, field in _unsorted_batch_set_walks(_parse(path))
+    ]
+    assert not offenders, (
+        "хост идёт по `frozenset` батча в хеш-порядке (ответ зависит от PYTHONHASHSEED):\n"
+        + "\n".join(offenders)
+        + "\n\nОбходите через sorted(..., key=<имя или ключ вершин>)."
+    )

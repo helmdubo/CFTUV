@@ -455,14 +455,14 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "угле (d2 `H = 1`, d4) последний сектор может превысить `pi/q` до "
             "0.1 градуса плюс шум привязки к решётке (граница шума — запись "
             "EVALUATION_BINDING_NOISE_ON_CANONICAL_ANGLE_V1, 1/400); остальные "
-            "секторы — точные повороты и проверяются точно. ВТОРОЕ МЕСТО (срез S4 "
-            "закона SILHOUETTE_TOPOLOGY_V1): тот же масштаб художника — предел "
-            "излома цепи источника или стены в вершине, которую закон "
-            "SILHOUETTE_SOURCE_DOTS_V1 считает точкой на прямой "
-            "(`materialize.source_dots.BEND_LIMIT`): излом не больше 0.1 градуса "
-            "— шум моделирования, а не угол; растворяется такая вершина лишь "
-            "под глубиной хорды и сдвигом UV запроса, и излом растворённых "
-            "записан (MATERIALIZE_SILHOUETTE_SOURCE_DOTS_MAX_BEND_MICRODEGREES)."
+            "секторы — точные повороты и проверяются точно. ВТОРОЕ МЕСТО (план "
+            "станций цепей CHAIN_STATION_PLAN_V1 закона SILHOUETTE_TOPOLOGY_V1): "
+            "тот же масштаб художника — предел излома цепи источника или стены "
+            "в вершине, которую план считает точкой на прямой "
+            "(`_chain_station.BEND_LIMIT`): излом не больше 0.1 градуса — шум "
+            "моделирования, а не угол; вершина `FREE` лишь при допуске хорды "
+            "и инертных поперечных рёбрах, решение записано в плане компиляции "
+            "(ChainStationPlanV1)."
         ),
         authority=(
             "AngleTolerancePolicyIdV1.CANONICAL_RESTORATION_ARTIST_SCALE_V1; "
@@ -472,7 +472,7 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "угла вместо сдвига границ ячеек) и 2026-10-03 (RIGHT-ANGLE-STABLE: "
             "допуск восстановления поднят с 7e-6 рад до масштаба художника) и "
             "2026-10-05 (SILHOUETTE-TOPOLOGY S4: тот же масштаб — излом точки на "
-            "прямой цепи источника)"
+            "прямой цепи источника; с плана станций цепей — `_chain_station`)"
         ),
         applied_stage=TolerancePolicyAppliedStageV1.CANONICAL_ANGLE_RESTORATION,
         allowed_effect=(
@@ -1399,7 +1399,10 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "планарная грань диагональю не режется никогда. То же число — глубина хорды закона SILHOUETTE_TOPOLOGY_V1 "
             "(materialize.silhouette): ребро между гранями одного региона растворяется, когда меньшая грань и грань "
             "объединения лежат в нём от плоскости, вершина — когда растворённые вершины в нём от выпрямленного ребра; "
-            "наибольшее число записано (MATERIALIZE_SILHOUETTE_MAX_CHORD_NM). Одно значение, одно место."
+            "наибольшее число записано (MATERIALIZE_SILHOUETTE_MAX_CHORD_NM). Тот же допуск у плана станций цепей "
+            "CHAIN_STATION_PLAN_V1 (_chain_station): поперечное ребро источника инертно, когда вершины каждой из двух граней "
+            "отстоят от плоскости другой не дальше допуска; группа граней плоска вместе, а подряд идущие FREE-вершины линии цепей "
+            "не уводят ломаную от отрезка между несомыми вершинами дальше допуска (RUN_CHORD_BEYOND_BUDGET). Одно значение, одно место."
         ),
         authority=(
             "materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET; NearPlanarLiftLawV1."
@@ -1423,6 +1426,8 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_SILHOUETTE_EDGES_DISSOLVED",
             "MATERIALIZE_SILHOUETTE_KEPT_CHORD",
             "MATERIALIZE_SILHOUETTE_MAX_CHORD_NM",
+            "MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS",
+            "MATERIALIZE_STATION_PLAN_DISSOLVED",
         ),
         declaration_sites=(
             "cftuv_envelope.materialize.clip_cells.CLIP_DIAGONAL_CHORD_BUDGET",
@@ -1845,9 +1850,9 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "граней различаются внутри не больше удвоенного допуска; нуль — прежнее точное правило (UV ТОЧНО аффинна). "
             "Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`, из `[0, MAX_SILHOUETTE_UV_SLIDE = 1/16]`), умолчание "
             "1/256 alpha (8 пикселей тайла 2048 при ширине декали в один тайл; выбор плана S1, владелец делегировал), на панели "
-            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены проход по домену не растворяет: их решает общий "
-            "проход по доменам прогона (SILHOUETTE_SOURCE_DOTS_V1, `materialize.source_dots`) под тем же допуском: UV вдоль выпрямленного "
-            "ребра в каждом домене места не больше допуска. Наибольшие "
+            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены проход по домену растворяет лишь по плану станций цепей "
+            "(CHAIN_STATION_PLAN_V1, `FREE`): допуск UV у них не действует, сдвиг записан "
+            "(MATERIALIZE_STATION_PLAN_MAX_UV_SLIDE_MILLI_ALPHA). Наибольшие "
             "сдвиг и остаток записаны (MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA, ..._MAX_UV_RESIDUAL_MILLI_ALPHA, "
             "тысячные alpha), и проверка закона пересчитывает их независимо."
         ),

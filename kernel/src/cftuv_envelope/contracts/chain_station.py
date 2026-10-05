@@ -50,6 +50,9 @@ class ChainStationReasonV1(str, Enum):
     BEND_BEYOND_STRAIGHT = "BEND_BEYOND_STRAIGHT"
     #: REQUIRED: вершина стоит от прямой между соседями по цепи дальше допуска хорды (`CLIP_DIAGONAL_CHORD_BUDGET`).
     CHORD_BEYOND_BUDGET = "CHORD_BEYOND_BUDGET"
+    #: REQUIRED: каждая вершина в допуске, но подряд идущие `FREE`-вершины линии цепей (куски, соединённые стыками) вместе уводят ломаную от
+    #: прямой между несомыми вершинами дальше допуска хорды: дрейф малых изломов. Окно по линии жадное, слева направо.
+    RUN_CHORD_BEYOND_BUDGET = "RUN_CHORD_BEYOND_BUDGET"
     #: REQUIRED: в вершине сходится другой шов или край меша, либо она вершина угла либо стыка в отношениях снапшота.
     JUNCTION = "JUNCTION"
     #: REQUIRED: поверхность другого патча цепи в вершине снапшоту неизвестна (хост её не выгрузил).

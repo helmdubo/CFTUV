@@ -280,7 +280,7 @@ def _domain_arrays(result):
         uvs.extend(pairs)
         face_owner.append(owners[face.ownership_claim_id.value])
     seams = set()
-    for chain in batch.interface_chains:
+    for chain in sorted(batch.interface_chains, key=lambda item: tuple(key.value for key in item.ordered_vert_keys)):
         keys = [key.value for key in chain.ordered_vert_keys]
         for first, second in zip(keys, keys[1:]):
             if first in index and second in index and first != second:

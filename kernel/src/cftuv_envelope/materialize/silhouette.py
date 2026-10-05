@@ -29,9 +29,9 @@
    выпрямленного ребра не дальше глубины хорды, а UV, которую даёт интерполяция вдоль выпрямленного ребра, отличается от
    прежней не больше `DecalRequestV1.silhouette_uv_slide` (запись реестра `SILHOUETTE_UV_SLIDE_V1`, политика запроса, доля alpha). Грани после
    растворения — простые контуры (точно), а в треугольнике выпрямления нет ни одной чужой вершины, поэтому грани не наезжают.
-   Вершины цепей источника и стены этот проход не трогает никогда: они общие с соседними доменами по `location:src:`, и решить
-   их в одном домене значит открыть шов (`ADAPTER_SEAM_T_JUNCTIONS`); их решает глобальный проход по всем доменам прогона
-   (`materialize.source_dots`, срез S4); вершины `clip:` внутри домена свободны.
+   Вершины цепей источника и стены этот проход решает ТОЛЬКО по плану станций цепей (`CHAIN_STATION_PLAN_V1`, пункт ниже): они общие с
+   соседними доменами по `location:src:`, и решение «по сетке домена» открыло бы шов (`ADAPTER_SEAM_T_JUNCTIONS`: у соседа вершина
+   осталась бы). Остальные вершины цепей остаются всегда; вершины `clip:` внутри домена свободны.
 
 ЧТО ПИШЕТСЯ. Любой отказ растворить назван счётчиком (`KEPT_*`), а наибольшие глубина хорды и сдвиг UV, на которые закон пошёл,
 записаны (нанометры и тысячные alpha; остаток UV слияний в пределах допуска — `MAX_UV_RESIDUAL_MILLI_ALPHA`). Нулевые числа в счётчики не пишутся: домен, где ничего не растворилось, не получает
@@ -42,6 +42,16 @@
 гранями одного региона с НЕПРЕРЫВНОЙ, но изломанной UV (смена пробега, перекладина JOIN, билинейная грань) в плоскости лежит, но
 слияние отдало бы выбор UV триангуляции показа Blender'а. `sagging_wall` alpha 0.987: из 91 пары-кандидата патча 1 аффинны 13. Эти
 рёбра остаются (`KEPT_NOT_AFFINE`), каждое посчитано; чем больше ε, тем больше слияний (`EDGES_WITHIN_UV_TOLERANCE`).
+
+ПЛАН СТАНЦИЙ ЦЕПЕЙ (срез S2). Какие вершины цепи источника и стены декаль не несёт, решено при компиляции (`_chain_station`, по сырому
+снапшоту и один раз на цепь: оба домена общей цепи читают одну запись), а не по сетке домена после построения (прежний общий проход
+`SILHOUETTE_SOURCE_DOTS_V1` над готовыми батчами всех доменов прогона удалён). Вершина `FREE` плана, внутренняя для цепи границы
+(оба граничных полуребра — SOURCE либо оба WALL; конец цепи границы декали — её угол, плана там нет), растворяется как точка на прямой, но
+по правилам плана, а не закона вершин: допуск ХОРДЫ остаётся (проверка по всей растворённой цепочке между несомыми вершинами, как у прежнего
+прохода), допуск UV НЕ действует (UV — не решение плана; сдвиг записан, `STATION_PLAN_MAX_UV_SLIDE_MILLI_ALPHA`), простота граней остаётся.
+Вершина-копия разреза кольца, вершина с прикреплённым ребром (степень не два, больше одной грани), хорда за допуском и непростая грань
+названы счётчиком (`STATION_PLAN_KEPT_*`): молчаливого выживания нет, а проверка пересчитывает число выживших `FREE` по итоговой сетке и равна
+сумме этих счётчиков (`STATION_PLAN_VIOLATED`).
 
 ЦЕПИ ПО ИТОГОВЫМ ГРАНЯМ (срез S1c). Контур слитой грани описывает грань ДО растворения: вершина, в которой сходятся контуры
 нескольких слитых граней одного региона (после растворения рёбер между ними она стала вершиной двух рёбер), в контурах остаётся
@@ -67,6 +77,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -74,6 +85,7 @@ from fractions import Fraction
 
 from ..exact_sqrt_sum import ExactCanonicalizationWorkBudgetExhausted, exact_work_budget
 from ..float_filter import affine_map_violated, centre_and_bound
+from ..validation_issues import ValidationCode
 from ..wavefront.faces import orientation, segments_cross
 from .admit import MaterializationOutcome
 from .assemble import CONTINUOUS_INTERFACE_EDGES, chains_of, chains_of_faces, edge_kind
@@ -98,6 +110,16 @@ MAX_UV_SLIDE_MILLI_ALPHA = "MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA"
 MAX_CHORD_NM = "MATERIALIZE_SILHOUETTE_MAX_CHORD_NM"
 SKIPPED_WORK_BUDGET = "MATERIALIZE_SILHOUETTE_SKIPPED_WORK_BUDGET"
 SKIPPED_NOT_MANIFOLD = "MATERIALIZE_SILHOUETTE_SKIPPED_NOT_MANIFOLD"
+#: Числа плана станций цепей: растворённые `FREE`-вершины, выжившие под именем, наибольший сдвиг UV растворённых (допуска UV у плана нет).
+PLAN_DISSOLVED = "MATERIALIZE_STATION_PLAN_DISSOLVED"
+PLAN_KEPT_TWINNED = "MATERIALIZE_STATION_PLAN_KEPT_TWINNED"
+PLAN_KEPT_ATTACHED = "MATERIALIZE_STATION_PLAN_KEPT_ATTACHED"
+PLAN_KEPT_CHORD = "MATERIALIZE_STATION_PLAN_KEPT_CHORD"
+PLAN_KEPT_NOT_SIMPLE = "MATERIALIZE_STATION_PLAN_KEPT_NOT_SIMPLE"
+PLAN_KEPT_NO_UV_FACTS = "MATERIALIZE_STATION_PLAN_KEPT_NO_UV_FACTS"
+PLAN_MAX_UV_SLIDE_MILLI_ALPHA = "MATERIALIZE_STATION_PLAN_MAX_UV_SLIDE_MILLI_ALPHA"
+PLAN_KEPT_NAMES = (PLAN_KEPT_TWINNED, PLAN_KEPT_ATTACHED, PLAN_KEPT_CHORD, PLAN_KEPT_NOT_SIMPLE, PLAN_KEPT_NO_UV_FACTS)
+STATION_PLAN_VIOLATED = ValidationCode.STATION_PLAN_VIOLATED.value
 COUNTER_NAMES = (
     EDGES_DISSOLVED,
     VERTICES_DISSOLVED,
@@ -111,6 +133,9 @@ COUNTER_NAMES = (
     MAX_CHORD_NM,
     SKIPPED_WORK_BUDGET,
     SKIPPED_NOT_MANIFOLD,
+    PLAN_DISSOLVED,
+    *PLAN_KEPT_NAMES,
+    PLAN_MAX_UV_SLIDE_MILLI_ALPHA,
     CONTINUOUS_INTERFACE_EDGES,
 )
 
@@ -136,6 +161,8 @@ class SilhouetteInputV1:
     uv_slide: Fraction
     #: Кольца граней обходятся против контуров (CW-карта, `tessellate_faces(reverse=...)`): цепи идут в направлении контуров.
     reverse: bool = False
+    #: Ключи вершин `src:<id>`, которые план станций цепей (`CHAIN_STATION_PLAN_V1`) назвал `FREE` (декаль их не несёт); пусто — плана нет.
+    free: frozenset = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +336,8 @@ class _Mesh:
         self.max_slide = 0.0
         self.max_residual = 0.0
         self.fits: list = []
+        self.planned: set = set()
+        self.plan_slide = 0.0
         self.faces: dict = {}
         self.half: dict = {}
         self.manifold = True
@@ -534,6 +563,8 @@ class _Mesh:
             found = None if key in fixed else self._line(key, incident)
             if found is not None:
                 order.append((_along(self.xyz(found[0]), self.xyz(found[1]), self.xyz(key))[1], key))
+            elif key in self.planned and key not in fixed:
+                self.tally[PLAN_KEPT_ATTACHED] += 1
         gone: set = set()
         for _sag, key in sorted(order):
             if self._try_dissolve(key, incident, covered, gone):
@@ -541,7 +572,11 @@ class _Mesh:
         return frozenset(gone), covered
 
     def _fixed_vertices(self, incident) -> set:
-        """Вершины, которые закон не растворяет: цепи источника и стены, вершины с двойником-копией (разрез кольца)."""
+        """Вершины, которые закон не растворяет: цепи источника и стены, вершины с двойником-копией (разрез кольца).
+
+        Исключение — `FREE` плана станций цепей, внутренние для цепи границы (`chain_interior`): они решаются по плану, а не остаются.
+        Копия разреза кольца остаётся и у них (названа `STATION_PLAN_KEPT_TWINNED`).
+        """
 
         fixed: set = set()
         for (first, second), number in self.half.items():
@@ -553,8 +588,35 @@ class _Mesh:
         by_place: dict = defaultdict(set)
         for key in incident:
             by_place[location_key(key)].add(key)
-        fixed.update(key for keys in by_place.values() if len(keys) > 1 for key in keys)
+        twinned = {key for keys in by_place.values() if len(keys) > 1 for key in keys}
+        interior = self.chain_interior(incident)
+        self.planned = interior - twinned
+        self.tally[PLAN_KEPT_TWINNED] += len(interior & twinned)
+        fixed -= self.planned
+        fixed.update(twinned)
         return fixed
+
+    def chain_interior(self, incident) -> set:
+        """`FREE` плана, внутренние для цепи границы: ровно одно входящее и одно исходящее граничное полуребро, оба SOURCE либо оба WALL.
+
+        Конец цепи границы декали (граничное полуребро другого вида или фронт) — угол декали, плана там нет.
+        """
+
+        if not self.source.free:
+            return set()
+        into: dict = defaultdict(list)
+        out: dict = defaultdict(list)
+        for (first, second), number in self.half.items():
+            if (second, first) in self.half:
+                continue
+            kind = edge_kind(self.source.facts, self.faces[number].region, first, second, self.source.lattice_alpha)
+            out[first].append(kind)
+            into[second].append(kind)
+        return {
+            key
+            for key in self.source.free
+            if key in incident and len(into[key]) == 1 and len(out[key]) == 1 and into[key] == out[key] and into[key][0] != "RIM"
+        }
 
     def _line(self, key, incident):
         """`(сосед до, сосед после)` вершины двух рёбер либо `None`: степень не два, чужие грани, повтор вершины."""
@@ -576,7 +638,10 @@ class _Mesh:
 
     def _try_dissolve(self, key, incident, covered, gone) -> bool:
         line = self._line(key, incident)
+        planned = key in self.planned
         if line is None:
+            if planned:
+                self.tally[PLAN_KEPT_ATTACHED] += 1
             return False
         before, after = line
         left, right = frozenset((before, key)), frozenset((key, after))
@@ -585,14 +650,17 @@ class _Mesh:
         start, end = self.xyz(low), self.xyz(high)
         worst = max(_along(start, end, self.xyz(item))[1] for item in run)
         if not _within(worst, CHORD_BUDGET):
-            self.tally[KEPT_CHORD] += 1
+            self.tally[PLAN_KEPT_CHORD if planned else KEPT_CHORD] += 1
             return False
         slide = self._slide(incident[key], low, high, run)
-        if slide is None or not _within(slide, self.source.uv_slide):
+        if slide is None:
+            self.tally[PLAN_KEPT_NO_UV_FACTS if planned else KEPT_UV] += 1
+            return False
+        if not planned and not _within(slide, self.source.uv_slide):
             self.tally[KEPT_UV] += 1
             return False
         if not self._removable(key, before, after, incident, gone):
-            self.tally[KEPT_NOT_SIMPLE] += 1
+            self.tally[PLAN_KEPT_NOT_SIMPLE if planned else KEPT_NOT_SIMPLE] += 1
             return False
         for number in incident.pop(key):
             face = self.faces[number]
@@ -604,9 +672,13 @@ class _Mesh:
         covered.pop(left, None)
         covered.pop(right, None)
         covered[frozenset((before, after))] = run
-        self.tally[VERTICES_DISSOLVED] += 1
         self.max_chord = max(self.max_chord, worst)
-        self.max_slide = max(self.max_slide, slide)
+        if planned:
+            self.tally[PLAN_DISSOLVED] += 1
+            self.plan_slide = max(self.plan_slide, slide)
+        else:
+            self.tally[VERTICES_DISSOLVED] += 1
+            self.max_slide = max(self.max_slide, slide)
         return True
 
     def _slide(self, numbers, before, after, run):
@@ -694,11 +766,13 @@ class _Mesh:
         facts = {slot: value for slot, value in source.facts.items() if slot[1] not in gone}
         boundary, interface, continuous = _chains(source, polygons, facts)
         self.tally[CONTINUOUS_INTERFACE_EDGES] = continuous
-        counters = _counters(self.tally, self.max_chord, self.max_slide, self.max_residual)
-        changed = bool(self.tally[EDGES_DISSOLVED] or self.tally[VERTICES_DISSOLVED])
+        counters = _counters(self.tally, self.max_chord, self.max_slide, self.max_residual, self.plan_slide)
+        changed = bool(self.tally[EDGES_DISSOLVED] or self.tally[VERTICES_DISSOLVED] or self.tally[PLAN_DISSOLVED])
+        plan_kept = sum(self.tally[name] for name in PLAN_KEPT_NAMES)
+        plan = f"plan_dissolved={self.tally[PLAN_DISSOLVED]} plan_kept={plan_kept} " if self.tally[PLAN_DISSOLVED] or plan_kept else ""
         note = "" if not changed else (
             f"{LAW}: faces {faces_before} -> {len(self.faces)} edges_dissolved={self.tally[EDGES_DISSOLVED]} "
-            f"vertices_dissolved={self.tally[VERTICES_DISSOLVED]} kept_uv={self.tally[KEPT_UV]} "
+            f"vertices_dissolved={self.tally[VERTICES_DISSOLVED]} {plan}kept_uv={self.tally[KEPT_UV]} "
             f"kept_chord={self.tally[KEPT_CHORD]} kept_not_affine={self.tally[KEPT_NOT_AFFINE]} "
             f"kept_not_simple={self.tally[KEPT_NOT_SIMPLE]} max_chord_nm={_nanometres(self.max_chord)} "
             f"max_uv_slide_milli_alpha={_milli_alpha(self.max_slide)} within_uv_tolerance={self.tally[EDGES_WITHIN_UV_TOLERANCE]} "
@@ -734,14 +808,15 @@ def _chains(source: SilhouetteInputV1, polygons, facts) -> tuple:
     return boundary, interface, continuous[CONTINUOUS_INTERFACE_EDGES]
 
 
-def _counters(tally, max_chord: float, max_slide: float, max_residual: float = 0.0) -> tuple:
+def _counters(tally, max_chord: float, max_slide: float, max_residual: float = 0.0, plan_slide: float = 0.0) -> tuple:
     """Числа закона, только ненулевые: домен, где закон ничего не сделал, не получает новых строк."""
 
     values = {name: tally[name] for name in COUNTER_NAMES}
-    if tally[EDGES_DISSOLVED] or tally[VERTICES_DISSOLVED]:
+    if tally[EDGES_DISSOLVED] or tally[VERTICES_DISSOLVED] or tally[PLAN_DISSOLVED]:
         values[MAX_CHORD_NM] = _nanometres(max_chord)
         values[MAX_UV_SLIDE_MILLI_ALPHA] = _milli_alpha(max_slide)
         values[MAX_UV_RESIDUAL_MILLI_ALPHA] = _milli_alpha(max_residual)
+        values[PLAN_MAX_UV_SLIDE_MILLI_ALPHA] = _milli_alpha(plan_slide)
     return tuple((name, values[name]) for name in COUNTER_NAMES if values[name])
 
 
@@ -791,7 +866,7 @@ def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
     """Независимый пересчёт: имена нарушений (пусто — закон выполнен). Читает исходную сетку и итог, проход не зовёт."""
 
     if not result.changed:
-        return tuple(_verify_chains(source, result))
+        return (*_verify_plan(source, result), *_verify_chains(source, result))
     problems: list = []
     walls = {
         key
@@ -799,7 +874,7 @@ def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
         if chain.semantic_boundary_id.value.split(":")[1] in ("SOURCE", "WALL")
         for key in (item.value for item in chain.ordered_vert_keys)
     }
-    if walls & result.dissolved:
+    if (walls & result.dissolved) - source.free:
         problems.append("SOURCE_OR_WALL_VERTEX_DISSOLVED")
     kept = {slot: value for slot, value in source.facts.items() if slot[1] not in result.dissolved}
     if kept != result.facts:
@@ -807,8 +882,36 @@ def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
     problems.extend(_verify_runs(source, result))
     problems.extend(_verify_fits(source, result))
     problems.extend(_verify_topology(source, result))
+    problems.extend(_verify_plan(source, result))
     problems.extend(_verify_chains(source, result))
     return tuple(problems)
+
+
+def _verify_plan(source, result) -> list:
+    """План станций цепей исполнен: каждая `FREE`-вершина, внутренняя для цепи границы ИТОГОВОЙ сетки, названа выжившей, и других выживших нет.
+
+    Число таких вершин в итоговой сетке (пересчёт по кольцам итоговых граней, копии разреза кольца не в счёте — они названы отдельно)
+    равно сумме счётчиков `STATION_PLAN_KEPT_*` без копий; растворённые `FREE`-вершины в итоговой сетке не стоят.
+    """
+
+    counters = dict(result.counters)
+    if not source.free or SKIPPED_WORK_BUDGET in counters or SKIPPED_NOT_MANIFOLD in counters:
+        return []
+    final = _Mesh(
+        dataclasses.replace(
+            source, polygons=result.polygons, facts=result.facts, positions=result.positions, cycles=result.cycles
+        ),
+        None,
+    )
+    incident: dict = defaultdict(set)
+    for number, face in final.faces.items():
+        for key in face.ring:
+            incident[key].add(number)
+    interior = final.chain_interior(incident)
+    named = sum(value for name, value in result.counters if name in PLAN_KEPT_NAMES)
+    if len(interior) != named or interior & result.dissolved:
+        return [STATION_PLAN_VIOLATED]
+    return []
 
 
 def _verify_runs(source, result) -> list:
@@ -823,10 +926,11 @@ def _verify_runs(source, result) -> list:
             for edge in _pairs(tuple(ring)):
                 regions[frozenset(edge)].add(region)
     found, covered = [], []
-    worst_chord = worst_slide = 0.0
+    worst_chord = worst_slide = plan_slide = 0.0
     for before, after, run in result.runs:
         covered.extend(run)
         start, end = mesh.xyz(before), mesh.xyz(after)
+        planned = all(item in source.free for item in run)
         for region in regions.get(frozenset((before, after)), ()):
             if any((region, item) not in source.facts for item in (before, after, *run)):
                 found.append("RUN_VERTEX_HAS_NO_FACT")
@@ -835,7 +939,11 @@ def _verify_runs(source, result) -> list:
             for item in run:
                 share, _distance = _along(start, end, mesh.xyz(item))
                 u, v = mesh.uv(region, item)
-                worst_slide = max(worst_slide, math.hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share)))
+                slide = math.hypot(u - (u0 + (u1 - u0) * share), v - (v0 + (v1 - v0) * share))
+                if planned:
+                    plan_slide = max(plan_slide, slide)
+                else:
+                    worst_slide = max(worst_slide, slide)
         if frozenset((before, after)) not in regions:
             found.append("RUN_EDGE_IS_NOT_IN_THE_RESULT")
         for item in run:
@@ -846,6 +954,8 @@ def _verify_runs(source, result) -> list:
         found.append("CHORD_DEPTH_BEYOND_RECORDED_MAXIMUM")
     if _milli_alpha(worst_slide) > recorded.get(MAX_UV_SLIDE_MILLI_ALPHA, 0) or not _within(worst_slide, source.uv_slide):
         found.append("UV_SLIDE_BEYOND_RECORDED_MAXIMUM")
+    if _milli_alpha(plan_slide) > recorded.get(PLAN_MAX_UV_SLIDE_MILLI_ALPHA, 0):
+        found.append("PLAN_UV_SLIDE_BEYOND_RECORDED_MAXIMUM")
     return found
 
 

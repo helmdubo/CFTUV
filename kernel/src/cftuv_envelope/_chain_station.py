@@ -6,8 +6,8 @@
 ЗАЧЕМ. Вершина цепи, лежащая на прямой между соседями по цепи, своей формой силуэт не рисует. Рисует её то, что к ней прикреплено:
 поперечное ребро источника (ребро меша, уходящее от вершины внутрь патча) режет грани декали, и вершина становится концом этого реза.
 Если поверхность поперёк такого ребра плоская в допуске, рез ничего не меняет и вершина лишняя. Раньше её растворял проход по готовым
-батчам всех доменов прогона (`SILHOUETTE_SOURCE_DOTS_V1`, вердикт на каждое место по сетке каждого домена); этот закон решает то же ДО
-построения и по поверхности источника, а не по сетке.
+батчам всех доменов прогона (вердикт на каждое место по сетке каждого домена; проход удалён); этот закон решает то же ДО построения и по
+поверхности источника, а не по сетке: резка не режет по инертным рёбрам, проход силуэта растворяет сами вершины (`materialize.silhouette`).
 
 ДВА ВИДА ВЕРШИН. Хост режет цепь в каждом ТОЧНОМ изломе (`float32` почти никогда не даёт точной прямой, поэтому ровная стена с вершинами
 на ней — цепочка кусков по одному ребру, а не один кусок). (1) ВНУТРЕННЯЯ вершина куска (`INTERIOR_VERTEX`): точно на прямой. (2) СТЫК двух
@@ -34,6 +34,13 @@
 плоска, когда все вершины всех её граней отстоят не дальше допуска от плоскости её наибольшей грани (по модулю нормали, затем по имени). Без
 этого цепочка рёбер, каждое из которых в допуске, дрейфовала бы на десятки миллиметров (прецедент — «без дрейфа цепочки слияний» закона
 `SILHOUETTE_TOPOLOGY_V1`). Вершины неплоской группы — `REQUIRED:GROUP_NOT_FLAT` все разом (порядок обхода на ответ не влияет).
+
+ДРЕЙФ ЛИНИИ. Вершина проверена по своим соседям, но подряд идущие `FREE`-вершины вместе уводят ломаную от прямой между несомыми вершинами
+(малые изломы копятся: большая дуга мелкими кусками). Линия цепей — куски, соединённые стыками (`CHAIN_JOINT`); окно идёт по ней слева направо
+жадно: вершина остаётся `FREE`, пока ВСЕ пропущенные с начала окна отстоят от отрезка «последняя несомая — следующая вершина» не дальше допуска
+хорды (расстояние до ОТРЕЗКА, точно), иначе она несётся (`REQUIRED:RUN_CHORD_BEYOND_BUDGET`) и открывает новое окно. Концы линии несутся всегда.
+Так растворение всех `FREE`-вершин цепи не выводит силуэт за допуск, а решение остаётся функцией снапшота: оба домена общей цепи видят одни и те же
+куски и стыки.
 
 ЧЕГО ЗАКОН НЕ ЗНАЕТ, И ЭТО НАЗВАНО. Положений нет (координатно-свободная выгрузка) — `POSITIONS_UNAVAILABLE`; другая сторона шва не выгружена —
 `NEIGHBOUR_SIDE_UNKNOWN`; цепь замкнута — `CLOSED_CHAIN`. Карта домена — развёртка: решение то же, причина `FREE_UNDER_CHART`
@@ -188,6 +195,8 @@ class StationFacts:
             item.source_vertex_id for relations in (snapshot.corner_relations, snapshot.junction_relations) for item in relations
         )
         self._inert: dict = {}
+        self._floats: dict = {}
+        self._float_limit = float(self.budget * self.budget)
 
     def inert(self, first: _Face, second: _Face) -> bool:
         """Ребро между гранями инертно: вершины каждой отстоят от плоскости другой не дальше допуска (кэш по паре)."""
@@ -205,6 +214,50 @@ class StationFacts:
 
         biggest = max(faces, key=lambda item: (item.plane[2], item.face_id.value))
         return all(_within(biggest.plane, face.points, self.budget) for face in faces)
+
+    def beyond_segment(self, first, second, point) -> bool:
+        """Точка `point` дальше допуска хорды от ОТРЕЗКА `first - second` (положения вершин): точно; ясные случаи решает binary64 с запасом 1e-6.
+
+        Квадрат расстояния до отрезка: у концов — квадрат расстояния до конца, внутри — квадрат расстояния до прямой; сравнение с `B^2`.
+        """
+
+        fast = self._beyond_by_floats(first, second, point)
+        if fast is not None:
+            return fast
+        start, end, middle = self.position[first], self.position[second], self.position[point]
+        whole, along = _sub(end, start), _sub(middle, start)
+        reach = _dot(along, whole)
+        if reach <= 0:
+            return _dot(along, along) > self.budget * self.budget
+        if reach >= _dot(whole, whole):
+            far = _sub(middle, end)
+            return _dot(far, far) > self.budget * self.budget
+        cross = _cross(along, whole)
+        return _dot(cross, cross) > self.budget * self.budget * _dot(whole, whole)
+
+    def _beyond_by_floats(self, first, second, point):
+        """`True`/`False`, если binary64 решает с запасом, иначе `None` (решает точный путь)."""
+
+        floats = self._floats
+        for name in (first, second, point):
+            if name not in floats:
+                floats[name] = tuple(float(axis) for axis in self.position[name])
+        a, b, p = floats[first], floats[second], floats[point]
+        w = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        v = (p[0] - a[0], p[1] - a[1], p[2] - a[2])
+        reach, whole = v[0] * w[0] + v[1] * w[1] + v[2] * w[2], w[0] * w[0] + w[1] * w[1] + w[2] * w[2]
+        if reach <= 0.0:
+            square, limit = v[0] * v[0] + v[1] * v[1] + v[2] * v[2], self._float_limit
+        elif reach >= whole:
+            square, limit = (p[0] - b[0]) ** 2 + (p[1] - b[1]) ** 2 + (p[2] - b[2]) ** 2, self._float_limit
+        else:
+            cross = (v[1] * w[2] - v[2] * w[1], v[2] * w[0] - v[0] * w[2], v[0] * w[1] - v[1] * w[0])
+            square, limit = cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2, self._float_limit * whole
+        if square <= limit * (1.0 - 1e-6):
+            return False
+        if square >= limit * (1.0 + 1e-6):
+            return True
+        return None
 
     def not_straight(self, before, vertex, after):
         """Причина, по которой цепь `before - vertex - after` не прямая в вершине, либо `None`: излом в допуске, хорда в допуске.
@@ -315,6 +368,81 @@ def _demote_deep_groups(facts: StationFacts, found: dict) -> None:
                 stations[ordinal] = (kind, REQUIRED, R.GROUP_NOT_FLAT, ())
 
 
+def _lines(found: dict, vertices_of: dict) -> list:
+    """Линии цепей: куски цепей домена, соединённые стыками (`CHAIN_JOINT`), в порядке обхода: `[[(вершина, ((цепь, порядковый), ...)), ...], ...]`.
+
+    У стыка две записи (по одной в каждом из двух кусков): вершина линии одна, ссылок у неё две. Линия без свободного конца (кольцо из
+    кусков) режется в куске с наименьшим именем: концы линии несутся всегда. Порядок и начало линии — функции снапшота, поэтому два домена
+    общей цепи строят одни линии.
+    """
+
+    link: dict = {}
+    joined: dict = defaultdict(list)
+    for chain_id, stations in found.items():
+        vertices = vertices_of[chain_id]
+        for ordinal, (kind, *_rest) in stations.items():
+            if kind is JOINT:
+                joined[vertices[ordinal]].append(chain_id)
+    for vertex, ids in joined.items():
+        if len(ids) == 2 and ids[0] != ids[1]:
+            one, two = ids
+            end_one, end_two = int(vertices_of[one][0] != vertex), int(vertices_of[two][0] != vertex)
+            link[(one, end_one)], link[(two, end_two)] = (two, end_two), (one, end_one)
+    visited: set = set()
+    lines = []
+    for start in sorted(found, key=lambda item: item.value):
+        if start in visited or len(vertices_of[start]) < 2:
+            continue
+        # налево до свободного конца либо до замыкания кольца
+        chain, flip, seen = start, False, {start}
+        while True:
+            ahead = link.get((chain, 1 if flip else 0))
+            if ahead is None or ahead[0] in seen:
+                break
+            chain, flip = ahead[0], ahead[1] == 0
+            seen.add(chain)
+        if ahead is not None:  # кольцо: начало — кусок с наименьшим именем, ориентация как записана
+            chain, flip = min(seen, key=lambda item: item.value), False
+        line: list = []
+        while chain not in visited:
+            visited.add(chain)
+            vertices = vertices_of[chain]
+            order = range(len(vertices) - 1, -1, -1) if flip else range(len(vertices))
+            for ordinal in order:
+                ref = (chain, ordinal)
+                if line and ordinal == (len(vertices) - 1 if flip else 0) and line[-1][0] == vertices[ordinal]:
+                    line[-1] = (line[-1][0], (*line[-1][1], ref))
+                else:
+                    line.append((vertices[ordinal], (ref,)))
+            ahead = link.get((chain, 0 if flip else 1))
+            if ahead is None:
+                break
+            chain, flip = ahead[0], ahead[1] == 1
+        lines.append(line)
+    return lines
+
+
+def _demote_runs(facts: StationFacts, found: dict, vertices_of: dict) -> None:
+    """Дрейф линии (см. модуль): окно слева направо; вершина, которую окно не вмещает в допуск, несётся и открывает новое окно."""
+
+    for line in _lines(found, vertices_of):
+        carried = [
+            any(found[chain].get(ordinal, (None, REQUIRED))[1] is REQUIRED for chain, ordinal in refs) for _vertex, refs in line
+        ]
+        anchor = 0
+        for index in range(1, len(line) - 1):
+            if carried[index]:
+                anchor = index
+                continue
+            first, second = line[anchor][0], line[index + 1][0]
+            if any(facts.beyond_segment(first, second, line[at][0]) for at in range(anchor + 1, index + 1)):
+                for chain, ordinal in line[index][1]:
+                    kind = found[chain][ordinal][0]
+                    found[chain][ordinal] = (kind, REQUIRED, R.RUN_CHORD_BEYOND_BUDGET, ())
+                carried[index] = True
+                anchor = index
+
+
 def _chart_is_developed(snapshot, patch_domain_id) -> bool:
     return any(
         isinstance(item, RationalAffinePlanarMetricV2)
@@ -379,6 +507,7 @@ def chain_station_plans(snapshot, patch_domain_id, facts: StationFacts | None = 
             found[chain.physical_chain_id] = stations
     _demote_deep_groups(facts, found)
     _agree_on_joints(found, chains)
+    _demote_runs(facts, found, {item.physical_chain_id: item.ordered_source_vertex_ids for item in chains})
     named = R.FREE_UNDER_CHART if _chart_is_developed(snapshot, patch_domain_id) else R.TRANSVERSE_EDGES_INERT
     by_id = {item.physical_chain_id: item for item in chains}
     plans = []
