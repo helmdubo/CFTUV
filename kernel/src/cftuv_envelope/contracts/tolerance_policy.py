@@ -1830,12 +1830,15 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "SILHOUETTE_TOPOLOGY_V1 вправе внести растворением вершины на прямой между двумя рёбрами: UV, которую грань "
             "получила бы в месте растворённой вершины интерполяцией вдоль выпрямленного ребра (по проекции вершины на ребро), "
             "отличается от прежней не больше. Проверяется у КАЖДОЙ растворённой вершины между концами итогового ребра, в "
-            "каждом регионе соседних граней. Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`, из `(0, "
-            "MAX_SILHOUETTE_UV_SLIDE = 1/16]`), умолчание 1/256 alpha (8 пикселей тайла 2048 при ширине декали в один тайл; "
-            "выбор плана S1, владелец делегировал). Растворение рёбер этого допуска не читает: там UV обязана быть ТОЧНО "
-            "аффинной по положению на карте. Вершины цепей источника и стены закон не растворяет вовсе. Наибольший сдвиг "
-            "записан (MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA, тысячные alpha), и проверка закона пересчитывает его "
-            "независимо."
+            "каждом регионе соседних граней. Тот же допуск — предел остатка у слияния рёбер: ребро между гранями одного "
+            "региона растворяется, когда ОДНА аффинная карта (наименьшие квадраты по вершинам объединения; любая карта с "
+            "остатком до допуска годится) приближает UV всех вершин не хуже, и тогда UV показа любой триангуляции и прежняя UV "
+            "граней различаются внутри не больше удвоенного допуска; нуль — прежнее точное правило (UV ТОЧНО аффинна). "
+            "Политика ЗАПРОСА (`DecalRequestV1.silhouette_uv_slide`, из `[0, MAX_SILHOUETTE_UV_SLIDE = 1/16]`), умолчание "
+            "1/256 alpha (8 пикселей тайла 2048 при ширине декали в один тайл; выбор плана S1, владелец делегировал), на панели "
+            "«Dissolve UV tolerance» в процентах ширины. Вершины цепей источника и стены закон не растворяет вовсе. Наибольшие "
+            "сдвиг и остаток записаны (MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA, ..._MAX_UV_RESIDUAL_MILLI_ALPHA, "
+            "тысячные alpha), и проверка закона пересчитывает их независимо."
         ),
         authority=(
             "materialize.silhouette (SILHOUETTE_TOPOLOGY_V1); DECISIONS.md 2026-10-05 (SILHOUETTE-TOPOLOGY S1: запрос "
@@ -1851,6 +1854,8 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
             "MATERIALIZE_SILHOUETTE_VERTICES_DISSOLVED",
             "MATERIALIZE_SILHOUETTE_KEPT_UV",
             "MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA",
+            "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE",
+            "MATERIALIZE_SILHOUETTE_MAX_UV_RESIDUAL_MILLI_ALPHA",
         ),
         declaration_sites=(
             "cftuv_envelope.contracts.metric.DEFAULT_SILHOUETTE_UV_SLIDE",

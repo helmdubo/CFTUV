@@ -2161,11 +2161,12 @@ def build_envelope_decal_request(
     developable_stretch_budget=None,
     snapshot_issues_of=None,
     chart_reach_cap=None,
+    silhouette_uv_slide=None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request; `snapshot_issues_of(snapshot, stretch_budget)` — замечания снапшота из памяти сессии (допуск растяжения ЭТОГО запроса), `None` — считаются здесь."""
 
     kernel, _ = _load_kernel()
-    angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget, chart_reach_cap)
+    angular_policy = envelope_angular_policy(kernel, density, developable_stretch_budget, chart_reach_cap, silhouette_uv_slide)
     if not selected_physical_edge_ids:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
@@ -2628,10 +2629,9 @@ def evaluate_envelope_debug_staged(
                     alpha,
                     decal_request_id_value=global_request_id,
                     density=density,
-                    developable_stretch_budget=getattr(
-                        topology_export, "developable_stretch_budget", None
-                    ),
+                    developable_stretch_budget=getattr(topology_export, "developable_stretch_budget", None),
                     chart_reach_cap=topology_chart_reach_cap(topology_export),
+                    silhouette_uv_slide=getattr(topology_export, "silhouette_uv_slide", None),
                 )
         except EnvelopeHostAdapterError as exc:
             diagnostic = exc.diagnostic()

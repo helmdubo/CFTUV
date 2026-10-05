@@ -21,6 +21,7 @@ from cftuv.envelope_request_policy import (  # noqa: E402
     build_envelope_request_contract,
     envelope_angular_policy,
     envelope_decal_request_id_value,
+    envelope_dissolve_uv_slide,
     envelope_request_policy_signature,
     envelope_silhouette_uv_slide,
     envelope_stretch_budget,
@@ -162,8 +163,9 @@ def test_the_silhouette_slide_default_is_the_kernels_and_a_named_one_reaches_the
     assert DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE == DEFAULT_SILHOUETTE_UV_SLIDE == Fraction(1, 256)
     assert envelope_silhouette_uv_slide(None) is None and envelope_silhouette_uv_slide(Fraction(1, 256)) is None
     assert envelope_silhouette_uv_slide(Fraction(1, 128)) == Fraction(1, 128)
-    with pytest.raises(ValueError, match="positive fraction"):
-        envelope_silhouette_uv_slide(0)
+    assert envelope_silhouette_uv_slide(0) == 0  # нуль законен: точное правило, без допуска
+    with pytest.raises(ValueError, match="non-negative fraction"):
+        envelope_silhouette_uv_slide(Fraction(-1, 256))
 
     def build(slide, reach=None):
         policy = envelope_angular_policy(kernel, None, None, reach, slide)
@@ -206,6 +208,7 @@ def test_every_host_caller_that_passes_the_fan_density_also_passes_the_stretch_b
             if "density" in keywords:
                 seen += 1
                 assert "developable_stretch_budget" in keywords, (name, node.lineno)
+                assert "silhouette_uv_slide" in keywords, (name, node.lineno)
     assert seen == 2
 
 
@@ -227,3 +230,42 @@ def test_the_panel_draws_max_stretch_next_to_fan_density_and_the_property_is_an_
     keywords = {item.arg: ast.unparse(item.value) for item in prop.keywords}
     assert keywords["default"] == "DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT"
     assert keywords["update"] == "_update_envelope_debug_max_stretch"
+
+
+def test_the_dissolve_tolerance_percent_is_an_exact_fraction_and_the_panel_default_is_the_kernels():
+    from fractions import Fraction
+
+    from cftuv.envelope_request_policy import DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT, ENVELOPE_DISSOLVE_UV_PERCENT_RANGE
+    from cftuv_envelope.contracts.metric import DEFAULT_SILHOUETTE_UV_SLIDE, MAX_SILHOUETTE_UV_SLIDE
+
+    assert Fraction(DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT) / 100 == DEFAULT_SILHOUETTE_UV_SLIDE == Fraction(1, 256)
+    assert Fraction(ENVELOPE_DISSOLVE_UV_PERCENT_RANGE[1]) / 100 == MAX_SILHOUETTE_UV_SLIDE and ENVELOPE_DISSOLVE_UV_PERCENT_RANGE[0] == 0.0
+    # Умолчание ползунка — тот же запрос, что без поля: `FloatProperty` (binary32) возвращает диадическое число тождественно.
+    import struct
+
+    assert struct.unpack("f", struct.pack("f", DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT))[0] == DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT
+    assert envelope_dissolve_uv_slide(None) is None and envelope_dissolve_uv_slide(DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT) is None
+    assert envelope_dissolve_uv_slide(0.0) == Fraction(0)
+    assert envelope_dissolve_uv_slide(0.5) == Fraction(1, 200) and envelope_dissolve_uv_slide(6.25) == Fraction(1, 16)
+    # Значение от binary32 ползунка округляется до сотой доли процента: шума двоичной дроби в запросе нет.
+    assert envelope_dissolve_uv_slide(struct.unpack("f", struct.pack("f", 0.4))[0]) == Fraction(1, 250)
+    for bad in (-0.01, 6.26):
+        with pytest.raises(ValueError, match="Dissolve UV tolerance"):
+            envelope_dissolve_uv_slide(bad)
+
+
+def test_the_panel_draws_the_dissolve_tolerance_next_to_max_stretch_and_the_property_is_a_float_percent():
+    import ast
+
+    host = Path(__file__).resolve().parents[1] / "cftuv"
+    panel = (host / "envelope_debug_panel.py").read_text(encoding="utf-8")
+    assert panel.index('"envelope_debug_max_stretch"') < panel.index('"envelope_debug_dissolve_uv_tolerance"') < panel.index('"envelope_debug_workers"')
+    tree = ast.parse((host / "operators.py").read_text(encoding="utf-8"))
+    declared = {node.target.id: node.annotation for node in ast.walk(tree) if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)}
+    prop = declared["envelope_debug_dissolve_uv_tolerance"]
+    assert prop.func.id == "FloatProperty"
+    assert {item.arg: ast.unparse(item.value) for item in prop.keywords}["update"] == "_update_envelope_debug_dissolve_uv"
+    assert [ast.unparse(item.value) for item in prop.keywords if item.arg is None] == ["ENVELOPE_DISSOLVE_UV_PROPERTY"]
+    from cftuv.envelope_request_policy import ENVELOPE_DISSOLVE_UV_PROPERTY
+
+    assert ENVELOPE_DISSOLVE_UV_PROPERTY["name"] == "Dissolve UV tolerance (%)" and ENVELOPE_DISSOLVE_UV_PROPERTY["precision"] == 2

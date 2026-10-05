@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 import threading
 import types
@@ -123,6 +124,7 @@ def _settings(**overrides):
         envelope_debug_alpha=0.25,
         envelope_debug_fan_density="1",
         envelope_debug_max_stretch=20,
+        envelope_debug_dissolve_uv_tolerance=0.390625,
         envelope_debug_workers=0,
     )
     values.update(overrides)
@@ -415,6 +417,31 @@ def test_the_compute_closure_reads_no_bpy_in_the_thread(monkeypatch):
     assert _digest(run.results) == _digest(reference.results)
 
 
+def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(monkeypatch):
+    from fractions import Fraction
+
+    from cftuv import envelope_production_export as export
+
+    world = _World(monkeypatch)
+    world.controller.width_build = dataclasses.replace(world.record, dissolve_percent=0.5)
+    world.settings.envelope_debug_dissolve_uv_tolerance = 0.5
+    seen = {}
+
+    def fake_run_production(*args, **kwargs):
+        seen.update(kwargs)
+        return "run"
+
+    monkeypatch.setattr(export, "run_production", fake_run_production)
+    target = live.target_of(world.settings, world.mesh_settings, world.controller.width_build)
+    request = types.SimpleNamespace(alpha=0.4, payload=target)
+
+    job = live._begin(world.controller, request)
+    job.join(120.0)
+
+    assert job.result() == "run"
+    assert seen["silhouette_uv_slide"] == Fraction(1, 200)  # 0.5 % ширины — тот же допуск, что у кнопки
+
+
 # --------------------------------------------------------------------------
 # 4. Пять изменений
 # --------------------------------------------------------------------------
@@ -483,6 +510,12 @@ def test_a_changed_density_or_stretch_is_named_and_computes_nothing(monkeypatch)
     world.settings.envelope_debug_max_stretch = 30
     world.drag(0.41)
     assert scheduler.status_text == live.POLICY_CHANGED.format(name="Max stretch")
+    assert world.written == []
+
+    world.settings.envelope_debug_max_stretch = 20
+    world.settings.envelope_debug_dissolve_uv_tolerance = 1.5
+    world.drag(0.42)
+    assert scheduler.status_text == live.POLICY_CHANGED.format(name="Dissolve UV tolerance")
     assert world.written == []
 
 

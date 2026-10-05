@@ -695,6 +695,7 @@ def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
         selected,
         density,
         run.topology_export.developable_stretch_budget,
+        run.topology_export.silhouette_uv_slide,
         _band_key(run, patch_id),
     )
 
@@ -1319,6 +1320,7 @@ def run_production(
     domain_pool=_FROM_SETTINGS,
     developable_stretch_budget=None,
     chart_reach_cap=None,
+    silhouette_uv_slide=None,
     cancel=None,
     quiesce: bool = True,
 ) -> ProductionRunV1:
@@ -1357,9 +1359,9 @@ def run_production(
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
-    ).with_developable_stretch_budget(developable_stretch_budget).with_chart_band(
-        chart_reach_cap, selected, policy_alpha(alpha)
-    )
+    ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
+        silhouette_uv_slide
+    ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha))
     _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
         analysis_bundle, selected, profile=profile, topology_export=topology_export
     )

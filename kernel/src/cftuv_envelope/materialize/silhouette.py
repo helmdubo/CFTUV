@@ -14,8 +14,11 @@
 
 1. РЁБРА. Остаются: контур (ребро одной грани), шов и граница между регионами. Растворяется внутреннее ребро одного региона,
    когда (а) объединение двух граней — простой контур (грани делят ровно это ребро и больше ни одной вершины; сетка домена без
-   T-стыков, поэтому объединение двух простых граней по одному ребру проста), (б) UV в объединении ТОЧНО аффинна по положению на
-   карте (`uv_is_affine_in_chart`; билинейные объединения не сливаются), (в) каждая вершина меньшей грани отстоит от плоскости
+   T-стыков, поэтому объединение двух простых граней по одному ребру проста), (б) UV в объединении аффинна по положению на
+   карте В ПРЕДЕЛАХ ДОПУСКА `silhouette_uv_slide` = ε: ОДНА аффинная карта `A` (наименьшие квадраты по вершинам объединения; любая карта
+   годится) приближает UV каждой вершины не хуже ε, и тогда триангуляция показа и прежняя кусочная UV граней отстоят от `A` внутри не
+   больше ε, то есть друг от друга не больше 2ε (остаток записан, `uv_fit_residual`); при ε = 0 карта не подбирается, и правило прежнее:
+   UV ТОЧНО аффинна (`uv_is_affine_in_chart`; билинейные объединения не сливаются), (в) каждая вершина меньшей грани отстоит от плоскости
    большей не дальше `CLIP_DIAGONAL_CHORD_BUDGET` (5 мм, запись реестра `CLIP_DIAGONAL_CHORD_DEPTH_V1`) и все вершины объединения —
    не дальше от плоскости объединения (грань не дрейфует: плоскость пересчитывается по каждому слиянию). Порядок жадный
    и детерминированный: самое плоское первым (двугранный угол по возрастанию, затем ключи вершин). Порога по углу нет: суд —
@@ -30,14 +33,14 @@
    (`ADAPTER_SEAM_T_JUNCTIONS`) закон не рождает; вершины `clip:` внутри домена свободны.
 
 ЧТО ПИШЕТСЯ. Любой отказ растворить назван счётчиком (`KEPT_*`), а наибольшие глубина хорды и сдвиг UV, на которые закон пошёл,
-записаны (нанометры и тысячные alpha). Нулевые числа в счётчики не пишутся: домен, где ничего не растворилось, не получает
+записаны (нанометры и тысячные alpha; остаток UV слияний в пределах допуска — `MAX_UV_RESIDUAL_MILLI_ALPHA`). Нулевые числа в счётчики не пишутся: домен, где ничего не растворилось, не получает
 новых строк. Исчерпание бюджета точной работы внутри прохода не отказывает домен: проход берёт свой отрезок бюджета, и если он
 кончился, сетка остаётся ровно той, что была, под названным счётчиком `SKIPPED_WORK_BUDGET`.
 
-ПРЕДЕЛ ЗАКОНА, ИЗМЕРЕННЫЙ. Точная аффинность UV объединения (пункт 1, б) отсекает почти все слияния на кривых доменах: ребро
-между гранями одного региона с НЕПРЕРЫВНОЙ, но изломанной UV (смена пробега, перекладина JOIN, билинейная грань) в плоскости
-лежит, но слияние отдало бы выбор UV триангуляции показа Blender'а (разница до десятков тысячных alpha и больше). `sagging_wall`
-alpha 0.987: из 91 пары-кандидата патча 1 аффинны 13. Эти рёбра остаются (`KEPT_NOT_AFFINE`), каждое посчитано.
+ПРЕДЕЛ ЗАКОНА, ИЗМЕРЕННЫЙ. Точная аффинность UV объединения (ε = 0) отсекает почти все слияния на кривых доменах: ребро между
+гранями одного региона с НЕПРЕРЫВНОЙ, но изломанной UV (смена пробега, перекладина JOIN, билинейная грань) в плоскости лежит, но
+слияние отдало бы выбор UV триангуляции показа Blender'а. `sagging_wall` alpha 0.987: из 91 пары-кандидата патча 1 аффинны 13. Эти
+рёбра остаются (`KEPT_NOT_AFFINE`), каждое посчитано; чем больше ε, тем больше слияний (`EDGES_WITHIN_UV_TOLERANCE`).
 
 КОНТУРЫ. Цепи (`chains_of`) строятся по контурам слитых граней, а не по граням сетки, поэтому вершина, в которой сходятся
 контуры нескольких слитых граней одного региона (после растворения рёбер между ними она стала вершиной двух рёбер), не
@@ -47,7 +50,7 @@ alpha 0.987: из 91 пары-кандидата патча 1 аффинны 13.
 ПРОВЕРКА. `verify_silhouette` пересчитывает независимо от прохода: ни одна растворённая вершина не лежала на цепи источника или
 стены (по `chains_of` исходной сетки), у уцелевших вершин факты `(s, r)` те же точно, глубина хорды и сдвиг UV каждой растворённой
 вершины относительно ребра, которое её заменило в итоговой сетке (в каждом регионе граней ребра), не больше записанных
-максимумов, а те — не больше допусков, растворённые вершины покрыты рёбрами итога ровно по разу, грани образуют многообразие
+максимумов, а те — не больше допусков (остаток каждого слияния в пределах допуска пересчитан тем же подбором карты), растворённые вершины покрыты рёбрами итога ровно по разу, грани образуют многообразие
 (полурёбра попарно разные, граница сократилась ровно растворёнными вершинами), а граница итоговых граней равна рёбрам граничных
 цепей по итоговым контурам. Любое расхождение — отказ `BATCH_DID_NOT_VALIDATE` с именем `SILHOUETTE:*`.
 """
@@ -80,6 +83,8 @@ KEPT_CHORD = "MATERIALIZE_SILHOUETTE_KEPT_CHORD"
 KEPT_NOT_AFFINE = "MATERIALIZE_SILHOUETTE_KEPT_NOT_AFFINE"
 KEPT_NOT_SIMPLE = "MATERIALIZE_SILHOUETTE_KEPT_NOT_SIMPLE"
 KEPT_JUNCTION = "MATERIALIZE_SILHOUETTE_KEPT_JUNCTION"
+EDGES_WITHIN_UV_TOLERANCE = "MATERIALIZE_SILHOUETTE_EDGES_WITHIN_UV_TOLERANCE"
+MAX_UV_RESIDUAL_MILLI_ALPHA = "MATERIALIZE_SILHOUETTE_MAX_UV_RESIDUAL_MILLI_ALPHA"
 MAX_UV_SLIDE_MILLI_ALPHA = "MATERIALIZE_SILHOUETTE_MAX_UV_SLIDE_MILLI_ALPHA"
 MAX_CHORD_NM = "MATERIALIZE_SILHOUETTE_MAX_CHORD_NM"
 SKIPPED_WORK_BUDGET = "MATERIALIZE_SILHOUETTE_SKIPPED_WORK_BUDGET"
@@ -92,6 +97,8 @@ COUNTER_NAMES = (
     KEPT_NOT_AFFINE,
     KEPT_NOT_SIMPLE,
     KEPT_JUNCTION,
+    EDGES_WITHIN_UV_TOLERANCE,
+    MAX_UV_RESIDUAL_MILLI_ALPHA,
     MAX_UV_SLIDE_MILLI_ALPHA,
     MAX_CHORD_NM,
     SKIPPED_WORK_BUDGET,
@@ -138,6 +145,8 @@ class SilhouetteV1:
     changed: bool = False
     #: Рёбра, заменившие цепочки растворённых вершин: `((сосед до, сосед после, (растворённые вершины)), ...)`.
     runs: tuple = ()
+    #: Слияния рёбер в пределах допуска UV (не точно аффинные): `((регион, кольцо объединения), ...)` — проверка пересчитывает их остаток.
+    fits: tuple = ()
 
 
 class _Facts:
@@ -209,6 +218,41 @@ def _along(first, second, point):
     return share, math.sqrt(ex * ex + ey * ey + ez * ez)
 
 
+def uv_fit_residual(chart, uvs):
+    """Наибольшее `|UV(v) - A(v)|` у аффинной карты `A`, подобранной наименьшими квадратами по вершинам `(chart[i], uvs[i])`; `None` — карты нет.
+
+    Нормальные уравнения решаются в центрированных и отнормированных координатах карты (две компоненты UV независимо, формулы
+    Крамера). Вершины на одной прямой (определитель не положителен) карты не задают. Остаток — оценка в binary64, как и сам допуск.
+    """
+
+    count = len(chart)
+    mean_x = sum(point[0] for point in chart) / count
+    mean_y = sum(point[1] for point in chart) / count
+    scale = max(max(abs(point[0] - mean_x), abs(point[1] - mean_y)) for point in chart)
+    if not scale > 0.0:
+        return None
+    xs = [(point[0] - mean_x) / scale for point in chart]
+    ys = [(point[1] - mean_y) / scale for point in chart]
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    syy = sum(y * y for y in ys)
+    determinant = sxx * syy - sxy * sxy
+    if not determinant > 0.0:
+        return None
+    residuals = []
+    for component in (0, 1):
+        values = [uv[component] for uv in uvs]
+        centre = sum(values) / count
+        shifted = [value - centre for value in values]
+        right_x = sum(x * value for x, value in zip(xs, shifted))
+        right_y = sum(y * value for y, value in zip(ys, shifted))
+        slope_x = (right_x * syy - right_y * sxy) / determinant
+        slope_y = (sxx * right_y - sxy * right_x) / determinant
+        residuals.append([value - (slope_x * x + slope_y * y) for value, x, y in zip(shifted, xs, ys)])
+    worst = max(math.hypot(first, second) for first, second in zip(*residuals))
+    return worst if math.isfinite(worst) else None
+
+
 def _on_map(points, values, base, frame, key) -> bool:
     """Вершина `key` лежит на аффинной карте UV (`base`, `frame`): точно; нарушение, доказанное в binary64, платит не точным путём."""
 
@@ -248,6 +292,8 @@ class _Mesh:
         self.tally: Counter = Counter()
         self.max_chord = 0.0
         self.max_slide = 0.0
+        self.max_residual = 0.0
+        self.fits: list = []
         self.faces: dict = {}
         self.half: dict = {}
         self.manifold = True
@@ -372,9 +418,15 @@ class _Mesh:
             self.tally[KEPT_CHORD] += 1
             return
         cert = self._affine_union(one, two)
+        residual = 0.0
         if not cert:
-            self.tally[KEPT_NOT_AFFINE] += 1
-            return
+            residual = self._tolerated(one.region, union)
+            if residual is None:
+                self.tally[KEPT_NOT_AFFINE] += 1
+                return
+            self.tally[EDGES_WITHIN_UV_TOLERANCE] += 1
+            self.max_residual = max(self.max_residual, residual)
+            self.fits.append((one.region, union))
         merged = _Face(union, one.region, tuple(sorted({*one.frames, *two.frames})), min(one.order, two.order))
         merged.cert = cert
         for number, face in ((one_id, one), (two_id, two)):
@@ -435,6 +487,27 @@ class _Mesh:
         if all(_on_map(points, values, base, frame, key) for key in two.ring if key not in known):
             return cert
         return False
+
+    def _tolerated(self, region, union):
+        """Остаток UV объединения (доли alpha), если одна аффинная карта приближает UV всех его вершин не хуже допуска запроса, иначе `None`.
+
+        Допуск — тот же `silhouette_uv_slide`, что у растворения вершин: один бюджет. Карта `A` подбирается наименьшими квадратами по
+        вершинам объединения (`uv_fit_residual`); остаток — наибольшее `|UV(v) - A(v)|`. ЛЮБАЯ аффинная карта с остатком до допуска
+        годится: триангуляция показа Blender'а даёт UV вершин, продолженную линейно, то есть не дальше остатка от `A` внутри
+        каждого треугольника, и исходная кусочная UV граней (она вершинная же) — тоже, поэтому внутри объединённой грани UV показа
+        и прежняя различаются не больше чем на удвоенный допуск. Допуск нуль — прежнее точное правило (карта не подбирается).
+        """
+
+        if not self.source.uv_slide:
+            return None
+        chart = []
+        for key in union:
+            found = [centre_and_bound(coordinate) for coordinate in self.source.points[key]]
+            if None in found:
+                return None
+            chart.append((found[0][0], found[1][0]))
+        residual = uv_fit_residual(chart, [self.uv(region, key) for key in union])
+        return residual if residual is not None and _within(residual, self.source.uv_slide) else None
 
     # -- вершины ------------------------------------------------------------------------------
 
@@ -630,14 +703,15 @@ class _Mesh:
             polygons[index].append(face.ring)
             if len(face.frames) > 1:
                 merged[(index, face.ring)] = tuple(item for item in face.frames if item != index)
-        counters = _counters(self.tally, self.max_chord, self.max_slide)
+        counters = _counters(self.tally, self.max_chord, self.max_slide, self.max_residual)
         changed = bool(self.tally[EDGES_DISSOLVED] or self.tally[VERTICES_DISSOLVED])
         note = "" if not changed else (
             f"{LAW}: faces {faces_before} -> {len(self.faces)} edges_dissolved={self.tally[EDGES_DISSOLVED]} "
             f"vertices_dissolved={self.tally[VERTICES_DISSOLVED]} kept_uv={self.tally[KEPT_UV]} "
             f"kept_chord={self.tally[KEPT_CHORD]} kept_not_affine={self.tally[KEPT_NOT_AFFINE]} "
             f"kept_not_simple={self.tally[KEPT_NOT_SIMPLE]} kept_junction={self.tally[KEPT_JUNCTION]} max_chord_nm={_nanometres(self.max_chord)} "
-            f"max_uv_slide_milli_alpha={_milli_alpha(self.max_slide)}"
+            f"max_uv_slide_milli_alpha={_milli_alpha(self.max_slide)} within_uv_tolerance={self.tally[EDGES_WITHIN_UV_TOLERANCE]} "
+            f"max_uv_residual_milli_alpha={_milli_alpha(self.max_residual)}"
         )
         return SilhouetteV1(
             polygons,
@@ -653,16 +727,18 @@ class _Mesh:
             note,
             changed,
             tuple(sorted((*sorted(edge), run) for edge, run in covered.items())),
+            tuple(self.fits),
         )
 
 
-def _counters(tally, max_chord: float, max_slide: float) -> tuple:
+def _counters(tally, max_chord: float, max_slide: float, max_residual: float = 0.0) -> tuple:
     """Числа закона, только ненулевые: домен, где закон ничего не сделал, не получает новых строк."""
 
     values = {name: tally[name] for name in COUNTER_NAMES}
     if tally[EDGES_DISSOLVED] or tally[VERTICES_DISSOLVED]:
         values[MAX_CHORD_NM] = _nanometres(max_chord)
         values[MAX_UV_SLIDE_MILLI_ALPHA] = _milli_alpha(max_slide)
+        values[MAX_UV_RESIDUAL_MILLI_ALPHA] = _milli_alpha(max_residual)
     return tuple((name, values[name]) for name in COUNTER_NAMES if values[name])
 
 
@@ -721,6 +797,7 @@ def verify_silhouette(source: SilhouetteInputV1, result: SilhouetteV1) -> tuple:
     if kept != result.facts:
         problems.append("KEPT_VERTEX_CHANGED_ITS_STATION_OR_UV")
     problems.extend(_verify_runs(source, result))
+    problems.extend(_verify_fits(source, result))
     problems.extend(_verify_topology(source, result))
     problems.extend(_verify_chains(source, result))
     return tuple(problems)
@@ -762,6 +839,30 @@ def _verify_runs(source, result) -> list:
     if _milli_alpha(worst_slide) > recorded.get(MAX_UV_SLIDE_MILLI_ALPHA, 0) or not _within(worst_slide, source.uv_slide):
         found.append("UV_SLIDE_BEYOND_RECORDED_MAXIMUM")
     return found
+
+
+def _verify_fits(source, result) -> list:
+    """Каждое слияние в пределах допуска UV пересчитано: остаток аффинной карты не больше записанного максимума, а он — не больше допуска."""
+
+    if not result.fits:
+        return []
+    mesh = _Mesh(source, None)
+    worst = 0.0
+    for region, ring in result.fits:
+        chart = []
+        for key in ring:
+            found = [centre_and_bound(coordinate) for coordinate in source.points[key]]
+            if None in found:
+                return ["UV_FIT_UNVERIFIABLE"]
+            chart.append((found[0][0], found[1][0]))
+        residual = uv_fit_residual(chart, [mesh.uv(region, key) for key in ring])
+        if residual is None:
+            return ["UV_FIT_HAS_NO_AFFINE_MAP"]
+        worst = max(worst, residual)
+    recorded = dict(result.counters).get(MAX_UV_RESIDUAL_MILLI_ALPHA, 0)
+    if _milli_alpha(worst) > recorded or not _within(worst, source.uv_slide):
+        return ["UV_RESIDUAL_BEYOND_RECORDED_MAXIMUM"]
+    return []
 
 
 def _directed(polygons) -> Counter:

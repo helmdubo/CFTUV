@@ -212,12 +212,12 @@ def chart_reach_cap_issues(request) -> tuple:
 
 
 def silhouette_uv_slide_issues(request) -> tuple:
-    """Сдвиг UV закона `SILHOUETTE_TOPOLOGY_V1` законен: положителен и не выше `MAX_SILHOUETTE_UV_SLIDE` (доля alpha)."""
+    """Сдвиг UV закона `SILHOUETTE_TOPOLOGY_V1` законен: не отрицателен и не выше `MAX_SILHOUETTE_UV_SLIDE` (доля alpha)."""
 
     if silhouette_uv_slide_is_lawful(_fraction(request.silhouette_uv_slide)):
         return ()
     issues: list = []
-    add_issue(issues, ValidationCode.POLICY_MISMATCH, ("silhouette_uv_slide",), "silhouette UV slide must lie in (0, 1/16] of alpha")
+    add_issue(issues, ValidationCode.POLICY_MISMATCH, ("silhouette_uv_slide",), "silhouette UV slide must lie in [0, 1/16] of alpha")
     return tuple(issues)
 
 

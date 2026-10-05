@@ -1079,6 +1079,7 @@ def _queue_snapshot_and_request(
             developable_stretch_budget=getattr(topology_export, "developable_stretch_budget", None),
             snapshot_issues_of=snapshot_issues_of,
             chart_reach_cap=topology_chart_reach_cap(topology_export),
+            silhouette_uv_slide=getattr(topology_export, "silhouette_uv_slide", None),
         )
     return snapshot, request
 

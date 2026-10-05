@@ -11,7 +11,9 @@
 * ПОЛЕ (`sagging_wall`, alpha 0.987, Max stretch 42 %): доказательство слитых граней НЕЗАВИСИМЫМ точным предикатом (простота и
   аффинность UV итоговой грани), вершины цепей источника и стены те же, что у `PLANAR_POLYGONS_V1`, остальные вершины и их UV
   не изменились, прежние законы побитово прежние, сдвиг UV читается из запроса.
-* ПОЛИТИКА ЗАПРОСА: `silhouette_uv_slide` на проводе опущено по умолчанию, законность проверяется.
+* ДОПУСК UV РЁБЕР: слияние в пределах `silhouette_uv_slide` = ε (одна аффинная карта, остаток записан и пересчитан независимой
+  точной арифметикой Fraction), ε = 0 — прежнее точное правило (подбор карты не вызывается, ответ тот же).
+* ПОЛИТИКА ЗАПРОСА: `silhouette_uv_slide` на проводе опущено по умолчанию, законность проверяется (нуль законен).
 """
 
 from __future__ import annotations
@@ -162,6 +164,97 @@ def test_a_vertex_whose_uv_would_slide_beyond_the_request_is_kept_by_name():
     assert not verify_silhouette(source, result)
 
 
+def test_an_edge_whose_union_uv_is_affine_within_the_tolerance_is_dissolved_and_the_residual_is_recorded():
+    """Излом UV одной вершины на 1/500 alpha: точной аффинности нет, ОДНА карта приближает UV всех вершин в допуске 1/256 alpha."""
+
+    source = _grid(3, 1, station=lambda i, j: _shifted(i, j, Fraction(1, 500), (1, 1)))
+
+    result, counters = _run(source)
+
+    assert counters[silhouette.EDGES_WITHIN_UV_TOLERANCE] == 2 and counters[silhouette.EDGES_DISSOLVED] == 2
+    assert 1 <= counters[silhouette.MAX_UV_RESIDUAL_MILLI_ALPHA] <= 4
+    assert len(_faces(result)) == 1 and len(result.fits) == 2
+    assert not verify_silhouette(source, result)
+
+
+def test_an_edge_beyond_the_uv_tolerance_is_kept_by_name_and_a_looser_request_dissolves_it():
+    station = lambda i, j: _shifted(i, j, Fraction(1, 500), (1, 1))
+    strict = _run(_grid(3, 1, station=station, slide=Fraction(1, 10_000)))
+    loose = _run(_grid(3, 1, station=station, slide=MAX_SILHOUETTE_UV_SLIDE))
+
+    assert strict[1][silhouette.KEPT_NOT_AFFINE] == 2 and not strict[0].changed
+    assert loose[1][silhouette.EDGES_WITHIN_UV_TOLERANCE] == 2
+
+
+def test_a_zero_tolerance_is_the_exact_rule_and_never_fits_a_map(monkeypatch):
+    """ε = 0: подбор карты не вызывается вовсе; слияния рёбер — ровно те, что даёт точная аффинность."""
+
+    def refuse(*_args):
+        raise AssertionError("the exact rule must not fit a map")
+
+    monkeypatch.setattr(silhouette, "uv_fit_residual", refuse)
+    exact = _run(_grid(3, 1, slide=Fraction(0)))
+    kinked = _run(_grid(3, 1, station=lambda i, j: _shifted(i, j, Fraction(1, 500), (1, 1)), slide=Fraction(0)))
+    regions = _run(_grid(4, 2, split=2, same_region=True, slide=Fraction(0)))
+
+    assert exact[1][silhouette.EDGES_DISSOLVED] == 2 and len(_faces(exact[0])) == 1
+    assert kinked[1][silhouette.KEPT_NOT_AFFINE] == 2 and not kinked[0].changed
+    for found in (exact, kinked, regions):
+        assert not found[0].fits and not found[1].get(silhouette.EDGES_WITHIN_UV_TOLERANCE)
+        assert not found[1].get(silhouette.MAX_UV_RESIDUAL_MILLI_ALPHA)
+
+
+def _exact_fit_residual(chart, uvs):
+    """Независимая точная арифметика: наименьшие квадраты `UV ~ a + b x + c y` в Fraction по тем же числам, остаток — наибольшее расстояние."""
+
+    count = len(chart)
+    xs = [Fraction(point[0]) for point in chart]
+    ys = [Fraction(point[1]) for point in chart]
+    mean_x, mean_y = sum(xs) / count, sum(ys) / count
+    xs, ys = [x - mean_x for x in xs], [y - mean_y for y in ys]
+    sxx, sxy, syy = sum(x * x for x in xs), sum(x * y for x, y in zip(xs, ys)), sum(y * y for y in ys)
+    determinant = sxx * syy - sxy * sxy
+    if determinant <= 0:
+        return None
+    residuals = []
+    for component in (0, 1):
+        values = [Fraction(uv[component]) for uv in uvs]
+        mean = sum(values) / count
+        shifted = [value - mean for value in values]
+        right_x, right_y = sum(x * v for x, v in zip(xs, shifted)), sum(y * v for y, v in zip(ys, shifted))
+        slope_x, slope_y = (right_x * syy - right_y * sxy) / determinant, (sxx * right_y - sxy * right_x) / determinant
+        residuals.append([v - (slope_x * x + slope_y * y) for v, x, y in zip(shifted, xs, ys)])
+    return max(math.hypot(float(a), float(b)) for a, b in zip(*residuals))
+
+
+def test_the_fitted_residual_is_the_exact_rational_least_squares_residual():
+    import random
+
+    rng = random.Random(20261006)
+    for _ in range(200):
+        count = rng.randint(3, 9)
+        chart = [(rng.uniform(-5000, 5000), rng.uniform(-5000, 5000)) for _ in range(count)]
+        slope = [rng.uniform(-2, 2) for _ in range(4)]
+        uvs = [
+            (slope[0] * x / 1000 + slope[1] * y / 1000 + rng.uniform(-0.01, 0.01), slope[2] * x / 1000 + slope[3] * y / 1000 + rng.uniform(-0.01, 0.01))
+            for x, y in chart
+        ]
+        found, independent = silhouette.uv_fit_residual(chart, uvs), _exact_fit_residual(chart, uvs)
+        assert (found is None) == (independent is None)
+        if found is not None:
+            assert abs(found - independent) <= 1e-9 * max(1.0, independent)
+    assert silhouette.uv_fit_residual([(0.0, 0.0), (1.0, 1.0), (2.0, 2.0)], [(0.0, 0.0)] * 3) is None  # одна прямая: карты нет
+
+
+def test_the_residual_of_an_exactly_affine_union_is_zero_and_a_kink_has_the_expected_size():
+    chart = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+    affine = [(x * 0.3, y * 0.5) for x, y in chart]
+    kinked = [(x * 0.3, y * 0.5) for x, y in chart[:3]] + [(0.0, 0.5 + 0.04)]
+
+    assert silhouette.uv_fit_residual(chart, affine) < 1e-12
+    assert 0.009 < silhouette.uv_fit_residual(chart, kinked) < 0.04
+
+
 def test_the_slide_is_the_request_policy_and_a_smaller_one_dissolves_fewer_vertices():
     default = _run(_grid(4, 1, merged=True, station=_shifted))[1]
     strict = _run(_grid(4, 1, merged=True, station=_shifted, slide=Fraction(1, 10_000)))[1]
@@ -207,7 +300,7 @@ def test_an_edge_between_coplanar_faces_with_one_affine_uv_is_dissolved_and_the_
 
 
 def test_an_edge_whose_union_has_a_non_affine_uv_is_kept_by_name():
-    """UV непрерывна на ребре (один регион), но в объединении изломана: слияние отдало бы триангуляции хоста выбор UV."""
+    """UV непрерывна на ребре (один регион), но в объединении изломана ВЫШЕ допуска: слияние отдало бы триангуляции хоста выбор UV."""
 
     source = _grid(3, 1, station=lambda i, j: _shifted(i, j, Fraction(1, 50), (1, 1)))
 
@@ -412,9 +505,10 @@ def test_a_merged_face_stays_within_the_chord_depth_of_its_own_plane_not_only_of
     assert not verify_silhouette(source, result)
 
 
+@pytest.mark.parametrize("exact", (True, False))
 @pytest.mark.parametrize("seed", range(40))
-def test_random_noisy_grids_keep_every_invariant_of_the_law(seed):
-    """Случайная сетка (шум высот, сдвиги UV, два региона): итог проходит проверку, слитые грани доказаны независимо и в допуске от своих плоскостей."""
+def test_random_noisy_grids_keep_every_invariant_of_the_law(seed, exact):
+    """Случайная сетка (шум высот, сдвиги UV, два региона): итог проходит проверку; при ε = 0 слитые грани точно аффинны, иначе остаток карты каждого слияния пересчитан точной арифметикой; все — в допуске от своих плоскостей."""
 
     import random
 
@@ -429,11 +523,19 @@ def test_random_noisy_grids_keep_every_invariant_of_the_law(seed):
         station=lambda i, j: (i + Fraction(rng.choice((1, 3, 40)), 1000), j) if (i, j) in shifted else None,
         split=rng.choice((None, rng.randint(1, columns - 1))),
         same_region=rng.random() < 0.5,
+        slide=Fraction(0) if exact else Fraction(1, 256),
     )
 
     result, counters = _run(source)
 
     assert not verify_silhouette(source, result)
+    if exact:
+        assert not result.fits and not counters.get(silhouette.EDGES_WITHIN_UV_TOLERANCE)
+    fitted = {key for _region, ring in result.fits for key in ring}
+    for region, ring in result.fits:
+        chart = [(float(source.points[key][0].as_rational()), float(source.points[key][1].as_rational())) for key in ring]
+        uvs = [(float(source.facts[(region, key)][0].as_rational()) / source.lattice_alpha, float(source.facts[(region, key)][1].as_rational()) / source.lattice_alpha) for key in ring]
+        assert _exact_fit_residual(chart, uvs) <= float(source.uv_slide) * (1 + 1e-9)
     originals = {tuple(ring) for face_polygons in source.polygons for ring in face_polygons}
     for index, face_polygons in enumerate(result.polygons):
         region = source.layout.region_of(source.frame_faces[index])
@@ -442,7 +544,7 @@ def test_random_noisy_grids_keep_every_invariant_of_the_law(seed):
             assert len(set(ring)) == len(ring) >= 3
             assert contour_is_simple(tuple(points), None), ring
             if tuple(ring) not in originals:
-                assert uv_is_affine_in_chart(points, [source.facts[(region, key)] for key in ring], None), ring
+                assert set(ring) <= fitted or uv_is_affine_in_chart(points, [source.facts[(region, key)] for key in ring], None), ring
                 assert _own_plane_depth(source, ring) <= CHORD, ring
     assert len(_faces(result)) == sum(len(item) for item in source.polygons) - counters.get(silhouette.EDGES_DISSOLVED, 0)
 
@@ -503,6 +605,18 @@ def test_verification_catches_a_chord_beyond_the_recorded_maximum():
     lowered = tuple((name, 1 if name == silhouette.MAX_CHORD_NM else value) for name, value in result.counters)
 
     assert "CHORD_DEPTH_BEYOND_RECORDED_MAXIMUM" in verify_silhouette(source, dataclasses.replace(result, counters=lowered))
+
+
+def test_verification_catches_a_residual_beyond_the_recorded_maximum_and_a_fit_with_no_map():
+    source = _grid(3, 1, station=lambda i, j: _shifted(i, j, Fraction(1, 500), (1, 1)))
+    result, _counters = _run(source)
+    assert result.fits and not verify_silhouette(source, result)
+    lowered = tuple((name, 0 if name == silhouette.MAX_UV_RESIDUAL_MILLI_ALPHA else value) for name, value in result.counters)
+    collinear = dataclasses.replace(result, fits=((result.fits[0][0], (_key(0, 0), _key(1, 0), _key(2, 0))),))
+
+    assert "UV_RESIDUAL_BEYOND_RECORDED_MAXIMUM" in verify_silhouette(source, dataclasses.replace(result, counters=lowered))
+    assert "UV_FIT_HAS_NO_AFFINE_MAP" in verify_silhouette(source, collinear)
+    assert "UV_RESIDUAL_BEYOND_RECORDED_MAXIMUM" in verify_silhouette(dataclasses.replace(source, uv_slide=Fraction(1, 100_000)), result)
 
 
 def test_verification_catches_runs_that_do_not_cover_the_dissolved_vertices():
@@ -593,6 +707,7 @@ def test_the_field_domain_is_dissolved_and_validates(pair):
     assert len(law.batch.vertices) == len(planar.batch.vertices) - counters[silhouette.VERTICES_DISSOLVED]
     assert not validate_geometry_batch(law.batch)
     assert counters[silhouette.MAX_CHORD_NM] <= 5_000_000 and counters[silhouette.MAX_UV_SLIDE_MILLI_ALPHA] <= 4
+    assert counters.get(silhouette.MAX_UV_RESIDUAL_MILLI_ALPHA, 0) <= 4
     assert any(line.startswith("SILHOUETTE_TOPOLOGY_V1:") for line in law.diagnostics)
 
 
@@ -619,7 +734,7 @@ def test_the_field_chains_of_the_source_and_the_wall_and_the_kept_vertices_are_t
             assert planar_uv[(face.semantic_region_id.value, key.value)] == fact.uv
 
 
-def test_every_merged_field_face_is_proved_by_an_independent_exact_predicate(monkeypatch):
+def test_every_merged_field_face_is_proved_by_an_independent_exact_predicate_under_a_zero_tolerance(monkeypatch):
     captured = {}
     original = domain_module.apply_silhouette
 
@@ -629,8 +744,9 @@ def test_every_merged_field_face_is_proved_by_an_independent_exact_predicate(mon
         return result
 
     monkeypatch.setattr(domain_module, "apply_silhouette", capture)
-    _materialize(_patch_one(), DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
+    _materialize(_field("sagging_wall_convex_partition_v1", silhouette_uv_slide=kernel.ExactRationalV1(0, 1)), DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
     source, result = captured["pair"]
+    assert not result.fits and source.uv_slide == 0
 
     before = {tuple(ring) for face_polygons in source.polygons for ring in face_polygons}
     merged = [(index, ring) for index, face_polygons in enumerate(result.polygons) for ring in face_polygons if tuple(ring) not in before]
@@ -752,8 +868,10 @@ def test_the_slide_policy_has_a_lawful_range():
     request = _patch_one()[0].compilation.decal_request
 
     assert silhouette_uv_slide_is_lawful(Fraction(1, 256)) and silhouette_uv_slide_is_lawful(MAX_SILHOUETTE_UV_SLIDE)
-    assert not silhouette_uv_slide_is_lawful(Fraction(0)) and not silhouette_uv_slide_is_lawful(MAX_SILHOUETTE_UV_SLIDE * 2)
+    assert silhouette_uv_slide_is_lawful(Fraction(0))  # нуль — точное правило
+    assert not silhouette_uv_slide_is_lawful(Fraction(-1, 256)) and not silhouette_uv_slide_is_lawful(MAX_SILHOUETTE_UV_SLIDE * 2)
     assert not validate_decal_request(request)
-    for bad in (kernel.ExactRationalV1(0, 1), kernel.ExactRationalV1(1, 2), kernel.ExactRationalV1(-1, 256)):
+    assert not validate_decal_request(dataclasses.replace(request, silhouette_uv_slide=kernel.ExactRationalV1(0, 1)))
+    for bad in (kernel.ExactRationalV1(1, 2), kernel.ExactRationalV1(-1, 256)):
         issues = validate_decal_request(dataclasses.replace(request, silhouette_uv_slide=bad))
         assert [item.path for item in issues] == [("silhouette_uv_slide",)], bad

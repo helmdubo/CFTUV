@@ -99,6 +99,20 @@ DEFAULT_ENVELOPE_CHART_REACH_CAP = Fraction(1, 2)
 # делегировал технический выбор); ручки на панели нет. Совпадение с умолчанием ядра сверяет исполнительная проверка
 # (`tests/test_envelope_request_policy.py`).
 DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE = Fraction(1, 256)
+# На панели - «Dissolve UV tolerance» в процентах ширины декали (доля alpha, умноженная на 100): 1/256 = 0.390625 % ДИАДИЧНО,
+# поэтому `FloatProperty` (binary32) возвращает умолчание тождественно; остальное округляется до сотой доли процента и становится
+# точной дробью, без двоичного шума ползунка. Нуль - точная аффинность UV у слияния рёбер, 6.25 % = 1/16 - предел ядра.
+DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT = 0.390625
+ENVELOPE_DISSOLVE_UV_PERCENT_RANGE = (0.0, 6.25)
+#: Аргументы `FloatProperty` ползунка (без `update`): число и границы живут рядом с законом, а не на панели.
+ENVELOPE_DISSOLVE_UV_PROPERTY = {
+    "name": "Dissolve UV tolerance (%)",
+    "default": DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT,
+    "precision": 2,
+    "min": ENVELOPE_DISSOLVE_UV_PERCENT_RANGE[0],
+    "max": ENVELOPE_DISSOLVE_UV_PERCENT_RANGE[1],
+    "description": "UV error, percent of decal width, below which an edge or vertex that does not shape the outline is dissolved",
+}
 
 
 def envelope_chart_reach_cap(cap) -> Fraction | None:
@@ -118,9 +132,27 @@ def envelope_silhouette_uv_slide(slide) -> Fraction | None:
     if slide is None:
         return None
     value = Fraction(slide)
-    if value <= 0:
-        raise ValueError("silhouette UV slide must be a positive fraction of alpha")
+    if value < 0:
+        raise ValueError("silhouette UV slide must be a non-negative fraction of alpha")
     return None if value == DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE else value
+
+
+def envelope_dissolve_uv_slide(percent) -> Fraction | None:
+    """Допуск UV запроса по ползунку «Dissolve UV tolerance» (проценты ширины): `None` - умолчание ядра, иначе точная дробь.
+
+    Принимает только число в границах панели (`ENVELOPE_DISSOLVE_UV_PERCENT_RANGE`); значение, равное умолчанию панели, - `None`
+    (запрос побитово прежний), остальное - сотые доли процента, точной дробью `percent / 100`.
+    """
+
+    if percent is None:
+        return None
+    value = float(percent)
+    low, high = ENVELOPE_DISSOLVE_UV_PERCENT_RANGE
+    if not low <= value <= high:
+        raise ValueError(f"Dissolve UV tolerance must lie in {low}..{high} percent")
+    if value == DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT:
+        return None
+    return envelope_silhouette_uv_slide(Fraction(Decimal(f"{value:.2f}")) / 100)
 
 
 def topology_chart_reach_cap(topology_export) -> Fraction | None:
@@ -384,7 +416,10 @@ def build_envelope_request_contract(
 
 __all__ = (
     "DEFAULT_ENVELOPE_CHART_REACH_CAP",
+    "DEFAULT_ENVELOPE_DISSOLVE_UV_PERCENT",
     "DEFAULT_ENVELOPE_FAN_DENSITY",
+    "ENVELOPE_DISSOLVE_UV_PERCENT_RANGE",
+    "ENVELOPE_DISSOLVE_UV_PROPERTY",
     "DEFAULT_ENVELOPE_MAX_STRETCH_PERCENT",
     "DEFAULT_ENVELOPE_SILHOUETTE_UV_SLIDE",
     "DEFAULT_ENVELOPE_STRETCH_BUDGET",
@@ -398,6 +433,7 @@ __all__ = (
     "build_envelope_request_contract",
     "envelope_angular_policy",
     "envelope_chart_reach_cap",
+    "envelope_dissolve_uv_slide",
     "envelope_decal_request_id_value",
     "envelope_request_policy_signature",
     "envelope_silhouette_uv_slide",

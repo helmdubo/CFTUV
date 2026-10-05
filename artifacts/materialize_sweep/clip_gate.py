@@ -22,6 +22,11 @@
     python clip_gate.py run --workers 8 --densities 1,2,4 --topology PLANAR_POLYGONS_V1 --out gate.json
     python clip_gate.py run --law SOURCE_TRIANGLES_CLIPPED_V1 --out gate_triangles.json
 
+Закон `SILHOUETTE_TOPOLOGY_V1` (продуктовый) — это `PLANAR_POLYGONS_V1` плюс пост-проход растворения. Ворота судят РЕЗКУ, а пост-проход
+растворяет две сетки независимо (резаная и нерезаная теряют разные вершины и рёбра), поэтому для этого закона обе материализации берутся
+ДО растворения: ворота запускаются на стадии `PLANAR_POLYGONS_V1` (`STAGE_BEFORE_DISSOLVE`), стадия печатается и пишется в запись
+(`stage_topology`), а не молча подменяется. Сам пост-проход судят `kernel/tests/test_silhouette_topology.py` и спецификация `silhouette_topology`.
+
 Код возврата 1 при любом расхождении. Список кривых доменов с числами (грани, четырёхгранья, треугольники,
 вершины `clip:`, свес, секунды резки) печатается всегда.
 
@@ -61,6 +66,8 @@ import sweep  # noqa: E402  (вид строки и словарь имён ср
 SCHEMA = "clip_gate_v1"
 ALPHA_TEXT = pool_sweep.ALPHA_TEXT
 ALPHA_VALUE = pool_sweep.ALPHA_VALUE
+#: Закон, чья стадия до растворения — другой закон: ворота резки судят резку, а не независимое растворение двух сеток.
+STAGE_BEFORE_DISSOLVE = {"SILHOUETTE_TOPOLOGY_V1": "PLANAR_POLYGONS_V1"}
 REFUSED = "MATERIALIZE_SOURCE_VERTICES_LIFT_REFUSED_BY_FACE_ORIENTATION"
 SPLIT = "MATERIALIZE_QUADS_SPLIT_ACROSS_SOURCE_TRIANGLES"
 CLIP_NEW = "SOURCE_EDGES_LIFTED_ONTO_SURFACE"
@@ -280,7 +287,7 @@ def compute_pair(patch_id: int, density, topology: str, law_name: str = "SOURCE_
             coverage,
             request=request,
             near_planar_lift_law=law,
-            decal_topology_law=DecalTopologyLawV1(topology),
+            decal_topology_law=DecalTopologyLawV1(STAGE_BEFORE_DISSOLVE.get(topology, topology)),
         )
     base, cut = results["SOURCE_TRIANGLES_V1"], results[law_name]
     row.update(
@@ -308,6 +315,7 @@ def run(args, spec) -> dict:
     record = {
         "schema": SCHEMA,
         "topology": args.topology,
+        "stage_topology": STAGE_BEFORE_DISSOLVE.get(args.topology, args.topology),
         "law": args.law,
         "spec": spec.name,
         "alpha": ALPHA_TEXT,
@@ -315,6 +323,12 @@ def run(args, spec) -> dict:
     }
     answers = {"base": {"runs": {}}, "clipped": {"runs": {}}}
     geometry = []
+    if record["stage_topology"] != args.topology:
+        print(
+            f"[clip_gate] topology {args.topology}: both materializations are taken at the stage before the dissolve pass "
+            f"({record['stage_topology']}); the dissolve pass is judged by its own tests",
+            flush=True,
+        )
     for density in (int(item) for item in args.densities.split(",")):
         order = [int(x) for x in args.only.split(",")] if args.only else gate._default_order()
         started = time.perf_counter()
