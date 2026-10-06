@@ -102,6 +102,9 @@ def test_every_field_of_a_result_is_classified_for_the_move():
 
     rewritten_strings = {"domain_id", "outcome", "detail", "diagnostics", "vertex_normals", "batch", "counters"}
     recomputed = {"patch_id", "content_digest", "offset_normals_digest", "labels"}
+    # Присланный воркером вид и пикл батча несут чужие идентичности: перенос их НЕ переписывает, а сбрасывает (результат переноса
+    # собран заново без них, воркер выводит их снова) - `test_a_moved_result_carries_neither_the_old_view_nor_the_old_batch_bytes`.
+    dropped = {"view", "heavy"}
     identity_free = {
         "normal",
         "source_normal",
@@ -115,7 +118,7 @@ def test_every_field_of_a_result_is_classified_for_the_move():
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}
 
-    assert names == rewritten_strings | recomputed | identity_free
+    assert names == rewritten_strings | recomputed | dropped | identity_free
 
 
 def test_a_moved_unfolded_domain_keeps_its_offset_normals_under_the_new_names():

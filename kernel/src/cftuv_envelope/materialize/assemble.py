@@ -35,6 +35,7 @@ from decimal import (
 )
 from fractions import Fraction
 
+from ..canonical import PENDING_SEMANTIC_DIGEST
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
     DecalTopologyLawV1,
@@ -1523,5 +1524,5 @@ def assemble_batch(
         interface_chains=interface_chains,
         diagnostics=frozenset(diagnostics()),
         contract_versions=frozenset(ContractVersionId(x) for x in contract_versions),
-        semantic_digest=SemanticDigestValue("pending"),
+        semantic_digest=SemanticDigestValue(PENDING_SEMANTIC_DIGEST),
     )

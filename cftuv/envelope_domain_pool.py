@@ -23,6 +23,15 @@
 `DomainTaskV1.affinity` идёт к воркеру, который считал её в прошлый раз (если он жив и не занят другой задачей первого круга).
 Остальные задачи берут воркеры по очереди, как прежде. Это подсказка размещения: ответ от неё не зависит.
 
+ПАМЯТЬ ПОДГОТОВОК ВОРКЕРА (`envelope_worker_store`). Подготовка домена alpha-независима, а шаг ширины раньше слал воркерам пиклы всех подготовок
+(8.65 МБ на `building`) и воркеры их разворачивали. Теперь воркер держит развёрнутые подготовки под ключом пикла (хеш байтов и кода), а
+`DomainTaskV1.production`/`coverage` с непустым `key` уходят к воркеру БЕЗ пикла, если родитель знает, что тот подготовку держит (зеркало
+`_Worker.held` повторяет вложения и вытеснение воркера); не держит - пикл идёт, держал и потерял - воркер отвечает `needs_blob`, и
+родитель пересылает пикл. Холодная задача оставляет подготовку у воркера и отдаёт родителю пикл, снятый один раз (`_packed_cold_reply`):
+первый шаг ширины после холодной кнопки не пересылает ничего. Свободный воркер берёт из очереди задачу, чью подготовку держит
+(`_PendingTasks`), кроме крупных (`PULL_BIG_DIVISOR`): самая тяжёлая определяет длину прогона и не ждёт. Цену пересылок (байты туда и
+обратно, пиклы и ключи, промахи, разбор ответов в родителе) называет `DomainPoolRunV1.stats`.
+
 ПОЧЕМУ ПОДПРОЦЕССЫ, А НЕ `multiprocessing`. Внутри `blender.exe --python
 script.py` стартовый метод `spawn` заново исполняет главный скрипт и падает на
 `import bpy`. Воркер здесь — обычный `python -c`, который сам поднимает пакет
@@ -68,9 +77,12 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, replace
+
+from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
 MIN_POOL_WORKERS = 2
@@ -223,6 +235,15 @@ class DomainTaskResultV1:
     export_timings: tuple = ()
     export_counters: tuple = ()
     production: object | None = None
+    #: Воркер не держит подготовку с присланным ключом (задача пришла без пикла): задачи не было, родитель пересылает пикл.
+    needs_blob: bool = False
+    #: Подготовка холодного домена ПИКЛОМ, который воркер снял сам (`prepared` тогда `None`, пока родитель не развернёт его в
+    #: `_exchange`), и ключ этого пикла в памяти воркера: воркер оставил у себя ту же подготовку, родитель берёт пикл как блоб
+    #: этой подготовки (`PreparationBlobsV1.adopt`), и первый шаг ширины после холодной кнопки не пересылает и не снимает пиклов.
+    prepared_blob: bytes | None = None
+    prepared_key: str = ""
+    #: `((ключ, размер), ...)` подготовок, которые воркер положил в память, пока считал эту задачу: зеркало родителя повторяет это.
+    stored: tuple = ()
 
     @property
     def ok(self) -> bool:
@@ -262,16 +283,37 @@ class PoolInterpreterV1:
 
 
 @dataclass(frozen=True, slots=True)
+class PoolStatsV1:
+    """Что стоил прогон по трубам: байты, пересылки подготовок и разбор ответов в родителе.
+
+    `blob_hits` — задачи, ушедшие к воркеру одним ключом (воркер держал подготовку); `blobs_shipped` и `blob_bytes_shipped` — задачи,
+    у которых ушёл пикл (первая пересылка, воркер не держал, либо промах); `blob_misses` — из них те, где родитель считал, что
+    воркер подготовку держит, а он её не держал (вытеснение, расхождение): ответ тот же, цена — один лишний обмен.
+    `unpickle_cpu_seconds` и `unpickle_wall_seconds` — разбор ответов потоками-читателями родителя (CPU потока и стена с ожиданием GIL).
+    """
+
+    bytes_sent: int = 0
+    bytes_received: int = 0
+    blob_hits: int = 0
+    blobs_shipped: int = 0
+    blob_bytes_shipped: int = 0
+    blob_misses: int = 0
+    unpickle_cpu_seconds: float = 0.0
+    unpickle_wall_seconds: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class DomainPoolRunV1:
     """Итог прогона: ответы по `task_id` и сколько воркеров в нём участвовало.
 
     Задачи, которых в `results` нет, не исполнялись вовсе (все воркеры умерли
-    раньше, чем до них дошла очередь). `interpreter` — на чём шёл прогон.
+    раньше, чем до них дошла очередь). `interpreter` — на чём шёл прогон, `stats` — цена по трубам.
     """
 
     results: dict
     workers: int
     interpreter: PoolInterpreterV1 | None = None
+    stats: PoolStatsV1 | None = None
 
 
 # --------------------------------------------------------------------------
@@ -296,11 +338,11 @@ def _read_exactly(stream, size: int) -> bytes:
     return b"".join(chunks)
 
 
-def read_frame(stream):
-    """Следующий объект потока либо `None` на чистом конце потока.
+def read_frame_sized(stream):
+    """`(объект, длина кадра, CPU разбора, стена разбора)` либо `None` на чистом конце потока.
 
     Обрыв посреди кадра — не конец, а `EOFError`: отличить «воркер закончил» от
-    «воркер умер на записи» иначе нечем.
+    «воркер умер на записи» иначе нечем. Разбор (`pickle.loads`) измерен отдельно от чтения трубы.
     """
 
     header = _read_exactly(stream, FRAME_HEADER.size)
@@ -312,7 +354,16 @@ def read_frame(stream):
     payload = _read_exactly(stream, length)
     if len(payload) < length:
         raise EOFError(f"truncated frame: {len(payload)} of {length} bytes")
-    return pickle.loads(payload)
+    cpu, wall = time.thread_time(), time.perf_counter()
+    value = pickle.loads(payload)
+    return value, length, time.thread_time() - cpu, time.perf_counter() - wall
+
+
+def read_frame(stream):
+    """Следующий объект потока либо `None` на чистом конце потока (см. `read_frame_sized`)."""
+
+    sized = read_frame_sized(stream)
+    return None if sized is None else sized[0]
 
 
 def write_frame(stream, value) -> None:
@@ -418,8 +469,30 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
         return DomainTaskResultV1(
             task.task_id, prepared, replace(domain, preparation=None)
         )
+    except PreparationMissing:
+        # Задача пришла одним ключом, а подготовки в памяти воркера нет: это не сбой, а просьба прислать пикл.
+        return DomainTaskResultV1(task.task_id, needs_blob=True)
     except Exception:  # noqa: BLE001 - ответ несёт трассу, а не теряет её
         return DomainTaskResultV1(task.task_id, error=traceback.format_exc())
+
+
+def _packed_cold_reply(task: DomainTaskV1, result: DomainTaskResultV1) -> DomainTaskResultV1:
+    """Ответ холодного домена с подготовкой пиклом, снятым ОДИН раз, и той же подготовкой в памяти воркера.
+
+    Подготовка нужна родителю целиком (кэш сессии), а шаг ширины потом шлёт воркерам её пикл: родитель берёт этот же пикл, и перепикливать
+    ему нечего, а воркер держит ровно ту подготовку, которую пикл развернёт (бюджет снят в этот же момент, память точных предикатов -
+    чистые кэши). Ключа не построить (ядро не импортируется) - ответ остаётся прежним, с объектом.
+    """
+
+    if task.cold is None or result.prepared is None or result.production is None:
+        return result
+    blob = pickle.dumps(result.prepared, protocol=PICKLE_PROTOCOL)
+    key = blob_key(blob)
+    if not key:
+        return result
+    STORE.put(key, result.prepared, len(blob))
+    stored = ((key, len(blob)),) if key in STORE else ()
+    return replace(result, prepared=None, prepared_blob=blob, prepared_key=key, stored=stored)
 
 
 def _reply_frame(task_id: int, result: DomainTaskResultV1) -> bytes:
@@ -582,7 +655,7 @@ def worker_main() -> None:
         task = read_frame(source)
         if task is None:
             return
-        channel.write(_reply_frame(task.task_id, solve_task(task)))
+        channel.write(_reply_frame(task.task_id, _packed_cold_reply(task, solve_task(task))))
         channel.flush()
 
 
@@ -606,6 +679,12 @@ class _Worker:
         self.dead = False
         #: Что воркер назвал о себе в `hello` (внешний интерпретатор), иначе пусто.
         self.identity: dict = {}
+        #: Зеркало памяти подготовок воркера (те же вложения и порядок вытеснения): ключ без пикла уходит, если воркер его держит.
+        self.held = PreparationLruV1()
+        #: Сколько байтов ответов прочитано у воркера и во что обошёлся их разбор (потоком-читателем родителя); растёт монотонно.
+        self.received_bytes = 0
+        self.unpickle_cpu = 0.0
+        self.unpickle_wall = 0.0
         self._stdout_closed = False
         self._inbox: queue.Queue = queue.Queue()
         self._stderr_tail: deque = deque(maxlen=STDERR_TAIL_LINES)
@@ -627,9 +706,13 @@ class _Worker:
     def _pump_frames(self) -> None:
         try:
             while True:
-                frame = read_frame(self.process.stdout)
-                if frame is None:
+                sized = read_frame_sized(self.process.stdout)
+                if sized is None:
                     break
+                frame, length, cpu, wall = sized
+                self.received_bytes += length
+                self.unpickle_cpu += cpu
+                self.unpickle_wall += wall
                 self._inbox.put(frame)
         except Exception as exc:  # noqa: BLE001 - обрыв кадра == смерть воркера
             self._inbox.put(_WorkerGone(f"{type(exc).__name__}: {exc}"))
@@ -762,6 +845,126 @@ def _checked_identity(host: dict, reply) -> dict:
     if difference is not None:
         raise _InterpreterRejected(*difference)
     return reply[1]
+
+
+#: Свободный воркер берёт задачу, подготовку которой держит, вместо первой в очереди, только если первая не «крупная»: задача дороже
+#: `суммарная цена / (PULL_BIG_DIVISOR * воркеров)` идёт первой всегда (самая тяжёлая определяет длину прогона и не ждёт).
+PULL_BIG_DIVISOR = 4
+
+
+def _blob_input(task):
+    """Вход задачи с пиклом подготовки в памяти воркера (`production` либо `coverage`, ключ непуст, пикл есть) либо `None`."""
+
+    for inputs in (task.production, task.coverage):
+        if inputs is not None and getattr(inputs, "key", "") and getattr(inputs, "blob", None) is not None:
+            return inputs
+    return None
+
+
+def _key_only(task):
+    """Та же задача без пикла подготовки: воркер берёт её из своей памяти по ключу."""
+
+    if task.production is not None:
+        return replace(task, production=replace(task.production, blob=None))
+    return replace(task, coverage=replace(task.coverage, blob=None))
+
+
+def _held_by(worker, task) -> bool:
+    inputs = _blob_input(task)
+    return inputs is not None and inputs.key in worker.held
+
+
+class _PendingTasks:
+    """Очередь невзятых задач, тяжёлые первыми; воркер предпочитает задачу, подготовку которой держит (меньше пересылок)."""
+
+    def __init__(self, items, big_cost: float) -> None:
+        self._items = list(items)
+        self._big = big_cost
+        self._lock = threading.Lock()
+
+    def take(self, worker):
+        with self._lock:
+            if not self._items:
+                return None
+            head = self._items[0]
+            if _frame_cost(*head) >= self._big or _held_by(worker, head[0]):
+                return self._items.pop(0)
+            for position, item in enumerate(self._items):
+                if _held_by(worker, item[0]):
+                    return self._items.pop(position)
+            return self._items.pop(0)
+
+
+class _PoolCounter:
+    """Счёт пересылок прогона из потоков воркеров."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0, "unpickle_cpu": 0.0, "unpickle_wall": 0.0}
+
+    def add(self, **amounts) -> None:
+        with self._lock:
+            for name, amount in amounts.items():
+                self._values[name] += amount
+
+    def stats(self, received: int, cpu: float, wall: float) -> PoolStatsV1:
+        values = self._values
+        return PoolStatsV1(
+            values["sent"],
+            received,
+            values["hits"],
+            values["shipped"],
+            values["shipped_bytes"],
+            values["misses"],
+            cpu + values["unpickle_cpu"],
+            wall + values["unpickle_wall"],
+        )
+
+
+def _received(worker, reply, counted: _PoolCounter):
+    """Ответ воркера для родителя: зеркало памяти воркера пополнено, подготовка холодного домена развёрнута из своего пикла."""
+
+    if not isinstance(reply, DomainTaskResultV1):
+        return reply
+    for key, size in reply.stored:
+        worker.held.add(key, size)
+    if reply.prepared_blob is not None and reply.prepared is None:
+        cpu, wall = time.thread_time(), time.perf_counter()
+        try:
+            reply = replace(reply, prepared=pickle.loads(reply.prepared_blob))
+        except Exception:  # noqa: BLE001 - пикл, который не читается, - названный отказ задачи, а не молчаливая смерть потока
+            return DomainTaskResultV1(reply.task_id, error=traceback.format_exc())
+        counted.add(unpickle_cpu=time.thread_time() - cpu, unpickle_wall=time.perf_counter() - wall)
+    return reply
+
+
+def _exchange(worker, task, frame: bytes, counted: _PoolCounter):
+    """Задача воркеру и его ответ: подготовка уходит ключом, если воркер её держит, и пиклом, если нет либо он её не нашёл."""
+
+    inputs = _blob_input(task)
+    if inputs is None:
+        worker.send(frame)
+        counted.add(sent=len(frame))
+        return _received(worker, worker.receive(), counted)
+    key = inputs.key
+    if key in worker.held:
+        worker.held.touch(key)
+        stub = encode_frame(_key_only(task))
+        worker.send(stub)
+        counted.add(sent=len(stub))
+        reply = _received(worker, worker.receive(), counted)
+        if not (isinstance(reply, DomainTaskResultV1) and reply.needs_blob):
+            counted.add(hits=1)
+            return reply
+        worker.held.discard(key)
+        counted.add(misses=1)
+    worker.held.add(key, len(inputs.blob))
+    worker.send(frame)
+    counted.add(sent=len(frame), shipped=1, shipped_bytes=len(inputs.blob))
+    reply = _received(worker, worker.receive(), counted)
+    if isinstance(reply, DomainTaskResultV1) and (reply.error or reply.needs_blob):
+        worker.held.discard(key)  # воркер мог её не запомнить: в следующий раз пикл уйдёт снова
+    return reply
 
 
 class DomainPool:
@@ -951,12 +1154,14 @@ class DomainPool:
         participants = list(self._workers)
         first = plan_first_round(ordered, [item.index for item in participants], self._last_worker)
         started = {worker: ordered[position] for worker, position in first.items()}
-        pending: queue.Queue = queue.Queue()
         taken = set(first.values())
-        for position, item in enumerate(ordered):
-            if position not in taken:
-                pending.put(item)
+        pending = _PendingTasks(
+            [item for position, item in enumerate(ordered) if position not in taken],
+            sum(_frame_cost(*item) for item in ordered) / (PULL_BIG_DIVISOR * max(1, len(participants))),
+        )
         results: dict[int, DomainTaskResultV1] = {}
+        counted = _PoolCounter()
+        before = {worker.index: (worker.received_bytes, worker.unpickle_cpu, worker.unpickle_wall) for worker in participants}
 
         def feed(worker: _Worker) -> None:
             item = started.get(worker.index)
@@ -964,15 +1169,13 @@ class DomainPool:
                 if cancel is not None and cancel.is_set():
                     return
                 if item is None:
-                    try:
-                        item = pending.get_nowait()
-                    except queue.Empty:
+                    item = pending.take(worker)
+                    if item is None:
                         return
                 task, frame = item
                 item = None
                 try:
-                    worker.send(frame)
-                    reply = worker.receive()
+                    reply = _exchange(worker, task, frame, counted)
                 except _WorkerGone as exc:
                     worker.dead = True
                     results[task.task_id] = DomainTaskResultV1(
@@ -1007,7 +1210,14 @@ class DomainPool:
         self._workers = [item for item in self._workers if not item.dead]
         if len(self._last_worker) > MAX_AFFINITY_KEYS:
             self._last_worker.clear()
-        return DomainPoolRunV1(results, len(participants), self._interpreter)
+        received = [
+            (worker.received_bytes - before[worker.index][0], worker.unpickle_cpu - before[worker.index][1], worker.unpickle_wall - before[worker.index][2])
+            for worker in participants
+        ]
+        stats = counted.stats(
+            sum(item[0] for item in received), sum(item[1] for item in received), sum(item[2] for item in received)
+        )
+        return DomainPoolRunV1(results, len(participants), self._interpreter, stats)
 
     def close(self) -> None:
         workers, self._workers = self._workers, []
@@ -1095,6 +1305,7 @@ __all__ = (
     "INTERPRETER_UNUSABLE",
     "MIN_POOL_WORKERS",
     "PoolInterpreterV1",
+    "PoolStatsV1",
     "describe_environment",
     "encode_frame",
     "get_domain_pool",
@@ -1104,6 +1315,7 @@ __all__ = (
     "peek_domain_pool",
     "plan_first_round",
     "read_frame",
+    "read_frame_sized",
     "resolve_python_executable",
     "shutdown_domain_pool",
     "solve_task",

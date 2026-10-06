@@ -337,30 +337,48 @@ def _anchors_between(anchored, held) -> int:
     return len(open_pairs)
 
 
-def seam_report(batches) -> tuple:
-    """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям батчей.
+def boundary_chain_names(batch) -> tuple:
+    """`((имя цепи, (ключ вершины, ...)), ...)` граничных цепей батча по имени цепи (то, что читает `seam_report`).
 
-    Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Батч без
-    `boundary_chains` ничего не даёт. Точно, без допусков: ключи вершин, а не координаты.
-    Цепи батча — `frozenset` (порядок ходит с `PYTHONHASHSEED`), поэтому идут по имени цепи; ответ от порядка не зависит.
+    Цепи батча — `frozenset` (порядок ходит с `PYTHONHASHSEED`), поэтому идут по имени цепи. Батч без `boundary_chains` даёт `()`.
+    """
+
+    return tuple(
+        (chain.semantic_boundary_id.value, tuple(item.value for item in chain.ordered_vert_keys))
+        for chain in sorted(getattr(batch, "boundary_chains", ()) or (), key=lambda item: item.semantic_boundary_id.value)
+    )
+
+
+def seam_report(batches) -> tuple:
+    """`seam_report_of_chains` по цепям батчей (см. `boundary_chain_names`)."""
+
+    return seam_report_of_chains([boundary_chain_names(batch) for batch in batches])
+
+
+def seam_report_of_chains(domains) -> tuple:
+    """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям доменов.
+
+    `domains` — по домену `boundary_chain_names(батч)`: ровно то, что читает отчёт, поэтому его дают и вид домена, посчитанный
+    воркером, и батч. Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Домен без
+    цепей ничего не даёт. Точно, без допусков: ключи вершин, а не координаты. Цепи идут в порядке имени: ответ от порядка не зависит.
     """
 
     by_pair: dict = {}
     clip_vertices = 0
     anchored: list = []
     held: dict = {}
-    for number, batch in enumerate(batches):
-        for chain in sorted(getattr(batch, "boundary_chains", ()) or (), key=lambda item: item.semantic_boundary_id.value):
-            kind = chain.semantic_boundary_id.value.split(":")[1]
+    for number, chains in enumerate(domains):
+        for name, chain_keys in chains:
+            kind = name.split(":")[1]
             if kind not in ("SOURCE", "WALL"):
                 continue
-            keys = [item.value for item in chain.ordered_vert_keys]
+            keys = list(chain_keys)
             anchors = [index for index, key in enumerate(keys) if key.startswith("src:")]
             clip_vertices += sum(1 for key in keys if key.startswith("clip:"))
             held.setdefault(number, set()).update(keys[index] for index in anchors)
             if kind != "SOURCE":
                 continue
-            anchored.append((number, chain.semantic_boundary_id.value, [keys[index] for index in anchors]))
+            anchored.append((number, name, [keys[index] for index in anchors]))
             for first, second in zip(anchors, anchors[1:]):
                 by_pair.setdefault(frozenset((keys[first], keys[second])), []).append(second - first - 1)
     junctions = sum(1 for counts in by_pair.values() if len(counts) > 1 and len(set(counts)) > 1)
