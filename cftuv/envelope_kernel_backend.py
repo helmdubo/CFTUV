@@ -10,6 +10,9 @@
   (какой бэкенд посчитал на самом деле и по какой названной причине откат на Python). Результат с записью и без неё равен по
   ответу: запись — метка запуска, как `placement`. Смена бэкенда в процессе сбрасывает память стадии резки ядра (`clip_memo`):
   её ключ бэкенд не несёт, а ключи кэшей хоста несут (`backend_identity` в `envelope_content_key` и в ключах прогона).
+  Первый заказ `NATIVE` в процессе ставит диспетчер резки (`backend.install_dispatch`: подмена имени `clip.clip_geometry`): вызов резки лежит в
+  закреплённом нативным портом файле (`clip.py`), и подмена имени оставляет закрепления верными. Покрытие подключено в самом ядре.
+  Воркер пула ставит её сам на первом домене с заказом `NATIVE` (состояние процесса).
 * СТРОКА ЖУРНАЛА. `backend_console_lines`: `[CFTUV][Production] BACKEND native 120 / python 2 (NATIVE_PORT_STALE: patch 7, 9)`.
   Печатается только когда заказан нативный бэкенд; домен из кэша сессии в счёт не идёт (в этом прогоне он не считался).
 
@@ -74,14 +77,16 @@ def backend_identity_of(kernel_backend) -> str:
 
 @contextmanager
 def entered_backend(kernel_backend):
-    """`use_backend` ядра, а при смене бэкенда в ЭТОМ процессе — сначала сброс памяти стадии резки (её ключ бэкенд не несёт).
+    """`use_backend` ядра; `NATIVE` сперва ставит диспетчер резки, а смена бэкенда в ЭТОМ процессе сбрасывает память стадии резки.
 
-    Отдаёт журнал домена (`NATIVE`) либо `None` (`PYTHON`).
+    Отдаёт журнал домена (`NATIVE`) либо `None` (`PYTHON`). Память резки сбрасывается потому, что её ключ бэкенд не несёт.
     """
 
     name = normalize_kernel_backend(kernel_backend)
-    from cftuv_envelope.backend import use_backend
+    from cftuv_envelope.backend import install_dispatch, use_backend
 
+    if name == KERNEL_BACKEND_NATIVE:
+        install_dispatch()
     if _LAST_BACKEND[0] != name:
         from cftuv_envelope.materialize.clip_memo import MEMO
 

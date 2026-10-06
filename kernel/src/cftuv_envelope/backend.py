@@ -20,7 +20,8 @@
 * `NATIVE_PORT_STALE` — эталон ушёл дальше версии, с которой сверен порт (`cftuv_native.NativePortStale`);
 * `NATIVE_UNSUPPORTED_PYTHON` — порт воспроизводит `list.sort` и `sum` CPython 3.11 и 3.13, и только их;
 * `NATIVE_PORT_UNSUPPORTED` — порт отказывает на ЭТОМ входе по имени (эталон его считает);
-* `NATIVE_TRACES_UNSUPPORTED` — покрытие вызвано с `traces` (запись шаблона шага ширины), а нативное такой записи не даёт;
+* `NATIVE_TRACES_UNSUPPORTED` — покрытие вызвано с `traces` (запись шаблона шага ширины), а колесо такой записи не даёт (старое колесо:
+  у `cftuv_native.coverage_at` нет параметра `traces`);
 * `NATIVE_NOT_REACHED` — заказан нативный бэкенд, а домен закончился, ни разу не позвав ни одну нативную операцию (отказ до
   покрытия, попадание резки в память стадии, либо точки диспетчеризации не подключены в этой версии ядра).
 
@@ -32,12 +33,19 @@
 наследует и считает эталоном. Вне блока и в блоке `PYTHON` точки диспетчеризации зовут эталон напрямую, без журнала: этот путь
 побитово совпадает с вызовом эталона (тест `test_backend_dispatch.py`).
 
-ПОДКЛЮЧЕНИЕ ТОЧЕК. Диспетчеры зовутся на месте вызова эталона в трёх местах ядра: `wavefront/coverage.py::coverage_at`
-(`_coverage_at(...)`), `materialize/step.py::_Recorder.coverage` (`_coverage_at(..., traces)`, запись шаблона шага) и
-`materialize/clip.py::cut_domain` (`run_clip(clip_geometry, ...)`). Два из этих файлов закреплены нативным портом по дайджесту
-(`cftuv_native.pin`): правка вызова в них делает порт `stale` до перевыпуска закреплений. `install_dispatch` ставит те же диспетчеры
-подменой трёх имён в модулях ядра при ЗАПУСКЕ, не меняя ни одного файла ядра: закрепления остаются верными, а вызывающий код
-(`conveyor`, `coalesce`, `cut_domain`) читает эти имена при каждом вызове. По умолчанию ничего не ставится.
+ПОДКЛЮЧЕНИЕ ТОЧЕК. Нативный порт закрепляет по дайджесту файлы эталона, которые зеркалит (`cftuv_native.pin.OPERATION_FILES`: покрытие —
+`wavefront/coverage.py`, `wavefront/event_time.py` и основа точной арифметики; резка — `materialize/clip*.py`, `coalesce`, `frames`, `lift*`,
+`offset_normal`, `tessellate`, `numeric`, `_cpython311` и та же основа): правка любого из них делает операцию `stale`. Поэтому диспетчеры
+стоят в НЕЗАКРЕПЛЁННЫХ файлах, у вызывающих:
+
+* покрытие региона — `wavefront/conveyor.py::_region_coverage` зовёт `covered_at` (то же, что `coverage.coverage_at`: источник покрытия шага
+  ширины, затем `coverage_compute`; тест держит равенство обёртки по тексту и по поведению);
+* запись шаблона шага ширины — `materialize/step.py::_Recorder.coverage` зовёт `coverage_compute(..., traces)`.
+
+Вызов резки `run_clip(clip_geometry, ...)` лежит в `materialize/clip.py::cut_domain`, а `clip.py` закреплён: прямая правка сделает порт резки `stale`
+до перевыпуска закреплений. `install_dispatch` ставит диспетчеры подменой имён `wavefront.coverage._coverage_at` и `materialize.clip.clip_geometry` при ЗАПУСКЕ,
+не меняя ни одного файла ядра (закрепления остаются верными; подмена `_coverage_at` берёт и повтор покрытия в `coalesce.py`). Хост ставит её при первом заказе
+`NATIVE` в процессе (`envelope_kernel_backend.entered_backend`), пока `PYTHON` не ставит ничего; прямая правка `clip.py` с перевыпуском закреплений её заменит.
 
 Модуль не импортирует ничего из ядра на уровне модуля: эталон берётся при вызове, поэтому точки диспетчеризации можно
 ставить в модули самого ядра без цикла импорта.
@@ -46,7 +54,9 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import threading
+from fractions import Fraction
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -102,6 +112,8 @@ def normalize_backend(value) -> KernelBackendV1:
 
 _LOAD_LOCK = threading.Lock()
 _LOADED: list = []
+#: `{id(модуль): у его coverage_at есть параметр traces}`.
+_TRACES: dict = {}
 
 
 def _import_native() -> tuple:
@@ -113,6 +125,19 @@ def _import_native() -> tuple:
     if missing:
         return None, f"cftuv_native lacks {', '.join(missing)}"
     return module, ""
+
+
+def _takes_traces(module) -> bool:
+    """У `cftuv_native.coverage_at` есть параметр `traces` (колесо с записью знаков шаблона шага ширины)."""
+
+    found = _TRACES.get(id(module))
+    if found is None:
+        try:
+            found = "traces" in inspect.signature(module.coverage_at).parameters
+        except (TypeError, ValueError):  # подпись не читается: считаем, что записи нет, и называем это откатом
+            found = False
+        _TRACES[id(module)] = found
+    return found
 
 
 def _native() -> tuple:
@@ -129,6 +154,7 @@ def refresh_native() -> None:
 
     with _LOAD_LOCK:
         _LOADED.clear()
+        _TRACES.clear()
     importlib.invalidate_caches()
 
 
@@ -304,9 +330,10 @@ def _python_clip():
 def install_dispatch() -> tuple:
     """Ставит диспетчеры на место вызова эталона подменой имён в модулях ядра; `("модуль.имя", ...)` подменённых. Повтор — то же.
 
-    Файлы ядра не правятся (закрепления нативного порта остаются верными): подменяются `wavefront.coverage._coverage_at`,
-    `materialize.step._coverage_at` и `materialize.clip.clip_geometry` — имена, которые `coverage_at`, `_Recorder.coverage` и
-    `cut_domain` читают при каждом вызове. Вне блока `use_backend` (и под `PYTHON`) диспетчер зовёт эталон напрямую.
+    Файлы ядра не правятся (закрепления нативного порта остаются верными): подменяются `wavefront.coverage._coverage_at` (его читает
+    `coverage_at`, а с ним `coalesce` при повторе покрытия), `materialize.step._coverage_at` (если модуль ещё берёт его по имени) и
+    `materialize.clip.clip_geometry` (его читает `cut_domain`) — имена, которые вызывающий читает при каждом вызове. Вне блока
+    `use_backend` (и под `PYTHON`) диспетчер зовёт эталон напрямую. Процессное состояние: воркеру пула подмена нужна своя.
     """
 
     if not _INSTALLED:
@@ -319,8 +346,9 @@ def install_dispatch() -> tuple:
             (step, "_coverage_at", coverage_compute),
             (clip, "clip_geometry", clip_compute),
         ):
-            _INSTALLED.append((module, name, getattr(module, name)))
-            setattr(module, name, dispatcher)
+            if hasattr(module, name):
+                _INSTALLED.append((module, name, getattr(module, name)))
+                setattr(module, name, dispatcher)
     return tuple(f"{module.__name__.rsplit('.', 1)[-1]}.{name}" for module, name, _old in _INSTALLED)
 
 
@@ -337,6 +365,10 @@ def dispatch_installed() -> bool:
     return bool(_INSTALLED)
 
 
+class _TracesUnsupported(RuntimeError):
+    """Внутренний отказ диспетчера (не исключение шима): колесо не умеет `traces`; записывается как `NATIVE_TRACES_UNSUPPORTED`."""
+
+
 def _attempt(ledger: BackendLedgerV1, operation: str, call) -> tuple:
     """`(True, ответ)`, когда посчитало нативное ядро; `(False, None)` — откат назван и записан, считает эталон."""
 
@@ -345,6 +377,7 @@ def _attempt(ledger: BackendLedgerV1, operation: str, call) -> tuple:
         ledger.note_python(operation, BackendOutcomeV1.NATIVE_UNAVAILABLE, detail)
         return False, None
     refusals = tuple((getattr(module, name), outcome) for name, outcome in _NAMED_REFUSALS)
+    refusals += ((_TracesUnsupported, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED),)
     try:
         answer = call(module)
     except tuple(cls for cls, _outcome in refusals) as exc:
@@ -362,11 +395,35 @@ def coverage_compute(partition, alpha, work_budget=None, store=None, traces=None
     oracle = _python_coverage()
     if ledger is None:
         return oracle(partition, alpha, work_budget, store, traces)
-    if traces is not None:
-        ledger.note_python(COVERAGE, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED, "the template recording pass needs `traces`")
-        return oracle(partition, alpha, work_budget, store, traces)
-    done, answer = _attempt(ledger, COVERAGE, lambda module: module.coverage_at(partition, alpha, work_budget, store))
-    return answer if done else oracle(partition, alpha, work_budget, store)
+
+    def call(module):
+        if traces is None:
+            return module.coverage_at(partition, alpha, work_budget, store)
+        if not _takes_traces(module):
+            raise _TracesUnsupported("this cftuv_native wheel has no `traces` in coverage_at (the template recording pass needs it)")
+        return module.coverage_at(partition, alpha, work_budget, store, traces)
+
+    done, answer = _attempt(ledger, COVERAGE, call)
+    return answer if done else oracle(partition, alpha, work_budget, store, traces)
+
+
+def covered_at(partition, alpha, work_budget=None, store=None):
+    """`wavefront.coverage.coverage_at(partition, alpha, work_budget, store)` с диспетчером вместо `_coverage_at`.
+
+    Обёртка эталона — источник покрытия шага ширины (`current_coverage_source`: покрытие из шаблона либо запись шаблона), затем сам счёт —
+    повторена здесь дословно, потому что стоит в закреплённом файле (`coverage.py`), а закреплённые файлы не правятся. Тест
+    `test_covered_at_mirrors_the_coverage_at_wrapper` держит её по поведению и по тексту: правка обёртки в эталоне красит его.
+    """
+
+    from .wavefront.coverage import current_coverage_source
+
+    alpha = Fraction(alpha)
+    source = current_coverage_source()
+    if source is not None:
+        produced = source.coverage(partition, alpha, work_budget, store)
+        if produced is not None:
+            return produced
+    return coverage_compute(partition, alpha, work_budget, store)
 
 
 def clip_compute(plane, budget, **inputs):
@@ -397,6 +454,7 @@ __all__ = (
     "backend_identity",
     "clip_compute",
     "coverage_compute",
+    "covered_at",
     "dispatch_installed",
     "install_dispatch",
     "native_status",

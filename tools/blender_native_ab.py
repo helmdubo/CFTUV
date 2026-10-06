@@ -2,7 +2,7 @@
 
     blender -b E:\\testscene.blend --python-exit-code 1 --python tools/blender_native_ab.py -- \\
         [--cases mesh:alpha:density:stretch,...] [--steps 3] [--width-step 0.01] [--workers 0] \\
-        [--native-path <каталог с cftuv_native>] [--install-dispatch] [--root <дерево>] [--out <json>]
+        [--native-path <каталог с cftuv_native>] [--root <дерево>] [--out <json>]
 
 Каждый случай (по умолчанию 22 полевых — рецепт `field_rel.py`: меш, alpha, плотность веера, допуск растяжения) считается кнопкой
 (`run_production`, настройка `Kernel backend` читается из свойства сцены, как у оператора) на ряде ширин `alpha + width_step * n`,
@@ -12,9 +12,9 @@
 возврата 1); шесть статей `EXACT_WORK_*` — ЦЕНА (расхождение тоже код 1: нативное ядро обязано стоить столько же, сколько эталон);
 секунды и кто на самом деле посчитал (запись бэкенда домена: `native` / `python` / `mixed`, названный откат) — только в таблице.
 
-`--install-dispatch` ставит диспетчеры бэкенда на место вызова эталона подменой имён в модулях ядра (`backend.install_dispatch`), не правя файлов
-ядра: без неё (и пока точки не подключены в самом ядре) заказ `NATIVE` не зовёт ни одной нативной операции, и каждый домен назван
-`NATIVE_NOT_REACHED`; сравнивать тогда нечего, и отчёт говорит об этом строкой `NOTE`.
+Заказ `NATIVE` ставит диспетчер резки сам (`entered_backend`: подмена имени `clip.clip_geometry`, закреплённый файл `clip.py` не правится); домен, который не
+позвал ни одной нативной операции (резка из памяти стадии, покрытие из шаблона шага ширины), назван `NATIVE_NOT_REACHED`; если не позвал никто, отчёт
+говорит об этом строкой `NOTE`.
 
 Без нативного ядра (`cftuv_native` не импортируется) отчёт называет статус `UNAVAILABLE`, пишет JSON и завершается нулём: сравнивать
 нечего, и это не ошибка. Нативное ядро, которое импортируется, но стоит не на той версии эталона (`stale(...)`), сравнивается: откаты на
@@ -205,7 +205,6 @@ def _arguments():
     parser.add_argument("--width-step", type=float, default=0.01)
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--native-path", default="")
-    parser.add_argument("--install-dispatch", action="store_true")
     parser.add_argument("--out", default="")
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
 
@@ -345,11 +344,10 @@ def main() -> int:
     _load_tree(root, args.native_path)
     import bpy
 
-    from cftuv_envelope.backend import UNAVAILABLE, install_dispatch, native_status
+    from cftuv_envelope.backend import UNAVAILABLE, native_status
 
     status = native_status()
     print("native status:", json.dumps(status.as_record()), flush=True)
-    installed = list(install_dispatch()) if args.install_dispatch else []
     cases = [item for item in args.cases.split(",") if item]
     if status.coverage == UNAVAILABLE and status.clip == UNAVAILABLE:
         report = unavailable_report(status.as_record(), str(root), cases)
@@ -360,6 +358,8 @@ def main() -> int:
         if not isinstance(controller, EnvelopeDebugSessionController):
             controller = EnvelopeDebugSessionController()
             setattr(bpy.context.window_manager, WINDOW_MANAGER_SESSION_ATTRIBUTE, controller)
+        from cftuv_envelope.backend import dispatch_installed
+
         results = []
         for order, spec in enumerate(cases):
             try:
@@ -374,7 +374,7 @@ def main() -> int:
         report = {
             "status": STATUS_FAILED if failed else STATUS_OK,
             "native_status": status.as_record(),
-            "dispatch_installed": installed,
+            "dispatch_installed": dispatch_installed(),
             "root": str(root),
             "workers": args.workers,
             "steps": args.steps,
@@ -384,7 +384,7 @@ def main() -> int:
         }
         print(format_table(report), flush=True)
         if totals["native"] + totals["mixed"] == 0:
-            print("NOTE: no native operation was called; dispatch installed: " + (", ".join(installed) or "no (pass --install-dispatch)"), flush=True)
+            print("NOTE: no native operation was called (see the fallbacks column)", flush=True)
         for case in results:
             for item in case.get("widths", ()):
                 for kind in ("answer", "price", "missing"):

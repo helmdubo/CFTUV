@@ -124,6 +124,7 @@ from ..reference.raw_coverage import (
 from ..reference.strip import strip_envelope_instance_id
 from ..reference.validation import validate_reference_geometry_payload
 from ..robust.grid import GridSpecV1
+from .. import backend
 from .bridge import (
     BridgeOutcome,
     BridgeReportV1,
@@ -131,7 +132,7 @@ from .bridge import (
     VertexFanLawV1,
     bridge_arrival_laws,
 )
-from .coverage import CoverageOutcome, coverage_at, current_coverage_source
+from .coverage import CoverageOutcome, current_coverage_source
 from .faces import (
     CrowdedChainsV1,
     EdgeKey,
@@ -1640,7 +1641,7 @@ def _region_coverage(
     # Цена покрытия региона - функция региона и alpha, а не процесса: память канонизации внутри холодная (как после сброса на границе
     # домена у хоста), память вызывающего возвращается нетронутой.
     with isolated_factorization_memory():
-        covered = coverage_at(region.partition, lattice_alpha, work_budget, store)
+        covered = backend.covered_at(region.partition, lattice_alpha, work_budget, store)
     faces = tuple(
         ConveyorFaceCoverageV1(
             region_id=region.region_id,

@@ -1556,6 +1556,21 @@ def test_the_native_import_rule_flags_every_form_of_import_and_passes_a_clean_mo
     assert _native_imports(ast.parse(honest)) == []
 
 
+#: Собственные инструменты и тесты нативного порта (сессия `native/`): корпус, бенчмарки и дифференциальные тесты зовут `cftuv_native` напрямую,
+#: потому что проверяют САМ порт. Продукт (`cftuv/`, `kernel/src/`) и остальные инструменты идут через `backend.py`.
+NATIVE_PORT_FAMILY = ("tools/native_", "tests/test_native_")
+
+
+#: Собственные инструменты и тесты нативного порта (сессия `native/`): корпус, бенчмарки и дифференциальные тесты зовут `cftuv_native` напрямую,
+#: потому что проверяют САМ порт. Продукт (`cftuv/`, `kernel/src/`) и остальные инструменты идут через `backend.py`.
+NATIVE_PORT_FAMILY = ("tools/native_", "tests/test_native_")
+
+
+#: Собственные инструменты и тесты нативного порта (сессия `native/`): корпус, бенчмарки и дифференциальные тесты зовут `cftuv_native` напрямую,
+#: потому что проверяют САМ порт. Продукт (`cftuv/`, `kernel/src/`) и остальные инструменты идут через `backend.py`.
+NATIVE_PORT_FAMILY = ("tools/native_", "tests/test_native_")
+
+
 def test_only_the_backend_module_imports_the_native_package():
     scanned = (
         _python_files(HOST_PACKAGE)
@@ -1567,7 +1582,7 @@ def test_only_the_backend_module_imports_the_native_package():
     offenders = [
         f"{_relative(path)}:{line} {form}"
         for path in scanned
-        if _relative(path) != NATIVE_IMPORTER
+        if _relative(path) != NATIVE_IMPORTER and not _relative(path).startswith(NATIVE_PORT_FAMILY)
         for line, form in _native_imports(_parse(path))
     ]
     assert not offenders, (
@@ -1576,6 +1591,53 @@ def test_only_the_backend_module_imports_the_native_package():
         + "\n\nИспользуйте `backend.native_status()` и `backend.use_backend(...)`: откат на Python обязан быть назван."
     )
     assert _native_imports(_parse(REPO_ROOT / NATIVE_IMPORTER)), "backend.py перестал быть импортёром cftuv_native"
+    # продукт не входит в исключение: оно только для собственных инструментов и тестов порта
+    product = _python_files(HOST_PACKAGE) + _python_files(KERNEL_SOURCE)
+    assert not [path for path in product if _relative(path).startswith(NATIVE_PORT_FAMILY)]
+
+
+def _dispatch_hooks(tree: ast.AST) -> bool:
+    """Файл обращается к модулю `backend` (импорт `backend` либо имя `backend.<...>`): в нём стоит диспетчер бэкенда."""
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "backend" for alias in node.names):
+            return True
+        if isinstance(node, ast.Name) and node.id == "backend":
+            return True
+    return False
+
+
+def test_the_dispatch_hook_detector_flags_a_wired_module_and_passes_a_plain_one():
+    wired = "from .. import backend\n\ndef f():\n    return backend.coverage_compute(1)\n"
+    plain = "from .sqrt_sum import SqrtSumV1\n\ndef f():\n    return _coverage_at(1)\n"
+    assert _dispatch_hooks(ast.parse(wired))
+    assert not _dispatch_hooks(ast.parse(plain))
+
+
+def test_a_dispatch_hook_in_a_pinned_oracle_file_comes_with_its_new_pin():
+    """Диспетчер в закреплённом файле эталона делает порт `stale`, пока закрепление (`python -m cftuv_native.pin`) не перевыпущено.
+
+    Диспетчеры стоят в НЕзакреплённых файлах (`conveyor.py`, `step.py`). Правка закреплённого файла допустима только вместе с новым закреплением
+    в том же слиянии: тогда дайджест файла равен записи `PINS`, и этот тест зелёный; иначе он называет файл.
+    """
+
+    import hashlib
+
+    pin = _load_native_pin()
+    pinned = {name for files in pin.OPERATION_FILES.values() for name in files}
+    root = KERNEL_SOURCE / "cftuv_envelope"
+    stale = []
+    for name in sorted(pinned):
+        path = root / name
+        if path.exists() and _dispatch_hooks(_parse(path)):
+            digest = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            if digest != pin.PINS[name]:
+                stale.append(name)
+    assert not stale, (
+        "диспетчер бэкенда вписан в закреплённый файл эталона без нового закрепления: "
+        + ", ".join(stale)
+        + "\n\nПеревыпустите закрепления (`python -m cftuv_native.pin`) вместе с правкой либо переставьте диспетчер в незакреплённый файл."
+    )
 
 
 # --------------------------------------------------------------------------

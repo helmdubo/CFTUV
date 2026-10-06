@@ -4,14 +4,15 @@
 
 1. СТАТУС. Без `cftuv_native` статус — именованный `unavailable` с причиной, а не исключение; с ним — статус шима как есть.
 2. PYTHON == ЭТАЛОН. Точки диспетчеризации под `PYTHON` (и вне блока) побитово равны вызову эталона: ответ домена, дайджесты,
-   нормали и ЦЕНА (`EXACT_WORK_*`). Подключение точек в модули ядра здесь ИМИТИРУЕТСЯ подменой имени, которое зовёт вызывающий:
-   замороженные файлы не тронуты, а проверяется ровно тот дифф, что записан в отчёте.
+   нормали и ЦЕНА (`EXACT_WORK_*`). Покрытие подключено в незакреплённых файлах (`conveyor.py`, `step.py`), резка — подменой имени
+   `install_dispatch` (прямая правка `clip.py` сделала бы нативный порт резки `stale`): закреплённые файлы не тронуты.
 3. NATIVE, КОТОРЫЙ СЧИТАЕТ. Нативное ядро, равное эталону, даёт тот же ответ и ту же цену, а журнал домена называет его
    исполнителем.
 4. ОТКАТ ИМЕНОВАН. `NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported`, отсутствие колеса и вызов с `traces` —
    домен считает эталон, ответ тот же, а журнал несёт имя причины и счёт. Тихого отката нет.
 5. ЧУЖОЕ ИСКЛЮЧЕНИЕ НЕ ГЛОТАЕТСЯ. Всё, что не из перечня выше, уходит вызывающему как есть.
-6. ТОЧКИ ПОДКЛЮЧЕНИЯ там, где о них говорит отчёт: вызов эталона либо вызов диспетчера, ничего третьего.
+6. ТОЧКИ ПОДКЛЮЧЕНИЯ там, где о них говорит отчёт: покрытие подключено в `conveyor.py` и `step.py`, закреплённые файлы нативным портом
+   (`coverage.py`, `clip.py`) зовут эталон, обёртка `covered_at` повторяет `coverage.coverage_at`.
 """
 
 from __future__ import annotations
@@ -107,7 +108,7 @@ def oracles():
 
 
 def wire(monkeypatch=None):
-    """Подключение через `install_dispatch`: на месте вызова эталона стоит диспетчер, файлы ядра не тронуты.
+    """Подключение резки через `install_dispatch` (покрытие подключено в самом ядре): файлы ядра не тронуты.
 
     Возвращает эталоны, снятые ДО подмены (`monkeypatch` не нужен: подмену снимает фикстура теста).
     """
@@ -329,7 +330,9 @@ def test_a_mixed_domain_is_named_mixed(monkeypatch):
     assert [item[1] for item in record.fallbacks] == ["clip"]
 
 
-def test_a_traced_coverage_is_served_by_python_and_named(monkeypatch):
+def test_a_traced_coverage_of_a_wheel_without_traces_is_served_by_python_and_named(monkeypatch):
+    """Старое колесо: у `coverage_at` нет параметра `traces` — запись шаблона считает эталон, и это названо."""
+
     _result, prepared = build("fold", "3.5", LAWS["triangles"])
     oracle, _clip = oracles()
     _module, calls = install_native(monkeypatch, coverage_at=oracle, clip_geometry=None)
@@ -341,6 +344,31 @@ def test_a_traced_coverage_is_served_by_python_and_named(monkeypatch):
     assert through == reference and own == direct and own
     assert calls == []
     assert ledger.record().outcomes == ("NATIVE_TRACES_UNSUPPORTED",)
+
+
+def test_a_traced_coverage_of_a_wheel_with_traces_is_computed_natively_and_fills_the_traces(monkeypatch):
+    _result, prepared = build("fold", "3.5", LAWS["triangles"])
+    oracle, _clip = oracles()
+    seen: list = []
+
+    def with_traces(partition, alpha, work_budget=None, store=None, traces=None):
+        seen.append(traces)
+        return oracle(partition, alpha, work_budget, store, traces)
+
+    _module, calls = install_native(monkeypatch, coverage_at=with_traces, clip_geometry=None)
+    # подставной шим берёт `*args`: подпись `covered` не называет traces, поэтому подменяем сам вход на функцию с подписью
+    monkeypatch.setattr(sys.modules["cftuv_native"], "coverage_at", with_traces)
+    backend.refresh_native()
+    partition, alpha = prepared.regions[0].partition, Fraction(7, 4)
+    own, direct = [], []
+    with backend.use_backend("NATIVE") as ledger:
+        through = backend.coverage_compute(partition, alpha, exact_work_budget(stage="COVERAGE"), {}, own)
+        untraced = backend.coverage_compute(partition, alpha, exact_work_budget(stage="COVERAGE"), {})
+    reference = oracle(partition, alpha, exact_work_budget(stage="COVERAGE"), {}, direct)
+    assert through == reference == untraced and own == direct and own
+    assert seen == [own, None]
+    record = ledger.record()
+    assert (record.native_calls, record.python_calls, record.outcomes) == (2, 0, ())
 
 
 def test_a_domain_that_never_called_a_native_operation_is_named_not_reached(monkeypatch):
@@ -385,21 +413,17 @@ def test_an_exception_outside_the_named_refusals_reaches_the_caller(monkeypatch)
     assert ledger.record().python_calls == 0
 
 
-def test_install_dispatch_replaces_exactly_the_three_names_and_uninstall_restores_them():
-    before = (coverage._coverage_at, step._coverage_at, clip.clip_geometry)
-    assert not backend.dispatch_installed()
+def test_install_dispatch_replaces_exactly_the_two_names_and_uninstall_restores_them():
+    before = (coverage._coverage_at, clip.clip_geometry)
+    assert not backend.dispatch_installed() and not hasattr(step, "_coverage_at")  # `step` зовёт диспетчер сам
 
     names = backend.install_dispatch()
 
-    assert names == ("coverage._coverage_at", "step._coverage_at", "clip.clip_geometry")
-    assert (coverage._coverage_at, step._coverage_at, clip.clip_geometry) == (
-        backend.coverage_compute,
-        backend.coverage_compute,
-        backend.clip_compute,
-    )
+    assert names == ("coverage._coverage_at", "clip.clip_geometry")
+    assert (coverage._coverage_at, clip.clip_geometry) == (backend.coverage_compute, backend.clip_compute)
     assert backend.install_dispatch() == names and backend.dispatch_installed()  # повтор ничего не подменяет второй раз
     backend.uninstall_dispatch()
-    assert (coverage._coverage_at, step._coverage_at, clip.clip_geometry) == before
+    assert (coverage._coverage_at, clip.clip_geometry) == before
     assert not backend.dispatch_installed()
     backend.uninstall_dispatch()  # без подмены - ничего не делает
 
@@ -424,22 +448,69 @@ def _text(*parts):
     return (KERNEL.joinpath(*parts)).read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-def test_the_hook_sites_are_where_the_report_names_them():
-    """Три места вызова эталона: каждое — вызов эталона либо вызов диспетчера, ничего третьего; места не двоятся."""
+def test_the_coverage_hooks_stand_in_the_unpinned_files_and_the_pinned_ones_still_call_the_oracle():
+    """Покрытие региона и запись шаблона идут через диспетчер; закреплённые нативным портом файлы эталона не тронуты."""
 
-    sites = (
-        (
-            _text("wavefront", "coverage.py"),
-            r"    return (_coverage_at|backend\.coverage_compute)\(partition, alpha, work_budget, store\)\n",
-        ),
-        (
-            _text("materialize", "step.py"),
-            r"        result = (_coverage_at|backend\.coverage_compute)\(partition, alpha, work_budget, store, traces\)\n",
-        ),
-        (
-            _text("materialize", "clip.py"),
-            r"    clipped, memo = run_clip\(\n        (clip_geometry|backend\.clip_compute),\n        plane,\n",
-        ),
-    )
-    for text, pattern in sites:
-        assert len(re.findall(pattern, text)) == 1, pattern
+    conveyor = _text("wavefront", "conveyor.py")
+    assert conveyor.count("covered = backend.covered_at(region.partition, lattice_alpha, work_budget, store)\n") == 1
+    assert "coverage_at(region.partition" not in conveyor.replace("backend.covered_at(region.partition", "")
+    stepper = _text("materialize", "step.py")
+    assert stepper.count("result = backend.coverage_compute(partition, alpha, work_budget, store, traces)\n") == 1
+    assert "_coverage_at(" not in stepper.replace("backend.coverage_compute(", "")
+    # закреплённые файлы: эталон зовёт эталон (подключение резки — подменой имени `install_dispatch` либо правкой с новым закреплением)
+    oracle_coverage = _text("wavefront", "coverage.py")
+    assert oracle_coverage.count("    return _coverage_at(partition, alpha, work_budget, store)\n") == 1 and "backend" not in oracle_coverage
+    oracle_clip = _text("materialize", "clip.py")
+    wired = len(re.findall(r"    clipped, memo = run_clip\(\n        backend\.clip_compute,\n        plane,\n", oracle_clip))
+    plain = len(re.findall(r"    clipped, memo = run_clip\(\n        clip_geometry,\n        plane,\n", oracle_clip))
+    assert wired + plain == 1  # ровно одно место резки; `wired` допустимо только вместе с новым закреплением (тест архитектуры)
+
+
+def test_covered_at_mirrors_the_coverage_at_wrapper_by_behaviour():
+    """`covered_at` = `coverage_at` с диспетчером вместо `_coverage_at`: без источника, с источником и с источником, не знающим разбиения."""
+
+    _result, prepared = build("fold", "3.5", LAWS["triangles"])
+    partition, alpha = prepared.regions[0].partition, Fraction(7, 4)
+    produced = coverage.coverage_at(partition, alpha, exact_work_budget(stage="COVERAGE"), {})
+
+    class Source:
+        def __init__(self, answer):
+            self.answer, self.asked = answer, []
+
+        def coverage(self, partition, alpha, work_budget, store):
+            self.asked.append((partition, alpha))
+            return self.answer
+
+    for answer in (None, produced):
+        wrapper_source, mirror_source = Source(answer), Source(answer)
+        own, direct = exact_work_budget(stage="COVERAGE"), exact_work_budget(stage="COVERAGE")
+        with coverage.coverage_source(wrapper_source):
+            expected = coverage.coverage_at(partition, Fraction(7, 4), direct, {})
+        with coverage.coverage_source(mirror_source):
+            got = backend.covered_at(partition, Fraction(7, 4), own, {})
+        assert got == expected and own.spent_by_article() == direct.spent_by_article()
+        assert wrapper_source.asked == mirror_source.asked == [(partition, Fraction(7, 4))]
+    plain_own, plain_direct = exact_work_budget(stage="COVERAGE"), exact_work_budget(stage="COVERAGE")
+    assert backend.covered_at(partition, Fraction(7, 4), plain_own, {}) == coverage.coverage_at(partition, Fraction(7, 4), plain_direct, {})
+    assert plain_own.spent_by_article() == plain_direct.spent_by_article()
+    assert backend.covered_at(partition, 2, None, None) == coverage.coverage_at(partition, 2, None, None)  # целая alpha приводится к дроби так же
+
+
+def test_covered_at_mirrors_the_coverage_at_wrapper_by_text():
+    """Обёртка эталона живёт в закреплённом файле и повторена в `backend.py`: правка обёртки красит тест, пока копию не догонят."""
+
+    import ast
+    import inspect
+
+    def statements(function, fixed):
+        tree = ast.parse(inspect.getsource(function).replace("\r\n", "\n"))
+        body = tree.body[0].body
+        if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            body = body[1:]  # докстрока
+        return [ast.unparse(item).replace(fixed[0], fixed[1]) for item in body]
+
+    oracle = statements(coverage.coverage_at, ("_SOURCE.get()", "current_coverage_source()"))
+    mirror = statements(backend.covered_at, ("", ""))
+    mirror = [line for line in mirror if "import current_coverage_source" not in line]
+    oracle = [line.replace("_coverage_at(", "coverage_compute(") for line in oracle]
+    assert oracle == mirror, (oracle, mirror)

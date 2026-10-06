@@ -37,8 +37,10 @@ def _backend_state(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "cftuv_native", None)
     monkeypatch.setattr(host_backend, "_LAST_BACKEND", [host_backend.DEFAULT_KERNEL_BACKEND])
+    kernel_backend.uninstall_dispatch()
     kernel_backend.refresh_native()
     yield
+    kernel_backend.uninstall_dispatch()
     kernel_backend.refresh_native()
 
 
@@ -126,6 +128,22 @@ def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_ever
     assert len(lines) == 1 and lines[0].startswith("[CFTUV][Production] BACKEND native 0 / python " + str(ROW))
     assert "NATIVE_UNAVAILABLE: patch" in lines[0] or "NATIVE_NOT_REACHED: patch" in lines[0]
     assert f" | backend native 0 / python {ROW}" in production.production_timing_text(native)
+
+
+def test_a_native_press_installs_the_clip_dispatcher_and_a_python_press_never_does(row):
+    from cftuv_envelope.materialize import clip
+
+    oracle = clip.clip_geometry
+    assert not kernel_backend.dispatch_installed()
+    _run(row)
+    _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
+    assert not kernel_backend.dispatch_installed() and clip.clip_geometry is oracle
+
+    native = _run(row, backend="NATIVE")
+    assert kernel_backend.dispatch_installed() and clip.clip_geometry is kernel_backend.clip_compute
+    # `PYTHON` после подмены: диспетчер без журнала зовёт эталон, ответ тот же
+    again = _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
+    assert _projection(again) == _projection(native) == _projection(_run(row, controller=EnvelopeDebugSessionController()))
 
 
 def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_python_cache(row):
