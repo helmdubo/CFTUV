@@ -482,7 +482,7 @@ pub fn integer_enclosure(items: &[(UBig, IBig)], bits: usize) -> (IBig, IBig) {
             high += exact;
             continue;
         }
-        let floor_root = IBig::from(num::isqrt(&(radicand << shift)));
+        let floor_root = IBig::from(cached_floor_root(radicand, shift));
         let ceiling_root = &floor_root + IBig::ONE;
         if numerator > &IBig::ZERO {
             low += numerator * &floor_root;
@@ -493,6 +493,27 @@ pub fn integer_enclosure(items: &[(UBig, IBig)], bits: usize) -> (IBig, IBig) {
         }
     }
     (low, high)
+}
+
+thread_local! {
+    /// `isqrt(radicand << shift)` for the radicands asked again and again (the same few of a partition): a direct-mapped cache of a pure function.
+    static FLOOR_ROOTS: std::cell::RefCell<Vec<Option<(UBig, usize, UBig)>>> = std::cell::RefCell::new(vec![None; 256]);
+}
+
+fn cached_floor_root(radicand: &UBig, shift: usize) -> UBig {
+    let word = radicand.as_words().first().copied().unwrap_or(0);
+    let index = (word.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 56) as usize ^ (shift & 0xff);
+    FLOOR_ROOTS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((known, known_shift, root)) = &cache[index & 255] {
+            if *known_shift == shift && known == radicand {
+                return root.clone();
+            }
+        }
+        let root = num::isqrt(&(radicand << shift));
+        cache[index & 255] = Some((radicand.clone(), shift, root.clone()));
+        root
+    })
 }
 
 /// `_integer_certified_sign`.
@@ -1141,6 +1162,23 @@ mod tests {
                 }
                 total
             }));
+        }
+    }
+
+    #[test]
+    fn the_floor_root_cache_never_changes_a_root() {
+        let mut state = 0x243f_6a88_85a3_08d3u64;
+        let mut next = |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        // many radicands over few slots, asked again and again with two shifts: hits, misses and evictions all return `isqrt(radicand << shift)`
+        for _ in 0..20000 {
+            let radicand = UBig::from(next(3000) + 1) * UBig::from(1 + next(7) * (u64::MAX / 8));
+            let shift = [128usize, 64, 0, 200][next(4) as usize];
+            assert_eq!(cached_floor_root(&radicand, shift), num::isqrt(&(&radicand << shift)));
         }
     }
 
