@@ -83,6 +83,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from fractions import Fraction
 
+from .._cpython311 import left_fold_sum
 from ..exact_sqrt_sum import ExactCanonicalizationWorkBudgetExhausted, exact_work_budget
 from ..float_filter import affine_map_violated, centre_and_bound
 from ..validation_issues import ValidationCode
@@ -228,9 +229,9 @@ def _plane_of(points):
     """`(центр, единичная нормаль, удвоенная площадь)` кольца точек 3D (Ньюэлл от центра) либо `None`: нормали нет."""
 
     count = len(points)
-    cx = sum(point[0] for point in points) / count
-    cy = sum(point[1] for point in points) / count
-    cz = sum(point[2] for point in points) / count
+    cx = left_fold_sum(point[0] for point in points) / count
+    cy = left_fold_sum(point[1] for point in points) / count
+    cz = left_fold_sum(point[2] for point in points) / count
     nx = ny = nz = 0.0
     for first, second in _pairs(tuple(points)):
         ax, ay, az = first[0] - cx, first[1] - cy, first[2] - cz
@@ -268,26 +269,26 @@ def uv_fit_residual(chart, uvs):
     """
 
     count = len(chart)
-    mean_x = sum(point[0] for point in chart) / count
-    mean_y = sum(point[1] for point in chart) / count
+    mean_x = left_fold_sum(point[0] for point in chart) / count
+    mean_y = left_fold_sum(point[1] for point in chart) / count
     scale = max(max(abs(point[0] - mean_x), abs(point[1] - mean_y)) for point in chart)
     if not scale > 0.0:
         return None
     xs = [(point[0] - mean_x) / scale for point in chart]
     ys = [(point[1] - mean_y) / scale for point in chart]
-    sxx = sum(x * x for x in xs)
-    sxy = sum(x * y for x, y in zip(xs, ys))
-    syy = sum(y * y for y in ys)
+    sxx = left_fold_sum(x * x for x in xs)
+    sxy = left_fold_sum(x * y for x, y in zip(xs, ys))
+    syy = left_fold_sum(y * y for y in ys)
     determinant = sxx * syy - sxy * sxy
     if not determinant > 0.0:
         return None
     residuals = []
     for component in (0, 1):
         values = [uv[component] for uv in uvs]
-        centre = sum(values) / count
+        centre = left_fold_sum(values) / count
         shifted = [value - centre for value in values]
-        right_x = sum(x * value for x, value in zip(xs, shifted))
-        right_y = sum(y * value for y, value in zip(ys, shifted))
+        right_x = left_fold_sum(x * value for x, value in zip(xs, shifted))
+        right_y = left_fold_sum(y * value for y, value in zip(ys, shifted))
         slope_x = (right_x * syy - right_y * sxy) / determinant
         slope_y = (sxx * right_y - sxy * right_x) / determinant
         residuals.append([value - (slope_x * x + slope_y * y) for value, x, y in zip(shifted, xs, ys)])

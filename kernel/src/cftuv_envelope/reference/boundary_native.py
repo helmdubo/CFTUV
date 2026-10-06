@@ -19,8 +19,7 @@
 
 from __future__ import annotations
 
-from functools import cmp_to_key
-
+from .._cpython311 import sorted_as_cpython311
 from . import symbolic_backend as _backend
 from .native_exact import (
     OutsideNativeField,
@@ -93,7 +92,7 @@ def contact_candidates_native(context, source, boundary) -> tuple:
         if alpha.signum() < 0:
             continue
         result.append((alpha, station, _point_at(barrier, barrier_direction, parameter)))
-    result.sort(key=cmp_to_key(lambda left, right: (left[0] - right[0]).signum()))
+    result[:] = sorted_as_cpython311(result, lambda left, right: (left[0] - right[0]).signum())
     return tuple(result)
 
 
@@ -135,7 +134,7 @@ def compare_contacts(legacy: tuple, native: tuple) -> None:
     if ok:
         ok = all(
             not (a[0] - b[0]).terms
-            for a, b in zip(sorted(distinct_old, key=cmp_to_key(_by_alpha)), new)
+            for a, b in zip(sorted_as_cpython311(distinct_old, _by_alpha), new)
         )
     if not ok:
         _backend.disagreement(

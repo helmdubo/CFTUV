@@ -12,10 +12,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from fractions import Fraction
-from functools import cmp_to_key
 
 import sympy as sp
 
+from .._cpython311 import sorted_as_cpython311
 from ..robust.grid import active_grid
 from .arrangement_protocol import ArrangementUnionV2
 from .metric import snap_exact_point, snap_exact_quadratic_point
@@ -734,12 +734,11 @@ def _boundary_rotation_system(
             )
             for edge in outgoing_edges
         ]
-        outgoing_with_rays.sort(
-            key=cmp_to_key(
-                lambda left, right: _compare_rays_ccw(
-                    left[1], right[1], telemetry
-                )
-            )
+        outgoing_with_rays[:] = sorted_as_cpython311(
+            outgoing_with_rays,
+            lambda left, right: _compare_rays_ccw(
+                left[1], right[1], telemetry
+            ),
         )
         for left, right in zip(
             outgoing_with_rays,
@@ -994,9 +993,9 @@ class ExactSegmentArrangementBackend:
         self,
         boundaries: tuple[_InputBoundary, ...],
     ) -> tuple[tuple[int, int], ...]:
-        ordered = sorted(
+        ordered = sorted_as_cpython311(
             enumerate(boundaries),
-            key=cmp_to_key(self._sweep_order_compare),
+            self._sweep_order_compare,
         )
         active: list[tuple[int, _InputBoundary]] = []
         candidates = []
@@ -1079,10 +1078,9 @@ class ExactSegmentArrangementBackend:
                 (point, _quadratic_parameter(boundary.segment, point.point))
                 for point in split_points[index]
             ]
-            parameterized_points.sort(
-                key=cmp_to_key(
-                    lambda left, right: (left[1] - right[1]).sign()
-                ),
+            parameterized_points[:] = sorted_as_cpython311(
+                parameterized_points,
+                lambda left, right: (left[1] - right[1]).sign(),
             )
             points = [item[0] for item in parameterized_points]
             for left, right in zip(points, points[1:]):
@@ -1453,13 +1451,12 @@ class ExactSegmentArrangementBackend:
                 raise ExactArrangementRotationSystemUnproven(
                     "hole loop has no containing outer face"
                 )
-            containing.sort(
-                key=cmp_to_key(
-                    lambda left, right: _compare(
-                        abs(sp.sympify(left.signed_area)),
-                        abs(sp.sympify(right.signed_area)),
-                    )
-                )
+            containing[:] = sorted_as_cpython311(
+                containing,
+                lambda left, right: _compare(
+                    abs(sp.sympify(left.signed_area)),
+                    abs(sp.sympify(right.signed_area)),
+                ),
             )
             if len(containing) > 1 and _compare(
                 abs(sp.sympify(containing[0].signed_area)),
