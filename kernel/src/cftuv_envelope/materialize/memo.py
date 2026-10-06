@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import threading
+import weakref
 from contextlib import contextmanager
 
 from ..exact_sqrt_sum import (
@@ -41,6 +42,9 @@ MEMO_ENTRY_LIMIT = 12
 
 _ENABLED = [os.environ.get(ENVIRONMENT_SWITCH, "1").strip().lower() not in ("0", "off", "false", "no")]
 _LOCK = threading.Lock()
+#: Все живые записи процесса: сброс разом (`clear_live_memos`) нужен тестам, которые подменяют стадию материализатора, а подготовку
+#: берут из общего кэша фикстур (память подготовки пережила бы тест и отдала бы значение мимо подмены). Продуктовый путь им не пользуется.
+_LIVE: "weakref.WeakSet[MaterializeMemoV1]" = weakref.WeakSet()
 
 
 def memo_enabled() -> bool:
@@ -66,12 +70,13 @@ class MaterializeMemoV1:
     чужие числа за свои), как у памяти контактов источников.
     """
 
-    __slots__ = ("entries", "hits", "misses")
+    __slots__ = ("entries", "hits", "misses", "__weakref__")
 
     def __init__(self) -> None:
         self.entries: dict = {}
         self.hits = 0
         self.misses = 0
+        _LIVE.add(self)
 
     def __reduce__(self):
         return (type(self), ())
@@ -126,6 +131,14 @@ class MaterializeMemoV1:
             while len(self.entries) >= MEMO_ENTRY_LIMIT:
                 del self.entries[next(iter(self.entries))]
             self.entries[key] = entry
+
+
+def clear_live_memos() -> None:
+    """Сбросить память ВСЕХ живых подготовок процесса (тесты: стадию подменили, подготовка общая)."""
+
+    for memo in tuple(_LIVE):
+        memo.entries.clear()
+        memo.hits = memo.misses = 0
 
 
 def memo_of(prepared) -> MaterializeMemoV1 | None:

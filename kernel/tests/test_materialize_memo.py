@@ -177,6 +177,21 @@ def test_the_memo_is_bounded_and_keyed_by_the_code_fingerprint(monkeypatch):
     assert memo.remembered(("probe", memo_module.MEMO_ENTRY_LIMIT * 3 - 1), lambda: "recomputed") == "recomputed"
 
 
+def test_the_registry_of_live_memories_clears_every_preparation_for_tests_that_replace_a_stage():
+    prepared = domain("fold")
+    _make, first, _other = FIXTURES["fold"]
+    materialize(prepared, first)
+    memo = memo_of(prepared)
+    assert len(memo) > 0
+    memo_module.clear_live_memos()
+    assert len(memo) == 0 and (memo.hits, memo.misses) == (0, 0)
+    clone = pickle.loads(pickle.dumps(prepared, protocol=5))
+    materialize(clone, first)
+    assert len(memo_of(clone)) > 0
+    memo_module.clear_live_memos()
+    assert len(memo_of(clone)) == 0, "a memory made by unpickling is registered as well"
+
+
 def test_a_preparation_without_the_memo_is_materialized_as_before():
     import dataclasses
 
