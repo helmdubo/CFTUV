@@ -33,7 +33,7 @@ use crate::numeric;
 use crate::order;
 use crate::plane::{self, ChartPoint, Plane, Triangle};
 use crate::point::{self, Point};
-use crate::pyemu::{self, PyVersion};
+use crate::cpython311;
 use crate::snap;
 use crate::tessellate;
 
@@ -238,14 +238,6 @@ fn key_of(value: &Value) -> Wire<CellKey> {
         ("p", [name]) => Ok(CellKey::Plan(str_of(name, "a plan group name")?)),
         _ => Err(bad("a cell key")),
     }
-}
-
-pub(crate) fn version_of(major: &Value, minor: &Value) -> ClipResult<PyVersion> {
-    let number = |value: &Value| match value {
-        Value::Int(found) => u32::try_from(found).map_err(|_| ClipError::Unsupported("a python version number".into())),
-        _ => Err(ClipError::Unsupported("a python version number".into())),
-    };
-    PyVersion::from_version(number(major)?, number(minor)?)
 }
 
 // --------------------------------------------------------------------------
@@ -489,23 +481,19 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
     let expect = |count: usize| if args.len() == count { Ok(()) } else { Err(bad("the argument count")) };
     Ok(match code {
         100 => {
-            expect(3)?;
-            let version = version_of(at(0)?, at(1)?);
-            let keys: Vec<i64> = list(at(2)?, "sort keys")?.iter().map(|key| i64::try_from(&int_of(key, "a sort key")?).map_err(|_| bad("a sort key in range"))).collect::<Wire<_>>()?;
-            version.and_then(|version| {
-                let mut log: Vec<Value> = Vec::new();
-                let order = pyemu::sort_by_less(version, (0..keys.len()).collect::<Vec<usize>>(), |left, right| {
-                    log.push(Value::List(vec![int(*left as u64), int(*right as u64)]));
-                    Ok(keys[*left] < keys[*right])
-                })?;
-                Ok(Value::List(vec![Value::List(order.into_iter().map(|index| int(index as u64)).collect()), Value::List(log)]))
-            })
+            expect(1)?;
+            let keys: Vec<i64> = list(at(0)?, "sort keys")?.iter().map(|key| i64::try_from(&int_of(key, "a sort key")?).map_err(|_| bad("a sort key in range"))).collect::<Wire<_>>()?;
+            let mut log: Vec<Value> = Vec::new();
+            let order = cpython311::sort_by_less((0..keys.len()).collect::<Vec<usize>>(), |left, right| {
+                log.push(Value::List(vec![int(*left as u64), int(*right as u64)]));
+                Ok(keys[*left] < keys[*right])
+            });
+            order.map(|order| Value::List(vec![Value::List(order.into_iter().map(|index| int(index as u64)).collect()), Value::List(log)]))
         }
         101 => {
-            expect(3)?;
-            let version = version_of(at(0)?, at(1)?);
-            let terms: Vec<f64> = list(at(2)?, "float terms")?.iter().map(|term| float_of(term, "a float term")).collect::<Wire<_>>()?;
-            version.map(|version| Value::Float(pyemu::float_sum(version, &terms)))
+            expect(1)?;
+            let terms: Vec<f64> = list(at(0)?, "float terms")?.iter().map(|term| float_of(term, "a float term")).collect::<Wire<_>>()?;
+            ok(Value::Float(cpython311::left_fold_sum(&terms)))
         }
         102 => {
             expect(4)?;
@@ -532,12 +520,11 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
             single.stretch_square(0).map(|square| rat_value(&square))
         }
         106 => {
-            expect(4)?;
-            let version = version_of(at(0)?, at(1)?);
-            let triangle = triangle_of(at(2)?)?;
-            let values: Vec<SqrtSum> = list(at(3)?, "orientation values")?.iter().map(|value| sum_of(value, "an orientation value").cloned()).collect::<Wire<_>>()?;
+            expect(2)?;
+            let triangle = triangle_of(at(0)?)?;
+            let values: Vec<SqrtSum> = list(at(1)?, "orientation values")?.iter().map(|value| sum_of(value, "an orientation value").cloned()).collect::<Wire<_>>()?;
             let values: [SqrtSum; 3] = values.try_into().map_err(|_| bad("three orientation values"))?;
-            version.and_then(|version| lift::lift_known(version, &triangle, &values)).map(|lifted| {
+            lift::lift_known(&triangle, &values).map(|lifted| {
                 Value::List(vec![float_list(&lifted.position), str_value(&lifted.triangle), optional(lifted.normal.as_ref().map(|normal| float_list(normal)))])
             })
         }
@@ -662,15 +649,14 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
             tessellate::has_right_turn(ctx, &refs, &ring).map(Value::Bool)
         }
         123 => {
-            expect(5)?;
-            let version = version_of(at(0)?, at(1)?);
-            let (first, second) = (point_of(at(2)?)?, point_of(at(3)?)?);
-            let nodes = points_of(at(4)?)?;
+            expect(3)?;
+            let (first, second) = (point_of(at(0)?)?, point_of(at(1)?)?);
+            let nodes = points_of(at(2)?)?;
             let refs: Vec<&Point> = nodes.iter().collect();
-            version.and_then(|version| order::ordered(ctx, version, &first, &second, &refs)).map(|permutation| Value::List(permutation.into_iter().map(|index| int(index as u64)).collect()))
+            order::ordered(ctx, &first, &second, &refs).map(|permutation| Value::List(permutation.into_iter().map(|index| int(index as u64)).collect()))
         }
         124 => {
-            expect(12)?;
+            expect(10)?;
             geometry_seam::clip_geometry_seam(args, ctx, extras)?
         }
         other => return Err(SeamError(format!("unknown clip seam opcode {other}"))),

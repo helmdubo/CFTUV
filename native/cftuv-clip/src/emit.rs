@@ -152,20 +152,20 @@ impl<'a, 'c> Stage<'a, 'c> {
         ))
     }
 
-    /// `lift_known` of a vertex in its home triangle: from the session's warm cache (a function of the point, the triangle and the interpreter, with
+    /// `lift_known` of a vertex in its home triangle: from the session's warm cache (a function of the point and the triangle, with
     /// no cost of its own) or computed and remembered. A lift that fails is never kept: it fails again, the same way.
     fn lift(&mut self, node: NodeId, triangle: usize, values: &[Arc<SqrtSum>; 3]) -> ClipResult<Lifted> {
         let (point, hash) = (self.point_of(node), self.nodes[node as usize].hash);
         let plane = self.plane;
         let key = lift_key(hash, plane.hashes[triangle]);
         if self.warm.enabled {
-            if let Some(found) = self.warm.find_lift(key, &point, &plane.triangles[triangle], self.version) {
+            if let Some(found) = self.warm.find_lift(key, &point, &plane.triangles[triangle]) {
                 return Ok(found);
             }
         }
-        let lifted = lift::lift_known_with(self.version, &plane.triangles[triangle], plane.lift_factors(triangle)?, [&*values[0], &*values[1], &*values[2]])?;
+        let lifted = lift::lift_known_with(&plane.triangles[triangle], plane.lift_factors(triangle)?, [&*values[0], &*values[1], &*values[2]])?;
         if self.warm.enabled {
-            self.warm.store_lift(key, LiftEntry { point, triangle: Arc::new(plane.triangles[triangle].clone()), version: self.version, lifted: lifted.clone() });
+            self.warm.store_lift(key, LiftEntry { point, triangle: Arc::new(plane.triangles[triangle].clone()), lifted: lifted.clone() });
         }
         Ok(lifted)
     }

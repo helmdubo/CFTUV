@@ -34,7 +34,7 @@
 //! The host applies the log to its real Python containers in place; the budget articles are cumulative inside
 //! one call (operations of a script evolve them exactly like consecutive Python calls).
 
-use cftuv_canon::{CanonError, CanonMemory, MemOp, MemorySync, MemoryState, Operation, Pairs, QValue, TableSync, UniverseRecord, WorkBudget};
+use cftuv_canon::{CanonError, CanonMemory, MemOp, MemoryDelta, MemorySync, MemoryState, Operation, Pairs, QValue, TableSync, UniverseRecord, WorkBudget};
 
 use crate::codec::Value;
 use crate::exact::{self, ExactCtx, ExactError, UniverseStore};
@@ -83,6 +83,8 @@ impl Default for Session {
 /// The per-call state of a cost script: the budget and the answer options.
 pub struct CostRun {
     budget: WorkBudget,
+    /// `budget is not None` on the host: a call without one spends an unlimited native budget that starts at zero.
+    budgeted: bool,
     full_state: bool,
 }
 
@@ -199,6 +201,11 @@ impl CostRun {
         &mut self.budget
     }
 
+    /// `budget is not None` of the host call.
+    pub fn budgeted(&self) -> bool {
+        self.budgeted
+    }
+
     /// The same as [`CostRun::begin`] with the header already taken apart: the memory sync (`None`: nothing changed
     /// since the last call), the cap and the six articles of the budget (`None`: a call without one, which spends an
     /// unlimited budget starting at zero).
@@ -218,7 +225,7 @@ impl CostRun {
                 budget
             }
         };
-        Ok(CostRun { budget, full_state: false })
+        Ok(CostRun { budget, budgeted: articles.is_some(), full_state: false })
     }
 
     /// Reads the cost header, brings the memory mirror to the host's content, and starts the op-log.
@@ -232,7 +239,7 @@ impl CostRun {
             _ => ScriptError::CostSync("the memory sync was refused"),
         })?;
         session.memory.start_log();
-        Ok(CostRun { budget: decode_budget(budget)?, full_state: options & OPTION_FULL_STATE != 0 })
+        Ok(CostRun { budget: decode_budget(budget)?, budgeted: !matches!(budget, Value::None), full_state: options & OPTION_FULL_STATE != 0 })
     }
 
     /// The answer `[outcome, counts, articles, log, state]` of one operation that ran on `session` under this call
@@ -262,9 +269,10 @@ fn rat_of(args: &Args, value: &Value) -> Result<Rat, ScriptError> {
     }
 }
 
+/// A store record `[universe, delta, price or None, [factorizations, squarefree, supports, primes]]` (the wire form of the 4-tuple the oracle stores).
 fn universe_record(args: &Args, value: &Value) -> Result<UniverseRecord, ScriptError> {
     let bad = || args.bad();
-    let [universe, delta] = list(value, "record").map_err(|_| bad())? else {
+    let [universe, delta, price, memory] = list(value, "record").map_err(|_| bad())? else {
         return Err(bad());
     };
     let mut entries = Vec::new();
@@ -274,7 +282,38 @@ fn universe_record(args: &Args, value: &Value) -> Result<UniverseRecord, ScriptE
             _ => return Err(bad()),
         }
     }
-    Ok(UniverseRecord { universe: ubigs(universe, "record").map_err(|_| bad())?, delta: entries })
+    let price = match price {
+        Value::None => None,
+        other => {
+            let items = list(other, "record").map_err(|_| bad())?;
+            let articles: Vec<u64> = items.iter().map(|article| int_of(article, "record")).collect::<Result<_, _>>().map_err(|_| bad())?;
+            Some(<[u64; 6]>::try_from(articles).map_err(|_| bad())?)
+        }
+    };
+    let [factorizations, squarefree, supports, primes] = list(memory, "record").map_err(|_| bad())? else {
+        return Err(bad());
+    };
+    let mut memory = MemoryDelta::default();
+    for entry in list(factorizations, "record").map_err(|_| bad())? {
+        match list(entry, "record").map_err(|_| bad())? {
+            [key, recorded] => memory.factorizations.push((ubig(key, "record").map_err(|_| bad())?, pairs(recorded, "record").map_err(|_| bad())?)),
+            _ => return Err(bad()),
+        }
+    }
+    for entry in list(squarefree, "record").map_err(|_| bad())? {
+        match list(entry, "record").map_err(|_| bad())? {
+            [key, outside, inside] => memory.squarefree.push((ubig(key, "record").map_err(|_| bad())?, (ubig(outside, "record").map_err(|_| bad())?, ubig(inside, "record").map_err(|_| bad())?))),
+            _ => return Err(bad()),
+        }
+    }
+    for entry in list(supports, "record").map_err(|_| bad())? {
+        match list(entry, "record").map_err(|_| bad())? {
+            [key, support] => memory.supports.push((ubig(key, "record").map_err(|_| bad())?, ubigs(support, "record").map_err(|_| bad())?)),
+            _ => return Err(bad()),
+        }
+    }
+    memory.primes = ubigs(primes, "record").map_err(|_| bad())?;
+    Ok(UniverseRecord { universe: ubigs(universe, "record").map_err(|_| bad())?, delta: entries, price, memory })
 }
 
 // --------------------------------------------------------------------------
@@ -299,7 +338,15 @@ fn pairs_value(pairs: &Pairs) -> Value {
 
 fn record_value(record: &UniverseRecord) -> Value {
     let delta = record.delta.iter().map(|(number, pairs)| Value::List(vec![ubig_value(number), pairs_value(pairs)])).collect();
-    Value::List(vec![ubig_list(&record.universe), Value::List(delta)])
+    let price = record.price.as_ref().map_or(Value::None, |price| Value::List(price.iter().map(|article| int(*article)).collect()));
+    let memory = &record.memory;
+    let memory = Value::List(vec![
+        Value::List(memory.factorizations.iter().map(|(key, pairs)| Value::List(vec![ubig_value(key), pairs_value(pairs)])).collect()),
+        Value::List(memory.squarefree.iter().map(|(key, split)| Value::List(vec![ubig_value(key), ubig_value(&split.0), ubig_value(&split.1)])).collect()),
+        Value::List(memory.supports.iter().map(|(key, support)| Value::List(vec![ubig_value(key), ubig_list(support)])).collect()),
+        ubig_list(&memory.primes),
+    ]);
+    Value::List(vec![ubig_list(&record.universe), Value::List(delta), price, memory])
 }
 
 fn log_entry(op: MemOp) -> Value {
@@ -344,7 +391,7 @@ pub fn outcome_value(result: Result<Value, ExactError>) -> Value {
 // the operations
 // --------------------------------------------------------------------------
 
-fn run_exact(args: &Args, ctx: &mut ExactCtx<'_>) -> Result<Result<Value, ExactError>, ScriptError> {
+fn run_exact(args: &Args, ctx: &mut ExactCtx<'_>, budgeted: bool) -> Result<Result<Value, ExactError>, ScriptError> {
     Ok(match args.code() {
         70 => {
             args.expect(2)?;
@@ -387,7 +434,7 @@ fn run_exact(args: &Args, ctx: &mut ExactCtx<'_>) -> Result<Result<Value, ExactE
                     UniverseStore::Hit(&record)
                 }
             };
-            exact::prime_universe(ctx, &q_values, store)
+            exact::prime_universe(ctx, &q_values, store, budgeted)
                 .map(|(universe, record)| Value::List(vec![ubig_list(&universe), record.as_ref().map_or(Value::None, record_value)]))
         }
         76 => {
@@ -430,7 +477,7 @@ pub(crate) fn execute_cost_op(session: &mut Session, run: &mut CostRun, args: &A
     let mut counts = SignCounts::default();
     let result = {
         let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut run.budget, counts: &mut counts, products: &mut session.products };
-        run_exact(args, &mut ctx)?
+        run_exact(args, &mut ctx, run.budgeted)?
     };
     Ok(run.answer(session, outcome_value(result), &counts))
 }

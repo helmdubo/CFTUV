@@ -9,7 +9,7 @@
 //!   `squarefree_split`): a hit asks them again against the CURRENT memory and budget, so the budget articles, the tables, their LRU order and
 //!   the point of an exhaustion are exactly what a computation would leave;
 //! * a VALUE, the orientation of a point against the line of an edge (`oriented_sum`), and a LIFT, `lift_known` of a point in a triangle
-//!   (a function of the point, the triangle and the interpreter version), cost nothing observable: no budget, no memory, no counter.
+//!   (a function of the point and the triangle), cost nothing observable: no budget, no memory, no counter.
 //!
 //! Each cache is two generations: lookups see both, a store goes to the young one, and when the young one is full it becomes the old one and
 //! the old one is dropped; a hit in the old generation is stored young again, so what every call uses stays and what no call uses goes. A cache
@@ -24,7 +24,6 @@ use crate::fxhash::FxMap;
 use crate::lift::Lifted;
 use crate::plane::Triangle;
 use crate::point::Point;
-use crate::pyemu::PyVersion;
 use crate::regions::EdgeLine;
 
 /// Entries per generation of the crossing cache (the others are scaled from it): the neighbouring alphas of a width slider
@@ -51,13 +50,12 @@ pub struct ValueEntry {
     pub value: Arc<SqrtSum>,
 }
 
-/// The lift of a point in a triangle (`lift_known`): a function of the point, the triangle and the interpreter (the float `sum()` of the
-/// blended normal), with no cost of its own. A failing lift is never kept.
+/// The lift of a point in a triangle (`lift_known`): a function of the point and the triangle (the left fold of the
+/// blended normal included), with no cost of its own. A failing lift is never kept.
 #[derive(Clone, Debug)]
 pub struct LiftEntry {
     pub point: Arc<Point>,
     pub triangle: Arc<Triangle>,
-    pub version: PyVersion,
     pub lifted: Lifted,
 }
 
@@ -174,9 +172,9 @@ impl Warm {
         self.values.store(key, entry, limit);
     }
 
-    pub fn find_lift(&mut self, key: u64, point: &Point, triangle: &Triangle, version: PyVersion) -> Option<Lifted> {
+    pub fn find_lift(&mut self, key: u64, point: &Point, triangle: &Triangle) -> Option<Lifted> {
         let limit = self.limit;
-        let found = self.lifts.find(key, limit, |entry| entry.version == version && *entry.point == *point && *entry.triangle == *triangle).map(|entry| entry.lifted);
+        let found = self.lifts.find(key, limit, |entry| *entry.point == *point && *entry.triangle == *triangle).map(|entry| entry.lifted);
         self.lift_hits += u64::from(found.is_some());
         found
     }

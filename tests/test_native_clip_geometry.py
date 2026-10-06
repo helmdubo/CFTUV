@@ -9,10 +9,10 @@
 Источники: 117 полевых вызовов (Blender), 22 производных с урезанным бюджетом, 413 синтетических (тесты ядра и генератор:
 `by_faces=False`, все законы, отказы, исчерпание, переполнение, коэффициенты `int`), свип потолка бюджета на тяжёлых записях и свежий
 сгенерированный набор (другое зерно, чем у корпуса). Тест запускается под ЛЮБЫМ интерпретатором, на котором собрано расширение: сверка идёт с
-его версией (3.13 в dev-venv; Blender 4.5 = 3.11: `PYTHONPATH=~/.cftuv-native/py311-site <blender python> -m pytest ...`).
+им же (3.13 в dev-venv; Blender 4.5 = 3.11: `PYTHONPATH=~/.cftuv-native/py311-site <blender python> -m pytest ...`).
 
-Отрицательные контроли: чужая версия эмуляции `list.sort` даёт другие `SIGN_COUNTS` (иначе сверка по версии пуста), а испорченный нативный исход
-(порядок граней, счётчик, запись памяти, нормаль) сравнение ловит названным полем.
+Отрицательный контроль: испорченный нативный исход (порядок граней, счётчик, запись памяти, нормаль) сравнение ловит названным полем. Версия
+интерпретатора на ответ не влияет: сортировка `_ordered` и свёртка нормали — явная семантика CPython 3.11 ядра (`_cpython311.py`), в том числе для 64 узлов и больше.
 
 Модуль пропускается с названной причиной, пока расширение не собрано (`python tools/native_build.py`) либо нет корпуса.
 """
@@ -224,8 +224,8 @@ def test_the_special_calls_of_the_branches_no_random_input_reaches_equal_the_ora
 # --------------------------------------------------------------------------
 
 
-def test_a_sort_of_sixty_four_nodes_is_a_named_refusal_not_a_guess(runner):
-    """`_ordered` с 64 узлами и больше нужна слияниям `list.sort`: порт отвечает названным `NativeUnsupported`, а не угадывает."""
+def long_sort_case():
+    """`(lift, kwargs)`: тонкая полоса через 70 колонок треугольников; её длинные рёбра пересекают 69 вертикальных и 70 диагональных рёбер."""
 
     from fractions import Fraction
 
@@ -245,23 +245,84 @@ def test_a_sort_of_sixty_four_nodes_is_a_named_refusal_not_a_guess(runner):
     def point(x, y):
         return SqrtSumV1.rational(Fraction(x)), SqrtSumV1.rational(Fraction(y))
 
-    # a thin strip across all 70 columns: its two long edges meet 69 vertical and 70 diagonal interior edges each
-    vertices = [point(5, 20), point(columns * width - 5, 20), point(columns * width - 5, 26), point(5, 26)]
-    keys = [f"node:{index}" for index in range(4)]
-    points = dict(zip(keys, vertices))
-    kwargs = {
-        "points": points,
-        "cycles": [[(key, points[key]) for key in keys]],
-        "polygons": [(tuple(keys),)],
-        "law": DecalTopologyLawV1.PLANAR_POLYGONS_V1,
-        "seam": frozenset(),
-        "fans": None,
-        "flows": None,
-        "by_faces": False,
+    def skew(x, y, root):
+        """A corner whose ordinates carry a square root: every crossing of the long edges is irrational, so each comparison of the sort pays exact work."""
+
+        return SqrtSumV1.rational(Fraction(x)) + SqrtSumV1.radical(Fraction(1), root), SqrtSumV1.rational(Fraction(y)) + SqrtSumV1.radical(Fraction(1, 2), root + 1)
+
+    edge = columns * width - 5
+    cases = {
+        "rational": [point(5, 20), point(edge, 20), point(edge, 26), point(5, 26)],
+        "irrational": [skew(5, 20, 2), skew(edge, 21, 3), skew(edge, 27, 5), skew(5, 26, 7)],
     }
-    run = geometry.compare_generated(runner, "long-sort", lift, kwargs, None)
-    assert run.unsupported and "elements" in run.unsupported and "64" in run.unsupported, run.unsupported
-    assert run.expected.exception is None, "the oracle itself cuts the polygon: only the native port declines"
+    result = {}
+    for label, vertices in cases.items():
+        keys = [f"node:{index}" for index in range(4)]
+        points = dict(zip(keys, vertices))
+        result[label] = {
+            "points": points,
+            "cycles": [[(key, points[key]) for key in keys]],
+            "polygons": [(tuple(keys),)],
+            "law": DecalTopologyLawV1.PLANAR_POLYGONS_V1,
+            "seam": frozenset(),
+            "fans": None,
+            "flows": None,
+            "by_faces": False,
+        }
+    return lift, result
+
+
+def recorded_sorts(monkeypatch):
+    """Sizes of every `_ordered` sort the oracle runs from now on (the explicit CPython 3.11 sort of the kernel)."""
+
+    import cftuv_envelope.materialize.clip as clip_module
+
+    sizes: list = []
+    original = clip_module.sorted_as_cpython311
+
+    def recording(items, compare):
+        items = list(items)
+        sizes.append(len(items))
+        return original(items, compare)
+
+    monkeypatch.setattr(clip_module, "sorted_as_cpython311", recording)
+    return sizes
+
+
+def test_a_sort_of_sixty_four_nodes_or_more_equals_the_oracle_answer_and_cost(runner, monkeypatch):
+    """`_ordered` с 64 узлами и больше идёт слияниями и галопом `list.sort`: порт теперь повторяет их, ответ и цена равны эталону."""
+
+    lift, cases = long_sort_case()
+    sizes = recorded_sorts(monkeypatch)
+    for label, kwargs in cases.items():
+        run = geometry.compare_generated(runner, f"long-sort-{label}", lift, kwargs, None)
+        assert not run.unsupported, run.unsupported
+        assert run.expected.exception is None, "the oracle itself cuts the polygon"
+        assert run.equal, geometry.explain([(label, run)])
+        CHECKED["long sort"] += 1
+    assert max(sizes) >= 64, f"no sort of 64 nodes or more was asked: {sizes}"
+
+
+def test_the_exhaustion_inside_a_long_sort_is_the_same_point_of_the_same_comparison(runner, monkeypatch):
+    """Свип потолка бюджета на целой `clip_geometry` с сортировкой 64+ узлов: исчерпание в любой точке — то же, с теми же частичными статьями и памятью
+    (исчерпание ВНУТРИ слияний и галопа сортировки — `tests/test_native_clip_parts.py`, шов `ORDERED` на узлах, чьи сравнения платят бюджет)."""
+
+    lift, cases = long_sort_case()
+    kwargs = cases["irrational"]
+    sizes = recorded_sorts(monkeypatch)
+    full = geometry.compare_generated(runner, "long-sort-total", lift, kwargs, None)
+    assert full.equal and full.expected.exception is None
+    spent = sum(full.expected.after.budget["articles"])
+    caps = sorted({0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946})
+    exhausted = 0
+    for cap in caps:
+        run = geometry.compare_generated(runner, f"long-sort-cap{cap}", lift, kwargs, cap)
+        assert not run.unsupported, run.unsupported
+        assert run.equal, geometry.explain([(f"cap {cap}", run)])
+        exhausted += run.expected.exception is not None
+        CHECKED["long sort caps"] += 1
+    assert max(sizes) >= 64
+    assert exhausted >= 2, f"the sweep never exhausted the budget (spent {spent}): the caps do not reach the sort"
 
 
 # --------------------------------------------------------------------------
@@ -324,29 +385,6 @@ def test_the_comparison_names_every_part_of_a_spoiled_native_outcome(runner):
     for name, (spoiled, field) in spoilers(actual).items():
         named = {item.field for item in nc.compare_outcomes(nc.OP_CLIP, before, expected, spoiled)}
         assert field in named, f"spoiling {name} must be named {field}, got {sorted(named)}"
-
-
-@pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}")
-def test_the_emulation_of_the_other_interpreter_version_changes_the_cost(runner):
-    """Чужая версия `list.sort` на тех же записях даёт другие `SIGN_COUNTS`: сверка по версии интерпретатора не пуста."""
-
-    other = geometry.WholeRunner((3, 13) if PYTHON_VERSION == (3, 11) else (3, 11))
-    differing = 0
-    for path in geometry.field_paths():
-        run = other.compare(nc.read_record(path))
-        differing += any(item.field.startswith("sign_counts") for item in run.differences)
-        assert all(item.field.startswith("sign_counts") for item in run.differences), "only the sign counters may depend on the version"
-    assert differing >= 20, differing
-
-
-def test_an_interpreter_the_port_does_not_emulate_is_a_named_refusal(runner):
-    path = geometry.field_paths()[0] if HAS_CORPUS else None
-    if path is None:
-        pytest.skip("нет полевого корпуса")
-    record = nc.read_record(path)
-    other = geometry.WholeRunner((3, 12))
-    run = other.compare(record)
-    assert run.unsupported and "3.12" in run.unsupported, run.unsupported
 
 
 def test_the_seam_table_of_the_extension_is_the_table_of_the_harness():

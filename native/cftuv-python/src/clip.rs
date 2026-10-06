@@ -39,10 +39,9 @@ use pyo3::types::{PyDict, PyFloat, PyList, PyString, PyTuple};
 use cftuv_clip::emit::{Clipped, Law};
 use cftuv_clip::fxhash::FxBuild;
 use cftuv_clip::error::ClipError;
-use cftuv_clip::geometry::{clip_geometry, ClipInput, ClipRun};
+use cftuv_clip::geometry::{clip_geometry, ClipInput};
 use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
 use cftuv_clip::point::Point;
-use cftuv_clip::pyemu::PyVersion;
 use cftuv_clip::stage::NormalWrite;
 use cftuv_clip::warm::Warm;
 use cftuv_core::codec::Reader;
@@ -643,7 +642,6 @@ impl Host {
         flows: &Bound<'py, PyAny>,
         by_faces: bool,
         inert: &Bound<'py, PyAny>,
-        version: (u32, u32),
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
         normals: Option<&Bound<'py, PyDict>>,
@@ -675,24 +673,19 @@ impl Host {
         let warm = &mut self.warm;
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let mut counts = SignCounts::default();
-            let ran = match PyVersion::from_version(version.0, version.1) {
-                Err(error) => ClipRun { result: Err(error), writes: Vec::new() },
-                Ok(version) => {
-                    let input = ClipInput {
-                        points: &arguments.points,
-                        cycles: &arguments.cycles,
-                        polygons: &arguments.polygons,
-                        law,
-                        seam: &arguments.seam,
-                        fans: arguments.fans.as_deref(),
-                        flows: arguments.flows.as_deref(),
-                        by_faces,
-                        inert: &arguments.inert,
-                    };
-                    let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
-                    clip_geometry(&mut ctx, warm, version, &prepared.plane, &input)
-                }
+            let input = ClipInput {
+                points: &arguments.points,
+                cycles: &arguments.cycles,
+                polygons: &arguments.polygons,
+                law,
+                seam: &arguments.seam,
+                fans: arguments.fans.as_deref(),
+                flows: arguments.flows.as_deref(),
+                by_faces,
+                inert: &arguments.inert,
             };
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
+            let ran = clip_geometry(&mut ctx, warm, &prepared.plane, &input);
             let articles = run.budget_mut().articles();
             (ran, counts, articles, session.memory.take_log())
         }));

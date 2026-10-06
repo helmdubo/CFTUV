@@ -25,8 +25,15 @@ import importlib.util
 import sys
 from pathlib import Path
 
-#: Interpreters whose `list.sort` and float `sum()` the ports emulate and were compared with (`pyemu.rs`).
-SUPPORTED_PYTHON = ((3, 11), (3, 13))
+#: The interpreters the differential tests run the ports on (`tools/native_catchup.py test`): 3.11 is the product runtime (Blender 4.5), 3.13 the
+#: dev venv and the external pool Python. The kernel no longer depends on the interpreter (the sort of `ClipStageV1._ordered` and the float fold of the
+#: offset normal are the explicit CPython 3.11 semantics of `_cpython311.py`, which the native ports mirror), so a version is no longer a semantic
+#: reason to refuse; it is a TESTING statement.
+TESTED_PYTHON = ((3, 11), (3, 13))
+
+#: The oldest interpreter the ports answer on: the floor of the extension's stable ABI (`abi3-py311`) and of the kernel. An interpreter between or
+#: above the tested ones (3.12, 3.14) is served like the tested ones; nothing in the answer or the cost depends on it.
+MINIMUM_PYTHON = (3, 11)
 
 #: Source files (relative to the `cftuv_envelope` package) the exact layer and the float filters of BOTH ports mirror.
 FOUNDATION = (
@@ -42,8 +49,10 @@ COVERAGE_FILES = ("wavefront/coverage.py", "wavefront/event_time.py", *FOUNDATIO
 
 #: `materialize.clip.clip_geometry` with the cells, the snap, the tessellation predicates, the lift of a clip vertex
 #: (`lift_surface.BoundSurfaceLiftV1`, `lift.sqrt_sum_binary64`, `offset_normal.blend`, `numeric.LocalPoint3V1`), the node identity
-#: (`coalesce.point_key`) and the refusal class (`frames.MaterializationRefusal`).
+#: (`coalesce.point_key`), the refusal class (`frames.MaterializationRefusal`) and the explicit CPython 3.11 sort and float fold
+#: (`_cpython311.sorted_as_cpython311` for `_ordered`, `left_fold_sum` for `blend`).
 CLIP_FILES = (
+    "_cpython311.py",
     "materialize/clip.py",
     "materialize/clip_cells.py",
     "materialize/clip_snap.py",
@@ -62,21 +71,22 @@ OPERATION_FILES = {"coverage": COVERAGE_FILES, "clip": CLIP_FILES}
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
 #: operations above overlap, a file has one digest). Regenerate by `python cftuv_native/pin.py <cftuv_envelope dir>` after a catch-up.
 PINS: dict = {
+    "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",
     "_radicand_products.py": "9d64abad54bd202442384fe79cc9c2f45582bcebf0781043c36968c4cf979f70",
-    "exact_sqrt_sum.py": "f572541300f076072efd9e1c8389ec31f13635b0345417fe0ebf9891812a12b4",
+    "exact_sqrt_sum.py": "80abe9927dd193609d32b53103aa6dd663a6bec963549fa90896c0c354fb1741",
     "exact_sqrt_sum_fused.py": "1f7f7d50a56159090eb5c33633221c7ff69cb5a02f4a0e373df949b887e9a9a4",
     "float_filter.py": "ab188717ec92dd5ed45425af9a9f98f7c4e663af82bf01b8ea7e3177775b6346",
-    "materialize/clip.py": "99d0f9652df3161ff6544b2bfdc6e762a24931fdcd543489c5daff41280398f4",
+    "materialize/clip.py": "01885fc8c425711e699e2a2e824ea61345993df5c8af394b978d8d31f4b6d606",
     "materialize/clip_cells.py": "26e94d1cea663dd21ee1468618fec57b43bb341b5e57bd8ad6e3d866320cd6bf",
     "materialize/clip_snap.py": "1f8997b3dfd6df0585475b6bb6cfcbf110888e6099da8b3120d18b6dcebe1374",
-    "materialize/coalesce.py": "b0324665fb2b11f190e3b2a94416921e1da39b2409c2680ad39482e453f914f2",
+    "materialize/coalesce.py": "6a3f21b7ff98750686ad4fb6c6c14aa550068c8c8d44dd216efc4cfb21669c25",
     "materialize/frames.py": "99aff370cd9090bb700915d624da0ad2f17ac9bd36348d30b4c5f92c49bfd1f7",
-    "materialize/lift.py": "4e0302e4028af93b955b8f72d5fcb76bba095e43a3c97158637e81cb4561dbfa",
+    "materialize/lift.py": "ed91b42e5d6149d30469501922f8d7abfa65168d98043eccb3bdd2a87a78412b",
     "materialize/lift_surface.py": "5100062401a28741a5d501779fe6832e3c65a4f4401b393c7f4068e4b9b47da5",
-    "materialize/offset_normal.py": "9886ffe9e4569913e4a24ec31af17e2daeb2a31a9e18c9d793250d6424bc2a50",
+    "materialize/offset_normal.py": "2461376ee7e37296b9caf4acd786375636f91bafbf3cfc066f6d858130930397",
     "materialize/tessellate.py": "f31338338e71822bcf5c0619f8cb4dabdbe7b636bdaecba03b00414cf9493c56",
     "numeric.py": "bbe162cbaab350b31928c5f2e2d8818e9c898195d1bc529c3062f4104c7de9b9",
-    "wavefront/coverage.py": "f9faceefd63b1955fb4020cf7fdcb01b80b63d642b1261bcbf38a720e8be7ad9",
+    "wavefront/coverage.py": "68ef9f695cb3b1f9dbebdee9846a8ce12d65a7cca3c8e6717c08dd256614a238",
     "wavefront/event_time.py": "cf17d5da99d296bc951e0dbe8980967352ccc93e13fd04e98076f07e21467867",
     "wavefront/faces.py": "ab52d0a44599a902ec293c278b200300cc4140bc61cb33a2bcadf4c67bad700e",
 }
@@ -87,11 +97,12 @@ class NativePortStale(RuntimeError):
 
 
 class NativeUnsupportedPython(RuntimeError):
-    """The interpreter is not one the native ports emulate and were compared with (3.11 and 3.13)."""
+    """The interpreter is older than the floor of the ports (`MINIMUM_PYTHON`, the kernel's and the extension's own)."""
 
 
 class NativePortUnsupported(RuntimeError):
-    """The port declines this input by name (a sort of 64 nodes or more, ...): the oracle can do it, the port does not claim to."""
+    """The port declines this input by name (a plane without the table the offset normals are written into, a call that asks for the sign
+    traces of the coverage template, ...): the oracle can do it, the port does not claim to."""
 
 
 def kernel_root() -> Path:
@@ -144,7 +155,7 @@ def stale_files(operation: str, root: Path | None = None) -> tuple:
 
 
 def python_supported() -> bool:
-    return tuple(sys.version_info[:2]) in SUPPORTED_PYTHON
+    return tuple(sys.version_info[:2]) >= MINIMUM_PYTHON
 
 
 _VERDICTS: dict = {}
@@ -190,7 +201,7 @@ def require(operation: str) -> None:
     if found[0] == "unsupported_python":
         version = ".".join(str(part) for part in sys.version_info[:3])
         raise NativeUnsupportedPython(
-            f"the native `{operation}` port emulates CPython {' and '.join('%d.%d' % item for item in SUPPORTED_PYTHON)}, not {version}"
+            f"the native `{operation}` port needs CPython {'.'.join(str(part) for part in MINIMUM_PYTHON)} or newer (tested: {' and '.join('%d.%d' % item for item in TESTED_PYTHON)}), not {version}"
         )
     if found[0] == "stale":
         raise NativePortStale(

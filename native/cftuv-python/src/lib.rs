@@ -88,7 +88,8 @@ impl Session {
     }
 
     /// Hands the kernel classes to the coverage entry points (`SqrtSumV1`, `Fraction`, `CoverageV1`, `FaceCoverageV1`,
-    /// the three `CoverageOutcome` members the entry points build, `FaceOutcome.EXACT`, the shim's `StoreKey`). Forgets every prepared partition.
+    /// the three `CoverageOutcome` members the entry points build, `FaceOutcome.EXACT`, the shim's `StoreKey`, `FactorizationMemoryDeltaV1`). Forgets every
+    /// prepared partition and every converted store record.
     #[allow(clippy::too_many_arguments)]
     fn bind_coverage(
         &mut self,
@@ -102,8 +103,9 @@ impl Session {
         outcome_negative: &Bound<'_, PyAny>,
         face_exact: &Bound<'_, PyAny>,
         store_key: &Bound<'_, PyAny>,
+        memory_delta: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        self.coverage.bind(py, sqrt_sum, fraction, coverage, face_coverage, [outcome_exact, outcome_not_exact, outcome_negative], face_exact, store_key)
+        self.coverage.bind(py, sqrt_sum, fraction, coverage, face_coverage, [outcome_exact, outcome_not_exact, outcome_negative], face_exact, store_key, memory_delta)
     }
 
     /// The `CoverageV1` of a refused call (`negative`: `ALPHA_IS_NEGATIVE`, else `PARTITION_IS_NOT_EXACT`).
@@ -152,7 +154,7 @@ impl Session {
 
     /// `clip.clip_geometry` whole (see `clip.rs`): `(result or None, status, detail, sign-counter deltas, budget articles after,
     /// changed-tables bits, (plane, arguments, compute, result, memory log) nanoseconds)`. `triangles` is `plane.triangles`, `law` the code of
-    /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `inert` the chain station plan's pairs of faces (a frozenset of frozensets of names), `version` `sys.version_info[:2]`, `sync` the memory sync
+    /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `inert` the chain station plan's pairs of faces (a frozenset of frozensets of names), `sync` the memory sync
     /// in the wire format (`None`: unchanged), `budget` `(cap, six articles)` or `None`, `normals` the plane's
     /// `_normal_by_position`, `tables` the real memory tables `(registry list, registry set, factorizations, squarefree splits,
     /// supports)` the memory log of the call is replayed on, in place. Any error resets the session, as `run` does.
@@ -170,13 +172,12 @@ impl Session {
         flows: &Bound<'py, PyAny>,
         by_faces: bool,
         inert: &Bound<'py, PyAny>,
-        version: (u32, u32),
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
         normals: Option<&Bound<'py, pyo3::types::PyDict>>,
         tables: memlog::Tables<'py>,
     ) -> PyResult<clip::Answer<'py>> {
-        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert, version, sync, budget, normals, &tables);
+        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert, sync, budget, normals, &tables);
         if outcome.is_err() {
             self.reset_memory();
         }

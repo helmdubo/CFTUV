@@ -7,8 +7,8 @@
 //! (stage 2 takes the `by_point`, `crossings`, `chords`, `snap` and the gap maxima of stage 1 and COPIES its tally), and an
 //! unordered pair of nodes (a `frozenset` of two) is the normalised pair `(min, max)`.
 //!
-//! COST. Every exact question is asked where and in the order the oracle asks it. The one place whose question sequence
-//! depends on the interpreter is `_ordered` (the sort), through `order::ordered` and the version in `PyVersion`.
+//! COST. Every exact question is asked where and in the order the oracle asks it, including the sequence of the comparisons of the sort
+//! of `_ordered` (CPython 3.11's, for every length: `order::ordered`, `cpython311`).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -32,7 +32,6 @@ use crate::profile::{scope, Phase};
 use crate::regions::RegionSet;
 use crate::warm::{crossing_key, value_key, CrossingEntry, ValueEntry, Warm};
 use crate::regions::EdgeLine;
-use crate::pyemu::PyVersion;
 use crate::snap::{self, CornerSnap};
 
 pub type NodeId = u32;
@@ -132,7 +131,6 @@ pub struct Stage<'a, 'c> {
     pub(crate) plane: &'a Plane,
     pub(crate) ctx: &'a mut ExactCtx<'c>,
     pub(crate) warm: &'a mut Warm,
-    pub(crate) version: PyVersion,
     pub flows: Option<Vec<bool>>,
     pub(crate) faces_mode: bool,
     pub(crate) regions: Arc<RegionSet>,
@@ -195,7 +193,6 @@ impl<'a, 'c> Stage<'a, 'c> {
         plane: &'a Plane,
         ctx: &'a mut ExactCtx<'c>,
         warm: &'a mut Warm,
-        version: PyVersion,
         points: &[(String, Point)],
         regions: Arc<RegionSet>,
         faces_mode: bool,
@@ -281,7 +278,6 @@ impl<'a, 'c> Stage<'a, 'c> {
             plane,
             ctx,
             warm,
-            version,
             flows: None,
             faces_mode,
             regions,
@@ -770,7 +766,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         let (start, end) = (self.point_of(first), self.point_of(second));
         let owned = self.points_of(nodes);
         let refs: Vec<&Point> = owned.iter().map(|point| &**point).collect();
-        let permutation = order::ordered(self.ctx, self.version, &start, &end, &refs)?;
+        let permutation = order::ordered(self.ctx, &start, &end, &refs)?;
         Ok(permutation.into_iter().map(|index| nodes[index]).collect())
     }
 

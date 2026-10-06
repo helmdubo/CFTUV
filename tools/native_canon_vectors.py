@@ -194,6 +194,13 @@ def encode_delta(delta) -> dict:
     }
 
 
+def encode_record(record) -> list:
+    """`(universe, delta, price, memory)` of a `prime_universe_remembered` store entry, without the universe (the answer carries it)."""
+
+    _universe, delta, price, memory = record
+    return [[[hx(number), encode_pairs(pairs)] for number, pairs in delta], None if price is None else list(price), encode_delta(memory)]
+
+
 def decode_delta(items: dict):
     return exact.FactorizationMemoryDeltaV1(
         tuple((unhx(key), tuple((unhx(p), e) for p, e in pairs)) for key, pairs in items["f"]),
@@ -252,9 +259,11 @@ class Run:
         store = self.stores.setdefault(call["store"], {})
         q_values = q_from(call["q"])
         key = ("prime-universe", tuple(Fraction(value) for value in q_values))
-        hit = key in store
+        found = store.get(key)
         universe = exact.prime_universe_remembered(q_values, self.target(call), store)
-        record = None if hit else [[hx(number), encode_pairs(pairs)] for number, pairs in store[key][1]]
+        # a hit leaves the record it found; a miss (or a hit the budget could not afford) writes a NEW record: its factorizations, its price and its memory delta
+        hit = store[key] is found
+        record = None if hit else encode_record(store[key])
         return ["hit" if hit else "miss", [hx(prime) for prime in universe], record]
 
     def op_reset(self, call):

@@ -218,13 +218,13 @@ def test_a_stale_coverage_port_refuses_before_it_touches_any_state(monkeypatch):
 
 
 @needs_matching_tree
-def test_an_interpreter_the_ports_do_not_emulate_is_a_named_refusal_not_a_fallback(monkeypatch):
+def test_an_interpreter_below_the_floor_is_a_named_refusal_not_a_fallback(monkeypatch):
     _record, call = _a_call()
-    monkeypatch.setattr(pin, "SUPPORTED_PYTHON", ((2, 7),))
+    monkeypatch.setattr(pin, "MINIMUM_PYTHON", (99, 0))
     pin.refresh()
     assert cftuv_native.native_status() == {"coverage": "unsupported_python", "clip": "unsupported_python"}
     state = nc.capture_state(call.budget, None)
-    with pytest.raises(cftuv_native.NativeUnsupportedPython, match="emulates CPython 2.7"):
+    with pytest.raises(cftuv_native.NativeUnsupportedPython, match="needs CPython 99.0 or newer"):
         cftuv_native.new_mirror().clip_geometry(call.args[0], call.budget, **call.kwargs)
     assert nc.compare_outcomes(nc.OP_CLIP, state, nc.Outcome(None, None, state, {}), nc.Outcome(None, None, nc.capture_state(call.budget, None), {})) == []
 

@@ -178,16 +178,16 @@ fn radicands(items: &Json) -> Vec<UBig> {
 fn remembered(memory: &mut CanonMemory, context: &mut Context, call: &Json, none: bool) -> Result<Json, CanonError> {
     let q = q_values(call);
     let key = (call.get("store").str().to_owned(), call.get("q").text());
-    if let Some(record) = context.stores.get(&key) {
-        let universe = memory.prime_universe_hit(record);
-        return Ok(jarr(vec![jstr("hit"), hex_list(&universe), Json::Null]));
-    }
     let budget = if none { &mut context.unbudgeted } else { &mut context.budget };
-    let record = memory.prime_universe_miss(&q, budget)?;
-    let encoded = jarr(record.delta.iter().map(|(number, pairs)| jarr(vec![jhex(number), pairs_json(pairs)])).collect());
-    let universe = hex_list(&record.universe);
+    let (universe, written) = memory.prime_universe_remembered(&q, budget, !none, context.stores.get(&key))?;
+    let Some(record) = written else {
+        return Ok(jarr(vec![jstr("hit"), hex_list(&universe), Json::Null]));
+    };
+    let delta = jarr(record.delta.iter().map(|(number, pairs)| jarr(vec![jhex(number), pairs_json(pairs)])).collect());
+    let price = record.price.map_or(Json::Null, |price| jarr(price.iter().map(|article| jint(*article)).collect()));
+    let encoded = jarr(vec![delta, price, delta_json(&record.memory)]);
     context.stores.insert(key, record);
-    Ok(jarr(vec![jstr("miss"), universe, encoded]))
+    Ok(jarr(vec![jstr("miss"), hex_list(&universe), encoded]))
 }
 
 fn fill_op(memory: &mut CanonMemory, call: &Json) {

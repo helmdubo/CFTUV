@@ -342,8 +342,9 @@ pub struct Run {
     pub outcome: Result<Answer, CoverageError>,
 }
 
-/// `_coverage_at(partition, alpha, budget, store)` on the native memory, budget and counters in `ctx`.
-pub fn coverage_at(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, store: UniverseStore<'_>) -> Run {
+/// `_coverage_at(partition, alpha, budget, store)` on the native memory, budget and counters in `ctx`; `budgeted` is `budget is not None`
+/// (the price of a store hit is replayed into a budget and into nothing else, see `exact::prime_universe`).
+pub fn coverage_at(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, store: UniverseStore<'_>, budgeted: bool) -> Run {
     if !partition.exact {
         return Run { record: None, outcome: Ok(Answer::Refused(Refusal::PartitionNotExact)) };
     }
@@ -353,7 +354,7 @@ pub fn coverage_at(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, s
     if let Some(face) = partition.missing_line {
         return Run { record: None, outcome: Err(CoverageError::MissingLine { face }) };
     }
-    let (universe, record) = match exact::prime_universe(ctx, partition.q_values(), store) {
+    let (universe, record) = match exact::prime_universe(ctx, partition.q_values(), store, budgeted) {
         Ok(found) => found,
         Err(error) => return Run { record: None, outcome: Err(error.into()) },
     };
@@ -647,7 +648,7 @@ mod tests {
 
         fn run(&mut self, partition: &Partition, alpha: &Rat) -> Run {
             let mut ctx = ExactCtx { memory: &mut self.session.memory, budget: &mut self.budget, counts: &mut self.counts, products: &mut self.session.products };
-            coverage_at(&mut ctx, partition, alpha, UniverseStore::Absent)
+            coverage_at(&mut ctx, partition, alpha, UniverseStore::Absent, false)
         }
     }
 
@@ -759,7 +760,7 @@ mod tests {
     fn a_universe_that_changes_between_calls_rebuilds_the_plans_and_falls_back_like_the_oracle() {
         // an incomplete universe (no 3) cannot prove the radicals of the divisors: the oracle's division falls back
         // to the full `divided_by`; the planned road must give the same answer, the same cost and the same memory
-        let incomplete = UniverseRecord { universe: vec![UBig::from(2u8)], delta: Vec::new() };
+        let incomplete = UniverseRecord { universe: vec![UBig::from(2u8)], delta: Vec::new(), price: None, memory: Default::default() };
         let sequence = |planned: bool| {
             let partition = Partition::new(true, vec![two_prime_face()]);
             let partition = if planned { partition } else { partition.without_plans() };
@@ -768,7 +769,7 @@ mod tests {
             for hit in [false, true, false, true] {
                 let mut ctx = ExactCtx { memory: &mut world.session.memory, budget: &mut world.budget, counts: &mut world.counts, products: &mut world.session.products };
                 let store = if hit { UniverseStore::Hit(&incomplete) } else { UniverseStore::Absent };
-                answers.push(coverage_at(&mut ctx, &partition, &rat(1, 1), store).outcome.unwrap());
+                answers.push(coverage_at(&mut ctx, &partition, &rat(1, 1), store, false).outcome.unwrap());
             }
             let fast = locked(&partition.faces()[0].plans).edges.iter().filter(|edge| matches!(edge, EdgeState::Fast(_))).count();
             (answers, world.budget.articles(), world.counts, world.session.memory.export_state(), fast)
@@ -868,7 +869,7 @@ mod tests {
         let mut counts = SignCounts::default();
         let run = {
             let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
-            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss)
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true)
         };
         assert!(matches!(run.outcome, Err(CoverageError::Exact(ExactError::Canon(_)))), "{:?}", run.outcome);
         // 6 = 2 * 3 factors without any paid work, so the universe is built and recorded; the first `radical` then
@@ -879,7 +880,7 @@ mod tests {
         let mut budget = WorkBudget::unlimited();
         let run = {
             let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
-            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss)
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true)
         };
         assert!(run.outcome.is_ok());
         assert!(run.record.is_some());

@@ -696,23 +696,23 @@ pub fn radical_sum(ctx: &mut ExactCtx<'_>, parts: &[(Rat, Rat)]) -> Result<SqrtS
 pub enum UniverseStore<'a> {
     /// `store is None`: build, remember nothing.
     Absent,
-    /// The key is not in the store: build and hand back the record to write.
+    /// The key is not in the store (or holds a record of another shape): build and hand back the record to write.
     Miss,
-    /// The key is in the store: put the recorded factorizations back, spend nothing.
+    /// The key is in the store: a budgeted call replays the recorded price (a record without one, or a price over the cap, is a miss that
+    /// replaces the record), an unbudgeted one pays nothing; the recorded memory comes back either way.
     Hit(&'a UniverseRecord),
 }
 
-/// `prime_universe_remembered(q_values, budget, store)`: the universe and, on a miss, the `(universe, delta)`
-/// record the host writes into its store (only on success, as Python does).
-pub fn prime_universe(ctx: &mut ExactCtx<'_>, q_values: &[QValue], store: UniverseStore<'_>) -> Result<(Vec<UBig>, Option<UniverseRecord>), ExactError> {
-    match store {
-        UniverseStore::Absent => Ok((ctx.memory.prime_universe_from_q_values(q_values, ctx.budget)?, None)),
-        UniverseStore::Miss => {
-            let record = ctx.memory.prime_universe_miss(q_values, ctx.budget)?;
-            Ok((record.universe.clone(), Some(record)))
-        }
-        UniverseStore::Hit(record) => Ok((ctx.memory.prime_universe_hit(record), None)),
-    }
+/// `prime_universe_remembered(q_values, budget, store)`: the universe and the `(universe, delta, price, memory)` record the host writes into
+/// its store (a miss, or a hit the budget could not afford; only on success, as Python does). `budgeted` is `budget is not None`: the
+/// native budget of a call without one is an unlimited budget that starts at zero.
+pub fn prime_universe(ctx: &mut ExactCtx<'_>, q_values: &[QValue], store: UniverseStore<'_>, budgeted: bool) -> Result<(Vec<UBig>, Option<UniverseRecord>), ExactError> {
+    let found = match store {
+        UniverseStore::Absent => return Ok((ctx.memory.prime_universe_from_q_values(q_values, ctx.budget)?, None)),
+        UniverseStore::Miss => None,
+        UniverseStore::Hit(record) => Some(record),
+    };
+    Ok(ctx.memory.prime_universe_remembered(q_values, ctx.budget, budgeted, found)?)
 }
 
 #[cfg(test)]
@@ -925,22 +925,62 @@ mod tests {
         let mut world = World::new(WorkBudget::unlimited());
         let q = |n: i64, d: u64| QValue { numerator: IBig::from(n), denominator: UBig::from(d) };
         let values = [q(6, 5), q(15, 1), q(0, 1)];
-        let (universe, record) = prime_universe(&mut world.ctx(), &values, UniverseStore::Miss).unwrap();
+        let (universe, record) = prime_universe(&mut world.ctx(), &values, UniverseStore::Miss, true).unwrap();
         let record = record.expect("a miss hands the record back");
         assert_eq!(record.universe, universe);
         assert!(!universe.is_empty());
         assert!(world.budget.spent() > 0);
         // a hit on a cold memory puts the recorded factorizations back and pays nothing
         let mut cold = World::new(WorkBudget::bounded(0));
-        let (again, none) = prime_universe(&mut cold.ctx(), &values, UniverseStore::Hit(&record)).unwrap();
+        let (again, none) = prime_universe(&mut cold.ctx(), &values, UniverseStore::Hit(&record), false).unwrap();
         assert_eq!(again, universe);
         assert!(none.is_none());
         assert_eq!(cold.budget.articles(), [0; 6]);
         let mut plain_world = World::new(WorkBudget::unlimited());
-        let (plain, no_record) = prime_universe(&mut plain_world.ctx(), &values, UniverseStore::Absent).unwrap();
+        let (plain, no_record) = prime_universe(&mut plain_world.ctx(), &values, UniverseStore::Absent, true).unwrap();
         assert_eq!(plain, universe);
         assert!(no_record.is_none());
-        let refused = prime_universe(&mut world.ctx(), &[q(-3, 7)], UniverseStore::Miss).unwrap_err();
+        let refused = prime_universe(&mut world.ctx(), &[q(-3, 7)], UniverseStore::Miss, true).unwrap_err();
         assert_eq!(refused, ExactError::Canon(CanonError::NegativeRadicand { numerator: IBig::from(-3), denominator: UBig::from(7u8) }));
+    }
+
+    #[test]
+    fn a_budgeted_hit_pays_the_recorded_price_and_a_price_over_the_cap_is_computed_again() {
+        let q = |n: i64, d: u64| QValue { numerator: IBig::from(n), denominator: UBig::from(d) };
+        let values = [q(6, 5), q(15, 1)];
+        let mut world = World::new(WorkBudget::unlimited());
+        let (universe, record) = prime_universe(&mut world.ctx(), &values, UniverseStore::Miss, true).unwrap();
+        let record = record.unwrap();
+        let price = record.price.expect("a budgeted miss records its price");
+        assert_eq!(price, world.budget.articles(), "the whole call was the build");
+        assert!(price.iter().any(|article| *article > 0));
+        assert!(!record.memory.factorizations.is_empty() || !record.memory.primes.is_empty());
+        // a budgeted hit on a cold memory pays the recorded price, not zero, and leaves the same memory the build left
+        let mut cold = World::new(WorkBudget::unlimited());
+        let (again, none) = prime_universe(&mut cold.ctx(), &values, UniverseStore::Hit(&record), true).unwrap();
+        assert_eq!((again, none), (universe.clone(), None));
+        assert_eq!(cold.budget.articles(), price);
+        let (built, replayed) = (world.memory.export_state(), cold.memory.export_state());
+        assert_eq!(replayed.known_primes, built.known_primes);
+        // the hit also puts the primes of the universe back as their own factorizations, as the oracle does
+        assert!(built.factorization.iter().all(|entry| replayed.factorization.contains(entry)));
+        // an unbudgeted hit pays nothing; a record without a price is no hit for a budgeted call: computed again, the record replaced
+        let mut free = World::new(WorkBudget::unlimited());
+        prime_universe(&mut free.ctx(), &values, UniverseStore::Hit(&record), false).unwrap();
+        assert_eq!(free.budget.articles(), [0; 6]);
+        let unpriced = UniverseRecord { price: None, ..record.clone() };
+        let mut redo = World::new(WorkBudget::unlimited());
+        let (_, replaced) = prime_universe(&mut redo.ctx(), &values, UniverseStore::Hit(&unpriced), true).unwrap();
+        assert_eq!(replaced.expect("the record is replaced").price, Some(price));
+        // a price that does not fit under the cap is not replayed: the build is paid for in full, from the articles the call began with
+        let total: u64 = price.iter().sum();
+        let mut capped = World::new(WorkBudget::bounded(total - 1));
+        let outcome = prime_universe(&mut capped.ctx(), &values, UniverseStore::Hit(&record), true);
+        assert!(outcome.is_ok() || matches!(outcome, Err(ExactError::Canon(CanonError::Exhausted(_)))));
+        assert_ne!(capped.budget.articles(), [0; 6], "the price was paid by real work, not skipped");
+        let mut fits = World::new(WorkBudget::bounded(total));
+        let (_, written) = prime_universe(&mut fits.ctx(), &values, UniverseStore::Hit(&record), true).unwrap();
+        assert!(written.is_none());
+        assert_eq!(fits.budget.articles(), price);
     }
 }

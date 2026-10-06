@@ -9,7 +9,6 @@ use cftuv_clip::geometry::{clip_geometry, ClipInput};
 use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
 use cftuv_clip::point::Point;
 use cftuv_clip::profile::{Phase, PHASES};
-use cftuv_clip::pyemu::PyVersion;
 use cftuv_clip::warm::Warm;
 use cftuv_core::exact::ExactCtx;
 use cftuv_core::num::{IBig, UBig};
@@ -91,7 +90,7 @@ fn a_rectangle_over_the_diagonal_is_cut_into_two_faces_with_one_new_vertex() {
     let plane = square();
     let case = case(&[point(2, 3), point(7, 3), point(7, 5), point(2, 5)]);
     let mut world = World::new(WorkBudget::unlimited());
-    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), &plane, &input(&case));
     let clipped = run.result.expect("the oracle cuts this rectangle");
     let faces: Vec<Vec<Vec<&str>>> = clipped.polygons.iter().map(|face| face.iter().map(|keys| keys.iter().map(|key| &**key).collect()).collect()).collect();
     assert_eq!(faces, vec![vec![vec!["node:0", "node:1", "node:2", "clip:0"], vec!["node:0", "clip:0", "node:3"]]]);
@@ -153,7 +152,7 @@ fn an_inert_pair_of_the_chain_station_plan_keeps_the_polygon_across_the_edge_in_
     let run = |inert: &[(String, String)]| {
         let mut world = World::new(WorkBudget::unlimited());
         let input = ClipInput { by_faces: true, inert, ..input(&case) };
-        clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input).result.expect("a cut")
+        clip_geometry(&mut world.ctx(), &mut Warm::new(), &plane, &input).result.expect("a cut")
     };
     let glued = run(&pairs);
     assert!(glued.points.is_empty());
@@ -171,16 +170,15 @@ fn an_inert_pair_of_the_chain_station_plan_keeps_the_polygon_across_the_edge_in_
 }
 
 #[test]
-fn the_same_input_is_the_same_answer_on_a_second_run_and_in_either_interpreter_model() {
+fn the_same_input_is_the_same_answer_on_a_second_run() {
     let plane = square();
     let case = case(&[point(2, 3), point(7, 3), point(7, 5), point(2, 5)]);
     let mut notes = Vec::new();
-    for version in [PyVersion::V311, PyVersion::V313, PyVersion::V313] {
+    for _ in 0..2 {
         let mut world = World::new(WorkBudget::unlimited());
-        notes.push(clip_geometry(&mut world.ctx(), &mut Warm::new(), version, &plane, &input(&case)).result.expect("a cut").note);
+        notes.push(clip_geometry(&mut world.ctx(), &mut Warm::new(), &plane, &input(&case)).result.expect("a cut").note);
     }
-    assert_eq!(notes[0], notes[1], "no sort of two or more equal-keyed nodes here: the interpreter does not matter");
-    assert_eq!(notes[1], notes[2]);
+    assert_eq!(notes[0], notes[1]);
 }
 
 #[test]
@@ -189,7 +187,7 @@ fn a_key_that_is_no_vertex_of_the_domain_is_a_named_missing_key() {
     let mut case = case(&[point(2, 3), point(7, 3), point(7, 5)]);
     case.polygons = vec![vec![vec!["node:0".to_string(), "node:1".to_string(), "node:9".to_string()]]];
     let mut world = World::new(WorkBudget::unlimited());
-    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), &plane, &input(&case));
     assert_eq!(run.result.err(), Some(ClipError::MissingKey("node:9".to_string())));
     assert!(run.writes.is_empty());
 }
@@ -199,14 +197,9 @@ fn a_rational_cut_spends_no_radical_work_so_a_cap_of_zero_does_not_stop_it() {
     let plane = square();
     let case = case(&[point(2, 3), point(7, 3), point(7, 5), point(2, 5)]);
     let mut world = World::new(WorkBudget::bounded(0));
-    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), &plane, &input(&case));
     // the budget counts radicals: a polygon of rational points pays none (the exhaustion paths are swept from Python, cap by cap)
     assert!(run.result.is_ok());
-}
-
-#[test]
-fn an_interpreter_the_port_does_not_emulate_is_refused_by_name() {
-    assert!(matches!(PyVersion::from_version(3, 12), Err(ClipError::Unsupported(_))));
 }
 
 #[test]

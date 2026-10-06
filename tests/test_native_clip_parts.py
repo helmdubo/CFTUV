@@ -3,7 +3,7 @@
 Эталон — ядро `kernel/src/cftuv_envelope` (WP-A: `line_value`, `window`, `values_in`, `stretch_square`, `lift_known`, `nanometres`,
 `milli_cells`, `faces.orientation/shoelace_sign/doubled_shoelace`, `clip_snap.within_edge_gap`, `clip_cells.chord_of/hinge_depth_square`,
 `ClipStageV1._cheap_sign/_edge_constants/_rational_pair`; WP-B: `build_cells`, `snap_source_vertices`; WP-C: `triangulate_exact`,
-`convex_quad_ring`, `has_right_turn`; и `_ordered` — единственное место, где результат зависит от минорной версии CPython).
+`convex_quad_ring`, `has_right_turn`; и `_ordered` с его явной сортировкой `sorted_as_cpython311`).
 
 Метод: пока эталон воспроизводит запись корпуса (`tools/native_clip_seams.py`), записывающие обёртки на швах снимают каждый вызов (аргументы
 в проводе, результат или исключение, состояние цены ДО и ПОСЛЕ); потом тот же вызов идёт в нативный шов на записанном состоянии
@@ -15,8 +15,8 @@
 строит `tools/native_clip_synthetic.py`); 3. ЦЕЛЕВЫЕ случаи этого файла для веток, которых нет ни там, ни там (сопряжение и исчерпание бюджета на
 каждой границе, переполнения float, нецелая карта, отказы ячеек, подавления привязки, `doubled_shoelace`).
 
-Эмуляция CPython: порядок вопросов `list.sort` (`count_run` 3.11 и 3.13) и float `sum()` сверены с НАСТОЯЩИМ интерпретатором (журнал сравнений на
-случайных входах с равными и убывающими пробегами); отрицательный контроль — чужая версия даёт другой журнал.
+Явная семантика CPython 3.11 (`_cpython311.py`): порядок вопросов сортировки (все длины, слияния, галоп, мощности границ) и левая свёртка float сверены
+с функциями ядра на обоих интерпретаторах, а на 3.11 сортировка ядра равна и настоящему `sorted`; версия интерпретатора на ответ и цену не влияет.
 
 Модуль пропускается с названной причиной, пока расширение не собрано (`python tools/native_build.py`) либо нет корпуса.
 """
@@ -66,6 +66,7 @@ import cftuv_envelope.wavefront.faces as faces  # noqa: E402
 import native_clip_geometry as geometry  # noqa: E402
 import native_clip_seams as seams  # noqa: E402
 import native_corpus as nc  # noqa: E402
+from cftuv_envelope._cpython311 import left_fold_sum, sorted_as_cpython311  # noqa: E402
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
 from cftuv_envelope.materialize.lift_surface import LiftTriangleV1, SurfaceLiftV1  # noqa: E402
 
@@ -117,11 +118,25 @@ def explain(found) -> str:
 
 
 # --------------------------------------------------------------------------
-# Эмуляция CPython: сортировка и сумма
+# Явная семантика CPython 3.11 ядра: сортировка и левая свёртка (`_cpython311.py`)
 # --------------------------------------------------------------------------
 
 
+def kernel_sort_log(keys):
+    """`(порядок, журнал сравнений)` явной сортировки ядра: `sorted_as_cpython311` с тем же `compare`, что у `_ordered`."""
+
+    log = []
+
+    def compare(left, right):
+        log.append((left, right))
+        return (keys[left] > keys[right]) - (keys[left] < keys[right])
+
+    return sorted_as_cpython311(range(len(keys)), compare), log
+
+
 def real_sort_log(keys):
+    """То же на настоящем `sorted(key=cmp_to_key(compare))` ЗАПУЩЕННОГО интерпретатора (равен сортировке ядра только на 3.11)."""
+
     log = []
 
     def compare(left, right):
@@ -143,51 +158,88 @@ def tie_heavy_keys(rng: random.Random, size: int, alphabet: int) -> list:
     return keys
 
 
-def test_the_sort_comparison_sequence_equals_the_running_interpreter():
+def run_structured_keys(rng: random.Random, size: int, alphabet: int) -> list:
+    """Длинный вход из пробегов: растущие и убывающие участки случайной длины и сдвига, блоки, пила, органная труба, две вперемешку.
+
+    Такие входы заставляют `list.sort` брать минимальный пробег, слияния соседей, `merge_lo` и `merge_hi`, галоп `gallop_left` / `gallop_right` и
+    менять `min_gallop`: на случайных ключах слияния короткие и галопа почти нет."""
+
+    mode = rng.randrange(7)
+    if mode == 0:
+        keys: list = []
+        while len(keys) < size:
+            length = rng.randrange(1, 90)
+            start = rng.randrange(alphabet)
+            step = rng.choice((0, 1, 1, 2))
+            keys += [start + step * position for position in range(length)]
+        return keys[:size]
+    if mode == 1:
+        keys = []
+        while len(keys) < size:
+            length = rng.randrange(1, 90)
+            start = rng.randrange(alphabet)
+            keys += [start + 3 * (length - position) for position in range(length)]
+        return keys[:size]
+    if mode == 2:
+        half = size // 2
+        return [rng.randrange(alphabet) + 10_000 for _ in range(half)] + sorted(rng.randrange(alphabet) for _ in range(size - half))
+    if mode == 3:
+        period = rng.randrange(2, 40)
+        return [(position * 7) % period + rng.randrange(2) for position in range(size)]
+    if mode == 4:
+        up = sorted(rng.randrange(alphabet) for _ in range(size // 2))
+        return up + up[::-1] if rng.random() < 0.5 else up[::-1] + up
+    if mode == 5:
+        left = sorted(rng.randrange(alphabet) for _ in range(size // 2))
+        right = sorted(rng.randrange(alphabet) for _ in range(size - size // 2))
+        return [item for pair in zip(left, right) for item in pair] + left[len(right):] + right[len(left):]
+    return [rng.randrange(alphabet) for _ in range(size)]
+
+
+def test_the_sort_comparison_sequence_equals_the_kernels_explicit_sort_for_every_length():
+    """Журнал сравнений нативной сортировки равен журналу `sorted_as_cpython311` вызов в вызов: n = 0..300, равные ключи, пробеги, слияния, галоп."""
+
     runner = wire.SeamRunner()
     rng = random.Random(20261006)
-    checked = 0
-    for size in range(0, 64):
+    checked = merged = 0
+    for size in range(0, 301):
         for alphabet in (1, 2, 3, 5, 1000):
-            for _ in range(24):
-                keys = tie_heavy_keys(rng, size, alphabet)
-                order, log = real_sort_log(keys)
-                got = runner.value("SORT_SEQUENCE", [*PYTHON_VERSION, keys])
-                assert got == (order, log), f"python {PYTHON_VERSION} keys {keys}: the native comparison sequence differs"
+            for _ in range(24 if size < 64 else 8):
+                keys = tie_heavy_keys(rng, size, alphabet) if size < 64 or rng.random() < 0.3 else run_structured_keys(rng, size, alphabet)
+                order, log = kernel_sort_log(keys)
+                got = runner.value("SORT_SEQUENCE", [keys])
+                assert got == (order, log), f"keys {keys}: the native comparison sequence differs from `sorted_as_cpython311`"
                 checked += 1
+                merged += size >= 64
     CHECKED["sort"] += checked
+    assert merged > 3000
 
 
-def test_the_sort_emulation_of_the_other_minor_version_is_a_different_sequence():
-    """Отрицательный контроль: чужая версия на входах с равными и убывающими пробегами даёт другой журнал (иначе проверка пуста)."""
+def test_the_sort_comparison_sequence_equals_the_real_interpreter_on_cpython_311():
+    """На 3.11 явная сортировка ядра и настоящий `sorted` дают один журнал, а значит и нативная (на 3.13 `sorted` спрашивает иначе: сверка идёт с ядром)."""
 
+    if PYTHON_VERSION != (3, 11):
+        pytest.skip(f"only CPython 3.11 asks `list.sort` questions in the kernel's order (this is {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]})")
     runner = wire.SeamRunner()
-    other = (3, 13) if PYTHON_VERSION == (3, 11) else (3, 11)
-    rng = random.Random(7)
-    different = 0
-    for _ in range(400):
-        keys = tie_heavy_keys(rng, rng.randrange(4, 30), 3)
-        order, log = real_sort_log(keys)
-        got = runner.value("SORT_SEQUENCE", [*other, keys])
-        assert got[0] == order, "both versions sort the same way; only the questions differ"
-        different += got[1] != log
-    assert different > 40
+    rng = random.Random(311)
+    for size in list(range(0, 130)) + [200, 257, 300]:
+        for alphabet in (1, 3, 1000):
+            keys = tie_heavy_keys(rng, size, alphabet) if size < 64 else run_structured_keys(rng, size, alphabet)
+            assert runner.value("SORT_SEQUENCE", [keys]) == real_sort_log(keys), f"keys {keys}"
 
 
-def test_a_sort_the_port_does_not_cover_and_an_unknown_interpreter_are_named_refusals():
+def test_a_long_sort_is_covered_and_a_failing_comparison_is_not_a_sort():
     runner = wire.SeamRunner()
-    long = runner.call("SORT_SEQUENCE", [*PYTHON_VERSION, list(range(64))])
-    assert long.unsupported, "a sort of 64 elements needs the merge machinery of list.sort: named refusal, never a guess"
-    assert runner.call("SORT_SEQUENCE", [*PYTHON_VERSION, list(range(63))]).ok
-    assert runner.call("SORT_SEQUENCE", [3, 12, [3, 1, 2]]).unsupported
-    assert runner.call("SORT_SEQUENCE", [2, 7, [3, 1, 2]]).unsupported
-    assert runner.call("FLOAT_SUM", [3, 14, [1.0, 2.0]]).unsupported
+    assert runner.call("SORT_SEQUENCE", [list(range(64))]).ok, "a sort of 64 elements or more is the merge machinery of list.sort: ported, not refused"
+    assert runner.call("SORT_SEQUENCE", [list(range(64, 0, -1))]).ok
+    assert runner.value("SORT_SEQUENCE", [[]]) == ([], [])
+    assert runner.value("SORT_SEQUENCE", [[5]]) == ([0], [])
 
 
 FLOAT_SPECIALS = (0.0, -0.0, 1.0, -1.0, 1e100, -1e100, 1e-300, 5e-324, math.inf, -math.inf, math.nan, 0.1, 0.2, 0.3, 1e308, -1e308, 1.7976931348623157e308, 3.0, -3.0)
 
 
-def test_the_float_sum_equals_the_running_interpreter_bit_for_bit():
+def test_the_float_fold_equals_the_kernels_left_fold_bit_for_bit():
     runner = wire.SeamRunner()
     rng = random.Random(99)
     for _ in range(12000):
@@ -195,18 +247,13 @@ def test_the_float_sum_equals_the_running_interpreter_bit_for_bit():
             rng.choice(FLOAT_SPECIALS) if rng.random() < 0.5 else rng.uniform(-10, 10) * 10 ** rng.randrange(-6, 6)
             for _ in range(rng.choice((1, 2, 3, 3, 3, 4, 5)))
         ]
-        expected = sum(terms)
-        got = runner.value("FLOAT_SUM", [*PYTHON_VERSION, terms])
-        assert struct.pack("<d", expected) == struct.pack("<d", got) or (expected != expected and got != got), f"python {PYTHON_VERSION} sum of {terms}"
-    CHECKED["float sum"] += 12000
-
-
-def test_the_float_sum_of_the_other_version_differs_where_python_changed_it():
-    runner = wire.SeamRunner()
-    other = (3, 13) if PYTHON_VERSION == (3, 11) else (3, 11)
-    terms = [0.1, 0.2, 0.3]
-    assert struct.pack("<d", sum(terms)) == struct.pack("<d", runner.value("FLOAT_SUM", [*PYTHON_VERSION, terms]))
-    assert runner.value("FLOAT_SUM", [*other, terms]) != sum(terms)
+        expected = left_fold_sum(terms)
+        got = runner.value("FLOAT_SUM", [terms])
+        assert struct.pack("<d", expected) == struct.pack("<d", got) or (expected != expected and got != got), f"sum of {terms}"
+    CHECKED["float fold"] += 12000
+    # the oracle sums left to right from the int zero on EVERY interpreter: 0.1 + 0.2 + 0.3 is not what 3.12+ `sum()` gives
+    assert runner.value("FLOAT_SUM", [[0.1, 0.2, 0.3]]) == 0.1 + 0.2 + 0.3 == 0.6000000000000001
+    assert struct.pack("<d", runner.value("FLOAT_SUM", [[-0.0]])) == struct.pack("<d", 0.0)
 
 
 def test_the_seam_table_of_the_extension_is_the_table_of_the_harness():
@@ -821,16 +868,61 @@ def test_within_edge_gap_chord_of_and_the_hinge_depth_equal_the_oracle_with_conj
     assert any(call.seam == "WITHIN_EDGE_GAP" and call.error is None and not call.result[0] for call in recorder.calls)
 
 
-def test_ordered_equals_the_oracle_for_every_tie_axis_budget_and_size_and_names_the_sort_it_does_not_cover():
+def near_root(radicand: int, shift: int = 90) -> SqrtSumV1:
+    """`sqrt(radicand) - r`, `r` — приближение корня с точностью `2^-shift`: знак разности двух таких чисел решает только сопряжение (и платит бюджет)."""
+
+    approximation = Fraction(math.isqrt(radicand << (2 * shift)) + 1, 1 << shift)
+    return SqrtSumV1(((1, -approximation), (radicand, Fraction(1))))
+
+
+def test_a_long_sort_runs_out_of_budget_at_the_same_comparison_with_the_same_partial_cost():
+    """64+ узлов, каждый сравнение которых стоит бюджета: свип потолка идёт по ВСЕМ точкам исчерпания внутри слияний и галопа (статьи, `SIGN_COUNTS`, память)."""
+
+    plane = square_lift().bind(fresh_budget())
+    radicands = [value for value in range(2, 400) if math.isqrt(value) ** 2 != value][:80]
+    rng = random.Random(64)
+    rng.shuffle(radicands)
+    ordinate = SqrtSumV1.rational(0)
+
+    def ask(stage, cap):
+        first = stage._node((SqrtSumV1.rational(-1), SqrtSumV1.rational(-1)))
+        second = stage._node((SqrtSumV1.rational(9), SqrtSumV1.rational(-1)))
+        nodes = [stage._node((near_root(value), ordinate)) for value in radicands]
+        with exact.isolated_factorization_memory():
+            stage.budget = fresh_budget(cap)
+            try:
+                stage._ordered(first, second, nodes)
+            except exact.ExactCanonicalizationWorkBudgetExhausted:
+                pass
+            return sum(stage.budget.spent_by_article())
+
+    totals = []
+
+    def body():
+        stage = clip.ClipStageV1(plane, fresh_budget(), {})
+        totals.append(ask(stage, None))
+        step = max(1, totals[0] // 60)
+        for cap in sorted({0, 1, 2, 3, *range(4, totals[0] + 2, step), totals[0] - 1, totals[0], totals[0] + 1}):
+            ask(stage, cap)
+
+    recorder, verifier = observe(body)
+    assert verifier.unsupported["ORDERED"] == 0
+    assert totals[0] > 200, f"the sort was too cheap to hide an exhaustion in a merge: {totals}"
+    exhausted = [call for call in recorder.calls if call.seam == "ORDERED" and call.error is not None]
+    assert len(exhausted) > 30 and all(len(call.arguments[2]) == len(radicands) for call in exhausted)
+    assert conjugations(recorder) > 100, "no comparison went to the exact path"
+
+
+def test_ordered_equals_the_oracle_for_every_tie_axis_budget_and_size_long_sorts_included():
     rng = random.Random(17)
     plane = square_lift().bind(fresh_budget())
     hard = hard_sum()
     abscissas = [SqrtSumV1.rational(0), SqrtSumV1.rational(1), sum_of(r2=1), sum_of(r2=1, r3=Fraction(1, 3)), hard, SqrtSumV1.rational(Fraction(1, 2)), SqrtSumV1.rational(2)]
-    ordinates = [SqrtSumV1.rational(value) for value in range(12)] + [sum_of(r3=1), hard]
+    ordinates = [SqrtSumV1.rational(value) for value in range(30)] + [sum_of(r3=1), hard]
 
     def body():
         stage = clip.ClipStageV1(plane, fresh_budget(), {})
-        for size in list(range(0, 24)) + [40, 62, 63, 64, 70]:
+        for size in list(range(0, 24)) + [40, 62, 63, 64, 70, 90, 128, 170]:
             for repeat in range(6):
                 along_x = repeat % 2 == 0
                 first = stage._node((SqrtSumV1.rational(-1), SqrtSumV1.rational(-1)))
@@ -851,6 +943,8 @@ def test_ordered_equals_the_oracle_for_every_tie_axis_budget_and_size_and_names_
 
     recorder, verifier = observe(body)
     assert verifier.checked["ORDERED"] > 300
-    assert verifier.unsupported["ORDERED"] > 0, "a sort of 64 or more elements must have been refused by name"
+    assert verifier.unsupported["ORDERED"] == 0, "a sort of 64 or more elements is the merge machinery of list.sort: ported, never refused"
+    long = [call for call in recorder.calls if call.seam == "ORDERED" and call.error is None and len(call.result) >= 64]
+    assert len(long) >= 20, "the long sorts (merges and galloping) were not asked"
     permutations = [call.result for call in recorder.calls if call.seam == "ORDERED" and call.error is None and len(call.result) > 3]
     assert any(item != sorted(item) for item in permutations), "every sort was already in order: the test checks nothing"

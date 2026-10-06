@@ -66,7 +66,7 @@ fn main() {
     let started = Instant::now();
     let record = {
         let mut ctx = ExactCtx { memory: &mut memory, budget: &mut budget, counts: &mut counts, products: &mut products };
-        let run = coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Miss);
+        let run = coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Miss, true);
         assert!(run.outcome.is_ok());
         run.record.expect("a miss makes a record")
     };
@@ -79,7 +79,7 @@ fn main() {
         let started = Instant::now();
         {
             let mut ctx = ExactCtx { memory: &mut memory, budget: &mut budget, counts: &mut counts, products: &mut products };
-            let run = coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Hit(&record));
+            let run = coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Hit(&record), true);
             std::hint::black_box(&run);
         }
         let elapsed = started.elapsed().as_secs_f64() * 1e3;
@@ -92,7 +92,7 @@ fn main() {
     for call in 0..calls {
         let alpha = alpha.mul(&factors[call % factors.len()]);
         let mut ctx = ExactCtx { memory: &mut memory, budget: &mut budget, counts: &mut counts, products: &mut products };
-        std::hint::black_box(coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Hit(&record)));
+        std::hint::black_box(coverage::coverage_at(&mut ctx, &partition, &alpha, UniverseStore::Hit(&record), true));
     }
     coverage::set_profiling(false);
     let per = |slot: usize| coverage::PHASE_NANOS[slot].load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e3 / calls as f64;

@@ -21,7 +21,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
-import sys
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -78,10 +77,6 @@ class Mismatch:
 
     def __str__(self) -> str:
         return f"{self.seam}.{self.field}: {self.detail}"
-
-
-def _py_version() -> tuple:
-    return (sys.version_info.major, sys.version_info.minor)
 
 
 class SeamRecorder:
@@ -290,7 +285,7 @@ def _plan_methods(recorder: SeamRecorder, enc, method) -> None:
                 return {"normals_before": before, "normals_after": len(self._normal_by_position), "written": written}
 
             return recorder._call(
-                "LIFT_KNOWN", original, (self, triangle, values), {}, lambda: [*_version(), enc.enc_triangle(triangle), list(values)], observe=observe
+                "LIFT_KNOWN", original, (self, triangle, values), {}, lambda: [enc.enc_triangle(triangle), list(values)], observe=observe
             )
 
         return wrapper
@@ -315,7 +310,7 @@ def _plan_methods(recorder: SeamRecorder, enc, method) -> None:
         @functools.wraps(original)
         def wrapper(self, first, second, nodes):
             def encode():
-                return [*_version(), enc.enc_point(first.point), enc.enc_point(second.point), enc.enc_points([node.point for node in nodes])]
+                return [enc.enc_point(first.point), enc.enc_point(second.point), enc.enc_points([node.point for node in nodes])]
 
             def observe(result, error):
                 if error is not None:
@@ -331,10 +326,6 @@ def _plan_methods(recorder: SeamRecorder, enc, method) -> None:
         method(lift_class, name, name.upper(), factory)
     for name, factory in (("_edge_constants", edge_constants), ("_cheap_sign", cheap_sign), ("_ordered", ordered)):
         method(stage_class, name, name.upper(), factory)
-
-
-def _version() -> list:
-    return list(_py_version())
 
 
 def _enc_constants(constants):

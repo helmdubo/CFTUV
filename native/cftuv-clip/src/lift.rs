@@ -11,7 +11,7 @@ use cftuv_core::sqrt_sum::SqrtSum;
 use crate::error::{ClipError, ClipResult, BLEND_ZERO_DETAIL, BLEND_ZERO_OUTCOME, FLOAT_DIVISION_BY_ZERO, NON_FINITE_POINT};
 use crate::numeric::{float_of, float_of_ratio, ENCLOSURE_BITS};
 use crate::plane::{lift_factors, LiftFactors, Triangle};
-use crate::pyemu::{float_sum, PyVersion};
+use crate::cpython311::left_fold_sum;
 
 /// What `lift_known` answers: the position, the triangle name and the offset normal. `(position, normal)` is also the
 /// entry the oracle writes into `plane._normal_by_position`, exactly when the triangle carries normals.
@@ -47,12 +47,12 @@ fn dot(left: &[f64; 3], right: &[f64; 3]) -> f64 {
 }
 
 /// `offset_normal.blend(weights, normals)`: the normalized barycentric mix of the three corner normals. The three-term
-/// sums are Python's `sum()`, hence the interpreter version.
-pub fn blend(version: PyVersion, weights: &[f64; 3], normals: &[[f64; 3]; 3]) -> ClipResult<[f64; 3]> {
+/// sums are the kernel's `left_fold_sum`: a left fold from the `int` zero, without compensation.
+pub fn blend(weights: &[f64; 3], normals: &[[f64; 3]; 3]) -> ClipResult<[f64; 3]> {
     let mut mixed = [0.0f64; 3];
     for axis in 0..3 {
         let terms = [weights[0] * normals[0][axis], weights[1] * normals[1][axis], weights[2] * normals[2][axis]];
-        mixed[axis] = float_sum(version, &terms);
+        mixed[axis] = left_fold_sum(&terms);
     }
     let length = dot(&mixed, &mixed).sqrt();
     // `not _length(mixed)`: zero (either sign) is a refusal, NaN is not
@@ -64,12 +64,12 @@ pub fn blend(version: PyVersion, weights: &[f64; 3], normals: &[[f64; 3]; 3]) ->
 
 /// `BoundSurfaceLiftV1.lift_known(triangle, values)`: the lifted position (finite binary64s), the triangle name and the
 /// offset normal when the triangle has normals. The caller writes `normal` at `position` into the normal table.
-pub fn lift_known(version: PyVersion, triangle: &Triangle, values: &[SqrtSum; 3]) -> ClipResult<Lifted> {
-    lift_known_with(version, triangle, &lift_factors(triangle)?, [&values[0], &values[1], &values[2]])
+pub fn lift_known(triangle: &Triangle, values: &[SqrtSum; 3]) -> ClipResult<Lifted> {
+    lift_known_with(triangle, &lift_factors(triangle)?, [&values[0], &values[1], &values[2]])
 }
 
 /// [`lift_known`] with the factors of the triangle at hand (the plane caches them).
-pub fn lift_known_with(version: PyVersion, triangle: &Triangle, factors: &LiftFactors, values: [&SqrtSum; 3]) -> ClipResult<Lifted> {
+pub fn lift_known_with(triangle: &Triangle, factors: &LiftFactors, values: [&SqrtSum; 3]) -> ClipResult<Lifted> {
     let [x, y, z] = lift_in_with(factors, values)?;
     let position = [sqrt_sum_binary64(&x)?, sqrt_sum_binary64(&y)?, sqrt_sum_binary64(&z)?];
     if !position.iter().all(|axis| axis.is_finite()) {
@@ -86,7 +86,7 @@ pub fn lift_known_with(version: PyVersion, triangle: &Triangle, factors: &LiftFa
             }
             weights[slot] = converted / divisor;
         }
-        normal = Some(blend(version, &weights, corner_normals)?);
+        normal = Some(blend(&weights, corner_normals)?);
     }
     Ok(Lifted { position, triangle: triangle.name.clone(), normal })
 }

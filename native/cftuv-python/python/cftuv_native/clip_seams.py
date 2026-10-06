@@ -335,7 +335,7 @@ def enc_inert(inert) -> list:
     return pairs
 
 
-def enc_geometry(plane, kwargs: dict, version=None) -> list:
+def enc_geometry(plane, kwargs: dict) -> list:
     """The arguments of `clip_geometry(plane, budget, **kwargs)` as the `CLIP_GEOMETRY` seam reads them."""
 
     seam = []
@@ -343,7 +343,6 @@ def enc_geometry(plane, kwargs: dict, version=None) -> list:
         keys = tuple(pair)
         seam.append([enc_str(keys[0]), enc_str(keys[-1])])
     return [
-        *(_version() if version is None else version),
         enc_triangles(plane.triangles),
         enc_named_points(kwargs["points"]),
         [[enc_str(key) for key, _point in cycle] for cycle in kwargs["cycles"]],
@@ -355,12 +354,6 @@ def enc_geometry(plane, kwargs: dict, version=None) -> list:
         bool(kwargs["by_faces"]),
         enc_inert(kwargs.get("inert", ())),
     ]
-
-
-def _version() -> list:
-    import sys
-
-    return [sys.version_info.major, sys.version_info.minor]
 
 
 def _keyed(entries) -> list:

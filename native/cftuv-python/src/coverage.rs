@@ -3,7 +3,7 @@
 //!
 //! A `FacePartitionV1` is a frozen record, so `id(partition)` plus a strong reference identifies its content for as
 //! long as the entry lives; the session keeps at most [`PARTITION_LIMIT`] partitions (least recently used out). The
-//! same holds for the `(universe, delta)` records of the store (`id` of the tuple the store hands back). Per call
+//! same holds for the `(universe, delta, price, memory)` records of the store (`id` of the tuple the store hands back). Per call
 //! only `alpha`, the partition handle, the cost header (memory sync + budget) and the store cross the boundary.
 //!
 //! The answer is `(result, status, detail, counts, articles, changed, timings)`: `result` is the `CoverageV1` (or `None`
@@ -35,7 +35,7 @@ use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, refuse, set_slot, 
 
 /// Partitions kept converted per session.
 pub const PARTITION_LIMIT: usize = 64;
-/// `(universe, delta)` store records kept converted per session.
+/// `(universe, delta, price, memory)` store records kept converted per session.
 pub const RECORD_LIMIT: usize = 16;
 /// `status` of the cost answer for a face without a supporting line (the shim raises `ValueError`).
 const STATUS_MISSING_LINE: u64 = 8;
@@ -65,6 +65,8 @@ struct Classes {
     face_exact: Py<PyAny>,
     /// `cost.StoreKey`: the lookup key of a store, whose hash is taken once (see `prepare_lookup`).
     store_key: Py<PyAny>,
+    /// `FactorizationMemoryDeltaV1`: the fourth part of a store record.
+    memory_delta: Py<PyAny>,
     /// `bisect.insort`, for the replay of the memory log (see `memlog.rs`).
     insort: Py<PyAny>,
     empty_str: Py<PyAny>,
@@ -141,6 +143,7 @@ impl Host {
         outcomes: [&Bound<'_, PyAny>; 3],
         face_exact: &Bound<'_, PyAny>,
         store_key: &Bound<'_, PyAny>,
+        memory_delta: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let intern = |text: &str| pyo3::types::PyString::intern(py, text).unbind();
         let face_coverage = face_coverage.clone().unbind();
@@ -156,6 +159,7 @@ impl Host {
             outcome_negative: outcomes[2].clone().unbind(),
             face_exact: face_exact.clone().unbind(),
             store_key: store_key.clone().unbind(),
+            memory_delta: memory_delta.clone().unbind(),
             insort: insort(py)?,
             empty_str: pyo3::types::PyString::intern(py, "").into_any().unbind(),
             names: Names {
@@ -260,16 +264,21 @@ impl Host {
 
     // ---- store records -----------------------------------------------------------------------------------------
 
-    fn remembered(&mut self, found: &Bound<'_, PyAny>) -> PyResult<Arc<UniverseRecord>> {
+    /// The record a store holds under the key, converted once (by the identity of its tuple); `None` for a tuple that is not a 4-tuple: the
+    /// oracle's `len(found) != 4` is a miss, and the miss replaces it.
+    fn remembered(&mut self, found: &Bound<'_, PyAny>) -> PyResult<Option<Arc<UniverseRecord>>> {
         let id = found.as_ptr() as usize;
         self.clock += 1;
         if let Some(entry) = self.records.iter_mut().find(|entry| entry.id == id) {
             entry.stamp = self.clock;
-            return Ok(entry.record.clone());
+            return Ok(Some(entry.record.clone()));
         }
-        let record = Arc::new(record_from_py(&self.classes()?.pool, found)?);
+        let Some(record) = record_from_py(found)? else {
+            return Ok(None);
+        };
+        let record = Arc::new(record);
         self.remember(found, record.clone());
-        Ok(record)
+        Ok(Some(record))
     }
 
     fn remember(&mut self, holder: &Bound<'_, PyAny>, record: Arc<UniverseRecord>) {
@@ -315,15 +324,16 @@ impl Host {
                     if found.is_none() { None } else { Some(found) }
                 }
             };
-            match found {
-                Some(found) if !found.is_none() => hit = Some(self.remembered(&found)?),
-                _ => miss = true,
+            if let Some(found) = found.filter(|found| !found.is_none()) {
+                hit = self.remembered(&found)?;
             }
+            miss = hit.is_none();
         }
         let sync_value = match sync {
             Some(bytes) => Some(Reader::new(bytes, true).get_value().map_err(|error| PyValueError::new_err(format!("the memory sync is not in the wire format: {error}")))?),
             None => None,
         };
+        let budgeted = budget.is_some();
         let (cap, articles) = match budget {
             Some((cap, articles)) => (cap, Some(articles)),
             None => (None, None),
@@ -342,7 +352,7 @@ impl Host {
                         (None, true) => UniverseStore::Miss,
                         (None, false) => UniverseStore::Absent,
                     };
-                    coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe)
+                    coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe, budgeted)
                 };
                 let articles = run.budget_mut().articles();
                 (run_result, counts, articles, session.memory.take_log())
@@ -390,7 +400,7 @@ impl Host {
         work_budget: &Bound<'py, PyAny>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         if let (Some(record), Some(store)) = (&run.record, store) {
-            let stored = record_to_py(py, &self.classes()?.pool, record)?;
+            let stored = record_to_py(py, self.classes()?, record)?;
             store.set_item(key.bind(py), &stored)?;
             self.remember(&stored, Arc::new(record.clone()));
         }
@@ -560,50 +570,125 @@ fn pool_rat(pool: &Pool, value: &Bound<'_, PyAny>) -> PyResult<Rat> {
 // store records
 // --------------------------------------------------------------------------
 
-/// `(universe, delta)` of the store: `universe` a tuple of ints, `delta` a tuple of `(number, ((prime, power), ...))`.
-fn record_from_py(pool: &Pool, found: &Bound<'_, PyAny>) -> PyResult<UniverseRecord> {
-    let bad = || refuse("a store record must be (universe, delta) of ints and (prime, power) pairs");
-    let found = found.cast::<PyTuple>().map_err(|_| bad())?;
-    if found.len() != 2 {
-        return Err(bad());
+/// The ints of a tuple of `(prime, power)` pairs of one factorization.
+fn pairs_from_py(found: &Bound<'_, PyAny>, bad: &dyn Fn() -> PyErr) -> PyResult<Pairs> {
+    let mut pairs = Pairs::new();
+    for pair in found.try_iter()? {
+        let pair = pair?;
+        let pair = pair.cast::<PyTuple>().map_err(|_| bad())?;
+        if pair.len() != 2 {
+            return Err(bad());
+        }
+        let power = pyobj::ibig_from_int(&pair.get_item(1)?)?;
+        pairs.push((pyobj::ubig_from_int(&pair.get_item(0)?)?, u64::try_from(&power).map_err(|_| bad())?));
     }
-    let mut universe = Vec::new();
-    for prime in found.get_item(0)?.try_iter()? {
-        universe.push(pyobj::ubig_from_int(&prime?)?);
-    }
-    let mut delta = Vec::new();
-    for entry in found.get_item(1)?.try_iter()? {
+    Ok(pairs)
+}
+
+/// The entries `(key, value)` of one table of the memory delta, `value` read by `read`.
+fn entries_from_py<V>(found: &Bound<'_, PyAny>, bad: &dyn Fn() -> PyErr, read: impl Fn(&Bound<'_, PyAny>) -> PyResult<V>) -> PyResult<Vec<(cftuv_core::num::UBig, V)>> {
+    let mut entries = Vec::new();
+    for entry in found.try_iter()? {
         let entry = entry?;
         let entry = entry.cast::<PyTuple>().map_err(|_| bad())?;
         if entry.len() != 2 {
             return Err(bad());
         }
-        let mut pairs = Pairs::new();
-        for pair in entry.get_item(1)?.try_iter()? {
-            let pair = pair?;
-            let pair = pair.cast::<PyTuple>().map_err(|_| bad())?;
-            if pair.len() != 2 {
-                return Err(bad());
-            }
-            let power = pyobj::ibig_from_int(&pair.get_item(1)?)?;
-            pairs.push((pyobj::ubig_from_int(&pair.get_item(0)?)?, u64::try_from(&power).map_err(|_| bad())?));
-        }
-        delta.push((pyobj::ubig_from_int(&entry.get_item(0)?)?, pairs));
+        entries.push((pyobj::ubig_from_int(&entry.get_item(0)?)?, read(&entry.get_item(1)?)?));
     }
-    let _ = pool;
-    Ok(UniverseRecord { universe, delta })
+    Ok(entries)
 }
 
-/// The record a miss writes: the same tuple-of-tuples of ints the oracle stores.
-fn record_to_py<'py>(py: Python<'py>, pool: &Pool, record: &UniverseRecord) -> PyResult<Bound<'py, PyAny>> {
-    let universe: Vec<Bound<'py, PyAny>> = record.universe.iter().map(|prime| int_from_ubig(py, pool, prime)).collect::<PyResult<_>>()?;
+fn ubigs_from_py(found: &Bound<'_, PyAny>) -> PyResult<Vec<cftuv_core::num::UBig>> {
+    found.try_iter()?.map(|item| pyobj::ubig_from_int(&item?)).collect()
+}
+
+/// `(universe, delta, price, memory)` of the store: `universe` a tuple of ints, `delta` a tuple of `(number, ((prime, power), ...))`, `price` `None`
+/// or the six articles, `memory` a `FactorizationMemoryDeltaV1`. A tuple of another length is no record of this kind (`None`: the oracle's
+/// `len(found) != 4` is a miss); a value that is no tuple, or a part of the wrong shape, is a named refusal.
+fn record_from_py(found: &Bound<'_, PyAny>) -> PyResult<Option<UniverseRecord>> {
+    let bad = || refuse("a store record must be (universe, delta, price, memory) of ints, (prime, power) pairs and a FactorizationMemoryDeltaV1");
+    let found = found.cast::<PyTuple>().map_err(|_| bad())?;
+    if found.len() != 4 {
+        return Ok(None);
+    }
+    let universe = ubigs_from_py(&found.get_item(0)?)?;
+    let mut delta = Vec::new();
+    for (number, pairs) in entries_from_py(&found.get_item(1)?, &bad, |pairs| pairs_from_py(pairs, &bad))? {
+        delta.push((number, pairs));
+    }
+    let price = found.get_item(2)?;
+    let price = if price.is_none() {
+        None
+    } else {
+        let articles: Vec<u64> = price
+            .try_iter()?
+            .map(|article| u64::try_from(&pyobj::ibig_from_int(&article?)?).map_err(|_| bad()))
+            .collect::<PyResult<_>>()?;
+        Some(<[u64; 6]>::try_from(articles).map_err(|_| bad())?)
+    };
+    let memory = found.get_item(3)?;
+    let memory = cftuv_canon::MemoryDelta {
+        factorizations: entries_from_py(&memory.getattr("factorizations")?, &bad, |pairs| pairs_from_py(pairs, &bad))?,
+        squarefree: entries_from_py(&memory.getattr("squarefree")?, &bad, |split| {
+            let split = split.cast::<PyTuple>().map_err(|_| bad())?;
+            if split.len() != 2 {
+                return Err(bad());
+            }
+            Ok((pyobj::ubig_from_int(&split.get_item(0)?)?, pyobj::ubig_from_int(&split.get_item(1)?)?))
+        })?,
+        supports: entries_from_py(&memory.getattr("supports")?, &bad, ubigs_from_py)?,
+        primes: ubigs_from_py(&memory.getattr("primes")?)?,
+    };
+    Ok(Some(UniverseRecord { universe, delta, price, memory }))
+}
+
+fn pairs_to_py<'py>(py: Python<'py>, pool: &Pool, pairs: &Pairs) -> PyResult<Bound<'py, PyTuple>> {
+    let mut items = Vec::with_capacity(pairs.len());
+    for (prime, power) in pairs {
+        items.push(PyTuple::new(py, [int_from_ubig(py, pool, prime)?, int_from_ibig(py, pool, &IBig::from(*power))?])?);
+    }
+    PyTuple::new(py, items)
+}
+
+fn ubigs_to_py<'py>(py: Python<'py>, pool: &Pool, values: &[cftuv_core::num::UBig]) -> PyResult<Bound<'py, PyTuple>> {
+    let items: Vec<Bound<'py, PyAny>> = values.iter().map(|value| int_from_ubig(py, pool, value)).collect::<PyResult<_>>()?;
+    PyTuple::new(py, items)
+}
+
+/// The record a miss writes: the same tuples of ints (and the `FactorizationMemoryDeltaV1`) the oracle stores.
+fn record_to_py<'py>(py: Python<'py>, classes: &Classes, record: &UniverseRecord) -> PyResult<Bound<'py, PyAny>> {
+    let pool = &classes.pool;
     let mut delta = Vec::with_capacity(record.delta.len());
     for (number, pairs) in &record.delta {
-        let mut items = Vec::with_capacity(pairs.len());
-        for (prime, power) in pairs {
-            items.push(PyTuple::new(py, [int_from_ubig(py, pool, prime)?, int_from_ibig(py, pool, &IBig::from(*power))?])?);
-        }
-        delta.push(PyTuple::new(py, [int_from_ubig(py, pool, number)?, PyTuple::new(py, items)?.into_any()])?);
+        delta.push(PyTuple::new(py, [int_from_ubig(py, pool, number)?, pairs_to_py(py, pool, pairs)?.into_any()])?);
     }
-    Ok(PyTuple::new(py, [PyTuple::new(py, universe)?.into_any(), PyTuple::new(py, delta)?.into_any()])?.into_any())
+    let price = match &record.price {
+        None => py.None().into_bound(py),
+        Some(price) => {
+            let articles: Vec<Bound<'py, PyAny>> = price.iter().map(|article| int_from_ibig(py, pool, &IBig::from(*article))).collect::<PyResult<_>>()?;
+            PyTuple::new(py, articles)?.into_any()
+        }
+    };
+    let memory = &record.memory;
+    let mut factorizations = Vec::with_capacity(memory.factorizations.len());
+    for (key, pairs) in &memory.factorizations {
+        factorizations.push(PyTuple::new(py, [int_from_ubig(py, pool, key)?, pairs_to_py(py, pool, pairs)?.into_any()])?);
+    }
+    let mut squarefree = Vec::with_capacity(memory.squarefree.len());
+    for (key, (outside, inside)) in &memory.squarefree {
+        let split = PyTuple::new(py, [int_from_ubig(py, pool, outside)?, int_from_ubig(py, pool, inside)?])?;
+        squarefree.push(PyTuple::new(py, [int_from_ubig(py, pool, key)?, split.into_any()])?);
+    }
+    let mut supports = Vec::with_capacity(memory.supports.len());
+    for (key, support) in &memory.supports {
+        supports.push(PyTuple::new(py, [int_from_ubig(py, pool, key)?, ubigs_to_py(py, pool, support)?.into_any()])?);
+    }
+    let memory = classes.memory_delta.bind(py).call1((
+        PyTuple::new(py, factorizations)?,
+        PyTuple::new(py, squarefree)?,
+        PyTuple::new(py, supports)?,
+        ubigs_to_py(py, pool, &memory.primes)?,
+    ))?;
+    Ok(PyTuple::new(py, [ubigs_to_py(py, pool, &record.universe)?.into_any(), PyTuple::new(py, delta)?.into_any(), price, memory])?.into_any())
 }

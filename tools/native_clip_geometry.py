@@ -129,13 +129,11 @@ def _observed(call: "nc.Call", writes: list) -> dict:
 class WholeRunner:
     """Нативный путь: один сеанс шва, заголовок грузит состояние ДО целиком (вызов самодостаточен)."""
 
-    def __init__(self, version=None) -> None:
+    def __init__(self) -> None:
         from cftuv_native import clip_seams as wire
 
         self.wire = wire
         self.runner = wire.SeamRunner()
-        #: `None`: the version of the running interpreter; a pair is the NEGATIVE control (the native emulation of another version).
-        self.version = version
 
     def native(self, op_blob: bytes, before: "nc.StateV1"):
         """`(Outcome, ответ, секунды целиком)` нативного пути на записанных входах; `Outcome.result` — `ClippedV1`."""
@@ -145,7 +143,7 @@ class WholeRunner:
         call = nc.decode_call(nc.OP_CLIP, op_blob, budget, None)
         header = wire.full_header(before.budget, before.known_primes, before.factorization, before.squarefree, before.prime_support)
         started = time.perf_counter()
-        arguments = wire.enc_geometry(call.args[0], call.kwargs, self.version)
+        arguments = wire.enc_geometry(call.args[0], call.kwargs)
         answer = self.runner.call("CLIP_GEOMETRY", arguments, header)
         if answer.unsupported:
             return None, answer, time.perf_counter() - started
@@ -343,7 +341,7 @@ def run_timing(paths: list, runner: WholeRunner, repeat: int = 3) -> tuple:
             equal = equal and run.equal
             best["oracle_cold"] = min(best["oracle_cold"], run.oracle_seconds)
             best["native_warm"] = min(best["native_warm"], run.native_compute_seconds or float("inf"))
-            fresh = WholeRunner(runner.version).compare(record)
+            fresh = WholeRunner().compare(record)
             equal = equal and fresh.equal
             best["native_cold"] = min(best["native_cold"], fresh.native_compute_seconds or float("inf"))
             best["oracle_warm"] = min(best["oracle_warm"], oracle_warm_seconds(record, before))

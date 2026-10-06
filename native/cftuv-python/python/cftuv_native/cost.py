@@ -46,7 +46,6 @@ call reloads the tables whole.
 from __future__ import annotations
 
 import functools
-import sys
 import threading
 import types
 from bisect import insort
@@ -224,6 +223,33 @@ class OpResult:
         if status == STATUS_DIVERGED:
             raise NativeDivisionDiverged("the generic division fallback did not finish")
         raise NativeMirrorError(f"native exact operation failed with status {status}")
+
+
+def _record_wire(found) -> list:
+    """The wire form of a store record `(universe, delta, price, FactorizationMemoryDeltaV1)` (the memory's squarefree entries flattened)."""
+
+    universe, delta, price, memory = found
+    squarefree = [[key, split[0], split[1]] for key, split in memory.squarefree]
+    return [list(universe), list(delta), price, [list(memory.factorizations), squarefree, list(memory.supports), list(memory.primes)]]
+
+
+def _record_of_wire(universe: tuple, record) -> tuple:
+    """The store record the oracle writes, from the extension's answer: tuples of ints all the way down and a `FactorizationMemoryDeltaV1`."""
+
+    _universe, delta, price, memory = record
+    factorizations, squarefree, supports, primes = memory
+    exact = _exact()
+    return (
+        universe,
+        tuple((number, tuple(tuple(pair) for pair in pairs)) for number, pairs in delta),
+        None if price is None else tuple(price),
+        exact.FactorizationMemoryDeltaV1(
+            tuple((key, tuple(tuple(pair) for pair in pairs)) for key, pairs in factorizations),
+            tuple((key, (outside, inside)) for key, outside, inside in squarefree),
+            tuple((key, tuple(support)) for key, support in supports),
+            tuple(primes),
+        ),
+    )
 
 
 def exhaustion_detail(budget, result: OpResult) -> str:
@@ -521,12 +547,12 @@ class CostMirror:
         outcome = coverage.CoverageOutcome
         self._session.bind_coverage(
             exact.SqrtSumV1, Fraction, coverage.CoverageV1, coverage.FaceCoverageV1,
-            outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT, StoreKey,
+            outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT, StoreKey, exact.FactorizationMemoryDeltaV1,
         )
         self._face_exact = faces.FaceOutcome.EXACT
         self._coverage_bound = True
 
-    def coverage_at(self, partition, alpha, work_budget=None, store=None):
+    def coverage_at(self, partition, alpha, work_budget=None, store=None, traces=None):
         """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, whole, with its exact side effects.
 
         The partition is converted once per session (kept by identity); per call only `alpha`, the memory sync (nothing
@@ -534,9 +560,20 @@ class CostMirror:
         `CoverageV1` itself and answers with plain tuples. The two refusals are the oracle's first two statements. Every
         effect (budget articles, counters, memory tables, the `store` entry) is applied before the result is returned or
         the exception of a refusal (an exhaustion, a face without a line) raised.
+
+        The budget is the one the caller passes: the product runs the coverage of a domain on a FORK of the preparation's budget
+        (`ExactWorkBudgetV1.forked("COVERAGE")`) and under `isolated_factorization_memory()` (a cold memory for the call, the caller's
+        memory restored after it); both wrap this call from the CALLER, and the mirror follows them like any other change of the tables
+        (the next sync in is a general diff). The `store` holds `(universe, delta, price, memory)` records: a hit of a budgeted call
+        pays the recorded price (a record without a price, or one that does not fit under the cap, is computed again and replaced).
+
+        `traces` (the signs and values `wavefront.coverage_template` records on its recording pass) is not produced by the extension: a
+        call that asks for them is refused by name (`NativePortUnsupported`), not answered without them.
         """
 
         pin.require("coverage")
+        if traces is not None:
+            raise pin.NativePortUnsupported("the native coverage does not record the sign traces of `wavefront.coverage_template`: run the oracle for a recording pass")
         started = perf_counter_ns()
         if not self._coverage_bound:
             self._bind_coverage()
@@ -599,8 +636,10 @@ class CostMirror:
         `UNBUDGETED_WORK`, the four memory tables) is applied before the result is returned or the oracle's exception raised:
         `ExactCanonicalizationWorkBudgetExhausted` (text from `budget.exhaustion_detail`), `MaterializationRefusal`, `OverflowError`,
         `ZeroDivisionError`, `ValueError`, `KeyError`. The port refuses by name, and before it touches any state, when the oracle moved past
-        the pin (`NativePortStale`), on an interpreter it does not emulate (`NativeUnsupportedPython`) and on an input it does not cover
-        (`NativePortUnsupported`: a sort of 64 nodes or more); there is no fallback to Python here.
+        the pin (`NativePortStale`), on an interpreter below the supported floor (`NativeUnsupportedPython`, see `pin.py`) and on an input
+        it does not cover (`NativePortUnsupported`); there is no fallback to Python here. The sort of `_ordered` and the float fold of
+        the offset normal are the kernel's explicit CPython 3.11 semantics (`_cpython311.py`), so nothing here depends on the version of
+        the interpreter that runs the host.
 
         `inert` is the chain station plan's set of face pairs (`frozenset[frozenset[str]]`, only read by a clip by faces): the extension
         reads it in the iteration order of the set the caller passed, which is the order the oracle's `_plan_groups` walks it in.
@@ -622,7 +661,7 @@ class CostMirror:
         called = perf_counter_ns()
         try:
             result, status, detail, counts, articles, bits, native = self._session.clip_geometry(
-                plane.triangles, points, cycles, polygons, code, seam, fans, flows, bool(by_faces), inert, tuple(sys.version_info[:2]),
+                plane.triangles, points, cycles, polygons, code, seam, fans, flows, bool(by_faces), inert,
                 None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, normals, real,
             )
         except BaseException:
@@ -769,8 +808,9 @@ class CostMirror:
         self.run_one("EXACT_RESET_MEMORY", (), None)
 
     def prime_universe_remembered(self, q_values, budget=None, store=None) -> tuple:
-        """`prime_universe_remembered(q_values, budget, store)` (the default `build`): the universe; on a store miss the
-        `(universe, delta)` record is written into `store` — only after the call succeeded, as Python does."""
+        """`prime_universe_remembered(q_values, budget, store)` (the default `build`): the universe; on a store miss (or a hit the budget
+        could not afford) the `(universe, delta, price, memory)` record is written into `store` — only after the call succeeded, as Python
+        does. A stored tuple of another length than four is no record: a miss, replaced."""
 
         q_values = tuple(q_values)
         if store is None:
@@ -778,12 +818,12 @@ class CostMirror:
         else:
             key = (PRIME_UNIVERSE_KEY, tuple(Fraction(value) for value in q_values))
             found = store.get(key)
-            argument = False if found is None else found
+            argument = False if found is None or len(found) != 4 else _record_wire(found)
         result = self.execute([("EXACT_PRIME_UNIVERSE", (list(q_values), argument))], budget)[0]
         if not result.ok:
             result.raise_for(budget)
         universe, record = result.value
         universe = tuple(universe)
         if record is not None:
-            store[key] = (universe, tuple((number, tuple(tuple(pair) for pair in pairs)) for number, pairs in record[1]))
+            store[key] = _record_of_wire(universe, record)
         return universe

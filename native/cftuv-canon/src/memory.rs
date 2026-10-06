@@ -17,7 +17,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use dashu_int::{IBig, UBig};
 
-use crate::budget::{Operation, WorkBudget};
+use crate::budget::{Operation, WorkBudget, ARTICLES};
 use crate::factor::{add_factor, coprime_basis, rho_factors, CanonError, Pairs};
 use crate::ordered::OrderedMap;
 
@@ -117,11 +117,15 @@ impl QValue {
     }
 }
 
-/// The `(universe, delta)` pair `prime_universe_remembered` writes into its `store`.
+/// The `(universe, delta, price, memory)` record `prime_universe_remembered` writes into its `store`: the universe, the factorizations the
+/// call gave or found (`delta`), the PRICE of the build (the difference of the six budget articles around it; `None` when it ran without a
+/// budget) and the memory delta it left (`FactorizationMemoryDeltaV1`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UniverseRecord {
     pub universe: Vec<UBig>,
     pub delta: Vec<(UBig, Pairs)>,
+    pub price: Option<[u64; ARTICLES]>,
+    pub memory: MemoryDelta,
 }
 
 /// One question asked of the memory (the cost-bearing ones): `prime_support(radicand)` or `squarefree_split(n)`. A computation that
@@ -605,11 +609,38 @@ impl CanonMemory {
         Ok(primes.into_iter().collect())
     }
 
+    /// `prime_universe_remembered(q_values, budget, store)` with the default `build`, against what the store holds under the key (`found`):
+    /// the universe and, when the call must write the store, the record to write (a miss, or a hit the budget could not afford). `budgeted` is
+    /// `budget is not None`.
+    ///
+    /// A record that carries no price is no hit for a budgeted call; a hit of a budgeted call REPLAYS the recorded price (`WorkBudget::replay`)
+    /// instead of spending nothing, and a price that does not fit under the cap is not replayed: the universe is computed anew with real
+    /// payment and the new record replaces the old one. A hit puts the recorded memory delta and factorizations back as if just computed.
+    pub fn prime_universe_remembered(
+        &mut self,
+        q_values: &[QValue],
+        budget: &mut WorkBudget,
+        budgeted: bool,
+        found: Option<&UniverseRecord>,
+    ) -> Result<(Vec<UBig>, Option<UniverseRecord>), CanonError> {
+        if let Some(record) = found {
+            let affordable = !budgeted || record.price.is_some_and(|price| budget.replay(price));
+            if affordable {
+                return Ok((self.prime_universe_hit(record), None));
+            }
+        }
+        let record = self.prime_universe_miss(q_values, budget, budgeted)?;
+        Ok((record.universe.clone(), Some(record)))
+    }
+
     /// `prime_universe_remembered`, store MISS: build, then record the universe and the factorizations the call
     /// added or found (`numbers`: keys new since the call began plus every `q` radicand that is in the table),
-    /// plus `(p, ((p, 1),))` for each universe prime. The caller writes the record into its `store` only on `Ok`.
-    pub fn prime_universe_miss(&mut self, q_values: &[QValue], budget: &mut WorkBudget) -> Result<UniverseRecord, CanonError> {
+    /// plus `(p, ((p, 1),))` for each universe prime, the price of the build and the memory delta it left. The caller writes the record into
+    /// its `store` only on `Ok`.
+    pub fn prime_universe_miss(&mut self, q_values: &[QValue], budget: &mut WorkBudget, budgeted: bool) -> Result<UniverseRecord, CanonError> {
         let before: HashSet<UBig> = self.factorization.keys().cloned().collect();
+        let marker = self.marker();
+        let spent_before = budget.articles();
         let universe = self.prime_universe_from_q_values(q_values, budget)?;
         let mut numbers: BTreeSet<UBig> =
             self.factorization.keys().filter(|key| !before.contains(*key)).cloned().collect();
@@ -627,12 +658,20 @@ impl CanonMemory {
         for prime in &universe {
             delta.push((prime.clone(), vec![(prime.clone(), 1)]));
         }
-        Ok(UniverseRecord { universe, delta })
+        let price = budgeted.then(|| {
+            let mut price = budget.articles();
+            for (article, was) in price.iter_mut().zip(spent_before) {
+                *article -= was;
+            }
+            price
+        });
+        Ok(UniverseRecord { universe, delta, price, memory: self.delta_since(&marker) })
     }
 
-    /// `prime_universe_remembered`, store HIT: put the recorded factorizations back as if just computed (no
-    /// budget spent), registering every prime of every recorded pair list.
+    /// `prime_universe_remembered`, store HIT (the price is the caller's, see [`CanonMemory::prime_universe_remembered`]): put the recorded
+    /// memory delta back, then the recorded factorizations, as if just computed, registering every prime of every recorded pair list.
     pub fn prime_universe_hit(&mut self, record: &UniverseRecord) -> Vec<UBig> {
+        self.replay_delta(&record.memory);
         for (number, pairs) in &record.delta {
             if !self.factorization.contains_key(number) {
                 self.insert_factorization(number, pairs);

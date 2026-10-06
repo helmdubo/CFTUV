@@ -39,7 +39,7 @@ static SEAM_WARM_ON: AtomicBool = AtomicBool::new(false);
 pub fn enable_warm() {
     SEAM_WARM_ON.store(true, Ordering::Relaxed);
 }
-use crate::seam::{bad, flag_of, float_list, inert_pairs_of, int, list, point_of, point_value, str_of, str_value, triangles_of, ubig_value, usize_of, version_of, Wire};
+use crate::seam::{bad, flag_of, float_list, inert_pairs_of, int, list, point_of, point_value, str_of, str_value, triangles_of, ubig_value, usize_of, Wire};
 
 fn keys_of(value: &Value, what: &str) -> Wire<Vec<String>> {
     list(value, what)?.iter().map(|key| str_of(key, what)).collect()
@@ -99,40 +99,32 @@ fn result_value(clipped: &Clipped) -> Value {
 
 /// Opcode 124. `extras` gets `[writes, compute nanoseconds]` whatever the outcome.
 pub fn clip_geometry_seam(args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<ClipResult<Value>> {
-    let version = version_of(&args[0], &args[1]);
-    let plane = Plane::new(triangles_of(&args[2])?);
+    let plane = Plane::new(triangles_of(&args[0])?);
     let mut points: Vec<(String, Point)> = Vec::new();
-    for entry in list(&args[3], "named points")? {
+    for entry in list(&args[1], "named points")? {
         let [key, found] = crate::seam::fixed::<2>(entry, "a named point")?;
         points.push((str_of(key, "a point key")?, point_of(found)?));
     }
-    let cycles: Vec<Vec<String>> = list(&args[4], "cycles")?.iter().map(|cycle| keys_of(cycle, "a cycle")).collect::<Wire<_>>()?;
-    let polygons: Vec<Vec<Vec<String>>> = list(&args[5], "polygons")?
+    let cycles: Vec<Vec<String>> = list(&args[2], "cycles")?.iter().map(|cycle| keys_of(cycle, "a cycle")).collect::<Wire<_>>()?;
+    let polygons: Vec<Vec<Vec<String>>> = list(&args[3], "polygons")?
         .iter()
         .map(|face| list(face, "a face")?.iter().map(|keys| keys_of(keys, "a polygon")).collect::<Wire<_>>())
         .collect::<Wire<_>>()?;
-    let law = law_of(&args[6])?;
+    let law = law_of(&args[4])?;
     let mut seam: Vec<(String, String)> = Vec::new();
-    for entry in list(&args[7], "seam pairs")? {
+    for entry in list(&args[5], "seam pairs")? {
         let [first, second] = crate::seam::fixed::<2>(entry, "a seam pair")?;
         seam.push((str_of(first, "a seam key")?, str_of(second, "a seam key")?));
     }
-    let (fans, flows) = (flags_of(&args[8], "fans")?, flags_of(&args[9], "flows")?);
-    let by_faces = flag_of(&args[10], "by_faces")?;
-    let inert = inert_pairs_of(&args[11])?;
-    let version = match version {
-        Ok(found) => found,
-        Err(error) => {
-            extras.extend([Value::List(Vec::new()), int(0u8)]);
-            return Ok(Err(error));
-        }
-    };
+    let (fans, flows) = (flags_of(&args[6], "fans")?, flags_of(&args[7], "flows")?);
+    let by_faces = flag_of(&args[8], "by_faces")?;
+    let inert = inert_pairs_of(&args[9])?;
     let input = ClipInput { points: &points, cycles: &cycles, polygons: &polygons, law, seam: &seam, fans: fans.as_deref(), flows: flows.as_deref(), by_faces, inert: &inert };
     let started = std::time::Instant::now();
     let ClipRun { result, writes } = if SEAM_WARM_ON.load(Ordering::Relaxed) {
-        SEAM_WARM.with(|warm| clip_geometry(ctx, &mut warm.borrow_mut(), version, &plane, &input))
+        SEAM_WARM.with(|warm| clip_geometry(ctx, &mut warm.borrow_mut(), &plane, &input))
     } else {
-        clip_geometry(ctx, &mut Warm::disabled(), version, &plane, &input)
+        clip_geometry(ctx, &mut Warm::disabled(), &plane, &input)
     };
     let elapsed = started.elapsed().as_nanos() as u64;
     let writes = writes.iter().map(|write| Value::List(vec![float_list(&write.position), float_list(&write.normal)])).collect();

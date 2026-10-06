@@ -12,7 +12,6 @@ use cftuv_clip::faces::{doubled_shoelace, orientation, Pt};
 use cftuv_clip::lift::blend;
 use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
 use cftuv_clip::point::Point;
-use cftuv_clip::pyemu::PyVersion;
 use cftuv_clip::tessellate::{convex_quad_ring, has_right_turn, triangulate_exact};
 use cftuv_core::exact::ExactCtx;
 use cftuv_core::num::IBig;
@@ -192,11 +191,11 @@ fn the_edge_constants_refuse_fractions_and_far_coordinates_and_the_cheap_sign_is
 }
 
 #[test]
-fn a_zero_blend_is_a_named_refusal_and_the_version_decides_the_sum() {
+fn a_zero_blend_is_a_named_refusal() {
     let normals = [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0], [0.0, 0.0, 0.0]];
-    let refused = blend(PyVersion::V311, &[0.5, 0.5, 0.0], &normals);
+    let refused = blend(&[0.5, 0.5, 0.0], &normals);
     assert!(matches!(refused, Err(ClipError::Refusal { outcome: "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", .. })));
-    let ok = blend(PyVersion::V313, &[0.2, 0.3, 0.5], &[[0.0, 0.0, 1.0], [0.0, 0.6, 0.8], [0.6, 0.0, 0.8]]).unwrap();
+    let ok = blend(&[0.2, 0.3, 0.5], &[[0.0, 0.0, 1.0], [0.0, 0.6, 0.8], [0.6, 0.0, 0.8]]).unwrap();
     let length = (ok[0] * ok[0] + ok[1] * ok[1] + ok[2] * ok[2]).sqrt();
     assert!((length - 1.0).abs() < 1e-15);
 }

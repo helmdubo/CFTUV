@@ -63,7 +63,11 @@ def native_version() -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`)."""
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`).
+
+    `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
+    answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
+    """
 
     return pin.native_status()
 
@@ -107,10 +111,10 @@ def default_mirror() -> cost.CostMirror:
         return _DEFAULT[0]
 
 
-def coverage_at(partition, alpha, work_budget=None, store=None):
-    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`)."""
+def coverage_at(partition, alpha, work_budget=None, store=None, traces=None):
+    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`; `traces` is refused by name)."""
 
-    return default_mirror().coverage_at(partition, alpha, work_budget, store)
+    return default_mirror().coverage_at(partition, alpha, work_budget, store, traces)
 
 
 def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()):
