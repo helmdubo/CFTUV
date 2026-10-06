@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from functools import cmp_to_key
 
 import sympy as sp
 
+from .._cpython311 import sorted_as_cpython311
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
 from . import symbolic_backend as _backend
@@ -267,8 +267,8 @@ def _contact_candidates_sympy(
             continue
         point = point_add(barrier.start, vector_scale(barrier_direction, parameter))
         result.append((alpha, station, point))
-    result.sort(
-        key=cmp_to_key(lambda left, right: exact_sign(left[0] - right[0]))
+    result[:] = sorted_as_cpython311(
+        result, lambda left, right: exact_sign(left[0] - right[0])
     )
     return tuple(result)
 
@@ -490,11 +490,9 @@ def resolve_component_alphas(
                         tuple((*current.diagnostics, diagnostic)),
                     )
             elif endpoint_events:
-                ordered_events = sorted(
+                ordered_events = sorted_as_cpython311(
                     endpoint_events,
-                    key=cmp_to_key(
-                        lambda left, right: exact_sign(left[0] - right[0])
-                    ),
+                    lambda left, right: exact_sign(left[0] - right[0]),
                 )
                 minimum_alpha = ordered_events[0][0]
                 simultaneous = [

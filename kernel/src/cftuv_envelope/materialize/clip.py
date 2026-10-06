@@ -111,9 +111,9 @@ import math
 from collections import Counter
 from dataclasses import dataclass, replace
 from fractions import Fraction
-from functools import cmp_to_key
 
 from .. import float_filter
+from .._cpython311 import sorted_as_cpython311
 from ..contracts.geometry_batch import DecalTopologyLawV1
 from ..exact_sqrt_sum import SqrtSumV1
 from ..exact_sqrt_sum_fused import product_added
@@ -660,7 +660,7 @@ class ClipStageV1:
         def compare(left: _Node, right: _Node) -> int:
             return direction * (left.point[axis] - right.point[axis]).sign(budget=self.budget)
 
-        return tuple(sorted(nodes, key=cmp_to_key(compare)))
+        return tuple(sorted_as_cpython311(nodes, compare))
 
     def edge_points(self, first: _Node, second: _Node):
         """Новые вершины ребра `first -> second` по порядку: кэш по паре, обратное — обратный порядок."""

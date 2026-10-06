@@ -285,8 +285,12 @@ def compute_row(patch_id: int, density, alpha_value=ALPHA_VALUE, alpha_text=ALPH
         }
     else:
         answer = _answer_of(prepared, domain)
-        named = getattr(prepared, "work_budget", None)
-        charged = () if named is None else named.counters()
+        # Цена вычисления - бюджет ПОКРЫТИЯ (копия состояния подготовки плюс покрытие); у дерева до PRICE-WITHOUT-HISTORY его нет,
+        # и цену копил бюджет самой подготовки.
+        charged = tuple(getattr(domain, "coverage_work", ()))
+        if not charged:
+            named = getattr(prepared, "work_budget", None)
+            charged = () if named is None else named.counters()
         if not charged:
             charged = tuple(
                 (name, value)

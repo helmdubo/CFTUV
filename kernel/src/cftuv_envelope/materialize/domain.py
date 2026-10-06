@@ -557,7 +557,7 @@ def _covered_regions(prepared, coverage, table, spans, budget, clock):
         if region.partition is None:
             problems.append(f"REGION_WITHOUT_PARTITION:{region.region_id}")
             continue
-        contours = region_contours(region, lattice_alpha, budget)
+        contours = region_contours(region, lattice_alpha, budget, covered)
         clock.lap("CONTOURS")
         plain, region_match = match_region_faces(
             covered, contours, spans.get(region.region_id, {})

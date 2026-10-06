@@ -17,11 +17,11 @@
 все ключи для него промахи, и ничего больше. Размер записи — длина пикла (его знают обе стороны); память развёрнутых объектов
 в несколько раз больше, поэтому предел (`WORKER_STORE_LIMIT_BYTES`) мал.
 
-ПОДГОТОВКА ИЗ ПАМЯТИ ТОЖЕ САМАЯ, ЧТО И СВЕЖЕРАЗВЁРНУТАЯ. Развёрнутая подготовка не полностью неизменна: бюджет точной работы
-транзакции домена (`work_budget`) тратится на покрытии и накапливается между задачами, а память точных предикатов и контактов
-растёт (чистые кэши: значение от неё не зависит). Бюджет перед каждой задачей возвращается в состояние момента разворота
-(`restore_budget`), поэтому задача на подготовке из памяти видит ровно то, что увидела бы на свежем разворачивании пикла; кэши
-значение не меняют, и тест держит равенство ответа побитово на нескольких alpha подряд.
+ПОДГОТОВКА ИЗ ПАМЯТИ ТОЖЕ САМАЯ, ЧТО И СВЕЖЕРАЗВЁРНУТАЯ. Бюджет точной работы подготовки (`work_budget`) вычисление домена не меняет:
+покрытие каждой задачи считает на копии его состояния после `PREPARE` (`ConveyorCoverageV1.work_budget`), поэтому возвращать бюджет
+в состояние разворота не нужно, а цена задачи не зависит от числа прежних задач на этой подготовке. Память точных предикатов и
+контактов растёт (чистые кэши: значение от неё не зависит, а запись цены платится как есть); тест держит равенство ответа и цены
+побитово на нескольких alpha подряд.
 """
 
 from __future__ import annotations
@@ -111,39 +111,27 @@ def capture_budget(prepared):
     return tuple(getattr(budget, name) for name in _slot_names(budget))
 
 
-def restore_budget(prepared, state) -> None:
-    """Возвращает бюджет подготовки в снятое `capture_budget` состояние (счётчики и стадия)."""
-
-    budget = getattr(prepared, "work_budget", None)
-    if budget is None or state is None:
-        return
-    for name, value in zip(_slot_names(budget), state):
-        setattr(budget, name, value)
-
-
 class PreparationStoreV1(PreparationLruV1):
-    """Развёрнутые подготовки воркера под ключами пиклов; `get` отдаёт подготовку с бюджетом момента разворота."""
+    """Развёрнутые подготовки воркера под ключами пиклов; `get` отдаёт подготовку как есть (бюджет вычислением не меняется)."""
 
     def __init__(self, limit: int = WORKER_STORE_LIMIT_BYTES) -> None:
         super().__init__(limit)
-        self._objects: dict[str, tuple] = {}
+        self._objects: dict[str, object] = {}
 
     def put(self, key: str, prepared, size: int) -> None:
         for gone in self.add(key, size):
             self._objects.pop(gone, None)
         if key in self:
-            self._objects[key] = (prepared, capture_budget(prepared))
+            self._objects[key] = prepared
         else:
             self._objects.pop(key, None)
 
     def get(self, key: str):
-        """Подготовка под `key` либо `PreparationMissing`; бюджет возвращён в состояние разворота."""
+        """Подготовка под `key` либо `PreparationMissing`."""
 
         if not self.touch(key):
             raise PreparationMissing(key)
-        prepared, state = self._objects[key]
-        restore_budget(prepared, state)
-        return prepared
+        return self._objects[key]
 
     def clear(self) -> None:
         super().clear()
@@ -193,5 +181,4 @@ __all__ = (
     "blob_key",
     "capture_budget",
     "prepared_of",
-    "restore_budget",
 )

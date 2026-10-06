@@ -11,13 +11,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
-from functools import cmp_to_key, lru_cache
+from functools import lru_cache
 import re
 from typing import Iterable
 
 import sympy as sp
 from mpmath import iv
 
+from .._cpython311 import sorted_as_cpython311
 from ..exact_sqrt_sum import SqrtSumV1
 from . import symbolic_backend as _backend
 from .native_exact import (
@@ -718,12 +719,10 @@ def sort_points_around(
     center: ExactPlanarPoint, points: Iterable[ExactPlanarPoint]
 ) -> tuple[ExactPlanarPoint, ...]:
     return tuple(
-        sorted(
+        sorted_as_cpython311(
             points,
-            key=cmp_to_key(
-                lambda left, right: compare_directions(
-                    point_sub(left, center), point_sub(right, center)
-                )
+            lambda left, right: compare_directions(
+                point_sub(left, center), point_sub(right, center)
             ),
         )
     )

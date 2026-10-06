@@ -211,8 +211,11 @@ def compute_domain(patch_id: int, probe: str | None = None):
         }
     else:
         seconds = time.perf_counter() - started
-        named = getattr(prepared, "work_budget", None)
-        charged = () if named is None else named.counters()
+        # Цена вычисления - бюджет ПОКРЫТИЯ; у дерева до PRICE-WITHOUT-HISTORY его нет, и цену копил бюджет подготовки.
+        charged = tuple(getattr(domain, "coverage_work", ()))
+        if not charged:
+            named = getattr(prepared, "work_budget", None)
+            charged = () if named is None else named.counters()
         if not charged:
             charged = tuple(
                 (name, value)
