@@ -2,8 +2,8 @@
 //! formats a text Python compares except the fixed ones of the oracle (listed here, one place).
 //!
 //! Every refusal is NAMED (rule 4 of `AGENTS.md`): there is no silent fallback. `Unsupported` is the one refusal
-//! the oracle does not have: the native code was asked for something it does not port (a sort of 64 or more
-//! elements, an interpreter version it cannot emulate); the host decides what to do, it is never an answer.
+//! the oracle does not have: the native code was asked for something it does not port (a corner grid beyond the lattice
+//! range, a hinge cell without a second triangle, ...); the host decides what to do, it is never an answer.
 
 use cftuv_core::exact::ExactError;
 use cftuv_core::pyfloat::Overflow;

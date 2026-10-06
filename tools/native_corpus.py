@@ -241,10 +241,15 @@ def decode_call(op: str, blob: bytes, budget, store) -> Call:
 
 
 def unpack_call(op: str, args: tuple, kwargs: dict) -> Call:
-    """Аргументы подменяемой функции -> `Call`: `_coverage_at(partition, alpha, budget, store)`, `clip_geometry(plane, budget, **)`."""
+    """Аргументы подменяемой функции -> `Call`: `_coverage_at(partition, alpha, budget, store[, traces])`, `clip_geometry(plane, budget, **)`.
+
+    `traces` (запись знаков для шаблона покрытия шага ширины, `materialize.step`) в вызов не входит: список лишь наполняется, ответ, цену и память он
+    не меняет, а воспроизведённый без него вызов считает то же самое."""
 
     if op == OP_COVERAGE:
-        partition, alpha, budget, store = args
+        partition, alpha, budget, store, *_traces = args
+        if len(_traces) > 1:
+            raise CorpusError("coverage._coverage_at takes at most five positional arguments")
         if kwargs:
             raise CorpusError("coverage._coverage_at is called with positional arguments only")
         return Call(op, (partition, alpha), {}, budget, store)
