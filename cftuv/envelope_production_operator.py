@@ -37,10 +37,16 @@ from __future__ import annotations
 
 import bmesh
 import bpy
-from bpy.props import FloatProperty, PointerProperty, StringProperty
+from bpy.props import EnumProperty, FloatProperty, PointerProperty, StringProperty
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
+from .envelope_kernel_backend import (
+    DEFAULT_KERNEL_BACKEND,
+    KERNEL_BACKEND_ITEMS,
+    backend_console_lines,
+    kernel_backend_of,
+)
 from .envelope_production_mesh import (
     DEFAULT_DECAL_MATERIAL,
     DEFAULT_DECAL_OFFSET,
@@ -78,6 +84,16 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         description=(
             "Material of the single slot; created when missing and never "
             "overwritten when it exists"
+        ),
+    )
+    kernel_backend: EnumProperty(
+        name="Kernel backend",
+        items=KERNEL_BACKEND_ITEMS,
+        default=DEFAULT_KERNEL_BACKEND,
+        description=(
+            "Which kernel computes the decal: the Python reference or the native (Rust) one. The answer is "
+            "bitwise the same; a domain the native kernel cannot compute is computed in Python and named in "
+            "the console. Applies to the next Build Decal Mesh"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")
@@ -148,6 +164,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         source_obj = context.active_object
         mesh_settings.status = "Building decal mesh..."
         mesh_settings.timing = ""
+        kernel_backend = kernel_backend_of(mesh_settings)
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
         selected = [edge.index for edge in source_bm.edges if edge.select]
@@ -187,6 +204,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 developable_stretch_budget=envelope_stretch_budget(settings.envelope_debug_max_stretch),
                 silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,
+                kernel_backend=kernel_backend,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
             mesh_settings.status = f"Decal mesh failed: {type(exc).__name__}"
@@ -222,6 +240,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 stretch_percent=int(settings.envelope_debug_max_stretch),
                 dissolve_percent=float(settings.envelope_debug_dissolve_uv_tolerance),
                 width=float(settings.envelope_debug_alpha),
+                kernel_backend=kernel_backend,
             )
         except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку
             controller.width_build = None
@@ -233,7 +252,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
-        for line in receipt_console_lines(receipt, run.results):
+        for line in (*backend_console_lines(run.results, run.kernel_backend), *receipt_console_lines(receipt, run.results)):
             print(line, flush=True)
         self.report(
             {receipt_report_level(receipt)},

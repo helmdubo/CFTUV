@@ -326,6 +326,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "density",
         "budget",
         "slide",
+        "kernel_backend",
         "pool",
         "cancel",
         "exc",
@@ -725,6 +726,12 @@ MODULE_LINE_ALLOWANCE = {
     # `validation_chain_station.py` (два вызова и одна строка импорта здесь), а место оплачено сведением семистрочного импорта
     # `validation_issues` в одну строку. Число опущено до фактического: храповик затягивается там, где освободилось место.
     "kernel/src/cftuv_envelope/validation.py": 1750,
+    # 1987 -> 2010. +23 за выбор бэкенда ядра (KERNEL-BACKEND): бэкенд едет в прогон, задачу пула и ключи кэшей результата
+    # (`_result_key`, `_slot`, `_binding`, ключ записи сборки, ключ содержимого), запись бэкенда лежит в результате домена, а
+    # строка журнала и сама настройка живут в `envelope_kernel_backend.py` (здесь — декоратор `produce_domain`, пять мест проводки
+    # и два поля прогона). Файл стоял на 13 строках от общего потолка; вынести кусок, не трогая десяток имён, которые
+    # импортируют тесты и инструменты, нечем. Число поднято осознанно, до фактического.
+    "cftuv/envelope_production_export.py": 2010,
 }
 
 
@@ -1364,3 +1371,116 @@ def test_only_the_preparation_switches_the_stage_of_the_domain_budget():
         + "\n".join(offenders)
         + "\n\nПокрытию и материализации - `work_budget.forked(<стадия>)`, а не `at_stage`."
     )
+
+
+# --------------------------------------------------------------------------
+# 12. Нативное ядро видно остальному коду только через `backend.py`
+# --------------------------------------------------------------------------
+# KERNEL-BACKEND (DECISIONS 2026-10-06). Нативный бэкенд — переключатель, а не вторая реализация, и тихого отката на Python у него
+# нет: любое его исключение из перечня названо и записано в журнал домена. Это держится на ОДНОМ месте, где нативное ядро
+# загружается, и где его отсутствие превращается в именованный исход. Второй импортёр (ядро, хост, инструмент, тест) мог бы
+# вызвать нативную операцию мимо журнала, и домен, посчитанный не тем бэкендом, остался бы без имени.
+
+NATIVE_PACKAGE = "cftuv_native"
+NATIVE_IMPORTER = "kernel/src/cftuv_envelope/backend.py"
+_DYNAMIC_IMPORTS = frozenset({"import_module", "__import__"})
+
+
+def _native_imports(tree: ast.AST) -> list[tuple[int, str]]:
+    """`(строка, форма)` импортов `cftuv_native`: оператором либо строковым аргументом `import_module`/`__import__`."""
+
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [
+                (node.lineno, f"import {alias.name}")
+                for alias in node.names
+                if alias.name.split(".")[0] == NATIVE_PACKAGE
+            ]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module.split(".")[0] == NATIVE_PACKAGE:
+                found.append((node.lineno, f"from {node.module} import ..."))
+        elif isinstance(node, ast.Call) and node.args:
+            function = node.func
+            name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
+            first = node.args[0]
+            if (
+                name in _DYNAMIC_IMPORTS
+                and isinstance(first, ast.Constant)
+                and isinstance(first.value, str)
+                and first.value.split(".")[0] == NATIVE_PACKAGE
+            ):
+                found.append((node.lineno, f"{name}({first.value!r})"))
+    return sorted(found)
+
+
+def test_the_native_import_rule_flags_every_form_of_import_and_passes_a_clean_module():
+    spoiled = (
+        "import cftuv_native\n"
+        "import cftuv_native.codec as codec\n"
+        "from cftuv_native import coverage_at\n"
+        "import importlib\n"
+        "importlib.import_module('cftuv_native')\n"
+        "__import__('cftuv_native.cost')\n"
+    )
+    honest = (
+        "import sys\n"
+        "from cftuv_envelope import backend\n"
+        "sys.modules['cftuv_native'] = None\n"
+        "importlib.import_module('cftuv_envelope.backend')\n"
+        "native = 'cftuv_native'\n"
+    )
+
+    assert [line for line, _form in _native_imports(ast.parse(spoiled))] == [1, 2, 3, 5, 6]
+    assert _native_imports(ast.parse(honest)) == []
+
+
+def test_only_the_backend_module_imports_the_native_package():
+    scanned = (
+        _python_files(HOST_PACKAGE)
+        + _python_files(KERNEL_SOURCE)
+        + _python_files(TOOLS)
+        + _python_files(TESTS)
+        + _python_files(REPO_ROOT / "kernel" / "tests")
+    )
+    offenders = [
+        f"{_relative(path)}:{line} {form}"
+        for path in scanned
+        if _relative(path) != NATIVE_IMPORTER
+        for line, form in _native_imports(_parse(path))
+    ]
+    assert not offenders, (
+        "нативное ядро импортируется мимо `cftuv_envelope/backend.py`:\n"
+        + "\n".join(offenders)
+        + "\n\nИспользуйте `backend.native_status()` и `backend.use_backend(...)`: откат на Python обязан быть назван."
+    )
+    assert _native_imports(_parse(REPO_ROOT / NATIVE_IMPORTER)), "backend.py перестал быть импортёром cftuv_native"
+
+
+# --------------------------------------------------------------------------
+# 13. Установщики подменяют каталог, а не стирают установленное
+# --------------------------------------------------------------------------
+# Прежний `Deploy` стирал старую копию аддона целиком и копировал новую. Когда воркеры пула открытого Blender держали .pyc ядра,
+# стирание обрывалось на середине: штамп установки исчезал, аддон оставался наполовину стёртым. Теперь новая копия собирается и
+# сверяется в стороне, занятые файлы называются ДО подмены, а старый каталог уходит одним переименованием
+# (`tools/install_common.ps1`). Правило держит форму: оба установщика зовут `Get-LockedFiles` и `Install-Directories` и не стирают
+# целевой каталог напрямую.
+
+_INSTALLERS = ("install_to_blender.ps1", "install_native_to_blender.ps1")
+
+
+def test_the_installers_swap_directories_and_never_erase_the_installed_copy_first():
+    problems: list[str] = []
+    for name in _INSTALLERS:
+        text = (TOOLS / name).read_text(encoding="utf-8")
+        for required in ("install_common.ps1", "Get-LockedFiles", "Install-Directories"):
+            if required not in text:
+                problems.append(f"tools/{name}: нет {required}")
+        for forbidden in ("Remove-Item -Recurse -Force $target", "Remove-Item -Recurse -Force $packageTarget"):
+            if forbidden in text:
+                problems.append(f"tools/{name}: стирает установленное напрямую ({forbidden})")
+    common = (TOOLS / "install_common.ps1").read_text(encoding="utf-8")
+    for required in ("Directory]::Move", "function Undo-Install", "function Commit-Install"):
+        if required not in common:
+            problems.append(f"tools/install_common.ps1: нет {required}")
+    assert not problems, "установщик теряет прежнюю установку при сбое:\n" + "\n".join(problems)

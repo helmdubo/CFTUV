@@ -86,6 +86,7 @@ from .envelope_content_key import result_slot
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_host_labels import record_host_tokens
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, backend_identity_of, backend_timing_suffix, with_kernel_backend
 from .envelope_production_weld import (
     COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
     COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
@@ -306,6 +307,8 @@ class ProductionDomainResultV1:
     #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
     #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
     labels: object | None = field(default=None, compare=False, repr=False)
+    #: Что нативный бэкенд сделал с доменом (`BackendRecordV1`: кто посчитал, названный откат на Python) либо `None` (`PYTHON`).
+    backend_record: object | None = field(default=None, compare=False, repr=False)
     #: `DomainViewV1` (`envelope_production_view`), посчитанный воркером, и пикл `(батч, нормали вершин)` отложенного результата.
     #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается).
     view: object | None = field(default=None, init=False, compare=False, repr=False)
@@ -456,6 +459,7 @@ def _summary_normal(vertex_normals):
     return LocalVector3V1(*(axis / length for axis in total))
 
 
+@with_kernel_backend
 def produce_domain(
     patch_id: int,
     domain_id: str,
@@ -615,6 +619,7 @@ def solve_cold_production_task(task):
         uv_policy_id=task.cold.uv_policy_id,
         topology_law=task.cold.topology_law,
         defer=True,
+        backend=task.backend,
     )
     return inputs.result(
         prepared=prepared,
@@ -651,6 +656,7 @@ def solve_production_task(task):
             uv_policy_id=production.uv_policy_id,
             topology_law=production.topology_law,
             defer=True,
+            backend=task.backend,
         )
     )
     if production.relabel is not None:
@@ -756,6 +762,9 @@ class _RunInputsV1:
     #: прогона, и переносы, которых не вышло (`(патч, причина)`).
     #: `threading.Event` заказа остановки либо `None` (кнопка не отменяется).
     cancel: object = None
+    #: Бэкенд ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
+    backend: str = DEFAULT_KERNEL_BACKEND
+    backend_id: str = DEFAULT_KERNEL_BACKEND
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
@@ -796,6 +805,7 @@ def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
         run.uv_policy_id,
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
+        run.backend_id,
     )
 
 
@@ -826,6 +836,7 @@ def _slot(run: _RunInputsV1) -> tuple:
         run.uv_policy_id,
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
+        run.backend_id,
     )
 
 
@@ -881,6 +892,7 @@ def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
         run.topology_export.developable_stretch_budget,
         run.topology_export.silhouette_uv_slide,
         _band_key(run, patch_id),
+        run.backend_id,
     )
 
 
@@ -920,7 +932,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id))
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend)
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
@@ -985,6 +997,7 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
         run.uv_policy_id,
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
+        run.backend_id,
     )
     return _DomainEntryV1(
         patch_id,
@@ -1108,6 +1121,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
             run.alpha_text,
             uv_policy_id=run.uv_policy_id,
             topology_law=run.topology_law,
+            backend=run.backend,
         ),
         placement,
     )
@@ -1262,6 +1276,7 @@ def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
                     run.alpha_text,
                     uv_policy_id=run.uv_policy_id,
                     topology_law=run.topology_law,
+                    backend=run.backend,
                 ),
                 placement.get(item.domain_id, PLACEMENT_PARENT),
             )
@@ -1305,6 +1320,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             entry_of[domain_id].selected,
             production=_production_input(run, entry_of[domain_id], blob),
             affinity=domain_id,
+            backend=run.backend,
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
@@ -1323,6 +1339,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
                 export=entry.export,
                 cold=laws,
                 affinity=entry.domain_id,
+                backend=run.backend,
             )
         )
     return tasks
@@ -1451,6 +1468,7 @@ class ProductionRunV1:
     wall_seconds: float
     #: `((патч, (рёбра хоста, чью полосу строит домен патча), ...), ...)`: ровно то, что превью ширины рисует.
     selected_by_patch: tuple = ()
+    kernel_backend: str = DEFAULT_KERNEL_BACKEND  # бэкенд ядра, заказанный прогоном
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -1600,6 +1618,7 @@ def run_production(
     silhouette_uv_slide=None,
     cancel=None,
     quiesce: bool = True,
+    kernel_backend: str = DEFAULT_KERNEL_BACKEND,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -1660,6 +1679,8 @@ def run_production(
         controller.worker_export_hooks(topology_export, profile),
         profile,
         cancel=cancel,
+        backend=kernel_backend,
+        backend_id=backend_identity_of(kernel_backend),
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -1690,6 +1711,7 @@ def run_production(
             (int(patch_id), tuple(sorted(run.selected_by_domain[_domain_of(run, patch_id)])))
             for patch_id in run.patch_ids
         ),
+        kernel_backend=run.backend,
     )
 
 
@@ -1858,6 +1880,7 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"built {builds} | results cached {cached}, computed {computed}"
         f"{_content_timing_suffix(run, content)}"
         f"{_clip_memo_timing_suffix(run)}"
+        f"{backend_timing_suffix(run.results, run.kernel_backend)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
 

@@ -585,6 +585,8 @@ def _content_run(controller, alpha):
         alpha_text=str(float(Fraction(alpha))),
         uv_policy_id=PRODUCTION_UV_POLICY,
         topology_law=PRODUCTION_TOPOLOGY_LAW,
+        backend="PYTHON",
+        backend_id="PYTHON",
         registered=[],
     )
 
@@ -595,7 +597,7 @@ def test_a_stored_preparation_on_a_map_tightened_for_another_alpha_is_dropped_no
 
     tightened, _plain = _tightened_certificate(Fraction(3, 10))
     monkeypatch.setattr(chart_band, "band_certificate_type", lambda: tightened)
-    monkeypatch.setattr(content_key, "domain_content_key", lambda export, selected, band: "content-key")
+    monkeypatch.setattr(content_key, "domain_content_key", lambda export, selected, band, backend: "content-key")
     controller = session.EnvelopeDebugSessionController()
     prepared = SimpleNamespace(context=SimpleNamespace(snapshot=_snapshot_of(tightened)))
 

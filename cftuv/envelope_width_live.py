@@ -90,6 +90,8 @@ class LastProductionBuildV1:
     width: float
     #: «Dissolve UV tolerance» (проценты ширины), с которой кнопка записала меш.
     dissolve_percent: float = 0.390625
+    #: Бэкенд ядра кнопки: живая ширина считает тем же (смена настройки действует с ближайшей кнопки).
+    kernel_backend: str = "PYTHON"
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +149,7 @@ def remember_build(
     stretch_percent: int,
     width: float,
     dissolve_percent: float = 0.390625,
+    kernel_backend: str = "PYTHON",
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -163,6 +166,7 @@ def remember_build(
         preview_inputs=build_preview_inputs(bundle.patch_surface, run.selected_by_patch),
         width=float(width),
         dissolve_percent=float(dissolve_percent),
+        kernel_backend=str(kernel_backend),
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -440,6 +444,7 @@ def _begin(controller, request):
     density = record.density
     budget = envelope_stretch_budget(record.stretch_percent)
     slide = envelope_dissolve_uv_slide(record.dissolve_percent)
+    kernel_backend = record.kernel_backend
 
     def compute(cancel):
         try:
@@ -456,6 +461,7 @@ def _begin(controller, request):
                 domain_pool=pool,
                 cancel=cancel,
                 quiesce=False,
+                kernel_backend=kernel_backend,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc
