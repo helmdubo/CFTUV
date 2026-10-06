@@ -204,9 +204,7 @@ def check_call(mirror, op, blob, before, label: str, *, expected=None):
 
 
 def _corpus_directory() -> Path | None:
-    base = Path(os.environ.get(nc.CORPUS_ENVIRONMENT, nc.DEFAULT_CORPUS_BASE))
-    found = sorted(path.parent for path in base.glob("*/index.json"))
-    return found[-1] if found else None
+    return nc.matching_corpus()
 
 
 def _field_rows():
@@ -221,7 +219,7 @@ CORPUS_DIRECTORY, FIELD_ROWS = _field_rows()
 FIELD_PARAMS = (
     [pytest.param(row, id=row["id"] + ("-derived" if row.get("derived") else "")) for row in FIELD_ROWS]
     if FIELD_ROWS
-    else [pytest.param(None, marks=pytest.mark.skip(reason="корпус не собран (E:/cftuv_native_corpus/*/index.json): настоящие вызовы не сверены"))]
+    else [pytest.param(None, marks=pytest.mark.skip(reason=nc.describe_missing_corpus() + ": настоящие вызовы не сверены"))]
 )
 
 

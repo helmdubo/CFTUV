@@ -211,6 +211,7 @@ def fuzz_cases(seed: int, count: int):
         if kwargs is None:
             continue
         cap = rng.choice((0, 1, 2, 3, 5, 8, 13, 21, 55, 144)) if rng.random() < 0.2 else None
+        kwargs = generated.with_plan(f"fuzz-{seed}-{number}", kwargs, lift)
         yield f"fuzz-{seed}-{number:04d}", lift, kwargs, cap
 
 

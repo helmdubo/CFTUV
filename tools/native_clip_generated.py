@@ -204,6 +204,43 @@ def random_call(rng: random.Random, plane, index: int, *, noise: float, int_coef
     }
 
 
+def plan_pairs(rng: random.Random, plane) -> frozenset:
+    """Пары граней плана станций цепей (`CHAIN_STATION_PLAN_V1`): соседние (общие углы карты), далёкие и пара с гранью, которой в подъёме нет.
+
+    Резка по граням склеивает ими грани в группы; пара чужой грани и пара граней без общего ребра законны и тоже должны давать побитово тот же ответ.
+    """
+
+    corners: dict = {}
+    for triangle in plane.triangles:
+        if triangle.face:
+            corners.setdefault(triangle.face, set()).update(triangle.chart)
+    faces = sorted(corners)
+    if len(faces) < 1:
+        return frozenset()
+    adjacent = [(a, b) for index, a in enumerate(faces) for b in faces[index + 1 :] if len(corners[a] & corners[b]) >= 2]
+    pairs = set()
+    for _ in range(rng.choice((1, 1, 2, 3, 5))):
+        roll = rng.random()
+        if roll < 0.65 and adjacent:
+            pairs.add(frozenset(rng.choice(adjacent)))
+        elif roll < 0.85 and len(faces) > 1:
+            pairs.add(frozenset(rng.sample(faces, 2)))
+        else:
+            pairs.add(frozenset((rng.choice(faces), "elsewhere")))
+    return frozenset(pairs)
+
+
+def with_plan(seed, kwargs: dict, plane) -> dict:
+    """`kwargs` с парами плана на ~40% вызовов по граням (отдельный генератор: прежняя последовательность случайных чисел не сдвигается)."""
+
+    rng = random.Random(f"plan-{seed}")
+    if kwargs.get("by_faces") and rng.random() < 0.4:
+        pairs = plan_pairs(rng, plane)
+        if pairs:
+            return {**kwargs, "inert": pairs}
+    return kwargs
+
+
 def special_calls(rng: random.Random) -> list:
     """Нарочно собранные вызовы: самопересечение, дубликаты, огромные координаты, вершина вне карты, коэффициенты `int`."""
 
@@ -286,5 +323,6 @@ def generate(recorder, count: int = 220, seed: int = 20261006) -> Counter:
         if kwargs is None:
             continue
         starve = rng.random() < 0.25
+        kwargs = with_plan(f"{seed}-{number}", kwargs, lift)
         outcomes[_run(recorder, f"{plane_name}-{number:03d}", lift, kwargs, _budget(rng, number, starve), warm=rng.random() < 0.3)] += 1
     return outcomes

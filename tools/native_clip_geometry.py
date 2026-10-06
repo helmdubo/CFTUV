@@ -35,11 +35,13 @@ import native_clip_generated as generated  # noqa: E402
 import native_clip_seams as seams  # noqa: E402
 import native_corpus as nc  # noqa: E402
 
-FIELD_CORPUS = "c68b1df2"
-
-
 def corpus_base() -> Path:
-    return Path(os.environ.get(nc.CORPUS_ENVIRONMENT) or nc.DEFAULT_CORPUS_BASE) / FIELD_CORPUS
+    """Полевой корпус ЭТОГО ядра (`nc.matching_corpus`); нет его — несуществующий путь с именем ядра: `.exists()` ложно, причина названа."""
+
+    found = nc.matching_corpus()
+    if found is not None:
+        return found
+    return Path(os.environ.get(nc.CORPUS_ENVIRONMENT) or nc.DEFAULT_CORPUS_BASE) / f"<ядро {nc.clip_memo.kernel_code_identity()}: корпуса нет>"
 
 
 def field_paths(stride: int = 1) -> list:
@@ -214,7 +216,7 @@ def fresh_calls(seed: int, count: int):
         )
         if kwargs is not None:
             cap = rng.choice((None, None, None, 0, 1, 2, 4, 8, 16, 34, 70)) if rng.random() < 0.3 else None
-            yield f"{name}-{number:03d}", lift, kwargs, cap
+            yield f"{name}-{number:03d}", lift, generated.with_plan(f"fresh-{seed}-{number}", kwargs, lift), cap
 
 
 def compare_generated(runner, label: str, lift, kwargs: dict, cap):

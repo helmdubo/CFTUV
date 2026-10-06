@@ -39,13 +39,13 @@ import pytest  # noqa: E402
 import native_corpus as nc  # noqa: E402
 
 OUT_ENVIRONMENT = "CFTUV_SYNTHETIC_CLIP_OUT"
-FIELD_CORPUS = "c68b1df2"
 INDEX_SCHEMA = "cftuv.native-corpus.synthetic-clip.v1"
 
 #: Тесты ядра, которые доходят до резки (`clip_geometry`, стадия, швы). Остальные тесты ядра не пишутся: плагин пишет только то, что вызвано.
 TEST_FILES = (
     "test_clip_law.py",
     "test_clip_faces_law.py",
+    "test_clip_plan_inert.py",
     "test_clip_snap.py",
     "test_clip_speed_paths.py",
     "test_materialize_tessellate.py",
@@ -59,13 +59,17 @@ TEST_FILES = (
     "test_offset_normal_opposition.py",
     "test_materialize_full_path.py",
     "test_silhouette_topology.py",
+    "test_chain_station_plan.py",
+    "test_station_plan_silhouette.py",
     "test_developable_materialize.py",
     "test_near_planar_surface_law.py",
 )
 
 
 def default_out() -> Path:
-    base = Path(os.environ.get(nc.CORPUS_ENVIRONMENT) or nc.DEFAULT_CORPUS_BASE) / FIELD_CORPUS
+    """`<полевой корпус ЭТОГО ядра>/synthetic_clip`; полевого корпуса под это ядро нет — `<база>/<HEAD>/synthetic_clip` (синтетический корпус не зависит от поля)."""
+
+    base = nc.matching_corpus() or nc.corpus_directory(nc.git_head())
     return Path(os.environ.get(OUT_ENVIRONMENT) or base / "synthetic_clip")
 
 
@@ -116,8 +120,38 @@ def pytest_configure(config) -> None:
         _TRACER.start()
 
 
-def _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, by_faces) -> dict:
-    return {"points": points, "cycles": cycles, "polygons": polygons, "law": law, "seam": seam, "fans": fans, "flows": flows, "by_faces": by_faces}
+def _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()) -> dict:
+    """Входы `clip_geometry`; `inert` (пары плана станций цепей) пишется, только когда он есть: записи без плана остаются в прежней форме."""
+
+    kwargs = {"points": points, "cycles": cycles, "polygons": polygons, "law": law, "seam": seam, "fans": fans, "flows": flows, "by_faces": by_faces}
+    if inert:
+        kwargs["inert"] = inert
+    return kwargs
+
+
+_ALIASES: list | None = None
+
+
+def _aliases_of(*originals) -> list:
+    """`[(модуль теста, имя, номер оригинала)]`: модули тестов, которые импортировали функцию резки ПО ИМЕНЕ (`from ...clip import _cut_by_faces`).
+
+    Подмена атрибута модуля `clip` их не задевает, поэтому обёртка ставится и на эти имена: иначе вызовы, которые тесты делают напрямую
+    (`test_clip_plan_inert.py`), в корпус не попадут. Список строится один раз за прогон: все модули тестов уже импортированы сбором.
+    """
+
+    global _ALIASES
+    if _ALIASES is None:
+        found = []
+        for module in list(sys.modules.values()):
+            name = getattr(module, "__name__", "") or ""
+            if not name.startswith("test_"):
+                continue
+            for attribute, value in list(vars(module).items()):
+                for number, original in enumerate(originals):
+                    if value is original:
+                        found.append((module, attribute, number))
+        _ALIASES = found
+    return _ALIASES
 
 
 @contextlib.contextmanager
@@ -131,21 +165,21 @@ def _capturing(collector: _Collector):
     original_init, original_run = clip.ClipStageV1.__init__, clip.ClipStageV1.run
     clip_memo.MEMO.enabled = False
 
-    def geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces):
+    def geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()):
         if collector.depth == 0:
-            collector.capture("clip_geometry", plane, budget, _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, by_faces))
+            collector.capture("clip_geometry", plane, budget, _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, by_faces, inert))
         collector.depth += 1
         try:
-            return original_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces)
+            return original_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces, inert=inert)
         finally:
             collector.depth -= 1
 
-    def cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows):
+    def cut_by_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows=None, inert=frozenset()):
         if collector.depth == 0:
-            collector.capture("_cut_by_faces", plane, budget, _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, True))
+            collector.capture("_cut_by_faces", plane, budget, _clip_kwargs(points, cycles, polygons, law, seam, fans, flows, True, inert))
         collector.depth += 1
         try:
-            return original_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows)
+            return original_faces(plane, budget, points, cycles, polygons, law, seam, fans, flows, inert)
         finally:
             collector.depth -= 1
 
@@ -174,11 +208,17 @@ def _capturing(collector: _Collector):
         finally:
             collector.depth -= 1
 
+    aliases = _aliases_of(original_geometry, original_faces)
+    wrappers = (geometry, cut_by_faces)
     clip.clip_geometry, clip._cut_by_faces = geometry, cut_by_faces
     clip.ClipStageV1.__init__, clip.ClipStageV1.run = init, run
+    for module, attribute, number in aliases:
+        setattr(module, attribute, wrappers[number])
     try:
         yield
     finally:
+        for module, attribute, number in aliases:
+            setattr(module, attribute, (original_geometry, original_faces)[number])
         clip.clip_geometry, clip._cut_by_faces = original_geometry, original_faces
         clip.ClipStageV1.__init__, clip.ClipStageV1.run = original_init, original_run
 

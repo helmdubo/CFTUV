@@ -241,7 +241,7 @@ def _enc_chord(enc, v) -> list:
 
 def _enc_build(enc, v) -> list:
     memo = v["memo"]
-    return [enc.enc_triangles(v["triangles"]), [enc.enc_key(key) for key in v["split"]], enc.enc_memo({} if memo is None else memo)]
+    return [enc.enc_triangles(v["triangles"]), [enc.enc_key(key) for key in v["split"]], enc.enc_memo({} if memo is None else memo), enc.enc_inert(v["inert"])]
 
 
 def _plan_methods(recorder: SeamRecorder, enc, method) -> None:

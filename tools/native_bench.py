@@ -77,13 +77,9 @@ def _arguments():
 
 
 def default_corpus() -> Path:
-    """Корпус под отпечаток кода ЭТОГО ядра (HEAD ветки уходит вперёд коммитами нативного кода, ядро питона — нет)."""
+    """Корпус под отпечаток кода ЭТОГО ядра (HEAD ветки уходит вперёд коммитами нативного кода, ядро питона — нет); нет его — каталог по HEAD (замер откажет)."""
 
-    base = nc.corpus_directory("x" * 8).parent
-    identity = nc.clip_memo.kernel_code_identity()
-    found = [path for path in sorted(base.glob("*/index.json"), key=lambda item: item.stat().st_mtime, reverse=True)
-             if nc.load_index(path.parent)["kernel_identity"] == identity]
-    return found[0].parent if found else nc.corpus_directory(nc.git_head())
+    return nc.matching_corpus() or nc.corpus_directory(nc.git_head())
 
 
 def measure_record(root: Path, row: dict, repeat: int) -> dict:

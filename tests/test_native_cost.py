@@ -873,9 +873,7 @@ def test_a_budget_that_is_already_exhausted_fails_at_the_first_spend(mirror):
 
 
 def _corpus_directory() -> Path | None:
-    base = Path(os.environ.get("CFTUV_NATIVE_CORPUS", "E:/cftuv_native_corpus"))
-    found = sorted(path.parent for path in base.glob("*/index.json"))
-    return found[-1] if found else None
+    return _load_corpus_tool().matching_corpus()
 
 
 def _load_corpus_tool():
@@ -995,7 +993,7 @@ def _pick_records(directory: Path, per_group: int) -> list:
 def test_real_calls_of_coverage_and_clip_cost_what_python_costs(mirror):
     directory = _corpus_directory()
     if directory is None:
-        pytest.skip("корпус не собран (E:/cftuv_native_corpus/*/index.json): настоящие операнды не сверены")
+        pytest.skip(_load_corpus_tool().describe_missing_corpus() + ": настоящие операнды не сверены")
     tool = _load_corpus_tool()
     kinds: dict = {}
     conjugated = 0

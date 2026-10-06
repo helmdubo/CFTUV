@@ -22,6 +22,7 @@ import os
 import pickle
 import sys
 from collections import Counter
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,116 @@ def test_the_special_calls_through_the_dropin_equal_the_oracle(runner):
     exceptions = {name: run.expected.exception for name, run in runs}
     assert exceptions["a-polygon-key-no-vertex-has"] == ("KeyError", "'node:9'")
     assert exceptions["opposed-normals-at-the-midpoint"][1].startswith("SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE: ")
+
+
+# --------------------------------------------------------------------------
+# План станций цепей (`inert`): рёбра между гранями, которые резка не режет
+# --------------------------------------------------------------------------
+
+
+def _lift_of_faces(faces):
+    """Подъём по граням `[(имя, карта, 3D углов, ((i, j, k), ...)), ...]`: треугольники грани — по индексам углов."""
+
+    from cftuv_envelope.materialize.lift_surface import SurfaceLiftV1
+
+    items = []
+    for name, chart, corners, triangles in faces:
+        for number, (i, j, k) in enumerate(triangles):
+            items.append((f"{name}.t{number}", (chart[i], chart[j], chart[k]), tuple(tuple(Fraction(axis) for axis in corners[index]) for index in (i, j, k)), (), name))
+    return SurfaceLiftV1.from_triangles(items, scale=4)
+
+
+def _square_face(number: int, heights):
+    """Квадрат `f<number>` со стороной 4 в полосе по оси x, высоты углов по обходу, диагональ 0-2."""
+
+    chart = [(4 * number, 0), (4 * number + 4, 0), (4 * number + 4, 4), (4 * number, 4)]
+    return (f"f{number}", chart, [(x, y, Fraction(h)) for (x, y), h in zip(chart, heights)], ((0, 1, 2), (0, 2, 3)))
+
+
+def _strip_of_squares(*heights_by_face, extra_faces=()):
+    return _lift_of_faces([*(_square_face(number, heights) for number, heights in enumerate(heights_by_face)), *extra_faces])
+
+
+def _plan_call(polygons_xy, inert, **extra) -> dict:
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
+
+    keys, points, cycles, polygons = {}, {}, [], []
+    for polygon in polygons_xy:
+        cycle = []
+        for xy in polygon:
+            if xy not in keys:
+                keys[xy] = f"p{len(keys)}"
+                points[keys[xy]] = (SqrtSumV1.rational(Fraction(xy[0])), SqrtSumV1.rational(Fraction(xy[1])))
+            cycle.append((keys[xy], points[keys[xy]]))
+        cycles.append(cycle)
+        polygons.append((tuple(key for key, _point in cycle),))
+    call = {
+        "points": points, "cycles": cycles, "polygons": polygons, "law": DecalTopologyLawV1.PLANAR_POLYGONS_V1, "seam": frozenset(),
+        "fans": [False] * len(polygons), "flows": None, "by_faces": True, "inert": inert,
+    }
+    call.update(extra)
+    return call
+
+
+def _pairs(*pairs) -> frozenset:
+    return frozenset(frozenset(pair) for pair in pairs)
+
+
+def test_the_chain_station_plan_through_the_dropin_equals_the_oracle(runner):
+    """Сценарии `kernel/tests/test_clip_plan_inert.py` и их соседи: склейка двух и трёх граней, невыпуклая грань в группе (оценка группы, расщепление), чужая грань."""
+
+    flat, bent = (0, 0, 0, 0), (0, 0, 0, Fraction(1, 20))
+    across = [[(3, 1), (5, 1), (5, 2), (3, 2)]]
+    wide = [[(3, 1), (9, 1), (9, 2), (3, 2)]]
+    inside_one = [[(1, 1), (3, 1), (3, 2)]]
+    on_the_diagonal = [[(3, 1), (9, 3), (6, 3)], [(1, 1), (7, 2), (9, 1), (5, 3)]]
+    ell_chart = [(0, 0), (8, 0), (8, 4), (4, 4), (4, 8), (0, 8)]
+    ell = ("L", ell_chart, [(x, y, Fraction(h)) for (x, y), h in zip(ell_chart, (0, 0, Fraction(1, 5), 0, 0, 0))], ((0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 5)))
+    bow_chart = [(4, 0), (6, 0), (8, 2), (6, 4)]
+    bow = ("bow", bow_chart, [(x, y, Fraction(0)) for x, y in bow_chart], ((0, 1, 2), (3, 2, 1)))
+    two = _strip_of_squares(flat, flat)
+    three = _strip_of_squares(flat, flat, flat)
+    folded = _strip_of_squares(flat, bent, flat)
+    cases = [
+        ("two squares glued", two, across, _pairs(("f0", "f1"))),
+        ("two squares, no plan", two, across, frozenset()),
+        ("foreign pair", two, across, _pairs(("f1", "elsewhere"))),
+        ("chain of three", three, wide, _pairs(("f0", "f1"), ("f1", "f2"))),
+        ("the other pair only", three, across, _pairs(("f1", "f2"))),
+        ("pair apart", three, wide, _pairs(("f0", "f2"))),
+        ("inside one face", two, inside_one, _pairs(("f0", "f1"))),
+        ("two polygons", three, on_the_diagonal, _pairs(("f0", "f1"), ("f1", "f2"))),
+        ("folded middle", folded, wide, _pairs(("f0", "f1"), ("f1", "f2"))),
+        ("a pair that is no pair", two, across, frozenset({frozenset({"f0"}), frozenset({"f0", "f1", "elsewhere"})})),
+    ]
+    runs = []
+    for label, lift, polygons, inert in cases:
+        for cap in (None, 0, 3, 40):
+            runs.append((f"{label} cap={cap}", geometry.compare_generated(runner, f"plan-{label}", lift, _plan_call(polygons, inert), cap)))
+            CHECKED["plan scenarios"] += 1
+    # a non-convex face in a group of the plan keeps its own estimate and is split when the chord is deeper than the budget; a bow-tie face stays out of the group
+    mixed = _strip_of_squares(flat, extra_faces=[ell])
+    crossing = _strip_of_squares(flat, extra_faces=[bow])
+    for label, lift, polygons, inert in (
+        ("ell and a square", mixed, [[(1, 1), (6, 1), (6, 3), (1, 3)], [(2, 5), (3, 6), (2, 7)]], _pairs(("L", "f0"))),
+        ("bow-tie and a square", crossing, [[(3, 1), (7, 1), (7, 3), (3, 3)]], _pairs(("f0", "bow"))),
+    ):
+        for cap in (None, 0, 5, 60):
+            runs.append((f"{label} cap={cap}", geometry.compare_generated(runner, f"plan-{label}", lift, _plan_call(polygons, inert), cap)))
+            CHECKED["plan scenarios"] += 1
+    assert_all_equal(runs)
+    expected = {name: run.expected for name, run in runs}
+    glued, plain = expected["two squares glued cap=None"].result, expected["two squares, no plan cap=None"].result
+    assert dict(glued.counters)[clip.PLAN_INERT_FACE_PAIRS] == 1 and not glued.points
+    assert len(plain.points) == 2 and clip.PLAN_INERT_FACE_PAIRS not in dict(plain.counters), "the real edge cuts without the plan (keys without the `node:` tolerance)"
+    chained = expected["chain of three cap=None"].result
+    assert dict(chained.counters)[clip.PLAN_INERT_FACE_PAIRS] == 2 and not chained.points
+    found = {name: dict(run.result.counters) for name, run in expected.items() if run.exception is None and name.endswith("cap=None")}
+    assert found["ell and a square cap=None"][clip.DIAGONAL_KEPT_NOT_PLANAR] == 1, "the non-convex face keeps its own estimate inside the group: the group is split"
+    assert found["ell and a square cap=None"][clip.PLAN_INERT_FACE_PAIRS] == 1
+    assert clip.PLAN_INERT_FACE_PAIRS not in found["bow-tie and a square cap=None"], "a face with a folded winding stays out of the group"
+    assert found["pair apart cap=None"][clip.PLAN_INERT_CUTS_AVOIDED] == 0, "a pair of faces without a common edge glues nothing across it"
 
 
 # --------------------------------------------------------------------------

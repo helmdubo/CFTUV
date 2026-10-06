@@ -10,7 +10,7 @@
 (`SeamRunner`, заголовок загружает таблицы памяти целиком) и сравнивается ТОЧНО: результат каноническим кодом (`int` и `Fraction`
 различны, `float` по `hex`), исключение `(класс, текст)`, дельта `SIGN_COUNTS`, статьи бюджета, журнал памяти против таблиц ПОСЛЕ.
 
-Источники вызовов: 1. ПОЛЕВОЙ корпус (`E:\\cftuv_native_corpus\\c68b1df2`: 117 вызовов `clip_geometry` из Blender и 22 производных с урезанным бюджетом);
+Источники вызовов: 1. ПОЛЕВОЙ корпус ЭТОГО ядра (`nc.matching_corpus`, `E:/cftuv_native_corpus/<HEAD>`: вызовы `clip_geometry` из Blender и производные с урезанным бюджетом);
 2. СИНТЕТИЧЕСКИЙ корпус (`synthetic_clip`: вызовы `clip_geometry` и швов из тестов ядра `kernel/tests/test_clip_*.py`, `test_materialize_*`, ...;
 строит `tools/native_clip_synthetic.py`); 3. ЦЕЛЕВЫЕ случаи этого файла для веток, которых нет ни там, ни там (сопряжение и исчерпание бюджета на
 каждой границе, переполнения float, нецелая карта, отказы ячеек, подавления привязки, `doubled_shoelace`).
@@ -63,12 +63,13 @@ import cftuv_envelope.materialize.clip_cells as clip_cells  # noqa: E402
 import cftuv_envelope.materialize.clip_snap as clip_snap  # noqa: E402
 import cftuv_envelope.materialize.tessellate as tessellate  # noqa: E402
 import cftuv_envelope.wavefront.faces as faces  # noqa: E402
+import native_clip_geometry as geometry  # noqa: E402
 import native_clip_seams as seams  # noqa: E402
 import native_corpus as nc  # noqa: E402
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
 from cftuv_envelope.materialize.lift_surface import LiftTriangleV1, SurfaceLiftV1  # noqa: E402
 
-CORPUS_BASE = Path(os.environ.get(nc.CORPUS_ENVIRONMENT) or nc.DEFAULT_CORPUS_BASE) / "c68b1df2"
+CORPUS_BASE = geometry.corpus_base()
 SYNTHETIC_BASE = CORPUS_BASE / "synthetic_clip"
 PYTHON_VERSION = (sys.version_info.major, sys.version_info.minor)
 #: Сколько вызовов каждого шва из тестов ядра проверяется (остальные прорежены шагом): весь корпус — сотни тысяч вызовов.
@@ -675,6 +676,55 @@ def test_build_cells_equals_the_oracle_for_every_cell_kind_split_and_memo():
     assert any(cell.group is not None for cell in cells), "no group of a non-convex face"
     assert any(cell.hinge is not None and cell.hinge.jump_square == 0 for cell in cells), "no planar two-triangle cell"
     assert verifier.checked["BUILD_CELLS"] >= 80
+
+
+def plan_pair_sets(lift, rng: random.Random) -> list:
+    """Наборы пар плана станций цепей на гранях подъёма: пары любых двух граней (соседних и нет), цепочки, чужая грань, пара не из двух имён."""
+
+    faces = sorted({item.face for item in lift.triangles if item.face})
+    sets = [frozenset()]
+    if len(faces) >= 2:
+        sets.append(frozenset({frozenset(faces[:2])}))
+        sets.append(frozenset(frozenset(pair) for pair in zip(faces, faces[1:])))
+        sets.extend(frozenset(frozenset(rng.sample(faces, 2)) for _ in range(rng.choice((1, 2, 3, 5)))) for _ in range(6))
+    if faces:
+        sets.append(frozenset({frozenset((faces[0], "elsewhere"))}))
+        sets.append(frozenset({frozenset((faces[-1],)), frozenset((faces[0], faces[-1], "elsewhere"))}))
+    return sets
+
+
+def test_build_cells_with_the_pairs_of_the_chain_station_plan_equals_the_oracle():
+    """`inert` (`CHAIN_STATION_PLAN_V1`): группы `("p", имя)`, оценка группы, порядок записей памяти, расщепление группы, пары чужих и негодных граней."""
+
+    selections = [
+        ("plane", "plane"), ("hinge", "plane", "straight"), ("ell", "plane"), ("ell", "ell", "hinge"), ("mixed", "plane", "apart", "overlap"),
+        ("single", "single", "plane"), ("touch", "plane", "hinge"),
+        ("hinge", "straight", "ell", "mixed", "apart", "single", "plane", "overlap", "touch"),
+    ]
+    rng = random.Random(20261006)
+    results = []
+
+    def body():
+        for selection in selections:
+            lift = face_plane(selection)
+            for inert in plan_pair_sets(lift, rng):
+                memo: dict = {}
+                plan = clip_cells.build_cells(lift.triangles, memo=memo, inert=inert)
+                results.append(plan)
+                keys = list(dict.fromkeys([cell.key for cell in plan.cells if cell.key[0] in ("f", "g")] + [cell.group for cell in plan.cells if cell.group is not None]))
+                for size in range(len(keys) + 1):
+                    clip_cells.build_cells(lift.triangles, frozenset(keys[:size]), memo, inert)
+                    clip_cells.build_cells(lift.triangles, frozenset(keys[size:]), None, inert)
+                clip_cells.build_cells(lift.triangles, frozenset(keys), {}, inert)
+
+    _recorder, verifier = observe(body)
+    planned = [plan for plan in results if plan.plan_pairs]
+    assert planned, "no pair of the plan glued two faces"
+    groups = {cell.group for plan in planned for cell in plan.cells if cell.group is not None and cell.group[0] == "p"}
+    assert groups, "no group of the plan"
+    flats = {cell.flat_square for plan in planned for cell in plan.cells if cell.group is not None and cell.group[0] == "p"}
+    assert Fraction(0) in flats and any(flat > 0 for flat in flats), "the estimate of a plan group is zero or the largest of its non-convex faces"
+    assert verifier.checked["BUILD_CELLS"] >= 400
 
 
 def square_lift():

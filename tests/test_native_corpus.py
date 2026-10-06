@@ -427,3 +427,32 @@ def test_derived_records_starve_the_budget_of_a_real_call_and_replay_exactly(dom
     assert detail.startswith(exact.EXACT_CANONICALIZATION_WORK_BUDGET_EXHAUSTED) and f"cap={zero['derived']['cap']}" in detail
     assert len(derive.derive_records(recorder.root, per_group=2, shares=(0.0, 0.5), min_spent=1, preset=1)) == len(derived)
     assert nc.load_index(recorder.root)["derived_count"] == len(derived)
+
+
+def test_a_corpus_of_another_kernel_is_never_substituted_for_the_corpus_of_this_one(tmp_path):
+    """`matching_corpus`: новейший каталог, чей индекс записан под ЭТО ядро; корпус старого ядра не берётся, нет подходящего — `None` с названной причиной."""
+
+    import json
+    import os
+
+    identity = nc.clip_memo.kernel_code_identity()
+
+    def write(name: str, kernel: str, age: int) -> Path:
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "index.json").write_text(json.dumps({"kernel_identity": kernel, "records": []}), encoding="utf-8")
+        os.utime(directory / "index.json", (1_000_000 + age, 1_000_000 + age))
+        return directory
+
+    write("old-kernel", "0000000000000000", 30)
+    assert nc.matching_corpus(str(tmp_path)) is None
+    reason = nc.describe_missing_corpus(str(tmp_path))
+    assert identity in reason and "old-kernel=0000000000000000" in reason
+    older = write("this-kernel-older", identity, 10)
+    newer = write("this-kernel-newer", identity, 20)
+    write("another-kernel-newest", "ffffffffffffffff", 40)
+    assert nc.matching_corpus(str(tmp_path)) == newer and older != newer
+    (tmp_path / "broken").mkdir()
+    (tmp_path / "broken" / "index.json").write_text("{not json", encoding="utf-8")
+    assert nc.matching_corpus(str(tmp_path)) == newer
+    assert nc.matching_corpus(str(tmp_path / "absent")) is None

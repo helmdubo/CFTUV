@@ -558,6 +558,38 @@ def corpus_directory(head: str, base: str | None = None) -> Path:
     return Path(base or os.environ.get(CORPUS_ENVIRONMENT) or DEFAULT_CORPUS_BASE) / head[:8]
 
 
+def matching_corpus(base: str | None = None) -> Path | None:
+    """Каталог корпуса, записанного под ЭТО ядро (`kernel_identity` индекса равен отпечатку кода ядра процесса); новейший по времени индекса.
+
+    Корпус старого ядра не подставляется: его записи описывают другой эталон (счётчики, группы резки), и сверка с ним ничего не доказывает.
+    Нет подходящего — `None`, вызывающий пропускает сверку с названной причиной (`describe_missing_corpus`).
+    """
+
+    root = Path(base or os.environ.get(CORPUS_ENVIRONMENT) or DEFAULT_CORPUS_BASE)
+    identity = clip_memo.kernel_code_identity()
+    found = []
+    for path in root.glob("*/index.json"):
+        try:
+            if load_index(path.parent).get("kernel_identity") == identity:
+                found.append(path)
+        except (OSError, ValueError):
+            continue
+    return max(found, key=lambda item: item.stat().st_mtime).parent if found else None
+
+
+def describe_missing_corpus(base: str | None = None) -> str:
+    """Причина пропуска, когда `matching_corpus` ничего не нашёл: какого ядра нет и какие корпуса лежат."""
+
+    root = Path(base or os.environ.get(CORPUS_ENVIRONMENT) or DEFAULT_CORPUS_BASE)
+    present = []
+    for path in sorted(root.glob("*/index.json")):
+        try:
+            present.append(f"{path.parent.name}={load_index(path.parent).get('kernel_identity')}")
+        except (OSError, ValueError):
+            present.append(f"{path.parent.name}=<индекс не читается>")
+    return f"нет корпуса под ядро {clip_memo.kernel_code_identity()} в {root} (лежат: {', '.join(present) or 'ничего'}): `tools/native_corpus_export.py`"
+
+
 def run_description(extra: dict | None = None) -> dict:
     """Что идентифицирует запись корпуса: python, отпечаток кода ядра, HEAD репозитория."""
 

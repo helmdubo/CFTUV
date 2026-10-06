@@ -99,8 +99,9 @@ def replay(paths, tracer: Tracer) -> int:
 
 
 def field_records(limit: int | None = None) -> list:
-    base = Path(os.environ.get("CFTUV_NATIVE_CORPUS") or "E:/cftuv_native_corpus") / "c68b1df2"
-    paths = sorted(glob.glob(str(base / "records" / "*" / "*clip_geometry*.rec")))
+    import native_clip_geometry as geometry
+
+    paths = sorted(glob.glob(str(geometry.corpus_base() / "records" / "*" / "*clip_geometry*.rec")))
     return paths[:limit] if limit else paths
 
 
