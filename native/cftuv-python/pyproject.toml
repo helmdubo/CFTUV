@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "cftuv-native"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.maturin]
+python-source = "python"
+module-name = "cftuv_native._core"
+features = ["pyo3/extension-module"]

@@ -1,0 +1,18 @@
+[package]
+name = "cftuv-clip"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
+cftuv-core = { path = "../cftuv-core" }
+
+[features]
+# Phase timers of the stage (`profile.rs`); the example `clip_profile` turns them on.
+profile = []
+
+[dev-dependencies]
+mimalloc = { version = "0.1", default-features = false }

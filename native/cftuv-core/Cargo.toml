@@ -1,0 +1,17 @@
+[package]
+name = "cftuv-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
+
+# Only for `examples/bigint_bench.rs`: the day-1 representation microbench (dashu-int vs num-bigint).
+[dev-dependencies]
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"
+mimalloc = { version = "0.1", default-features = false }
