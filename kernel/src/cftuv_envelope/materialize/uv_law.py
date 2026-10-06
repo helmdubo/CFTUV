@@ -47,6 +47,6 @@ def uv_direct_strip_v1(
 
     inverse = Fraction(1) / Fraction(lattice_alpha)
     return UvPoint2V1(
-        sqrt_sum_binary64(s.scaled(inverse)),
-        sqrt_sum_binary64(r.scaled(inverse)),
+        sqrt_sum_binary64(s, factor=inverse),
+        sqrt_sum_binary64(r, factor=inverse),
     )

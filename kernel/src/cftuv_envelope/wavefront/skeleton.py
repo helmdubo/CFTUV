@@ -64,9 +64,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
-from functools import cmp_to_key
 from math import gcd
 
+from .._cpython311 import sorted_as_cpython311
 from ..exact_sqrt_sum import ExactWorkBudgetV1, _prime_universe_from_q_values
 from .event_time import (
     ZERO_TIME,
@@ -1360,13 +1360,11 @@ class _Builder:
         ordered: list[tuple[int, list[CandidateEventV1]]] = []
         for edge_id in sorted(grouped, key=lambda ident: self.edges[ident].key):
             line = self.edges[edge_id].line
-            group = sorted(
+            group = sorted_as_cpython311(
                 grouped[edge_id],
-                key=cmp_to_key(
-                    lambda left, right: (
-                        _project(line, left.point) - _project(line, right.point)
-                    ).sign(budget=self.work_budget)
-                ),
+                lambda left, right: (
+                    _project(line, left.point) - _project(line, right.point)
+                ).sign(budget=self.work_budget),
             )
             ordered.append((edge_id, group))
         return ordered

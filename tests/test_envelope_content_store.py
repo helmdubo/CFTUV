@@ -129,6 +129,8 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "clip_memo",
         # Заверенный интервал ширины - числа и названия, ключей и идентичностей ревизии в нём нет.
         "alpha_interval",
+        # Путь шага ширины (`FAST_HIT` / `FALLBACK:<причина>`) - метка запуска, идентичностей в ней нет.
+        "step_path",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}

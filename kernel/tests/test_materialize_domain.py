@@ -731,8 +731,8 @@ def test_a_lost_face_is_a_named_refusal_with_its_reason_and_its_numbers(
 
     real = domain.region_contours
 
-    def lossy(region, lattice_alpha, budget):
-        contours = list(real(region, lattice_alpha, budget))
+    def lossy(region, lattice_alpha, budget, covered=None):
+        contours = list(real(region, lattice_alpha, budget, covered))
         if mutation == "drop_last":
             contours.pop()
         elif mutation == "swap_owner":

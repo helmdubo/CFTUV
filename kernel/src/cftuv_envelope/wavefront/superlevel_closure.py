@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cmp_to_key
 
+from .._cpython311 import sorted_as_cpython311
 from .events import EventKind
 from . import superlevel as base
 
@@ -127,11 +127,9 @@ def _family_contacts(cut, incident_by_event, budget=None):
         )
         for incident in incidents
     )
-    ordered = tuple(sorted(
+    ordered = tuple(sorted_as_cpython311(
         contacts,
-        key=cmp_to_key(
-            lambda first, second: _contact_compare(first, second, budget)
-        ),
+        lambda first, second: _contact_compare(first, second, budget),
     ))
     if len({contact.key for contact in ordered}) != len(ordered):
         return None, None

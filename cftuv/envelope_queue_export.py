@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import time
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 #: Имена, переехавшие в ядро (`cftuv_envelope.materialize`), и их прежние
 #: хостовые синонимы. Разрешаются ЛЕНИВО: модуль импортируется при
@@ -272,6 +272,10 @@ class EnvelopeQueueDomainV1:
     #: сессии: лёгкий путь ползунка считает покрытие именно по ней, и искать
     #: её по ключу кэша означало бы второй способ её найти.
     preparation: object | None = None
+    #: Шесть статей и `EXACT_WORK_SPENT` бюджета ЭТОГО покрытия (копия состояния подготовки плюс цена покрытия): цена вычисления
+    #: домена. Подготовка покрытием не меняется (`ConveyorCoverageV1.work_budget`), поэтому цену читают отсюда, а не из подготовки.
+    #: Не часть значения: цена, не ответ.
+    coverage_work: tuple[tuple[str, int], ...] = field(default=(), compare=False)
 
     @property
     def is_exact(self) -> bool:
@@ -559,7 +563,7 @@ def build_queue_domain(
         if covered is None:
             continue
         contours = region_contours(
-            region, coverage.lattice_alpha, export_budget
+            region, coverage.lattice_alpha, export_budget, covered
         )
         covered_faces, region_match = match_region_faces(
             covered, contours, chain_by_region.get(region.region_id, {})
@@ -971,6 +975,9 @@ def cover_prepared(
             coverage_seconds=coverage_seconds,
         ),
         preparation=prepared,
+        coverage_work=(
+            () if coverage.work_budget is None else coverage.work_budget.counters()
+        ),
     )
 
 

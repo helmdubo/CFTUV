@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from functools import cmp_to_key
 
 import sympy as sp
 
+from .._cpython311 import sorted_as_cpython311
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
 from . import symbolic_backend as _backend
@@ -249,8 +249,8 @@ def _contact_candidates_sympy(
             continue
         point = point_add(barrier.start, vector_scale(barrier_direction, parameter))
         result.append((alpha, station, point))
-    result.sort(
-        key=cmp_to_key(lambda left, right: exact_sign(left[0] - right[0]))
+    result[:] = sorted_as_cpython311(
+        result, lambda left, right: exact_sign(left[0] - right[0])
     )
     return tuple(result)
 
@@ -317,11 +317,22 @@ def _continuous_support_intervals(
     return tuple(result)
 
 
+def _sign_traced(alpha, bounds, requested, trace) -> int:
+    """`sign_against`, записывающий оболочку контакта в `trace` (если он есть): знак против запрошенной alpha - единственное, чем ход резолвера зависит от alpha."""
+
+    if trace is not None:
+        trace.append(bounds)
+    return sign_against(alpha, bounds, requested)
+
+
+# `trace` (список) - запись для сертификата шага ширины (`materialize.step`): оболочка alpha КАЖДОГО контакта, чей знак против запрошенной
+# alpha решал ход (`None` - оболочка не посчитана). От запрошенной alpha ход зависит ТОЛЬКО этими знаками, поэтому, пока ни один из них не
+# сменился, исход (эффективные alpha и имена экземпляров) тот же. Ответа запись не меняет.
 def resolve_component_alphas(
     context: GeometryContext,
     requested_alpha: LocalLengthV1,
     domain_geometry: SparsePatchDomainGeometryV1,
-    contact_memo: ContactCandidatesMemoV1 | None = None,
+    contact_memo: ContactCandidatesMemoV1 | None = None, trace: list | None = None,
 ) -> tuple[dict[str, ComponentResolution], tuple[ReferenceEvaluationDiagnosticV1, ...]]:
     requested = sp.Rational(str(requested_alpha.value))
     resolutions = {
@@ -366,7 +377,7 @@ def resolve_component_alphas(
                 ):
                     if sign_against(alpha, bounds, sp.Integer(0)) == 0:
                         continue
-                    if sign_against(alpha, bounds, requested) > 0:
+                    if _sign_traced(alpha, bounds, requested, trace) > 0:
                         continue
                     source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
@@ -461,11 +472,9 @@ def resolve_component_alphas(
                         tuple((*current.diagnostics, diagnostic)),
                     )
             elif endpoint_events:
-                ordered_events = sorted(
+                ordered_events = sorted_as_cpython311(
                     endpoint_events,
-                    key=cmp_to_key(
-                        lambda left, right: exact_sign(left[0] - right[0])
-                    ),
+                    lambda left, right: exact_sign(left[0] - right[0]),
                 )
                 minimum_alpha = ordered_events[0][0]
                 simultaneous = [

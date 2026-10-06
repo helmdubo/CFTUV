@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
-from functools import cmp_to_key
 
+from .._cpython311 import sorted_as_cpython311
 from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import EventPointV1, EventTimeV1, compare_times
 from .events import CandidateEventV1, EventKind, EventQueueV1
@@ -641,11 +641,9 @@ def _split_cut_plans(
     plans = []
     for target_occurrence in sorted(grouped, key=repr):
         incidents = grouped[target_occurrence]
-        ordered = tuple(sorted(
+        ordered = tuple(sorted_as_cpython311(
             incidents,
-            key=cmp_to_key(
-                lambda left, right: _projection_order(left, right, budget)
-            ),
+            lambda left, right: _projection_order(left, right, budget),
         ))
         first = ordered[0]
         if any(

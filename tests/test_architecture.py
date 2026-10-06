@@ -1436,3 +1436,52 @@ def test_the_native_pins_hold_one_digest_per_mirrored_file():
     assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
     assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
     assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
+
+
+# --------------------------------------------------------------------------
+# 11. Цена вычисления домена - функция его входа: бюджет подготовки не меняется покрытием
+# --------------------------------------------------------------------------
+# PRICE-WITHOUT-HISTORY (DECISIONS 2026-10-06). Покрытие каждого вычисления считает на КОПИИ состояния подготовки
+# (`ExactWorkBudgetV1.forked`), а `at_stage` меняет сам бюджет: до правила покрытие звало `at_stage("COVERAGE")` на бюджете подготовки,
+# холодная цена покрытия ездила в пикле, и тёплые шаги копились на ней (1724, 1726, 1728 ...). `at_stage` зовёт ТОЛЬКО начало подготовки.
+
+_AT_STAGE_ALLOWED = {("kernel/src/cftuv_envelope/wavefront/conveyor.py", "_domain_work_budget")}
+
+
+def _at_stage_calls(tree: ast.AST) -> list[tuple[str, int]]:
+    """`(имя функции, строка)` вызовов `<...>.at_stage(...)`; вне функции имя пусто."""
+
+    found: list[tuple[str, int]] = []
+
+    def visit(node: ast.AST, function: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = node.name
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "at_stage":
+            found.append((function, node.lineno))
+        for child in ast.iter_child_nodes(node):
+            visit(child, function)
+
+    visit(tree, "")
+    return sorted(found)
+
+
+def test_the_at_stage_rule_flags_a_coverage_that_switches_the_stage_of_the_preparation_budget():
+    spoiled = "def conveyor_coverage(prepared):\n    budget = prepared.work_budget\n    budget.at_stage('COVERAGE')\n"
+    honest = "def conveyor_coverage(prepared):\n    budget = prepared.work_budget.forked('COVERAGE')\n"
+
+    assert _at_stage_calls(ast.parse(spoiled)) == [("conveyor_coverage", 3)]
+    assert _at_stage_calls(ast.parse(honest)) == []
+
+
+def test_only_the_preparation_switches_the_stage_of_the_domain_budget():
+    offenders = [
+        f"{_relative(path)}:{line} {function or '<module>'}"
+        for path in _python_files(KERNEL_SOURCE)
+        for function, line in _at_stage_calls(_parse(path))
+        if (_relative(path), function) not in _AT_STAGE_ALLOWED
+    ]
+    assert not offenders, (
+        "стадию бюджета меняет не подготовка (цена вычисления станет свойством истории):\n"
+        + "\n".join(offenders)
+        + "\n\nПокрытию и материализации - `work_budget.forked(<стадия>)`, а не `at_stage`."
+    )

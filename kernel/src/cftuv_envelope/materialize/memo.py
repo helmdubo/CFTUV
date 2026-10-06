@@ -124,6 +124,23 @@ class MaterializeMemoV1:
         self.misses += 1
         return value
 
+    def fetch(self, key: tuple):
+        """Запись под ключом либо `None` (без счёта попаданий): записи шага ширины (`step`) читаются не как значение подготовки."""
+
+        if not _ENABLED[0]:
+            return None
+        return self.entries.get((kernel_code_identity(), *key))
+
+    def put(self, key: tuple, value) -> None:
+        """Записать (заменить) значение под ключом: запись шага ширины заменяется новой, а не сохраняется первой."""
+
+        if not _ENABLED[0]:
+            return
+        full = (kernel_code_identity(), *key)
+        with _LOCK:
+            self.entries.pop(full, None)
+        self._store(full, value)
+
     def _store(self, key: tuple, entry) -> None:
         with _LOCK:
             if key in self.entries:

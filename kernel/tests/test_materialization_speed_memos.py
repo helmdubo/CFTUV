@@ -4,8 +4,8 @@
 
 1. дайджест батча считали при сборке и ещё раз при проверке; теперь повтор с ТЕМИ ЖЕ частями возвращает прежнее значение,
    а любая подменённая часть (равная, но другой объект) даёт честный пересчёт;
-2. покрытие региона считают дважды (площади в `conveyor_coverage`, контуры в материализаторе) тем же вызовом: второй
-   берёт прежнее покрытие, но бюджет — спрашивающего;
+2. покрытие региона считают ОДИН раз (площади и контуры одним вызовом в `conveyor_coverage`): контуры едут в записи региона
+   (`ConveyorRegionCoverageV1.contours`) к материализатору, а процессной памяти покрытий нет (цена не зависит от истории);
 3. оболочки `alpha` контактов и вселенная простых `q` считаются на первом покрытии и едут с подготовкой: сравнение
    `alpha` с запрошенной идёт по оболочке, разложения `q` возвращаются в память канонизации без единой факторизации;
 4. каноническая кодировка (ключи сортировки, имена полей) быстрее, а байты те же, что у прежней реализации;
@@ -116,10 +116,9 @@ def test_the_validator_still_sees_a_wrong_declared_digest_after_the_digest_was_r
 # ---------------------------------------------------------------- 2. покрытие региона
 
 
-def test_a_repeated_coverage_returns_the_same_faces_and_the_budget_of_the_asker(monkeypatch):
+def test_coverage_at_keeps_no_memory_between_calls_and_every_call_carries_its_own_budget(monkeypatch):
     prepared = _field_preparation()
     partition = prepared.regions[0].partition
-    coverage_module._RECENT.clear()
     calls = []
     real = coverage_module._coverage_at
     monkeypatch.setattr(coverage_module, "_coverage_at", lambda *args: calls.append(1) or real(*args))
@@ -127,30 +126,19 @@ def test_a_repeated_coverage_returns_the_same_faces_and_the_budget_of_the_asker(
     first_budget, second_budget = exact.exact_work_budget(stage="A"), exact.exact_work_budget(stage="B")
     first = coverage_at(partition, Fraction(1, 4), first_budget)
     second = coverage_at(partition, Fraction(1, 4), second_budget)
-    assert len(calls) == 1
-    assert second.faces is first.faces and second.doubled_area == first.doubled_area
+    assert len(calls) == 2, "the second coverage of the same partition and alpha is computed, not remembered"
+    assert second.faces == first.faces and second.doubled_area == first.doubled_area
     assert first.work_budget is first_budget and second.work_budget is second_budget
-    # Другая alpha — другой вопрос.
-    other = coverage_at(partition, Fraction(1, 2), second_budget)
-    assert len(calls) == 2 and other.alpha != first.alpha
+    assert not hasattr(coverage_module, "_RECENT") and not hasattr(coverage_module, "clear_recent_coverage")
+    held = [name for name, value in vars(coverage_module).items() if not name.startswith("__") and isinstance(value, (dict, list, set))]
+    assert held == [], f"the coverage module keeps no process memory between evaluations: {held}"
 
 
-def test_a_refused_coverage_is_never_remembered():
+def test_a_refused_coverage_is_an_outcome_not_a_value():
     prepared = _field_preparation()
     partition = prepared.regions[0].partition
-    coverage_module._RECENT.clear()
     refused = coverage_at(partition, Fraction(-1))
     assert refused.outcome is CoverageOutcome.ALPHA_IS_NEGATIVE
-    assert not coverage_module._RECENT
-
-
-def test_the_memo_is_bounded():
-    prepared = _field_preparation()
-    partition = prepared.regions[0].partition
-    coverage_module._RECENT.clear()
-    for numerator in range(1, coverage_module._RECENT_LIMIT + 6):
-        coverage_at(partition, Fraction(numerator, 20))
-    assert len(coverage_module._RECENT) == coverage_module._RECENT_LIMIT
 
 
 # ---------------------------------------------------------------- 3. память подготовки

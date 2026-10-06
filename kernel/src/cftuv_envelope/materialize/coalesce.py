@@ -54,6 +54,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from fractions import Fraction
 
+from ..exact_sqrt_sum import exact_work_budget, isolated_factorization_memory
 from ..wavefront.coverage import coverage_at
 from ..wavefront.faces import contour_crossings
 
@@ -154,12 +155,16 @@ class MergeStatsV1:
         )
 
 
-def region_contours(region, lattice_alpha: Fraction, work_budget=None):
+def region_contours(region, lattice_alpha: Fraction, work_budget=None, covered=None):
     """Усечённые по времени контуры граней региона, в порядке разбиения.
 
-    Тот же вызов, которым `conveyor_coverage` считал площадь, поэтому порядок
-    и владельцы совпадают с `ConveyorRegionCoverageV1.faces` по построению, а
-    не по совпадению чисел.
+    `covered` (`ConveyorRegionCoverageV1` этого региона из ТОГО ЖЕ вычисления) несёт контуры, из которых очередь взяла площади
+    (`contours`): они отдаются как есть, поэтому порядок и владельцы совпадают с `ConveyorRegionCoverageV1.faces` по построению, а
+    не по совпадению чисел, и контуры не стоят ни единицы бюджета. Памяти покрытий между вычислениями нет: цена вычисления не
+    зависит от того, лежало ли покрытие в процессе (`wavefront.coverage`). Без `covered` (запись собрана мимо очереди) контуры
+    считает тот же `coverage_at` заново, НЕ платя ни единицы цены вычисления и не оставляя следа в памяти канонизации (счёт идёт
+    на СВОЁМ бюджете `CONTOURS` под холодной памятью, которая потом возвращается, и потолок вычисления его не ограничивает):
+    пересчёт и переданные контуры стоят одинаково.
 
     `work_budget` — бюджет ЭКСПОРТА (у хоста) либо материализации (у продукта),
     а не домена. Домен к этому моменту уже ответил, и подмешивать перерисовку
@@ -170,7 +175,12 @@ def region_contours(region, lattice_alpha: Fraction, work_budget=None):
 
     if region.partition is None:
         return ()
-    return coverage_at(region.partition, lattice_alpha, work_budget).faces
+    contours = None if covered is None else covered.contours
+    if contours is not None:
+        return contours
+    own = None if work_budget is None else exact_work_budget(stage="CONTOURS", domain_id=work_budget.domain_id)
+    with isolated_factorization_memory():
+        return coverage_at(region.partition, lattice_alpha, own).faces
 
 
 @dataclass(frozen=True, slots=True)

@@ -20,6 +20,7 @@ from cftuv_envelope.materialize.domain import finalize_digests, materialize_doma
 from cftuv_envelope.validation import validate_geometry_batch
 
 from test_materialize_domain import CASES, _run
+from test_materialize_full_path import _strip_checks
 
 LAWS = (DecalTopologyLawV1.TRIANGLES_V1, DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
 ANSWER_FIELDS = (
@@ -34,9 +35,7 @@ ANSWER_FIELDS = (
 )
 
 
-@pytest.mark.parametrize("law", LAWS)
-@pytest.mark.parametrize("name", CASES)
-def test_a_deferred_result_finalizes_to_the_eager_answer(name, law):
+def _assert_the_deferred_result_finalizes_to_the_eager_answer(name, law):
     eager = _run(name, decal_topology_law=law)
     lazy = _run(name, decal_topology_law=law, digests=False)
 
@@ -54,6 +53,34 @@ def test_a_deferred_result_finalizes_to_the_eager_answer(name, law):
     assert finalized.content_digest == eager.content_digest
     assert canonical_json_bytes(finalized.batch) == canonical_json_bytes(eager.batch)
     assert not finalized.digests_deferred
+
+
+@pytest.mark.parametrize("law", LAWS)
+@pytest.mark.parametrize("name", CASES)
+def test_a_deferred_result_finalizes_to_the_eager_answer(name, law):
+    _assert_the_deferred_result_finalizes_to_the_eager_answer(name, law)
+
+
+@pytest.mark.parametrize("order", ("full_path_then_deferred", "deferred_then_full_path"))
+def test_the_full_path_and_the_deferred_digests_agree_in_either_order_in_one_process(order):
+    """Регрессия порядка: шесть отложенных сравнений падали, когда `test_materialize_full_path` шёл раньше в том же процессе.
+
+    Причиной была процессная память недавних покрытий (цена попадания и промаха различалась); её больше нет, контуры едут в
+    записи региона, и цена не зависит от порядка. Здесь оба пути идут в одном процессе в обоих порядках, чтобы порядок файлов не
+    прятал зависимость, если она вернётся.
+    """
+
+    def full_path():
+        for name in CASES:
+            _strip_checks(name)
+
+    def deferred():
+        for name in CASES:
+            _assert_the_deferred_result_finalizes_to_the_eager_answer(name, LAWS[0])
+
+    steps = {"full_path": full_path, "deferred": deferred}
+    for step in order.split("_then_"):
+        steps[step]()
 
 
 @pytest.mark.parametrize("name", CASES[:3])

@@ -3,7 +3,7 @@
 Подготовка домена alpha-независима, а воркеру на каждом шаге ширины уходил её пикл (8.65 МБ на `building`) и воркер его
 разворачивал. Теперь воркер держит развёрнутые подготовки под ключом пикла, родитель шлёт ключ и пересылает пикл только там, где воркер
 подготовки не держит. Здесь держится: арифметика вытеснения родителя и воркера одна; ключ — содержимое (и код); подготовка из памяти
-даёт побитово тот же ответ, что свежеразвёрнутая, на нескольких alpha подряд (бюджет возвращён в состояние разворота); промах
+даёт побитово тот же ответ и ту же цену, что свежеразвёрнутая, на нескольких alpha подряд (бюджет подготовки вычислением не меняется); промах
 называется и лечится пересылкой; настоящие воркеры дают ответ последовательного пути, шлют ключ, а не пикл, и переживают смерть соседа.
 """
 
@@ -57,7 +57,6 @@ from cftuv.envelope_worker_store import (  # noqa: E402
     blob_key,
     capture_budget,
     prepared_of,
-    restore_budget,
 )
 from content_fixtures import cold_domain, with_revision  # noqa: E402
 from envelope_fixture_bundles import quad_row_bundle  # noqa: E402
@@ -157,25 +156,31 @@ def test_without_a_key_the_preparation_is_never_remembered(monkeypatch):
 # --------------------------------------------------------------------------
 
 
-class _Budget:
-    __slots__ = ("stage", "gcd", "cap")
+def test_the_store_hands_the_preparation_out_as_it_is_and_a_coverage_leaves_its_budget_alone():
+    """Покрытие считает на копии бюджета подготовки, поэтому бюджету в памяти воркера восстановление не нужно: он остаётся состоянием `PREPARE`."""
 
-    def __init__(self):
-        self.stage, self.gcd, self.cap = "PREPARE", 3, 100
+    import cftuv_envelope as kernel
+    from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
 
-
-def test_the_budget_of_a_remembered_preparation_returns_to_the_state_of_its_unpacking():
-    prepared = SimpleNamespace(work_budget=_Budget())
-    memory = PreparationStoreV1(limit=100)
+    root = KERNEL_SRC.parent / "fixtures" / "building_002_point_contact_v1"
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads((root / "analysis_snapshot.json").read_bytes())
+    request = kernel.DecalRequestCodecV1.loads((root / "decal_request.json").read_bytes())
+    prepared = prepare_conveyor(snapshot, request)
+    memory = PreparationStoreV1(limit=10**9)
     memory.put("a", prepared, 10)
+    state = capture_budget(prepared)
+    assert state is not None and prepared.work_budget.stage == "PREPARE"
 
-    prepared.work_budget.stage = "COVERAGE"  # покрытие тратит бюджет транзакции домена и копит его между задачами
-    prepared.work_budget.gcd += 500
-
-    assert memory.get("a") is prepared
-    assert (prepared.work_budget.stage, prepared.work_budget.gcd) == ("PREPARE", 3)
+    prices = []
+    for alpha in ("0.25", "0.3", "0.25"):
+        held = memory.get("a")
+        assert held is prepared
+        coverage = conveyor_coverage(held, alpha)
+        assert coverage.outcome.value == "EXACT"
+        prices.append(coverage.work_budget.spent_by_article() if alpha == "0.25" else None)
+        assert capture_budget(held) == state
+    assert prices[0] == prices[2]
     assert capture_budget(SimpleNamespace(work_budget=None)) is None
-    restore_budget(SimpleNamespace(work_budget=None), None)  # без бюджета возвращать нечего
 
 
 def test_a_blob_always_unpacks_afresh_and_only_a_bare_key_reads_the_memory():

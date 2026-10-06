@@ -238,6 +238,16 @@ def _is_convex_region(region: PlanarRegion) -> bool:
     return len(signs) <= 1
 
 
+def _clip_event_key(segment) -> str | None:
+    """Ключ события резки у начала отрезка: НАИМЕНЬШИЙ непустой ключ его построений либо `None`.
+
+    Построения отрезка — `frozenset`, и «первый» его элемент зависел от `PYTHONHASHSEED`: ключ, а с ним и выбор ребра резки,
+    были свойством процесса, а не входа. Наименьшая строка — полный порядок: тот же вход даёт тот же ключ в любом процессе.
+    """
+
+    return min((item.event_key for item in segment.start_constructions if item.event_key), default=None)
+
+
 def _clip_region_direct(
     region: PlanarRegion,
     halfplane: PlanarRegion,
@@ -250,14 +260,13 @@ def _clip_region_direct(
         (
             segment
             for segment in halfplane.outer.segments
-            if segment.start_constructions
-            and next(iter(segment.start_constructions)).event_key
+            if _clip_event_key(segment)
         ),
         None,
     )
     if clip_edge is None:
         return None
-    event_key = next(iter(clip_edge.start_constructions)).event_key or "clip"
+    event_key = _clip_event_key(clip_edge) or "clip"
     source_points = list(region.outer.points)
     # The halfplane polygon is already exact; membership is equivalent to
     # point-in-closure and avoids reconstructing its oriented line.

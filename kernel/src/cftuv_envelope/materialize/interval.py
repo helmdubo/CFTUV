@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from .. import float_filter
+from .._cpython311 import left_fold_sum
 from ..exact_sqrt_sum import SqrtSumV1
 from .clip_snap import NODE_EDGE_SNAP_CELLS
 from .memo import memo_of
@@ -223,6 +224,11 @@ class EventTableV1:
     vertex_events: int
     clip_events: int
     refusal: str = ""
+    #: Те же три массива ТОЛЬКО по событиям прихода фронта в вершины граней скелета (без событий резки): интервал покрытия
+    #: (`coverage_interval`) шире общего, и именно он решает, можно ли воспроизвести покрытие из шаблона (`wavefront.coverage_template`).
+    arrival_lo: tuple = ()
+    arrival_hi: tuple = ()
+    arrival_running_hi: tuple = ()
 
 
 def _arrival(point, a, b, c, root, scale):
@@ -279,6 +285,7 @@ def _build_table(prepared, triangles, scale: int) -> EventTableV1:
         grid_corners = _Grid(((x, x, y, y) for x, y in corners), step)
         corner_points = [(SqrtSumV1.rational(x), SqrtSumV1.rational(y)) for x, y in corners]
     events: list = []
+    arrivals: list = []
     vertex_events = 0
     pairs = 0
     for face in faces:
@@ -294,6 +301,7 @@ def _build_table(prepared, triangles, scale: int) -> EventTableV1:
                 return EventTableV1((), (), (), 0, 0, REASON_FACE)
             times.append(arrival)
         events.extend(times)
+        arrivals.extend(times)
         vertex_events += len(times)
         if not lines:
             continue
@@ -302,6 +310,16 @@ def _build_table(prepared, triangles, scale: int) -> EventTableV1:
         )
         if pairs < 0 or pairs > PAIR_LIMIT:
             return EventTableV1((), (), (), 0, 0, REASON_PAIRS)
+    lo, hi, running = _sorted_arrays(events)
+    arrival_lo, arrival_hi, arrival_running = _sorted_arrays(arrivals)
+    return EventTableV1(
+        lo, hi, running, vertex_events, len(events) - vertex_events, "", arrival_lo, arrival_hi, arrival_running
+    )
+
+
+def _sorted_arrays(events: list) -> tuple:
+    """`(lo, hi, running_hi)` событий по `lo` по возрастанию."""
+
     events.sort(key=lambda item: item[0])
     lo = tuple(item[0] for item in events)
     hi = tuple(item[1] for item in events)
@@ -309,7 +327,7 @@ def _build_table(prepared, triangles, scale: int) -> EventTableV1:
     for value in hi:
         best = max(best, value)
         running.append(best)
-    return EventTableV1(lo, hi, tuple(running), vertex_events, len(events) - vertex_events)
+    return lo, hi, tuple(running)
 
 
 def _grid_step(faces) -> float:
@@ -322,7 +340,7 @@ def _grid_step(faces) -> float:
             continue
         xs, ys = [entries[i][0] for i in range(0, len(entries), 2)], [entries[i][0] for i in range(1, len(entries), 2)]
         sizes.append(max(max(xs) - min(xs), max(ys) - min(ys)))
-    return max(1.0, (sum(sizes) / len(sizes)) if sizes else 1.0)
+    return max(1.0, (left_fold_sum(sizes) / len(sizes)) if sizes else 1.0)
 
 
 def _clip_events(face, times, law, scale, lines, corners, corner_points, grid_lines, grid_corners, events, pairs) -> int:
@@ -419,6 +437,13 @@ class AlphaIntervalV1:
             return False
         return self.low < alpha and (self.high is None or alpha < self.high)
 
+    def contains_exact(self, alpha: Fraction) -> bool:
+        """Тот же вопрос, что `contains`, но ТОЧНЫЙ: `alpha` - дробь (десятичная ширина запроса), границы - их `binary64` как дроби."""
+
+        if self.status != CERTIFIED:
+            return False
+        return Fraction(self.low) < alpha and (self.high is None or alpha < Fraction(self.high))
+
     def as_record(self) -> dict:
         """Запись для квитанции: числа и названия, без секунд."""
 
@@ -460,10 +485,31 @@ def alpha_interval(prepared, alpha: Fraction, triangles=(), lift_key: str = "") 
     table = event_table(prepared, tuple(triangles), lift_key)
     if table.refusal:
         return AlphaIntervalV1(NOT_CERTIFIED, table.refusal, exact, exact, exact, 0, 0)
+    return _interval_between(table.lo, table.running_hi, exact, table.clip_events)
+
+
+def coverage_interval(prepared, alpha: Fraction, triangles=(), lift_key: str = "") -> AlphaIntervalV1:
+    """Интервал ширины, внутри которого комбинаторика ПОКРЫТИЯ та же (приходы фронта в вершины граней скелета), без событий резки.
+
+    Шире `alpha_interval`: покрытие не знает об источнике. По нему решается, можно ли воспроизвести покрытие из шаблона
+    (`wavefront.coverage_template`); остальные стадии шага ширины считаются своим кодом на тех же точках.
+    """
+
+    alpha = Fraction(alpha)
+    exact = float(alpha)
+    table = event_table(prepared, tuple(triangles), lift_key)
+    if table.refusal:
+        return AlphaIntervalV1(NOT_CERTIFIED, table.refusal, exact, exact, exact, 0, 0)
+    return _interval_between(table.arrival_lo, table.arrival_running_hi, exact, 0)
+
+
+def _interval_between(lo: tuple, running_hi: tuple, exact: float, clip_events: int) -> AlphaIntervalV1:
+    """Ближайшие события по обе стороны `exact` (или сама точка события): два поиска в отсортированных массивах."""
+
     near = (_down(exact), _up(exact))
-    covered = bisect_right(table.lo, near[1])
-    if covered and table.running_hi[covered - 1] >= near[0]:
-        return AlphaIntervalV1(AT_EVENT, "", exact, exact, exact, len(table.lo), table.clip_events)
-    low = table.running_hi[covered - 1] if covered else 0.0
-    high = table.lo[covered] if covered < len(table.lo) else None
-    return AlphaIntervalV1(CERTIFIED, "", exact, max(low, 0.0), high, len(table.lo), table.clip_events)
+    covered = bisect_right(lo, near[1])
+    if covered and running_hi[covered - 1] >= near[0]:
+        return AlphaIntervalV1(AT_EVENT, "", exact, exact, exact, len(lo), clip_events)
+    low = running_hi[covered - 1] if covered else 0.0
+    high = lo[covered] if covered < len(lo) else None
+    return AlphaIntervalV1(CERTIFIED, "", exact, max(low, 0.0), high, len(lo), clip_events)
