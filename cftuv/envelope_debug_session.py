@@ -16,6 +16,7 @@ from .envelope_chart_band import policy_alpha, tightened_export
 from .envelope_content_store import ContentStoreV1
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
+from .envelope_scan_memo import ScanMemoV1
 from .envelope_export_input import (
     build_host_export_input,
     patch_metric_from_worker,
@@ -30,6 +31,7 @@ from .envelope_metric_export import (
 )
 from .envelope_topology_export import (
     EnvelopeTopologyExportV1,
+    StageInputsMemoV1,
     build_envelope_topology_export,
 )
 
@@ -212,6 +214,11 @@ class EnvelopeDebugSessionController:
             tuple[str, str, frozenset[int], tuple[str, ...]], object
         ] = {}
         self._queue_session: QueueSessionStateV1 | None = None
+        # Пролог продуктового прогона (сцена топологии, перечень доменов, `DecalRequestId`) по `(ревизия, выделение)`:
+        # ширина, плотность и допуски его не меняют, а считался он на каждом шаге. Живёт, пока жива ревизия.
+        self._stage_inputs_memo = StageInputsMemoV1()
+        # Входы доменов продуктового прогона по `(ревизия, выделение, политика)`: ширина меняет в них одно поле запроса.
+        self._scan_memo = ScanMemoV1()
         # Суженная досягаемость последней разрешённой полосы домена (`None` - карта под досягаемостью запроса) по ключу
         # `(ревизия, домен, допуск, ключ полосы)`. Суженная карта зависит от alpha, а подготовка - нет по построению:
         # смена досягаемости убирает подготовки домена из кэша сессии (`_note_band_chart`).
@@ -290,6 +297,14 @@ class EnvelopeDebugSessionController:
     @property
     def content_store(self) -> ContentStoreV1:
         return self._content_store
+
+    @property
+    def stage_inputs_memo(self) -> StageInputsMemoV1:
+        return self._stage_inputs_memo
+
+    @property
+    def scan_memo(self) -> ScanMemoV1:
+        return self._scan_memo
 
     def content_binding(self, binding: tuple) -> str | None:
         return self._content_bindings.get(binding)
@@ -370,6 +385,8 @@ class EnvelopeDebugSessionController:
         self._conveyor_preparation_cache.clear()
         self._band_chart_cap.clear()
         self._production_result_cache.clear()
+        self._stage_inputs_memo.clear()
+        self._scan_memo.clear()
         self._snapshot_issues.clear()
         self._content_bindings.clear()
         self._queue_session = None
@@ -806,6 +823,11 @@ class EnvelopeDebugSessionController:
             frozenset(int(item) for item in selected_edge_ids),
             envelope_request_policy_signature(request),
         )
+
+    def peek_conveyor_preparation_by_key(self, key: tuple):
+        """Подготовка из кэша по готовому ключу (`_preparation_key`) либо `None`: вопрос, счётчиков не пишет."""
+
+        return self._conveyor_preparation_cache.get(key)
 
     def peek_conveyor_preparation(
         self,

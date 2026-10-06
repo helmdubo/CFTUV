@@ -424,6 +424,56 @@ def test_a_source_vertex_dissolved_on_one_side_only_is_a_t_junction_and_dissolve
     assert dict(seam_report([kept, _batch(_chain("SOURCE", ["src:b", "src:c"]))]))["ADAPTER_SEAM_T_JUNCTIONS"] == 0
 
 
+def _open_pairs_by_scanning_every_domain(anchored, held) -> int:
+    """Независимый эталон: пара против КАЖДОГО другого домена (квадратично по числу доменов, зато очевидно)."""
+
+    runs: dict = {}
+    consecutive: dict = {}
+    for number, _chain, anchors in anchored:
+        runs.setdefault(number, []).append(anchors)
+        consecutive.setdefault(number, set()).update(frozenset(pair) for pair in zip(anchors, anchors[1:]))
+    found = set()
+    for number in sorted(consecutive):
+        for pair in consecutive[number]:
+            for other in sorted(consecutive):
+                if other != number and pair not in consecutive[other] and any(
+                    weld._run_between(anchors, pair, held[number]) for anchors in runs[other]
+                ):
+                    found.add(pair)
+    return len(found)
+
+
+def test_the_indexed_anchor_count_equals_the_scan_over_every_domain_on_random_seams():
+    import random
+
+    generator = random.Random(20261006)
+    for _round in range(300):
+        keys = [f"src:{index}" for index in range(8)]
+        anchored = []
+        for number in range(generator.randint(1, 6)):
+            for part in range(generator.randint(1, 2)):
+                anchored.append((number, f"boundary:SOURCE:{number}:{part}", generator.sample(keys, generator.randint(2, 6))))
+        held: dict = {}
+        for number, _chain, anchors in anchored:
+            held.setdefault(number, set()).update(anchors)
+        assert weld._anchors_between(anchored, held) == _open_pairs_by_scanning_every_domain(anchored, held)
+
+
+def test_the_anchor_count_does_not_scan_every_domain_for_every_pair():
+    """Две тысячи доменов по одной цепи: счёт идёт по индексу вершины (пара видит лишь домены с обеими вершинами), а не по всем доменам."""
+
+    import time
+
+    anchored = [(number, f"boundary:SOURCE:{number}:0", [f"src:{number}", f"src:{number + 1}", f"src:{number + 2}"]) for number in range(2000)]
+    held: dict = {}
+    for number, _chain, anchors in anchored:
+        held.setdefault(number, set()).update(anchors)
+    started = time.perf_counter()
+    count = weld._anchors_between(anchored, held)
+    # соседние домены делят пару лишь как соседнюю у обоих (или не делят её): открытых пар нет
+    assert count == 0 and time.perf_counter() - started < 1.0
+
+
 def test_a_segment_owned_by_one_domain_cannot_be_a_t_junction_and_the_front_is_not_a_seam():
     from cftuv.envelope_production_weld import seam_report
 

@@ -1,0 +1,134 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "chain_station_plan",
+  "tool": "sweep",
+  "law": "SILHOUETTE_TOPOLOGY_V1",
+  "about": "Запись «до» - `sweep.py run --topology SILHOUETTE_TOPOLOGY_V1` на 818bd3e (закон силуэта с пост-проходом растворения; точки на цепях источника и стены в доменах ещё стоят: их растворял общий проход `source_dots` над готовыми батчами прогона, которого свип по доменам не видит), запись «после» - тот же закон на дереве плана станций цепей (`CHAIN_STATION_PLAN_V1`, срезы S1 и S2; проход `source_dots` удалён). S1: резка по граням не режет по поперечным рёбрам `FREE`-станций (вершина цепи, у которой ВСЕ поперечные рёбра источника инертны в обоих патчах цепи: вершины каждой из двух граней в допуске хорды 5 мм от плоскости Ньюэлла другой): грани по обе стороны такого ребра - одна группа резки (`MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS`), куски склеиваются в один контур, вершины и рёбра резки на нём не рождаются (`..._CUTS_AVOIDED`). S2: проход силуэта растворяет сами `FREE`-вершины цепей источника и стены, внутренние для цепи границы (`MATERIALIZE_STATION_PLAN_DISSOLVED`): допуск хорды остаётся, допуск UV не действует (сдвиг записан, `..._MAX_UV_SLIDE_MILLI_ALPHA`), выжившая `FREE`-вершина названа счётчиком `..._KEPT_*`. На building это 54 строки из 366 (18 доменов на каждой из плотностей 1, 2, 4): на каждой растворена хоть одна вершина цепи (граней, четырёхгранников и треугольников не больше, чем было, вершин, станций и граничных рёбер на одну и более меньше), и ни одна `FREE`-вершина не выжила (счётчики `KEPT_*` нулевые на всех строках записи, `require.zero`). У остальных 308 строк ответ побитово тот же. Потерянных граней и перевёрнутых относительно источника нет, ни один домен не отказан. Три прежних закона топологии (TRIANGLES_V1, QUAD_STRIPS_V1, PLANAR_POLYGONS_V1) побитово прежние: план читает только закон силуэта.",
+  "groups": [
+    {
+      "name": "plan_inert_pairs",
+      "domains": {
+        "where": [
+          {
+            "side": "new",
+            "counter": "MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS",
+            "op": "gt",
+            "value": 0
+          }
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": [
+          "semantic_digest",
+          "content_digest",
+          "offset_normals_digest"
+        ],
+        "counters": [
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_VERTICES",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_STATION_CONSTANT_S",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_INTERFACE_CHAINS",
+          "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+          "MATERIALIZE_TRIANGLES_UV_REVERSED",
+          "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
+          "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG",
+          "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"
+        ],
+        "counter_prefixes": [
+          "MATERIALIZE_CLIP_",
+          "MATERIALIZE_SILHOUETTE_",
+          "MATERIALIZE_STATION_PLAN_"
+        ],
+        "diagnostics": [
+          {
+            "prefix": "SILHOUETTE_TOPOLOGY_V1"
+          },
+          {
+            "prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plan_dissolved",
+      "domains": {
+        "where": [
+          {
+            "side": "new",
+            "counter": "MATERIALIZE_STATION_PLAN_DISSOLVED",
+            "op": "gt",
+            "value": 0
+          }
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": [
+          "semantic_digest",
+          "content_digest",
+          "offset_normals_digest"
+        ],
+        "counters": [
+          "MATERIALIZE_FACES_EMITTED",
+          "MATERIALIZE_QUADS",
+          "MATERIALIZE_TRIANGLES",
+          "MATERIALIZE_VERTICES",
+          "MATERIALIZE_STATION_FACTS",
+          "MATERIALIZE_STATION_CONSTANT_S",
+          "MATERIALIZE_BOUNDARY_EDGES",
+          "MATERIALIZE_INTERFACE_CHAINS",
+          "MATERIALIZE_TRIANGLES_UV_DEGENERATE",
+          "MATERIALIZE_TRIANGLES_UV_REVERSED",
+          "MATERIALIZE_FACES_MAX_OFF_PLANE_NANOMETRES",
+          "MATERIALIZE_FACES_MAX_OFFSET_NORMAL_ANGLE_MILLIDEG",
+          "MATERIALIZE_RUNG_STATIONS_FROM_CHAIN_VERTEX"
+        ],
+        "counter_prefixes": [
+          "MATERIALIZE_CLIP_",
+          "MATERIALIZE_SILHOUETTE_",
+          "MATERIALIZE_STATION_PLAN_"
+        ],
+        "diagnostics": [
+          {
+            "prefix": "SILHOUETTE_TOPOLOGY_V1"
+          },
+          {
+            "prefix": "SOURCE_EDGES_LIFTED_ONTO_SURFACE"
+          }
+        ]
+      }
+    }
+  ],
+  "require": {
+    "changed_any_of": [
+      "semantic_digest",
+      "content_digest"
+    ],
+    "non_empty": [
+      "semantic_digest"
+    ],
+    "zero": [
+      "MATERIALIZE_FACES_LOST",
+      "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE",
+      "MATERIALIZE_STATION_PLAN_KEPT_TWINNED",
+      "MATERIALIZE_STATION_PLAN_KEPT_ATTACHED",
+      "MATERIALIZE_STATION_PLAN_KEPT_CHORD",
+      "MATERIALIZE_STATION_PLAN_KEPT_NOT_SIMPLE",
+      "MATERIALIZE_STATION_PLAN_KEPT_NO_UV_FACTS"
+    ],
+    "non_increasing": [
+      "MATERIALIZE_FACES_EMITTED",
+      "MATERIALIZE_VERTICES",
+      "MATERIALIZE_TRIANGLES",
+      "MATERIALIZE_BOUNDARY_EDGES",
+      "MATERIALIZE_INTERFACE_CHAINS",
+      "MATERIALIZE_STATION_FACTS"
+    ],
+    "no_refusal": true
+  }
+}

@@ -32,8 +32,9 @@
 8. под `SILHOUETTE_TOPOLOGY_V1` — пост-проход `silhouette` (после положения вершин, до цепей и дайджестов): ребро между
    гранями одного региона в одной плоскости с точно аффинной UV (в допуске запроса) и вершина на прямой, не лежащая на цепи
    источника или стены, растворяются; цепи батча строятся по кольцам итоговых граней, а ребро между регионами с равными
-   фактами `(s, r)` не интерфейс (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние). Точки на
-   прямых цепях источника и стены решает НЕ этот проход, а общий по всем доменам прогона (`source_dots`, над готовыми батчами);
+   фактами `(s, r)` не интерфейс (числа — `MATERIALIZE_SILHOUETTE_*`; остальные законы топологии побитово прежние). Вершины цепей
+   источника и стены решает план станций цепей (`CHAIN_STATION_PLAN_V1`, компиляция): резка по граням не режет по инертным рёбрам
+   `FREE`-вершин (`clip`, `_inert_pairs`), а проход растворяет сами `FREE`-вершины (`MATERIALIZE_STATION_PLAN_*`);
 9. сборка, валидация `validate_geometry_batch`, дайджесты.
 
 Исход всегда назван (`MaterializationOutcome`). Бюджет кончился — именованный
@@ -62,7 +63,8 @@ from fractions import Fraction
 from hashlib import sha256
 from typing import NamedTuple
 
-from ..canonical import geometry_batch_semantic_digest
+from .._chain_station import free_vertices, inert_face_pairs
+from ..canonical import sealed_geometry_batch
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
@@ -77,7 +79,7 @@ from ..exact_sqrt_sum import (
     exact_work_budget,
     reset_factorization_memory,
 )
-from ..ids import GeometryDiagnosticId, LineageId, SemanticDigestValue
+from ..ids import GeometryDiagnosticId, LineageId
 from ..outcomes import NamedOutcome
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
@@ -99,7 +101,9 @@ from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
+from .interval import alpha_interval
 from .lift import plane_lift_of
+from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
 from .silhouette import SilhouetteInputV1, apply_silhouette
@@ -110,6 +114,7 @@ from .source_lift import (
     settle_emitted_faces,
     source_step_of,
 )
+from .structure import batch_structure
 from .stations import (
     SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
     SKIP_JOIN_CORNER_NOT_ADJACENT,
@@ -151,6 +156,14 @@ class MaterializationV1:
     #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`; пусто — резки нет): метка запуска, как секунды, а не
     #: ответ, поэтому в сравнение не входит и в счётчики ответа не пишется.
     clip_memo: str = field(default="", compare=False)
+    #: Материализация шла с `digests=False`: `batch.semantic_digest` — `PENDING_SEMANTIC_DIGEST`, `content_digest` пуст у
+    #: материализованного домена. Дайджесты — чистые функции батча: `finalize_digests` считает их те же, что eager-путь.
+    digests_deferred: bool = False
+    #: ЗАПИСАННЫЕ факты шага ширины (`certify=True`), не ответ и не часть дайджеста: заверенный интервал ширины, внутри которого
+    #: структура покрытия и резки домена та же (`interval.AlphaIntervalV1`), и подпись структуры батча по содержанию
+    #: (`structure.StructureSignatureV1`). Пусто, когда материализация шла без `certify` и у отказа.
+    interval: object | None = field(default=None, compare=False)
+    structure: object | None = field(default=None, compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -632,12 +645,19 @@ def _lift_of(prepared, admission, scale, budget):
 
     context = prepared.context
     if not _on_exact_plane(admission):
-        return surface_lift_of(
-            context.frame,
-            context.snapshot,
-            prepared.compilation.owner_patch_id,
-            scale,
-        ).bind(budget)
+        memo = memo_of(prepared)
+
+        def compute():
+            return surface_lift_of(
+                context.frame,
+                context.snapshot,
+                prepared.compilation.owner_patch_id,
+                scale,
+            )
+
+        # Подъём домена - значение подготовки и масштаба (alpha в него не входит), без цены бюджета: память отдаёт то же.
+        lift = compute() if memo is None else memo.remembered(("surface_lift", scale), compute)
+        return lift.bind(budget)
     return plane_lift_of(context.frame, scale)
 
 
@@ -708,10 +728,22 @@ def _at_host_positions(prepared, plane, faces, lifted, law, budget, chart_cw):
     return final, sourced, faces_after
 
 
-def _cut(plane, budget, admission, stage, tally):
+def _inert_pairs(prepared, silhouette: bool, admission) -> frozenset:
+    """Пары граней источника, по рёбрам которых резка не режет: план станций цепей (`CHAIN_STATION_PLAN_V1`), закон `SILHOUETTE_TOPOLOGY_V1`.
+
+    Только у резки по граням под законом силуэта: остальные законы план не читают (их ответы побитово прежние).
+    """
+
+    if silhouette and _is_clipped(admission) and admission.lift_law.clips_by_faces:
+        return inert_face_pairs(prepared.compilation.chain_station_plans)
+    return frozenset()
+
+
+def _cut(plane, budget, admission, stage, tally, inert=frozenset()):
     """Резка домена (закон `SOURCE_TRIANGLES_CLIPPED_V1`): `ClippedV1` либо `None`, если укладка без резки.
 
-    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`.
+    `stage` — `(слитые грани, контуры, точки, многоугольники, факты, раскладка, таблица, alpha решётки, закон)`;
+    `inert` — пары граней плана станций цепей (`_inert_pairs`).
     """
 
     frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law = stage
@@ -731,19 +763,24 @@ def _cut(plane, budget, admission, stage, tally):
         law=law,
         by_faces=admission.lift_law.clips_by_faces,
         tally=tally,
+        inert=inert,
     )
 
 
-def _shaped(clock, budget, request, mesh, frame, reverse):
-    """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой.
+def _shaped(clock, budget, request, prepared, silhouette, mesh, frame, reverse):
+    """Закон `SILHOUETTE_TOPOLOGY_V1`: сетка домена после растворения рёбер и вершин, не влияющих на силуэт, с проверкой; `None` вне закона.
 
     `mesh` — `(грани, контуры, вершины граней, позиции)`, `frame` — `(точки карты, факты, слитые грани, раскладка, alpha решётки)`;
     сдвиг UV берётся у запроса (`DecalRequestV1.silhouette_uv_slide`), `reverse` — кольца граней обходятся против контуров (CW-карта).
+    Вершины `src:<id>`, которые план станций цепей (`CHAIN_STATION_PLAN_V1`) назвал `FREE`, проход растворяет по плану.
     """
 
+    if not silhouette:
+        return None
     slide = request.silhouette_uv_slide
+    free = frozenset(f"src:{vertex}" for vertex in free_vertices(prepared.compilation.chain_station_plans))
     shaped = apply_silhouette(
-        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse), budget
+        SilhouetteInputV1(*mesh, *frame, Fraction(slide.numerator, slide.denominator), reverse, free), budget
     )
     clock.lap("SILHOUETTE")
     return shaped
@@ -787,7 +824,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
-    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally)
+    cut = _cut(plane, budget, admission, (frame_faces, cycles, points, polygons, facts, layout, table, lattice_alpha, law), tally, _inert_pairs(prepared, silhouette, admission))
     if clipped:
         clock.lap("CLIP")
     positions, names = _lifted(plane, points, cut)
@@ -803,11 +840,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         prepared, plane, (frame_faces, cycles, points), (positions, polygons, cut), law, budget, chart_cw
     )
     mesh = (polygons, cycles if cut is None else cut.cycles, None if cut is None else cut.vertex_lists, sourced.positions)
-    shaped = (
-        _shaped(clock, budget, request, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
-        if silhouette
-        else None
-    )
+    shaped = _shaped(clock, budget, request, prepared, silhouette, mesh, (points, facts, frame_faces, layout, lattice_alpha), chart_cw)
     batch = assemble_batch(
         frame_faces=frame_faces,
         cycles=(cycles if cut is None else cut.cycles) if shaped is None else shaped.cycles,
@@ -843,12 +876,6 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
             chords, plane.opposition_note(),
         ),
     )
-    batch = replace(
-        batch,
-        semantic_digest=SemanticDigestValue(
-            geometry_batch_semantic_digest(batch).sha256_hex
-        ),
-    )
     if shaped is not None and shaped.note:
         lines.append(shaped.note)
     clock.lap("ASSEMBLE")
@@ -875,15 +902,32 @@ def _lift_counters(plane, sourced, faces_after, cut, tally, shaped=()) -> tuple:
     )
 
 
-def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
-    withdrawn: frozenset = frozenset()
-    while True:
+def _stations_of(prepared, budget, withdrawn):
+    """`(таблица станций цепей, карта отрезков к цепям)` домена: значение подготовки, alpha в него не входит.
+
+    Первый круг `_build` идёт при ХОЛОДНОЙ памяти канонизации (сброс стоит перед бюджетом домена), поэтому цена его
+    счёта - функция подготовки, и память (`memo`) повторяет её (`priced`). Повторный круг (снятый стык `withdrawn`)
+    считает при памяти, которую заполнил первый, - его цена от истории круга зависит, и он идёт мимо памяти.
+    """
+
+    def compute():
         table = (
             chain_station_table(prepared, budget, withdrawn)
             if withdrawn
             else chain_station_table(prepared, budget)
         )
-        spans = source_chain_by_span(prepared)
+        return table, source_chain_by_span(prepared)
+
+    memo = memo_of(prepared)
+    if memo is None or withdrawn:
+        return compute()
+    return memo.priced(("stations",), budget, compute)
+
+
+def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
+    withdrawn: frozenset = frozenset()
+    while True:
+        table, spans = _stations_of(prepared, budget, withdrawn)
         clock.lap("STATIONS")
         items, stats, match = _covered_regions(
             prepared, coverage, table, spans, budget, clock
@@ -945,6 +989,8 @@ def materialize_domain(
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
     decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
+    digests: bool = True,
+    certify: bool = False,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -958,6 +1004,11 @@ def materialize_domain(
     каждый кусок в одном треугольнике; домен развёртки при этом тоже режется.
     `decal_topology_law` — из каких граней собирается сетка: по умолчанию
     только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
+    `digests=False` — не считать ни `semantic_digest` батча, ни `content_digest` (оба — чистые функции батча, ~18 % CPU
+    домена): батч идёт с `PENDING_SEMANTIC_DIGEST`, валидатор не сверяет дайджест, результат помечен `digests_deferred`, и
+    дайджесты считает `finalize_digests` тот, кому они нужны. Остальной ответ побитово тот же.
+    `certify=True` — записать факты шага ширины (`MaterializationV1.interval` и `.structure`): они читаются из подготовки,
+    подъёма и батча, ничего в ответе не двигают (счётчики, батч и дайджесты те же побитово).
     """
 
     silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
@@ -969,12 +1020,39 @@ def materialize_domain(
         near_planar_lift_law,
         DecalTopologyLawV1.PLANAR_POLYGONS_V1 if silhouette else decal_topology_law,
         silhouette,
+        digests,
+        certify,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
 
+def finalize_digests(result: MaterializationV1) -> MaterializationV1:
+    """Результат `digests=False` с настоящими дайджестами: те же, что посчитал бы eager-путь (чистые функции батча).
+
+    Результат с уже посчитанными дайджестами, отказ и результат без батча возвращаются как есть.
+    """
+
+    if not result.digests_deferred or not result.is_materialized or result.batch is None:
+        return result
+    batch = sealed_geometry_batch(result.batch)
+    return replace(
+        result,
+        batch=batch,
+        content_digest=sha256(canonical_json_bytes(batch)).hexdigest(),
+        digests_deferred=False,
+    )
+
+
+def _step_facts(prepared, coverage, built, admission, batch):
+    """`(заверенный интервал ширины, подпись структуры батча)` материализованного домена; в ответ они не входят."""
+
+    triangles = tuple(getattr(built.lift, "triangles", ())) if _is_clipped(admission) else ()
+    interval = alpha_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
+    return interval, batch_structure(batch)
+
+
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1012,7 +1090,10 @@ def _materialize_domain(
             budget.counters(),
         )
     batch = built.batch
-    issues = validate_geometry_batch(batch)
+    if digests:
+        batch = sealed_geometry_batch(batch)
+        clock.lap("SEMANTIC_DIGEST")
+    issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
     clock.lap("VALIDATE")
     offset_normals = (
         built.lift.offset_normals(batch.vertices)
@@ -1043,8 +1124,11 @@ def _materialize_domain(
             clock,
             counters,
         )
-    digest = sha256(canonical_json_bytes(batch)).hexdigest()
+    digest = sha256(canonical_json_bytes(batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
+    interval, structure = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None)
+    if certify:
+        clock.lap("CERTIFY")
     return MaterializationV1(
         outcome=MaterializationOutcome.MATERIALIZED,
         batch=batch,
@@ -1057,4 +1141,7 @@ def _materialize_domain(
         offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",
         offset_normals_digest=offset_normals_digest(offset_normals),
         clip_memo=built.clip_memo,
+        digests_deferred=not digests,
+        interval=interval,
+        structure=structure,
     )

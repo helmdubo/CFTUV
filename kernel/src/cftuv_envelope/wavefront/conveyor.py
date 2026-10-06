@@ -86,6 +86,7 @@ from ..exact_sqrt_sum import (
     exact_work_budget,
 )
 from ..ids import PatchDomainId
+from ..materialize.memo import MaterializeMemoV1
 from ..interactions.arrival import (
     ANGULAR_PROFILE_NORMAL_SPEED,
     STRIP_FRONT_NORMAL_SPEED,
@@ -353,6 +354,12 @@ class ConveyorPreparationV1:
     # покрытии и ездят с подготовкой (`ContactCandidatesMemoV1`). Не часть значения:
     # ни равенства, ни представления, ни ответа покрытие от неё не меняет.
     contact_memo: ContactCandidatesMemoV1 | None = field(
+        default=None, compare=False, repr=False
+    )
+    # Alpha-независимая работа материализатора (таблица станций цепей, подъём домена, таблица событий alpha): считается
+    # на первой материализации и живёт с подготовкой. Пикл несёт её пустой (`MaterializeMemoV1.__reduce__`), в равенство и
+    # представление не входит: ни ответа, ни ключа пикла она не меняет.
+    materialize_memo: MaterializeMemoV1 | None = field(
         default=None, compare=False, repr=False
     )
 
@@ -1393,6 +1400,7 @@ def prepare_conveyor(
         requested_alpha=normalize_requested_alpha(request.requested_alpha),
         work_budget=budget,
         contact_memo=ContactCandidatesMemoV1(),
+        materialize_memo=MaterializeMemoV1(),
     )
 
 

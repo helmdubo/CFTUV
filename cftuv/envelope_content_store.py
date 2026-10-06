@@ -253,6 +253,13 @@ def _rewritten(value, move: LabelMapV1):
     return _In(io.BytesIO(buffer.getvalue())).load()
 
 
+def _with_labels(result, labels):
+    """Тот же результат с записью идентичностей; отложенный остаётся отложенным (`with_changes`)."""
+
+    change = getattr(result, "with_changes", None)
+    return replace(result, labels=labels) if change is None else change(labels=labels)
+
+
 def carried_to_run(result, relabel: RelabelV1):
     """Результат домена при ревизии и запросе прогона: с записью (`base` для свежего) и перенесённый.
 
@@ -262,7 +269,7 @@ def carried_to_run(result, relabel: RelabelV1):
     if result.labels is None:
         if relabel.base is None:
             raise ContentRelabelFailed("the result has no record of its host identities")
-        result = replace(result, labels=relabel.base)
+        result = _with_labels(result, relabel.base)
     return relabel_result(result, relabel.revision_to, relabel.request_to, relabel.patch_to)
 
 
@@ -286,7 +293,9 @@ def relabel_result(result, revision_to: str, request_to: str, patch_to: int):
         return result
     try:
         new_labeling, move = relabeled(labeling, revision_to, request_to, patch_to)
-        moved = _rewritten(replace(result, labels=None), move)
+        # Перенос идёт по ПОЛНОМУ результату: отложенный (вид и пикл батча воркера) разворачивается, а вид не переживает переписывание.
+        full = result.materialized(with_digest=False) if hasattr(result, "materialized") else result
+        moved = _rewritten(replace(full, labels=None), move)
     except RelabelIncomplete as exc:
         raise ContentRelabelFailed(str(exc)) from exc
     batch = moved.batch
@@ -307,12 +316,19 @@ def relabel_result(result, revision_to: str, request_to: str, patch_to: int):
         from cftuv_envelope.materialize.offset_normal import offset_normals_digest
 
         offset_digest = offset_normals_digest(moved.vertex_normals)
+    structure = ""
+    if batch is not None and moved.structure_digest:
+        # Ключи вершин несут идентичности ревизии: подпись структуры перенесённого батча - подпись ЕГО ключей.
+        from cftuv_envelope.materialize.structure import batch_structure
+
+        structure = batch_structure(batch).digest
     return replace(
         moved,
         patch_id=int(patch_to),
         batch=batch,
         content_digest=content_digest,
         offset_normals_digest=offset_digest,
+        structure_digest=structure,
         labels=new_labeling,
     )
 

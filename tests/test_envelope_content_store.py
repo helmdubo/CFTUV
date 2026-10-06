@@ -76,6 +76,19 @@ def test_a_moved_result_is_the_answer_of_a_cold_run_at_the_target(patch):
     assert moved.labels.patch_id == relabel.patch_to
 
 
+@pytest.mark.parametrize("patch", range(ROW))
+def test_a_moved_result_recomputes_the_structure_signature_of_its_new_keys_and_keeps_the_interval(patch):
+    from cftuv_envelope.materialize.structure import batch_structure
+
+    before, cold, relabel = _pair(patch)
+
+    moved = carried_to_run(before, relabel)
+
+    assert moved.structure_digest and cold.structure_digest
+    assert moved.structure_digest == batch_structure(moved.batch).digest == cold.structure_digest
+    assert before.alpha_interval is not None and moved.alpha_interval == before.alpha_interval == cold.alpha_interval
+
+
 def test_two_cold_runs_of_one_content_agree_up_to_kernel_labels():
     """Один и тот же домен при двух ревизиях: числа ответа те же, дайджесты — нет (они покрывают метки ревизии)."""
 
@@ -101,7 +114,10 @@ def test_every_field_of_a_result_is_classified_for_the_move():
     from cftuv.envelope_production_export import ProductionDomainResultV1
 
     rewritten_strings = {"domain_id", "outcome", "detail", "diagnostics", "vertex_normals", "batch", "counters"}
-    recomputed = {"patch_id", "content_digest", "offset_normals_digest", "labels"}
+    recomputed = {"patch_id", "content_digest", "offset_normals_digest", "labels", "structure_digest"}
+    # Присланный воркером вид и пикл батча несут чужие идентичности: перенос их НЕ переписывает, а сбрасывает (результат переноса
+    # собран заново без них, воркер выводит их снова) - `test_a_moved_result_carries_neither_the_old_view_nor_the_old_batch_bytes`.
+    dropped = {"view", "heavy"}
     identity_free = {
         "normal",
         "source_normal",
@@ -111,11 +127,13 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "seconds",
         "placement",
         "clip_memo",
+        # Заверенный интервал ширины - числа и названия, ключей и идентичностей ревизии в нём нет.
+        "alpha_interval",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}
 
-    assert names == rewritten_strings | recomputed | identity_free
+    assert names == rewritten_strings | recomputed | dropped | identity_free
 
 
 def test_a_moved_unfolded_domain_keeps_its_offset_normals_under_the_new_names():

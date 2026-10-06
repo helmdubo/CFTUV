@@ -45,6 +45,7 @@ import pickle
 import time
 from dataclasses import dataclass, replace
 
+from .envelope_worker_store import prepared_of
 from .envelope_queue_export import (
     POOL_COVERAGE_DISPATCHED,
     POOL_DISPATCHED,
@@ -82,8 +83,10 @@ class CoverageInputV1:
     процесса) либо ползунок (`recompute_queue_coverage` её не сбрасывает).
     """
 
-    blob: bytes
+    blob: bytes | None
     reset_memory: bool
+    #: Ключ пикла в памяти подготовок воркера (`envelope_worker_store.blob_key`); пусто - подготовка не запоминается.
+    key: str = ""
 
 
 class PreparationBlobsV1:
@@ -97,18 +100,36 @@ class PreparationBlobsV1:
     """
 
     def __init__(self) -> None:
-        self._items: dict[int, tuple[object, bytes]] = {}
+        #: По тождеству объекта: `[объект, пикл, ключ пикла в памяти воркера либо None, пока не считали]`.
+        self._items: dict[int, list] = {}
 
     def __len__(self) -> int:
         return len(self._items)
 
-    def blob_of(self, prepared) -> bytes:
+    def _item_of(self, prepared) -> list:
         item = self._items.get(id(prepared))
-        if item is not None and item[0] is prepared:
-            return item[1]
-        blob = pickle.dumps(prepared, protocol=PICKLE_PROTOCOL)
-        self._items[id(prepared)] = (prepared, blob)
-        return blob
+        if item is None or item[0] is not prepared:
+            item = [prepared, pickle.dumps(prepared, protocol=PICKLE_PROTOCOL), None]
+            self._items[id(prepared)] = item
+        return item
+
+    def blob_of(self, prepared) -> bytes:
+        return self._item_of(prepared)[1]
+
+    def adopt(self, prepared, blob: bytes, key: str) -> None:
+        """Пикл подготовки, который снял воркер и из которого развёрнута `prepared`: перепикливать её родителю незачем."""
+
+        self._items[id(prepared)] = [prepared, blob, key or None]
+
+    def key_of(self, prepared) -> str:
+        """Ключ пикла этой подготовки в памяти воркеров (хеш байтов и кода, считается один раз); пусто - без памяти."""
+
+        item = self._item_of(prepared)
+        if item[2] is None:
+            from .envelope_worker_store import blob_key
+
+            item[2] = blob_key(item[1])
+        return item[2]
 
     def clear(self) -> None:
         self._items.clear()
@@ -123,7 +144,7 @@ class PreparationBlobsV1:
     def retain(self, keep) -> None:
         """Оставляет пиклы подготовок, для которых `keep(подготовка)` истинно: остальные никто не держит."""
 
-        for key, (prepared, _blob) in list(self._items.items()):
+        for key, (prepared, _blob, _key) in list(self._items.items()):
             if not keep(prepared):
                 del self._items[key]
 
@@ -137,7 +158,7 @@ def solve_coverage_task(task):
 
     from .envelope_domain_pool import DomainTaskResultV1
 
-    prepared = pickle.loads(task.coverage.blob)
+    prepared = prepared_of(task.coverage)
     domain = cover_prepared(
         task.patch_id,
         task.domain_id,
@@ -327,9 +348,9 @@ def _coverage_tasks(covered, blobs, alpha_text, first_task_id):
             None,
             alpha_text,
             selected,
-            coverage=CoverageInputV1(blob, True),
+            coverage=CoverageInputV1(blob, True, blobs.key_of(prepared)),
         )
-        for index, ((patch_id, domain_id, selected, _), blob) in enumerate(
+        for index, ((patch_id, domain_id, selected, prepared), blob) in enumerate(
             shipped
         )
     ], failures
@@ -582,9 +603,9 @@ class SliderCoveragePool:
                 None,
                 alpha_text,
                 frozenset(),
-                coverage=CoverageInputV1(blob, False),
+                coverage=CoverageInputV1(blob, False, self._blobs.key_of(prepared)),
             )
-            for index, ((patch_id, domain_id, _), blob) in enumerate(shipped)
+            for index, ((patch_id, domain_id, prepared), blob) in enumerate(shipped)
         ]
         run, failure = _run_tasks(self._domain_pool, tasks, self._profile, cancel)
         if cancel is not None and cancel.is_set():

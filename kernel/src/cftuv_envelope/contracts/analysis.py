@@ -22,6 +22,7 @@ from ..ids import (
     PlanarityCertificateId,
     RoutePairingId,
     SharedSemanticAnchorId,
+    SourceFaceId,
     SourceRevision,
     SourceVertexId,
     TerminalRelationId,
@@ -36,6 +37,7 @@ from ..numeric import (
     SourcePositionV1,
     SurfaceCoordinateUnavailableReason,
 )
+from ..schema import wire_default_field
 from .surface import PatchSurfaceIRV1
 from .metric import (
     CertifiedAffineSupportDirectionV2,
@@ -524,6 +526,26 @@ class TerminalRelationV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SeamNeighbourFaceV1:
+    """Грань патча СОСЕДА шва, касающаяся внутренней вершины цепи шва: сторона шва, которой нет в `surface_ir` снапшота домена.
+
+    Снапшот запроса несёт поверхность ТОЛЬКО патчей запроса, а цепь шва двух патчей читают оба домена. Решение по внутренней
+    вершине цепи (`CHAIN_STATION_PLAN_V1`) обязано быть одним у обоих, иначе общая цепь получила бы вершину с одной стороны, и
+    видеть оно должно поверхность обеих сторон. Факт хоста: грань и 3D-положения её вершин (в `source_vertices` снапшота вершин
+    соседа нет: они вне патчей запроса). Нет записей — сторона неизвестна, и закон называет это (`NEIGHBOUR_SIDE_UNKNOWN`).
+    """
+
+    face_id: SourceFaceId
+    patch_id: PatchId
+    vertex_ids: tuple[SourceVertexId, ...]
+    positions: tuple[LocalPoint3V1, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.vertex_ids) < 3 or len(self.positions) != len(self.vertex_ids):
+            raise ValueError("SeamNeighbourFaceV1 needs at least three vertices, each with one position")
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisSnapshotV1:
     schema_version: str
     source_revision: SourceRevision
@@ -542,3 +564,5 @@ class AnalysisSnapshotV1:
     corner_relations: frozenset[CornerRelationV1]
     junction_relations: frozenset[JunctionRelationV1]
     terminal_relations: frozenset[TerminalRelationV1]
+    #: Грани патчей соседей у внутренних вершин цепей шва (`SeamNeighbourFaceV1`); на проводе пусто, пока пусто.
+    seam_neighbour_faces: frozenset[SeamNeighbourFaceV1] = wire_default_field(frozenset())

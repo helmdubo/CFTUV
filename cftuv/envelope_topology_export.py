@@ -146,12 +146,29 @@ class _PatchGraphIdView:
 
 
 @dataclass(frozen=True, slots=True)
+class NeighbourFaceV1:
+    """Грань патча ВНЕ запроса: номера хоста, обход вершин и их положения (числа и кортежи: воркер пула получает их, как остальной срез).
+
+    Поле `patch_id` называется так нарочно: ключ содержимого домена кодирует номер патча рангом среди соседей по швам, и сдвиг номеров
+    не меняет ключа.
+    """
+
+    face_id: int
+    patch_id: int
+    vertex_cycle: tuple[int, ...]
+    positions: tuple[tuple[float, float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _PatchSurfaceIdView:
     source_revision: object
     vertices: tuple[object, ...]
     edges: tuple[object, ...]
     faces: tuple[object, ...]
     triangles: tuple[object, ...]
+    #: Грани патчей ВНЕ запроса, касающиеся вершин граней запроса (`NeighbourFaceV1`). Вторая сторона шва: решение по внутренней
+    #: вершине цепи (`CHAIN_STATION_PLAN_V1`) обязано видеть поверхность обеих сторон, а срез запроса — только свою.
+    neighbour_faces: tuple[NeighbourFaceV1, ...] = ()
 
     @property
     def vertex_by_id(self) -> dict[int, object]:
@@ -219,6 +236,19 @@ class AnalysisBundleIdView:
         vertex_ids = frozenset(
             int(vertex_id) for face in faces for vertex_id in face.vertex_cycle
         )
+        position_of = {int(item.vertex_id): item.position for item in surface.vertices}
+        # Вид вида (лёгкий вход воркера) уже несёт кольцо: его граней среди `surface.faces` нет, и оно переходит как есть.
+        neighbours = tuple(getattr(surface, "neighbour_faces", ())) + tuple(
+            NeighbourFaceV1(
+                int(item.face_id),
+                int(item.patch_id),
+                tuple(int(vertex_id) for vertex_id in item.vertex_cycle),
+                tuple(tuple(float(axis) for axis in position_of[int(vertex_id)]) for vertex_id in item.vertex_cycle),
+            )
+            for item in surface.faces
+            if int(item.patch_id) not in self.included_patch_ids
+            and not vertex_ids.isdisjoint(int(vertex_id) for vertex_id in item.vertex_cycle)
+        )
         object.__setattr__(
             self,
             "_patch_graph",
@@ -245,6 +275,7 @@ class AnalysisBundleIdView:
                     for item in surface.triangles
                     if int(item.source_face_id) in face_ids
                 ),
+                neighbours,
             ),
         )
 
@@ -477,7 +508,106 @@ def build_envelope_topology_debug_scene(
     )
 
 
+#: Сколько прологов (выделений) держит память. Ширина меняется ползунком при ОДНОМ выделении, и к двум-трём недавним
+#: возвращает отмена, поэтому запас мал: запись держит пакет анализа.
+STAGE_INPUTS_MEMO_LIMIT = 4
+STAGE_INPUTS_HIT = "HIT"
+STAGE_INPUTS_MISS = "MISS"
+
+
+class StageInputsMemoV1:
+    """Пролог постадийного прогона (`stage_domain_inputs`) по `(ревизия, выделение)`: от alpha, плотности и допусков не зависит.
+
+    Сцена топологии, перечень доменов, `DecalRequestId` и выделенные рёбра доменов — функция пакета анализа, цепочек хоста
+    экспорта и выделения; полоса (`chart_band`), допуски и alpha экспорта в неё не входят (`stage_domain_inputs` читает у
+    экспорта только ревизию и `host_chains`). Запись держит сам пакет и цепочки хоста и принимается лишь на ТЕХ ЖЕ
+    объектах (`is`): занятое тождество не уходит другому, а пересобранный пакет той же ревизии промахивается и пишет заново.
+    Записи профиля пролога (счётчики и квитанции доменов) идут при попадании в профиль ЭТОГО прогона теми же вызовами, что
+    у счёта; секунды стадий при попадании не пишутся (их не было). Ключ несёт отпечаток кода ядра и хоста
+    (`envelope_content_key.code_identity`). Память живёт и сбрасывается с кэшами ревизии сессии.
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[tuple, tuple] = {}
+        self.hits = 0
+        self.misses = 0
+        #: `HIT`, `MISS` либо `OFF` последнего вызова (для счётчика профиля прогона).
+        self.last = ""
+        #: Выключенная память считает пролог каждый раз (сверка «с памятью и без», замер «до»).
+        self.enabled = True
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+    def stage(self, analysis_bundle, selected, *, profile, topology_export):
+        from .envelope_content_key import ContentKeyUnsupported, code_identity
+
+        try:
+            code = code_identity() if self.enabled else None
+        except ContentKeyUnsupported:
+            code = None
+        if code is None:
+            self.last = "OFF"
+            return _stage_domain_inputs(analysis_bundle, selected, profile=profile, topology_export=topology_export)
+        key = (code, str(topology_export.source_revision_value), frozenset(int(item) for item in selected))
+        entry = self._entries.get(key)
+        if entry is not None and entry[0] is analysis_bundle and entry[1] is topology_export.host_chains:
+            self._entries[key] = self._entries.pop(key)  # давность
+            self.hits += 1
+            self.last = STAGE_INPUTS_HIT
+            return self._replayed(entry[2], entry[3], profile)
+        private = None if profile is None else EnvelopeDebugProfileBuilderV1(profile.source_name, profile.build_kind)
+        built = _stage_domain_inputs(analysis_bundle, selected, profile=private, topology_export=topology_export)
+        recorded = None if private is None else private.snapshot()
+        self._entries.pop(key, None)
+        self._entries[key] = (analysis_bundle, topology_export.host_chains, built, recorded)
+        while len(self._entries) > STAGE_INPUTS_MEMO_LIMIT:
+            del self._entries[next(iter(self._entries))]
+        self.misses += 1
+        self.last = STAGE_INPUTS_MISS
+        return self._replayed(built, recorded, profile, timings=True)
+
+    @staticmethod
+    def _replayed(built, recorded, profile, *, timings: bool = False):
+        """Пролог с записями профиля, повторёнными в профиль прогона; словарь выделенных рёбер отдаётся копией."""
+
+        if profile is not None and recorded is not None:
+            if timings:
+                for item in recorded.timings:
+                    profile.add_timing(item.stage, item.elapsed_seconds, item.patch_domain_id)
+            for item in recorded.counters:
+                profile.set_counter(item.name, item.value, item.patch_domain_id)
+            for receipt in recorded.receipts:
+                profile.set_receipt(receipt)
+        scene, revision, patch_ids, request_id, by_domain = built
+        return scene, revision, patch_ids, request_id, {name: set(edges) for name, edges in by_domain.items()}
+
+
 def stage_domain_inputs(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    topology_export: EnvelopeTopologyExportV1 | None = None,
+    memo: StageInputsMemoV1 | None = None,
+):
+    """Сцена топологии плюс адресация доменов одного постадийного прогона.
+
+    `memo` (`StageInputsMemoV1`, у сессии) — пролог по `(ревизия, выделение)`: ответ тот же, записи профиля те же.
+    Без экспорта (`topology_export=None`) память не используется: у такого вызова нет цепочек хоста, которыми она ключуется.
+    """
+
+    if memo is None or topology_export is None:
+        return _stage_domain_inputs(
+            analysis_bundle, selected_physical_edge_ids, profile=profile, topology_export=topology_export
+        )
+    return memo.stage(analysis_bundle, selected_physical_edge_ids, profile=profile, topology_export=topology_export)
+
+
+def _stage_domain_inputs(
     analysis_bundle: AnalysisBundle,
     selected_physical_edge_ids: frozenset[int],
     *,
@@ -559,6 +689,10 @@ __all__ = (
     "EnvelopeSelectionScopeV1",
     "EnvelopeTopologyExportV1",
     "HostChainKey",
+    "STAGE_INPUTS_HIT",
+    "STAGE_INPUTS_MISS",
+    "STAGE_INPUTS_MEMO_LIMIT",
+    "StageInputsMemoV1",
     "build_analysis_bundle_id_view",
     "build_envelope_topology_debug_scene",
     "build_envelope_topology_export",

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from hashlib import sha256
 
 from .codec import canonical_json_bytes
 from .contracts.analysis import AnalysisSnapshotV1
 from .contracts.geometry_batch import GeometryBatchV1
 from .contracts.plan import CompiledPatchEvaluationPlanV1
+from .ids import SemanticDigestValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,23 @@ def geometry_batch_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSeman
     digest = _compute_semantic_digest(batch)
     _LAST_DIGEST = (parts, digest)
     return digest
+
+
+#: Значение `semantic_digest` батча, которому дайджест ещё не посчитан (сборка батча и материализация без дайджестов).
+PENDING_SEMANTIC_DIGEST = "pending"
+
+
+def sealed_geometry_batch(batch: GeometryBatchV1) -> GeometryBatchV1:
+    """Тот же батч с настоящим `semantic_digest` (проекция та же, что считает `geometry_batch_semantic_digest`).
+
+    Батч, собранный без дайджеста (`materialize_domain(..., digests=False)`), несёт `PENDING_SEMANTIC_DIGEST`; запечатывает его
+    тот, кому дайджест нужен. Запечатанный батч побитово равен батчу eager-сборки: дайджест — чистая функция проекции.
+    """
+
+    return replace(
+        batch,
+        semantic_digest=SemanticDigestValue(geometry_batch_semantic_digest(batch).sha256_hex),
+    )
 
 
 def _compute_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSemanticDigest:

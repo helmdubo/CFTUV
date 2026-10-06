@@ -47,8 +47,8 @@
 у каждой пары соседних `src:` на цепи `boundary:SOURCE` берётся число вершин между ними в каждом домене, и
 пара, у которой оно в двух доменах различно, — T-стык (`seam_report`; запись, а не ремонт: вершины не
 подтягиваются). Туда же — пара соседних `src:` одного домена, между которыми у другого домена на цепи стоит ещё `src:`, каких у первого домена нет, и ни на одной цепи они не соседи: так
-выглядит точка, растворённая лишь с одной стороны (закон ядра `SILHOUETTE_SOURCE_DOTS_V1` решает место сразу во всех доменах,
-и эта проверка его страхует). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
+выглядит точка, растворённая лишь с одной стороны (план станций цепей `CHAIN_STATION_PLAN_V1` решает вершину один раз по цепи, и оба
+домена общей цепи читают одно решение; эта проверка его страхует там, где домен оставил вершину по названной структурной причине). Вершина `clip:` на цепи источника или стены — свой счёт: закон ядра их там не допускает.
 
 ПОРЯДОК. Вершина меша получает номер первого вхождения при обходе доменов по номеру патча и вершин
 по ключу, поэтому нумерация не зависит ни от воркера, ни от порядка множеств батча. Цепи батча — тоже `frozenset`: `seam_report`
@@ -313,49 +313,72 @@ def _anchors_between(anchored, held) -> int:
     порядка цепей не зависит.
     """
 
+    # Индекс по вершине: `{ключ: {(домен, номер цепи домена)}}`. Путь между концами пары (`_run_between`) бывает только на цепи, где есть ОБА
+    # конца, поэтому кандидаты пары — пересечение двух множеств, а не все домены: счёт линеен по числу пар (без квадрата по числу доменов).
     runs: dict = {}
     consecutive: dict = {}
+    where: dict = {}
     for number, _chain_id, anchors in anchored:
-        runs.setdefault(number, []).append(anchors)
+        chains = runs.setdefault(number, [])
+        for key in anchors:
+            where.setdefault(key, set()).add((number, len(chains)))
+        chains.append(anchors)
         consecutive.setdefault(number, set()).update(frozenset(pair) for pair in zip(anchors, anchors[1:]))
-    numbers = sorted(consecutive)
     open_pairs = set()
-    for number in numbers:
-        for pair in sorted(consecutive[number], key=sorted):
-            if len(pair) != 2:
+    for number, pairs in consecutive.items():
+        for pair in pairs:
+            if len(pair) != 2 or pair in open_pairs:
                 continue
-            for other in numbers:
-                if other == number or pair in consecutive[other]:
-                    continue
-                if any(_run_between(anchors, pair, held[number]) for anchors in runs[other]):
+            first, second = tuple(pair)
+            for other, at in where[first] & where[second]:
+                if other != number and pair not in consecutive[other] and _run_between(runs[other][at], pair, held[number]):
                     open_pairs.add(pair)
+                    break
     return len(open_pairs)
 
 
-def seam_report(batches) -> tuple:
-    """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям батчей.
+def boundary_chain_names(batch) -> tuple:
+    """`((имя цепи, (ключ вершины, ...)), ...)` граничных цепей батча по имени цепи (то, что читает `seam_report`).
 
-    Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Батч без
-    `boundary_chains` ничего не даёт. Точно, без допусков: ключи вершин, а не координаты.
-    Цепи батча — `frozenset` (порядок ходит с `PYTHONHASHSEED`), поэтому идут по имени цепи; ответ от порядка не зависит.
+    Цепи батча — `frozenset` (порядок ходит с `PYTHONHASHSEED`), поэтому идут по имени цепи. Батч без `boundary_chains` даёт `()`.
+    """
+
+    return tuple(
+        (chain.semantic_boundary_id.value, tuple(item.value for item in chain.ordered_vert_keys))
+        for chain in sorted(getattr(batch, "boundary_chains", ()) or (), key=lambda item: item.semantic_boundary_id.value)
+    )
+
+
+def seam_report(batches) -> tuple:
+    """`seam_report_of_chains` по цепям батчей (см. `boundary_chain_names`)."""
+
+    return seam_report_of_chains([boundary_chain_names(batch) for batch in batches])
+
+
+def seam_report_of_chains(domains) -> tuple:
+    """`((имя, число), ...)`: T-стыки шва между доменами и вершины `clip:` на шовных цепях, по цепям доменов.
+
+    `domains` — по домену `boundary_chain_names(батч)`: ровно то, что читает отчёт, поэтому его дают и вид домена, посчитанный
+    воркером, и батч. Шовные цепи — `boundary:SOURCE:*` и `boundary:WALL:*` (граница домена вдоль контура патча). Домен без
+    цепей ничего не даёт. Точно, без допусков: ключи вершин, а не координаты. Цепи идут в порядке имени: ответ от порядка не зависит.
     """
 
     by_pair: dict = {}
     clip_vertices = 0
     anchored: list = []
     held: dict = {}
-    for number, batch in enumerate(batches):
-        for chain in sorted(getattr(batch, "boundary_chains", ()) or (), key=lambda item: item.semantic_boundary_id.value):
-            kind = chain.semantic_boundary_id.value.split(":")[1]
+    for number, chains in enumerate(domains):
+        for name, chain_keys in chains:
+            kind = name.split(":")[1]
             if kind not in ("SOURCE", "WALL"):
                 continue
-            keys = [item.value for item in chain.ordered_vert_keys]
+            keys = list(chain_keys)
             anchors = [index for index, key in enumerate(keys) if key.startswith("src:")]
             clip_vertices += sum(1 for key in keys if key.startswith("clip:"))
             held.setdefault(number, set()).update(keys[index] for index in anchors)
             if kind != "SOURCE":
                 continue
-            anchored.append((number, chain.semantic_boundary_id.value, [keys[index] for index in anchors]))
+            anchored.append((number, name, [keys[index] for index in anchors]))
             for first, second in zip(anchors, anchors[1:]):
                 by_pair.setdefault(frozenset((keys[first], keys[second])), []).append(second - first - 1)
     junctions = sum(1 for counts in by_pair.values() if len(counts) > 1 and len(set(counts)) > 1)
