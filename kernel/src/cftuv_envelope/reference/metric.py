@@ -393,15 +393,24 @@ class ExactPlanarMetric:
             )
         return cached
 
+    def covector_g_native(self, vector) -> tuple[RadicalSumV1, RadicalSumV1]:
+        """`G·vector` в родной арифметике: правый множитель `dot_g_native`, его считают один раз на вектор, а не на каждое произведение."""
+
+        rx, ry = _native_pair(vector)
+        (g00, g01), (g10, g11) = self._native_gram()
+        return rx.scaled(g00) + ry.scaled(g01), rx.scaled(g10) + ry.scaled(g11)
+
+    def dot_covector_native(self, left, covector) -> RadicalSumV1:
+        """`left · (G·right)` по готовому `covector_g_native(right)`: те же операции над теми же значениями, что в `dot_g_native`."""
+
+        lx, ly = _native_pair(left)
+        gx, gy = covector
+        return lx * gx + ly * gy
+
     def dot_g_native(self, left, right) -> RadicalSumV1:
         """`dot_g` в родной арифметике: то же значение, без sympy и без `factor`."""
 
-        lx, ly = _native_pair(left)
-        rx, ry = _native_pair(right)
-        (g00, g01), (g10, g11) = self._native_gram()
-        gx = rx.scaled(g00) + ry.scaled(g01)
-        gy = rx.scaled(g10) + ry.scaled(g11)
-        return lx * gx + ly * gy
+        return self.dot_covector_native(left, self.covector_g_native(right))
 
     def length_g_native(self, vector) -> RadicalSumV1:
         """`length_g` в родной арифметике; корень из нерационального — вне поля (уступка sympy)."""
