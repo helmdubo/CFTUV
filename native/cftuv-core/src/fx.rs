@@ -9,7 +9,7 @@ use crate::num::{IBig, UBig};
 use crate::fxacc::FxAcc;
 use crate::products::{Items, ProductMemo};
 use crate::sqrt_sum::SqrtSum;
-use crate::wide::Wide;
+use crate::wide::{gcd_u64, Divisor, Wide};
 
 /// Items one list holds (the lists of the conjugation loop have a handful).
 pub const CAP: usize = 16;
@@ -166,22 +166,58 @@ pub fn reduce(common: &mut Wide, items: &mut FxItems) {
         if start.is_some() {
             divisor = divisor.gcd(common);
         }
-        for index in 0..items.n {
-            if divisor.is_one() {
-                break;
-            }
-            if Some(index) != start {
-                divisor = divisor.gcd(&items.val[index]);
-            }
-        }
+        divisor = gcd_chain(divisor, items, start);
     }
     if divisor.is_one() || divisor.is_zero() {
+        return;
+    }
+    if divisor.limb_count() == 1 {
+        let word = divisor.magnitude()[0];
+        *common = common.div_exact_u64(word);
+        for index in 0..items.n {
+            items.val[index] = items.val[index].div_exact_u64(word);
+        }
         return;
     }
     *common = common.div_exact(&divisor);
     for index in 0..items.n {
         items.val[index] = items.val[index].div_exact(&divisor);
     }
+}
+
+/// `gcd(start, every item but `skip`)`: while the running gcd is wider than a word the numbers are taken with `Wide::gcd`; once it is a word
+/// long, each item costs one remainder by an invariant divisor and one word gcd.
+fn gcd_chain(start: Wide, items: &FxItems, skip: Option<usize>) -> Wide {
+    let mut divisor = start;
+    let mut index = 0;
+    while index < items.n && divisor.limb_count() > 1 {
+        if Some(index) != skip {
+            divisor = divisor.gcd(&items.val[index]);
+        }
+        index += 1;
+    }
+    if divisor.limb_count() != 1 || divisor.is_one() {
+        return divisor;
+    }
+    let mut word = divisor.magnitude()[0];
+    let mut invariant = Divisor::new(word);
+    while index < items.n && word != 1 {
+        if Some(index) != skip {
+            let limbs = items.val[index].magnitude();
+            let remainder = if limbs.len() == 1 { limbs[0] % word } else { invariant.rem(limbs) };
+            if remainder != 0 {
+                let next = gcd_u64(word, remainder);
+                if next != word {
+                    word = next;
+                    if word != 1 {
+                        invariant = Divisor::new(word);
+                    }
+                }
+            }
+        }
+        index += 1;
+    }
+    Wide::from_u64(word)
 }
 
 /// `scaled_by_reciprocal_form` on the stack road: the quotient of two forms whose denominator is rational, as one integer form

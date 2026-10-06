@@ -120,7 +120,7 @@ fn inverse_mod_2_64(x: u64) -> u64 {
 }
 
 /// `gcd` of two `u64` (binary, branch-light); `gcd(0, x) = x`.
-fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+pub fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
     if a == 0 {
         return b;
     }
@@ -163,6 +163,70 @@ fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
         if (a >> 64) == 0 && (b >> 64) == 0 {
             return (gcd_u64(a as u64, b as u64) as u128) << shift;
         }
+    }
+}
+
+/// A word divisor with its reciprocal precomputed (Moller and Granlund, "Improved division by invariant integers", algorithm 4): the
+/// remainder of a limb sequence is then a multiplication and a few adds per limb, with no hardware division and no call. Built once for a
+/// divisor that is used against many numbers (the running gcd of a reduction).
+#[derive(Clone, Copy, Debug)]
+pub struct Divisor {
+    word: u64,
+    shift: u32,
+    normalized: u64,
+    inverse: u64,
+}
+
+impl Divisor {
+    pub fn new(word: u64) -> Divisor {
+        assert!(word != 0, "a zero divisor");
+        let shift = word.leading_zeros();
+        let normalized = word << shift;
+        // floor((2^128 - 1) / normalized) - 2^64
+        let inverse = ((u128::MAX - ((normalized as u128) << 64)) / normalized as u128) as u64;
+        Divisor { word, shift, normalized, inverse }
+    }
+
+    pub fn word(&self) -> u64 {
+        self.word
+    }
+
+    /// `(u1 * 2^64 + u0) mod normalized` for `u1 < normalized`.
+    #[inline(always)]
+    fn step(&self, u1: u64, u0: u64) -> u64 {
+        let product = self.inverse as u128 * u1 as u128 + (((u1 as u128) << 64) | u0 as u128);
+        let (high, low) = ((product >> 64) as u64, product as u64);
+        let mut quotient = high.wrapping_add(1);
+        let mut remainder = u0.wrapping_sub(quotient.wrapping_mul(self.normalized));
+        if remainder > low {
+            quotient = quotient.wrapping_sub(1);
+            remainder = remainder.wrapping_add(self.normalized);
+        }
+        let _ = quotient;
+        if remainder >= self.normalized {
+            remainder -= self.normalized;
+        }
+        remainder
+    }
+
+    /// The magnitude `limbs` (little-endian) modulo the divisor.
+    #[inline]
+    pub fn rem(&self, limbs: &[u64]) -> u64 {
+        let shift = self.shift;
+        let mut remainder = 0u64;
+        if shift == 0 {
+            for &limb in limbs.iter().rev() {
+                remainder = self.step(remainder, limb);
+            }
+            return remainder;
+        }
+        // the limbs of `x << shift` from the top: the one above the number holds only the bits that move out of it
+        for index in (0..=limbs.len()).rev() {
+            let high = limbs.get(index).copied().unwrap_or(0);
+            let low = if index > 0 { limbs[index - 1] } else { 0 };
+            remainder = self.step(remainder, (high << shift) | (low >> (64 - shift)));
+        }
+        remainder >> shift
     }
 }
 
@@ -512,6 +576,29 @@ impl Wide {
         Wide { limbs: quotient, len: len as u8, neg: self.neg != divisor.neg && len > 0 }
     }
 
+    /// The exact quotient `self / divisor` for a non-zero word that divides `self` (signed like `self`): Hensel division, one multiplication
+    /// and one subtraction per limb.
+    pub fn div_exact_u64(&self, divisor: u64) -> Wide {
+        debug_assert!(divisor != 0);
+        let shift = divisor.trailing_zeros();
+        let odd = divisor >> shift;
+        let mut dividend = *self;
+        dividend.shr_assign(shift);
+        let n = dividend.len as usize;
+        let inverse = inverse_mod_2_64(odd);
+        let mut quotient = [0u64; LIMBS];
+        let mut borrow = 0u64;
+        for index in 0..n {
+            let (difference, underflow) = dividend.limbs[index].overflowing_sub(borrow);
+            let digit = difference.wrapping_mul(inverse);
+            quotient[index] = digit;
+            borrow = ((digit as u128 * odd as u128) >> 64) as u64 + underflow as u64;
+        }
+        debug_assert!(borrow == 0, "the division was not exact");
+        let len = trimmed(&quotient[..n]);
+        Wide { limbs: quotient, len: len as u8, neg: self.neg && len > 0 }
+    }
+
     /// `gcd(|self|, |other|)`; `gcd(0, 0) = 0`. Operands up to two limbs stay on the stack; wider ones go to `dashu-int`.
     pub fn gcd(&self, other: &Wide) -> Wide {
         if self.len == 0 {
@@ -687,6 +774,49 @@ mod tests {
                 assert_eq!(Some(value.trailing_zeros() as usize), value.to_ubig().trailing_zeros());
             }
         }
+    }
+
+    #[test]
+    fn the_invariant_divisor_gives_the_remainder_the_hardware_gives() {
+        let mut rng = Rng(0x7e57_ab1e_0dd5_eed5);
+        for _ in 0..40000 {
+            let value = rng.wide(LIMBS);
+            let word = match rng.next() % 5 {
+                0 => rng.limb() | 1,
+                1 => (rng.next() >> (rng.next() % 60)) | 1,
+                2 => 1u64 << (rng.next() % 64),
+                3 => u64::MAX - (rng.next() % 3),
+                _ => rng.next() | (1 << 63),
+            }
+            .max(1);
+            let divisor = Divisor::new(word);
+            let expected = value.to_ubig() % UBig::from(word);
+            assert_eq!(UBig::from(divisor.rem(value.magnitude())), expected, "{value:?} mod {word}");
+            assert_eq!(value.rem_u64(word), divisor.rem(value.magnitude()));
+        }
+        assert_eq!(Divisor::new(1).rem(&[u64::MAX, u64::MAX, 7]), 0);
+        assert_eq!(Divisor::new(10).rem(&[]), 0);
+        assert_eq!(Divisor::new(u64::MAX).rem(&[u64::MAX]), 0);
+        assert_eq!(Divisor::new(3).rem(&[1, 1]), (((1u128 << 64) + 1) % 3) as u64);
+    }
+
+    #[test]
+    fn exact_division_by_a_word_recovers_the_factor() {
+        let mut rng = Rng(0x0ddc_0ffe_e0dd_f00d);
+        for _ in 0..40000 {
+            let quotient = rng.wide(LIMBS - 1);
+            let word = match rng.next() % 4 {
+                0 => rng.next(),
+                1 => (rng.next() >> (rng.next() % 60)).max(1),
+                2 => (1u64 << (rng.next() % 63)) | (rng.next() % 16),
+                _ => rng.limb(),
+            }
+            .max(1);
+            let Some(dividend) = quotient.mul_u64(word) else { continue };
+            assert_eq!(dividend.div_exact_u64(word), quotient, "{dividend:?} / {word}");
+        }
+        assert!(Wide::ZERO.div_exact_u64(7).is_zero());
+        assert_eq!(Wide::from_i64(-48).div_exact_u64(16), Wide::from_i64(-3));
     }
 
     #[test]
