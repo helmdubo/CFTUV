@@ -349,7 +349,10 @@ impl FxState {
         let conjugate = self.denominator_items.flipped(word);
         let mut numerator_items = fx::multiply(&self.numerator_items, &conjugate, products)?;
         let mut denominator_items = fx::norm(&self.denominator_items, word, products)?;
-        fx::reduce_together(&mut numerator_items, &mut denominator_items);
+        // the last round leaves a rational denominator and the quotient is reduced once more with it: nothing to gain from reducing here
+        if !denominator_items.is_rational() {
+            fx::reduce_together(&mut numerator_items, &mut denominator_items);
+        }
         Some(FxState { numerator_items, denominator_items })
     }
 }
@@ -360,7 +363,11 @@ impl BigState {
         let conjugate = conjugate_items(&self.denominator_items, prime);
         self.numerator_items = multiply_integer_items_dashu(&self.numerator_items, &conjugate, products);
         self.denominator_items = norm_items(&self.denominator_items, prime, products);
-        reduce_items_together(&mut self.numerator_items, &mut self.denominator_items);
+        // the last round leaves a rational denominator and the quotient is reduced once more with it: nothing to gain from reducing here
+        let rational = self.denominator_items.len() <= 1 && self.denominator_items.iter().all(|(radicand, _)| radicand.is_one());
+        if !rational {
+            reduce_items_together(&mut self.numerator_items, &mut self.denominator_items);
+        }
     }
 }
 
