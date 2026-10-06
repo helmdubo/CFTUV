@@ -317,6 +317,18 @@ def test_the_names_are_taken_from_the_certificate_inside_their_window_and_comput
         step_module._Instantiator.instance_ids = original
 
 
+def test_a_face_the_event_table_does_not_list_gets_no_template():
+    from types import SimpleNamespace
+
+    from cftuv_envelope.wavefront.coverage_template import _face_template
+    from cftuv_envelope.wavefront.event_time import SupportLineV1
+
+    two_points = SimpleNamespace(points=((SqrtSumV1.zero(), SqrtSumV1.zero()), (SqrtSumV1.rational(1), SqrtSumV1.zero())), owner=("o",))
+    moving, wall = SupportLineV1(0, 1, 0, 1), SupportLineV1(0, 1, 0, 0)
+    assert _face_template(two_points, moving, Fraction(1), (), None, [-1, -1], [], (), None) is None, "a moving front on a face with under three points"
+    assert _face_template(two_points, wall, Fraction(1), (), None, [-1, -1], [], (), None) is not None, "a wall has no front: its pattern is static"
+
+
 def test_the_contact_window_is_the_gap_around_the_width_and_collapses_on_a_covered_width():
     window = step_module._contact_window
     alpha = Fraction(1, 2)

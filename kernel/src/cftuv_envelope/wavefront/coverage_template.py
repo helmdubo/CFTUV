@@ -78,12 +78,15 @@ class CoverageTemplateV1:
 def _face_template(face, line, alpha, clipped, covered_area, signs, values, universe, budget) -> FaceTemplateV1 | None:
     """Образец одной грани по знакам и значениям её вершин либо `None`: фронт на вершине (событие) или самопроверка не сошлась."""
 
+    # Грань с фронтом и меньше чем тремя точками в таблице событий интервала (`interval._build_table`) не числится: её образец не заверен.
+    if line.q != 0 and len(face.points) < 3:
+        return None
     if all(sign <= 0 for sign in signs):
         return FaceTemplateV1(face.owner, KIND_BEHIND, (), covered_area)
     if all(sign >= 0 for sign in signs):
         return FaceTemplateV1(face.owner, KIND_AHEAD)
     if line.q != 0 and any(sign == 0 for sign in signs):
-        return None
+        return None  # фронт на вершине - событие: окрестности нет
     root = SqrtSumV1.radical(1, line.q, budget)
     negative_root = -root
     size = len(face.points)
