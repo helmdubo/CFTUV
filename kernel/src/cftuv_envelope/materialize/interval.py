@@ -73,8 +73,6 @@ REASON_PAIRS = "CLIP_EVENT_PAIR_LIMIT"
 PAIR_LIMIT = 600_000
 #: Целые координаты источника не крупнее: `binary64` представляет их ТОЧНО (то же ограничение, что у фильтра знака резки).
 _COORDINATE_LIMIT = 1 << 40
-#: Запас по параметру ребра: узел скользит по ребру при параметре `[0, 1]`, граница берётся с запасом на ошибку границ.
-_PARAMETER_MARGIN = 1e-9
 _INF = math.inf
 
 
@@ -258,8 +256,8 @@ def _band_events(first, last, line, lines_u, lines_w, span, events) -> None:
     delta_time = _sub(last, first)
     for level in (0.0, tolerance, -tolerance):
         parameter = _div(_sub((level, level), lines_u), difference)
-        if parameter[1] < -_PARAMETER_MARGIN or parameter[0] > 1.0 + _PARAMETER_MARGIN:
-            continue  # узла на ребре при этом уровне нет
+        if parameter[1] < 0.0 or parameter[0] > 1.0:
+            continue  # интервал параметра (границы округлены наружу) целиком вне ребра: узла на нём при этом уровне нет
         events.append(_add(first, _mul(parameter, delta_time)))
 
 
