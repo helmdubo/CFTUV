@@ -10,6 +10,7 @@ use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
 use cftuv_clip::point::Point;
 use cftuv_clip::profile::{Phase, PHASES};
 use cftuv_clip::pyemu::PyVersion;
+use cftuv_clip::warm::Warm;
 use cftuv_core::exact::ExactCtx;
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::products::ProductMemo;
@@ -90,7 +91,7 @@ fn a_rectangle_over_the_diagonal_is_cut_into_two_faces_with_one_new_vertex() {
     let plane = square();
     let case = case(&[point(2, 3), point(7, 3), point(7, 5), point(2, 5)]);
     let mut world = World::new(WorkBudget::unlimited());
-    let run = clip_geometry(&mut world.ctx(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
     let clipped = run.result.expect("the oracle cuts this rectangle");
     let faces: Vec<Vec<Vec<&str>>> = clipped.polygons.iter().map(|face| face.iter().map(|keys| keys.iter().map(|key| &**key).collect()).collect()).collect();
     assert_eq!(faces, vec![vec![vec!["node:0", "node:1", "node:2", "clip:0"], vec!["node:0", "clip:0", "node:3"]]]);
@@ -123,7 +124,7 @@ fn the_same_input_is_the_same_answer_on_a_second_run_and_in_either_interpreter_m
     let mut notes = Vec::new();
     for version in [PyVersion::V311, PyVersion::V313, PyVersion::V313] {
         let mut world = World::new(WorkBudget::unlimited());
-        notes.push(clip_geometry(&mut world.ctx(), version, &plane, &input(&case)).result.expect("a cut").note);
+        notes.push(clip_geometry(&mut world.ctx(), &mut Warm::new(), version, &plane, &input(&case)).result.expect("a cut").note);
     }
     assert_eq!(notes[0], notes[1], "no sort of two or more equal-keyed nodes here: the interpreter does not matter");
     assert_eq!(notes[1], notes[2]);
@@ -135,7 +136,7 @@ fn a_key_that_is_no_vertex_of_the_domain_is_a_named_missing_key() {
     let mut case = case(&[point(2, 3), point(7, 3), point(7, 5)]);
     case.polygons = vec![vec![vec!["node:0".to_string(), "node:1".to_string(), "node:9".to_string()]]];
     let mut world = World::new(WorkBudget::unlimited());
-    let run = clip_geometry(&mut world.ctx(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
     assert_eq!(run.result.err(), Some(ClipError::MissingKey("node:9".to_string())));
     assert!(run.writes.is_empty());
 }
@@ -145,7 +146,7 @@ fn a_rational_cut_spends_no_radical_work_so_a_cap_of_zero_does_not_stop_it() {
     let plane = square();
     let case = case(&[point(2, 3), point(7, 3), point(7, 5), point(2, 5)]);
     let mut world = World::new(WorkBudget::bounded(0));
-    let run = clip_geometry(&mut world.ctx(), PyVersion::V313, &plane, &input(&case));
+    let run = clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input(&case));
     // the budget counts radicals: a polygon of rational points pays none (the exhaustion paths are swept from Python, cap by cap)
     assert!(run.result.is_ok());
 }
@@ -162,4 +163,21 @@ fn the_phase_table_is_in_the_order_of_its_enum() {
     }
     assert_eq!(PHASES[Phase::Finish as usize].0, Phase::Finish);
     assert_eq!(PHASES.len(), Phase::Finish as usize + 1);
+}
+
+
+#[test]
+fn the_point_identity_ignores_the_coefficient_type_and_the_strict_equality_of_the_warm_cache_does_not() {
+    use cftuv_clip::point::{point_hash, same_point};
+    use cftuv_core::rat::Coef;
+    use cftuv_core::sqrt_sum::Term;
+    let term = |radicand: u64, coef: Coef| Term { radicand: UBig::from(radicand), coef };
+    let fraction = |value: i64| Coef::fraction(Rat::from_int(IBig::from(value)));
+    let integer = |value: i64| Coef::int(IBig::from(value));
+    let with = |first: Coef, second: Coef| -> Point { (SqrtSum::from_terms(vec![term(1, first), term(2, second)]).unwrap(), SqrtSum::rational(&Rat::from_i64(5))) };
+    let (typed_as_ints, typed_as_fractions) = (with(integer(3), integer(4)), with(fraction(3), fraction(4)));
+    assert!(same_point(&typed_as_ints, &typed_as_fractions) && point_hash(&typed_as_ints) == point_hash(&typed_as_fractions), "one identity: `point_key` compares values");
+    assert_ne!(typed_as_ints, typed_as_fractions, "strict equality tells them apart (the representative's types come from the arithmetic)");
+    let other = with(fraction(3), fraction(5));
+    assert!(!same_point(&typed_as_fractions, &other) && point_hash(&typed_as_fractions) != point_hash(&other));
 }

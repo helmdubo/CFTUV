@@ -1399,3 +1399,33 @@ def test_only_the_shim_imports_the_native_extension():
         + "\n".join(offenders)
         + "\n\nЗовите `cftuv_native` (шим): он переводит вход и воспроизводит бюджет и память канонизации."
     )
+
+
+# --------------------------------------------------------------------------
+# Нативный ускоритель: пин эталона
+# --------------------------------------------------------------------------
+#
+# Нативная операция побитово равна ОДНОЙ версии ядра на Python. `native/cftuv-python/python/cftuv_native/pin.py` держит sha256 тех файлов эталона, которые
+# порт зеркалит; шим отказывается названным `NativePortStale`, если дерево ушло от пина (`tests/test_native_pin.py` проверяет сам механизм). Здесь — то, что
+# проверяется без расширения и в чистом клоне: у каждого файла списков ровно один дайджест. Исчезновение или переименование зеркалимого файла ядро
+# НЕ краснит: Python-сессия двигает ядро свободно, а шим называет порт устаревшим (`NativePortStale`, файл назван); догон порта — отдельная работа.
+
+NATIVE_PIN = "native/cftuv-python/python/cftuv_native/pin.py"
+
+
+def _load_native_pin():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_cftuv_native_pin_under_test", REPO_ROOT / NATIVE_PIN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_native_pins_hold_one_digest_per_mirrored_file():
+    pin = _load_native_pin()
+    listed = {name for files in pin.OPERATION_FILES.values() for name in files}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip"}
+    assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
+    assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
+    assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())

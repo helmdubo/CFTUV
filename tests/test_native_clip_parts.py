@@ -51,6 +51,10 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
+from native_gate import skip_unless_available  # noqa: E402
+
+skip_unless_available(cftuv_native, "clip")
+
 from cftuv_native import clip_seams as wire  # noqa: E402
 
 import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402

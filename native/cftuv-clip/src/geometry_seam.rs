@@ -15,6 +15,7 @@
 //! (arguments decoded, result not yet encoded).
 
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use cftuv_core::codec::Value;
 use cftuv_core::exact::ExactCtx;
@@ -24,6 +25,19 @@ use crate::error::ClipResult;
 use crate::geometry::{clip_geometry, ClipInput, ClipRun};
 use crate::plane::Plane;
 use crate::point::Point;
+use crate::warm::Warm;
+
+thread_local! {
+    /// The cross-call cache of the seam's thread, used only while [`enable_warm`] is on (the seam is stateless otherwise: one call, one answer).
+    static SEAM_WARM: std::cell::RefCell<Warm> = std::cell::RefCell::new(Warm::new());
+}
+
+static SEAM_WARM_ON: AtomicBool = AtomicBool::new(false);
+
+/// Lets consecutive seam calls of this process share one warm cache, as the calls of a session do (the profiler measures chains of alphas this way).
+pub fn enable_warm() {
+    SEAM_WARM_ON.store(true, Ordering::Relaxed);
+}
 use crate::seam::{bad, flag_of, float_list, int, list, point_of, point_value, str_of, str_value, triangles_of, ubig_value, usize_of, version_of, Wire};
 
 fn keys_of(value: &Value, what: &str) -> Wire<Vec<String>> {
@@ -113,7 +127,11 @@ pub fn clip_geometry_seam(args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut V
     };
     let input = ClipInput { points: &points, cycles: &cycles, polygons: &polygons, law, seam: &seam, fans: fans.as_deref(), flows: flows.as_deref(), by_faces };
     let started = std::time::Instant::now();
-    let ClipRun { result, writes } = clip_geometry(ctx, version, &plane, &input);
+    let ClipRun { result, writes } = if SEAM_WARM_ON.load(Ordering::Relaxed) {
+        SEAM_WARM.with(|warm| clip_geometry(ctx, &mut warm.borrow_mut(), version, &plane, &input))
+    } else {
+        clip_geometry(ctx, &mut Warm::disabled(), version, &plane, &input)
+    };
     let elapsed = started.elapsed().as_nanos() as u64;
     let writes = writes.iter().map(|write| Value::List(vec![float_list(&write.position), float_list(&write.normal)])).collect();
     extras.extend([Value::List(writes), int(elapsed)]);

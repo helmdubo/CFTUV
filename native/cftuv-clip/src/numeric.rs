@@ -19,6 +19,12 @@ pub fn float_of(value: &Rat) -> ClipResult<f64> {
     pyfloat::rat_to_f64(value).map_err(fraction_overflow)
 }
 
+/// `float(Fraction(numerator, denominator))` for a ratio not in lowest terms: the true division of `int`s is correctly rounded
+/// whatever common factor the two carry, so the result (and the overflow) is that of the reduced fraction.
+pub fn float_of_ratio(numerator: &IBig, denominator: &UBig) -> ClipResult<f64> {
+    pyfloat::ratio_to_f64(numerator, denominator).map_err(fraction_overflow)
+}
+
 /// `-(-numerator // denominator)`: the ceiling of a quotient, for any sign.
 pub fn ceil_div(numerator: &IBig, denominator: &UBig) -> IBig {
     use cftuv_core::num::IBig as Int;
@@ -77,6 +83,14 @@ pub fn float_down(value: &Rat) -> ClipResult<f64> {
     Ok(float_of(value)?.next_down())
 }
 
+fn float_down_ratio(numerator: &IBig, denominator: &UBig) -> ClipResult<f64> {
+    Ok(float_of_ratio(numerator, denominator)?.next_down())
+}
+
+fn float_up_ratio(numerator: &IBig, denominator: &UBig) -> ClipResult<f64> {
+    Ok(float_of_ratio(numerator, denominator)?.next_up())
+}
+
 /// `lift_surface._up`: `math.nextafter(float(value), inf)`.
 pub fn float_up(value: &Rat) -> ClipResult<f64> {
     Ok(float_of(value)?.next_up())
@@ -85,12 +99,12 @@ pub fn float_up(value: &Rat) -> ClipResult<f64> {
 /// `BoundSurfaceLiftV1.window(point)`: the outward-rounded box `(xmin, xmax, ymin, ymax)` of a point from the strict
 /// enclosures of its coordinates. Evaluated in the oracle's order (the first overflow wins).
 pub fn window(x: &SqrtSum, y: &SqrtSum) -> ClipResult<[f64; 4]> {
-    let (x_low, x_high) = x.enclosure(ENCLOSURE_BITS);
-    let (y_low, y_high) = y.enclosure(ENCLOSURE_BITS);
-    let x_min = float_down(&x_low)?;
-    let x_max = float_up(&x_high)?;
-    let y_min = float_down(&y_low)?;
-    let y_max = float_up(&y_high)?;
+    let (x_low, x_high, x_denominator) = x.enclosure_parts(ENCLOSURE_BITS);
+    let (y_low, y_high, y_denominator) = y.enclosure_parts(ENCLOSURE_BITS);
+    let x_min = float_down_ratio(&x_low, &x_denominator)?;
+    let x_max = float_up_ratio(&x_high, &x_denominator)?;
+    let y_min = float_down_ratio(&y_low, &y_denominator)?;
+    let y_max = float_up_ratio(&y_high, &y_denominator)?;
     Ok([x_min, x_max, y_min, y_max])
 }
 

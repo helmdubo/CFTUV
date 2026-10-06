@@ -6,7 +6,7 @@
 //! deletions (`directed`) whose first surviving half-edge starts the loop, so it is an `OrderedMap`; the half-edge
 //! sets of `_boundary_is` and `_covers_by_construction` are only asked for membership and run on plain hash maps.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use cftuv_canon::ordered::OrderedMap;
 use cftuv_core::num::UBig;
@@ -62,7 +62,7 @@ pub(crate) fn chord_budget_square() -> Rat {
     Rat::reduced(1.into(), UBig::from(40_000u32))
 }
 
-pub(crate) fn pts(owned: &[Rc<Point>]) -> Vec<Pt<'_>> {
+pub(crate) fn pts(owned: &[Arc<Point>]) -> Vec<Pt<'_>> {
     owned.iter().map(|point| (&point.0, &point.1)).collect()
 }
 
@@ -376,10 +376,15 @@ impl<'a, 'c> Stage<'a, 'c> {
             return Ok(found.clone());
         }
         let owned = self.points_of(piece);
+        let hashes: Vec<u64> = piece.iter().map(|node| self.nodes[*node as usize].hash).collect();
         let diagonals = self.regions[ti].diagonals.clone();
-        let values: Vec<Vec<SqrtSum>> = diagonals
+        let plane = self.plane;
+        let values: Vec<Vec<std::sync::Arc<SqrtSum>>> = diagonals
             .iter()
-            .map(|(member, index)| owned.iter().map(|point| self.plane.line_value(*member, *index, &point.0, &point.1)).collect())
+            .map(|(member, index)| {
+                let (line, line_hash) = &plane.triangle_lines(*member)[*index];
+                owned.iter().zip(&hashes).map(|(point, hash)| self.exact_value(point, *hash, line, *line_hash)).collect()
+            })
             .collect();
         let cell = &self.regions[ti];
         let jump = cell.hinge.as_ref().map(|hinge| &hinge.jump_square);

@@ -85,6 +85,8 @@ pub struct SqrtSum {
     terms: Vec<Term>,
     int_form: OnceLock<IntForm>,
     measure: OnceLock<Option<(f64, f64)>>,
+    /// `certified_sign(SIGN_FILTER_BITS)`, remembered: a pure function of the value, asked again whenever the same object is signed again.
+    certified: OnceLock<Option<i8>>,
 }
 
 /// Strict equality: same terms, same coefficient values and the same Python types.
@@ -121,14 +123,14 @@ impl SqrtSum {
 
     /// Terms the caller guarantees canonical (sorted, distinct, non-zero): no check beyond a debug assertion.
     pub fn from_terms_unchecked(terms: Vec<Term>) -> SqrtSum {
-        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new() };
+        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new(), certified: OnceLock::new() };
         debug_assert!(value.check_canonical().is_ok());
         value
     }
 
     /// Terms from outside the core: refused with a named reason unless canonical.
     pub fn from_terms(terms: Vec<Term>) -> Result<SqrtSum, NonCanonical> {
-        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new() };
+        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new(), certified: OnceLock::new() };
         value.check_canonical()?;
         Ok(value)
     }
@@ -305,8 +307,46 @@ impl SqrtSum {
         (Rat::reduced(low, denominator.clone()), Rat::reduced(high, denominator))
     }
 
+    /// [`SqrtSum::enclosure`] without the normalisation of its two endpoints: `(low, high, denominator)` with the endpoints
+    /// `low / denominator` and `high / denominator` (the same rationals, not in lowest terms). For a caller that only turns
+    /// them into a binary64 (`float(Fraction)` is a correctly rounded division, which does not care how a ratio is written).
+    pub fn enclosure_parts(&self, bits: usize) -> (IBig, IBig, UBig) {
+        let form = self.int_form();
+        let (low, high) = integer_enclosure(&form.items, bits);
+        (low, high, &form.common << bits)
+    }
+
+    /// `sum(part.scaled(factor) for ...)` taken left to right (`a.scaled(f) + b.scaled(g) + ...`): the canonical value (every
+    /// coefficient a `Fraction`, radicands ascending, zeros dropped) with ONE normalisation per result term instead of one per
+    /// product and one per sum. A part with a zero factor or no terms contributes nothing, as `scaled` makes it zero.
+    pub fn scaled_sum(parts: &[(&SqrtSum, &Rat)]) -> SqrtSum {
+        let mut scale = UBig::ONE;
+        let mut live = Vec::with_capacity(parts.len());
+        for (value, factor) in parts {
+            if factor.is_zero() || value.terms.is_empty() {
+                continue;
+            }
+            let form = value.int_form();
+            // the coefficient of radicand m in this part is `a_m * p / (L * q)` for the factor `p / q`
+            let denominator = &form.common * factor.denominator();
+            scale = if scale == denominator { scale } else { num::lcm(&scale, &denominator) };
+            live.push((form, factor, denominator));
+        }
+        let mut merged = Accumulator::new();
+        for (form, factor, denominator) in live {
+            let weight = IBig::from(&scale / &denominator) * factor.numerator();
+            for (radicand, numerator) in &form.items {
+                merged.add(radicand, numerator * &weight);
+            }
+        }
+        IntForm { common: scale, items: merged.into_nonzero_items() }.into_sqrt_sum()
+    }
+
     /// `certified_sign(bits)`: the sign the enclosure proves, or `None`.
     pub fn certified_sign(&self, bits: usize) -> Option<i8> {
+        if bits == SIGN_FILTER_BITS {
+            return *self.certified.get_or_init(|| integer_certified_sign(&self.int_form().items, bits));
+        }
         integer_certified_sign(&self.int_form().items, bits)
     }
 

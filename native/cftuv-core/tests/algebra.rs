@@ -258,3 +258,32 @@ fn the_enclosure_brackets_the_value_and_certified_signs_agree_with_it() {
         assert_eq!(integer_certified_sign(&parts.items, 64), difference.certified_sign(64), "the difference filter decides like the difference itself");
     });
 }
+
+#[test]
+fn a_weighted_sum_is_the_chain_of_scaled_terms_with_one_normalisation_per_result_term() {
+    cases(400, 41, |rng, universe| {
+        let parts: Vec<(SqrtSum, Rat)> = (0..3)
+            .map(|_| {
+                let value = if rng.below(6) == 0 { SqrtSum::zero() } else { rng.sum(universe, 5) };
+                let factor = if rng.below(7) == 0 { Rat::zero() } else { rng.coefficient().into_value() };
+                (value, factor)
+            })
+            .collect();
+        let refs: Vec<(&SqrtSum, &Rat)> = parts.iter().map(|(value, factor)| (value, factor)).collect();
+        // `a.scaled(f) + b.scaled(g) + c.scaled(h)`, left to right, as the oracle's `lift_in` writes it
+        let chain = parts[0].0.scaled(&parts[0].1).add(&parts[1].0.scaled(&parts[1].1)).add(&parts[2].0.scaled(&parts[2].1));
+        assert_eq!(SqrtSum::scaled_sum(&refs), chain, "the canonical value, term by term, every coefficient a Fraction");
+    });
+    assert!(SqrtSum::scaled_sum(&[]).is_zero());
+}
+
+#[test]
+fn the_unreduced_enclosure_endpoints_are_the_endpoints_of_the_enclosure() {
+    cases(300, 42, |rng, universe| {
+        let value = rng.sum(universe, 5);
+        let (low, high) = value.enclosure(64);
+        let (low_numerator, high_numerator, denominator) = value.enclosure_parts(64);
+        assert_eq!(Rat::reduced(low_numerator, denominator.clone()), low);
+        assert_eq!(Rat::reduced(high_numerator, denominator), high);
+    });
+}

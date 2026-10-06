@@ -6,12 +6,11 @@
 //! that fails leaves nothing behind, as in Python where the write is the last statement. The oracle's dictionary has
 //! float-tuple keys: `-0.0` and `0.0` are one key and the first spelling stays; the caller must keep that.
 
-use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
 use crate::error::{ClipError, ClipResult, BLEND_ZERO_DETAIL, BLEND_ZERO_OUTCOME, FLOAT_DIVISION_BY_ZERO, NON_FINITE_POINT};
-use crate::numeric::{float_of, ENCLOSURE_BITS};
-use crate::plane::Triangle;
+use crate::numeric::{float_of, float_of_ratio, ENCLOSURE_BITS};
+use crate::plane::{lift_factors, LiftFactors, Triangle};
 use crate::pyemu::{float_sum, PyVersion};
 
 /// What `lift_known` answers: the position, the triangle name and the offset normal. `(position, normal)` is also the
@@ -25,27 +24,22 @@ pub struct Lifted {
 
 /// `lift_in(triangle, values)`: `(e1*A + e2*B + e0*C) / D` per axis; `values` are the three edge orientation values.
 pub fn lift_in(triangle: &Triangle, values: &[SqrtSum; 3]) -> ClipResult<[SqrtSum; 3]> {
-    let weights = [&values[1], &values[2], &values[0]];
-    let mut out = Vec::with_capacity(3);
-    for axis in 0..3 {
-        let mut total = SqrtSum::zero();
-        for (position, weight) in weights.iter().enumerate() {
-            let factor = triangle.corners[position][axis].div(&triangle.twice_area).map_err(|_| ClipError::Value("a degenerate source triangle"))?;
-            let term = weight.scaled(&factor);
-            // `a.scaled() + b.scaled() + c.scaled()` is `(a + b) + c`; the first term stands alone
-            total = if position == 0 { term } else { total.add(&term) };
-        }
-        out.push(total);
-    }
-    let [x, y, z]: [SqrtSum; 3] = out.try_into().expect("three axes");
-    Ok([x, y, z])
+    lift_in_with(&lift_factors(triangle)?, [&values[0], &values[1], &values[2]])
 }
 
-/// `lift.sqrt_sum_binary64(value)`: the midpoint of the 64-bit enclosure as a binary64, one rounding.
+/// [`lift_in`] with the factors `corner / twice_area` of the triangle already at hand (they are a function of the triangle:
+/// the plane keeps them). `a.scaled(f) + b.scaled(g) + c.scaled(h)` is one weighted sum with one normalisation per term.
+pub fn lift_in_with(factors: &LiftFactors, values: [&SqrtSum; 3]) -> ClipResult<[SqrtSum; 3]> {
+    let weights = [values[1], values[2], values[0]];
+    let axis = |index: usize| SqrtSum::scaled_sum(&[(weights[0], &factors[0][index]), (weights[1], &factors[1][index]), (weights[2], &factors[2][index])]);
+    Ok([axis(0), axis(1), axis(2)])
+}
+
+/// `lift.sqrt_sum_binary64(value)`: the midpoint of the 64-bit enclosure as a binary64, one rounding. The midpoint is built from
+/// the unreduced endpoints: `float(Fraction)` rounds the exact ratio, which is the same however it is written.
 pub fn sqrt_sum_binary64(value: &SqrtSum) -> ClipResult<f64> {
-    let (low, high) = value.enclosure(ENCLOSURE_BITS);
-    let midpoint = low.add(&high).div(&Rat::from_i64(2)).expect("two is not zero");
-    float_of(&midpoint)
+    let (low, high, denominator) = value.enclosure_parts(ENCLOSURE_BITS);
+    float_of_ratio(&(low + high), &(denominator << 1usize))
 }
 
 fn dot(left: &[f64; 3], right: &[f64; 3]) -> f64 {
@@ -71,7 +65,12 @@ pub fn blend(version: PyVersion, weights: &[f64; 3], normals: &[[f64; 3]; 3]) ->
 /// `BoundSurfaceLiftV1.lift_known(triangle, values)`: the lifted position (finite binary64s), the triangle name and the
 /// offset normal when the triangle has normals. The caller writes `normal` at `position` into the normal table.
 pub fn lift_known(version: PyVersion, triangle: &Triangle, values: &[SqrtSum; 3]) -> ClipResult<Lifted> {
-    let [x, y, z] = lift_in(triangle, values)?;
+    lift_known_with(version, triangle, &lift_factors(triangle)?, [&values[0], &values[1], &values[2]])
+}
+
+/// [`lift_known`] with the factors of the triangle at hand (the plane caches them).
+pub fn lift_known_with(version: PyVersion, triangle: &Triangle, factors: &LiftFactors, values: [&SqrtSum; 3]) -> ClipResult<Lifted> {
+    let [x, y, z] = lift_in_with(factors, values)?;
     let position = [sqrt_sum_binary64(&x)?, sqrt_sum_binary64(&y)?, sqrt_sum_binary64(&z)?];
     if !position.iter().all(|axis| axis.is_finite()) {
         return Err(ClipError::Value(NON_FINITE_POINT));

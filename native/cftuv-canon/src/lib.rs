@@ -15,6 +15,6 @@ pub mod pyrandom;
 pub use budget::{BudgetConfigError, BudgetMode, Exhausted, Operation, WorkBudget, ARTICLES};
 pub use factor::{CanonError, Pairs};
 pub use memory::{
-    pick_prime_from_universe, support_from_prime_universe, CanonMemory, MemOp, MemoryDelta, MemoryMarker, MemorySync, MemoryState, QValue,
+    pick_prime_from_universe, support_from_prime_universe, CanonMemory, MemOp, MemoryDelta, MemoryMarker, MemorySync, MemoryState, QValue, Request,
     Split, Support, TableSync, UniverseRecord,
 };

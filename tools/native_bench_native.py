@@ -1,18 +1,17 @@
-"""Замер нативного `coverage._coverage_at` против эталона на Python на корпусе вызовов (`tools/native_corpus_export.py`).
+"""Замер нативных ЦЕЛЫХ операций ядра против эталона на Python на корпусе вызовов (`tools/native_corpus_export.py`): `coverage._coverage_at` и `clip.clip_geometry`.
 
     set PYTHONSAFEPATH=1
-    python tools/native_bench_native.py [--corpus <каталог корпуса>] [--repeat 3] [--meshes building,...] [--limit N] [--out <json>]
+    python tools/native_bench_native.py [--op coverage|clip|both] [--corpus <каталог корпуса>] [--repeat 3] [--meshes building,...] [--limit N] [--out <json>]
     "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe" tools/native_bench_native.py ...   (питон 3.11 продукта;
         расширение: `pip install --target ~/.cftuv-native/py311-site <колесо>` и `PYTHONPATH=~/.cftuv-native/py311-site`)
 
-Для каждой записи покрытия цепочка шагов идёт от ОДНОГО состояния («до» записи): шаг 0 — сама запись (ХОЛОДНЫЙ вызов: разбиение переводится в
-нативную сессию, `store` — промах, если он пуст), шаги 1.. — тот же `partition` с другими alpha на той же сессии, том же бюджете и том же `store`
-(ТЁПЛЫЕ шаги: попадание в `store`, память канонизации тёплая; именно их делает ползунок ширины). Эталон и нативная сторона идут по цепочке по очереди,
-каждая от восстановленного состояния; время шага — одна операция (`time.perf_counter` вокруг вызова), снимок состояния снимается ВНЕ замера.
+КАЖДЫЙ нативный вызов сверяется с эталоном точно (`native_corpus.compare_outcomes`: результат с различием `int`/`Fraction`, исключение, цена, память с порядком,
+счётчики знаков, неоплаченное, `store`, нормали плоскости); расхождение — отказ замера (код 1). Нет расширения `cftuv_native` или порт устарел относительно дерева ядра
+(`native_status()`) — отказ (код 2), отката на питон нет.
 
-КАЖДЫЙ нативный вызов сверяется с эталоном точно (`native_corpus.compare_outcomes`: результат с различием `int`/`Fraction`, исключение, цена,
-память с порядком, счётчики знаков, неоплаченное, `store`); расхождение — отказ замера (код 1). Нет расширения `cftuv_native` — отказ (код 2), отката на
-питон нет. Время нативного вызова раскладывается (миллисекунды):
+ПОКРЫТИЕ. Для каждой записи цепочка шагов идёт от ОДНОГО состояния («до» записи): шаг 0 — сама запись (ХОЛОДНЫЙ вызов: разбиение переводится в нативную сессию, `store` — промах,
+если он пуст), шаги 1.. — тот же `partition` с другими alpha на той же сессии, том же бюджете и том же `store` (ТЁПЛЫЕ шаги: попадание в `store`, память канонизации тёплая; именно их делает
+ползунок ширины). Время шага — одна операция (`time.perf_counter` вокруг вызова), снимок состояния снимается ВНЕ замера. Время нативного вызова раскладывается (миллисекунды):
 
 * `partition` — перевод разбиения в сессию (один раз на разбиение; только холодный вызов);
 * `args` — на вызов: синхронизация памяти и бюджета в шиме (`sync`) и разбор аргументов в расширении (alpha, поиск в `store`, заголовок стоимости);
@@ -20,6 +19,13 @@
 * `result` — на возврат: построение `CoverageV1` и запись `store` в Rust (`build`) и разбор ответа, журнал памяти, статьи бюджета, счётчики в шиме (`post`);
 * `other` — остальное: разбор аргументов PyO3, возврат кортежа, накладные `perf_counter`;
 * `total` — стенка всего вызова, как её видит вызывающий.
+
+РЕЗКА. Одна запись — один вызов, поэтому «холодный» и «тёплый» здесь про сеанс и плоскость, а не про alpha. ХОЛОДНЫЙ: эталон на восстановленном состоянии с чистыми кэшами; нативный — НОВЫЙ сеанс
+(пустое зеркало памяти и кэш плоскостей: перевод треугольников, полная загрузка таблиц памяти) и новая плоскость. ТЁПЛЫЙ: тот же вызов повторён на ТОЙ ЖЕ плоскости (эталон — с тёплыми чистыми кэшами:
+произведения радикандов, центры binary64; нативный — на живой сеансе с переведённой плоскостью), состояние процесса и нормали плоскости восстановлены до записанных, как перед вызовом в поле. ВСЁ,
+что вызывающий оплачивает, входит в нативное время: синхронизация памяти (`sync`), перевод плоскости (`plane`), разбор аргументов (`args`), вычисление (`compute`), построение результата и запись
+нормалей плоскости (`result`), применение журнала памяти, статей, счётчиков (`post`), остаток (`other`: разбор аргументов PyO3, `perf_counter`). Каждый нативный вызов, холодный и тёплый, сверяется с
+холодным эталоном; тёплый эталон тоже (цена и ответ не зависят от чистых кэшей).
 """
 
 from __future__ import annotations
@@ -44,8 +50,8 @@ WARM_FACTORS = (Fraction(15, 16), Fraction(17, 16), Fraction(7, 8), Fraction(9, 
 PARTS = ("partition", "args", "compute", "result", "other", "total")
 
 
-def load_extension():
-    """Нативный шим либо отказ замера: тихого отката на питон нет."""
+def load_extension(*operations: str):
+    """Нативный шим либо отказ замера: тихого отката на питон нет, а порт, устаревший относительно дерева ядра (`native_status()`), не мерится."""
 
     try:
         import cftuv_native
@@ -54,6 +60,11 @@ def load_extension():
             raise
         print("NATIVE_BENCH_NATIVE_FAILED the cftuv_native extension is not importable (python tools/native_build.py; for 3.11: pip install --target ~/.cftuv-native/py311-site <wheel>)")
         raise SystemExit(2)
+    status = cftuv_native.native_status()
+    for operation in operations or ("coverage",):
+        if status[operation] != "available":
+            print(f"NATIVE_BENCH_NATIVE_FAILED the native {operation} port is {status[operation]}: it was compared with another version of the Python oracle (cftuv_native.pin); refusing to measure it")
+            raise SystemExit(2)
     return cftuv_native
 
 
@@ -226,8 +237,268 @@ def dump_partition(root: Path, row: dict, path: Path) -> None:
     print(f"dumped {row['id']}: {len(faces)} faces, {path.stat().st_size} bytes -> {path}")
 
 
+# --------------------------------------------------------------------------
+# clip_geometry: вставка целиком, холодный и тёплый вызов
+# --------------------------------------------------------------------------
+
+CLIP_PARTS = ("sync", "plane", "args", "compute", "result", "log", "post", "other", "total")
+#: Холодный и тёплый вызов эталона и нативного пути. Тёплый нативный: плоскость уже переведена, кэш результатов прошлых вызовов сброшен (ни один результат не переиспользуется).
+CLIP_KINDS = ("oracle_cold", "oracle_warm", "native_cold", "native_warm")
+
+
+def restore_warm(before: "nc.StateV1"):
+    """Процесс в состоянии «до» БЕЗ сброса чистых кэшей (центры binary64, произведения радикандов): так выглядит повтор вызова в живом процессе."""
+
+    exact = nc.exact
+    for table in (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO):
+        table.clear()
+    exact._KNOWN_PRIMES.extend(before.known_primes)
+    exact._KNOWN_PRIME_SET.update(before.known_primes)
+    exact._FACTORIZATION_MEMO.update(before.factorization)
+    exact._SQUAREFREE_MEMO.update(before.squarefree)
+    exact._PRIME_SUPPORT_MEMO.update(before.prime_support)
+    exact.SIGN_COUNTS.update(before.sign_counts)
+    return nc.build_budget(before.budget)
+
+
+class PersistentCall:
+    """Один вызов резки, собранный ОДИН раз: плоскость, аргументы, исходные нормали плоскости; `rewind` ставит процесс и нормали в состояние «до»."""
+
+    def __init__(self, record: "nc.Record", before: "nc.StateV1") -> None:
+        self.before = before
+        self.call = nc.decode_call(nc.OP_CLIP, record.call_blob, restore_warm(before), None)
+        self.normals = dict(self.call.args[0]._normal_by_position)
+
+    def rewind(self) -> "nc.Call":
+        budget = restore_warm(self.before)
+        plane = self.call.args[0]
+        plane._normal_by_position.clear()
+        plane._normal_by_position.update(self.normals)
+        return nc.Call(nc.OP_CLIP, self.call.args, self.call.kwargs, budget, None)
+
+
+def clip_native_parts(mirror, seconds: float) -> dict:
+    """Части нативного времени одного вызова в секундах: шим (`sync`, `post`) и расширение (`plane`, `args`, `compute`, `result`); `other` — остаток."""
+
+    timings = mirror.last_clip_timings
+    parts = {"sync": timings[0], "plane": timings[4], "args": timings[5], "compute": timings[6], "result": timings[7], "log": timings[8], "post": timings[2]}
+    parts = {name: value * 1e-9 for name, value in parts.items()}
+    parts["other"] = max(0.0, seconds - sum(parts.values()))
+    parts["total"] = seconds
+    return parts
+
+
+def _timed(function, call) -> "nc.Outcome":
+    """`Outcome` вызова (секунды в нём — вокруг самого вызова; сборка мусора перед замером, снимок состояния ПОСЛЕ него)."""
+
+    gc.collect()
+    return nc.execute(call, function=function)
+
+
+def clip_group(record: "nc.Record") -> str:
+    """Меш; патч 2 `rounded_wall_noise_top` и каждая из пяти записей `building` названы отдельно."""
+
+    meta = record.meta
+    if meta["mesh"] == "rounded_wall_noise_top" and meta.get("patch_id") == 2:
+        return "rounded_wall_noise_top patch 2"
+    if meta["mesh"] == "building":
+        return f"building patch {meta.get('patch_id')}"
+    return str(meta["mesh"])
+
+
+def measure_clip_record(extension, path: Path, repeat: int) -> dict:
+    """Одна запись резки: `repeat` вызовов каждого вида, медианы; каждый нативный и тёплый эталонный вызов сверен с холодным эталоном."""
+
+    record = nc.read_record(path)
+    before = record.before()
+    expected = None
+    samples = {kind: [] for kind in CLIP_KINDS}
+    parts = {kind: {name: [] for name in CLIP_PARTS} for kind in ("native_cold", "native_warm")}
+    differences: list = []
+
+    def check(kind: str, outcome: "nc.Outcome", index: int) -> None:
+        found = nc.compare_outcomes(nc.OP_CLIP, before, expected, outcome)
+        if found:
+            differences.append({"kind": kind, "repeat": index + 1, "fields": [str(item) for item in found][:4]})
+
+    for index in range(repeat):
+        cold = nc.execute(nc.prepare_call(nc.OP_CLIP, record.call_blob, before))
+        expected = expected or cold
+        samples["oracle_cold"].append(cold.seconds)
+        mirror = extension.new_mirror()
+        mirror._bind_clip()  # once per session in a product, not a cost of the first call on a plane
+        native = _timed(mirror.clip_geometry, nc.prepare_call(nc.OP_CLIP, record.call_blob, before))
+        samples["native_cold"].append(native.seconds)
+        for name, value in clip_native_parts(mirror, native.seconds).items():
+            parts["native_cold"][name].append(value)
+        check("native_cold", native, index)
+    persistent = PersistentCall(record, before)
+    warm = extension.new_mirror()
+    warm._bind_clip()
+    for step in range(repeat + 1):
+        oracle = _timed(None, persistent.rewind())
+        warm.clear_clip_warm()  # the plane stays converted; no result of an earlier call is reused (that is the chain below)
+        native = _timed(warm.clip_geometry, persistent.rewind())
+        if step == 0:
+            continue  # the first pass fills the caches of both sides: the warm numbers start at the second
+        samples["oracle_warm"].append(oracle.seconds)
+        samples["native_warm"].append(native.seconds)
+        for name, value in clip_native_parts(warm, native.seconds).items():
+            parts["native_warm"][name].append(value)
+        check("oracle_warm", oracle, step - 1)
+        check("native_warm", native, step - 1)
+    meta = record.meta
+    return {
+        "id": path.name, "mesh": meta["mesh"], "patch_id": meta.get("patch_id"), "alpha": meta.get("alpha"), "group": clip_group(record),
+        "recorded_seconds": meta.get("seconds"), "differences": differences, "outcome": "raised" if expected.exception else "clipped",
+        **{kind: statistics.median(values) for kind, values in samples.items()},
+        "parts": {kind: {name: statistics.median(values) for name, values in table.items()} for kind, table in parts.items()},
+    }
+
+
+
+def measure_clip_chain(extension, paths: list, repeat: int) -> dict:
+    """Шаги ползунка: полевые вызовы одного патча по возрастанию alpha одним сеансом и ОДНОЙ плоскостью, кэш результатов между шагами сохранён.
+
+    `{имя файла: секунды шага}` (медиана по `repeat` проходов; в первом шаге цепочки — и перевод плоскости) и расхождения: каждый шаг сверен с холодным
+    эталоном ЭТОЙ записи. Состояние процесса и нормали плоскости на каждом шаге — записанные «до», как перед вызовом в поле."""
+
+    records = [nc.read_record(path) for path in paths]
+    befores = [record.before() for record in records]
+    expected = [nc.execute(nc.prepare_call(nc.OP_CLIP, record.call_blob, before)) for record, before in zip(records, befores)]
+    plane = nc.decode_call(nc.OP_CLIP, records[0].call_blob, restore_warm(befores[0]), None).args[0]
+    seconds = {path.name: [] for path in paths}
+    differences: list = []
+    for index in range(repeat):
+        mirror = extension.new_mirror()
+        mirror._bind_clip()
+        for path, record, before, want in zip(paths, records, befores, expected):
+            budget = restore_warm(before)
+            own = nc.decode_call(nc.OP_CLIP, record.call_blob, budget, None)
+            plane._normal_by_position.clear()
+            plane._normal_by_position.update(own.args[0]._normal_by_position)
+            outcome = _timed(mirror.clip_geometry, nc.Call(nc.OP_CLIP, (plane,), own.kwargs, budget, None))
+            seconds[path.name].append(outcome.seconds)
+            found = nc.compare_outcomes(nc.OP_CLIP, before, want, outcome)
+            if found:
+                differences.append({"kind": "native_chain", "repeat": index + 1, "id": path.name, "fields": [str(item) for item in found][:4]})
+    return {"seconds": {name: statistics.median(values) for name, values in seconds.items()}, "differences": differences}
+
+
+def _ratios(items: list, numerator: str, denominator: str) -> dict:
+    values = [item[numerator] / item[denominator] for item in items]
+    return {"p50": nb.percentile(values, 0.5), "min": min(values)}
+
+
+def clip_summary(items: list) -> dict:
+    """Для набора записей: p50/p95/max каждого вида, отношения медиан по записям, отношение статистик, части нативного времени."""
+
+    stats = {kind: nb.summarize([item[kind] for item in items]) for kind in CLIP_KINDS}
+    chained = [item for item in items if item.get("native_chain") is not None]
+    chain = None
+    if chained:
+        chain_stats = {"native_chain": nb.summarize([item["native_chain"] for item in chained]), "oracle_warm": nb.summarize([item["oracle_warm"] for item in chained])}
+        chain = {
+            "n": len(chained), **chain_stats, "speedup": _ratios(chained, "oracle_warm", "native_chain"),
+            "ratio": {key: chain_stats["oracle_warm"][key] / chain_stats["native_chain"][key] for key in ("p50", "p95", "max")},
+        }
+    return {
+        "n": len(items), **stats, "chain": chain,
+        "speedup_cold": _ratios(items, "oracle_cold", "native_cold"), "speedup_warm": _ratios(items, "oracle_warm", "native_warm"),
+        "ratio_cold": {key: stats["oracle_cold"][key] / stats["native_cold"][key] for key in ("p50", "p95", "max")},
+        "ratio_warm": {key: stats["oracle_warm"][key] / stats["native_warm"][key] for key in ("p50", "p95", "max")},
+        "parts": {kind: {name: nb.summarize([item["parts"][kind][name] for item in items]) for name in CLIP_PARTS} for kind in ("native_cold", "native_warm")},
+    }
+
+
+def clip_aggregate(results: list) -> dict:
+    """`{меш или группа | ALL: сводка}`: меши, `rounded_wall_noise_top patch 2` и пять записей `building` отдельными строками."""
+
+    groups: dict = {"ALL": []}
+    for item in results:
+        groups["ALL"].append(item)
+        groups.setdefault(item["group"], []).append(item)
+        if item["mesh"] != item["group"]:
+            groups.setdefault(item["mesh"], []).append(item)
+    return {name: clip_summary(items) for name, items in sorted(groups.items())}
+
+
+def clip_text(report: dict) -> str:
+    lines = [f"clip_geometry whole operation: python {report['python']}  native {report['native_version']}  records {report['records']}  repeat {report['repeat']}  calls checked {report['calls_checked']}", ""]
+    for kind, left, right in (("COLD", "oracle_cold", "native_cold"), ("WARM", "oracle_warm", "native_warm")):
+        lines.append(f"{kind} ({'new session and a new plane: conversion + full memory load' if kind == 'COLD' else 'same plane and live session, state restored'}); ms; x = oracle statistic / native statistic")
+        lines.append(f"{'group':<32}{'n':>4}  {'oracle p50':>10}{'p95':>9}{'max':>9}  {'native p50':>10}{'p95':>9}{'max':>9}  {'x p50':>7}{'x p95':>7}{'x max':>7}  {'per-record x p50':>16}{'min':>7}")
+        for name, row in report["stats"].items():
+            o, n, r = row[left], row[right], row["ratio_cold" if kind == "COLD" else "ratio_warm"]
+            per = row["speedup_cold" if kind == "COLD" else "speedup_warm"]
+            lines.append(
+                f"{name:<32}{row['n']:>4}  {_ms(o['p50']):>10}{_ms(o['p95']):>9}{_ms(o['max']):>9}  {_ms(n['p50']):>10}{_ms(n['p95']):>9}{_ms(n['max']):>9}"
+                f"  {r['p50']:>6.1f}x{r['p95']:>6.1f}x{r['max']:>6.1f}x  {per['p50']:>15.1f}x{per['min']:>6.1f}x"
+            )
+        for label in ("ALL", "rounded_wall_noise_top patch 2"):
+            row = report["stats"].get(label)
+            if row:
+                split = row["parts"]["native_cold" if kind == "COLD" else "native_warm"]
+                lines.append(f"  native split p50/p95/max ms, {label}:  " + "   ".join(f"{name} {_ms(part['p50']).strip()}/{_ms(part['p95']).strip()}/{_ms(part['max']).strip()}" for name, part in split.items()))
+        lines.append("")
+    lines.append("CHAIN (neighbouring alphas of one patch, one session, one plane, the cross-call cache kept; the first step of a chain also converts the plane); ms; x = oracle warm / native chain")
+    lines.append(f"{'group':<32}{'n':>4}  {'oracle p50':>10}{'p95':>9}{'max':>9}  {'native p50':>10}{'p95':>9}{'max':>9}  {'x p50':>7}{'x p95':>7}{'x max':>7}  {'per-record x p50':>16}{'min':>7}")
+    for name, row in report["stats"].items():
+        chain = row["chain"]
+        if chain:
+            o, n, r, per = chain["oracle_warm"], chain["native_chain"], chain["ratio"], chain["speedup"]
+            lines.append(
+                f"{name:<32}{chain['n']:>4}  {_ms(o['p50']):>10}{_ms(o['p95']):>9}{_ms(o['max']):>9}  {_ms(n['p50']):>10}{_ms(n['p95']):>9}{_ms(n['max']):>9}"
+                f"  {r['p50']:>6.1f}x{r['p95']:>6.1f}x{r['max']:>6.1f}x  {per['p50']:>15.1f}x{per['min']:>6.1f}x"
+            )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def run_clip(extension, args) -> tuple:
+    """`(report, число записей с расхождением)` по записям резки полевого корпуса."""
+
+    import native_clip_geometry as geometry
+
+    paths = geometry.field_paths()
+    meshes = set(filter(None, args.meshes.split(",")))
+    results = []
+    for number, path in enumerate(paths, 1):
+        if meshes and nc.read_meta(path)["mesh"] not in meshes:
+            continue
+        if args.limit and len(results) >= args.limit:
+            break
+        results.append(measure_clip_record(extension, path, args.repeat))
+        if results[-1]["differences"]:
+            first = results[-1]["differences"][0]
+            print(f"MISMATCH {path.name} {results[-1]['group']} {first['kind']} repeat {first['repeat']}: {first['fields']}", flush=True)
+        if number % 25 == 0:
+            print(f"  clip {number}/{len(paths)} records", flush=True)
+    by_name = {item["id"]: item for item in results}
+    chain_calls = 0
+    for chain in geometry.field_chains(3).values():
+        chain = [path for path in chain if path.name in by_name]
+        if len(chain) < 3:
+            continue
+        measured = measure_clip_chain(extension, chain, args.repeat)
+        chain_calls += len(chain) * args.repeat
+        for name, value in measured["seconds"].items():
+            by_name[name]["native_chain"] = value
+        for found in measured["differences"]:
+            by_name[found["id"]]["differences"].append(found)
+            print(f"MISMATCH {found['id']} chain repeat {found['repeat']}: {found['fields']}", flush=True)
+    mismatches = [item for item in results if item["differences"]]
+    report = {
+        "python": sys.version.split()[0], "native_version": extension.native_version(), "records": len(results), "repeat": args.repeat,
+        "calls_checked": len(results) * args.repeat * 3 + chain_calls, "stats": clip_aggregate(results),
+        "mismatches": [{"id": item["id"], "differences": item["differences"]} for item in mismatches], "per_record": results,
+    }
+    return report, len(mismatches)
+
+
 def _arguments():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--op", choices=("coverage", "clip", "both"), default="both")
     parser.add_argument("--dump", default="", help="id записи: записать её разбиение и alpha в файл `--dump-to` и выйти")
     parser.add_argument("--dump-to", default="")
     parser.add_argument("--corpus", default="")
@@ -238,14 +509,9 @@ def _arguments():
     return parser.parse_args()
 
 
-def main() -> int:
-    args = _arguments()
-    extension = load_extension()
-    root = Path(args.corpus) if args.corpus else nb.default_corpus()
-    index = nc.load_index(root)
-    if args.dump:
-        dump_partition(root, next(row for row in index["records"] if row["id"] == args.dump), Path(args.dump_to))
-        return 0
+def run_coverage(extension, args, root: Path, index: dict) -> tuple:
+    """`(report, число записей с расхождением)` по записям покрытия корпуса."""
+
     meshes = set(filter(None, args.meshes.split(",")))
     rows = [row for row in index["records"] if row["op"] == nc.OP_COVERAGE and not row.get("derived") and (not meshes or row["mesh"] in meshes) and not row["exception"]]
     rows = rows[: args.limit] if args.limit else rows
@@ -263,11 +529,33 @@ def main() -> int:
         "calls_checked": sum(len(item["steps"]) for item in results) * args.repeat, "stats": aggregate(results), "heaviest": heaviest(results),
         "mismatches": [{"id": item["id"], "differences": item["differences"]} for item in mismatches], "per_record": results,
     }
+    return report, len(mismatches)
+
+
+def main() -> int:
+    args = _arguments()
+    operations = ("coverage", "clip") if args.op == "both" else (args.op,)
+    extension = load_extension(*operations)
+    root = Path(args.corpus) if args.corpus else nb.default_corpus()
+    index = nc.load_index(root)
+    if args.dump:
+        dump_partition(root, next(row for row in index["records"] if row["id"] == args.dump), Path(args.dump_to))
+        return 0
+    reports: dict = {}
+    failed = 0
+    if "coverage" in operations:
+        reports["coverage"], bad = run_coverage(extension, args, root, index)
+        print(text_report(reports["coverage"]))
+        print(f"NATIVE_BENCH_NATIVE_{'FAILED' if bad else 'OK'} op=coverage records={reports['coverage']['records']} native_calls_checked={reports['coverage']['calls_checked']} mismatches={bad}")
+        failed += bad
+    if "clip" in operations:
+        reports["clip"], bad = run_clip(extension, args)
+        print(clip_text(reports["clip"]))
+        print(f"NATIVE_BENCH_NATIVE_{'FAILED' if bad else 'OK'} op=clip records={reports['clip']['records']} native_calls_checked={reports['clip']['calls_checked']} mismatches={bad}")
+        failed += bad
     if args.out:
-        Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(text_report(report))
-    print(f"NATIVE_BENCH_NATIVE_{'FAILED' if mismatches else 'OK'} records={len(results)} native_calls_checked={report['calls_checked']} mismatches={len(mismatches)}")
-    return 1 if mismatches else 0
+        Path(args.out).write_text(json.dumps(reports, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

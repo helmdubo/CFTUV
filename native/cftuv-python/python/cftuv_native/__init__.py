@@ -6,7 +6,9 @@
 Три части:
 
 * числа (`run_number_ops`): сценарий операций в ОДНОМ вызове, только для сверки с эталоном;
-* целая операция (`coverage_at`): `wavefront.coverage._coverage_at` целиком, с разбиениями, которые нативная сессия переводит один раз;
+* целые операции: `coverage_at` (`wavefront.coverage._coverage_at`, с разбиениями, которые нативная сессия переводит один раз) и `clip_geometry`
+  (`materialize.clip.clip_geometry`: подъём плоскости переводится один раз, результат строится из Rust, нормали смещения пишутся в плоскость);
+  обе сверены с ОДНОЙ версией эталона и отказываются по имени, если дерево ядра ушло от неё (`pin`, `native_status`, `NativePortStale`);
 * стоимость (`default_mirror`, `new_mirror`, `sign`, `divided_by`, ...): долгоживущая нативная сессия владеет зеркалом памяти
   канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
   к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
@@ -14,17 +16,23 @@
 
 from __future__ import annotations
 
-from . import _core, codec, cost
+from . import _core, codec, cost, pin
 
 __all__ = (
     "CostMirror",
+    "NativePortStale",
+    "NativePortUnsupported",
+    "NativeUnsupportedPython",
+    "clip_geometry",
     "clip_seam_run",
     "clip_seam_table",
     "coverage_at",
     "default_mirror",
     "divide_with_prime_universe",
     "divided_by",
+    "last_clip_timings",
     "last_coverage_timings",
+    "native_status",
     "native_version",
     "new_clip_seam_session",
     "new_mirror",
@@ -39,12 +47,21 @@ __all__ = (
 )
 
 CostMirror = cost.CostMirror
+NativePortStale = pin.NativePortStale
+NativePortUnsupported = pin.NativePortUnsupported
+NativeUnsupportedPython = pin.NativeUnsupportedPython
 
 _DEFAULT: list = []
 
 
 def native_version() -> str:
     return _core.version()
+
+
+def native_status() -> dict:
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`)."""
+
+    return pin.native_status()
 
 
 def number_op_table() -> tuple[tuple[int, str], ...]:
@@ -83,6 +100,18 @@ def coverage_at(partition, alpha, work_budget=None, store=None):
     """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`)."""
 
     return default_mirror().coverage_at(partition, alpha, work_budget, store)
+
+
+def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces):
+    """`materialize.clip.clip_geometry(plane, budget, ...)`, native and whole (see `CostMirror.clip_geometry`)."""
+
+    return default_mirror().clip_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces)
+
+
+def last_clip_timings() -> tuple:
+    """Nanoseconds of the last `clip_geometry` of the default mirror: `(sync in, native call, post, total, plane, arguments, compute, result)`."""
+
+    return default_mirror().last_clip_timings
 
 
 def last_coverage_timings() -> tuple:

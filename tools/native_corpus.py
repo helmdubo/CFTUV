@@ -252,12 +252,12 @@ def unpack_call(op: str, args: tuple, kwargs: dict) -> Call:
     return Call(op, (plane,), dict(kwargs), budget, None)
 
 
-def invoke(call: Call):
-    """Результат операции эталона (ядро питона) на этом вызове."""
+def invoke(call: Call, function=None):
+    """Результат операции эталона (ядро питона) на этом вызове; `function` подменяет операцию (нативная вставка с той же сигнатурой)."""
 
     if call.op == OP_COVERAGE:
-        return ORACLE[OP_COVERAGE](call.args[0], call.args[1], call.budget, call.store)
-    return ORACLE[OP_CLIP](call.args[0], call.budget, **call.kwargs)
+        return (function or ORACLE[OP_COVERAGE])(call.args[0], call.args[1], call.budget, call.store)
+    return (function or ORACLE[OP_CLIP])(call.args[0], call.budget, **call.kwargs)
 
 
 def answer_view(op: str, result):
@@ -288,12 +288,12 @@ class Outcome:
     seconds: float = 0.0
 
 
-def execute(call: Call) -> Outcome:
-    """Эталонный вызов: время меряет только сама операция; состояние после снимается вне замера."""
+def execute(call: Call, function=None) -> Outcome:
+    """Эталонный вызов (или `function` с той же сигнатурой): время меряет только сама операция; состояние после снимается вне замера."""
 
     started = time.perf_counter()
     try:
-        result, error = invoke(call), None
+        result, error = invoke(call, function), None
     except Exception as exc:  # noqa: BLE001 - исключение операции — часть её исхода
         result, error = None, (type(exc).__qualname__, str(exc))
     seconds = time.perf_counter() - started

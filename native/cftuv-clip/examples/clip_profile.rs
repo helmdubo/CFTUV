@@ -8,6 +8,11 @@
 //!
 //! Timings are the compute time the seam measures inside Rust (arguments decoded, result not yet encoded); the first call
 //! of a file is cold (empty product cache), the others warm like a long-lived session.
+//!
+//! `--chain` runs the files as the steps of one session, once each and in the order given, with ONE cross-call cache shared by the
+//! calls (`python tools/native_clip_geometry.py chain <dir> <mesh> <patch>` writes the neighbouring alphas of a patch in order):
+//! the total compute of the chain and its phases summed (`--cold`: the same chain with no cache between the calls). With `--features profile` the phase
+//! table is printed.
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -40,13 +45,49 @@ fn outcome_label(response: &[u8]) -> String {
 fn main() {
     let mut files = Vec::new();
     let mut calls = 12usize;
+    let mut chain = false;
+    let mut cold = false;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
-        if argument == "--calls" {
+        if argument == "--cold" {
+            cold = true;
+        } else if argument == "--chain" {
+            chain = true;
+        } else if argument == "--calls" {
             calls = arguments.next().and_then(|text| text.parse().ok()).expect("--calls N");
         } else {
             files.push(argument);
         }
+    }
+    if chain {
+        // one call per file, in the order given, on one thread with ONE warm cache shared by the calls (a session across the steps of a width slider);
+        // phases summed over the chain
+        if !cold {
+            cftuv_clip::geometry_seam::enable_warm();
+        }
+        let mut totals: std::collections::BTreeMap<&'static str, (u64, u64)> = std::collections::BTreeMap::new();
+        let mut sum_ns = 0u64;
+        for file in &files {
+            let request = std::fs::read(file).expect("a readable request");
+            let mut session = Session::new();
+            profile::take();
+            let response = seam::run(&mut session, &request).expect("the seam answers");
+            let total = compute_nanoseconds(&response);
+            sum_ns += total;
+            for (name, count, exclusive, _inclusive) in profile::take() {
+                let entry = totals.entry(name).or_default();
+                entry.0 += count;
+                entry.1 += exclusive;
+            }
+            println!("  {} {:.2} ms", file.rsplit('/').next().unwrap_or(file), total as f64 * 1e-6);
+        }
+        let mut rows: Vec<_> = totals.into_iter().filter(|row| row.1 .1 > 0).collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.1 .1));
+        println!("chain total {:.1} ms", sum_ns as f64 * 1e-6);
+        for (name, (count, exclusive)) in rows.iter().take(22) {
+            println!("  {name:<34} {count:>9} {:>10.1} us {:>6.1}%", *exclusive as f64 * 1e-3, 100.0 * *exclusive as f64 / sum_ns as f64);
+        }
+        return;
     }
     for file in &files {
         let request = std::fs::read(file).expect("a readable request");

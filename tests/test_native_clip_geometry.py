@@ -22,7 +22,6 @@ from __future__ import annotations
 import dataclasses
 import math
 import os
-import random
 import sys
 from collections import Counter
 from pathlib import Path
@@ -44,8 +43,11 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
+from native_gate import skip_unless_available  # noqa: E402
+
+skip_unless_available(cftuv_native, "clip")
+
 import native_clip_fuzz as fuzz  # noqa: E402
-import native_clip_generated as generated  # noqa: E402
 import native_clip_geometry as geometry  # noqa: E402
 import native_corpus as nc  # noqa: E402
 
@@ -151,39 +153,16 @@ def test_every_synthetic_record_equals_the_oracle(runner):
 # --------------------------------------------------------------------------
 
 
-def heavy_paths(count: int) -> list:
-    """Самые долгие полевые вызовы (по секундам записи): по одному на сетку-патч, тяжёлые первыми."""
-
-    timed = sorted(((nc.read_meta(path)["seconds"], path) for path in geometry.field_paths()), key=lambda item: -item[0])
-    chosen, seen = [], set()
-    for _seconds, path in timed:
-        meta = nc.read_meta(path)
-        label = (meta["mesh"], meta["patch_id"])
-        if label not in seen:
-            seen.add(label)
-            chosen.append(path)
-        if len(chosen) == count:
-            break
-    return chosen
-
-
-def cap_levels(delta: int) -> list:
-    """Потолки над уже потраченным: от нуля до всей траты и чуть выше, плотно у границ (точка исчерпания у каждого вызова разная)."""
-
-    levels = {0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, delta - 2, delta - 1, delta, delta + 1}
-    return sorted(level for level in levels if level >= 0)
-
-
 @pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}")
 def test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_partial_state(runner):
     refused = Counter()
     problems = []
-    for path in heavy_paths(4):
+    for path in geometry.heavy_paths(4):
         record = nc.read_record(path)
         before = record.before()
         spent = sum(before.budget["articles"])
         delta = sum(record.expected().after.budget["articles"]) - spent
-        for level in cap_levels(delta):
+        for level in geometry.cap_levels(delta):
             state = dataclasses.replace(before, budget={**before.budget, "cap": spent + level})
             run = runner.compare(record, before=state)
             CHECKED["cap sweep"] += 1
@@ -200,35 +179,10 @@ def test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_p
 # --------------------------------------------------------------------------
 
 
-def fresh_calls(seed: int, count: int):
-    """`(метка, подъём, kwargs, потолок)`: те же генераторы, что у корпуса, другое зерно и другая смесь шумов."""
-
-    rng = random.Random(seed)
-    names = sorted(generated.PLANES)
-    for number in range(count):
-        name = names[number % len(names)]
-        lift = generated.PLANES[name]()
-        kwargs = generated.random_call(
-            rng, lift, number, noise=rng.choice((0.0, 0.0, 0.2, 0.5, 0.9)), int_coefficients=rng.random() < 0.2, outside=rng.choice((0.0, 0.0, 0.3, 1.0, 3.0))
-        )
-        if kwargs is not None:
-            cap = rng.choice((None, None, None, 0, 1, 2, 4, 8, 16, 34, 70)) if rng.random() < 0.3 else None
-            yield f"{name}-{number:03d}", lift, kwargs, cap
-
-
-def compare_generated(runner, label: str, lift, kwargs: dict, cap):
-    budget = exact.exact_work_budget(stage="MATERIALIZE", domain_id=f"fresh-{label}", superlevel="", cap=cap)
-    plane = lift.bind(budget)
-    with exact.isolated_factorization_memory():
-        before = nc.capture_state(budget, None)
-        blob = nc.encode_call(nc.Call(nc.OP_CLIP, (plane,), kwargs, budget, None))
-    return runner.compare(nc.Record({"mesh": f"fresh/{label}"}, {"call": blob}), before=before)
-
-
 def test_fresh_generated_calls_equal_the_oracle(runner):
     runs = []
-    for label, lift, kwargs, cap in fresh_calls(20261007, 360):
-        runs.append((label, compare_generated(runner, label, lift, kwargs, cap)))
+    for label, lift, kwargs, cap in geometry.fresh_calls(20261007, 360):
+        runs.append((label, geometry.compare_generated(runner, label, lift, kwargs, cap)))
         CHECKED["fresh generated"] += 1
     assert_all_equal(runs)
     labels = Counter(run.outcome_label for _name, run in runs)
@@ -242,7 +196,7 @@ def test_fuzzed_strips_of_faces_with_shared_vertices_equal_the_oracle(runner):
     runs = []
     for seed in (101, 102, 103):
         for label, lift, kwargs, cap in fuzz.fuzz_cases(seed, 300):
-            runs.append((label, compare_generated(runner, label, lift, kwargs, cap)))
+            runs.append((label, geometry.compare_generated(runner, label, lift, kwargs, cap)))
             CHECKED["fuzzed strips"] += 1
     assert_all_equal(runs)
     labels = Counter(run.outcome_label for _name, run in runs)
@@ -254,7 +208,7 @@ def test_fuzzed_strips_of_faces_with_shared_vertices_equal_the_oracle(runner):
 def test_the_special_calls_of_the_branches_no_random_input_reaches_equal_the_oracle(runner):
     """Переполнение рационального знака, слишком малая иррациональная координата, нуль нормали, лишние ключи, обрезка вееров и потоков."""
 
-    runs = [(label, compare_generated(runner, label, lift, kwargs, cap)) for label, lift, kwargs, cap in fuzz.special_cases()]
+    runs = [(label, geometry.compare_generated(runner, label, lift, kwargs, cap)) for label, lift, kwargs, cap in fuzz.special_cases()]
     CHECKED["special calls"] += len(runs)
     assert_all_equal(runs)
     exceptions = {name: run.expected.exception for name, run in runs}
@@ -305,7 +259,7 @@ def test_a_sort_of_sixty_four_nodes_is_a_named_refusal_not_a_guess(runner):
         "flows": None,
         "by_faces": False,
     }
-    run = compare_generated(runner, "long-sort", lift, kwargs, None)
+    run = geometry.compare_generated(runner, "long-sort", lift, kwargs, None)
     assert run.unsupported and "elements" in run.unsupported and "64" in run.unsupported, run.unsupported
     assert run.expected.exception is None, "the oracle itself cuts the polygon: only the native port declines"
 
@@ -318,7 +272,7 @@ def test_a_sort_of_sixty_four_nodes_is_a_named_refusal_not_a_guess(runner):
 def heavy_outcomes(runner):
     """`(состояние до, исход эталона, нативный исход)` самой тяжёлой полевой записи: в ней есть и новые вершины, и подъём, и запись памяти."""
 
-    record = nc.read_record(heavy_paths(1)[0])
+    record = nc.read_record(geometry.heavy_paths(1)[0])
     before = record.before()
     call = nc.prepare_call(nc.OP_CLIP, record.call_blob, before)
     expected = nc.execute(call)

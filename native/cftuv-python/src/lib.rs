@@ -4,6 +4,7 @@
 //! entry point, so it never unwinds across the boundary. A request the core refuses (a buffer it cannot
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
+mod clip;
 mod clip_seams;
 mod coverage;
 mod pyobj;
@@ -50,13 +51,14 @@ fn number_op_table() -> Vec<(u8, &'static str)> {
 struct Session {
     pub(crate) inner: cftuv_core::session::Session,
     coverage: coverage::Host,
+    clip: clip::Host,
 }
 
 #[pymethods]
 impl Session {
     #[new]
     fn new() -> Session {
-        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default() }
+        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default() }
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -128,6 +130,73 @@ impl Session {
     /// Drops every converted partition and store record.
     fn forget_coverage(&mut self) {
         self.coverage.forget();
+    }
+
+    /// Hands the kernel classes to `clip_geometry` (`SqrtSumV1`, `Fraction`, `ClippedV1`, `LocalPoint3V1`). Forgets every converted plane.
+    fn bind_clip(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, clipped: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.clip.bind(py, sqrt_sum, fraction, clipped, local_point)
+    }
+
+    /// `clip.clip_geometry` whole (see `clip.rs`): `(result or None, status, detail, sign-counter deltas, budget articles after,
+    /// changed-tables bits, (plane, arguments, compute, result, memory log) nanoseconds)`. `triangles` is `plane.triangles`, `law` the code of
+    /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `version` `sys.version_info[:2]`, `sync` the memory sync
+    /// in the wire format (`None`: unchanged), `budget` `(cap, six articles)` or `None`, `normals` the plane's
+    /// `_normal_by_position`, `tables` the real memory tables `(registry list, registry set, factorizations, squarefree splits,
+    /// supports)` the memory log of the call is replayed on, in place. Any error resets the session, as `run` does.
+    #[allow(clippy::too_many_arguments)]
+    fn clip_geometry<'py>(
+        &mut self,
+        py: Python<'py>,
+        triangles: &Bound<'py, PyAny>,
+        points: &Bound<'py, pyo3::types::PyDict>,
+        cycles: &Bound<'py, PyAny>,
+        polygons: &Bound<'py, PyAny>,
+        law: u8,
+        seam: &Bound<'py, PyAny>,
+        fans: &Bound<'py, PyAny>,
+        flows: &Bound<'py, PyAny>,
+        by_faces: bool,
+        version: (u32, u32),
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        normals: Option<&Bound<'py, pyo3::types::PyDict>>,
+        tables: clip::Tables<'py>,
+    ) -> PyResult<clip::Answer<'py>> {
+        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, version, sync, budget, normals, &tables);
+        if outcome.is_err() {
+            self.inner = cftuv_core::session::Session::new();
+        }
+        outcome
+    }
+
+    /// Planes the clip side keeps converted.
+    fn clip_cache(&self) -> usize {
+        self.clip.cache_size()
+    }
+
+    /// Drops every converted plane and every cross-call result.
+    fn forget_clip(&mut self) {
+        self.clip.forget();
+    }
+
+    /// Switches the clip's cross-call cache on or off (a harness knob: the answers and the cost do not depend on it).
+    fn set_clip_warm_enabled(&mut self, enabled: bool) {
+        self.clip.set_warm_enabled(enabled);
+    }
+
+    /// Drops the clip's cross-call results; the converted planes stay.
+    fn clear_clip_warm(&mut self) {
+        self.clip.clear_warm();
+    }
+
+    /// Test knob: the size at which the clip's cross-call cache drops everything.
+    fn set_clip_warm_limit(&mut self, limit: usize) {
+        self.clip.set_warm_limit(limit);
+    }
+
+    /// `(crossing hits, crossings stored, crossing entries, value hits, lift hits)` of the clip's cross-call cache of exact results.
+    fn clip_warm_stats(&self) -> (u64, u64, usize, u64, u64) {
+        self.clip.warm_stats()
     }
 
     /// Lengths of the mirrored tables: registry, factorizations, squarefree splits, supports.

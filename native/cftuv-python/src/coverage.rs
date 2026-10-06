@@ -322,22 +322,10 @@ impl Host {
     /// face without a line `(face,)`.
     fn status_of<'py>(&self, py: Python<'py>, outcome: &Result<Answer, CoverageError>) -> PyResult<(u8, Option<Bound<'py, PyTuple>>)> {
         let pool = &self.classes()?.pool;
-        let pair = |first: Bound<'py, PyAny>, second: Bound<'py, PyAny>| PyTuple::new(py, [first, second]).map(Some);
         Ok(match outcome {
             Ok(_) => (0, None),
             Err(CoverageError::MissingLine { face }) => (STATUS_MISSING_LINE as u8, Some(PyTuple::new(py, [int_from_ibig(py, pool, &IBig::from(*face as u64))?])?)),
-            Err(CoverageError::Exact(error)) => match error {
-                ExactError::Canon(CanonError::Exhausted(exhausted)) => {
-                    let operation = Operation::ALL.iter().position(|operation| *operation == exhausted.operation).unwrap_or(0);
-                    (1, pair(int_from_ibig(py, pool, &IBig::from(operation as u64))?, int_from_ubig(py, pool, &exhausted.radicand)?)?)
-                }
-                ExactError::Canon(CanonError::NegativeRadicand { numerator, denominator }) => (2, pair(int_from_ibig(py, pool, numerator)?, int_from_ubig(py, pool, denominator)?)?),
-                ExactError::ZeroDivisor => (3, None),
-                ExactError::Canon(CanonError::ReconstructionFailed { radicand }) => (4, Some(PyTuple::new(py, [int_from_ubig(py, pool, radicand)?])?)),
-                ExactError::Canon(CanonError::InvalidInput(_)) => (5, None),
-                ExactError::Diverged => (6, None),
-                ExactError::Internal(_) => (7, None),
-            },
+            Err(CoverageError::Exact(error)) => exact_status(py, pool, error)?,
         })
     }
 
@@ -408,6 +396,25 @@ impl Host {
         set_slot(&result, &names.work_budget, work_budget)?;
         Ok(Some(result))
     }
+}
+
+/// The outcome code and detail of an exact-layer refusal (the codes of `cost.OpResult`): 1 exhaustion `(operation index,
+/// radicand)`, 2 negative radicand `(numerator, denominator)`, 3 zero divisor, 4 failed reconstruction `(radicand,)`, 5 invalid
+/// input, 6 diverged, 7 internal. Shared by the whole operations that spend a budget.
+pub(crate) fn exact_status<'py>(py: Python<'py>, pool: &Pool, error: &ExactError) -> PyResult<(u8, Option<Bound<'py, PyTuple>>)> {
+    let pair = |first: Bound<'py, PyAny>, second: Bound<'py, PyAny>| PyTuple::new(py, [first, second]).map(Some);
+    Ok(match error {
+        ExactError::Canon(CanonError::Exhausted(exhausted)) => {
+            let operation = Operation::ALL.iter().position(|operation| *operation == exhausted.operation).unwrap_or(0);
+            (1, pair(int_from_ibig(py, pool, &IBig::from(operation as u64))?, int_from_ubig(py, pool, &exhausted.radicand)?)?)
+        }
+        ExactError::Canon(CanonError::NegativeRadicand { numerator, denominator }) => (2, pair(int_from_ibig(py, pool, numerator)?, int_from_ubig(py, pool, denominator)?)?),
+        ExactError::ZeroDivisor => (3, None),
+        ExactError::Canon(CanonError::ReconstructionFailed { radicand }) => (4, Some(PyTuple::new(py, [int_from_ubig(py, pool, radicand)?])?)),
+        ExactError::Canon(CanonError::InvalidInput(_)) => (5, None),
+        ExactError::Diverged => (6, None),
+        ExactError::Internal(_) => (7, None),
+    })
 }
 
 // --------------------------------------------------------------------------

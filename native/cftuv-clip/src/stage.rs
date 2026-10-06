@@ -11,6 +11,7 @@
 //! depends on the interpreter is `_ordered` (the sort), through `order::ordered` and the version in `PyVersion`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use cftuv_core::exact::{self, ExactCtx, Quotient};
 use cftuv_core::fused::{product_added, product_added_form};
@@ -18,16 +19,19 @@ use cftuv_core::num::UBig;
 use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::{SqrtSum, SIGN_FILTER_BITS};
 
-use crate::cells::{CellKey, ClipCell};
-use crate::edge::{cheap_sign_with, edge_constants, EdgeConstants};
+use crate::cells::CellKey;
+use crate::edge::cheap_sign_with;
 use crate::error::{ClipError, ClipResult};
 use crate::fxhash::{FxMap, FxSet};
 use crate::lift::Lifted;
 use crate::numeric::{self, nanometres};
 use crate::order;
-use crate::plane::{self, ChartPoint, Plane};
-use crate::point::{point_key, rational_pair, Point, PointKey, RationalPair};
+use crate::plane::{ChartPoint, Plane};
+use crate::point::{point_hash, rational_pair, same_point, Point, RationalPair};
 use crate::profile::{scope, Phase};
+use crate::regions::RegionSet;
+use crate::warm::{crossing_key, value_key, CrossingEntry, ValueEntry, Warm};
+use crate::regions::EdgeLine;
 use crate::pyemu::PyVersion;
 use crate::snap::{self, CornerSnap};
 
@@ -52,7 +56,7 @@ pub struct Slot {
 
 /// `_Node`: the point (the first object interned for its `point_key`), its key, and the per-region caches.
 pub struct Node {
-    pub point: Rc<Point>,
+    pub point: Arc<Point>,
     pub key: Option<Rc<str>>,
     /// `key.startswith("node:")`
     pub watched: bool,
@@ -61,11 +65,16 @@ pub struct Node {
     pub window: Option<[f64; 4]>,
     /// The triangle on whose edge the node was born at the subdivision of an edge (the lift happens there).
     pub home: Option<usize>,
+    /// The index in `points` (the input dictionary) of the Python object this node's point IS, when the representative
+    /// came from the input unchanged: the host hands that very object back instead of building an equal one.
+    pub origin: Option<u32>,
+    /// The hash of the identity of the point (`point::point_hash`).
+    pub hash: u64,
     pub rational: Option<RationalPair>,
     /// `{(region key, edge index): slot}`
     pub cache: FxMap<u64, Slot>,
     /// `{(region key, edge index): exact orientation value}`
-    pub values: FxMap<u64, Rc<SqrtSum>>,
+    pub values: FxMap<u64, Arc<SqrtSum>>,
 }
 
 /// The counters the stage keeps in `self.tally` (a `Counter` in the oracle).
@@ -94,7 +103,7 @@ pub struct Shared {
     pub(crate) point_ids: FxMap<ChartPoint, u32>,
     pub(crate) line_of: FxMap<Pair, u32>,
     pub(crate) crossings: FxMap<(NodeId, NodeId, u32), NodeId>,
-    pub(crate) by_point: std::collections::HashMap<PointKey, NodeId>,
+    pub(crate) by_point: FxMap<u64, Vec<NodeId>>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) chords: FxMap<(u32, Vec<NodeId>), (Rat, i64)>,
     pub(crate) snap: CornerSnap,
@@ -122,25 +131,22 @@ pub struct NormalWrite {
 pub struct Stage<'a, 'c> {
     pub(crate) plane: &'a Plane,
     pub(crate) ctx: &'a mut ExactCtx<'c>,
+    pub(crate) warm: &'a mut Warm,
     pub(crate) version: PyVersion,
     pub flows: Option<Vec<bool>>,
     pub(crate) faces_mode: bool,
-    pub(crate) regions: Vec<ClipCell>,
+    pub(crate) regions: Arc<RegionSet>,
     pub(crate) region_keys: Vec<u32>,
-    pub(crate) directions: Vec<i8>,
-    pub(crate) has_groups: bool,
     pub(crate) interior: Vec<Vec<bool>>,
     pub(crate) inert: Vec<Vec<bool>>,
     pub(crate) line_ids: Vec<Vec<u32>>,
     pub(crate) corners: FxSet<ChartPoint>,
-    pub(crate) constants: Vec<Vec<Option<EdgeConstants>>>,
-    pub(crate) edge_squares: Vec<Vec<Rat>>,
     pub(crate) straights: Vec<Vec<(usize, NodeId)>>,
     // the part stage 2 takes over
     pub(crate) point_ids: FxMap<ChartPoint, u32>,
     pub(crate) line_of: FxMap<Pair, u32>,
     pub(crate) crossings: FxMap<(NodeId, NodeId, u32), NodeId>,
-    pub(crate) by_point: std::collections::HashMap<PointKey, NodeId>,
+    pub(crate) by_point: FxMap<u64, Vec<NodeId>>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) chords: FxMap<(u32, Vec<NodeId>), (Rat, i64)>,
     pub(crate) snap: CornerSnap,
@@ -185,14 +191,13 @@ impl<'a, 'c> Stage<'a, 'c> {
     pub fn new(
         plane: &'a Plane,
         ctx: &'a mut ExactCtx<'c>,
+        warm: &'a mut Warm,
         version: PyVersion,
         points: &[(String, Point)],
-        regions: Vec<ClipCell>,
+        regions: Arc<RegionSet>,
         faces_mode: bool,
         shared: Option<Shared>,
     ) -> ClipResult<Stage<'a, 'c>> {
-        let directions: Vec<i8> = regions.iter().map(|item| if item.twice_area.signum() > 0 { 1 } else { -1 }).collect();
-        let has_groups = regions.iter().any(|item| item.group.is_some());
         let fresh = shared.is_none();
         let mut shared = match shared {
             Some(found) => found,
@@ -200,7 +205,7 @@ impl<'a, 'c> Stage<'a, 'c> {
                 point_ids: FxMap::default(),
                 line_of: FxMap::default(),
                 crossings: FxMap::default(),
-                by_point: std::collections::HashMap::new(),
+                by_point: FxMap::default(),
                 nodes: Vec::new(),
                 chords: FxMap::default(),
                 snap: CornerSnap { points: Vec::new(), moved: Vec::new(), counters: std::array::from_fn(|_| UBig::ZERO) },
@@ -211,7 +216,7 @@ impl<'a, 'c> Stage<'a, 'c> {
             },
         };
         let mut edges: Vec<Vec<Pair>> = Vec::with_capacity(regions.len());
-        for item in &regions {
+        for item in regions.iter() {
             let size = item.chart.len();
             let mut row = Vec::with_capacity(size);
             for index in 0..size {
@@ -257,22 +262,6 @@ impl<'a, 'c> Stage<'a, 'c> {
                     .collect()
             })
             .collect();
-        let constants: Vec<Vec<Option<EdgeConstants>>> =
-            regions.iter().map(|item| (0..item.chart.len()).map(|index| edge_constants(&item.chart, index)).collect()).collect();
-        let edge_squares: Vec<Vec<Rat>> = regions
-            .iter()
-            .map(|item| {
-                let size = item.chart.len();
-                (0..size)
-                    .map(|index| {
-                        let (first, second) = (&item.chart[index], &item.chart[(index + 1) % size]);
-                        let dx = second.0.sub(&first.0);
-                        let dy = second.1.sub(&first.1);
-                        dx.mul(&dx).add(&dy.mul(&dy))
-                    })
-                    .collect()
-            })
-            .collect();
         if fresh {
             let _p = scope(Phase::Snap);
             shared.snap = snap::snap_source_vertices(ctx, plane, points)?;
@@ -288,19 +277,16 @@ impl<'a, 'c> Stage<'a, 'c> {
         let mut stage = Stage {
             plane,
             ctx,
+            warm,
             version,
             flows: None,
             faces_mode,
             regions,
             region_keys,
-            directions,
-            has_groups,
             interior,
             inert,
             line_ids,
             corners,
-            constants,
-            edge_squares,
             straights: Vec::new(),
             point_ids,
             line_of,
@@ -330,8 +316,13 @@ impl<'a, 'c> Stage<'a, 'c> {
             writes: Vec::new(),
         };
         let snapped: Vec<(String, Point)> = stage.snap.points.clone();
-        for (key, point) in snapped {
+        let moved: std::collections::HashSet<String> = stage.snap.moved.iter().map(|(key, _)| key.clone()).collect();
+        for (index, (key, point)) in snapped.into_iter().enumerate() {
+            let known = stage.nodes.len();
             let node = stage.intern(point);
+            if stage.nodes.len() > known && !moved.contains(&key) {
+                stage.nodes[node as usize].origin = Some(index as u32);
+            }
             stage.set_key(node, Rc::from(key.as_str()));
             stage.node_of_key.insert(key, node);
         }
@@ -371,24 +362,55 @@ impl<'a, 'c> Stage<'a, 'c> {
     /// `_node(point)`: the node of the point's identity, created on first sight with this very point as representative.
     pub(crate) fn intern(&mut self, point: Point) -> NodeId {
         let _p = scope(Phase::Intern);
-        let identity = point_key(&point);
-        if let Some(found) = self.by_point.get(&identity) {
-            return *found;
+        let identity = point_hash(&point);
+        if let Some(bucket) = self.by_point.get(&identity) {
+            if let Some(found) = bucket.iter().find(|id| same_point(&self.nodes[**id as usize].point, &point)) {
+                return *found;
+            }
         }
         let id = self.nodes.len() as NodeId;
         let rational = rational_pair(&point);
         self.nodes.push(Node {
-            point: Rc::new(point),
+            point: Arc::new(point),
             key: None,
             watched: false,
             source: false,
             window: None,
             home: None,
+            origin: None,
+            hash: identity,
             rational,
             cache: FxMap::default(),
             values: FxMap::default(),
         });
-        self.by_point.insert(identity, id);
+        self.by_point.entry(identity).or_default().push(id);
+        id
+    }
+
+    /// [`Stage::intern`] for a point whose identity hash is known (a warm-cache hit hands over the point it computed before).
+    pub(crate) fn intern_known(&mut self, point: Arc<Point>, hash: u64) -> NodeId {
+        let _p = scope(Phase::Intern);
+        if let Some(bucket) = self.by_point.get(&hash) {
+            if let Some(found) = bucket.iter().find(|id| same_point(&self.nodes[**id as usize].point, &point)) {
+                return *found;
+            }
+        }
+        let id = self.nodes.len() as NodeId;
+        let rational = rational_pair(&point);
+        self.nodes.push(Node {
+            point,
+            key: None,
+            watched: false,
+            source: false,
+            window: None,
+            home: None,
+            origin: None,
+            hash,
+            rational,
+            cache: FxMap::default(),
+            values: FxMap::default(),
+        });
+        self.by_point.entry(hash).or_default().push(id);
         id
     }
 
@@ -399,11 +421,11 @@ impl<'a, 'c> Stage<'a, 'c> {
         item.key = Some(key);
     }
 
-    pub(crate) fn point_of(&self, node: NodeId) -> Rc<Point> {
+    pub(crate) fn point_of(&self, node: NodeId) -> Arc<Point> {
         self.nodes[node as usize].point.clone()
     }
 
-    pub(crate) fn points_of(&self, nodes: &[NodeId]) -> Vec<Rc<Point>> {
+    pub(crate) fn points_of(&self, nodes: &[NodeId]) -> Vec<Arc<Point>> {
         nodes.iter().map(|node| self.point_of(*node)).collect()
     }
 
@@ -416,15 +438,32 @@ impl<'a, 'c> Stage<'a, 'c> {
     }
 
     /// `_value(node, ti, index)`: the exact orientation value of a point at an edge of a region (built on demand, cached).
-    pub(crate) fn value(&mut self, node: NodeId, ti: usize, index: usize) -> Rc<SqrtSum> {
+    pub(crate) fn value(&mut self, node: NodeId, ti: usize, index: usize) -> Arc<SqrtSum> {
         let key = self.slot_key(ti, index);
         if let Some(found) = self.nodes[node as usize].values.get(&key) {
             return found.clone();
         }
-        let point = self.nodes[node as usize].point.clone();
-        let _p = scope(Phase::LineValue);
-        let value = Rc::new(plane::line_value(&self.regions[ti].chart, index, &point.0, &point.1));
+        let (point, hash) = (self.nodes[node as usize].point.clone(), self.nodes[node as usize].hash);
+        let regions = self.regions.clone();
+        let value = self.exact_value(&point, hash, &regions.lines[ti][index], regions.line_hashes[ti][index]);
         self.nodes[node as usize].values.insert(key, value.clone());
+        value
+    }
+
+    /// The exact orientation value of a point at the line of an edge: from the session's warm cache (a function of the two, with no cost)
+    /// or computed and remembered.
+    pub(crate) fn exact_value(&mut self, point: &Arc<Point>, hash: u64, line: &EdgeLine, line_hash: u64) -> Arc<SqrtSum> {
+        let _p = scope(Phase::LineValue);
+        let key = value_key(hash, line_hash);
+        if self.warm.enabled {
+            if let Some(found) = self.warm.find_value(key, point, line) {
+                return found;
+            }
+        }
+        let value = Arc::new(line.value(&point.0, &point.1));
+        if self.warm.enabled {
+            self.warm.store_value(key, ValueEntry { point: point.clone(), line: line.clone(), value: value.clone() });
+        }
         value
     }
 
@@ -437,7 +476,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         let _p = scope(Phase::Slot);
         self.tally.predicates += 1;
         let watch = self.interior[ti][index] && self.nodes[node as usize].watched;
-        let (cheap, far) = match &self.constants[ti][index] {
+        let (cheap, far) = match &self.regions.constants[ti][index] {
             None => (None, false),
             Some(constants) => {
                 let _c = scope(Phase::CheapSign);
@@ -445,7 +484,7 @@ impl<'a, 'c> Stage<'a, 'c> {
                 cheap_sign_with(&item.point, item.rational.as_ref(), constants, watch)
             }
         };
-        let mut value: Option<Rc<SqrtSum>> = None;
+        let mut value: Option<Arc<SqrtSum>> = None;
         let mut sign = match cheap {
             Some(decided) => decided,
             None => {
@@ -467,7 +506,7 @@ impl<'a, 'c> Stage<'a, 'c> {
             sign = self.zeroed_by_gap(&found, ti, index, sign)?;
             zeroed = sign == 0;
         }
-        let slot = Slot { sign: sign * self.directions[ti], zeroed };
+        let slot = Slot { sign: sign * self.regions.directions[ti], zeroed };
         self.nodes[node as usize].cache.insert(key, slot);
         Ok(slot)
     }
@@ -476,7 +515,7 @@ impl<'a, 'c> Stage<'a, 'c> {
     fn zeroed_by_gap(&mut self, value: &SqrtSum, ti: usize, index: usize, sign: i8) -> ClipResult<i8> {
         let (within, gap) = {
             let _w = scope(Phase::WithinEdgeGap);
-            snap::within_edge_gap(self.ctx, value, &self.edge_squares[ti][index])?
+            snap::within_edge_gap(self.ctx, value, &self.regions.edge_squares[ti][index])?
         };
         if !within {
             return Ok(sign);
@@ -520,7 +559,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         if let Some(found) = self.nodes[node as usize].cache.get(&key) {
             return Ok(found.zeroed);
         }
-        if let Some(constants) = &self.constants[ti][index] {
+        if let Some(constants) = &self.regions.constants[ti][index] {
             let item = &self.nodes[node as usize];
             let (sign, far) = cheap_sign_with(&item.point, item.rational.as_ref(), constants, true);
             if far || sign == Some(0) {
@@ -531,7 +570,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         if value.is_zero() {
             return Ok(false);
         }
-        Ok(snap::within_edge_gap(self.ctx, &value, &self.edge_squares[ti][index])?.0)
+        Ok(snap::within_edge_gap(self.ctx, &value, &self.regions.edge_squares[ti][index])?.0)
     }
 
     /// `_corner_of_gap`: the corner of the region a crossing is moved to when an end of its segment is zeroed by the tolerance
@@ -551,7 +590,7 @@ impl<'a, 'c> Stage<'a, 'c> {
                 continue;
             }
             let value = self.value(node, ti, neighbour);
-            if value.is_zero() || !snap::within_edge_gap(self.ctx, &value, &self.edge_squares[ti][neighbour])?.0 {
+            if value.is_zero() || !snap::within_edge_gap(self.ctx, &value, &self.regions.edge_squares[ti][neighbour])?.0 {
                 continue;
             }
             self.tally.node_signs_zeroed += 1;
@@ -573,28 +612,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         let node = match self.crossings.get(&remembered) {
             Some(found) => *found,
             None => {
-                let low = self.value(first, ti, index);
-                let high = self.value(second, ti, index);
-                let denominator = low.sub(&high);
-                // `low / (low - high)` stays an integer form (no canonical terms) because both coordinates multiply it on at once:
-                // every result term is normalised there, and the canonical value is the oracle's `product_added(x0, x1 - x0, share)`
-                let share = {
-                    let _d = scope(Phase::DividedBy);
-                    exact::divided_by_form(self.ctx, &low, &denominator)?
-                };
-                let (start, end) = (self.point_of(first), self.point_of(second));
-                let (x, y) = {
-                    let _a = scope(Phase::ProductAdded);
-                    let (dx, dy) = (end.0.sub(&start.0), end.1.sub(&start.1));
-                    match &share {
-                        Quotient::Form(form) => (
-                            product_added_form(&start.0, &dx, form, self.ctx.products),
-                            product_added_form(&start.1, &dy, form, self.ctx.products),
-                        ),
-                        Quotient::Sum(sum) => (product_added(&start.0, &dx, sum, self.ctx.products), product_added(&start.1, &dy, sum, self.ctx.products)),
-                    }
-                };
-                let made = self.intern((x, y));
+                let made = self.crossing_point(first, second, ti, index)?;
                 self.crossings.insert(remembered, made);
                 self.crossings.insert((second, first, line), made);
                 made
@@ -613,6 +631,51 @@ impl<'a, 'c> Stage<'a, 'c> {
             }
         }
         Ok(node)
+    }
+
+    /// The point of the crossing of the segment `first`-`second` with the line of edge `index` of region `ti`, as a node: from the
+    /// session's warm cache (the questions of the original computation asked again of the memory) or computed and remembered.
+    fn crossing_point(&mut self, first: NodeId, second: NodeId, ti: usize, index: usize) -> ClipResult<NodeId> {
+        let (start, end) = (self.point_of(first), self.point_of(second));
+        let line = &self.regions.lines[ti][index];
+        let key = crossing_key(self.nodes[first as usize].hash, self.nodes[second as usize].hash, self.regions.line_hashes[ti][index]);
+        if self.warm.enabled {
+            if let Some(entry) = self.warm.find(key, &start, &end, line) {
+                let (point, hash) = (entry.point, entry.hash);
+                for request in &entry.requests {
+                    self.ctx.memory.replay_request(request, self.ctx.budget).map_err(|error| ClipError::Exact(error.into()))?;
+                }
+                self.warm.hits += 1;
+                return Ok(self.intern_known(point, hash));
+            }
+            self.ctx.memory.start_requests();
+        }
+        let low = self.value(first, ti, index);
+        let high = self.value(second, ti, index);
+        let denominator = low.sub(&high);
+        // `low / (low - high)` stays an integer form (no canonical terms) because both coordinates multiply it on at once:
+        // every result term is normalised there, and the canonical value is the oracle's `product_added(x0, x1 - x0, share)`
+        let share = {
+            let _d = scope(Phase::DividedBy);
+            exact::divided_by_form(self.ctx, &low, &denominator)
+        };
+        let requests = if self.warm.enabled { self.ctx.memory.take_requests() } else { Vec::new() };
+        let share = share?;
+        let (x, y) = {
+            let _a = scope(Phase::ProductAdded);
+            let (dx, dy) = (end.0.sub(&start.0), end.1.sub(&start.1));
+            match &share {
+                Quotient::Form(form) => (product_added_form(&start.0, &dx, form, self.ctx.products), product_added_form(&start.1, &dy, form, self.ctx.products)),
+                Quotient::Sum(sum) => (product_added(&start.0, &dx, sum, self.ctx.products), product_added(&start.1, &dy, sum, self.ctx.products)),
+            }
+        };
+        let made = self.intern((x, y));
+        if self.warm.enabled && matches!(share, Quotient::Form(_)) {
+            let node = &self.nodes[made as usize];
+            let entry = CrossingEntry { first: start, second: end, line: self.regions.lines[ti][index].clone(), point: node.point.clone(), hash: node.hash, requests };
+            self.warm.store(key, entry);
+        }
+        Ok(made)
     }
 
     /// `_window`.

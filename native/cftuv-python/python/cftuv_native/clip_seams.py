@@ -49,14 +49,15 @@ SEAMS = (
 )
 OPCODES = {name: code for code, name in SEAMS}
 
-STATUS_OVERFLOW = 8
-STATUS_ZERO_DIVISION = 9
-STATUS_VALUE = 10
-STATUS_REFUSAL = 11
-STATUS_UNSUPPORTED = 12
-STATUS_MISSING_KEY = 13
+#: The outcome codes of the clip stage's own refusals: one table with the drop-in's (`cost`), so the two wires cannot drift apart.
+STATUS_OVERFLOW = cost.CLIP_STATUS_OVERFLOW
+STATUS_ZERO_DIVISION = cost.CLIP_STATUS_ZERO_DIVISION
+STATUS_VALUE = cost.CLIP_STATUS_VALUE
+STATUS_REFUSAL = cost.CLIP_STATUS_REFUSAL
+STATUS_UNSUPPORTED = cost.CLIP_STATUS_UNSUPPORTED
+STATUS_MISSING_KEY = cost.CLIP_STATUS_MISSING_KEY
 
-OVERFLOW_TEXTS = ("int too large to convert to float", "integer division result too large for a float")
+OVERFLOW_TEXTS = cost.OVERFLOW_TEXTS
 
 
 class SeamUnsupported(Exception):

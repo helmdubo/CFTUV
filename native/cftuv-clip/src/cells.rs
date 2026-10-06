@@ -377,11 +377,11 @@ pub fn build_cells(triangles: &[Triangle], split: &HashSet<CellKey>, memo: &mut 
 
 /// `hinge_depth_square(jump_square, column)`: `|k|^2 (a b / (a + b))^2` from the enclosures of the orientation values
 /// of a piece's vertices: an upper bound, zero when every vertex is on one side.
-pub fn hinge_depth_square(jump_square: &Rat, column: &[SqrtSum]) -> ClipResult<Rat> {
+pub fn hinge_depth_square<V: std::borrow::Borrow<SqrtSum>>(jump_square: &Rat, column: &[V]) -> ClipResult<Rat> {
     let mut behind: Option<Rat> = None;
     let mut ahead: Option<Rat> = None;
     for item in column {
-        let (low, high) = item.enclosure(ENCLOSURE_BITS);
+        let (low, high) = item.borrow().enclosure(ENCLOSURE_BITS);
         let negated = low.neg();
         behind = Some(match behind {
             Some(current) if !(negated > current) => current,
@@ -405,12 +405,12 @@ pub fn hinge_depth_square(jump_square: &Rat, column: &[SqrtSum]) -> ClipResult<R
 /// `chord_of(cell, values, budget)`: `(chord depth square, diagonals the piece crosses)`. Every item of every column is
 /// signed (a list comprehension, no short circuit): the signs are the cost. A crossing is a column whose items lie
 /// strictly on both sides. `flat_square` is `None` for a cell without an estimate (a lone triangle).
-pub fn chord_of(ctx: &mut ExactCtx<'_>, hinge_jump: Option<&Rat>, flat: Option<&Rat>, values: &[Vec<SqrtSum>]) -> ClipResult<(Option<Rat>, i64)> {
+pub fn chord_of<V: std::borrow::Borrow<SqrtSum>>(ctx: &mut ExactCtx<'_>, hinge_jump: Option<&Rat>, flat: Option<&Rat>, values: &[Vec<V>]) -> ClipResult<(Option<Rat>, i64)> {
     let mut crossings = 0i64;
     for column in values {
         let mut signs = Vec::with_capacity(column.len());
         for item in column {
-            signs.push(exact::sign(ctx, item, SIGN_FILTER_BITS)?);
+            signs.push(exact::sign(ctx, item.borrow(), SIGN_FILTER_BITS)?);
         }
         let (Some(least), Some(greatest)) = (signs.iter().min(), signs.iter().max()) else {
             return Err(ClipError::Value("min() arg is an empty sequence"));

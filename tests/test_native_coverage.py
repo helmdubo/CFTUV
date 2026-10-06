@@ -54,6 +54,10 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
+from native_gate import skip_unless_available  # noqa: E402
+
+skip_unless_available(cftuv_native, "coverage")
+
 import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
 from cftuv_envelope.wavefront import build_skeleton  # noqa: E402

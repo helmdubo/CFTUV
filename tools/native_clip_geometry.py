@@ -12,12 +12,14 @@
     python tools/native_clip_geometry.py compare [--stride N]      # полевой + синтетический + производные записи
     python tools/native_clip_geometry.py timing                    # compute нативного против эталона: p50/p95/max по сеткам
     python tools/native_clip_geometry.py dump DIR [--top N]        # запросы шва самых тяжёлых записей (для `cargo run --example clip_profile`)
+    python tools/native_clip_geometry.py chain DIR MESH PATCH      # запросы шва соседних alpha одного патча по порядку (для `clip_profile --chain`)
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import random
 import sys
 import time
 from dataclasses import dataclass, field
@@ -28,6 +30,8 @@ for _path in (ROOT / "kernel" / "src", ROOT / "tools"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402
+import native_clip_generated as generated  # noqa: E402
 import native_clip_seams as seams  # noqa: E402
 import native_corpus as nc  # noqa: E402
 
@@ -40,6 +44,16 @@ def corpus_base() -> Path:
 
 def field_paths(stride: int = 1) -> list:
     return sorted((corpus_base() / "records").glob("*/*clip_geometry*.rec"))[::stride]
+
+
+def field_chains(minimum: int = 3) -> dict:
+    """`{(mesh, patch): [path, ...]}`: the field calls of one patch in ascending alpha (the width slider's neighbouring steps), chains of `minimum` or more."""
+
+    groups: dict = {}
+    for path in field_paths():
+        meta = nc.read_meta(path)
+        groups.setdefault((meta["mesh"], meta.get("patch_id")), []).append((meta["alpha"], path))
+    return {key: [path for _alpha, path in sorted(items, key=lambda item: item[0])] for key, items in groups.items() if len(items) >= minimum}
 
 
 def derived_paths() -> list:
@@ -157,6 +171,86 @@ class WholeRunner:
         differences = nc.compare_outcomes(nc.OP_CLIP, before, expected, outcome)
         compute = answer.extras[1] * 1e-9
         return Run(differences, expected.seconds, compute, total, label, expected=expected, actual=outcome)
+
+
+# --------------------------------------------------------------------------
+# Вызовы для свипов (общие у сверки шва и сверки вставки)
+# --------------------------------------------------------------------------
+
+
+def heavy_paths(count: int) -> list:
+    """Самые долгие полевые вызовы (по секундам записи): по одному на сетку-патч, тяжёлые первыми."""
+
+    timed = sorted(((nc.read_meta(path)["seconds"], path) for path in field_paths()), key=lambda item: -item[0])
+    chosen, seen = [], set()
+    for _seconds, path in timed:
+        meta = nc.read_meta(path)
+        label = (meta["mesh"], meta["patch_id"])
+        if label not in seen:
+            seen.add(label)
+            chosen.append(path)
+        if len(chosen) == count:
+            break
+    return chosen
+
+
+def cap_levels(delta: int) -> list:
+    """Потолки над уже потраченным: от нуля до всей траты и чуть выше, плотно у границ (точка исчерпания у каждого вызова разная)."""
+
+    levels = {0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, delta - 2, delta - 1, delta, delta + 1}
+    return sorted(level for level in levels if level >= 0)
+
+
+def fresh_calls(seed: int, count: int):
+    """`(метка, подъём, kwargs, потолок)`: те же генераторы, что у корпуса, другое зерно и другая смесь шумов."""
+
+    rng = random.Random(seed)
+    names = sorted(generated.PLANES)
+    for number in range(count):
+        name = names[number % len(names)]
+        lift = generated.PLANES[name]()
+        kwargs = generated.random_call(
+            rng, lift, number, noise=rng.choice((0.0, 0.0, 0.2, 0.5, 0.9)), int_coefficients=rng.random() < 0.2, outside=rng.choice((0.0, 0.0, 0.3, 1.0, 3.0))
+        )
+        if kwargs is not None:
+            cap = rng.choice((None, None, None, 0, 1, 2, 4, 8, 16, 34, 70)) if rng.random() < 0.3 else None
+            yield f"{name}-{number:03d}", lift, kwargs, cap
+
+
+def compare_generated(runner, label: str, lift, kwargs: dict, cap):
+    budget = exact.exact_work_budget(stage="MATERIALIZE", domain_id=f"fresh-{label}", superlevel="", cap=cap)
+    plane = lift.bind(budget)
+    with exact.isolated_factorization_memory():
+        before = nc.capture_state(budget, None)
+        blob = nc.encode_call(nc.Call(nc.OP_CLIP, (plane,), kwargs, budget, None))
+    return runner.compare(nc.Record({"mesh": f"fresh/{label}"}, {"call": blob}), before=before)
+
+
+class DropinRunner:
+    """The production-shaped path: `cftuv_native.clip_geometry` (the drop-in) on the REAL process state, against the live oracle.
+
+    Оба пути стартуют с одного восстановленного состояния ДО; нативный вызывается как `clip.clip_geometry` (плоскость, бюджет, именованные
+    аргументы) и пишет в настоящие бюджет, `SIGN_COUNTS`, таблицы памяти и `plane._normal_by_position`. Сравнение — то же `nc.compare_outcomes`.
+    Один и тот же `mirror` живёт между вызовами (кэш плоскостей, снимки таблиц), как в сеансе: это и проверяется.
+    """
+
+    def __init__(self, mirror=None) -> None:
+        import cftuv_native
+
+        self.mirror = cftuv_native.new_mirror() if mirror is None else mirror
+
+    def outcome(self, record: "nc.Record", before: "nc.StateV1") -> "nc.Outcome":
+        return nc.execute(nc.prepare_call(nc.OP_CLIP, record.call_blob, before), function=self.mirror.clip_geometry)
+
+    def compare(self, record: "nc.Record", *, before: "nc.StateV1 | None" = None) -> Run:
+        before = record.before() if before is None else before
+        expected = nc.execute(nc.prepare_call(nc.OP_CLIP, record.call_blob, before))
+        actual = self.outcome(record, before)
+        label = "CLIPPED" if expected.exception is None else f"raised:{expected.exception[0]}"
+        if actual.exception is not None and actual.exception[0] == "NativePortUnsupported":
+            return Run([], expected.seconds, 0.0, actual.seconds, label, unsupported=actual.exception[1], expected=expected)
+        differences = nc.compare_outcomes(nc.OP_CLIP, before, expected, actual)
+        return Run(differences, expected.seconds, actual.seconds, actual.seconds, label, expected=expected, actual=actual)
 
 
 def explain(runs: list, limit: int = 12) -> str:
@@ -286,10 +380,33 @@ def dump_requests(paths: list, out: Path, top: int) -> list:
     return written
 
 
+def dump_chain(mesh: str, patch: int, out: Path) -> list:
+    """Запросы шва полевых вызовов одного патча по возрастанию alpha: шаги ползунка ширины одним сеансом (`clip_profile --chain`)."""
+
+    from cftuv_native import clip_seams as wire
+
+    chain = field_chains(2).get((mesh, patch))
+    if not chain:
+        raise SystemExit(f"в полевом корпусе нет цепочки {mesh} патч {patch}")
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for number, path in enumerate(chain):
+        record = nc.read_record(path)
+        before = record.before()
+        call = nc.decode_call(nc.OP_CLIP, record.call_blob, nc.build_budget(before.budget), None)
+        header = wire.full_header(before.budget, before.known_primes, before.factorization, before.squarefree, before.prime_support)
+        target = out / f"{number:03d}-{mesh}-p{patch}.req"
+        target.write_bytes(wire.request_bytes("CLIP_GEOMETRY", wire.enc_geometry(call.args[0], call.kwargs), header))
+        written.append(target)
+    return written
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("compare", "timing", "dump"))
+    parser.add_argument("command", choices=("compare", "timing", "dump", "chain"))
     parser.add_argument("target", nargs="?", default=None)
+    parser.add_argument("mesh", nargs="?", default=None)
+    parser.add_argument("patch", nargs="?", type=int, default=None)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--top", type=int, default=6)
     arguments = parser.parse_args(argv)
@@ -313,6 +430,10 @@ def main(argv=None) -> int:
         print(timing_table(cold))
         print(f"python {sys.version.split()[0]}; records with a difference: {bad}")
         return 1 if bad else 0
+    if arguments.command == "chain":
+        for target in dump_chain(arguments.mesh, arguments.patch, Path(arguments.target)):
+            print(target)
+        return 0
     written = dump_requests(field_paths(), Path(arguments.target), arguments.top)
     for target, seconds, size in written:
         print(f"{target} {seconds * 1e3:.1f} ms oracle, {size} bytes")

@@ -41,6 +41,10 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
+from native_gate import skip_unless_available  # noqa: E402
+
+skip_unless_available(cftuv_native, "coverage")
+
 from cftuv_native import codec  # noqa: E402
 from cftuv_native import numbers_oracle as oracle  # noqa: E402
 

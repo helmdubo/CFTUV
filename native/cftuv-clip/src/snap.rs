@@ -58,7 +58,9 @@ type GridCells = HashMap<(i64, i64), Vec<(usize, f64, f64)>>;
 /// The moved vertices, the largest move in nanometres and the largest squared move in cells.
 type Moves = (Vec<(String, Point)>, UBig, Rat);
 
-struct CornerGrid {
+/// The grid of the corners of a plane (`_corner_grid`): a function of the plane alone, which keeps it (`Plane::corner_grid`).
+#[derive(Debug)]
+pub struct CornerGrid {
     corners: Vec<ChartPoint>,
     /// `{(grid x, grid y): [(corner index, x, y)]}`, corners in sorted order.
     cells: GridCells,
@@ -67,7 +69,7 @@ struct CornerGrid {
 }
 
 /// `_corner_grid(plane)`.
-fn corner_grid(plane: &Plane) -> ClipResult<CornerGrid> {
+pub fn corner_grid(plane: &Plane) -> ClipResult<CornerGrid> {
     let step = SOURCE_VERTEX_CORNER_SNAP_CELLS as f64;
     let mut seen: HashMap<ChartPoint, Vec<usize>> = HashMap::new();
     for (index, triangle) in plane.triangles.iter().enumerate() {
@@ -154,8 +156,7 @@ fn snap_to_corners(
         return Ok((Vec::new(), UBig::ZERO, Rat::zero()));
     }
     let limit = SqrtSum::rational(&Rat::from_i64(SOURCE_VERTEX_CORNER_SNAP_CELLS * SOURCE_VERTEX_CORNER_SNAP_CELLS));
-    let grid = corner_grid(plane)?;
-    let taken: HashSet<PointKey> = points.iter().map(|(_, point)| point_key(point)).collect();
+    let grid = plane.corner_grid()?;
     // `proposals` in candidate order: key -> (corner index, gap square)
     let mut proposals: Vec<(&str, usize, SqrtSum)> = Vec::new();
     for &candidate in &candidates {
@@ -183,6 +184,8 @@ fn snap_to_corners(
         aimed.set(*corner, count + 1);
     }
     proposals.sort_by(|left, right| left.0.cmp(right.0));
+    // `taken`: the identities of the points of the domain, needed only when a vertex is about to move
+    let taken: HashSet<PointKey> = if proposals.is_empty() { HashSet::new() } else { points.iter().map(|(_, point)| point_key(point)).collect() };
     let mut moved: Vec<(String, Point)> = Vec::new();
     let mut widest = UBig::ZERO;
     let mut widest_square = Rat::zero();

@@ -42,7 +42,9 @@ from bisect import insort
 from fractions import Fraction
 from time import perf_counter_ns
 
-from . import codec
+import sys
+
+from . import codec, pin
 
 #: `Operation::ALL` of the native side, in the order of `ExactWorkOperationV1`.
 OPERATION_NAMES = ("PRIME_UNIVERSE", "COPRIME_BASIS", "PRIMALITY", "POLLARD_RHO_BRENT", "SQUAREFREE_SPLIT", "PRIME_SUPPORT", "EXACT_POSITION")
@@ -62,6 +64,22 @@ STATUS_INVALID_INPUT = 5
 STATUS_DIVERGED = 6
 STATUS_INTERNAL = 7
 STATUS_MISSING_LINE = 8
+
+#: Outcome codes of `clip_geometry` beyond the exact layer's (1..7): the exceptions the clip stage raises on its own.
+CLIP_STATUS_OVERFLOW = 8
+CLIP_STATUS_ZERO_DIVISION = 9
+CLIP_STATUS_VALUE = 10
+CLIP_STATUS_REFUSAL = 11
+CLIP_STATUS_UNSUPPORTED = 12
+CLIP_STATUS_MISSING_KEY = 13
+#: `OverflowError` texts by kind (`float(int)`; `int / int` and `float(Fraction)`).
+OVERFLOW_TEXTS = ("int too large to convert to float", "integer division result too large for a float")
+#: The outcomes of `MaterializationRefusal` the clip stage names, and the slots of the classes its result is built from.
+CLIP_REFUSAL_OUTCOMES = ("TESSELLATION_DID_NOT_CLOSE", "CLIP_PIECE_LEFT_ITS_TRIANGLE", "BATCH_DID_NOT_VALIDATE", "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE")
+CLIPPED_FIELDS = ("polygons", "cycles", "vertex_lists", "extra_lists", "points", "snapped", "lifted", "counters", "note", "memo")
+#: The bits of the changed-tables answer of `clip_geometry` (the extension replays the memory log on the real tables itself).
+CLIP_CHANGED = ((1, "registry"), (2, "factorization"), (4, "squarefree"), (8, "support"))
+LIFT_TRIANGLE_FIELDS = ("name", "chart", "corners", "twice_area", "box", "normals", "face")
 
 _U64 = (1 << 64) - 1
 
@@ -98,6 +116,21 @@ def _coverage():
 
         _COVERAGE.append((coverage, faces))
     return _COVERAGE[0]
+
+
+_CLIP: list = []
+
+
+def _clip_kernel():
+    """The kernel classes `clip_geometry` is built from (on `sys.path`), resolved on first use."""
+
+    if not _CLIP:
+        from cftuv_envelope import numeric
+        from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+        from cftuv_envelope.materialize import admit, clip, frames, lift_surface
+
+        _CLIP.append((clip, numeric, DecalTopologyLawV1, admit.MaterializationOutcome, frames.MaterializationRefusal, lift_surface.LiftTriangleV1))
+    return _CLIP[0]
 
 
 #: The sync of a call where nothing changed since the last one (the common case), encoded once.
@@ -203,6 +236,11 @@ class CostMirror:
         self._session = session
         self._coverage_bound = False
         self._face_exact = None
+        self._clip_bound = False
+        self._clip_classes: tuple = ()
+        #: Nanoseconds of the last `clip_geometry`: `(sync in, native call, post, total, plane, arguments, compute, result, memory log)`; the last
+        #: five are measured inside the extension (see `native/cftuv-python/src/clip.rs`).
+        self.last_clip_timings: tuple = ()
         #: Nanoseconds of the last `coverage_at`: `(sync in, native call, post, total, prepare, arguments, compute, result)`;
         #: the last four are measured inside the extension (see `native/cftuv-python/src/coverage.rs`).
         self.last_timings: tuple = ()
@@ -422,6 +460,7 @@ class CostMirror:
         the exception of a refusal (an exhaustion, a face without a line) raised.
         """
 
+        pin.require("coverage")
         started = perf_counter_ns()
         if not self._coverage_bound:
             self._bind_coverage()
@@ -458,6 +497,121 @@ class CostMirror:
                 raise ValueError(f"у грани {partition.faces[detail[0]].owner} нет несущей прямой")
             OpResult(status, None, detail, counts, articles, (), None).raise_for(work_budget)
         return result
+
+    # ---- the whole clip operation -----------------------------------------------------------------------------------
+
+    def _bind_clip(self) -> None:
+        """Hands the result classes to the extension, after checking they have the slots the Rust side fills (`NativePortStale` else)."""
+
+        import dataclasses
+
+        clip, numeric, laws, outcomes, refusal, triangle = _clip_kernel()
+        pin.check_shapes(
+            (
+                ("materialize/clip.py", "ClippedV1 fields", tuple(item.name for item in dataclasses.fields(clip.ClippedV1)) == CLIPPED_FIELDS),
+                ("numeric.py", "LocalPoint3V1 fields", tuple(item.name for item in dataclasses.fields(numeric.LocalPoint3V1)) == ("x", "y", "z")),
+                ("materialize/lift_surface.py", "LiftTriangleV1 fields", tuple(item.name for item in dataclasses.fields(triangle)) == LIFT_TRIANGLE_FIELDS),
+                ("materialize/admit.py", "MaterializationOutcome names", all(name in outcomes.__members__ for name in CLIP_REFUSAL_OUTCOMES)),
+                ("contracts/geometry_batch.py", "DecalTopologyLawV1 members", hasattr(laws, "PLANAR_POLYGONS_V1") and hasattr(laws, "QUAD_STRIPS_V1")),
+            )
+        )
+        self._session.bind_clip(_exact().SqrtSumV1, Fraction, clip.ClippedV1, numeric.LocalPoint3V1)
+        self._clip_classes = (laws.PLANAR_POLYGONS_V1, laws.QUAD_STRIPS_V1, outcomes, refusal)
+        self._clip_bound = True
+
+    def clip_geometry(self, plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces):
+        """`materialize.clip.clip_geometry(plane, budget, ...)`, whole, with its exact side effects (the compute `clip_memo.run_clip` memoizes).
+
+        The plane's triangles are converted once per session (kept by the identity of `plane.triangles`); per call the arguments are
+        read from the Python containers by the extension, which builds the `ClippedV1` itself, reusing the objects the oracle would
+        return as they are (input points, key strings, triangle names) and writing the offset normals straight into
+        `plane._normal_by_position`, in call order, also when the operation fails afterwards. Every effect (budget articles, `SIGN_COUNTS`,
+        `UNBUDGETED_WORK`, the four memory tables) is applied before the result is returned or the oracle's exception raised:
+        `ExactCanonicalizationWorkBudgetExhausted` (text from `budget.exhaustion_detail`), `MaterializationRefusal`, `OverflowError`,
+        `ZeroDivisionError`, `ValueError`, `KeyError`. The port refuses by name, and before it touches any state, when the oracle moved past
+        the pin (`NativePortStale`), on an interpreter it does not emulate (`NativeUnsupportedPython`) and on an input it does not cover
+        (`NativePortUnsupported`: a sort of 64 nodes or more); there is no fallback to Python here.
+        """
+
+        pin.require("clip")
+        started = perf_counter_ns()
+        if not self._clip_bound:
+            self._bind_clip()
+        planar, quad, outcomes, refusal = self._clip_classes
+        code = 0 if law is planar else 1 if quad is law else 2
+        normals = getattr(plane, "_normal_by_position", None)
+        if normals is None:
+            raise pin.NativePortUnsupported("the plane has no `_normal_by_position` table to write the offset normals into")
+        exact = _exact()
+        sync, primes, tables = self._sync_in(exact)
+        state = None if budget is None else (budget.cap, budget.spent_by_article())
+        real = (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO)
+        called = perf_counter_ns()
+        try:
+            result, status, detail, counts, articles, bits, native = self._session.clip_geometry(
+                plane.triangles, points, cycles, polygons, code, seam, fans, flows, bool(by_faces), tuple(sys.version_info[:2]),
+                None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, normals, real,
+            )
+        except BaseException:
+            self.invalidate()
+            raise
+        returned = perf_counter_ns()
+        self._settle_counts(exact, counts)
+        self._settle_articles(exact, budget, articles)
+        self._snapshot(exact, primes, tables, {name for bit, name in CLIP_CHANGED if bits & bit})
+        finished = perf_counter_ns()
+        self.last_clip_timings = (called - started, returned - called, finished - returned, finished - started, *native)
+        if status:
+            self._raise_clip(status, detail, counts, articles, budget, outcomes, refusal)
+        return result
+
+    def clip_cache_size(self) -> int:
+        """Planes the extension keeps converted for `clip_geometry` (a debugging view)."""
+
+        return self._session.clip_cache()
+
+    def forget_clip(self) -> None:
+        """Drops every converted plane and every cross-call result of `clip_geometry`: the next call starts cold (answers and cost unchanged)."""
+
+        self._session.forget_clip()
+
+    def set_clip_warm_enabled(self, enabled: bool) -> None:
+        """Switches the cross-call cache of `clip_geometry` on or off (a harness knob: answers and cost are the same either way)."""
+
+        self._session.set_clip_warm_enabled(enabled)
+
+    def clear_clip_warm(self) -> None:
+        """Drops the cross-call results of `clip_geometry` and keeps the converted planes (the next call is the first alpha on a known plane)."""
+
+        self._session.clear_clip_warm()
+
+    def clip_warm_stats(self) -> tuple:
+        """`(crossing hits, crossings stored, crossing entries, value hits, lift hits)` of the cross-call cache of exact results (a debugging view)."""
+
+        return self._session.clip_warm_stats()
+
+    def set_clip_warm_limit(self, limit: int) -> None:
+        """Test knob: the size at which the cross-call cache drops everything."""
+
+        self._session.set_clip_warm_limit(limit)
+
+    @staticmethod
+    def _raise_clip(status, detail, counts, articles, budget, outcomes, refusal) -> None:
+        """The oracle's exception for a refused clip (after every effect was applied)."""
+
+        if status == CLIP_STATUS_OVERFLOW:
+            raise OverflowError(OVERFLOW_TEXTS[detail[0]])
+        if status == CLIP_STATUS_ZERO_DIVISION:
+            raise ZeroDivisionError(detail[0])
+        if status == CLIP_STATUS_VALUE:
+            raise ValueError(detail[0])
+        if status == CLIP_STATUS_REFUSAL:
+            raise refusal(outcomes[detail[0]], detail[1])
+        if status == CLIP_STATUS_MISSING_KEY:
+            raise KeyError(detail[0])
+        if status == CLIP_STATUS_UNSUPPORTED:
+            raise pin.NativePortUnsupported(detail[0])
+        OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
 
     # ---- one operation ----------------------------------------------------------------------------------------------
 

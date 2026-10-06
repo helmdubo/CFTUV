@@ -124,9 +124,19 @@ pub struct UniverseRecord {
     pub delta: Vec<(UBig, Pairs)>,
 }
 
+/// One question asked of the memory (the cost-bearing ones): `prime_support(radicand)` or `squarefree_split(n)`. A computation that
+/// asks the same questions in the same order pays the same budget and leaves the same tables and the same LRU order, whatever it does
+/// with the answers: recording the questions of a computation and asking them again IS its cost.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    Support(UBig),
+    Squarefree(UBig),
+}
+
 /// The four tables and the registry.
 #[derive(Clone, Debug, Default)]
 pub struct CanonMemory {
+    requests: Option<Vec<Request>>,
     known_primes: Vec<UBig>,
     known_prime_set: HashSet<UBig>,
     factorization: OrderedMap<UBig, Pairs>,
@@ -256,6 +266,24 @@ impl CanonMemory {
     /// Start (or restart) recording mutations.
     pub fn start_log(&mut self) {
         self.log = Some(Vec::new());
+    }
+
+    /// Start recording the questions asked of the memory ([`Request`]), dropping any earlier recording.
+    pub fn start_requests(&mut self) {
+        self.requests = Some(Vec::new());
+    }
+
+    /// Stop recording and hand over the questions asked since [`CanonMemory::start_requests`].
+    pub fn take_requests(&mut self) -> Vec<Request> {
+        self.requests.take().unwrap_or_default()
+    }
+
+    /// Asks a recorded question again: the same budget payment, memory write or LRU touch as the first time, the answer dropped.
+    pub fn replay_request(&mut self, request: &Request, budget: &mut WorkBudget) -> Result<(), CanonError> {
+        match request {
+            Request::Support(radicand) => self.prime_support_unsigned(radicand, budget).map(drop),
+            Request::Squarefree(n) => self.squarefree_split_unsigned(n, budget).map(drop),
+        }
     }
 
     /// Take the mutations recorded since the last `start_log` / `take_log`; recording continues.
@@ -476,6 +504,9 @@ impl CanonMemory {
         if *n == UBig::ONE {
             return Ok((UBig::ONE, UBig::ONE));
         }
+        if let Some(requests) = &mut self.requests {
+            requests.push(Request::Squarefree(n.clone()));
+        }
         if let Some(cached) = self.squarefree.get(n) {
             return Ok(cached.clone());
         }
@@ -506,6 +537,9 @@ impl CanonMemory {
     pub fn prime_support_unsigned(&mut self, radicand: &UBig, budget: &mut WorkBudget) -> Result<Support, CanonError> {
         if *radicand <= UBig::ONE {
             return Ok(Vec::new());
+        }
+        if let Some(requests) = &mut self.requests {
+            requests.push(Request::Support(radicand.clone()));
         }
         if let Some(cached) = self.support.get(radicand) {
             return Ok(cached.clone());

@@ -101,3 +101,55 @@ fn a_synced_mirror_computes_like_a_mirror_that_built_the_same_content_itself() {
     assert_eq!(left, right);
     assert_eq!(built.export_state(), synced.export_state());
 }
+
+/// The questions of a computation, asked again, ARE its cost: the same budget, the same memory and the same LRU order, whatever the
+/// memory held when they were first asked and whatever it holds now (a hit and a miss pay differently, and the replay must pay what the
+/// computation WOULD pay on the memory in front of it).
+#[test]
+fn replaying_the_recorded_requests_leaves_the_budget_and_the_memory_the_computation_would_leave() {
+    use cftuv_canon::Request;
+    let radicands: Vec<UBig> = [6u64, 15, 35, 1001, 6, 91, 10403, 15, 1001, 77].iter().map(|value| UBig::from(*value)).collect();
+    let computation = |memory: &mut CanonMemory, budget: &mut WorkBudget| {
+        for (index, radicand) in radicands.iter().enumerate() {
+            let step = if index % 2 == 0 { memory.prime_support_unsigned(radicand, budget).map(drop) } else { memory.squarefree_split_unsigned(radicand, budget).map(drop) };
+            if let Err(error) = step {
+                return Some(error);
+            }
+        }
+        None
+    };
+    // the questions are recorded once, on a cold memory
+    let mut cold = CanonMemory::new();
+    cold.start_requests();
+    assert_eq!(computation(&mut cold, &mut WorkBudget::unlimited()), None);
+    let requests = cold.take_requests();
+    assert!(requests.iter().all(|request| matches!(request, Request::Support(_) | Request::Squarefree(_))) && requests.len() >= radicands.len() - 2);
+    // ... and asked again on memories of every temperature, under every cap
+    for warmed in 0..=radicands.len() {
+        let mut start = CanonMemory::new();
+        let mut warmup = WorkBudget::unlimited();
+        for (index, radicand) in radicands.iter().take(warmed).enumerate() {
+            if index % 3 == 1 {
+                start.prime_support_unsigned(radicand, &mut warmup).unwrap();
+            } else {
+                start.squarefree_split_unsigned(radicand, &mut warmup).unwrap();
+            }
+        }
+        for cap in [None, Some(0), Some(1), Some(3), Some(6), Some(9), Some(40)] {
+            let make = || cap.map_or_else(WorkBudget::unlimited, WorkBudget::bounded);
+            let (mut original, mut original_budget) = (start.clone(), make());
+            let failure = computation(&mut original, &mut original_budget);
+            let (mut replayed, mut replay_budget) = (start.clone(), make());
+            let mut replay_failure = None;
+            for request in &requests {
+                if let Err(error) = replayed.replay_request(request, &mut replay_budget) {
+                    replay_failure = Some(error);
+                    break;
+                }
+            }
+            assert_eq!(failure, replay_failure, "warmed {warmed}, cap {cap:?}: the same refusal at the same question");
+            assert_eq!(original_budget.articles(), replay_budget.articles(), "warmed {warmed}, cap {cap:?}: the same budget paid");
+            assert_eq!(original.export_state(), replayed.export_state(), "warmed {warmed}, cap {cap:?}: the same memory, in the same order");
+        }
+    }
+}

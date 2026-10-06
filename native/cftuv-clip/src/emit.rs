@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use cftuv_canon::ordered::OrderedMap;
 use cftuv_core::exact;
@@ -25,6 +26,7 @@ use crate::point::Point;
 use crate::profile::{scope, Phase};
 use crate::snap::COUNTER_NAMES as SNAP_COUNTER_NAMES;
 use crate::stage::{pair, NodeId, NormalWrite, Stage, Verdict};
+use crate::warm::{lift_key, LiftEntry};
 use crate::tessellate;
 
 pub const CLIP_PIECE_LEFT_ITS_TRIANGLE: &str = "CLIP_PIECE_LEFT_ITS_TRIANGLE";
@@ -72,7 +74,7 @@ const DIAGONAL_COUNTERS: [&str; 7] = [
 ];
 
 /// A key with the point of its node, in the order of the oracle's dictionary.
-pub type KeyedPoint = (Rc<str>, Rc<Point>);
+pub type KeyedPoint = (Rc<str>, Arc<Point>);
 
 /// `ClippedV1` (the `memo` label is the caller's).
 #[derive(Debug)]
@@ -87,6 +89,9 @@ pub struct Clipped {
     pub lifted: Vec<(Rc<str>, Lifted)>,
     pub counters: Vec<(&'static str, UBig)>,
     pub note: String,
+    /// The nodes whose representative point IS an input object: `(that point, index in the input `points`)`. A point of
+    /// the lists above that is one of these (by `Rc` identity) is the input's own tuple.
+    pub origins: Vec<(Arc<Point>, u32)>,
 }
 
 fn oriented(keys: Vec<Rc<str>>, flip: bool) -> Vec<Rc<str>> {
@@ -111,25 +116,27 @@ impl<'a, 'c> Stage<'a, 'c> {
     }
 
     /// `_home(node, ti)`: the triangle that lifts a vertex born in region `ti` and the three orientation values there.
-    fn home_of(&mut self, node: NodeId, ti: usize) -> ClipResult<(usize, [SqrtSum; 3])> {
+    fn home_of(&mut self, node: NodeId, ti: usize) -> ClipResult<(usize, [Arc<SqrtSum>; 3])> {
         let _p = scope(Phase::HomeOf);
         let members = self.regions[ti].members.clone();
         if members.len() == 1 {
-            let mut values: Vec<SqrtSum> = Vec::with_capacity(3);
+            let mut values: Vec<Arc<SqrtSum>> = Vec::with_capacity(3);
             for index in 0..3 {
                 self.slot(node, ti, index)?;
-                values.push((*self.value(node, ti, index)).clone());
+                values.push(self.value(node, ti, index));
             }
-            let values: [SqrtSum; 3] = values.try_into().map_err(|_| ClipError::Unsupported("a single-triangle region without three edges".into()))?;
+            let values: [Arc<SqrtSum>; 3] = values.try_into().map_err(|_| ClipError::Unsupported("a single-triangle region without three edges".into()))?;
             return Ok((members[0], values));
         }
-        let point = self.point_of(node);
+        let (point, hash) = (self.point_of(node), self.nodes[node as usize].hash);
+        let plane = self.plane;
         for member in members {
-            let values = self.plane.values_in(member, &point.0, &point.1);
+            let lines = plane.triangle_lines(member);
+            let values: [Arc<SqrtSum>; 3] = [0, 1, 2].map(|index| self.exact_value(&point, hash, &lines[index].0, lines[index].1));
             let direction: i32 = if self.plane.triangles[member].twice_area.signum() > 0 { 1 } else { -1 };
             let mut inside = true;
             for value in &values {
-                if i32::from(exact::sign(self.ctx, value, SIGN_FILTER_BITS)?) * direction < 0 {
+                if i32::from(exact::sign(self.ctx, &**value, SIGN_FILTER_BITS)?) * direction < 0 {
                     inside = false;
                     break;
                 }
@@ -142,6 +149,24 @@ impl<'a, 'c> Stage<'a, 'c> {
             CLIP_PIECE_LEFT_ITS_TRIANGLE,
             format!("a new clip vertex lies in no triangle of the source face {}", self.regions[ti].name),
         ))
+    }
+
+    /// `lift_known` of a vertex in its home triangle: from the session's warm cache (a function of the point, the triangle and the interpreter, with
+    /// no cost of its own) or computed and remembered. A lift that fails is never kept: it fails again, the same way.
+    fn lift(&mut self, node: NodeId, triangle: usize, values: &[Arc<SqrtSum>; 3]) -> ClipResult<Lifted> {
+        let (point, hash) = (self.point_of(node), self.nodes[node as usize].hash);
+        let plane = self.plane;
+        let key = lift_key(hash, plane.hashes[triangle]);
+        if self.warm.enabled {
+            if let Some(found) = self.warm.find_lift(key, &point, &plane.triangles[triangle], self.version) {
+                return Ok(found);
+            }
+        }
+        let lifted = lift::lift_known_with(self.version, &plane.triangles[triangle], plane.lift_factors(triangle)?, [&*values[0], &*values[1], &*values[2]])?;
+        if self.warm.enabled {
+            self.warm.store_lift(key, LiftEntry { point, triangle: Arc::new(plane.triangles[triangle].clone()), version: self.version, lifted: lifted.clone() });
+        }
+        Ok(lifted)
     }
 
     /// `_key(node, ti)`: the key of a vertex; a new vertex gets `clip:<k>` and its lift in the triangle it was born in.
@@ -159,7 +184,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         let (triangle, values) = self.home_of(node, home)?;
         let lifted = {
             let _l = scope(Phase::LiftKnown);
-            lift::lift_known(self.version, &self.plane.triangles[triangle], &values)?
+            self.lift(node, triangle, &values)?
         };
         if let Some(normal) = lifted.normal {
             self.writes.push(NormalWrite { position: lifted.position, normal });
@@ -385,7 +410,7 @@ impl<'a, 'c> Stage<'a, 'c> {
         let _p = scope(Phase::Emit);
         let nodes = self.refined(&cut.nodes)?;
         let mut pieces = cut.pieces.clone();
-        if self.has_groups {
+        if self.regions.has_groups {
             if let Some(found) = pieces.take() {
                 let refined: FxSet<NodeId> = nodes.iter().copied().collect();
                 pieces = Some(self.glued(found, &refined)?);
@@ -612,6 +637,7 @@ impl<'a, 'c> Stage<'a, 'c> {
             lifted: self.lifted.clone(),
             counters,
             note: self.note()?,
+            origins: self.nodes.iter().filter_map(|node| node.origin.map(|index| (node.point.clone(), index))).collect(),
         })
     }
 
