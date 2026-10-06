@@ -5,8 +5,8 @@
 //! id()-keyed table is a pure cache; here the `(centre, bound)` of a coordinate is cached on the immutable
 //! [`SqrtSum`] itself, which changes cost only.
 
-use crate::pyfloat::{math_sqrt, rat_to_f64};
-use crate::sqrt_sum::{SqrtSum, Term};
+use crate::pyfloat::{math_sqrt, ratio_to_f64};
+use crate::sqrt_sum::{IntForm, SqrtSum};
 
 /// Twice the binary64 unit roundoff, the slack every bound is computed with (`2.0 ** -52`).
 const SLACK: f64 = f64::EPSILON;
@@ -21,21 +21,23 @@ pub type Entry = (f64, f64);
 /// A point with two sqrt-sum coordinates.
 pub type Point<'a> = (&'a SqrtSum, &'a SqrtSum);
 
-fn measure(terms: &[Term]) -> Option<Entry> {
+/// The measure of a value from its integer form: `float(coefficient)` is the correctly rounded `a_m / L`, which is the same binary64 whether or not
+/// the fraction is in lowest terms.
+fn measure(form: &IntForm) -> Option<Entry> {
     let mut total = 0.0f64;
     let mut weight = 0.0f64;
-    for term in terms {
+    for (radicand, numerator) in &form.items {
         // OverflowError in `float(coefficient)` or in `sqrt(radicand)` sends the value to the exact path.
-        let centre = rat_to_f64(term.coef.value()).ok()?;
+        let centre = ratio_to_f64(numerator, &form.common).ok()?;
         // A coefficient below the smallest normal has an absolute (not relative) conversion error.
         if centre.abs() < FLOOR {
             return None;
         }
-        let term_value = centre * math_sqrt(&term.radicand).ok()?;
+        let term_value = centre * math_sqrt(radicand).ok()?;
         total += term_value;
         weight += term_value.abs();
     }
-    let bound = (terms.len() + 6) as f64 * SLACK * weight + FLOOR;
+    let bound = (form.items.len() + 6) as f64 * SLACK * weight + FLOOR;
     // Python's `bound - bound == 0.0 and total - total == 0.0` (`inf - inf` and `nan - nan` are not zero):
     // centre and bound must both be finite.
     if bound.is_finite() && total.is_finite() {
@@ -197,6 +199,7 @@ mod tests {
     use super::*;
     use crate::num::{IBig, UBig};
     use crate::rat::{Coef, Rat};
+    use crate::sqrt_sum::Term;
 
     fn term(radicand: u64, n: i64, d: i64) -> Term {
         Term { radicand: UBig::from(radicand), coef: Coef::fraction(Rat::new(IBig::from(n), IBig::from(d)).unwrap()) }

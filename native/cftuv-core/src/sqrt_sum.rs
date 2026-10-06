@@ -54,37 +54,43 @@ pub struct NonCanonical {
     pub reason: &'static str,
 }
 
-/// `(L, [(m, a_m)])` with `c_m = a_m / L`, `L` the least common denominator of the coefficients.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `(L, [(m, a_m)])` with `c_m = a_m / L`, `L` the least common denominator of the coefficients (or any common denominator, for a form
+/// that was only ever worked on as integers).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IntForm {
     pub common: UBig,
     pub items: Items,
 }
 
 impl IntForm {
-    /// The canonical value `sum a_m sqrt(m) / L`: radicands ascending, zero numerators dropped, one
-    /// `Fraction(a_m, L)` normalisation per term. Every value that leaves the core goes through here (or its
-    /// twin in `fused`), which is what lets everything before it stay unreduced.
+    /// The value `sum a_m sqrt(m) / L` as a [`SqrtSum`]: radicands ascending, zero numerators dropped. Nothing is normalised here: the
+    /// canonical `Fraction(a_m, L)` terms of the value are made when somebody asks for them ([`SqrtSum::terms`]), and its identity
+    /// (lowest terms, one gcd chain for the whole value) when somebody asks for that ([`SqrtSum::canonical_form`]).
     pub fn into_sqrt_sum(self) -> SqrtSum {
         let IntForm { common, mut items } = self;
         if !items.windows(2).all(|pair| pair[0].0 < pair[1].0) {
             items.sort_by(|left, right| left.0.cmp(&right.0));
         }
-        let terms = items
-            .into_iter()
-            .filter(|(_, value)| !value.is_zero())
-            .map(|(radicand, value)| Term { radicand, coef: Coef::fraction(Rat::reduced(value, common.clone())) })
-            .collect();
-        SqrtSum::from_terms_unchecked(terms)
+        items.retain(|(_, value)| !value.is_zero());
+        SqrtSum::from_sorted_form(common, items, false)
     }
 }
 
-/// A sqrt-sum value. Immutable: the integer form and the binary64 measure are cached on first use, which
-/// affects nothing but cost.
+/// A sqrt-sum value. Immutable. It is held as canonical `Fraction` terms (what the oracle's `SqrtSumV1` is) or as an integer form
+/// `sum a_m sqrt(m) / L` (what every fused operation produces), and the other one is derived on first use: the terms by reducing
+/// each `a_m / L` (a gcd per term), the form by taking the least common denominator. A value that is only ever added, multiplied, divided
+/// and signed never pays for its terms. Everything else cached (the identity form, the binary64 measure, the proved sign) affects nothing
+/// but cost.
 #[derive(Debug, Clone)]
 pub struct SqrtSum {
-    terms: Vec<Term>,
-    int_form: OnceLock<IntForm>,
+    terms: OnceLock<Vec<Term>>,
+    form: OnceLock<IntForm>,
+    /// The form in lowest terms (`gcd(L, a_m...) = 1`), derived from `form` when that one is not minimal already.
+    canonical: OnceLock<IntForm>,
+    /// `form` is in lowest terms the moment it exists (it is derived from canonical terms, or the caller proved it).
+    minimal: bool,
+    /// Some coefficient is a Python `int` object (only a value made of terms can have one: every form-made coefficient is a `Fraction`).
+    py_ints: bool,
     measure: OnceLock<Option<(f64, f64)>>,
     /// `certified_sign(SIGN_FILTER_BITS)`, remembered: a pure function of the value, asked again whenever the same object is signed again.
     certified: OnceLock<Option<i8>>,
@@ -93,7 +99,7 @@ pub struct SqrtSum {
 /// Strict equality: same terms, same coefficient values and the same Python types.
 impl PartialEq for SqrtSum {
     fn eq(&self, other: &SqrtSum) -> bool {
-        self.terms == other.terms
+        self.terms() == other.terms()
     }
 }
 
@@ -124,21 +130,43 @@ impl SqrtSum {
 
     /// Terms the caller guarantees canonical (sorted, distinct, non-zero): no check beyond a debug assertion.
     pub fn from_terms_unchecked(terms: Vec<Term>) -> SqrtSum {
-        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new(), certified: OnceLock::new() };
+        let value = SqrtSum::of_terms(terms);
         debug_assert!(value.check_canonical().is_ok());
         value
     }
 
     /// Terms from outside the core: refused with a named reason unless canonical.
     pub fn from_terms(terms: Vec<Term>) -> Result<SqrtSum, NonCanonical> {
-        let value = SqrtSum { terms, int_form: OnceLock::new(), measure: OnceLock::new(), certified: OnceLock::new() };
+        let value = SqrtSum::of_terms(terms);
         value.check_canonical()?;
         Ok(value)
     }
 
+    fn of_terms(terms: Vec<Term>) -> SqrtSum {
+        let py_ints = terms.iter().any(|term| term.coef.is_py_int());
+        SqrtSum { terms: OnceLock::from(terms), form: OnceLock::new(), canonical: OnceLock::new(), minimal: true, py_ints, measure: OnceLock::new(), certified: OnceLock::new() }
+    }
+
+    /// A value from an integer form: radicands strictly ascending, numerators non-zero, `common` positive; `minimal` says the form is in
+    /// lowest terms already. A value without terms has the common denominator one.
+    pub fn from_sorted_form(common: UBig, items: Items, minimal: bool) -> SqrtSum {
+        debug_assert!(!common.is_zero());
+        debug_assert!(items.windows(2).all(|pair| pair[0].0 < pair[1].0) && items.iter().all(|(radicand, value)| !radicand.is_zero() && !value.is_zero()));
+        let common = if items.is_empty() { UBig::ONE } else { common };
+        SqrtSum {
+            terms: OnceLock::new(),
+            form: OnceLock::from(IntForm { common, items }),
+            canonical: OnceLock::new(),
+            minimal,
+            py_ints: false,
+            measure: OnceLock::new(),
+            certified: OnceLock::new(),
+        }
+    }
+
     fn check_canonical(&self) -> Result<(), NonCanonical> {
         let mut previous: Option<&UBig> = None;
-        for (index, term) in self.terms.iter().enumerate() {
+        for (index, term) in self.terms().iter().enumerate() {
             if term.radicand.is_zero() {
                 return Err(NonCanonical { index, reason: "radicand zero" });
             }
@@ -157,32 +185,59 @@ impl SqrtSum {
 
     // ---- reading ---------------------------------------------------------
 
+    /// The canonical terms: kept, or made from the integer form on the first ask (one gcd per term, after one gcd chain that takes the
+    /// content of the whole form out).
     pub fn terms(&self) -> &[Term] {
-        &self.terms
+        self.terms.get_or_init(|| {
+            let form = self.canonical_form();
+            form.items.iter().map(|(radicand, value)| Term { radicand: radicand.clone(), coef: Coef::fraction(Rat::reduced(value.clone(), form.common.clone())) }).collect()
+        })
     }
 
     pub fn into_terms(self) -> Vec<Term> {
-        self.terms
+        self.terms();
+        self.terms.into_inner().expect("the terms were just made")
     }
 
-    /// The integer form of the terms, computed once.
+    /// An integer form of the value, computed once: the least common denominator of the terms, or whatever scale the operation that made
+    /// the value left it at.
     pub fn int_form(&self) -> &IntForm {
-        self.int_form.get_or_init(|| integer_form(&self.terms))
+        self.form.get_or_init(|| integer_form(self.terms.get().expect("a sum has terms or a form")))
+    }
+
+    /// The identity of the value: its integer form in lowest terms (`gcd(L, a_m...) = 1`, `L` positive), which is unique, so two values are
+    /// equal exactly when their canonical forms are. For a form that is not minimal it costs one gcd chain, once.
+    pub fn canonical_form(&self) -> &IntForm {
+        if self.minimal {
+            return self.int_form();
+        }
+        self.canonical.get_or_init(|| content_reduced(self.int_form()))
     }
 
     /// The cached binary64 `(centre, bound)` of the value (`float_filter` owns the computation).
-    pub fn float_measure(&self, compute: impl FnOnce(&[Term]) -> Option<(f64, f64)>) -> Option<(f64, f64)> {
-        *self.measure.get_or_init(|| compute(&self.terms))
+    pub fn float_measure(&self, compute: impl FnOnce(&IntForm) -> Option<(f64, f64)>) -> Option<(f64, f64)> {
+        *self.measure.get_or_init(|| compute(self.int_form()))
+    }
+
+    /// The value has a Python `int` coefficient somewhere (so its terms are not interchangeable with the form's `Fraction`s).
+    pub fn has_py_int(&self) -> bool {
+        self.py_ints
     }
 
     /// `not self.terms`.
     pub fn is_zero(&self) -> bool {
-        self.terms.is_empty()
+        match self.terms.get() {
+            Some(terms) => terms.is_empty(),
+            None => self.int_form().items.is_empty(),
+        }
     }
 
     /// `all(radicand == 1 ...)` (true for zero as well).
     pub fn is_rational(&self) -> bool {
-        self.terms.iter().all(|term| term.radicand.is_one())
+        match self.terms.get() {
+            Some(terms) => terms.iter().all(|term| term.radicand.is_one()),
+            None => self.int_form().items.iter().all(|(radicand, _)| radicand.is_one()),
+        }
     }
 
     /// `as_rational()`: the coefficient object at radicand one (type kept; `Fraction(0)` when there is none),
@@ -191,7 +246,7 @@ impl SqrtSum {
         if !self.is_rational() {
             return None;
         }
-        Some(self.terms.first().map_or_else(|| Coef::fraction(Rat::zero()), |term| term.coef.clone()))
+        Some(self.terms().first().map_or_else(|| Coef::fraction(Rat::zero()), |term| term.coef.clone()))
     }
 
     // ---- arithmetic (SqrtSumV1.__add__, __sub__, __neg__, scaled, ...) -----
@@ -208,7 +263,15 @@ impl SqrtSum {
     }
 
     fn merged(&self, other: &SqrtSum, subtract: bool) -> SqrtSum {
-        let mut out: Vec<Term> = Vec::with_capacity(self.terms.len() + other.terms.len());
+        if !self.py_ints {
+            // every coefficient of the result is a `Fraction` (a term only in `self` is one already, the others are promoted or summed with
+            // one), so the sum is the same value as one over a common denominator, with nothing to normalise
+            let one = Rat::one();
+            let other_factor = if subtract { Rat::one() } else { Rat::from_i64(-1) };
+            return scaled_difference_parts(self, &one, other, &other_factor).into_sqrt_sum();
+        }
+        let (own_terms, other_terms) = (self.terms(), other.terms());
+        let mut out: Vec<Term> = Vec::with_capacity(own_terms.len() + other_terms.len());
         let keep = |out: &mut Vec<Term>, term: &Term| {
             if !term.coef.is_zero() {
                 out.push(term.clone());
@@ -221,8 +284,8 @@ impl SqrtSum {
             }
         };
         let (mut left, mut right) = (0, 0);
-        while left < self.terms.len() && right < other.terms.len() {
-            let (own, theirs) = (&self.terms[left], &other.terms[right]);
+        while left < own_terms.len() && right < other_terms.len() {
+            let (own, theirs) = (&own_terms[left], &other_terms[right]);
             match own.radicand.cmp(&theirs.radicand) {
                 Ordering::Less => {
                     keep(&mut out, own);
@@ -242,10 +305,10 @@ impl SqrtSum {
                 }
             }
         }
-        for own in &self.terms[left..] {
+        for own in &own_terms[left..] {
             keep(&mut out, own);
         }
-        for theirs in &other.terms[right..] {
+        for theirs in &other_terms[right..] {
             take_other(&mut out, theirs);
         }
         SqrtSum::from_terms_unchecked(out)
@@ -253,7 +316,12 @@ impl SqrtSum {
 
     /// `-self`: no filtering, types kept.
     pub fn neg(&self) -> SqrtSum {
-        let terms = self.terms.iter().map(|term| Term { radicand: term.radicand.clone(), coef: term.coef.neg() }).collect();
+        if !self.py_ints {
+            let form = self.int_form();
+            let items = form.items.iter().map(|(radicand, value)| (radicand.clone(), -value)).collect();
+            return SqrtSum::from_sorted_form(form.common.clone(), items, self.minimal);
+        }
+        let terms = self.terms().iter().map(|term| Term { radicand: term.radicand.clone(), coef: term.coef.neg() }).collect();
         SqrtSum::from_terms_unchecked(terms)
     }
 
@@ -262,12 +330,9 @@ impl SqrtSum {
         if factor.is_zero() {
             return SqrtSum::zero();
         }
-        let terms = self
-            .terms
-            .iter()
-            .map(|term| Term { radicand: term.radicand.clone(), coef: Coef::fraction(term.coef.value().mul(factor)) })
-            .collect();
-        SqrtSum::from_terms_unchecked(terms)
+        let form = self.int_form();
+        let items = form.items.iter().map(|(radicand, value)| (radicand.clone(), value * factor.numerator())).collect();
+        SqrtSum::from_sorted_form(&form.common * factor.denominator(), items, false)
     }
 
     /// `self*factor - other*other_factor` in one pass over the integer forms.
@@ -290,7 +355,7 @@ impl SqrtSum {
 
     /// `self * other`. Radicands: `sqrt(a)*sqrt(b) = g*sqrt(a*b/g^2)`; every coefficient a `Fraction`.
     pub fn mul(&self, other: &SqrtSum, memo: &mut ProductMemo) -> SqrtSum {
-        if self.terms.is_empty() || other.terms.is_empty() {
+        if self.is_zero() || other.is_zero() {
             return SqrtSum::zero();
         }
         let (left, right) = (self.int_form(), other.int_form());
@@ -324,7 +389,7 @@ impl SqrtSum {
         let mut scale = UBig::ONE;
         let mut live = Vec::with_capacity(parts.len());
         for (value, factor) in parts {
-            if factor.is_zero() || value.terms.is_empty() {
+            if factor.is_zero() || value.is_zero() {
                 continue;
             }
             let form = value.int_form();
@@ -355,13 +420,14 @@ impl SqrtSum {
     /// oracle bumps them, `closed_by_conjugation` included when the enclosure fails.
     pub fn sign_prefilter(&self, filter_bits: usize, counts: &mut SignCounts) -> SignStage {
         counts.total += 1;
-        if self.terms.is_empty() {
+        let form = self.int_form();
+        if form.items.is_empty() {
             counts.closed_rational_zero += 1;
             return SignStage::Decided(0);
         }
-        if self.terms.len() == 1 && self.terms[0].radicand.is_one() {
+        if form.items.len() == 1 && form.items[0].0.is_one() {
             counts.closed_rational_nonzero += 1;
-            return SignStage::Decided(self.terms[0].coef.value().signum());
+            return SignStage::Decided(num::signum(&form.items[0].1));
         }
         if let Some(certified) = self.certified_sign(filter_bits) {
             counts.closed_by_enclosure += 1;
@@ -505,6 +571,11 @@ pub fn reduced_form(common: &UBig, items: &[(UBig, IBig)]) -> IntForm {
     let (mut common, mut items) = (common.clone(), items.to_vec());
     reduce_in_place(&mut common, &mut items);
     IntForm { common, items }
+}
+
+/// The form in lowest terms: `gcd(L, a_m...)` taken out of `L` and every numerator (the identity of the value).
+pub fn content_reduced(form: &IntForm) -> IntForm {
+    reduced_form(&form.common, &form.items)
 }
 
 /// [`reduced_form`] in place: `gcd(L, *a_m)` divided out of `L` and every numerator (a divisor of one, or of zero

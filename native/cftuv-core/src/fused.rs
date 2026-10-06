@@ -47,6 +47,26 @@ pub fn product_added_form(base: &SqrtSum, left: &SqrtSum, right_form: &IntForm, 
     if left.is_zero() || right_form.items.is_empty() {
         return base.clone();
     }
+    if base.has_py_int() {
+        return product_added_typed(base, left, right_form, memo);
+    }
+    // no coefficient of the base is a Python `int`, so the sum is one value over a common denominator and nothing else: the base terms the
+    // product does not touch are the same coefficients in that form (as `Fraction`s they were, as `Fraction`s they stay)
+    let (base_form, left_form) = (base.int_form(), left.int_form());
+    let common = &left_form.common * &right_form.common;
+    let scale = if base_form.common != common { num::lcm(&base_form.common, &common) } else { common.clone() };
+    let mut merged = Accumulator::with_capacity(base_form.items.len() + left_form.items.len() + right_form.items.len());
+    accumulate_products(&mut merged, &left_form.items, &right_form.items, &IBig::from(&scale / &common), memo);
+    let factor = IBig::from(&scale / &base_form.common);
+    for (radicand, numerator) in &base_form.items {
+        merged.add(radicand, numerator * &factor);
+    }
+    from_scaled(merged, &scale)
+}
+
+/// [`product_added_form`] for a base that carries Python `int` coefficients: the base terms the product does not touch are handed through as the
+/// same coefficient objects (an `int` stays an `int`), so the result is built term by term.
+fn product_added_typed(base: &SqrtSum, left: &SqrtSum, right_form: &IntForm, memo: &mut ProductMemo) -> SqrtSum {
     let (base_form, left_form) = (base.int_form(), left.int_form());
     let common = &left_form.common * &right_form.common;
     let scale = if base_form.common != common { num::lcm(&base_form.common, &common) } else { common.clone() };
