@@ -200,7 +200,8 @@ impl SqrtSum {
     pub fn terms(&self) -> &[Term] {
         self.terms.get_or_init(|| {
             let form = self.canonical_form();
-            form.items.iter().map(|(radicand, value)| Term { radicand: radicand.clone(), coef: Coef::fraction(Rat::reduced(value.clone(), form.common.clone())) }).collect()
+            let coefficients = lowest_terms(form);
+            form.items.iter().zip(coefficients).map(|((radicand, _), rat)| Term { radicand: radicand.clone(), coef: Coef::fraction(rat) }).collect()
         })
     }
 
@@ -583,6 +584,38 @@ pub fn reduced_form(common: &UBig, items: &[(UBig, IBig)]) -> IntForm {
     IntForm { common, items }
 }
 
+/// The coefficients `a_m / L` of a form in lowest terms (`gcd(L, a_m...) = 1`) as canonical fractions. Each fraction needs `gcd(a_m, L)`; for a wide
+/// form that is a gcd of two wide numbers per term, so the terms are first tried together: `gcd(a_m, L)` divides `G = gcd(prod a_m mod L, L)`, which
+/// costs a modular product per term and one gcd, and when `G` is one (or small) every term's gcd is known without taking it.
+pub fn lowest_terms(form: &IntForm) -> Vec<Rat> {
+    let wide = form.common.as_words().len() >= BATCH_WORDS && form.items.len() >= 3;
+    if !wide || form.common.is_one() {
+        return form.items.iter().map(|(_, value)| Rat::reduced(value.clone(), form.common.clone())).collect();
+    }
+    let mut product = num::magnitude(&form.items[0].1) % &form.common;
+    for (_, value) in &form.items[1..] {
+        product = (product * num::magnitude(value)) % &form.common;
+    }
+    let shared = num::gcd(&product, &form.common);
+    if shared.is_one() {
+        return form.items.iter().map(|(_, value)| Rat::from_canonical(value.clone(), form.common.clone())).collect();
+    }
+    form.items
+        .iter()
+        .map(|(_, value)| {
+            let divisor = num::gcd_mixed(value, &shared);
+            if divisor.is_one() {
+                Rat::from_canonical(value.clone(), form.common.clone())
+            } else {
+                Rat::from_canonical(value / IBig::from(divisor.clone()), &form.common / divisor)
+            }
+        })
+        .collect()
+}
+
+/// Forms whose common denominator is at least this many words wide take the batch road of [`lowest_terms`].
+const BATCH_WORDS: usize = 4;
+
 /// The form in lowest terms: `gcd(L, a_m...)` taken out of `L` and every numerator (the identity of the value).
 pub fn content_reduced(form: &IntForm) -> IntForm {
     reduced_form(&form.common, &form.items)
@@ -700,6 +733,98 @@ pub fn scaled_by_reciprocal_form(
     let mut common = numerator_common * num::magnitude(&head);
     reduce_in_place(&mut common, &mut items);
     Ok(IntForm { common, items })
+}
+
+/// `items * conjugate(items)` for the conjugate by `prime`: `(the terms the prime does not divide)^2 - (the terms it divides)^2`. The cross terms
+/// of the product cancel exactly, so each square is formed from the products of its pairs taken once (doubled off the diagonal): the same items as
+/// `multiply_integer_items(items, conjugate_items(items, prime))`, with about a third of its products.
+pub fn norm_items(items: &[(UBig, IBig)], prime: &UBig, memo: &mut ProductMemo) -> Items {
+    let inside: Vec<bool> = items.iter().map(|(radicand, _)| (radicand % prime).is_zero()).collect();
+    let mut merged = Accumulator::with_capacity(items.len() * (items.len() + 1) / 2);
+    for first in 0..items.len() {
+        for second in first..items.len() {
+            if inside[second] != inside[first] {
+                continue;
+            }
+            let ((left_radicand, left_value), (right_radicand, right_value)) = (&items[first], &items[second]);
+            let mut value = left_value * right_value;
+            if second != first {
+                value <<= 1usize;
+            }
+            if inside[first] {
+                value = -value;
+            }
+            if left_radicand.is_one() {
+                merged.add(right_radicand, value);
+            } else if right_radicand.is_one() {
+                merged.add(left_radicand, value);
+            } else {
+                let (common, radicand) = memo.product_ref(left_radicand, right_radicand);
+                merged.add(radicand, if common.is_one() { value } else { value * IBig::from(common.clone()) });
+            }
+        }
+    }
+    merged.into_nonzero_items()
+}
+
+/// Divides both lists by the gcd of all their numerators (a quotient of the two sums does not change), the gcd taken from the shortest numerator
+/// outwards.
+pub fn reduce_items_together(first: &mut Items, second: &mut Items) {
+    let words = |value: &IBig| value.as_sign_words().1.len();
+    let mut shortest: Option<(bool, usize)> = None;
+    let mut length = usize::MAX;
+    for (which, list) in [(false, &*first), (true, &*second)] {
+        for (index, (_, value)) in list.iter().enumerate() {
+            if words(value) < length {
+                length = words(value);
+                shortest = Some((which, index));
+            }
+        }
+    }
+    let Some((which, position)) = shortest else { return };
+    let start_list = if which { &*second } else { &*first };
+    let mut divisor = num::magnitude(&start_list[position].1);
+    for (side, list) in [(false, &*first), (true, &*second)] {
+        for (index, (_, value)) in list.iter().enumerate() {
+            if divisor.is_one() {
+                break;
+            }
+            if side == which && index == position {
+                continue;
+            }
+            divisor = num::gcd_mixed(value, &divisor);
+        }
+    }
+    if divisor.is_one() || divisor.is_zero() {
+        return;
+    }
+    for list in [first, second] {
+        for (_, value) in list.iter_mut() {
+            *value = &*value / &divisor;
+        }
+    }
+}
+
+/// The lists of a quotient `(sum N_i sqrt(m_i) / n) / (sum D_j sqrt(m_j) / d)` over ONE common denominator: the quotient of the two sums of the
+/// returned lists is the same value. Equal denominators change nothing, one that divides the other scales its list by the quotient, otherwise each
+/// list is scaled by the other's denominator and the common factor is divided out.
+pub fn over_one_denominator_items(numerator_common: &UBig, numerator: &[(UBig, IBig)], denominator_common: &UBig, denominator: &[(UBig, IBig)]) -> (Items, Items) {
+    let scaled = |items: &[(UBig, IBig)], factor: &UBig| -> Items {
+        let factor = IBig::from(factor.clone());
+        items.iter().map(|(radicand, value)| (radicand.clone(), value * &factor)).collect()
+    };
+    if numerator_common == denominator_common {
+        return (numerator.to_vec(), denominator.to_vec());
+    }
+    if (denominator_common % numerator_common).is_zero() {
+        return (scaled(numerator, &(denominator_common / numerator_common)), denominator.to_vec());
+    }
+    if (numerator_common % denominator_common).is_zero() {
+        return (numerator.to_vec(), scaled(denominator, &(numerator_common / denominator_common)));
+    }
+    let (mut first, mut second) = (scaled(numerator, denominator_common), scaled(denominator, numerator_common));
+    reduce_items_together(&mut first, &mut second);
+    (first, second)
 }
 
 /// The conjugate of an integer form by the prime `p` (`E = A + B*sqrt(p)  ->  A - B*sqrt(p)`): the numerators
@@ -903,6 +1028,42 @@ mod tests {
             let got_rats: Vec<Rat> = got.terms().iter().map(|term| term.coef.value().clone()).collect();
             assert_eq!(got_rats, want, "round {round}");
             assert!(got.terms().iter().all(|term| Rat::is_canonical(term.coef.value().numerator(), term.coef.value().denominator())));
+        }
+    }
+
+    #[test]
+    fn the_batch_road_of_lowest_terms_gives_the_fractions_the_per_term_road_gives() {
+        let mut state = 0x1357_9bdf_0246_8ace_u64;
+        let mut next = |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        let wide = |next: &mut dyn FnMut(u64) -> u64| -> UBig {
+            let mut value = UBig::ONE;
+            for _ in 0..(5 + next(4)) {
+                value = value * UBig::from(next(u64::MAX - 1) | 1) + UBig::from(next(1000));
+            }
+            value
+        };
+        for round in 0..400 {
+            // a wide common denominator, numerators that share a small factor with it (sometimes) or a big one (rarely)
+            let common = wide(&mut next) * UBig::from(1 + next(60));
+            let shared = [UBig::ONE, UBig::from(1 + next(60)), wide(&mut next)][next(3) as usize].clone();
+            let items: Items = (0..(3 + next(5)))
+                .map(|index| {
+                    let base = wide(&mut next);
+                    let numerator = if next(3) == 0 { base * &shared } else { base };
+                    (UBig::from(index + 1), IBig::from(numerator) * if next(2) == 0 { IBig::ONE } else { -IBig::ONE })
+                })
+                .collect();
+            let form = content_reduced(&IntForm { common, items });
+            if form.common.as_words().len() < BATCH_WORDS {
+                continue;
+            }
+            let expected: Vec<Rat> = form.items.iter().map(|(_, value)| Rat::reduced(value.clone(), form.common.clone())).collect();
+            assert_eq!(lowest_terms(&form), expected, "round {round}");
         }
     }
 

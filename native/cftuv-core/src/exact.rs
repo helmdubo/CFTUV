@@ -25,6 +25,7 @@ use crate::sqrt_sum::{
     conjugate_items, integer_certified_sign, multiply_integer_items, multiply_integer_items_dashu, reduce_in_place, scaled_by_reciprocal,
     scaled_by_reciprocal_form, IntForm, SignCounts, SignStage, SqrtSum, Term, SIGN_FILTER_BITS,
 };
+use crate::sqrt_sum::{norm_items, over_one_denominator_items, reduce_items_together};
 use crate::wide::Wide;
 
 /// Rounds and coefficient size the generic division fallback may reach before it is refused by name. The oracle
@@ -86,10 +87,9 @@ fn pick_prime_over(ctx: &mut ExactCtx<'_>, radicands: impl Iterator<Item = UBig>
         if radicand <= UBig::ONE {
             continue;
         }
-        let support = ctx.memory.prime_support_unsigned(&radicand, ctx.budget)?;
-        if let Some(first) = support.first() {
-            if smallest.as_ref().is_none_or(|current| first < current) {
-                smallest = Some(first.clone());
+        if let Some(first) = ctx.memory.smallest_support_prime(&radicand, ctx.budget)? {
+            if smallest.as_ref().is_none_or(|current| first < *current) {
+                smallest = Some(first);
             }
         }
     }
@@ -345,23 +345,22 @@ impl FxState {
     /// One conjugation round on the stack: `None` when anything leaves the capacity (the state is untouched, the caller redoes the round on
     /// `dashu-int` integers).
     fn step(&self, prime: &UBig, products: &mut ProductMemo) -> Option<FxState> {
-        let conjugate = self.denominator_items.flipped(fx::radicand_u128(prime)?);
+        let word = fx::radicand_u128(prime)?;
+        let conjugate = self.denominator_items.flipped(word);
         let mut numerator_items = fx::multiply(&self.numerator_items, &conjugate, products)?;
-        let mut denominator_items = fx::multiply(&self.denominator_items, &conjugate, products)?;
+        let mut denominator_items = fx::norm(&self.denominator_items, word, products)?;
         fx::reduce_together(&mut numerator_items, &mut denominator_items);
         Some(FxState { numerator_items, denominator_items })
     }
 }
 
 impl BigState {
+    /// One round over lists with ONE common denominator (carried as one: it cancels in the quotient, see `FxState`).
     fn step(&mut self, prime: &UBig, products: &mut ProductMemo) {
         let conjugate = conjugate_items(&self.denominator_items, prime);
         self.numerator_items = multiply_integer_items_dashu(&self.numerator_items, &conjugate, products);
-        self.denominator_items = multiply_integer_items_dashu(&self.denominator_items, &conjugate, products);
-        self.numerator_common = &self.numerator_common * &self.denominator_common;
-        self.denominator_common = &self.denominator_common * &self.denominator_common;
-        reduce_in_place(&mut self.numerator_common, &mut self.numerator_items);
-        reduce_in_place(&mut self.denominator_common, &mut self.denominator_items);
+        self.denominator_items = norm_items(&self.denominator_items, prime, products);
+        reduce_items_together(&mut self.numerator_items, &mut self.denominator_items);
     }
 }
 
@@ -386,12 +385,8 @@ impl RoundState {
                 return RoundState::Fx(FxState { numerator_items, denominator_items });
             }
         }
-        RoundState::Big(BigState {
-            numerator_common: numerator_form.common.clone(),
-            numerator_items: numerator_form.items.clone(),
-            denominator_common: denominator_form.common.clone(),
-            denominator_items: denominator_form.items.clone(),
-        })
+        let (numerator_items, denominator_items) = over_one_denominator_items(&numerator_form.common, &numerator_form.items, &denominator_form.common, &denominator_form.items);
+        RoundState::Big(BigState { numerator_common: UBig::ONE, numerator_items, denominator_common: UBig::ONE, denominator_items })
     }
 
     /// The loop's exit test: the denominator has no term or only the rational one.

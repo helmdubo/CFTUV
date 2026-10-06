@@ -551,6 +551,26 @@ impl CanonMemory {
         Ok(support)
     }
 
+    /// [`CanonMemory::prime_support_unsigned`] for a caller that wants only the smallest prime of the support: the same question asked, the same
+    /// cost paid, the same table entries written, and no copy of the support.
+    pub fn smallest_support_prime(&mut self, radicand: &UBig, budget: &mut WorkBudget) -> Result<Option<UBig>, CanonError> {
+        if *radicand <= UBig::ONE {
+            return Ok(None);
+        }
+        if let Some(requests) = &mut self.requests {
+            requests.push(Request::Support(radicand.clone()));
+        }
+        if let Some(cached) = self.support.get(radicand) {
+            return Ok(cached.first().cloned());
+        }
+        budget.spend_radical_materializations(1, Operation::PrimeSupport, radicand)?;
+        let support: Support = self.factorization_pairs(radicand, budget)?.into_iter().map(|(prime, _)| prime).collect();
+        let smallest = support.first().cloned();
+        self.support.set(radicand.clone(), support.clone());
+        self.record(|| MemOp::SupportInsert { key: radicand.clone(), value: support.clone() });
+        Ok(smallest)
+    }
+
     // ---- prime universe ----------------------------------------------------------------------------------------
 
     /// `_prime_universe_from_q_values`: primes of odd power of every primitive `q` (radicand `p*r` for `q = p/r`).

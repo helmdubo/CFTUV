@@ -136,6 +136,47 @@ fn add_pair(acc: &mut FxAcc, memo: &mut ProductMemo, left_radicand: u128, left_v
     acc.add_product(radicand, a, b, negative, shared as u64)
 }
 
+/// [`add_pair`] with the product multiplied by a small word and its sign flipped when asked.
+#[inline]
+fn add_pair_scaled(acc: &mut FxAcc, memo: &mut ProductMemo, left_radicand: u128, left_value: &Wide, right_radicand: u128, right_value: &Wide, multiplier: u64, flip: bool) -> bool {
+    let negative = (left_value.is_negative() != right_value.is_negative()) != flip;
+    let (a, b) = (left_value.magnitude(), right_value.magnitude());
+    if left_radicand == 1 {
+        return acc.add_product(right_radicand, a, b, negative, multiplier);
+    }
+    if right_radicand == 1 {
+        return acc.add_product(left_radicand, a, b, negative, multiplier);
+    }
+    let Some((shared, radicand)) = memo.product_u128(left_radicand, right_radicand) else { return false };
+    match shared.checked_mul(multiplier as u128) {
+        Some(scale) if scale >> 64 == 0 => acc.add_product(radicand, a, b, negative, scale as u64),
+        _ => false,
+    }
+}
+
+/// `items * conjugate(items)` for the conjugate by `prime` on the stack road: the squares of the terms the prime does not divide and of those it
+/// divides, subtracted, from the products of their pairs taken once (see `sqrt_sum::norm_items`).
+pub fn norm(items: &FxItems, prime: u128, memo: &mut ProductMemo) -> Option<FxItems> {
+    let mut inside = [false; CAP];
+    for index in 0..items.n {
+        inside[index] = if prime >> 64 == 0 && items.key[index] >> 64 == 0 { (items.key[index] as u64) % (prime as u64) == 0 } else { items.key[index] % prime == 0 };
+    }
+    memo.with_acc(|acc, memo| {
+        for first in 0..items.n {
+            for second in first..items.n {
+                if inside[second] != inside[first] {
+                    continue;
+                }
+                let multiplier = if second == first { 1 } else { 2 };
+                if !add_pair_scaled(acc, memo, items.key[first], &items.val[first], items.key[second], &items.val[second], multiplier, inside[first]) {
+                    return None;
+                }
+            }
+        }
+        collect(acc)
+    })
+}
+
 /// The sums of the scratch as a list: `None` when more than [`CAP`] survive or one does not fit a `Wide`.
 fn collect(acc: &FxAcc) -> Option<FxItems> {
     let mut out = FxItems::new();
@@ -431,6 +472,30 @@ mod tests {
             }
         }
         assert!(checked > 1000, "the fast road must carry most random products ({checked} of the cases, {refused} refused)");
+    }
+
+    #[test]
+    fn the_norm_equals_the_product_with_the_conjugate() {
+        use crate::sqrt_sum::{conjugate_items, norm_items};
+        let mut rng = Rng(0x00c0_ffee_1234_5678);
+        let mut memo = ProductMemo::new();
+        let mut checked = 0;
+        for _ in 0..4000 {
+            let items = rng.items(8, 4);
+            let prime = UBig::from([2u64, 3, 5, 7][(rng.next() % 4) as usize]);
+            let expected = multiply_integer_items_dashu(&items, &conjugate_items(&items, &prime), &mut memo);
+            assert_eq!(norm_items(&items, &prime, &mut memo), expected, "the dashu norm");
+            let Some(fast) = FxItems::from_items(&items) else { continue };
+            if let Some(found) = norm(&fast, fx_prime(&prime), &mut memo) {
+                assert_eq!(found.to_items(), expected, "the stack norm");
+                checked += 1;
+            }
+        }
+        assert!(checked > 1500);
+    }
+
+    fn fx_prime(prime: &UBig) -> u128 {
+        radicand_u128(prime).unwrap()
     }
 
     #[test]
