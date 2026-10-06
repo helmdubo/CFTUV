@@ -1189,6 +1189,8 @@ def test_the_production_chain_imports_without_blender():
             "sys.meta_path.insert(0, Block())",
             "import cftuv.envelope_production_export",
             "import cftuv.envelope_domain_pool",
+            "import cftuv.envelope_production_view",
+            "import cftuv.envelope_worker_store",
             "assert not {'bpy', 'bmesh', 'mathutils'} & set(sys.modules)",
             "print('NO_BLENDER_IN_PRODUCTION_CHAIN')",
         )

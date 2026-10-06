@@ -1049,7 +1049,7 @@ def _materialize_domain(
     if digests:
         batch = sealed_geometry_batch(batch)
         clock.lap("SEMANTIC_DIGEST")
-    issues = validate_geometry_batch(batch, check_semantic_digest=digests)
+    issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
     clock.lap("VALIDATE")
     offset_normals = (
         built.lift.offset_normals(batch.vertices)

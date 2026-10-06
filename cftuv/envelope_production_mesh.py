@@ -71,7 +71,6 @@ from .envelope_production_weld import (
     COUNTER_WELD_SEAMS_MARKED,
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
-    DomainVerticesV1,
     cross_domain_seams,
     half_edge_conflicts,
     off_plane_after_offset,
