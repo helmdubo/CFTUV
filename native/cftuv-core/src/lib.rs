@@ -3,7 +3,10 @@
 //!
 //! Module map (one owner per module while R1 is in flight):
 //! - `num`, `rat`, `pyfloat`: big integers, canonical rationals, CPython-exact float conversions;
-//! - `sqrt_sum`, `fused`, `products`: `SqrtSumV1` arithmetic (`exact_sqrt_sum.py`, `_fused`, `_radicand_products`);
+//! - `sqrt_sum`, `fused`, `products`: `SqrtSumV1` arithmetic (`exact_sqrt_sum.py`, `_fused`, `_radicand_products`); a value is held as
+//!   canonical terms or as an integer form, and the one it was not made as is derived on first use;
+//! - `wide`, `fx`, `fxacc`: the stack road of that arithmetic, fixed-capacity integers and item lists that answer `None` where an operand does not fit
+//!   and leave the `dashu-int` road to do the same work (the tests hold the two equal);
 //! - `exact`: the cost-bearing operations on top of it and of the canonicalization memory (`sign` past the filter,
 //!   `divided_by`, `_divide_with_prime_universe`, `radical`, `radical_sum`, `prime_universe_remembered`), with the
 //!   budget, the memory, the sign counters and the product cache as explicit `&mut` parameters;

@@ -82,11 +82,6 @@ impl FxItems {
         self.n == 0 || (self.n == 1 && self.key[0] == 1)
     }
 
-    /// The longest numerator, in limbs.
-    pub fn max_limbs(&self) -> usize {
-        self.val[..self.n].iter().map(Wide::limb_count).max().unwrap_or(0)
-    }
-
     /// Every numerator times a positive factor; `None` when one does not fit.
     pub fn scaled(&self, factor: &Wide) -> Option<FxItems> {
         let mut out = FxItems::new();

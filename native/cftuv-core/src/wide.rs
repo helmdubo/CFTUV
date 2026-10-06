@@ -7,8 +7,6 @@
 //!
 //! Invariants: `limbs[len..]` are zero, `limbs[len - 1] != 0` for `len > 0`, zero is `len = 0` and never negative.
 
-use std::cmp::Ordering;
-
 use dashu_int::ops::Gcd;
 
 use crate::num::{IBig, Sign, UBig};
@@ -47,18 +45,6 @@ fn trimmed(words: &[u64]) -> usize {
     len
 }
 
-fn cmp_mag(left: &[u64], right: &[u64]) -> Ordering {
-    if left.len() != right.len() {
-        return left.len().cmp(&right.len());
-    }
-    for index in (0..left.len()).rev() {
-        if left[index] != right[index] {
-            return left[index].cmp(&right[index]);
-        }
-    }
-    Ordering::Equal
-}
-
 /// `out[..a.len() + b.len()] = a * b` (schoolbook); `out` must be at least that long.
 fn mul_limbs(a: &[u64], b: &[u64], out: &mut [u64]) {
     let (la, lb) = (a.len(), b.len());
@@ -75,38 +61,6 @@ fn mul_limbs(a: &[u64], b: &[u64], out: &mut [u64]) {
         }
         out[i + lb] = carry as u64;
     }
-}
-
-/// `target[..] += addend` over `target.len()` limbs; returns the carry out of the top limb.
-fn add_into(target: &mut [u64], addend: &[u64]) -> bool {
-    let mut carry = false;
-    for index in 0..target.len() {
-        let rhs = addend.get(index).copied().unwrap_or(0);
-        if index >= addend.len() && !carry {
-            break;
-        }
-        let (partial, first) = target[index].overflowing_add(rhs);
-        let (total, second) = partial.overflowing_add(carry as u64);
-        target[index] = total;
-        carry = first || second;
-    }
-    carry
-}
-
-/// `target -= subtrahend` over `target.len()` limbs, where `target >= subtrahend`.
-fn sub_from(target: &mut [u64], subtrahend: &[u64]) {
-    let mut borrow = false;
-    for index in 0..target.len() {
-        let rhs = subtrahend.get(index).copied().unwrap_or(0);
-        if index >= subtrahend.len() && !borrow {
-            break;
-        }
-        let (partial, first) = target[index].overflowing_sub(rhs);
-        let (total, second) = partial.overflowing_sub(borrow as u64);
-        target[index] = total;
-        borrow = first || second;
-    }
-    debug_assert!(!borrow, "subtrahend larger than the target");
 }
 
 /// `x^-1 mod 2^64` for an odd `x` (Newton: each step doubles the correct low bits, `x*x = 1 mod 8` seeds three).
@@ -171,7 +125,6 @@ fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
 /// divisor that is used against many numbers (the running gcd of a reduction).
 #[derive(Clone, Copy, Debug)]
 pub struct Divisor {
-    word: u64,
     shift: u32,
     normalized: u64,
     inverse: u64,
@@ -184,11 +137,7 @@ impl Divisor {
         let normalized = word << shift;
         // floor((2^128 - 1) / normalized) - 2^64
         let inverse = ((u128::MAX - ((normalized as u128) << 64)) / normalized as u128) as u64;
-        Divisor { word, shift, normalized, inverse }
-    }
-
-    pub fn word(&self) -> u64 {
-        self.word
+        Divisor { shift, normalized, inverse }
     }
 
     /// `(u1 * 2^64 + u0) mod normalized` for `u1 < normalized`.
@@ -237,12 +186,6 @@ impl Wide {
         let mut limbs = [0u64; LIMBS];
         limbs[0] = value;
         Wide { limbs, len: (value != 0) as u8, neg: false }
-    }
-
-    pub fn from_i64(value: i64) -> Wide {
-        let mut wide = Wide::from_u64(value.unsigned_abs());
-        wide.neg = value < 0;
-        wide
     }
 
     pub fn from_u128(value: u128) -> Wide {
@@ -302,24 +245,8 @@ impl Wide {
         self.neg
     }
 
-    /// The magnitude is one (`1` or `-1`).
-    pub fn is_unit(&self) -> bool {
-        self.len == 1 && self.limbs[0] == 1
-    }
-
     pub fn is_one(&self) -> bool {
-        self.is_unit() && !self.neg
-    }
-
-    /// `-1`, `0` or `1`.
-    pub fn signum(&self) -> i8 {
-        if self.len == 0 {
-            0
-        } else if self.neg {
-            -1
-        } else {
-            1
-        }
+        self.len == 1 && self.limbs[0] == 1 && !self.neg
     }
 
     pub fn trailing_zeros(&self) -> u32 {
@@ -334,13 +261,6 @@ impl Wide {
         zeros
     }
 
-    pub fn bit_length(&self) -> usize {
-        match self.len {
-            0 => 0,
-            len => 64 * len as usize - self.limbs[len as usize - 1].leading_zeros() as usize,
-        }
-    }
-
     pub fn neg(&self) -> Wide {
         let mut out = *self;
         out.neg = !out.neg && out.len > 0;
@@ -351,10 +271,6 @@ impl Wide {
         let mut out = *self;
         out.neg = false;
         out
-    }
-
-    pub fn cmp_abs(&self, other: &Wide) -> Ordering {
-        cmp_mag(self.magnitude(), other.magnitude())
     }
 
     // ---- arithmetic -----------------------------------------------------------------------------------------------
@@ -372,124 +288,6 @@ impl Wide {
         mul_limbs(&self.limbs[..la], &other.limbs[..lb], &mut limbs);
         let len = trimmed(&limbs[..la + lb]);
         Some(Wide { limbs, len: len as u8, neg: self.neg != other.neg })
-    }
-
-    /// `self * factor` for an unsigned word.
-    pub fn mul_u64(&self, factor: u64) -> Option<Wide> {
-        if self.len == 0 || factor == 0 {
-            return Some(Wide::ZERO);
-        }
-        let la = self.len as usize;
-        let mut limbs = [0u64; LIMBS];
-        let mut carry = 0u128;
-        for index in 0..la {
-            let total = self.limbs[index] as u128 * factor as u128 + carry;
-            limbs[index] = total as u64;
-            carry = total >> 64;
-        }
-        let mut len = la;
-        if carry != 0 {
-            if la == LIMBS {
-                return None;
-            }
-            limbs[la] = carry as u64;
-            len += 1;
-        }
-        Some(Wide { limbs, len: len as u8, neg: self.neg })
-    }
-
-    /// `self += magnitude` with the given sign; `false` (and `self` untouched) when the sum would not fit.
-    fn add_signed_magnitude(&mut self, magnitude: &[u64], negative: bool) -> bool {
-        let other_len = trimmed(magnitude);
-        if other_len == 0 {
-            return true;
-        }
-        let magnitude = &magnitude[..other_len];
-        if self.len == 0 {
-            if other_len > LIMBS {
-                return false;
-            }
-            self.limbs[..other_len].copy_from_slice(magnitude);
-            self.len = other_len as u8;
-            self.neg = negative;
-            return true;
-        }
-        let own = self.len as usize;
-        if self.neg == negative {
-            let width = own.max(other_len);
-            if width > LIMBS {
-                return false;
-            }
-            if width == LIMBS {
-                // a carry out of the top limb would not fit: find out on a copy, so a refusal leaves `self` alone
-                let mut probe = self.limbs;
-                if add_into(&mut probe, magnitude) {
-                    return false;
-                }
-                self.limbs = probe;
-                self.len = trimmed(&probe) as u8;
-                return true;
-            }
-            if add_into(&mut self.limbs[..width], magnitude) {
-                self.limbs[width] = 1;
-            }
-            self.len = trimmed(&self.limbs[..width + 1]) as u8;
-            return true;
-        }
-        match cmp_mag(&self.limbs[..own], magnitude) {
-            Ordering::Equal => {
-                self.limbs = [0; LIMBS];
-                self.len = 0;
-                self.neg = false;
-            }
-            Ordering::Greater => {
-                sub_from(&mut self.limbs[..own], magnitude);
-                self.len = trimmed(&self.limbs[..own]) as u8;
-            }
-            Ordering::Less => {
-                let mut limbs = [0u64; LIMBS];
-                limbs[..other_len].copy_from_slice(magnitude);
-                sub_from(&mut limbs[..other_len], &self.limbs[..own]);
-                self.limbs = limbs;
-                self.len = trimmed(&self.limbs[..other_len]) as u8;
-                self.neg = negative;
-            }
-        }
-        true
-    }
-
-    /// `self += other`; `false` (and `self` untouched) when the sum would not fit.
-    pub fn add_assign(&mut self, other: &Wide) -> bool {
-        self.add_signed_magnitude(&other.limbs[..other.len as usize], other.neg)
-    }
-
-    /// `self -= other`.
-    pub fn sub_assign(&mut self, other: &Wide) -> bool {
-        self.add_signed_magnitude(&other.limbs[..other.len as usize], !other.neg)
-    }
-
-    pub fn add(&self, other: &Wide) -> Option<Wide> {
-        let mut out = *self;
-        out.add_assign(other).then_some(out)
-    }
-
-    pub fn sub(&self, other: &Wide) -> Option<Wide> {
-        let mut out = *self;
-        out.sub_assign(other).then_some(out)
-    }
-
-    /// `self += a * b`; `false` (and `self` untouched) when the product or the sum would not fit.
-    pub fn add_product(&mut self, a: &Wide, b: &Wide) -> bool {
-        if a.len == 0 || b.len == 0 {
-            return true;
-        }
-        let (la, lb) = (a.len as usize, b.len as usize);
-        if la + lb > LIMBS {
-            return false;
-        }
-        let mut product = [0u64; LIMBS];
-        mul_limbs(&a.limbs[..la], &b.limbs[..lb], &mut product);
-        self.add_signed_magnitude(&product[..la + lb], a.neg != b.neg)
     }
 
     /// `self >>= bits` on the magnitude (the sign is kept; a zero result is zero).
@@ -515,16 +313,6 @@ impl Wide {
         if self.len == 0 {
             self.neg = false;
         }
-    }
-
-    /// `|self| mod divisor` for a non-zero word.
-    pub fn rem_u64(&self, divisor: u64) -> u64 {
-        debug_assert!(divisor != 0);
-        let mut remainder = 0u128;
-        for index in (0..self.len as usize).rev() {
-            remainder = ((remainder << 64) | self.limbs[index] as u128) % divisor as u128;
-        }
-        remainder as u64
     }
 
     /// The exact quotient `self / divisor` (signed, truncating nothing: the caller guarantees `divisor | self`, `divisor != 0`).
@@ -610,7 +398,7 @@ impl Wide {
         let (small, large) = if self.len <= other.len { (self, other) } else { (other, self) };
         if small.len == 1 {
             let divisor = small.limbs[0];
-            let remainder = if large.len == 1 { large.limbs[0] % divisor } else { large.rem_u64(divisor) };
+            let remainder = if large.len == 1 { large.limbs[0] % divisor } else { Divisor::new(divisor).rem(large.magnitude()) };
             return Wide::from_u64(gcd_u64(divisor, remainder));
         }
         if large.len <= 2 {
@@ -625,7 +413,6 @@ impl Wide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dashu_int::ops::BitTest;
 
     struct Rng(u64);
 
@@ -661,6 +448,10 @@ mod tests {
         value.to_ibig()
     }
 
+    fn signed(value: i64) -> Wide {
+        Wide::from_words(value < 0, &[value.unsigned_abs()]).unwrap()
+    }
+
     #[test]
     fn conversions_round_trip_across_limb_boundaries() {
         let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
@@ -669,7 +460,7 @@ mod tests {
             let back = Wide::from_ibig(&value.to_ibig()).unwrap();
             assert_eq!(back, value);
             assert_eq!(value.to_ubig(), UBig::from_words(value.magnitude()));
-            assert_eq!(value.signum(), if value.is_zero() { 0 } else if value.is_negative() { -1 } else { 1 });
+            assert_eq!(value.is_zero(), value.to_ibig().is_zero());
         }
         // one limb too many is refused, not truncated
         let words = vec![1u64; LIMBS + 1];
@@ -680,6 +471,8 @@ mod tests {
         assert_eq!(big(&padded), IBig::from(-5));
         assert!(Wide::from_words(true, &[0, 0]).unwrap().is_zero());
         assert!(!Wide::from_words(true, &[0]).unwrap().is_negative());
+        assert_eq!(Wide::from_u128((1u128 << 64) + 5).magnitude(), &[5, 1]);
+        assert!(Wide::from_u64(1).is_one() && !signed(-1).is_one() && !Wide::ZERO.is_one());
     }
 
     #[test]
@@ -700,61 +493,16 @@ mod tests {
         let max = Wide::from_words(false, &[u64::MAX; LIMBS / 2]).unwrap();
         let square = max.mul(&max).unwrap();
         assert_eq!(big(&square), big(&max) * big(&max));
-        // the exact capacity boundary: LIMBS limbs times one limb fits only when the limbs allow, never silently wraps
+        // LIMBS + 1 limbs are refused even when the product would fit
         let full = Wide::from_words(false, &[u64::MAX; LIMBS]).unwrap();
-        assert!(full.mul(&Wide::from_u64(1)).is_none(), "LIMBS + 1 limbs are refused even when the product would fit");
-        assert_eq!(big(&full.mul_u64(1).unwrap()), big(&full));
-        assert!(full.mul_u64(2).is_none());
-        assert_eq!(big(&Wide::from_u64(u64::MAX).mul_u64(u64::MAX).unwrap()), IBig::from(u64::MAX) * IBig::from(u64::MAX));
+        assert!(full.mul(&Wide::from_u64(1)).is_none());
+        assert_eq!(big(&full.neg()), -big(&full));
+        assert_eq!(big(&full.abs()), big(&full));
+        assert!(Wide::ZERO.neg().is_zero() && !Wide::ZERO.neg().is_negative());
     }
 
     #[test]
-    fn addition_subtraction_and_accumulation_match_dashu() {
-        let mut rng = Rng(0xfeed_beef_cafe_f00d);
-        for _ in 0..40000 {
-            let (a, b) = (rng.wide(LIMBS), rng.wide(LIMBS));
-            let expected_sum = big(&a) + big(&b);
-            match a.add(&b) {
-                Some(sum) => assert_eq!(big(&sum), expected_sum),
-                None => assert!(expected_sum.as_sign_words().1.len() > LIMBS, "refused a sum that fits: {a:?} + {b:?}"),
-            }
-            let expected_difference = big(&a) - big(&b);
-            match a.sub(&b) {
-                Some(difference) => assert_eq!(big(&difference), expected_difference),
-                None => assert!(expected_difference.as_sign_words().1.len() > LIMBS, "refused a difference that fits"),
-            }
-            let (x, y) = (rng.wide(5), rng.wide(5));
-            let mut accumulated = a;
-            let expected = big(&a) + big(&x) * big(&y);
-            if accumulated.add_product(&x, &y) {
-                assert_eq!(big(&accumulated), expected);
-            } else {
-                assert_eq!(accumulated, a, "a refused accumulation leaves the value alone");
-                assert!(expected.as_sign_words().1.len() > LIMBS || x.limb_count() + y.limb_count() > LIMBS);
-            }
-        }
-        // carries ripple through all ones, and a cancelling sum is a clean zero with no sign
-        let ones = Wide::from_words(false, &[u64::MAX; 4]).unwrap();
-        let sum = ones.add(&Wide::from_u64(1)).unwrap();
-        assert_eq!(big(&sum), (IBig::ONE << 256usize));
-        assert_eq!(sum.limb_count(), 5);
-        let zero = ones.sub(&ones).unwrap();
-        assert!(zero.is_zero() && !zero.is_negative());
-        assert_eq!(zero, Wide::ZERO);
-        // the sign flips when the subtrahend is larger
-        let flipped = Wide::from_u64(3).sub(&Wide::from_u64(10)).unwrap();
-        assert_eq!(big(&flipped), IBig::from(-7));
-        // overflow on the top limb is refused without touching the operand
-        let mut top = Wide::from_words(false, &[u64::MAX; LIMBS]).unwrap();
-        let before = top;
-        assert!(!top.add_assign(&Wide::from_u64(1)));
-        assert_eq!(top, before);
-        let mut negative_top = Wide::from_words(true, &[u64::MAX; LIMBS]).unwrap();
-        assert!(!negative_top.sub_assign(&Wide::from_u64(1)));
-    }
-
-    #[test]
-    fn shifts_remainders_and_bit_facts_match_dashu() {
+    fn shifts_and_bit_facts_match_dashu() {
         let mut rng = Rng(0x0bad_cafe_dead_beef);
         for _ in 0..20000 {
             let value = rng.wide(LIMBS);
@@ -765,12 +513,6 @@ mod tests {
             assert_eq!(shifted.to_ubig(), magnitude);
             assert_eq!(shifted.is_negative(), value.is_negative() && !magnitude.is_zero());
             if !value.is_zero() {
-                let divisor = rng.limb() | 1u64.wrapping_shl((rng.next() % 64) as u32);
-                if divisor != 0 {
-                    let remainder = value.rem_u64(divisor);
-                    assert_eq!(UBig::from(remainder), value.to_ubig() % UBig::from(divisor));
-                }
-                assert_eq!(value.bit_length(), value.to_ubig().bit_len());
                 assert_eq!(Some(value.trailing_zeros() as usize), value.to_ubig().trailing_zeros());
             }
         }
@@ -792,7 +534,6 @@ mod tests {
             let divisor = Divisor::new(word);
             let expected = value.to_ubig() % UBig::from(word);
             assert_eq!(UBig::from(divisor.rem(value.magnitude())), expected, "{value:?} mod {word}");
-            assert_eq!(value.rem_u64(word), divisor.rem(value.magnitude()));
         }
         assert_eq!(Divisor::new(1).rem(&[u64::MAX, u64::MAX, 7]), 0);
         assert_eq!(Divisor::new(10).rem(&[]), 0);
@@ -812,11 +553,11 @@ mod tests {
                 _ => rng.limb(),
             }
             .max(1);
-            let Some(dividend) = quotient.mul_u64(word) else { continue };
+            let Some(dividend) = quotient.mul(&Wide::from_u64(word)) else { continue };
             assert_eq!(dividend.div_exact_u64(word), quotient, "{dividend:?} / {word}");
         }
         assert!(Wide::ZERO.div_exact_u64(7).is_zero());
-        assert_eq!(Wide::from_i64(-48).div_exact_u64(16), Wide::from_i64(-3));
+        assert_eq!(signed(-48).div_exact_u64(16), signed(-3));
     }
 
     #[test]
@@ -833,8 +574,8 @@ mod tests {
         }
         // even divisors, powers of two, one, minus one, zero dividend
         assert_eq!(Wide::from_u64(48).div_exact(&Wide::from_u64(16)), Wide::from_u64(3));
-        assert_eq!(big(&Wide::from_i64(-48).div_exact(&Wide::from_i64(-16))), IBig::from(3));
-        assert_eq!(big(&Wide::from_i64(48).div_exact(&Wide::from_i64(-1))), IBig::from(-48));
+        assert_eq!(big(&signed(-48).div_exact(&signed(-16))), IBig::from(3));
+        assert_eq!(big(&signed(48).div_exact(&signed(-1))), IBig::from(-48));
         assert!(Wide::ZERO.div_exact(&Wide::from_u64(7)).is_zero());
         let power = Wide::from_words(false, &[0, 0, 1]).unwrap();
         assert_eq!(power.div_exact(&power), Wide::from_u64(1));
@@ -856,8 +597,14 @@ mod tests {
             }
         }
         assert!(Wide::ZERO.gcd(&Wide::ZERO).is_zero());
-        assert_eq!(Wide::from_i64(-12).gcd(&Wide::ZERO), Wide::from_u64(12));
-        assert_eq!(Wide::ZERO.gcd(&Wide::from_i64(-12)), Wide::from_u64(12));
-        assert_eq!(Wide::from_i64(-12).gcd(&Wide::from_i64(18)), Wide::from_u64(6));
+        assert_eq!(signed(-12).gcd(&Wide::ZERO), Wide::from_u64(12));
+        assert_eq!(Wide::ZERO.gcd(&signed(-12)), Wide::from_u64(12));
+        assert_eq!(signed(-12).gcd(&signed(18)), Wide::from_u64(6));
+        for _ in 0..2000 {
+            let (a, b) = (rng.next(), rng.next());
+            assert_eq!(UBig::from(gcd_u64(a, b)), crate::num::gcd(&UBig::from(a), &UBig::from(b)));
+            let (c, d) = (((a as u128) << 64) | b as u128, ((b as u128) << 62) | a as u128);
+            assert_eq!(UBig::from(gcd_u128(c, d)), crate::num::gcd(&UBig::from(c), &UBig::from(d)));
+        }
     }
 }

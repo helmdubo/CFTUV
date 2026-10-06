@@ -37,9 +37,6 @@ impl SignCounts {
     }
 }
 
-/// Forms whose every number has at most this many 64-bit words are reduced to lowest terms the moment they are made.
-pub const EAGER_REDUCE_WORDS: usize = usize::MAX;
-
 /// The width of the enclosure filter shared by `SqrtSumV1.sign` and `_filtered_sign` (`SIGN_FILTER_BITS`).
 pub const SIGN_FILTER_BITS: usize = 64;
 
@@ -75,14 +72,10 @@ impl IntForm {
             items.sort_by(|left, right| left.0.cmp(&right.0));
         }
         items.retain(|(_, value)| !value.is_zero());
-        // A small form is taken to lowest terms here, at the price of one short gcd chain: every later operation then works on the smallest
-        // numbers the value has. A wide one is left as it is (its content is a few bits of a thousand, and the chain is the dearest thing in
-        // sight): its lowest terms are found when somebody needs its identity.
-        let small = common.as_words().len() <= EAGER_REDUCE_WORDS && items.iter().all(|(_, value)| value.as_sign_words().1.len() <= EAGER_REDUCE_WORDS);
-        if small {
-            reduce_in_place(&mut common, &mut items);
-        }
-        SqrtSum::from_sorted_form(common, items, small)
+        // Taken to lowest terms here, at the price of one gcd chain (the canonical terms would cost a gcd per term, and only the values that
+        // leave the core pay for those): every later operation works on the smallest numbers the value has, and its identity is at hand.
+        reduce_in_place(&mut common, &mut items);
+        SqrtSum::from_sorted_form(common, items, true)
     }
 }
 
@@ -1064,6 +1057,90 @@ mod tests {
             }
             let expected: Vec<Rat> = form.items.iter().map(|(_, value)| Rat::reduced(value.clone(), form.common.clone())).collect();
             assert_eq!(lowest_terms(&form), expected, "round {round}");
+        }
+    }
+
+    /// A random sum of `Fraction` terms over a small pool of radicands, and the same value as a map for the reference arithmetic.
+    fn random_sum(state: &mut u64) -> (SqrtSum, std::collections::BTreeMap<UBig, Rat>) {
+        let mut next = |bound: u64| {
+            *state ^= *state << 13;
+            *state ^= *state >> 7;
+            *state ^= *state << 17;
+            *state % bound
+        };
+        const POOL: [u64; 8] = [1, 2, 3, 5, 6, 7, 10, 15];
+        let mut map = std::collections::BTreeMap::new();
+        for _ in 0..(next(5) + 1) {
+            let radicand = UBig::from(POOL[next(POOL.len() as u64) as usize]);
+            let numerator = IBig::from(next(2000) as i64 - 1000) * if next(4) == 0 { IBig::from(next(u64::MAX - 1) | 1) } else { IBig::ONE };
+            let value = Rat::new(numerator, IBig::from(1 + next(90) as i64)).unwrap();
+            if !value.is_zero() {
+                map.insert(radicand, value);
+            }
+        }
+        let terms = map.iter().map(|(radicand, value)| Term { radicand: radicand.clone(), coef: Coef::fraction(value.clone()) }).collect();
+        (SqrtSum::from_terms(terms).unwrap(), map)
+    }
+
+    fn add_to(map: &mut std::collections::BTreeMap<UBig, Rat>, radicand: UBig, value: Rat) {
+        let total = map.get(&radicand).map_or(value.clone(), |old| old.add(&value));
+        if total.is_zero() {
+            map.remove(&radicand);
+        } else {
+            map.insert(radicand, total);
+        }
+    }
+
+    fn as_sum(map: &std::collections::BTreeMap<UBig, Rat>) -> SqrtSum {
+        SqrtSum::from_terms(map.iter().map(|(radicand, value)| Term { radicand: radicand.clone(), coef: Coef::fraction(value.clone()) }).collect()).unwrap()
+    }
+
+    #[test]
+    fn values_made_from_forms_equal_the_values_made_from_terms() {
+        let mut state = 0x6a09_e667_f3bc_c908u64;
+        let mut memo = ProductMemo::new();
+        for round in 0..1500 {
+            let ((a, left), (b, right)) = (random_sum(&mut state), random_sum(&mut state));
+            let factor = Rat::new(IBig::from(round % 17 - 8), IBig::from(1 + round % 11)).unwrap();
+            // sums and differences: the terms are exactly the reference terms, every coefficient a `Fraction`
+            let mut sum = left.clone();
+            let mut difference = left.clone();
+            for (radicand, value) in &right {
+                add_to(&mut sum, radicand.clone(), value.clone());
+                add_to(&mut difference, radicand.clone(), value.neg());
+            }
+            assert_eq!(a.add(&b), as_sum(&sum), "round {round}: add");
+            assert_eq!(a.sub(&b), as_sum(&difference), "round {round}: sub");
+            assert_eq!(a.neg(), as_sum(&left.iter().map(|(radicand, value)| (radicand.clone(), value.neg())).collect()));
+            // scaling
+            let scaled: std::collections::BTreeMap<UBig, Rat> = left.iter().filter(|_| !factor.is_zero()).map(|(radicand, value)| (radicand.clone(), value.mul(&factor))).collect();
+            assert_eq!(a.scaled(&factor), as_sum(&scaled), "round {round}: scaled");
+            // products
+            let mut product = std::collections::BTreeMap::new();
+            for (left_radicand, left_value) in &left {
+                for (right_radicand, right_value) in &right {
+                    let (common, radicand) = crate::products::radicand_product(left_radicand, right_radicand);
+                    add_to(&mut product, radicand, left_value.mul(right_value).mul(&Rat::from_int(IBig::from(common))));
+                }
+            }
+            let multiplied = a.mul(&b, &mut memo);
+            assert_eq!(multiplied, as_sum(&product), "round {round}: mul");
+            // the identity of a value is its form in lowest terms whatever made it: the same form for the same value
+            assert_eq!(multiplied.canonical_form(), as_sum(&product).canonical_form());
+            assert_eq!(a.add(&b).canonical_form(), as_sum(&sum).canonical_form());
+            let scaled_back = a.scaled(&factor).scaled(&Rat::one().div(&if factor.is_zero() { Rat::one() } else { factor.clone() }).unwrap());
+            if !factor.is_zero() {
+                assert_eq!(scaled_back.canonical_form(), a.canonical_form(), "round {round}: scaled twice");
+                assert_eq!(scaled_back, a);
+            }
+            // a combined sum over the same radicands
+            assert_eq!(SqrtSum::scaled_sum(&[(&a, &factor), (&b, &Rat::one())]), as_sum(&{
+                let mut total = scaled.clone();
+                for (radicand, value) in &right {
+                    add_to(&mut total, radicand.clone(), value.clone());
+                }
+                total
+            }));
         }
     }
 

@@ -378,9 +378,11 @@ enum RoundState {
 }
 
 impl RoundState {
-    fn start(numerator: &SqrtSum, denominator: &SqrtSum) -> RoundState {
+    /// The first state: on the stack when `stack` allows and every number fits there.
+    fn start(numerator: &SqrtSum, denominator: &SqrtSum, stack: bool) -> RoundState {
         let (numerator_form, denominator_form) = (numerator.int_form(), denominator.int_form());
-        if let (Some(numerator_common), Some(numerator_items), Some(denominator_common), Some(denominator_items)) = (
+        if let (true, Some(numerator_common), Some(numerator_items), Some(denominator_common), Some(denominator_items)) = (
+            stack,
             Wide::from_ubig(&numerator_form.common),
             FxItems::from_items(&numerator_form.items),
             Wide::from_ubig(&denominator_form.common),
@@ -455,7 +457,12 @@ fn conjugation_loop(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &S
 
 /// The conjugation rounds themselves (every memory question and budget payment of the oracle's loop, in its order).
 fn rationalize(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>) -> Result<Option<Rationalized>, ExactError> {
-    let mut state = RoundState::start(numerator, denominator);
+    rationalize_on(ctx, numerator, denominator, source, true)
+}
+
+/// [`rationalize`] with the stack road allowed or not (the same rounds either way; the tests hold the two equal).
+fn rationalize_on(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>, stack: bool) -> Result<Option<Rationalized>, ExactError> {
+    let mut state = RoundState::start(numerator, denominator, stack);
     loop {
         if state.denominator_is_rational() {
             return Ok(Some(state.finish()));
@@ -521,10 +528,14 @@ pub enum Quotient {
 /// is `divided_by`'s answer. For a caller that multiplies the quotient on at once (`fused::product_added_form`) and
 /// so normalises once, not twice.
 pub fn divided_by_form(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum) -> Result<Quotient, ExactError> {
+    divided_by_form_on(ctx, numerator, denominator, true)
+}
+
+fn divided_by_form_on(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, stack: bool) -> Result<Quotient, ExactError> {
     if denominator.is_zero() {
         return Err(ExactError::ZeroDivisor);
     }
-    match rationalize(ctx, numerator, denominator, PrimeSource::Factorized)? {
+    match rationalize_on(ctx, numerator, denominator, PrimeSource::Factorized, stack)? {
         Some(done) => {
             if let Rationalized::Fx(state) = &done {
                 if let Some((common, items)) = fx::scaled_by_reciprocal_form(&state.numerator_items, &state.denominator_items) {
@@ -792,6 +803,74 @@ mod tests {
         assert_eq!(divide_with_prime_universe(&mut world.ctx(), &numerator, &denominator, &universe).unwrap(), quotient);
         // an incomplete universe falls back to the full division on the original operands: same answer
         assert_eq!(divide_with_prime_universe(&mut world.ctx(), &numerator, &denominator, &universe[..1]).unwrap(), quotient);
+    }
+
+    /// Random sums over a small pool of squarefree radicands, with some coefficients wide enough to leave the stack road.
+    fn random_sum(state: &mut u64, terms: usize, wide: bool) -> SqrtSum {
+        let mut next = |bound: u64| {
+            *state ^= *state << 13;
+            *state ^= *state >> 7;
+            *state ^= *state << 17;
+            *state % bound
+        };
+        const POOL: [u64; 12] = [1, 2, 3, 5, 6, 7, 10, 14, 15, 21, 30, 35];
+        let mut radicands: Vec<u64> = (0..terms).map(|_| POOL[next(POOL.len() as u64) as usize]).collect();
+        radicands.sort_unstable();
+        radicands.dedup();
+        let terms: Vec<Term> = radicands
+            .into_iter()
+            .map(|radicand| {
+                let mut numerator = IBig::from(1 + next(900) as i64);
+                if wide && next(2) == 0 {
+                    for _ in 0..(1 + next(11)) {
+                        numerator = numerator * IBig::from(next(u64::MAX - 1) | 1) + IBig::from(next(1000));
+                    }
+                }
+                if next(2) == 0 {
+                    numerator = -numerator;
+                }
+                let denominator = IBig::from(1 + next(60) as i64) * if wide && next(3) == 0 { IBig::from(next(u64::MAX - 1) | 1) } else { IBig::ONE };
+                Term { radicand: UBig::from(radicand), coef: Coef::fraction(Rat::new(numerator, denominator).unwrap()) }
+            })
+            .collect();
+        SqrtSum::from_terms(terms).unwrap()
+    }
+
+    #[test]
+    fn the_stack_road_and_the_dashu_road_divide_alike_in_answer_and_cost() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let (mut quotients, mut exhausted, mut stacked) = (0, 0, 0);
+        for round in 0..700 {
+            let wide = round % 4 == 3;
+            let (numerator, denominator) = (random_sum(&mut state, 1 + round % 6, wide), random_sum(&mut state, 1 + (round / 2) % 7, wide));
+            if denominator.is_zero() {
+                continue;
+            }
+            // unlimited, and a cap that runs out somewhere in the rounds
+            for cap in [None, Some(3u64), Some(9), Some(40)] {
+                let budget = || cap.map_or_else(WorkBudget::unlimited, WorkBudget::bounded);
+                let (mut on_stack, mut on_dashu) = (World::new(budget()), World::new(budget()));
+                let first = divided_by_form_on(&mut on_stack.ctx(), &numerator, &denominator, true);
+                let second = divided_by_form_on(&mut on_dashu.ctx(), &numerator, &denominator, false);
+                match (first, second) {
+                    (Ok(Quotient::Form(left)), Ok(Quotient::Form(right))) => {
+                        assert_eq!(left.into_sqrt_sum(), right.into_sqrt_sum(), "round {round}: the quotients differ");
+                        quotients += 1;
+                    }
+                    (Ok(Quotient::Sum(left)), Ok(Quotient::Sum(right))) => assert_eq!(left, right),
+                    (Err(left), Err(right)) => {
+                        assert_eq!(left, right, "round {round}: the refusals differ");
+                        exhausted += 1;
+                    }
+                    (left, right) => panic!("round {round}: {:?} against {:?}", left.is_ok(), right.is_ok()),
+                }
+                assert_eq!(on_stack.budget.articles(), on_dashu.budget.articles(), "round {round}: the price differs");
+                assert_eq!(on_stack.memory.export_state(), on_dashu.memory.export_state(), "round {round}: the memory differs");
+                assert_eq!(on_stack.counts, on_dashu.counts);
+                stacked += (!wide) as usize;
+            }
+        }
+        assert!(quotients > 300 && exhausted > 20 && stacked > 300, "{quotients} quotients, {exhausted} refusals, {stacked} on the stack");
     }
 
     #[test]
