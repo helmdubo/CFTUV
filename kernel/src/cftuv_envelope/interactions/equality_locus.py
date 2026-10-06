@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cmp_to_key
 
 import sympy as sp
 
+from .._cpython311 import sorted_as_cpython311
 from ..ids import (
     ConstructionCertificateId,
     EqualityLocusId,
@@ -276,12 +276,11 @@ def clip_equality_locus_to_active_domains(
     for point in points:
         if not any(points_equal(point, item) for item in unique):
             unique.append(point)
-    unique.sort(
-        key=cmp_to_key(
-            lambda left, right: exact_sign(
-                _parameter(carrier, left) - _parameter(carrier, right)
-            )
-        )
+    unique[:] = sorted_as_cpython311(
+        unique,
+        lambda left, right: exact_sign(
+            _parameter(carrier, left) - _parameter(carrier, right)
+        ),
     )
     segments = []
 
@@ -413,13 +412,11 @@ def restrict_clipped_locus_to_active_segments(
         for active in active_segments:
             intersections = segment_intersections(locus_segment, active)
             if len(intersections) >= 2:
-                ordered = sorted(
+                ordered = sorted_as_cpython311(
                     intersections,
-                    key=cmp_to_key(
-                        lambda left, right: exact_sign(
-                            _parameter(locus_segment, left)
-                            - _parameter(locus_segment, right)
-                        )
+                    lambda left, right: exact_sign(
+                        _parameter(locus_segment, left)
+                        - _parameter(locus_segment, right)
                     ),
                 )
                 retained_segments.append((ordered[0], ordered[-1]))

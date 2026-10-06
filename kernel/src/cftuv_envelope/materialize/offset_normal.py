@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from hashlib import sha256
 
+from .._cpython311 import left_fold_sum
 from .admit import MaterializationOutcome
 from .frames import MaterializationRefusal
 
@@ -264,7 +265,7 @@ def blend(weights, normals):
     """Нормаль точки внутри треугольника: барицентрическое смешение, нормированное."""
 
     mixed = tuple(
-        sum(weight * normal[axis] for weight, normal in zip(weights, normals))
+        left_fold_sum(weight * normal[axis] for weight, normal in zip(weights, normals))
         for axis in range(3)
     )
     if not _length(mixed):
