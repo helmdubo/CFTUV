@@ -64,7 +64,7 @@ from hashlib import sha256
 from typing import NamedTuple
 
 from .._chain_station import free_vertices, inert_face_pairs
-from ..canonical import geometry_batch_semantic_digest
+from ..canonical import sealed_geometry_batch
 from ..codec import canonical_json_bytes
 from ..contracts.geometry_batch import (
     GEOMETRY_BATCH_SCHEMA_V1,
@@ -79,7 +79,7 @@ from ..exact_sqrt_sum import (
     exact_work_budget,
     reset_factorization_memory,
 )
-from ..ids import GeometryDiagnosticId, LineageId, SemanticDigestValue
+from ..ids import GeometryDiagnosticId, LineageId
 from ..outcomes import NamedOutcome
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
@@ -153,6 +153,9 @@ class MaterializationV1:
     #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`; пусто — резки нет): метка запуска, как секунды, а не
     #: ответ, поэтому в сравнение не входит и в счётчики ответа не пишется.
     clip_memo: str = field(default="", compare=False)
+    #: Материализация шла с `digests=False`: `batch.semantic_digest` — `PENDING_SEMANTIC_DIGEST`, `content_digest` пуст у
+    #: материализованного домена. Дайджесты — чистые функции батча: `finalize_digests` считает их те же, что eager-путь.
+    digests_deferred: bool = False
 
     @property
     def is_materialized(self) -> bool:
@@ -858,12 +861,6 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
             chords, plane.opposition_note(),
         ),
     )
-    batch = replace(
-        batch,
-        semantic_digest=SemanticDigestValue(
-            geometry_batch_semantic_digest(batch).sha256_hex
-        ),
-    )
     if shaped is not None and shaped.note:
         lines.append(shaped.note)
     clock.lap("ASSEMBLE")
@@ -960,6 +957,7 @@ def materialize_domain(
         NearPlanarLiftLawV1.CERTIFIED_PLANE_V1
     ),
     decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
+    digests: bool = True,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -973,6 +971,9 @@ def materialize_domain(
     каждый кусок в одном треугольнике; домен развёртки при этом тоже режется.
     `decal_topology_law` — из каких граней собирается сетка: по умолчанию
     только треугольники (`TRIANGLES_V1`), и закон записан в поле результата.
+    `digests=False` — не считать ни `semantic_digest` батча, ни `content_digest` (оба — чистые функции батча, ~18 % CPU
+    домена): батч идёт с `PENDING_SEMANTIC_DIGEST`, валидатор не сверяет дайджест, результат помечен `digests_deferred`, и
+    дайджесты считает `finalize_digests` тот, кому они нужны. Остальной ответ побитово тот же.
     """
 
     silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
@@ -984,12 +985,30 @@ def materialize_domain(
         near_planar_lift_law,
         DecalTopologyLawV1.PLANAR_POLYGONS_V1 if silhouette else decal_topology_law,
         silhouette,
+        digests,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
 
+def finalize_digests(result: MaterializationV1) -> MaterializationV1:
+    """Результат `digests=False` с настоящими дайджестами: те же, что посчитал бы eager-путь (чистые функции батча).
+
+    Результат с уже посчитанными дайджестами, отказ и результат без батча возвращаются как есть.
+    """
+
+    if not result.digests_deferred or not result.is_materialized or result.batch is None:
+        return result
+    batch = sealed_geometry_batch(result.batch)
+    return replace(
+        result,
+        batch=batch,
+        content_digest=sha256(canonical_json_bytes(batch)).hexdigest(),
+        digests_deferred=False,
+    )
+
+
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1027,7 +1046,10 @@ def _materialize_domain(
             budget.counters(),
         )
     batch = built.batch
-    issues = validate_geometry_batch(batch)
+    if digests:
+        batch = sealed_geometry_batch(batch)
+        clock.lap("SEMANTIC_DIGEST")
+    issues = validate_geometry_batch(batch) if digests else validate_geometry_batch(batch, check_semantic_digest=False)
     clock.lap("VALIDATE")
     offset_normals = (
         built.lift.offset_normals(batch.vertices)
@@ -1058,7 +1080,7 @@ def _materialize_domain(
             clock,
             counters,
         )
-    digest = sha256(canonical_json_bytes(batch)).hexdigest()
+    digest = sha256(canonical_json_bytes(batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
     return MaterializationV1(
         outcome=MaterializationOutcome.MATERIALIZED,
@@ -1072,4 +1094,5 @@ def _materialize_domain(
         offset_normal_law=OFFSET_NORMAL_LAW if offset_normals else "",
         offset_normals_digest=offset_normals_digest(offset_normals),
         clip_memo=built.clip_memo,
+        digests_deferred=not digests,
     )

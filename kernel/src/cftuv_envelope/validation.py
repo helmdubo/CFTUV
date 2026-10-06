@@ -1380,7 +1380,7 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
     return tuple(issues)
 
 
-def validate_geometry_batch(batch: GeometryBatchV1) -> tuple[ValidationIssue, ...]:
+def validate_geometry_batch(batch: GeometryBatchV1, *, check_semantic_digest: bool = True) -> tuple[ValidationIssue, ...]:
     issues: list[ValidationIssue] = []
     if batch.schema_version != GEOMETRY_BATCH_SCHEMA_V1:
         _issue(issues, ValidationCode.SCHEMA_VERSION, ("schema_version",), "unsupported GeometryBatch schema")
@@ -1453,7 +1453,7 @@ def validate_geometry_batch(batch: GeometryBatchV1) -> tuple[ValidationIssue, ..
         _require_refs(issues, set(chain.ordered_vert_keys), vertex_keys, ("boundary_chains", str(chain.semantic_boundary_id), "ordered_vert_keys"))
     for chain in batch.interface_chains:
         _require_refs(issues, set(chain.ordered_vert_keys), vertex_keys, ("interface_chains", str(chain.semantic_interface_id), "ordered_vert_keys"))
-    expected_digest = geometry_batch_semantic_digest(batch).sha256_hex
+    expected_digest = geometry_batch_semantic_digest(batch).sha256_hex if check_semantic_digest else batch.semantic_digest.value
     if batch.semantic_digest != SemanticDigestValue(expected_digest):
         _issue(issues, ValidationCode.GEOMETRY_BATCH, ("semantic_digest",), "declared semantic digest differs from semantic projection")
     return tuple(issues)

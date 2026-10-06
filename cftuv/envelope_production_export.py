@@ -77,7 +77,8 @@ import json
 import pickle
 import time
 import traceback
-from dataclasses import dataclass, field, replace
+import zlib
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 from .envelope_chart_band import tightened_cap_of, tightening_is_current
@@ -99,6 +100,7 @@ from .envelope_request_policy import (
     ENVELOPE_UV_POLICY_DIRECT_STRIP,
 )
 from .envelope_stretch_lines import developable_stretch_lines
+from .envelope_worker_store import prepared_of
 from .surface_ir import (
     HOST_DECAL_TOPOLOGY_POLICY,
     HOST_NEAR_PLANAR_LIFT_POLICY,
@@ -147,6 +149,17 @@ PRODUCTION_CONTENT_RELABELED = "PRODUCTION_CONTENT_RELABELED"
 PRODUCTION_CONTENT_RELABEL_FAILED = "PRODUCTION_CONTENT_RELABEL_FAILED"
 PRODUCTION_CONTENT_UNKEYED = "PRODUCTION_CONTENT_UNKEYED"
 
+#: Что стоил пулу прогон по трубам (`PoolStatsV1`): байты туда и обратно, подготовки ключом и пиклом, промахи памяти воркера и
+#: разбор ответов в родителе (микросекунды: CPU потоков-читателей и стена с ожиданием GIL). Пишутся, когда пул работал.
+PRODUCTION_POOL_BYTES_SENT = "PRODUCTION_POOL_BYTES_SENT"
+PRODUCTION_POOL_BYTES_RECEIVED = "PRODUCTION_POOL_BYTES_RECEIVED"
+PRODUCTION_POOL_BLOB_HITS = "PRODUCTION_POOL_BLOB_HITS"
+PRODUCTION_POOL_BLOBS_SHIPPED = "PRODUCTION_POOL_BLOBS_SHIPPED"
+PRODUCTION_POOL_BLOB_BYTES_SHIPPED = "PRODUCTION_POOL_BLOB_BYTES_SHIPPED"
+PRODUCTION_POOL_BLOB_MISSES = "PRODUCTION_POOL_BLOB_MISSES"
+PRODUCTION_POOL_UNPICKLE_CPU_US = "PRODUCTION_POOL_UNPICKLE_CPU_US"
+PRODUCTION_POOL_UNPICKLE_WALL_US = "PRODUCTION_POOL_UNPICKLE_WALL_US"
+
 PLACEMENT_WORKER = "worker"
 PLACEMENT_PARENT = "parent"
 #: Домен не считался: результат взят из кэша сессии.
@@ -174,7 +187,7 @@ class ProductionInputV1:
     значением по умолчанию, поэтому задача без него (прежняя форма) читается.
     """
 
-    blob: bytes
+    blob: bytes | None
     uv_policy_id: str = PRODUCTION_UV_POLICY
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
     #: Перенос результата на ревизию и запрос прогона (`RelabelV1`) делает воркер, параллельно; `None` — без
@@ -182,6 +195,9 @@ class ProductionInputV1:
     #: хранилища по содержимому: воркер только переносит его.
     relabel: object | None = None
     carried: bool = False
+    #: Ключ пикла в памяти подготовок воркера (`envelope_worker_store.blob_key`); пусто - подготовка не запоминается. Пул шлёт
+    #: задачу без `blob` (одним ключом) воркеру, который подготовку держит, и с `blob` - остальным.
+    key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +212,19 @@ class ColdProductionInputV1:
     topology_law: str = PRODUCTION_TOPOLOGY_LAW
 
 
-@dataclass(frozen=True, slots=True)
+#: Поля результата, которых у ОТЛОЖЕННОГО результата нет в `__dict__` до первого чтения: они лежат в `heavy` (`batch` и нормали
+#: вершин) либо считаются из батча (`content_digest`), и `__getattr__` отдаёт их по требованию. У них нет значения по
+#: умолчанию на уровне класса (`default_factory`), иначе чтение не дошло бы до `__getattr__`.
+_LAZY_FIELDS = frozenset({"batch", "vertex_normals", "content_digest"})
+#: Поля, от которых зависит вид домена (`view`): их смена делает присланный вид чужим.
+_VIEW_INPUT_FIELDS = frozenset({"patch_id", "normal", "source_normal"})
+PICKLE_PROTOCOL = 5
+#: Пикл батча сжимается zlib (уровень 1): он повторяет одни и те же строки ключей, и на `building` 2.35 МБ идут как 0.53 МБ за 17 мс на все
+#: домены (разжатие - 5 мс). Это байты трубы и память кэшей результатов, а не секунды критического пути.
+HEAVY_COMPRESSION_LEVEL = 1
+
+
+@dataclass(frozen=True)
 class ProductionDomainResultV1:
     """Исход продуктового пути по ОДНОМУ домену: батч либо названный отказ.
 
@@ -204,6 +232,16 @@ class ProductionDomainResultV1:
     одно из двух имён этого модуля). `normal` — единичная нормаль плоскости
     домена, лицевая сторона сетки (направление смещения над поверхностью —
     политика писателя меша). `counters` — числа материализатора, всё это ответ.
+
+    ОТЛОЖЕННЫЙ РЕЗУЛЬТАТ (`deferred_result`, так отвечает воркер пула). Родитель читает из батча домена немногое (`view`: вершины,
+    грани, UV, владельцы, швы, цепи шва - плоские кортежи, их разбор стоит копейки), а разворот графа записей батча - около
+    0.4 с под GIL на `building` на каждом шаге ширины. Поэтому воркер присылает вид и всё тяжёлое одним куском байтов
+    (`heavy`: батч и нормали вершин, пикл под zlib), а `batch`, `vertex_normals` и `content_digest` читаются как прежде, но разворачиваются и
+    считаются при ПЕРВОМ чтении. Что прочитано, то равно eager-результату: батч запечатывается настоящим семантическим
+    дайджестом, `content_digest` — sha256 канонических байтов того же батча (оба - чистые функции батча). Тихо не пропадает
+    ничего: полей нет в `__dict__`, но чтение их достаёт, пикл несёт `heavy`, сравнение сравнивает прочитанное.
+    `dataclasses.replace` на отложенном результате честно разворачивает его (и сбрасывает `view` и `heavy`: у нового результата
+    они не наследуются); сохраняет отложенность только `with_changes`.
 
     Не входят в сравнение: секунды и `placement` — где посчитан домен. Размещение
     — свойство запуска, а не ответа (так же, как счётчики пула отладки).
@@ -216,7 +254,7 @@ class ProductionDomainResultV1:
     detail: str = ""
     counters: tuple[tuple[str, int], ...] = ()
     normal: tuple[float, float, float] | None = None
-    content_digest: str = ""
+    content_digest: str = field(default_factory=str)
     diagnostics: tuple[str, ...] = ()
     #: Нормаль первой исходной грани владельца (то, что видит источник) —
     #: свидетельство для именованной проверки хоста `normal . source_normal > 0`.
@@ -228,7 +266,7 @@ class ProductionDomainResultV1:
     #: и закон, который её дал (`SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`): у развёртки нет
     #: плоскости источника, смещение декали идёт по нормали вершины, а `normal` выше —
     #: лишь сводка (нормированное среднее). У плоского и near-planar домена пусто.
-    vertex_normals: tuple = ()
+    vertex_normals: tuple = field(default_factory=tuple)
     offset_normal_law: str = ""
     #: Побитовый sha256 этих нормалей (`offset_normals_digest` ядра): они сдвигают вершины
     #: меша, но в дайджест батча не входят, и только этот дайджест виден воротам и свипу.
@@ -243,10 +281,112 @@ class ProductionDomainResultV1:
     #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
     #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
     labels: object | None = field(default=None, compare=False, repr=False)
+    #: `DomainViewV1` (`envelope_production_view`), посчитанный воркером, и пикл `(батч, нормали вершин)` отложенного результата.
+    #: Не аргументы конструктора: у результата, собранного заново, их нет (чужой вид к новому батчу не прикладывается).
+    view: object | None = field(default=None, init=False, compare=False, repr=False)
+    heavy: bytes | None = field(default=None, init=False, compare=False, repr=False)
 
     @property
     def is_materialized(self) -> bool:
-        return self.outcome == MATERIALIZED and self.batch is not None
+        state = self.__dict__
+        return self.outcome == MATERIALIZED and (
+            state.get("heavy") is not None or state.get("batch") is not None
+        )
+
+    def __getattr__(self, name):
+        if name in _LAZY_FIELDS and self.__dict__.get("heavy") is not None:
+            if name == "content_digest":
+                object.__setattr__(self, name, self._content_digest_of(self.batch))
+            else:
+                self._thaw()
+            return self.__dict__[name]
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
+    def _thaw(self) -> None:
+        """Разворачивает `heavy` в `batch` и `vertex_normals`; батч без дайджеста запечатывается настоящим."""
+
+        batch, vertex_normals = pickle.loads(zlib.decompress(self.__dict__["heavy"]))
+        if batch is not None:
+            from cftuv_envelope.canonical import PENDING_SEMANTIC_DIGEST, sealed_geometry_batch
+
+            if batch.semantic_digest.value == PENDING_SEMANTIC_DIGEST:
+                batch = sealed_geometry_batch(batch)
+        object.__setattr__(self, "vertex_normals", vertex_normals)
+        object.__setattr__(self, "batch", batch)
+
+    @staticmethod
+    def _content_digest_of(batch) -> str:
+        from hashlib import sha256
+
+        from cftuv_envelope.codec import canonical_json_bytes
+
+        return "" if batch is None else sha256(canonical_json_bytes(batch)).hexdigest()
+
+    def __getstate__(self) -> dict:
+        state = dict(self.__dict__)
+        if state.get("heavy") is not None:
+            # Развёрнутое лежит и в `heavy`: дважды его не пикляют (отложенность переживает пересылку).
+            state.pop("batch", None)
+            state.pop("vertex_normals", None)
+        return state
+
+    def materialized(self, with_digest: bool = True) -> "ProductionDomainResultV1":
+        """Тот же результат без отложенности: поля развёрнуты, `view` и `heavy` нет (новый батч не наследует чужой вид)."""
+
+        if self.__dict__.get("heavy") is None:
+            return self
+        state = dict(self.__dict__)
+        state["batch"], state["vertex_normals"] = self.batch, self.vertex_normals
+        if "content_digest" not in state:
+            state["content_digest"] = self._content_digest_of(state["batch"]) if with_digest else ""
+        state.pop("heavy")
+        state.pop("view", None)
+        copy = object.__new__(type(self))
+        copy.__dict__.update(state)
+        return copy
+
+    def with_changes(self, **changes) -> "ProductionDomainResultV1":
+        """`dataclasses.replace`, не разворачивающий отложенный результат (метки запуска, запись идентичностей, секунды).
+
+        Смена поля, от которого зависит вид (`patch_id`, нормали), сбрасывает присланный вид; смена `batch`, нормалей вершин
+        и дайджеста разворачивает результат целиком (новый батч - новый результат, без чужого `heavy`).
+        """
+
+        names = {item.name for item in fields(self) if item.init}
+        unknown = set(changes) - names
+        if unknown:
+            raise TypeError(f"unexpected fields {sorted(unknown)}")
+        if _LAZY_FIELDS & changes.keys():
+            return replace(self.materialized(), **changes)
+        state = dict(self.__dict__)
+        state.update(changes)
+        if _VIEW_INPUT_FIELDS & changes.keys():
+            state.pop("view", None)
+        copy = object.__new__(type(self))
+        copy.__dict__.update(state)
+        return copy
+
+
+def deferred_result(result: ProductionDomainResultV1) -> ProductionDomainResultV1:
+    """Отложенная копия материализованного результата: вид посчитан, батч и нормали вершин упакованы в `heavy`.
+
+    Отказ (без батча) и уже отложенный результат возвращаются как есть. Батч может быть без дайджеста
+    (`materialize_domain(digests=False)`): его запечатывает первое чтение. Известный `content_digest` остаётся в поле.
+    """
+
+    if result.__dict__.get("heavy") is not None or result.batch is None:
+        return result
+    from .envelope_production_view import build_domain_view
+
+    state = dict(result.__dict__)
+    state["view"] = build_domain_view(result)
+    packed = pickle.dumps((state.pop("batch"), state.pop("vertex_normals")), protocol=PICKLE_PROTOCOL)
+    state["heavy"] = zlib.compress(packed, HEAVY_COMPRESSION_LEVEL)
+    if not state.get("content_digest"):
+        state.pop("content_digest", None)
+    copy = object.__new__(type(result))
+    copy.__dict__.update(state)
+    return copy
 
 
 def _refusal(patch_id, domain_id, outcome, detail, seconds=0.0, placement=PLACEMENT_PARENT):
@@ -299,6 +439,7 @@ def produce_domain(
     *,
     uv_policy_id: str = PRODUCTION_UV_POLICY,
     topology_law: str = PRODUCTION_TOPOLOGY_LAW,
+    defer: bool = False,
 ) -> ProductionDomainResultV1:
     """Покрытие на готовой подготовке и материализация: общий код всех путей.
 
@@ -307,6 +448,9 @@ def produce_domain(
     потому что код один. Память разложений сбрасывается перед доменом: статьи
     бюджета материализации не зависят от истории процесса (как у кнопки отладки).
     Исключение внутри домена не роняет пул и не теряется: оно называется.
+
+    `defer=True` (так считает воркер) — отложенный результат (`deferred_result`): дайджесты не считаются (ядро `digests=False`),
+    вид домена посчитан, батч упакован в байты. Прочитанное из него равно результату `defer=False`.
     """
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
@@ -349,6 +493,7 @@ def produce_domain(
             request=materialization_request(prepared, uv_policy_id=uv_policy_id),
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             decal_topology_law=DecalTopologyLawV1(topology_law),
+            digests=not defer,
         )
         if not result.is_materialized:
             return _refusal(
@@ -359,7 +504,7 @@ def produce_domain(
                 time.perf_counter() - started,
             )
         normal = _summary_normal(result.vertex_normals) or plane_normal_binary64(prepared.context.frame)
-        return ProductionDomainResultV1(
+        produced = ProductionDomainResultV1(
             patch_id=int(patch_id),
             domain_id=str(domain_id),
             outcome=MATERIALIZED,
@@ -378,6 +523,9 @@ def produce_domain(
             seconds=time.perf_counter() - started,
             clip_memo=result.clip_memo,
         )
+        if defer:
+            produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
+        return produced
     except Exception:  # noqa: BLE001 - исход называется, а не теряется
         return _refusal(
             patch_id,
@@ -438,12 +586,12 @@ def solve_cold_production_task(task):
         task.alpha_text,
         uv_policy_id=task.cold.uv_policy_id,
         topology_law=task.cold.topology_law,
+        defer=True,
     )
     return inputs.result(
         prepared=prepared,
         production=_placed(
-            replace(
-                produced,
+            produced.with_changes(
                 seconds=produced.seconds + prepare_seconds,
                 labels=inputs.labeling,
             ),
@@ -463,7 +611,7 @@ def solve_production_task(task):
     from .envelope_domain_pool import DomainTaskResultV1
 
     production = task.production
-    payload = pickle.loads(production.blob)
+    payload = prepared_of(production, retain=not production.carried)
     result = (
         payload
         if production.carried
@@ -474,6 +622,7 @@ def solve_production_task(task):
             task.alpha_text,
             uv_policy_id=production.uv_policy_id,
             topology_law=production.topology_law,
+            defer=True,
         )
     )
     if production.relabel is not None:
@@ -484,7 +633,7 @@ def solve_production_task(task):
             pass
     return DomainTaskResultV1(
         task.task_id,
-        production=_placed(result, PLACEMENT_WORKER),
+        production=_placed(deferred_result(result), PLACEMENT_WORKER),
     )
 
 
@@ -502,7 +651,7 @@ def _domain_of_preparation(domain_id: str, relabel) -> str:
 
 
 def _placed(result: ProductionDomainResultV1, placement: str):
-    return replace(result, placement=placement)
+    return result.with_changes(placement=placement)
 
 
 # --------------------------------------------------------------------------
@@ -917,7 +1066,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     request = inputs[1]
     if reply is not None and reply.ok and reply.production is not None:
         prepared = reply.prepared
-        run.controller.get_conveyor_preparation(
+        cached = run.controller.get_conveyor_preparation(
             run.revision,
             entry.domain_id,
             entry.selected,
@@ -925,6 +1074,8 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
             lambda: prepared,
             profile=run.profile,
         )
+        if reply.prepared_blob is not None and cached is prepared:
+            run.controller.preparation_blobs.adopt(prepared, reply.prepared_blob, reply.prepared_key)
         result = reply.production
     else:
         result = _produce_cold_in_parent(run, entry, inputs, placement)
@@ -942,7 +1093,7 @@ def _labeled_by_parent(run: _RunInputsV1, patch_id, result, log):
     if log is None:
         return result
     labeling = log.labeling(run.revision, run.request_id, patch_id)
-    return replace(result, labels=labeling) if labeling.has_domain_token() else result
+    return result.with_changes(labels=labeling) if labeling.has_domain_token() else result
 
 
 def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result) -> None:
@@ -989,7 +1140,7 @@ def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
     if key is None:
         _remember(run, item.result_key, result)
         return None, result
-    based = result if result.labels is not None else replace(result, labels=labeling)
+    based = result if result.labels is not None else result.with_changes(labels=labeling)
     controller.content_store.register_result(key, _slot(run), based)
     if item.carried is None and not item.reuse:
         # Подготовка этой ревизии (кэш ревизии): идентичности те же, что у прогона, переносить нечего.
@@ -1010,7 +1161,7 @@ def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
     ):
         run.relabeled.append(item.patch_id)
     if item.carried is not None:
-        moved = replace(moved, seconds=0.0, placement=PLACEMENT_CACHED)
+        moved = moved.with_changes(seconds=0.0, placement=PLACEMENT_CACHED)
     _remember(run, item.result_key, moved)
     return None, moved
 
@@ -1050,8 +1201,10 @@ def _production_input(run: _RunInputsV1, entry: _DomainEntryV1, blob: bytes) -> 
         relabel = RelabelV1(run.revision, run.request_id, entry.patch_id)
     elif entry.labeling is not None:
         relabel = RelabelV1(run.revision, run.request_id, entry.patch_id, entry.labeling)
+    # Память подготовок воркера держит подготовки, а не результаты на перенос: у `carried` пикл едет всегда.
+    key = "" if entry.carried is not None else run.controller.preparation_blobs.key_of(entry.prepared)
     return ProductionInputV1(
-        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None
+        blob, run.uv_policy_id, run.topology_law, relabel, entry.carried is not None, key
     )
 
 
@@ -1185,7 +1338,26 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
             done[item.domain_id] = result
     if domain_pool is not None:
         _record_pool_counters(run.profile, pooled, failure, dispatched, fallbacks, dispatched)
+        _record_transfer_counters(run.profile, getattr(pooled, "stats", None))
     return done, refused
+
+
+def _record_transfer_counters(profile, stats) -> None:
+    """Цена пересылок прогона (`PoolStatsV1`) в профиль; подставной пул без статистики ничего не пишет."""
+
+    if stats is None:
+        return
+    for name, value in (
+        (PRODUCTION_POOL_BYTES_SENT, stats.bytes_sent),
+        (PRODUCTION_POOL_BYTES_RECEIVED, stats.bytes_received),
+        (PRODUCTION_POOL_BLOB_HITS, stats.blob_hits),
+        (PRODUCTION_POOL_BLOBS_SHIPPED, stats.blobs_shipped),
+        (PRODUCTION_POOL_BLOB_BYTES_SHIPPED, stats.blob_bytes_shipped),
+        (PRODUCTION_POOL_BLOB_MISSES, stats.blob_misses),
+        (PRODUCTION_POOL_UNPICKLE_CPU_US, round(stats.unpickle_cpu_seconds * 1e6)),
+        (PRODUCTION_POOL_UNPICKLE_WALL_US, round(stats.unpickle_wall_seconds * 1e6)),
+    ):
+        profile.set_counter(name, int(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1234,7 +1406,7 @@ def _domain_results(entries, done, refused):
         elif entry.domain_id in refused:
             results.append(_host_refusal(entry, refused[entry.domain_id]))
         elif entry.cached is not None:
-            results.append(replace(entry.cached, seconds=0.0, placement=PLACEMENT_CACHED, clip_memo=""))
+            results.append(entry.cached.with_changes(seconds=0.0, placement=PLACEMENT_CACHED, clip_memo=""))
         elif entry.domain_id in done:
             results.append(done[entry.domain_id])
         else:
@@ -1663,6 +1835,14 @@ __all__ = (
     "PRODUCTION_MATERIALIZED",
     "PRODUCTION_PATCH_METRIC_BUILDS",
     "PRODUCTION_PREPARATION_BUILDS",
+    "PRODUCTION_POOL_BLOBS_SHIPPED",
+    "PRODUCTION_POOL_BLOB_BYTES_SHIPPED",
+    "PRODUCTION_POOL_BLOB_HITS",
+    "PRODUCTION_POOL_BLOB_MISSES",
+    "PRODUCTION_POOL_BYTES_RECEIVED",
+    "PRODUCTION_POOL_BYTES_SENT",
+    "PRODUCTION_POOL_UNPICKLE_CPU_US",
+    "PRODUCTION_POOL_UNPICKLE_WALL_US",
     "PRODUCTION_PREPARATION_REUSED",
     "PRODUCTION_REFUSED",
     "PRODUCTION_RESULT_CACHE_HIT",
@@ -1673,6 +1853,7 @@ __all__ = (
     "ProductionDomainResultV1",
     "ProductionInputV1",
     "ProductionRunV1",
+    "deferred_result",
     "developable_stretch_lines",
     "diagnostic_summary_lines",
     "export_production_json",

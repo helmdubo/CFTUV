@@ -61,7 +61,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import dataclass
 
 import bpy
@@ -72,12 +71,19 @@ from .envelope_production_weld import (
     COUNTER_WELD_SEAMS_MARKED,
     OUTCOME_SEAM_T_JUNCTIONS,
     OUTCOME_WELD_HALF_EDGE_CONFLICT,
-    DomainVerticesV1,
     cross_domain_seams,
     half_edge_conflicts,
     off_plane_after_offset,
-    seam_report,
+    seam_report_of_chains,
     weld_vertices,
+)
+from .envelope_production_view import (
+    OUTCOME_EMPTY_BATCH,
+    OUTCOME_NON_FINITE,
+    OUTCOME_NORMAL_MISSING,
+    OUTCOME_NORMAL_OPPOSES_SOURCE,
+    OUTCOME_VERTEX_MISSING,
+    build_domain_view,
 )
 
 DECAL_OBJECT_SUFFIX = ".CFTUV_Decal"
@@ -103,11 +109,6 @@ OUTCOME_DECAL_MISSING = "DECAL_OBJECT_MISSING"
 OUTCOME_DECAL_IN_EDIT_MODE = "DECAL_OBJECT_IN_EDIT_MODE"
 OUTCOME_DECAL_MESH_MISSING = "DECAL_MESH_MISSING"
 OUTCOME_MATERIAL_MISSING = "ADAPTER_MATERIAL_MISSING"
-OUTCOME_EMPTY_BATCH = "ADAPTER_EMPTY_BATCH"
-OUTCOME_NON_FINITE = "ADAPTER_NON_FINITE_BATCH"
-OUTCOME_NORMAL_MISSING = "ADAPTER_NORMAL_MISSING"
-OUTCOME_VERTEX_MISSING = "ADAPTER_FACE_VERTEX_MISSING"
-OUTCOME_NORMAL_OPPOSES_SOURCE = "ADAPTER_NORMAL_OPPOSES_SOURCE"
 #: Предупреждения (домен остаётся в меше, находка названа).
 OUTCOME_SOURCE_NORMAL_UNKNOWN = "ADAPTER_SOURCE_NORMAL_UNKNOWN"
 OUTCOME_FLIPPED_VS_SOURCE = "MATERIALIZE_TRIANGLES_FLIPPED_VS_SOURCE"
@@ -211,84 +212,11 @@ def decal_object_name(source_name: str) -> str:
     return f"{stem}{DECAL_OBJECT_SUFFIX}"
 
 
-def _finite(values) -> bool:
-    return all(math.isfinite(item) for item in values)
+def _domain_view(result):
+    """Вид домена (`DomainViewV1`): присланный воркером вместе с результатом либо посчитанный здесь из батча тем же кодом."""
 
-
-def _claim_ordinals(batch) -> dict[str, int]:
-    """Порядковый номер каждой огибающей батча: `claim:N` -> N, иначе по сортировке."""
-
-    names = sorted({face.ownership_claim_id.value for face in batch.faces})
-    try:
-        return {name: int(name.split(":", 1)[1]) for name in names}
-    except (IndexError, ValueError):
-        return {name: index for index, name in enumerate(names)}
-
-
-def _domain_arrays(result):
-    """`(вершины, грани, uv, владельцы, швы)` одного домена либо `(None, исход, деталь)`.
-
-    Вершины — `DomainVerticesV1`: позиция батча, нормаль смещения и ссылка каждой. Смещение
-    здесь не прикладывается: у общей вершины оно митра нескольких доменов (сварка).
-    """
-
-    batch = result.batch
-    if not batch.faces or not batch.vertices:
-        return None, OUTCOME_EMPTY_BATCH, "the batch has no faces or no vertices"
-    if result.normal is None or not _finite(result.normal):
-        return None, OUTCOME_NORMAL_MISSING, "the plane normal of the domain is absent"
-    nx, ny, nz = result.normal
-    vertex_normals = dict(getattr(result, "vertex_normals", ()) or ())
-    source = getattr(result, "source_normal", None)
-    # У домена-развёртки нормаль смещения своя на вершину (закон ядра), и каждая уже
-    # проверена ядром против нормалей её треугольников; одной нормалью первой грани
-    # на сгибе проверять нечего.
-    if source is not None and any(source) and not vertex_normals:
-        dot = nx * source[0] + ny * source[1] + nz * source[2]
-        if not dot > 0.0:
-            return (
-                None,
-                OUTCOME_NORMAL_OPPOSES_SOURCE,
-                f"plane normal . source face normal = {dot:.6f} <= 0: the offset "
-                f"would push the decal into the surface",
-            )
-    ordered = sorted(batch.vertices, key=lambda item: item.vert_key.value)
-    index = {item.vert_key.value: number for number, item in enumerate(ordered)}
-    positions, normals, refs = [], [], []
-    for vertex in ordered:
-        point = vertex.position
-        if not _finite((point.x, point.y, point.z)):
-            return None, OUTCOME_NON_FINITE, f"vertex {vertex.vert_key.value}"
-        shift = vertex_normals.get(vertex.vert_key.value, (nx, ny, nz)) if vertex_normals else (nx, ny, nz)
-        if vertex_normals and vertex.vert_key.value not in vertex_normals:
-            return None, OUTCOME_NORMAL_MISSING, f"the offset normal of vertex {vertex.vert_key.value} is absent"
-        positions.append((point.x, point.y, point.z))
-        normals.append(tuple(shift))
-        location = getattr(vertex, "semantic_location_ref", None)
-        refs.append(None if location is None else location.value)
-    owners = _claim_ordinals(batch)
-    faces, uvs, face_owner = [], [], []
-    for face in batch.faces:
-        try:
-            loop = tuple(index[key.value] for key in face.ordered_vert_keys)
-        except KeyError as exc:
-            return None, OUTCOME_VERTEX_MISSING, f"face {face.face_id.value}: {exc}"
-        pairs = tuple((fact.uv.u, fact.uv.v) for fact in face.uv_facts)
-        if not _finite([item for pair in pairs for item in pair]):
-            return None, OUTCOME_NON_FINITE, f"UV of face {face.face_id.value}"
-        faces.append(loop)
-        uvs.extend(pairs)
-        face_owner.append(owners[face.ownership_claim_id.value])
-    seams = set()
-    for chain in sorted(batch.interface_chains, key=lambda item: tuple(key.value for key in item.ordered_vert_keys)):
-        keys = [key.value for key in chain.ordered_vert_keys]
-        for first, second in zip(keys, keys[1:]):
-            if first in index and second in index and first != second:
-                seams.add(tuple(sorted((index[first], index[second]))))
-    vertices = DomainVerticesV1(
-        result.patch_id, tuple(positions), tuple(normals), tuple(refs)
-    )
-    return (vertices, faces, uvs, face_owner, sorted(seams)), "", ""
+    view = getattr(result, "view", None)
+    return build_domain_view(result) if view is None else view
 
 
 def _domain_warnings(result) -> list:
@@ -343,19 +271,19 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 (result.patch_id, result.domain_id, result.outcome, result.detail)
             )
             continue
-        built, outcome, detail = _domain_arrays(result)
-        if built is None:
-            skipped.append((result.patch_id, result.domain_id, outcome, detail))
+        view = _domain_view(result)
+        if view.failure is not None:
+            skipped.append((result.patch_id, result.domain_id, *view.failure))
             continue
-        entries.append((result, built))
+        entries.append((result, view))
         domains.append(result.patch_id)
         warnings.extend(_domain_warnings(result))
         laws.add(getattr(result, "decal_topology_law", ""))
-        revision = revision or result.batch.source_revision.value
-    weld = weld_vertices([built[0] for _result, built in entries], float(offset))
+        revision = revision or view.source_revision
+    weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
     seam_pairs: set = set()
-    for (result, built), index in zip(entries, weld.index):
-        _vertices, d_faces, d_uvs, d_owner, d_seams = built
+    for (result, view), index in zip(entries, weld.index):
+        _vertices, d_faces, d_uvs, d_owner, d_seams = view.arrays
         faces.extend(tuple(index[item] for item in loop) for loop in d_faces)
         uvs.extend(d_uvs)
         face_domain.extend([result.patch_id] * len(d_faces))
@@ -376,7 +304,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
                 "neighbouring domains wind against each other there",
             )
         )
-    seam = seam_report([result.batch for result, _built in entries])
+    seam = seam_report_of_chains([view.boundary_chains for _result, view in entries])
     seam_found = dict(seam)
     if seam_found[COUNTER_SEAM_T_JUNCTIONS] or seam_found[COUNTER_SEAM_CLIP_VERTICES]:
         warnings.append(
