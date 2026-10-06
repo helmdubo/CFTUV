@@ -380,14 +380,9 @@ impl RoundState {
             Wide::from_ubig(&denominator_form.common),
             FxItems::from_items(&denominator_form.items),
         ) {
-            // over one common denominator: each list times the other's (the same common denominators cost nothing)
-            let scaled = if numerator_common == denominator_common {
-                Some((numerator_items, denominator_items))
-            } else {
-                numerator_items.scaled(&denominator_common).zip(denominator_items.scaled(&numerator_common))
-            };
-            if let Some((mut numerator_items, mut denominator_items)) = scaled {
-                fx::reduce_together(&mut numerator_items, &mut denominator_items);
+            // over one common denominator: the two are equal, or one divides the other (the dearer list is scaled by the quotient), or each list is
+            // taken times the other's and the common factor that makes is divided out
+            if let Some((numerator_items, denominator_items)) = fx::over_one_denominator(numerator_items, &numerator_common, denominator_items, &denominator_common) {
                 return RoundState::Fx(FxState { numerator_items, denominator_items });
             }
         }

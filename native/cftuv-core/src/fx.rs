@@ -196,6 +196,32 @@ pub fn reduce(common: &mut Wide, items: &mut FxItems) {
     }
 }
 
+/// The two item lists of a quotient `(sum N_i sqrt(m_i) / n) / (sum D_j sqrt(m_j) / d)` over ONE common denominator, as the lists of the
+/// quotient `sum N'_i sqrt(m_i) / sum D'_j sqrt(m_j)` of the same value: equal denominators change nothing, a denominator that divides the other
+/// scales its list by the quotient, and otherwise each list is scaled by the other's denominator and their common factor is divided out. `None`
+/// when a number does not fit.
+pub fn over_one_denominator(numerator: FxItems, numerator_common: &Wide, denominator: FxItems, denominator_common: &Wide) -> Option<(FxItems, FxItems)> {
+    if numerator_common == denominator_common {
+        return Some((numerator, denominator));
+    }
+    // a one-word denominator that divides the other: scale the list over the other
+    if numerator_common.limb_count() == 1 {
+        let word = numerator_common.magnitude()[0];
+        if Divisor::new(word).rem(denominator_common.magnitude()) == 0 {
+            return Some((numerator.scaled(&denominator_common.div_exact_u64(word))?, denominator));
+        }
+    }
+    if denominator_common.limb_count() == 1 {
+        let word = denominator_common.magnitude()[0];
+        if Divisor::new(word).rem(numerator_common.magnitude()) == 0 {
+            return Some((numerator, denominator.scaled(&numerator_common.div_exact_u64(word))?));
+        }
+    }
+    let (mut numerator, mut denominator) = (numerator.scaled(denominator_common)?, denominator.scaled(numerator_common)?);
+    reduce_together(&mut numerator, &mut denominator);
+    Some((numerator, denominator))
+}
+
 /// Divides both lists by the gcd of all their numerators (the quotient of the two sums does not change). The gcd is taken from the
 /// shortest numerator outwards, as in [`reduce`].
 pub fn reduce_together(first: &mut FxItems, second: &mut FxItems) {
@@ -475,6 +501,34 @@ mod tests {
         let (zero_common, zero_items) = scaled_by_reciprocal_form(&empty, &head).unwrap();
         assert_eq!((zero_common, zero_items.len()), (Wide::from_u64(1), 0));
         assert!(scaled_by_reciprocal_form(&head, &empty).is_none());
+    }
+
+    #[test]
+    fn lists_over_one_denominator_make_the_same_quotient() {
+        use crate::sqrt_sum::scaled_by_reciprocal_form as dashu_road;
+        let mut rng = Rng(0x0ddb_a11_cafe_f00d);
+        let mut compared = 0;
+        for _ in 0..8000 {
+            let numerator_items = rng.items(5, 3);
+            let head = rng.number(2);
+            let base = 1 + rng.next() % 600;
+            // equal denominators, a denominator that divides the other (either way), and unrelated ones
+            let (numerator_common, denominator_common) = match rng.next() % 4 {
+                0 => (base, base),
+                1 => (base, base * (1 + rng.next() % 40)),
+                2 => (base * (1 + rng.next() % 40), base),
+                _ => (base, 1 + rng.next() % 9000),
+            };
+            let (nc, dc) = (UBig::from(numerator_common), UBig::from(denominator_common));
+            let denominator_items: Items = vec![(UBig::ONE, head)];
+            let expected = dashu_road(&nc, &numerator_items, &dc, &denominator_items).unwrap();
+            let (Some(ni), Some(di)) = (FxItems::from_items(&numerator_items), FxItems::from_items(&denominator_items)) else { continue };
+            let Some((over_numerator, over_denominator)) = over_one_denominator(ni, &Wide::from_ubig(&nc).unwrap(), di, &Wide::from_ubig(&dc).unwrap()) else { continue };
+            let (common, items) = scaled_by_reciprocal_form(&over_numerator, &over_denominator).unwrap();
+            assert_eq!(IntForm { common: common.to_ubig(), items: items.to_items() }, expected);
+            compared += 1;
+        }
+        assert!(compared > 4000);
     }
 
     #[test]
