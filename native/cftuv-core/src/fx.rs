@@ -332,8 +332,8 @@ fn gcd_chain(start: Wide, items: &FxItems, skip: Option<usize>) -> Wide {
     Wide::from_u64(word)
 }
 
-/// `scaled_by_reciprocal_form` on the stack road: the quotient of two forms whose denominator is rational, as one integer form
-/// `(numerator_common * |head|, a_m * denominator_common * sign(head))` reduced by one common divisor. `None` where the `dashu-int` road
+/// `scaled_by_reciprocal_form` without its final reduction, on the stack road: the quotient of two lists over one common denominator whose denominator list is rational,
+/// as one integer form `(|head|, a_m * sign(head))`, NOT reduced (whoever takes the quotient on reduces what comes out). `None` where the `dashu-int` road
 /// has a refusal to make (a zero divisor) or where something does not fit: the caller runs that road.
 pub fn scaled_by_reciprocal_form(numerator_items: &FxItems, denominator_items: &FxItems) -> Option<(Wide, FxItems)> {
     if denominator_items.is_empty() {
@@ -349,9 +349,7 @@ pub fn scaled_by_reciprocal_form(numerator_items: &FxItems, denominator_items: &
             items.val[index] = items.val[index].neg();
         }
     }
-    let mut common = head.abs();
-    reduce(&mut common, &mut items);
-    Some((common, items))
+    Some((head.abs(), items))
 }
 
 /// `base + left * right` on the stack road, as one value in lowest terms: `right` is an integer form `(right_common, right_items)`. `None`
@@ -553,8 +551,9 @@ mod tests {
             };
             // over one common denominator: each list times the other's common denominator
             let (Some(over_numerator), Some(over_denominator)) = (ni.scaled(&dc), di.scaled(&nc)) else { continue };
-            if let Some((common, items)) = scaled_by_reciprocal_form(&over_numerator, &over_denominator) {
+            if let Some((mut common, mut items)) = scaled_by_reciprocal_form(&over_numerator, &over_denominator) {
                 // both are the quotient in lowest terms, which is one form
+                reduce(&mut common, &mut items);
                 assert_eq!(IntForm { common: common.to_ubig(), items: items.to_items() }, expected);
                 compared += 1;
             }
@@ -589,7 +588,8 @@ mod tests {
             let expected = dashu_road(&nc, &numerator_items, &dc, &denominator_items).unwrap();
             let (Some(ni), Some(di)) = (FxItems::from_items(&numerator_items), FxItems::from_items(&denominator_items)) else { continue };
             let Some((over_numerator, over_denominator)) = over_one_denominator(ni, &Wide::from_ubig(&nc).unwrap(), di, &Wide::from_ubig(&dc).unwrap()) else { continue };
-            let (common, items) = scaled_by_reciprocal_form(&over_numerator, &over_denominator).unwrap();
+            let (mut common, mut items) = scaled_by_reciprocal_form(&over_numerator, &over_denominator).unwrap();
+            reduce(&mut common, &mut items);
             assert_eq!(IntForm { common: common.to_ubig(), items: items.to_items() }, expected);
             compared += 1;
         }
