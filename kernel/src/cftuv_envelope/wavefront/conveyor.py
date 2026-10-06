@@ -130,7 +130,7 @@ from .bridge import (
     VertexFanLawV1,
     bridge_arrival_laws,
 )
-from .coverage import CoverageOutcome, coverage_at
+from .coverage import CoverageOutcome, coverage_at, current_coverage_source
 from .faces import (
     CrowdedChainsV1,
     EdgeKey,
@@ -1580,12 +1580,24 @@ def _instance_ids_by_spec(
     Вывести имя из запрошенной было бы дешевле на 5.3 мс (медиана пяти
     прогонов на фикстуре) и неверно ровно там, где резолвер сработал, — то
     есть молча.
+
+    Шаг ширины (`materialize.step`) подставляет сюда источник: внутри интервала, где ни один знак контакта против запрошенной alpha не
+    сменился, имена берутся из сертификата (`source.instance_ids`), а на записывающем проходе источник получает исход резолвера
+    (`source.record_names`). Имя неукороченной спеки от alpha ЗАВИСИТ (хеш записи alpha), поэтому его считает тот же `strip_envelope_instance_id`.
     """
 
+    source = current_coverage_source()
+    provided = None if source is None or not hasattr(source, "instance_ids") else source.instance_ids(prepared, alpha_value)
+    if provided is not None:
+        return provided
+    recording = source is not None and hasattr(source, "record_names")
+    trace: list | None = [] if recording else None
     resolutions, _ = resolve_component_alphas(
-        prepared.context, alpha_value, prepared.domain, prepared.contact_memo
+        prepared.context, alpha_value, prepared.domain, prepared.contact_memo, trace
     )
     names: dict[str, str] = {}
+    kinds: dict[str, str | None] = {}
+    requested = sp.Rational(str(alpha_value.value)) if recording else None
     for spec in prepared.compilation.envelope_specs:
         if not isinstance(spec, StripEnvelopeSpec):
             continue
@@ -1597,6 +1609,11 @@ def _instance_ids_by_spec(
         names[spec.envelope_spec_id.value] = strip_envelope_instance_id(
             spec, effective
         )
+        if recording:
+            # `None` - эффективная alpha = запрошенная (имя считается на новой ширине); иначе имя укороченной спеки (константа).
+            kinds[spec.envelope_spec_id.value] = None if effective == requested else names[spec.envelope_spec_id.value]
+    if recording:
+        source.record_names(prepared, alpha_value, kinds, trace)
     return names, ""
 
 
@@ -1698,6 +1715,12 @@ def _declared_alpha(alpha) -> LocalLengthV1:
             f"alpha {alpha!r} не читается десятичной записью ({exc}). "
             f"{_ALPHA_CONTRACT}"
         ) from exc
+
+
+def requested_alpha_fraction(alpha: LocalLengthV1 | Decimal | int | str) -> Fraction:
+    """alpha (метры) точной дробью - ТА ЖЕ величина, что берёт `conveyor_coverage`; ошибки типа и записи - те же, что у него."""
+
+    return Fraction(str(_declared_alpha(alpha).value))
 
 
 def _empty_coverage(

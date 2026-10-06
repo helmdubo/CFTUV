@@ -30,6 +30,8 @@ alpha (в поле `bf6` — 1/4). Сравнивать «до конца» с �
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
@@ -129,17 +131,22 @@ def clip_to_halfplane(
     *,
     prime_universe: tuple[int, ...] | None = None,
     budget: ExactWorkBudgetV1 | None = None,
+    trace: list | None = None,
 ) -> tuple[Point, ...]:
     """Сазерленд—Хоџмен по `a*x + b*y - c <= alpha*sqrt(q)`, точно.
 
     Выпуклость резака гарантирует, что результат остаётся одним контуром:
     полуплоскость выпукла, а грань скелета односвязна.
+
+    `trace` (список) — запись для шаблона покрытия (`coverage_template`): знаки и значения вершин. Ответа не меняет.
     """
 
     # Фронт грани `alpha*sqrt(q)` один на все её вершины: считать радикал (разложение `q`) на каждую вершину незачем.
     front = SqrtSumV1.radical(alpha, line.q, budget)
     values = [_value(line, point, front) for point in points]
     signs = [value.sign(budget=budget) for value in values]
+    if trace is not None:
+        trace.append((signs, values))
     if all(sign <= 0 for sign in signs):
         return points
     if all(sign >= 0 for sign in signs):
@@ -209,6 +216,35 @@ def _line_of(face: FaceV1) -> SupportLineV1:
 _RECENT: dict[tuple[int, Fraction], tuple[FacePartitionV1, CoverageV1]] = {}
 _RECENT_LIMIT = 8
 
+#: Источник покрытия шага ширины (`materialize.step`): объект с методом `coverage(partition, alpha, work_budget, store)`, который
+#: отдаёт покрытие либо `None` (не знает разбиения - считает `coverage_at` сам). Покрытие, воспроизведённое из шаблона внутри заверенного
+#: интервала, ТО ЖЕ значение, что даёт `_coverage_at`, поэтому и остальной ответ не меняется. `bypass_recent` - источник, которому нужен
+#: настоящий счёт при каждом вызове (запись шаблона), а не память недавних покрытий. Контекст потока: два шага не делят источник.
+_SOURCE: ContextVar = ContextVar("cftuv_coverage_source", default=None)
+
+
+@contextmanager
+def coverage_source(source):
+    """Внутри блока `coverage_at` спрашивает `source` (шаблоны покрытия шага ширины); снаружи - как прежде."""
+
+    token = _SOURCE.set(source)
+    try:
+        yield source
+    finally:
+        _SOURCE.reset(token)
+
+
+def current_coverage_source():
+    """Источник покрытия шага ширины, действующий в этом потоке, либо `None`."""
+
+    return _SOURCE.get()
+
+
+def clear_recent_coverage() -> None:
+    """Забыть недавние покрытия: сверка быстрого пути обязана считать полный путь заново, а не читать его же ответ из памяти."""
+
+    _RECENT.clear()
+
 
 def coverage_at(
     partition: FacePartitionV1,
@@ -220,16 +256,29 @@ def coverage_at(
 
     alpha = Fraction(alpha)
     key = (id(partition), alpha)
+    source = _SOURCE.get()
+    if source is not None and source.bypass_recent:
+        produced = source.coverage(partition, alpha, work_budget, store)
+        if produced is not None:
+            return _remembered(key, partition, produced, work_budget)
     known = _RECENT.pop(key, None)
     if known is not None:
         _RECENT[key] = known
         return replace(known[1], work_budget=work_budget)
+    if source is not None and not source.bypass_recent:
+        produced = source.coverage(partition, alpha, work_budget, store)
+        if produced is not None:
+            return _remembered(key, partition, produced, work_budget)
     result = _coverage_at(partition, alpha, work_budget, store)
+    return _remembered(key, partition, result, work_budget)
+
+
+def _remembered(key, partition, result: CoverageV1, work_budget) -> CoverageV1:
     if result.outcome is CoverageOutcome.EXACT:
         _RECENT[key] = (partition, result)
         while len(_RECENT) > _RECENT_LIMIT:
             del _RECENT[next(iter(_RECENT))]
-    return result
+    return result if result.work_budget is work_budget else replace(result, work_budget=work_budget)
 
 
 def _coverage_at(
@@ -237,6 +286,7 @@ def _coverage_at(
     alpha: Fraction,
     work_budget: ExactWorkBudgetV1 | None,
     store: dict | None,
+    traces: list | None = None,
 ) -> CoverageV1:
     if partition.outcome is not FaceOutcome.EXACT:
         return CoverageV1(
@@ -264,13 +314,17 @@ def _coverage_at(
     covered: list[FaceCoverageV1] = []
     total = SqrtSumV1.zero()
     for face, line in zip(partition.faces, face_lines):
+        entry: list | None = None if traces is None else []
         clipped = clip_to_halfplane(
             face.points,
             line,
             alpha,
             prime_universe=prime_universe,
             budget=work_budget,
+            trace=entry,
         )
+        if traces is not None:
+            traces.append(entry[0])
         doubled = doubled_shoelace(clipped) if len(clipped) >= 3 else (
             SqrtSumV1.zero()
         )

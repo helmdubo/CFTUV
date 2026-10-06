@@ -101,7 +101,7 @@ from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
-from .interval import alpha_interval
+from .interval import alpha_interval, coverage_interval
 from .lift import plane_lift_of
 from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
@@ -164,6 +164,9 @@ class MaterializationV1:
     #: (`structure.StructureSignatureV1`). Пусто, когда материализация шла без `certify` и у отказа.
     interval: object | None = field(default=None, compare=False)
     structure: object | None = field(default=None, compare=False)
+    #: Интервал ширины ТОЛЬКО по событиям покрытия (`interval.coverage_interval`): внутри него покрытие воспроизводится из шаблона
+    #: (`materialize.step`). Записанный факт, как `interval`.
+    coverage_bounds: object | None = field(default=None, compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -801,7 +804,8 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
     )
     lattice_alpha = coverage.lattice_alpha
     tally, rungs = Counter(), set()
-    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs)
+    plain: set = set()
+    facts = station_values(frame_faces, cycles, layout, table, lattice_alpha, budget, tally, rungs, plain=plain)
     clock.lap("STATIONS_UV")
     chart_cw = (
         prepared.context.frame.chart_orientation
@@ -821,6 +825,7 @@ def _assemble(prepared, coverage, request, admission, budget, clock, parts, law,
         lattice_alpha=lattice_alpha,
         is_rung=lambda frame_face, key: (layout.region_of(frame_face), key) in rungs,
         partition=True,
+        plain=plain,
     )
     clock.lap("TESSELLATE")
     plane = _lift_of(prepared, admission, table.scale, budget)
@@ -1044,11 +1049,12 @@ def finalize_digests(result: MaterializationV1) -> MaterializationV1:
 
 
 def _step_facts(prepared, coverage, built, admission, batch):
-    """`(заверенный интервал ширины, подпись структуры батча)` материализованного домена; в ответ они не входят."""
+    """`(заверенный интервал ширины, подпись структуры батча, интервал покрытия)` материализованного домена; в ответ они не входят."""
 
     triangles = tuple(getattr(built.lift, "triangles", ())) if _is_clipped(admission) else ()
     interval = alpha_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
-    return interval, batch_structure(batch)
+    bounds = coverage_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
+    return interval, batch_structure(batch), bounds
 
 
 def _materialize_domain(
@@ -1126,7 +1132,7 @@ def _materialize_domain(
         )
     digest = sha256(canonical_json_bytes(batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
-    interval, structure = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None)
+    interval, structure, bounds = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None, None)
     if certify:
         clock.lap("CERTIFY")
     return MaterializationV1(
@@ -1144,4 +1150,5 @@ def _materialize_domain(
         digests_deferred=not digests,
         interval=interval,
         structure=structure,
+        coverage_bounds=bounds,
     )

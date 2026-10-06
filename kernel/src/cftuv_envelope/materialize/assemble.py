@@ -72,7 +72,7 @@ from .admit import MaterializationOutcome
 from .audit import location_key as _location_key
 from .coalesce import lattice_node, point_key
 from .frames import FrameFaceV1, MaterializationRefusal
-from .lift import ENCLOSURE_BITS
+from .lift import ENCLOSURE_BITS, enclosure_midpoint
 from .convex_partition import (
     DIAGONALS as PARTITION_DIAGONALS,
     FACES_EMITTED as PARTITION_FACES_EMITTED,
@@ -137,10 +137,9 @@ def decimal_of(value: SqrtSumV1, divisor: int) -> Decimal:
     любом контексте, поэтому от контекста зависит только само деление.
     """
 
-    low, high = value.scaled(Fraction(1, divisor)).enclosure(ENCLOSURE_BITS)
-    middle = (low + high) / 2
+    numerator, denominator = enclosure_midpoint(value, ENCLOSURE_BITS, Fraction(1, divisor))
     with localcontext(DECIMAL_CONTEXT):
-        return Decimal(middle.numerator) / Decimal(middle.denominator)
+        return Decimal(numerator) / Decimal(denominator)
 
 
 def _cycle(keys_and_points):
@@ -367,7 +366,7 @@ def _unify_across_frames(facts, answers, table, tally, rungs) -> None:
 
 
 def station_values(
-    frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None, chords=None, anchors=None
+    frame_faces, cycles, layout, table, lattice_alpha, budget, tally=None, rungs=None, chords=None, anchors=None, plain=None
 ):
     """`{(регион, ключ): (s, r)}` в единицах решётки, точные. Конфликт — отказ.
 
@@ -379,9 +378,15 @@ def station_values(
     Второй — новая вершина резки на ОБЩЕМ ребре граней (`RUNG_CHORD_STATION_V1`, `_chord_station`): `chords[i][ключ]` —
     ребро `(u, v, точка u, точка v)` контура `i`-й грани, на котором она лежит, `anchors` — факты вершин контура
     (результат прежнего вызова). Закон действует, только если ВСЕ ответившие грани называют одно и то же ребро.
+
+    `plain` - множество (изменяемое) номеров слитых граней, у которых факты КАЖДОЙ вершины контура в итоге равны собственным значениям
+    грани (`station_of`, `transverse_of` её пробега и прямой): `(s, r)` такой грани - точно аффинная функция положения на карте по
+    построению, и проверять это заново (`uv_is_affine_in_chart`) незачем (`_plane_ring`, `affine_known`). Конфликт, перекладина,
+    станция по хорде и разомкнутое кольцо выводят грань из множества.
     """
 
     rungs = set() if rungs is None else rungs
+    own: dict = {}
 
     facts: dict = {}
     roots: dict = {}
@@ -402,6 +407,7 @@ def station_values(
                 else station_of(frame_face.run, point)
             )
             value = (station, transverse_of(line, point, root))
+            own[(index, key)] = value
             slot = (region, key)
             chord = None if face_chords is None else face_chords.get(key)
             edges_of.setdefault(slot, set()).add(None if chord is None else frozenset(chord[:2]))
@@ -439,6 +445,11 @@ def station_values(
                 tally[RUNG_STATIONS_FROM_CHAIN_VERTEX] += 1
     if table.frame_of_run:
         _unify_across_frames(facts, answers, table, tally, rungs)
+    if plain is not None:
+        for index, (frame_face, cycle) in enumerate(zip(frame_faces, cycles)):
+            region = layout.region_of(frame_face)
+            if all(facts[(region, key)] == own[(index, key)] for key, _point in cycle):
+                plain.add(index)
     return facts
 
 
@@ -498,6 +509,7 @@ def tessellate_faces(
     lattice_alpha=None,
     is_rung=None,
     partition=False,
+    plain=frozenset(),
 ):
     """Грани каждой слитой грани по КЛЮЧАМ вершин: `[(грань, ...), ...]`. Не сложилось — отказ.
 
@@ -536,6 +548,7 @@ def tessellate_faces(
             1 if lattice_alpha is None else lattice_alpha,
             is_rung,
             partition,
+            plain,
         )
     result = []
     for frame_face, cycle in zip(frame_faces, cycles):
@@ -633,7 +646,11 @@ def _rung_pieces(frame_face, key_of):
     return pieces
 
 
-def _plane_ring(points, keys, budget, uv_of):
+#: Сверка пропуска `uv_is_affine_in_chart` у простых граней (`station_values`, `plain`): с флагом проверка идёт и ОБЯЗАНА сойтись (тесты).
+VERIFY_PLAIN_AFFINE = False
+
+
+def _plane_ring(points, keys, budget, uv_of, affine_known=False):
     """`(кольцо, имя)` грани на точной плоскости (закон `PLANAR_AFFINE_UV_POLYGON_V1`).
 
     Грань берётся целой, если контур ПРОСТ и UV — аффинная функция положения на
@@ -651,6 +668,10 @@ def _plane_ring(points, keys, budget, uv_of):
     означают «разрезана на треугольники», `CONCAVE_EMITTED` — «выпущена целой с правым
     поворотом». Нулевая площадь не названа ничем: ни многоугольника, ни треугольников
     у такого контура нет, и `_triangle_polygons` откажет `TESSELLATION_DID_NOT_CLOSE`.
+
+    `affine_known` - контур целиком из вершин простой грани: её `(s, r)` - точно аффинная функция положения по построению (формулы
+    `station_of` и `transverse_of` линейны по точке), и точная проверка тождества - то же `True`, которое она стоила бы тысячи
+    произведений корней; её пропускают (`VERIFY_PLAIN_AFFINE` возвращает проверку и требует `True`).
     """
 
     ring = counter_clockwise_ring(points, budget)
@@ -658,8 +679,12 @@ def _plane_ring(points, keys, budget, uv_of):
         return None, None
     if len(set(keys)) != len(keys) or not contour_is_simple(points, budget):
         return None, POLYGON_FACES_TRIANGULATED_NOT_SIMPLE
-    if not uv_is_affine_in_chart(points, [uv_of(key) for key in keys], budget):
-        return None, POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE
+    if not affine_known or VERIFY_PLAIN_AFFINE:
+        affine = uv_is_affine_in_chart(points, [uv_of(key) for key in keys], budget)
+        if affine_known and not affine:
+            raise AssertionError("PLAIN_FACE_UV_NOT_AFFINE: a plain face must have an affine UV by construction")
+        if not affine:
+            return None, POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE
     concave = has_right_turn(points, ring, budget)
     return ring, POLYGON_FACES_CONCAVE_EMITTED if concave else None
 
@@ -673,7 +698,7 @@ def _fan_apex(owner, points):
     return None
 
 
-def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
+def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of, affine_known=False):
     """Грани ОДНОГО веера под `PLANAR_POLYGONS_V1` (закон `FAN_FACE_TRIANGULATED_FROM_APEX_V1`).
 
     Треугольник — он сам. Обрезанная соседом клетка (контур длиннее трёх) на точной плоскости
@@ -697,7 +722,7 @@ def _fan_faces(frame_face, cycle, budget, reverse, exact_plane, tally, uv_of):
     tally[FAN_FACES_CUT_BY_NEIGHBOUR] += 1
     named = None
     if exact_plane:
-        ring, named = _plane_ring(points, keys, budget, uv_of)
+        ring, named = _plane_ring(points, keys, budget, uv_of, affine_known)
         if ring is not None:
             _closes_the_area(
                 doubled_shoelace(tuple(points[index] for index in ring)),
@@ -908,7 +933,7 @@ def _convex_faces(piece, cycle, budget, reverse, tally, uv_of, unit, in_flow):
 
 
 def _contour_polygons(
-    piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1, in_flow=False, partition=False
+    piece, cycle, budget, reverse, exact_plane, tally, uv_of, unit=1, in_flow=False, partition=False, affine_known=False
 ):
     """Грани ОДНОГО контура по закону `PLANAR_POLYGONS_V1`: многоугольник либо треугольники под именем.
 
@@ -931,7 +956,7 @@ def _contour_polygons(
     named = None
     if len(points) > 3:
         if exact_plane:
-            ring, named = _plane_ring(points, keys, budget, uv_of)
+            ring, named = _plane_ring(points, keys, budget, uv_of, affine_known)
             if in_flow and ring is None and named == POLYGON_FACES_TRIANGULATED_UV_NOT_AFFINE:
                 ring = _bilinear_ring(points, keys, budget, uv_of, unit, tally)
                 if ring is not None:
@@ -967,7 +992,7 @@ def _contour_polygons(
 
 
 def _polygon_law_faces(
-    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1, is_rung=None, partition=False
+    frame_faces, cycles, budget, reverse, exact_plane, tally, uv_values, unit=1, is_rung=None, partition=False, plain=frozenset()
 ):
     """`tessellate_faces` под `PLANAR_POLYGONS_V1`: веера — `_fan_faces`, ленты — многоугольники.
 
@@ -979,8 +1004,9 @@ def _polygon_law_faces(
 
     key_of = {point_key(point): key for cycle in cycles for key, point in cycle}
     result = []
-    for frame_face, cycle in zip(frame_faces, cycles):
+    for index, (frame_face, cycle) in enumerate(zip(frame_faces, cycles)):
         face = frame_face.face
+        simple = index in plain
         if frame_face.is_fan:
             result.append(
                 _fan_faces(
@@ -991,6 +1017,7 @@ def _polygon_law_faces(
                     exact_plane,
                     tally,
                     lambda key, frame_face=frame_face: uv_values(frame_face, key),
+                    simple,
                 )
             )
             continue
@@ -1005,6 +1032,7 @@ def _polygon_law_faces(
                 total = total + part.doubled_area
             _closes_the_area(total, face.doubled_area, face.owner, "run part areas")
         polygons = []
+        cycle_keys = frozenset(key for key, _point in cycle) if simple else frozenset()
         for part, part_cycle in pieces:
             polygons.extend(
                 _contour_polygons(
@@ -1020,6 +1048,7 @@ def _polygon_law_faces(
                     and is_rung is not None
                     and any(is_rung(frame_face, key) for key, _point in part_cycle),
                     partition,
+                    simple and all(key in cycle_keys for key, _point in part_cycle),
                 )
             )
         result.append(tuple(polygons))

@@ -317,11 +317,22 @@ def _continuous_support_intervals(
     return tuple(result)
 
 
+def _sign_traced(alpha, bounds, requested, trace) -> int:
+    """`sign_against`, записывающий оболочку контакта в `trace` (если он есть): знак против запрошенной alpha - единственное, чем ход резолвера зависит от alpha."""
+
+    if trace is not None:
+        trace.append(bounds)
+    return sign_against(alpha, bounds, requested)
+
+
+# `trace` (список) - запись для сертификата шага ширины (`materialize.step`): оболочка alpha КАЖДОГО контакта, чей знак против запрошенной
+# alpha решал ход (`None` - оболочка не посчитана). От запрошенной alpha ход зависит ТОЛЬКО этими знаками, поэтому, пока ни один из них не
+# сменился, исход (эффективные alpha и имена экземпляров) тот же. Ответа запись не меняет.
 def resolve_component_alphas(
     context: GeometryContext,
     requested_alpha: LocalLengthV1,
     domain_geometry: SparsePatchDomainGeometryV1,
-    contact_memo: ContactCandidatesMemoV1 | None = None,
+    contact_memo: ContactCandidatesMemoV1 | None = None, trace: list | None = None,
 ) -> tuple[dict[str, ComponentResolution], tuple[ReferenceEvaluationDiagnosticV1, ...]]:
     requested = sp.Rational(str(requested_alpha.value))
     resolutions = {
@@ -366,7 +377,7 @@ def resolve_component_alphas(
                 ):
                     if sign_against(alpha, bounds, sp.Integer(0)) == 0:
                         continue
-                    if sign_against(alpha, bounds, requested) > 0:
+                    if _sign_traced(alpha, bounds, requested, trace) > 0:
                         continue
                     source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
