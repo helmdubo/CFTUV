@@ -16,13 +16,15 @@
 
 use cftuv_canon::{pick_prime_from_universe, CanonError, CanonMemory, QValue, UniverseRecord, WorkBudget};
 
+use crate::fx::{self, ubig_of_u128, FxItems};
 use crate::num::{self, IBig, UBig};
 use crate::products::{Items, ProductMemo};
 use crate::rat::{Coef, Rat};
 use crate::sqrt_sum::{
-    conjugate_items, integer_certified_sign, multiply_integer_items, reduce_in_place, scaled_by_reciprocal, scaled_by_reciprocal_form, IntForm,
-    SignCounts, SignStage, SqrtSum, Term, SIGN_FILTER_BITS,
+    conjugate_items, integer_certified_sign, multiply_integer_items, multiply_integer_items_dashu, reduce_in_place, scaled_by_reciprocal,
+    scaled_by_reciprocal_form, IntForm, SignCounts, SignStage, SqrtSum, Term, SIGN_FILTER_BITS,
 };
+use crate::wide::Wide;
 
 /// Rounds and coefficient size the generic division fallback may reach before it is refused by name. The oracle
 /// loops without a bound: on a denominator that is not canonical (a radicand with a square) the loop never reaches
@@ -73,12 +75,17 @@ pub struct ExactCtx<'a> {
 /// goes through `prime_support` in the order given (ascending for every dictionary the oracle builds), so memory
 /// misses, their budget and their factorizations fall exactly where Python's fall.
 pub fn pick_prime(ctx: &mut ExactCtx<'_>, items: &[(UBig, IBig)]) -> Result<Option<UBig>, ExactError> {
+    pick_prime_over(ctx, items.iter().filter(|(_, value)| !value.is_zero()).map(|(radicand, _)| radicand.clone()))
+}
+
+/// [`pick_prime`] over the radicands alone (their numerators are known to be non-zero).
+fn pick_prime_over(ctx: &mut ExactCtx<'_>, radicands: impl Iterator<Item = UBig>) -> Result<Option<UBig>, ExactError> {
     let mut smallest: Option<UBig> = None;
-    for (radicand, value) in items {
-        if value.is_zero() || *radicand <= UBig::ONE {
+    for radicand in radicands {
+        if radicand <= UBig::ONE {
             continue;
         }
-        let support = ctx.memory.prime_support_unsigned(radicand, ctx.budget)?;
+        let support = ctx.memory.prime_support_unsigned(&radicand, ctx.budget)?;
         if let Some(first) = support.first() {
             if smallest.as_ref().is_none_or(|current| first < current) {
                 smallest = Some(first.clone());
@@ -294,11 +301,136 @@ enum PrimeSource<'a> {
 
 /// The two integer forms the conjugation loop ends with: `numerator / denominator` where the denominator became
 /// rational (`(common, items)` of each).
-struct Rationalized {
+enum Rationalized {
+    Big(BigState),
+    Fx(FxState),
+}
+
+impl Rationalized {
+    fn into_big(self) -> BigState {
+        match self {
+            Rationalized::Big(state) => state,
+            Rationalized::Fx(state) => state.into_big(),
+        }
+    }
+}
+
+/// The loop's integers on the stack: the forms `(L, items)` of the numerator and the denominator.
+struct FxState {
+    numerator_common: Wide,
+    numerator_items: FxItems,
+    denominator_common: Wide,
+    denominator_items: FxItems,
+}
+
+/// The same forms as `dashu-int` integers (the road of operands that do not fit the stack).
+struct BigState {
     numerator_common: UBig,
     numerator_items: Items,
     denominator_common: UBig,
     denominator_items: Items,
+}
+
+impl FxState {
+    fn into_big(self) -> BigState {
+        BigState {
+            numerator_common: self.numerator_common.to_ubig(),
+            numerator_items: self.numerator_items.to_items(),
+            denominator_common: self.denominator_common.to_ubig(),
+            denominator_items: self.denominator_items.to_items(),
+        }
+    }
+
+    /// One conjugation round on the stack: `None` when anything leaves the capacity (the state is untouched, the caller redoes the round on
+    /// `dashu-int` integers).
+    fn step(&self, prime: &UBig, products: &mut ProductMemo) -> Option<FxState> {
+        let conjugate = self.denominator_items.flipped(fx::radicand_u128(prime)?);
+        let mut numerator_items = fx::multiply(&self.numerator_items, &conjugate, products)?;
+        let mut denominator_items = fx::multiply(&self.denominator_items, &conjugate, products)?;
+        let mut numerator_common = self.numerator_common.mul(&self.denominator_common)?;
+        let mut denominator_common = self.denominator_common.mul(&self.denominator_common)?;
+        fx::reduce(&mut numerator_common, &mut numerator_items);
+        fx::reduce(&mut denominator_common, &mut denominator_items);
+        Some(FxState { numerator_common, numerator_items, denominator_common, denominator_items })
+    }
+}
+
+impl BigState {
+    fn step(&mut self, prime: &UBig, products: &mut ProductMemo) {
+        let conjugate = conjugate_items(&self.denominator_items, prime);
+        self.numerator_items = multiply_integer_items_dashu(&self.numerator_items, &conjugate, products);
+        self.denominator_items = multiply_integer_items_dashu(&self.denominator_items, &conjugate, products);
+        self.numerator_common = &self.numerator_common * &self.denominator_common;
+        self.denominator_common = &self.denominator_common * &self.denominator_common;
+        reduce_in_place(&mut self.numerator_common, &mut self.numerator_items);
+        reduce_in_place(&mut self.denominator_common, &mut self.denominator_items);
+    }
+}
+
+/// Where the rounds are: on the stack while everything fits, on `dashu-int` integers from the first round that does not.
+enum RoundState {
+    Fx(FxState),
+    Big(BigState),
+}
+
+impl RoundState {
+    fn start(numerator: &SqrtSum, denominator: &SqrtSum) -> RoundState {
+        let (numerator_form, denominator_form) = (numerator.int_form(), denominator.int_form());
+        if let (Some(numerator_common), Some(numerator_items), Some(denominator_common), Some(denominator_items)) = (
+            Wide::from_ubig(&numerator_form.common),
+            FxItems::from_items(&numerator_form.items),
+            Wide::from_ubig(&denominator_form.common),
+            FxItems::from_items(&denominator_form.items),
+        ) {
+            return RoundState::Fx(FxState { numerator_common, numerator_items, denominator_common, denominator_items });
+        }
+        RoundState::Big(BigState {
+            numerator_common: numerator_form.common.clone(),
+            numerator_items: numerator_form.items.clone(),
+            denominator_common: denominator_form.common.clone(),
+            denominator_items: denominator_form.items.clone(),
+        })
+    }
+
+    /// The loop's exit test: the denominator has no term or only the rational one.
+    fn denominator_is_rational(&self) -> bool {
+        match self {
+            RoundState::Fx(state) => state.denominator_items.is_rational(),
+            RoundState::Big(state) => state.denominator_items.len() <= 1 && state.denominator_items.iter().all(|(radicand, _)| radicand.is_one()),
+        }
+    }
+
+    /// The radicands of the denominator, ascending (every numerator is non-zero).
+    fn denominator_radicands(&self) -> Vec<UBig> {
+        match self {
+            RoundState::Fx(state) => (0..state.denominator_items.len()).map(|index| ubig_of_u128(state.denominator_items.key(index))).collect(),
+            RoundState::Big(state) => state.denominator_items.iter().map(|(radicand, _)| radicand.clone()).collect(),
+        }
+    }
+
+    fn step(self, prime: &UBig, products: &mut ProductMemo) -> RoundState {
+        match self {
+            RoundState::Fx(state) => match state.step(prime, products) {
+                Some(next) => RoundState::Fx(next),
+                None => {
+                    let mut big = state.into_big();
+                    big.step(prime, products);
+                    RoundState::Big(big)
+                }
+            },
+            RoundState::Big(mut state) => {
+                state.step(prime, products);
+                RoundState::Big(state)
+            }
+        }
+    }
+
+    fn finish(self) -> Rationalized {
+        match self {
+            RoundState::Fx(state) => Rationalized::Fx(state),
+            RoundState::Big(state) => Rationalized::Big(state),
+        }
+    }
 }
 
 /// The integer conjugation loop shared by `divided_by` and `_divide_with_prime_universe`.
@@ -307,50 +439,39 @@ struct Rationalized {
 /// its fallback (no prime from the universe, or `squarefree_split(prime) != (1, prime)`).
 fn conjugation_loop(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>) -> Result<Option<SqrtSum>, ExactError> {
     match rationalize(ctx, numerator, denominator, source)? {
-        Some(done) => scaled_by_reciprocal(&done.numerator_common, &done.numerator_items, &done.denominator_common, &done.denominator_items)
-            .map(Some)
-            .map_err(|_| ExactError::Internal("a rational divisor of zero")),
+        Some(done) => {
+            let state = done.into_big();
+            scaled_by_reciprocal(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items)
+                .map(Some)
+                .map_err(|_| ExactError::Internal("a rational divisor of zero"))
+        }
         None => Ok(None),
     }
 }
 
 /// The conjugation rounds themselves (every memory question and budget payment of the oracle's loop, in its order).
 fn rationalize(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>) -> Result<Option<Rationalized>, ExactError> {
-    let (mut numerator_common, mut numerator_items) = {
-        let form = numerator.int_form();
-        (form.common.clone(), form.items.clone())
-    };
-    let (mut denominator_common, mut denominator_items) = {
-        let form = denominator.int_form();
-        (form.common.clone(), form.items.clone())
-    };
+    let mut state = RoundState::start(numerator, denominator);
     loop {
-        if denominator_items.len() <= 1 && denominator_items.iter().all(|(radicand, _)| radicand.is_one()) {
-            return Ok(Some(Rationalized { numerator_common, numerator_items, denominator_common, denominator_items }));
+        if state.denominator_is_rational() {
+            return Ok(Some(state.finish()));
         }
+        let radicands = state.denominator_radicands();
         let prime = match &source {
-            PrimeSource::Factorized => match pick_prime(ctx, &denominator_items)? {
+            PrimeSource::Factorized => match pick_prime_over(ctx, radicands.into_iter())? {
                 Some(prime) => prime,
                 None => return Err(ExactError::Internal("a conjugation without a prime")),
             },
-            PrimeSource::Universe(universe) => {
-                match pick_prime_from_universe(denominator_items.iter().map(|(radicand, value)| (radicand, !value.is_zero())), universe) {
-                    Some(prime) => prime,
-                    None => return Ok(None),
-                }
-            }
+            PrimeSource::Universe(universe) => match pick_prime_from_universe(radicands.iter().map(|radicand| (radicand, true)), universe) {
+                Some(prime) => prime,
+                None => return Ok(None),
+            },
         };
         let (outside, inside) = ctx.memory.squarefree_split_unsigned(&prime, ctx.budget)?;
         if outside != UBig::ONE || inside != prime {
             return Ok(None);
         }
-        let conjugate = conjugate_items(&denominator_items, &prime);
-        numerator_items = multiply_integer_items(&numerator_items, &conjugate, ctx.products);
-        denominator_items = multiply_integer_items(&denominator_items, &conjugate, ctx.products);
-        numerator_common = &numerator_common * &denominator_common;
-        denominator_common = &denominator_common * &denominator_common;
-        reduce_in_place(&mut numerator_common, &mut numerator_items);
-        reduce_in_place(&mut denominator_common, &mut denominator_items);
+        state = state.step(&prime, ctx.products);
     }
 }
 
@@ -400,9 +521,17 @@ pub fn divided_by_form(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator:
         return Err(ExactError::ZeroDivisor);
     }
     match rationalize(ctx, numerator, denominator, PrimeSource::Factorized)? {
-        Some(done) => scaled_by_reciprocal_form(&done.numerator_common, &done.numerator_items, &done.denominator_common, &done.denominator_items)
-            .map(Quotient::Form)
-            .map_err(|_| ExactError::Internal("a rational divisor of zero")),
+        Some(done) => {
+            if let Rationalized::Fx(state) = &done {
+                if let Some(form) = fx::scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items) {
+                    return Ok(Quotient::Form(form));
+                }
+            }
+            let state = done.into_big();
+            scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items)
+                .map(Quotient::Form)
+                .map_err(|_| ExactError::Internal("a rational divisor of zero"))
+        }
         None => divided_by_generic(ctx, numerator, denominator).map(Quotient::Sum),
     }
 }

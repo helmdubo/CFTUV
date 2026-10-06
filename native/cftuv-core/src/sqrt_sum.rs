@@ -15,6 +15,7 @@
 use std::cmp::Ordering;
 use std::sync::OnceLock;
 
+use crate::fx::{self, FxItems};
 use crate::num::{self, IBig, UBig};
 use crate::products::{accumulate_products, Accumulator, Items, ProductMemo};
 use crate::rat::{Coef, Rat, ZeroDivision};
@@ -484,6 +485,16 @@ pub fn scaled_difference_parts(plus: &SqrtSum, plus_factor: &Rat, minus: &SqrtSu
 
 /// `_multiply_integer_items`: the product of two `sum a_m sqrt(m)`; radicands ascending, zeros dropped.
 pub fn multiply_integer_items(left: &[(UBig, IBig)], right: &[(UBig, IBig)], memo: &mut ProductMemo) -> Items {
+    if let (Some(fast_left), Some(fast_right)) = (FxItems::from_items(left), FxItems::from_items(right)) {
+        if let Some(product) = fx::multiply(&fast_left, &fast_right, memo) {
+            return product.to_items();
+        }
+    }
+    multiply_integer_items_dashu(left, right, memo)
+}
+
+/// [`multiply_integer_items`] on `dashu-int` integers only (what the stack road falls back to, and what it is held equal to).
+pub fn multiply_integer_items_dashu(left: &[(UBig, IBig)], right: &[(UBig, IBig)], memo: &mut ProductMemo) -> Items {
     let mut merged = Accumulator::with_capacity(left.len() + right.len());
     accumulate_products(&mut merged, left, right, &IBig::ONE, memo);
     merged.into_nonzero_items()
