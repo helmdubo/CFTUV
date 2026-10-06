@@ -4,6 +4,8 @@
 //! entry point, so it never unwinds across the boundary. A request the core refuses (a buffer it cannot
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
+mod clip_seams;
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -44,7 +46,7 @@ fn number_op_table() -> Vec<(u8, &'static str)> {
 /// every exception for the same reason.
 #[pyclass(module = "cftuv_native._core")]
 struct Session {
-    inner: cftuv_core::session::Session,
+    pub(crate) inner: cftuv_core::session::Session,
 }
 
 #[pymethods]
@@ -81,7 +83,7 @@ impl Session {
     }
 }
 
-fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
+pub(crate) fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
     if let Some(text) = panic.downcast_ref::<&str>() {
         (*text).to_string()
     } else if let Some(text) = panic.downcast_ref::<String>() {
@@ -97,5 +99,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(run_number_ops, module)?)?;
     module.add_function(wrap_pyfunction!(number_op_table, module)?)?;
     module.add_class::<Session>()?;
+    module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
+    module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
     Ok(())
 }

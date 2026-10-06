@@ -207,6 +207,25 @@ impl CostRun {
         session.memory.start_log();
         Ok(CostRun { budget: decode_budget(budget)?, full_state: options & OPTION_FULL_STATE != 0 })
     }
+
+    /// The budget of the call, for operations that live outside this crate and spend it (the clip seams).
+    pub fn budget_mut(&mut self) -> &mut WorkBudget {
+        &mut self.budget
+    }
+
+    /// The answer `[outcome, counts, articles, log, state]` of one operation that ran on `session` under this call
+    /// (`outcome` is already encoded, see [`outcome_value`]); takes the memory log of the operation.
+    pub fn answer(&self, session: &mut Session, outcome: Value, counts: &SignCounts) -> Value {
+        let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
+        let state = if self.full_state { state_value(&session.memory.export_state()) } else { Value::None };
+        Value::List(vec![
+            outcome,
+            Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
+            Value::List(self.budget.articles().iter().map(|article| int(*article)).collect()),
+            log,
+            state,
+        ])
+    }
 }
 
 fn rat_list(args: &Args, index: usize) -> Result<Vec<Rat>, ScriptError> {
@@ -282,7 +301,7 @@ fn state_value(state: &MemoryState) -> Value {
     Value::List(vec![ubig_list(&state.known_primes), Value::List(factorization), Value::List(squarefree), Value::List(support)])
 }
 
-fn outcome_value(result: Result<Value, ExactError>) -> Value {
+pub fn outcome_value(result: Result<Value, ExactError>) -> Value {
     let entry = match result {
         Ok(value) => vec![int(0u8), value],
         Err(ExactError::Canon(CanonError::Exhausted(exhausted))) => {
@@ -385,15 +404,7 @@ pub(crate) fn execute_cost_op(session: &mut Session, run: &mut CostRun, args: &A
         let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut run.budget, counts: &mut counts, products: &mut session.products };
         run_exact(args, &mut ctx)?
     };
-    let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
-    let state = if run.full_state { state_value(&session.memory.export_state()) } else { Value::None };
-    Ok(Value::List(vec![
-        outcome_value(result),
-        Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
-        Value::List(run.budget.articles().iter().map(|article| int(*article)).collect()),
-        log,
-        state,
-    ]))
+    Ok(run.answer(session, outcome_value(result), &counts))
 }
 
 #[cfg(test)]

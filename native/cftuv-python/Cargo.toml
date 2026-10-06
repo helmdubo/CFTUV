@@ -10,6 +10,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 mimalloc = { version = "0.1", default-features = false }

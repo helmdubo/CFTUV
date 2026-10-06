@@ -17,10 +17,13 @@ from . import _core, codec, cost
 
 __all__ = (
     "CostMirror",
+    "clip_seam_run",
+    "clip_seam_table",
     "default_mirror",
     "divide_with_prime_universe",
     "divided_by",
     "native_version",
+    "new_clip_seam_session",
     "new_mirror",
     "number_op_table",
     "prime_support",
@@ -119,3 +122,21 @@ def prime_universe_remembered(q_values, budget=None, store=None) -> tuple:
     """`prime_universe_remembered(q_values, budget, store)` with the default `build`, native."""
 
     return default_mirror().prime_universe_remembered(q_values, budget, store)
+
+
+def new_clip_seam_session():
+    """Test-only: a fresh native session for the clip differential seams (`cftuv_native.clip_seams`)."""
+
+    return _core.Session()
+
+
+def clip_seam_run(session, request: bytes) -> bytes:
+    """Test-only: ONE clip seam (`cftuv-clip/src/seam.rs`) on `session`; the answer buffer is decoded by `clip_seams`."""
+
+    return _core.clip_seam_run(session, request)
+
+
+def clip_seam_table() -> tuple[tuple[int, str], ...]:
+    """Test-only: `(opcode, name)` of every clip seam the extension knows."""
+
+    return tuple(_core.clip_seam_table())

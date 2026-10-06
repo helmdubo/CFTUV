@@ -33,6 +33,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-clip"
+version = "0.1.0"
+dependencies = [
+ "cftuv-canon",
+ "cftuv-core",
+ "dashu-int",
+]
+
+[[package]]
 name = "cftuv-core"
 version = "0.1.0"
 dependencies = [
@@ -47,6 +56,7 @@ dependencies = [
 name = "cftuv-python"
 version = "0.1.0"
 dependencies = [
+ "cftuv-clip",
  "cftuv-core",
  "mimalloc",
  "pyo3",
