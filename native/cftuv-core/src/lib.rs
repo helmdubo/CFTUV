@@ -23,6 +23,7 @@ pub mod coverage;
 pub mod exact;
 pub mod float_filter;
 pub mod fx;
+pub mod fxacc;
 pub mod fused;
 pub mod num;
 pub mod products;

@@ -6,14 +6,13 @@
 //! tests below and the differential suites hold together.
 
 use crate::num::{IBig, UBig};
+use crate::fxacc::FxAcc;
 use crate::products::{Items, ProductMemo};
 use crate::sqrt_sum::SqrtSum;
 use crate::wide::Wide;
 
 /// Items one list holds (the lists of the conjugation loop have a handful).
 pub const CAP: usize = 16;
-/// Distinct radicands one accumulation holds.
-pub const ACC_CAP: usize = 32;
 
 /// A radicand as `u128`: `None` above 128 bits.
 #[inline]
@@ -107,107 +106,44 @@ impl Default for FxItems {
     }
 }
 
-/// Integer sums keyed by radicand, in first-seen order; [`FxAcc::finish`] sorts and drops the zeros.
-struct FxAcc {
-    n: usize,
-    key: [u128; ACC_CAP],
-    val: [Wide; ACC_CAP],
+/// `a * b * scale` accumulated into the scratch: the products of two item lists by radicand (`scale` the word the radicand pair factors
+/// into the coefficient). `false` when something does not fit.
+#[inline]
+fn add_pair(acc: &mut FxAcc, memo: &mut ProductMemo, left_radicand: u128, left_value: &Wide, right_radicand: u128, right_value: &Wide) -> bool {
+    let negative = left_value.is_negative() != right_value.is_negative();
+    let (a, b) = (left_value.magnitude(), right_value.magnitude());
+    if left_radicand == 1 {
+        return acc.add_product(right_radicand, a, b, negative, 1);
+    }
+    if right_radicand == 1 {
+        return acc.add_product(left_radicand, a, b, negative, 1);
+    }
+    let Some((shared, radicand)) = memo.product_u128(left_radicand, right_radicand) else { return false };
+    if shared >> 64 != 0 {
+        return false;
+    }
+    acc.add_product(radicand, a, b, negative, shared as u64)
 }
 
-impl FxAcc {
-    fn new() -> FxAcc {
-        FxAcc { n: 0, key: [0; ACC_CAP], val: [Wide::ZERO; ACC_CAP] }
-    }
-
-    /// `merged[radicand] += a * b * common`; `false` when something does not fit.
-    #[inline]
-    fn add_product(&mut self, radicand: u128, a: &Wide, b: &Wide, common: u128) -> bool {
-        let Some(mut product) = a.mul(b) else { return false };
-        if common != 1 {
-            let scaled = if common >> 64 == 0 { product.mul_u64(common as u64) } else { product.mul(&Wide::from_u128(common)) };
-            match scaled {
-                Some(value) => product = value,
-                None => return false,
-            }
-        }
-        let slot = match self.key[..self.n].iter().position(|known| *known == radicand) {
-            Some(slot) => slot,
-            None => {
-                if self.n == ACC_CAP {
-                    return false;
-                }
-                self.key[self.n] = radicand;
-                self.n += 1;
-                self.n - 1
-            }
-        };
-        let target = &mut self.val[slot];
-        if target.is_zero() {
-            *target = product;
-            true
-        } else {
-            target.add_assign(&product)
-        }
-    }
-
-    /// The non-zero sums by ascending radicand; `None` when more than [`CAP`] survive.
-    fn finish(&self) -> Option<FxItems> {
-        let mut order = [0u8; ACC_CAP];
-        let mut live = 0;
-        for slot in 0..self.n {
-            if !self.val[slot].is_zero() {
-                let mut at = live;
-                while at > 0 && self.key[order[at - 1] as usize] > self.key[slot] {
-                    order[at] = order[at - 1];
-                    at -= 1;
-                }
-                order[at] = slot as u8;
-                live += 1;
-            }
-        }
-        if live > CAP {
-            return None;
-        }
-        let mut out = FxItems::new();
-        for (target, slot) in order[..live].iter().enumerate() {
-            out.key[target] = self.key[*slot as usize];
-            out.val[target] = self.val[*slot as usize];
-        }
-        out.n = live;
-        Some(out)
-    }
-}
-
-impl ProductMemo {
-    /// `(g, a*b/g^2)` for two radicands above one, from the memory, as `u128`; `None` when either part is over 128 bits.
-    #[inline]
-    pub fn product_u128(&mut self, left: u128, right: u128) -> Option<(u128, u128)> {
-        let (common, radicand) = self.product_ref(&ubig_of_u128(left), &ubig_of_u128(right));
-        Some((radicand_u128(common)?, radicand_u128(radicand)?))
-    }
+/// The sums of the scratch as a list: `None` when more than [`CAP`] survive or one does not fit a `Wide`.
+fn collect(acc: &FxAcc) -> Option<FxItems> {
+    let mut out = FxItems::new();
+    out.n = acc.finish(&mut out.key, &mut out.val)?;
+    Some(out)
 }
 
 /// `_multiply_integer_items` on the stack road: the product of two item lists, radicands ascending, zeros dropped.
 pub fn multiply(left: &FxItems, right: &FxItems, memo: &mut ProductMemo) -> Option<FxItems> {
-    let mut merged = FxAcc::new();
-    for index in 0..left.n {
-        let (left_radicand, left_value) = (left.key[index], &left.val[index]);
-        for other in 0..right.n {
-            let (right_radicand, right_value) = (right.key[other], &right.val[other]);
-            let ok = if left_radicand == 1 {
-                merged.add_product(right_radicand, left_value, right_value, 1)
-            } else if right_radicand == 1 {
-                merged.add_product(left_radicand, left_value, right_value, 1)
-            } else {
-                let (common, radicand) = memo.product_u128(left_radicand, right_radicand)?;
-                merged.add_product(radicand, left_value, right_value, common)
-            };
-            if !ok {
-                return None;
+    memo.with_acc(|acc, memo| {
+        for index in 0..left.n {
+            for other in 0..right.n {
+                if !add_pair(acc, memo, left.key[index], &left.val[index], right.key[other], &right.val[other]) {
+                    return None;
+                }
             }
         }
-    }
-    merged.finish()
+        collect(acc)
+    })
 }
 
 /// `reduce_in_place` on the stack road: `gcd(L, *a_m)` divided out of `L` and every numerator. The gcd is taken from the shortest
@@ -288,30 +224,23 @@ pub fn product_added(base: &SqrtSum, left: &SqrtSum, right_common: &Wide, right:
         let factor = common.div_exact(&divisor);
         (base_common.div_exact(&divisor), factor, base_common.mul(&factor)?)
     };
-    let mut merged = FxAcc::new();
-    for index in 0..left_items.n {
-        let (left_radicand, weighted) = (left_items.key[index], if weight.is_one() { left_items.val[index] } else { left_items.val[index].mul(&weight)? });
-        for other in 0..right.n {
-            let (right_radicand, right_value) = (right.key[other], &right.val[other]);
-            let ok = if left_radicand == 1 {
-                merged.add_product(right_radicand, &weighted, right_value, 1)
-            } else if right_radicand == 1 {
-                merged.add_product(left_radicand, &weighted, right_value, 1)
-            } else {
-                let (shared, radicand) = memo.product_u128(left_radicand, right_radicand)?;
-                merged.add_product(radicand, &weighted, right_value, shared)
-            };
-            if !ok {
+    let mut items = memo.with_acc(|acc, memo| {
+        for index in 0..left_items.n {
+            let weighted = if weight.is_one() { left_items.val[index] } else { left_items.val[index].mul(&weight)? };
+            for other in 0..right.n {
+                if !add_pair(acc, memo, left_items.key[index], &weighted, right.key[other], &right.val[other]) {
+                    return None;
+                }
+            }
+        }
+        for index in 0..base_items.n {
+            let value = &base_items.val[index];
+            if !acc.add_product(base_items.key[index], value.magnitude(), factor.magnitude(), value.is_negative(), 1) {
                 return None;
             }
         }
-    }
-    for index in 0..base_items.n {
-        if !merged.add_product(base_items.key[index], &base_items.val[index], &factor, 1) {
-            return None;
-        }
-    }
-    let mut items = merged.finish()?;
+        collect(acc)
+    })?;
     reduce(&mut scale, &mut items);
     Some(SqrtSum::from_sorted_form(scale.to_ubig(), items.to_items(), true))
 }

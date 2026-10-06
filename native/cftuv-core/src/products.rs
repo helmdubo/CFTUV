@@ -110,7 +110,20 @@ struct RootEntry {
 /// Memory of radicand-pair products. Both orders of a pair share one entry (the hash is symmetric). It also keeps the
 /// floor roots `isqrt(radicand << shift)` the enclosure filter asks for again and again (the same few radicands of a
 /// partition, call after call): a pure function of the radicand, so it changes no answer and no counted cost.
+/// A direct-mapped cache of `(a, b) -> (g, a*b/g^2)` for radicands of at most 128 bits, in front of the hashed memory: a pure cache like it.
+struct PairSlot {
+    left: u128,
+    right: u128,
+    common: u128,
+    radicand: u128,
+}
+
+const PAIR_SLOTS: usize = 1024;
+
 pub struct ProductMemo {
+    pairs: Box<[PairSlot]>,
+    /// The scratch accumulator of the stack road (taken out while it is used).
+    acc: Option<Box<crate::fxacc::FxAcc>>,
     table: HashMap<u64, Vec<MemoEntry>, BuildHasherDefault<IdentityHasher>>,
     roots: HashMap<u64, Vec<RootEntry>, BuildHasherDefault<IdentityHasher>>,
     root_entries: usize,
@@ -126,15 +139,48 @@ impl ProductMemo {
     const DEFAULT_PAIRS: usize = 1 << 15;
 
     pub fn new() -> ProductMemo {
-        ProductMemo { table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: ProductMemo::DEFAULT_PAIRS, enabled: true, scratch: (UBig::ONE, UBig::ONE) }
+        ProductMemo { pairs: ProductMemo::empty_pairs(), acc: None, table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: ProductMemo::DEFAULT_PAIRS, enabled: true, scratch: (UBig::ONE, UBig::ONE) }
     }
 
     /// No memory at all: every pair is computed from scratch.
     pub fn disabled() -> ProductMemo {
-        ProductMemo { table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: 0, enabled: false, scratch: (UBig::ONE, UBig::ONE) }
+        ProductMemo { pairs: ProductMemo::empty_pairs(), acc: None, table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: 0, enabled: false, scratch: (UBig::ONE, UBig::ONE) }
+    }
+
+    fn empty_pairs() -> Box<[PairSlot]> {
+        (0..PAIR_SLOTS).map(|_| PairSlot { left: 0, right: 0, common: 0, radicand: 0 }).collect()
+    }
+
+    /// `(g, a*b/g^2)` for two radicands above one that fit 128 bits (the product too), from the pair cache, the hashed memory or by
+    /// computing it; `None` when a part is wider than 128 bits.
+    #[inline]
+    pub fn product_u128(&mut self, left: u128, right: u128) -> Option<(u128, u128)> {
+        let (low, high) = if left <= right { (left, right) } else { (right, left) };
+        let mixed = ((low as u64) ^ ((low >> 64) as u64)).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ ((high as u64) ^ ((high >> 64) as u64)).wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
+        let index = ((mixed >> 20) as usize) & (PAIR_SLOTS - 1);
+        let slot = &self.pairs[index];
+        if slot.left == low && slot.right == high {
+            return Some((slot.common, slot.radicand));
+        }
+        let (common, radicand) = self.product_ref(&UBig::from(low), &UBig::from(high));
+        let (common, radicand) = (crate::fx::radicand_u128(common)?, crate::fx::radicand_u128(radicand)?);
+        self.pairs[index] = PairSlot { left: low, right: high, common, radicand };
+        Some((common, radicand))
+    }
+
+    /// Runs `body` with the scratch accumulator of the stack road (cleared) and the memory itself.
+    pub(crate) fn with_acc<R>(&mut self, body: impl FnOnce(&mut crate::fxacc::FxAcc, &mut ProductMemo) -> R) -> R {
+        let mut acc = self.acc.take().unwrap_or_else(crate::fxacc::FxAcc::new);
+        acc.clear();
+        let result = body(&mut acc, self);
+        self.acc = Some(acc);
+        result
     }
 
     pub fn clear(&mut self) {
+        for slot in self.pairs.iter_mut() {
+            slot.left = 0;
+        }
         self.table.clear();
         self.roots.clear();
         self.root_entries = 0;
