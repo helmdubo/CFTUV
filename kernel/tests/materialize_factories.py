@@ -305,26 +305,6 @@ def budget(*, cap: int | None = None):
     return exact_work_budget(stage="MATERIALIZE_TEST", domain_id="test", cap=cap)
 
 
-def warm_recent_coverage(prepared, coverage) -> None:
-    """Положить покрытие регионов домена в `coverage_at._RECENT`, как это делает продуктовый порядок «покрытие, потом материализация».
-
-    Материализатор берёт контуры граней (`region_contours`) тем же вызовом `coverage_at`, которым `conveyor_coverage` считал
-    площади, и попадание в память недавних покрытий НЕ ПЛАТИТ: ни статей бюджета, ни записей в память канонизации (так задумано,
-    DECISIONS 2026-10-03). Попадание и промах поэтому отличаются ценой `EXACT_WORK_*` (радикалы покрытия и то, что стадии после
-    него находят в памяти канонизации), и ровно эту цену тест, берущий пару `(подготовка, покрытие)` из общего кэша фикстур,
-    получал от ИСТОРИИ ПРОЦЕССА: память держит восемь покрытий, девятое вытесняет первое, и первая материализация считала
-    покрытие заново, а вторая брала готовое. Сброс памяти между тестами это не лечит (первая материализация стала бы промахом
-    всегда), лечит повтор первого шага продуктового порядка перед каждой материализацией: цена попадания становится свойством
-    входа, а не очерёдности тестов.
-    """
-
-    from cftuv_envelope.wavefront.coverage import coverage_at
-
-    for region in prepared.regions:
-        if region.partition is not None:
-            coverage_at(region.partition, coverage.lattice_alpha, budget())
-
-
 def assemble_polygon_batch(
     polygon, alpha, *, plane=None, diagnostics=None, law=None
 ):

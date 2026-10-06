@@ -44,6 +44,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from fractions import Fraction
 
+from ._cpython311 import left_fold_sum
 from ._unfold import refusal
 from .contracts.metric import CUT_RIGHT_COPY_MARK, NO_CHAIN_USE_ROLES, source_vertex_of_chart_vertex
 from .ids import PhysicalEdgeId, SourceVertexId
@@ -131,7 +132,7 @@ def _between_face_adjacency(topology) -> dict:
 
 
 def _unit(vector):
-    length = math.sqrt(sum(axis * axis for axis in vector))
+    length = math.sqrt(left_fold_sum(axis * axis for axis in vector))
     return tuple(axis / length for axis in vector) if length else None
 
 
@@ -145,7 +146,7 @@ def _bisector_cost(positions, apex, out_next, in_prev, candidate) -> float:
     out, back, step = (_direction(positions, apex, item) for item in (out_next, in_prev, candidate))
     if out is None or back is None or step is None:
         return math.inf
-    return abs(sum(c * (a - b) for c, a, b in zip(step, out, back, strict=True)))
+    return abs(left_fold_sum(c * (a - b) for c, a, b in zip(step, out, back, strict=True)))
 
 
 def _bend_cost(positions, previous, current, candidate) -> float:
@@ -154,7 +155,7 @@ def _bend_cost(positions, previous, current, candidate) -> float:
     before, after = _direction(positions, previous, current), _direction(positions, current, candidate)
     if before is None or after is None:
         return math.inf
-    return 1.0 - sum(a * b for a, b in zip(before, after, strict=True))
+    return 1.0 - left_fold_sum(a * b for a, b in zip(before, after, strict=True))
 
 
 def ring_cut_path(topology, positions, rim_edges) -> tuple:

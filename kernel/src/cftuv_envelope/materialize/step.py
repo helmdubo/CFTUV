@@ -24,8 +24,8 @@
 
 ИСХОДЫ. Попадание (`FAST_HIT`) либо полный счёт под ИМЕНЕМ причины (`NO_CERTIFICATE`, `OUTSIDE_BELOW`, `OUTSIDE_ABOVE`, `OUTSIDE_BETWEEN`,
 `TEMPLATE_UNAVAILABLE`, `PARTIAL_TEMPLATE`, `COVERAGE_REFUSED`, `DISABLED`): счёт попаданий и промахов по причинам ведёт `STEP_COUNTERS`, а
-хост - счётчики профиля прогона. Сверка (`CFTUV_INTERVAL_VERIFY=1`) после каждого попадания считает полный путь заново (память недавних
-покрытий сброшена) и сравнивает ответы; расхождение называется (`VERIFY_MISMATCH:<части>`), а возвращается ПОЛНЫЙ ответ.
+хост - счётчики профиля прогона. Сверка (`CFTUV_INTERVAL_VERIFY=1`) после каждого попадания считает полный путь заново и сравнивает ответы и цену покрытия
+(`coverage_price`); расхождение называется (`VERIFY_MISMATCH:<части>`), а возвращается ПОЛНЫЙ ответ.
 `CFTUV_INTERVAL_STEP=0` выключает быстрый путь целиком (замер «до», сверка «с ним и без него»).
 """
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import lru_cache
 
@@ -43,7 +43,7 @@ from ..reference.planar_types import ExactScalar
 from ..reference.strip import strip_envelope_instance_id
 from .. import wavefront as wavefront_package
 from ..wavefront.conveyor import ConveyorOutcome, requested_alpha_fraction
-from ..wavefront.coverage import CoverageOutcome, _coverage_at, clear_recent_coverage, coverage_source
+from ..wavefront.coverage import CoverageOutcome, _coverage_at, coverage_source
 from ..wavefront.coverage_template import build_template, instantiate
 from . import domain as domain_module
 from .domain import MaterializationV1
@@ -113,8 +113,6 @@ class StepCertificateV1:
 class _Recorder:
     """Источник покрытия записывающего прохода: полный счёт и шаблон по каждому разбиению."""
 
-    bypass_recent = True
-
     def __init__(self) -> None:
         self.templates: dict = {}
         self.partitions: list = []
@@ -132,26 +130,28 @@ class _Recorder:
 
     def coverage(self, partition, alpha, work_budget, store):
         traces: list = []
+        spent = None if work_budget is None else work_budget.spent_by_article()
         result = _coverage_at(partition, alpha, work_budget, store, traces)
         if result.outcome is not CoverageOutcome.EXACT:
             return result
+        # Цена вычисления - цена полного счёта; запись шаблона (деления на точки отсечения) платит копии счёта и в цену не входит.
+        price = None if spent is None else tuple(after - was for after, was in zip(work_budget.spent_by_article(), spent))
+        recording = None if work_budget is None else work_budget.forked(work_budget.stage)
         try:
-            template = build_template(partition, alpha, work_budget, store, result, traces)
+            template = build_template(partition, alpha, recording, store, result, traces)
         except Exception:  # noqa: BLE001 - запись шаблона не вправе уронить полный счёт: исход назван (`TEMPLATE_ERROR`), домен считается как прежде
             STEP_COUNTERS["INTERVAL_" + TEMPLATE_ERROR] += 1
             template = None
         if template is None:
             self.refused = True
         else:
-            self.templates[id(partition)] = template
+            self.templates[id(partition)] = replace(template, price=price)
             self.partitions.append(partition)
         return result
 
 
 class _Instantiator:
     """Источник покрытия попадания: покрытие из шаблона; разбиение без шаблона считает `coverage_at` сам (и это названо)."""
-
-    bypass_recent = False
 
     def __init__(self, certificate: StepCertificateV1) -> None:
         self.certificate = certificate
@@ -266,6 +266,18 @@ def answer_differences(first: MaterializationV1, second: MaterializationV1) -> t
     return tuple(found)
 
 
+def coverage_price_differences(first, second) -> tuple[str, ...]:
+    """`("coverage_price",)`, если два покрытия одного домена и одной ширины стоят по-разному (шесть статей бюджета вычисления); иначе пусто.
+
+    Цена покрытия на шаге ширины (из шаблона) обязана равняться цене полного счёта: вычисление домена стоит одно и то же на любом пути.
+    """
+
+    def articles(coverage):
+        return None if coverage.work_budget is None else coverage.work_budget.spent_by_article()
+
+    return () if articles(first) == articles(second) else ("coverage_price",)
+
+
 def _coverage(prepared, alpha_text):
     """Покрытие домена; через пакет `wavefront`, а не по имени: подмена стадии (проба, сверка) действует и здесь."""
 
@@ -311,7 +323,8 @@ def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates):
 def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True) -> StepV1:
     """Покрытие и материализация домена при `alpha_text`: из шаблона внутри заверенного интервала, иначе полным путём с записью шаблона.
 
-    Ответ (`StepV1.result`) равен ответу `materialize_domain(prepared, conveyor_coverage(prepared, alpha_text), ...)` с `certify=True`.
+    Ответ (`StepV1.result`) равен ответу `materialize_domain(prepared, conveyor_coverage(prepared, alpha_text), ...)` с `certify=True`, и цена
+    та же: покрытие из шаблона платит записанную цену полного счёта (`CoverageTemplateV1.price`), а бюджет подготовки не трогает ни один путь.
     """
 
     arguments = (request, near_planar_lift_law, decal_topology_law, digests)
@@ -346,10 +359,9 @@ def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_to
         return StepV1(result, "FALLBACK:" + FALLBACK_PARTIAL)
     switched = result.structure is not None and chosen.signature is not None and result.structure.digest != chosen.signature
     if verify_enabled():
-        clear_recent_coverage()
-        full = _full(prepared, alpha_text, arguments)
-        clear_recent_coverage()
-        differing = answer_differences(result, full)
+        full_coverage = _coverage(prepared, alpha_text)
+        full = _materialize(prepared, full_coverage, arguments)
+        differing = answer_differences(result, full) + coverage_price_differences(coverage, full_coverage)
         if differing:
             STEP_COUNTERS[VERIFY_MISMATCH] += 1
             return StepV1(full, VERIFY_MISMATCH + ":" + ",".join(differing), switched)

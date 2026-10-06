@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from functools import cmp_to_key
 
+from .._cpython311 import sorted_as_cpython311
 from .symbolic_component import (
     SymbolicComponentDeltaV1,
     apply_component_deltas,
@@ -54,11 +54,9 @@ def _expand_target_leaves(overlay, contacts, budget=None):
         binding = result.spans.get(leaf)
         if binding is None or binding.start is None or binding.end is None:
             return None, None, "SYMBOLIC_INTERIOR_SPLIT_TARGET_STALE"
-        ordered = tuple(sorted(
+        ordered = tuple(sorted_as_cpython311(
             group,
-            key=cmp_to_key(
-                lambda first, second: _contact_compare(first, second, budget)
-            ),
+            lambda first, second: _contact_compare(first, second, budget),
         ))
         if len({item.key for item in ordered}) != len(ordered):
             return None, None, "SYMBOLIC_INTERIOR_SPLIT_CONTACT_DUPLICATE"

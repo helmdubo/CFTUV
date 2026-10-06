@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from .. import float_filter
+from .._cpython311 import left_fold_sum
 from ..exact_sqrt_sum import SqrtSumV1
 from .clip_snap import NODE_EDGE_SNAP_CELLS
 from .memo import memo_of
@@ -339,7 +340,7 @@ def _grid_step(faces) -> float:
             continue
         xs, ys = [entries[i][0] for i in range(0, len(entries), 2)], [entries[i][0] for i in range(1, len(entries), 2)]
         sizes.append(max(max(xs) - min(xs), max(ys) - min(ys)))
-    return max(1.0, (sum(sizes) / len(sizes)) if sizes else 1.0)
+    return max(1.0, (left_fold_sum(sizes) / len(sizes)) if sizes else 1.0)
 
 
 def _clip_events(face, times, law, scale, lines, corners, corner_points, grid_lines, grid_corners, events, pairs) -> int:

@@ -104,9 +104,6 @@ def _case(name):
 def _run(name, **kwargs):
     prepared, coverage, request = _case(name)
     request = dataclasses.replace(request, uv_policy_id=UV)
-    # Покрытие из общего кэша фикстур считалось давно: без повтора первого шага продуктового порядка цена `EXACT_WORK_*`
-    # зависела бы от того, вытеснила ли его из памяти недавних покрытий очерёдность тестов (`warm_recent_coverage`).
-    factories.warm_recent_coverage(prepared, coverage)
     return materialize_domain(prepared, coverage, request=request, **kwargs)
 
 
@@ -734,8 +731,8 @@ def test_a_lost_face_is_a_named_refusal_with_its_reason_and_its_numbers(
 
     real = domain.region_contours
 
-    def lossy(region, lattice_alpha, budget):
-        contours = list(real(region, lattice_alpha, budget))
+    def lossy(region, lattice_alpha, budget, covered=None):
+        contours = list(real(region, lattice_alpha, budget, covered))
         if mutation == "drop_last":
             contours.pop()
         elif mutation == "swap_owner":

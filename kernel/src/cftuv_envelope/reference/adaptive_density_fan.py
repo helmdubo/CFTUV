@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
-from functools import cmp_to_key
 from math import gcd, isqrt
 
 import sympy as sp
 
+from .._cpython311 import sorted_as_cpython311
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
     AdaptiveFareyHeightRangeWitnessV2,
@@ -1266,11 +1266,9 @@ def _best_fan(metric, ideal, orientation, q, candidates, budget):
     budget.spend_order_steps(sum(len(items) for items in candidates))
     ordered = tuple(
         tuple(
-            sorted(
+            sorted_as_cpython311(
                 items,
-                key=cmp_to_key(
-                    _candidate_compare(metric, ideal, ordinal)
-                ),
+                _candidate_compare(metric, ideal, ordinal),
             )
         )
         for ordinal, items in enumerate(candidates, start=1)

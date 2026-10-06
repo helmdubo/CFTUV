@@ -238,6 +238,25 @@ class ExactWorkBudgetV1:
         self.exact_position_hydrations += delta[5]
         return True
 
+    def forked(self, stage: str) -> "ExactWorkBudgetV1":
+        """Копия счёта на стадии `stage`: тот же режим, потолок, идентичность и потраченное; оригинал не меняется.
+
+        Покрытие каждого вычисления домена начинается с копии состояния подготовки (`wavefront.conveyor_coverage`), а не с
+        самой подготовки: подготовка в кэше сессии и в пикле воркера остаётся ровно тем, чем кончилась `PREPARE`, и цена
+        вычисления не зависит от того, сколько вычислений на ней уже прошло.
+        """
+
+        fork = ExactWorkBudgetV1(
+            mode=self.mode, cap=self.cap, stage=stage, domain_id=self.domain_id, superlevel=self.superlevel
+        )
+        fork.modular_squarings = self.modular_squarings
+        fork.gcd_operations = self.gcd_operations
+        fork.miller_rabin_rounds = self.miller_rabin_rounds
+        fork.pollard_attempts = self.pollard_attempts
+        fork.radical_materializations = self.radical_materializations
+        fork.exact_position_hydrations = self.exact_position_hydrations
+        return fork
+
     def counters(self) -> tuple[tuple[str, int], ...]:
         return (
             ("EXACT_WORK_MODULAR_SQUARINGS", self.modular_squarings),
@@ -260,7 +279,8 @@ class ExactWorkBudgetV1:
 
         Подготовка и покрытие оплачивают одну транзакцию домена; обнуление на
         границе стадии сделало бы кап границей самой дорогой стадии, а не
-        работы домена.
+        работы домена. Меняет САМ бюджет, поэтому его зовёт только начало
+        подготовки; покрытие и материализация идут на копии (`forked`).
         """
 
         self.stage = stage
@@ -1048,8 +1068,11 @@ def prime_universe_remembered(
     покрытии — это разложение двухсотбитных чисел (ро-Поллард и взаимно простой базис) на КАЖДОМ нажатии. Здесь
     результат и разложения, которые вызов положил в память канонизации, записываются в `store` (он едет с подготовкой
     в пикле) и при повторе возвращаются в память процесса, КАК БУДТО вызов их посчитал: дальнейшее `squarefree_split`
-    радикандов `q` находит их там же, где нашло бы после счёта. Ответ побитово тот же (разложение единственно);
-    меняется цена, и бюджет повтор не тратит. Сбой (нехватка бюджета, отрицательное `q`) в `store` не пишется.
+    радикандов `q` находит их там же, где нашло бы после счёта. Ответ побитово тот же (разложение единственно).
+    Цена повтора — ЗАПИСАННАЯ цена счёта (разность шести статей бюджета, `ExactWorkBudgetV1.replay`), а не ноль: покрытие
+    стоит одно и то же на холодной и на тёплой подготовке, а потолок остаётся авторитетом отказа (записанная цена, не
+    влезающая в остаток, не повторяется, и вселенная считается заново с настоящей оплатой). Запись без цены (счёт шёл без
+    бюджета) бюджету не годится: промах. Сбой (нехватка бюджета, отрицательное `q`) в `store` не пишется.
     """
 
     build = _prime_universe_from_q_values if build is None else build
@@ -1057,8 +1080,14 @@ def prime_universe_remembered(
         return build(q_values, budget)
     key = ("prime-universe", tuple(Fraction(value) for value in q_values))
     found = store.get(key)
+    if found is not None and (len(found) != 4 or (budget is not None and found[2] is None)):
+        found = None
+    if found is not None and budget is not None and not budget.replay(found[2]):
+        found = None
     if found is None:
         before = set(_FACTORIZATION_MEMO)
+        marker = factorization_memory_marker()
+        spent_before = None if budget is None else budget.spent_by_article()
         universe = build(q_values, budget)
         # Разложения, которые вызов дал ИЛИ нашёл готовыми (подготовка раскладывала те же радиканды раньше): ничего
         # из этого воркер на чужой подготовке заранее не знает. Простые вселенной раскладываются сами в себя.
@@ -1071,9 +1100,15 @@ def prime_universe_remembered(
             for number in sorted(numbers)
             if number in _FACTORIZATION_MEMO
         ) + tuple((prime, ((prime, 1),)) for prime in universe)
-        store[key] = (universe, delta)
+        price = (
+            None
+            if spent_before is None
+            else tuple(after - was for after, was in zip(budget.spent_by_article(), spent_before))
+        )
+        store[key] = (universe, delta, price, factorization_memory_delta(marker))
         return universe
-    universe, delta = found
+    universe, delta, _price, memory = found
+    replay_factorization_memory(memory)
     for number, pairs in delta:
         if number not in _FACTORIZATION_MEMO:
             # Предел памяти тот же, что у `_factorization_pairs`: вытесняется самая давняя запись.

@@ -47,6 +47,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 
+from .._cpython311 import left_fold_sum
 from ..contracts.metric import CUT_RIGHT_COPY_MARK
 
 
@@ -173,7 +174,7 @@ def _normal_spread(normals) -> float:
     worst = 0.0
     for first in range(len(normals)):
         for second in range(first + 1, len(normals)):
-            dot = sum(a * b for a, b in zip(normals[first], normals[second]))
+            dot = left_fold_sum(a * b for a, b in zip(normals[first], normals[second]))
             worst = max(worst, math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
     return worst
 
@@ -205,7 +206,7 @@ def audit_batch(batch, source_normal, vertex_normals=None) -> BatchAuditV1:
             source_normal
             if not vertex_normals
             else tuple(
-                sum(vertex_normals[key.value][axis] for key in keys) for axis in range(3)
+                left_fold_sum(vertex_normals[key.value][axis] for key in keys) for axis in range(3)
             )
         )
         facing = (

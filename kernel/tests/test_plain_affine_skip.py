@@ -25,7 +25,6 @@ from cftuv_envelope.materialize import assemble as assemble_module
 from cftuv_envelope.materialize.admit import materialization_request
 from cftuv_envelope.materialize.step import answer_differences, _full
 from cftuv_envelope.wavefront import prepare_conveyor
-from cftuv_envelope.wavefront.coverage import clear_recent_coverage
 
 HOST_LAWS = (NearPlanarLiftLawV1.SOURCE_FACES_CLIPPED_V1, DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
 
@@ -60,7 +59,6 @@ def run(prepared, alpha, verify, monkeypatch):
 
     monkeypatch.setattr(assemble_module, "uv_is_affine_in_chart", counting)
     monkeypatch.setattr(assemble_module, "VERIFY_PLAIN_AFFINE", verify)
-    clear_recent_coverage()
     laws = HOST_LAWS
     request = materialization_request(prepared, uv_policy_id="UV_DIRECT_STRIP_V1")
     result = _full(prepared, str(alpha), (request, laws[0], laws[1], False))
