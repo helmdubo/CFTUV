@@ -3,13 +3,15 @@
 //! whose ORDER is observable (LRU eviction) and therefore part of the equivalence contract.
 
 use std::collections::HashMap;
+
+use crate::fxhash::FxBuild;
 use std::hash::Hash;
 
 /// Slots in insertion order with tombstones; compacted when more than half of the slots are dead.
 #[derive(Clone, Debug)]
 pub struct OrderedMap<K, V> {
     slots: Vec<Option<(K, V)>>,
-    index: HashMap<K, usize>,
+    index: HashMap<K, usize, FxBuild>,
     head: usize,
 }
 
@@ -21,7 +23,7 @@ impl<K: Hash + Eq + Clone, V> Default for OrderedMap<K, V> {
 
 impl<K: Hash + Eq + Clone, V> OrderedMap<K, V> {
     pub fn new() -> OrderedMap<K, V> {
-        OrderedMap { slots: Vec::new(), index: HashMap::new(), head: 0 }
+        OrderedMap { slots: Vec::new(), index: HashMap::default(), head: 0 }
     }
 
     pub fn len(&self) -> usize {

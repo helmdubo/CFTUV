@@ -7,6 +7,7 @@
 
 pub mod budget;
 pub mod factor;
+mod fxhash;
 pub mod memory;
 mod mont;
 pub mod ordered;
