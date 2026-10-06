@@ -2,11 +2,12 @@
 //! decoded from the boundary values the other seams use, answered as the boundary value of `ClippedV1` (the Python side
 //! rebuilds the oracle's own types from it). The fast boundary that builds Python objects directly is the next step.
 //!
-//! Arguments: `[python major, minor, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces]`
+//! Arguments: `[python major, minor, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert]`
 //! `triangles`  the seam's triangle records (`seam::triangles_of`), in the order of `plane.triangles`
 //! `points`     `[[key, point], ...]` in dictionary order      `cycles`   `[[key, ...], ...]` (only the keys are read)
 //! `polygons`   `[[[key, ...], ...], ...]` per face            `law`      0 planar polygons, 1 quad strips, 2 anything else
 //! `seam`       `[[key, key], ...]`                            `fans`, `flows`  none or `[bool, ...]`
+//! `inert`      `[[name, name], ...]` the chain station plan's pairs of faces, in the order of the oracle's frozenset
 //!
 //! Answer value (outcome code 0): `[polygons, cycles, vertex lists, extra lists, points, snapped, lifted, counters, note]`
 //! with `lifted` entries `[key, [x, y, z], triangle name, normal or none]` and `counters` entries `[name, int]`.
@@ -38,7 +39,7 @@ static SEAM_WARM_ON: AtomicBool = AtomicBool::new(false);
 pub fn enable_warm() {
     SEAM_WARM_ON.store(true, Ordering::Relaxed);
 }
-use crate::seam::{bad, flag_of, float_list, int, list, point_of, point_value, str_of, str_value, triangles_of, ubig_value, usize_of, version_of, Wire};
+use crate::seam::{bad, flag_of, float_list, inert_pairs_of, int, list, point_of, point_value, str_of, str_value, triangles_of, ubig_value, usize_of, version_of, Wire};
 
 fn keys_of(value: &Value, what: &str) -> Wire<Vec<String>> {
     list(value, what)?.iter().map(|key| str_of(key, what)).collect()
@@ -118,6 +119,7 @@ pub fn clip_geometry_seam(args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut V
     }
     let (fans, flows) = (flags_of(&args[8], "fans")?, flags_of(&args[9], "flows")?);
     let by_faces = flag_of(&args[10], "by_faces")?;
+    let inert = inert_pairs_of(&args[11])?;
     let version = match version {
         Ok(found) => found,
         Err(error) => {
@@ -125,7 +127,7 @@ pub fn clip_geometry_seam(args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut V
             return Ok(Err(error));
         }
     };
-    let input = ClipInput { points: &points, cycles: &cycles, polygons: &polygons, law, seam: &seam, fans: fans.as_deref(), flows: flows.as_deref(), by_faces };
+    let input = ClipInput { points: &points, cycles: &cycles, polygons: &polygons, law, seam: &seam, fans: fans.as_deref(), flows: flows.as_deref(), by_faces, inert: &inert };
     let started = std::time::Instant::now();
     let ClipRun { result, writes } = if SEAM_WARM_ON.load(Ordering::Relaxed) {
         SEAM_WARM.with(|warm| clip_geometry(ctx, &mut warm.borrow_mut(), version, &plane, &input))

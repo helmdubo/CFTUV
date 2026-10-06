@@ -63,6 +63,7 @@ const STAGE_COUNTERS: [&str; 16] = [
 const NODE_SIGNS_ZEROED: &str = "MATERIALIZE_CLIP_NODE_SIGNS_ZEROED_BY_EDGE_GAP";
 const NODE_EDGE_GAP_MAX: &str = "MATERIALIZE_CLIP_NODE_EDGE_GAP_MAX_NANOMETRES";
 const NODE_EDGE_GAP_MAX_CELLS: &str = "MATERIALIZE_CLIP_NODE_EDGE_GAP_MAX_MILLICELLS";
+const PLAN_COUNTERS: [&str; 2] = ["MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS", "MATERIALIZE_CLIP_PLAN_INERT_CUTS_AVOIDED"];
 const DIAGONAL_COUNTERS: [&str; 7] = [
     "MATERIALIZE_CLIP_DIAGONAL_FACES_KEPT_WHOLE",
     "MATERIALIZE_CLIP_DIAGONAL_PIECES_ACROSS",
@@ -237,14 +238,19 @@ impl<'a, 'c> Stage<'a, 'c> {
     fn record_whole(&mut self, ti: usize, piece: &[NodeId], merged: u32) -> ClipResult<()> {
         if let Some(group) = &self.regions[ti].group {
             if merged != 0 {
-                if let CellKey::Group(face, _) = group {
-                    self.whole.insert(face.clone());
-                }
-                self.across += 1;
-                self.avoided += i64::from(merged) - 1;
-                let flat = self.regions[ti].flat_square.clone().ok_or_else(|| ClipError::Unsupported("a group without a flatness estimate".into()))?;
-                if flat > self.kept_depth {
-                    self.kept_depth = flat;
+                if let CellKey::Plan(_) = group {
+                    // a group of the chain station plan is no face: its glued cuts are counted on their own and its estimate is the plan's zero
+                    self.plan_glued += i64::from(merged) - 1;
+                } else {
+                    if let CellKey::Group(face, _) = group {
+                        self.whole.insert(face.clone());
+                    }
+                    self.across += 1;
+                    self.avoided += i64::from(merged) - 1;
+                    let flat = self.regions[ti].flat_square.clone().ok_or_else(|| ClipError::Unsupported("a group without a flatness estimate".into()))?;
+                    if flat > self.kept_depth {
+                        self.kept_depth = flat;
+                    }
                 }
             }
             return Ok(());
@@ -269,7 +275,7 @@ impl<'a, 'c> Stage<'a, 'c> {
             .over
             .iter()
             .filter_map(|(key, _)| match key {
-                CellKey::Face(face, _) | CellKey::Group(face, _) => Some(face.as_str()),
+                CellKey::Face(face, _) | CellKey::Group(face, _) | CellKey::Plan(face) => Some(face.as_str()),
                 CellKey::Triangle(_) => None,
             })
             .collect();
@@ -670,6 +676,9 @@ impl<'a, 'c> Stage<'a, 'c> {
         if self.faces_mode {
             counters.extend(self.diagonal_counters()?);
         }
+        if self.plan_pairs != 0 {
+            counters.extend(PLAN_COUNTERS.iter().copied().zip([UBig::from(self.plan_pairs), UBig::from(self.plan_glued.max(0) as u64)]));
+        }
         Ok(counters)
     }
 
@@ -710,7 +719,7 @@ impl<'a, 'c> Stage<'a, 'c> {
             .over
             .iter()
             .filter_map(|(key, _)| match key {
-                CellKey::Face(face, _) | CellKey::Group(face, _) => Some(face.as_str()),
+                CellKey::Face(face, _) | CellKey::Group(face, _) | CellKey::Plan(face) => Some(face.as_str()),
                 CellKey::Triangle(_) => None,
             })
             .collect();

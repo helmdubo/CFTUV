@@ -215,6 +215,8 @@ def dec_key(wire) -> tuple:
     tag = dec_str(wire[0])
     if tag == "t":
         return ("t", wire[1])
+    if tag == "p":
+        return ("p", dec_str(wire[1]))
     return (tag, dec_str(wire[1]), wire[2])
 
 
@@ -238,8 +240,8 @@ def dec_cell(wire):
 
 def dec_plan(wire):
     clip_cells, _snap, _point = _kernel()
-    cells, unmergeable = wire
-    return clip_cells.CellPlanV1(tuple(dec_cell(cell) for cell in cells), tuple((dec_str(face), dec_str(reason)) for face, reason in unmergeable))
+    cells, unmergeable, plan_pairs = wire
+    return clip_cells.CellPlanV1(tuple(dec_cell(cell) for cell in cells), tuple((dec_str(face), dec_str(reason)) for face, reason in unmergeable), plan_pairs)
 
 
 def dec_memo(wire) -> dict:
@@ -322,6 +324,17 @@ def _flags(items):
     return None if items is None else [bool(item) for item in items]
 
 
+def enc_inert(inert) -> list:
+    """The chain station plan's pairs of faces in the iteration order of the set (`[[name, name], ...]`); a pair that is not two names is dropped, as the oracle skips it."""
+
+    pairs = []
+    for pair in inert:
+        names = list(pair)
+        if len(names) == 2:
+            pairs.append([enc_str(names[0]), enc_str(names[1])])
+    return pairs
+
+
 def enc_geometry(plane, kwargs: dict, version=None) -> list:
     """The arguments of `clip_geometry(plane, budget, **kwargs)` as the `CLIP_GEOMETRY` seam reads them."""
 
@@ -340,6 +353,7 @@ def enc_geometry(plane, kwargs: dict, version=None) -> list:
         _flags(kwargs["fans"]),
         _flags(kwargs["flows"]),
         bool(kwargs["by_faces"]),
+        enc_inert(kwargs.get("inert", ())),
     ]
 
 

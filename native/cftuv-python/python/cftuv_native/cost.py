@@ -21,7 +21,13 @@ tables. This module keeps the REAL Python objects and the mirror equal:
   effect (articles, counters, tables) is in place, as Python's exception would leave them.
 
 This module imports no extension: it drives a session object (`run(bytes) -> bytes`, `clear()`, `lengths()`) given
-by the shim. The mirror is NOT thread-safe: it assumes nothing else mutates the tables during a call.
+by the shim. The mirror assumes nothing else mutates the tables during a call, and the tables are PROCESS state, so every
+public method of `CostMirror` runs under ONE process-wide re-entrant lock (`NATIVE_LOCK`): the product calls the native
+operations from the alpha-preview worker thread and from the main thread, and two such calls would read and write the same
+tables and the same session (the extension releases the GIL while it computes). The lock is held for the whole call: sync in,
+the native operation, the replay of its log on the real tables, the settling of the budget and the counters. It guards the
+NATIVE calls against each other, not the tables against Python code that mutates them in another thread (the next sync in
+would name such a change as a general diff, never guess it).
 
 Adding a native operation that pays budget or touches the memory: either give it an opcode in `codec.OPS` and the Rust
 table `script::OPS`, make its Rust answer the cost answer `[outcome, counts, articles, log, state]` (`session.rs`), and run
@@ -38,13 +44,19 @@ call reloads the tables whole.
 
 from __future__ import annotations
 
+import functools
+import sys
+import threading
+import types
 from bisect import insort
 from fractions import Fraction
 from time import perf_counter_ns
 
-import sys
-
 from . import codec, pin
+
+#: The one lock of the process for every native call that reads or writes process state (see the module note). Re-entrant: a store
+#: that is read through its own methods may call native again from inside a call.
+NATIVE_LOCK = threading.RLock()
 
 #: `Operation::ALL` of the native side, in the order of `ExactWorkOperationV1`.
 OPERATION_NAMES = ("PRIME_UNIVERSE", "COPRIME_BASIS", "PRIMALITY", "POLLARD_RHO_BRENT", "SQUAREFREE_SPLIT", "PRIME_SUPPORT", "EXACT_POSITION")
@@ -229,6 +241,31 @@ def _entry_support(key, value):
     return (key, value)
 
 
+def _serialized(function):
+    """`function` under `NATIVE_LOCK` (looked up per call, so a harness can swap the lock to prove the lock is what holds the calls apart)."""
+
+    @functools.wraps(function)
+    def locked(*arguments, **keywords):
+        with NATIVE_LOCK:
+            return function(*arguments, **keywords)
+
+    return locked
+
+
+def serialize_public_methods(cls):
+    """Every public method of `cls` (a plain function whose name has no leading underscore) runs under `NATIVE_LOCK`.
+
+    The private helpers are reached only through a public method, so they run under the lock too; static and class methods are pure.
+    A method added later is covered without a decorator of its own.
+    """
+
+    for name, member in list(vars(cls).items()):
+        if isinstance(member, types.FunctionType) and not name.startswith("_"):
+            setattr(cls, name, _serialized(member))
+    return cls
+
+
+@serialize_public_methods
 class CostMirror:
     """Keeps one native session equal to the real process state and runs cost-bearing scripts on it."""
 
@@ -519,7 +556,7 @@ class CostMirror:
         self._clip_classes = (laws.PLANAR_POLYGONS_V1, laws.QUAD_STRIPS_V1, outcomes, refusal)
         self._clip_bound = True
 
-    def clip_geometry(self, plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces):
+    def clip_geometry(self, plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()):
         """`materialize.clip.clip_geometry(plane, budget, ...)`, whole, with its exact side effects (the compute `clip_memo.run_clip` memoizes).
 
         The plane's triangles are converted once per session (kept by the identity of `plane.triangles`); per call the arguments are
@@ -531,6 +568,9 @@ class CostMirror:
         `ZeroDivisionError`, `ValueError`, `KeyError`. The port refuses by name, and before it touches any state, when the oracle moved past
         the pin (`NativePortStale`), on an interpreter it does not emulate (`NativeUnsupportedPython`) and on an input it does not cover
         (`NativePortUnsupported`: a sort of 64 nodes or more); there is no fallback to Python here.
+
+        `inert` is the chain station plan's set of face pairs (`frozenset[frozenset[str]]`, only read by a clip by faces): the extension
+        reads it in the iteration order of the set the caller passed, which is the order the oracle's `_plan_groups` walks it in.
         """
 
         pin.require("clip")
@@ -549,7 +589,7 @@ class CostMirror:
         called = perf_counter_ns()
         try:
             result, status, detail, counts, articles, bits, native = self._session.clip_geometry(
-                plane.triangles, points, cycles, polygons, code, seam, fans, flows, bool(by_faces), tuple(sys.version_info[:2]),
+                plane.triangles, points, cycles, polygons, code, seam, fans, flows, bool(by_faces), inert, tuple(sys.version_info[:2]),
                 None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, normals, real,
             )
         except BaseException:

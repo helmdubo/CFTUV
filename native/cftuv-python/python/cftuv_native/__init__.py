@@ -3,6 +3,9 @@
 Шим переводит объекты ядра в буферы целой операции и воспроизводит её побочные эффекты (бюджет точной работы, память
 канонизации), как их воспроизводит попадание `clip_memo`. Тихого отката на Python здесь нет: нет расширения — `ImportError`.
 
+Потоки: каждый публичный метод `CostMirror` идёт под ОДНОЙ процессной блокировкой `cost.NATIVE_LOCK` (синхронизация памяти, нативная операция, журнал, статьи и
+счётчики — целиком): продукт зовёт `coverage_at` из потока предпросмотра alpha и из главного, а таблицы памяти и сессия — состояние процесса.
+
 Три части:
 
 * числа (`run_number_ops`): сценарий операций в ОДНОМ вызове, только для сверки с эталоном;
@@ -91,9 +94,10 @@ def new_mirror() -> cost.CostMirror:
 def default_mirror() -> cost.CostMirror:
     """The process-wide mirror: one native session per process, matching the process-wide Python tables."""
 
-    if not _DEFAULT:
-        _DEFAULT.append(new_mirror())
-    return _DEFAULT[0]
+    with cost.NATIVE_LOCK:
+        if not _DEFAULT:
+            _DEFAULT.append(new_mirror())
+        return _DEFAULT[0]
 
 
 def coverage_at(partition, alpha, work_budget=None, store=None):
@@ -102,10 +106,10 @@ def coverage_at(partition, alpha, work_budget=None, store=None):
     return default_mirror().coverage_at(partition, alpha, work_budget, store)
 
 
-def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces):
+def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()):
     """`materialize.clip.clip_geometry(plane, budget, ...)`, native and whole (see `CostMirror.clip_geometry`)."""
 
-    return default_mirror().clip_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces)
+    return default_mirror().clip_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces, inert=inert)
 
 
 def last_clip_timings() -> tuple:

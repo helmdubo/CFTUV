@@ -139,7 +139,7 @@ impl Session {
 
     /// `clip.clip_geometry` whole (see `clip.rs`): `(result or None, status, detail, sign-counter deltas, budget articles after,
     /// changed-tables bits, (plane, arguments, compute, result, memory log) nanoseconds)`. `triangles` is `plane.triangles`, `law` the code of
-    /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `version` `sys.version_info[:2]`, `sync` the memory sync
+    /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `inert` the chain station plan's pairs of faces (a frozenset of frozensets of names), `version` `sys.version_info[:2]`, `sync` the memory sync
     /// in the wire format (`None`: unchanged), `budget` `(cap, six articles)` or `None`, `normals` the plane's
     /// `_normal_by_position`, `tables` the real memory tables `(registry list, registry set, factorizations, squarefree splits,
     /// supports)` the memory log of the call is replayed on, in place. Any error resets the session, as `run` does.
@@ -156,13 +156,14 @@ impl Session {
         fans: &Bound<'py, PyAny>,
         flows: &Bound<'py, PyAny>,
         by_faces: bool,
+        inert: &Bound<'py, PyAny>,
         version: (u32, u32),
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
         normals: Option<&Bound<'py, pyo3::types::PyDict>>,
         tables: clip::Tables<'py>,
     ) -> PyResult<clip::Answer<'py>> {
-        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, version, sync, budget, normals, &tables);
+        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert, version, sync, budget, normals, &tables);
         if outcome.is_err() {
             self.inner = cftuv_core::session::Session::new();
         }

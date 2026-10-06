@@ -235,6 +235,7 @@ fn key_of(value: &Value) -> Wire<CellKey> {
         ("t", [index]) => Ok(CellKey::Triangle(usize_of(index, "a cell index")?)),
         ("f", [face, index]) => Ok(CellKey::Face(str_of(face, "a cell face")?, usize_of(index, "a cell index")?)),
         ("g", [face, index]) => Ok(CellKey::Group(str_of(face, "a group face")?, usize_of(index, "a group index")?)),
+        ("p", [name]) => Ok(CellKey::Plan(str_of(name, "a plan group name")?)),
         _ => Err(bad("a cell key")),
     }
 }
@@ -280,6 +281,7 @@ fn key_value(key: &CellKey) -> Value {
         CellKey::Triangle(index) => Value::List(vec![str_value("t"), int(*index as u64)]),
         CellKey::Face(face, index) => Value::List(vec![str_value("f"), str_value(face), int(*index as u64)]),
         CellKey::Group(face, index) => Value::List(vec![str_value("g"), str_value(face), int(*index as u64)]),
+        CellKey::Plan(name) => Value::List(vec![str_value("p"), str_value(name)]),
     }
 }
 
@@ -396,7 +398,19 @@ fn plan_value(plan: &CellPlan) -> Value {
     Value::List(vec![
         Value::List(plan.cells.iter().map(cell_value).collect()),
         Value::List(plan.unmergeable.iter().map(|(face, reason)| Value::List(vec![str_value(face), str_value(reason)])).collect()),
+        int(plan.plan_pairs),
     ])
+}
+
+/// `inert`: `[[name, name], ...]` in the iteration order of the oracle's frozenset (the shim drops the pairs that are not two names).
+pub(crate) fn inert_pairs_of(value: &Value) -> Wire<Vec<(String, String)>> {
+    list(value, "inert pairs")?
+        .iter()
+        .map(|entry| {
+            let [first, second] = fixed::<2>(entry, "an inert pair")?;
+            Ok((str_of(first, "an inert face name")?, str_of(second, "an inert face name")?))
+        })
+        .collect()
 }
 
 fn constants_value(constants: &Option<EdgeConstants>) -> Value {
@@ -599,11 +613,12 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
             })
         }
         118 => {
-            expect(3)?;
+            expect(4)?;
             let triangles = triangles_of(at(0)?)?;
             let split: HashSet<CellKey> = list(at(1)?, "split keys")?.iter().map(key_of).collect::<Wire<_>>()?;
             let mut memo = memo_of(at(2)?)?;
-            cells::build_cells(&triangles, &split, &mut memo).map(|plan| Value::List(vec![plan_value(&plan), memo_value(&memo)]))
+            let inert = inert_pairs_of(at(3)?)?;
+            cells::build_cells(&triangles, &split, &mut memo, &inert).map(|plan| Value::List(vec![plan_value(&plan), memo_value(&memo)]))
         }
         119 => {
             expect(2)?;
@@ -655,7 +670,7 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
             version.and_then(|version| order::ordered(ctx, version, &first, &second, &refs)).map(|permutation| Value::List(permutation.into_iter().map(|index| int(index as u64)).collect()))
         }
         124 => {
-            expect(11)?;
+            expect(12)?;
             geometry_seam::clip_geometry_seam(args, ctx, extras)?
         }
         other => return Err(SeamError(format!("unknown clip seam opcode {other}"))),

@@ -22,12 +22,14 @@ pub const NOT_CONVEX: &str = "NOT_CONVEX";
 pub const NOT_ONE_LOOP: &str = "NOT_ONE_LOOP";
 pub const MIXED_WINDING: &str = "MIXED_WINDING";
 
-/// `ClipCellV1.key` / `.group`: `("t", index)`, `("f", face, first index)` or `("g", face, first index)`.
+/// `ClipCellV1.key` / `.group`: `("t", index)`, `("f", face, first index)`, `("g", face, first index)` or the group of the
+/// chain station plan, `("p", smallest face name)`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CellKey {
     Triangle(usize),
     Face(String, usize),
     Group(String, usize),
+    Plan(String),
 }
 
 /// `HingeV1`: the diagonal `edge` of triangle `triangle` and `|k|^2`.
@@ -60,6 +62,8 @@ pub struct CellPlan {
     pub cells: Vec<ClipCell>,
     /// `(face, reason)` of the faces that merged neither into a cell nor into a group.
     pub unmergeable: Vec<(String, &'static str)>,
+    /// `plan_pairs`: the pairs of faces of the chain station plan (`CHAIN_STATION_PLAN_V1`) glued into groups; zero: no plan.
+    pub plan_pairs: u64,
 }
 
 /// What `_merged_cell` answers: a cell or the reason it is none.
@@ -310,9 +314,96 @@ fn merged_cell(triangles: &[Triangle], face: &str, members: &[usize]) -> ClipRes
     })))
 }
 
-/// `build_cells(triangles, split, memo)`: the cut cells of the lifted triangles; the cells and groups whose keys are in
-/// `split` stay triangles. The faces are walked in first-appearance order (an empty face is its own face).
-pub fn build_cells(triangles: &[Triangle], split: &HashSet<CellKey>, memo: &mut CellMemo) -> ClipResult<CellPlan> {
+/// The pairs of faces of the chain station plan, in the iteration order of the oracle's frozenset (`inert`): only the order of the
+/// memo writes the oracle makes while it asks `usable` depends on it, the groups and the count do not.
+pub type InertPairs = [(String, String)];
+
+/// `_merged_cell(...)` kept in the caller's memo under `("cell", face)`: the cell or the reason, computed once and shared by both stages.
+fn memoized<'m>(triangles: &[Triangle], face: &str, members: &[usize], memo: &'m mut CellMemo) -> ClipResult<&'m Built> {
+    let key = MemoKey::Cell(face.to_string());
+    if !matches!(memo.get(&key), Some(MemoValue::Built(_))) {
+        let made = merged_cell(triangles, face, members)?;
+        memo.set(key.clone(), MemoValue::Built(made));
+    }
+    match memo.get(&key) {
+        Some(MemoValue::Built(found)) => Ok(found),
+        _ => unreachable!("the entry was just stored"),
+    }
+}
+
+/// `_non_convex_flat(triangles, face, members, memo)`: `(2 rho)^2` of a non-convex face (kept in `memo`), zero for a convex face.
+fn non_convex_flat(triangles: &[Triangle], face: &str, members: &[usize], memo: &mut CellMemo) -> ClipResult<Rat> {
+    if !matches!(memoized(triangles, face, members, memo)?, Built::Reason(reason) if *reason == NOT_CONVEX) {
+        return Ok(Rat::zero());
+    }
+    let key = MemoKey::Flat(face.to_string());
+    if let Some(MemoValue::Flat(found)) = memo.get(&key) {
+        return Ok(found.clone());
+    }
+    let made = flat_square(triangles, members)?;
+    memo.set(key, MemoValue::Flat(made.clone()));
+    Ok(made)
+}
+
+/// The number of a face name in the union-find of `plan_groups` (`parent.setdefault(name, name)`).
+fn slot_of<'a>(known: &mut HashMap<&'a str, usize>, labels: &mut Vec<&'a str>, parent: &mut Vec<usize>, name: &'a str) -> usize {
+    *known.entry(name).or_insert_with(|| {
+        parent.push(parent.len());
+        labels.push(name);
+        parent.len() - 1
+    })
+}
+
+fn root_of(parent: &mut [usize], mut item: usize) -> usize {
+    while parent[item] != item {
+        parent[item] = parent[parent[item]];
+        item = parent[item];
+    }
+    item
+}
+
+/// `_plan_groups(names, inert, usable)`: `(({face: group key} in the oracle's dictionary order), glued pairs)`. A pair counts when both faces
+/// are the domain's and `usable` (the oracle's short-circuit order is kept: the first face is asked before the second); a connected
+/// component of two or more faces is a group keyed by its smallest name.
+fn plan_groups(names: &HashMap<String, usize>, inert: &InertPairs, usable: &mut dyn FnMut(&str) -> ClipResult<bool>) -> ClipResult<(Vec<(String, String)>, u64)> {
+    let mut known: HashMap<&str, usize> = HashMap::new();
+    let mut labels: Vec<&str> = Vec::new();
+    let mut parent: Vec<usize> = Vec::new();
+    let mut pairs = 0u64;
+    for (left, right) in inert {
+        let (first, second) = if left <= right { (left.as_str(), right.as_str()) } else { (right.as_str(), left.as_str()) };
+        if names.contains_key(first) && names.contains_key(second) && usable(first)? && usable(second)? {
+            let (first_slot, second_slot) = (slot_of(&mut known, &mut labels, &mut parent, first), slot_of(&mut known, &mut labels, &mut parent, second));
+            let (first_root, second_root) = (root_of(&mut parent, first_slot), root_of(&mut parent, second_slot));
+            parent[first_root] = second_root;
+            pairs += 1;
+        }
+    }
+    let mut order: Vec<usize> = (0..labels.len()).collect();
+    order.sort_by(|a, b| labels[*a].cmp(labels[*b]));
+    let mut found: Vec<(usize, Vec<usize>)> = Vec::new();
+    for slot in order {
+        let head = root_of(&mut parent, slot);
+        match found.iter_mut().find(|(known, _)| *known == head) {
+            Some((_, members)) => members.push(slot),
+            None => found.push((head, vec![slot])),
+        }
+    }
+    let mut keys = Vec::new();
+    for (_, members) in found.iter().filter(|(_, members)| members.len() >= 2) {
+        // the members are in sorted order: the first one is the smallest name
+        let key = labels[members[0]];
+        keys.extend(members.iter().map(|slot| (labels[*slot].to_string(), key.to_string())));
+    }
+    let glued = if keys.is_empty() { 0 } else { pairs };
+    Ok((keys, glued))
+}
+
+/// `build_cells(triangles, split, memo, inert)`: the cut cells of the lifted triangles; the cells and groups whose keys are in
+/// `split` stay triangles. The faces are walked in first-appearance order (an empty face is its own face). `inert` are the pairs of faces of
+/// the chain station plan: the faces of a group stay triangles of ONE group, the edges between them do not cut, and the estimate of the group
+/// is the largest `(2 rho)^2` of its non-convex faces (zero otherwise).
+pub fn build_cells(triangles: &[Triangle], split: &HashSet<CellKey>, memo: &mut CellMemo, inert: &InertPairs) -> ClipResult<CellPlan> {
     let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
     let mut lookup: HashMap<String, usize> = HashMap::new();
     for (index, item) in triangles.iter().enumerate() {
@@ -325,9 +416,41 @@ pub fn build_cells(triangles: &[Triangle], split: &HashSet<CellKey>, memo: &mut 
             }
         }
     }
+    let (planned, plan_pairs) = if inert.is_empty() {
+        (Vec::new(), 0)
+    } else {
+        // `usable(name)`: a lone triangle, a merged convex cell or a non-convex face
+        let mut usable = |name: &str| -> ClipResult<bool> {
+            let members = &groups[lookup[name]].1;
+            if members.len() < 2 {
+                return Ok(true);
+            }
+            Ok(match memoized(triangles, name, members, memo)? {
+                Built::Cell(_) => true,
+                Built::Reason(reason) => *reason == NOT_CONVEX,
+            })
+        };
+        plan_groups(&lookup, inert, &mut usable)?
+    };
+    let mut group_flat: HashMap<&str, Rat> = HashMap::new();
+    for (name, key) in &planned {
+        let members = &groups[lookup[name.as_str()]].1;
+        let candidate = if members.len() > 1 { non_convex_flat(triangles, name, members, memo)? } else { Rat::zero() };
+        let current = group_flat.get(key.as_str()).cloned().unwrap_or_else(Rat::zero);
+        group_flat.insert(key.as_str(), if candidate > current { candidate } else { current });
+    }
+    let planned_key: HashMap<&str, &str> = planned.iter().map(|(name, key)| (name.as_str(), key.as_str())).collect();
     let mut cells: Vec<(usize, ClipCell)> = Vec::new();
     let mut unmergeable = Vec::new();
     for (face, members) in &groups {
+        if let Some(key) = planned_key.get(face.as_str()) {
+            let group = CellKey::Plan((*key).to_string());
+            if !split.contains(&group) {
+                let flat = group_flat[key].clone();
+                cells.extend(members.iter().map(|index| (*index, single(triangles, *index, Some(group.clone()), Some(flat.clone())))));
+                continue;
+            }
+        }
         let built = if members.len() == 1 {
             None
         } else {
@@ -372,7 +495,7 @@ pub fn build_cells(triangles: &[Triangle], split: &HashSet<CellKey>, memo: &mut 
         }
     }
     cells.sort_by_key(|entry| entry.0);
-    Ok(CellPlan { cells: cells.into_iter().map(|entry| entry.1).collect(), unmergeable })
+    Ok(CellPlan { cells: cells.into_iter().map(|entry| entry.1).collect(), unmergeable, plan_pairs })
 }
 
 /// `hinge_depth_square(jump_square, column)`: `|k|^2 (a b / (a + b))^2` from the enclosures of the orientation values

@@ -79,7 +79,7 @@ fn case(vertices: &[Point]) -> Case {
 }
 
 fn input(case: &Case) -> ClipInput<'_> {
-    ClipInput { points: &case.points, cycles: &case.cycles, polygons: &case.polygons, law: Law::PlanarPolygons, seam: &case.seam, fans: None, flows: None, by_faces: false }
+    ClipInput { points: &case.points, cycles: &case.cycles, polygons: &case.polygons, law: Law::PlanarPolygons, seam: &case.seam, fans: None, flows: None, by_faces: false, inert: &[] }
 }
 
 fn counter(clipped: &cftuv_clip::emit::Clipped, name: &str) -> UBig {
@@ -115,6 +115,59 @@ fn a_rectangle_over_the_diagonal_is_cut_into_two_faces_with_one_new_vertex() {
          predicates=26 divisions=4"
     );
     assert_eq!(clipped.counters.len(), 24, "16 stage + 5 snap + 3 node-gap counters, no diagonal ones by triangles");
+}
+
+/// Two flat squares of side 4 side by side (faces `f0` and `f1`, two triangles each, the diagonal of each from its first corner).
+fn two_faces() -> Plane {
+    let quarter = |value: i64| Rat::new(IBig::from(value), IBig::from(4)).unwrap();
+    let triangle = |name: &str, face: &str, chart: [(i64, i64); 3]| {
+        let [(ax, ay), (bx, by), (cx, cy)] = chart;
+        Triangle {
+            name: name.to_string(),
+            chart: chart.map(|(x, y)| -> ChartPoint { (rat(x), rat(y)) }),
+            corners: chart.map(|(x, y)| [quarter(x), quarter(y), rat(0)]),
+            twice_area: rat((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)),
+            bbox: [-5e-324, 8.000000000000002, -5e-324, 4.000000000000001],
+            normals: None,
+            face: face.to_string(),
+        }
+    };
+    Plane::new(vec![
+        triangle("f0.t0", "f0", [(0, 0), (4, 0), (4, 4)]),
+        triangle("f0.t1", "f0", [(0, 0), (4, 4), (0, 4)]),
+        triangle("f1.t0", "f1", [(4, 0), (8, 0), (8, 4)]),
+        triangle("f1.t1", "f1", [(4, 0), (8, 4), (4, 4)]),
+    ])
+}
+
+#[test]
+fn an_inert_pair_of_the_chain_station_plan_keeps_the_polygon_across_the_edge_in_one_piece() {
+    let plane = two_faces();
+    // a rectangle across the common edge x = 4 that crosses neither diagonal; keys without the `node:` prefix (no tolerance of the law 2)
+    let mut case = case(&[point(3, 1), point(5, 1), point(5, 2), point(3, 2)]);
+    let rename = |key: &String| key.replace("node:", "p");
+    case.points = case.points.iter().map(|(key, point)| (rename(key), point.clone())).collect();
+    case.cycles = case.cycles.iter().map(|cycle| cycle.iter().map(rename).collect()).collect();
+    case.polygons = case.polygons.iter().map(|face| face.iter().map(|keys| keys.iter().map(rename).collect()).collect()).collect();
+    let pairs = vec![("f0".to_string(), "f1".to_string())];
+    let run = |inert: &[(String, String)]| {
+        let mut world = World::new(WorkBudget::unlimited());
+        let input = ClipInput { by_faces: true, inert, ..input(&case) };
+        clip_geometry(&mut world.ctx(), &mut Warm::new(), PyVersion::V313, &plane, &input).result.expect("a cut")
+    };
+    let glued = run(&pairs);
+    assert!(glued.points.is_empty());
+    assert_eq!(glued.polygons.len(), 1);
+    assert_eq!(glued.polygons[0].iter().map(Vec::len).collect::<Vec<_>>(), vec![4]);
+    assert_eq!(counter(&glued, "MATERIALIZE_CLIP_PLAN_INERT_FACE_PAIRS"), UBig::from(1u8));
+    assert_eq!(counter(&glued, "MATERIALIZE_CLIP_PLAN_INERT_CUTS_AVOIDED"), UBig::from(1u8));
+    let plain = run(&[]);
+    assert_eq!(plain.points.len(), 2, "the real edge cuts without the plan");
+    assert!(plain.counters.iter().all(|(name, _)| !name.contains("PLAN_INERT")), "no plan counter without a plan");
+    // a pair with a face the domain lacks changes nothing: the answer is the answer without a plan
+    let foreign = run(&[("f1".to_string(), "elsewhere".to_string())]);
+    assert_eq!(foreign.points.len(), 2);
+    assert!(foreign.counters.iter().all(|(name, _)| !name.contains("PLAN_INERT")));
 }
 
 #[test]

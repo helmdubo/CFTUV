@@ -131,7 +131,7 @@ fn cells_merge_a_convex_face_group_a_concave_one_and_name_what_is_neither() {
         triangle("c0", [(20, 0), (28, 0), (28, 4)], "", 0),
     ];
     let mut memo = CellMemo::new();
-    let plan = build_cells(&triangles, &HashSet::new(), &mut memo).unwrap();
+    let plan = build_cells(&triangles, &HashSet::new(), &mut memo, &[]).unwrap();
     assert_eq!(plan.cells.len(), 4, "the quad merges, the others stay triangles");
     assert_eq!(plan.cells[0].key, CellKey::Face("quad".into(), 0));
     assert_eq!(plan.cells[0].members, vec![0, 1]);
@@ -140,9 +140,38 @@ fn cells_merge_a_convex_face_group_a_concave_one_and_name_what_is_neither() {
     assert_eq!(memo.len(), 2, "one memo entry per multi-triangle face");
     // the cell asked to split stays two triangles, from the memo and without recomputation
     let split: HashSet<CellKey> = [CellKey::Face("quad".into(), 0)].into_iter().collect();
-    let again = build_cells(&triangles, &split, &mut memo).unwrap();
+    let again = build_cells(&triangles, &split, &mut memo, &[]).unwrap();
     assert_eq!(again.cells.len(), 5);
     assert!(again.cells.iter().all(|cell| cell.members.len() == 1));
+}
+
+#[test]
+fn the_pairs_of_the_chain_station_plan_glue_faces_into_a_group_keyed_by_the_smallest_name() {
+    // three flat squares side by side, two triangles each; the plan names the edges f0-f1 and f1-f2 inert, and a pair with a face the domain lacks
+    let squares = |name: &str, x: i64| -> [Triangle; 2] {
+        [triangle(&format!("{name}a"), [(x, 0), (x + 4, 0), (x + 4, 4)], name, 0), triangle(&format!("{name}b"), [(x, 0), (x + 4, 4), (x, 4)], name, 0)]
+    };
+    let triangles: Vec<Triangle> = ["f2", "f0", "f1"].iter().enumerate().flat_map(|(slot, name)| squares(name, 4 * [2, 0, 1][slot])).collect();
+    let pairs = |names: &[(&str, &str)]| -> Vec<(String, String)> { names.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect() };
+    let inert = pairs(&[("f1", "f2"), ("f1", "f0"), ("f1", "elsewhere")]);
+    let mut memo = CellMemo::new();
+    let plan = build_cells(&triangles, &HashSet::new(), &mut memo, &inert).unwrap();
+    assert_eq!(plan.plan_pairs, 2, "the foreign pair does not count");
+    assert_eq!(plan.cells.len(), 6);
+    assert!(plan.cells.iter().all(|cell| cell.group == Some(CellKey::Plan("f0".into())) && cell.members.len() == 1));
+    assert!(plan.cells.iter().all(|cell| cell.flat_square == Some(rat(0))), "a plane group has the zero estimate of the plan");
+    assert!(plan.unmergeable.is_empty());
+    // the memo of the oracle: the faces asked by `usable` in the order of the pairs (f1, f2, f1, f0), each once
+    assert_eq!(memo.len(), 3);
+    // a group asked to split falls back to the plain handling: the merged convex cell of each face
+    let split: HashSet<CellKey> = [CellKey::Plan("f0".into())].into_iter().collect();
+    let apart = build_cells(&triangles, &split, &mut memo, &inert).unwrap();
+    assert_eq!(apart.plan_pairs, 2);
+    assert_eq!(apart.cells.len(), 3);
+    assert!(apart.cells.iter().all(|cell| cell.group.is_none() && cell.members.len() == 2));
+    // no pairs: the plain plan, no plan pairs
+    let plain = build_cells(&triangles, &HashSet::new(), &mut memo, &[]).unwrap();
+    assert_eq!((plain.plan_pairs, plain.cells.len()), (0, 3));
 }
 
 #[test]

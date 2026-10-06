@@ -164,6 +164,8 @@ struct Arguments<'py> {
     seam: Vec<(String, String)>,
     fans: Option<Vec<bool>>,
     flows: Option<Vec<bool>>,
+    /// The chain station plan's pairs of faces, in the iteration order of the caller's frozenset (pairs that are not two names are dropped: the oracle skips them).
+    inert: Vec<(String, String)>,
 }
 
 fn text_of(item: &Bound<'_, PyAny>, what: &str) -> PyResult<String> {
@@ -188,6 +190,28 @@ fn flags_of(value: &Bound<'_, PyAny>) -> PyResult<Option<Vec<bool>>> {
     Ok(Some(flags))
 }
 
+/// `inert`: an iterable of pairs of face names (`frozenset[frozenset[str]]`). A pair that is not two items is skipped, as `_plan_groups` skips it;
+/// an item that is no `str` is a named refusal (the oracle would compare it to the face names and sort it with a name).
+fn inert_of(value: &Bound<'_, PyAny>) -> PyResult<Vec<(String, String)>> {
+    // `None` is as falsy as the empty frozenset: the oracle's `if inert` takes the same branch
+    if value.is_none() {
+        return Ok(Vec::new());
+    }
+    let mut pairs = Vec::new();
+    for pair in value.try_iter()? {
+        let mut names = Vec::with_capacity(2);
+        for item in pair?.try_iter()? {
+            names.push(text_of(&item?, "an inert face name")?);
+        }
+        if names.len() == 2 {
+            let second = names.pop().expect("two names");
+            let first = names.pop().expect("two names");
+            pairs.push((first, second));
+        }
+    }
+    Ok(pairs)
+}
+
 fn arguments_of<'py>(
     pool: &Pool,
     points: &Bound<'py, PyDict>,
@@ -196,6 +220,7 @@ fn arguments_of<'py>(
     seam: &Bound<'py, PyAny>,
     fans: &Bound<'py, PyAny>,
     flows: &Bound<'py, PyAny>,
+    inert: &Bound<'py, PyAny>,
 ) -> PyResult<Arguments<'py>> {
     let mut named = Vec::with_capacity(points.len());
     let mut objects = Vec::with_capacity(points.len());
@@ -243,6 +268,7 @@ fn arguments_of<'py>(
         seam: pairs,
         fans: flags_of(fans)?,
         flows: flags_of(flows)?,
+        inert: inert_of(inert)?,
     })
 }
 
@@ -591,6 +617,7 @@ impl Host {
         fans: &Bound<'py, PyAny>,
         flows: &Bound<'py, PyAny>,
         by_faces: bool,
+        inert: &Bound<'py, PyAny>,
         version: (u32, u32),
         sync: Option<&[u8]>,
         budget: Option<(Option<u64>, [u64; 6])>,
@@ -601,7 +628,7 @@ impl Host {
         let index = self.prepare(py, triangles)?;
         let plane_ns = nanos(started);
         let began = Instant::now();
-        let mut arguments = arguments_of(&self.classes()?.pool, points, cycles, polygons, seam, fans, flows)?;
+        let mut arguments = arguments_of(&self.classes()?.pool, points, cycles, polygons, seam, fans, flows, inert)?;
         let law = match law {
             0 => Law::PlanarPolygons,
             1 => Law::QuadStrips,
@@ -635,6 +662,7 @@ impl Host {
                         fans: arguments.fans.as_deref(),
                         flows: arguments.flows.as_deref(),
                         by_faces,
+                        inert: &arguments.inert,
                     };
                     let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
                     clip_geometry(&mut ctx, warm, version, &prepared.plane, &input)

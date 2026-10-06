@@ -14,7 +14,7 @@ use cftuv_core::num::IBig;
 use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
-use crate::cells::{build_cells, single, CellMemo};
+use crate::cells::{build_cells, single, CellMemo, InertPairs};
 use crate::error::{ClipError, ClipResult};
 use crate::numeric::upper_root;
 use crate::regions::{EdgeLine, RegionSet};
@@ -85,7 +85,12 @@ pub struct FirstStage {
     pub regions: Arc<RegionSet>,
     pub unmergeable: Vec<(String, &'static str)>,
     pub memo: CellMemo,
+    /// The pairs of faces of the chain station plan the first plan glued (`CellPlanV1.plan_pairs`).
+    pub plan_pairs: u64,
 }
+
+/// First stages of calls WITH a chain station plan kept per plane (a domain keeps one plan; a width slider reuses it).
+const PLANNED_FIRST_STAGES: usize = 4;
 
 /// `BoundSurfaceLiftV1` without the budget (the budget is a parameter of the operations that spend it).
 #[derive(Debug, Default)]
@@ -98,8 +103,10 @@ pub struct Plane {
     lines: Vec<OnceLock<TriangleLines>>,
     /// `triangle_hash` of each triangle.
     pub hashes: Vec<u64>,
-    /// The first stage of a clip by faces (`build_cells(triangles, {}, memo)`), built once per plane.
-    first: OnceLock<ClipResult<FirstStage>>,
+    /// The first stage of a clip by faces without a chain station plan (`build_cells(triangles, {}, memo)`), built once per plane.
+    first: OnceLock<ClipResult<Arc<FirstStage>>>,
+    /// The first stages of the clips with a plan (`build_cells(triangles, {}, memo, inert)`), by the exact pairs in the order given, newest last.
+    planned: Mutex<Vec<(Vec<(String, String)>, ClipResult<Arc<FirstStage>>)>>,
     /// The regions of a clip by triangles: one single-triangle region per triangle.
     triangle_regions: OnceLock<Arc<RegionSet>>,
     /// The grid of the chart corners the corner snap scans (`_corner_grid`), built on first use.
@@ -114,7 +121,7 @@ impl Plane {
         let factors = triangles.iter().map(|_| OnceLock::new()).collect();
         let lines = triangles.iter().map(|_| OnceLock::new()).collect();
         let hashes = triangles.iter().map(triangle_hash).collect();
-        Plane { triangles, factors, lines, hashes, first: OnceLock::new(), triangle_regions: OnceLock::new(), grid: OnceLock::new(), stretch: Mutex::new(HashMap::new()) }
+        Plane { triangles, factors, lines, hashes, first: OnceLock::new(), planned: Mutex::new(Vec::new()), triangle_regions: OnceLock::new(), grid: OnceLock::new(), stretch: Mutex::new(HashMap::new()) }
     }
 
     /// `plane.stretch_square(triangle)` for the triangle at `index` (cached per triangle, as the oracle caches by name).
@@ -127,17 +134,27 @@ impl Plane {
         Ok(computed)
     }
 
-    /// The first stage of a clip by faces: a pure function of the triangles (`build_cells` reads nothing else), so the plane builds it once
-    /// and every call shares it; a refusal of the build is the refusal of every call.
-    pub fn first_stage(&self) -> ClipResult<&FirstStage> {
-        self.first
-            .get_or_init(|| {
-                let mut memo = CellMemo::new();
-                let plan = build_cells(&self.triangles, &HashSet::new(), &mut memo)?;
-                Ok(FirstStage { regions: Arc::new(RegionSet::new(plan.cells)), unmergeable: plan.unmergeable, memo })
-            })
-            .as_ref()
-            .map_err(ClipError::clone)
+    /// The first stage of a clip by faces: a pure function of the triangles and the pairs of the plan (`build_cells` reads nothing else), so the
+    /// plane builds it once per plan and every call shares it; a refusal of the build is the refusal of every call.
+    pub fn first_stage(&self, inert: &InertPairs) -> ClipResult<Arc<FirstStage>> {
+        let build = |inert: &InertPairs| -> ClipResult<Arc<FirstStage>> {
+            let mut memo = CellMemo::new();
+            let plan = build_cells(&self.triangles, &HashSet::new(), &mut memo, inert)?;
+            Ok(Arc::new(FirstStage { regions: Arc::new(RegionSet::new(plan.cells)), unmergeable: plan.unmergeable, memo, plan_pairs: plan.plan_pairs }))
+        };
+        if inert.is_empty() {
+            return self.first.get_or_init(|| build(&[])).clone();
+        }
+        let mut kept = self.planned.lock().expect("the planned first stages lock is never poisoned");
+        if let Some((_, found)) = kept.iter().find(|(pairs, _)| pairs.as_slice() == inert) {
+            return found.clone();
+        }
+        let built = build(inert);
+        if kept.len() >= PLANNED_FIRST_STAGES {
+            drop(kept.remove(0));
+        }
+        kept.push((inert.to_vec(), built.clone()));
+        built
     }
 
     /// The regions of a clip by triangles (the triangles themselves as cells), built once per plane.

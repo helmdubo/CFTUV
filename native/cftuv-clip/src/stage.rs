@@ -167,6 +167,9 @@ pub struct Stage<'a, 'c> {
     pub(crate) across: i64,
     pub(crate) avoided: i64,
     pub(crate) kept_depth: Rat,
+    /// `plan_pairs` / `plan_glued`: the pairs of faces of the chain station plan the cells glued, and the cuts across them the clip did not make.
+    pub plan_pairs: u64,
+    pub(crate) plan_glued: i64,
     pub verdict: Option<Verdict>,
     /// `{node: {line}}` of the polygon being cut (`self.on`), `None` outside `_cut`.
     pub(crate) on: Option<FxMap<NodeId, FxSet<Pair>>>,
@@ -311,6 +314,8 @@ impl<'a, 'c> Stage<'a, 'c> {
             across: 0,
             avoided: 0,
             kept_depth: Rat::zero(),
+            plan_pairs: 0,
+            plan_glued: 0,
             verdict: None,
             on: None,
             writes: Vec::new(),
