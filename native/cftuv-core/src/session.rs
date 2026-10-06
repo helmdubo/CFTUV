@@ -234,6 +234,20 @@ impl CostRun {
         session.memory.start_log();
         Ok(CostRun { budget: decode_budget(budget)?, full_state: options & OPTION_FULL_STATE != 0 })
     }
+
+    /// The answer `[outcome, counts, articles, log, state]` of one operation that ran on `session` under this call
+    /// (`outcome` is already encoded, see [`outcome_value`]); takes the memory log of the operation.
+    pub fn answer(&self, session: &mut Session, outcome: Value, counts: &SignCounts) -> Value {
+        let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
+        let state = if self.full_state { state_value(&session.memory.export_state()) } else { Value::None };
+        Value::List(vec![
+            outcome,
+            Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
+            Value::List(self.budget.articles().iter().map(|article| int(*article)).collect()),
+            log,
+            state,
+        ])
+    }
 }
 
 fn rat_list(args: &Args, index: usize) -> Result<Vec<Rat>, ScriptError> {
@@ -419,15 +433,7 @@ pub fn take_log_bytes(session: &mut Session) -> Option<Vec<u8>> {
 /// The cost answer `[outcome, counts, articles, log, state]` of a whole operation that spent the run's budget itself
 /// (a coverage call: no script, one answer). `counts` is the sign-counter delta of the call.
 pub fn finish_answer(session: &mut Session, run: &CostRun, counts: &SignCounts, outcome: Value) -> Value {
-    let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
-    let state = if run.full_state { state_value(&session.memory.export_state()) } else { Value::None };
-    Value::List(vec![
-        outcome,
-        Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
-        Value::List(run.budget.articles().iter().map(|article| int(*article)).collect()),
-        log,
-        state,
-    ])
+    run.answer(session, outcome, counts)
 }
 
 /// One cost operation of a script: runs it on the session, answers `[outcome, counts, articles, log, state]`.
@@ -438,7 +444,7 @@ pub(crate) fn execute_cost_op(session: &mut Session, run: &mut CostRun, args: &A
         let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut run.budget, counts: &mut counts, products: &mut session.products };
         run_exact(args, &mut ctx)?
     };
-    Ok(finish_answer(session, run, &counts, outcome_value(result)))
+    Ok(run.answer(session, outcome_value(result), &counts))
 }
 
 #[cfg(test)]

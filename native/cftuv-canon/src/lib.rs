@@ -9,7 +9,7 @@ pub mod budget;
 pub mod factor;
 pub mod memory;
 mod mont;
-mod ordered;
+pub mod ordered;
 pub mod pyrandom;
 
 pub use budget::{BudgetConfigError, BudgetMode, Exhausted, Operation, WorkBudget, ARTICLES};

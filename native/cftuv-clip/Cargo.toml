@@ -1,0 +1,11 @@
+[package]
+name = "cftuv-clip"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
+cftuv-core = { path = "../cftuv-core" }
