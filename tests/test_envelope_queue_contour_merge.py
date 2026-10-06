@@ -491,7 +491,7 @@ def test_the_debug_picture_skips_a_lost_face_as_before_but_names_the_loss(monkey
     monkeypatch.setattr(
         coalesce,
         "region_contours",
-        lambda region, alpha, budget=None: tuple(real(region, alpha, budget))[:-1],
+        lambda region, alpha, budget=None, covered=None: tuple(real(region, alpha, budget, covered))[:-1],
     )
     lossy = _queue_domain(TWO_CHAINS)
 

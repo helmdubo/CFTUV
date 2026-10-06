@@ -18,9 +18,8 @@ from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.materialize.admit import MaterializationOutcome
 from cftuv_envelope.materialize.domain import finalize_digests, materialize_domain
 from cftuv_envelope.validation import validate_geometry_batch
-from cftuv_envelope.wavefront import coverage as coverage_module
 
-from test_materialize_domain import CASES, _case, _run
+from test_materialize_domain import CASES, _run
 from test_materialize_full_path import _strip_checks
 
 LAWS = (DecalTopologyLawV1.TRIANGLES_V1, DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1)
@@ -62,34 +61,14 @@ def test_a_deferred_result_finalizes_to_the_eager_answer(name, law):
     _assert_the_deferred_result_finalizes_to_the_eager_answer(name, law)
 
 
-def test_the_comparison_does_not_depend_on_what_the_recent_coverage_memory_holds(monkeypatch):
-    """Цена `EXACT_WORK_*` в `counters` не зависит от того, лежит ли покрытие домена в `coverage_at._RECENT`.
-
-    Материализатор берёт контуры тем же вызовом, которым покрытие считал `conveyor_coverage`, и попадание в эту память не платит
-    (а промах платит радикалы покрытия и оставляет их в памяти канонизации): eager-проход на сброшенной памяти был бы промахом,
-    а отложенный - попаданием, и `counters` расходились бы на единицу `EXACT_WORK_RADICAL_MATERIALIZATIONS`. Тестовая обвязка
-    `_run` повторяет первый шаг продуктового порядка (`warm_recent_coverage`), поэтому здесь память сбрасывается перед КАЖДЫМ
-    случаем и сравнение обязано держаться.
-    """
-
-    monkeypatch.setattr(coverage_module, "_RECENT", {})
-    for name in CASES:
-        _case(name)  # домен из общего кэша фикстур строится (и кладёт своё покрытие в память) ДО сброса, а не после него
-        coverage_module._RECENT.clear()
-        _assert_the_deferred_result_finalizes_to_the_eager_answer(name, LAWS[0])
-
-
 @pytest.mark.parametrize("order", ("full_path_then_deferred", "deferred_then_full_path"))
-def test_the_full_path_and_the_deferred_digests_agree_in_either_order_in_one_process(order, monkeypatch):
+def test_the_full_path_and_the_deferred_digests_agree_in_either_order_in_one_process(order):
     """Регрессия порядка: шесть отложенных сравнений падали, когда `test_materialize_full_path` шёл раньше в том же процессе.
 
-    Полный путь материализует все девять случаев подряд, а память недавних покрытий держит `_RECENT_LIMIT` (восемь): девятый
-    вытесняет первого, и сравнение первого eager-прохода с отложенным расходилось по цене. Здесь оба пути идут в одном процессе
-    в обоих порядках, начиная с пустой памяти покрытий, чтобы порядок файлов не прятал зависимость.
+    Причиной была процессная память недавних покрытий (цена попадания и промаха различалась); её больше нет, контуры едут в
+    записи региона, и цена не зависит от порядка. Здесь оба пути идут в одном процессе в обоих порядках, чтобы порядок файлов не
+    прятал зависимость, если она вернётся.
     """
-
-    assert len(CASES) > coverage_module._RECENT_LIMIT, "the sequence must be able to evict a case from the recent coverage memory"
-    monkeypatch.setattr(coverage_module, "_RECENT", {})
 
     def full_path():
         for name in CASES:

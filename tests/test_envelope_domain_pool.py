@@ -612,8 +612,10 @@ def _field_task(task_id=0):
     )
 
 
-def _articles(prepared):
-    return prepared.work_budget.counters()
+def _articles(domain):
+    """Цена вычисления домена: шесть статей и сумма бюджета ЭТОГО покрытия (копия состояния подготовки плюс покрытие)."""
+
+    return domain.coverage_work
 
 
 def test_a_domain_is_priced_from_a_cold_memo_whatever_the_process_has_seen(
@@ -633,7 +635,7 @@ def test_a_domain_is_priced_from_a_cold_memo_whatever_the_process_has_seen(
         )
 
     cold_prepared, cold_domain = run()
-    cold = dict(_articles(cold_prepared))
+    cold = dict(_articles(cold_domain))
     assert cold["EXACT_WORK_MODULAR_SQUARINGS"] > 0, cold
 
     # Контроль: без сброса тот же домен в том же процессе стоит ДЕШЕВЛЕ. Если
@@ -641,13 +643,13 @@ def test_a_domain_is_priced_from_a_cold_memo_whatever_the_process_has_seen(
     with monkeypatch.context() as unreset:
         unreset.setattr(exact_sqrt_sum, "reset_factorization_memory", lambda: None)
         unreset.setattr(exact_sqrt_sum, "reset_unbudgeted_work", lambda: None)
-        warm_prepared, _ = run()
-    warm = dict(_articles(warm_prepared))
+        _, warm_domain = run()
+    warm = dict(_articles(warm_domain))
     assert warm["EXACT_WORK_SPENT"] < cold["EXACT_WORK_SPENT"], (cold, warm)
 
     # Сам продукт: сброс внутри `run_queue_domain`, статьи равны холодным.
     again_prepared, again_domain = run()
-    assert dict(_articles(again_prepared)) == cold
+    assert dict(_articles(again_domain)) == cold
     assert again_domain.counters == cold_domain.counters
     assert again_domain.host_counters == cold_domain.host_counters
 
@@ -659,7 +661,7 @@ def test_a_pooled_domain_is_priced_like_a_sequential_one_on_a_warm_worker():
             _field_task()
         ),
     )
-    cold = dict(_articles(local_prepared))
+    cold = dict(_articles(local_domain))
     # Один воркер и две одинаковые задачи: вторая всегда ложится на ТЁПЛЫЙ
     # воркер, и без сброса её статьи были бы другими.
     pool = DomainPool(1)
@@ -671,7 +673,7 @@ def test_a_pooled_domain_is_priced_like_a_sequential_one_on_a_warm_worker():
     assert run.workers == 1 and len(run.results) == 2
     for result in run.results.values():
         assert result.ok, result.error
-        assert dict(_articles(result.prepared)) == cold
+        assert dict(_articles(result.queue_domain)) == cold
         assert result.queue_domain.counters == local_domain.counters
         assert result.queue_domain.host_counters == local_domain.host_counters
 
@@ -1751,15 +1753,13 @@ def test_the_slider_never_starts_a_pool_and_ignores_a_dead_or_resized_one():
     shutdown_domain_pool()
 
 
-def test_a_pooled_coverage_does_not_charge_the_parents_budget():
-    """Названное расхождение: бюджет подготовки в родителе от покрытия воркера не растёт.
+def test_a_coverage_never_charges_the_preparation_budget_in_the_parent_or_in_the_pool():
+    """Бюджет подготовки покрытием не меняется ни в родителе, ни в пуле: каждое покрытие считает на копии состояния `PREPARE`.
 
-    В последовательном пути `conveyor_coverage` тратит из того же `work_budget`,
-    что и подготовка, и подготовка из кэша копит расход от шага к шагу. Воркер
-    считает на копии: ответ тот же, а счёт родителя остаётся на подготовке.
-    Исчерпать потолок (2^23 единиц) так можно только тысячами холодных покрытий
-    одного домена, поэтому на ответ это не влияет; тест держит само различие
-    видимым, чтобы его не «починили» молча в одну из сторон.
+    Раньше последовательный путь тратил из того же `work_budget`, что и подготовка, и подготовка из кэша копила расход от шага к
+    шагу (1724, 1726, 1728 ...), а воркер считал на копии: цена вычисления зависела от того, где и в каком порядке оно идёт.
+    Теперь везде одно: счёт подготовки остаётся тем, чем кончилась подготовка, а цену покрытия несёт запись домена
+    (`EnvelopeQueueDomainV1.coverage_work`), одну и ту же у родителя и у воркера.
     """
 
     from cftuv_envelope import exact_sqrt_sum
@@ -1767,16 +1767,17 @@ def test_a_pooled_coverage_does_not_charge_the_parents_budget():
     from cftuv.envelope_queue_pool import PreparationBlobsV1, SliderCoveragePool
 
     task = _field_task()
-    prepared, _ = run_queue_domain(
+    prepared, first = run_queue_domain(
         task.patch_id, task.domain_id, task.snapshot, task.request, "0.25"
     )
     entries = [(task.patch_id, task.domain_id, prepared)]
     start = prepared.work_budget.spent
+    assert first.coverage_work and dict(first.coverage_work)["EXACT_WORK_SPENT"] > start  # контроль: покрытие тратит
 
     exact_sqrt_sum.reset_factorization_memory()
-    recompute_queue_coverage(entries, "0.4")
+    parent_scene = recompute_queue_coverage(entries, "0.4")
+    assert prepared.work_budget.spent == start
     charged = prepared.work_budget.spent
-    assert charged > start, (start, charged)  # контроль: покрытие тратит
 
     import cftuv.envelope_queue_pool as queue_pool
 
@@ -1785,13 +1786,15 @@ def test_a_pooled_coverage_does_not_charge_the_parents_budget():
     try:
         profile = EnvelopeDebugProfileBuilderV1("field", "QUEUE")
         pooled = SliderCoveragePool(_InProcessPool(), PreparationBlobsV1(), profile)
-        scene = recompute_queue_coverage(entries, "0.3", coverage_pool=pooled)
+        scene = recompute_queue_coverage(entries, "0.4", coverage_pool=pooled)
     finally:
         queue_pool.COVERAGE_POOL_MIN_BYTES = original
 
     assert _counter(profile, POOL_COVERAGE_DISPATCHED) == 1
     assert prepared.work_budget.spent == charged
     assert scene.domains[0].coverage_outcome == "EXACT"
+    # Одна и та же цена у родителя и у воркера на одной ширине.
+    assert scene.domains[0].coverage_work == parent_scene.domains[0].coverage_work
 
 
 def test_a_slider_preparation_that_cannot_be_shipped_is_named_in_a_small_batch(

@@ -43,7 +43,7 @@ from cftuv_envelope.materialize.step import (
 )
 from cftuv_envelope.wavefront import prepare_conveyor
 from cftuv_envelope.wavefront.conveyor import requested_alpha_fraction
-from cftuv_envelope.wavefront.coverage import _coverage_at, clear_recent_coverage, current_coverage_source
+from cftuv_envelope.wavefront.coverage import _coverage_at, current_coverage_source
 from cftuv_envelope.wavefront.coverage_template import KIND_CUT
 
 ROUTE = ("r0a", "r0b")
@@ -82,7 +82,6 @@ def request_of(prepared):
 
 
 def step(prepared, alpha, laws):
-    clear_recent_coverage()
     return step_domain(
         prepared,
         str(alpha),
@@ -94,12 +93,9 @@ def step(prepared, alpha, laws):
 
 
 def reference(prepared, alpha, laws):
-    """Полный путь без шаблонов: память недавних покрытий сброшена, источника покрытия нет."""
+    """Полный путь без шаблонов: источника покрытия нет."""
 
-    clear_recent_coverage()
-    answer = step_module._full(prepared, str(alpha), (request_of(prepared), laws[0], laws[1], False))
-    clear_recent_coverage()
-    return answer
+    return step_module._full(prepared, str(alpha), (request_of(prepared), laws[0], laws[1], False))
 
 
 def certificate_of(prepared, laws):

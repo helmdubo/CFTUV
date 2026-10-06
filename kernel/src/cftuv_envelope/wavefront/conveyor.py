@@ -84,6 +84,7 @@ from ..exact_sqrt_sum import (
     ExactCanonicalizationWorkBudgetExhausted,
     ExactWorkBudgetV1,
     exact_work_budget,
+    isolated_factorization_memory,
 )
 from ..ids import PatchDomainId
 from ..materialize.memo import MaterializeMemoV1
@@ -345,10 +346,13 @@ class ConveyorPreparationV1:
     context: GeometryContext | None = None
     domain: object | None = None
     requested_alpha: LocalLengthV1 | None = None
-    # Бюджет точной работы ТРАНЗАКЦИИ ДОМЕНА. Он переживает подготовку и
-    # продолжает тратиться на покрытии: обе ступени считают одну и ту же
-    # геометрию, и обнуление на границе сделало бы кап границей стадии, а не
-    # домена. `None` — прогон без названного бюджета.
+    # Бюджет точной работы ТРАНЗАКЦИИ ДОМЕНА в состоянии, которым кончилась
+    # подготовка (`PREPARE`). Покрытие продолжает его на КОПИИ (`forked`) и
+    # подготовку не меняет: обе ступени считают одну и ту же геометрию, и
+    # обнуление на границе сделало бы кап границей стадии, а не домена, но
+    # счёт, копящийся на самой подготовке, сделал бы цену вычисления
+    # свойством истории (`ConveyorCoverageV1.work_budget`). `None` — прогон
+    # без названного бюджета.
     work_budget: ExactWorkBudgetV1 | None = None
     # Контакты источников с границей домена: alpha-независимы, считаются на первом
     # покрытии и ездят с подготовкой (`ContactCandidatesMemoV1`). Не часть значения:
@@ -393,6 +397,11 @@ class ConveyorRegionCoverageV1:
     doubled_area: SqrtSumV1
     polygon_doubled_area: int
     wall_spans: tuple[EdgeKey, ...]
+    # Усечённые по времени контуры граней региона, в порядке разбиения: ТЕ ЖЕ `FaceCoverageV1`, из которых взяты площади `faces`.
+    # Материализатор и экспорт хоста берут контуры отсюда (`coalesce.region_contours`), а не вторым вызовом `coverage_at`: памяти
+    # покрытий между вычислениями нет, и цена вычисления не зависит от того, лежало ли покрытие в процессной памяти. `None` - запись
+    # собрана мимо `conveyor_coverage`, контуры считаются заново. Не часть значения: площади и владельцы выше те же.
+    contours: tuple | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +419,9 @@ class ConveyorCoverageV1:
     counters: Counters
     timings: Timings
     detail: str = ""
+    # Бюджет ЭТОГО вычисления: копия состояния подготовки (`ExactWorkBudgetV1.forked`) на стадии `COVERAGE`, после покрытия. Цена покрытия -
+    # его `spent` минус `spent` подготовки. Подготовка покрытием не меняется. Не часть значения (цена, не ответ).
+    work_budget: ExactWorkBudgetV1 | None = field(default=None, compare=False, repr=False)
 
     @property
     def faces(self) -> tuple[ConveyorFaceCoverageV1, ...]:
@@ -1625,7 +1637,10 @@ def _region_coverage(
     store: dict | None = None,
 ) -> ConveyorRegionCoverageV1:
     owner_names = dict(region.owner_by_edge)
-    covered = coverage_at(region.partition, lattice_alpha, work_budget, store)
+    # Цена покрытия региона - функция региона и alpha, а не процесса: память канонизации внутри холодная (как после сброса на границе
+    # домена у хоста), память вызывающего возвращается нетронутой.
+    with isolated_factorization_memory():
+        covered = coverage_at(region.partition, lattice_alpha, work_budget, store)
     faces = tuple(
         ConveyorFaceCoverageV1(
             region_id=region.region_id,
@@ -1645,6 +1660,7 @@ def _region_coverage(
         doubled_area=covered.doubled_area,
         polygon_doubled_area=covered.polygon_doubled_area,
         wall_spans=region.wall_spans,
+        contours=covered.faces,
     )
 
 
@@ -1730,6 +1746,7 @@ def _empty_coverage(
     alpha: Fraction,
     lattice_alpha: Fraction,
     clock: _Clock,
+    work_budget: ExactWorkBudgetV1 | None = None,
 ) -> ConveyorCoverageV1:
     return ConveyorCoverageV1(
         outcome=outcome,
@@ -1742,6 +1759,7 @@ def _empty_coverage(
         counters=(),
         timings=clock.timings(),
         detail=detail,
+        work_budget=work_budget,
     )
 
 
@@ -1814,9 +1832,9 @@ def conveyor_coverage(
         )
 
     started = time.perf_counter()
-    budget = prepared.work_budget
-    if budget is not None:
-        budget.at_stage("COVERAGE")
+    # Каждое покрытие начинается с КОПИИ состояния подготовки: сама подготовка (в кэше сессии, в пикле воркера) не меняется, поэтому цена
+    # вычисления не зависит ни от числа прежних вычислений на ней, ни от того, где (родитель, воркер) оно идёт.
+    budget = None if prepared.work_budget is None else prepared.work_budget.forked("COVERAGE")
     try:
         store = None if prepared.contact_memo is None else prepared.contact_memo.entries
         regions = tuple(
@@ -1832,6 +1850,7 @@ def conveyor_coverage(
             alpha_fraction,
             lattice_alpha,
             clock,
+            budget,
         )
     clock.add("COVERAGE_CLIP", started)
 
@@ -1881,6 +1900,7 @@ def conveyor_coverage(
         ),
         timings=clock.timings(),
         detail="" if not refused else refused[0].outcome.value,
+        work_budget=budget,
     )
 
 

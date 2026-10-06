@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
 
@@ -206,20 +206,12 @@ def _line_of(face: FaceV1) -> SupportLineV1:
     return face.line
 
 
-#: Недавние ТОЧНЫЕ покрытия: `(тождество разбиения, alpha) -> (разбиение, покрытие)`. Покрытие региона считают
-#: дважды за одно нажатие: `conveyor_coverage` берёт из него площади, а материализатор (`region_contours`) —
-#: сами контуры, причём тем же вызовом с теми же разбиением и alpha. Функция чистая, разбиение — замороженная
-#: запись, поэтому второй вызов получает прежнее значение; запись держит само разбиение, и занятое тождество
-#: не может достаться другому. Бюджет — цена, не ответ (`work_budget` вне тождества покрытия): попадание несёт
-#: бюджет СПРАШИВАЮЩЕГО, а не бюджет первого вызова. Отказы (не точное разбиение, отрицательная alpha) не
-#: запоминаются. Предел записей мал: домен выпускает один-два региона, а тяжёлые точки не должны копиться.
-_RECENT: dict[tuple[int, Fraction], tuple[FacePartitionV1, CoverageV1]] = {}
-_RECENT_LIMIT = 8
-
 #: Источник покрытия шага ширины (`materialize.step`): объект с методом `coverage(partition, alpha, work_budget, store)`, который
 #: отдаёт покрытие либо `None` (не знает разбиения - считает `coverage_at` сам). Покрытие, воспроизведённое из шаблона внутри заверенного
-#: интервала, ТО ЖЕ значение, что даёт `_coverage_at`, поэтому и остальной ответ не меняется. `bypass_recent` - источник, которому нужен
-#: настоящий счёт при каждом вызове (запись шаблона), а не память недавних покрытий. Контекст потока: два шага не делят источник.
+#: интервала, ТО ЖЕ значение, что даёт `_coverage_at`, и ту же цену (шаблон несёт записанную цену полного счёта), поэтому и остальной
+#: ответ не меняется. Контекст потока: два шага не делят источник. Памяти покрытий между вычислениями НЕТ: контуры, которых ждёт
+#: материализатор, несёт то же покрытие, которое посчитала очередь в этом вычислении (`ConveyorRegionCoverageV1.contours`), а не
+#: процессная память, чьё попадание не платило и делало цену свойством истории.
 _SOURCE: ContextVar = ContextVar("cftuv_coverage_source", default=None)
 
 
@@ -240,12 +232,6 @@ def current_coverage_source():
     return _SOURCE.get()
 
 
-def clear_recent_coverage() -> None:
-    """Забыть недавние покрытия: сверка быстрого пути обязана считать полный путь заново, а не читать его же ответ из памяти."""
-
-    _RECENT.clear()
-
-
 def coverage_at(
     partition: FacePartitionV1,
     alpha: Fraction,
@@ -255,37 +241,12 @@ def coverage_at(
     """Покрытие к моменту alpha по граням скелета, с точной площадью. `store` — память подготовки (вселенная простых)."""
 
     alpha = Fraction(alpha)
-    key = (id(partition), alpha)
     source = _SOURCE.get()
-    if source is not None and source.bypass_recent:
+    if source is not None:
         produced = source.coverage(partition, alpha, work_budget, store)
         if produced is not None:
-            return _remembered(key, partition, produced, work_budget)
-    known = _RECENT.pop(key, None)
-    if known is not None:
-        _RECENT[key] = known
-        return replace(known[1], work_budget=work_budget)
-    if source is not None and not source.bypass_recent:
-        produced = source.coverage(partition, alpha, work_budget, store)
-        if produced is not None:
-            return _remembered(key, partition, produced, work_budget)
-    result = _coverage_at(partition, alpha, work_budget, store)
-    _remember(key, partition, result)
-    return result
-
-
-def _remember(key, partition, result: CoverageV1) -> None:
-    if result.outcome is CoverageOutcome.EXACT:
-        _RECENT[key] = (partition, result)
-        while len(_RECENT) > _RECENT_LIMIT:
-            del _RECENT[next(iter(_RECENT))]
-
-
-def _remembered(key, partition, produced: CoverageV1, work_budget) -> CoverageV1:
-    """Покрытие от источника шага ширины: в память недавних и вызывающему с ЕГО бюджетом (как попадание в память)."""
-
-    _remember(key, partition, produced)
-    return produced if produced.work_budget is work_budget else replace(produced, work_budget=work_budget)
+            return produced
+    return _coverage_at(partition, alpha, work_budget, store)
 
 
 def _coverage_at(

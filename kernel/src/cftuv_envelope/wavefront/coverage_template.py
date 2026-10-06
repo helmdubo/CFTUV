@@ -73,6 +73,10 @@ class CoverageTemplateV1:
     faces: tuple
     polygon_doubled_area: int
     cuts: int
+    #: Цена ПОЛНОГО счёта этого разбиения (разность шести статей бюджета вокруг `_coverage_at`), записанная при записи шаблона: покрытие из
+    #: шаблона платит её же (`instantiate`), поэтому вычисление домена стоит одно и то же на полном пути и на шаге ширины. Цена зависит от
+    #: состава радикандов, а он внутри заверенного интервала тот же (знаки вершин у фронта те же). `None` - шаблон собран мимо записи цены.
+    price: tuple | None = None
 
 
 def _face_template(face, line, alpha, clipped, covered_area, signs, values, universe, budget) -> FaceTemplateV1 | None:
@@ -162,11 +166,11 @@ def instantiate(template: CoverageTemplateV1, partition: FacePartitionV1, alpha:
         return None
     if template.polygon_doubled_area != partition.polygon_doubled_area:
         return None
+    if any(pattern.owner != face.owner for face, pattern in zip(partition.faces, template.faces)):
+        return None
     covered = []
     total = SqrtSumV1.zero()
     for face, pattern in zip(partition.faces, template.faces):
-        if pattern.owner != face.owner:
-            return None
         points = _points_of(pattern, face, alpha)
         if pattern.kind == KIND_BEHIND:
             doubled = pattern.area
@@ -174,6 +178,10 @@ def instantiate(template: CoverageTemplateV1, partition: FacePartitionV1, alpha:
             doubled = doubled_shoelace(points) if len(points) >= 3 else SqrtSumV1.zero()
         covered.append(FaceCoverageV1(face.owner, points, doubled))
         total = total + doubled
+    # Цена платится ПОСЛЕДНЕЙ, когда ответ уже готов: отказ раньше не оставляет следов в счёте. Записанная цена, не влезающая в остаток
+    # потолка, не повторяется: шаблон отказывает, и разбиение считает полный путь, который упадёт на той же операции, что и без шаблона.
+    if work_budget is not None and template.price is not None and not work_budget.replay(template.price):
+        return None
     return CoverageV1(
         CoverageOutcome.EXACT,
         alpha,
