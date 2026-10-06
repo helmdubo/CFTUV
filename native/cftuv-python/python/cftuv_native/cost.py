@@ -41,6 +41,26 @@ the script buffers.
 A call that raises inside the extension (`ValueError`: a refused buffer; `RuntimeError`: a panic the extension caught)
 leaves the real tables as they were before the call and resets the session; the mirror forgets what it held, so the next
 call reloads the tables whole.
+
+Two kinds of refusal of a WHOLE operation (`coverage_at`, `clip_geometry`), and what each leaves behind:
+
+* an ORACLE outcome (`ORACLE_STATUSES`: `ExactCanonicalizationWorkBudgetExhausted`, `NegativeRadicandError`, `ZeroSqrtSumDivisorError`, `ArithmeticError` of a
+  failed reconstruction, `ValueError`, `OverflowError`, `ZeroDivisionError`, `KeyError`, `MaterializationRefusal`) is what the Python kernel itself raises, after
+  the partial effects it leaves: the budget articles, `SIGN_COUNTS` (or `UNBUDGETED_WORK`), the memory tables, the offset normals written into the plane, the
+  `store` record and the `traces` filled so far. The native call applies all of them and raises last: a caller that catches the exception sees the state the oracle
+  would have left;
+* a refusal of the PORT (`NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported` whenever it is raised — early or late inside the call —, and
+  `NativeDivisionDiverged` from a whole operation) leaves EVERY Python-visible state exactly as it was before the call: the budget articles, `SIGN_COUNTS`,
+  `UNBUDGETED_WORK`, the four memory tables (contents and order) with `_KNOWN_PRIME_SET`, `plane._normal_by_position`, the `store`, the `traces`. The extension
+  drops the whole outcome of the call before it touches a host object (`native/cftuv-python/src/refusal.rs`), the session forgets its mirror and the shim
+  invalidates it too, so the next call reloads the tables whole. The caller may therefore run the oracle on the SAME budget, plane and tables and get what a
+  pure oracle run would. Whether a status is an oracle outcome is decided by one closed table: anything that is not in `ORACLE_STATUSES` is a refusal of the
+  port, an unknown code included.
+
+Not refusals, and not covered by that guarantee: a failure while the memory log is replayed on the real tables (a `RuntimeError` from the extension, `memlog.rs`; the
+tables were changed by someone else during the call, or the mirror is wrong: a bug, and the tables may be partly replayed) and an exception raised by caller-supplied code during the commit
+(a `store` whose `__setitem__` raises). An input the extension cannot carry (`TypeError("cftuv_native: ...")`) and a panic it caught (`RuntimeError`) are raised
+before any host object is touched, so they leave the state as it was too; they are not part of the named family a caller catches.
 """
 
 from __future__ import annotations
@@ -87,6 +107,11 @@ CLIP_STATUS_VALUE = 10
 CLIP_STATUS_REFUSAL = 11
 CLIP_STATUS_UNSUPPORTED = 12
 CLIP_STATUS_MISSING_KEY = 13
+#: The status codes of a whole operation that are outcomes of the ORACLE (see the module note): 0 ok, 1 exhaustion, 2 negative radicand, 3 zero divisor, 4 failed
+#: reconstruction, 8 a face without a supporting line (coverage) or `OverflowError` (clip), 9 `ZeroDivisionError`, 10 `ValueError`, 11 `MaterializationRefusal`,
+#: 13 `KeyError`. Every other code (5 invalid mirror input, 6 the generic division did not finish, 7 an internal state, 12 unsupported by the port, an unknown one) is
+#: a refusal of the port, applied nowhere. The extension keeps the same table (`refusal.rs`, `_core.oracle_statuses()`).
+ORACLE_STATUSES = frozenset({STATUS_OK, STATUS_EXHAUSTED, STATUS_NEGATIVE_RADICAND, STATUS_ZERO_DIVISOR, STATUS_RECONSTRUCTION, STATUS_MISSING_LINE, CLIP_STATUS_OVERFLOW, CLIP_STATUS_ZERO_DIVISION, CLIP_STATUS_VALUE, CLIP_STATUS_REFUSAL, CLIP_STATUS_MISSING_KEY})
 #: `OverflowError` texts by kind (`float(int)`; `int / int` and `float(Fraction)`).
 OVERFLOW_TEXTS = ("int too large to convert to float", "integer division result too large for a float")
 #: The outcomes of `MaterializationRefusal` the clip stage names, and the slots of the classes its result is built from.
@@ -558,8 +583,16 @@ class CostMirror:
         The partition is converted once per session (kept by identity); per call only `alpha`, the memory sync (nothing
         when no table changed), the budget state and the store cross the boundary, and the extension builds the
         `CoverageV1` itself and answers with plain tuples. The two refusals are the oracle's first two statements. Every
-        effect (budget articles, counters, memory tables, the `store` entry) is applied before the result is returned or
-        the exception of a refusal (an exhaustion, a face without a line) raised.
+        effect (budget articles, counters, memory tables, the `store` entry, the `traces`) is applied before the result is returned or
+        the exception of an ORACLE outcome (an exhaustion, a negative radicand, a zero divisor, a failed reconstruction, a face without a line: `ValueError`) raised,
+        as the oracle's own exception leaves them.
+
+        State on a refusal of the PORT: `NativePortStale`, `NativeUnsupportedPython` (both before anything is touched), `NativePortUnsupported` (an
+        internal state or an invalid mirror input the port cannot answer, however late in the call) and `NativeDivisionDiverged` leave EVERYTHING as it was before the
+        call, bit for bit: the budget articles, `SIGN_COUNTS`, `UNBUDGETED_WORK`, the four memory tables with their order and `_KNOWN_PRIME_SET`, the `store` and
+        the `traces`. The session mirror is forgotten (the next call reloads the tables whole), so the caller may run `wavefront.coverage._coverage_at` on the
+        same budget, tables and store and get exactly the outcome and the state of a pure oracle run. An input the extension cannot carry (`TypeError`) and a native
+        panic (`RuntimeError`) are raised before any host object is touched and leave the state as it was as well.
 
         The budget is the one the caller passes: the product runs the coverage of a domain on a FORK of the preparation's budget
         (`ExactWorkBudgetV1.forked("COVERAGE")`) and under `isolated_factorization_memory()` (a cold memory for the call, the caller's
@@ -594,6 +627,11 @@ class CostMirror:
             self.invalidate()
             raise
         returned = perf_counter_ns()
+        if status not in ORACLE_STATUSES:
+            # a refusal of the port: the extension applied nothing and forgot its mirror; neither do we apply the (zero) cost, and the mirror is forgotten here too
+            self.invalidate()
+            self.last_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+            raise self._port_refusal(status, detail)
         self._settle_counts(exact, counts)
         self._settle_articles(exact, work_budget, articles)
         self._remember(exact, bits, slow)
@@ -635,11 +673,18 @@ class CostMirror:
         `plane._normal_by_position`, in call order, also when the operation fails afterwards. Every effect (budget articles, `SIGN_COUNTS`,
         `UNBUDGETED_WORK`, the four memory tables) is applied before the result is returned or the oracle's exception raised:
         `ExactCanonicalizationWorkBudgetExhausted` (text from `budget.exhaustion_detail`), `MaterializationRefusal`, `OverflowError`,
-        `ZeroDivisionError`, `ValueError`, `KeyError`. The port refuses by name, and before it touches any state, when the oracle moved past
-        the pin (`NativePortStale`), on an interpreter below the supported floor (`NativeUnsupportedPython`, see `pin.py`) and on an input
-        it does not cover (`NativePortUnsupported`); there is no fallback to Python here. The sort of `_ordered` and the float fold of
-        the offset normal are the kernel's explicit CPython 3.11 semantics (`_cpython311.py`), so nothing here depends on the version of
-        the interpreter that runs the host.
+        `ZeroDivisionError`, `ValueError`, `KeyError`: the ORACLE's outcomes, with the partial effects the oracle's own exception leaves.
+
+        The port refuses by name when the oracle moved past the pin (`NativePortStale`), on an interpreter below the supported floor
+        (`NativeUnsupportedPython`, see `pin.py`) and on an input it does not cover (`NativePortUnsupported`, an internal state or an invalid mirror input
+        the port cannot answer, `NativeDivisionDiverged`); there is no fallback to Python here. EVERY such refusal leaves every Python-visible state exactly as it was before
+        the call, however late in the computation it is met (a zero-vertex polygon, the corner-scan guard, an internal state): the budget articles, `SIGN_COUNTS`,
+        `UNBUDGETED_WORK`, the four memory tables with their order and `_KNOWN_PRIME_SET`, `plane._normal_by_position`. The extension drops the whole
+        outcome of the call before it touches a host object and forgets the session mirror, and so does the shim (the next call reloads the tables whole), so the
+        caller may run `clip.clip_geometry` on the SAME budget, plane and tables and get the outcome and the state of a pure oracle run (this is what the product's fallback
+        does). An input the extension cannot carry (`TypeError("cftuv_native: ...")`) and a native panic (`RuntimeError`) are raised before any host object is
+        touched and leave the state as it was as well. The sort of `_ordered` and the float fold of the offset normal are the kernel's explicit CPython 3.11
+        semantics (`_cpython311.py`), so nothing here depends on the version of the interpreter that runs the host.
 
         `inert` is the chain station plan's set of face pairs (`frozenset[frozenset[str]]`, only read by a clip by faces): the extension
         reads it in the iteration order of the set the caller passed, which is the order the oracle's `_plan_groups` walks it in.
@@ -668,6 +713,11 @@ class CostMirror:
             self.invalidate()
             raise
         returned = perf_counter_ns()
+        if status not in ORACLE_STATUSES:
+            # a refusal of the port: the extension applied nothing and forgot its mirror; neither do we apply the (zero) cost, and the mirror is forgotten here too
+            self.invalidate()
+            self.last_clip_timings = (called - started, returned - called, perf_counter_ns() - returned, perf_counter_ns() - started, *native)
+            raise self._port_refusal(status, detail)
         self._settle_counts(exact, counts)
         self._settle_articles(exact, budget, articles)
         self._remember(exact, bits, slow)
@@ -690,6 +740,16 @@ class CostMirror:
         """Test-only: every slot through the attribute protocol (the fallback of the raw access); answers and cost are the same."""
 
         self._session.disable_raw()
+
+    def force_refusal(self, kind) -> None:
+        """Test-only: arms ONE refusal of the port (`unsupported` (a clip), `invalid_input`, `diverged`, `internal`, `panic`; `None` disarms).
+
+        The next `coverage_at` or `clip_geometry` computes in full (so the call has real effects: articles, counters, memory log, normal writes, store record, traces) and
+        THEN refuses, instead of answering: what a late refusal of the port looks like, forced on an input that would otherwise be answered. The guarantee under test
+        is the one of the module note: a refusal of the port leaves every Python-visible state as it was.
+        """
+
+        self._session.force_refusal(kind)
 
     def round_trip(self, value, *, sum: bool = False):
         """Test-only: a `Fraction` (or, with `sum`, a `SqrtSumV1`) through the boundary conversions and back."""
@@ -729,8 +789,21 @@ class CostMirror:
         self._session.set_clip_warm_limit(limit)
 
     @staticmethod
+    def _port_refusal(status, detail) -> Exception:
+        """The named refusal for a status that is no outcome of the oracle (the exception to raise; nothing was applied)."""
+
+        if status == STATUS_DIVERGED:
+            return NativeDivisionDiverged("the generic division fallback did not finish")
+        if status == CLIP_STATUS_UNSUPPORTED:
+            return pin.NativePortUnsupported(detail[0])
+        if status in (STATUS_INVALID_INPUT, STATUS_INTERNAL):
+            kind = "an invalid mirror input" if status == STATUS_INVALID_INPUT else "an internal state"
+            return pin.NativePortUnsupported(f"the native port met {kind} it does not answer: {detail[0] if detail else 'no detail'}")
+        return pin.NativePortUnsupported(f"the native port answered with the outcome code {status}, which is no outcome of the Python oracle")
+
+    @staticmethod
     def _raise_clip(status, detail, counts, articles, budget, outcomes, refusal) -> None:
-        """The oracle's exception for a refused clip (after every effect was applied)."""
+        """The oracle's exception for a refused clip (after every effect was applied); only the outcomes in `ORACLE_STATUSES` come here."""
 
         if status == CLIP_STATUS_OVERFLOW:
             raise OverflowError(OVERFLOW_TEXTS[detail[0]])
@@ -742,8 +815,6 @@ class CostMirror:
             raise refusal(outcomes[detail[0]], detail[1])
         if status == CLIP_STATUS_MISSING_KEY:
             raise KeyError(detail[0])
-        if status == CLIP_STATUS_UNSUPPORTED:
-            raise pin.NativePortUnsupported(detail[0])
         OpResult(status, None, detail, counts, articles, (), None).raise_for(budget)
 
     # ---- one operation ----------------------------------------------------------------------------------------------

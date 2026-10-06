@@ -15,14 +15,24 @@
 * стоимость (`default_mirror`, `new_mirror`, `sign`, `divided_by`, ...): долгоживущая нативная сессия владеет зеркалом памяти
   канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
   к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
+
+Отказ целой операции бывает двух видов (`NATIVE_REFUSALS`, `cost.ORACLE_STATUSES`). Исход ЭТАЛОНА (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`,
+`OverflowError`, `ValueError`, `ZeroDivisionError`, `KeyError`, ...) оставляет частичные эффекты ровно так, как их оставляет исключение Python. Отказ ПОРТА
+(`NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported` — в том числе поздний, посреди вычисления —, `NativeDivisionDiverged`) оставляет ВСЁ видимое из
+Python состояние, как оно было до вызова: статьи бюджета, `SIGN_COUNTS`, `UNBUDGETED_WORK`, четыре таблицы памяти с порядком, `plane._normal_by_position`, `store`,
+`traces`. Вызывающий вправе запустить эталон на тех же бюджете, плоскости и таблицах и получить исход и состояние чистого прогона эталона.
+
+Личность сборки: `native_build_id()` — содержательный отпечаток (sha256) нативного кода и шима, устойчивый к перелинковке (`buildid.py`).
 """
 
 from __future__ import annotations
 
-from . import _core, codec, cost, pin
+from . import _core, buildid, codec, cost, pin
 
 __all__ = (
     "CostMirror",
+    "NATIVE_REFUSALS",
+    "NativeDivisionDiverged",
     "NativePortStale",
     "NativePortUnsupported",
     "NativeUnsupportedPython",
@@ -36,11 +46,14 @@ __all__ = (
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
+    "native_build_id",
+    "native_build_parts",
     "native_status",
     "native_version",
     "new_clip_seam_session",
     "new_mirror",
     "number_op_table",
+    "oracle_statuses",
     "prime_support",
     "prime_universe_remembered",
     "radical",
@@ -48,18 +61,64 @@ __all__ = (
     "run_number_ops",
     "sign",
     "squarefree_split",
+    "tree_digest",
 )
 
 CostMirror = cost.CostMirror
 NativePortStale = pin.NativePortStale
 NativePortUnsupported = pin.NativePortUnsupported
 NativeUnsupportedPython = pin.NativeUnsupportedPython
+NativeDivisionDiverged = cost.NativeDivisionDiverged
+
+#: The exceptions `coverage_at` and `clip_geometry` raise for a refusal of the PORT (not an outcome of the oracle). Each of them leaves every Python-visible state
+#: exactly as it was before the call (budget articles, `SIGN_COUNTS`, `UNBUDGETED_WORK`, the four memory tables with their order, `plane._normal_by_position`,
+#: the `store`, the `traces`), so the caller may run the Python oracle on the same budget, plane and tables. Not in the tuple: the exceptions of the oracle
+#: (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`, `OverflowError`, `ValueError`, `ZeroDivisionError`, `KeyError`, ...), which leave the partial
+#: effects the oracle's own exception leaves.
+NATIVE_REFUSALS = (NativePortStale, NativeUnsupportedPython, NativePortUnsupported, NativeDivisionDiverged)
 
 _DEFAULT: list = []
+_BUILD: list = []
 
 
 def native_version() -> str:
     return _core.version()
+
+
+def native_build_parts() -> dict:
+    """`{"id", "rust", "shim", "version"}`: the content identity of this build and the two halves it is made of (`buildid.py`).
+
+    `rust` is the sha256 of the Rust sources the extension was built from (embedded at build time), `shim` the sha256 of the shim's own `.py` files as they are
+    now; both normalise CRLF to LF. Computed once per process.
+    """
+
+    with cost.NATIVE_LOCK:
+        if not _BUILD:
+            rust, shim = _core.source_digest(), buildid.shim_digest()
+            _BUILD.append({"id": buildid.compose(rust, shim), "rust": rust, "shim": shim, "version": _core.version()})
+        return dict(_BUILD[0])
+
+
+def native_build_id() -> str:
+    """A content identity of this build: 64 lowercase hex characters, the sha256 of the Rust sources it was built from and of the shim's `.py` files.
+
+    Stable across relinks and rebuilds of the same content (the MSVC link stamps a timestamp and a PDB GUID into `_core.pyd`, so the binary's bytes are NOT the identity),
+    different whenever the native code, its manifests or the shim change. See `buildid.py` and `tools/native_build_id.py`.
+    """
+
+    return native_build_parts()["id"]
+
+
+def oracle_statuses() -> tuple:
+    """Test-only: the status codes the extension treats as outcomes of the oracle (`refusal.rs`); `cost.ORACLE_STATUSES` is the same table."""
+
+    return tuple(_core.oracle_statuses())
+
+
+def tree_digest(native_root) -> str:
+    """Test-only: the digest of the Rust sources of the workspace at `native_root`, by the algorithm `build.rs` embeds (`digest.rs`, `tools/native_build_id.py`)."""
+
+    return _core.tree_digest(str(native_root))
 
 
 def native_status() -> dict:
@@ -112,13 +171,19 @@ def default_mirror() -> cost.CostMirror:
 
 
 def coverage_at(partition, alpha, work_budget=None, store=None, traces=None):
-    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`)."""
+    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`).
+
+    A refusal of the port (`NATIVE_REFUSALS`) leaves every Python-visible state exactly as before the call; an exception of the oracle leaves its partial effects.
+    """
 
     return default_mirror().coverage_at(partition, alpha, work_budget, store, traces)
 
 
 def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, flows, by_faces, inert=frozenset()):
-    """`materialize.clip.clip_geometry(plane, budget, ...)`, native and whole (see `CostMirror.clip_geometry`)."""
+    """`materialize.clip.clip_geometry(plane, budget, ...)`, native and whole (see `CostMirror.clip_geometry`).
+
+    A refusal of the port (`NATIVE_REFUSALS`) leaves every Python-visible state exactly as before the call; an exception of the oracle leaves its partial effects.
+    """
 
     return default_mirror().clip_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces, inert=inert)
 
