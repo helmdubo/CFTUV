@@ -663,7 +663,7 @@ def test_a_partition_the_extension_cannot_carry_is_refused_by_name_and_the_sessi
 def test_a_session_without_the_bound_classes_says_so_instead_of_guessing():
     session = type(cftuv_native.new_mirror()._session)()
     with pytest.raises(RuntimeError, match="not bound"):
-        session.coverage_at(object(), Fraction(1), None, None, None, None)
+        session.coverage_at(object(), Fraction(1), None, None, None, None, ([], set(), {}, {}, {}))
 
 
 def _cut_chain(runner, partition, steps):

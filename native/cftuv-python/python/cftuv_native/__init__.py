@@ -33,6 +33,7 @@ __all__ = (
     "default_mirror",
     "divide_with_prime_universe",
     "divided_by",
+    "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
     "native_status",
@@ -65,6 +66,12 @@ def native_status() -> dict:
     """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`)."""
 
     return pin.native_status()
+
+
+def int_round_trip(value: int) -> int:
+    """Test-only: an `int` through the boundary conversions (`pyobj.rs`) and back."""
+
+    return _core.int_round_trip(value)
 
 
 def number_op_table() -> tuple[tuple[int, str], ...]:
@@ -119,7 +126,7 @@ def last_clip_timings() -> tuple:
 
 
 def last_coverage_timings() -> tuple:
-    """Nanoseconds of the last `coverage_at` of the default mirror: `(sync in, native call, post, total, prepare, arguments, compute, result)`."""
+    """Nanoseconds of the last `coverage_at` of the default mirror: `(sync in, native call, post, total, prepare, arguments, compute, result, memory log)`."""
 
     return default_mirror().last_timings
 

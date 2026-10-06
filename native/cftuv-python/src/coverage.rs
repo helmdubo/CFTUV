@@ -6,11 +6,12 @@
 //! same holds for the `(universe, delta)` records of the store (`id` of the tuple the store hands back). Per call
 //! only `alpha`, the partition handle, the cost header (memory sync + budget) and the store cross the boundary.
 //!
-//! The answer is `(result, status, detail, counts, articles, log, timings)`: `result` is the `CoverageV1` (or `None`
+//! The answer is `(result, status, detail, counts, articles, changed, timings)`: `result` is the `CoverageV1` (or `None`
 //! when the arithmetic refused), `status` and `detail` are the outcome codes of `session.rs` (0 ok; the shim raises
 //! the exception of a refusal after it applied every effect), `counts` the five sign-counter deltas, `articles` the
-//! six budget articles after the call, `log` the memory mutations as one encoded value (or `None`), `timings` are
-//! nanoseconds `(prepare, arguments, compute, result)` measured here.
+//! six budget articles after the call, `changed` the bits of the memory tables the call changed (its memory log was
+//! replayed on the host's real tables here, in the one crossing, see `memlog.rs`), `timings` are nanoseconds
+//! `(prepare, arguments, compute, result, memory log)` measured here.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use std::time::Instant;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyTuple};
+use pyo3::types::{PyDict, PyTuple};
 
 use cftuv_canon::{CanonError, Operation, Pairs, UniverseRecord};
 use cftuv_core::codec::Reader;
@@ -26,10 +27,11 @@ use cftuv_core::coverage::{self, Answer, Area, Clipped, CoverageError, Face, Lin
 use cftuv_core::exact::{ExactCtx, ExactError, UniverseStore};
 use cftuv_core::num::IBig;
 use cftuv_core::rat::Rat;
-use cftuv_core::session::{take_log_bytes, CostRun, Session};
+use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::SignCounts;
 
-use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool};
+use crate::memlog::{apply_log, insort, Tables};
+use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
 
 /// Partitions kept converted per session.
 pub const PARTITION_LIMIT: usize = 64;
@@ -55,10 +57,16 @@ struct Classes {
     pool: Pool,
     coverage: Py<PyAny>,
     face_coverage: Py<PyAny>,
+    /// Where the three slots of a `FaceCoverageV1` (owner, points, doubled_area) sit (see [`Raw`]).
+    face_raw: Option<Raw>,
     outcome_exact: Py<PyAny>,
     outcome_not_exact: Py<PyAny>,
     outcome_negative: Py<PyAny>,
     face_exact: Py<PyAny>,
+    /// `cost.StoreKey`: the lookup key of a store, whose hash is taken once (see `prepare_lookup`).
+    store_key: Py<PyAny>,
+    /// `bisect.insort`, for the replay of the memory log (see `memlog.rs`).
+    insort: Py<PyAny>,
     empty_str: Py<PyAny>,
     names: Names,
 }
@@ -84,6 +92,8 @@ struct Prepared {
     polygon_area: Py<PyAny>,
     /// `("prime-universe", (Fraction(q), ...))`: the store key, equal to the one `prime_universe_remembered` builds.
     key: Py<PyAny>,
+    /// The same key as a `cost.StoreKey` (hash cached): what a lookup in a plain `dict` store presents; `None` when there is no key.
+    lookup: Option<Py<PyAny>>,
 }
 
 struct Remembered {
@@ -94,8 +104,8 @@ struct Remembered {
     record: Arc<UniverseRecord>,
 }
 
-/// `(result, status, detail, counts, articles, log, timings)`.
-pub type Answer7<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], Option<Bound<'py, PyBytes>>, [u64; 4]);
+/// `(result, status, detail, counts, articles, changed tables, timings)`.
+pub type Answer7<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 5]);
 
 #[derive(Default)]
 pub struct Host {
@@ -130,16 +140,23 @@ impl Host {
         face_coverage: &Bound<'_, PyAny>,
         outcomes: [&Bound<'_, PyAny>; 3],
         face_exact: &Bound<'_, PyAny>,
+        store_key: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let intern = |text: &str| pyo3::types::PyString::intern(py, text).unbind();
+        let face_coverage = face_coverage.clone().unbind();
+        let (owner, points, doubled_area) = (intern("owner"), intern("points"), intern("doubled_area"));
+        let face_raw = Raw::probe(py, &face_coverage, &[&owner, &points, &doubled_area])?;
         self.classes = Some(Classes {
             pool: Pool::new(py, fraction, sqrt_sum)?,
             coverage: coverage.clone().unbind(),
-            face_coverage: face_coverage.clone().unbind(),
+            face_coverage,
+            face_raw,
             outcome_exact: outcomes[0].clone().unbind(),
             outcome_not_exact: outcomes[1].clone().unbind(),
             outcome_negative: outcomes[2].clone().unbind(),
             face_exact: face_exact.clone().unbind(),
+            store_key: store_key.clone().unbind(),
+            insort: insort(py)?,
             empty_str: pyo3::types::PyString::intern(py, "").into_any().unbind(),
             names: Names {
                 outcome: intern("outcome"),
@@ -160,6 +177,32 @@ impl Host {
 
     fn classes(&self) -> PyResult<&Classes> {
         self.classes.as_ref().ok_or_else(|| PyRuntimeError::new_err("cftuv_native: the coverage classes were not bound (`bind_coverage`)"))
+    }
+
+    /// `(Fraction, SqrtSumV1, FaceCoverageV1)` slots read and written raw; `None` before `bind_coverage`.
+    pub fn raw_layouts(&self) -> Option<(bool, bool, bool)> {
+        self.classes.as_ref().map(|classes| {
+            let (fraction, sqrt_sum) = classes.pool.raw_layouts();
+            (fraction, sqrt_sum, classes.face_raw.is_some())
+        })
+    }
+
+    /// Test-only: the attribute protocol everywhere (and for the partitions converted from now on).
+    pub fn disable_raw(&mut self) {
+        if let Some(classes) = self.classes.as_mut() {
+            classes.pool.disable_raw();
+            classes.face_raw = None;
+        }
+    }
+
+    /// Test-only: `Fraction`/`SqrtSumV1` through the conversions of the boundary and back.
+    pub fn round_trip<'py>(&self, py: Python<'py>, value: &Bound<'py, PyAny>, sum: bool) -> PyResult<Bound<'py, PyAny>> {
+        let pool = &self.classes()?.pool;
+        if sum {
+            sqrt_sum_to_py(py, pool, &sqrt_sum_from_py(pool, value)?)
+        } else {
+            pyobj::fraction_from_rat(py, pool, &pyobj::rat_from_number(pool, value)?)
+        }
     }
 
     pub fn cache_sizes(&self) -> (usize, usize) {
@@ -253,19 +296,20 @@ impl Host {
         budget: Option<(Option<u64>, [u64; 6])>,
         store: Option<&Bound<'py, PyAny>>,
         work_budget: &Bound<'py, PyAny>,
+        tables: &Tables<'py>,
     ) -> PyResult<Answer7<'py>> {
         let started = Instant::now();
         let (index, converted) = self.prepare(py, partition)?;
         let prepare_ns = if converted { nanos(started) } else { 0 };
         let began = Instant::now();
         let alpha_rat = pyobj::rat_from_number(&self.classes()?.pool, alpha)?;
-        let (core, key) = (self.prepared[index].core.clone(), self.prepared[index].key.clone_ref(py));
+        let (core, key, lookup) = (self.prepared[index].core.clone(), self.prepared[index].key.clone_ref(py), self.prepared[index].lookup.as_ref().map(|lookup| lookup.clone_ref(py)));
         // The store: absent, a miss (nothing under the key) or a hit (the record, converted once).
         let mut hit: Option<Arc<UniverseRecord>> = None;
         let mut miss = false;
         if let Some(store) = store {
             let found = match store.cast_exact::<PyDict>() {
-                Ok(dict) => dict.get_item(key.bind(py))?,
+                Ok(dict) => dict.get_item(lookup.as_ref().unwrap_or(&key).bind(py))?,
                 Err(_) => {
                     let found = store.call_method1("get", (key.bind(py),))?;
                     if found.is_none() { None } else { Some(found) }
@@ -301,7 +345,7 @@ impl Host {
                     coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe)
                 };
                 let articles = run.budget_mut().articles();
-                (run_result, counts, articles, take_log_bytes(session))
+                (run_result, counts, articles, session.memory.take_log())
             }))
         });
         let compute_ns = nanos(computing);
@@ -310,11 +354,15 @@ impl Host {
             Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.coverage_at: native panic: {}", panic_text(&panic)))),
         };
 
+        let applying = Instant::now();
+        let classes = self.classes()?;
+        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
+        let log_ns = nanos(applying);
+
         let building = Instant::now();
         let result = self.finish(py, &run_result, index, &key, store, alpha, work_budget)?;
         let (status, detail) = self.status_of(py, &run_result.outcome)?;
-        let log = log.map(|bytes| PyBytes::new(py, &bytes));
-        Ok((result, status, detail, counts.as_array(), articles, log, [prepare_ns, arguments_ns, compute_ns, nanos(building)]))
+        Ok((result, status, detail, counts.as_array(), articles, changed, [prepare_ns, arguments_ns, compute_ns, nanos(building), log_ns]))
     }
 
     /// The outcome code and detail of a run (`cost.OpResult`): 0 ok, 1 exhaustion `(operation index, radicand)`, 2 negative
@@ -380,10 +428,16 @@ impl Host {
                 }
                 Area::Fresh(value) => sqrt_sum_to_py(py, pool, value)?,
             };
-            let item = alloc(py, &classes.face_coverage)?;
-            set_slot(&item, &names.owner, face.owner.bind(py))?;
-            set_slot(&item, &names.points, &points)?;
-            set_slot(&item, &names.doubled_area, &doubled)?;
+            let item = match &classes.face_raw {
+                Some(raw) => raw.build(py, &classes.face_coverage, [face.owner.bind(py).clone(), points, doubled])?,
+                None => {
+                    let item = alloc(py, &classes.face_coverage)?;
+                    set_slot(&item, &names.owner, face.owner.bind(py))?;
+                    set_slot(&item, &names.points, &points)?;
+                    set_slot(&item, &names.doubled_area, &doubled)?;
+                    item
+                }
+            };
             covered.push(item);
         }
         let result = alloc(py, &classes.coverage)?;
@@ -472,6 +526,7 @@ fn convert_partition(py: Python<'_>, classes: &Classes, partition: &Bound<'_, Py
     } else {
         py.None()
     };
+    let lookup = prepare_lookup(py, classes, &key)?;
     Ok(Prepared {
         id,
         stamp,
@@ -480,7 +535,21 @@ fn convert_partition(py: Python<'_>, classes: &Classes, partition: &Bound<'_, Py
         faces: objects,
         polygon_area: partition.getattr(pyo3::intern!(py, "polygon_doubled_area"))?.unbind(),
         key,
+        lookup,
     })
+}
+
+/// The `cost.StoreKey` of a store key: `hash(key)` of a tuple of `Fraction`s is Python code per fraction (a lookup of 54 of them cost 80 us on 3.11), so it is
+/// taken once here and the lookup presents a key that answers `hash` from memory and `==` by identity with `key` first (the shim's class does both, and falls back to
+/// the tuple comparison, so a store holding an equal key made by anyone else is found exactly as before). The key itself is what a miss writes.
+fn prepare_lookup(py: Python<'_>, classes: &Classes, key: &Py<PyAny>) -> PyResult<Option<Py<PyAny>>> {
+    let plain = key.bind(py);
+    if plain.is_none() {
+        return Ok(None);
+    }
+    let hash = plain.hash()?;
+    let parts = PyTuple::new(py, [plain.get_item(0)?, plain.get_item(1)?, hash.into_pyobject(py)?.into_any(), plain.clone(), pyo3::types::PyList::empty(py).into_any()])?;
+    Ok(Some(classes.store_key.bind(py).call1((parts,))?.unbind()))
 }
 
 fn pool_rat(pool: &Pool, value: &Bound<'_, PyAny>) -> PyResult<Rat> {

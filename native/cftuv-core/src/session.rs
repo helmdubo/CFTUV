@@ -418,18 +418,6 @@ fn run_exact(args: &Args, ctx: &mut ExactCtx<'_>) -> Result<Result<Value, ExactE
     })
 }
 
-/// The mutations the memory made since the call began, as one encoded value (`None`: none): the host applies them to its
-/// real tables in order (`MemOp` codes in the module note).
-pub fn take_log_bytes(session: &mut Session) -> Option<Vec<u8>> {
-    let log = session.memory.take_log();
-    if log.is_empty() {
-        return None;
-    }
-    let mut writer = crate::codec::Writer::new();
-    writer.put_value(&Value::List(log.into_iter().map(log_entry).collect()));
-    Some(writer.into_bytes())
-}
-
 /// The cost answer `[outcome, counts, articles, log, state]` of a whole operation that spent the run's budget itself
 /// (a coverage call: no script, one answer). `counts` is the sign-counter delta of the call.
 pub fn finish_answer(session: &mut Session, run: &CostRun, counts: &SignCounts, outcome: Value) -> Value {

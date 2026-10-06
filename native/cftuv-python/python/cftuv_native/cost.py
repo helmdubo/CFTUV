@@ -6,8 +6,9 @@ of the canonicalization memory (`_KNOWN_PRIMES` + `_KNOWN_PRIME_SET`, `_FACTORIZ
 `_SQUAREFREE_MEMO`, `_PRIME_SUPPORT_MEMO`) with their insertion order. The native `Session` owns a mirror of the
 tables. This module keeps the REAL Python objects and the mirror equal:
 
-* BEFORE a call (`sync in`): every table is compared, order and values, with what the session last mirrored (the key
-  and value lists are kept from the previous call, so an unchanged table costs one list copy and one comparison).
+* BEFORE a call (`sync in`): every table is compared, order and values, with what the session last mirrored. The session keeps the very objects of the tables as they
+  were after the last call (`native/cftuv-python/src/view.rs`): tables made of the same objects in the same order cost one pointer comparison per entry and no
+  allocation, anything else goes through the full comparison over the lists of that view.
   Entries appended since are sent as a tail; anything else (a clear, an eviction, an LRU touch, an isolated block, a
   poisoned value) is a general diff: the kept prefix (a subsequence of the mirror in mirror order) stays, the rest is
   deleted and re-sent. The session never guesses: a sync it cannot apply is a named refusal.
@@ -64,6 +65,9 @@ COUNT_KEYS = ("total", "closed_rational_zero", "closed_rational_nonzero", "close
 ARTICLES = ("modular_squarings", "gcd_operations", "miller_rabin_rounds", "pollard_attempts", "radical_materializations", "exact_position_hydrations")
 
 OPTION_FULL_STATE = 1
+#: The bits of the tables a call changed: `CLIP_CHANGED` below (the extension names them for a clip), `TABLE_BITS` for the names `_apply_entries` gives.
+TABLE_BITS = {"registry": 1, "factorization": 2, "squarefree": 4, "support": 8}
+ALL_TABLES = 15
 PRIME_UNIVERSE_KEY = "prime-universe"
 ZERO_DIVISOR_MESSAGE = "деление на точный ноль"
 
@@ -149,6 +153,35 @@ def _clip_kernel():
 UNCHANGED_SYNC = codec.Raw(codec.encode_value([[False, [], []] for _ in range(4)]))
 
 
+class StoreKey(tuple):
+    """The lookup key of a `prime-universe` store, `(name, fractions, hash, plain, seen)`, with its hash taken once.
+
+    `hash(("prime-universe", (Fraction, ...)))` runs Python code per fraction (`Fraction.__hash__`), so a lookup of a partition of 54 faces costs 80 us on 3.11
+    and the call itself 1.5 ms. The extension keeps one of these per prepared partition and presents it where it would present `plain` (the key a miss
+    writes, so a store never holds this class): `dict` asks it for `hash` (the number `hash(plain)` gave) and, on a hash match with another key, for `==`,
+    answered by identity with `plain` first and by the comparison of the two tuples otherwise: the same answer the lookup of `plain` itself gets. A key
+    the store holds that is equal to `plain` but is another object (the oracle made it, a pickle brought it) is compared once: `seen` holds it afterwards,
+    and a tuple of immutable numbers equal to `plain` stays equal to it.
+    """
+
+    __slots__ = ()
+
+    def __hash__(self):
+        return self[2]
+
+    def __eq__(self, other):
+        plain, seen = self[3], self[4]
+        if other is plain or (seen and seen[0] is other):
+            return True
+        if plain == other:
+            seen[:] = (other,)
+            return True
+        return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+
 class OpResult:
     """One operation of a native script: its outcome and the cost it left behind (already applied to the host)."""
 
@@ -213,6 +246,9 @@ def _general_diff(mirror_keys: list, mirror_values: list, keys: list, values: li
     """`(clear, deleted keys, cut)`: keep the longest prefix of `keys` that is a subsequence of the mirror in mirror
     order with equal values; `keys[cut:]` is the tail (new, moved or changed entries)."""
 
+    if 2 * len(keys) < len(mirror_keys):
+        # fewer than half of the mirror's entries can be kept, whatever the content: the loop below would end in the same answer
+        return True, [], 0
     index = {key: position for position, key in enumerate(mirror_keys)}
     last = -1
     cut = len(keys)
@@ -278,20 +314,16 @@ class CostMirror:
         #: Nanoseconds of the last `clip_geometry`: `(sync in, native call, post, total, plane, arguments, compute, result, memory log)`; the last
         #: five are measured inside the extension (see `native/cftuv-python/src/clip.rs`).
         self.last_clip_timings: tuple = ()
-        #: Nanoseconds of the last `coverage_at`: `(sync in, native call, post, total, prepare, arguments, compute, result)`;
-        #: the last four are measured inside the extension (see `native/cftuv-python/src/coverage.rs`).
+        #: Nanoseconds of the last `coverage_at`: `(sync in, native call, post, total, prepare, arguments, compute, result, memory log)`;
+        #: the last five are measured inside the extension (see `native/cftuv-python/src/coverage.rs`).
         self.last_timings: tuple = ()
-        self._reset_snapshots()
-
-    def _reset_snapshots(self) -> None:
-        self._primes: list = []
-        self._tables = {"factorization": ([], []), "squarefree": ([], []), "support": ([], [])}
+        #: Calls whose tables were not provably unchanged by identity (the session's view of the host's tables, `view.rs`) and went through the full comparison.
+        self.slow_syncs = 0
 
     def invalidate(self) -> None:
-        """Forget everything the session mirrors: the next call reloads the tables whole."""
+        """Forget everything the session mirrors and the view of the host's tables it kept: the next call reloads the tables whole."""
 
         self._session.clear()
-        self._reset_snapshots()
 
     def lengths(self) -> tuple:
         """Native mirror lengths: registry, factorizations, squarefree splits, supports (a debugging view)."""
@@ -300,8 +332,8 @@ class CostMirror:
 
     # ---- sync in ---------------------------------------------------------------------------------------------------
 
-    def _registry_sync(self, primes: list):
-        mirror = self._primes
+    @staticmethod
+    def _registry_sync(primes: list, mirror: list):
         if primes == mirror:
             return None
         present, wanted = set(mirror), set(primes)
@@ -310,34 +342,47 @@ class CostMirror:
             return [True, [], list(primes)]
         return [False, removed, sorted(wanted - present)]
 
-    def _table_sync(self, name: str, table: dict, entry) -> tuple:
-        mirror_keys, mirror_values = self._tables[name]
+    @staticmethod
+    def _table_sync(table: dict, entry, mirror: tuple):
+        mirror_keys, mirror_values = mirror
         keys, values = list(table), list(table.values())
         if keys == mirror_keys and values == mirror_values:
-            return None, (keys, values)
+            return None
         size = len(mirror_keys)
         if len(keys) > size and keys[:size] == mirror_keys and values[:size] == mirror_values:
             clear, deleted, cut = False, [], size
         else:
             clear, deleted, cut = _general_diff(mirror_keys, mirror_values, keys, values)
         tail = [entry(keys[position], values[position]) for position in range(cut, len(keys))]
-        return [clear, deleted, tail], (keys, values)
+        return [clear, deleted, tail]
 
     def _sync_in(self, exact) -> tuple:
-        primes = list(exact._KNOWN_PRIMES)
-        parts = [self._registry_sync(primes)]
-        tables = {}
-        for name, table, entry in (
-            ("factorization", exact._FACTORIZATION_MEMO, _entry_factorization),
-            ("squarefree", exact._SQUAREFREE_MEMO, _entry_squarefree),
-            ("support", exact._PRIME_SUPPORT_MEMO, _entry_support),
-        ):
-            sync, snapshot = self._table_sync(name, table, entry)
-            parts.append(sync)
-            tables[name] = snapshot
+        """`(sync, slow)`: what the session's mirror needs to equal the host's tables, and whether the full comparison was needed (then the view is taken anew after the call).
+
+        The session keeps the very objects of the tables it saw after the last call: tables made of the same objects in the same order are unchanged (one pointer
+        comparison per entry, in the extension). Anything else is compared in full over the lists of that view, entry by entry, order and values, as it always was.
+        """
+
+        registry, factorization, squarefree, support = exact._KNOWN_PRIMES, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO
+        session = self._session
+        if session.view_matches(registry, factorization, squarefree, support):
+            return UNCHANGED_SYNC, False
+        self.slow_syncs += 1
+        mirror_registry, *mirror_tables = session.view_lists()
+        parts = [self._registry_sync(list(registry), mirror_registry)]
+        for table, entry, mirror in zip((factorization, squarefree, support), (_entry_factorization, _entry_squarefree, _entry_support), mirror_tables):
+            parts.append(self._table_sync(table, entry, mirror))
         if all(part is None for part in parts):
-            return UNCHANGED_SYNC, primes, tables
-        return [part if part is not None else [False, [], []] for part in parts], primes, tables
+            return UNCHANGED_SYNC, True
+        return [part if part is not None else [False, [], []] for part in parts], True
+
+    def _remember(self, exact, mask: int, slow: bool) -> None:
+        """The session's view of the host's tables after a call: the tables in `mask` (the call changed them), all of them after a full comparison."""
+
+        if slow:
+            mask = ALL_TABLES
+        if mask:
+            self._session.view_capture(exact._KNOWN_PRIMES, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO, mask)
 
     # ---- sync out --------------------------------------------------------------------------------------------------
 
@@ -415,7 +460,7 @@ class CostMirror:
         """
 
         exact = _exact()
-        sync, primes, tables = self._sync_in(exact)
+        sync, slow = self._sync_in(exact)
         header = [OPTION_FULL_STATE if full_state else 0, sync, self._budget_value(budget)]
         request = codec.encode_request(ops, cost=header)
         try:
@@ -430,7 +475,7 @@ class CostMirror:
             self.invalidate()
             raise
         self._settle(exact, budget, results)
-        self._snapshot(exact, primes, tables, changed)
+        self._remember(exact, sum(TABLE_BITS[name] for name in changed), slow)
         return results
 
     @staticmethod
@@ -468,12 +513,6 @@ class CostMirror:
             for name, value in zip(ARTICLES, articles):
                 setattr(budget, name, value)
 
-    def _snapshot(self, exact, primes: list, tables: dict, changed: set) -> None:
-        self._primes = list(exact._KNOWN_PRIMES) if "registry" in changed else primes
-        real = {"factorization": exact._FACTORIZATION_MEMO, "squarefree": exact._SQUAREFREE_MEMO, "support": exact._PRIME_SUPPORT_MEMO}
-        for name, table in real.items():
-            self._tables[name] = (list(table), list(table.values())) if name in changed else tables[name]
-
     # ---- the whole coverage operation -------------------------------------------------------------------------------
 
     def _bind_coverage(self) -> None:
@@ -482,7 +521,7 @@ class CostMirror:
         outcome = coverage.CoverageOutcome
         self._session.bind_coverage(
             exact.SqrtSumV1, Fraction, coverage.CoverageV1, coverage.FaceCoverageV1,
-            outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT,
+            outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT, StoreKey,
         )
         self._face_exact = faces.FaceOutcome.EXACT
         self._coverage_bound = True
@@ -506,27 +545,21 @@ class CostMirror:
         if alpha < 0:
             return self._session.refused_coverage(partition, alpha, True)
         exact = _exact()
-        sync, primes, tables = self._sync_in(exact)
+        sync, slow = self._sync_in(exact)
         state = None if work_budget is None else (work_budget.cap, work_budget.spent_by_article())
+        real = (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO)
         called = perf_counter_ns()
         try:
-            result, status, detail, counts, articles, log, native = self._session.coverage_at(
-                partition, alpha, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, store, work_budget
+            result, status, detail, counts, articles, bits, native = self._session.coverage_at(
+                partition, alpha, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, store, work_budget, real
             )
         except BaseException:
             self.invalidate()
             raise
         returned = perf_counter_ns()
-        changed: set = set()
-        if log is not None:
-            try:
-                changed = self._apply_entries(exact, codec.decode_value(log))
-            except BaseException:
-                self.invalidate()
-                raise
         self._settle_counts(exact, counts)
         self._settle_articles(exact, work_budget, articles)
-        self._snapshot(exact, primes, tables, changed)
+        self._remember(exact, bits, slow)
         finished = perf_counter_ns()
         self.last_timings = (called - started, returned - called, finished - returned, finished - started, *native)
         if status:
@@ -583,7 +616,7 @@ class CostMirror:
         if normals is None:
             raise pin.NativePortUnsupported("the plane has no `_normal_by_position` table to write the offset normals into")
         exact = _exact()
-        sync, primes, tables = self._sync_in(exact)
+        sync, slow = self._sync_in(exact)
         state = None if budget is None else (budget.cap, budget.spent_by_article())
         real = (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO)
         called = perf_counter_ns()
@@ -598,12 +631,33 @@ class CostMirror:
         returned = perf_counter_ns()
         self._settle_counts(exact, counts)
         self._settle_articles(exact, budget, articles)
-        self._snapshot(exact, primes, tables, {name for bit, name in CLIP_CHANGED if bits & bit})
+        self._remember(exact, bits, slow)
         finished = perf_counter_ns()
         self.last_clip_timings = (called - started, returned - called, finished - returned, finished - started, *native)
         if status:
             self._raise_clip(status, detail, counts, articles, budget, outcomes, refusal)
         return result
+
+    def raw_layouts(self) -> dict:
+        """`{slot class: raw access engaged}`: a layout the probe did not confirm is read through the attribute protocol (slower, not wrong). Binds both entry points."""
+
+        if not self._coverage_bound:
+            self._bind_coverage()
+        if not self._clip_bound:
+            self._bind_clip()
+        return dict(self._session.raw_layouts())
+
+    def disable_raw(self) -> None:
+        """Test-only: every slot through the attribute protocol (the fallback of the raw access); answers and cost are the same."""
+
+        self._session.disable_raw()
+
+    def round_trip(self, value, *, sum: bool = False):
+        """Test-only: a `Fraction` (or, with `sum`, a `SqrtSumV1`) through the boundary conversions and back."""
+
+        if not self._coverage_bound:
+            self._bind_coverage()
+        return self._session.round_trip(value, sum)
 
     def clip_cache_size(self) -> int:
         """Planes the extension keeps converted for `clip_geometry` (a debugging view)."""

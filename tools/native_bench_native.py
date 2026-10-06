@@ -13,10 +13,10 @@
 если он пуст), шаги 1.. — тот же `partition` с другими alpha на той же сессии, том же бюджете и том же `store` (ТЁПЛЫЕ шаги: попадание в `store`, память канонизации тёплая; именно их делает
 ползунок ширины). Время шага — одна операция (`time.perf_counter` вокруг вызова), снимок состояния снимается ВНЕ замера. Время нативного вызова раскладывается (миллисекунды):
 
-* `partition` — перевод разбиения в сессию (один раз на разбиение; только холодный вызов);
+* `partition` — перевод разбиения в сессию (один раз на разбиение; только холодный вызов; привязка классов к сеансу — один раз на процесс — в замер не входит, как у резки);
 * `args` — на вызов: синхронизация памяти и бюджета в шиме (`sync`) и разбор аргументов в расширении (alpha, поиск в `store`, заголовок стоимости);
 * `compute` — сама операция внутри Rust (замер внутри расширения, GIL отпущен);
-* `result` — на возврат: построение `CoverageV1` и запись `store` в Rust (`build`) и разбор ответа, журнал памяти, статьи бюджета, счётчики в шиме (`post`);
+* `result` — на возврат: построение `CoverageV1` и запись `store` в Rust (`build`), применение журнала памяти к настоящим таблицам (Rust, `log`), статьи бюджета, счётчики и вид сеанса на таблицы в шиме (`post`);
 * `other` — остальное: разбор аргументов PyO3, возврат кортежа, накладные `perf_counter`;
 * `total` — стенка всего вызова, как её видит вызывающий.
 
@@ -98,12 +98,13 @@ def native_chain(mirror, blob, before, alphas) -> list:
 
     call = nc.prepare_call(nc.OP_COVERAGE, blob, before)
     partition = call.args[0]
+    mirror._bind_coverage()  # once per session in a product (classes, layout probes), not a cost of the first call on a partition
     steps = []
     for alpha in alphas:
         step = nc.Call(nc.OP_COVERAGE, (partition, alpha), {}, call.budget, call.store)
         result, error, seconds = _run(lambda item: mirror.coverage_at(item.args[0], item.args[1], item.budget, item.store), step)
         timings = mirror.last_timings
-        parts = {"partition": timings[4], "args": timings[0] + timings[5], "compute": timings[6], "result": timings[7] + timings[2]}
+        parts = {"partition": timings[4], "args": timings[0] + timings[5], "compute": timings[6], "result": timings[7] + sum(timings[8:]) + timings[2]}
         parts = {name: value * 1e-9 for name, value in parts.items()}
         parts["other"] = max(0.0, seconds - sum(parts.values()))
         parts["total"] = seconds

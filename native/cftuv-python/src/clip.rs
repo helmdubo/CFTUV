@@ -34,10 +34,10 @@ use std::time::Instant;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyList, PySet, PyString, PyTuple};
+use pyo3::types::{PyDict, PyFloat, PyList, PyString, PyTuple};
 
-use cftuv_canon::MemOp;
 use cftuv_clip::emit::{Clipped, Law};
+use cftuv_clip::fxhash::FxBuild;
 use cftuv_clip::error::ClipError;
 use cftuv_clip::geometry::{clip_geometry, ClipInput, ClipRun};
 use cftuv_clip::plane::{ChartPoint, Plane, Triangle};
@@ -53,13 +53,8 @@ use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::SignCounts;
 
 use crate::coverage::exact_status;
-use crate::pyobj::{alloc, int_from_ibig, int_from_ubig, rat_from_number, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool};
-
-/// Which memory tables a call changed (the bits of the answer's `changed`): the shim re-reads those for its snapshot.
-pub const CHANGED_REGISTRY: u8 = 1;
-pub const CHANGED_FACTORIZATION: u8 = 2;
-pub const CHANGED_SQUAREFREE: u8 = 4;
-pub const CHANGED_SUPPORT: u8 = 8;
+use crate::memlog::{apply_log, insort, Tables};
+use crate::pyobj::{alloc, int_from_ibig, int_from_ubig, rat_from_number, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
 
 /// Planes kept converted per session.
 pub const PLANE_LIMIT: usize = 16;
@@ -73,9 +68,6 @@ const STATUS_MISSING_KEY: u8 = 13;
 
 /// `(result, status, detail, counts, articles, changed tables, timings)`.
 pub type Answer<'py> = (Option<Bound<'py, PyAny>>, u8, Option<Bound<'py, PyTuple>>, [u64; 5], [u64; 6], u8, [u64; 5]);
-
-/// The process's real canonicalization tables, handed in by the shim: the sorted registry list and its set, and the three dictionaries.
-pub type Tables<'py> = (Bound<'py, PyList>, Bound<'py, PySet>, Bound<'py, PyDict>, Bound<'py, PyDict>, Bound<'py, PyDict>);
 
 struct Names {
     polygons: Py<PyString>,
@@ -105,6 +97,8 @@ struct Classes {
     pool: Pool,
     clipped: Py<PyAny>,
     local_point: Py<PyAny>,
+    /// Where the slots x, y, z of a `LocalPoint3V1` sit (see [`Raw`]).
+    local_raw: Option<Raw>,
     empty_str: Py<PyAny>,
     /// `bisect.insort`: the registry list is sorted by the comparison of Python itself.
     insort: Py<PyAny>,
@@ -158,7 +152,7 @@ struct Arguments<'py> {
     /// The input tuples, by position in `points`.
     point_objects: Vec<Bound<'py, PyAny>>,
     /// The input key strings, by content.
-    key_objects: HashMap<String, Bound<'py, PyAny>>,
+    key_objects: HashMap<String, Bound<'py, PyAny>, FxBuild>,
     cycles: Vec<Vec<String>>,
     polygons: Vec<Vec<Vec<String>>>,
     seam: Vec<(String, String)>,
@@ -224,7 +218,7 @@ fn arguments_of<'py>(
 ) -> PyResult<Arguments<'py>> {
     let mut named = Vec::with_capacity(points.len());
     let mut objects = Vec::with_capacity(points.len());
-    let mut key_objects = HashMap::with_capacity(points.len());
+    let mut key_objects: HashMap<String, Bound<'py, PyAny>, FxBuild> = HashMap::with_capacity_and_hasher(points.len(), FxBuild::default());
     for (key, value) in points.iter() {
         let text = text_of(&key, "a point key")?;
         let pair = value.cast::<PyTuple>().map_err(|_| refuse("a point must be a tuple of two SqrtSumV1"))?;
@@ -348,9 +342,9 @@ fn convert_plane(py: Python<'_>, classes: &Classes, triangles: &Bound<'_, PyAny>
 struct Builder<'py, 'a> {
     py: Python<'py>,
     classes: &'a Classes,
-    keys: HashMap<String, Bound<'py, PyAny>>,
+    keys: HashMap<String, Bound<'py, PyAny>, FxBuild>,
     /// `Rc` address of a node's point -> the Python tuple (an input object or one built here).
-    points: HashMap<usize, Bound<'py, PyAny>>,
+    points: HashMap<usize, Bound<'py, PyAny>, FxBuild>,
     inputs: &'a [Bound<'py, PyAny>],
 }
 
@@ -414,10 +408,20 @@ impl<'py, 'a> Builder<'py, 'a> {
         let dict = PyDict::new(self.py);
         let mut next_normal = 0;
         for (key, lifted) in &clipped.lifted {
-            let position = alloc(self.py, &classes.local_point)?;
-            for (slot, value) in [(&slots.x, lifted.position[0]), (&slots.y, lifted.position[1]), (&slots.z, lifted.position[2])] {
-                set_slot(&position, slot, PyFloat::new(self.py, value).as_any())?;
-            }
+            let position = match &classes.local_raw {
+                Some(raw) => raw.build(
+                    self.py,
+                    &classes.local_point,
+                    [PyFloat::new(self.py, lifted.position[0]).into_any(), PyFloat::new(self.py, lifted.position[1]).into_any(), PyFloat::new(self.py, lifted.position[2]).into_any()],
+                )?,
+                None => {
+                    let position = alloc(self.py, &classes.local_point)?;
+                    for (slot, value) in [(&slots.x, lifted.position[0]), (&slots.y, lifted.position[1]), (&slots.z, lifted.position[2])] {
+                        set_slot(&position, slot, PyFloat::new(self.py, value).as_any())?;
+                    }
+                    position
+                }
+            };
             let normal = match &lifted.normal {
                 Some(_) => {
                     let shared = normals.get(next_normal).ok_or_else(|| refuse("a lifted normal without its write"))?.clone();
@@ -517,12 +521,16 @@ fn write_normals<'py>(py: Python<'py>, table: Option<&Bound<'py, PyDict>>, write
 impl Host {
     pub fn bind(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, clipped: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>) -> PyResult<()> {
         let intern = |text: &str| PyString::intern(py, text).unbind();
+        let local_point = local_point.clone().unbind();
+        let (x, y, z) = (intern("x"), intern("y"), intern("z"));
+        let local_raw = Raw::probe(py, &local_point, &[&x, &y, &z])?;
         self.classes = Some(Classes {
             pool: Pool::new(py, fraction, sqrt_sum)?,
             clipped: clipped.clone().unbind(),
-            local_point: local_point.clone().unbind(),
+            local_point,
+            local_raw,
             empty_str: PyString::intern(py, "").into_any().unbind(),
-            insort: py.import("bisect")?.getattr("insort")?.unbind(),
+            insort: insort(py)?,
             names: Names {
                 polygons: intern("polygons"),
                 cycles: intern("cycles"),
@@ -534,9 +542,9 @@ impl Host {
                 counters: intern("counters"),
                 note: intern("note"),
                 memo: intern("memo"),
-                x: intern("x"),
-                y: intern("y"),
-                z: intern("z"),
+                x,
+                y,
+                z,
                 name: intern("name"),
                 chart: intern("chart"),
                 corners: intern("corners"),
@@ -552,6 +560,23 @@ impl Host {
 
     fn classes(&self) -> PyResult<&Classes> {
         self.classes.as_ref().ok_or_else(|| PyRuntimeError::new_err("cftuv_native: the clip classes were not bound (`bind_clip`)"))
+    }
+
+    /// `(Fraction, SqrtSumV1, LocalPoint3V1)` slots read and written raw; `None` before `bind_clip`.
+    pub fn raw_layouts(&self) -> Option<(bool, bool, bool)> {
+        self.classes.as_ref().map(|classes| {
+            let (fraction, sqrt_sum) = classes.pool.raw_layouts();
+            (fraction, sqrt_sum, classes.local_raw.is_some())
+        })
+    }
+
+    /// Test-only: the attribute protocol everywhere (and for the planes converted from now on).
+    pub fn disable_raw(&mut self) {
+        if let Some(classes) = self.classes.as_mut() {
+            classes.pool.disable_raw();
+            classes.local_raw = None;
+        }
+        self.planes.clear();
     }
 
     pub fn cache_size(&self) -> usize {
@@ -679,7 +704,7 @@ impl Host {
 
         let applying = Instant::now();
         let classes = self.classes()?;
-        let changed = apply_log(py, classes, tables, log)?;
+        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
         let log_ns = nanos(applying);
 
         let building = Instant::now();
@@ -687,7 +712,7 @@ impl Host {
         let (result, status, detail) = match &ran.result {
             Ok(clipped) => {
                 let keys = std::mem::take(&mut arguments.key_objects);
-                let mut builder = Builder { py, classes, keys, points: HashMap::new(), inputs: &arguments.point_objects };
+                let mut builder = Builder { py, classes, keys, points: HashMap::default(), inputs: &arguments.point_objects };
                 (Some(builder.build(clipped, &self.planes[index].names, &shared)?), 0, None)
             }
             Err(error) => {
@@ -697,65 +722,4 @@ impl Host {
         };
         Ok((result, status, detail, counts.as_array(), articles, changed, [plane_ns, arguments_ns, compute_ns, nanos(building), log_ns]))
     }
-}
-
-/// The mutations of the canonicalization memory a call made, replayed IN PLACE on the process's real tables, in the order Python
-/// performs them (`insort`, `d[key] = v`, `d[key] = d.pop(key)`, `del d[oldest]`, `clear`): returns which tables changed. Values
-/// have exactly Python's types (tuples of int pairs, `(outside, inside)`, tuples of ints). The oldest key an eviction names is
-/// checked against the real one: a mirror that disagrees with the real table is a named error, never a silent repair.
-fn apply_log<'py>(py: Python<'py>, classes: &Classes, tables: &Tables<'py>, log: Vec<MemOp>) -> PyResult<u8> {
-    let pool = &classes.pool;
-    let (primes, prime_set, factorization, squarefree, support) = tables;
-    let int = |value: &cftuv_core::num::UBig| int_from_ubig(py, pool, value);
-    let mut changed = 0u8;
-    for op in log {
-        match op {
-            MemOp::ResetAll => return Err(PyRuntimeError::new_err("cftuv_native: a memory reset inside a clip is not part of the operation")),
-            MemOp::RegistryClear => {
-                primes.call_method0("clear")?;
-                prime_set.clear();
-                changed |= CHANGED_REGISTRY;
-            }
-            MemOp::RegistryInsert(prime) => {
-                let prime = int(&prime)?;
-                classes.insort.bind(py).call1((primes, &prime))?;
-                prime_set.add(&prime)?;
-                changed |= CHANGED_REGISTRY;
-            }
-            MemOp::FactorizationEvictOldest { key } => {
-                let key = int(&key)?;
-                let oldest = factorization.iter().next().map(|(oldest, _)| oldest);
-                if !oldest.is_some_and(|oldest| oldest.eq(&key).unwrap_or(false)) {
-                    return Err(PyRuntimeError::new_err("cftuv_native: the native eviction names an oldest factorization the real table does not hold"));
-                }
-                factorization.del_item(&key)?;
-                changed |= CHANGED_FACTORIZATION;
-            }
-            MemOp::FactorizationInsert { key, pairs } => {
-                let mut items = Vec::with_capacity(pairs.len());
-                for (prime, power) in &pairs {
-                    items.push(PyTuple::new(py, [int(prime)?, int_from_ibig(py, pool, &IBig::from(*power))?])?);
-                }
-                factorization.set_item(int(&key)?, PyTuple::new(py, items)?)?;
-                changed |= CHANGED_FACTORIZATION;
-            }
-            MemOp::FactorizationTouch { key } => {
-                let key = int(&key)?;
-                let value = factorization.get_item(&key)?.ok_or_else(|| PyRuntimeError::new_err("cftuv_native: the native touch names a factorization the real table does not hold"))?;
-                factorization.del_item(&key)?;
-                factorization.set_item(&key, value)?;
-                changed |= CHANGED_FACTORIZATION;
-            }
-            MemOp::SquarefreeInsert { key, value } => {
-                squarefree.set_item(int(&key)?, PyTuple::new(py, [int(&value.0)?, int(&value.1)?])?)?;
-                changed |= CHANGED_SQUAREFREE;
-            }
-            MemOp::SupportInsert { key, value } => {
-                let items: Vec<Bound<'py, PyAny>> = value.iter().map(&int).collect::<PyResult<_>>()?;
-                support.set_item(int(&key)?, PyTuple::new(py, items)?)?;
-                changed |= CHANGED_SUPPORT;
-            }
-        }
-    }
-    Ok(changed)
 }
