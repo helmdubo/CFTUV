@@ -148,6 +148,15 @@ PRODUCTION_CONTENT_PREPARATION_REUSED = "PRODUCTION_CONTENT_PREPARATION_REUSED"
 PRODUCTION_CONTENT_RELABELED = "PRODUCTION_CONTENT_RELABELED"
 PRODUCTION_CONTENT_RELABEL_FAILED = "PRODUCTION_CONTENT_RELABEL_FAILED"
 PRODUCTION_CONTENT_UNKEYED = "PRODUCTION_CONTENT_UNKEYED"
+#: Пролог прогона (`StageInputsMemoV1`) взят из памяти (1) либо посчитан (0); сколько доменов взяли вход из записей сборки
+#: (`envelope_scan_memo`, ширина подставлена в запрос) вместо сборки заново. Это память, а не ответ: тот же ответ без неё.
+PRODUCTION_STAGE_INPUTS_MEMO_HIT = "PRODUCTION_STAGE_INPUTS_MEMO_HIT"
+PRODUCTION_SCAN_RECORDS_REUSED = "PRODUCTION_SCAN_RECORDS_REUSED"
+#: Записанные факты шага ширины (`ProductionDomainResultV1.alpha_interval`): сколько материализованных доменов получили заверенный
+#: интервал, сколько стоят на самом событии (окрестности нет) и у скольких событий посчитать нельзя (причина - в записи домена).
+PRODUCTION_ALPHA_INTERVALS_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_CERTIFIED"
+PRODUCTION_ALPHA_INTERVALS_AT_EVENT = "PRODUCTION_ALPHA_INTERVALS_AT_EVENT"
+PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED"
 
 #: Что стоил пулу прогон по трубам (`PoolStatsV1`): байты туда и обратно, подготовки ключом и пиклом, промахи памяти воркера и
 #: разбор ответов в родителе (микросекунды: CPU потоков-читателей и стена с ожиданием GIL). Пишутся, когда пул работал.
@@ -277,6 +286,12 @@ class ProductionDomainResultV1:
     placement: str = field(default=PLACEMENT_PARENT, compare=False)
     #: Как получена резка домена (`clip_memo.HIT/MISS/OFF/BYPASS`, пусто — резки нет): метка запуска, не ответ.
     clip_memo: str = field(default="", compare=False)
+    #: ЗАПИСАННЫЕ факты шага ширины (`MaterializationV1.interval` и `.structure`), не ответ: заверенный интервал ширины, внутри
+    #: которого структура покрытия и резки домена та же (`cftuv_envelope.materialize.interval.AlphaIntervalV1`), и подпись структуры
+    #: батча по содержанию (`structure.StructureSignatureV1.digest`; ключи вершин несут идентичности ревизии, поэтому перенос на
+    #: другую ревизию пересчитывает её). Пусто у отказа.
+    alpha_interval: object | None = field(default=None, compare=False)
+    structure_digest: str = field(default="", compare=False)
     #: Запись идентичностей хоста, при которых посчитан результат (`DomainLabelingV1`), либо `None`: по ней
     #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
     #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
@@ -494,6 +509,7 @@ def produce_domain(
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             decal_topology_law=DecalTopologyLawV1(topology_law),
             digests=not defer,
+            certify=True,
         )
         if not result.is_materialized:
             return _refusal(
@@ -522,6 +538,8 @@ def produce_domain(
             decal_topology_law=result.decal_topology_law.value,
             seconds=time.perf_counter() - started,
             clip_memo=result.clip_memo,
+            alpha_interval=result.interval,
+            structure_digest="" if result.structure is None else result.structure.digest,
         )
         if defer:
             produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
@@ -801,14 +819,19 @@ def _slot(run: _RunInputsV1) -> tuple:
     )
 
 
-def _bound_entry(run: _RunInputsV1, patch_id, domain_id, selected):
+_NO_BINDING = object()
+
+
+def _bound_entry(run: _RunInputsV1, patch_id, domain_id, selected, binding=_NO_BINDING):
     """Домен, чей ключ содержимого уже известен при этой ревизии и чей результат лежит в кэше ревизии.
 
     Ключ — функция входа домена, а вход при ревизии, выделении, плотности, допуске и полосе один: по привязке
     `(ревизия, домен, выделение, плотность, допуск, ключ полосы)` повторное нажатие не строит ни вход воркера, ни ключ.
+    `binding` — привязка из записи сборки (`envelope_scan_memo`), когда она есть: считать её заново незачем.
     """
 
-    binding = _binding(run, patch_id, domain_id, selected)
+    if binding is _NO_BINDING:
+        binding = _binding(run, patch_id, domain_id, selected)
     key = None if binding is None else run.controller.content_binding(binding)
     if key is None:
         return None
@@ -940,17 +963,48 @@ def _note_relabel_failure(run: _RunInputsV1, patch_id, exc) -> None:
     )
 
 
+def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record, alpha):
+    """Домен по записи сборки: запрос с шириной прогона, подготовка и результат из кэшей сессии (то же, что `_entry_with_inputs`)."""
+
+    from .envelope_scan_memo import request_at
+
+    controller = run.controller
+    key = (
+        record.prep_key,
+        run.alpha_text,
+        run.uv_policy_id,
+        run.topology_law,
+        HOST_NEAR_PLANAR_LIFT_POLICY.value,
+    )
+    return _DomainEntryV1(
+        patch_id,
+        domain_id,
+        selected,
+        prepared=controller.peek_conveyor_preparation_by_key(record.prep_key),
+        inputs=(record.snapshot, request_at(record, alpha)),
+        result_key=key,
+        cached=controller.peek_production_result(key),
+    )
+
+
 def _scan(run: _RunInputsV1):
     """Домены по кэшам сессии, БЕЗ сборки: чего нет в кэше, то холодно.
 
     Метрика, снапшот, подготовка и результат читаются из кэшей контроллера; промах метрики
     называется холодным доменом с лёгким входом выгрузки, а не собирается здесь в родителе
-    (сборка метрик — работа воркеров пула в холодной задаче).
+    (сборка метрик — работа воркеров пула в холодной задаче). Вход домена с готовой записью сборки
+    (`envelope_scan_memo`: тот же снапшот, то же выделение и политика) берёт из неё всё, что не зависит
+    от ширины, а ширину подставляет в запрос; ширина, которой запрос не строится, идёт прежним путём.
     """
 
     from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
+    from .envelope_scan_memo import ScanRecordV1, carries_band, request_alpha, scan_key
 
     controller = run.controller
+    alpha = request_alpha(run.alpha)
+    key = None if alpha is None else scan_key(run)
+    records = None if key is None else controller.scan_memo.records_of(key)
+    reused = 0
 
     def snapshots(patch_id, _domain_id):
         metric = controller.get_patch_metric(run.topology_export, patch_id)
@@ -960,7 +1014,12 @@ def _scan(run: _RunInputsV1):
     for patch_id in run.patch_ids:
         domain_id = _typed_value("patch-domain", run.revision, patch_id)
         selected = frozenset(run.selected_by_domain[domain_id])
-        bound = _bound_entry(run, patch_id, domain_id, selected)
+        record = None if records is None else records.get(patch_id)
+        if record is not None and record.selected != selected:
+            record = None
+        bound = _bound_entry(
+            run, patch_id, domain_id, selected, _NO_BINDING if record is None else record.binding
+        )
         if bound is not None:
             entries.append(bound)
             continue
@@ -971,11 +1030,22 @@ def _scan(run: _RunInputsV1):
             entries.append(_content_entry(run, patch_id, domain_id, selected, export))
             continue
         try:
-            inputs = _inputs_of(run, (patch_id, domain_id, selected), snapshots)
+            snapshot = snapshots(patch_id, domain_id)
+            if record is not None and record.snapshot is snapshot:
+                entries.append(_entry_from_record(run, patch_id, domain_id, selected, record, alpha))
+                reused += 1
+                continue
+            inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
         except EnvelopeHostAdapterError as exc:
             entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc))
             continue
-        entries.append(_entry_with_inputs(run, patch_id, domain_id, selected, inputs))
+        entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
+        entries.append(entry)
+        if records is not None and not carries_band(snapshot):
+            records[patch_id] = ScanRecordV1(
+                selected, snapshot, inputs[1], entry.result_key[0], _binding(run, patch_id, domain_id, selected)
+            )
+    run.profile.set_counter(PRODUCTION_SCAN_RECORDS_REUSED, reused)
     return entries
 
 
@@ -1470,6 +1540,14 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     computed = [result for entry, result in zip(entries, results) if entry.computes]
     for name, label in ((PRODUCTION_CLIP_MEMO_HITS, "HIT"), (PRODUCTION_CLIP_MEMO_MISSES, "MISS")):
         profile.set_counter(name, sum(1 for item in computed if item.clip_memo == label))
+    for name, status in (
+        (PRODUCTION_ALPHA_INTERVALS_CERTIFIED, "CERTIFIED"),
+        (PRODUCTION_ALPHA_INTERVALS_AT_EVENT, "AT_EVENT"),
+        (PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED, "NOT_CERTIFIED"),
+    ):
+        profile.set_counter(
+            name, sum(1 for item in results if item.alpha_interval is not None and item.alpha_interval.status == status)
+        )
     profile.set_counter(PRODUCTION_DOMAINS, len(results))
     profile.set_counter(
         PRODUCTION_MATERIALIZED, sum(1 for item in results if item.is_materialized)
@@ -1514,7 +1592,7 @@ def run_production(
 
     from .envelope_chart_band import policy_alpha
     from .envelope_domain_pool import get_domain_pool
-    from .envelope_topology_export import stage_domain_inputs
+    from .envelope_topology_export import STAGE_INPUTS_HIT, stage_domain_inputs
     from .envelope_worker_python import read_worker_python
 
     if uv_policy_id not in ENVELOPE_UV_POLICIES:
@@ -1536,9 +1614,11 @@ def run_production(
     ).with_developable_stretch_budget(developable_stretch_budget).with_silhouette_uv_slide(
         silhouette_uv_slide
     ).with_chart_band(chart_reach_cap, selected, policy_alpha(alpha))
+    stage_memo = controller.stage_inputs_memo
     _scene, revision, patch_ids, request_id, selected_by_domain = stage_domain_inputs(
-        analysis_bundle, selected, profile=profile, topology_export=topology_export
+        analysis_bundle, selected, profile=profile, topology_export=topology_export, memo=stage_memo
     )
+    profile.set_counter(PRODUCTION_STAGE_INPUTS_MEMO_HIT, int(stage_memo.last == STAGE_INPUTS_HIT))
     run = _RunInputsV1(
         controller,
         analysis_bundle,
@@ -1801,6 +1881,8 @@ def export_production_json(results, directory, *, label: str = "production") -> 
             "offset_normal_law": item.offset_normal_law,
             "offset_normals_digest": item.offset_normals_digest,
             "decal_topology_law": item.decal_topology_law,
+            "alpha_interval": None if item.alpha_interval is None else item.alpha_interval.as_record(),
+            "structure_digest": item.structure_digest,
         }
         if item.is_materialized:
             name = f"{label}_patch{item.patch_id:04d}.geometry_batch.json"
@@ -1827,6 +1909,9 @@ __all__ = (
     "OUTCOME_DOMAIN_RAISED",
     "OUTCOME_PREPARATION_UNAVAILABLE",
     "PLACEMENT_CACHED",
+    "PRODUCTION_ALPHA_INTERVALS_AT_EVENT",
+    "PRODUCTION_ALPHA_INTERVALS_CERTIFIED",
+    "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED",
     "PRODUCTION_CLIP_MEMO_HITS",
     "PRODUCTION_CLIP_MEMO_MISSES",
     "PRODUCTION_COLD_FILL",
@@ -1847,6 +1932,8 @@ __all__ = (
     "PRODUCTION_REFUSED",
     "PRODUCTION_RESULT_CACHE_HIT",
     "PRODUCTION_RESULT_CACHE_MISS",
+    "PRODUCTION_SCAN_RECORDS_REUSED",
+    "PRODUCTION_STAGE_INPUTS_MEMO_HIT",
     "PRODUCTION_TOPOLOGY_LAW",
     "PRODUCTION_TOPOLOGY_LAWS",
     "PRODUCTION_UV_POLICY",
