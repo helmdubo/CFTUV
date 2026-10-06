@@ -903,6 +903,16 @@ LARGE_FILE_BYTES = 512 * 1024
 KNOWN_LARGE_FILE_COUNT = 6
 
 
+#: Каталог сборки нативного ускорителя (`cargo`): гигабайт объектных файлов, в `.gitignore`, частью репозитория не
+#: является — ровно как рабочие каталоги субагентов `.claude`. Исключён по ПУТИ, а не по имени `target`: каталог с таким
+#: именем в другом месте дерева остаётся под правилом.
+NATIVE_BUILD_OUTPUT = ("native", "target")
+
+
+def _is_native_build_output(path: Path) -> bool:
+    return path.relative_to(REPO_ROOT).parts[: len(NATIVE_BUILD_OUTPUT)] == NATIVE_BUILD_OUTPUT
+
+
 def _large_files_in_worktree() -> tuple[str, ...]:
     """Крупные файлы в рабочем дереве, кроме заведомо исключённых каталогов."""
 
@@ -917,6 +927,8 @@ def _large_files_in_worktree() -> tuple[str, ...]:
         if not path.is_file():
             continue
         if skipped_roots & set(path.relative_to(REPO_ROOT).parts):
+            continue
+        if _is_native_build_output(path):
             continue
         if path.stat().st_size > LARGE_FILE_BYTES:
             large.append(_relative(path))
@@ -960,6 +972,8 @@ def _markdown_in_worktree() -> tuple[str, ...]:
         if not path.is_file():
             continue
         if skipped_roots & set(path.relative_to(REPO_ROOT).parts):
+            continue
+        if _is_native_build_output(path):
             continue
         found.append(_relative(path))
     return tuple(sorted(found))
@@ -1322,6 +1336,113 @@ def test_the_host_never_walks_a_batch_frozenset_in_hash_order():
         + "\n".join(offenders)
         + "\n\nОбходите через sorted(..., key=<имя или ключ вершин>)."
     )
+
+
+# --------------------------------------------------------------------------
+# Нативный ускоритель: одна точка входа
+# --------------------------------------------------------------------------
+#
+# Расширение `cftuv_native._core` (Rust, `native/`) импортирует ТОЛЬКО шим `cftuv_native/__init__.py`: он переводит
+# объекты ядра в буферы целой операции и воспроизводит её побочные эффекты (бюджет, память канонизации). Второй
+# импортёр расширения обошёл бы этот перевод — и вместе с ним сверку с Python-эталоном.
+
+NATIVE_EXTENSION = "cftuv_native._core"
+NATIVE_SHIM = "native/cftuv-python/python/cftuv_native/__init__.py"
+
+
+def _native_extension_imports(tree: ast.AST, inside_package: bool) -> list[int]:
+    """Строки, где модуль добирается до расширения: импортом в любой форме либо строкой с его именем."""
+
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name == NATIVE_EXTENSION or alias.name.startswith(NATIVE_EXTENSION + ".") for alias in node.names):
+                found.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            names = {alias.name for alias in node.names}
+            if node.level == 0 and (
+                module == NATIVE_EXTENSION
+                or module.startswith(NATIVE_EXTENSION + ".")
+                or (module == "cftuv_native" and "_core" in names)
+            ):
+                found.append(node.lineno)
+            elif node.level > 0 and inside_package and (module.split(".")[0] == "_core" or (not module and "_core" in names)):
+                found.append(node.lineno)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and NATIVE_EXTENSION in node.value:
+            found.append(node.lineno)
+    return sorted(found)
+
+
+def _repository_python_files() -> tuple[Path, ...]:
+    skipped_roots = {".git", "__pycache__", ".claude"}
+    return tuple(
+        path
+        for path in sorted(REPO_ROOT.rglob("*.py"))
+        if not (skipped_roots & set(path.relative_to(REPO_ROOT).parts)) and not _is_native_build_output(path)
+    )
+
+
+def test_the_native_extension_rule_flags_every_import_form():
+    planted = (
+        "import cftuv_native._core\n"
+        "from cftuv_native import _core\n"
+        "from cftuv_native._core import Session\n"
+        "import importlib\n"
+        "module = importlib.import_module('cftuv_native._core')\n"
+        "import cftuv_native\n"
+    )
+    assert _native_extension_imports(ast.parse(planted), inside_package=False) == [1, 2, 3, 5]
+    relative = "from . import _core\nfrom ._core import Session\nfrom . import codec\n"
+    assert _native_extension_imports(ast.parse(relative), inside_package=True) == [1, 2]
+
+
+def test_only_the_shim_imports_the_native_extension():
+    offenders = []
+    for path in _repository_python_files():
+        name = _relative(path)
+        # Шим — единственный импортёр; этот файл называет расширение строкой, потому что держит само правило.
+        if name in (NATIVE_SHIM, _relative(Path(__file__).resolve())):
+            continue
+        inside = name.startswith("native/cftuv-python/python/cftuv_native/")
+        lines = _native_extension_imports(_parse(path), inside_package=inside)
+        if lines:
+            offenders.append(f"{name}:{lines}")
+    assert not offenders, (
+        f"расширение {NATIVE_EXTENSION} импортируется мимо шима {NATIVE_SHIM}:\n"
+        + "\n".join(offenders)
+        + "\n\nЗовите `cftuv_native` (шим): он переводит вход и воспроизводит бюджет и память канонизации."
+    )
+
+
+# --------------------------------------------------------------------------
+# Нативный ускоритель: пин эталона
+# --------------------------------------------------------------------------
+#
+# Нативная операция побитово равна ОДНОЙ версии ядра на Python. `native/cftuv-python/python/cftuv_native/pin.py` держит sha256 тех файлов эталона, которые
+# порт зеркалит; шим отказывается названным `NativePortStale`, если дерево ушло от пина (`tests/test_native_pin.py` проверяет сам механизм). Здесь — то, что
+# проверяется без расширения и в чистом клоне: у каждого файла списков ровно один дайджест. Исчезновение или переименование зеркалимого файла ядро
+# НЕ краснит: Python-сессия двигает ядро свободно, а шим называет порт устаревшим (`NativePortStale`, файл назван); догон порта — отдельная работа.
+
+NATIVE_PIN = "native/cftuv-python/python/cftuv_native/pin.py"
+
+
+def _load_native_pin():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_cftuv_native_pin_under_test", REPO_ROOT / NATIVE_PIN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_native_pins_hold_one_digest_per_mirrored_file():
+    pin = _load_native_pin()
+    listed = {name for files in pin.OPERATION_FILES.values() for name in files}
+    assert set(pin.OPERATION_FILES) == {"coverage", "clip"}
+    assert set(pin.PINS) == listed, "у каждого файла списка ровно один пин и ни одного лишнего"
+    assert all(len(digest) == 64 and set(digest) <= set("0123456789abcdef") for digest in pin.PINS.values())
+    assert all(len(set(files)) == len(files) for files in pin.OPERATION_FILES.values())
 
 
 # --------------------------------------------------------------------------
