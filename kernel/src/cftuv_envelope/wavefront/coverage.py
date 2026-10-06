@@ -270,15 +270,22 @@ def coverage_at(
         if produced is not None:
             return _remembered(key, partition, produced, work_budget)
     result = _coverage_at(partition, alpha, work_budget, store)
-    return _remembered(key, partition, result, work_budget)
+    _remember(key, partition, result)
+    return result
 
 
-def _remembered(key, partition, result: CoverageV1, work_budget) -> CoverageV1:
+def _remember(key, partition, result: CoverageV1) -> None:
     if result.outcome is CoverageOutcome.EXACT:
         _RECENT[key] = (partition, result)
         while len(_RECENT) > _RECENT_LIMIT:
             del _RECENT[next(iter(_RECENT))]
-    return result if result.work_budget is work_budget else replace(result, work_budget=work_budget)
+
+
+def _remembered(key, partition, produced: CoverageV1, work_budget) -> CoverageV1:
+    """Покрытие от источника шага ширины: в память недавних и вызывающему с ЕГО бюджетом (как попадание в память)."""
+
+    _remember(key, partition, produced)
+    return produced if produced.work_budget is work_budget else replace(produced, work_budget=work_budget)
 
 
 def _coverage_at(
