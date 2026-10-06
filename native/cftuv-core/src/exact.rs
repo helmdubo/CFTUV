@@ -16,6 +16,7 @@
 
 use cftuv_canon::{pick_prime_from_universe, CanonError, CanonMemory, QValue, UniverseRecord, WorkBudget};
 
+use crate::fused::Share;
 use crate::fx::{self, ubig_of_u128, FxItems};
 use crate::num::{self, IBig, UBig};
 use crate::products::{Items, ProductMemo};
@@ -508,7 +509,7 @@ pub fn divided_by_generic(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominat
 /// The quotient of [`divided_by_form`]: an unreduced integer form, or (the oracle's generic fallback, dead in
 /// practice) the sum the fallback built.
 pub enum Quotient {
-    Form(IntForm),
+    Form(Share),
     Sum(SqrtSum),
 }
 
@@ -523,13 +524,13 @@ pub fn divided_by_form(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator:
     match rationalize(ctx, numerator, denominator, PrimeSource::Factorized)? {
         Some(done) => {
             if let Rationalized::Fx(state) = &done {
-                if let Some(form) = fx::scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items) {
-                    return Ok(Quotient::Form(form));
+                if let Some((common, items)) = fx::scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items) {
+                    return Ok(Quotient::Form(Share::from_stack(common, items)));
                 }
             }
             let state = done.into_big();
             scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items)
-                .map(Quotient::Form)
+                .map(|form| Quotient::Form(Share::from_form(form)))
                 .map_err(|_| ExactError::Internal("a rational divisor of zero"))
         }
         None => divided_by_generic(ctx, numerator, denominator).map(Quotient::Sum),

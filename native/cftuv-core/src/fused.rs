@@ -5,10 +5,56 @@
 
 use std::cmp::Ordering;
 
+use std::sync::OnceLock;
+
+use crate::fx::{self, FxItems};
 use crate::num::{self, IBig, UBig};
 use crate::products::{accumulate_products, Accumulator, ProductMemo};
 use crate::rat::{Coef, Rat};
 use crate::sqrt_sum::{IntForm, SqrtSum, Term};
+use crate::wide::Wide;
+
+/// The right factor of [`product_added_form`]: an integer form with any common scale and no canonical terms behind it, that the conjugation loop
+/// hands over on the stack when it ended there (the form of `dashu-int` integers is made only if somebody asks for it).
+pub struct Share {
+    form: OnceLock<IntForm>,
+    stack: Option<Box<(Wide, FxItems)>>,
+}
+
+impl Share {
+    pub fn from_form(form: IntForm) -> Share {
+        Share { form: OnceLock::from(form), stack: None }
+    }
+
+    pub(crate) fn from_stack(common: Wide, items: FxItems) -> Share {
+        Share { form: OnceLock::new(), stack: Some(Box::new((common, items))) }
+    }
+
+    pub fn form(&self) -> &IntForm {
+        self.form.get_or_init(|| {
+            let (common, items) = &**self.stack.as_ref().expect("a share is a form or a stack twin");
+            IntForm { common: common.to_ubig(), items: items.to_items() }
+        })
+    }
+
+    /// The value the form stands for.
+    pub fn into_sqrt_sum(self) -> SqrtSum {
+        self.form().clone().into_sqrt_sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match &self.stack {
+            Some(twin) => twin.1.is_empty(),
+            None => self.form().items.is_empty(),
+        }
+    }
+}
+
+/// A right factor, borrowed.
+enum Right<'a> {
+    Form(&'a IntForm),
+    Share(&'a Share),
+}
 
 /// `step_x * y - step_y * x + offset` for integer steps and offset, with one normalisation per result term.
 pub fn oriented_sum(x: &SqrtSum, y: &SqrtSum, step_x: &IBig, step_y: &IBig, offset: &IBig) -> SqrtSum {
@@ -38,18 +84,44 @@ pub fn product_added(base: &SqrtSum, left: &SqrtSum, right: &SqrtSum, memo: &mut
     if left.is_zero() || right.is_zero() {
         return base.clone();
     }
-    product_added_form(base, left, right.int_form(), memo)
+    product_added_with(base, left, Right::Form(right.int_form()), memo)
 }
 
 /// [`product_added`] with the right factor given as an integer form (any common scale, no canonical terms behind
 /// it): the result is the same canonical value, type for type, because every result term is normalised at the end.
-pub fn product_added_form(base: &SqrtSum, left: &SqrtSum, right_form: &IntForm, memo: &mut ProductMemo) -> SqrtSum {
-    if left.is_zero() || right_form.items.is_empty() {
+pub fn product_added_form(base: &SqrtSum, left: &SqrtSum, right: &Share, memo: &mut ProductMemo) -> SqrtSum {
+    product_added_with(base, left, Right::Share(right), memo)
+}
+
+fn product_added_with(base: &SqrtSum, left: &SqrtSum, right: Right<'_>, memo: &mut ProductMemo) -> SqrtSum {
+    let empty = match &right {
+        Right::Form(form) => form.items.is_empty(),
+        Right::Share(share) => share.is_empty(),
+    };
+    if left.is_zero() || empty {
         return base.clone();
     }
+    let right_form = || match &right {
+        Right::Form(form) => *form,
+        Right::Share(share) => share.form(),
+    };
     if base.has_py_int() {
-        return product_added_typed(base, left, right_form, memo);
+        return product_added_typed(base, left, right_form(), memo);
     }
+    let stacked = match &right {
+        Right::Share(Share { stack: Some(twin), .. }) => fx::product_added(base, left, &twin.0, &twin.1, memo),
+        _ => {
+            let form = right_form();
+            match (Wide::from_ubig(&form.common), FxItems::from_items(&form.items)) {
+                (Some(common), Some(items)) => fx::product_added(base, left, &common, &items, memo),
+                _ => None,
+            }
+        }
+    };
+    if let Some(sum) = stacked {
+        return sum;
+    }
+    let right_form = right_form();
     // no coefficient of the base is a Python `int`, so the sum is one value over a common denominator and nothing else: the base terms the
     // product does not touch are the same coefficients in that form (as `Fraction`s they were, as `Fraction`s they stay)
     let (base_form, left_form) = (base.int_form(), left.int_form());

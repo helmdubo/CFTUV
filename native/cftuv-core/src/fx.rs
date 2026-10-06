@@ -7,7 +7,7 @@
 
 use crate::num::{IBig, UBig};
 use crate::products::{Items, ProductMemo};
-use crate::sqrt_sum::IntForm;
+use crate::sqrt_sum::SqrtSum;
 use crate::wide::Wide;
 
 /// Items one list holds (the lists of the conjugation loop have a handful).
@@ -251,13 +251,13 @@ pub fn reduce(common: &mut Wide, items: &mut FxItems) {
 /// `scaled_by_reciprocal_form` on the stack road: the quotient of two forms whose denominator is rational, as one integer form
 /// `(numerator_common * |head|, a_m * denominator_common * sign(head))` reduced by one common divisor. `None` where the `dashu-int` road
 /// has a refusal to make (a zero divisor) or where something does not fit: the caller runs that road.
-pub fn scaled_by_reciprocal_form(numerator_common: &Wide, numerator_items: &FxItems, denominator_common: &Wide, denominator_items: &FxItems) -> Option<IntForm> {
+pub fn scaled_by_reciprocal_form(numerator_common: &Wide, numerator_items: &FxItems, denominator_common: &Wide, denominator_items: &FxItems) -> Option<(Wide, FxItems)> {
     if denominator_common.is_zero() || denominator_items.is_empty() || numerator_common.is_zero() {
         return None;
     }
     let head = denominator_items.val[0];
     if numerator_items.is_empty() {
-        return Some(IntForm { common: UBig::ONE, items: Items::new() });
+        return Some((Wide::from_u64(1), FxItems::new()));
     }
     let negative = head.is_negative();
     let mut items = FxItems::new();
@@ -269,7 +269,51 @@ pub fn scaled_by_reciprocal_form(numerator_common: &Wide, numerator_items: &FxIt
     items.n = numerator_items.n;
     let mut common = numerator_common.mul(&head.abs())?;
     reduce(&mut common, &mut items);
-    Some(IntForm { common: common.to_ubig(), items: items.to_items() })
+    Some((common, items))
+}
+
+/// `base + left * right` on the stack road, as one value in lowest terms: `right` is an integer form `(right_common, right_items)`. `None`
+/// when anything does not fit, and the caller runs the `dashu-int` road. The base has no Python `int` coefficient (the caller checked).
+pub fn product_added(base: &SqrtSum, left: &SqrtSum, right_common: &Wide, right: &FxItems, memo: &mut ProductMemo) -> Option<SqrtSum> {
+    let (base_form, left_form) = (base.int_form(), left.int_form());
+    let base_common = Wide::from_ubig(&base_form.common)?;
+    let common = Wide::from_ubig(&left_form.common)?.mul(right_common)?;
+    let base_items = FxItems::from_items(&base_form.items)?;
+    let left_items = FxItems::from_items(&left_form.items)?;
+    // scale = lcm(base_common, common); the product is weighted by scale / common, the base by scale / base_common
+    let (weight, factor, mut scale) = if base_common == common {
+        (Wide::from_u64(1), Wide::from_u64(1), common)
+    } else {
+        let divisor = base_common.gcd(&common);
+        let factor = common.div_exact(&divisor);
+        (base_common.div_exact(&divisor), factor, base_common.mul(&factor)?)
+    };
+    let mut merged = FxAcc::new();
+    for index in 0..left_items.n {
+        let (left_radicand, weighted) = (left_items.key[index], if weight.is_one() { left_items.val[index] } else { left_items.val[index].mul(&weight)? });
+        for other in 0..right.n {
+            let (right_radicand, right_value) = (right.key[other], &right.val[other]);
+            let ok = if left_radicand == 1 {
+                merged.add_product(right_radicand, &weighted, right_value, 1)
+            } else if right_radicand == 1 {
+                merged.add_product(left_radicand, &weighted, right_value, 1)
+            } else {
+                let (shared, radicand) = memo.product_u128(left_radicand, right_radicand)?;
+                merged.add_product(radicand, &weighted, right_value, shared)
+            };
+            if !ok {
+                return None;
+            }
+        }
+    }
+    for index in 0..base_items.n {
+        if !merged.add_product(base_items.key[index], &base_items.val[index], &factor, 1) {
+            return None;
+        }
+    }
+    let mut items = merged.finish()?;
+    reduce(&mut scale, &mut items);
+    Some(SqrtSum::from_sorted_form(scale.to_ubig(), items.to_items(), true))
 }
 
 #[cfg(test)]
@@ -277,7 +321,7 @@ mod tests {
     use super::*;
     use crate::num;
     use crate::products::{accumulate_products, Accumulator};
-    use crate::sqrt_sum::reduce_in_place;
+    use crate::sqrt_sum::{reduce_in_place, IntForm};
 
     /// The `dashu-int` road, as `multiply_integer_items` runs it.
     fn multiply_integer_items_dashu(left: &[(UBig, IBig)], right: &[(UBig, IBig)], memo: &mut ProductMemo) -> Items {
@@ -408,8 +452,8 @@ mod tests {
             else {
                 continue;
             };
-            if let Some(found) = scaled_by_reciprocal_form(&nc, &ni, &dc, &di) {
-                assert_eq!(found, expected);
+            if let Some((common, items)) = scaled_by_reciprocal_form(&nc, &ni, &dc, &di) {
+                assert_eq!(IntForm { common: common.to_ubig(), items: items.to_items() }, expected);
                 compared += 1;
             }
         }
@@ -417,7 +461,8 @@ mod tests {
         // an empty numerator is the zero form, and a zero denominator is left to the dashu road to refuse
         let (one, empty) = (Wide::from_u64(1), FxItems::new());
         let head = FxItems::from_items(&[(UBig::ONE, IBig::from(-4))]).unwrap();
-        assert_eq!(scaled_by_reciprocal_form(&one, &empty, &one, &head).unwrap(), IntForm { common: UBig::ONE, items: Items::new() });
+        let (zero_common, zero_items) = scaled_by_reciprocal_form(&one, &empty, &one, &head).unwrap();
+        assert_eq!((zero_common, zero_items.len()), (Wide::from_u64(1), 0));
         assert!(scaled_by_reciprocal_form(&one, &head, &one, &empty).is_none());
     }
 
