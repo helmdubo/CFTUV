@@ -258,6 +258,9 @@ DIGEST_READERS = {
 TOOL_DIGEST_READERS = {
     ("tools/run_envelope_mr1_building_gate.py", "semantic_digest"): "дайджест эталонного покрытия",
     ("tools/export_building_002_point_contact_fixture.py", "semantic_digest"): "дайджест эталонного покрытия",
+    # A/B бэкендов читает дайджесты РЕЗУЛЬТАТА продуктового пути (с воркерами они приходят лениво из отложенного результата).
+    ("tools/blender_native_ab.py", "content_digest"): "domain_row: дайджест содержимого результата домена",
+    ("tools/blender_native_ab.py", "semantic_digest"): "domain_row: семантический дайджест батча результата домена",
 }
 _DIGEST_FIELDS = ("content_digest", "semantic_digest")
 
