@@ -72,27 +72,29 @@ if ($WhatIf) {
 }
 
 # --- копирование -------------------------------------------------------------
-function Deploy($sourcePath, $targetRoot, $label) {
-    New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
-    $target = Join-Path $targetRoot (Split-Path -Leaf $sourcePath)
-    # Старая копия удаляется целиком: частичное наложение оставляет файлы,
-    # удалённые в репозитории, и они продолжают работать.
-    if (Test-Path $target) { Remove-Item -Recurse -Force $target }
-    Copy-Item -Recurse -Force $sourcePath $targetRoot
-    # `__pycache__` от прежней версии переживает копирование исходников и
-    # выглядит как «поведение застряло».
-    Get-ChildItem $target -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
-        Remove-Item -Recurse -Force
-    Write-Host "  скопировано: $label -> $target"
-    return $target
-}
+# Установка - ПОДМЕНА каталогов, а не «стереть и скопировать» (см. install_common.ps1). Прежняя версия стирала старую копию
+# целиком и копировала новую: пока Blender держал .pyc ядра (воркеры пула), стирание обрывалось на середине, штамп установки
+# исчезал, а аддон оставался наполовину стёртым. Теперь новая копия собирается и сверяется В СТОРОНЕ, занятые файлы называются
+# ДО подмены, старый каталог уходит одним переименованием, а сбой возвращает прежнюю установку вместе со штампом.
+. (Join-Path $PSScriptRoot "install_common.ps1")
+
+$scriptsDir   = Join-Path $chosen.FullName "scripts"
+$stagingRoot  = Join-Path $scriptsDir (".cftuv_staging\" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$addonTarget  = Join-Path $addons "cftuv"
+$kernelTarget = Join-Path $modules "cftuv_envelope"
 
 Write-Host ""
-Write-Host "=== копирование ===" -ForegroundColor Cyan
-$addonTarget  = Deploy (Join-Path $repo "cftuv") $addons "аддон cftuv"
-$kernelTarget = Deploy (Join-Path $repo "kernel\src\cftuv_envelope") $modules "ядро cftuv_envelope"
+Write-Host "=== занятые файлы ===" -ForegroundColor Cyan
+foreach ($held in @(
+    @{ label = "the installed cftuv add-on";      path = $addonTarget },
+    @{ label = "the installed cftuv_envelope kernel"; path = $kernelTarget }
+)) {
+    $locked = Get-LockedFiles $held.path
+    if ($locked.Count -gt 0) { Fail (Get-LockMessage $held.label $locked) }
+}
+Write-Host "  занятых файлов нет"
 
-# --- доказательство ----------------------------------------------------------
+# --- проверка отпечатков -----------------------------------------------------
 # Считается Python'ом самого Blender: он гарантированно есть и им же будет
 # исполняться установленный код.
 $blenderPython = Get-ChildItem "C:\Program Files\Blender Foundation\Blender $($chosen.Name)\$($chosen.Name)\python\bin\python.exe" -ErrorAction SilentlyContinue
@@ -116,39 +118,96 @@ function Fingerprint($path) {
     (& $py $checker --fingerprint-path $path).Trim()
 }
 
+function Stage($sourcePath, $label) {
+    # Копия во временный каталог рядом с аддонами; `__pycache__` от прежней версии не переживает копирование исходников и
+    # выглядит как «поведение застряло».
+    New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+    Copy-Item -Recurse -Force $sourcePath $stagingRoot
+    $staged = Join-Path $stagingRoot (Split-Path -Leaf $sourcePath)
+    Get-ChildItem $staged -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force
+    Write-Host "  собрано в стороне: $label -> $staged"
+    return $staged
+}
+
 Write-Host ""
-Write-Host "=== отпечатки ===" -ForegroundColor Cyan
+Write-Host "=== сборка в стороне ===" -ForegroundColor Cyan
+$sources = @(
+    @{ label = "cftuv";          source = Join-Path $repo "cftuv";                     target = $addonTarget },
+    @{ label = "cftuv_envelope"; source = Join-Path $repo "kernel\src\cftuv_envelope"; target = $kernelTarget }
+)
+foreach ($item in $sources) {
+    $item.staged = Stage $item.source $item.label
+}
+
+Write-Host ""
+Write-Host "=== отпечатки (до подмены) ===" -ForegroundColor Cyan
 $failed = $false
-foreach ($pair in @(
-    @{ label = "cftuv";           source = Join-Path $repo "cftuv";                    target = $addonTarget },
-    @{ label = "cftuv_envelope";  source = Join-Path $repo "kernel\src\cftuv_envelope"; target = $kernelTarget }
-)) {
-    $want = Fingerprint $pair.source
-    $got  = Fingerprint $pair.target
+foreach ($item in $sources) {
+    $want = Fingerprint $item.source
+    $got  = Fingerprint $item.staged
     if ($want -eq $got) {
-        Write-Host "  ОК  $($pair.label): $got"
+        Write-Host "  ОК  $($item.label): $got"
     } else {
-        Write-Host "  НЕТ $($pair.label): репозиторий $want, установлено $got" -ForegroundColor Red
+        Write-Host "  НЕТ $($item.label): репозиторий $want, собрано $got" -ForegroundColor Red
         $failed = $true
     }
 }
-
-Write-Host ""
 if ($failed) {
-    Fail "отпечатки разошлись — установленная копия НЕ совпадает с репозиторием"
+    Remove-Staging $stagingRoot | Out-Null
+    Fail "отпечатки разошлись — новая копия НЕ совпадает с репозиторием; установленное не тронуто"
 }
 
 # --- штамп версии -------------------------------------------------------------
-# Пишется ПОСЛЕ сверки отпечатков (Deploy стирает цель целиком, так что штамп
-# прошлой установки не переживает копирование и не портит сверку). Причина
-# существования: владелец ставил сборку из чекаута, отставшего на день, и
+# Пишется в новую копию ДО подмены: установленный аддон либо старый целиком (со своим штампом), либо новый целиком (со своим).
+# Причина существования: владелец ставил сборку из чекаута, отставшего на день, и
 # «каждый раз запускал старый» — без штампа это неотличимо от поломки.
 $commit = (git -C $repo rev-parse --short HEAD 2>$null)
 $branch = (git -C $repo rev-parse --abbrev-ref HEAD 2>$null)
 $stamp = "commit $commit ($branch), установлено $(Get-Date -Format 'yyyy-MM-dd HH:mm') из $repo"
-foreach ($target in @($addonTarget, $kernelTarget)) {
-    Set-Content -Path (Join-Path $target "_install_stamp.txt") -Value $stamp -Encoding utf8
+foreach ($item in $sources) {
+    Set-Content -Path (Join-Path $item.staged "_install_stamp.txt") -Value $stamp -Encoding utf8
 }
+
+# --- подмена -----------------------------------------------------------------
+Write-Host ""
+Write-Host "=== подмена ===" -ForegroundColor Cyan
+try {
+    $swap = Install-Directories @(
+        @{ Staged = $sources[0].staged; Target = $sources[0].target },
+        @{ Staged = $sources[1].staged; Target = $sources[1].target }
+    ) (Join-Path $stagingRoot "old")
+} catch {
+    $reason = $_.Exception.Message
+    Remove-Staging $stagingRoot | Out-Null
+    Fail "the swap was refused, the previous installation is untouched: $reason"
+}
+foreach ($item in $sources) {
+    Write-Host "  установлено: $($item.label) -> $($item.target)"
+}
+
+# --- доказательство ----------------------------------------------------------
+Write-Host ""
+Write-Host "=== отпечатки (после подмены) ===" -ForegroundColor Cyan
+$failed = $false
+foreach ($item in $sources) {
+    $want = Fingerprint $item.source
+    $got  = Fingerprint $item.target
+    if ($want -eq $got) {
+        Write-Host "  ОК  $($item.label): $got"
+    } else {
+        Write-Host "  НЕТ $($item.label): репозиторий $want, установлено $got" -ForegroundColor Red
+        $failed = $true
+    }
+}
+if ($failed) {
+    Undo-Install $swap
+    Remove-Staging $stagingRoot | Out-Null
+    Fail "отпечатки разошлись после подмены — прежняя установка возвращена"
+}
+Commit-Install $swap $stagingRoot
+
+Write-Host ""
 Write-Host "  Штамп: $stamp" -ForegroundColor Cyan
 Write-Host "  Установлено и сверено." -ForegroundColor Green
 Write-Host "  Дальше: Blender -> Edit -> Preferences -> Add-ons -> включить CFTUV,"

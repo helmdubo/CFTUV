@@ -146,6 +146,11 @@ MIN_EXTERNAL_PYTHON = (3, 10)
 #: это те же самые файлы, а не «такая же версия» из чужого site-packages.
 HOST_PACKAGES = ("cftuv_envelope", "sympy", "mpmath")
 
+#: Пакеты, которые внешний воркер берёт у родителя, ЕСЛИ родитель их нашёл: отсутствие не отказ интерпретатору (ответ даёт Python-эталон),
+#: а `NATIVE_UNAVAILABLE` на каждом домене, заказавшем нативный бэкенд (`cftuv_envelope.backend`). Колесо `cftuv_native` ставится в
+#: каталог модулей родителя (`tools/install_native_to_blender.ps1`), и воркер видит его оттуда же, откуда ядро и `sympy`.
+OPTIONAL_HOST_PACKAGES = ("cftuv_native",)
+
 # Запускается как `python -u -c`. Пакет хоста поднимается по файлу под ТЕМ ЖЕ
 # именем, под которым он загружен у родителя: в Blender 4.2+ это
 # `bl_ext.<репозиторий>.<id>`, которого нет ни в каком `sys.path`, и pickle
@@ -210,6 +215,9 @@ class DomainTaskV1:
     cold: object | None = None
     #: Ключ привязки к воркеру (`plan_first_round`): задача с тем же ключом идёт к тому же воркеру, если он жив; пусто — без привязки.
     affinity: str = ""
+    #: Бэкенд ядра воркера для домена продуктового пути (`PYTHON` | `NATIVE`, `envelope_kernel_backend`): ответ от него не зависит;
+    #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`).
+    backend: str = "PYTHON"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1065,8 +1073,9 @@ class DomainPool:
                 3, f"host cannot import sympy/mpmath: {host['sympy']}, {host['mpmath']}"
             )
         entries: list[str] = []
-        for name in HOST_PACKAGES:
-            entry = os.path.dirname(roots[name])
+        optional = (package_directory(name) for name in OPTIONAL_HOST_PACKAGES)
+        for root in (*(roots[name] for name in HOST_PACKAGES), *(item for item in optional if item)):
+            entry = os.path.dirname(root)
             if entry not in entries:
                 entries.append(entry)
         specification = {

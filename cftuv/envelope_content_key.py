@@ -49,6 +49,11 @@
 сериализуется, тест архитектуры это держит), поэтому запись не переживает процесс, а код процесса не меняется
 под ней; отпечаток в ключе — второй замок на случай, если ключ когда-нибудь окажется вне процесса.
 
+БЭКЕНД ЯДРА (`execution_identity`). Нативный бэкенд (`cftuv_envelope.backend`) отвечает побитово так же, как Python-эталон, и
+политикой запроса не является, но входит в идентичность исполнения: ключ несёт `NATIVE:<версия колеса>` либо `PYTHON` рядом с
+отпечатком кода, чтобы результат одного бэкенда не подменял результат другого и сверка двух бэкендов не читала память друг друга.
+`code_identity` сам остаётся отпечатком файлов (тест держит его равным отпечатку установщика).
+
 Тип, которого кодировщик не знает, — `ContentKeyUnsupported`: домен тогда просто не адресуется по
 содержимому и считается как раньше, а ключ с молча пропущенным значением не получается никогда.
 
@@ -209,8 +214,16 @@ def code_identity() -> tuple[str, str]:
     )
 
 
-def _policy_constants() -> tuple:
-    """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра и отпечаток кода."""
+def execution_identity(backend="PYTHON") -> tuple[str, str, str]:
+    """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенд, которым считают."""
+
+    from .envelope_kernel_backend import backend_identity_of
+
+    return (*code_identity(), backend_identity_of(backend))
+
+
+def _policy_constants(backend="PYTHON") -> tuple:
+    """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра, отпечаток кода и бэкенд ядра."""
 
     from . import envelope_request_export as export
 
@@ -225,7 +238,7 @@ def _policy_constants() -> tuple:
         export.HOST_NEAR_PLANAR_FRAME_POLICY.value,
         export.HOST_NEAR_PLANAR_LIFT_POLICY.value,
         export.HOST_CURVATURE_LADDER_POLICY.value,
-        code_identity(),
+        execution_identity(backend),
         kernel.ANALYSIS_SNAPSHOT_SCHEMA_V1,
         GEOMETRY_BATCH_SCHEMA_V1,
     )
@@ -263,18 +276,19 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None) -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend="PYTHON") -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
     ключ полосы домена (`band_key_of`: досягаемость и выбранные рёбра патча, `None` — политики полосы нет).
-    Ключ не зависит от ревизии источника, `alpha` и id запроса; от всего остального — зависит.
+    Ключ не зависит от ревизии источника, `alpha` и id запроса; от всего остального — зависит. `backend` — имя бэкенда ядра, которым
+    считают (`PYTHON` либо `NATIVE`): его идентичность (`execution_identity`) входит в ключ.
     """
 
     from .envelope_request_policy import normalize_envelope_fan_density
 
     encoder = _Encoder(export.source_revision_value, _patch_ranks(export))
-    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants())]
+    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend))]
     for name in _fields(type(export)):
         if name in EXCLUDED_FIELDS:
             continue
@@ -296,10 +310,10 @@ def domain_content_key(export, selected_edge_ids, band_key=None) -> str:
     return hashlib.sha256("\x1e".join(parts).encode("utf-8")).hexdigest()
 
 
-def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str) -> tuple:
-    """Часть ключа РЕЗУЛЬТАТА поверх ключа содержимого: alpha и законы материализации."""
+def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str, backend_id: str = "PYTHON") -> tuple:
+    """Часть ключа РЕЗУЛЬТАТА поверх ключа содержимого: alpha, законы материализации и идентичность бэкенда ядра."""
 
-    return (str(alpha_text), str(uv_policy_id), str(topology_law), str(lift_law))
+    return (str(alpha_text), str(uv_policy_id), str(topology_law), str(lift_law), str(backend_id))
 
 
 __all__ = (
@@ -308,6 +322,7 @@ __all__ = (
     "EXCLUDED_FIELDS",
     "code_identity",
     "domain_content_key",
+    "execution_identity",
     "package_fingerprint",
     "result_slot",
 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .envelope_alpha_preview_gp import draw_alpha_preview_row
+from .envelope_kernel_backend import draw_kernel_backend_row
 from .envelope_width_live import draw_decal_width_rows
 from .envelope_worker_python import draw_worker_python_row
 
@@ -30,6 +31,7 @@ def draw_decal_mesh_rows(layout) -> None:
     row = layout.row(align=True)
     row.prop(mesh_settings, "offset")
     row.prop(mesh_settings, "material_name", text="")
+    draw_kernel_backend_row(layout, mesh_settings)
     if mesh_settings.status:
         layout.label(text=mesh_settings.status)
     if mesh_settings.timing:

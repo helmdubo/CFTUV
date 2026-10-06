@@ -43,7 +43,8 @@ from ..reference.planar_types import ExactScalar
 from ..reference.strip import strip_envelope_instance_id
 from .. import wavefront as wavefront_package
 from ..wavefront.conveyor import ConveyorOutcome, requested_alpha_fraction
-from ..wavefront.coverage import CoverageOutcome, _coverage_at, coverage_source
+from .. import backend
+from ..wavefront.coverage import CoverageOutcome, coverage_source
 from ..wavefront.coverage_template import build_template, instantiate
 from . import domain as domain_module
 from .domain import MaterializationV1
@@ -131,7 +132,7 @@ class _Recorder:
     def coverage(self, partition, alpha, work_budget, store):
         traces: list = []
         spent = None if work_budget is None else work_budget.spent_by_article()
-        result = _coverage_at(partition, alpha, work_budget, store, traces)
+        result = backend.coverage_compute(partition, alpha, work_budget, store, traces)
         if result.outcome is not CoverageOutcome.EXACT:
             return result
         # Цена вычисления - цена полного счёта; запись шаблона (деления на точки отсечения) платит копии счёта и в цену не входит.

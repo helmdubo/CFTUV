@@ -131,6 +131,8 @@ def test_every_field_of_a_result_is_classified_for_the_move():
         "alpha_interval",
         # Путь шага ширины (`FAST_HIT` / `FALLBACK:<причина>`) - метка запуска, идентичностей в ней нет.
         "step_path",
+        # Запись бэкенда ядра (`BackendRecordV1`): числа и имена исходов, идентичностей хоста в них нет.
+        "backend_record",
     }
 
     names = {item.name for item in dataclasses.fields(ProductionDomainResultV1)}
