@@ -567,13 +567,13 @@ class CostMirror:
         (the next sync in is a general diff). The `store` holds `(universe, delta, price, memory)` records: a hit of a budgeted call
         pays the recorded price (a record without a price, or one that does not fit under the cap, is computed again and replaced).
 
-        `traces` (the signs and values `wavefront.coverage_template` records on its recording pass) is not produced by the extension: a
-        call that asks for them is refused by name (`NativePortUnsupported`), not answered without them.
+        `traces` (the list `wavefront.coverage_template` records its signs and values into on the recording pass) is filled like the oracle
+        fills it: one `(signs, values)` per face whose signs were computed, also when a later face (or the same one) ends in an exhaustion.
         """
 
         pin.require("coverage")
-        if traces is not None:
-            raise pin.NativePortUnsupported("the native coverage does not record the sign traces of `wavefront.coverage_template`: run the oracle for a recording pass")
+        if traces is not None and type(traces) is not list:
+            raise TypeError("cftuv_native: `traces` is a list (the oracle appends to it), not " + type(traces).__name__)
         started = perf_counter_ns()
         if not self._coverage_bound:
             self._bind_coverage()
@@ -588,7 +588,7 @@ class CostMirror:
         called = perf_counter_ns()
         try:
             result, status, detail, counts, articles, bits, native = self._session.coverage_at(
-                partition, alpha, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, store, work_budget, real
+                partition, alpha, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, store, work_budget, real, traces
             )
         except BaseException:
             self.invalidate()

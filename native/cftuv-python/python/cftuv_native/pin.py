@@ -101,8 +101,7 @@ class NativeUnsupportedPython(RuntimeError):
 
 
 class NativePortUnsupported(RuntimeError):
-    """The port declines this input by name (a plane without the table the offset normals are written into, a call that asks for the sign
-    traces of the coverage template, ...): the oracle can do it, the port does not claim to."""
+    """The port declines this input by name (a plane without the table the offset normals are written into, ...): the oracle can do it, the port does not claim to."""
 
 
 def kernel_root() -> Path:

@@ -117,7 +117,8 @@ impl Session {
     /// articles after, changed-tables bits, (prepare, arguments, compute, result, memory log) nanoseconds)`. `sync` is the memory sync
     /// in the wire format (`None`: unchanged since the last call), `budget` is `(cap, six articles)` or `None`, `tables` the real memory tables
     /// `(registry list, registry set, factorizations, squarefree splits, supports)` the memory log of the call is replayed on, in place (as
-    /// for `clip_geometry`). Any error resets the session, as `run` does.
+    /// for `clip_geometry`), `traces` the list the oracle's `traces` argument is (`None`: not asked for): the `(signs, values)` of every face
+    /// whose signs were computed are appended to it. Any error resets the session, as `run` does.
     #[allow(clippy::too_many_arguments)]
     fn coverage_at<'py>(
         &mut self,
@@ -129,8 +130,9 @@ impl Session {
         store: Option<Bound<'py, PyAny>>,
         work_budget: &Bound<'py, PyAny>,
         tables: memlog::Tables<'py>,
+        traces: Option<Bound<'py, pyo3::types::PyList>>,
     ) -> PyResult<coverage::Answer7<'py>> {
-        let outcome = self.coverage.coverage_at(py, &mut self.inner, partition, alpha, sync, budget, store.as_ref(), work_budget, &tables);
+        let outcome = self.coverage.coverage_at(py, &mut self.inner, partition, alpha, sync, budget, store.as_ref(), work_budget, &tables, traces.as_ref());
         if outcome.is_err() {
             self.reset_memory();
         }

@@ -19,7 +19,7 @@ use std::time::Instant;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyDict, PyList, PyTuple};
 
 use cftuv_canon::{CanonError, Operation, Pairs, UniverseRecord};
 use cftuv_core::codec::Reader;
@@ -306,6 +306,7 @@ impl Host {
         store: Option<&Bound<'py, PyAny>>,
         work_budget: &Bound<'py, PyAny>,
         tables: &Tables<'py>,
+        traces: Option<&Bound<'py, PyList>>,
     ) -> PyResult<Answer7<'py>> {
         let started = Instant::now();
         let (index, converted) = self.prepare(py, partition)?;
@@ -334,6 +335,7 @@ impl Host {
             None => None,
         };
         let budgeted = budget.is_some();
+        let traced = traces.is_some();
         let (cap, articles) = match budget {
             Some((cap, articles)) => (cap, Some(articles)),
             None => (None, None),
@@ -352,7 +354,7 @@ impl Host {
                         (None, true) => UniverseStore::Miss,
                         (None, false) => UniverseStore::Absent,
                     };
-                    coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe, budgeted)
+                    coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe, budgeted, traced)
                 };
                 let articles = run.budget_mut().articles();
                 (run_result, counts, articles, session.memory.take_log())
@@ -370,7 +372,7 @@ impl Host {
         let log_ns = nanos(applying);
 
         let building = Instant::now();
-        let result = self.finish(py, &run_result, index, &key, store, alpha, work_budget)?;
+        let result = self.finish(py, &run_result, index, &key, store, alpha, work_budget, traces)?;
         let (status, detail) = self.status_of(py, &run_result.outcome)?;
         Ok((result, status, detail, counts.as_array(), articles, changed, [prepare_ns, arguments_ns, compute_ns, nanos(building), log_ns]))
     }
@@ -398,11 +400,21 @@ impl Host {
         store: Option<&Bound<'py, PyAny>>,
         alpha: &Bound<'py, PyAny>,
         work_budget: &Bound<'py, PyAny>,
+        traces: Option<&Bound<'py, PyList>>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         if let (Some(record), Some(store)) = (&run.record, store) {
             let stored = record_to_py(py, self.classes()?, record)?;
             store.set_item(key.bind(py), &stored)?;
             self.remember(&stored, Arc::new(record.clone()));
+        }
+        if let Some(list) = traces {
+            // the oracle's `traces.append((signs, values))`, one per face whose signs were computed, whatever happened after
+            let pool = &self.classes()?.pool;
+            for trace in &run.traces {
+                let signs = PyList::new(py, trace.signs.iter().map(|sign| i64::from(*sign)))?;
+                let values: Vec<Bound<'py, PyAny>> = trace.values.iter().map(|value| sqrt_sum_to_py(py, pool, value)).collect::<PyResult<_>>()?;
+                list.append(PyTuple::new(py, [signs.into_any(), PyList::new(py, values)?.into_any()])?)?;
+            }
         }
         let Ok(Answer::Exact { faces, total }) = &run.outcome else {
             return Ok(None);

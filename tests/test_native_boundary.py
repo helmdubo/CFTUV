@@ -299,7 +299,10 @@ def test_a_miss_writes_the_plain_key_and_the_next_call_hits_it():
     mirror.coverage_at(call.args[0], call.args[1], call.budget, store)
     assert len(store) == 1 and next(iter(store)) is key
     if spent is not None:
-        assert call.budget.spent_by_article() == spent, "the second call is a store hit on a warm memory: it costs nothing"
+        price = store[key][2]
+        paid = tuple(after - before for after, before in zip(call.budget.spent_by_article(), spent))
+        assert price is not None and sum(price) > 0, "the miss recorded the price of the universe"
+        assert all(second >= recorded for second, recorded in zip(paid, price)), "the second call is a store hit: it pays the recorded price of the universe (the price of a computation does not depend on history)"
 
 
 # --------------------------------------------------------------------------

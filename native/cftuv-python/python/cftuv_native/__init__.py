@@ -112,7 +112,7 @@ def default_mirror() -> cost.CostMirror:
 
 
 def coverage_at(partition, alpha, work_budget=None, store=None, traces=None):
-    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`; `traces` is refused by name)."""
+    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`)."""
 
     return default_mirror().coverage_at(partition, alpha, work_budget, store, traces)
 

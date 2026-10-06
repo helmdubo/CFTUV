@@ -7,7 +7,7 @@
 тот же кортеж точек, усечённая — те же объекты точек и новые на разрезах; `owner`, `alpha`, `polygon_doubled_area`, `work_budget` — те же объекты, что на входе),
 точные типы (`CoverageV1`, `FaceCoverageV1`, `SqrtSumV1`, `tuple`, `int`/`Fraction` в слотах) и равенство `==` самого эталона.
 
-Операнды: 1. ПОЛЕВОЙ корпус (`E:\\cftuv_native_corpus\\`: 344 записи покрытия с настоящих мешей и производные записи с урезанным потолком), каждая запись — на свежей
+Операнды: 1. ПОЛЕВОЙ корпус (`E:\\cftuv_native_corpus\\`: около 200 записей покрытия с настоящих мешей (шаг ширины ядра воспроизводит покрытие из шаблона и зовёт `_coverage_at` реже) и производные записи с урезанным потолком), каждая запись — на свежей
 нативной сессии И на общей сессии всего модуля (синхронизация памяти между чужими состояниями); 2. СИНТЕТИЧЕСКИЙ корпус, записанный `native_corpus.Recorder`
 с вызовов `coverage._coverage_at` на фигурах `kernel/tests/wavefront_cases.py` и на настоящем малом домене: отказ `PARTITION_IS_NOT_EXACT`, отрицательная
 alpha, `work_budget=None` (как зовёт `region_contours`), `store=None`, `int`-alpha, `int`-коэффициенты в точках, знаки, которые оболочка 64 бит не решает (alpha в
@@ -20,6 +20,7 @@ alpha, `work_budget=None` (как зовёт `region_contours`), `store=None`, `
 from __future__ import annotations
 
 import collections
+import contextlib
 import dataclasses
 import importlib.util
 import math
@@ -114,6 +115,19 @@ def shared_mirror():
 # --------------------------------------------------------------------------
 # Исполнение и сравнение
 # --------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def process_state_given_back():
+    """Холодная память канонизации внутри блока; счётчики знаков и неоплаченная работа после блока — как были (между двумя прогонами одного сценария)."""
+
+    counts = dict(exact.SIGN_COUNTS)
+    unbudgeted = exact.UNBUDGETED_WORK.spent_by_article()
+    with exact.isolated_factorization_memory():
+        yield
+    exact.SIGN_COUNTS.update(counts)
+    for name, value in zip(ARTICLES, unbudgeted):
+        setattr(exact.UNBUDGETED_WORK, name, value)
 
 
 def run_native(mirror, call) -> nc.Outcome:
@@ -241,7 +255,7 @@ def test_the_field_corpus_reaches_the_branches_it_is_meant_to_pin():
         kinds["derived" if row.get("derived") else "field"] += 1
         kinds["raised" if row["exception"] else "answered"] += 1
         kinds["with store" if nc.read_record(CORPUS_DIRECTORY / row["path"]).before().store else "empty store"] += 1
-    assert kinds["field"] > 300 and kinds["derived"] >= 25 and kinds["raised"] >= 20 and kinds["empty store"] > 0, kinds
+    assert kinds["field"] > 150 and kinds["derived"] >= 25 and kinds["raised"] >= 20 and kinds["empty store"] > 0, kinds
 
 
 # --------------------------------------------------------------------------
@@ -470,7 +484,9 @@ def test_repeated_alphas_on_one_session_reuse_the_partition_and_hit_the_store(sh
         COMPARED["chain steps"] += len(alphas)
 
 
-def test_the_second_call_on_a_partition_is_a_store_hit_that_spends_nothing(shared_mirror):
+def test_the_second_call_on_a_partition_is_a_store_hit_that_replays_the_recorded_price(shared_mirror):
+    """Попадание в `store` под бюджетом платит ЗАПИСАННУЮ цену вселенной (цена вычисления не зависит от истории), а не ноль; ответ, статьи и запись равны эталону."""
+
     if not FIELD_ROWS:
         pytest.skip("корпус не собран: настоящие вызовы не сверены")
     row = next(item for item in FIELD_ROWS if item["mesh"] == "building" and not item.get("derived") and not item["exception"])
@@ -478,17 +494,252 @@ def test_the_second_call_on_a_partition_is_a_store_hit_that_spends_nothing(share
     call = nc.prepare_call(record.op, record.call_blob, record.before())
     partition, alpha = call.args
     mirror = cftuv_native.new_mirror()
+
+    def drive(function):
+        store: dict = {}
+        budget = exact.unlimited_reference_budget(stage="COVERAGE")
+        with process_state_given_back():
+            function(partition, alpha, budget, store)
+            first = budget.spent_by_article()
+            function(partition, alpha, budget, store)
+            second = budget.spent_by_article()
+            function(partition, alpha * Fraction(3, 4), budget, store)
+            state = nc.capture_state(budget, store)
+        return first, second, state
+
+    want_first, want_second, want_state = drive(coverage_module._coverage_at)
+    first, second, state = drive(mirror.coverage_at)
+    assert (first, second) == (want_first, want_second) and nc.canonical(state.store) == nc.canonical(want_state.store)
+    assert len(state.store) == 1, "another alpha does not remember another universe"
+    price = state.store[0][1][2]
+    assert price is not None and sum(price) > 0 and sum(first) > 0
+    assert all(later - earlier >= paid for earlier, later, paid in zip(first, second, price)), "the second call pays at least the recorded price of the universe"
+
+
+def _store_partition():
+    import wavefront_cases
+
+    figure = wavefront_cases.right_triangle(12)
+    return build_faces(figure, build_skeleton(figure))
+
+
+def _drive_store(function, partition, steps):
+    """Шаги `(alpha, budget, store_edit)` на одном `store`; исход каждого — `Outcome` со снимком процесса (память, статьи, запись `prime-universe`).
+
+    `budget`: `None` (вызов без бюджета), `"unlimited"`, `("cap", число)` или `("fits", запас)` — потолок равен цене, записанной в `store`, плюс `запас`
+    (запас -1: цена не влезает под потолок). `store_edit(store)` правит `store` перед вызовом (чужая запись)."""
+
     store: dict = {}
-    budget = exact.unlimited_reference_budget(stage="COVERAGE")
-    mirror.coverage_at(partition, alpha, budget, store)
-    assert len(store) == 1 and mirror.last_timings[4] > 0, "the first call converted the partition"
-    first_cost = budget.spent
-    assert first_cost > 0
-    mirror.coverage_at(partition, alpha, budget, store)
-    assert len(store) == 1 and mirror.last_timings[4] == 0, "the second call found the converted partition"
-    assert budget.spent == first_cost, "the same alpha on a warm memory and a store hit costs nothing"
-    mirror.coverage_at(partition, alpha * Fraction(3, 4), budget, store)
-    assert len(store) == 1, "another alpha does not remember another universe"
+    trace = []
+    for alpha, spec, edit in steps:
+        if edit is not None:
+            edit(store)
+        if spec is None:
+            budget = None
+        elif spec == "unlimited":
+            budget = exact.exact_work_budget(stage="COVERAGE", domain_id="price", superlevel="L1")
+        elif spec[0] == "cap":
+            budget = exact.exact_work_budget(stage="COVERAGE", domain_id="price", superlevel="L1", cap=spec[1])
+        else:
+            recorded = next((value[2] for value in store.values() if len(value) == 4 and value[2] is not None), (0,) * 6)
+            budget = exact.exact_work_budget(stage="COVERAGE", domain_id="price", superlevel="L1", cap=sum(recorded) + spec[1])
+        try:
+            result, error = function(partition, alpha, budget, store), None
+        except Exception as exc:  # noqa: BLE001
+            result, error = None, (type(exc).__qualname__, str(exc))
+        trace.append(nc.Outcome(result, error, nc.capture_state(budget, store), {}, 0.0))
+    return trace
+
+
+def _old_two_tuple(store):
+    key, record = next(iter(store.items()))
+    store[key] = record[:2]
+
+
+STORE_SCENARIOS = {
+    "a miss, then hits that replay the recorded price": [(Fraction(2), "unlimited", None), (Fraction(5, 2), "unlimited", None), (Fraction(3), "unlimited", None)],
+    "a hit whose price fits the cap exactly": [(Fraction(2), "unlimited", None), (Fraction(5, 2), ("fits", 400), None)],
+    "a hit whose price does not fit is computed again and the record replaced": [(Fraction(2), "unlimited", None), (Fraction(5, 2), ("fits", -1), None), (Fraction(3), "unlimited", None)],
+    "a hit over a cap that cannot even hold the price of the rest": [(Fraction(2), "unlimited", None), (Fraction(5, 2), ("cap", 1), None), (Fraction(3), ("cap", 0), None)],
+    "a record without a price is no hit for a budgeted call": [(Fraction(2), None, None), (Fraction(5, 2), "unlimited", None), (Fraction(3), "unlimited", None)],
+    "an unbudgeted call hits a record with a price and pays nothing": [(Fraction(2), "unlimited", None), (Fraction(5, 2), None, None), (Fraction(3), None, None)],
+    "a record of the old two-part shape is a miss that replaces it": [(Fraction(2), "unlimited", None), (Fraction(5, 2), "unlimited", _old_two_tuple), (Fraction(3), "unlimited", None)],
+    "a record of the old shape under no budget": [(Fraction(2), None, None), (Fraction(5, 2), None, _old_two_tuple), (Fraction(3), None, None)],
+}
+
+
+@pytest.mark.parametrize("name", sorted(STORE_SCENARIOS))
+def test_the_store_record_and_its_price_follow_the_oracle(name):
+    """`(universe, delta, price, memory)`: промах пишет запись с ценой и `FactorizationMemoryDeltaV1`; попадание под бюджетом повторяет цену, не влезшую под потолок цену
+    считает заново и заменяет запись, запись без цены и запись старой формы — промах; вызов без бюджета платит ноль."""
+
+    partition = _store_partition()
+    steps = STORE_SCENARIOS[name]
+    with process_state_given_back():
+        before = nc.capture_state(exact.exact_work_budget(stage="COVERAGE", domain_id="price", superlevel="L1"), {})
+        wanted = _drive_store(coverage_module._coverage_at, partition, steps)
+    mirror = cftuv_native.new_mirror()
+    with process_state_given_back():
+        got = _drive_store(mirror.coverage_at, pickle.loads(pickle.dumps(partition)), steps)
+    for index, (want, have) in enumerate(zip(wanted, got)):
+        found = nc.compare_outcomes(nc.OP_COVERAGE, before, want, have)
+        assert not found, f"{name}, step {index}: " + "; ".join(str(item) for item in found[:3])
+    final = [value for _key, value in got[-1].after.store]
+    assert len(final) == 1 and len(final[0]) == 4 and type(final[0][3]) is exact.FactorizationMemoryDeltaV1, "every scenario ends with the record of the new shape"
+    COMPARED["store scenarios"] += 1
+
+
+def test_a_stored_tuple_that_is_no_record_is_a_miss_that_replaces_it():
+    partition = _store_partition()
+    mirror = cftuv_native.new_mirror()
+    with exact.isolated_factorization_memory():
+        probe: dict = {}
+        coverage_module._coverage_at(partition, Fraction(2), None, probe)
+    key = next(iter(probe))
+    for junk in ((), (1, 2, 3), (1, 2, 3, 4, 5), ((2,), (), None)):
+        stores = ({}, {})
+        for store in stores:
+            store[key] = junk
+        with process_state_given_back():
+            want = coverage_module._coverage_at(partition, Fraction(2), exact.exact_work_budget(stage="COVERAGE"), stores[0])
+            state_want = nc.capture_state(None, stores[0])
+        with process_state_given_back():
+            got = mirror.coverage_at(partition, Fraction(2), exact.exact_work_budget(stage="COVERAGE"), stores[1])
+            state_got = nc.capture_state(None, stores[1])
+        assert got == want and nc.canonical(state_got.store) == nc.canonical(state_want.store), junk
+        replaced = next(iter(stores[1].values()))
+        assert len(replaced) == 4 and replaced[2] is not None and type(replaced[3]) is exact.FactorizationMemoryDeltaV1, junk
+
+
+def _isolated_chain(function, partition, alphas, budget):
+    """Как зовёт покрытие конвейер ядра: каждый регион — на КОПИИ бюджета подготовки и под холодной памятью канонизации, память вызывающего возвращается."""
+
+    store: dict = {}
+    trace = []
+    for alpha in alphas:
+        fork = budget.forked("COVERAGE")
+        with exact.isolated_factorization_memory():
+            try:
+                result, error = function(partition, alpha, fork, store), None
+            except Exception as exc:  # noqa: BLE001
+                result, error = None, (type(exc).__qualname__, str(exc))
+            outcome = nc.Outcome(result, error, nc.capture_state(fork, store), {}, 0.0)
+        trace.append((outcome, list(exact._FACTORIZATION_MEMO.items())))
+    return trace
+
+
+def test_a_coverage_on_a_fork_of_the_budget_under_an_isolated_memory_is_what_the_conveyor_asks():
+    """Покрытие региона на `budget.forked("COVERAGE")` под `isolated_factorization_memory()`: исход, цена на копии и память вызывающего после блока равны эталону."""
+
+    partition = _store_partition()
+    ladder = [Fraction(2), Fraction(5, 2), Fraction(3), Fraction(2), Fraction(7, 2)]
+    results = []
+    for cap in (None, 40, 2):
+        with process_state_given_back():
+            # the caller's memory holds something the isolated blocks must give back untouched
+            exact.squarefree_split(2 * 3 * 3 * 5)
+            budget = exact.exact_work_budget(stage="PREPARE", domain_id="fork", superlevel="L1", cap=cap)
+            before = nc.capture_state(budget, {})
+            wanted = _isolated_chain(coverage_module._coverage_at, partition, ladder, budget)
+            kept_memory = list(exact._FACTORIZATION_MEMO.items())
+            preparation = budget.spent_by_article()
+        mirror = cftuv_native.new_mirror()
+        with process_state_given_back():
+            exact.squarefree_split(2 * 3 * 3 * 5)
+            budget = exact.exact_work_budget(stage="PREPARE", domain_id="fork", superlevel="L1", cap=cap)
+            got = _isolated_chain(mirror.coverage_at, pickle.loads(pickle.dumps(partition)), ladder, budget)
+            assert list(exact._FACTORIZATION_MEMO.items()) == kept_memory, "the caller's memory is back after every isolated block"
+            assert budget.spent_by_article() == preparation, "the preparation budget is not changed by the coverage on its forks"
+        for index, ((want, want_memory), (have, have_memory)) in enumerate(zip(wanted, got)):
+            found = nc.compare_outcomes(nc.OP_COVERAGE, before, want, have)
+            assert not found and want_memory == have_memory, f"cap {cap}, step {index}: " + "; ".join(str(item) for item in found[:3])
+        results.append(sum(1 for want, _memory in wanted if want.exception is not None))
+        COMPARED["isolated forks"] += len(ladder)
+    assert results[0] == 0 and results[2] > 0, results
+
+
+def run_traced(function, call):
+    """Вызов с пятым аргументом `traces` (записывающий проход шага ширины): `(Outcome, traces)`; исключение — часть исхода, а накопленные записи остаются."""
+
+    traces: list = []
+    try:
+        result, error = function(call.args[0], call.args[1], call.budget, call.store, traces), None
+    except Exception as exc:  # noqa: BLE001
+        result, error = None, (type(exc).__qualname__, str(exc))
+    return nc.Outcome(result, error, nc.capture_state(call.budget, call.store), nc.observe(call), 0.0), traces
+
+
+def check_traced(mirror, op, blob, before, label: str):
+    """Запись знаков `(signs, values)` по граням: тот же список, те же типы (`list`, `tuple`, `SqrtSumV1` с `int` и `Fraction`), та же частичная запись при исчерпании."""
+
+    oracle, wanted = run_traced(coverage_module._coverage_at, nc.prepare_call(op, blob, before))
+    native, got = run_traced(mirror.coverage_at, nc.prepare_call(op, blob, before))
+    found = nc.compare_outcomes(op, before, oracle, native)
+    assert not found, f"{label}: " + "; ".join(str(item) for item in found[:3])
+    assert nc.canonical(wanted) == nc.canonical(got), f"{label}: the traces differ"
+    assert wanted == got and len(wanted) == len(got)
+    for signs, values in got:
+        assert type(signs) is list and type(values) is list and len(signs) == len(values) and all(type(sign) is int for sign in signs)
+        assert all(type(value) is SqrtSumV1 for value in values)
+    COMPARED["traced calls"] += 1
+    COMPARED["traced faces"] += len(got)
+    return oracle, got
+
+
+def test_the_sign_traces_of_the_recording_pass_equal_the_oracles(shared_mirror):
+    """`_coverage_at(..., traces)`: знаки и значения по граням на полевых записях (каждая третья), включая исчерпание посреди грани и частичную запись."""
+
+    if not FIELD_ROWS:
+        pytest.skip("корпус не собран: настоящие вызовы не сверены")
+    mirror = cftuv_native.new_mirror()
+    checked = exhausted = 0
+    for row in FIELD_ROWS[::3]:
+        record = nc.read_record(CORPUS_DIRECTORY / row["path"])
+        oracle, traces = check_traced(mirror, record.op, record.call_blob, record.before(), row["id"])
+        checked += 1
+        exhausted += oracle.exception is not None
+        assert traces or oracle.exception is not None or oracle.result is None or not oracle.result.faces
+    assert checked > 20
+
+
+def test_the_sign_traces_stop_where_the_oracles_stop_under_every_cap():
+    """Свип потолка с записью знаков: список `traces` после исчерпания держит ровно те грани, чьи знаки успели посчитаться."""
+
+    if not FIELD_ROWS:
+        pytest.skip("корпус не собран: настоящие вызовы не сверены")
+    candidates = [row for row in FIELD_ROWS if not row.get("derived") and not row["exception"] and row["budget"]]
+    small = sorted(candidates, key=lambda row: row["bytes"])
+    mirror = cftuv_native.new_mirror()
+    partial = 0
+    for row in (small[0], small[len(small) // 2]):
+        record = nc.read_record(CORPUS_DIRECTORY / row["path"])
+        before = record.before()
+        unlimited = dataclasses.replace(before, budget={**before.budget, "cap": None, "mode": "UNLIMITED_REFERENCE"})
+        cost = nc.execute(nc.prepare_call(record.op, record.call_blob, unlimited))
+        spent = sum(after - was for after, was in zip(cost.after.budget["articles"], before.budget["articles"]))
+        start = sum(before.budget["articles"])
+        for cap in _cap_values(start, spent):
+            starved = dataclasses.replace(before, budget={**before.budget, "cap": cap, "mode": "BOUNDED"})
+            oracle, traces = check_traced(mirror, record.op, record.call_blob, starved, f"{row['id']} cap={cap}")
+            partial += oracle.exception is not None and bool(traces)
+    assert partial > 0, "no cap ended an exhaustion after at least one face had its traces"
+
+
+def test_the_sign_traces_of_the_refusals_and_of_a_call_without_a_budget_are_the_oracles():
+    partition = _small_partition()
+    mirror = cftuv_native.new_mirror()
+    for alpha in (Fraction(-1), Fraction(0), Fraction(3, 2), Fraction(9)):
+        wanted: list = []
+        got: list = []
+        want = coverage_module._coverage_at(partition, alpha, None, None, wanted)
+        have = mirror.coverage_at(partition, alpha, None, None, got)
+        assert have == want and nc.canonical(wanted) == nc.canonical(got) and (alpha < 0) == (not got)
+    refused = dataclasses.replace(partition, outcome=FaceOutcome.FACE_CHAIN_AMBIGUOUS, faces=())
+    traces: list = []
+    assert mirror.coverage_at(refused, Fraction(1), None, None, traces).outcome is CoverageOutcome.PARTITION_IS_NOT_EXACT and traces == []
+    with pytest.raises(TypeError, match="traces"):
+        mirror.coverage_at(partition, Fraction(1), None, None, ())
+
 
 def test_the_partition_cache_is_bounded_and_an_evicted_partition_still_answers(shared_mirror):
     import wavefront_cases
@@ -663,7 +914,7 @@ def test_a_partition_the_extension_cannot_carry_is_refused_by_name_and_the_sessi
 def test_a_session_without_the_bound_classes_says_so_instead_of_guessing():
     session = type(cftuv_native.new_mirror()._session)()
     with pytest.raises(RuntimeError, match="not bound"):
-        session.coverage_at(object(), Fraction(1), None, None, None, None, ([], set(), {}, {}, {}))
+        session.coverage_at(object(), Fraction(1), None, None, None, None, ([], set(), {}, {}, {}), None)
 
 
 def _cut_chain(runner, partition, steps):

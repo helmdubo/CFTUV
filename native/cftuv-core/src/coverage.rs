@@ -334,34 +334,47 @@ impl From<ExactError> for CoverageError {
     }
 }
 
-/// The result of one call: the answer or the refusal, and the store record a miss produced (whatever happened
-/// after it: the oracle stores it first).
+/// What `clip_to_halfplane` records into its `trace` for one face (the sign trace `wavefront.coverage_template` reads): the signs of the points
+/// against the front and the values `a*x + b*y - c - front` they are the signs of.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trace {
+    pub signs: Vec<i8>,
+    pub values: Vec<SqrtSum>,
+}
+
+/// The result of one call: the answer or the refusal, the store record a miss produced (whatever happened after it: the oracle stores it
+/// first) and, when the call asked for them, the traces of the faces whose signs were all computed (also when a later face refused, as the
+/// oracle's `traces` list holds them).
 #[derive(Debug)]
 pub struct Run {
     pub record: Option<UniverseRecord>,
     pub outcome: Result<Answer, CoverageError>,
+    pub traces: Vec<Trace>,
 }
 
 /// `_coverage_at(partition, alpha, budget, store)` on the native memory, budget and counters in `ctx`; `budgeted` is `budget is not None`
-/// (the price of a store hit is replayed into a budget and into nothing else, see `exact::prime_universe`).
-pub fn coverage_at(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, store: UniverseStore<'_>, budgeted: bool) -> Run {
+/// (the price of a store hit is replayed into a budget and into nothing else, see `exact::prime_universe`); `traced` is `traces is not None`.
+pub fn coverage_at(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, store: UniverseStore<'_>, budgeted: bool, traced: bool) -> Run {
+    let refused = |outcome| Run { record: None, outcome, traces: Vec::new() };
     if !partition.exact {
-        return Run { record: None, outcome: Ok(Answer::Refused(Refusal::PartitionNotExact)) };
+        return refused(Ok(Answer::Refused(Refusal::PartitionNotExact)));
     }
     if alpha.signum() < 0 {
-        return Run { record: None, outcome: Ok(Answer::Refused(Refusal::AlphaNegative)) };
+        return refused(Ok(Answer::Refused(Refusal::AlphaNegative)));
     }
     if let Some(face) = partition.missing_line {
-        return Run { record: None, outcome: Err(CoverageError::MissingLine { face }) };
+        return refused(Err(CoverageError::MissingLine { face }));
     }
     let (universe, record) = match exact::prime_universe(ctx, partition.q_values(), store, budgeted) {
         Ok(found) => found,
-        Err(error) => return Run { record: None, outcome: Err(error.into()) },
+        Err(error) => return refused(Err(error.into())),
     };
-    Run { record, outcome: clip_all(ctx, partition, alpha, &universe) }
+    let mut traces = Vec::new();
+    let outcome = clip_all(ctx, partition, alpha, &universe, traced.then_some(&mut traces));
+    Run { record, outcome, traces }
 }
 
-fn clip_all(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, universe: &[UBig]) -> Result<Answer, CoverageError> {
+fn clip_all(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, universe: &[UBig], mut traces: Option<&mut Vec<Trace>>) -> Result<Answer, CoverageError> {
     let epoch = partition.epoch_of(universe);
     let mut faces = Vec::with_capacity(partition.faces.len());
     let mut total = SqrtSum::zero();
@@ -369,7 +382,7 @@ fn clip_all(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, universe
         let Some(line) = face.line.as_ref() else {
             return Err(CoverageError::MissingLine { face: faces.len() });
         };
-        let clipped = clip_to_halfplane(ctx, face, line, alpha, universe, partition.planned.then_some(epoch))?;
+        let clipped = clip_to_halfplane(ctx, face, line, alpha, universe, partition.planned.then_some(epoch), traces.as_deref_mut())?;
         let timer = started();
         let area = match &clipped {
             Clipped::Unchanged => Area::Original,
@@ -471,7 +484,7 @@ fn difference_items(items: &Items, common: &UBig, front: &Term, merged: &Result<
 
 /// `clip_to_halfplane(points, line, alpha, prime_universe=universe, budget=budget)`. `planned`: the epoch of the
 /// universe when the per-edge plans are on.
-fn clip_to_halfplane(ctx: &mut ExactCtx<'_>, face: &Face, line: &Line, alpha: &Rat, universe: &[UBig], planned: Option<u64>) -> Result<Clipped, ExactError> {
+fn clip_to_halfplane(ctx: &mut ExactCtx<'_>, face: &Face, line: &Line, alpha: &Rat, universe: &[UBig], planned: Option<u64>, trace: Option<&mut Vec<Trace>>) -> Result<Clipped, ExactError> {
     let timer = started();
     let front = exact::radical(ctx, alpha, &line.q)?;
     let split = Front::of(&front, ctx.products);
@@ -482,6 +495,10 @@ fn clip_to_halfplane(ctx: &mut ExactCtx<'_>, face: &Face, line: &Line, alpha: &R
         signs.push(sign_of_difference(ctx, face, line, index, &front, split.as_ref())?);
     }
     lap(1, timer);
+    if let Some(trace) = trace {
+        // the oracle appends `(signs, values)` once the signs are in (`values` cost nothing: no budget, no memory)
+        trace.push(Trace { signs: signs.clone(), values: face.base_values(line).iter().map(|base| base.sub(&front)).collect() });
+    }
     if signs.iter().all(|sign| *sign <= 0) {
         return Ok(Clipped::Unchanged);
     }
@@ -648,7 +665,7 @@ mod tests {
 
         fn run(&mut self, partition: &Partition, alpha: &Rat) -> Run {
             let mut ctx = ExactCtx { memory: &mut self.session.memory, budget: &mut self.budget, counts: &mut self.counts, products: &mut self.session.products };
-            coverage_at(&mut ctx, partition, alpha, UniverseStore::Absent, false)
+            coverage_at(&mut ctx, partition, alpha, UniverseStore::Absent, false, false)
         }
     }
 
@@ -769,7 +786,7 @@ mod tests {
             for hit in [false, true, false, true] {
                 let mut ctx = ExactCtx { memory: &mut world.session.memory, budget: &mut world.budget, counts: &mut world.counts, products: &mut world.session.products };
                 let store = if hit { UniverseStore::Hit(&incomplete) } else { UniverseStore::Absent };
-                answers.push(coverage_at(&mut ctx, &partition, &rat(1, 1), store, false).outcome.unwrap());
+                answers.push(coverage_at(&mut ctx, &partition, &rat(1, 1), store, false, false).outcome.unwrap());
             }
             let fast = locked(&partition.faces()[0].plans).edges.iter().filter(|edge| matches!(edge, EdgeState::Fast(_))).count();
             (answers, world.budget.articles(), world.counts, world.session.memory.export_state(), fast)
@@ -859,6 +876,35 @@ mod tests {
     }
 
     #[test]
+    fn a_traced_call_records_the_signs_and_the_values_of_every_face_whose_signs_were_computed() {
+        let face = square_face();
+        let partition = Partition::new(true, vec![face, square_face()]);
+        let mut session = Session::new();
+        let mut budget = WorkBudget::unlimited();
+        let mut counts = SignCounts::default();
+        let run = {
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Absent, true, true)
+        };
+        assert!(run.outcome.is_ok());
+        assert_eq!(run.traces.len(), 2);
+        // the front of the bottom edge at alpha = 1 is `y = 1`: the values of (0,0) (2,0) (2,2) (0,2) are `y - 1`
+        assert_eq!(run.traces[0].signs, vec![-1, -1, 1, 1]);
+        assert_eq!(run.traces[0].values, vec![rational(-1), rational(-1), rational(1), rational(1)]);
+        // an untraced call records nothing, and a call that refuses before the faces records nothing either
+        let untraced = {
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Absent, true, false)
+        };
+        assert!(untraced.traces.is_empty());
+        let negative = {
+            let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
+            coverage_at(&mut ctx, &partition, &rat(-1, 1), UniverseStore::Absent, true, true)
+        };
+        assert!(negative.traces.is_empty());
+    }
+
+    #[test]
     fn an_exhausted_budget_returns_the_miss_record_and_the_partial_cost() {
         // q = 6 has a real factorization to pay for
         let mut face = square_face();
@@ -869,7 +915,7 @@ mod tests {
         let mut counts = SignCounts::default();
         let run = {
             let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
-            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true)
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true, false)
         };
         assert!(matches!(run.outcome, Err(CoverageError::Exact(ExactError::Canon(_)))), "{:?}", run.outcome);
         // 6 = 2 * 3 factors without any paid work, so the universe is built and recorded; the first `radical` then
@@ -880,7 +926,7 @@ mod tests {
         let mut budget = WorkBudget::unlimited();
         let run = {
             let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut budget, counts: &mut counts, products: &mut session.products };
-            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true)
+            coverage_at(&mut ctx, &partition, &rat(1, 1), UniverseStore::Miss, true, false)
         };
         assert!(run.outcome.is_ok());
         assert!(run.record.is_some());
