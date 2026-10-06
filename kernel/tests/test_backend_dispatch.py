@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import sys
 import threading
+import time
 import types
 from fractions import Fraction
 from pathlib import Path
@@ -30,6 +31,7 @@ import developable_factories as df
 from developable_route import materialize_developable
 
 from cftuv_envelope import backend
+from cftuv_envelope import exact_sqrt_sum as exact
 from cftuv_envelope.codec import canonical_json_bytes
 from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
 from cftuv_envelope.contracts.metric import NearPlanarLiftLawV1
@@ -514,3 +516,177 @@ def test_covered_at_mirrors_the_coverage_at_wrapper_by_text():
     mirror = [line for line in mirror if "import current_coverage_source" not in line]
     oracle = [line.replace("_coverage_at(", "coverage_compute(") for line in oracle]
     assert oracle == mirror, (oracle, mirror)
+
+
+# --------------------------------------------------------------------------
+# 7. Гонка первого заказа NATIVE: подмена имён идёт под замком
+# --------------------------------------------------------------------------
+
+
+class _Gate(list):
+    """`_INSTALLED`, у которого первые две проверки «пусто ли» ждут друг друга, а поток «late» после этого отстаёт: оба потока проходят проверку
+    ДО любой подмены, и «late» читает имена тогда, когда «early» уже всё подменил."""
+
+    def __init__(self):
+        super().__init__()
+        self.barrier = threading.Barrier(2, timeout=5)
+        self.checks = 0
+
+    def __bool__(self):
+        answer = len(self) > 0  # ответ проверки снят ДО ожидания: поток, отставший после неё, действует по устаревшему «пусто»
+        self.checks += 1
+        if self.checks <= 2:
+            self.barrier.wait()
+            if threading.current_thread().name == "late":
+                time.sleep(0.3)
+        return answer
+
+
+def _race(monkeypatch, install):
+    """Два потока одновременно делают первый заказ; `(эталоны, ошибки потоков)`."""
+
+    monkeypatch.setattr(backend, "_INSTALLED", _Gate())
+    monkeypatch.setattr(backend, "_ORACLES", {})
+    errors: list = []
+
+    def order():
+        try:
+            install()
+        except BaseException as exc:  # noqa: BLE001 - любая ошибка потока — ошибка теста
+            errors.append(exc)
+
+    threads = [threading.Thread(target=order, name=name) for name in ("early", "late")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    return dict(backend._ORACLES), errors
+
+
+def test_two_threads_racing_the_first_native_order_capture_the_real_oracles_and_do_not_recurse(monkeypatch):
+    real_coverage, real_clip = oracles()
+
+    captured, errors = _race(monkeypatch, backend.install_dispatch)
+
+    assert errors == []
+    assert captured[backend.COVERAGE] is real_coverage and captured[backend.CLIP] is real_clip
+    assert backend._python_clip() is real_clip and backend._python_coverage() is real_coverage
+    # подмена одна: имена стоят один раз и возвращаются на место
+    assert backend.dispatch_installed() and len(backend._INSTALLED) == 2
+    assert (coverage._coverage_at, clip.clip_geometry) == (backend.coverage_compute, backend.clip_compute)
+    # и рекурсии нет: домен под заказом NATIVE с отказывающим нативным ядром считается настоящим эталоном
+
+    def refuse(*_args, **_kwargs):
+        raise Stale("moved")
+
+    install_native(monkeypatch, coverage_at=refuse, clip_geometry=refuse)
+    _make, first, _saturated = FIXTURES["fold"]
+    reference = baseline("fold", first, LAWS["triangles"])
+    with memo_disabled(), backend.use_backend("NATIVE") as ledger:
+        assert answer(build("fold", first, LAWS["triangles"])[0]) == reference
+    assert ledger.record().outcomes == ("NATIVE_PORT_STALE",)
+    backend.uninstall_dispatch()
+    assert (coverage._coverage_at, clip.clip_geometry) == (real_coverage, real_clip)
+
+
+def test_the_race_harness_catches_the_unlocked_check_then_act(monkeypatch):
+    """Контроль: прежняя установка без замка в той же гонке снимает ПОДСТАВЛЕННЫЙ диспетчер как эталон (и позвала бы сама себя)."""
+
+    real_coverage, real_clip = oracles()
+
+    def unlocked():
+        if not backend._INSTALLED:
+            backend._ORACLES[backend.COVERAGE], backend._ORACLES[backend.CLIP] = coverage._coverage_at, clip.clip_geometry
+            replaced = []
+            for module, name, dispatcher in (
+                (coverage, "_coverage_at", backend.coverage_compute),
+                (clip, "clip_geometry", backend.clip_compute),
+            ):
+                replaced.append((module, name, getattr(module, name)))
+                setattr(module, name, dispatcher)
+            backend._INSTALLED.extend(replaced)
+
+    try:
+        captured, errors = _race(monkeypatch, unlocked)
+        assert errors == []
+        assert captured[backend.CLIP] is backend.clip_compute  # поток «late» снял диспетчер вместо эталона: рекурсия
+        assert captured[backend.COVERAGE] is backend.coverage_compute
+    finally:
+        coverage._coverage_at, clip.clip_geometry = real_coverage, real_clip
+
+
+# --------------------------------------------------------------------------
+# 8. Поздний отказ порта после частичных эффектов — не откат
+# --------------------------------------------------------------------------
+
+
+def _stub_clip_inputs():
+    plane = types.SimpleNamespace(_normal_by_position={"a": (0.0, 0.0, 1.0)})
+    inputs = dict(points={}, cycles=[], polygons=[], law=None, seam=[], fans=[], flows=[], by_faces=False)
+    return plane, exact_work_budget(stage="CLIP"), inputs
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda plane, budget, traces, store: setattr(budget, "gcd_operations", budget.gcd_operations + 5), id="budget"),
+        pytest.param(lambda plane, budget, traces, store: plane._normal_by_position.update(b=(1.0, 0.0, 0.0)), id="plane-normals"),
+        pytest.param(lambda plane, budget, traces, store: plane._normal_by_position.update(a=(0.0, 1.0, 0.0)), id="plane-normal-overwritten"),
+        pytest.param(lambda plane, budget, traces, store: exact._FACTORIZATION_MEMO.update({999_983: ((999_983, 1),)}), id="memory-table"),
+        pytest.param(lambda plane, budget, traces, store: exact.SIGN_COUNTS.update(total=exact.SIGN_COUNTS["total"] + 1), id="sign-counts"),
+    ],
+)
+def test_a_late_native_refusal_after_effects_is_a_named_refusal_and_the_oracle_never_runs_on_dirty_state(monkeypatch, mutate):
+    snapshot = dict(exact.SIGN_COUNTS)
+    monkeypatch.setattr(exact, "SIGN_COUNTS", dict(snapshot))
+    monkeypatch.setattr(exact, "_FACTORIZATION_MEMO", dict(exact._FACTORIZATION_MEMO))
+    plane, budget, inputs = _stub_clip_inputs()
+    ran = []
+    monkeypatch.setattr(backend, "_python_clip", lambda: (lambda *a, **k: ran.append("oracle")))
+
+    def late(plane_, budget_, **_inputs):
+        mutate(plane_, budget_, None, None)
+        raise Unsupported("a sort of 64 nodes or more")
+
+    install_native(monkeypatch, clip_geometry=late)
+    with backend.use_backend("NATIVE") as ledger:
+        with pytest.raises(backend.NativePartialEffectsRefused, match="partial effects"):
+            backend.clip_compute(plane, budget, **inputs)
+    assert ran == []
+    record = ledger.record()
+    assert record.outcomes == ("NATIVE_PARTIAL_EFFECTS_REFUSED",)
+    assert record.fallbacks[0][:3] == ("NATIVE_PARTIAL_EFFECTS_REFUSED", "clip", 1)
+    assert (record.native_calls, record.python_calls) == (0, 0) and ledger.partial.startswith("clip:")
+
+
+def test_a_clean_late_refusal_still_falls_back_to_the_oracle(monkeypatch):
+    plane, budget, inputs = _stub_clip_inputs()
+    monkeypatch.setattr(backend, "_python_clip", lambda: (lambda *a, **k: "ORACLE"))
+
+    def clean(*_args, **_kwargs):
+        raise Unsupported("declined before any effect")
+
+    install_native(monkeypatch, clip_geometry=clean)
+    with backend.use_backend("NATIVE") as ledger:
+        assert backend.clip_compute(plane, budget, **inputs) == "ORACLE"
+    assert ledger.record().outcomes == ("NATIVE_PORT_UNSUPPORTED",) and not ledger.partial
+
+
+def test_a_coverage_refusal_after_the_traces_were_filled_is_a_partial_effects_refusal(monkeypatch):
+    _result, prepared = build("fold", "3.5", LAWS["triangles"])
+    oracle, _clip = oracles()
+    partition = prepared.regions[0].partition
+    ran = []
+    monkeypatch.setattr(backend, "_python_coverage", lambda: (lambda *a, **k: ran.append("oracle")))
+
+    def late(partition_, alpha, work_budget=None, store=None, traces=None):
+        traces.append("half a trace")
+        raise Unsupported("late")
+
+    install_native(monkeypatch, coverage_at=late)
+    monkeypatch.setattr(sys.modules["cftuv_native"], "coverage_at", late)
+    backend.refresh_native()
+    with backend.use_backend("NATIVE") as ledger:
+        with pytest.raises(backend.NativePartialEffectsRefused):
+            backend.coverage_compute(partition, Fraction(7, 4), exact_work_budget(stage="COVERAGE"), {}, [])
+    assert ran == [] and ledger.record().outcomes == ("NATIVE_PARTIAL_EFFECTS_REFUSED",)

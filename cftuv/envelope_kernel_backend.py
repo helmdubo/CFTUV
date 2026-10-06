@@ -100,16 +100,42 @@ def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
     `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). С `backend=PYTHON`
-    (умолчание) результат остаётся тем же объектом, без записи.
+    (умолчание) результат остаётся тем же объектом, без записи. Если порт отказал после частичных эффектов
+    (`NATIVE_PARTIAL_EFFECTS_REFUSED`), ответ домена недействителен, каким бы он ни вернулся (исключение могла проглотить промежуточная стадия):
+    домен отказан этим именем.
+
+    Бэкенд ЗАДАЁТСЯ ЯВНО на каждом вызове (поток, начатый внутри блока `use_backend`, его не наследует): поток живой ширины передаёт его
+    через `run_production(kernel_backend=...)`.
     """
 
     @functools.wraps(produce)
     def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, **kwargs):
         with entered_backend(backend) as ledger:
             result = produce(*args, **kwargs)
-        return result if ledger is None else result.with_changes(backend_record=ledger.record())
+        if ledger is None:
+            return result
+        if ledger.partial:
+            result = _partial_refusal(result, ledger.partial)
+        return result.with_changes(backend_record=ledger.record())
 
     return scoped
+
+
+def _partial_refusal(result, detail):
+    """Отказ домена с именем `NATIVE_PARTIAL_EFFECTS_REFUSED` на месте результата, посчитанного по грязному состоянию."""
+
+    from cftuv_envelope.backend import BackendOutcomeV1
+
+    from .envelope_production_export import _refusal
+
+    return _refusal(
+        result.patch_id,
+        result.domain_id,
+        BackendOutcomeV1.NATIVE_PARTIAL_EFFECTS_REFUSED.value,
+        detail,
+        result.seconds,
+        result.placement,
+    )
 
 
 @dataclass(frozen=True, slots=True)

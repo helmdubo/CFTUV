@@ -332,3 +332,117 @@ def test_an_external_worker_gets_the_native_package_directory_when_the_parent_fi
     _python, without, _host = pool._external_plan()
     assert str(tmp_path / "modules") not in without["sys_path"]
     assert pool_module.OPTIONAL_HOST_PACKAGES == ("cftuv_native",)
+
+
+# --------------------------------------------------------------------------
+# 6. Поздний отказ порта после частичных эффектов называет домен
+# --------------------------------------------------------------------------
+
+
+def test_a_partial_effects_refusal_names_the_domain_whatever_the_stage_returned():
+    @host_backend.with_kernel_backend
+    def produce(patch_id, domain_id):
+        # стадию, проглотившую исключение, имитирует результат, вернувшийся как ни в чём не бывало
+        kernel_backend._SCOPE.get().note_partial("clip", "NativePortUnsupported: late")
+        return production._refusal(patch_id, domain_id, "MATERIALIZED", "", 1.5)
+
+    refused = produce(7, "domain-7", backend="NATIVE")
+
+    assert (refused.outcome, refused.patch_id, refused.domain_id, refused.seconds) == ("NATIVE_PARTIAL_EFFECTS_REFUSED", 7, "domain-7", 1.5)
+    assert "NativePortUnsupported: late" in refused.detail
+    assert refused.backend_record.outcomes == ("NATIVE_PARTIAL_EFFECTS_REFUSED",) and refused.backend_record.ran == "python"
+    # под `PYTHON` ничего не записывается и ничего не называется
+    @host_backend.with_kernel_backend
+    def plain(patch_id, domain_id):
+        return production._refusal(patch_id, domain_id, "MATERIALIZED", "")
+
+    assert plain(7, "domain-7").outcome == "MATERIALIZED" and plain(7, "domain-7").backend_record is None
+
+
+def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_of_computing_on_dirty_state(row):
+    class Unsupported(RuntimeError):
+        pass
+
+    module = types.ModuleType("cftuv_native")
+    module.NativePortStale = module.NativeUnsupportedPython = RuntimeError
+    module.NativePortUnsupported = Unsupported
+    module.clip_geometry = module.native_status = lambda *a, **k: None
+    module.native_version = lambda: "9.9.9"
+    asked = []
+
+    def late(partition, alpha, work_budget=None, store=None, traces=None):
+        asked.append(1)
+        work_budget.gcd_operations += 1  # порт успел заплатить, а потом отказал по имени
+        raise Unsupported("a sort of 64 nodes or more")
+
+    module.coverage_at = late
+    sys.modules["cftuv_native"] = module
+    kernel_backend.refresh_native()
+
+    native = _run(row, backend="NATIVE")
+
+    assert asked
+    assert {item.outcome for item in native.results} == {"NATIVE_PARTIAL_EFFECTS_REFUSED"}
+    assert all(item.batch is None and item.detail.startswith("coverage: Unsupported: a sort of 64 nodes") for item in native.results)
+    line = host_backend.backend_console_lines(native.results, "NATIVE")[0]
+    assert "NATIVE_PARTIAL_EFFECTS_REFUSED: patch" in line
+    # тот же заказ с честным откатом (ничего не тронуто) даёт ответ эталона
+    def clean(partition, alpha, work_budget=None, store=None, traces=None):
+        raise Unsupported("declined before any effect")
+
+    module.coverage_at = clean
+    kernel_backend.refresh_native()
+    assert _projection(_run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())) == _projection(_run(row))
+
+
+# --------------------------------------------------------------------------
+# 7. Поток живой ширины задаёт бэкенд сам
+# --------------------------------------------------------------------------
+
+
+def test_a_worker_thread_gets_its_backend_from_its_own_argument_and_not_from_the_thread_that_started_it(row):
+    import threading
+
+    results: dict = {}
+
+    def work(name, backend):
+        results[name] = _run(row, backend=backend, controller=EnvelopeDebugSessionController())
+
+    with kernel_backend.use_backend("NATIVE"):
+        thread = threading.Thread(target=work, args=("python_inside_native", "PYTHON"))
+        thread.start()
+        thread.join()
+    with kernel_backend.use_backend("PYTHON"):
+        thread = threading.Thread(target=work, args=("native_inside_python", "NATIVE"))
+        thread.start()
+        thread.join()
+
+    assert all(item.backend_record is None for item in results["python_inside_native"].results)
+    assert all(item.backend_record is not None and item.backend_record.requested == "NATIVE" for item in results["native_inside_python"].results)
+    assert _projection(results["python_inside_native"]) == _projection(results["native_inside_python"])
+
+
+def test_the_live_width_thread_passes_the_backend_of_the_last_build_to_run_production():
+    import ast
+    import dataclasses
+    from pathlib import Path
+
+    from cftuv.envelope_width_live import LastProductionBuildV1
+
+    assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["kernel_backend"] == "PYTHON"
+    path = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    begin = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_begin")
+    compute = next(node for node in ast.walk(begin) if isinstance(node, ast.FunctionDef) and node.name == "compute")
+    # снято в главном потоке из записи кнопки, а не прочитано потоком из настроек
+    captured = [
+        node
+        for node in begin.body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "kernel_backend"
+    ]
+    assert len(captured) == 1 and ast.unparse(captured[0].value) == "record.kernel_backend"
+    calls = [node for node in ast.walk(compute) if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "run_production"]
+    assert len(calls) == 1
+    passed = {item.arg: ast.unparse(item.value) for item in calls[0].keywords}
+    assert passed.get("kernel_backend") == "kernel_backend"
+    assert "record" not in {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}

@@ -22,6 +22,9 @@
 * `NATIVE_PORT_UNSUPPORTED` — порт отказывает на ЭТОМ входе по имени (эталон его считает);
 * `NATIVE_TRACES_UNSUPPORTED` — покрытие вызвано с `traces` (запись шаблона шага ширины), а колесо такой записи не даёт (старое колесо:
   у `cftuv_native.coverage_at` нет параметра `traces`);
+* `NATIVE_PARTIAL_EFFECTS_REFUSED` — порт отказал ПОСЛЕ того, как применил часть побочных эффектов (бюджет, память канонизации, счётчики знаков,
+  нормали плоскости, `traces`, `store`): считать эталоном по грязному состоянию нельзя, домен получает ЭТОТ исход отказом (`NativePartialEffectsRefused`;
+  `with_kernel_backend` называет им домен), а не тихий откат;
 * `NATIVE_NOT_REACHED` — заказан нативный бэкенд, а домен закончился, ни разу не позвав ни одну нативную операцию (отказ до
   покрытия, попадание резки в память стадии, либо точки диспетчеризации не подключены в этой версии ядра).
 
@@ -83,6 +86,7 @@ class BackendOutcomeV1(str, Enum):
     NATIVE_UNSUPPORTED_PYTHON = "NATIVE_UNSUPPORTED_PYTHON"
     NATIVE_PORT_UNSUPPORTED = "NATIVE_PORT_UNSUPPORTED"
     NATIVE_TRACES_UNSUPPORTED = "NATIVE_TRACES_UNSUPPORTED"
+    NATIVE_PARTIAL_EFFECTS_REFUSED = "NATIVE_PARTIAL_EFFECTS_REFUSED"
     NATIVE_NOT_REACHED = "NATIVE_NOT_REACHED"
 
 
@@ -235,7 +239,7 @@ class BackendRecordV1:
         """Имена исходов отката домена по порядку; заказ нативного бэкенда без единой нативной операции — `NATIVE_NOT_REACHED`."""
 
         names = sorted({item[0] for item in self.fallbacks})
-        reached = self.native_calls or self.python_calls
+        reached = self.native_calls or self.python_calls or self.fallbacks
         if self.requested == KernelBackendV1.NATIVE.value and not reached:
             names.append(BackendOutcomeV1.NATIVE_NOT_REACHED.value)
         return tuple(names)
@@ -254,13 +258,15 @@ class BackendRecordV1:
 class BackendLedgerV1:
     """Журнал ОДНОГО домена, пока идёт блок `use_backend`: считает операции и откаты (домен считается в одном потоке)."""
 
-    __slots__ = ("requested", "native", "python", "fallbacks")
+    __slots__ = ("requested", "native", "python", "fallbacks", "partial")
 
     def __init__(self, requested: str) -> None:
         self.requested = requested
         self.native: dict = {}
         self.python: dict = {}
         self.fallbacks: dict = {}
+        #: Текст первого отказа порта по грязному состоянию (`NATIVE_PARTIAL_EFFECTS_REFUSED`) либо `""`: ответ домена после него недействителен.
+        self.partial = ""
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -269,6 +275,13 @@ class BackendLedgerV1:
         self.python[operation] = self.python.get(operation, 0) + 1
         slot = self.fallbacks.setdefault((outcome.value, operation), [0, detail[:DETAIL_LIMIT]])
         slot[0] += 1
+
+    def note_partial(self, operation: str, detail: str) -> None:
+        """Отказ порта после частичных эффектов: считал не эталон и не порт, а домен отказан именем (`NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
+
+        slot = self.fallbacks.setdefault((BackendOutcomeV1.NATIVE_PARTIAL_EFFECTS_REFUSED.value, operation), [0, detail[:DETAIL_LIMIT]])
+        slot[0] += 1
+        self.partial = self.partial or f"{operation}: {detail}"[:DETAIL_LIMIT]
 
     def record(self) -> BackendRecordV1:
         return BackendRecordV1(
@@ -309,8 +322,11 @@ def active_backend() -> KernelBackendV1:
 
 #: Эталоны, сохранённые `install_dispatch` до подмены имён: диспетчер зовёт их, а не подменённое имя (иначе он позвал бы сам себя).
 _ORACLES: dict = {}
-#: `(модуль, имя, прежнее значение)` подмен `install_dispatch`; пусто — ядро не тронуто.
+#: `(модуль, имя, прежнее значение)` подмен `install_dispatch`; пусто — ядро не тронуто. Заполняется ОДНИМ `extend` после всех подмен: непустой — значит, готов.
 _INSTALLED: list = []
+#: Первый заказ `NATIVE` могут сделать два потока (главный и поток живой ширины): подмена идёт под замком, иначе второй поток снял бы с модуля
+#: УЖЕ подставленный диспетчер как «эталон», и диспетчер позвал бы сам себя.
+_INSTALL_LOCK = threading.Lock()
 
 
 def _python_coverage():
@@ -337,40 +353,79 @@ def install_dispatch() -> tuple:
     """
 
     if not _INSTALLED:
-        from .materialize import clip, step
-        from .wavefront import coverage
-
-        _ORACLES[COVERAGE], _ORACLES[CLIP] = coverage._coverage_at, clip.clip_geometry
-        for module, name, dispatcher in (
-            (coverage, "_coverage_at", coverage_compute),
-            (step, "_coverage_at", coverage_compute),
-            (clip, "clip_geometry", clip_compute),
-        ):
-            if hasattr(module, name):
-                _INSTALLED.append((module, name, getattr(module, name)))
-                setattr(module, name, dispatcher)
+        with _INSTALL_LOCK:
+            if not _INSTALLED:  # двойная проверка: пока ждали замок, первый поток мог всё поставить
+                _install_locked()
     return tuple(f"{module.__name__.rsplit('.', 1)[-1]}.{name}" for module, name, _old in _INSTALLED)
+
+
+def _install_locked() -> None:
+    from .materialize import clip, step
+    from .wavefront import coverage
+
+    _ORACLES[COVERAGE], _ORACLES[CLIP] = coverage._coverage_at, clip.clip_geometry
+    replaced = []
+    for module, name, dispatcher in (
+        (coverage, "_coverage_at", coverage_compute),
+        (step, "_coverage_at", coverage_compute),
+        (clip, "clip_geometry", clip_compute),
+    ):
+        if hasattr(module, name):
+            replaced.append((module, name, getattr(module, name)))
+            setattr(module, name, dispatcher)
+    _INSTALLED.extend(replaced)
 
 
 def uninstall_dispatch() -> None:
     """Возвращает подменённые имена; без `install_dispatch` ничего не делает."""
 
-    while _INSTALLED:
-        module, name, original = _INSTALLED.pop()
-        setattr(module, name, original)
-    _ORACLES.clear()
+    with _INSTALL_LOCK:
+        while _INSTALLED:
+            module, name, original = _INSTALLED.pop()
+            setattr(module, name, original)
+        _ORACLES.clear()
 
 
 def dispatch_installed() -> bool:
     return bool(_INSTALLED)
 
 
+class NativePartialEffectsRefused(RuntimeError):
+    """Порт отказал по имени ПОСЛЕ частичных эффектов: состояние грязное, эталон по нему не считает; домен отказан (`NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
+
+
+def _effects_snapshot(budget, plane=None, *sized) -> tuple:
+    """Всё, что нативная операция меняет до отказа: статьи бюджета, память канонизации, счётчики знаков, нормали плоскости, размеры `traces`/`store`.
+
+    Дёшево (длины и короткие кортежи; нормали плоскости копируются раз на резку). Сравнение до и после отказа решает, можно ли считать эталоном.
+    """
+
+    from . import exact_sqrt_sum as exact
+
+    normals = getattr(plane, "_normal_by_position", None)
+    return (
+        None if budget is None else tuple(budget.spent_by_article()),
+        tuple(
+            len(table)
+            for table in (exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET, exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO)
+        ),
+        tuple(exact.SIGN_COUNTS.items()),
+        tuple(exact.UNBUDGETED_WORK.spent_by_article()),
+        None if normals is None else dict(normals),
+        tuple(None if item is None else len(item) for item in sized),
+    )
+
+
 class _TracesUnsupported(RuntimeError):
     """Внутренний отказ диспетчера (не исключение шима): колесо не умеет `traces`; записывается как `NATIVE_TRACES_UNSUPPORTED`."""
 
 
-def _attempt(ledger: BackendLedgerV1, operation: str, call) -> tuple:
-    """`(True, ответ)`, когда посчитало нативное ядро; `(False, None)` — откат назван и записан, считает эталон."""
+def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None) -> tuple:
+    """`(True, ответ)`, когда посчитало нативное ядро; `(False, None)` — откат назван и записан, считает эталон.
+
+    `effects()` — снимок побочных эффектов операции (`_effects_snapshot`): отказ порта, после которого он сдвинулся, — не откат, а
+    `NativePartialEffectsRefused` (поздний `NativePortUnsupported` приходит уже после того, как порт применил бюджет, память и нормали).
+    """
 
     module, detail = _native()
     if module is None:
@@ -378,11 +433,15 @@ def _attempt(ledger: BackendLedgerV1, operation: str, call) -> tuple:
         return False, None
     refusals = tuple((getattr(module, name), outcome) for name, outcome in _NAMED_REFUSALS)
     refusals += ((_TracesUnsupported, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED),)
+    before = None if effects is None else effects()
     try:
         answer = call(module)
     except tuple(cls for cls, _outcome in refusals) as exc:
-        outcome = next(item for cls, item in refusals if isinstance(exc, cls))
-        ledger.note_python(operation, outcome, f"{type(exc).__name__}: {exc}")
+        text = f"{type(exc).__name__}: {exc}"
+        if effects is not None and effects() != before:
+            ledger.note_partial(operation, text)
+            raise NativePartialEffectsRefused(f"{operation}: the native port refused after partial effects ({text})") from exc
+        ledger.note_python(operation, next(item for cls, item in refusals if isinstance(exc, cls)), text)
         return False, None
     ledger.note_native(operation)
     return True, answer
@@ -403,7 +462,7 @@ def coverage_compute(partition, alpha, work_budget=None, store=None, traces=None
             raise _TracesUnsupported("this cftuv_native wheel has no `traces` in coverage_at (the template recording pass needs it)")
         return module.coverage_at(partition, alpha, work_budget, store, traces)
 
-    done, answer = _attempt(ledger, COVERAGE, call)
+    done, answer = _attempt(ledger, COVERAGE, call, lambda: _effects_snapshot(work_budget, None, store, traces))
     return answer if done else oracle(partition, alpha, work_budget, store, traces)
 
 
@@ -437,7 +496,7 @@ def clip_compute(plane, budget, **inputs):
     oracle = _python_clip()
     if ledger is None:
         return oracle(plane, budget, **inputs)
-    done, answer = _attempt(ledger, CLIP, lambda module: module.clip_geometry(plane, budget, **inputs))
+    done, answer = _attempt(ledger, CLIP, lambda module: module.clip_geometry(plane, budget, **inputs), lambda: _effects_snapshot(budget, plane))
     return answer if done else oracle(plane, budget, **inputs)
 
 
@@ -448,6 +507,7 @@ __all__ = (
     "COVERAGE",
     "CLIP",
     "KernelBackendV1",
+    "NativePartialEffectsRefused",
     "NativeStatusV1",
     "UNAVAILABLE",
     "active_backend",
