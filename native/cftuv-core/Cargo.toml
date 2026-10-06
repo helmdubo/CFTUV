@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
 
 # Only for `examples/bigint_bench.rs`: the day-1 representation microbench (dashu-int vs num-bigint).
 [dev-dependencies]

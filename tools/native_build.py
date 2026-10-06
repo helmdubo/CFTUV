@@ -51,12 +51,12 @@ def newest_wheel() -> Path:
 
 def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--test", action="store_true", help="сначала `cargo test -p cftuv-core`")
+    parser.add_argument("--test", action="store_true", help="сначала `cargo test --workspace` (ядро и канонизация)")
     arguments = parser.parse_args(argv)
     python = venv_python()
     environment = cargo_environment()
     if arguments.test:
-        run(["cargo", "test", "-p", "cftuv-core"], cwd=NATIVE, environment=environment)
+        run(["cargo", "test", "--workspace"], cwd=NATIVE, environment=environment)
     started = {path: path.stat().st_mtime for path in WHEELS.glob("cftuv_native-*.whl")}
     run([python, "-m", "maturin", "build", "--release", "-o", WHEELS], cwd=NATIVE / "cftuv-python", environment=environment)
     wheel = newest_wheel()

@@ -2,13 +2,39 @@
 
 Шим переводит объекты ядра в буферы целой операции и воспроизводит её побочные эффекты (бюджет точной работы, память
 канонизации), как их воспроизводит попадание `clip_memo`. Тихого отката на Python здесь нет: нет расширения — `ImportError`.
+
+Две части:
+
+* числа (`run_number_ops`): сценарий операций в ОДНОМ вызове, только для сверки с эталоном;
+* стоимость (`default_mirror`, `new_mirror`, `sign`, `divided_by`, ...): долгоживущая нативная сессия владеет зеркалом памяти
+  канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
+  к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
 """
 
 from __future__ import annotations
 
-from . import _core, codec
+from . import _core, codec, cost
 
-__all__ = ("native_version", "number_op_table", "run_number_ops")
+__all__ = (
+    "CostMirror",
+    "default_mirror",
+    "divide_with_prime_universe",
+    "divided_by",
+    "native_version",
+    "new_mirror",
+    "number_op_table",
+    "prime_support",
+    "prime_universe_remembered",
+    "radical",
+    "radical_sum",
+    "run_number_ops",
+    "sign",
+    "squarefree_split",
+)
+
+CostMirror = cost.CostMirror
+
+_DEFAULT: list = []
 
 
 def native_version() -> str:
@@ -31,3 +57,65 @@ def run_number_ops(ops, *, strict: bool = True, memo: bool = True) -> list:
     """
 
     return codec.decode_response(_core.run_number_ops(codec.encode_request(ops, strict=strict, memo=memo)))
+
+
+def new_mirror() -> cost.CostMirror:
+    """A new native session with its own mirror (empty): for tests and for callers that isolate state."""
+
+    return cost.CostMirror(_core.Session())
+
+
+def default_mirror() -> cost.CostMirror:
+    """The process-wide mirror: one native session per process, matching the process-wide Python tables."""
+
+    if not _DEFAULT:
+        _DEFAULT.append(new_mirror())
+    return _DEFAULT[0]
+
+
+def sign(value, *, filter_bits: int = 64, budget=None) -> int:
+    """`SqrtSumV1.sign(filter_bits=..., budget=...)`, native; budget, counters and memory updated like Python's."""
+
+    return default_mirror().sign(value, filter_bits=filter_bits, budget=budget)
+
+
+def divided_by(numerator, denominator, budget=None):
+    """`numerator.divided_by(denominator, budget)`, native."""
+
+    return default_mirror().divided_by(numerator, denominator, budget)
+
+
+def divide_with_prime_universe(numerator, denominator, prime_universe, budget=None):
+    """`_divide_with_prime_universe(numerator, denominator, prime_universe, budget)`, native."""
+
+    return default_mirror().divide_with_prime_universe(numerator, denominator, prime_universe, budget)
+
+
+def radical(coefficient, radicand, budget=None):
+    """`SqrtSumV1.radical(coefficient, radicand, budget)`, native."""
+
+    return default_mirror().radical(coefficient, radicand, budget)
+
+
+def radical_sum(parts, budget=None):
+    """`radical_sum(parts, budget)`, native."""
+
+    return default_mirror().radical_sum(parts, budget)
+
+
+def squarefree_split(n: int, budget=None) -> tuple:
+    """`squarefree_split(n, budget)`, native."""
+
+    return default_mirror().squarefree_split(n, budget)
+
+
+def prime_support(radicand: int, budget=None) -> tuple:
+    """`prime_support(radicand, budget)`, native."""
+
+    return default_mirror().prime_support(radicand, budget)
+
+
+def prime_universe_remembered(q_values, budget=None, store=None) -> tuple:
+    """`prime_universe_remembered(q_values, budget, store)` with the default `build`, native."""
+
+    return default_mirror().prime_universe_remembered(q_values, budget, store)

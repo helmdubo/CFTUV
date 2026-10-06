@@ -353,6 +353,9 @@ def test_degenerate_integer_forms_and_float_arguments_equal_the_oracle():
         ("SCALED_BY_RECIPROCAL", (1, [[1, 1]], 0, [[1, 2]])),
         ("SCALED_BY_RECIPROCAL", (1, [], 1, [])),
         ("SCALED_BY_RECIPROCAL", (1, [], 3, [[1, 6]])),
+        # `Fraction(value * ..., numerator_common * ...)` строится ПО ЧЛЕНУ: без членов нулевой знаменатель никого не отказывает
+        ("SCALED_BY_RECIPROCAL", (0, [], 1, [[1, 2]])),
+        ("SCALED_BY_RECIPROCAL", (0, [[1, 1]], 1, [[1, 2]])),
         ("INTEGER_ENCLOSURE", ([], 0)),
         ("INTEGER_ENCLOSURE", ([[1, 0], [2, 0]], 5)),
         ("INTEGER_CERTIFIED_SIGN", ([[2, 0]], 64)),
@@ -379,6 +382,21 @@ def test_degenerate_integer_forms_and_float_arguments_equal_the_oracle():
     assert results[0] == oracle.NativeError(2) and results[1] == oracle.NativeError(2) and results[2] != oracle.NativeError(2)
     as_rational = [result for (name, _), result in zip(ops, results) if name == "SUM_AS_RATIONAL"]
     assert [type(result) for result in as_rational[:3]] == [int, Fraction, Fraction] and as_rational[3] is None
+
+
+def test_cost_operations_need_their_header():
+    """`EXACT_*` без заголовка стоимости (память и бюджет) не исполняются: цена без бюджета — молчаливо неверная цена."""
+
+    for ops in (
+        [("EXACT_SIGN", (SqrtSumV1(((1, 1),)), 64))],
+        [("EXACT_RESET_MEMORY", ())],
+        [("EXACT_DIVIDED_BY_GENERIC", (SqrtSumV1(((1, 1),)), SqrtSumV1(((1, 1),))))],
+    ):
+        with pytest.raises(ValueError, match="cost"):
+            cftuv_native.run_number_ops(ops)
+    # числовые операции того же сценария без заголовка работают: отказывает именно операция стоимости
+    with pytest.raises(ValueError, match="cost header"):
+        cftuv_native.run_number_ops([("SUM_IS_ZERO", (SqrtSumV1(()),)), ("EXACT_RESET_MEMORY", ())])
 
 
 def test_arguments_outside_the_domain_are_refused_not_computed():

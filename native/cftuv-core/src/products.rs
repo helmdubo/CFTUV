@@ -127,6 +127,17 @@ impl ProductMemo {
         self.entries = 0;
     }
 
+    /// Switch the memory on or off (off: nothing is looked up or remembered; the table is dropped). A pure
+    /// cache either way: no answer and no counted cost depends on it.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if enabled == self.enabled {
+            return;
+        }
+        self.clear();
+        self.enabled = enabled;
+        self.limit = if enabled { ProductMemo::DEFAULT_PAIRS } else { 0 };
+    }
+
     pub fn len(&self) -> usize {
         self.entries
     }

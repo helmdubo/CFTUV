@@ -72,6 +72,12 @@ impl<K: Hash + Eq + Clone, V> OrderedMap<K, V> {
         true
     }
 
+    /// `del d[key]`: drop an entry wherever it is; `None` if the key is absent.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let slot = self.index.remove(key)?;
+        self.slots[slot].take().map(|(_, value)| value)
+    }
+
     /// `del d[next(iter(d))]`: drop and return the oldest entry.
     pub fn pop_front(&mut self) -> Option<(K, V)> {
         while self.head < self.slots.len() {
@@ -139,6 +145,11 @@ mod tests {
         assert!(map.insert_if_absent(7, 70));
         assert_eq!(keys(&map), vec![9, 1, 5, 7]);
         assert!(!map.contains_key(&3));
+        assert_eq!(map.remove(&1), Some(10));
+        assert_eq!(map.remove(&1), None);
+        assert_eq!(keys(&map), vec![9, 5, 7]);
+        assert!(map.insert_if_absent(1, 11));
+        assert_eq!(keys(&map), vec![9, 5, 7, 1]);
     }
 
     #[test]

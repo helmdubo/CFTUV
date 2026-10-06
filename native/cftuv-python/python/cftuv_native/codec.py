@@ -36,6 +36,7 @@ COEF_FRACTION = 2
 MAGIC = b"CFN1"
 FLAG_STRICT = 1
 FLAG_NO_MEMO = 2
+FLAG_COST = 4
 
 ERROR_NAMES = {1: "OverflowError", 2: "ZeroDivisionError", 3: "ValueError"}
 
@@ -86,12 +87,32 @@ OPS = (
     (62, "FF_LINE_ESTIMATE"),
     (63, "FF_POLYGON_SIGN"),
     (64, "FF_AFFINE_MAP_VIOLATED"),
+    (70, "EXACT_SIGN"),
+    (71, "EXACT_DIVIDED_BY"),
+    (72, "EXACT_DIVIDE_WITH_UNIVERSE"),
+    (73, "EXACT_RADICAL"),
+    (74, "EXACT_RADICAL_SUM"),
+    (75, "EXACT_PRIME_UNIVERSE"),
+    (76, "EXACT_SQUAREFREE_SPLIT"),
+    (77, "EXACT_PRIME_SUPPORT"),
+    (78, "EXACT_RESET_MEMORY"),
+    (79, "EXACT_DIVIDED_BY_GENERIC"),
+    (80, "EXACT_DIFFERENCE_SIGN"),
 )
 OPCODES = {name: code for code, name in OPS}
 
 
 class CodecError(ValueError):
     """A value the format cannot carry, or a buffer that is not in the format."""
+
+
+class Raw:
+    """A value already in the wire format: `put_value` appends its bytes verbatim (a cached constant costs nothing to re-encode)."""
+
+    __slots__ = ("data",)
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
 
 
 class NativeError:
@@ -207,6 +228,8 @@ def put_value(out: bytearray, value) -> None:
         put_uint(out, len(value))
         for item in value:
             put_value(out, item)
+    elif kind is Raw:
+        out += value.data
     elif isinstance(value, sqrt_sum_type()):
         out.append(TAG_SUM)
         put_sum(out, value)
@@ -220,11 +243,17 @@ def encode_value(value) -> bytes:
     return bytes(out)
 
 
-def encode_request(ops, *, strict: bool = True, memo: bool = True) -> bytes:
-    """A number script: `ops` is a sequence of `(operation name or opcode, arguments)`."""
+def encode_request(ops, *, strict: bool = True, memo: bool = True, cost=None) -> bytes:
+    """A number script: `ops` is a sequence of `(operation name or opcode, arguments)`.
+
+    `cost` is the cost header of a script that runs the `EXACT_*` operations (`[options, sync, budget]`, see
+    `cftuv_native.cost` and the Rust module `session`); without it a cost operation is refused by the extension.
+    """
 
     out = bytearray(MAGIC)
-    out.append((FLAG_STRICT if strict else 0) | (0 if memo else FLAG_NO_MEMO))
+    out.append((FLAG_STRICT if strict else 0) | (0 if memo else FLAG_NO_MEMO) | (0 if cost is None else FLAG_COST))
+    if cost is not None:
+        put_value(out, cost)
     put_uint(out, len(ops))
     for operation, arguments in ops:
         code = OPCODES[operation] if isinstance(operation, str) else operation

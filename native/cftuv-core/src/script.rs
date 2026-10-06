@@ -2,14 +2,17 @@
 //! crosses the language boundary per operation.
 //!
 //! ```text
-//! request   magic "CFN1", flags u8 (bit 0: strict decoding, bit 1: product memory off),
-//!           uint op count, then per op: u8 opcode, uint argument count, argument values (see `codec`)
+//! request   magic "CFN1", flags u8 (bit 0: strict decoding, bit 1: product memory off, bit 2: cost header),
+//!           [cost header value, see `session`], uint op count,
+//!           then per op: u8 opcode, uint argument count, argument values (see `codec`)
 //! response  uint result count, then one value per op (`Value::Error` for a named failure of the operation)
 //! ```
 //!
-//! Operations are independent: arguments are inline values, results never feed the next operation (the
-//! Python harness feeds earlier oracle results forward itself). A buffer the format cannot carry, an unknown
-//! opcode or an argument of the wrong shape is a [`ScriptError`], not a result.
+//! Number operations are independent: arguments are inline values, results never feed the next operation (the
+//! Python harness feeds earlier oracle results forward itself). The cost operations (70..80) are not: with the
+//! cost flag a script carries a memory-mirror sync and a budget, and the operations evolve both exactly like
+//! consecutive Python calls (see `session`). A buffer the format cannot carry, an unknown opcode or an argument
+//! of the wrong shape is a [`ScriptError`], not a result.
 
 use crate::codec::{DecodeError, ErrorCode, Reader, Value, Writer};
 use crate::float_filter;
@@ -18,11 +21,14 @@ use crate::num::{self, IBig, UBig};
 use crate::products::{Items, ProductMemo};
 use crate::pyfloat;
 use crate::rat::{Coef, Rat, ZeroDivision};
+use crate::session::{self, CostRun, Session};
 use crate::sqrt_sum::{self, IntForm, SignCounts, SignStage, SqrtSum};
 
 pub const MAGIC: &[u8; 4] = b"CFN1";
 pub const FLAG_STRICT: u8 = 1;
 pub const FLAG_NO_MEMO: u8 = 2;
+/// The request carries a cost header (memory sync, budget, options) before the operations.
+pub const FLAG_COST: u8 = 4;
 /// The widest enclosure the script accepts (the oracle shifts by it twice).
 pub const MAX_BITS: usize = 1 << 20;
 
@@ -73,6 +79,17 @@ pub const OPS: &[(u8, &str)] = &[
     (62, "FF_LINE_ESTIMATE"),
     (63, "FF_POLYGON_SIGN"),
     (64, "FF_AFFINE_MAP_VIOLATED"),
+    (70, "EXACT_SIGN"),
+    (71, "EXACT_DIVIDED_BY"),
+    (72, "EXACT_DIVIDE_WITH_UNIVERSE"),
+    (73, "EXACT_RADICAL"),
+    (74, "EXACT_RADICAL_SUM"),
+    (75, "EXACT_PRIME_UNIVERSE"),
+    (76, "EXACT_SQUAREFREE_SPLIT"),
+    (77, "EXACT_PRIME_SUPPORT"),
+    (78, "EXACT_RESET_MEMORY"),
+    (79, "EXACT_DIVIDED_BY_GENERIC"),
+    (80, "EXACT_DIFFERENCE_SIGN"),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +99,10 @@ pub enum ScriptError {
     UnknownOpcode(u8),
     /// The arguments of the operation have the wrong count or shape.
     BadArguments(u8),
+    /// The cost header is not in the format, or a cost operation came without one.
+    CostHeader(&'static str),
+    /// The memory mirror refused the host's sync: the host and the mirror disagree about what the mirror holds.
+    CostSync(&'static str),
 }
 
 impl std::fmt::Display for ScriptError {
@@ -91,6 +112,8 @@ impl std::fmt::Display for ScriptError {
             ScriptError::Decode(error) => write!(formatter, "number script: cannot decode ({error})"),
             ScriptError::UnknownOpcode(code) => write!(formatter, "number script: unknown opcode {code}"),
             ScriptError::BadArguments(code) => write!(formatter, "number script: bad arguments for opcode {code}"),
+            ScriptError::CostHeader(what) => write!(formatter, "number script: bad cost header ({what})"),
+            ScriptError::CostSync(what) => write!(formatter, "number script: memory mirror out of sync ({what})"),
         }
     }
 }
@@ -103,15 +126,21 @@ impl From<DecodeError> for ScriptError {
     }
 }
 
-/// Runs a request buffer and returns the response buffer.
+/// Runs a request buffer on a fresh session and returns the response buffer.
 pub fn run_number_ops(request: &[u8]) -> Result<Vec<u8>, ScriptError> {
+    run_script(&mut Session::new(), request)
+}
+
+/// Runs a request buffer on `session` (persistent state: the memory mirror, the product cache).
+pub fn run_script(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, ScriptError> {
     if request.len() < 5 || &request[..4] != MAGIC {
         return Err(ScriptError::BadMagic);
     }
     let flags = request[4];
     let mut reader = Reader::new(&request[5..], flags & FLAG_STRICT != 0);
+    session.products.set_enabled(flags & FLAG_NO_MEMO == 0);
+    let mut cost = if flags & FLAG_COST != 0 { Some(CostRun::begin(session, &reader.get_value()?)?) } else { None };
     let count = reader.get_uint()?;
-    let mut memo = if flags & FLAG_NO_MEMO != 0 { ProductMemo::disabled() } else { ProductMemo::new() };
     let mut writer = Writer::new();
     writer.put_uint(count);
     for _ in 0..count {
@@ -121,7 +150,11 @@ pub fn run_number_ops(request: &[u8]) -> Result<Vec<u8>, ScriptError> {
         for _ in 0..argument_count {
             arguments.push(reader.get_value()?);
         }
-        let result = execute(code, &arguments, &mut memo)?;
+        let result = match (&mut cost, session::COST_OPS.iter().any(|(known, _)| *known == code)) {
+            (Some(run), true) => session::execute_cost_op(session, run, &Args { code, values: &arguments })?,
+            (None, true) => return Err(ScriptError::CostHeader("a cost operation needs the cost flag")),
+            _ => execute(code, &arguments, &mut session.products)?,
+        };
         writer.put_value(&result);
     }
     reader.finish()?;
@@ -132,17 +165,25 @@ pub fn run_number_ops(request: &[u8]) -> Result<Vec<u8>, ScriptError> {
 // argument and result shapes
 // --------------------------------------------------------------------------
 
-struct Args<'a> {
-    code: u8,
-    values: &'a [Value],
+pub(crate) struct Args<'a> {
+    pub(crate) code: u8,
+    pub(crate) values: &'a [Value],
 }
 
 impl<'a> Args<'a> {
-    fn bad(&self) -> ScriptError {
+    pub(crate) fn code(&self) -> u8 {
+        self.code
+    }
+
+    pub(crate) fn values(&self) -> &'a [Value] {
+        self.values
+    }
+
+    pub(crate) fn bad(&self) -> ScriptError {
         ScriptError::BadArguments(self.code)
     }
 
-    fn expect(&self, count: usize) -> Result<(), ScriptError> {
+    pub(crate) fn expect(&self, count: usize) -> Result<(), ScriptError> {
         if self.values.len() == count {
             Ok(())
         } else {
@@ -150,15 +191,26 @@ impl<'a> Args<'a> {
         }
     }
 
-    fn int(&self, index: usize) -> Result<&'a IBig, ScriptError> {
+    pub(crate) fn int(&self, index: usize) -> Result<&'a IBig, ScriptError> {
         match self.values.get(index) {
             Some(Value::Int(value)) => Ok(value),
             _ => Err(self.bad()),
         }
     }
 
+    /// A list of non-negative integers.
+    pub(crate) fn ubig_list(&self, index: usize) -> Result<Vec<UBig>, ScriptError> {
+        self.list(index)?
+            .iter()
+            .map(|value| match value {
+                Value::Int(number) if !num::is_negative(number) => Ok(num::magnitude(number)),
+                _ => Err(self.bad()),
+            })
+            .collect()
+    }
+
     /// A non-negative integer argument.
-    fn ubig(&self, index: usize) -> Result<UBig, ScriptError> {
+    pub(crate) fn ubig(&self, index: usize) -> Result<UBig, ScriptError> {
         let value = self.int(index)?;
         if num::is_negative(value) {
             return Err(self.bad());
@@ -167,7 +219,7 @@ impl<'a> Args<'a> {
     }
 
     /// An enclosure width: a shift count, bounded so that a hostile buffer cannot ask for gigabytes.
-    fn bits(&self, index: usize) -> Result<usize, ScriptError> {
+    pub(crate) fn bits(&self, index: usize) -> Result<usize, ScriptError> {
         match usize::try_from(self.int(index)?) {
             Ok(bits) if bits <= MAX_BITS => Ok(bits),
             _ => Err(self.bad()),
@@ -175,7 +227,7 @@ impl<'a> Args<'a> {
     }
 
     /// An `int` or a `Fraction`, read as the rational value (the Python type is irrelevant to the callee).
-    fn rat(&self, index: usize) -> Result<Rat, ScriptError> {
+    pub(crate) fn rat(&self, index: usize) -> Result<Rat, ScriptError> {
         match self.values.get(index) {
             Some(Value::Int(value)) => Ok(Rat::from_int(value.clone())),
             Some(Value::Frac(value)) => Ok(value.clone()),
@@ -183,21 +235,21 @@ impl<'a> Args<'a> {
         }
     }
 
-    fn sum(&self, index: usize) -> Result<&'a SqrtSum, ScriptError> {
+    pub(crate) fn sum(&self, index: usize) -> Result<&'a SqrtSum, ScriptError> {
         match self.values.get(index) {
             Some(Value::Sum(value)) => Ok(value),
             _ => Err(self.bad()),
         }
     }
 
-    fn float(&self, index: usize) -> Result<f64, ScriptError> {
+    pub(crate) fn float(&self, index: usize) -> Result<f64, ScriptError> {
         match self.values.get(index) {
             Some(Value::Float(value)) => Ok(*value),
             _ => Err(self.bad()),
         }
     }
 
-    fn list(&self, index: usize) -> Result<&'a [Value], ScriptError> {
+    pub(crate) fn list(&self, index: usize) -> Result<&'a [Value], ScriptError> {
         match self.values.get(index) {
             Some(Value::List(items)) => Ok(items),
             _ => Err(self.bad()),
@@ -365,6 +417,7 @@ fn execute(code: u8, values: &[Value], memo: &mut ProductMemo) -> Result<Value, 
         20..=42 => execute_sums(&args, memo)?,
         50..=52 => execute_fused(&args, memo)?,
         60..=64 => execute_filters(&args)?,
+        70..=80 => return Err(ScriptError::BadArguments(code)),
         other => return Err(ScriptError::UnknownOpcode(other)),
     })
 }

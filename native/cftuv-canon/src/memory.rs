@@ -62,6 +62,29 @@ pub struct MemoryState {
     pub support: Vec<(UBig, Support)>,
 }
 
+/// An incremental update of one insertion-ordered table: optionally clear it, delete the listed keys wherever they
+/// are, then append `tail` in order. The host derives it from the real Python dict and the key order it last
+/// mirrored: kept entries keep their relative order, so "oldest evicted", "touched to the end" and "appended" all
+/// reduce to `deleted` plus `tail`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableSync<V> {
+    pub clear: bool,
+    pub deleted: Vec<UBig>,
+    pub tail: Vec<(UBig, V)>,
+}
+
+/// The incremental update of the whole memory (`CanonMemory::apply_sync`); the registry is a sorted set, so it
+/// travels as removed and added primes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemorySync {
+    pub registry_clear: bool,
+    pub registry_removed: Vec<UBig>,
+    pub registry_added: Vec<UBig>,
+    pub factorization: TableSync<Pairs>,
+    pub squarefree: TableSync<Split>,
+    pub support: TableSync<Support>,
+}
+
 /// `FactorizationMemoryDeltaV1`: what a stage added, in insertion order (primes: registry, i.e. ascending, order).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemoryDelta {
@@ -126,6 +149,23 @@ fn has_duplicates<'a>(keys: impl Iterator<Item = &'a UBig>) -> bool {
     keys.into_iter().any(|key| !seen.insert(key))
 }
 
+fn sync_table<V>(table: &mut OrderedMap<UBig, V>, sync: TableSync<V>) -> Result<(), CanonError> {
+    if sync.clear {
+        table.clear();
+    }
+    for key in &sync.deleted {
+        if table.remove(key).is_none() {
+            return Err(CanonError::InvalidInput("sync deletes a key the mirror does not hold"));
+        }
+    }
+    for (key, value) in sync.tail {
+        if !table.insert_if_absent(key, value) {
+            return Err(CanonError::InvalidInput("sync appends a key the mirror already holds"));
+        }
+    }
+    Ok(())
+}
+
 impl CanonMemory {
     pub fn new() -> CanonMemory {
         CanonMemory::default()
@@ -174,6 +214,39 @@ impl CanonMemory {
         for (key, support) in state.support {
             self.support.set(key, support);
         }
+        if let Some(log) = &mut self.log {
+            log.clear();
+        }
+        Ok(())
+    }
+
+    /// Bring the memory to the host's current content by an incremental update (see [`MemorySync`]). A host that
+    /// mirrors correctly never trips the errors; one that does not gets a named refusal, never a silent repair.
+    /// An active op-log is emptied: the sync is a baseline, not an operation.
+    pub fn apply_sync(&mut self, sync: MemorySync) -> Result<(), CanonError> {
+        if sync.registry_clear {
+            self.known_primes.clear();
+            self.known_prime_set.clear();
+        }
+        for prime in &sync.registry_removed {
+            if !self.known_prime_set.remove(prime) {
+                return Err(CanonError::InvalidInput("sync removes a prime the mirror does not hold"));
+            }
+        }
+        if !sync.registry_removed.is_empty() {
+            let removed: HashSet<&UBig> = sync.registry_removed.iter().collect();
+            self.known_primes.retain(|prime| !removed.contains(prime));
+        }
+        for prime in sync.registry_added {
+            if !self.known_prime_set.insert(prime.clone()) {
+                return Err(CanonError::InvalidInput("sync adds a prime the mirror already holds"));
+            }
+            let position = self.known_primes.partition_point(|known| *known < prime);
+            self.known_primes.insert(position, prime);
+        }
+        sync_table(&mut self.factorization, sync.factorization)?;
+        sync_table(&mut self.squarefree, sync.squarefree)?;
+        sync_table(&mut self.support, sync.support)?;
         if let Some(log) = &mut self.log {
             log.clear();
         }

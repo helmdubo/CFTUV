@@ -451,23 +451,38 @@ pub fn multiply_integer_items(left: &[(UBig, IBig)], right: &[(UBig, IBig)], mem
 
 /// `_reduced_form`: the same set `(L, a_m)` divided by their common divisor; the value is unchanged.
 pub fn reduced_form(common: &UBig, items: &[(UBig, IBig)]) -> IntForm {
+    let (mut common, mut items) = (common.clone(), items.to_vec());
+    reduce_in_place(&mut common, &mut items);
+    IntForm { common, items }
+}
+
+/// [`reduced_form`] in place: `gcd(L, *a_m)` divided out of `L` and every numerator (a divisor of one, or of zero
+/// for the degenerate all-zero input the oracle refuses, changes nothing).
+pub fn reduce_in_place(common: &mut UBig, items: &mut Items) {
     let mut divisor = common.clone();
-    for (_, value) in items {
+    for (_, value) in items.iter() {
         if divisor.is_one() {
             break;
         }
         divisor = num::gcd_mixed(value, &divisor);
     }
-    if divisor.is_one() {
-        return IntForm { common: common.clone(), items: items.to_vec() };
+    if divisor.is_one() || divisor.is_zero() {
+        return;
     }
-    IntForm {
-        common: common / &divisor,
-        items: items.iter().map(|(radicand, value)| (radicand.clone(), value / &divisor)).collect(),
+    *common = &*common / &divisor;
+    for (_, value) in items.iter_mut() {
+        *value = &*value / &divisor;
     }
 }
 
 /// `_scaled_by_reciprocal`: `numerator / rational` for a rational denominator, one fraction per term.
+///
+/// The oracle builds `Fraction(a * fn, L * fd)` per term (`fn/fd` the reciprocal in lowest terms, `L` the common
+/// denominator) and lets `Fraction` take the gcd of the two big products. The lowest-terms result is unique, so it
+/// is reached by a cheaper road: with `g1 = gcd(|fn|, L)`, `fn = g1*b`, `L = g1*c` and `M = c*fd` (all coprime
+/// to `b`, since `gcd(b, c) = 1` by the choice of `g1` and `gcd(fn, fd) = 1`), `gcd(a*fn, L*fd) = g1 * gcd(a, M)`,
+/// so the term is `(a / g2) * b  /  (M / g2)` with `g2 = gcd(a, M)`: one gcd of the SMALL operands per term and
+/// nothing to multiply before it.
 pub fn scaled_by_reciprocal(
     numerator_common: &UBig,
     numerator_items: &[(UBig, IBig)],
@@ -480,14 +495,22 @@ pub fn scaled_by_reciprocal(
     }
     let rational = Rat::reduced(head, denominator_common.clone());
     let factor = Rat::one().div(&rational)?;
+    if numerator_items.is_empty() {
+        // `Fraction(...)` is built per term: with no term there is nothing to refuse
+        return Ok(SqrtSum::zero());
+    }
     if numerator_common.is_zero() {
         return Err(ZeroDivision);
     }
+    let shared = num::gcd(&num::magnitude(factor.numerator()), numerator_common);
+    let scaled_factor = factor.numerator() / IBig::from(shared.clone());
+    let modulus = (numerator_common / &shared) * factor.denominator();
     let terms = numerator_items
         .iter()
-        .map(|(radicand, value)| Term {
-            radicand: radicand.clone(),
-            coef: Coef::fraction(Rat::reduced(value * factor.numerator(), numerator_common * factor.denominator())),
+        .map(|(radicand, value)| {
+            let divisor = num::gcd_mixed(value, &modulus);
+            let numerator = (value / IBig::from(divisor.clone())) * &scaled_factor;
+            Term { radicand: radicand.clone(), coef: Coef::fraction(Rat::from_canonical(numerator, &modulus / divisor)) }
         })
         .collect();
     Ok(SqrtSum::from_terms_unchecked(terms))
@@ -657,6 +680,44 @@ mod tests {
         let quotient = scaled_by_reciprocal(&UBig::from(4u8), &numerator, &UBig::from(2u8), &denominator).unwrap();
         assert_eq!(quotient, sum(vec![frac(1, 1, 3), frac(2, 1, 2)]));
         assert_eq!(scaled_by_reciprocal(&UBig::ONE, &numerator, &UBig::ONE, &[]), Err(ZeroDivision));
+    }
+
+    /// The textbook road of the oracle: one `Fraction(a * fn, L * fd)` per term.
+    fn reciprocal_by_the_book(nc: &UBig, ni: &[(UBig, IBig)], dc: &UBig, di: &[(UBig, IBig)]) -> Vec<Rat> {
+        let rational = Rat::reduced(di[0].1.clone(), dc.clone());
+        let factor = Rat::one().div(&rational).unwrap();
+        ni.iter().map(|(_, value)| Rat::reduced(value * factor.numerator(), nc * factor.denominator())).collect()
+    }
+
+    #[test]
+    fn the_cheaper_reciprocal_road_reaches_the_same_lowest_terms_as_the_textbook_one() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = |bound: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % bound
+        };
+        for round in 0..3000 {
+            // small primes make shared factors between the numerators, the common denominators and the divisor certain
+            let pick = |next: &mut dyn FnMut(u64) -> u64| -> UBig { [1u64, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 25, 30, 36, 45][next(16) as usize].into() };
+            let nc = &pick(&mut next) * &pick(&mut next) * UBig::from(1 + next(7));
+            let dc = &pick(&mut next) * &pick(&mut next) * UBig::from(1 + next(5));
+            let head = IBig::from(1 + next(60) as i64) * if next(2) == 0 { IBig::ONE } else { -IBig::ONE };
+            let count = 1 + next(5) as usize;
+            let items: Items = (0..count)
+                .map(|index| {
+                    let value = IBig::from(1 + next(2000) as i64) * IBig::from(&pick(&mut next) * &pick(&mut next)) * if next(2) == 0 { IBig::ONE } else { -IBig::ONE };
+                    (UBig::from(index as u64 + 1), value)
+                })
+                .collect();
+            let divisor: Items = vec![(UBig::ONE, head)];
+            let got = scaled_by_reciprocal(&nc, &items, &dc, &divisor).unwrap();
+            let want = reciprocal_by_the_book(&nc, &items, &dc, &divisor);
+            let got_rats: Vec<Rat> = got.terms().iter().map(|term| term.coef.value().clone()).collect();
+            assert_eq!(got_rats, want, "round {round}");
+            assert!(got.terms().iter().all(|term| Rat::is_canonical(term.coef.value().numerator(), term.coef.value().denominator())));
+        }
     }
 
     #[test]
