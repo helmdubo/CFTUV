@@ -12,7 +12,7 @@
 //!   a triangle name) the same object is returned; a point that appears in several places of the result is ONE object, as
 //!   in the oracle (every list holds `node.point`).
 //! * the normal writes of `lift_known` go straight into `plane._normal_by_position`, in call order, also when the
-//!   operation fails afterwards (the writes before the failure stay in the oracle).
+//!   operation fails afterwards with an oracle outcome (the writes before the failure stay in the oracle); a refusal of the port writes none.
 //!
 //! * the memory log of the call (what `prime_support` and `squarefree_split` wrote into the canonicalization tables) is replayed IN PLACE on
 //!   the process's real tables, in the order Python writes them: no log crosses the boundary.
@@ -21,8 +21,13 @@
 //!
 //! The answer is `(result or None, status, detail, counts, articles, changed tables, timings)`. `status` 0 is ok; the others are
 //! the outcome codes of `cost.OpResult` (1..7) and of the clip seams (8 `OverflowError`, 9 `ZeroDivisionError`, 10 `ValueError`,
-//! 11 `MaterializationRefusal`, 12 unsupported by the port, 13 `KeyError`); the shim applies the budget, the counters and the snapshot of the
-//! tables first and raises the oracle's exception last. `timings` are nanoseconds `(plane, arguments, compute, result, memory log)`.
+//! 11 `MaterializationRefusal`, 12 unsupported by the port, 13 `KeyError`). An ORACLE outcome (`refusal::ORACLE_STATUSES`) is applied whole: the shim
+//! applies the budget, the counters and the snapshot of the tables and raises the oracle's exception last, as the oracle's exception leaves its partial
+//! effects. A refusal of the PORT (5, 6, 7, 12, anything unknown) is applied NOWHERE: the memory log, the normal writes, the counters and the articles of the
+//! call are dropped before any host object is touched (the answer carries zero counts, the articles it was given, no changed tables), so the host can run the
+//! oracle on the very same state; the session resets its mirror (`lib.rs`). The order inside the call is therefore: compute (native state only), classify,
+//! build the result (new objects only), and only then commit (the memory log on the real tables, the normal writes into the plane).
+//! `timings` are nanoseconds `(plane, arguments, compute, result, memory log)`.
 //!
 //! The GIL stays held: the operation is one thread and the product parallelizes by process.
 
@@ -54,6 +59,7 @@ use cftuv_core::sqrt_sum::SignCounts;
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
 use crate::pyobj::{alloc, int_from_ibig, int_from_ubig, rat_from_number, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
+use crate::refusal::{is_native_only, Forced};
 
 /// Planes kept converted per session.
 pub const PLANE_LIMIT: usize = 16;
@@ -503,18 +509,20 @@ fn error_status<'py>(py: Python<'py>, pool: &Pool, error: &ClipError) -> PyResul
     })
 }
 
-/// `plane._normal_by_position[(x, y, z)] = normal` for every write, in order; the tuples are returned for the result to share.
-fn write_normals<'py>(py: Python<'py>, table: Option<&Bound<'py, PyDict>>, writes: &[NormalWrite]) -> PyResult<Vec<Bound<'py, PyAny>>> {
+/// The `(position, normal)` tuples of every normal write, in order: new objects only, nothing is written anywhere yet. The normal tuples are what the result shares.
+fn make_normals<'py>(py: Python<'py>, writes: &[NormalWrite]) -> PyResult<Vec<(Bound<'py, PyTuple>, Bound<'py, PyTuple>)>> {
     let tuple = |values: &[f64; 3]| PyTuple::new(py, values.iter().map(|value| PyFloat::new(py, *value)));
-    let mut normals = Vec::with_capacity(writes.len());
-    for write in writes {
-        let normal = tuple(&write.normal)?;
-        if let Some(table) = table {
-            table.set_item(tuple(&write.position)?, &normal)?;
+    writes.iter().map(|write| Ok((tuple(&write.position)?, tuple(&write.normal)?))).collect()
+}
+
+/// `plane._normal_by_position[(x, y, z)] = normal` for every write, in order (the commit of [`make_normals`]).
+fn commit_normals(table: Option<&Bound<'_, PyDict>>, normals: &[(Bound<'_, PyTuple>, Bound<'_, PyTuple>)]) -> PyResult<()> {
+    if let Some(table) = table {
+        for (position, normal) in normals {
+            table.set_item(position, normal)?;
         }
-        normals.push(normal.into_any());
     }
-    Ok(normals)
+    Ok(())
 }
 
 impl Host {
@@ -646,6 +654,7 @@ impl Host {
         budget: Option<(Option<u64>, [u64; 6])>,
         normals: Option<&Bound<'py, PyDict>>,
         tables: &Tables<'py>,
+        forced: Option<Forced>,
     ) -> PyResult<Answer<'py>> {
         let started = Instant::now();
         let index = self.prepare(py, triangles)?;
@@ -665,6 +674,8 @@ impl Host {
             Some((cap, articles)) => (cap, Some(articles)),
             None => (None, None),
         };
+        // what a refusal of the port answers for the articles: the ones it was given (nothing was spent as far as the host is concerned)
+        let given = articles.unwrap_or([0; 6]);
         let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
         let arguments_ns = nanos(began);
 
@@ -685,7 +696,14 @@ impl Host {
                 inert: &arguments.inert,
             };
             let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
-            let ran = clip_geometry(&mut ctx, warm, &prepared.plane, &input);
+            let mut ran = clip_geometry(&mut ctx, warm, &prepared.plane, &input);
+            if let Some(knob) = forced {
+                // the test knob: the computation DID run (the call has effects to drop), then the port refuses
+                assert!(!knob.panics(), "forced by the test knob");
+                if let Some(error) = knob.clip_error() {
+                    ran.result = Err(error);
+                }
+            }
             let articles = run.budget_mut().articles();
             (ran, counts, articles, session.memory.take_log())
         }));
@@ -695,24 +713,40 @@ impl Host {
             Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.clip_geometry: native panic: {}", panic_text(&panic)))),
         };
 
-        let applying = Instant::now();
+        // Classify first: a refusal of the port is applied nowhere (module note), so nothing below it may have run.
         let classes = self.classes()?;
-        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
-        let log_ns = nanos(applying);
+        let failure = match &ran.result {
+            Ok(_) => None,
+            Err(error) => Some(error_status(py, &classes.pool, error)?),
+        };
+        if let Some((status, detail)) = &failure {
+            if is_native_only(*status) {
+                return Ok((None, *status, detail.clone(), [0; 5], given, 0, [plane_ns, arguments_ns, compute_ns, 0, 0]));
+            }
+        }
 
+        // Build everything the host receives: new objects only, no host object is written yet.
         let building = Instant::now();
-        let shared = write_normals(py, normals, &ran.writes)?;
-        let (result, status, detail) = match &ran.result {
-            Ok(clipped) => {
+        let written = make_normals(py, &ran.writes)?;
+        let (result, status, detail) = match (&ran.result, failure) {
+            (Ok(clipped), _) => {
+                let shared: Vec<Bound<'py, PyAny>> = written.iter().map(|(_, normal)| normal.clone().into_any()).collect();
                 let keys = std::mem::take(&mut arguments.key_objects);
                 let mut builder = Builder { py, classes, keys, points: HashMap::default(), inputs: &arguments.point_objects };
                 (Some(builder.build(clipped, &self.planes[index].names, &shared)?), 0, None)
             }
-            Err(error) => {
-                let (status, detail) = error_status(py, &classes.pool, error)?;
-                (None, status, detail)
-            }
+            (Err(_), Some((status, detail))) => (None, status, detail),
+            (Err(_), None) => return Err(refuse("a refused clip without an outcome code")),
         };
-        Ok((result, status, detail, counts.as_array(), articles, changed, [plane_ns, arguments_ns, compute_ns, nanos(building), log_ns]))
+        let building_ns = nanos(building);
+
+        // Commit: the memory log on the real tables, then the normal writes (what the oracle leaves behind, also when it raised afterwards).
+        let applying = Instant::now();
+        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
+        let log_ns = nanos(applying);
+        let committing = Instant::now();
+        commit_normals(normals, &written)?;
+        let result_ns = building_ns + nanos(committing);
+        Ok((result, status, detail, counts.as_array(), articles, changed, [plane_ns, arguments_ns, compute_ns, result_ns, log_ns]))
     }
 }

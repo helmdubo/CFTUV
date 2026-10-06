@@ -9,7 +9,12 @@ mod clip_seams;
 mod coverage;
 mod memlog;
 mod pyobj;
+mod refusal;
 mod view;
+
+// The digest of the Rust sources, shared with `build.rs` (which embeds it) and exposed for the tests to check the algorithm on a tree of their own.
+#[path = "../digest.rs"]
+mod digest;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -43,6 +48,18 @@ fn int_round_trip<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>>
     pyobj::int_round_trip(value)
 }
 
+/// `source_digest() -> str`: the sha256 of the Rust sources this extension was built from (`build.rs`, rule in `digest.rs`).
+#[pyfunction]
+fn source_digest() -> &'static str {
+    env!("CFTUV_NATIVE_SOURCE_DIGEST")
+}
+
+/// `tree_digest(native_root: str) -> str`: the same digest over the workspace at `native_root` (test-only: the algorithm on a tree of the test's own).
+#[pyfunction]
+fn tree_digest(native_root: &str) -> PyResult<String> {
+    digest::tree_digest(std::path::Path::new(native_root)).map(|found| found.hex).map_err(|error| PyValueError::new_err(format!("tree_digest({native_root:?}): {error}")))
+}
+
 /// `number_op_table() -> list[tuple[int, str]]`: the opcode table, for the harness to compare with its own.
 #[pyfunction]
 fn number_op_table() -> Vec<(u8, &'static str)> {
@@ -54,7 +71,8 @@ fn number_op_table() -> Vec<(u8, &'static str)> {
 ///
 /// Any refusal or panic resets the session to empty: the host's real tables were not updated by a failed call,
 /// so the mirror must not keep what the aborted call did to it. The host shim drops its own mirror state on
-/// every exception for the same reason.
+/// every exception for the same reason. The whole operations (`coverage_at`, `clip_geometry`) do the same for a refusal of the PORT that they
+/// ANSWER instead of raising (`refusal.rs`): the call's effects are dropped, nothing of the host is touched, the mirror is forgotten.
 #[pyclass(module = "cftuv_native._core")]
 struct Session {
     pub(crate) inner: cftuv_core::session::Session,
@@ -62,13 +80,15 @@ struct Session {
     clip: clip::Host,
     /// The host's memory tables as this session's mirror last saw them (see `view.rs`).
     view: view::View,
+    /// Test knob (`force_refusal`): a refusal of the port the NEXT whole operation takes after it computed.
+    forced: Option<refusal::Forced>,
 }
 
 #[pymethods]
 impl Session {
     #[new]
     fn new() -> Session {
-        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default() }
+        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None }
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -118,7 +138,7 @@ impl Session {
     /// in the wire format (`None`: unchanged since the last call), `budget` is `(cap, six articles)` or `None`, `tables` the real memory tables
     /// `(registry list, registry set, factorizations, squarefree splits, supports)` the memory log of the call is replayed on, in place (as
     /// for `clip_geometry`), `traces` the list the oracle's `traces` argument is (`None`: not asked for): the `(signs, values)` of every face
-    /// whose signs were computed are appended to it. Any error resets the session, as `run` does.
+    /// whose signs were computed are appended to it. Any error resets the session, as `run` does, and so does a status that is a refusal of the port (`refusal.rs`): then nothing of the call is applied to `tables`, `store` or `traces`.
     #[allow(clippy::too_many_arguments)]
     fn coverage_at<'py>(
         &mut self,
@@ -132,8 +152,10 @@ impl Session {
         tables: memlog::Tables<'py>,
         traces: Option<Bound<'py, pyo3::types::PyList>>,
     ) -> PyResult<coverage::Answer7<'py>> {
-        let outcome = self.coverage.coverage_at(py, &mut self.inner, partition, alpha, sync, budget, store.as_ref(), work_budget, &tables, traces.as_ref());
-        if outcome.is_err() {
+        let forced = self.forced.take();
+        let outcome = self.coverage.coverage_at(py, &mut self.inner, partition, alpha, sync, budget, store.as_ref(), work_budget, &tables, traces.as_ref(), forced);
+        // an error, or an answer that is a refusal of the port: nothing of the call reached the host, and the mirror holds what the call did to it
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
             self.reset_memory();
         }
         outcome
@@ -159,7 +181,7 @@ impl Session {
     /// the topology law (0 planar polygons, 1 quad strips, 2 any other), `inert` the chain station plan's pairs of faces (a frozenset of frozensets of names), `sync` the memory sync
     /// in the wire format (`None`: unchanged), `budget` `(cap, six articles)` or `None`, `normals` the plane's
     /// `_normal_by_position`, `tables` the real memory tables `(registry list, registry set, factorizations, squarefree splits,
-    /// supports)` the memory log of the call is replayed on, in place. Any error resets the session, as `run` does.
+    /// supports)` the memory log of the call is replayed on, in place. Any error resets the session, as `run` does, and so does a status that is a refusal of the port (`refusal.rs`): then nothing of the call is applied to `tables` or `normals`.
     #[allow(clippy::too_many_arguments)]
     fn clip_geometry<'py>(
         &mut self,
@@ -179,11 +201,21 @@ impl Session {
         normals: Option<&Bound<'py, pyo3::types::PyDict>>,
         tables: memlog::Tables<'py>,
     ) -> PyResult<clip::Answer<'py>> {
-        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert, sync, budget, normals, &tables);
-        if outcome.is_err() {
+        let forced = self.forced.take();
+        let outcome = self.clip.clip_geometry(py, &mut self.inner, triangles, points, cycles, polygons, law, seam, fans, flows, by_faces, inert, sync, budget, normals, &tables, forced);
+        // an error, or an answer that is a refusal of the port: nothing of the call reached the host, and the mirror holds what the call did to it
+        if outcome.as_ref().map_or(true, |answer| refusal::is_native_only(answer.1)) {
             self.reset_memory();
         }
         outcome
+    }
+
+    /// Test-only: arms ONE refusal of the port (`unsupported` (a clip), `invalid_input`, `diverged`, `internal`, `panic`; `None` disarms) that the next whole operation
+    /// takes AFTER it computed, instead of its own outcome: the call then has real effects (articles, counters, memory log, normal writes, store record, traces) that a refusal
+    /// must not let reach the host. Consumed by the first `coverage_at` or `clip_geometry` that reaches its computation.
+    fn force_refusal(&mut self, kind: Option<&str>) -> PyResult<()> {
+        self.forced = kind.map(refusal::Forced::parse).transpose()?;
+        Ok(())
     }
 
     /// `{slot class: raw access engaged}` of the two bound entry points (a debugging view: a layout the probe did not confirm is read through the
@@ -291,6 +323,9 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(run_number_ops, module)?)?;
     module.add_function(wrap_pyfunction!(number_op_table, module)?)?;
     module.add_function(wrap_pyfunction!(int_round_trip, module)?)?;
+    module.add_function(wrap_pyfunction!(source_digest, module)?)?;
+    module.add_function(wrap_pyfunction!(tree_digest, module)?)?;
+    module.add_function(wrap_pyfunction!(refusal::oracle_statuses, module)?)?;
     module.add_class::<Session>()?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
