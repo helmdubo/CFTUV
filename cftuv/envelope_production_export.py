@@ -157,6 +157,13 @@ PRODUCTION_SCAN_RECORDS_REUSED = "PRODUCTION_SCAN_RECORDS_REUSED"
 PRODUCTION_ALPHA_INTERVALS_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_CERTIFIED"
 PRODUCTION_ALPHA_INTERVALS_AT_EVENT = "PRODUCTION_ALPHA_INTERVALS_AT_EVENT"
 PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED = "PRODUCTION_ALPHA_INTERVALS_NOT_CERTIFIED"
+#: Шаг ширины домена (`cftuv_envelope.materialize.step`): домены прогона, покрытие которых воспроизведено из шаблона внутри заверенного
+#: интервала (`FAST_HITS`), и домены, считанные полным путём под именем причины (`FALLBACK_<ПРИЧИНА>`: `NO_CERTIFICATE`, `OUTSIDE_BELOW`,
+#: `OUTSIDE_ABOVE`, `TEMPLATE_UNAVAILABLE`, `DISABLED`, `PARTIAL_TEMPLATE`). `VERIFY_MISMATCH` - расхождения сверки быстрого пути с полным
+#: (`CFTUV_INTERVAL_VERIFY=1`): ноль всегда, иначе ответ - полный, а число - тревога. Метки запуска, не ответ.
+PRODUCTION_INTERVAL_FAST_HITS = "PRODUCTION_INTERVAL_FAST_HITS"
+PRODUCTION_INTERVAL_FALLBACK_PREFIX = "PRODUCTION_INTERVAL_FALLBACK_"
+PRODUCTION_INTERVAL_VERIFY_MISMATCH = "PRODUCTION_INTERVAL_VERIFY_MISMATCH"
 
 #: Что стоил пулу прогон по трубам (`PoolStatsV1`): байты туда и обратно, подготовки ключом и пиклом, промахи памяти воркера и
 #: разбор ответов в родителе (микросекунды: CPU потоков-читателей и стена с ожиданием GIL). Пишутся, когда пул работал.
@@ -292,6 +299,9 @@ class ProductionDomainResultV1:
     #: другую ревизию пересчитывает её). Пусто у отказа.
     alpha_interval: object | None = field(default=None, compare=False)
     structure_digest: str = field(default="", compare=False)
+    #: Как получен домен на шаге ширины (`cftuv_envelope.materialize.step.StepV1.path`): `FAST_HIT` (покрытие из шаблона внутри
+    #: заверенного интервала), `FALLBACK:<причина>` (полный счёт, причина названа) либо `VERIFY_MISMATCH:<части>`. Метка запуска, не ответ.
+    step_path: str = field(default="", compare=False)
     #: Запись идентичностей хоста, при которых посчитан результат (`DomainLabelingV1`), либо `None`: по ней
     #: результат переносится на другую ревизию источника (`envelope_content_store.relabel_result`). Это
     #: происхождение идентичностей, а не ответ, поэтому в сравнение не входит.
@@ -484,9 +494,8 @@ def produce_domain(
             admit_domain,
             materialization_request,
         )
-        from cftuv_envelope.materialize.domain import materialize_domain
         from cftuv_envelope.materialize.lift import plane_normal_binary64
-        from cftuv_envelope.wavefront import conveyor_coverage
+        from cftuv_envelope.materialize.step import step_domain
 
         reset_factorization_memory()
         reset_unbudgeted_work()
@@ -501,16 +510,16 @@ def produce_domain(
                 refused.detail,
                 time.perf_counter() - started,
             )
-        coverage = conveyor_coverage(prepared, alpha_text)
-        result = materialize_domain(
+        # Покрытие из шаблона внутри заверенного интервала ширины, иначе полный путь с записью шаблона; ответ в обоих случаях один.
+        stepped = step_domain(
             prepared,
-            coverage,
+            alpha_text,
             request=materialization_request(prepared, uv_policy_id=uv_policy_id),
             near_planar_lift_law=NearPlanarLiftLawV1(HOST_NEAR_PLANAR_LIFT_POLICY.value),
             decal_topology_law=DecalTopologyLawV1(topology_law),
             digests=not defer,
-            certify=True,
         )
+        result = stepped.result
         if not result.is_materialized:
             return _refusal(
                 patch_id,
@@ -540,6 +549,7 @@ def produce_domain(
             clip_memo=result.clip_memo,
             alpha_interval=result.interval,
             structure_digest="" if result.structure is None else result.structure.digest,
+            step_path=stepped.path,
         )
         if defer:
             produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
@@ -1540,6 +1550,7 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     computed = [result for entry, result in zip(entries, results) if entry.computes]
     for name, label in ((PRODUCTION_CLIP_MEMO_HITS, "HIT"), (PRODUCTION_CLIP_MEMO_MISSES, "MISS")):
         profile.set_counter(name, sum(1 for item in computed if item.clip_memo == label))
+    _interval_step_counters(profile, computed)
     for name, status in (
         (PRODUCTION_ALPHA_INTERVALS_CERTIFIED, "CERTIFIED"),
         (PRODUCTION_ALPHA_INTERVALS_AT_EVENT, "AT_EVENT"),
@@ -1555,6 +1566,20 @@ def _record_run_counters(profile, controller, builds_before, entries, results, c
     profile.set_counter(
         PRODUCTION_REFUSED, sum(1 for item in results if not item.is_materialized)
     )
+
+
+def _interval_step_counters(profile, computed) -> None:
+    """Счётчики шага ширины по посчитанным доменам: попадания, полные счёты по причинам, расхождения сверки (нулевые причины не пишутся)."""
+
+    paths = [item.step_path for item in computed if item.step_path]
+    profile.set_counter(PRODUCTION_INTERVAL_FAST_HITS, sum(1 for path in paths if path == "FAST_HIT"))
+    reasons: dict = {}
+    for path in paths:
+        if path.startswith("FALLBACK:"):
+            reasons[path[len("FALLBACK:") :]] = reasons.get(path[len("FALLBACK:") :], 0) + 1
+    for reason in sorted(reasons):
+        profile.set_counter(PRODUCTION_INTERVAL_FALLBACK_PREFIX + reason, reasons[reason])
+    profile.set_counter(PRODUCTION_INTERVAL_VERIFY_MISMATCH, sum(1 for path in paths if path.startswith("VERIFY_MISMATCH")))
 
 
 def run_production(
@@ -1917,6 +1942,9 @@ __all__ = (
     "PRODUCTION_COLD_FILL",
     "PRODUCTION_DOMAINS",
     "PRODUCTION_DOMAIN_GEOMETRY_BUILDS",
+    "PRODUCTION_INTERVAL_FALLBACK_PREFIX",
+    "PRODUCTION_INTERVAL_FAST_HITS",
+    "PRODUCTION_INTERVAL_VERIFY_MISMATCH",
     "PRODUCTION_MATERIALIZED",
     "PRODUCTION_PATCH_METRIC_BUILDS",
     "PRODUCTION_PREPARATION_BUILDS",

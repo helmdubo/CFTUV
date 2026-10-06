@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from math import isqrt, lcm
 from fractions import Fraction
 
 from ..contracts.metric import AffineChartOrientationV1, is_unfolded_certificate
@@ -33,15 +34,54 @@ from ..planar_metric import fraction_from_exact
 ENCLOSURE_BITS = 64
 
 
-def sqrt_sum_binary64(value: SqrtSumV1, *, bits: int = ENCLOSURE_BITS) -> float:
-    """Число из `SqrtSumV1` — серединой строгой оболочки, а не по членам.
+def enclosure_midpoint(value: SqrtSumV1, bits: int = ENCLOSURE_BITS, factor: Fraction | None = None) -> tuple[int, int]:
+    """`(числитель, знаменатель)` СЕРЕДИНЫ строгой оболочки `value * factor` (`factor` `None` - единица), целыми и не сокращённые.
 
-    Это ТОТ ЖЕ перевод, которым пользуется отладочный хост (`sqrt_sum_float`):
-    у картинки и у меша одно округление, а не два разных.
+    То же число, что `((low + high) / 2)` у `value.scaled(factor).enclosure(bits)`: пределы оболочки - те же `isqrt` радикандов, а общий
+    знаменатель коэффициентов выбран другой (`L * den(factor)` вместо наименьшего общего у `c * factor`), поэтому пределы и знаменатель
+    отличаются общим множителем и дробь та же ТОЧНО. Ничего не строит и не сокращает: три `Fraction` и промежуточный `SqrtSumV1`
+    стоили втрое дороже самого корня. Нулевой множитель даёт нуль, как `scaled(0)`.
     """
 
-    low, high = value.enclosure(bits)
-    return float((low + high) / 2)
+    terms = value.terms
+    numerator_factor, denominator_factor = (1, 1) if factor is None else (factor.numerator, factor.denominator)
+    if not terms or numerator_factor == 0:
+        return 0, 1
+    common = 1
+    for _radicand, coefficient in terms:
+        denominator = coefficient.denominator
+        if denominator != 1:
+            common = lcm(common, denominator)
+    scale = 1 << bits
+    shift = 2 * bits
+    low = high = 0
+    for radicand, coefficient in terms:
+        numerator = coefficient.numerator * (common // coefficient.denominator) * numerator_factor
+        if radicand == 1:
+            exact = numerator * scale
+            low += exact
+            high += exact
+            continue
+        floor_root = isqrt(radicand << shift)
+        if numerator > 0:
+            low += numerator * floor_root
+            high += numerator * (floor_root + 1)
+        else:
+            low += numerator * (floor_root + 1)
+            high += numerator * floor_root
+    return low + high, 2 * ((common * denominator_factor) << bits)
+
+
+def sqrt_sum_binary64(value: SqrtSumV1, *, bits: int = ENCLOSURE_BITS, factor: Fraction | None = None) -> float:
+    """Число из `SqrtSumV1` (`value * factor`) — серединой строгой оболочки, а не по членам.
+
+    Это ТОТ ЖЕ перевод, которым пользуется отладочный хост (`sqrt_sum_float`):
+    у картинки и у меша одно округление, а не два разных. Целое на целое делится
+    с правильным округлением, как и `float(Fraction)`: число то же побитово.
+    """
+
+    numerator, denominator = enclosure_midpoint(value, bits, factor)
+    return numerator / denominator
 
 
 @dataclass(frozen=True, slots=True)
