@@ -87,6 +87,17 @@ impl FxItems {
         self.val[..self.n].iter().map(Wide::limb_count).max().unwrap_or(0)
     }
 
+    /// Every numerator times a positive factor; `None` when one does not fit.
+    pub fn scaled(&self, factor: &Wide) -> Option<FxItems> {
+        let mut out = FxItems::new();
+        out.n = self.n;
+        for index in 0..self.n {
+            out.key[index] = self.key[index];
+            out.val[index] = self.val[index].mul(factor)?;
+        }
+        Some(out)
+    }
+
     /// The conjugate by `prime` (`A + B*sqrt(p)  ->  A - B*sqrt(p)`): the numerators of the radicands the prime divides change sign.
     pub fn flipped(&self, prime: u128) -> FxItems {
         let mut out = self.clone();
@@ -185,6 +196,40 @@ pub fn reduce(common: &mut Wide, items: &mut FxItems) {
     }
 }
 
+/// Divides both lists by the gcd of all their numerators (the quotient of the two sums does not change). The gcd is taken from the
+/// shortest numerator outwards, as in [`reduce`].
+pub fn reduce_together(first: &mut FxItems, second: &mut FxItems) {
+    let mut shortest: Option<(bool, usize)> = None;
+    let mut length = (usize::MAX, 0u64);
+    for (which, list) in [(false, &*first), (true, &*second)] {
+        for index in 0..list.n {
+            let candidate = (list.val[index].limb_count(), list.val[index].magnitude().last().copied().unwrap_or(0));
+            if candidate < length {
+                length = candidate;
+                shortest = Some((which, index));
+            }
+        }
+    }
+    let Some((which, index)) = shortest else { return };
+    let start = if which { second.val[index].abs() } else { first.val[index].abs() };
+    if start.is_one() {
+        return;
+    }
+    // the other numerators of the list the start is in, then every numerator of the other list
+    let own = if which { &*second } else { &*first };
+    let other = if which { &*first } else { &*second };
+    let mut divisor = gcd_chain(start, own, Some(index));
+    divisor = gcd_chain(divisor, other, None);
+    if divisor.is_one() || divisor.is_zero() {
+        return;
+    }
+    for list in [&mut *first, &mut *second] {
+        for index in 0..list.n {
+            list.val[index] = if divisor.limb_count() == 1 { list.val[index].div_exact_u64(divisor.magnitude()[0]) } else { list.val[index].div_exact(&divisor) };
+        }
+    }
+}
+
 /// `gcd(start, every item but `skip`)`: while the running gcd is wider than a word the numbers are taken with `Wide::gcd`; once it is a word
 /// long, each item costs one remainder by an invariant divisor and one word gcd.
 fn gcd_chain(start: Wide, items: &FxItems, skip: Option<usize>) -> Wide {
@@ -223,23 +268,21 @@ fn gcd_chain(start: Wide, items: &FxItems, skip: Option<usize>) -> Wide {
 /// `scaled_by_reciprocal_form` on the stack road: the quotient of two forms whose denominator is rational, as one integer form
 /// `(numerator_common * |head|, a_m * denominator_common * sign(head))` reduced by one common divisor. `None` where the `dashu-int` road
 /// has a refusal to make (a zero divisor) or where something does not fit: the caller runs that road.
-pub fn scaled_by_reciprocal_form(numerator_common: &Wide, numerator_items: &FxItems, denominator_common: &Wide, denominator_items: &FxItems) -> Option<(Wide, FxItems)> {
-    if denominator_common.is_zero() || denominator_items.is_empty() || numerator_common.is_zero() {
+pub fn scaled_by_reciprocal_form(numerator_items: &FxItems, denominator_items: &FxItems) -> Option<(Wide, FxItems)> {
+    if denominator_items.is_empty() {
         return None;
     }
     let head = denominator_items.val[0];
     if numerator_items.is_empty() {
         return Some((Wide::from_u64(1), FxItems::new()));
     }
-    let negative = head.is_negative();
-    let mut items = FxItems::new();
-    for index in 0..numerator_items.n {
-        let value = numerator_items.val[index].mul(denominator_common)?;
-        items.key[index] = numerator_items.key[index];
-        items.val[index] = if negative { value.neg() } else { value };
+    let mut items = numerator_items.clone();
+    if head.is_negative() {
+        for index in 0..items.n {
+            items.val[index] = items.val[index].neg();
+        }
     }
-    items.n = numerator_items.n;
-    let mut common = numerator_common.mul(&head.abs())?;
+    let mut common = head.abs();
     reduce(&mut common, &mut items);
     Some((common, items))
 }
@@ -417,18 +460,42 @@ mod tests {
             else {
                 continue;
             };
-            if let Some((common, items)) = scaled_by_reciprocal_form(&nc, &ni, &dc, &di) {
+            // over one common denominator: each list times the other's common denominator
+            let (Some(over_numerator), Some(over_denominator)) = (ni.scaled(&dc), di.scaled(&nc)) else { continue };
+            if let Some((common, items)) = scaled_by_reciprocal_form(&over_numerator, &over_denominator) {
+                // both are the quotient in lowest terms, which is one form
                 assert_eq!(IntForm { common: common.to_ubig(), items: items.to_items() }, expected);
                 compared += 1;
             }
         }
         assert!(compared > 1000);
-        // an empty numerator is the zero form, and a zero denominator is left to the dashu road to refuse
-        let (one, empty) = (Wide::from_u64(1), FxItems::new());
+        // an empty numerator is the zero form, and an empty denominator is left to the dashu road to refuse
+        let empty = FxItems::new();
         let head = FxItems::from_items(&[(UBig::ONE, IBig::from(-4))]).unwrap();
-        let (zero_common, zero_items) = scaled_by_reciprocal_form(&one, &empty, &one, &head).unwrap();
+        let (zero_common, zero_items) = scaled_by_reciprocal_form(&empty, &head).unwrap();
         assert_eq!((zero_common, zero_items.len()), (Wide::from_u64(1), 0));
-        assert!(scaled_by_reciprocal_form(&one, &head, &one, &empty).is_none());
+        assert!(scaled_by_reciprocal_form(&head, &empty).is_none());
+    }
+
+    #[test]
+    fn dividing_both_lists_by_their_common_factor_keeps_the_quotient() {
+        let mut rng = Rng(0x5eed_f00d_5eed_f00d);
+        for _ in 0..6000 {
+            let (numerator, denominator) = (rng.items(5, 3), rng.items(5, 3));
+            let factor = IBig::from(1 + rng.next() % 100_000) * IBig::from(1 + rng.next() % 1000);
+            let scale = |items: &Items| -> Items { items.iter().map(|(radicand, value)| (radicand.clone(), value * &factor)).collect() };
+            let (Some(mut first), Some(mut second)) = (FxItems::from_items(&scale(&numerator)), FxItems::from_items(&scale(&denominator))) else { continue };
+            reduce_together(&mut first, &mut second);
+            // what is left has no common factor any more, and the factor was taken out of every numerator
+            let mut all = first.to_items();
+            all.extend(second.to_items());
+            let content = all.iter().fold(UBig::ZERO, |content, (_, value)| num::gcd(&content, &num::magnitude(value)));
+            assert!(content.is_one() || content.is_zero(), "content {content}");
+            let original: Vec<IBig> = scale(&numerator).into_iter().chain(scale(&denominator)).map(|(_, value)| value).collect();
+            let reduced: Vec<IBig> = all.into_iter().map(|(_, value)| value).collect();
+            let divisor = &original[0] / &reduced[0];
+            assert!(original.iter().zip(&reduced).all(|(before, after)| *before == after * &divisor), "every numerator was divided by the same number");
+        }
     }
 
     trait AbsValue {

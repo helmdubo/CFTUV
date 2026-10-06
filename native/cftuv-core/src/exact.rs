@@ -316,11 +316,11 @@ impl Rationalized {
     }
 }
 
-/// The loop's integers on the stack: the forms `(L, items)` of the numerator and the denominator.
+/// The loop's integers on the stack: the item lists of the numerator and of the denominator over ONE common denominator. The quotient
+/// `(sum N_i sqrt(m_i) / L) / (sum D_j sqrt(m_j) / L)` is `sum N_i sqrt(m_i) / sum D_j sqrt(m_j)`, so that denominator is never carried: the
+/// rounds multiply both lists by the same conjugate and may divide both by any common factor.
 struct FxState {
-    numerator_common: Wide,
     numerator_items: FxItems,
-    denominator_common: Wide,
     denominator_items: FxItems,
 }
 
@@ -335,9 +335,9 @@ struct BigState {
 impl FxState {
     fn into_big(self) -> BigState {
         BigState {
-            numerator_common: self.numerator_common.to_ubig(),
+            numerator_common: UBig::ONE,
             numerator_items: self.numerator_items.to_items(),
-            denominator_common: self.denominator_common.to_ubig(),
+            denominator_common: UBig::ONE,
             denominator_items: self.denominator_items.to_items(),
         }
     }
@@ -348,11 +348,8 @@ impl FxState {
         let conjugate = self.denominator_items.flipped(fx::radicand_u128(prime)?);
         let mut numerator_items = fx::multiply(&self.numerator_items, &conjugate, products)?;
         let mut denominator_items = fx::multiply(&self.denominator_items, &conjugate, products)?;
-        let mut numerator_common = self.numerator_common.mul(&self.denominator_common)?;
-        let mut denominator_common = self.denominator_common.mul(&self.denominator_common)?;
-        fx::reduce(&mut numerator_common, &mut numerator_items);
-        fx::reduce(&mut denominator_common, &mut denominator_items);
-        Some(FxState { numerator_common, numerator_items, denominator_common, denominator_items })
+        fx::reduce_together(&mut numerator_items, &mut denominator_items);
+        Some(FxState { numerator_items, denominator_items })
     }
 }
 
@@ -383,7 +380,16 @@ impl RoundState {
             Wide::from_ubig(&denominator_form.common),
             FxItems::from_items(&denominator_form.items),
         ) {
-            return RoundState::Fx(FxState { numerator_common, numerator_items, denominator_common, denominator_items });
+            // over one common denominator: each list times the other's (the same common denominators cost nothing)
+            let scaled = if numerator_common == denominator_common {
+                Some((numerator_items, denominator_items))
+            } else {
+                numerator_items.scaled(&denominator_common).zip(denominator_items.scaled(&numerator_common))
+            };
+            if let Some((mut numerator_items, mut denominator_items)) = scaled {
+                fx::reduce_together(&mut numerator_items, &mut denominator_items);
+                return RoundState::Fx(FxState { numerator_items, denominator_items });
+            }
         }
         RoundState::Big(BigState {
             numerator_common: numerator_form.common.clone(),
@@ -524,7 +530,7 @@ pub fn divided_by_form(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator:
     match rationalize(ctx, numerator, denominator, PrimeSource::Factorized)? {
         Some(done) => {
             if let Rationalized::Fx(state) = &done {
-                if let Some((common, items)) = fx::scaled_by_reciprocal_form(&state.numerator_common, &state.numerator_items, &state.denominator_common, &state.denominator_items) {
+                if let Some((common, items)) = fx::scaled_by_reciprocal_form(&state.numerator_items, &state.denominator_items) {
                     return Ok(Quotient::Form(Share::from_stack(common, items)));
                 }
             }
