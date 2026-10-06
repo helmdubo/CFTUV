@@ -3,9 +3,10 @@
 Шим переводит объекты ядра в буферы целой операции и воспроизводит её побочные эффекты (бюджет точной работы, память
 канонизации), как их воспроизводит попадание `clip_memo`. Тихого отката на Python здесь нет: нет расширения — `ImportError`.
 
-Две части:
+Три части:
 
 * числа (`run_number_ops`): сценарий операций в ОДНОМ вызове, только для сверки с эталоном;
+* целая операция (`coverage_at`): `wavefront.coverage._coverage_at` целиком, с разбиениями, которые нативная сессия переводит один раз;
 * стоимость (`default_mirror`, `new_mirror`, `sign`, `divided_by`, ...): долгоживущая нативная сессия владеет зеркалом памяти
   канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
   к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
@@ -17,9 +18,11 @@ from . import _core, codec, cost
 
 __all__ = (
     "CostMirror",
+    "coverage_at",
     "default_mirror",
     "divide_with_prime_universe",
     "divided_by",
+    "last_coverage_timings",
     "native_version",
     "new_mirror",
     "number_op_table",
@@ -71,6 +74,18 @@ def default_mirror() -> cost.CostMirror:
     if not _DEFAULT:
         _DEFAULT.append(new_mirror())
     return _DEFAULT[0]
+
+
+def coverage_at(partition, alpha, work_budget=None, store=None):
+    """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, native and whole (see `CostMirror.coverage_at`)."""
+
+    return default_mirror().coverage_at(partition, alpha, work_budget, store)
+
+
+def last_coverage_timings() -> tuple:
+    """Nanoseconds of the last `coverage_at` of the default mirror: `(sync in, native call, post, total, prepare, arguments, compute, result)`."""
+
+    return default_mirror().last_timings
 
 
 def sign(value, *, filter_bits: int = 64, budget=None) -> int:

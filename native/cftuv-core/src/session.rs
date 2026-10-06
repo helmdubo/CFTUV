@@ -194,6 +194,33 @@ fn decode_budget(value: &Value) -> Result<WorkBudget, ScriptError> {
 }
 
 impl CostRun {
+    /// The budget of the call (a whole operation spends it directly through an [`ExactCtx`]).
+    pub fn budget_mut(&mut self) -> &mut WorkBudget {
+        &mut self.budget
+    }
+
+    /// The same as [`CostRun::begin`] with the header already taken apart: the memory sync (`None`: nothing changed
+    /// since the last call), the cap and the six articles of the budget (`None`: a call without one, which spends an
+    /// unlimited budget starting at zero).
+    pub fn begin_parts(session: &mut Session, sync: Option<&Value>, cap: Option<u64>, articles: Option<[u64; 6]>) -> Result<CostRun, ScriptError> {
+        if let Some(sync) = sync {
+            session.memory.apply_sync(decode_sync(sync)?).map_err(|error| match error {
+                CanonError::InvalidInput(message) => ScriptError::CostSync(message),
+                _ => ScriptError::CostSync("the memory sync was refused"),
+            })?;
+        }
+        session.memory.start_log();
+        let budget = match articles {
+            None => WorkBudget::unlimited(),
+            Some(articles) => {
+                let mut budget = cap.map_or_else(WorkBudget::unlimited, WorkBudget::bounded);
+                budget.set_articles(articles);
+                budget
+            }
+        };
+        Ok(CostRun { budget, full_state: false })
+    }
+
     /// Reads the cost header, brings the memory mirror to the host's content, and starts the op-log.
     pub fn begin(session: &mut Session, header: &Value) -> Result<CostRun, ScriptError> {
         let [options, sync, budget] = list(header, "cost header")? else {
@@ -282,7 +309,7 @@ fn state_value(state: &MemoryState) -> Value {
     Value::List(vec![ubig_list(&state.known_primes), Value::List(factorization), Value::List(squarefree), Value::List(support)])
 }
 
-fn outcome_value(result: Result<Value, ExactError>) -> Value {
+pub fn outcome_value(result: Result<Value, ExactError>) -> Value {
     let entry = match result {
         Ok(value) => vec![int(0u8), value],
         Err(ExactError::Canon(CanonError::Exhausted(exhausted))) => {
@@ -377,6 +404,32 @@ fn run_exact(args: &Args, ctx: &mut ExactCtx<'_>) -> Result<Result<Value, ExactE
     })
 }
 
+/// The mutations the memory made since the call began, as one encoded value (`None`: none): the host applies them to its
+/// real tables in order (`MemOp` codes in the module note).
+pub fn take_log_bytes(session: &mut Session) -> Option<Vec<u8>> {
+    let log = session.memory.take_log();
+    if log.is_empty() {
+        return None;
+    }
+    let mut writer = crate::codec::Writer::new();
+    writer.put_value(&Value::List(log.into_iter().map(log_entry).collect()));
+    Some(writer.into_bytes())
+}
+
+/// The cost answer `[outcome, counts, articles, log, state]` of a whole operation that spent the run's budget itself
+/// (a coverage call: no script, one answer). `counts` is the sign-counter delta of the call.
+pub fn finish_answer(session: &mut Session, run: &CostRun, counts: &SignCounts, outcome: Value) -> Value {
+    let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
+    let state = if run.full_state { state_value(&session.memory.export_state()) } else { Value::None };
+    Value::List(vec![
+        outcome,
+        Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
+        Value::List(run.budget.articles().iter().map(|article| int(*article)).collect()),
+        log,
+        state,
+    ])
+}
+
 /// One cost operation of a script: runs it on the session, answers `[outcome, counts, articles, log, state]`.
 /// An argument of the wrong shape is a `ScriptError`; every refusal of the arithmetic is an outcome.
 pub(crate) fn execute_cost_op(session: &mut Session, run: &mut CostRun, args: &Args) -> Result<Value, ScriptError> {
@@ -385,15 +438,7 @@ pub(crate) fn execute_cost_op(session: &mut Session, run: &mut CostRun, args: &A
         let mut ctx = ExactCtx { memory: &mut session.memory, budget: &mut run.budget, counts: &mut counts, products: &mut session.products };
         run_exact(args, &mut ctx)?
     };
-    let log = Value::List(session.memory.take_log().into_iter().map(log_entry).collect());
-    let state = if run.full_state { state_value(&session.memory.export_state()) } else { Value::None };
-    Ok(Value::List(vec![
-        outcome_value(result),
-        Value::List(counts.as_array().iter().map(|count| int(*count)).collect()),
-        Value::List(run.budget.articles().iter().map(|article| int(*article)).collect()),
-        log,
-        state,
-    ]))
+    Ok(finish_answer(session, run, &counts, outcome_value(result)))
 }
 
 #[cfg(test)]

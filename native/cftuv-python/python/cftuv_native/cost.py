@@ -23,10 +23,13 @@ tables. This module keeps the REAL Python objects and the mirror equal:
 This module imports no extension: it drives a session object (`run(bytes) -> bytes`, `clear()`, `lengths()`) given
 by the shim. The mirror is NOT thread-safe: it assumes nothing else mutates the tables during a call.
 
-Adding a native operation that pays budget or touches the memory (the whole `coverage_at` / `clip_geometry` of the next
-steps): give it an opcode in `codec.OPS` and the Rust table `script::OPS`, make its Rust answer the cost answer
-`[outcome, counts, articles, log, state]` (`session.rs`), and run it through `CostMirror.execute` — the sync, the budget,
-the log replay and the exception come for free. `OpResult.value` is the operation's own value.
+Adding a native operation that pays budget or touches the memory: either give it an opcode in `codec.OPS` and the Rust
+table `script::OPS`, make its Rust answer the cost answer `[outcome, counts, articles, log, state]` (`session.rs`), and run
+it through `CostMirror.execute` — the sync, the budget, the log replay and the exception come for free (`OpResult.value`
+is the operation's own value) — or, for a WHOLE operation that builds its own Python result and keeps state of its own in the
+session (`coverage_at`, the first one), pass the sync and the budget state as plain arguments and take the cost back as
+plain tuples (`CostMirror.coverage_at`): the same `_sync_in`, `_apply_entries`, `_settle_*` and `OpResult.raise_for`, without
+the script buffers.
 
 A call that raises inside the extension (`ValueError`: a refused buffer; `RuntimeError`: a panic the extension caught)
 leaves the real tables as they were before the call and resets the session; the mirror forgets what it held, so the next
@@ -37,6 +40,7 @@ from __future__ import annotations
 
 from bisect import insort
 from fractions import Fraction
+from time import perf_counter_ns
 
 from . import codec
 
@@ -57,6 +61,7 @@ STATUS_RECONSTRUCTION = 4
 STATUS_INVALID_INPUT = 5
 STATUS_DIVERGED = 6
 STATUS_INTERNAL = 7
+STATUS_MISSING_LINE = 8
 
 _U64 = (1 << 64) - 1
 
@@ -80,6 +85,19 @@ def _exact():
 
         _EXACT.append(exact_sqrt_sum)
     return _EXACT[0]
+
+
+_COVERAGE: list = []
+
+
+def _coverage():
+    """The kernel's `wavefront.coverage` and `wavefront.faces` (on `sys.path`), resolved on first use."""
+
+    if not _COVERAGE:
+        from cftuv_envelope.wavefront import coverage, faces
+
+        _COVERAGE.append((coverage, faces))
+    return _COVERAGE[0]
 
 
 #: The sync of a call where nothing changed since the last one (the common case), encoded once.
@@ -183,6 +201,11 @@ class CostMirror:
 
     def __init__(self, session) -> None:
         self._session = session
+        self._coverage_bound = False
+        self._face_exact = None
+        #: Nanoseconds of the last `coverage_at`: `(sync in, native call, post, total, prepare, arguments, compute, result)`;
+        #: the last four are measured inside the extension (see `native/cftuv-python/src/coverage.rs`).
+        self.last_timings: tuple = ()
         self._reset_snapshots()
 
     def _reset_snapshots(self) -> None:
@@ -246,42 +269,50 @@ class CostMirror:
     def _apply_log(self, exact, results: list) -> set:
         """Replays the op-logs of every result on the real tables in place; returns the tables that changed."""
 
+        changed: set = set()
+        for result in results:
+            changed |= self._apply_entries(exact, result.log)
+        return changed
+
+    @staticmethod
+    def _apply_entries(exact, entries) -> set:
+        """Replays one op-log on the real tables in place; returns the tables that changed."""
+
         primes, prime_set = exact._KNOWN_PRIMES, exact._KNOWN_PRIME_SET
         factorization, squarefree, support = exact._FACTORIZATION_MEMO, exact._SQUAREFREE_MEMO, exact._PRIME_SUPPORT_MEMO
-        changed = set()
-        for result in results:
-            for entry in result.log:
-                code = entry[0]
-                if code == 2:
-                    insort(primes, entry[1])
-                    prime_set.add(entry[1])
-                    changed.add("registry")
-                elif code == 4:
-                    factorization[entry[1]] = tuple(tuple(pair) for pair in entry[2])
-                    changed.add("factorization")
-                elif code == 6:
-                    squarefree[entry[1]] = (entry[2], entry[3])
-                    changed.add("squarefree")
-                elif code == 7:
-                    support[entry[1]] = tuple(entry[2])
-                    changed.add("support")
-                elif code == 5:
-                    factorization[entry[1]] = factorization.pop(entry[1])
-                    changed.add("factorization")
-                elif code == 3:
-                    if not factorization or next(iter(factorization)) != entry[1]:
-                        raise NativeMirrorError("the native eviction names an oldest factorization the real table does not hold")
-                    del factorization[entry[1]]
-                    changed.add("factorization")
-                elif code == 1:
-                    primes.clear()
-                    prime_set.clear()
-                    changed.add("registry")
-                elif code == 0:
-                    exact.reset_factorization_memory()
-                    changed.update(("registry", "factorization", "squarefree", "support"))
-                else:
-                    raise NativeMirrorError(f"unknown memory log entry {code}")
+        changed: set = set()
+        for entry in entries:
+            code = entry[0]
+            if code == 2:
+                insort(primes, entry[1])
+                prime_set.add(entry[1])
+                changed.add("registry")
+            elif code == 4:
+                factorization[entry[1]] = tuple(tuple(pair) for pair in entry[2])
+                changed.add("factorization")
+            elif code == 6:
+                squarefree[entry[1]] = (entry[2], entry[3])
+                changed.add("squarefree")
+            elif code == 7:
+                support[entry[1]] = tuple(entry[2])
+                changed.add("support")
+            elif code == 5:
+                factorization[entry[1]] = factorization.pop(entry[1])
+                changed.add("factorization")
+            elif code == 3:
+                if not factorization or next(iter(factorization)) != entry[1]:
+                    raise NativeMirrorError("the native eviction names an oldest factorization the real table does not hold")
+                del factorization[entry[1]]
+                changed.add("factorization")
+            elif code == 1:
+                primes.clear()
+                prime_set.clear()
+                changed.add("registry")
+            elif code == 0:
+                exact.reset_factorization_memory()
+                changed.update(("registry", "factorization", "squarefree", "support"))
+            else:
+                raise NativeMirrorError(f"unknown memory log entry {code}")
         return changed
 
     # ---- the budget ------------------------------------------------------------------------------------------------
@@ -335,30 +366,98 @@ class CostMirror:
         detail = outcome[1:] if status != STATUS_OK else None
         return OpResult(status, value, detail, counts, articles, log, state)
 
-    @staticmethod
-    def _settle(exact, budget, results: list) -> None:
-        counters = exact.SIGN_COUNTS
+    @classmethod
+    def _settle(cls, exact, budget, results: list) -> None:
         for result in results:
-            for key, delta in zip(COUNT_KEYS, result.counts):
-                if delta:
-                    counters[key] += delta
-        if not results:
-            return
-        articles = results[-1].articles
-        target = exact.UNBUDGETED_WORK if budget is None else budget
+            cls._settle_counts(exact, result.counts)
+        if results:
+            cls._settle_articles(exact, budget, results[-1].articles)
+
+    @staticmethod
+    def _settle_counts(exact, counts) -> None:
+        counters = exact.SIGN_COUNTS
+        for key, delta in zip(COUNT_KEYS, counts):
+            if delta:
+                counters[key] += delta
+
+    @staticmethod
+    def _settle_articles(exact, budget, articles) -> None:
+        """The articles after the call go into the real budget; a call without one adds its deltas to the telemetry."""
+
         if budget is None:
+            target = exact.UNBUDGETED_WORK
             for name, delta in zip(ARTICLES, articles):
                 if delta:
                     setattr(target, name, getattr(target, name) + delta)
         else:
             for name, value in zip(ARTICLES, articles):
-                setattr(target, name, value)
+                setattr(budget, name, value)
 
     def _snapshot(self, exact, primes: list, tables: dict, changed: set) -> None:
         self._primes = list(exact._KNOWN_PRIMES) if "registry" in changed else primes
         real = {"factorization": exact._FACTORIZATION_MEMO, "squarefree": exact._SQUAREFREE_MEMO, "support": exact._PRIME_SUPPORT_MEMO}
         for name, table in real.items():
             self._tables[name] = (list(table), list(table.values())) if name in changed else tables[name]
+
+    # ---- the whole coverage operation -------------------------------------------------------------------------------
+
+    def _bind_coverage(self) -> None:
+        coverage, faces = _coverage()
+        exact = _exact()
+        outcome = coverage.CoverageOutcome
+        self._session.bind_coverage(
+            exact.SqrtSumV1, Fraction, coverage.CoverageV1, coverage.FaceCoverageV1,
+            outcome.EXACT, outcome.PARTITION_IS_NOT_EXACT, outcome.ALPHA_IS_NEGATIVE, faces.FaceOutcome.EXACT,
+        )
+        self._face_exact = faces.FaceOutcome.EXACT
+        self._coverage_bound = True
+
+    def coverage_at(self, partition, alpha, work_budget=None, store=None):
+        """`wavefront.coverage._coverage_at(partition, alpha, work_budget, store)`, whole, with its exact side effects.
+
+        The partition is converted once per session (kept by identity); per call only `alpha`, the memory sync (nothing
+        when no table changed), the budget state and the store cross the boundary, and the extension builds the
+        `CoverageV1` itself and answers with plain tuples. The two refusals are the oracle's first two statements. Every
+        effect (budget articles, counters, memory tables, the `store` entry) is applied before the result is returned or
+        the exception of a refusal (an exhaustion, a face without a line) raised.
+        """
+
+        started = perf_counter_ns()
+        if not self._coverage_bound:
+            self._bind_coverage()
+        if partition.outcome is not self._face_exact:
+            return self._session.refused_coverage(partition, alpha, False)
+        if alpha < 0:
+            return self._session.refused_coverage(partition, alpha, True)
+        exact = _exact()
+        sync, primes, tables = self._sync_in(exact)
+        state = None if work_budget is None else (work_budget.cap, work_budget.spent_by_article())
+        called = perf_counter_ns()
+        try:
+            result, status, detail, counts, articles, log, native = self._session.coverage_at(
+                partition, alpha, None if sync is UNCHANGED_SYNC else codec.encode_value(sync), state, store, work_budget
+            )
+        except BaseException:
+            self.invalidate()
+            raise
+        returned = perf_counter_ns()
+        changed: set = set()
+        if log is not None:
+            try:
+                changed = self._apply_entries(exact, codec.decode_value(log))
+            except BaseException:
+                self.invalidate()
+                raise
+        self._settle_counts(exact, counts)
+        self._settle_articles(exact, work_budget, articles)
+        self._snapshot(exact, primes, tables, changed)
+        finished = perf_counter_ns()
+        self.last_timings = (called - started, returned - called, finished - returned, finished - started, *native)
+        if status:
+            if status == STATUS_MISSING_LINE:
+                raise ValueError(f"у грани {partition.faces[detail[0]].owner} нет несущей прямой")
+            OpResult(status, None, detail, counts, articles, (), None).raise_for(work_budget)
+        return result
 
     # ---- one operation ----------------------------------------------------------------------------------------------
 

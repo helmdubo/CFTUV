@@ -38,6 +38,7 @@ version = "0.1.0"
 dependencies = [
  "cftuv-canon",
  "dashu-int",
+ "mimalloc",
  "num-bigint",
  "num-integer",
  "num-traits",
@@ -47,6 +48,7 @@ dependencies = [
 name = "cftuv-python"
 version = "0.1.0"
 dependencies = [
+ "cftuv-canon",
  "cftuv-core",
  "mimalloc",
  "pyo3",

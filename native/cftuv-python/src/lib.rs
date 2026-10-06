@@ -4,6 +4,9 @@
 //! entry point, so it never unwinds across the boundary. A request the core refuses (a buffer it cannot
 //! decode, an unknown opcode) is a `ValueError` with the core's own message.
 
+mod coverage;
+mod pyobj;
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -45,13 +48,14 @@ fn number_op_table() -> Vec<(u8, &'static str)> {
 #[pyclass(module = "cftuv_native._core")]
 struct Session {
     inner: cftuv_core::session::Session,
+    coverage: coverage::Host,
 }
 
 #[pymethods]
 impl Session {
     #[new]
     fn new() -> Session {
-        Session { inner: cftuv_core::session::Session::new() }
+        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default() }
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -68,6 +72,61 @@ impl Session {
                 Err(PyRuntimeError::new_err(format!("Session.run: native panic: {}", panic_message(&panic))))
             }
         }
+    }
+
+    /// Hands the kernel classes to the coverage entry points (`SqrtSumV1`, `Fraction`, `CoverageV1`, `FaceCoverageV1`,
+    /// the three `CoverageOutcome` members the entry points build, `FaceOutcome.EXACT`). Forgets every prepared partition.
+    #[allow(clippy::too_many_arguments)]
+    fn bind_coverage(
+        &mut self,
+        py: Python<'_>,
+        sqrt_sum: &Bound<'_, PyAny>,
+        fraction: &Bound<'_, PyAny>,
+        coverage: &Bound<'_, PyAny>,
+        face_coverage: &Bound<'_, PyAny>,
+        outcome_exact: &Bound<'_, PyAny>,
+        outcome_not_exact: &Bound<'_, PyAny>,
+        outcome_negative: &Bound<'_, PyAny>,
+        face_exact: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        self.coverage.bind(py, sqrt_sum, fraction, coverage, face_coverage, [outcome_exact, outcome_not_exact, outcome_negative], face_exact)
+    }
+
+    /// The `CoverageV1` of a refused call (`negative`: `ALPHA_IS_NEGATIVE`, else `PARTITION_IS_NOT_EXACT`).
+    fn refused_coverage<'py>(&self, py: Python<'py>, partition: &Bound<'py, PyAny>, alpha: &Bound<'py, PyAny>, negative: bool) -> PyResult<Bound<'py, PyAny>> {
+        self.coverage.refused(py, partition, alpha, negative)
+    }
+
+    /// `_coverage_at` on an exact partition and `alpha >= 0`: `(result or None, status, detail, sign-counter deltas, budget
+    /// articles after, memory log or None, (prepare, arguments, compute, result) nanoseconds)`. `sync` is the memory sync
+    /// in the wire format (`None`: unchanged since the last call), `budget` is `(cap, six articles)` or `None`. Any error
+    /// resets the session, as `run` does.
+    #[allow(clippy::too_many_arguments)]
+    fn coverage_at<'py>(
+        &mut self,
+        py: Python<'py>,
+        partition: &Bound<'py, PyAny>,
+        alpha: &Bound<'py, PyAny>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        store: Option<Bound<'py, PyAny>>,
+        work_budget: &Bound<'py, PyAny>,
+    ) -> PyResult<coverage::Answer7<'py>> {
+        let outcome = self.coverage.coverage_at(py, &mut self.inner, partition, alpha, sync, budget, store.as_ref(), work_budget);
+        if outcome.is_err() {
+            self.inner = cftuv_core::session::Session::new();
+        }
+        outcome
+    }
+
+    /// `(partitions, store records)` the coverage side keeps converted.
+    fn coverage_cache(&self) -> (usize, usize) {
+        self.coverage.cache_sizes()
+    }
+
+    /// Drops every converted partition and store record.
+    fn forget_coverage(&mut self) {
+        self.coverage.forget();
     }
 
     /// Lengths of the mirrored tables: registry, factorizations, squarefree splits, supports.

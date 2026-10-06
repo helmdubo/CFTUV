@@ -117,7 +117,8 @@ impl Rat {
             let right = signed(&other.num);
             return Rat { num: &self.num + right, den: UBig::ONE };
         }
-        let common = num::gcd(&self.den, &other.den);
+        // equal denominators share all of themselves: the gcd of the two is known without taking it
+        let common = if self.den == other.den { self.den.clone() } else { num::gcd(&self.den, &other.den) };
         if common.is_one() {
             let num = &self.num * IBig::from(other.den.clone()) + signed(&other.num) * IBig::from(self.den.clone());
             return Rat { num, den: &self.den * &other.den };
@@ -133,20 +134,30 @@ impl Rat {
         }
     }
 
-    /// `Fraction._mul`: cross-cancelled, so the result is canonical without a final gcd.
+    /// `Fraction._mul`: cross-cancelled, so the result is canonical without a final gcd. A denominator of one cancels
+    /// nothing, and the gcd that would prove it is not taken.
     pub fn mul(&self, other: &Rat) -> Rat {
-        let (mut left, mut left_den) = (self.num.clone(), self.den.clone());
-        let (mut right, mut right_den) = (other.num.clone(), other.den.clone());
-        let first = num::gcd_mixed(&left, &right_den);
-        if !first.is_one() && !first.is_zero() {
+        let first = if other.den.is_one() { UBig::ONE } else { num::gcd_mixed(&self.num, &other.den) };
+        let second = if self.den.is_one() { UBig::ONE } else { num::gcd_mixed(&other.num, &self.den) };
+        let cancels = |common: &UBig| !common.is_one() && !common.is_zero();
+        let (left, right_den) = if cancels(&first) {
+            let mut left = self.num.clone();
             left /= &first;
-            right_den /= first;
-        }
-        let second = num::gcd_mixed(&right, &left_den);
-        if !second.is_one() && !second.is_zero() {
+            (Some(left), Some(&other.den / &first))
+        } else {
+            (None, None)
+        };
+        let (right, left_den) = if cancels(&second) {
+            let mut right = other.num.clone();
             right /= &second;
-            left_den /= second;
-        }
+            (Some(right), Some(&self.den / &second))
+        } else {
+            (None, None)
+        };
+        let left: &IBig = left.as_ref().unwrap_or(&self.num);
+        let right_den: &UBig = right_den.as_ref().unwrap_or(&other.den);
+        let right: &IBig = right.as_ref().unwrap_or(&other.num);
+        let left_den: &UBig = left_den.as_ref().unwrap_or(&self.den);
         Rat { num: left * right, den: left_den * right_den }
     }
 

@@ -20,8 +20,8 @@ use crate::num::{self, IBig, UBig};
 use crate::products::{Items, ProductMemo};
 use crate::rat::{Coef, Rat};
 use crate::sqrt_sum::{
-    conjugate_items, integer_certified_sign, multiply_integer_items, reduce_in_place, scaled_by_reciprocal, SignCounts, SignStage, SqrtSum,
-    Term, SIGN_FILTER_BITS,
+    conjugate_items, integer_certified_sign, multiply_integer_items, reduce_in_place, scaled_by_reciprocal, IntForm, SignCounts, SignStage,
+    SqrtSum, Term, SIGN_FILTER_BITS,
 };
 
 /// Rounds and coefficient size the generic division fallback may reach before it is refused by name. The oracle
@@ -203,6 +203,64 @@ fn exact_sign(ctx: &mut ExactCtx<'_>, items: &[(UBig, IBig)], bits: usize, enclo
     Ok(if discriminant_sign > 0 { outside_sign } else { inside_sign })
 }
 
+/// The sign of `sum a_m sqrt(m)` on integer items, decided past the enclosure: the conjugation of `_exact_sign`
+/// (the caller counted `closed_by_conjugation` and ran the enclosure that did not decide).
+pub fn exact_sign_after_enclosure(ctx: &mut ExactCtx<'_>, items: &[(UBig, IBig)], bits: usize) -> Result<i8, ExactError> {
+    exact_sign(ctx, items, bits, true)
+}
+
+/// `SqrtSumV1.sign` on a value given as integer items (positive scaling of the value changes no decision): the
+/// counters, then the enclosure through the memory of floor roots, then the conjugation. Zero numerators must not be
+/// among the items.
+pub fn sign_items(ctx: &mut ExactCtx<'_>, items: &[(UBig, IBig)], filter_bits: usize) -> Result<i8, ExactError> {
+    ctx.counts.total += 1;
+    if items.is_empty() {
+        ctx.counts.closed_rational_zero += 1;
+        return Ok(0);
+    }
+    if items.len() == 1 && items[0].0.is_one() {
+        ctx.counts.closed_rational_nonzero += 1;
+        return Ok(num::signum(&items[0].1));
+    }
+    let shift = 2 * filter_bits;
+    let products = &mut *ctx.products;
+    let (mut low, mut high) = (IBig::ZERO, IBig::ZERO);
+    for (radicand, numerator) in items {
+        if radicand.is_one() {
+            let exact = numerator << filter_bits;
+            low += &exact;
+            high += exact;
+            continue;
+        }
+        let floor_root = IBig::from(products.floor_root(radicand, shift));
+        let ceiling_root = &floor_root + IBig::ONE;
+        if numerator > &IBig::ZERO {
+            low += numerator * &floor_root;
+            high += numerator * ceiling_root;
+        } else {
+            low += numerator * ceiling_root;
+            high += numerator * &floor_root;
+        }
+    }
+    if let Some(certified) = certify(&low, &high) {
+        ctx.counts.closed_by_enclosure += 1;
+        return Ok(certified);
+    }
+    ctx.counts.closed_by_conjugation += 1;
+    exact_sign(ctx, items, filter_bits, true)
+}
+
+/// The sign an enclosure `[low, high]` proves, or `None`.
+pub fn certify(low: &IBig, high: &IBig) -> Option<i8> {
+    if *low > IBig::ZERO {
+        Some(1)
+    } else if *high < IBig::ZERO {
+        Some(-1)
+    } else {
+        None
+    }
+}
+
 /// `SqrtSumV1.sign(filter_bits=..., budget=...)`: the counters move as the oracle moves them, including
 /// `closed_by_conjugation` BEFORE the exact work (it survives an exhaustion).
 pub fn sign(ctx: &mut ExactCtx<'_>, value: &SqrtSum, filter_bits: usize) -> Result<i8, ExactError> {
@@ -332,6 +390,49 @@ pub fn divide_with_prime_universe(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, d
         Some(quotient) => Ok(quotient),
         None => divided_by(ctx, numerator, denominator),
     }
+}
+
+/// The part of `_divide_with_prime_universe` that depends on the DENOMINATOR alone: the primes the conjugation loop
+/// picks in order, the product `C` of the conjugates it multiplies in, and the rational `N = denominator * C`
+/// the loop ends with. The quotient of any numerator is then `numerator * C / N`; the memory and the budget are not
+/// touched (the oracle's loop does `squarefree_split(prime)` for each prime, a host that replays [`primes`] must do
+/// the same). `None` where the oracle leaves the loop for its fallback: no prime from the universe.
+///
+/// [`primes`]: ConjugationPlan::primes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConjugationPlan {
+    pub primes: Vec<UBig>,
+    pub conjugate: SqrtSum,
+    pub rational: Rat,
+}
+
+pub fn conjugation_plan(denominator: &SqrtSum, universe: &[UBig], products: &mut ProductMemo) -> Option<ConjugationPlan> {
+    if denominator.is_zero() {
+        return None;
+    }
+    let form = denominator.int_form();
+    let (mut common, mut items) = (form.common.clone(), form.items.clone());
+    let mut conjugate_common = UBig::ONE;
+    let mut conjugate: Items = vec![(UBig::ONE, IBig::ONE)];
+    let mut primes = Vec::new();
+    while !(items.len() <= 1 && items.iter().all(|(radicand, _)| radicand.is_one())) {
+        if primes.len() > universe.len() {
+            return None;
+        }
+        let prime = pick_prime_from_universe(items.iter().map(|(radicand, value)| (radicand, !value.is_zero())), universe)?;
+        let flipped = conjugate_items(&items, &prime);
+        conjugate = multiply_integer_items(&conjugate, &flipped, products);
+        conjugate_common = &conjugate_common * &common;
+        items = multiply_integer_items(&items, &flipped, products);
+        common = &common * &common;
+        reduce_in_place(&mut common, &mut items);
+        primes.push(prime);
+    }
+    let head = items.first().map_or(IBig::ZERO, |(_, value)| value.clone());
+    if head.is_zero() {
+        return None;
+    }
+    Some(ConjugationPlan { primes, conjugate: IntForm { common: conjugate_common, items: conjugate }.into_sqrt_sum(), rational: Rat::reduced(head, common) })
 }
 
 // --------------------------------------------------------------------------

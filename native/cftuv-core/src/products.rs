@@ -101,12 +101,24 @@ fn word_hash(value: &UBig) -> u64 {
     state
 }
 
-/// Memory of radicand-pair products. Both orders of a pair share one entry (the hash is symmetric).
+struct RootEntry {
+    radicand: UBig,
+    shift: usize,
+    root: UBig,
+}
+
+/// Memory of radicand-pair products. Both orders of a pair share one entry (the hash is symmetric). It also keeps the
+/// floor roots `isqrt(radicand << shift)` the enclosure filter asks for again and again (the same few radicands of a
+/// partition, call after call): a pure function of the radicand, so it changes no answer and no counted cost.
 pub struct ProductMemo {
     table: HashMap<u64, Vec<MemoEntry>, BuildHasherDefault<IdentityHasher>>,
+    roots: HashMap<u64, Vec<RootEntry>, BuildHasherDefault<IdentityHasher>>,
+    root_entries: usize,
     entries: usize,
     limit: usize,
     enabled: bool,
+    /// Where an uncached pair lives for the caller of [`ProductMemo::product_ref`] when the memory is off.
+    scratch: (UBig, UBig),
 }
 
 impl ProductMemo {
@@ -114,17 +126,38 @@ impl ProductMemo {
     const DEFAULT_PAIRS: usize = 1 << 15;
 
     pub fn new() -> ProductMemo {
-        ProductMemo { table: HashMap::default(), entries: 0, limit: ProductMemo::DEFAULT_PAIRS, enabled: true }
+        ProductMemo { table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: ProductMemo::DEFAULT_PAIRS, enabled: true, scratch: (UBig::ONE, UBig::ONE) }
     }
 
     /// No memory at all: every pair is computed from scratch.
     pub fn disabled() -> ProductMemo {
-        ProductMemo { table: HashMap::default(), entries: 0, limit: 0, enabled: false }
+        ProductMemo { table: HashMap::default(), roots: HashMap::default(), root_entries: 0, entries: 0, limit: 0, enabled: false, scratch: (UBig::ONE, UBig::ONE) }
     }
 
     pub fn clear(&mut self) {
         self.table.clear();
+        self.roots.clear();
+        self.root_entries = 0;
         self.entries = 0;
+    }
+
+    /// `isqrt(radicand << shift)`: from the memory or computed and remembered.
+    pub fn floor_root(&mut self, radicand: &UBig, shift: usize) -> UBig {
+        if !self.enabled {
+            return num::isqrt(&(radicand << shift));
+        }
+        let key = word_hash(radicand);
+        if let Some(entry) = self.roots.get(&key).and_then(|bucket| bucket.iter().find(|entry| entry.shift == shift && entry.radicand == *radicand)) {
+            return entry.root.clone();
+        }
+        let root = num::isqrt(&(radicand << shift));
+        if self.root_entries >= self.limit {
+            self.roots.clear();
+            self.root_entries = 0;
+        }
+        self.roots.entry(key).or_default().push(RootEntry { radicand: radicand.clone(), shift, root: root.clone() });
+        self.root_entries += 1;
+        root
     }
 
     /// Switch the memory on or off (off: nothing is looked up or remembered; the table is dropped). A pure
@@ -148,29 +181,36 @@ impl ProductMemo {
 
     /// `(g, a*b/g^2)` from the memory or computed and remembered.
     pub fn product(&mut self, left: &UBig, right: &UBig) -> (UBig, UBig) {
+        let (common, radicand) = self.product_ref(left, right);
+        (common.clone(), radicand.clone())
+    }
+
+    /// [`ProductMemo::product`] without copying the pair out of the memory: the references live until the next call.
+    pub fn product_ref(&mut self, left: &UBig, right: &UBig) -> (&UBig, &UBig) {
         if !self.enabled {
-            return radicand_product(left, right);
+            self.scratch = radicand_product(left, right);
+            return (&self.scratch.0, &self.scratch.1);
         }
         let key = word_hash(left).wrapping_add(word_hash(right));
-        if let Some(bucket) = self.table.get(&key) {
-            for entry in bucket {
-                if (entry.left == *left && entry.right == *right) || (entry.left == *right && entry.right == *left) {
-                    return (entry.common.clone(), entry.radicand.clone());
+        let found = self
+            .table
+            .get(&key)
+            .and_then(|bucket| bucket.iter().position(|entry| (entry.left == *left && entry.right == *right) || (entry.left == *right && entry.right == *left)));
+        let position = match found {
+            Some(position) => position,
+            None => {
+                let (common, radicand) = radicand_product(left, right);
+                if self.entries >= self.limit {
+                    self.clear();
                 }
+                let bucket = self.table.entry(key).or_default();
+                bucket.push(MemoEntry { left: left.clone(), right: right.clone(), common, radicand });
+                self.entries += 1;
+                bucket.len() - 1
             }
-        }
-        let (common, radicand) = radicand_product(left, right);
-        if self.entries >= self.limit {
-            self.clear();
-        }
-        self.table.entry(key).or_default().push(MemoEntry {
-            left: left.clone(),
-            right: right.clone(),
-            common: common.clone(),
-            radicand: radicand.clone(),
-        });
-        self.entries += 1;
-        (common, radicand)
+        };
+        let entry = &self.table[&key][position];
+        (&entry.common, &entry.radicand)
     }
 }
 
@@ -186,20 +226,27 @@ impl Default for ProductMemo {
 pub fn accumulate_products(merged: &mut Accumulator, left: &[(UBig, IBig)], right: &[(UBig, IBig)], weight: &IBig, memo: &mut ProductMemo) {
     let weighted = !weight.is_one();
     for (left_radicand, left_numerator) in left {
-        let left_numerator = if weighted { left_numerator * weight } else { left_numerator.clone() };
+        let scaled;
+        let left_numerator: &IBig = if weighted {
+            scaled = left_numerator * weight;
+            &scaled
+        } else {
+            left_numerator
+        };
         if left_radicand.is_one() {
             for (right_radicand, right_numerator) in right {
-                merged.add(right_radicand, &left_numerator * right_numerator);
+                merged.add(right_radicand, left_numerator * right_numerator);
             }
             continue;
         }
         for (right_radicand, right_numerator) in right {
             if right_radicand.is_one() {
-                merged.add(left_radicand, &left_numerator * right_numerator);
+                merged.add(left_radicand, left_numerator * right_numerator);
                 continue;
             }
-            let (common, radicand) = memo.product(left_radicand, right_radicand);
-            merged.add(&radicand, &left_numerator * right_numerator * IBig::from(common));
+            let (common, radicand) = memo.product_ref(left_radicand, right_radicand);
+            let value = left_numerator * right_numerator;
+            merged.add(radicand, if common.is_one() { value } else { value * IBig::from(common.clone()) });
         }
     }
 }

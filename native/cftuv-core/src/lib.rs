@@ -9,6 +9,8 @@
 //!   budget, the memory, the sign counters and the product cache as explicit `&mut` parameters;
 //! - `session`: the persistent native mirror of the canonicalization memory, the budget of a call and the wire
 //!   shapes of those operations (the cost header, the answer `[outcome, counts, articles, log, state]`);
+//! - `coverage`: the whole `wavefront.coverage._coverage_at` (faces, fronts, clipping, areas) in the oracle's order of
+//!   cost-bearing calls, over a partition prepared once;
 //! - `float_filter`: certified binary64 filters (`float_filter.py`);
 //! - the work budget, CPython `random.Random`, factorization and the canonicalization memory live in the
 //!   sibling crate `cftuv-canon`;
@@ -17,6 +19,7 @@
 //!   `Session.run` is the same entry on a persistent session.
 
 pub mod codec;
+pub mod coverage;
 pub mod exact;
 pub mod float_filter;
 pub mod fused;

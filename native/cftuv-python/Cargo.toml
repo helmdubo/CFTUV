@@ -11,5 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cftuv-core = { path = "../cftuv-core" }
+cftuv-canon = { path = "../cftuv-canon" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 mimalloc = { version = "0.1", default-features = false }
