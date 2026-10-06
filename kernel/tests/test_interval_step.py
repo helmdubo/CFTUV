@@ -235,6 +235,21 @@ def test_a_refused_template_is_named_and_stops_costing_after_the_attempt_limit(m
     assert certificate_of(prepared, CERTIFIED_LAWS) is None
 
 
+def test_a_recording_bug_cannot_break_the_full_path(monkeypatch):
+    prepared = developable(df.quarter_cylinder)
+
+    def broken(*_arguments):
+        raise RuntimeError("template bug")
+
+    monkeypatch.setattr(step_module, "build_template", broken)
+    before = STEP_COUNTERS["INTERVAL_" + step_module.TEMPLATE_ERROR]
+    stepped = step(prepared, "0.7", CERTIFIED_LAWS)
+    assert stepped.path == "FALLBACK:NO_CERTIFICATE" and stepped.result.is_materialized
+    assert STEP_COUNTERS["INTERVAL_" + step_module.TEMPLATE_ERROR] == before + len(prepared.regions)
+    assert answer_differences(stepped.result, reference(prepared, "0.7", CERTIFIED_LAWS)) == ()
+    assert certificate_of(prepared, CERTIFIED_LAWS) is None
+
+
 def test_the_verification_returns_the_full_answer_and_names_the_mismatch(monkeypatch):
     prepared = developable(df.quarter_cylinder)
     step(prepared, "0.7", CERTIFIED_LAWS)

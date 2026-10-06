@@ -6,7 +6,7 @@
 внутри интервала событий покрытия (`interval.coverage_interval`: фронт не проходит ни одной вершины грани скелета), образец знаков у
 каждой грани тот же, а точка отсечения - `A + alpha * B` с ТОЧНЫМИ коэффициентами: покрытие воспроизводится без отсечения и делений, и
 значение РАВНО полному (каноническая форма `SqrtSumV1` единственна). (2) Имена экземпляров юбок (`conveyor._instance_ids_by_spec`) выводит
-резолвер границы (`reference.boundary.resolve_component_alphas`: sympy, около двух миллисекунд на домен), и от запрошенной ширины его ход
+резолвер границы (`reference.boundary.resolve_component_alphas`: sympy, около 0.7 мс на домен), и от запрошенной ширины его ход
 зависит ТОЛЬКО знаками «alpha контакта против запрошенной» (`trace`): пока ни один знак не сменился, у каждой спеки та же эффективная alpha
 (равная запрошенной либо константа укорочения), а имя - тот же `strip_envelope_instance_id` на новой ширине. Это окно имён, оно отдельно
 от окна покрытия: за ним резолвер считает сам, ответ тот же.
@@ -37,10 +37,9 @@ from dataclasses import dataclass
 from fractions import Fraction
 from functools import lru_cache
 
-import sympy as sp
-
 from ..codec import canonical_json_bytes
 from ..contracts.envelopes import StripEnvelopeSpec
+from ..reference.planar_types import ExactScalar
 from ..reference.strip import strip_envelope_instance_id
 from .. import wavefront as wavefront_package
 from ..wavefront.conveyor import ConveyorOutcome, requested_alpha_fraction
@@ -68,6 +67,7 @@ FALLBACK_TEMPLATE = "TEMPLATE_UNAVAILABLE"
 FALLBACK_DISABLED = "DISABLED"
 FALLBACK_PARTIAL = "PARTIAL_TEMPLATE"
 VERIFY_MISMATCH = "VERIFY_MISMATCH"
+TEMPLATE_ERROR = "TEMPLATE_ERROR"
 STRUCTURE_SWITCH = "INTERVAL_STRUCTURE_SWITCH"
 #: `INTERVAL_FAST_HITS` и `INTERVAL_FALLBACK_<причина>`: счёт процесса (воркера), а не ответ.
 STEP_COUNTERS: Counter = Counter()
@@ -135,7 +135,11 @@ class _Recorder:
         result = _coverage_at(partition, alpha, work_budget, store, traces)
         if result.outcome is not CoverageOutcome.EXACT:
             return result
-        template = build_template(partition, alpha, work_budget, store, result, traces)
+        try:
+            template = build_template(partition, alpha, work_budget, store, result, traces)
+        except Exception:  # noqa: BLE001 - запись шаблона не вправе уронить полный счёт: исход назван (`TEMPLATE_ERROR`), домен считается как прежде
+            STEP_COUNTERS["INTERVAL_" + TEMPLATE_ERROR] += 1
+            template = None
         if template is None:
             self.refused = True
         else:
@@ -190,9 +194,12 @@ def _miss_side(certificates, alpha) -> str:
 
 @lru_cache(maxsize=64)
 def _requested(text: str):
-    """Запрошенная alpha как рациональное `sympy` (то же, что берёт резолвер): одна на шаг на процесс, а не на домен."""
+    """Запрошенная alpha как `ExactScalar` (та же запись, что даёт резолверу `sympy.Rational` от той же десятичной строки): одна на шаг на процесс.
 
-    return sp.Rational(text)
+    `strip_envelope_instance_id` берёт её как есть (`ExactScalar.from_value` возвращает `ExactScalar` нетронутым), поэтому `sympy` на имя не нужен.
+    """
+
+    return ExactScalar.from_value(Fraction(text))
 
 
 def _contact_window(trace, alpha: Fraction):
