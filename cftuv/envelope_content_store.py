@@ -316,12 +316,19 @@ def relabel_result(result, revision_to: str, request_to: str, patch_to: int):
         from cftuv_envelope.materialize.offset_normal import offset_normals_digest
 
         offset_digest = offset_normals_digest(moved.vertex_normals)
+    structure = ""
+    if batch is not None and moved.structure_digest:
+        # Ключи вершин несут идентичности ревизии: подпись структуры перенесённого батча - подпись ЕГО ключей.
+        from cftuv_envelope.materialize.structure import batch_structure
+
+        structure = batch_structure(batch).digest
     return replace(
         moved,
         patch_id=int(patch_to),
         batch=batch,
         content_digest=content_digest,
         offset_normals_digest=offset_digest,
+        structure_digest=structure,
         labels=new_labeling,
     )
 

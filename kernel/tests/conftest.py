@@ -65,6 +65,16 @@ def _fresh_clip_memo():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _fresh_materialize_memo():
+    """Память alpha-независимой работы материализатора (в подготовке) не переживает тест: подготовки лежат в общих кэшах фикстур."""
+
+    from cftuv_envelope.materialize.memo import clear_live_memos
+
+    clear_live_memos()
+    yield
+
+
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "session_a_v5"
 CASE_PATHS = tuple(sorted((FIXTURE_ROOT / "cases").glob("*.json")))
 

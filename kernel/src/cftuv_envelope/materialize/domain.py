@@ -101,7 +101,9 @@ from .clip import cut_domain, piece_triangles
 from .coalesce import FaceMatchV1, MergeStatsV1
 from .coalesce import match_region_faces, merge_same_chain_faces, region_contours
 from .frames import MaterializationRefusal, resolve_frame
+from .interval import alpha_interval
 from .lift import plane_lift_of
+from .memo import memo_of
 from .offset_normal import OFFSET_NORMAL_LAW, offset_normals_digest
 from .lift_surface import surface_lift_of
 from .silhouette import SilhouetteInputV1, apply_silhouette
@@ -112,6 +114,7 @@ from .source_lift import (
     settle_emitted_faces,
     source_step_of,
 )
+from .structure import batch_structure
 from .stations import (
     SKIP_JOIN_BEND_BEYOND_QUARTER_TURN,
     SKIP_JOIN_CORNER_NOT_ADJACENT,
@@ -156,6 +159,11 @@ class MaterializationV1:
     #: Материализация шла с `digests=False`: `batch.semantic_digest` — `PENDING_SEMANTIC_DIGEST`, `content_digest` пуст у
     #: материализованного домена. Дайджесты — чистые функции батча: `finalize_digests` считает их те же, что eager-путь.
     digests_deferred: bool = False
+    #: ЗАПИСАННЫЕ факты шага ширины (`certify=True`), не ответ и не часть дайджеста: заверенный интервал ширины, внутри которого
+    #: структура покрытия и резки домена та же (`interval.AlphaIntervalV1`), и подпись структуры батча по содержанию
+    #: (`structure.StructureSignatureV1`). Пусто, когда материализация шла без `certify` и у отказа.
+    interval: object | None = field(default=None, compare=False)
+    structure: object | None = field(default=None, compare=False)
 
     @property
     def is_materialized(self) -> bool:
@@ -637,12 +645,19 @@ def _lift_of(prepared, admission, scale, budget):
 
     context = prepared.context
     if not _on_exact_plane(admission):
-        return surface_lift_of(
-            context.frame,
-            context.snapshot,
-            prepared.compilation.owner_patch_id,
-            scale,
-        ).bind(budget)
+        memo = memo_of(prepared)
+
+        def compute():
+            return surface_lift_of(
+                context.frame,
+                context.snapshot,
+                prepared.compilation.owner_patch_id,
+                scale,
+            )
+
+        # Подъём домена - значение подготовки и масштаба (alpha в него не входит), без цены бюджета: память отдаёт то же.
+        lift = compute() if memo is None else memo.remembered(("surface_lift", scale), compute)
+        return lift.bind(budget)
     return plane_lift_of(context.frame, scale)
 
 
@@ -887,15 +902,32 @@ def _lift_counters(plane, sourced, faces_after, cut, tally, shaped=()) -> tuple:
     )
 
 
-def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
-    withdrawn: frozenset = frozenset()
-    while True:
+def _stations_of(prepared, budget, withdrawn):
+    """`(таблица станций цепей, карта отрезков к цепям)` домена: значение подготовки, alpha в него не входит.
+
+    Первый круг `_build` идёт при ХОЛОДНОЙ памяти канонизации (сброс стоит перед бюджетом домена), поэтому цена его
+    счёта - функция подготовки, и память (`memo`) повторяет её (`priced`). Повторный круг (снятый стык `withdrawn`)
+    считает при памяти, которую заполнил первый, - его цена от истории круга зависит, и он идёт мимо памяти.
+    """
+
+    def compute():
         table = (
             chain_station_table(prepared, budget, withdrawn)
             if withdrawn
             else chain_station_table(prepared, budget)
         )
-        spans = source_chain_by_span(prepared)
+        return table, source_chain_by_span(prepared)
+
+    memo = memo_of(prepared)
+    if memo is None or withdrawn:
+        return compute()
+    return memo.priced(("stations",), budget, compute)
+
+
+def _build(prepared, coverage, request, admission, budget, clock, law, silhouette=False) -> _Built:
+    withdrawn: frozenset = frozenset()
+    while True:
+        table, spans = _stations_of(prepared, budget, withdrawn)
         clock.lap("STATIONS")
         items, stats, match = _covered_regions(
             prepared, coverage, table, spans, budget, clock
@@ -958,6 +990,7 @@ def materialize_domain(
     ),
     decal_topology_law: DecalTopologyLawV1 = DecalTopologyLawV1.TRIANGLES_V1,
     digests: bool = True,
+    certify: bool = False,
 ) -> MaterializationV1:
     """Материализует ОДИН домен очереди. Исход назван, отказ не бросает исключение.
 
@@ -974,6 +1007,8 @@ def materialize_domain(
     `digests=False` — не считать ни `semantic_digest` батча, ни `content_digest` (оба — чистые функции батча, ~18 % CPU
     домена): батч идёт с `PENDING_SEMANTIC_DIGEST`, валидатор не сверяет дайджест, результат помечен `digests_deferred`, и
     дайджесты считает `finalize_digests` тот, кому они нужны. Остальной ответ побитово тот же.
+    `certify=True` — записать факты шага ширины (`MaterializationV1.interval` и `.structure`): они читаются из подготовки,
+    подъёма и батча, ничего в ответе не двигают (счётчики, батч и дайджесты те же побитово).
     """
 
     silhouette = decal_topology_law is DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
@@ -986,6 +1021,7 @@ def materialize_domain(
         DecalTopologyLawV1.PLANAR_POLYGONS_V1 if silhouette else decal_topology_law,
         silhouette,
         digests,
+        certify,
     )
     return replace(result, decal_topology_law=decal_topology_law)
 
@@ -1007,8 +1043,16 @@ def finalize_digests(result: MaterializationV1) -> MaterializationV1:
     )
 
 
+def _step_facts(prepared, coverage, built, admission, batch):
+    """`(заверенный интервал ширины, подпись структуры батча)` материализованного домена; в ответ они не входят."""
+
+    triangles = tuple(getattr(built.lift, "triangles", ())) if _is_clipped(admission) else ()
+    interval = alpha_interval(prepared, coverage.alpha, triangles, admission.lift_law.value)
+    return interval, batch_structure(batch)
+
+
 def _materialize_domain(
-    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True
+    prepared, coverage, request, work_budget, near_planar_lift_law, law, silhouette=False, digests=True, certify=False
 ) -> MaterializationV1:
     clock = _Clock()
     request = request if request is not None else prepared.compilation.decal_request
@@ -1082,6 +1126,9 @@ def _materialize_domain(
         )
     digest = sha256(canonical_json_bytes(batch)).hexdigest() if digests else ""
     clock.lap("DIGEST")
+    interval, structure = _step_facts(prepared, coverage, built, admission, batch) if certify else (None, None)
+    if certify:
+        clock.lap("CERTIFY")
     return MaterializationV1(
         outcome=MaterializationOutcome.MATERIALIZED,
         batch=batch,
@@ -1095,4 +1142,6 @@ def _materialize_domain(
         offset_normals_digest=offset_normals_digest(offset_normals),
         clip_memo=built.clip_memo,
         digests_deferred=not digests,
+        interval=interval,
+        structure=structure,
     )
