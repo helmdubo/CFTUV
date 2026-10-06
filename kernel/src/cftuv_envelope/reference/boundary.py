@@ -10,7 +10,7 @@ from .._cpython311 import sorted_as_cpython311
 from ..contracts.envelopes import StripEnvelopeSpec
 from ..numeric import LocalLengthV1
 from . import symbolic_backend as _backend
-from .boundary_native import compare_contacts, contact_candidates_native
+from .boundary_native import SourceContactFrame, compare_contacts, contact_candidates_native
 from .native_exact import NativeExactError, NativeSignUndecided
 from .symbolic_backend import SymbolicBackendV1
 from .common import (
@@ -123,20 +123,20 @@ def _contact_key(tag, source, boundary):
     )
 
 
-def _contacts_of(context, source, boundary, memo):
-    """`_contact_candidates` через память подготовки (`None` — как раньше, без неё)."""
+def _contacts_of(context, source, boundary, memo, frame=None):
+    """`_contact_candidates` через память подготовки (`None` — как раньше, без неё); `frame` — данные источника (`SourceContactFrame`)."""
 
     return _remembered(
         memo,
         _contact_key("contacts", source, boundary),
-        lambda: _contact_candidates(context, source, boundary),
+        lambda: _contact_candidates(context, source, boundary, frame),
     )
 
 
-def _contacts_bounded(context, source, boundary, memo):
+def _contacts_bounded(context, source, boundary, memo, frame=None):
     """`((alpha, station, point), оболочка alpha)` по контактам пары: оболочки (`alpha_bounds`) едут с подготовкой."""
 
-    contacts = _contacts_of(context, source, boundary, memo)
+    contacts = _contacts_of(context, source, boundary, memo, frame)
     bounds = _remembered(
         memo, _contact_key("bounds", source, boundary), lambda: bounds_of_contacts(contacts)
     )
@@ -184,10 +184,28 @@ def build_domain_geometry(
     return build_sparse_patch_domain_geometry(context)
 
 
+def _native_contacts(context, source, boundary, frame) -> tuple:
+    """Родные контакты пары: сначала предфильтр «контактов нет» (`SourceContactFrame.excludes`), иначе точный путь.
+
+    Предфильтр может лишь доказать пустоту (строгая сторона прямой у обоих концов отрезка в binary64 с границей ошибки),
+    поэтому ответ не меняется; исход назван и посчитан: `prefilter_rejected` (пуст доказанно) и `prefilter_passed`
+    (не доказано, считано точно). Без `frame` (прямой вызов) предфильтра нет.
+    """
+
+    if frame is None:
+        return contact_candidates_native(context, source, boundary)
+    if frame.excludes(boundary):
+        _backend.count("contact_candidates", "prefilter_rejected")
+        return ()
+    _backend.count("contact_candidates", "prefilter_passed")
+    return contact_candidates_native(context, source, boundary, frame)
+
+
 def _contact_candidates(
     context: GeometryContext,
     source: SourceSupportSegment,
     boundary: BlockingBoundarySegment,
+    frame: SourceContactFrame | None = None,
 ) -> tuple[tuple[sp.Expr, sp.Expr, ExactPlanarPoint], ...]:
     """Контакты пары под выбранным символьным бэкендом (`symbolic_backend`).
 
@@ -199,7 +217,7 @@ def _contact_candidates(
     if mode is SymbolicBackendV1.SYMPY:
         return _contact_candidates_sympy(context, source, boundary)
     try:
-        native = contact_candidates_native(context, source, boundary)
+        native = _native_contacts(context, source, boundary, frame)
     except NativeExactError as refusal:
         _backend.count(
             "contact_candidates",
@@ -366,14 +384,14 @@ def resolve_component_alphas(
                 seed.chain_use_id, spec.envelope_spec_id.value
             )
         ):
-            best_split = None
-            best_bypass = None
+            best_split = best_bypass = None
             endpoint_events = []
+            frame = SourceContactFrame(context, source)
             for boundary in _blocking_of(domain_geometry, contact_memo):
                 if source.physical_edge_id.value in boundary.segment.provenance.physical_edge_ids:
                     continue
                 for (alpha, station, point), bounds in _contacts_bounded(
-                    context, source, boundary, contact_memo
+                    context, source, boundary, contact_memo, frame
                 ):
                     if sign_against(alpha, bounds, sp.Integer(0)) == 0:
                         continue
