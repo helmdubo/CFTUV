@@ -104,6 +104,9 @@ def _case(name):
 def _run(name, **kwargs):
     prepared, coverage, request = _case(name)
     request = dataclasses.replace(request, uv_policy_id=UV)
+    # Покрытие из общего кэша фикстур считалось давно: без повтора первого шага продуктового порядка цена `EXACT_WORK_*`
+    # зависела бы от того, вытеснила ли его из памяти недавних покрытий очерёдность тестов (`warm_recent_coverage`).
+    factories.warm_recent_coverage(prepared, coverage)
     return materialize_domain(prepared, coverage, request=request, **kwargs)
 
 
