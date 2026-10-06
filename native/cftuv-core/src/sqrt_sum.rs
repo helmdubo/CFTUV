@@ -37,6 +37,9 @@ impl SignCounts {
     }
 }
 
+/// Forms whose every number has at most this many 64-bit words are reduced to lowest terms the moment they are made.
+pub const EAGER_REDUCE_WORDS: usize = 6;
+
 /// The width of the enclosure filter shared by `SqrtSumV1.sign` and `_filtered_sign` (`SIGN_FILTER_BITS`).
 pub const SIGN_FILTER_BITS: usize = 64;
 
@@ -67,12 +70,19 @@ impl IntForm {
     /// canonical `Fraction(a_m, L)` terms of the value are made when somebody asks for them ([`SqrtSum::terms`]), and its identity
     /// (lowest terms, one gcd chain for the whole value) when somebody asks for that ([`SqrtSum::canonical_form`]).
     pub fn into_sqrt_sum(self) -> SqrtSum {
-        let IntForm { common, mut items } = self;
+        let IntForm { mut common, mut items } = self;
         if !items.windows(2).all(|pair| pair[0].0 < pair[1].0) {
             items.sort_by(|left, right| left.0.cmp(&right.0));
         }
         items.retain(|(_, value)| !value.is_zero());
-        SqrtSum::from_sorted_form(common, items, false)
+        // A small form is taken to lowest terms here, at the price of one short gcd chain: every later operation then works on the smallest
+        // numbers the value has. A wide one is left as it is (its content is a few bits of a thousand, and the chain is the dearest thing in
+        // sight): its lowest terms are found when somebody needs its identity.
+        let small = common.as_words().len() <= EAGER_REDUCE_WORDS && items.iter().all(|(_, value)| value.as_sign_words().1.len() <= EAGER_REDUCE_WORDS);
+        if small {
+            reduce_in_place(&mut common, &mut items);
+        }
+        SqrtSum::from_sorted_form(common, items, small)
     }
 }
 
@@ -579,14 +589,35 @@ pub fn content_reduced(form: &IntForm) -> IntForm {
 }
 
 /// [`reduced_form`] in place: `gcd(L, *a_m)` divided out of `L` and every numerator (a divisor of one, or of zero
-/// for the degenerate all-zero input the oracle refuses, changes nothing).
+/// for the degenerate all-zero input the oracle refuses, changes nothing). The gcd is the same number whatever order it is taken in, so it is
+/// taken from the shortest operand outwards: once it is a word long, every later step is a single-word remainder.
 pub fn reduce_in_place(common: &mut UBig, items: &mut Items) {
-    let mut divisor = common.clone();
-    for (_, value) in items.iter() {
+    let words = |value: &IBig| value.as_sign_words().1.len();
+    let mut shortest: Option<usize> = None; // `None`: the common denominator
+    let mut length = common.as_words().len();
+    for (index, (_, value)) in items.iter().enumerate() {
+        if words(value) < length {
+            length = words(value);
+            shortest = Some(index);
+        }
+    }
+    let mut divisor = match shortest {
+        None => common.clone(),
+        Some(index) => {
+            let start = num::magnitude(&items[index].1);
+            if start.is_one() {
+                return;
+            }
+            num::gcd(&start, common)
+        }
+    };
+    for (index, (_, value)) in items.iter().enumerate() {
         if divisor.is_one() {
             break;
         }
-        divisor = num::gcd_mixed(value, &divisor);
+        if Some(index) != shortest {
+            divisor = num::gcd_mixed(value, &divisor);
+        }
     }
     if divisor.is_one() || divisor.is_zero() {
         return;
