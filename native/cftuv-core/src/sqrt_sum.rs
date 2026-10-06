@@ -38,7 +38,7 @@ impl SignCounts {
 }
 
 /// Forms whose every number has at most this many 64-bit words are reduced to lowest terms the moment they are made.
-pub const EAGER_REDUCE_WORDS: usize = 6;
+pub const EAGER_REDUCE_WORDS: usize = usize::MAX;
 
 /// The width of the enclosure filter shared by `SqrtSumV1.sign` and `_filtered_sign` (`SIGN_FILTER_BITS`).
 pub const SIGN_FILTER_BITS: usize = 64;
