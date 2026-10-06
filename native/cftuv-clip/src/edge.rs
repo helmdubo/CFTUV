@@ -9,7 +9,7 @@ use cftuv_core::rat::Rat;
 
 use crate::numeric::true_divide;
 use crate::plane::ChartPoint;
-use crate::point::{rational_pair, Point};
+use crate::point::{rational_pair, Point, RationalPair};
 
 /// `1 + 1e-9`: the margin of the float estimate of the tolerance.
 pub const FILTER_MARGIN: f64 = 1.0 + 1e-9;
@@ -59,18 +59,23 @@ pub fn edge_constants(chart: &[ChartPoint], index: usize) -> Option<EdgeConstant
 /// is not `None`: integer arithmetic for a rational point (zero included), a proof by the float error bound for any
 /// other (zero is never proved: `None`). `farther` is proved only for a watched node.
 pub fn cheap_sign(point: &Point, constants: &EdgeConstants, watch: bool) -> (Option<i8>, bool) {
-    if let Some((x_numerator, x_denominator, y_numerator, y_denominator)) = rational_pair(point) {
+    cheap_sign_with(point, rational_pair(point).as_ref(), constants, watch)
+}
+
+/// [`cheap_sign`] with the integer record of the point (`_Node.rational`) already at hand: the stage keeps it on its nodes.
+pub fn cheap_sign_with(point: &Point, rational: Option<&RationalPair>, constants: &EdgeConstants, watch: bool) -> (Option<i8>, bool) {
+    if let Some((x_numerator, x_denominator, y_numerator, y_denominator)) = rational {
         let (x0, y0) = (IBig::from(constants.x0), IBig::from(constants.y0));
         let (dx, dy) = (IBig::from(constants.dx), IBig::from(constants.dy));
         let x_den = IBig::from(x_denominator.clone());
         let y_den = IBig::from(y_denominator.clone());
-        let numerator = &dx * (&y_numerator - &y0 * &y_den) * &x_den - &dy * (&x_numerator - &x0 * &x_den) * &y_den;
+        let numerator = &dx * (y_numerator - &y0 * &y_den) * &x_den - &dy * (x_numerator - &x0 * &x_den) * &y_den;
         let sign = num::signum(&numerator);
         if sign == 0 || !watch {
             return (Some(sign), false);
         }
         let magnitude = num::magnitude(&numerator);
-        let denominator: UBig = &x_denominator * &y_denominator;
+        let denominator: UBig = x_denominator * y_denominator;
         // `abs(numerator) / (x_denominator * y_denominator)`: an overflow means binary64 cannot take the value
         let far = match true_divide(&IBig::from(magnitude), &denominator) {
             Ok(ratio) => ratio > constants.tolerance * FILTER_MARGIN,

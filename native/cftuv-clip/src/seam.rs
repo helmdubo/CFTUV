@@ -9,7 +9,10 @@
 //!
 //! Outcome codes of the cost answer: 0 ok, 1..7 as `cftuv_core::session`, plus 8 `OverflowError` (`[8, kind]`),
 //! 9 `ZeroDivisionError` (`[9, text]`), 10 `ValueError` (`[10, text]`), 11 `MaterializationRefusal`
-//! (`[11, outcome, detail]`), 12 NativeUnsupported (`[12, text]`).
+//! (`[11, outcome, detail]`), 12 NativeUnsupported (`[12, text]`), 13 `KeyError` (`[13, key]`).
+//!
+//! A seam may append extras to the answer (after the nanoseconds of the seam): the whole-operation seam of opcode 124
+//! (`geometry_seam`) answers `[normal writes, compute nanoseconds]` there, whatever the outcome.
 
 use std::collections::HashSet;
 
@@ -24,6 +27,7 @@ use crate::cells::{self, Built, CellKey, CellMemo, CellPlan, ClipCell, MemoKey, 
 use crate::edge::{self, EdgeConstants};
 use crate::error::{ClipError, ClipResult};
 use crate::faces::{self, Pt};
+use crate::geometry_seam;
 use crate::lift;
 use crate::numeric;
 use crate::order;
@@ -59,6 +63,7 @@ pub const SEAMS: &[(u8, &str)] = &[
     (121, "CONVEX_QUAD_RING"),
     (122, "HAS_RIGHT_TURN"),
     (123, "ORDERED"),
+    (124, "CLIP_GEOMETRY"),
 ];
 
 /// A request the seam cannot read (a bug of the caller, never an answer).
@@ -79,56 +84,56 @@ impl From<DecodeError> for SeamError {
     }
 }
 
-fn bad(what: &str) -> SeamError {
+pub(crate) fn bad(what: &str) -> SeamError {
     SeamError(format!("bad argument: {what}"))
 }
 
-type Wire<T> = Result<T, SeamError>;
+pub(crate) type Wire<T> = Result<T, SeamError>;
 
 // --------------------------------------------------------------------------
 // reading arguments
 // --------------------------------------------------------------------------
 
-fn list<'a>(value: &'a Value, what: &str) -> Wire<&'a [Value]> {
+pub(crate) fn list<'a>(value: &'a Value, what: &str) -> Wire<&'a [Value]> {
     match value {
         Value::List(items) => Ok(items),
         _ => Err(bad(what)),
     }
 }
 
-fn fixed<'a, const N: usize>(value: &'a Value, what: &str) -> Wire<&'a [Value; N]> {
+pub(crate) fn fixed<'a, const N: usize>(value: &'a Value, what: &str) -> Wire<&'a [Value; N]> {
     list(value, what)?.try_into().map_err(|_| bad(what))
 }
 
-fn int_of(value: &Value, what: &str) -> Wire<IBig> {
+pub(crate) fn int_of(value: &Value, what: &str) -> Wire<IBig> {
     match value {
         Value::Int(number) => Ok(number.clone()),
         _ => Err(bad(what)),
     }
 }
 
-fn usize_of(value: &Value, what: &str) -> Wire<usize> {
+pub(crate) fn usize_of(value: &Value, what: &str) -> Wire<usize> {
     match value {
         Value::Int(number) => usize::try_from(number).map_err(|_| bad(what)),
         _ => Err(bad(what)),
     }
 }
 
-fn flag_of(value: &Value, what: &str) -> Wire<bool> {
+pub(crate) fn flag_of(value: &Value, what: &str) -> Wire<bool> {
     match value {
         Value::Bool(flag) => Ok(*flag),
         _ => Err(bad(what)),
     }
 }
 
-fn float_of(value: &Value, what: &str) -> Wire<f64> {
+pub(crate) fn float_of(value: &Value, what: &str) -> Wire<f64> {
     match value {
         Value::Float(number) => Ok(*number),
         _ => Err(bad(what)),
     }
 }
 
-fn rat_of(value: &Value, what: &str) -> Wire<Rat> {
+pub(crate) fn rat_of(value: &Value, what: &str) -> Wire<Rat> {
     match value {
         Value::Int(number) => Ok(Rat::from_int(number.clone())),
         Value::Frac(number) => Ok(number.clone()),
@@ -136,7 +141,7 @@ fn rat_of(value: &Value, what: &str) -> Wire<Rat> {
     }
 }
 
-fn sum_of<'a>(value: &'a Value, what: &str) -> Wire<&'a SqrtSum> {
+pub(crate) fn sum_of<'a>(value: &'a Value, what: &str) -> Wire<&'a SqrtSum> {
     match value {
         Value::Sum(found) => Ok(found),
         _ => Err(bad(what)),
@@ -144,7 +149,7 @@ fn sum_of<'a>(value: &'a Value, what: &str) -> Wire<&'a SqrtSum> {
 }
 
 /// A string: `[None, int]`, the int holding the UTF-8 bytes and a final `0x01`.
-fn str_of(value: &Value, what: &str) -> Wire<String> {
+pub(crate) fn str_of(value: &Value, what: &str) -> Wire<String> {
     let [Value::None, Value::Int(number)] = fixed::<2>(value, what)? else {
         return Err(bad(what));
     };
@@ -158,7 +163,7 @@ fn str_of(value: &Value, what: &str) -> Wire<String> {
     String::from_utf8(bytes).map_err(|_| bad(what))
 }
 
-fn str_value(text: &str) -> Value {
+pub(crate) fn str_value(text: &str) -> Value {
     let mut bytes = text.as_bytes().to_vec();
     bytes.push(1);
     Value::List(vec![Value::None, Value::Int(IBig::from(UBig::from_le_bytes(&bytes)))])
@@ -173,12 +178,12 @@ fn chart_of(value: &Value) -> Wire<Vec<ChartPoint>> {
     list(value, "a chart")?.iter().map(chart_point_of).collect()
 }
 
-fn point_of(value: &Value) -> Wire<Point> {
+pub(crate) fn point_of(value: &Value) -> Wire<Point> {
     let [x, y] = fixed::<2>(value, "a point")?;
     Ok((sum_of(x, "a point x")?.clone(), sum_of(y, "a point y")?.clone()))
 }
 
-fn points_of(value: &Value) -> Wire<Vec<Point>> {
+pub(crate) fn points_of(value: &Value) -> Wire<Vec<Point>> {
     list(value, "points")?.iter().map(point_of).collect()
 }
 
@@ -219,7 +224,7 @@ fn triangle_of(value: &Value) -> Wire<Triangle> {
     })
 }
 
-fn triangles_of(value: &Value) -> Wire<Vec<Triangle>> {
+pub(crate) fn triangles_of(value: &Value) -> Wire<Vec<Triangle>> {
     list(value, "triangles")?.iter().map(triangle_of).collect()
 }
 
@@ -234,7 +239,7 @@ fn key_of(value: &Value) -> Wire<CellKey> {
     }
 }
 
-fn version_of(major: &Value, minor: &Value) -> ClipResult<PyVersion> {
+pub(crate) fn version_of(major: &Value, minor: &Value) -> ClipResult<PyVersion> {
     let number = |value: &Value| match value {
         Value::Int(found) => u32::try_from(found).map_err(|_| ClipError::Unsupported("a python version number".into())),
         _ => Err(ClipError::Unsupported("a python version number".into())),
@@ -246,11 +251,11 @@ fn version_of(major: &Value, minor: &Value) -> ClipResult<PyVersion> {
 // writing answers
 // --------------------------------------------------------------------------
 
-fn int(number: impl Into<IBig>) -> Value {
+pub(crate) fn int(number: impl Into<IBig>) -> Value {
     Value::Int(number.into())
 }
 
-fn ubig_value(number: &UBig) -> Value {
+pub(crate) fn ubig_value(number: &UBig) -> Value {
     Value::Int(IBig::from(number.clone()))
 }
 
@@ -262,11 +267,11 @@ fn chart_point_value(point: &ChartPoint) -> Value {
     Value::List(vec![rat_value(&point.0), rat_value(&point.1)])
 }
 
-fn point_value(point: &Point) -> Value {
+pub(crate) fn point_value(point: &Point) -> Value {
     Value::List(vec![Value::Sum(point.0.clone()), Value::Sum(point.1.clone())])
 }
 
-fn float_list(values: &[f64]) -> Value {
+pub(crate) fn float_list(values: &[f64]) -> Value {
     Value::List(values.iter().map(|value| Value::Float(*value)).collect())
 }
 
@@ -443,7 +448,8 @@ fn clip_outcome(result: ClipResult<Value>) -> Value {
         Err(ClipError::Overflow(kind)) => coded(8, vec![int(kind as u8)]),
         Err(ClipError::ZeroDivision(text)) => coded(9, vec![str_value(text)]),
         Err(ClipError::Value(text)) => coded(10, vec![str_value(text)]),
-        Err(ClipError::Refusal { outcome, detail }) => coded(11, vec![str_value(outcome), str_value(detail)]),
+        Err(ClipError::Refusal { outcome, detail }) => coded(11, vec![str_value(outcome), str_value(&detail)]),
+        Err(ClipError::MissingKey(key)) => coded(13, vec![str_value(&key)]),
         Err(ClipError::Unsupported(text)) => coded(12, vec![str_value(&text)]),
     }
 }
@@ -464,7 +470,7 @@ fn sign_value(sign: i8) -> Value {
     int(i64::from(sign))
 }
 
-fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>) -> Wire<ClipResult<Value>> {
+fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<ClipResult<Value>> {
     let at = |index: usize| args.get(index).ok_or_else(|| bad("too few arguments"));
     let expect = |count: usize| if args.len() == count { Ok(()) } else { Err(bad("the argument count")) };
     Ok(match code {
@@ -648,6 +654,10 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>) -> Wire<ClipResult
             let refs: Vec<&Point> = nodes.iter().collect();
             version.and_then(|version| order::ordered(ctx, version, &first, &second, &refs)).map(|permutation| Value::List(permutation.into_iter().map(|index| int(index as u64)).collect()))
         }
+        124 => {
+            expect(11)?;
+            geometry_seam::clip_geometry_seam(args, ctx, extras)?
+        }
         other => return Err(SeamError(format!("unknown clip seam opcode {other}"))),
     })
 }
@@ -668,16 +678,18 @@ pub fn run(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, SeamError> 
     let header = if matches!(header, Value::None) { default_header() } else { header.clone() };
     let mut cost = CostRun::begin(session, &header).map_err(|error| SeamError(error.to_string()))?;
     let mut counts = SignCounts::default();
+    let mut extras: Vec<Value> = Vec::new();
     let started = std::time::Instant::now();
     let result = {
         let mut ctx = ExactCtx { memory: &mut session.memory, budget: cost.budget_mut(), counts: &mut counts, products: &mut session.products };
-        dispatch(code, args, &mut ctx)?
+        dispatch(code, args, &mut ctx, &mut extras)?
     };
     let elapsed = started.elapsed().as_nanos() as u64;
     let mut answer = cost.answer(session, clip_outcome(result), &counts);
     // the compute time of the seam itself (decoding the arguments is inside it, the boundary crossing is not), nanoseconds
     if let Value::List(parts) = &mut answer {
         parts.push(int(elapsed));
+        parts.extend(extras);
     }
     let mut writer = Writer::new();
     writer.put_value(&answer);

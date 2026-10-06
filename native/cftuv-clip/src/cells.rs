@@ -122,7 +122,7 @@ fn affine(triangle: &Triangle, point: &ChartPoint) -> ClipResult<[Rat; 3]> {
     Ok([x, y, z])
 }
 
-fn single(triangles: &[Triangle], index: usize, group: Option<CellKey>, flat: Option<Rat>) -> ClipCell {
+pub(crate) fn single(triangles: &[Triangle], index: usize, group: Option<CellKey>, flat: Option<Rat>) -> ClipCell {
     let item = &triangles[index];
     ClipCell {
         key: CellKey::Triangle(index),

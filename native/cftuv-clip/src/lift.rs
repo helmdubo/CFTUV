@@ -63,7 +63,7 @@ pub fn blend(version: PyVersion, weights: &[f64; 3], normals: &[[f64; 3]; 3]) ->
     let length = dot(&mixed, &mixed).sqrt();
     // `not _length(mixed)`: zero (either sign) is a refusal, NaN is not
     if length == 0.0 {
-        return Err(ClipError::Refusal { outcome: BLEND_ZERO_OUTCOME, detail: BLEND_ZERO_DETAIL });
+        return Err(ClipError::Refusal { outcome: BLEND_ZERO_OUTCOME, detail: BLEND_ZERO_DETAIL.to_string() });
     }
     Ok([mixed[0] / length, mixed[1] / length, mixed[2] / length])
 }

@@ -39,6 +39,7 @@ dependencies = [
  "cftuv-canon",
  "cftuv-core",
  "dashu-int",
+ "mimalloc",
 ]
 
 [[package]]

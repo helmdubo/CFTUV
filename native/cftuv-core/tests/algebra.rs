@@ -4,11 +4,13 @@
 //! Operands: radicands are products of distinct primes from a small random universe (so squarefree), coefficients
 //! are integers or fractions of 1 to ~300 bits, negative and positive, `int`-typed and `Fraction`-typed.
 
-use cftuv_core::fused::{oriented_sum, product_added, sum_of_products};
+use cftuv_canon::{CanonMemory, WorkBudget};
+use cftuv_core::exact::{divided_by, divided_by_form, ExactCtx, Quotient};
+use cftuv_core::fused::{oriented_sum, product_added, product_added_form, sum_of_products};
 use cftuv_core::num::{IBig, UBig};
 use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::{Coef, Rat};
-use cftuv_core::sqrt_sum::{integer_certified_sign, scaled_difference_parts, SqrtSum, Term};
+use cftuv_core::sqrt_sum::{integer_certified_sign, scaled_difference_parts, SignCounts, SqrtSum, Term};
 
 struct Rng(u64);
 
@@ -172,6 +174,57 @@ fn the_fused_kernels_equal_their_chains_including_coefficient_types() {
         let expected = left.mul(&right, &mut memo).sub(&p.mul(&q, &mut memo)).add(&base.mul(&p, &mut memo));
         assert!(same_value(&sum_of_products(&products, &mut memo), &expected));
     });
+}
+
+/// One division on a fresh canonicalization memory under a cap: the answer, the articles after, the whole ordered memory.
+fn division_run(numerator: &SqrtSum, denominator: &SqrtSum, cap: Option<u64>, as_form: bool) -> (Result<SqrtSum, String>, [u64; 6], cftuv_canon::MemoryState) {
+    let (mut memory, mut counts, mut products) = (CanonMemory::new(), SignCounts::default(), ProductMemo::new());
+    let mut budget = cap.map_or_else(WorkBudget::unlimited, WorkBudget::bounded);
+    let result = {
+        let mut ctx = ExactCtx { memory: &mut memory, budget: &mut budget, counts: &mut counts, products: &mut products };
+        if as_form {
+            divided_by_form(&mut ctx, numerator, denominator).map(|quotient| match quotient {
+                Quotient::Form(form) => form.into_sqrt_sum(),
+                Quotient::Sum(sum) => sum,
+            })
+        } else {
+            divided_by(&mut ctx, numerator, denominator)
+        }
+    };
+    (result.map_err(|error| format!("{error:?}")), budget.articles(), memory.export_state())
+}
+
+#[test]
+fn the_division_as_a_form_is_the_division_with_the_same_cost_the_same_memory_and_the_same_refusals() {
+    let mut memo = ProductMemo::new();
+    let (mut done, mut refused) = (0, 0);
+    cases(250, 31, |rng, universe| {
+        let (numerator, denominator) = (rng.sum(universe, 5), rng.sum(universe, 4));
+        for cap in [None, Some(rng.below(4)), Some(rng.below(30))] {
+            let (plain, plain_articles, plain_memory) = division_run(&numerator, &denominator, cap, false);
+            let (form, form_articles, form_memory) = division_run(&numerator, &denominator, cap, true);
+            assert_eq!(plain, form, "the quotient, canonical term by term, types included (or the same refusal)");
+            assert_eq!(plain_articles, form_articles, "the same budget paid");
+            assert_eq!(plain_memory, form_memory, "the same memory, in the same order");
+            match plain {
+                Ok(_) => done += 1,
+                Err(_) => refused += 1,
+            }
+        }
+        // multiplied on, the form and the canonical quotient give one value of one type
+        let (Ok(sum), _, _) = division_run(&numerator, &denominator, None, false) else {
+            return;
+        };
+        let (mut memory, mut counts, mut products) = (CanonMemory::new(), SignCounts::default(), ProductMemo::new());
+        let mut budget = WorkBudget::unlimited();
+        let mut ctx = ExactCtx { memory: &mut memory, budget: &mut budget, counts: &mut counts, products: &mut products };
+        let Ok(Quotient::Form(form)) = divided_by_form(&mut ctx, &numerator, &denominator) else {
+            return;
+        };
+        let (base, left) = (rng.sum(universe, 5), rng.sum(universe, 4));
+        assert_eq!(product_added_form(&base, &left, &form, &mut memo), product_added(&base, &left, &sum, &mut memo));
+    });
+    assert!(done > 300 && refused > 30, "the cases must reach both the answers and the exhaustions: {done} / {refused}");
 }
 
 #[test]

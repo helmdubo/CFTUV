@@ -20,8 +20,8 @@ use crate::num::{self, IBig, UBig};
 use crate::products::{Items, ProductMemo};
 use crate::rat::{Coef, Rat};
 use crate::sqrt_sum::{
-    conjugate_items, integer_certified_sign, multiply_integer_items, reduce_in_place, scaled_by_reciprocal, IntForm, SignCounts, SignStage,
-    SqrtSum, Term, SIGN_FILTER_BITS,
+    conjugate_items, integer_certified_sign, multiply_integer_items, reduce_in_place, scaled_by_reciprocal, scaled_by_reciprocal_form, IntForm,
+    SignCounts, SignStage, SqrtSum, Term, SIGN_FILTER_BITS,
 };
 
 /// Rounds and coefficient size the generic division fallback may reach before it is refused by name. The oracle
@@ -292,11 +292,30 @@ enum PrimeSource<'a> {
     Universe(&'a [UBig]),
 }
 
+/// The two integer forms the conjugation loop ends with: `numerator / denominator` where the denominator became
+/// rational (`(common, items)` of each).
+struct Rationalized {
+    numerator_common: UBig,
+    numerator_items: Items,
+    denominator_common: UBig,
+    denominator_items: Items,
+}
+
 /// The integer conjugation loop shared by `divided_by` and `_divide_with_prime_universe`.
 ///
 /// `Ok(Some(quotient))` when the denominator became rational; `Ok(None)` when the oracle leaves the loop for
 /// its fallback (no prime from the universe, or `squarefree_split(prime) != (1, prime)`).
 fn conjugation_loop(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>) -> Result<Option<SqrtSum>, ExactError> {
+    match rationalize(ctx, numerator, denominator, source)? {
+        Some(done) => scaled_by_reciprocal(&done.numerator_common, &done.numerator_items, &done.denominator_common, &done.denominator_items)
+            .map(Some)
+            .map_err(|_| ExactError::Internal("a rational divisor of zero")),
+        None => Ok(None),
+    }
+}
+
+/// The conjugation rounds themselves (every memory question and budget payment of the oracle's loop, in its order).
+fn rationalize(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum, source: PrimeSource<'_>) -> Result<Option<Rationalized>, ExactError> {
     let (mut numerator_common, mut numerator_items) = {
         let form = numerator.int_form();
         (form.common.clone(), form.items.clone())
@@ -307,9 +326,7 @@ fn conjugation_loop(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &S
     };
     loop {
         if denominator_items.len() <= 1 && denominator_items.iter().all(|(radicand, _)| radicand.is_one()) {
-            return scaled_by_reciprocal(&numerator_common, &numerator_items, &denominator_common, &denominator_items)
-                .map(Some)
-                .map_err(|_| ExactError::Internal("a rational divisor of zero"));
+            return Ok(Some(Rationalized { numerator_common, numerator_items, denominator_common, denominator_items }));
         }
         let prime = match &source {
             PrimeSource::Factorized => match pick_prime(ctx, &denominator_items)? {
@@ -365,6 +382,29 @@ pub fn divided_by_generic(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominat
         }
     }
     Err(ExactError::Diverged)
+}
+
+/// The quotient of [`divided_by_form`]: an unreduced integer form, or (the oracle's generic fallback, dead in
+/// practice) the sum the fallback built.
+pub enum Quotient {
+    Form(IntForm),
+    Sum(SqrtSum),
+}
+
+/// `divided_by` that stops before the per-term normalisation of its result: the same loop (so the same memory
+/// questions, budget payments and refusals, in the same order), the quotient as an integer form whose canonical value
+/// is `divided_by`'s answer. For a caller that multiplies the quotient on at once (`fused::product_added_form`) and
+/// so normalises once, not twice.
+pub fn divided_by_form(ctx: &mut ExactCtx<'_>, numerator: &SqrtSum, denominator: &SqrtSum) -> Result<Quotient, ExactError> {
+    if denominator.is_zero() {
+        return Err(ExactError::ZeroDivisor);
+    }
+    match rationalize(ctx, numerator, denominator, PrimeSource::Factorized)? {
+        Some(done) => scaled_by_reciprocal_form(&done.numerator_common, &done.numerator_items, &done.denominator_common, &done.denominator_items)
+            .map(Quotient::Form)
+            .map_err(|_| ExactError::Internal("a rational divisor of zero")),
+        None => divided_by_generic(ctx, numerator, denominator).map(Quotient::Sum),
+    }
 }
 
 /// `SqrtSumV1.divided_by(other, budget)`: division by the conjugates, exact; `ZeroDivisor` for an exact zero.

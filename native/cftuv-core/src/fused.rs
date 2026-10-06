@@ -38,7 +38,16 @@ pub fn product_added(base: &SqrtSum, left: &SqrtSum, right: &SqrtSum, memo: &mut
     if left.is_zero() || right.is_zero() {
         return base.clone();
     }
-    let (base_form, left_form, right_form) = (base.int_form(), left.int_form(), right.int_form());
+    product_added_form(base, left, right.int_form(), memo)
+}
+
+/// [`product_added`] with the right factor given as an integer form (any common scale, no canonical terms behind
+/// it): the result is the same canonical value, type for type, because every result term is normalised at the end.
+pub fn product_added_form(base: &SqrtSum, left: &SqrtSum, right_form: &IntForm, memo: &mut ProductMemo) -> SqrtSum {
+    if left.is_zero() || right_form.items.is_empty() {
+        return base.clone();
+    }
+    let (base_form, left_form) = (base.int_form(), left.int_form());
     let common = &left_form.common * &right_form.common;
     let scale = if base_form.common != common { num::lcm(&base_form.common, &common) } else { common.clone() };
     let mut product = Accumulator::new();

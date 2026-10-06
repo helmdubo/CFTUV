@@ -14,7 +14,7 @@ refuses (`SeamUnsupported`) anything else instead of guessing what an `int` woul
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 
 from . import codec, cost
@@ -45,6 +45,7 @@ SEAMS = (
     (121, "CONVEX_QUAD_RING"),
     (122, "HAS_RIGHT_TURN"),
     (123, "ORDERED"),
+    (124, "CLIP_GEOMETRY"),
 )
 OPCODES = {name: code for code, name in SEAMS}
 
@@ -53,6 +54,7 @@ STATUS_ZERO_DIVISION = 9
 STATUS_VALUE = 10
 STATUS_REFUSAL = 11
 STATUS_UNSUPPORTED = 12
+STATUS_MISSING_KEY = 13
 
 OVERFLOW_TEXTS = ("int too large to convert to float", "integer division result too large for a float")
 
@@ -74,6 +76,8 @@ class Answer:
     state: object
     #: Compute time of the seam inside the extension (nanoseconds; decoding the arguments is part of it, the crossing is not).
     nanoseconds: int = 0
+    #: What a seam adds after the common answer: for `CLIP_GEOMETRY` `[normal writes, compute nanoseconds of the operation alone]`.
+    extras: list = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -294,7 +298,87 @@ DECODERS = {
     "CONVEX_QUAD_RING": optional_tuple,
     "HAS_RIGHT_TURN": lambda wire: wire,
     "ORDERED": lambda wire: list(wire),
+    "CLIP_GEOMETRY": lambda wire: dec_clipped(wire),
 }
+
+
+# --------------------------------------------------------------------------
+# the whole operation (CLIP_GEOMETRY)
+# --------------------------------------------------------------------------
+
+
+def law_code(law) -> int:
+    """`0` planar polygons, `1` quad strips, `2` any other member (`_split_for_law` compares by identity and asks the ears of the rest)."""
+
+    from cftuv_envelope.contracts.geometry_batch import DecalTopologyLawV1
+
+    if law is DecalTopologyLawV1.PLANAR_POLYGONS_V1:
+        return 0
+    return 1 if law is DecalTopologyLawV1.QUAD_STRIPS_V1 else 2
+
+
+def _flags(items):
+    return None if items is None else [bool(item) for item in items]
+
+
+def enc_geometry(plane, kwargs: dict, version=None) -> list:
+    """The arguments of `clip_geometry(plane, budget, **kwargs)` as the `CLIP_GEOMETRY` seam reads them."""
+
+    seam = []
+    for pair in kwargs["seam"]:
+        keys = tuple(pair)
+        seam.append([enc_str(keys[0]), enc_str(keys[-1])])
+    return [
+        *(_version() if version is None else version),
+        enc_triangles(plane.triangles),
+        enc_named_points(kwargs["points"]),
+        [[enc_str(key) for key, _point in cycle] for cycle in kwargs["cycles"]],
+        [[[enc_str(key) for key in keys] for keys in face] for face in kwargs["polygons"]],
+        law_code(kwargs["law"]),
+        seam,
+        _flags(kwargs["fans"]),
+        _flags(kwargs["flows"]),
+        bool(kwargs["by_faces"]),
+    ]
+
+
+def _version() -> list:
+    import sys
+
+    return [sys.version_info.major, sys.version_info.minor]
+
+
+def _keyed(entries) -> list:
+    return [(dec_str(key), (point[0], point[1])) for key, point in entries]
+
+
+def dec_clipped(wire):
+    """The `ClippedV1` of the oracle from the answer value of `CLIP_GEOMETRY` (same containers, tuples and lists as `run` builds)."""
+
+    from cftuv_envelope.materialize import clip
+
+    _cells, _snap, local_point = _kernel()
+    polygons, cycles, lists, extras, points, snapped, lifted, counters, note = wire
+    return clip.ClippedV1(
+        polygons=[tuple(tuple(dec_str(key) for key in keys) for keys in face) for face in polygons],
+        cycles=[_keyed(cycle) for cycle in cycles],
+        vertex_lists=[_keyed(entries) for entries in lists],
+        extra_lists=[_keyed(entries) for entries in extras],
+        points=dict(_keyed(points)),
+        snapped=dict(_keyed(snapped)),
+        lifted={
+            dec_str(key): (local_point(*position), (dec_str(name), None if normal is None else tuple(normal)))
+            for key, position, name, normal in lifted
+        },
+        counters=tuple((dec_str(name), value) for name, value in counters),
+        note=dec_str(note),
+    )
+
+
+def dec_writes(extras: list) -> list:
+    """`[(position, normal), ...]` of the `_normal_by_position` writes in the order of the calls (tuples of floats)."""
+
+    return [(tuple(position), tuple(normal)) for position, normal in extras[0]]
 
 
 # --------------------------------------------------------------------------
@@ -309,10 +393,10 @@ def request_bytes(name: str, arguments, header=None) -> bytes:
 
 
 def answer_of(response: bytes) -> Answer:
-    outcome, counts, articles, log, state, nanoseconds = codec.decode_value(response)
+    outcome, counts, articles, log, state, nanoseconds, *extras = codec.decode_value(response)
     status = outcome[0]
     ok = status == cost.STATUS_OK
-    return Answer(status, outcome[1] if ok else None, outcome[1:] if not ok else [], counts, articles, log, state, nanoseconds)
+    return Answer(status, outcome[1] if ok else None, outcome[1:] if not ok else [], counts, articles, log, state, nanoseconds, extras)
 
 
 class SeamRunner:
@@ -353,6 +437,10 @@ def exception_of(answer: Answer, budget) -> tuple:
         return ("ValueError", dec_str(answer.detail[0]))
     if status == STATUS_REFUSAL:
         return ("MaterializationRefusal", f"{dec_str(answer.detail[0])}: {dec_str(answer.detail[1])}")
+    if status == STATUS_MISSING_KEY:
+        return ("KeyError", repr(dec_str(answer.detail[0])))
+    if status == cost.STATUS_ZERO_DIVISOR:
+        return ("ZeroSqrtSumDivisorError", cost.ZERO_DIVISOR_MESSAGE)
     raise RuntimeError(f"no oracle exception for the native status {status}: {answer.detail!r}")
 
 

@@ -516,6 +516,39 @@ pub fn scaled_by_reciprocal(
     Ok(SqrtSum::from_terms_unchecked(terms))
 }
 
+/// [`scaled_by_reciprocal`] without the per-term normalisation: the same value as ONE integer form
+/// `(numerator_common * |head|, a_m * denominator_common * sign(head))`, reduced by one common divisor. The
+/// canonical value is `form.into_sqrt_sum()`; a caller that only multiplies it on (`fused::product_added_form`)
+/// never needs the intermediate canonical terms. The refusals are those of [`scaled_by_reciprocal`].
+pub fn scaled_by_reciprocal_form(
+    numerator_common: &UBig,
+    numerator_items: &[(UBig, IBig)],
+    denominator_common: &UBig,
+    denominator_items: &[(UBig, IBig)],
+) -> Result<IntForm, ZeroDivision> {
+    let head = denominator_items.first().map_or(IBig::ZERO, |(_, value)| value.clone());
+    if denominator_common.is_zero() || head.is_zero() {
+        return Err(ZeroDivision);
+    }
+    if numerator_items.is_empty() {
+        return Ok(IntForm { common: UBig::ONE, items: Items::new() });
+    }
+    if numerator_common.is_zero() {
+        return Err(ZeroDivision);
+    }
+    let negative = num::is_negative(&head);
+    let multiplier = IBig::from(denominator_common.clone());
+    let mut items: Items = numerator_items.iter().map(|(radicand, value)| (radicand.clone(), value * &multiplier)).collect();
+    if negative {
+        for (_, value) in items.iter_mut() {
+            *value = -std::mem::take(value);
+        }
+    }
+    let mut common = numerator_common * num::magnitude(&head);
+    reduce_in_place(&mut common, &mut items);
+    Ok(IntForm { common, items })
+}
+
 /// The conjugate of an integer form by the prime `p` (`E = A + B*sqrt(p)  ->  A - B*sqrt(p)`): the numerators
 /// of the radicands divisible by `p` change sign, the radicands stay.
 pub fn conjugate_items(items: &[(UBig, IBig)], prime: &UBig) -> Items {

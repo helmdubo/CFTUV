@@ -38,7 +38,9 @@ pub enum ClipError {
     /// `ValueError`.
     Value(&'static str),
     /// `MaterializationRefusal(outcome, detail)`: `outcome` is the enum name, the exception text is `outcome: detail`.
-    Refusal { outcome: &'static str, detail: &'static str },
+    Refusal { outcome: &'static str, detail: String },
+    /// `KeyError`: a key of a polygon, a cycle or a seam pair that is no vertex of the domain (`str(exc)` is the `repr` of the key).
+    MissingKey(String),
     /// The native port does not cover this input (never an answer; the host must see it).
     Unsupported(String),
 }
