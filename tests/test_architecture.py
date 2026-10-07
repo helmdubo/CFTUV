@@ -22,6 +22,8 @@
 from __future__ import annotations
 
 import ast
+import re
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -1864,3 +1866,92 @@ def test_the_installers_swap_directories_and_never_erase_the_installed_copy_firs
         if required not in common:
             problems.append(f"tools/install_common.ps1: нет {required}")
     assert not problems, "установщик теряет прежнюю установку при сбое:\n" + "\n".join(problems)
+
+
+# --------------------------------------------------------------------------
+# 14. Каждое стороннее имя, которое импортируют код и тесты, объявлено для CI
+# --------------------------------------------------------------------------
+# Прежний CI ставил `pytest sympy` и месяцами падал на сборе двумя `ModuleNotFoundError: numpy`: `cftuv/envelope_width_certificate.py`
+# импортирует numpy (в Blender он есть), а список зависимостей workflow об этом не знал. Единственное место версий —
+# `tests/requirements.txt`; здесь держится, что (1) любое стороннее имя из `cftuv/`, `tests/`, `tools/`, `kernel/` в нём названо или
+# отнесено к тому, что даёт Blender, (2) чистое ядро по-прежнему просит только sympy, (3) workflow ставят именно этот файл,
+# (4) матрица Python покрывает и заявленный пол (`kernel/pyproject.toml`), и интерпретатор Blender (3.11, на нём собирается нативное колесо).
+
+#: Даёт сам Blender (4.5: CPython 3.11.11, numpy 1.26.4); в CI заменяется заглушками `tests/conftest.py`.
+_BLENDER_PROVIDED = frozenset({"bpy", "bmesh", "mathutils", "gpu", "gpu_extras", "bpy_extras", "addon_utils"})
+#: Нативное расширение собирается отдельно (`native/`), не из PyPI; host-тесты пропускают его по названному статусу `unavailable`.
+_NATIVE_EXTENSION = frozenset({"cftuv_native"})
+#: Зависимость, которая приходит вместе с объявленной (`sympy` тянет `mpmath`).
+_BROUGHT_BY = {"mpmath": "sympy"}
+_CI_REQUIREMENTS = TESTS / "requirements.txt"
+_CI_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+
+
+def _declared_requirements() -> set[str]:
+    names: set[str] = set()
+    for line in _CI_REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            names.add(re.split(r"[=<>!~\[;\s]", line, maxsplit=1)[0].lower().replace("-", "_"))
+    return names
+
+
+def _third_party_imports(folders) -> dict[str, set[str]]:
+    """`{стороннее имя: {файлы, что его импортируют}}`: не стандартная библиотека и не модуль, лежащий в самих деревьях проекта."""
+
+    files = [path for folder in folders for path in _python_files(folder)]
+    own = {path.stem for path in files} | {path.parent.name for path in files} | {"cftuv", "cftuv_envelope", "research"}
+    found: dict[str, set[str]] = {}
+    for path in files:
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                roots = [node.module.split(".")[0]]
+            else:
+                continue
+            for root in roots:
+                if root not in sys.stdlib_module_names and root not in own:
+                    found.setdefault(root, set()).add(_relative(path))
+    return found
+
+
+def test_every_third_party_import_is_declared_for_ci():
+    declared = _declared_requirements()
+    known = declared | _BLENDER_PROVIDED | _NATIVE_EXTENSION | {name for name, parent in _BROUGHT_BY.items() if parent in declared}
+    found = _third_party_imports([HOST_PACKAGE, TESTS, TOOLS, KERNEL_SOURCE, REPO_ROOT / "kernel" / "tests", REPO_ROOT / "kernel" / "tools"])
+    missing = {name: sorted(files)[:3] for name, files in found.items() if name not in known}
+
+    assert not missing, (
+        "CI_DEPENDENCY_UNDECLARED: стороннее имя импортируется, а в tests/requirements.txt его нет "
+        f"(workflow его не поставит, и сбор тестов упадёт ModuleNotFoundError): {missing}"
+    )
+    assert {"numpy", "sympy", "pytest"} <= declared, "tests/requirements.txt потерял зависимость, которую импортирует хост"
+
+
+def test_the_pure_kernel_asks_for_nothing_but_sympy():
+    kernel = set(_third_party_imports([KERNEL_SOURCE]))
+    extra = kernel - {"sympy", "mpmath"} - _NATIVE_EXTENSION
+
+    assert not extra, (
+        f"чистое ядро (kernel/src) потребовало стороннее имя сверх sympy: {sorted(extra)}; "
+        "оно ставится колесом `cftuv-envelope-core` с одной зависимостью, и CI-ветка 3.10 его не получит"
+    )
+
+
+def test_the_host_workflows_install_the_declared_requirements():
+    for name in ("host-suite.yml", "envelope-kernel.yml"):
+        text = (_CI_WORKFLOWS / name).read_text(encoding="utf-8")
+        assert "-r tests/requirements.txt" in text, f"{name}: host-тесты запускаются без tests/requirements.txt: зависимости разойдутся с набором"
+        assert "sympy==" not in text and "numpy==" not in text, f"{name}: версия зависимости прибита в workflow, а не в tests/requirements.txt"
+
+
+def test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter():
+    floor = re.search(r'requires-python\s*=\s*">=(\d+\.\d+)"', (REPO_ROOT / "kernel" / "pyproject.toml").read_text(encoding="utf-8"))
+    assert floor is not None, "kernel/pyproject.toml без requires-python"
+    for name in ("host-suite.yml", "envelope-kernel.yml"):
+        text = (_CI_WORKFLOWS / name).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if "python-version:" in line]
+        versions = {version for line in lines for version in re.findall(r'"(3\.\d+)"', line)}
+        assert floor.group(1) in versions, f"{name}: нет ветки на заявленном полу Python {floor.group(1)}: {sorted(versions)}"
+        assert "3.11" in versions, f"{name}: нет ветки на CPython 3.11 (Blender 4.5, нативное колесо `abi3-py311`): {sorted(versions)}"

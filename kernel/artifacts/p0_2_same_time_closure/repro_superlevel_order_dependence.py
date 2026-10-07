@@ -3,7 +3,7 @@
 Run from the repository root with the same Python 3.10 environment as tests:
 
     PYTHONPATH=kernel/src;kernel/tests python \
-        artifacts/p0_2_same_time_closure/repro_superlevel_order_dependence.py
+        kernel/artifacts/p0_2_same_time_closure/repro_superlevel_order_dependence.py
 
 The edge-first function is a test-only counterfactual schedule. It changes no
 candidate generation, filtering, or production code. A difference is the
