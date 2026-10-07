@@ -146,3 +146,22 @@ def pytest_configure(config):
 
     if not config.pluginmanager.is_registered(native_gate):
         config.pluginmanager.register(native_gate, "cftuv-native-gate")
+
+
+import os  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _the_replay_check_of_the_closure_is_given_back():
+    """`CFTUV_SYMBOLIC_REPLAY_CHECK` is process state the oracle reads at every closure of a packet and the native differential harness sets with the state of a recorded call
+    (`native_corpus.restore_state`): a test that restored a call leaves the variable as it found it, whatever the call was recorded under."""
+
+    name = "CFTUV_SYMBOLIC_REPLAY_CHECK"
+    held = os.environ.get(name)
+    yield
+    if held is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = held

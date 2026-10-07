@@ -49,6 +49,7 @@ import cftuv_envelope.materialize.clip_memo as clip_memo  # noqa: E402
 import cftuv_envelope.wavefront.coverage as coverage  # noqa: E402
 import cftuv_envelope.wavefront.exact_identity as exact_identity  # noqa: E402
 import cftuv_envelope.wavefront.skeleton as skeleton  # noqa: E402
+import cftuv_envelope.wavefront.symbolic_superlevel_coordinator as coordinator  # noqa: E402
 
 OP_COVERAGE = "coverage_at"
 OP_CLIP = "clip_geometry"
@@ -111,6 +112,9 @@ class StateV1:
     canonical_audit: bool
     #: Представление ключей тождества (`exact_identity`): модульный переключатель, который читает скелет; поле дописано позже, поэтому у старых записей умолчание.
     identity_mode: str = "CACHED"
+    #: Самопроверка повтора замыкания (`CFTUV_SYMBOLIC_REPLAY_CHECK`, `coordinator.replay_check_enabled()`): среда процесса, которую эталон читает при КАЖДОМ замыкании пакета и от которой зависит цена
+    #: скелета (повтор удваивает счёт замыкания). Набор тестов ядра включает её, продукт и поле — нет, поэтому запись обязана нести то, что было при вызове; поле дописано позже, умолчание — продукт.
+    replay_check: bool = False
 
     def as_payload(self) -> dict:
         return {item.name: getattr(self, item.name) for item in dataclasses.fields(self)}
@@ -153,6 +157,7 @@ def capture_state(budget, store) -> StateV1:
         entries,
         exact.canonical_audit_enabled(),
         exact_identity.identity_mode().value,
+        coordinator.replay_check_enabled(),
     )
 
 
@@ -177,6 +182,12 @@ def build_budget(state: dict | None):
     return budget
 
 
+def set_replay_check(enabled: bool) -> None:
+    """Ставит среду процесса так, как её прочтёт `replay_check_enabled()` эталона (и нативная вставка: шим читает ту же функцию при вызове)."""
+
+    os.environ[coordinator.ENVIRONMENT_REPLAY_CHECK] = "1" if enabled else "0"
+
+
 def restore_state(state: StateV1):
     """Ставит процесс в `state`: `(бюджет, store)` для вызова. Чистые кэши (центры binary64, произведения радикандов) сброшены."""
 
@@ -192,6 +203,7 @@ def restore_state(state: StateV1):
     _set_articles(exact.UNBUDGETED_WORK, state.unbudgeted)
     exact.set_canonical_audit(state.canonical_audit)
     exact_identity.set_identity_mode(state.identity_mode)
+    set_replay_check(state.replay_check)
     store = None if state.store is None else dict(state.store)
     return build_budget(state.budget), store
 

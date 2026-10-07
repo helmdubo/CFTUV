@@ -52,6 +52,8 @@ if _STALE:
         allow_module_level=True,
     )
 
+from native_gate import field_tier  # noqa: E402
+
 import native_leaf_gate as gate  # noqa: E402
 import native_corpus as nc  # noqa: E402
 import wavefront_cases as cases  # noqa: E402
@@ -66,6 +68,9 @@ import cftuv_envelope.wavefront.motorcycle as motorcycle  # noqa: E402
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
 
 FIELD_POLYGONS = Path(os.environ.get("CFTUV_NATIVE_CORPUS", "E:/cftuv_native_corpus")) / "skeleton_polygons" / "field_polygons.pkl"
+#: The polygons of the owner's FIELD scene (`tools/native_leaf_gate.py fetch`): they exist only on the owner's drive, so the tests that need them are the field tier (`native_gate.field_tier`: CI
+#: deselects the tier by name and reports it; a skip would be a failure in strict mode).
+needs_field_polygons = field_tier(FIELD_POLYGONS.exists(), f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
 #: Каких полевых полигонов (подстроки имён) не брать в быстрый прогон: их вызовов десятки тысяч, их считает G1 (`tools/native_leaf_gate.py gate`).
 FIELD_FAST = ("patch_105", "point_contact", "weighted_normals", "patch4", "patch3", "mesh2_patch2", "building004")
 
@@ -671,9 +676,8 @@ def test_evaluate_split_candidate_equals_the_oracle_when_the_budget_runs_out_ins
     assert raised >= 3, f"the starved runs never ran out inside a checked call: {dict(verifier.raised)}"
 
 
+@needs_field_polygons
 def test_the_polygons_of_the_field_equal_the_oracle_when_they_are_in_the_corpus():
-    if not FIELD_POLYGONS.exists():
-        pytest.skip(f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
     verifier = gate.LeafVerifier(everything())
     polygons = gate.load_polygons(FIELD_POLYGONS, only=FIELD_FAST)
     assert polygons

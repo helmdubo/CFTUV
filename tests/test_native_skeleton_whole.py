@@ -44,7 +44,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "skeleton")
 
@@ -64,8 +64,14 @@ FIELD = sc.matching("field")
 SYNTHETIC = sc.matching("synthetic")
 SYNTHETIC_STRIDE = int(os.environ.get("CFTUV_SKELETON_SYNTHETIC_STRIDE", "1"))
 LIVE_LIMIT = int(os.environ.get("CFTUV_SKELETON_LIVE_LIMIT", "40"))
-needs_field = pytest.mark.skipif(FIELD is None, reason=sc.describe_missing("field"))
+#: The field corpus is the owner's (calls recorded from the Blender scene, `E:/cftuv_native_corpus`): the tests that need it are the field tier, which CI deselects by name and reports. The synthetic
+#: corpus is built from the kernel's own tests and generators (`tools/native_skeleton_synthetic.py build`), CI builds it, and a test that needs it is a failure in strict mode when it is missing.
+needs_field = field_tier(FIELD is not None, sc.describe_missing("field"))
 needs_synthetic = pytest.mark.skipif(SYNTHETIC is None, reason=sc.describe_missing("synthetic"))
+#: The tests of the contract of the drop-in (a refusal of the port, the live level budget, a call without a budget, ...) need A record, not a field one: the owner's when he has it, else the synthetic one
+#: (CI has only the synthetic corpus, built from the kernel's own tests).
+BASE = FIELD if FIELD is not None else SYNTHETIC
+needs_record = pytest.mark.skipif(BASE is None, reason=sc.describe_missing("synthetic"))
 
 CHECKED: Counter = Counter()
 
@@ -244,13 +250,13 @@ def _chain(root, count: int) -> list:
     return rows[:: max(1, len(rows) // count)][:count]
 
 
-@needs_field
+@needs_record
 def test_repeated_calls_on_one_session_carry_the_warm_memory_exactly_as_the_oracle_does(runner):
     """Три вызова подряд без восстановления состояния: память канонизации (LRU, касания) и статьи бюджета копятся, и копятся так же, как у эталона."""
 
-    rows = _chain(FIELD, 6)
+    rows = _chain(BASE, 6)
     assert len(rows) >= 4
-    records = [sc.read(FIELD, row) for row in rows]
+    records = [sc.read(BASE, row) for row in rows]
     first = records[0].before()
     steps = [records[index % len(records)] for index in range(9)]
     outcomes = {}
@@ -270,9 +276,9 @@ def test_repeated_calls_on_one_session_carry_the_warm_memory_exactly_as_the_orac
     assert outcomes["oracle"][0][1].known_primes and outcomes["oracle"][0][1].factorization, "the second call started on a warm memory"
 
 
-@needs_field
+@needs_record
 def test_the_level_budget_the_oracle_reads_live_is_read_live_here_too(runner):
-    record = sc.read(FIELD, next(row for row in _rows(FIELD, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3))
+    record = sc.read(BASE, next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3))
     before = record.before()
     for limit in (1, 2):
         # `nc.invoke` pins `skeleton.level_budget` to the `level_budget` of the call it is given (the recorded one), for the oracle and for the drop-in alike
@@ -286,10 +292,10 @@ def test_the_level_budget_the_oracle_reads_live_is_read_live_here_too(runner):
         assert not nc.compare_outcomes(nc.OP_SKELETON, before, expected, actual)
 
 
-@needs_field
+@needs_record
 def test_a_call_without_a_budget_pays_the_unbudgeted_telemetry_and_writes_no_superlevel(runner):
-    row = next(row for row in _rows(FIELD, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3)
-    record = sc.read(FIELD, row)
+    row = next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3)
+    record = sc.read(BASE, row)
     before = record.before()
     call = nc.prepare_call(nc.OP_SKELETON, record.call_blob, before)
     kwargs = dict(call.kwargs)
@@ -310,9 +316,9 @@ def test_a_call_without_a_budget_pays_the_unbudgeted_telemetry_and_writes_no_sup
     assert native_state.known_primes == oracle_state.known_primes and native_state.factorization == oracle_state.factorization
 
 
-@needs_field
+@needs_record
 def test_the_superlevel_string_of_a_named_budget_is_what_the_oracle_writes_even_when_it_was_not_empty(runner):
-    record = sc.read(FIELD, next(row for row in _rows(FIELD, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3))
+    record = sc.read(BASE, next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3))
     before = dataclasses.replace(record.before(), budget={**record.before().budget, "superlevel": "99"})
     expected = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before))
     actual = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before), function=runner.mirror.build_skeleton)
@@ -326,7 +332,7 @@ def test_the_superlevel_string_of_a_named_budget_is_what_the_oracle_writes_even_
 
 
 def _small_record():
-    return sc.read(FIELD, next(row for row in _rows(FIELD, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3 and row["fan_supports"]))
+    return sc.read(BASE, next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.3 and row["fan_supports"]))
 
 
 def _refusal_case(runner, record, arrange, expected_text: str):
@@ -342,7 +348,7 @@ def _refusal_case(runner, record, arrange, expected_text: str):
     assert not nc.compare_outcomes(nc.OP_SKELETON, before, record.expected(), fallback)
 
 
-@needs_field
+@needs_record
 def test_a_split_search_the_port_does_not_know_is_a_named_refusal_that_leaves_the_state_alone(runner):
     record = _small_record()
     call = nc.prepare_call(nc.OP_SKELETON, record.call_blob, record.before())
@@ -366,7 +372,7 @@ def test_the_exhaustive_split_search_of_the_oracle_is_carried_and_equals_the_ora
     assert Counter(run.label for _n, run in runs)["EXACT"] >= 200
 
 
-@needs_field
+@needs_record
 def test_a_replaced_march_budget_is_a_named_refusal(runner, monkeypatch):
     import contextlib
 
@@ -381,7 +387,7 @@ def test_a_replaced_march_budget_is_a_named_refusal(runner, monkeypatch):
     _refusal_case(runner, _small_record(), patched, "march_budget")
 
 
-@needs_field
+@needs_record
 def test_a_budget_that_is_not_an_exact_work_budget_is_a_named_refusal(runner):
     record = _small_record()
     call = nc.prepare_call(nc.OP_SKELETON, record.call_blob, record.before())
@@ -398,7 +404,7 @@ def test_a_budget_that_is_not_an_exact_work_budget_is_a_named_refusal(runner):
         runner.mirror.build_skeleton(call.args[0], work_budget=Imitation(), **options)
 
 
-@needs_field
+@needs_record
 def test_a_polygon_beyond_the_machine_range_is_a_named_refusal_and_the_oracle_answers_it(runner):
     from cftuv_envelope.wavefront.polygon import PolygonV1
 
@@ -412,7 +418,7 @@ def test_a_polygon_beyond_the_machine_range_is_a_named_refusal_and_the_oracle_an
     assert skeleton.build_skeleton(polygon).outcome is skeleton.SkeletonOutcome.EXACT
 
 
-@needs_field
+@needs_record
 @pytest.mark.parametrize("kind", ("invalid_input", "diverged", "internal", "unsupported", "panic"))
 def test_a_refusal_the_port_takes_after_it_computed_leaves_every_state_as_before(runner, kind):
     """Вызов СЧИТАЛСЯ целиком (есть статьи, знаки, журнал памяти), и только потом порт отказал: ничего из этого не должно дойти до процесса."""
@@ -456,11 +462,11 @@ def test_an_interpreter_started_with_O_refuses_by_name():
 # --------------------------------------------------------------------------
 
 
-@needs_field
+@needs_record
 def test_the_result_is_made_of_ordinary_python_objects_that_pickle_and_compare_as_the_oracles_do(runner):
     import pickle
 
-    record = sc.read(FIELD, next(row for row in _rows(FIELD, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.5))
+    record = sc.read(BASE, next(row for row in _rows(BASE, derived=False) if row["outcome"] == "EXACT" and row["seconds"] < 0.5))
     before = record.before()
     actual = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before), function=runner.mirror.build_skeleton)
     expected = record.expected()
@@ -472,7 +478,7 @@ def test_the_result_is_made_of_ordinary_python_objects_that_pickle_and_compare_a
     assert not hasattr(node, "__dict__")
 
 
-@needs_field
+@needs_record
 def test_the_raw_layouts_of_the_result_classes_and_the_attribute_fallback_build_the_same_objects(runner):
     record = _small_record()
     before = record.before()

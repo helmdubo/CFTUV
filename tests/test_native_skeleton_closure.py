@@ -55,6 +55,8 @@ if _STALE:
         allow_module_level=True,
     )
 
+from native_gate import field_tier, skip_for_interpreter  # noqa: E402
+
 import native_closure_coverage as coverage_tool  # noqa: E402
 import native_closure_fabricate as fabricate  # noqa: E402
 import native_closure_gate as gate  # noqa: E402
@@ -72,6 +74,10 @@ from cftuv_envelope.wavefront.skeleton import build_skeleton  # noqa: E402
 
 CHECKED: Counter = Counter()
 FIELD_POLYGONS = motorcycle_gate.FIELD_POLYGONS
+
+#: The polygons of the owner's FIELD scene (`tools/native_leaf_gate.py fetch`): they exist only on the owner's drive, so the tests that need them are the field tier (`native_gate.field_tier`: CI
+#: deselects the tier by name and reports it; a skip would be a failure in strict mode).
+needs_field_polygons = field_tier(FIELD_POLYGONS.exists(), f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
 FIELD_FAST = parts.FIELD_FAST
 ORACLE_OUTCOMES = builder_tests.ORACLE_OUTCOMES
 WHOLE_LINES = {"symbolic_overlay.py", "symbolic_component.py", "symbolic_mixed_generation.py", "symbolic_superlevel_coordinator.py"}
@@ -370,9 +376,8 @@ def test_the_closure_equals_the_oracle_when_the_cuts_of_the_packet_carry_no_proj
     assert verifier.checked["PLAN_SYMBOLIC_CLOSURE"] >= 6, dict(verifier.checked)
 
 
+@needs_field_polygons
 def test_the_closure_equals_the_oracle_on_the_fast_field_polygons():
-    if not FIELD_POLYGONS.exists():
-        pytest.skip(f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
     verifier = verifier_of(("closure", "parts"))
     polygons = leaf.load_polygons(FIELD_POLYGONS, only=FIELD_FAST)
     assert polygons
@@ -387,7 +392,7 @@ def test_the_closure_equals_the_oracle_on_the_fast_field_polygons():
 TWIN_EDGE_POLYGONS = frozenset({"synthetic:001775-build_skeleton", "synthetic:001780-build_skeleton", "synthetic:001752-build_skeleton", "synthetic:002236-build_skeleton"})
 
 
-def test_the_closure_equals_the_oracle_on_the_skeleton_corpus_and_names_the_internal_errors_of_the_oracle():
+def test_the_closure_equals_the_oracle_on_the_skeleton_corpus():
     pool = builder_tests.corpus_polygons()
     if not pool:
         pytest.skip(f"нет корпуса скелета под ядро {nc.clip_memo.kernel_code_identity()}: {builder_tests.sc.describe_missing('synthetic')}")
@@ -497,11 +502,12 @@ def test_the_comparison_reports_a_wrong_overlay_in_a_part(monkeypatch):
 # --------------------------------------------------------------------------
 
 
+@needs_field_polygons
 def test_zz_the_comparisons_reached_the_live_lines_of_the_symbolic_modules():
     monitor = COVERAGE.get("monitor")
     if monitor is None:
-        pytest.skip("монитор строк — `sys.monitoring` (Python 3.12 и новее): под 3.11 охват этого модуля не измеряется")
-    if CHECKED["PLAN_SYMBOLIC_CLOSURE"] < 1500 or not FIELD_POLYGONS.exists() or not builder_tests.corpus_polygons():
+        skip_for_interpreter("монитор строк — `sys.monitoring` (Python 3.12 и новее): под 3.11 охват этого модуля не измеряется")
+    if CHECKED["PLAN_SYMBOLIC_CLOSURE"] < 1500 or not builder_tests.corpus_polygons():
         pytest.skip("охват меряется по всему модулю, с полевыми полигонами и корпусом скелета: часть выбранных тестов или нет корпуса — нет измерения")
     report = monitor.report()
     reached = sum(found for found, _total, _missed in report.values())

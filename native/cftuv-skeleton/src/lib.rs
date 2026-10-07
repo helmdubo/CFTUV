@@ -24,8 +24,8 @@
 //!   span, composition, wiring of the births), the ledger of germs, the stable symbolic normal form of the cuts (WP-S4);
 //! * `omap`, `overlay`, `component`, `contacts`, `generations`, `coordinator`: the symbolic closure of a packet (WP-S5): the overlay of junctions and leaves with its exact view
 //!   (`overlay`, the dictionaries of the oracle in insertion order in `omap`), the delta of a component and the signature of an overlay (`component`), the contacts of an exact time
-//!   (`contacts`), the generations of mixed junction and interior contacts replayed to a fixed point (`generations`), and the outer fixed point itself, the twice-run closure
-//!   (`coordinator`);
+//!   (`contacts`, with the memo of the law's decisions: one per pair), the generations of mixed junction and interior contacts replayed to a fixed point (`generations`), and the outer
+//!   fixed point itself (`coordinator`; its second run of the generations, the replay, is the oracle's self-check and runs only when asked);
 //! * `commit`, `transaction`: the runtime commit of a closed overlay (the plan that validates every reference, the materialization that applies it) and the transaction of a packet that
 //!   joins the stages; `transaction::build_skeleton` is the whole operation (WP-S6);
 //! * `seam`, `seam_graph`, `seam_builder`, `seam_primitive`, `seam_closure`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.

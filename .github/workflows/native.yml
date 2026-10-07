@@ -3,11 +3,13 @@ name: Native accelerator
 # Приёмка Rust не может пройти без самого Rust (аудит F3). Прежде ни один workflow не собирал колесо и не гонял `cargo test`, а нативные сверки при отсутствии
 # расширения ПРОПУСКАЛИСЬ: зелёный CI не говорил, что ускоритель вообще существует. Здесь:
 #
-#   rust          cargo test --workspace --locked (ядро, канонизация, резка; Rust-векторы);
+#   rust          cargo test --workspace --locked (ядро, канонизация, резка, скелет; Rust-векторы);
 #   wheel         release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
 #   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python;
+#   corpus-skeleton  синтетический корпус СКЕЛЕТА (`build_skeleton` целиком): вызовы из подмножества тестов ядра, замороженные сгенерированные случаи и производные записи с урезанным
+#                 потолком бюджета; полевого корпуса скелета (пять мешей сцены Blender) в CI нет, и эта работа его заменяет для всего, что не требует именно поля;
 #   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
-#                 равна личности дерева, обе операции `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
+#                 равна личности дерева, все три операции (покрытие, резка, скелет) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
 #                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
 #   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет).
 #
@@ -148,9 +150,46 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  corpus-skeleton:
+    name: synthetic skeleton corpus (py${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the kernel's test dependencies
+        run: python -m pip install $TEST_REQUIREMENTS
+      # The corpus is `<base>/<name>/synthetic_skeleton` (tools/native_skeleton_corpus.py finds it by the kernel's code identity under `CFTUV_NATIVE_CORPUS`); no extension is involved and nothing
+      # is committed. The records are the calls of a SUBSET of the kernel's tests (the full list is 40 files, ~12 minutes on a fast machine: `tools/native_skeleton_synthetic.TEST_FILES`),
+      # the frozen cases of the generator (`CASES`: every branch the tests do not reach) and the derived records with a ceiling cut under the spend (the named exhaustion).
+      - name: Build the synthetic skeleton corpus (kernel-test subset, generator, derivation)
+        env:
+          PYTHONSAFEPATH: "1"
+        run: |
+          OUT="$RUNNER_TEMP/skeleton-corpus/ci/synthetic_skeleton"
+          python tools/native_skeleton_synthetic.py build --out "$OUT" --ci
+          python tools/native_skeleton_generated.py generate --corpus "$OUT"
+          python tools/native_skeleton_derive.py --corpus "$OUT"
+      - name: Size of the corpus
+        run: |
+          du -sh "$RUNNER_TEMP/skeleton-corpus" || true
+          find "$RUNNER_TEMP/skeleton-corpus" -type f | wc -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-skeleton-py${{ matrix.python }}
+          path: ${{ runner.temp }}/skeleton-corpus
+          if-no-files-found: error
+          retention-days: 1
+
   differential:
     name: differential (py${{ matrix.python }}, slots ${{ matrix.slots }})
-    needs: [wheel, corpus]
+    needs: [wheel, corpus, corpus-skeleton]
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -174,6 +213,10 @@ jobs:
         with:
           name: synthetic-clip-py${{ matrix.python }}
           path: ${{ runner.temp }}/synthetic-clip
+      - uses: actions/download-artifact@v4
+        with:
+          name: synthetic-skeleton-py${{ matrix.python }}
+          path: ${{ runner.temp }}/skeleton-corpus
       # CLEAN venv: nothing of the repository is importable but what the tests put on `sys.path` themselves (kernel/src, kernel/tests, tools); `PYTHONSAFEPATH` keeps the checkout out
       - name: Clean venv with the exact test dependencies and the wheel
         run: |
@@ -201,7 +244,7 @@ jobs:
           if not built_from == now["tree"]["id"] == now["installed"]["id"]:
               raise SystemExit("NATIVE_BUILD_ID_MISMATCH: the wheel under test is not the build of the tree under test")
           PYCODE
-      - name: Both native operations are available against this kernel (the pin), on this interpreter, in this slot mode
+      - name: All three native operations are available against this kernel (the pin), on this interpreter, in this slot mode
         env:
           PYTHONPATH: kernel/src
           CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
@@ -212,13 +255,15 @@ jobs:
 
           status = cftuv_native.native_status()
           print("python", sys.version.split()[0], "| build_id", cftuv_native.native_build_id(), "| slots", cftuv_native.slot_mode(), "|", status)
-          if status != {"coverage": "available", "clip": "available"}:
+          if status != {"coverage": "available", "clip": "available", "skeleton": "available"}:
               raise SystemExit(f"NATIVE_NOT_AVAILABLE {status}")
           mode = cftuv_native.slot_mode()
           layouts = cftuv_native.new_mirror().raw_layouts()
-          print("slot layouts:", layouts)
-          if all(layouts.values()) is not (mode != "attr"):
-              raise SystemExit(f"NATIVE_SLOT_MODE_NOT_HONOURED mode {mode}: {layouts}")
+          skeleton_layouts = cftuv_native.new_mirror().skeleton_raw_layouts()
+          print("slot layouts:", layouts, "| skeleton:", skeleton_layouts)
+          for found in (layouts, skeleton_layouts):
+              if all(found.values()) is not (mode != "attr"):
+                  raise SystemExit(f"NATIVE_SLOT_MODE_NOT_HONOURED mode {mode}: {found}")
           PYCODE
       # STRICT: a missing extension, a stale pin, a moved build id, a missing synthetic corpus or any other skip FAILS. The field tier (`native_field`) needs the owner's
       # corpus recorded from the Blender scene: it is deselected BY NAME and reported (the step summary lists every deselected test).
@@ -228,8 +273,9 @@ jobs:
           CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
           CFTUV_NATIVE_EXPECT_PYTHON: ${{ matrix.python }}
           CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/synthetic-clip
-          # no field corpus here, and the job says so (the default is the owner's drive)
-          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/no-field-corpus
+          # NO field corpus here, and the job says so (the default is the owner's drive): the base holds only the synthetic skeleton corpus built above
+          # (`<base>/ci/synthetic_skeleton`); the coverage and clip field corpora (`<base>/<name>/index.json`) and the field polygons (`<base>/skeleton_polygons`) are not there
+          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/skeleton-corpus
         run: >-
           "$PY" -m pytest tests/test_native_*.py -m "not native_field"
           -p no:cacheprovider -q -rsfE --durations=25
@@ -284,13 +330,14 @@ jobs:
   native-gate:
     name: native-gate
     if: always()
-    needs: [rust, wheel, corpus, differential]
+    needs: [rust, wheel, corpus, corpus-skeleton, differential]
     runs-on: ubuntu-latest
     steps:
       - name: Every job of the native proof succeeded
         run: |
-          echo "rust=${{ needs.rust.result }} wheel=${{ needs.wheel.result }} corpus=${{ needs.corpus.result }} differential=${{ needs.differential.result }}"
+          echo "rust=${{ needs.rust.result }} wheel=${{ needs.wheel.result }} corpus=${{ needs.corpus.result }} corpus-skeleton=${{ needs.corpus-skeleton.result }} differential=${{ needs.differential.result }}"
           test "${{ needs.rust.result }}" = success
           test "${{ needs.wheel.result }}" = success
           test "${{ needs.corpus.result }}" = success
+          test "${{ needs.corpus-skeleton.result }}" = success
           test "${{ needs.differential.result }}" = success

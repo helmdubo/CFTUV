@@ -14,7 +14,7 @@
 (выключен; набор тестов его включает, и сверка `--audit on` в `native_skeleton_verify.py` доказывает, что исход от аудита не зависит). Одинаковые вызовы (тот же полигон,
 режим, бюджет и память) пишутся один раз; `live_equal` в строке индекса — совпал ли исход, увиденный тестом, с исходом чистого эталона (нет — тест подменял ядро).
 
-    python tools/native_skeleton_synthetic.py build [--out DIR] [--files a.py,b.py]    # прогон тестов ядра с плагином (подпроцесс), индекс
+    python tools/native_skeleton_synthetic.py build [--out DIR] [--files a.py,b.py | --ci]    # прогон тестов ядра с плагином (подпроцесс), индекс; `--ci` — подмножество `CI_FILES`
     python tools/native_skeleton_synthetic.py inventory [--out DIR]                    # опись корпуса
     python tools/native_skeleton_synthetic.py rewrite --src RAW [--out DIR]            # переписать построенный корпус с холодной памятью и без повторов
 """
@@ -105,6 +105,33 @@ TEST_FILES = (
 )
 
 
+#: The subset CI builds (`.github/workflows/native.yml`, job `corpus-skeleton`): the files that give most of the distinct calls for a small part of the time. Measured on the full list (3026
+#: tests, 1573 distinct calls, ~1700 s of tests): these 18 files are 1350 of the calls in ~290 s. The files left out are the slow ones that add a handful of records each (the differential
+#: and conveyor suites, the vertex fans, the price-without-history and interval-step suites: ~1100 s for ~50 calls); what they reach is reached by the generator's frozen cases, which CI also
+#: builds. A test asserts that this list is a part of `TEST_FILES`.
+CI_FILES = (
+    "test_adaptive_density_fan_authority.py",
+    "test_alpha_interval.py",
+    "test_corner_fold.py",
+    "test_corner_join.py",
+    "test_density_exact_limit_lift.py",
+    "test_exact_identity_shadow.py",
+    "test_exact_work_budget.py",
+    "test_exact_work_budget_coverage.py",
+    "test_lazy_hydration_shadow.py",
+    "test_surface_flat_reduction.py",
+    "test_wavefront_coverage.py",
+    "test_wavefront_degenerate_event.py",
+    "test_wavefront_event_queue.py",
+    "test_wavefront_faces.py",
+    "test_wavefront_mitered_standard.py",
+    "test_wavefront_motorcycle_graph.py",
+    "test_wavefront_proof_obligations.py",
+    "test_wavefront_same_time_closure.py",
+    "test_wavefront_weighted_wall_differential.py",
+)
+
+
 def default_out() -> Path:
     return Path(os.environ.get(OUT_ENVIRONMENT) or sc.default_out("synthetic"))
 
@@ -128,7 +155,7 @@ def cold_state(before: nc.StateV1) -> nc.StateV1:
 
 
 def _dedupe_key(blob: bytes, before: nc.StateV1) -> tuple:
-    shape = json.dumps([before.budget, before.identity_mode], default=str, sort_keys=True)
+    shape = json.dumps([before.budget, before.identity_mode, before.replay_check], default=str, sort_keys=True)
     return (hashlib.sha1(blob).digest(), hashlib.sha1(shape.encode()).digest())
 
 
@@ -160,7 +187,7 @@ class _Collector:
             call = nc.unpack_call(nc.OP_SKELETON, args, kwargs)
             blob = nc.encode_call(call)
             budget = nc.budget_state(call.budget)
-            before = cold_state(nc.StateV1([], [], [], [], budget, dict(nc.exact.SIGN_COUNTS), (0,) * 6, None, False, nc.exact_identity.identity_mode().value))
+            before = cold_state(nc.StateV1([], [], [], [], budget, dict(nc.exact.SIGN_COUNTS), (0,) * 6, None, False, nc.exact_identity.identity_mode().value, nc.coordinator.replay_check_enabled()))
         except Exception as exc:  # noqa: BLE001 - вызов, который корпус не несёт, учитывается, а не роняет тест
             self.skipped[type(exc).__name__] += 1
             return None
@@ -361,6 +388,7 @@ def main(argv=None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--src", type=Path, default=None)
     parser.add_argument("--files", default="")
+    parser.add_argument("--ci", action="store_true", help="build from the subset CI uses (`CI_FILES`)")
     arguments = parser.parse_args(argv)
     out = arguments.out or default_out()
     if arguments.command == "inventory":
@@ -370,7 +398,9 @@ def main(argv=None) -> int:
         document = rewrite(arguments.src, out)
         print(f"NATIVE_SKELETON_SYNTHETIC_REWRITE_OK {document['records_count']} {document['total_bytes']}")
         return 0
-    files = tuple(item for item in arguments.files.split(",") if item) or TEST_FILES
+    if arguments.ci and arguments.files:
+        parser.error("--ci and --files are two ways to name the files: pick one")
+    files = CI_FILES if arguments.ci else tuple(item for item in arguments.files.split(",") if item) or TEST_FILES
     return build(out, files)
 
 

@@ -18,8 +18,9 @@
 * голова `apply_superlevel_transaction`: где эталон возвращается до символьного слоя, нативная голова делает то же.
 
 Источники вызовов: настоящий `build_skeleton` на именованных, взвешенных, сгенерированных и веерных полигонах, полевых полигонах и на корпусе скелета (синтетика тестов ядра,
-сгенерированные полигоны, поле), все бюджеты. Эталон падает `TypeError` на части синтетики (сортировка рождений `_meeting_plans` сравнивает `None` с ключом); порт отвечает на это
-ИМЕНОВАННЫМ отказом до состояния (`Unsupported`), и пара «`TypeError` эталона — отказ порта» считается совпадением.
+сгенерированные полигоны, поле), все бюджеты. Рождения и их порты упорядочены ключом `identity_order_key` (эталон d6b2c49: конец пролёта без места стоит ПОСЛЕ любого значения слота), поэтому
+на полигонах корпуса эталон больше не падает `TypeError` сортировки и пара «`TypeError` эталона — отказ порта» там не встречается (тест корпуса требует ноль таких пар). Пары остаются только для входов,
+которые сверка собирает сама (испорченные снимки): внутренняя ошибка эталона на входе, какого фронт не делает, и именованный отказ порта до состояния (`Unsupported`) — совпадение.
 
 Модуль пропускается с названной причиной, пока расширение не собрано (`python tools/native_build.py`) либо дерево ядра ушло от закреплённых файлов листа.
 """
@@ -58,6 +59,8 @@ if _STALE:
         allow_module_level=True,
     )
 
+from native_gate import field_tier  # noqa: E402
+
 import native_builder_gate as gate  # noqa: E402
 import native_corpus as nc  # noqa: E402
 import native_leaf_gate as leaf  # noqa: E402
@@ -74,6 +77,9 @@ CHECKED: Counter = Counter()
 FIELD_POLYGONS = motorcycle_gate.FIELD_POLYGONS
 #: the field polygons that the real `build_skeleton` runs through here in seconds (the heavy ones are the gate's: `tools/native_builder_gate.py gate`)
 FIELD_FAST = parts.FIELD_FAST
+#: The polygons of the owner's FIELD scene (`tools/native_leaf_gate.py fetch`): they exist only on the owner's drive, so the tests that need them are the field tier (`native_gate.field_tier`: CI
+#: deselects the tier by name and reports it; a skip would be a failure in strict mode).
+needs_field_polygons = field_tier(FIELD_POLYGONS.exists(), f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
 HEAVY_PRIMITIVES = {name: (12, 40, 10**9) for name in ("_position", "_edge_event_is_live", "_split_is_live", "_front_vertex_met_by")}
 
 
@@ -292,9 +298,8 @@ def test_the_builder_init_runs_out_of_budget_at_the_operation_the_oracle_does():
     assert verifier.raised["BUILDER_INIT"] >= 40, f"the starved inits rarely ran out inside the builder: {dict(verifier.raised)}"
 
 
+@needs_field_polygons
 def test_the_builder_after_init_equals_the_oracle_on_the_field_polygons_when_they_are_in_the_corpus():
-    if not FIELD_POLYGONS.exists():
-        pytest.skip(f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
     verifier = verifier_of()
     polygons = leaf.load_polygons(FIELD_POLYGONS)
     for _name, polygon in polygons:
@@ -373,9 +378,8 @@ def test_a_level_budget_replaced_by_a_test_is_the_oracles_named_outcome():
     assert outcomes["LEVEL_BUDGET_EXHAUSTED"] >= 4, dict(outcomes)
 
 
+@needs_field_polygons
 def test_the_loop_and_the_plans_equal_the_oracle_on_the_fast_field_polygons():
-    if not FIELD_POLYGONS.exists():
-        pytest.skip(f"нет записанных полевых полигонов ({FIELD_POLYGONS}): их кладёт `python tools/native_leaf_gate.py fetch`")
     verifier = verifier_of()
     polygons = leaf.load_polygons(FIELD_POLYGONS, only=FIELD_FAST)
     assert polygons
@@ -589,7 +593,7 @@ def corpus_polygons() -> list:
     return list(found.values())
 
 
-def test_the_loop_the_snapshots_and_the_plans_equal_the_oracle_on_the_skeleton_corpus_and_name_the_internal_errors_of_the_oracle():
+def test_the_loop_the_snapshots_and_the_plans_equal_the_oracle_on_the_skeleton_corpus():
     pool = corpus_polygons()
     if not pool:
         pytest.skip(f"нет корпуса скелета под ядро {nc.clip_memo.kernel_code_identity()}: {sc.describe_missing('synthetic')}")
@@ -599,7 +603,8 @@ def test_the_loop_the_snapshots_and_the_plans_equal_the_oracle_on_the_skeleton_c
         run_oracle(verifier, polygon, leaf.fresh_process_state(), level=level)
     settle(verifier)
     assert len(chosen) > 50
-    assert sum(verifier.internal_agreed.values()) >= 1, "no oracle TypeError of the corpus fell in the plans: the named refusal was never checked"
+    # the polygons of the corpus whose symbolic references have ends without a place (the 30 synthetic records that used to end in a `TypeError`) are answered by NAMED outcomes now
+    assert not verifier.internal_agreed, f"the oracle ended in an internal error on a polygon of the corpus: {dict(verifier.internal_agreed)}"
 
 
 # --------------------------------------------------------------------------

@@ -185,9 +185,9 @@ def _extension():
     return cftuv_native
 
 
-def test_both_native_operations_are_available_against_this_tree_of_the_kernel():
+def test_all_three_native_operations_are_available_against_this_tree_of_the_kernel():
     status = _extension().native_status()
-    assert status == {"coverage": "available", "clip": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
+    assert status == {"coverage": "available", "clip": "available", "skeleton": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
 
 
 def test_the_installed_build_is_the_build_of_this_tree():
@@ -244,6 +244,27 @@ def test_the_synthetic_clip_corpus_is_there_and_was_recorded_under_this_kernel()
     assert document.get("kernel_identity") == clip_memo.kernel_code_identity(), "the synthetic corpus was recorded under another kernel: it describes another oracle"
     assert len(geometry.synthetic_paths()) >= 400 and document["records_count"] >= 400, "the synthetic corpus is too small to be a corpus"
     assert sum(document["seam_calls"].values()) > 10_000, "the seam calls recorded from the kernel tests are missing"
+
+
+def test_the_synthetic_skeleton_corpus_is_there_and_was_recorded_under_this_kernel():
+    """The skeleton's differential tests read the corpus built from the kernel's own tests and generators (`native_skeleton_synthetic.py build`, then `native_skeleton_generated.py generate` and
+    `native_skeleton_derive.py`); a strict run (CI) builds it under `CFTUV_NATIVE_CORPUS` and names it, the field corpus of the owner is not needed for it."""
+
+    _extension()
+    import native_corpus as nc
+    import native_skeleton_corpus as sc
+
+    if native_gate.strict():
+        assert os.environ.get(nc.CORPUS_ENVIRONMENT), f"a strict run builds the synthetic skeleton corpus and says where ({nc.CORPUS_ENVIRONMENT})"
+    root = sc.matching("synthetic")
+    if root is None:
+        pytest.skip(sc.describe_missing("synthetic"))
+    document = sc.load_index(root)
+    assert document["kernel_identity"] == nc.clip_memo.kernel_code_identity(), "the synthetic skeleton corpus was recorded under another kernel: it describes another oracle"
+    rows = sc.rows_of(root)
+    assert len(rows) >= 2000, f"the synthetic skeleton corpus is too small to be a corpus: {len(rows)} records"
+    assert sum(1 for row in rows if row.get("derived") is None) >= 400 and any(row.get("derived") is not None for row in rows), "the derived records (a ceiling cut under the spend) are missing"
+    assert any(row["split_search"] == "EXHAUSTIVE" for row in rows), "the exhaustive-search records are missing"
 
 
 def test_a_real_domain_computed_by_the_native_backend_through_the_products_dispatcher_equals_the_oracles_and_names_its_native_calls():
