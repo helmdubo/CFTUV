@@ -1614,6 +1614,34 @@ def test_the_dispatch_hook_detector_flags_a_wired_module_and_passes_a_plain_one(
     assert not _dispatch_hooks(ast.parse(plain))
 
 
+#: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
+#: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
+#: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
+RUST_ONLY_OPERATIONS = ("coverage", "clip")
+
+
+def test_python_sources_of_rust_only_stages_stay_at_their_pin():
+    """Python-файлы стадий из `RUST_ONLY_OPERATIONS` побитово равны закреплению (`cftuv_native/pin.py`); исчезнувший файл — тоже дрейф."""
+
+    import hashlib
+
+    pin = _load_native_pin()
+    root = KERNEL_SOURCE / "cftuv_envelope"
+    drift = []
+    for operation in RUST_ONLY_OPERATIONS:
+        for name in pin.OPERATION_FILES[operation]:
+            path = root / name
+            found = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest() if path.exists() else None
+            if found != pin.PINS[name]:
+                drift.append(f"{operation}: {name}" + ("" if path.exists() else " (missing)"))
+    assert not drift, (
+        "стадия переведена на Rust, а её Python-эталон изменён мимо закрепления:\n"
+        + "\n".join(drift)
+        + "\n\nЗакон этой стадии меняется в Rust: правка Python-файла идёт вместе с портом и новым закреплением "
+        "(`python -m cftuv_native.pin`) от Rust-сессии, в одном изменении."
+    )
+
+
 def test_a_dispatch_hook_in_a_pinned_oracle_file_comes_with_its_new_pin():
     """Диспетчер в закреплённом файле эталона делает порт `stale`, пока закрепление (`python -m cftuv_native.pin`) не перевыпущено.
 
