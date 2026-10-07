@@ -63,6 +63,8 @@ def _span_orientation(view, span_ref):
     span = view.span_state(span_ref)
     occurrence = getattr(span_ref, "occurrence", None)
     if occurrence is not None and len(occurrence) == 3:
+        if occurrence[1] is None or occurrence[2] is None:
+            return 0
         start_x, start_y = (SqrtSumV1(item) for item in occurrence[1])
         end_x, end_y = (SqrtSumV1(item) for item in occurrence[2])
         direction = (
