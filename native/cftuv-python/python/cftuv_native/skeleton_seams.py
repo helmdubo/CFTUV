@@ -78,6 +78,8 @@ SEAMS = (
     (254, "PLAN_COMPONENTS"),
     (255, "PLAN_SPLIT_MATERIALIZATION"),
     (300, "BUILDER_PRIMITIVE"),
+    (301, "PYSET_SCRIPT"),
+    (302, "SET_ORDER_NONE_LAST"),
 )
 OPCODES = {name: code for code, name in SEAMS}
 
@@ -325,6 +327,8 @@ DECODERS = {
     "PLAN_COMPONENTS": dec_str,
     "PLAN_SPLIT_MATERIALIZATION": dec_str,
     "BUILDER_PRIMITIVE": lambda wire: wire,
+    "PYSET_SCRIPT": lambda wire: wire,
+    "SET_ORDER_NONE_LAST": lambda wire: wire,
 }
 
 

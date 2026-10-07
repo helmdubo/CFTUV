@@ -15,6 +15,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::exact::{self, ExactCtx};
@@ -23,9 +24,10 @@ use cftuv_core::sqrt_sum::{SqrtSum, SIGN_FILTER_BITS};
 use crate::error::{SkelError, SkelResult};
 use crate::germ::{absorbed_by_locus, locus_ends, GermLedger};
 use crate::proof::EdgeKey;
-use crate::pyval::{sorted_by_repr, sorted_by_val_or_refuse, Val};
+use crate::pyset::PySet;
+use crate::pyval::{identity_order_val, sorted_by_repr, sorted_by_val_or_refuse, Val};
 use crate::queue::{CandidateEvent, EventKind};
-use crate::snapshot::{event_identity, exact_point_key, same_event, time_key, Incident, IncidentSortKey, Snapshot, VertexSnapshot};
+use crate::snapshot::{exact_point_key, Incident, IncidentSortKey, Snapshot, VertexSnapshot};
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
 
 // --------------------------------------------------------------------------
@@ -157,7 +159,7 @@ pub fn fold_germ(previous: &BoundaryBirth, repeated: &BoundaryBirth) -> Boundary
 /// `_birth(time, point_key, prev_occurrence, next_occurrence, replaces=..., ledger=...)`: the one door of the materialisation of a contact junction; the runtime id is not
 /// in the key. A germ presented again answers the same object.
 pub fn birth(
-    time: &EventTime,
+    time: &TimeRef,
     point_key: &Val,
     prev_occurrence: Option<&Val>,
     next_occurrence: Option<&Val>,
@@ -167,7 +169,7 @@ pub fn birth(
     let (Some(prev), Some(next)) = (prev_occurrence, next_occurrence) else {
         return Ok(None);
     };
-    let time_key = time_key(time)?;
+    let time_key = ledger.time_key(time)?;
     let key = Val::tuple(vec![time_key.clone(), point_key.clone(), prev.clone(), next.clone()]);
     let germ = BoundaryBirth { point_key: point_key.clone(), prev_occurrence: prev.clone(), next_occurrence: next.clone(), key, replaces };
     match ledger.key(&time_key, point_key, prev, next) {
@@ -176,8 +178,43 @@ pub fn birth(
     }
 }
 
-fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {
-    sorted_by_val_or_refuse(births, |item| item.key.clone(), site)
+/// THE order of births. The oracle sorts births by `item.key` (a tuple whose occurrences may carry `None` ends: `None` against a point key is a `TypeError`, answered here as the
+/// named refusal). Its next version orders them by `item.order_key` instead (`superlevel.BoundaryBirthV1.order_key`, `exact_identity.identity_order_key`: the slots in order, a
+/// `None` AFTER any value of the same slot, the same order where there is no `None`); mirroring it is this one function and [`port_order_key`].
+pub fn birth_order_key(item: &BoundaryBirth) -> Val {
+    if order_none_last() {
+        identity_order_val(&item.key)
+    } else {
+        item.key.clone()
+    }
+}
+
+/// The order of the final birth ports `(birth key, keep prev, keep next)` that the oracle sorts as plain tuples (see [`birth_order_key`]).
+pub fn port_order_key(key: &Val, keep_prev: bool, keep_next: bool) -> Val {
+    let port = Val::tuple(vec![key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]);
+    if order_none_last() {
+        identity_order_val(&port)
+    } else {
+        port
+    }
+}
+
+/// Which oracle the births are ordered like. `false` (the default): the pinned one (a birth is ordered by its plain key, a `None` end of an occurrence against a point key is
+/// `TypeError`). `true`: the oracle of commit 3da8cdd (`BoundaryBirthV1.order_key`, `identity_order_key`: a `None` sorts after any value of its slot). Mirroring that commit is
+/// the default of this switch, the pins of `skeleton_seams.LEAF_PINS`, and the two lines of `poststate::span_orientation` (an occurrence with a `None` end orients as zero); the
+/// differential tests can turn it on (`SET_ORDER_NONE_LAST`) to run against a tree that has the commit.
+static ORDER_NONE_LAST: AtomicBool = AtomicBool::new(false);
+
+pub fn set_order_none_last(on: bool) {
+    ORDER_NONE_LAST.store(on, Ordering::Relaxed);
+}
+
+fn order_none_last() -> bool {
+    ORDER_NONE_LAST.load(Ordering::Relaxed)
+}
+
+pub fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {
+    sorted_by_val_or_refuse(births, birth_order_key, site)
 }
 
 // --------------------------------------------------------------------------
@@ -185,34 +222,36 @@ fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<Boundar
 // --------------------------------------------------------------------------
 
 /// `_connected_components(incidents)`: the transitive closure over a shared vertex or edge occurrence; the members of each, by the geometric order of the incident.
-/// (Ties of that order keep the ascending index; see the module note of `snapshot` on the oracle's set iteration.)
+/// The oracle builds the members as a `set` of indices and iterates it, and the sort by the geometric key is stable: incidents with EQUAL keys stay in the iteration order of
+/// that set, which is the order of its hash table (`pyset`), not the ascending one.
 pub fn connected_components(incidents: &[Incident]) -> Vec<Vec<&Incident>> {
-    let mut pending: BTreeSet<usize> = (0..incidents.len()).collect();
+    let mut pending = PySet::from_range(incidents.len());
     let mut components = Vec::new();
-    while let Some(&seed) = pending.iter().next() {
-        let mut component: BTreeSet<usize> = BTreeSet::from([seed]);
-        let mut vertices: BTreeSet<i64> = incidents[seed].vertex_ids.iter().copied().collect();
-        let mut edges: BTreeSet<i64> = incidents[seed].edge_occurrences.iter().copied().collect();
+    while let Some(seed) = pending.min() {
+        let mut component = PySet::new();
+        component.add(seed);
+        let mut vertices: HashSet<i64> = incidents[seed].vertex_ids.iter().copied().collect();
+        let mut edges: HashSet<i64> = incidents[seed].edge_occurrences.iter().copied().collect();
         loop {
-            let joined: Vec<usize> = pending
-                .iter()
-                .copied()
-                .filter(|index| !component.contains(index) && (incidents[*index].vertex_ids.iter().any(|ident| vertices.contains(ident)) || incidents[*index].edge_occurrences.iter().any(|ident| edges.contains(ident))))
-                .collect();
-            if joined.is_empty() {
-                break;
+            let mut joined = PySet::new();
+            for index in pending.difference(&component).iter() {
+                if incidents[index].vertex_ids.iter().any(|ident| vertices.contains(ident)) || incidents[index].edge_occurrences.iter().any(|ident| edges.contains(ident)) {
+                    joined.add(index);
+                }
             }
-            for index in joined {
-                component.insert(index);
+            let changed = !joined.is_empty();
+            component.update(&joined);
+            for index in joined.iter() {
                 vertices.extend(incidents[index].vertex_ids.iter().copied());
                 edges.extend(incidents[index].edge_occurrences.iter().copied());
             }
+            if !changed {
+                break;
+            }
         }
-        for index in &component {
-            pending.remove(index);
-        }
-        let mut members: Vec<&Incident> = component.into_iter().map(|index| &incidents[index]).collect();
-        members.sort_by_cached_key(|incident| incident.sort_key());
+        pending.difference_update(&component);
+        let mut members: Vec<&Incident> = component.iter().map(|index| &incidents[index]).collect();
+        members.sort_by(|left, right| left.sort_key().cmp(right.sort_key()));
         components.push(members);
     }
     components
@@ -323,7 +362,7 @@ impl<'a, T> Grouped<'a, T> {
 
 fn sorted_incidents<'a>(group: &[&'a Incident]) -> Vec<&'a Incident> {
     let mut sorted = group.to_vec();
-    sorted.sort_by_cached_key(|incident| incident.sort_key());
+    sorted.sort_by(|left, right| left.sort_key().cmp(right.sort_key()));
     sorted
 }
 
@@ -355,7 +394,7 @@ pub fn edge_contact_plans<'a>(edges: &[&'a Incident], splits: &[&'a Incident], v
                 local_splits.push(incident);
             }
         }
-        absorbed.extend(local_splits.iter().map(|incident| event_identity(&incident.event)));
+        absorbed.extend(local_splits.iter().map(|incident| incident.identity().clone()));
         if !local_splits.is_empty() && chains.len() != 1 {
             valid = false;
         }
@@ -383,7 +422,7 @@ pub fn edge_contact_plans<'a>(edges: &[&'a Incident], splits: &[&'a Incident], v
             kinds: sorted_kinds(every.iter().map(|incident| incident.event.kind)),
         });
     }
-    let remaining = splits.iter().filter(|incident| !absorbed.contains(&event_identity(&incident.event))).copied().collect();
+    let remaining = splits.iter().filter(|incident| !absorbed.contains(incident.identity())).copied().collect();
     Ok((contacts, remaining, valid))
 }
 
@@ -524,7 +563,7 @@ pub fn dedupe_split_incidents<'a>(splits: &[&'a Incident]) -> Deduped<'a> {
     for (_, candidates) in &by_vertex {
         let mut unique: Vec<&Incident> = Vec::new();
         for item in candidates {
-            if !unique.iter().any(|seen| same_event(&seen.event, &item.event)) {
+            if !unique.iter().any(|seen| seen.identity() == item.identity()) {
                 unique.push(item);
             }
         }
@@ -541,7 +580,7 @@ pub fn dedupe_split_incidents<'a>(splits: &[&'a Incident]) -> Deduped<'a> {
         dropped += ordered.len() as i64 - 1;
         chosen.push(ordered[0]);
     }
-    chosen.sort_by_cached_key(|incident| incident.sort_key());
+    chosen.sort_by(|left, right| left.sort_key().cmp(right.sort_key()));
     (chosen, dropped, true)
 }
 
@@ -892,19 +931,19 @@ pub struct Stages {
 /// `_component_stages(component, vertices, ledger, budget)`: the three paths on one frozen prestate and whether they are compatible: the dying ports are shared only where
 /// the composition proved it, any other intersection is an ambiguity, not a choice.
 pub fn component_stages(ctx: &mut ExactCtx<'_>, component: &[&Incident], vertices: &[VertexSnapshot], ledger: &mut GermLedger) -> SkelResult<Stages> {
-    let mut geometric: Vec<(IncidentSortKey, Vec<CandidateEvent>)> = Vec::new();
+    let mut geometric: Vec<(&IncidentSortKey, Vec<&Incident>)> = Vec::new();
     for incident in component {
         let key = incident.sort_key();
         match geometric.iter_mut().find(|(known, _)| *known == key) {
-            Some((_, events)) => {
-                if !events.iter().any(|event| same_event(event, &incident.event)) {
-                    events.push(incident.event.clone());
+            Some((_, group)) => {
+                if !group.iter().any(|seen| seen.identity() == incident.identity()) {
+                    group.push(incident);
                 }
             }
-            None => geometric.push((key, vec![incident.event.clone()])),
+            None => geometric.push((key, vec![incident])),
         }
     }
-    let unique_incidents = geometric.iter().all(|(_, events)| events.len() == 1);
+    let unique_incidents = geometric.iter().all(|(_, group)| group.len() == 1);
     let edges: Vec<&Incident> = component.iter().filter(|incident| incident.event.kind == EventKind::Edge).copied().collect();
     let splits: Vec<&Incident> = component.iter().filter(|incident| incident.event.kind == EventKind::Split).copied().collect();
     let (contacts, remaining, valid) = edge_contact_plans(&edges, &splits, vertices, ledger)?;

@@ -10,12 +10,15 @@
 //! materialisation it exists to prevent.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
 
 use cftuv_canon::fxhash::FxBuild;
 
 use crate::plans::{fold_germ, BoundaryBirth};
 use crate::pyval::{sorted_by_repr, Val};
+use crate::error::SkelResult;
 use crate::queue::EventKind;
+use crate::time::{EventTime, TimeRef};
 use crate::snapshot::{Incident, VertexSnapshot};
 
 fn ray_val(ray: (i64, i64)) -> Val {
@@ -115,11 +118,24 @@ pub fn junction_ends(prev_occurrence: &Val, next_occurrence: &Val, rays: &HashMa
 pub struct GermLedger {
     by_key: HashMap<Val, BoundaryBirth, FxBuild>,
     rays: HashMap<Val, (i64, i64), FxBuild>,
+    /// `_time_key` of the times the packet has met, by the identity of the shared time object (the plans of one component all cut through the time of its sample).
+    time_keys: HashMap<*const EventTime, Val, FxBuild>,
 }
 
 impl GermLedger {
     pub fn new(rays: HashMap<Val, (i64, i64), FxBuild>) -> GermLedger {
-        GermLedger { by_key: HashMap::default(), rays }
+        GermLedger { by_key: HashMap::default(), rays, time_keys: HashMap::default() }
+    }
+
+    /// `_time_key(time)`, computed once per time object (the object is held by the plan, so the address is not reused while the ledger lives).
+    pub fn time_key(&mut self, time: &TimeRef) -> SkelResult<Val> {
+        let address = Rc::as_ptr(time);
+        if let Some(found) = self.time_keys.get(&address) {
+            return Ok(found.clone());
+        }
+        let key = crate::snapshot::time_key(time)?;
+        self.time_keys.insert(address, key.clone());
+        Ok(key)
     }
 
     pub fn rays(&self) -> &HashMap<Val, (i64, i64), FxBuild> {

@@ -18,6 +18,7 @@
 //!   the seed, the candidates of every vertex, the loop (levels, the memory of places on a new exact time, the residual of one time, the short LAVs, the finish) (WP-S3);
 //! * `skeleton`, `superlevel`: the result (`Skeleton`, the accumulation of nodes, the duplicate counters), and the head of the transaction with the records of its refusals
 //!   and the emission of the nodes of a component;
+//! * `pyset`: the iteration order of a CPython set of small ints (the members of a component are iterated as one);
 //! * `pyval`: the Python values the planning layer keys, groups and orders by (identity by value, `repr`, the tuple order of CPython with its `TypeError`);
 //! * `snapshot`, `plans`, `germ`, `closure`, `composition`: the frozen prestate of a packet, the plan of each component (death of ports, reconnection of meetings, cut of a
 //!   span, composition, wiring of the births), the ledger of germs, the stable symbolic normal form of the cuts (WP-S4);
@@ -41,6 +42,7 @@ pub mod polygon;
 pub mod poststate;
 pub mod profile;
 pub mod proof;
+pub mod pyset;
 pub mod pyval;
 pub mod queue;
 pub mod repr;

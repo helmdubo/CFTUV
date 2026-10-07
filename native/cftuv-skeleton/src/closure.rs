@@ -84,7 +84,7 @@ pub fn sort_contacts(ctx: &mut ExactCtx<'_>, contacts: &[SplitContact]) -> SkelR
 pub fn event_incident_map(snapshot: &Snapshot) -> Option<HashMap<EventIdentity, &Incident, FxBuild>> {
     let mut grouped: HashMap<EventIdentity, Vec<&Incident>, FxBuild> = HashMap::default();
     for incident in &snapshot.incidents {
-        grouped.entry(event_identity(&incident.event)).or_default().push(incident);
+        grouped.entry(incident.identity().clone()).or_default().push(incident);
     }
     let mut resolved = HashMap::default();
     for (event, group) in grouped {

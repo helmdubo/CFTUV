@@ -13,6 +13,19 @@
 //! handed the builder, the exact context and the level; the loop does not know what is behind it. `snapshot` and `plans` (the first two stages) are ported; the closure
 //! and the commit implement the trait.
 //!
+//! CONTRACT OF THE TRANSACTION (what WP-S5 and WP-S6 implement). `Transaction::apply(builder, ctx, level)` is `apply_superlevel_transaction(builder, level)`: it starts with
+//! `superlevel::transaction_prefix` (the snapshot, the stale and unsupported records, the early returns; `Prefix::Continue` carries the frozen snapshot and the budget
+//! `max(8, 2 * vertices + incidents)` of the closure), then runs the symbolic closure and the runtime commit, mutating the builder ONLY through its public fields and primitives
+//! (`twin`, `new_vertex`, `register`, `emit`, `emit_split_node`, `refuse`, `record_obligation`, `enqueue_for`, `enqueue_edge_event`, `enqueue_splits_against`, the counters,
+//! `vertices[..].alive` and the links), and the commit enqueues under `future_only = Some(overlay.time)` (the oracle's `_FutureQueueV1`: a `compare_times` per push, only a later
+//! event is queued). A refusal of the packet is `superlevel::record_symbolic_unresolvable` and ends `apply` with `Ok(Step::Continue)` (the loop sees `builder.refusal`). It
+//! returns `Step::Stop` never in the product. The loop reads the level counter, the memory of places and `now` itself; the transaction does not touch them.
+//!
+//! What the port asks of the host, as the oracle does without saying so: the asserts of `_enqueue_edge_event` and `_split_candidate` are executed (they cost a `compare_times`
+//! each: the shim must refuse an interpreter started with `-O`, which strips them); `level_limit` is the LIVE `skeleton.level_budget(polygon)` and `BuilderOptions::march_steps`
+//! the LIVE `motorcycle.march_budget` of the grid (tests replace both); `split_search` other than the motorcycle one (`EXHAUSTIVE`, a reference of the benchmarks) is not
+//! carried and is refused by the host before the call.
+//!
 //! Identity. `exact_candidate_view` keys two of its memories by the identity of Python objects (`id()`), and which lookups hit decides the sign counters. The builder
 //! gives every support line and every sliding projection an identity (`fresh_ident`) and keeps it as the oracle's object keeps its address: a twin shares its edge's
 //! line, a vertex keeps its projection. Nothing else is identity-keyed.

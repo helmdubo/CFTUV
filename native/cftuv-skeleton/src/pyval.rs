@@ -422,6 +422,19 @@ fn py_compare(left: &Val, right: &Val) -> Result<Ordering, UnorderedPair> {
     }
 }
 
+/// `exact_identity.identity_order_key(value)` (the oracle of commit 3da8cdd): the key that orders identity keys whose slots may be `None`: `None` is `(1,)`, a tuple is
+/// `(0, (keys of its items))`, anything else `(0, value)`, so a `None` sorts AFTER any value of the same slot and the order of keys without a `None` is the plain one.
+pub fn identity_order_val(value: &Val) -> Val {
+    if value.is_none() {
+        return Val::tuple(vec![Val::int(1)]);
+    }
+    if value.is_tuple() {
+        let items: Vec<Val> = value.items().unwrap_or(&[]).iter().map(identity_order_val).collect();
+        return Val::tuple(vec![Val::int(0), Val::tuple(items)]);
+    }
+    Val::tuple(vec![Val::int(0), value.clone()])
+}
+
 /// `sorted(items, key=key)` for a key that CPython orders with `<` (a stable sort in CPython 3.11's comparison sequence). An unordered pair that the sort reaches is
 /// the oracle's `TypeError`.
 pub fn sorted_by_val<T: Clone>(items: &[T], key: impl Fn(&T) -> Val) -> Result<Vec<T>, UnorderedPair> {
@@ -523,6 +536,20 @@ mod tests {
         let sorted = sorted_by_val(&fine, Val::clone).unwrap();
         assert_eq!(sorted[0], fine[1]);
         assert_eq!(sorted_by_val(&items[..1], Val::clone).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_identity_order_key_puts_none_after_any_value_of_the_slot_and_leaves_the_rest_alone() {
+        let with_point = pair(Val::int(1), Val::tuple(vec![Val::int(5)]));
+        let without = pair(Val::int(1), Val::none());
+        assert!(py_less(&identity_order_val(&with_point), &identity_order_val(&without)).unwrap());
+        assert!(!py_less(&identity_order_val(&without), &identity_order_val(&with_point)).unwrap());
+        // no `TypeError` where the plain order raised
+        assert!(py_less(&with_point, &without).is_err());
+        // the order of keys without a None is the plain one
+        let (low, high) = (pair(Val::int(1), Val::int(2)), pair(Val::int(1), Val::int(3)));
+        assert_eq!(py_less(&low, &high).unwrap(), py_less(&identity_order_val(&low), &identity_order_val(&high)).unwrap());
+        assert_eq!(py_less(&high, &low).unwrap(), py_less(&identity_order_val(&high), &identity_order_val(&low)).unwrap());
     }
 
     #[test]

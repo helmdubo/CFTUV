@@ -32,6 +32,7 @@ use crate::candidate::CandidateRefusal;
 use crate::error::SkelResult;
 use crate::plans::{EdgeContactPlan, SplitCutPlan, VertexMeetingPlan};
 use crate::proof::ProofDisposition;
+use crate::pyset::PySet;
 use crate::pyval::Val;
 use crate::seam_builder::{builder_of, event_of, events_of, kind_of, options_of, snapshot_of, state_value};
 use crate::seam_graph::{cause_of, ints_of, keys_of, nanoseconds};
@@ -39,7 +40,7 @@ use crate::superlevel::{emit_edge_contact, emit_meeting, emit_nodes, record_dupl
 use crate::time::EventTime;
 use crate::wire::{bad, fixed, i64_of, int, list, optional, point_of, point_value, str_of, time_of, Wire};
 
-pub(crate) const SEAMS: &[(u16, &str)] = &[(300, "BUILDER_PRIMITIVE")];
+pub(crate) const SEAMS: &[(u16, &str)] = &[(300, "BUILDER_PRIMITIVE"), (301, "PYSET_SCRIPT"), (302, "SET_ORDER_NONE_LAST")];
 
 fn identity_of(ids: &Value, participants: &Value, targets: &Value) -> Wire<(Vec<i64>, Vec<Vec<i64>>, Vec<Vec<i64>>)> {
     Ok((ints_of(ids, "proof ids")?, keys_of(participants, "proof keys")?, keys_of(targets, "proof keys")?))
@@ -164,7 +165,54 @@ fn run(builder: &mut Builder, ctx: &mut ExactCtx<'_>, op: i64, args: &[Value]) -
     })
 }
 
+/// `PYSET_SCRIPT`: `[ops]` on registers of sets of ints, each op a list; `[0, r, n]` `r = set(range(n))`, `[1, r]` `r = set()`, `[2, r, key]` `r.add(key)`, `[3, r, o]`
+/// `r.update(o)`, `[4, r, a, b]` `r = a - b`, `[5, r, o]` `r.difference_update(o)`, `[6, r, a]` `r = set(a)`, `[7, r]` answers `list(r)`. The answer is the list of those lists.
+fn pyset_script(args: &[Value]) -> Wire<SkelResult<Value>> {
+    let mut registers: Vec<PySet> = Vec::new();
+    let mut answers = Vec::new();
+    let index = |value: &Value| -> Wire<usize> { usize::try_from(i64_of(value, "a register")?).map_err(|_| bad("a register")) };
+    for op in list(args.first().ok_or_else(|| bad("too few arguments"))?, "a pyset script")? {
+        let items = list(op, "a pyset operation")?;
+        let code = i64_of(items.first().ok_or_else(|| bad("a pyset operation"))?, "an operation")?;
+        let target = index(items.get(1).ok_or_else(|| bad("a register"))?)?;
+        if registers.len() <= target {
+            registers.resize_with(target + 1, PySet::new);
+        }
+        let other = |position: usize, registers: &[PySet]| -> Wire<PySet> { registers.get(index(items.get(position).ok_or_else(|| bad("a register"))?)?).cloned().ok_or_else(|| bad("an unknown register")) };
+        match code {
+            0 => registers[target] = PySet::from_range(index(items.get(2).ok_or_else(|| bad("a count"))?)?),
+            1 => registers[target] = PySet::new(),
+            2 => registers[target].add(index(items.get(2).ok_or_else(|| bad("a key"))?)?),
+            3 => {
+                let source = other(2, &registers)?;
+                registers[target].update(&source);
+            }
+            4 => {
+                let (first, second) = (other(2, &registers)?, other(3, &registers)?);
+                registers[target] = first.difference(&second);
+            }
+            5 => {
+                let source = other(2, &registers)?;
+                registers[target].difference_update(&source);
+            }
+            6 => registers[target] = other(2, &registers)?.copy(),
+            7 => answers.push(Value::List(registers[target].iter().map(|key| int(key as u64)).collect())),
+            _ => return Err(bad("a pyset operation")),
+        }
+    }
+    Ok(Ok(Value::List(answers)))
+}
+
 pub(crate) fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
+    if code == 301 {
+        return pyset_script(args);
+    }
+    if code == 302 {
+        // `[flag]`: the births are ordered like the oracle of commit 3da8cdd (see `plans::set_order_none_last`); answers the flag
+        let flag = crate::wire::flag_of(args.first().ok_or_else(|| bad("too few arguments"))?, "the flag")?;
+        crate::plans::set_order_none_last(flag);
+        return Ok(Ok(Value::Bool(flag)));
+    }
     if code != 300 {
         return Err(bad(&format!("unknown skeleton seam opcode {code}")));
     }

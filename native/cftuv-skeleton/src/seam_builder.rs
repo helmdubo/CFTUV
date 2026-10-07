@@ -444,6 +444,8 @@ fn incident_of(value: &Value) -> Wire<Incident> {
         peer_key: val_of(peer)?,
         target_occurrence: opt_val(occurrence, "the target occurrence")?,
         target_ray: optional(ray, |found| ray_of(found, "a target ray"))?,
+        sort_cache: std::cell::OnceCell::new(),
+        identity_cache: std::cell::OnceCell::new(),
     })
 }
 

@@ -10,6 +10,7 @@
 //! `(prev edge key | None, next edge key | None)`. They are [`Val`]s (the oracle's `ExactIdentityKeyV1` is a tuple that remembers its hash), compared, hashed and printed
 //! as Python does.
 
+use std::cell::OnceCell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -72,6 +73,10 @@ pub struct Incident {
     pub peer_key: Val,
     pub target_occurrence: Option<Val>,
     pub target_ray: Option<(i64, i64)>,
+    /// `_incident_sort_key` and the identity of the event, computed on first use (both are asked many times per plan; the oracle recomputes them each time). A new incident
+    /// starts them empty (`OnceCell::new()`).
+    pub sort_cache: OnceCell<IncidentSortKey>,
+    pub identity_cache: OnceCell<EventIdentity>,
 }
 
 /// `SuperlevelSnapshotV1`.
@@ -104,8 +109,17 @@ pub fn same_event(left: &CandidateEvent, right: &CandidateEvent) -> bool {
 }
 
 impl Incident {
-    /// `_incident_sort_key(incident)`.
-    pub fn sort_key(&self) -> IncidentSortKey {
+    /// `_incident_sort_key(incident)` (computed once).
+    pub fn sort_key(&self) -> &IncidentSortKey {
+        self.sort_cache.get_or_init(|| self.compute_sort_key())
+    }
+
+    /// The identity of the event of the incident (`==` and `hash` of `CandidateEventV1`), computed once.
+    pub fn identity(&self) -> &EventIdentity {
+        self.identity_cache.get_or_init(|| event_identity(&self.event))
+    }
+
+    fn compute_sort_key(&self) -> IncidentSortKey {
         IncidentSortKey {
             kind: self.event.kind.value(),
             point_key: self.point_key.repr().to_string(),
@@ -121,7 +135,11 @@ impl Incident {
 
     /// `left == right` of two incidents (every field; the events by their identity).
     pub fn same(&self, other: &Incident) -> bool {
-        same_event(&self.event, &other.event)
+        self.event.kind == other.event.kind
+            && self.event.vertex == other.event.vertex
+            && self.event.peer == other.event.peer
+            && self.event.edge == other.event.edge
+            && self.identity() == other.identity()
             && self.vertex_ids == other.vertex_ids
             && self.edge_occurrences == other.edge_occurrences
             && self.participants == other.participants
@@ -346,6 +364,8 @@ pub fn incident(ctx: &mut ExactCtx<'_>, builder: &mut Builder, event: &Candidate
         peer_key,
         target_occurrence,
         target_ray,
+        sort_cache: OnceCell::new(),
+        identity_cache: OnceCell::new(),
     })
 }
 

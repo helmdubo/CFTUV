@@ -75,6 +75,8 @@ class BuilderVerifier(leaf.LeafVerifier):
         self.unsupported_detail: list = []
         #: how many calls of each primitive were checked
         self.prims: Counter = Counter()
+        #: the oracle's refusals of a hand-made snapshot that are not a contract (see `check_plan`)
+        self.garbage: Counter = Counter()
 
     def wanted(self, name: str) -> bool:
         seam = SEAM_OF.get(name, name)
@@ -347,6 +349,22 @@ class BuilderVerifier(leaf.LeafVerifier):
                 raise error
 
         return apply_superlevel_transaction
+
+    def check_plan(self, snapshot, budget):
+        """`plan_split_materialization(snapshot, budget)` on a snapshot made by hand (a mutant of a real one), against the seam. The oracle may answer, end in the `TypeError` the
+        port names, or refuse a snapshot that no front could make in a way that is not a contract (`KeyError`, `IndexError`, ...): that one is counted as garbage and not compared."""
+
+        pre = leaf.take_pre(budget)
+        try:
+            result, error = closure_module.plan_split_materialization(snapshot, budget), None
+        except Exception as exc:  # noqa: BLE001 - the oracle's own outcome
+            result, error = None, exc
+        if error is not None and not isinstance(error, (TypeError, exact.ExactCanonicalizationWorkBudgetExhausted)):
+            self.garbage[type(error).__name__] += 1
+            self.remember(False)
+            return None
+        self.check("PLAN_SPLIT_MATERIALIZATION", pre, lambda: [self.bseams.enc_snapshot(snapshot)], self.bseams.dec_str, budget, result, error, 0.0, text_of, None)
+        return result
 
     def factories(self):
         found = [("collect_superlevel_snapshot", self.wrap_collect, superlevel)]
