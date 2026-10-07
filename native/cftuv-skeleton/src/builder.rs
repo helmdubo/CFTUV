@@ -276,14 +276,17 @@ pub struct NewVertex {
 
 /// What the host decides about the run: the memory of places (`dense_hydration` is the reference mode with none), the number of march steps of the live oracle's
 /// `march_budget` (a test that replaces it forces the exhaustion of the march), whether the oracle has a named budget (`work_budget is not None`: only then the
-/// string `superlevel` of the budget is written), and the split search: the motorcycle one (the product) or the exhaustive one (`SplitSearch.EXHAUSTIVE`, the reference of the
-/// tests and benchmarks: no graph, no index, every candidate of every reflex vertex against every edge).
+/// string `superlevel` of the budget is written), the split search: the motorcycle one (the product) or the exhaustive one (`SplitSearch.EXHAUSTIVE`, the reference of the
+/// tests and benchmarks: no graph, no index, every candidate of every reflex vertex against every edge), and whether the oracle's self-check of the symbolic closure is on
+/// (`replay_check_enabled()`, the environment variable `CFTUV_SYMBOLIC_REPLAY_CHECK` read by the host at the call: the closure of a packet is then planned a second time and compared;
+/// off in the product).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuilderOptions {
     pub dense_hydration: bool,
     pub march_steps: Option<i64>,
     pub budgeted: bool,
     pub exhaustive: bool,
+    pub replay_check: bool,
 }
 
 /// `(vertex ids, participant edge keys, target edge keys)`: the proof identity of an observation.

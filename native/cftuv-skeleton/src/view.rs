@@ -68,11 +68,22 @@ pub trait CandidateView {
     /// `false` also for a trace that never crashes, which bounds nothing).
     fn trace_bounds(&self, ctx: &mut ExactCtx<'_>, vertex: VertexRef, time: &EventTime) -> SkelResult<Option<bool>>;
     /// `getattr(span_ref, "occurrence", None)` read as the end points of the span, `[start_x, start_y, end_x, end_y]` (the poststate law reads it, once per classified span): the answer
-    /// of [`SpanState::occurrence`] unless the view knows better. A symbolic reference whose occurrence has no end points is the oracle's `TypeError` here (an `Unsupported` of the
-    /// port), not when the span is first asked for: the oracle reads the field only in that law.
-    fn span_occurrence(&self, span: SpanRef) -> SkelResult<Option<[SqrtSum; 4]>> {
-        Ok(self.span_state(span)?.occurrence.cloned())
+    /// of [`SpanState::occurrence`] unless the view knows better. A symbolic reference whose occurrence carries a `None` end (a vertex without a place BY the law) is
+    /// [`SpanOccurrence::WithoutEnd`], which the law answers as an orientation of zero (oracle commit 3da8cdd: `occurrence[1] is None or occurrence[2] is None`); an end that is neither `None` nor a
+    /// point key is the oracle's `TypeError` here (an `Unsupported` of the port), not when the span is first asked for: the oracle reads the field only in that law.
+    fn span_occurrence(&self, span: SpanRef) -> SkelResult<SpanOccurrence> {
+        Ok(self.span_state(span)?.occurrence.map_or(SpanOccurrence::Absent, |points| SpanOccurrence::Points(points.clone())))
     }
+}
+
+/// What `getattr(span_ref, "occurrence", None)` is for the orientation law of a span (`poststate_span._span_orientation`).
+pub enum SpanOccurrence {
+    /// No occurrence (a runtime reference), or one that is not a triple: the law falls through to the sign of the source nodes.
+    Absent,
+    /// A triple whose start or end is `None`: the law answers zero without reading either end.
+    WithoutEnd,
+    /// `[start_x, start_y, end_x, end_y]`: the exact end points of the span.
+    Points([SqrtSum; 4]),
 }
 
 /// The key of a time memo entry: which question, and the identities of the objects it is asked about.

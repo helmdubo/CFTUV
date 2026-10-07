@@ -20,7 +20,7 @@ use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
 use crate::builder::Builder;
-use crate::candidate::{evaluate_edge_candidate, evaluate_split_candidate_gated, NowGate};
+use crate::candidate::{evaluate_edge_candidate, evaluate_split_candidate_gated, NowGate, SplitCandidate};
 use crate::closure::span_family;
 use crate::error::{SkelError, SkelResult};
 use crate::omap::OrderedMap;
@@ -31,6 +31,7 @@ use crate::pyval::Val;
 use crate::queue::{CandidateEvent, EventKind};
 use crate::snapshot::{exact_point_key, incident, sparse_occurrences, time_key, Incident, Snapshot, VertexSnapshot};
 use crate::time::{compare_times, EventPoint, EventTime, PointRef, TimeRef};
+use crate::view::{CandidateView, PositionMemo, SpanRef, VertexRef};
 
 fn sum_val(sum: &SqrtSum) -> Val {
     Val::data("SqrtSumV1", vec![("terms", Val::terms_of(sum))])
@@ -62,9 +63,49 @@ pub fn point_eq(left: &EventPoint, right: &EventPoint) -> bool {
     sum_eq(&left.x, &right.x) && sum_eq(&left.y, &right.y)
 }
 
-/// The gate of the law of a split candidate on the symbolic call path (the discoveries of one exact time). The oracle gates a time BEFORE `now` and then keeps only the contacts
-/// found exactly AT `now` ([`found_at_now`]); a version of the oracle that gates `!= 0` in the law moves this one constant and drops the second check.
-pub const SYMBOLIC_GATE: NowGate = NowGate::NotBefore;
+/// The gate of the law of a split candidate on the symbolic call path (the discoveries of one exact time): the oracle's decision memo passes `at_now_only=True`, so a candidate
+/// later than the level of the overlay is answered "none" without the trace bound, the place and the containment (oracle commit 50dbf0b). The queue's planner passes no such
+/// flag ([`NowGate::NotBefore`]).
+pub const SYMBOLIC_GATE: NowGate = NowGate::ExactlyNow;
+
+/// `SplitDecisionMemoV1` (`symbolic_split_endpoint.py`, oracle commit 26ceaa9): the decisions of the law of a split candidate for the pairs (emitter, leaf) of ONE overlay's content,
+/// one evaluation per pair. The endpoint pass and the interior pass walk the same pairs of the same overlay and route the same answer differently (`at_start` / `at_end`, or the
+/// inside of the span), and generation zero of the mixed generations is built on a clone of the overlay the last pass of the initial closure discovered on, so its pairs are asked
+/// of the memo that pass left. The law is a pure function of the view, which the overlay's content alone determines, so an answer is the answer of the pair: it is evaluated once
+/// and paid once. The memo belongs to the content it was filled on (a clone of that content is the same content); it is never handed to another. Only the candidate is kept: the
+/// symbolic callers read nothing else of a decision. A pair whose evaluation failed is not remembered (the failure ends the call).
+#[derive(Default)]
+pub struct SplitDecisionMemo {
+    decisions: HashMap<(JRef, Leaf), Option<SplitCandidate>, FxBuild>,
+}
+
+impl SplitDecisionMemo {
+    pub fn new() -> SplitDecisionMemo {
+        SplitDecisionMemo::default()
+    }
+
+    /// `memo.decision(evaluate_split_candidate, emitter_ref, leaf)`: the candidate of the pair, evaluated at the first question and remembered.
+    #[allow(clippy::too_many_arguments)]
+    fn candidate<V: CandidateView>(
+        &mut self,
+        ctx: &mut ExactCtx<'_>,
+        view: &V,
+        positions: &mut PositionMemo,
+        emitter: &JRef,
+        emitter_ref: VertexRef,
+        leaf: &Leaf,
+        target: SpanRef,
+        now: &EventTime,
+    ) -> SkelResult<Option<SplitCandidate>> {
+        let key = (emitter.clone(), leaf.clone());
+        if let Some(found) = self.decisions.get(&key) {
+            return Ok(found.clone());
+        }
+        let candidate = evaluate_split_candidate_gated(ctx, view, positions, emitter_ref, target, now, SYMBOLIC_GATE)?.candidate;
+        self.decisions.insert(key, candidate.clone());
+        Ok(candidate)
+    }
+}
 
 /// The check after the law that a contact of a discovery is at exactly `now` (`compare_times(candidate.time, overlay.time) != 0` skips the candidate): one comparison, paid.
 fn found_at_now(ctx: &mut ExactCtx<'_>, time: &EventTime, now: &EventTime) -> SkelResult<bool> {
@@ -292,8 +333,14 @@ fn emitters_of<'a>(builder: &Builder, overlay: &'a Overlay) -> SkelResult<Vec<&'
     Ok(emitters)
 }
 
-/// `discover_interior_split_contacts(builder, overlay)`: every reflex or sliding vertex that meets the inside of a CHANGED leaf at exactly `now`, as stable contacts.
-pub fn discover_interior_split_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
+/// `discover_interior_split_contacts(builder, overlay, memo)`: every reflex or sliding vertex that meets the inside of a CHANGED leaf at exactly `now`, as stable contacts. `decisions`
+/// is the memo of the law's answers for the pairs of this overlay's content (a fresh [`SplitDecisionMemo`] when the caller has none).
+pub fn discover_interior_split_contacts(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    overlay: &Overlay,
+    decisions: &mut SplitDecisionMemo,
+) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
     let found = with_view(builder, overlay, |owner, view, memo| -> SkelResult<Vec<SymSplitContact>> {
         let emitters = emitters_of(owner, overlay)?;
         let emitter_refs = emitters.iter().map(|emitter| view.vertex_ref(&emitter.reference)).collect::<SkelResult<Vec<_>>>()?;
@@ -304,8 +351,7 @@ pub fn discover_interior_split_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Bu
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate_gated(ctx, view, memo, *emitter_ref, target.clone()?, &overlay.time, SYMBOLIC_GATE)?;
-                let Some(candidate) = decision.candidate else {
+                let Some(candidate) = decisions.candidate(ctx, view, memo, &emitter.reference, *emitter_ref, &leaf, target.clone()?, &overlay.time)? else {
                     continue;
                 };
                 if !found_at_now(ctx, &candidate.time, &overlay.time)? || candidate.at_start || candidate.at_end {
@@ -370,9 +416,14 @@ impl EndpointKey {
     }
 }
 
-/// `discover_endpoint_contacts(builder, overlay)`: every vertex that meets an END of a changed leaf at exactly `now`; the keys in the order of their `repr`, or the named
-/// reason when the end that was met has no junction to name it.
-pub fn discover_endpoint_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
+/// `discover_endpoint_contacts(builder, overlay, memo)`: every vertex that meets an END of a changed leaf at exactly `now`; the keys in the order of their `repr`, or the named
+/// reason when the end that was met has no junction to name it. `decisions` as in [`discover_interior_split_contacts`].
+pub fn discover_endpoint_contacts(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    overlay: &Overlay,
+    decisions: &mut SplitDecisionMemo,
+) -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
     with_view(builder, overlay, |owner, view, memo| -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
         let emitters = emitters_of(owner, overlay)?;
         let emitter_refs = emitters.iter().map(|emitter| view.vertex_ref(&emitter.reference)).collect::<SkelResult<Vec<_>>>()?;
@@ -384,8 +435,7 @@ pub fn discover_endpoint_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder,
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate_gated(ctx, view, memo, *emitter_ref, target.clone()?, &overlay.time, SYMBOLIC_GATE)?;
-                let Some(candidate) = decision.candidate else {
+                let Some(candidate) = decisions.candidate(ctx, view, memo, &emitter.reference, *emitter_ref, &leaf, target.clone()?, &overlay.time)? else {
                     continue;
                 };
                 if !found_at_now(ctx, &candidate.time, &overlay.time)? || !(candidate.at_start || candidate.at_end) {
@@ -629,9 +679,14 @@ pub fn endpoint_contact(overlay: &Overlay, key: EndpointKey) -> JunctionContact 
     }
 }
 
-/// `discover_junction_contacts(builder, overlay)`: the endpoint contacts, then the edge contacts, each once, in the order of the `repr` of their identity; or the named reason.
-pub fn discover_junction_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
-    let (endpoints, reason) = discover_endpoint_contacts(ctx, builder, overlay)?;
+/// `discover_junction_contacts(builder, overlay, memo)`: the endpoint contacts, then the edge contacts, each once, in the order of the `repr` of their identity; or the named reason.
+pub fn discover_junction_contacts(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    overlay: &Overlay,
+    decisions: &mut SplitDecisionMemo,
+) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
+    let (endpoints, reason) = discover_endpoint_contacts(ctx, builder, overlay, decisions)?;
     if reason.is_some() {
         return Ok((Vec::new(), reason));
     }

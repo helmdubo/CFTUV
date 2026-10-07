@@ -3,7 +3,7 @@
 //! and the dictionaries the oracle keeps in hash order brought to the canonical form of `pyval`), compared byte for byte, plus the growth of the memory of places.
 //!
 //! ```text
-//! 310 PLAN_SYMBOLIC_CLOSURE        [state, options, snapshot, outer budget, junction budget]          -> [text, growth]
+//! 310 PLAN_SYMBOLIC_CLOSURE        [state, options, snapshot, outer budget, junction budget]          -> [text, growth]   (options: the last is the replay check)
 //! 311 BUILD_SYMBOLIC_OVERLAY       [state, options, vertices, materialization, include line ports]    -> [text, growth]
 //! 312 DISCOVER_INTERIOR_CONTACTS   [state, options, overlay]                                          -> [text, growth]
 //! 313 PLAN_MIXED_GENERATIONS       [state, options, overlay, budget, script | none]                   -> [text, growth]
@@ -39,7 +39,7 @@ use cftuv_core::exact::ExactCtx;
 use crate::builder::{Builder, SlidingValue};
 use crate::closure::{FamilyNormalForm, Materialization};
 use crate::component::{apply_component_deltas, overlay_signature, Delta, Port, SignatureMemo};
-use crate::contacts::{discover_interior_split_contacts, discover_junction_contacts, initial_interior_contacts, ContactKind, EdgeContact, EdgeContactKey, EndpointKey, JunctionContact, SplitKey, SymSplitContact};
+use crate::contacts::{discover_interior_split_contacts, discover_junction_contacts, initial_interior_contacts, ContactKind, EdgeContact, EdgeContactKey, EndpointKey, JunctionContact, SplitDecisionMemo, SplitKey, SymSplitContact};
 use crate::coordinator::{closure_val, plan_symbolic_superlevel_closure};
 use crate::error::SkelResult;
 use crate::generations::{apply_mixed_generation, fixed_point_val, normalize_mixed_generation, plan_mixed_generations_with, Discovery, Natural};
@@ -351,21 +351,21 @@ struct Scripted {
 }
 
 impl Discovery for Scripted {
-    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
         let call = self.junction_calls;
         self.junction_calls += 1;
         match self.rounds.get(call).and_then(|round| round.junction.clone()) {
             Some(answer) => Ok(answer),
-            None => Natural.junction(ctx, builder, overlay),
+            None => Natural.junction(ctx, builder, overlay, decisions),
         }
     }
 
-    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
         let call = self.interior_calls;
         self.interior_calls += 1;
         match self.rounds.get(call).and_then(|round| round.interior.clone()) {
             Some(answer) => Ok(answer),
-            None => Natural.interior(ctx, builder, overlay),
+            None => Natural.interior(ctx, builder, overlay, decisions),
         }
     }
 }
@@ -409,7 +409,7 @@ fn decode_call(code: u16, args: &[Value]) -> Wire<Run> {
         }
         312 => {
             let overlay = overlay_of(at(2)?)?;
-            Box::new(move |ctx, builder| discover_interior_split_contacts(ctx, builder, &overlay).map(|(contacts, reason)| contacts_val(&contacts, reason)))
+            Box::new(move |ctx, builder| discover_interior_split_contacts(ctx, builder, &overlay, &mut SplitDecisionMemo::new()).map(|(contacts, reason)| contacts_val(&contacts, reason)))
         }
         313 => {
             let (overlay, budget) = (overlay_of(at(2)?)?, i64_of(at(3)?, "the budget")?);
@@ -420,12 +420,12 @@ fn decode_call(code: u16, args: &[Value]) -> Wire<Run> {
             Box::new(move |ctx, builder| {
                 let mut memo = SignatureMemo::new();
                 let mut scripted = Scripted { rounds: script, junction_calls: 0, interior_calls: 0 };
-                plan_mixed_generations_with(ctx, builder, &overlay, budget, &mut memo, &mut scripted).map(|(found, later)| Val::tuple(vec![fixed_point_val(&found), Val::tuple(later.iter().map(PlanVal::to_val).collect())]))
+                plan_mixed_generations_with(ctx, builder, &overlay, budget, &mut memo, &mut scripted, None).map(|(found, later)| Val::tuple(vec![fixed_point_val(&found), Val::tuple(later.iter().map(PlanVal::to_val).collect())]))
             })
         }
         314 => {
             let overlay = overlay_of(at(2)?)?;
-            Box::new(move |ctx, builder| discover_junction_contacts(ctx, builder, &overlay).map(|(contacts, reason)| contacts_val(&contacts, reason)))
+            Box::new(move |ctx, builder| discover_junction_contacts(ctx, builder, &overlay, &mut SplitDecisionMemo::new()).map(|(contacts, reason)| contacts_val(&contacts, reason)))
         }
         315 => {
             let overlay = overlay_of(at(2)?)?;

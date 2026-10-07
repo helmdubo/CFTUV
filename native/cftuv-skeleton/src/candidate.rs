@@ -191,9 +191,10 @@ pub fn evaluate_edge_candidate<V: CandidateView>(
 }
 
 /// How the law of a split candidate gates a time against `now` (the one comparison it makes between the time of the triple and `now`, before the trace bound, the place and the
-/// containment): the front refuses a time BEFORE `now`; a call that wants only what happens exactly AT `now` (the symbolic discoveries of one exact time) may refuse every time
-/// but that one. The gate is a parameter, not a branch of the callers, so that moving the oracle's symbolic call path from the first to the second is the change of one constant
-/// ([`crate::contacts::SYMBOLIC_GATE`]). The refusal of the second is the same named reason (`FILTER_EVENT_IN_THE_PAST`: the symbolic callers read only the candidate).
+/// containment): the front refuses a time BEFORE `now` (`FILTER_EVENT_IN_THE_PAST`) and goes on with a later one ([`NowGate::NotBefore`]); a call that wants only what happens
+/// exactly AT `now` (the symbolic discoveries of one exact time: the oracle's `at_now_only`, which only its decision memo passes, [`crate::contacts::SYMBOLIC_GATE`]) answers a
+/// time AFTER `now` with "no candidate" and NO effects, before the trace bound, the place and the containment are paid ([`NowGate::ExactlyNow`]). A time before `now` is refused by
+/// name in both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NowGate {
     NotBefore,
@@ -241,8 +242,11 @@ pub fn evaluate_split_candidate_gated<V: CandidateView>(
         return refused(CandidateRefusal::FilterEventInThePast, false, Vec::new());
     }
     let order = compare_times(ctx, &time, now)?;
-    if (gate == NowGate::NotBefore && order < 0) || (gate == NowGate::ExactlyNow && order != 0) {
+    if order < 0 {
         return refused(CandidateRefusal::FilterEventInThePast, false, Vec::new());
+    }
+    if order > 0 && gate == NowGate::ExactlyNow {
+        return Ok(SplitDecision { candidate: None, effects: Vec::new() });
     }
     if view.trace_bounds(ctx, vertex_ref, &time)? == Some(false) {
         return refused(CandidateRefusal::FilterBeyondTrace, false, vec![("split_candidates_beyond_trace", 1)]);

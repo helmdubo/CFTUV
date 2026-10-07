@@ -15,7 +15,6 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use cftuv_canon::fxhash::FxBuild;
 use cftuv_core::exact::{self, ExactCtx};
@@ -178,39 +177,16 @@ pub fn birth(
     }
 }
 
-/// THE order of births. The oracle sorts births by `item.key` (a tuple whose occurrences may carry `None` ends: `None` against a point key is a `TypeError`, answered here as the
-/// named refusal). Its next version orders them by `item.order_key` instead (`superlevel.BoundaryBirthV1.order_key`, `exact_identity.identity_order_key`: the slots in order, a
-/// `None` AFTER any value of the same slot, the same order where there is no `None`); mirroring it is this one function and [`port_order_key`].
+/// THE order of births: the oracle sorts them by `item.order_key` (`superlevel.BoundaryBirthV1.order_key`, `exact_identity.identity_order_key`: the slots in order, a `None` end of an
+/// occurrence (a vertex without a place BY the law) AFTER any value of the same slot, the order of keys without a `None` the plain one), never by the bare key, whose `<` between a
+/// `None` and a point key is a `TypeError` (oracle commits 3da8cdd, d6b2c49). The one place the port mirrors it is this function and [`port_order_key`].
 pub fn birth_order_key(item: &BoundaryBirth) -> Val {
-    if order_none_last() {
-        identity_order_val(&item.key)
-    } else {
-        item.key.clone()
-    }
+    identity_order_val(&item.key)
 }
 
-/// The order of the final birth ports `(birth key, keep prev, keep next)` that the oracle sorts as plain tuples (see [`birth_order_key`]).
+/// The order of the final birth ports `(birth key, keep prev, keep next)`: the oracle sorts them with `key=identity_order_key` (see [`birth_order_key`]).
 pub fn port_order_key(key: &Val, keep_prev: bool, keep_next: bool) -> Val {
-    let port = Val::tuple(vec![key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]);
-    if order_none_last() {
-        identity_order_val(&port)
-    } else {
-        port
-    }
-}
-
-/// Which oracle the births are ordered like. `false` (the default): the pinned one (a birth is ordered by its plain key, a `None` end of an occurrence against a point key is
-/// `TypeError`). `true`: the oracle of commit 3da8cdd (`BoundaryBirthV1.order_key`, `identity_order_key`: a `None` sorts after any value of its slot). Mirroring that commit is
-/// the default of this switch, the pins of `skeleton_seams.LEAF_PINS`, and the two lines of `poststate::span_orientation` (an occurrence with a `None` end orients as zero); the
-/// differential tests can turn it on (`SET_ORDER_NONE_LAST`) to run against a tree that has the commit.
-static ORDER_NONE_LAST: AtomicBool = AtomicBool::new(false);
-
-pub fn set_order_none_last(on: bool) {
-    ORDER_NONE_LAST.store(on, Ordering::Relaxed);
-}
-
-fn order_none_last() -> bool {
-    ORDER_NONE_LAST.load(Ordering::Relaxed)
+    identity_order_val(&Val::tuple(vec![key.clone(), Val::boolean(keep_prev), Val::boolean(keep_next)]))
 }
 
 pub fn births_by_key(births: &[BoundaryBirth], site: &str) -> SkelResult<Vec<BoundaryBirth>> {

@@ -276,6 +276,7 @@ impl Session {
         polygon: &Bound<'py, PyAny>,
         dense_hydration: bool,
         exhaustive: bool,
+        replay_check: bool,
         level_limit: i64,
         march_steps: Option<i64>,
         sync: Option<&[u8]>,
@@ -283,7 +284,7 @@ impl Session {
         tables: memlog::Tables<'py>,
     ) -> PyResult<skeleton::Answer<'py>> {
         let forced = self.forced.take();
-        let outcome = self.skeleton.build_skeleton(py, &mut self.inner, polygon, dense_hydration, exhaustive, level_limit, march_steps, sync, budget, &tables, forced);
+        let outcome = self.skeleton.build_skeleton(py, &mut self.inner, polygon, dense_hydration, exhaustive, replay_check, level_limit, march_steps, sync, budget, &tables, forced);
         // an error, or an answer that is a refusal of the port: nothing of the call reached the host, and the mirror holds what the call did to it
         if outcome.as_ref().map_or(true, |answer| skeleton::is_native_only(answer.1)) {
             self.reset_memory();

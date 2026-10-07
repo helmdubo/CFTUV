@@ -16,7 +16,7 @@ use cftuv_core::sqrt_sum::{SqrtSum, SIGN_FILTER_BITS};
 
 use crate::error::{SkelError, SkelResult};
 use crate::time::EventTime;
-use crate::view::{collapsing_span, unpack_source_span, CandidateView, PositionMemo, SpanRef, VertexRef};
+use crate::view::{collapsing_span, unpack_source_span, CandidateView, PositionMemo, SpanOccurrence, SpanRef, VertexRef};
 
 /// `PoststateSpanDisposition`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -93,11 +93,16 @@ pub fn vertex_velocity<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, verte
 fn span_orientation<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, span_ref: SpanRef) -> SkelResult<i8> {
     let span = view.span_state(span_ref)?;
     let (a, b) = (Rat::from_i64(span.line.a), Rat::from_i64(span.line.b));
-    if let Some([start_x, start_y, end_x, end_y]) = view.span_occurrence(span_ref)? {
-        let direction = end_x.scaled(&b).sub(&end_y.scaled(&a)).sub(&start_x.scaled(&b)).add(&start_y.scaled(&a));
-        let sign = exact::sign(ctx, &direction, SIGN_FILTER_BITS)?;
-        if sign != 0 {
-            return Ok(sign);
+    match view.span_occurrence(span_ref)? {
+        SpanOccurrence::Absent => {}
+        // oracle commit 3da8cdd: a start or an end without a place orients as zero (the law's own UNPROVEN reason), not as the sign of the source nodes
+        SpanOccurrence::WithoutEnd => return Ok(0),
+        SpanOccurrence::Points([start_x, start_y, end_x, end_y]) => {
+            let direction = end_x.scaled(&b).sub(&end_y.scaled(&a)).sub(&start_x.scaled(&b)).add(&start_y.scaled(&a));
+            let sign = exact::sign(ctx, &direction, SIGN_FILTER_BITS)?;
+            if sign != 0 {
+                return Ok(sign);
+            }
         }
     }
     let [x0, y0, x1, y1] = unpack_source_span(span.source_span)?;

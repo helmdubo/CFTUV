@@ -33,7 +33,7 @@ use crate::pyval::Val;
 use crate::snapshot::{exact_point_key, port_identity, sparse_occurrences, VertexSnapshot};
 use crate::time::{times_are_equal, EventPoint, EventTime, PointRef, TimeRef};
 use crate::profile::{timed, Phase};
-use crate::view::{sliding_projection, CandidateView, PositionMemo, Sliding, SpanRef, SpanState, VertexRef, VertexState};
+use crate::view::{sliding_projection, CandidateView, PositionMemo, Sliding, SpanOccurrence, SpanRef, SpanState, VertexRef, VertexState};
 
 /// The leaf of an occurrence, by occurrence (a pure cache: see `Builder::leaf_cache`).
 pub type LeafCache = HashMap<Val, Leaf, FxBuild>;
@@ -904,15 +904,21 @@ impl CandidateView for OverlayView<'_> {
         })
     }
 
-    fn span_occurrence(&self, span: SpanRef) -> SkelResult<Option<[SqrtSum; 4]>> {
+    fn span_occurrence(&self, span: SpanRef) -> SkelResult<SpanOccurrence> {
         let (leaf, _) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
         let occurrence = leaf.occurrence();
-        // `occurrence is not None and len(occurrence) == 3`: a leaf's occurrence is `(edge key, start point key, end point key)`; a point key that is not one is the oracle's `TypeError`
+        // `occurrence is not None and len(occurrence) == 3`: a leaf's occurrence is `(edge key, start point key | None, end point key | None)`
         if occurrence.items().map_or(true, |items| items.len() != 3) {
-            return Ok(None);
+            return Ok(SpanOccurrence::Absent);
         }
-        let (start, end) = (point_from_key(occurrence.get(1).unwrap_or(&Val::none()))?, point_from_key(occurrence.get(2).unwrap_or(&Val::none()))?);
-        Ok(Some([start.x, start.y, end.x, end.y]))
+        // `if occurrence[1] is None or occurrence[2] is None: return 0` (oracle commit 3da8cdd), before either end is read
+        let (start, end) = (occurrence.get(1).unwrap_or(&Val::none()).clone(), occurrence.get(2).unwrap_or(&Val::none()).clone());
+        if start.is_none() || end.is_none() {
+            return Ok(SpanOccurrence::WithoutEnd);
+        }
+        // a point key that is not one is the oracle's `TypeError`
+        let (start, end) = (point_from_key(&start)?, point_from_key(&end)?);
+        Ok(SpanOccurrence::Points([start.x, start.y, end.x, end.y]))
     }
 
     fn trace_bounds(&self, ctx: &mut ExactCtx<'_>, vertex: VertexRef, time: &EventTime) -> SkelResult<Option<bool>> {

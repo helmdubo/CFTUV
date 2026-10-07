@@ -454,7 +454,8 @@ impl Host {
     }
 
     /// One `build_skeleton`: see the module note. `exhaustive` is `split_search is EXHAUSTIVE`, `level_limit` is the live `skeleton.level_budget(polygon)`, `march_steps` the live number of march steps when the oracle's
-    /// `march_budget` was replaced (`None`: the declared one), `sync` the memory sync (`None`: unchanged), `budget` the cap and the six articles (`None`: no budget).
+    /// `march_budget` was replaced (`None`: the declared one), `sync` the memory sync (`None`: unchanged), `budget` the cap and the six articles (`None`: no budget), `replay_check` the oracle's
+    /// `replay_check_enabled()` AT THE CALL (the environment variable `CFTUV_SYMBOLIC_REPLAY_CHECK`; the shim reads it).
     #[allow(clippy::too_many_arguments)]
     pub fn build_skeleton<'py>(
         &mut self,
@@ -463,6 +464,7 @@ impl Host {
         polygon: &Bound<'py, PyAny>,
         dense_hydration: bool,
         exhaustive: bool,
+        replay_check: bool,
         level_limit: i64,
         march_steps: Option<i64>,
         sync: Option<&[u8]>,
@@ -491,7 +493,7 @@ impl Host {
         };
         let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
         let budgeted = articles.is_some();
-        let options = BuilderOptions { dense_hydration, march_steps, budgeted, exhaustive };
+        let options = BuilderOptions { dense_hydration, march_steps, budgeted, exhaustive, replay_check };
         let arguments_ns = nanos(started);
 
         let computing = Instant::now();

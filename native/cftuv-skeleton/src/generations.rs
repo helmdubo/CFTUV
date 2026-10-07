@@ -13,7 +13,7 @@ use cftuv_core::exact::ExactCtx;
 use crate::builder::Builder;
 use crate::closure::sort_by_projection;
 use crate::component::{apply_component_deltas, by_repr, clone_overlay, normalize_dead_component, overlay_signature, Delta, SignatureMemo};
-use crate::contacts::{discover_interior_split_contacts, discover_junction_contacts, merge_symbolic_split_contacts, valid_edge_contact, ContactKind, JunctionContact, SymSplitContact};
+use crate::contacts::{discover_interior_split_contacts, discover_junction_contacts, merge_symbolic_split_contacts, valid_edge_contact, ContactKind, JunctionContact, SplitDecisionMemo, SymSplitContact};
 use crate::error::{SkelError, SkelResult};
 use crate::omap::OrderedMap;
 use crate::overlay::{JRef, Leaf, Overlay};
@@ -466,32 +466,43 @@ pub struct JunctionFixedPoint {
 }
 
 /// What a generation asks of the front at the end of a round: the junction contacts of the overlay and its interior contacts (the oracle's `discover_junction_contacts` and
-/// the `discover_interior` it is given). The closure asks the front ([`Natural`]); the seams may give the loop contacts of their own to drive the paths a front rarely makes.
+/// the `discover_interior` it is given), both over the round's [`SplitDecisionMemo`]. The closure asks the front ([`Natural`]); the seams may give the loop contacts of their own
+/// to drive the paths a front rarely makes.
 pub trait Discovery {
-    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)>;
-    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)>;
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)>;
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)>;
 }
 
 /// The discovery of the closure: the candidate laws over the view of the overlay.
 pub struct Natural;
 
 impl Discovery for Natural {
-    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
-        timed(Phase::ClosureDiscover, || discover_junction_contacts(ctx, builder, overlay))
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
+        timed(Phase::ClosureDiscover, || discover_junction_contacts(ctx, builder, overlay, decisions))
     }
 
-    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
-        timed(Phase::ClosureDiscover, || discover_interior_split_contacts(ctx, builder, overlay))
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay, decisions: &mut SplitDecisionMemo) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
+        timed(Phase::ClosureDiscover, || discover_interior_split_contacts(ctx, builder, overlay, decisions))
     }
 }
 
-/// `plan_mixed_generations(builder, initial, discover_interior, budget=...)` with the discovery of the front.
-pub fn plan_mixed_generations(ctx: &mut ExactCtx<'_>, builder: &mut Builder, initial: &Overlay, budget: i64, memo: &mut SignatureMemo) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
-    plan_mixed_generations_with(ctx, builder, initial, budget, memo, &mut Natural)
+/// `plan_mixed_generations(builder, initial, discover_interior, budget=..., initial_memo=...)` with the discovery of the front.
+pub fn plan_mixed_generations(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    initial: &Overlay,
+    budget: i64,
+    memo: &mut SignatureMemo,
+    initial_memo: Option<SplitDecisionMemo>,
+) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
+    plan_mixed_generations_with(ctx, builder, initial, budget, memo, &mut Natural, initial_memo)
 }
 
-/// `plan_mixed_generations(builder, initial, discover_interior, budget=...)`: the causal chain of generations of an overlay until it holds no contact; the interior contacts of
-/// every generation of the chain as the second answer (none unless the chain closed). Every round replays the chain from the initial overlay.
+/// `plan_mixed_generations(builder, initial, discover_interior, budget=..., initial_memo=...)`: the causal chain of generations of an overlay until it holds no contact; the
+/// interior contacts of every generation of the chain as the second answer (none unless the chain closed). Every round replays the chain from the initial overlay.
+///
+/// `initial_memo`: the decisions of the law on the pairs of `initial` (the last pass of the initial closure left them). Generation zero is built on a clone of `initial`, the same
+/// content, so its discoveries ask that memo instead of the law; every later round has another content and a memo of its own.
 pub fn plan_mixed_generations_with(
     ctx: &mut ExactCtx<'_>,
     builder: &mut Builder,
@@ -499,7 +510,9 @@ pub fn plan_mixed_generations_with(
     budget: i64,
     memo: &mut SignatureMemo,
     discovery: &mut dyn Discovery,
+    initial_memo: Option<SplitDecisionMemo>,
 ) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
+    let mut initial_memo = initial_memo;
     let mut causal: Vec<(Vec<JunctionContact>, Vec<SymSplitContact>)> = Vec::new();
     let refused = |generations: Vec<MixedGeneration>, overlay: Option<Overlay>, signatures: Vec<Val>, reason: &'static str| {
         (JunctionFixedPoint { generations, overlay, signatures, unresolved_reason: Some(reason) }, Vec::new())
@@ -520,11 +533,13 @@ pub fn plan_mixed_generations_with(
             generations.push(generation);
             signatures.push(overlay_signature(&overlay, memo)?);
         }
-        let (junction, reason) = discovery.junction(ctx, builder, &overlay)?;
+        // `memo = initial_memo if initial_memo is not None and not causal else SplitDecisionMemoV1(builder, overlay)`: the chain is empty in round zero and only there
+        let mut decisions = if causal.is_empty() { initial_memo.take().unwrap_or_default() } else { SplitDecisionMemo::new() };
+        let (junction, reason) = discovery.junction(ctx, builder, &overlay, &mut decisions)?;
         if let Some(reason) = reason {
             return Ok(refused(generations, Some(overlay), signatures, reason));
         }
-        let (interior, reason) = discovery.interior(ctx, builder, &overlay)?;
+        let (interior, reason) = discovery.interior(ctx, builder, &overlay, &mut decisions)?;
         if let Some(reason) = reason {
             return Ok(refused(generations, Some(overlay), signatures, reason));
         }

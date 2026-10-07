@@ -40,7 +40,7 @@ use crate::superlevel::{emit_edge_contact, emit_meeting, emit_nodes, record_dupl
 use crate::time::EventTime;
 use crate::wire::{bad, fixed, i64_of, int, list, optional, point_of, point_value, str_of, time_of, Wire};
 
-pub(crate) const SEAMS: &[(u16, &str)] = &[(300, "BUILDER_PRIMITIVE"), (301, "PYSET_SCRIPT"), (302, "SET_ORDER_NONE_LAST")];
+pub(crate) const SEAMS: &[(u16, &str)] = &[(300, "BUILDER_PRIMITIVE"), (301, "PYSET_SCRIPT")];
 
 fn identity_of(ids: &Value, participants: &Value, targets: &Value) -> Wire<(Vec<i64>, Vec<Vec<i64>>, Vec<Vec<i64>>)> {
     Ok((ints_of(ids, "proof ids")?, keys_of(participants, "proof keys")?, keys_of(targets, "proof keys")?))
@@ -209,12 +209,6 @@ pub(crate) fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras
     }
     if code == 301 {
         return pyset_script(args);
-    }
-    if code == 302 {
-        // `[flag]`: the births are ordered like the oracle of commit 3da8cdd (see `plans::set_order_none_last`); answers the flag
-        let flag = crate::wire::flag_of(args.first().ok_or_else(|| bad("too few arguments"))?, "the flag")?;
-        crate::plans::set_order_none_last(flag);
-        return Ok(Ok(Value::Bool(flag)));
     }
     if code != 300 {
         return Err(bad(&format!("unknown skeleton seam opcode {code}")));
