@@ -247,9 +247,45 @@ def test_the_parts_of_the_closure_equal_the_oracle_on_the_places_the_oracle_call
     for _name, polygon in population()[::6]:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
-    for seam in ("BUILD_SYMBOLIC_OVERLAY", "DISCOVER_INTERIOR_CONTACTS", "PLAN_MIXED_GENERATIONS", "CLOSURE_PART"):
+    for seam in ("BUILD_SYMBOLIC_OVERLAY", "DISCOVER_INTERIOR_CONTACTS", "CLOSURE_PART"):
         assert verifier.checked[seam] > 100, dict(verifier.checked)
+    # only a call that starts with an empty memo of the law's decisions is compared on its own (`native_closure_gate.cold`): the oracle's closure hands generation zero the memo of the
+    # last pass of the initial closure, which a seam cannot be given, and the replay (the only other caller) is off in the product; the closure that contains the warm call is compared whole
+    assert verifier.checked["PLAN_MIXED_GENERATIONS"] > 30, dict(verifier.checked)
     assert {name for name in verifier.part_calls if verifier.part_calls[name]} >= {"with_line_ports", "build_f0_overlay", "initial_interior_contacts"}
+
+
+def test_the_replay_of_the_closure_under_the_oracles_self_check_equals_the_oracle(monkeypatch):
+    """`CFTUV_SYMBOLIC_REPLAY_CHECK=1` switches on the oracle's second plan of the generations and its comparison (the product runs without it): the native closure reads the same variable
+    at the call (the seams carry it in the options) and pays the replay, and answers its refusal, exactly when the oracle does. The replay is a cold call of `plan_mixed_generations`, so
+    the `parts` pass compares it on its own as well."""
+
+    import cftuv_envelope.wavefront.symbolic_superlevel_coordinator as coordinator
+
+    monkeypatch.setenv(coordinator.ENVIRONMENT_REPLAY_CHECK, "1")
+    assert coordinator.replay_check_enabled()
+    # a wrapped call hides the calls inside it, so the closure and its parts are compared in separate passes
+    closures, replays = verifier_of(("closure",)), verifier_of(("parts",))
+    for _name, polygon in population()[::6]:
+        run_oracle(closures, polygon, leaf.fresh_process_state())
+        run_oracle(replays, polygon, leaf.fresh_process_state())
+    settle(closures)
+    settle(replays)
+    assert closures.checked["PLAN_SYMBOLIC_CLOSURE"] > 100, dict(closures.checked)
+    assert replays.checked["PLAN_MIXED_GENERATIONS"] > 100, dict(replays.checked)
+    CHECKED["closures with the replay check on"] += closures.checked["PLAN_SYMBOLIC_CLOSURE"]
+
+
+def test_the_options_of_a_seam_carry_the_replay_check_of_the_oracle_at_the_call(monkeypatch):
+    import cftuv_envelope.wavefront.symbolic_superlevel_coordinator as coordinator
+
+    for value, expected in (("1", True), ("on", True), ("TRUE", True), ("yes", True), ("0", False), ("", False), ("off", False)):
+        monkeypatch.setenv(coordinator.ENVIRONMENT_REPLAY_CHECK, value)
+        assert coordinator.replay_check_enabled() is expected
+        assert verifier_of().bseams.enc_options(False, None, True)[3] is expected, value
+    monkeypatch.delenv(coordinator.ENVIRONMENT_REPLAY_CHECK)
+    assert verifier_of().bseams.enc_options(False, None, True)[3] is False
+    assert verifier_of().bseams.enc_options(False, None, True, replay=True)[3] is True
 
 
 def test_the_junction_discoveries_the_deltas_and_the_signature_equal_the_oracle():
@@ -257,8 +293,10 @@ def test_the_junction_discoveries_the_deltas_and_the_signature_equal_the_oracle(
     for _name, polygon in population()[::6]:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
-    for seam in ("DISCOVER_JUNCTION_CONTACTS", "DISCOVER_INTERIOR_CONTACTS", "CLOSURE_PART"):
+    for seam in ("DISCOVER_INTERIOR_CONTACTS", "CLOSURE_PART"):
         assert verifier.checked[seam] > 100, dict(verifier.checked)
+    # the junction discovery of a round is compared on its own only where its memo of the law's decisions starts empty (every round after generation zero; see `native_closure_gate.cold`)
+    assert verifier.checked["DISCOVER_JUNCTION_CONTACTS"] > 30, dict(verifier.checked)
 
 
 def test_the_closure_equals_the_oracle_unbudgeted_and_without_the_memory_of_places():

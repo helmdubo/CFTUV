@@ -356,14 +356,14 @@ class LeafVerifier:
     def wrap_evaluate(self, original):
         verifier = self
 
-        def evaluate_split_candidate(view, vertex_ref, target_ref, *, now, proof_identity_factory=None):
+        def evaluate_split_candidate(view, vertex_ref, target_ref, *, now, proof_identity_factory=None, at_now_only=False):
             if not verifier.wanted("evaluate_split_candidate"):
-                return original(view, vertex_ref, target_ref, now=now, proof_identity_factory=proof_identity_factory)
+                return original(view, vertex_ref, target_ref, now=now, proof_identity_factory=proof_identity_factory, at_now_only=at_now_only)
             decision = verifier.view_lockstep(
                 "EVALUATE_SPLIT_CANDIDATE",
                 view,
-                lambda recorded: original(recorded, vertex_ref, target_ref, now=now, proof_identity_factory=proof_identity_factory),
-                lambda r: [r.vertex_ids(vertex_ref), r.span_ids(target_ref), verifier.wire.enc_time(now)],
+                lambda recorded: original(recorded, vertex_ref, target_ref, now=now, proof_identity_factory=proof_identity_factory, at_now_only=at_now_only),
+                lambda r: [r.vertex_ids(vertex_ref), r.span_ids(target_ref), verifier.wire.enc_time(now), bool(at_now_only)],
                 lambda wire: verifier.wire.dec_decision(wire, now, None if proof_identity_factory is None else (lambda: IDENTITY_SENTINEL)),
                 normalize=normalize_decision,
             )
@@ -389,7 +389,8 @@ class LeafVerifier:
     def note_decision(self, decision, seam: str = "EVALUATE_SPLIT_CANDIDATE") -> None:
         """Which outcome the call had (the coverage of the law's branches)."""
 
-        label = "CANDIDATE" if decision.candidate is not None else decision.effects[0].reason.value
+        # a decision with no candidate and no effects is the answer of `at_now_only` to a time after `now`
+        label = "CANDIDATE" if decision.candidate is not None else (decision.effects[0].reason.value if decision.effects else "LATER_THAN_NOW")
         self.outcomes[label if seam == "EVALUATE_SPLIT_CANDIDATE" else f"{seam}:{label}"] += 1
         calls = self.call_log.get(seam)
         if calls:

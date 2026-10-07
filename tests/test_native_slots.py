@@ -1,13 +1,13 @@
 """Матрица доступа к слотам границы Python <-> Rust (`native/cftuv-python/src/pyobj.rs`): принудительный `raw` и принудительный `attr`, каждый доказан, а не предположен.
 
-Расширение читает и пишет слоты `Fraction`, `SqrtSumV1`, `FaceCoverageV1`, `LocalPoint3V1` по СМЕЩЕНИЮ, найденному пробой настоящего экземпляра (`Raw::probe`), либо по протоколу атрибутов. Раскладка экземпляра — не часть
+Расширение читает и пишет слоты `Fraction`, `SqrtSumV1`, `FaceCoverageV1`, `LocalPoint3V1` и классов результата скелета (`SkeletonV1`, `SkeletonNodeV1`, `EventTimeV1`, `EventPointV1`, `ProofObligationV1`) по СМЕЩЕНИЮ, найденному пробой настоящего экземпляра (`Raw::probe`), либо по протоколу атрибутов. Раскладка экземпляра — не часть
 стабильного ABI (`abi3` её не обещает), поэтому одной сборки под `abi3` мало: проба обязана подтвердить раскладку на КАЖДОМ интерпретаторе, а путь без пробы — оставаться верным. Режим (`CFTUV_NATIVE_SLOTS`) читается
 ОДИН раз при импорте расширения: `auto` (умолчание: смещение там, где проба подтвердила, иначе атрибуты), `raw` (только смещение; раскладка, которую проба не подтвердила, — названный отказ, не откат), `attr` (только атрибуты).
 
 Что держат тесты. 1. Режим процесса равен тому, что просили средой, и читается один раз (подпроцессы: `raw`, `attr`, `auto`, пусто, лишние пробелы и регистр; неизвестное значение — названный отказ импорта; смена
-среды ПОСЛЕ импорта ничего не меняет). 2. Целые операции (покрытие на фигурах ядра, резка на сгенерированных вызовах) под КАЖДЫМ режимом сессии равны эталону, а счётчики путей (`slot_counters`) показывают, что принудительный путь прошёл
+среды ПОСЛЕ импорта ничего не меняет). 2. Целые операции (покрытие на фигурах ядра, резка на сгенерированных вызовах, скелет на именованных полигонах) под КАЖДЫМ режимом сессии равны эталону, а счётчики путей (`slot_counters`) показывают, что принудительный путь прошёл
 и другой не тронут. 3. Сессии процесса по умолчанию (`new_mirror()`, `coverage_at`, `clip_geometry` шима) идут путём режима процесса: в CI режим процесса — ножка матрицы (`raw`/`attr`/`auto` на 3.11 и 3.13). 4. `raw`, у которого проба не подтвердила
-раскладку, — `TypeError` с именем класса и причиной при привязке; `auto` в том же случае молча идёт по атрибутам (его решение), `attr` пробу не делает.
+раскладку, — `TypeError` с именем класса и причиной при привязке (покрытие, резка и скелет одинаково); `auto` в том же случае молча идёт по атрибутам (его решение), `attr` пробу не делает.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from native_gate import skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "coverage")
 skip_unless_available(cftuv_native, "clip")
+skip_unless_available(cftuv_native, "skeleton")
 
 import native_clip_geometry as geometry  # noqa: E402
 import native_corpus as nc  # noqa: E402
@@ -47,12 +48,16 @@ import wavefront_cases  # noqa: E402
 from cftuv_native import cost as native_cost  # noqa: E402
 
 import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402
+from cftuv_native import skeleton_op  # noqa: E402
 from cftuv_envelope.wavefront import build_skeleton  # noqa: E402
 from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces  # noqa: E402
 
 MODES = ("raw", "attr", "auto")
 #: The slot classes the extension probes, as `raw_layouts()` names them.
 SLOT_CLASSES = {"coverage Fraction", "coverage SqrtSumV1", "FaceCoverageV1", "clip Fraction", "clip SqrtSumV1", "LocalPoint3V1"}
+#: The result classes of `build_skeleton` the extension fills from Rust (`skeleton_raw_layouts()`).
+SKELETON_CLASSES = {"SkeletonV1", "SkeletonNodeV1", "EventTimeV1", "EventPointV1", "ProofObligationV1"}
+SKELETON_FIGURES = ("axis_square", "axis_rectangle", "ell", "comb_2", "cross", "staircase", "u_shape", "star_9_seed_0")
 FIGURES = ("axis_square", "right_triangle", "diamond", "ell", "comb_2", "cross", "staircase", "u_shape", "star_9_seed_0", "star_9_seed_3")
 
 
@@ -120,14 +125,43 @@ def _compare_clip(mirror, count: int = 60) -> Counter:
     return outcomes
 
 
+def _skeleton_cases() -> list:
+    """`(метка, состояние до, пикл входа)` целого `build_skeleton` на именованных полигонах ядра: с именованным бюджетом, холодная память."""
+
+    named = dict(wavefront_cases.named_corpus())
+    cases = []
+    for name in SKELETON_FIGURES:
+        polygon = named[name]
+        with exact.isolated_factorization_memory():
+            budget = exact.exact_work_budget(stage="PREPARE", domain_id=f"slots-skeleton-{name}", cap=None)
+            call = nc.Call(nc.OP_SKELETON, (polygon,), nc.skeleton_kwargs(polygon, {"work_budget": budget}), budget, None)
+            before = nc.capture_state(budget, None)
+            blob = nc.encode_call(call)
+        cases.append((name, before, blob))
+    return cases
+
+
+def _compare_skeleton(mirror, cases=None) -> Counter:
+    answered = Counter()
+    for label, before, blob in cases or _skeleton_cases():
+        oracle = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before))
+        native = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before), function=mirror.build_skeleton)
+        found = nc.compare_outcomes(nc.OP_SKELETON, before, oracle, native)
+        assert not found, f"{label}: " + "; ".join(str(item) for item in found[:4])
+        answered["raised" if oracle.exception else oracle.result.outcome.value] += 1
+    return answered
+
+
 def _work(mirror) -> tuple:
-    """Покрытие и резка на `mirror`: счёт исходов, ответ равен эталону на каждом вызове."""
+    """Покрытие, резка и скелет на `mirror`: счёт исходов, ответ равен эталону на каждом вызове."""
 
     covered = _compare_coverage(mirror, _coverage_cases())
     clipped = _compare_clip(mirror)
+    skeletons = _compare_skeleton(mirror)
     assert covered["EXACT"] >= 20 and covered["ALPHA_IS_NEGATIVE"] >= 5, covered
     assert clipped["CLIPPED"] >= 20, clipped
-    return covered, clipped
+    assert skeletons["EXACT"] >= len(SKELETON_FIGURES) - 1, skeletons
+    return covered, clipped, skeletons
 
 
 def _path_taken(before: dict, after: dict) -> dict:
@@ -198,6 +232,9 @@ def test_a_session_of_each_mode_answers_like_the_oracle_and_takes_exactly_the_pa
     layouts = mirror.raw_layouts()
     assert set(layouts) == SLOT_CLASSES
     assert all(layouts.values()) is (mode != "attr"), f"{mode}: the layouts the probe confirmed: {layouts}"
+    skeleton_layouts = mirror.skeleton_raw_layouts()
+    assert set(skeleton_layouts) == SKELETON_CLASSES
+    assert all(skeleton_layouts.values()) is (mode != "attr"), f"{mode}: the skeleton layouts the probe confirmed: {skeleton_layouts}"
     cftuv_native.reset_slot_counters()
     _work(mirror)
     taken = cftuv_native.slot_counters()
@@ -207,6 +244,21 @@ def test_a_session_of_each_mode_answers_like_the_oracle_and_takes_exactly_the_pa
         assert taken["attr_reads"] > 500 and taken["attr_builds"] > 500 and raw_used == 0, f"attr was forced but the raw path ran: {taken}"
     else:
         assert taken["raw_reads"] > 500 and taken["raw_builds"] > 500 and attr_used == 0, f"{mode} must take the raw path on this interpreter ({sys.version.split()[0]}), got {taken}"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_skeleton_alone_takes_exactly_the_path_of_its_session_mode(mode):
+    """Целый `build_skeleton` отдельно: тот же путь слотов, что у покрытия и резки (его результат — пять классов ядра и числа `Fraction`/`SqrtSumV1`)."""
+
+    mirror = cftuv_native.new_mirror(mode)
+    cftuv_native.reset_slot_counters()
+    answered = _compare_skeleton(mirror)
+    assert answered["EXACT"] >= len(SKELETON_FIGURES) - 1, answered
+    taken = cftuv_native.slot_counters()
+    if mode == "attr":
+        assert taken["attr_builds"] > 100 and taken["raw_reads"] == taken["raw_builds"] == 0, f"attr was forced but the raw path ran: {taken}"
+    else:
+        assert taken["raw_builds"] > 100 and taken["attr_reads"] == taken["attr_builds"] == 0, f"{mode} must take the raw path on this interpreter ({sys.version.split()[0]}), got {taken}"
 
 
 def test_the_three_modes_give_the_same_answers_not_just_each_one_the_oracles():
@@ -223,6 +275,16 @@ def test_the_three_modes_give_the_same_answers_not_just_each_one_the_oracles():
         answers[mode] = digests
     assert answers["raw"] == answers["attr"] == answers["auto"]
     assert len(set(answers["raw"])) > 3, "the cases must differ from each other, or the comparison proves nothing"
+    skeletons = {}
+    for mode in MODES:
+        mirror = cftuv_native.new_mirror(mode)
+        digests = []
+        for _label, before, blob in _skeleton_cases():
+            outcome = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before), function=mirror.build_skeleton)
+            digests.append(nc.outcome_digest(nc.OP_SKELETON, before, outcome))
+        skeletons[mode] = digests
+    assert skeletons["raw"] == skeletons["attr"] == skeletons["auto"]
+    assert len(set(skeletons["raw"])) == len(SKELETON_FIGURES), "the skeletons differ from each other, or the comparison proves nothing"
 
 
 # --------------------------------------------------------------------------
@@ -242,6 +304,12 @@ def test_the_default_sessions_take_the_path_of_the_process_mode():
         answered += 1
     assert answered >= 10
     _compare_clip(cftuv_native.new_mirror(), 40)
+    # the public drop-in of the skeleton on the process-wide mirror, the way the product calls it
+    cases = _skeleton_cases()[:4]
+    for label, before, blob in cases:
+        oracle = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before))
+        native = nc.execute(nc.prepare_call(nc.OP_SKELETON, blob, before), function=cftuv_native.build_skeleton)
+        assert not nc.compare_outcomes(nc.OP_SKELETON, before, oracle, native), label
     taken = cftuv_native.slot_counters()
     if mode == "attr":
         assert taken["attr_reads"] > 0 and taken["attr_builds"] > 0 and taken["raw_reads"] == taken["raw_builds"] == 0, taken
@@ -269,6 +337,34 @@ def test_raw_refuses_by_name_a_layout_the_probe_does_not_confirm(monkeypatch):
     assert "raw slot access was forced" in message and cftuv_native.SLOT_MODE_ENVIRONMENT + "=raw" in message, message
     assert "Fraction" in message and "__basicsize__" in message, "the refusal names the class and the reason"
     assert not mirror._coverage_bound, "a refused binding leaves the session unbound"
+
+
+def test_raw_refuses_by_name_a_layout_the_probe_does_not_confirm_for_the_skeleton_too(monkeypatch):
+    monkeypatch.setattr(skeleton_op, "Fraction", _WideFraction)
+    mirror = cftuv_native.new_mirror("raw")
+    with pytest.raises(TypeError) as caught:
+        mirror.skeleton_raw_layouts()
+    message = str(caught.value)
+    assert "raw slot access was forced" in message and cftuv_native.SLOT_MODE_ENVIRONMENT + "=raw" in message, message
+    assert "Fraction" in message and "__basicsize__" in message, "the refusal names the class and the reason"
+    assert not mirror._skeleton_bound, "a refused binding leaves the session unbound"
+    # `auto` and `attr` bind the same classes: `auto` quietly takes the attribute protocol for the class the probe refused, `attr` never asks
+    for mode in ("auto", "attr"):
+        bound = cftuv_native.new_mirror(mode).skeleton_raw_layouts()
+        assert set(bound) == SKELETON_CLASSES
+        assert all(bound.values()) is (mode == "auto"), (mode, bound)
+
+
+def test_raw_refuses_by_name_a_result_class_of_the_skeleton_whose_layout_the_probe_does_not_confirm(monkeypatch):
+    from cftuv_envelope.wavefront import event_time
+
+    # the shape check of the binding reads the dataclass fields, so the stand-in is bound under the real name and fields, with a slot the extension does not fill
+    wide = type("EventTimeV1", (), {"__slots__": ("dividend", "divisor", "extra"), "__dataclass_fields__": event_time.EventTimeV1.__dataclass_fields__})
+    monkeypatch.setattr(event_time, "EventTimeV1", wide)
+    with pytest.raises(TypeError) as caught:
+        cftuv_native.new_mirror("raw").skeleton_raw_layouts()
+    message = str(caught.value)
+    assert "raw slot access was forced" in message and "EventTimeV1" in message and "__basicsize__" in message, message
 
 
 def test_auto_falls_back_to_the_attribute_protocol_and_attr_never_probes_for_the_same_class(monkeypatch):

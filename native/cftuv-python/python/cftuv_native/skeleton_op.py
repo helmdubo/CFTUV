@@ -111,6 +111,8 @@ def bind(mirror) -> None:
             _members(proof.ProofObligationDisposition), _members(refusal.CandidateRefusal),
         )
     except TypeError as error:
+        if "raw slot access was forced" in str(error):
+            raise  # the refusal of a forced slot mode (CFTUV_NATIVE_SLOTS=raw), named as coverage and clip name it: not a change of the oracle's classes
         raise pin.NativePortStale(f"the oracle classes the native skeleton is built from changed: {error}") from None
     mirror._skeleton_bound = True
 

@@ -20,7 +20,7 @@ use cftuv_core::num::UBig;
 use cftuv_core::session::{outcome_value, CostRun, Session};
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
 
-use crate::candidate::{evaluate_split_candidate, SplitDecision};
+use crate::candidate::{evaluate_split_candidate_gated, NowGate, SplitDecision};
 use crate::error::{SkelError, SkelResult};
 use crate::line::SupportLine;
 use crate::queue::{CandidateEvent, EventKind, EventQueue};
@@ -431,13 +431,17 @@ fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<
             return queue_script(ctx, at(0)?);
         }
         220 => {
-            expect(5)?;
+            // `[view, memo, vertex, target span, now]` and an optional sixth argument: the oracle's `at_now_only` (the law answers a time after `now` with no candidate and no effects)
+            if args.len() != 5 && args.len() != 6 {
+                return Err(bad("the argument count"));
+            }
             let (view, mut memo) = (view_of(at(0)?)?, memo_of(at(1)?)?);
             let (vertex, target, now) = (u32_of(at(2)?, "a vertex")?, u32_of(at(3)?, "a target span")?, time_of(at(4)?)?);
+            let gate = if args.get(5).map(|found| flag_of(found, "at_now_only")).transpose()?.unwrap_or(false) { NowGate::ExactlyNow } else { NowGate::NotBefore };
             let before = memo.len();
             crate::profile::reset();
             let started = Instant::now();
-            let decision = evaluate_split_candidate(ctx, &view, &mut memo, vertex, target, &now);
+            let decision = evaluate_split_candidate_gated(ctx, &view, &mut memo, vertex, target, &now, gate);
             extras.push(int(started.elapsed().as_nanos() as u64));
             let phases = crate::profile::take();
             if !phases.is_empty() {
