@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 
 from .candidate_law import evaluate_split_candidate
@@ -26,10 +27,20 @@ from .symbolic_overlay import (
     JunctionRefV1,
     SymbolicOverlayV1,
     build_symbolic_overlay,
-    exact_overlay_view,
     is_symbolic_split_emitter,
 )
 from .symbolic_sparse_ports import with_line_ports
+from .symbolic_split_endpoint import SplitDecisionMemoV1
+
+
+#: Самопроверка детерминизма: второй проход замыкания на тех же входах обязан дать то же множество контактов и ту же
+#: подпись. Это проверка чистой функции, а не закона: в продукте она не выполняется (удваивала счёт замыкания),
+#: включается в тестах и при отладке (`CFTUV_SYMBOLIC_REPLAY_CHECK=1`).
+ENVIRONMENT_REPLAY_CHECK = "CFTUV_SYMBOLIC_REPLAY_CHECK"
+
+
+def replay_check_enabled() -> bool:
+    return os.environ.get(ENVIRONMENT_REPLAY_CHECK, "0").strip().lower() in ("1", "on", "true", "yes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,29 +125,33 @@ def _rebuild_splits(builder, snapshot, contacts, time, *, f0=None):
 
 
 def _initial_interior_closure(builder, snapshot, f0, contacts, *, budget):
+    """`(контакты, поколения, материализация, наложение, память решений закона, отказ)`: память — последнего прохода."""
+
     ordered, reason = merge_symbolic_split_contacts(contacts)
     if reason is not None:
-        return (), 0, None, None, reason
+        return (), 0, None, None, None, reason
     for iteration in range(budget + 1):
         materialization, mixed_overlay, reason = _rebuild_splits(
             builder, snapshot, ordered, f0.time, f0=f0
         )
         if reason is not None:
-            return (), iteration, materialization, None, reason
+            return (), iteration, materialization, None, None, reason
+        memo = SplitDecisionMemoV1(builder, mixed_overlay)
         latent, reason = discover_interior_split_contacts(
-            builder, mixed_overlay
+            builder, mixed_overlay, memo
         )
         if reason is not None:
-            return (), iteration, materialization, mixed_overlay, reason
+            return (), iteration, materialization, mixed_overlay, None, reason
         merged, reason = merge_symbolic_split_contacts(ordered, latent)
         if reason is not None:
-            return (), iteration, materialization, mixed_overlay, reason
+            return (), iteration, materialization, mixed_overlay, None, reason
         if len(merged) == len(ordered):
             return (
                 ordered,
                 iteration,
                 materialization,
                 mixed_overlay,
+                memo,
                 None,
             )
         if iteration == budget:
@@ -145,15 +160,18 @@ def _initial_interior_closure(builder, snapshot, f0, contacts, *, budget):
                 iteration,
                 materialization,
                 mixed_overlay,
+                None,
                 "SYMBOLIC_SUPERLEVEL_OUTER_BUDGET_EXHAUSTED",
             )
         ordered = merged
     raise AssertionError("unreachable initial interior closure")
 
 
-def discover_interior_split_contacts(builder, overlay):
+def discover_interior_split_contacts(builder, overlay, memo=None):
     contacts = []
-    view = exact_overlay_view(builder, overlay)
+    if memo is None:
+        memo = SplitDecisionMemoV1(builder, overlay)
+    view = memo.view
     emitters = tuple(
         vertex for vertex in overlay.vertices.values()
         if vertex.alive
@@ -163,8 +181,8 @@ def discover_interior_split_contacts(builder, overlay):
         for emitter in sorted(emitters, key=lambda item: repr(item.ref)):
             if leaf in (emitter.prev_leaf, emitter.next_leaf):
                 continue
-            decision = evaluate_split_candidate(
-                view, emitter.ref, leaf, now=overlay.time
+            decision = memo.decision(
+                evaluate_split_candidate, emitter.ref, leaf
             )
             candidate = decision.candidate
             if (candidate is None
@@ -234,6 +252,7 @@ def _plan_closure(builder, snapshot, outer_budget, junction_budget):
         discovery_batches,
         materialization,
         split_overlay,
+        split_memo,
         reason,
     ) = _initial_interior_closure(
         builder,
@@ -266,6 +285,7 @@ def _plan_closure(builder, snapshot, outer_budget, junction_budget):
         split_overlay,
         discover_interior_split_contacts,
         budget=budget,
+        initial_memo=split_memo,
     )
     if junction.unresolved_reason is not None or junction.overlay is None:
         return _refusal(
@@ -277,27 +297,28 @@ def _plan_closure(builder, snapshot, outer_budget, junction_budget):
             junction.unresolved_reason
             or "SYMBOLIC_JUNCTION_OVERLAY_UNRESOLVABLE",
         )
-    replay, replay_later = plan_mixed_generations(
-        builder,
-        split_overlay,
-        discover_interior_split_contacts,
-        budget=budget,
-    )
-    if (
-        replay.unresolved_reason is not None
-        or replay.overlay is None
-        or replay_later != later
-        or overlay_signature(replay.overlay)
-        != overlay_signature(junction.overlay)
-    ):
-        return _refusal(
-            materialization,
-            (*contacts, *later),
-            replay,
-            len(later),
-            junction.signatures,
-            "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE",
+    if replay_check_enabled():
+        replay, replay_later = plan_mixed_generations(
+            builder,
+            split_overlay,
+            discover_interior_split_contacts,
+            budget=budget,
         )
+        if (
+            replay.unresolved_reason is not None
+            or replay.overlay is None
+            or replay_later != later
+            or overlay_signature(replay.overlay)
+            != overlay_signature(junction.overlay)
+        ):
+            return _refusal(
+                materialization,
+                (*contacts, *later),
+                replay,
+                len(later),
+                junction.signatures,
+                "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE",
+            )
     all_contacts = {
         item.key: item for item in (*contacts, *later)
     }

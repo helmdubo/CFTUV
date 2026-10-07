@@ -16,6 +16,12 @@ from ec0_adapter import load_projection
 # аудита; продуктовый путь аудит не включает никогда.
 set_canonical_audit(os.environ.get("CFTUV_CANONICAL_AUDIT", "1") != "0")
 
+# Набор тестов ядра всегда гоняется и с самопроверкой детерминизма замыкания пакета: второй проход замыкания на тех же
+# входах обязан дать то же множество контактов и ту же подпись (`symbolic_superlevel_coordinator`). Продукт её не
+# выполняет (она удваивала счёт замыкания), тест — выполняет, и тест, которому нужен путь продукта, снимает её явно
+# (`monkeypatch.delenv`). `CFTUV_SYMBOLIC_REPLAY_CHECK=0` снимает её со всего набора.
+os.environ.setdefault("CFTUV_SYMBOLIC_REPLAY_CHECK", "1")
+
 # `CFTUV_SYMBOLIC_BACKEND=SYMPY|SHADOW|NATIVE_EXACT` гоняет ВЕСЬ набор ядра под выбранным символьным
 # бэкендом (SHADOW с политикой RAISE: любое расхождение значений роняет тест, на котором случилось).
 # Без переменной действует умолчание `DEFAULT_BACKEND` = `NATIVE_EXACT` (`reference/symbolic_backend.py`).
