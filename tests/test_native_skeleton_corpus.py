@@ -620,3 +620,11 @@ def test_the_synthetic_writer_makes_the_memory_cold_drops_repeats_and_flags_what
     assert flagged["records"][0]["live_equal"] is False and flagged["test_live_differs"] == 1
     again = synthetic.rewrite(tmp_path / "out", tmp_path / "again")
     assert [row["outcome"] for row in again["records"]] == [row["outcome"] for row in rows] and again["records_count"] == 2
+
+
+def test_the_ci_subset_of_the_kernel_tests_is_a_part_of_the_full_list_and_every_file_exists():
+    """`--ci` (the time-bounded corpus the native CI builds, `.github/workflows/native.yml`) names real files of the full list, each once."""
+
+    assert len(set(synthetic.CI_FILES)) == len(synthetic.CI_FILES) and set(synthetic.CI_FILES) < set(synthetic.TEST_FILES)
+    assert all((synthetic.ROOT / "kernel" / "tests" / name).is_file() for name in synthetic.CI_FILES)
+    assert len(synthetic.CI_FILES) >= 15, "a subset that reaches the branches the generator's frozen cases do not"

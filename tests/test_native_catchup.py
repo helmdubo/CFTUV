@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -108,3 +109,27 @@ def test_a_missing_leaf_file_refuses_and_leaves_the_leaf_pins_alone(tmp_path):
         catchup.rewrite_leaf_pins(seams_file, root)
     assert "wavefront/events.py" in str(refusal.value)
     assert seams_file.read_text(encoding="utf-8") == before
+
+
+def test_a_pin_rewritten_within_the_same_second_with_the_same_size_is_read_afresh(tmp_path, monkeypatch):
+    """Читатель пина не доверяет кэшу байткода: перезапись той же длины в ту же секунду (так бывает на быстром диске CI) читается заново.
+
+    Файл `pin.py` после `rewrite_pins` ровно той же длины (шестнадцатеричные дайджесты одной длины), а кэш `__pycache__/*.pyc` проверяет исходник по mtime в целых секундах и по размеру:
+    при импорте через систему импорта новые дайджесты читались бы как старые, и `changed_files` называл бы все файлы изменёнными.
+    """
+
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)  # a developer's PYTHONDONTWRITEBYTECODE must not hide what a CI runner does
+    pin_file = tmp_path / "pin.py"
+    shutil.copyfile(catchup.PIN_FILE, pin_file)
+    stamp = 1_700_000_000 * 10**9
+    os.utime(pin_file, ns=(stamp, stamp))
+    size = pin_file.stat().st_size
+    first = catchup.load_pin(pin_file)  # through the import system this would write the bytecode cache
+    root = _fake_oracle(tmp_path, first)
+    assert catchup.rewrite_pins(pin_file, root), "the fake tree differs from the pin of the repository"
+    os.utime(pin_file, ns=(stamp, stamp))  # the rewrite landed in the same whole second as the first read
+    assert pin_file.stat().st_size == size, "same size: the precondition of the stale bytecode"
+    second = catchup.load_pin(pin_file)
+    assert second.PINS != first.PINS and second.PINS == {name: second.digest(root, name) for name in catchup.pinned_files(second)}, "the rewritten digests are read, not the cached old ones"
+    assert catchup.changed_files(second, root) == {operation: [] for operation in second.OPERATION_FILES}
+    assert not (tmp_path / "__pycache__").exists(), "reading a pin leaves no bytecode cache next to it"

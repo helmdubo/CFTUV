@@ -5,46 +5,27 @@ name: Native accelerator
 #
 #   rust          cargo test --workspace --locked (ядро, канонизация, резка, скелет; Rust-векторы);
 #   wheel         release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
-#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python;
-#   corpus-skeleton  синтетический корпус СКЕЛЕТА (`build_skeleton` целиком): вызовы из подмножества тестов ядра, замороженные сгенерированные случаи и производные записи с урезанным
-#                 потолком бюджета; полевого корпуса скелета (пять мешей сцены Blender) в CI нет, и эта работа его заменяет для всего, что не требует именно поля;
+#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python; колесо нужно и здесь: отвечает эталон,
+#                 но вызовы швов кодирует шим (`tools/native_clip_seams.py` импортирует `cftuv_native.clip_seams`), а пакет шима импортирует скомпилированное расширение;
+#                 там же, отдельным шагом с потолком времени, — синтетический корпус СКЕЛЕТА (`build_skeleton` целиком): вызовы из подмножества тестов ядра (`native_skeleton_synthetic.CI_FILES`),
+#                 замороженные случаи генератора и производные записи с урезанным потолком бюджета. Полевого корпуса скелета (пять мешей сцены Blender) в CI нет; всё, что не требует именно поля,
+#                 сверяется на синтетическом, а то, что требует, — уровень `native_field`;
 #   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
 #                 равна личности дерева, все три операции (покрытие, резка, скелет) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
 #                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
-#   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет).
+#   changes       какие пути трогает коммит (`tools/native_ci_changes.py`, обычный git, без чужих действий): `native=true|false`; любая ошибка = `true`;
+#   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет); отчитывается на КАЖДОМ коммите
+#                 (`tools/native_ci_gate.py`): проходит, только если `changes` отработала И (нативных путей нет ИЛИ все тяжёлые задачи `success`).
+#
+# ФИЛЬТРОВ ПУТЕЙ НА УРОВНЕ WORKFLOW НЕТ: у защищённой ветки проверка, чей workflow не запустился, висит «ожидается» вечно. Workflow идёт на каждом пуше и PR, а нужны ли тяжёлые задачи,
+# решает `changes` по тому же набору путей (`NATIVE_PATHS` в `tools/native_ci_changes.py`, раньше — `paths:` здесь). Хост-коммит: тяжёлые задачи пропущены, `native-gate` зелёный.
 #
 # Раннер windows-latest — платформа продукта; Rust (rustc, cargo, rustup) и MSVC (Visual Studio 2022) в образе предустановлены (runner-images, Windows2025-Readme.md),
 # версии печатаются шагом «Toolchain».
 
 on:
   push:
-    paths:
-      - "native/**"
-      - "tools/native_*.py"
-      - "tests/test_native_*.py"
-      - "tests/native_gate.py"
-      - "tests/conftest.py"
-      - "tests/test_architecture.py"
-      # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
-      - "kernel/src/cftuv_envelope/**"
-      - "kernel/tests/**"
-      - "kernel/pyproject.toml"
-      - "pytest.ini"
-      - ".github/workflows/native.yml"
   pull_request:
-    paths:
-      - "native/**"
-      - "tools/native_*.py"
-      - "tests/test_native_*.py"
-      - "tests/native_gate.py"
-      - "tests/conftest.py"
-      - "tests/test_architecture.py"
-      # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
-      - "kernel/src/cftuv_envelope/**"
-      - "kernel/tests/**"
-      - "kernel/pyproject.toml"
-      - "pytest.ini"
-      - ".github/workflows/native.yml"
   workflow_dispatch:
 
 concurrency:
@@ -61,15 +42,41 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   # exact test dependencies of the native job (the kernel's own pin is `sympy==1.14.0`, `kernel/pyproject.toml`)
-  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0
+  # (pyyaml: the test of this workflow's own structure, tests/test_native_ci_workflow.py)
+  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0 pyyaml==6.0.3
 
 defaults:
   run:
     shell: bash
 
 jobs:
+  # Нужна ли нативная приёмка этому коммиту. Дешёвая задача на ubuntu, обычный git: полная история (`fetch-depth: 0`), чтобы diff `base...head` и `merge-base origin/main` существовали.
+  # Шаг `decide` с `continue-on-error`, а выход задачи падает на `'true'`: если программа не отработала вовсе, тяжёлые задачи идут (отказ в безопасную сторону).
+  changes:
+    name: changes (which paths the commit touches)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      native: ${{ steps.decide.outputs.native || 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether the native acceptance is required
+        id: decide
+        continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: python3 tools/native_ci_changes.py
+
   rust:
     name: cargo test (workspace)
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -90,6 +97,8 @@ jobs:
 
   wheel:
     name: release wheel (maturin)
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -120,7 +129,11 @@ jobs:
           retention-days: 3
 
   corpus:
-    name: synthetic clip corpus (py${{ matrix.python }})
+    name: synthetic corpora, clip and skeleton (py${{ matrix.python }})
+    # the recorder encodes the seam calls with the SHIM's wire format (`tools/native_clip_seams.py` imports `cftuv_native.clip_seams`), and the shim package imports the
+    # compiled extension: the wheel is a dependency of this job, not only of the differential one
+    needs: [changes, wheel]
+    if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -132,9 +145,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install the kernel's test dependencies
-        run: python -m pip install $TEST_REQUIREMENTS
-      # the records are the kernel tests' own calls, replayed on the oracle (tools/native_clip_synthetic.py); no extension is involved, nothing is committed
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - name: Install the kernel's test dependencies and the wheel (the recorder's seam encoders)
+        run: |
+          python -m pip install $TEST_REQUIREMENTS
+          python -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+      # the records are the kernel tests' own calls: the ORACLE answers every one of them (tools/native_clip_synthetic.py), the extension only ENCODES the seam calls; nothing is committed
       - name: Build the synthetic corpus from the kernel tests
         env:
           PYTHONSAFEPATH: "1"
@@ -149,26 +168,11 @@ jobs:
           path: ${{ runner.temp }}/synthetic-clip
           if-no-files-found: error
           retention-days: 1
-
-  corpus-skeleton:
-    name: synthetic skeleton corpus (py${{ matrix.python }})
-    runs-on: windows-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.11", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Install the kernel's test dependencies
-        run: python -m pip install $TEST_REQUIREMENTS
-      # The corpus is `<base>/<name>/synthetic_skeleton` (tools/native_skeleton_corpus.py finds it by the kernel's code identity under `CFTUV_NATIVE_CORPUS`); no extension is involved and nothing
-      # is committed. The records are the calls of a SUBSET of the kernel's tests (the full list is 40 files, ~12 minutes on a fast machine: `tools/native_skeleton_synthetic.TEST_FILES`),
-      # the frozen cases of the generator (`CASES`: every branch the tests do not reach) and the derived records with a ceiling cut under the spend (the named exhaustion).
+      # The corpus of the skeleton is `<base>/<name>/synthetic_skeleton` (tools/native_skeleton_corpus.py finds it by the kernel's code identity under `CFTUV_NATIVE_CORPUS`); the ORACLE answers
+      # every record, no extension is involved, nothing is committed. A time-bounded subset: the kernel tests that give most of the distinct calls (`--ci`: 19 of the 49 files of the full build, which
+      # takes over half an hour), the frozen cases of the generator (every branch the tests do not reach) and the derived records with a ceiling cut under the spend (the named exhaustion).
       - name: Build the synthetic skeleton corpus (kernel-test subset, generator, derivation)
+        timeout-minutes: 25
         env:
           PYTHONSAFEPATH: "1"
         run: |
@@ -176,7 +180,7 @@ jobs:
           python tools/native_skeleton_synthetic.py build --out "$OUT" --ci
           python tools/native_skeleton_generated.py generate --corpus "$OUT"
           python tools/native_skeleton_derive.py --corpus "$OUT"
-      - name: Size of the corpus
+      - name: Size of the skeleton corpus
         run: |
           du -sh "$RUNNER_TEMP/skeleton-corpus" || true
           find "$RUNNER_TEMP/skeleton-corpus" -type f | wc -l
@@ -189,7 +193,8 @@ jobs:
 
   differential:
     name: differential (py${{ matrix.python }}, slots ${{ matrix.slots }})
-    needs: [wheel, corpus, corpus-skeleton]
+    needs: [changes, wheel, corpus]
+    if: needs.changes.outputs.native == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -273,8 +278,8 @@ jobs:
           CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
           CFTUV_NATIVE_EXPECT_PYTHON: ${{ matrix.python }}
           CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/synthetic-clip
-          # NO field corpus here, and the job says so (the default is the owner's drive): the base holds only the synthetic skeleton corpus built above
-          # (`<base>/ci/synthetic_skeleton`); the coverage and clip field corpora (`<base>/<name>/index.json`) and the field polygons (`<base>/skeleton_polygons`) are not there
+          # NO field corpus here, and the job says so (the default is the owner's drive): the base holds only the synthetic skeleton corpus built above (`<base>/ci/synthetic_skeleton`); the field
+          # corpora of coverage and clip (`<base>/<name>/index.json`), of the skeleton (`<base>/<name>/skeleton`) and the field polygons (`<base>/skeleton_polygons`) are not there
           CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/skeleton-corpus
         run: >-
           "$PY" -m pytest tests/test_native_*.py -m "not native_field"
@@ -292,7 +297,8 @@ jobs:
   # A red leg is information (the layout moved, or the kernel does not run there), never a block.
   interpreters-advisory:
     name: other interpreters, advisory (py${{ matrix.python }}, slots raw)
-    needs: wheel
+    needs: [changes, wheel]
+    if: needs.changes.outputs.native == 'true'
     continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 30
@@ -327,17 +333,26 @@ jobs:
           "$PY" -m pytest tests/test_native_slots.py tests/test_native_boundary.py -m "not native_field"
           -p no:cacheprovider -q -rsfE
 
+  # THE required check. `if: always()`: it reports on every commit, whatever happened before it. The verdict is `tools/native_ci_gate.py` (the truth table is tested,
+  # tests/test_native_ci_workflow.py): `changes` succeeded AND (native == false OR rust, wheel, corpus and differential all `success`); a failed, cancelled or SKIPPED heavy job
+  # on a native-relevant change fails it. `interpreters-advisory` is deliberately not among the `needs`: a red leg there is information, not a block.
   native-gate:
     name: native-gate
     if: always()
-    needs: [rust, wheel, corpus, corpus-skeleton, differential]
+    needs: [changes, rust, wheel, corpus, differential]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Every job of the native proof succeeded
-        run: |
-          echo "rust=${{ needs.rust.result }} wheel=${{ needs.wheel.result }} corpus=${{ needs.corpus.result }} corpus-skeleton=${{ needs.corpus-skeleton.result }} differential=${{ needs.differential.result }}"
-          test "${{ needs.rust.result }}" = success
-          test "${{ needs.wheel.result }}" = success
-          test "${{ needs.corpus.result }}" = success
-          test "${{ needs.corpus-skeleton.result }}" = success
-          test "${{ needs.differential.result }}" = success
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/native_ci_gate.py
+          sparse-checkout-cone-mode: false
+      - name: Verdict of the native acceptance
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          NATIVE: ${{ needs.changes.outputs.native }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          WHEEL_RESULT: ${{ needs.wheel.result }}
+          CORPUS_RESULT: ${{ needs.corpus.result }}
+          DIFFERENTIAL_RESULT: ${{ needs.differential.result }}
+        run: python3 tools/native_ci_gate.py

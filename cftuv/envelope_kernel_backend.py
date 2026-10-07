@@ -5,7 +5,13 @@
 
 * НАСТРОЙКА. `kernel_backend` (`PYTHON` | `NATIVE`) живёт в настройках сцены рядом с остальными настройками декали
   (`HOTSPOTUV_DecalMeshSettings`), едет в прогон (`run_production`), в задачу пула (`DomainTaskV1.backend`) и в запись живой
-  ширины. Умолчание — `PYTHON`: без заказа ничего не меняется, ни ключи кэшей, ни строки консоли.
+  ширины. Умолчание — `NATIVE` (`DEFAULT_KERNEL_BACKEND`, решение владельца 2026-10-07: покрытие и резка — стадии, переведённые на
+  Rust; Python — замороженный эталон и именованный откат). Нет колеса либо порт устарел — домен считает Python, и строка журнала это
+  называет (`NATIVE_UNAVAILABLE`, `NATIVE_PORT_STALE`, ...): тихого отката нет. СТАРЫЕ СЦЕНЫ: свойство Blender хранит значение только
+  когда его присвоили (`is_property_set`), поэтому сцена, где `kernel_backend` не трогали, читает новое умолчание `NATIVE`, а сцена, где
+  выбрали `PYTHON` (хоть то же значение, что было умолчанием), хранит его и остаётся на `PYTHON`; миграции нет и не нужна. Порядок
+  `KERNEL_BACKEND_ITEMS` — формат хранения (в сцене лежит индекс): `PYTHON` — 0, `NATIVE` — 1, порядок не менять
+  (проверяет `tests/blender/test_envelope_kernel_backend_default.py`).
 * ЗАПИСЬ ДОМЕНА. `with_kernel_backend` оборачивает вычисление домена в блок `use_backend` и кладёт в результат `BackendRecordV1`
   (какой бэкенд посчитал на самом деле и по какой названной причине откат на Python). Результат с записью и без неё равен по
   ответу: запись — метка запуска, как `placement`. Смена бэкенда в процессе сбрасывает память стадии резки ядра (`clip_memo`):
@@ -27,20 +33,25 @@ from dataclasses import dataclass
 
 KERNEL_BACKEND_PYTHON = "PYTHON"
 KERNEL_BACKEND_NATIVE = "NATIVE"
-DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_PYTHON
+#: УМОЛЧАНИЕ ПРОДУКТА — нативный бэкенд (решение владельца 2026-10-07: покрытие и резка переведены на Rust; Python-эталон заморожен и
+#: остаётся именованным откатом). ЕДИНСТВЕННОЕ место, где умолчание названо: настройка сцены, прогон, задача пула и запись живой ширины
+#: берут его отсюда (тест `test_every_backend_default_of_the_host_is_the_one_named_constant`), литерал `"PYTHON"` в умолчании параметра — дефект.
+DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_NATIVE
 #: Имя свойства в `HOTSPOTUV_DecalMeshSettings`.
 SETTING_NAME = "kernel_backend"
+#: ПОРЯДОК — ФОРМАТ ХРАНЕНИЯ: Blender кладёт в сцену индекс пункта (`PYTHON` = 0, `NATIVE` = 1); новый пункт — только в конец.
 KERNEL_BACKEND_ITEMS = (
     (
         KERNEL_BACKEND_PYTHON,
         "Python",
-        "Reference kernel in Python: the answer every other backend is checked against",
+        "Frozen reference kernel in Python: the answer the native kernel is checked against, and the named fallback "
+        "when the native one is unavailable",
     ),
     (
         KERNEL_BACKEND_NATIVE,
         "Native (Rust)",
-        "Coverage and clip in the native kernel (cftuv_native). The answer is bitwise the same; a domain the native "
-        "kernel cannot compute is computed in Python and named in the console",
+        "Default. Coverage and clip in the native kernel (cftuv_native). The answer is bitwise the same; a domain the "
+        "native kernel cannot compute is computed in Python and named in the console",
     ),
 )
 #: Сколько номеров патчей называет строка журнала на исход.
@@ -59,7 +70,7 @@ def normalize_kernel_backend(value) -> str:
 
 
 def kernel_backend_of(mesh_settings) -> str:
-    """Заказанный бэкенд из настроек декали сцены; без свойства (вне Blender, старая сцена) — `PYTHON`."""
+    """Заказанный бэкенд из настроек декали сцены; без свойства (вне Blender) и в сцене, где его не трогали, — умолчание продукта (`NATIVE`)."""
 
     return normalize_kernel_backend(getattr(mesh_settings, SETTING_NAME, DEFAULT_KERNEL_BACKEND) or DEFAULT_KERNEL_BACKEND)
 
@@ -97,8 +108,8 @@ def entered_backend(kernel_backend):
 def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
-    `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). С `backend=PYTHON`
-    (умолчание) результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
+    `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). Умолчание `backend` —
+    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
     завершился бы; `NATIVE_PARTIAL_EFFECTS_REFUSED`: пояс, состояние сдвинулось), ответ домена недействителен, каким бы он ни вернулся (исключение могла
     проглотить промежуточная стадия): домен отказан этим именем.
 
@@ -199,7 +210,7 @@ def backend_text(summary: BackendSummaryV1) -> str:
 
 
 def backend_console_lines(results, kernel_backend) -> list:
-    """Одна строка журнала прогона; пусто, пока заказан `PYTHON` (умолчание ничего не печатает)."""
+    """Одна строка журнала прогона; пусто, пока заказан `PYTHON`. Умолчание продукта — `NATIVE`, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
     if normalize_kernel_backend(kernel_backend) != KERNEL_BACKEND_NATIVE:
         return []

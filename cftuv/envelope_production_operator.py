@@ -93,9 +93,9 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         items=KERNEL_BACKEND_ITEMS,
         default=DEFAULT_KERNEL_BACKEND,
         description=(
-            "Which kernel computes the decal: the Python reference or the native (Rust) one. The answer is "
-            "bitwise the same; a domain the native kernel cannot compute is computed in Python and named in "
-            "the console. Applies to the next Build Decal Mesh"
+            "Which kernel computes the decal: the native (Rust) one (default) or the frozen Python reference. The "
+            "answer is bitwise the same; a domain the native kernel cannot compute is computed in Python and "
+            "named in the console. A scene that chose Python keeps it. Applies to the next Build Decal Mesh"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")
