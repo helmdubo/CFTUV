@@ -266,9 +266,25 @@ class EnvelopeDebugSessionController:
         #: Имя источника, чью декаль сейчас адресуют инструменты ширины (активный объект, `retarget`): смена его
         #: снимает превью; запись кнопки (`width_build`) при этом остаётся, она про СВОЙ источник.
         self.width_target = None
+        #: Превью МЕША ширины (`envelope_width_mesh_preview`): образец точного прогона, чья геометрия лежит в меше, вспомогательные
+        #: образцы, сертификат образца на экране (либо названный отказ), что меш показывает сейчас, счётчики и планировщик затравки.
+        #: Всё это данные ревизии и записи кнопки: смена ревизии и полный сброс их роняют.
+        self.width_prime = None
+        self.reset_width_mesh_preview()
+
+    def reset_width_mesh_preview(self) -> None:
+        """Образцы, сертификат и состояние кадра превью меша забыты (ревизия сменилась, сессия сброшена, файл загружен)."""
+
+        self.width_displayed = None
+        self.width_aux = ()
+        self.width_certificate = None
+        self.width_certificate_refusal = None
+        self.width_mesh_preview = None
+        self.width_prime_attempts = 0
+        self.width_preview_log = None
 
     def _preview_schedulers(self) -> tuple:
-        return tuple(item for item in (self.alpha_preview, self.width_live) if item is not None)
+        return tuple(item for item in (self.alpha_preview, self.width_live, self.width_prime) if item is not None)
 
     def quiesce_preview(self, reason: str) -> None:
         """Останавливает фоновые счёты (превью alpha и живая ширина) и ждёт конца их потоков (перед кнопкой)."""
@@ -393,6 +409,7 @@ class EnvelopeDebugSessionController:
         self.width_build = None
         self.width_preview = None
         self.width_target = None
+        self.reset_width_mesh_preview()
         self._invalidation_count += 1
 
     def _invalidate_revision_scoped(self) -> None:
@@ -1236,6 +1253,7 @@ class _WindowManagerSessionAttribute:
             controller.width_build = None
             controller.width_preview = None
             controller.width_target = None
+            controller.reset_width_mesh_preview()
 
 
 def register_window_manager_session_attribute() -> None:

@@ -196,10 +196,10 @@ class _World:
             active_object=self.objects["row"],
         )
 
-    def _rewrite(self, source, results, *, offset, material_name, width):
+    def _rewrite(self, source, results, *, offset, material_name, width, arrays=None):
         self.written.append((tuple(results), offset, material_name, width))
         self.decal.data[production_mesh.DECAL_WIDTH_PROPERTY] = width
-        arrays = production_mesh.build_mesh_arrays(results, offset)
+        arrays = production_mesh.build_mesh_arrays(results, offset) if arrays is None else arrays
         return types.SimpleNamespace(
             domains=arrays.domains,
             skipped=arrays.skipped,
@@ -410,11 +410,13 @@ def test_the_compute_closure_reads_no_bpy_in_the_thread(monkeypatch):
 
     job = live._begin(world.controller, request)
     job.join(120.0)
-    run = job.result()
+    finished = job.result()
 
     assert [name for name, thread in tripwire.reads if thread != "MainThread"] == []
     reference = _direct(quad_row_bundle(ROW), EnvelopeDebugSessionController(), 0.4)
-    assert _digest(run.results) == _digest(reference.results)
+    assert _digest(finished.run.results) == _digest(reference.results)
+    # Массивы меша, образец и сертификат строит ТОТ ЖЕ поток (главный поток их только применяет), и массивы те же, что у писателя.
+    assert finished.arrays.digest == _digest(reference.results) and finished.sample.arrays_digest == finished.arrays.digest
 
 
 def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(monkeypatch):
@@ -432,6 +434,7 @@ def test_the_live_compute_carries_the_dissolve_tolerance_the_button_built_with(m
         return "run"
 
     monkeypatch.setattr(export, "run_production", fake_run_production)
+    monkeypatch.setattr(live, "finish_live_run", lambda run, **_unused: run)  # хвост потока читает настоящий прогон
     target = live.target_of(world.settings, world.mesh_settings, world.controller.width_build)
     request = types.SimpleNamespace(alpha=0.4, payload=target)
 
@@ -478,7 +481,7 @@ def test_five_changes_give_five_previews_and_one_exact_result_equal_to_a_direct_
     assert scheduler.status_text.startswith("ready width=0.34")
     assert world.mesh_settings.status.startswith("MATERIALIZED")
     assert "live width 0.34" in world.mesh_settings.timing
-    assert [line for line in live.status_lines(world.controller) if "PREVIEW" in line] == []
+    assert [line for line in live.status_lines(world.controller) if PREVIEW_BINARY64_V1 in line] == []  # линий превью нет
 
 
 def test_a_width_change_without_a_build_does_nothing_and_orders_nothing(monkeypatch):
