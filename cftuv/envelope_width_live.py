@@ -60,6 +60,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
 from .envelope_width_mesh_preview import (
     PRIME_BASE_REPLACED,
     finish_live_run,
@@ -110,7 +111,7 @@ class LastProductionBuildV1:
     #: «Dissolve UV tolerance» (проценты ширины), с которой кнопка записала меш.
     dissolve_percent: float = 0.390625
     #: Бэкенд ядра кнопки: живая ширина считает тем же (смена настройки действует с ближайшей кнопки).
-    kernel_backend: str = "PYTHON"
+    kernel_backend: str = DEFAULT_KERNEL_BACKEND
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +177,7 @@ def remember_build(
     stretch_percent: int,
     width: float,
     dissolve_percent: float = 0.390625,
-    kernel_backend: str = "PYTHON",
+    kernel_backend: str = DEFAULT_KERNEL_BACKEND,
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
