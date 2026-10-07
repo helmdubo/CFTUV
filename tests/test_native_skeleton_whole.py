@@ -532,3 +532,52 @@ def test_calls_from_several_threads_are_bit_equal_to_sequential_calls(threads):
     assert not errors, errors
     assert {name: found for name, found in outcomes.items()} == {name: {value} for name, value in reference.items()}
     assert concurrent == {key: value * threads * 2 for key, value in sequential.items()}, (sequential, concurrent)
+
+
+# --------------------------------------------------------------------------
+# Подготовка целиком: потребитель скелета видит то же самое
+# --------------------------------------------------------------------------
+
+FIXTURES = ("building_002_point_contact_v1", "building_002_weighted_normals_v1", "building_002_full_selection_v1", "wall_noise_top_rung_clip_v1")
+
+
+def _prepared(fixture: str, skeleton_function):
+    """`wavefront.prepare_conveyor` на холодном процессе (как в продукте: память и неоплаченное сброшены), где вызов `build_skeleton` конвейера — `skeleton_function`."""
+
+    directory = ROOT / "kernel" / "fixtures" / fixture
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads((directory / "analysis_snapshot.json").read_bytes())
+    request = kernel.DecalRequestCodecV1.loads((directory / "decal_request.json").read_bytes())
+    exact.reset_factorization_memory()
+    exact.reset_unbudgeted_work()
+    exact.reset_sign_counts()
+    original = conveyor.build_skeleton
+    conveyor.build_skeleton = skeleton_function
+    try:
+        prepared = wavefront.prepare_conveyor(snapshot, request)
+    finally:
+        conveyor.build_skeleton = original
+    return prepared, nc.capture_state(prepared.work_budget, None)
+
+
+@pytest.mark.parametrize("fixture", FIXTURES)
+def test_a_preparation_through_the_dropin_equals_the_oracles_down_to_the_face_partition(fixture, runner):
+    """Читатели скелета (`build_faces_traced`: узлы, их точки как ТЕ ЖЕ `SqrtSumV1`, что потом лежат в гранях; шаг ширины читает РАЗБИЕНИЕ) видят то же, что у эталона."""
+
+    import pickle
+
+    oracle, oracle_state = _prepared(fixture, skeleton.build_skeleton)
+    native, native_state = _prepared(fixture, runner.mirror.build_skeleton)
+    assert oracle.outcome.value == native.outcome.value
+    for left, right in zip(oracle.regions, native.regions):
+        assert left.skeleton == right.skeleton and nc.canonical(left.skeleton) == nc.canonical(right.skeleton)
+        if left.partition is not None:
+            blank = lambda found: dataclasses.replace(found, work_budget=None)  # noqa: E731 - the budget is not an answer
+            assert nc.canonical(blank(left.partition)) == nc.canonical(blank(right.partition))
+            assert all(face.points == other.points for face, other in zip(left.partition.faces, right.partition.faces))
+    assert native_state.budget["articles"] == oracle_state.budget["articles"] and native_state.budget["superlevel"] == oracle_state.budget["superlevel"]
+    assert native_state.known_primes == oracle_state.known_primes and native_state.factorization == oracle_state.factorization
+    assert native_state.squarefree == oracle_state.squarefree and native_state.prime_support == oracle_state.prime_support
+    assert native_state.sign_counts == oracle_state.sign_counts
+    # the preparation crosses processes (pool workers, the session cache): ordinary objects only, no native handle inside
+    assert pickle.loads(pickle.dumps(native)).regions[0].skeleton == native.regions[0].skeleton
+
