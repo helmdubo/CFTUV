@@ -134,8 +134,15 @@ def evaluate_split_candidate(
     *,
     now: EventTimeV1,
     proof_identity_factory: Callable[[], tuple] | None = None,
+    at_now_only: bool = False,
 ) -> SplitCandidateDecisionV1:
-    """ID-free SPLIT law with exact view-owned span and trace queries."""
+    """ID-free SPLIT law with exact view-owned span and trace queries.
+
+    `at_now_only` — вызывающему нужен кандидат РОВНО на уровне `now` (символьное обнаружение контактов пакета: всё, что
+    позже уровня, оно отбрасывает, а событие позже найдёт свой уровень). Кандидат позже `now` тогда отвечает «нет
+    кандидата» БЕЗ следов (`effects=()`), не заплатив за границу трассы, место и принадлежность пролёту. Ответ для
+    кандидата на уровне и для прошлого тот же, что без признака; планировщик очереди признака не передаёт.
+    """
 
     def refuse(reason, *, needs_identity=False, counter_deltas=()):
         identity = None
@@ -163,8 +170,11 @@ def evaluate_split_candidate(
         )
     if time.sign <= 0 or compare_times(time, vertex.birth, view.budget) <= 0:
         return refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
-    if compare_times(time, now, view.budget) < 0:
+    level = compare_times(time, now, view.budget)
+    if level < 0:
         return refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
+    if level > 0 and at_now_only:
+        return SplitCandidateDecisionV1(None)
     bounded = view.trace_bounds(vertex_ref, time)
     if bounded is False:
         return refuse(

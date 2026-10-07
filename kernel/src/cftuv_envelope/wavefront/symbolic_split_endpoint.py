@@ -61,7 +61,8 @@ class SplitDecisionMemoV1:
     те же пары уже спрашивал последний проход начального замыкания. Закон — чистая функция вида, вид строится из наложения
     и его не меняет, поэтому ответ на пару один и вычисляется один раз. Память принадлежит наложению, из которого построен
     её вид (вид строится по первому вопросу): её не отдают другому содержимому (клон того же содержимого — нулевое
-    поколение — годится).
+    поколение — годится). Решение — для уровня самого наложения (`at_now_only`): кандидат позже уровня обоим
+    потребителям не нужен.
     """
 
     __slots__ = ("builder", "overlay", "_view", "decisions")
@@ -83,7 +84,8 @@ class SplitDecisionMemoV1:
         found = self.decisions.get(key)
         if found is None:
             found = evaluate(
-                self.view, emitter_ref, leaf, now=self.overlay.time
+                self.view, emitter_ref, leaf,
+                now=self.overlay.time, at_now_only=True,
             )
             self.decisions[key] = found
         return found

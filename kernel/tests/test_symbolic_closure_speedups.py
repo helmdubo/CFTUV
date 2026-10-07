@@ -11,10 +11,14 @@
    обнаружение внутренних разрезов обходят одни и те же пары, а нулевое поколение смешанной неподвижной точки строится
    на том же содержимом, что последний проход начального замыкания. Ответ от общей памяти обязан быть равен ответу
    свежего вычисления на каждом вызове каждого замыкания корпуса.
+3. Закон SPLIT с `at_now_only` не платит за границу трассы, место и принадлежность пролёту для кандидата ПОЗЖЕ уровня:
+   символьное обнаружение такой ответ всё равно отбрасывает. Для кандидата на уровне и для прошлого ответ тот же, что
+   без признака.
 """
 
 from __future__ import annotations
 
+from fractions import Fraction
 
 import pytest
 
@@ -208,3 +212,145 @@ def test_the_once_per_pair_check_is_not_vacuous(monkeypatch):
     name, polygon = next(item for item in CASES if item[0] == "cross")
     stable = _law_calls_of_stable_closures(polygon, monkeypatch, shared=False)
     assert stable and any(total > unique for total, unique in stable), stable
+
+
+# --------------------------------------------------------------------------
+# 3. Закон SPLIT: кандидат позже уровня не оплачивается
+# --------------------------------------------------------------------------
+
+
+def _level_gate_census(polygon, monkeypatch):
+    """Строит скелет, сверяя КАЖДЫЙ вопрос символьного обнаружения к закону с тем же вопросом без признака."""
+
+    from cftuv_envelope.wavefront import candidate_law
+    from cftuv_envelope.wavefront import symbolic_split_endpoint as endpoint
+    from cftuv_envelope.wavefront.event_time import compare_times
+
+    monkeypatch.setenv(outer.ENVIRONMENT_REPLAY_CHECK, "0")
+    law = candidate_law.evaluate_split_candidate
+    seen = {"at_level": 0, "after_level": 0, "refused": 0}
+
+    def checked(view, emitter_ref, leaf, *, now, **kwargs):
+        assert kwargs == {"at_now_only": True}, kwargs
+        gated = law(view, emitter_ref, leaf, now=now, **kwargs)
+        full = law(view, emitter_ref, leaf, now=now)
+        if full.candidate is None:
+            seen["refused"] += 1
+            assert gated.candidate is None
+        elif compare_times(full.candidate.time, now, view.budget) == 0:
+            seen["at_level"] += 1
+            assert gated == full and repr(gated) == repr(full)
+        else:
+            # Кандидат позже уровня (раньше уровня закон отказал бы как прошлое): без кандидата и без следов.
+            seen["after_level"] += 1
+            assert compare_times(full.candidate.time, now, view.budget) > 0
+            assert gated.candidate is None and gated.effects == ()
+        return gated
+
+    monkeypatch.setattr(outer, "evaluate_split_candidate", checked)
+    monkeypatch.setattr(endpoint, "evaluate_split_candidate", checked)
+    build_skeleton(polygon)
+    return seen
+
+
+@pytest.mark.parametrize("name,polygon", CASES, ids=[item[0] for item in CASES])
+def test_the_level_gate_changes_nothing_the_symbolic_callers_read(name, polygon, monkeypatch):
+    _level_gate_census(polygon, monkeypatch)
+
+
+def test_the_level_gate_is_exercised_on_the_corpus(monkeypatch):
+    """Корпус ВИДИТ кандидата позже уровня (иначе проверка выше ничего не весит); кандидат на уровне — в тесте закона ниже."""
+
+    total = {"at_level": 0, "after_level": 0, "refused": 0}
+    for _, polygon in CASES:
+        for key, value in _level_gate_census(polygon, monkeypatch).items():
+            total[key] += value
+    assert total["after_level"] > 0, total
+
+
+def _random_line(rng):
+    from cftuv_envelope.wavefront.event_time import SupportLineV1
+
+    a, b = rng.randint(-9, 9), rng.randint(-9, 9)
+    if a == 0 and b == 0:
+        a = 1
+    q = rng.choice((1, 2, 4, 5, 8, 25, Fraction(1, 4), Fraction(9, 5), a * a + b * b))
+    return SupportLineV1(a, b, rng.randint(-30, 30), q)
+
+
+def _random_view(rng):
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1, exact_work_budget
+    from cftuv_envelope.wavefront.event_time import EventTimeV1
+    from cftuv_envelope.wavefront.exact_candidate_view import (
+        CandidateSpanStateV1,
+        CandidateVertexStateV1,
+        ExactCandidateViewV1,
+    )
+
+    lines = {name: _random_line(rng) for name in ("p", "n", "T", "q", "r")}
+    born = EventTimeV1.normalized(
+        Fraction(rng.randint(0, 12), rng.choice((1, 2))),
+        SqrtSumV1.radical(rng.randint(1, 4), rng.choice((2, 3, 5))) + SqrtSumV1.rational(rng.randint(1, 5)),
+    )
+    sliding = (
+        SqrtSumV1.radical(1, rng.choice((2, 3))) + SqrtSumV1.rational(1) if rng.random() < 0.3 else None
+    )
+    spans = {
+        name: CandidateSpanStateV1(
+            line, (0, 0, 3, 4), "s" if name == "T" else None, "e" if name == "T" else None
+        )
+        for name, line in lines.items()
+    }
+    vertices = {
+        "v": CandidateVertexStateV1("p", "n", born, sliding),
+        "s": CandidateVertexStateV1("q", "T", born, None),
+        "e": CandidateVertexStateV1("T", "r", born, None),
+    }
+    return ExactCandidateViewV1(
+        (2, 3, 5, 7), vertices.__getitem__, spans.__getitem__, lambda ref, when: None,
+        exact_work_budget(stage="T"), None,
+    )
+
+
+def test_at_now_only_is_the_same_law_at_the_level_and_in_the_past_and_free_after_it():
+    """Закон с `at_now_only` отвечает так же, как без него, для кандидата на уровне и для прошлого, а позже уровня — без следов."""
+
+    import random
+
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
+    from cftuv_envelope.wavefront.candidate_law import evaluate_split_candidate
+    from cftuv_envelope.wavefront.event_time import EventTimeV1, compare_times
+
+    rng = random.Random(77)
+    zero = EventTimeV1(Fraction(0), SqrtSumV1.rational(1))
+    seen = {"at_level": 0, "past": 0, "after_level": 0, "after_level_refusals": 0, "early_refusals": 0}
+    for _ in range(600):
+        view = _random_view(rng)
+        full = evaluate_split_candidate(view, "v", "T", now=zero)
+        gated = evaluate_split_candidate(view, "v", "T", now=zero, at_now_only=True)
+        if full.candidate is None:
+            assert gated.candidate is None
+            if gated == full:
+                seen["early_refusals"] += 1  # отказ ДО границы уровня: те же следы
+            else:
+                assert gated.effects == ()  # отказ после границы уровня для кандидата позже уровня: без следов
+                seen["after_level_refusals"] += 1
+            continue
+        # Кандидат позже уровня: ответ без кандидата и без следов.
+        assert compare_times(full.candidate.time, zero, view.budget) > 0
+        assert gated.candidate is None and gated.effects == ()
+        seen["after_level"] += 1
+        # Тот же кандидат на ЕГО уровне: ответ без признака и с признаком один и тот же.
+        level = full.candidate.time
+        at_level_full = evaluate_split_candidate(view, "v", "T", now=level)
+        at_level_gated = evaluate_split_candidate(view, "v", "T", now=level, at_now_only=True)
+        assert at_level_full.candidate is not None
+        assert at_level_gated == at_level_full and repr(at_level_gated) == repr(at_level_full)
+        seen["at_level"] += 1
+        # И в прошлом: отказ «прошлое» без признака и с ним.
+        later = EventTimeV1.normalized(level.dividend + 1, level.divisor)
+        past_full = evaluate_split_candidate(view, "v", "T", now=later)
+        past_gated = evaluate_split_candidate(view, "v", "T", now=later, at_now_only=True)
+        assert past_full.candidate is None and past_gated == past_full
+        seen["past"] += 1
+    assert min(seen["at_level"], seen["past"], seen["after_level"], seen["early_refusals"]) > 10, seen
