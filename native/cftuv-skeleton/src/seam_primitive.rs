@@ -204,6 +204,9 @@ fn pyset_script(args: &[Value]) -> Wire<SkelResult<Value>> {
 }
 
 pub(crate) fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
+    if (310..=317).contains(&code) {
+        return crate::seam_closure::dispatch(code, args, ctx, extras);
+    }
     if code == 301 {
         return pyset_script(args);
     }

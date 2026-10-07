@@ -297,7 +297,7 @@ pub fn level_budget(polygon: &Polygon) -> i64 {
 }
 
 /// `_is_reflex(first, second)`: the cross product of the directions is negative.
-fn is_reflex(first: &SupportLine, second: &SupportLine) -> bool {
+pub(crate) fn is_reflex(first: &SupportLine, second: &SupportLine) -> bool {
     let cross = i128::from(first.b) * (-i128::from(second.a)) - (-i128::from(first.a)) * i128::from(second.b);
     cross < 0
 }

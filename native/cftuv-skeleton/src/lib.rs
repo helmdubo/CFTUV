@@ -22,7 +22,11 @@
 //! * `pyval`: the Python values the planning layer keys, groups and orders by (identity by value, `repr`, the tuple order of CPython with its `TypeError`);
 //! * `snapshot`, `plans`, `germ`, `closure`, `composition`: the frozen prestate of a packet, the plan of each component (death of ports, reconnection of meetings, cut of a
 //!   span, composition, wiring of the births), the ledger of germs, the stable symbolic normal form of the cuts (WP-S4);
-//! * `seam`, `seam_graph`, `seam_builder`, `seam_primitive`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.
+//! * `omap`, `overlay`, `component`, `contacts`, `generations`, `coordinator`: the symbolic closure of a packet (WP-S5): the overlay of junctions and leaves with its exact view
+//!   (`overlay`, the dictionaries of the oracle in insertion order in `omap`), the delta of a component and the signature of an overlay (`component`), the contacts of an exact time
+//!   (`contacts`), the generations of mixed junction and interior contacts replayed to a fixed point (`generations`), and the outer fixed point itself, the twice-run closure
+//!   (`coordinator`);
+//! * `seam`, `seam_graph`, `seam_builder`, `seam_primitive`, `seam_closure`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.
 //!
 //! Every function that pays cost takes an `ExactCtx` and asks its exact questions in the order the oracle asks them. A refusal is a named
 //! [`error::SkelError`]; nothing here panics on valid input and nothing falls back silently.
@@ -30,13 +34,19 @@
 pub mod builder;
 pub mod candidate;
 pub mod closure;
+pub mod component;
 pub mod composition;
+pub mod contacts;
+pub mod coordinator;
 pub mod error;
+pub mod generations;
 pub mod germ;
 pub mod grid;
 pub mod heap;
 pub mod line;
 pub mod motorcycle;
+pub mod omap;
+pub mod overlay;
 pub mod plans;
 pub mod polygon;
 pub mod poststate;
@@ -48,6 +58,7 @@ pub mod queue;
 pub mod repr;
 pub mod seam;
 mod seam_builder;
+mod seam_closure;
 mod seam_graph;
 mod seam_primitive;
 pub mod skeleton;

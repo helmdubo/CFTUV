@@ -511,7 +511,7 @@ pub fn run(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, SeamError> 
 
 /// The table [`SEAMS`] as the harness reads it (kept beside `run` so a new opcode is one edit).
 pub fn table() -> Vec<(u16, &'static str)> {
-    SEAMS.iter().chain(crate::seam_graph::SEAMS).chain(crate::seam_builder::SEAMS).chain(crate::seam_primitive::SEAMS).copied().collect()
+    SEAMS.iter().chain(crate::seam_graph::SEAMS).chain(crate::seam_builder::SEAMS).chain(crate::seam_primitive::SEAMS).chain(crate::seam_closure::SEAMS).copied().collect()
 }
 
 #[cfg(test)]

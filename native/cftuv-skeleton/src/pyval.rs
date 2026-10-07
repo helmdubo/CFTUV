@@ -54,6 +54,11 @@ enum Kind {
     Data(Name, Vec<(Name, Val)>),
     /// A member of a `str`-mixin enum: class, member name, value.
     Member(Name, Name, Val),
+    /// A `set` or `frozenset` (the flag): the members unique by value and in the canonical order of their `repr`. CPython prints a set in the order of its hash table, which
+    /// no key may depend on; the port prints and compares the canonical order, and the seams bring the oracle's sets to the same form.
+    Set(Vec<Val>, bool),
+    /// A `dict`: the pairs in insertion order.
+    Dict(Vec<(Val, Val)>),
 }
 
 /// `'<' not supported between instances of ...`: the pair of values that has no order.
@@ -96,6 +101,8 @@ fn kind_hash(kind: &Kind) -> u64 {
         Kind::List(items) => items.iter().fold(mix(0x6c69_7374, items.len() as u64), |hash, item| mix(hash, item.0.hash)),
         Kind::Data(name, fields) => fields.iter().fold(mix(0x6461_7461, hash_of(&**name)), |hash, (_, item)| mix(hash, item.0.hash)),
         Kind::Member(class, member, _) => mix(mix(0x656e_756d, hash_of(&**class)), hash_of(&**member)),
+        Kind::Set(items, frozen) => items.iter().fold(mix(0x7365_74 + u64::from(*frozen), items.len() as u64), |hash, item| mix(hash, item.0.hash)),
+        Kind::Dict(pairs) => pairs.iter().fold(mix(0x6469_6374, pairs.len() as u64), |hash, (key, item)| mix(mix(hash, key.0.hash), item.0.hash)),
     }
 }
 
@@ -120,6 +127,9 @@ fn type_name(kind: &Kind) -> &'static str {
         Kind::List(_) => "list",
         Kind::Data(_, _) => "dataclass",
         Kind::Member(_, _, _) => "enum",
+        Kind::Set(_, false) => "set",
+        Kind::Set(_, true) => "frozenset",
+        Kind::Dict(_) => "dict",
     }
 }
 
@@ -174,6 +184,32 @@ impl Val {
 
     pub fn member(class: impl Into<Name>, member: impl Into<Name>, value: Val) -> Val {
         Val::new(Kind::Member(class.into(), member.into(), value))
+    }
+
+    /// A `set` (`frozen == false`) or `frozenset` of the items: equal items once (the first kept), in the canonical order of their `repr`.
+    pub fn set(items: Vec<Val>, frozen: bool) -> Val {
+        let mut unique: Vec<Val> = Vec::with_capacity(items.len());
+        let mut seen: std::collections::HashSet<Val> = std::collections::HashSet::new();
+        for item in items {
+            if seen.insert(item.clone()) {
+                unique.push(item);
+            }
+        }
+        unique.sort_by(|left, right| left.repr().as_bytes().cmp(right.repr().as_bytes()));
+        Val::new(Kind::Set(unique, frozen))
+    }
+
+    /// A `dict` of the pairs in insertion order (the keys are the caller's to keep unique).
+    pub fn dict(pairs: Vec<(Val, Val)>) -> Val {
+        Val::new(Kind::Dict(pairs))
+    }
+
+    /// The members of a set (in the canonical order).
+    pub fn set_items(&self) -> Option<&[Val]> {
+        match &self.0.kind {
+            Kind::Set(items, _) => Some(items),
+            _ => None,
+        }
     }
 
     /// A tuple of ints (an edge key `(x0, y0, x1, y1)` or `(x, y, x, y, ordinal)`, a ray, a list of vertex ids).
@@ -343,6 +379,31 @@ fn write_repr(kind: &Kind, out: &mut String) {
             out.push_str(&value.repr());
             out.push('>');
         }
+        Kind::Set(items, frozen) => match (items.is_empty(), frozen) {
+            (true, false) => out.push_str("set()"),
+            (true, true) => out.push_str("frozenset()"),
+            (false, _) => {
+                if *frozen {
+                    out.push_str("frozenset(");
+                }
+                write_items(out, '{', '}', items, false);
+                if *frozen {
+                    out.push(')');
+                }
+            }
+        },
+        Kind::Dict(pairs) => {
+            out.push('{');
+            for (index, (key, item)) in pairs.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&key.repr());
+                out.push_str(": ");
+                out.push_str(&item.repr());
+            }
+            out.push('}');
+        }
     }
 }
 
@@ -362,6 +423,8 @@ pub fn py_eq(left: &Val, right: &Val) -> bool {
             first_name == second_name && first.len() == second.len() && first.iter().zip(second).all(|((name_a, a), (name_b, b))| name_a == name_b && py_eq(a, b))
         }
         (Kind::Member(first_class, first_member, _), Kind::Member(second_class, second_member, _)) => first_class == second_class && first_member == second_member,
+        (Kind::Set(first, first_frozen), Kind::Set(second, second_frozen)) => first_frozen == second_frozen && first.len() == second.len() && first.iter().zip(second).all(|(a, b)| py_eq(a, b)),
+        (Kind::Dict(first), Kind::Dict(second)) => first.len() == second.len() && first.iter().zip(second).all(|((key_a, a), (key_b, b))| py_eq(key_a, key_b) && py_eq(a, b)),
         (first, second) => match (as_number(first), as_number(second)) {
             (Some((a_n, a_d)), Some((b_n, b_d))) => a_n == b_n && a_d == b_d,
             _ => false,
@@ -557,6 +620,28 @@ mod tests {
         let numbers = [Val::int(9), Val::int(10), Val::int(100)];
         let sorted = sorted_by_repr(&numbers, Val::clone);
         assert_eq!(sorted.iter().map(|value| value.as_i64().unwrap()).collect::<Vec<_>>(), vec![10, 100, 9]);
+    }
+
+    #[test]
+    fn a_set_prints_in_the_canonical_order_of_its_members_and_is_equal_whatever_the_order_it_was_given_in() {
+        let members = |order: [i64; 3]| order.iter().map(|each| Val::int(*each)).collect::<Vec<Val>>();
+        let (first, second) = (Val::set(members([9, 10, 2]), false), Val::set(members([2, 9, 10]), false));
+        assert_eq!(first, second);
+        assert_eq!(&*first.repr(), "{10, 2, 9}");
+        assert_eq!(&*Val::set(members([1, 1, 1]), true).repr(), "frozenset({1})");
+        assert_eq!(&*Val::set(Vec::new(), false).repr(), "set()");
+        assert_eq!(&*Val::set(Vec::new(), true).repr(), "frozenset()");
+        assert_ne!(Val::set(members([1, 2, 3]), true), Val::set(members([1, 2, 3]), false));
+        assert!(py_less(&first, &second).is_err());
+    }
+
+    #[test]
+    fn a_dict_keeps_the_order_it_was_given_and_prints_like_one() {
+        let pairs = vec![(Val::int(2), Val::str("b")), (Val::int(1), Val::tuple(vec![Val::none()]))];
+        let dict = Val::dict(pairs.clone());
+        assert_eq!(&*dict.repr(), "{2: 'b', 1: (None,)}");
+        assert_eq!(&*Val::dict(Vec::new()).repr(), "{}");
+        assert_ne!(dict, Val::dict(pairs.into_iter().rev().collect()));
     }
 
     #[test]

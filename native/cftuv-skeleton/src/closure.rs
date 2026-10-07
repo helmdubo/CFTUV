@@ -47,24 +47,25 @@ fn field(value: &Val, name: &str) -> SkelResult<Val> {
 }
 
 /// `_contact_compare(first, second, budget)` as `< 0`: the sign of the difference of the projections (paid), then the equality of the keys, then their `repr`.
-fn contact_less(ctx: &mut ExactCtx<'_>, first: &SplitContact, second: &SplitContact) -> SkelResult<bool> {
-    let difference = first.projection.sub(&second.projection);
+fn contact_less(ctx: &mut ExactCtx<'_>, first: (&Val, &SqrtSum), second: (&Val, &SqrtSum)) -> SkelResult<bool> {
+    let difference = first.1.sub(second.1);
     let sign = exact::sign(ctx, &difference, SIGN_FILTER_BITS)?;
     if sign != 0 {
         return Ok(sign < 0);
     }
-    if first.key == second.key {
+    if first.0 == second.0 {
         return Ok(false);
     }
-    Ok(first.key.repr().as_bytes() < second.key.repr().as_bytes())
+    Ok(first.0.repr().as_bytes() < second.0.repr().as_bytes())
 }
 
-/// `sorted_as_cpython311(contacts, lambda a, b: _contact_compare(a, b, budget))`.
-pub fn sort_contacts(ctx: &mut ExactCtx<'_>, contacts: &[SplitContact]) -> SkelResult<Vec<SplitContact>> {
+/// `sorted_as_cpython311(items, lambda a, b: _contact_compare(a, b, budget))` over anything that has a key and a projection (the contacts of a family, the interior contacts of a
+/// generation): CPython 3.11's sequence of questions, each comparison a paid sign.
+pub fn sort_by_projection<T: Clone>(ctx: &mut ExactCtx<'_>, items: &[T], key_and_projection: impl Fn(&T) -> (&Val, &SqrtSum)) -> SkelResult<Vec<T>> {
     let mut failure: Option<SkelError> = None;
     let sorted = {
         let mut less = |left: &usize, right: &usize| -> cftuv_clip::error::ClipResult<bool> {
-            match contact_less(ctx, &contacts[*left], &contacts[*right]) {
+            match contact_less(ctx, key_and_projection(&items[*left]), key_and_projection(&items[*right])) {
                 Ok(answer) => Ok(answer),
                 Err(error) => {
                     failure = Some(error);
@@ -72,12 +73,17 @@ pub fn sort_contacts(ctx: &mut ExactCtx<'_>, contacts: &[SplitContact]) -> SkelR
                 }
             }
         };
-        cftuv_clip::cpython311::sort_by_less((0..contacts.len()).collect(), &mut less)
+        cftuv_clip::cpython311::sort_by_less((0..items.len()).collect(), &mut less)
     };
     match sorted {
-        Ok(order) => Ok(order.into_iter().map(|index| contacts[index].clone()).collect()),
+        Ok(order) => Ok(order.into_iter().map(|index| items[index].clone()).collect()),
         Err(_) => Err(failure.unwrap_or(SkelError::Unsupported("the comparator sort failed without a cause".to_string()))),
     }
+}
+
+/// `sorted_as_cpython311(contacts, lambda a, b: _contact_compare(a, b, budget))`.
+pub fn sort_contacts(ctx: &mut ExactCtx<'_>, contacts: &[SplitContact]) -> SkelResult<Vec<SplitContact>> {
+    sort_by_projection(ctx, contacts, |contact| (&contact.key, &contact.projection))
 }
 
 /// `_event_incident_map(snapshot)`: the incident of every event, or none when two incidents of one event differ in their geometry.
@@ -97,7 +103,7 @@ pub fn event_incident_map(snapshot: &Snapshot) -> Option<HashMap<EventIdentity, 
     Some(resolved)
 }
 
-fn span_family(occurrence: &Val) -> Val {
+pub(crate) fn span_family(occurrence: &Val) -> Val {
     Val::data("SpanFamilyRefV1", vec![("occurrence", occurrence.clone()), ("participant_keys", Val::tuple(vec![occurrence.get(0).cloned().unwrap_or_else(Val::none)]))])
 }
 

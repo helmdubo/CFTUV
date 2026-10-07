@@ -449,7 +449,7 @@ fn incident_of(value: &Value) -> Wire<Incident> {
     })
 }
 
-fn vertex_snapshot_of(value: &Value) -> Wire<VertexSnapshot> {
+pub(crate) fn vertex_snapshot_of(value: &Value) -> Wire<VertexSnapshot> {
     let [ident, prev, next, prev_edge, next_edge, alive, incoming, outgoing, point_key, prev_occurrence, next_occurrence] = fixed::<11>(value, "a vertex snapshot")?;
     Ok(VertexSnapshot {
         ident: i64_of(ident, "an identity")?,
