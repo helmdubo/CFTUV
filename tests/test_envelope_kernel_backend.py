@@ -137,7 +137,7 @@ def test_the_default_press_is_the_native_press_and_names_who_computed_while_an_e
     assert all(record is not None and record.requested == "NATIVE" and record.ran == "python" for record in records)
     assert all(record.outcomes and set(record.outcomes) <= {"NATIVE_UNAVAILABLE", "NATIVE_NOT_REACHED"} for record in records)
     line = host_backend.backend_console_lines(default.results, default.kernel_backend)[0]
-    assert line.startswith("[CFTUV][Production] BACKEND native 0 / python " + str(ROW))
+    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native 0 / python " + str(ROW)) and line.endswith("; skeleton python")
     assert "NATIVE_UNAVAILABLE: patch" in line or "NATIVE_NOT_REACHED: patch" in line
     assert f" | backend native 0 / python {ROW}" in production.production_timing_text(default)
     # явный `PYTHON`: записи нет, строки журнала нет, в строке панели бэкенда нет
@@ -169,7 +169,7 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
     import ast
     from pathlib import Path
 
-    names = {"backend", "kernel_backend", "backend_id"}
+    names = {"backend", "kernel_backend", "backend_id", "skeleton_backend"}
     found: list = []
     for path in sorted((Path(__file__).resolve().parents[1] / "cftuv").glob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -185,8 +185,11 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
                     value = next((item.value for item in node.annotation.keywords if item.arg == "default"), None)
                 if value is not None:
                     found.append((path.name, node.target.id, ast.unparse(value)))
-    allowed = {"DEFAULT_KERNEL_BACKEND", "None"}
-    assert not [item for item in found if item[2] not in allowed], [item for item in found if item[2] not in allowed]
+    # стадия скелета — своё единственное место умолчания (`DEFAULT_SKELETON_BACKEND`): покрытие с резкой и скелет переводятся на Rust порознь
+    allowed = {"skeleton_backend": {"DEFAULT_SKELETON_BACKEND"}}
+    plain = {"DEFAULT_KERNEL_BACKEND", "None"}
+    unnamed = [item for item in found if item[2] not in allowed.get(item[1], plain)]
+    assert not unnamed, unnamed
     # правило не пустое: оно видит каждое место проводки (прогон, задача пула, запись живой ширины, свойство сцены, ключи кэшей)
     seen = {(file, name) for file, name, _default in found}
     for site in (
@@ -198,6 +201,14 @@ def test_every_backend_default_of_the_host_is_the_one_named_constant():
         ("envelope_production_operator.py", "kernel_backend"),
         ("envelope_content_key.py", "backend"),
         ("envelope_content_key.py", "backend_id"),
+        # стадия скелета: те же места проводки
+        ("envelope_kernel_backend.py", "skeleton_backend"),
+        ("envelope_production_export.py", "skeleton_backend"),
+        ("envelope_domain_pool.py", "skeleton_backend"),
+        ("envelope_queue_export.py", "skeleton_backend"),
+        ("envelope_width_live.py", "skeleton_backend"),
+        ("envelope_production_operator.py", "skeleton_backend"),
+        ("envelope_content_key.py", "skeleton_backend"),
     ):
         assert site in seen, site
 
@@ -221,7 +232,7 @@ def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_ever
     allowed = {"NATIVE_UNAVAILABLE", "NATIVE_NOT_REACHED"}
     assert all(record.outcomes and set(record.outcomes) <= allowed for record in records)
     lines = host_backend.backend_console_lines(native.results, "NATIVE")
-    assert len(lines) == 1 and lines[0].startswith("[CFTUV][Production] BACKEND native 0 / python " + str(ROW))
+    assert len(lines) == 1 and lines[0].startswith("[CFTUV][Production] BACKEND coverage/clip native 0 / python " + str(ROW))
     assert "NATIVE_UNAVAILABLE: patch" in lines[0] or "NATIVE_NOT_REACHED: patch" in lines[0]
     assert f" | backend native 0 / python {ROW}" in production.production_timing_text(native)
 
@@ -394,9 +405,9 @@ def test_the_journal_line_names_native_python_mixed_cached_and_the_patches_of_ev
     summary = host_backend.backend_summary(results, "NATIVE")
 
     assert (summary.native, summary.python, summary.mixed, summary.cached) == (118, 2, 0, 0)
-    assert host_backend.backend_text(summary) == "native 118 / python 2 (NATIVE_PORT_STALE: patch 7, 9)"
+    assert host_backend.backend_text(summary) == "coverage/clip native 118 / python 2 (NATIVE_PORT_STALE: patch 7, 9); skeleton python"
     assert host_backend.backend_console_lines(results, "NATIVE") == [
-        "[CFTUV][Production] BACKEND native 118 / python 2 (NATIVE_PORT_STALE: patch 7, 9)"
+        "[CFTUV][Production] BACKEND coverage/clip native 118 / python 2 (NATIVE_PORT_STALE: patch 7, 9); skeleton python"
     ]
 
 
@@ -406,7 +417,7 @@ def test_the_journal_line_counts_mixed_and_cached_domains_and_caps_the_patch_lis
     results.append(SimpleNamespace(patch_id=98, placement=PLACEMENT_PARENT, backend_record=None))  # отказ входа: исполнителя не было
     text = host_backend.backend_text(host_backend.backend_summary(results, "NATIVE"))
 
-    assert text.startswith("native 0 / python 0 / mixed 15 / cached 1 (NATIVE_PORT_UNSUPPORTED: patch 0, 1, 2")
+    assert text.startswith("coverage/clip native 0 / python 0 / mixed 15 / cached 1 (NATIVE_PORT_UNSUPPORTED: patch 0, 1, 2")
     assert "... (+3))" in text
     assert text.count("patch") == 1
 
@@ -416,7 +427,7 @@ def test_a_domain_that_called_no_native_operation_is_named_not_reached_in_the_li
 
     result = SimpleNamespace(patch_id=4, placement=PLACEMENT_PARENT, backend_record=BackendRecordV1("NATIVE", 0, 0))
     assert host_backend.backend_text(host_backend.backend_summary([result], "NATIVE")) == (
-        "native 0 / python 1 (NATIVE_NOT_REACHED: patch 4)"
+        "coverage/clip native 0 / python 1 (NATIVE_NOT_REACHED: patch 4); skeleton python"
     )
 
 
@@ -582,7 +593,8 @@ def test_the_live_width_thread_passes_the_backend_of_the_last_build_to_run_produ
     from cftuv.envelope_width_live import LastProductionBuildV1
 
     assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["kernel_backend"] == "NATIVE"
-    path = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
+    assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["skeleton_backend"] == "PYTHON"
+    path =Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     begin = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_begin")
     compute = next(node for node in ast.walk(begin) if isinstance(node, ast.FunctionDef) and node.name == "compute")
@@ -593,8 +605,14 @@ def test_the_live_width_thread_passes_the_backend_of_the_last_build_to_run_produ
         if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "kernel_backend"
     ]
     assert len(captured) == 1 and ast.unparse(captured[0].value) == "record.kernel_backend"
+    skeleton = [
+        node
+        for node in begin.body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "skeleton_backend"
+    ]
+    assert len(skeleton) == 1 and ast.unparse(skeleton[0].value) == "record.skeleton_backend"
     calls = [node for node in ast.walk(compute) if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "run_production"]
     assert len(calls) == 1
     passed = {item.arg: ast.unparse(item.value) for item in calls[0].keywords}
-    assert passed.get("kernel_backend") == "kernel_backend"
+    assert passed.get("kernel_backend") == "kernel_backend" and passed.get("skeleton_backend") == "skeleton_backend"
     assert "record" not in {node.id for node in ast.walk(compute) if isinstance(node, ast.Name)}

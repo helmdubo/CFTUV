@@ -140,7 +140,7 @@ from .faces import (
     FacePartitionV1,
     build_faces_traced,
 )
-from .skeleton import SkeletonOutcome, SkeletonV1, build_skeleton
+from .skeleton import SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
 
 
@@ -1120,7 +1120,7 @@ def _prepare_region(
         return prepared, None
 
     started = time.perf_counter()
-    skeleton = build_skeleton(
+    skeleton = backend.skeleton_compute(
         report.polygon,
         work_budget=work_budget,
         dense_hydration=dense_hydration,

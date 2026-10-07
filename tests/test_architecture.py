@@ -330,6 +330,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "budget",
         "slide",
         "kernel_backend",
+        "skeleton_backend",
         "pool",
         "cancel",
         "exc",
@@ -776,7 +777,8 @@ MODULE_LINE_ALLOWANCE = {
     # строка журнала и сама настройка живут в `envelope_kernel_backend.py` (здесь — декоратор `produce_domain`, пять мест проводки
     # и два поля прогона). Файл стоял на 13 строках от общего потолка; вынести кусок, не трогая десяток имён, которые
     # импортируют тесты и инструменты, нечем. Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_export.py": 2010,
+    # 2010 -> 1910: статус, консоль, квитанция и JSON-свидетельство вынесены в `envelope_production_report.py` (место под подготовку под блоком бэкенда).
+    "cftuv/envelope_production_export.py": 1910,
 }
 
 
