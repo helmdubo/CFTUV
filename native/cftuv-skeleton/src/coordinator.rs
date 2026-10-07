@@ -5,6 +5,11 @@
 //! asked for new interior contacts. When the set is stable the mixed generations of the overlay are planned (`plan_mixed_generations`) AND PLANNED AGAIN: the second run is the
 //! replay that must reach the same contacts and the same overlay (a named refusal otherwise), and its cost is part of the transaction. Every refusal is a named reason, never an
 //! empty answer.
+//!
+//! STRUCTURE FOR A CHANGE OF THE ORACLE. The units a simplification of the oracle would remove or merge are separate functions, each called from one place: the replay
+//! ([`replay_unit`], called once by [`plan_symbolic_superlevel_closure`]; its refusal is a reason of that call), the last discovery pass of the initial closure
+//! (`initial_interior_closure`), and the three passes of every round of the generations (`contacts`: interior, endpoint, edge; `generations::Discovery`). The gate of the law of a
+//! split candidate on this path is [`crate::contacts::SYMBOLIC_GATE`]. Mirroring such a change is a deletion of a unit (or the change of that constant), not a rewrite.
 
 use std::rc::Rc;
 
@@ -20,6 +25,7 @@ use crate::omap::OrderedMap;
 use crate::overlay::{build_f0_overlay, build_symbolic_overlay, overlay_val, with_line_ports, Overlay};
 use crate::plans::{PlanVal, Resolution};
 use crate::pyval::Val;
+use crate::profile::{timed, Phase};
 use crate::queue::EventKind;
 use crate::snapshot::{Incident, Snapshot};
 use crate::superlevel::record_symbolic_unresolvable;
@@ -56,10 +62,10 @@ type Rebuilt = (Option<Materialization>, Option<Overlay>, Option<&'static str>);
 
 /// `_rebuild_splits(builder, snapshot, contacts, time)`: one mixed frozen-prestate plan rebuilt from the F0 contact authority.
 fn rebuild_splits(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snapshot, contacts: &[SymSplitContact], time: &TimeRef) -> SkelResult<Rebuilt> {
-    let Some(ported) = with_line_ports(ctx, builder, &snapshot.vertices, time)? else {
+    let Some(ported) = timed(Phase::ClosureOverlay, || with_line_ports(ctx, builder, &snapshot.vertices, time))? else {
         return Ok((None, None, Some("SYMBOLIC_SPLIT_LINE_PORT_HYDRATION_UNRESOLVABLE")));
     };
-    let (compiled, reason) = compile_contacts(ctx, builder, &ported, contacts)?;
+    let (compiled, reason) = timed(Phase::ClosureCompile, || compile_contacts(ctx, builder, &ported, contacts))?;
     if reason.is_some() {
         return Ok((None, None, reason));
     }
@@ -73,14 +79,14 @@ fn rebuild_splits(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snap
         stale_candidates: snapshot.stale_candidates,
         duplicate_live_owner_edge_ids: snapshot.duplicate_live_owner_edge_ids.clone(),
     };
-    let materialization = plan_split_materialization(ctx, &working)?;
+    let materialization = timed(Phase::ClosurePlans, || plan_split_materialization(ctx, &working))?;
     if let Some(reason) = materialization.unresolved_reason {
         return Ok((Some(materialization), None, Some(reason)));
     }
     if materialization.plans.iter().any(|plan| plan.resolution == Resolution::Unresolvable) {
         return Ok((Some(materialization), None, Some("SYMBOLIC_UNIFIED_CONTACT_COMPONENT_UNRESOLVABLE")));
     }
-    let overlay = build_symbolic_overlay(ctx, builder, &working.vertices, &materialization, true)?;
+    let overlay = timed(Phase::ClosureOverlay, || build_symbolic_overlay(ctx, builder, &working.vertices, &materialization, true))?;
     let reason = if overlay.is_some() { None } else { Some("SYMBOLIC_SPLIT_OVERLAY_UNRESOLVABLE") };
     Ok((Some(materialization), overlay, reason))
 }
@@ -108,7 +114,7 @@ fn initial_interior_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snaps
         let Some(mixed) = mixed else {
             return Err(SkelError::Unsupported("a rebuild of the splits without an overlay and without a reason".to_string()));
         };
-        let (latent, reason) = discover_interior_split_contacts(ctx, builder, &mixed)?;
+        let (latent, reason) = timed(Phase::ClosureDiscover, || discover_interior_split_contacts(ctx, builder, &mixed))?;
         if reason.is_some() {
             return Ok(InitialClosure { contacts: Vec::new(), batches: iteration, materialization, overlay: Some(mixed), reason });
         }
@@ -127,6 +133,31 @@ fn initial_interior_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snaps
     Err(SkelError::Unsupported("AssertionError in the oracle: unreachable initial interior closure".to_string()))
 }
 
+/// The replay of the closure (`symbolic_superlevel_coordinator.py` after the first `plan_mixed_generations`): the generations of the split overlay planned a SECOND time, and the
+/// second answer compared with the first: the same interior contacts (every field) and the same overlay by its signature. The cost of the second plan is real (signs, hydrations,
+/// memory) and is part of the transaction. `None`: the replay agreed; `Some(fixed point)`: it did not (or did not resolve), and the fixed point of the replay is what the refusal
+/// carries as its `junction`.
+fn replay_unit(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    split_overlay: &Overlay,
+    budget: i64,
+    memo: &mut SignatureMemo,
+    first_overlay: &Overlay,
+    first_later: &[SymSplitContact],
+) -> SkelResult<Option<JunctionFixedPoint>> {
+    let (replay, replay_later) = plan_mixed_generations(ctx, builder, split_overlay, budget, memo)?;
+    let repeated = match (&replay.overlay, replay.unresolved_reason) {
+        (Some(overlay), None) => {
+            replay_later.len() == first_later.len()
+                && replay_later.iter().zip(first_later).all(|(left, right)| contacts_equal(left, right))
+                && overlay_signature(overlay, memo)? == overlay_signature(first_overlay, memo)?
+        }
+        _ => false,
+    };
+    Ok(if repeated { None } else { Some(replay) })
+}
+
 /// `plan_symbolic_superlevel_closure(builder, snapshot, outer_budget=..., junction_budget=...)`: rebuild from F0 whenever the stable interior contact set grows, then close the
 /// junctions. The signatures of the overlays of one transaction share the memory of their immutable parts (`signature_memo`).
 pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snapshot, outer_budget: i64, junction_budget: i64) -> SkelResult<SymbolicSuperlevelClosure> {
@@ -135,7 +166,7 @@ pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Bu
         return Ok(refusal(None, Vec::new(), None, 0, Vec::new(), "SYMBOLIC_SUPERLEVEL_EMPTY_PACKET"));
     };
     let time: TimeRef = Rc::clone(&first.event.time);
-    if build_f0_overlay(ctx, builder, &snapshot.vertices, &time)?.is_none() {
+    if timed(Phase::ClosureOverlay, || build_f0_overlay(ctx, builder, &snapshot.vertices, &time))?.is_none() {
         return Ok(refusal(None, Vec::new(), None, 0, Vec::new(), "SYMBOLIC_F0_OVERLAY_UNRESOLVABLE"));
     }
     let (initial, reason) = initial_interior_contacts(snapshot)?;
@@ -156,20 +187,12 @@ pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Bu
         let signatures = junction.signatures.clone();
         return Ok(refusal(Some(materialization), contacts, Some(junction), later.len() as i64, signatures, reason));
     };
-    let (replay, replay_later) = plan_mixed_generations(ctx, builder, &split_overlay, budget, &mut memo)?;
-    let repeated = match (&replay.overlay, replay.unresolved_reason) {
-        (Some(overlay), None) => {
-            replay_later.len() == later.len()
-                && replay_later.iter().zip(&later).all(|(left, right)| contacts_equal(left, right))
-                && overlay_signature(overlay, &mut memo)? == overlay_signature(&junction_overlay, &mut memo)?
-        }
-        _ => false,
-    };
-    if !repeated {
+    // THE REPLAY (a removable unit: the call and `replay_unit` go together, and with them the refusal `REPEATED_CONTACT_SET_CHANGED_SIGNATURE`)
+    if let Some(replayed) = replay_unit(ctx, builder, &split_overlay, budget, &mut memo, &junction_overlay, &later)? {
         let mut every = contacts;
         every.extend(later.iter().cloned());
         let signatures = junction.signatures.clone();
-        return Ok(refusal(Some(materialization), every, Some(replay), later.len() as i64, signatures, "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE"));
+        return Ok(refusal(Some(materialization), every, Some(replayed), later.len() as i64, signatures, "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE"));
     }
     let mut all_contacts: OrderedMap<Val, SymSplitContact> = OrderedMap::new();
     for item in contacts.iter().chain(later.iter()) {

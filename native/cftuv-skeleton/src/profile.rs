@@ -24,10 +24,17 @@ pub enum Phase {
     GraphProjection,
     GraphReach,
     GraphCrashes,
+    ClosurePlans,
+    ClosureCompile,
+    ClosureOverlay,
+    ClosureDiscover,
+    ClosureGenerations,
+    ClosureSignature,
+    ClosureClone,
 }
 
 /// `(name, phase)` in the order of the answer of [`take`].
-pub const PHASES: [(&str, Phase); 18] = [
+pub const PHASES: [(&str, Phase); 25] = [
     ("other", Phase::Other),
     ("compare_times", Phase::CompareTimes),
     ("concurrency_time", Phase::ConcurrencyTime),
@@ -46,6 +53,13 @@ pub const PHASES: [(&str, Phase); 18] = [
     ("graph: projection into a wall", Phase::GraphProjection),
     ("graph: reach test", Phase::GraphReach),
     ("graph: crashes into traces", Phase::GraphCrashes),
+    ("closure: plans of the packet", Phase::ClosurePlans),
+    ("closure: compile contacts", Phase::ClosureCompile),
+    ("closure: overlays", Phase::ClosureOverlay),
+    ("closure: discoveries", Phase::ClosureDiscover),
+    ("closure: generations", Phase::ClosureGenerations),
+    ("closure: signatures", Phase::ClosureSignature),
+    ("closure: clones", Phase::ClosureClone),
 ];
 
 #[cfg(feature = "profile")]

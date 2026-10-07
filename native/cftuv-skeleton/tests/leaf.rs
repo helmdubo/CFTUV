@@ -8,7 +8,7 @@ use cftuv_core::num::{IBig, UBig};
 use cftuv_core::products::ProductMemo;
 use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::{SignCounts, SqrtSum};
-use cftuv_skeleton::candidate::{evaluate_split_candidate, CandidateRefusal};
+use cftuv_skeleton::candidate::{evaluate_split_candidate, evaluate_split_candidate_gated, CandidateRefusal, NowGate};
 use cftuv_skeleton::error::SkelResult;
 use cftuv_skeleton::line::SupportLine;
 use cftuv_skeleton::queue::{CandidateEvent, EventKind, EventQueue};
@@ -150,6 +150,23 @@ fn a_candidate_born_before_its_time_gets_a_place_and_is_refused_outside_the_fron
     assert_eq!(again.effects[0].reason, CandidateRefusal::FilterPointOutsideFront);
     assert_eq!(world.budget.exact_position_hydrations, hydrations);
     assert!(world.counts.total > signs, "the signs against the birth and `now` are asked every time; only the time and the place are remembered");
+}
+
+#[test]
+fn a_gate_of_exactly_now_refuses_a_later_time_before_the_trace_the_place_and_the_containment() {
+    let mut world = World::new();
+    let view = triangle_view(rational_time(0, 1));
+    let mut memo = PositionMemo::new(true);
+    let now = rational_time(0, 1);
+    let decision = evaluate_split_candidate_gated(&mut world.ctx(), &view, &mut memo, 0, 2, &now, NowGate::ExactlyNow).unwrap();
+    assert!(decision.candidate.is_none());
+    assert_eq!(decision.effects[0].reason, CandidateRefusal::FilterEventInThePast);
+    assert_eq!(world.budget.exact_position_hydrations, 0, "no place is asked of a time that is not now");
+    assert_eq!(memo.len(), (0, 1));
+    // the gate of the front lets the same question through to the place
+    let through = evaluate_split_candidate_gated(&mut world.ctx(), &view, &mut memo, 0, 2, &now, NowGate::NotBefore).unwrap();
+    assert_eq!(through.effects[0].reason, CandidateRefusal::FilterPointOutsideFront);
+    assert_eq!(world.budget.exact_position_hydrations, 1);
 }
 
 #[test]

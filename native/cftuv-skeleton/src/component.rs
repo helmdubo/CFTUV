@@ -20,6 +20,7 @@ use crate::builder::SlidingValue;
 use crate::error::{SkelError, SkelResult};
 use crate::overlay::{frozen_keys, refreshed_span_bindings, JRef, Leaf, Overlay, SymVertex, TraceInfo};
 use crate::plans::{point_val, time_val, PlanVal};
+use crate::profile::{timed, Phase};
 use crate::pyval::Val;
 use crate::time::{EventPoint, EventTime, PointRef, TimeRef};
 
@@ -347,6 +348,10 @@ fn joined(texts: &[String]) -> String {
 /// `overlay_signature(overlay)`: `(vertices, spans, changed)`: the alive vertices as rows ordered by their text, every span as a row ordered by its text, the changed leaves
 /// by `repr`. A value that compares equal to the oracle's tuple exactly when the oracle's tuples do.
 pub fn overlay_signature(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> {
+    timed(Phase::ClosureSignature, || signature_of(overlay, memo))
+}
+
+fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> {
     let mut rows: Vec<(String, Val)> = Vec::new();
     for vertex in overlay.vertices.values() {
         if !vertex.alive {
@@ -407,5 +412,5 @@ pub fn overlay_signature(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelRes
 
 /// The overlay of the oracle's `clone_overlay`: the dictionaries are copied, the immutable parts are shared.
 pub fn clone_overlay(overlay: &Overlay) -> Overlay {
-    overlay.clone()
+    timed(Phase::ClosureClone, || overlay.clone())
 }

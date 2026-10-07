@@ -17,6 +17,7 @@ use crate::contacts::{discover_interior_split_contacts, discover_junction_contac
 use crate::error::{SkelError, SkelResult};
 use crate::omap::OrderedMap;
 use crate::overlay::{JRef, Leaf, Overlay};
+use crate::profile::{timed, Phase};
 use crate::plans::PlanVal;
 use crate::pyval::Val;
 use crate::snapshot::direction;
@@ -461,9 +462,41 @@ pub struct JunctionFixedPoint {
     pub unresolved_reason: Option<&'static str>,
 }
 
+/// What a generation asks of the front at the end of a round: the junction contacts of the overlay and its interior contacts (the oracle's `discover_junction_contacts` and
+/// the `discover_interior` it is given). The closure asks the front ([`Natural`]); the seams may give the loop contacts of their own to drive the paths a front rarely makes.
+pub trait Discovery {
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)>;
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)>;
+}
+
+/// The discovery of the closure: the candidate laws over the view of the overlay.
+pub struct Natural;
+
+impl Discovery for Natural {
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
+        timed(Phase::ClosureDiscover, || discover_junction_contacts(ctx, builder, overlay))
+    }
+
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
+        timed(Phase::ClosureDiscover, || discover_interior_split_contacts(ctx, builder, overlay))
+    }
+}
+
+/// `plan_mixed_generations(builder, initial, discover_interior, budget=...)` with the discovery of the front.
+pub fn plan_mixed_generations(ctx: &mut ExactCtx<'_>, builder: &mut Builder, initial: &Overlay, budget: i64, memo: &mut SignatureMemo) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
+    plan_mixed_generations_with(ctx, builder, initial, budget, memo, &mut Natural)
+}
+
 /// `plan_mixed_generations(builder, initial, discover_interior, budget=...)`: the causal chain of generations of an overlay until it holds no contact; the interior contacts of
 /// every generation of the chain as the second answer (none unless the chain closed). Every round replays the chain from the initial overlay.
-pub fn plan_mixed_generations(ctx: &mut ExactCtx<'_>, builder: &mut Builder, initial: &Overlay, budget: i64, memo: &mut SignatureMemo) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
+pub fn plan_mixed_generations_with(
+    ctx: &mut ExactCtx<'_>,
+    builder: &mut Builder,
+    initial: &Overlay,
+    budget: i64,
+    memo: &mut SignatureMemo,
+    discovery: &mut dyn Discovery,
+) -> SkelResult<(JunctionFixedPoint, Vec<SymSplitContact>)> {
     let mut causal: Vec<(Vec<JunctionContact>, Vec<SymSplitContact>)> = Vec::new();
     let refused = |generations: Vec<MixedGeneration>, overlay: Option<Overlay>, signatures: Vec<Val>, reason: &'static str| {
         (JunctionFixedPoint { generations, overlay, signatures, unresolved_reason: Some(reason) }, Vec::new())
@@ -472,11 +505,11 @@ pub fn plan_mixed_generations(ctx: &mut ExactCtx<'_>, builder: &mut Builder, ini
         let mut overlay = clone_overlay(initial);
         let (mut generations, mut signatures): (Vec<MixedGeneration>, Vec<Val>) = (Vec::new(), Vec::new());
         for (junction, interior) in &causal {
-            let (expanded, generation) = match normalize_mixed_generation(ctx, builder, &overlay, junction, interior)? {
+            let (expanded, generation) = match timed(Phase::ClosureGenerations, || normalize_mixed_generation(ctx, builder, &overlay, junction, interior))? {
                 Ok(found) => found,
                 Err(reason) => return Ok(refused(generations, None, signatures, reason)),
             };
-            let (applied, reason) = apply_mixed_generation(&expanded, &generation)?;
+            let (applied, reason) = timed(Phase::ClosureGenerations, || apply_mixed_generation(&expanded, &generation))?;
             if let Some(reason) = reason {
                 return Ok(refused(generations, None, signatures, reason));
             }
@@ -484,11 +517,11 @@ pub fn plan_mixed_generations(ctx: &mut ExactCtx<'_>, builder: &mut Builder, ini
             generations.push(generation);
             signatures.push(overlay_signature(&overlay, memo)?);
         }
-        let (junction, reason) = discover_junction_contacts(ctx, builder, &overlay)?;
+        let (junction, reason) = discovery.junction(ctx, builder, &overlay)?;
         if let Some(reason) = reason {
             return Ok(refused(generations, Some(overlay), signatures, reason));
         }
-        let (interior, reason) = discover_interior_split_contacts(ctx, builder, &overlay)?;
+        let (interior, reason) = discovery.interior(ctx, builder, &overlay)?;
         if let Some(reason) = reason {
             return Ok(refused(generations, Some(overlay), signatures, reason));
         }

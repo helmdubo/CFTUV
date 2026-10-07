@@ -5,6 +5,9 @@
 //!   projection of the point on the leaf, and the leaf it was found on. Equal keys are one contact; equal keys of different payload are a named conflict;
 //! * an ENDPOINT contact ([`EndpointKey`]) is the same vertex meeting an END of a leaf, an EDGE contact ([`EdgeContact`]) two neighbours that collapse. Both are junction contacts
 //!   ([`JunctionContact`]) with the junctions that die in them and the families they touch;
+//! * THE PASSES are separate units, each of which can go (or be merged into one pair loop) without touching the others: the interior pass ([`discover_interior_split_contacts`]),
+//!   the endpoint pass ([`discover_endpoint_contacts`]) and the edge pass ([`discover_symbolic_edge_contacts`]); [`discover_junction_contacts`] only calls the last two. The pairs the
+//!   interior and the endpoint passes evaluate are the same pairs; each routes the candidate by `at_start` / `at_end`;
 //! * every discovery asks the candidate laws over the view of the overlay, in the oracle's order (the leaves by `repr`, the emitters by `repr` of their junction, a contact found
 //!   only when its time is exactly `now`), and so pays what the oracle pays.
 
@@ -17,7 +20,7 @@ use cftuv_core::rat::Rat;
 use cftuv_core::sqrt_sum::SqrtSum;
 
 use crate::builder::Builder;
-use crate::candidate::{evaluate_edge_candidate, evaluate_split_candidate};
+use crate::candidate::{evaluate_edge_candidate, evaluate_split_candidate_gated, NowGate};
 use crate::closure::span_family;
 use crate::error::{SkelError, SkelResult};
 use crate::omap::OrderedMap;
@@ -57,6 +60,15 @@ pub fn time_eq(left: &EventTime, right: &EventTime) -> bool {
 
 pub fn point_eq(left: &EventPoint, right: &EventPoint) -> bool {
     sum_eq(&left.x, &right.x) && sum_eq(&left.y, &right.y)
+}
+
+/// The gate of the law of a split candidate on the symbolic call path (the discoveries of one exact time). The oracle gates a time BEFORE `now` and then keeps only the contacts
+/// found exactly AT `now` ([`found_at_now`]); a version of the oracle that gates `!= 0` in the law moves this one constant and drops the second check.
+pub const SYMBOLIC_GATE: NowGate = NowGate::NotBefore;
+
+/// The check after the law that a contact of a discovery is at exactly `now` (`compare_times(candidate.time, overlay.time) != 0` skips the candidate): one comparison, paid.
+fn found_at_now(ctx: &mut ExactCtx<'_>, time: &EventTime, now: &EventTime) -> SkelResult<bool> {
+    Ok(compare_times(ctx, time, now)? == 0)
 }
 
 fn repr_order(left: &Val, right: &Val) -> std::cmp::Ordering {
@@ -259,27 +271,34 @@ pub fn compile_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices:
     Ok((compiled, None))
 }
 
+/// The alive vertices of the overlay that emit splits (`is_symbolic_split_emitter`), in the order of the `repr` of their junctions: what every pass of the discoveries pairs with the
+/// changed leaves.
+fn emitters_of<'a>(builder: &Builder, overlay: &'a Overlay) -> SkelResult<Vec<&'a SymVertex>> {
+    let mut emitters: Vec<&SymVertex> = Vec::new();
+    for vertex in overlay.vertices.values() {
+        if vertex.alive && is_symbolic_split_emitter(builder, overlay, vertex)? {
+            emitters.push(vertex);
+        }
+    }
+    emitters.sort_by(|left, right| repr_order(left.reference.val(), right.reference.val()));
+    Ok(emitters)
+}
+
 /// `discover_interior_split_contacts(builder, overlay)`: every reflex or sliding vertex that meets the inside of a CHANGED leaf at exactly `now`, as stable contacts.
 pub fn discover_interior_split_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
     let found = with_view(builder, overlay, |owner, view, memo| -> SkelResult<Vec<SymSplitContact>> {
-        let mut emitters: Vec<&SymVertex> = Vec::new();
-        for vertex in overlay.vertices.values() {
-            if vertex.alive && is_symbolic_split_emitter(owner, overlay, vertex)? {
-                emitters.push(vertex);
-            }
-        }
-        emitters.sort_by(|left, right| repr_order(left.reference.val(), right.reference.val()));
+        let emitters = emitters_of(owner, overlay)?;
         let mut contacts = Vec::new();
         for leaf in overlay.changed_by_repr() {
             for emitter in &emitters {
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time)?;
+                let decision = evaluate_split_candidate_gated(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time, SYMBOLIC_GATE)?;
                 let Some(candidate) = decision.candidate else {
                     continue;
                 };
-                if compare_times(ctx, &candidate.time, &overlay.time)? != 0 || candidate.at_start || candidate.at_end {
+                if !found_at_now(ctx, &candidate.time, &overlay.time)? || candidate.at_start || candidate.at_end {
                     continue;
                 }
                 let binding = overlay.spans.get(&leaf).ok_or_else(|| SkelError::Unsupported("KeyError in the oracle: a leaf that is not in the overlay".to_string()))?;
@@ -345,13 +364,7 @@ impl EndpointKey {
 /// reason when the end that was met has no junction to name it.
 pub fn discover_endpoint_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
     with_view(builder, overlay, |owner, view, memo| -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
-        let mut emitters: Vec<&SymVertex> = Vec::new();
-        for vertex in overlay.vertices.values() {
-            if vertex.alive && is_symbolic_split_emitter(owner, overlay, vertex)? {
-                emitters.push(vertex);
-            }
-        }
-        emitters.sort_by(|left, right| repr_order(left.reference.val(), right.reference.val()));
+        let emitters = emitters_of(owner, overlay)?;
         let mut contacts: OrderedMap<Val, EndpointKey> = OrderedMap::new();
         for leaf in overlay.changed_by_repr() {
             let binding = overlay.spans.get(&leaf).ok_or_else(|| SkelError::Unsupported("KeyError in the oracle: a leaf that is not in the overlay".to_string()))?;
@@ -359,11 +372,11 @@ pub fn discover_endpoint_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder,
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time)?;
+                let decision = evaluate_split_candidate_gated(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time, SYMBOLIC_GATE)?;
                 let Some(candidate) = decision.candidate else {
                     continue;
                 };
-                if compare_times(ctx, &candidate.time, &overlay.time)? != 0 || !(candidate.at_start || candidate.at_end) {
+                if !found_at_now(ctx, &candidate.time, &overlay.time)? || !(candidate.at_start || candidate.at_end) {
                     continue;
                 }
                 let mut endpoints: Vec<&JRef> = Vec::new();
@@ -481,7 +494,7 @@ pub fn discover_symbolic_edge_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Bui
             let Some(candidate) = decision.candidate else {
                 continue;
             };
-            if compare_times(ctx, &candidate.time, &overlay.time)? != 0 {
+            if !found_at_now(ctx, &candidate.time, &overlay.time)? {
                 continue;
             }
             let (prev_family, shared_family, next_family) = (vertex.prev_leaf.family(), vertex.next_leaf.family(), peer.next_leaf.family());

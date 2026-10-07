@@ -35,22 +35,34 @@ FILES = (
     "symbolic_superlevel_coordinator.py",
 )
 
+#: The functions of each file the closure runs (`None`: all of them). The others are the planners of earlier generations of the closure that no caller of `build_skeleton` reaches
+#: (static name-closure over the unit and a dynamic run of the corpora agree); only their dataclasses are live.
+LIVE = {
+    "superlevel_fixed_point.py": {"merge_symbolic_split_contacts", "_required_keys", "_hydrate_contacts", "_unique_map", "_compile_contacts"},
+    "symbolic_split_endpoint.py": {"discover_endpoint_contacts", "_participants"},
+    "symbolic_junction_contacts.py": {"edge_contact", "endpoint_contact", "contact_identity", "discover_junction_contacts"},
+    "symbolic_junction_normalize.py": {"_time_point", "_resources", "_components", "_valid_endpoint", "_ray", "_multi_delta", "normalize_junction_generation"},
+    "symbolic_junction_fixed_point.py": set(),
+    "symbolic_edge_fixed_point.py": {"_valid_contact"},
+}
+
 TOOL = 3
 
 
-def executable_lines(path: Path) -> set:
-    """The lines of the function bodies of a file that have bytecode (the `def` line itself is the module's)."""
+def executable_lines(path: Path, live=None) -> set:
+    """The lines of the function bodies of a file that have bytecode (the `def` line itself is the module's); `live`: only the functions with these names (and what they hold)."""
 
     lines: set = set()
 
-    def walk(each: types.CodeType) -> None:
-        if each.co_flags & inspect.CO_OPTIMIZED:
+    def walk(each: types.CodeType, wanted: bool) -> None:
+        wanted = wanted or live is None or each.co_name in live
+        if each.co_flags & inspect.CO_OPTIMIZED and wanted:
             lines.update(line for _start, _end, line in each.co_lines() if line is not None and line != each.co_firstlineno)
         for const in each.co_consts:
             if isinstance(const, types.CodeType):
-                walk(const)
+                walk(const, wanted if each.co_flags & inspect.CO_OPTIMIZED else False)
 
-    walk(compile(path.read_text(encoding="utf-8"), str(path), "exec"))
+    walk(compile(path.read_text(encoding="utf-8"), str(path), "exec"), False)
     return lines
 
 
@@ -60,6 +72,7 @@ class LineCoverage:
     def __init__(self, files=FILES) -> None:
         self.paths = {str((WAVEFRONT / name).resolve()): name for name in files}
         self.reached: dict = {name: set() for name in files}
+        self._names: dict = {}
 
     def __enter__(self) -> "LineCoverage":
         monitoring = sys.monitoring
@@ -76,17 +89,20 @@ class LineCoverage:
         monitoring.free_tool_id(TOOL)
 
     def _line(self, code: types.CodeType, line: int):
-        name = self.paths.get(str(Path(code.co_filename).resolve())) if code.co_filename.endswith(".py") else None
+        filename = code.co_filename
+        if filename not in self._names:
+            self._names[filename] = self.paths.get(str(Path(filename).resolve())) if filename.endswith(".py") else None
+        name = self._names[filename]
         if name is not None:
             self.reached[name].add(line)
         return sys.monitoring.DISABLE
 
-    def report(self) -> dict:
-        """`{file: (reached lines, executable lines, [missed lines])}` over the function bodies."""
+    def report(self, *, live: bool = True) -> dict:
+        """`{file: (reached lines, executable lines, [missed lines])}` over the function bodies (`live`: only the functions a caller of `build_skeleton` reaches, see `LIVE`)."""
 
         found = {}
         for name in self.reached:
-            lines = executable_lines(WAVEFRONT / name)
+            lines = executable_lines(WAVEFRONT / name, LIVE.get(name) if live else None)
             missed = sorted(lines - self.reached[name])
             found[name] = (len(lines) - len(missed), len(lines), missed)
         return found

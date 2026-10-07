@@ -857,8 +857,10 @@ impl CandidateView for OverlayView<'_> {
         } else {
             self.projection(found, vertex as usize)?.as_ref().map(|value| Sliding { value, ident: self.builder.fresh_ident() })
         };
-        let leaf_slot = |leaf: &Leaf| self.span_ref(leaf);
-        Ok(VertexState { prev_span: leaf_slot(&found.prev_leaf)?, next_span: leaf_slot(&found.next_leaf)?, birth: &found.birth, sliding })
+        // a leaf the overlay does not hold is the oracle's `KeyError` when the SPAN is asked for, not when the vertex is (a pair of neighbours asks the lines of three of its four
+        // leaves): the reference of such a leaf is the number no slot has
+        let leaf_slot = |leaf: &Leaf| self.overlay.spans.slot_of(leaf).and_then(|slot| u32::try_from(slot).ok()).unwrap_or(ABSENT);
+        Ok(VertexState { prev_span: leaf_slot(&found.prev_leaf), next_span: leaf_slot(&found.next_leaf), birth: &found.birth, sliding })
     }
 
     fn span_state(&self, span: SpanRef) -> SkelResult<SpanState<'_>> {

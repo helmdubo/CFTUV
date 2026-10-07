@@ -6,7 +6,7 @@
 //! 310 PLAN_SYMBOLIC_CLOSURE        [state, options, snapshot, outer budget, junction budget]          -> [text, growth]
 //! 311 BUILD_SYMBOLIC_OVERLAY       [state, options, vertices, materialization, include line ports]    -> [text, growth]
 //! 312 DISCOVER_INTERIOR_CONTACTS   [state, options, overlay]                                          -> [text, growth]
-//! 313 PLAN_MIXED_GENERATIONS       [state, options, overlay, budget]                                  -> [text, growth]
+//! 313 PLAN_MIXED_GENERATIONS       [state, options, overlay, budget, script | none]                   -> [text, growth]
 //! 314 DISCOVER_JUNCTION_CONTACTS   [state, options, overlay]                                          -> [text, growth]
 //! 315 APPLY_COMPONENT_DELTAS       [state, options, overlay, deltas, collision reason]                -> [text, growth]
 //! 317 NORMALIZE_MIXED_GENERATION   [state, options, overlay, junction contacts, interior contacts]          -> [text, growth]  (normalize, then apply)
@@ -23,6 +23,8 @@
 //!          birth   [point key, prev occurrence, next occurrence, key, replaces]    wire  [key, [existing | none, birth key | none], [existing | none, birth key | none]]
 //!          rewrite [vertex, prev occurrence, next occurrence]    cut  [edge, target occurrence, [segment occurrences]]    contact  [births, participants, [kinds]]
 //!          family  [[segments], [births]]
+//! script   [[junction contacts | none, junction reason | none, interior contacts | none, interior reason | none], ...]: the answers the discoveries of the round with that
+//!          number give instead of the front's (none: the front answers); the oracle side makes them by monkeypatching its two discoveries
 //! interior contact  [key, time, point, projection, leaf | none]
 //! junction contact  [kind, key, [dead refs], [families], edge | none]    edge  [key, prev leaf, shared leaf, next leaf, span unproven, [participant keys]]
 //! delta    [contact keys, dead refs, incoming | none, outgoing | none, birth ref | none, point key, [leaf resources], [rewires]]    port  [ref | none, leaf]    rewire  [port, port, ref]
@@ -40,7 +42,7 @@ use crate::component::{apply_component_deltas, overlay_signature, Delta, Port, S
 use crate::contacts::{discover_interior_split_contacts, discover_junction_contacts, initial_interior_contacts, ContactKind, EdgeContact, EdgeContactKey, EndpointKey, JunctionContact, SplitKey, SymSplitContact};
 use crate::coordinator::{closure_val, plan_symbolic_superlevel_closure};
 use crate::error::SkelResult;
-use crate::generations::{apply_mixed_generation, fixed_point_val, normalize_mixed_generation, plan_mixed_generations};
+use crate::generations::{apply_mixed_generation, fixed_point_val, normalize_mixed_generation, plan_mixed_generations_with, Discovery, Natural};
 use crate::omap::OrderedMap;
 use crate::overlay::{build_f0_overlay, build_symbolic_overlay, frozen_keys, overlay_val, with_line_ports, Binding, JRef, Leaf, Overlay, SymVertex, TraceInfo};
 use crate::plans::{BoundaryBirth, ComponentPlan, PlanVal, Resolution, VertexReference};
@@ -314,6 +316,60 @@ fn junction_contact_of(value: &Value) -> Wire<JunctionContact> {
     }
 }
 
+/// What the discoveries of one round answer instead of the front's: `None` leaves the question to the front.
+struct Round {
+    junction: Option<(Vec<JunctionContact>, Option<&'static str>)>,
+    interior: Option<(Vec<SymSplitContact>, Option<&'static str>)>,
+}
+
+/// The reasons a scripted discovery may name (the two the oracle's discoveries of the closure name).
+fn known_reason(text: &str) -> Wire<&'static str> {
+    const REASONS: [&str; 2] = ["SYMBOLIC_INTERIOR_SPLIT_CONTACT_METADATA_CONFLICT", "SYMBOLIC_ENDPOINT_REFERENCE_AMBIGUOUS"];
+    REASONS.into_iter().find(|reason| *reason == text).ok_or_else(|| bad("a reason a discovery does not name"))
+}
+
+fn round_of(value: &Value) -> Wire<Round> {
+    let [junction, junction_reason, interior, interior_reason] = fixed::<4>(value, "a round of a script")?;
+    let reason = |found: &Value| -> Wire<Option<&'static str>> { optional(found, |text| known_reason(&str_of(text, "a reason")?)) };
+    Ok(Round {
+        junction: match junction {
+            Value::None => None,
+            found => Some((list(found, "junction contacts")?.iter().map(junction_contact_of).collect::<Wire<Vec<_>>>()?, reason(junction_reason)?)),
+        },
+        interior: match interior {
+            Value::None => None,
+            found => Some((list(found, "interior contacts")?.iter().map(interior_contact_of).collect::<Wire<Vec<_>>>()?, reason(interior_reason)?)),
+        },
+    })
+}
+
+/// The discovery of a script: the round with the number of the call answers what the script says, and the front answers every other.
+struct Scripted {
+    rounds: Vec<Round>,
+    junction_calls: usize,
+    interior_calls: usize,
+}
+
+impl Discovery for Scripted {
+    fn junction(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<JunctionContact>, Option<&'static str>)> {
+        let call = self.junction_calls;
+        self.junction_calls += 1;
+        match self.rounds.get(call).and_then(|round| round.junction.clone()) {
+            Some(answer) => Ok(answer),
+            None => Natural.junction(ctx, builder, overlay),
+        }
+    }
+
+    fn interior(&mut self, ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
+        let call = self.interior_calls;
+        self.interior_calls += 1;
+        match self.rounds.get(call).and_then(|round| round.interior.clone()) {
+            Some(answer) => Ok(answer),
+            None => Natural.interior(ctx, builder, overlay),
+        }
+    }
+}
+
 // --------------------------------------------------------------------------
 // the seams
 // --------------------------------------------------------------------------
@@ -357,9 +413,14 @@ fn decode_call(code: u16, args: &[Value]) -> Wire<Run> {
         }
         313 => {
             let (overlay, budget) = (overlay_of(at(2)?)?, i64_of(at(3)?, "the budget")?);
+            let script = match args.get(4) {
+                None | Some(Value::None) => Vec::new(),
+                Some(found) => list(found, "a script")?.iter().map(round_of).collect::<Wire<Vec<_>>>()?,
+            };
             Box::new(move |ctx, builder| {
                 let mut memo = SignatureMemo::new();
-                plan_mixed_generations(ctx, builder, &overlay, budget, &mut memo).map(|(found, later)| Val::tuple(vec![fixed_point_val(&found), Val::tuple(later.iter().map(PlanVal::to_val).collect())]))
+                let mut scripted = Scripted { rounds: script, junction_calls: 0, interior_calls: 0 };
+                plan_mixed_generations_with(ctx, builder, &overlay, budget, &mut memo, &mut scripted).map(|(found, later)| Val::tuple(vec![fixed_point_val(&found), Val::tuple(later.iter().map(PlanVal::to_val).collect())]))
             })
         }
         314 => {
@@ -430,8 +491,13 @@ pub(crate) fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras
     let mut builder: Builder = builder_of(at(0)?, options_of(at(1)?)?)?;
     let run = decode_call(code, args)?;
     let before = builder.memo.len();
+    crate::profile::reset();
     let started = Instant::now();
     let answer = run(ctx, &mut builder);
     extras.push(nanoseconds(started));
+    let phases = crate::profile::take();
+    if !phases.is_empty() {
+        extras.push(Value::List(phases.into_iter().map(crate::wire::int).collect()));
+    }
     Ok(answer.map(|val| answered(&val, before, builder.memo.len())))
 }

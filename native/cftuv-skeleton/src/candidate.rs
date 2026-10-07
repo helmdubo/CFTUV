@@ -190,7 +190,17 @@ pub fn evaluate_edge_candidate<V: CandidateView>(
     Ok(EdgeDecision { candidate: Some(EdgeCandidate { time, point, span_unproven: span.is_none() }), effects: Vec::new() })
 }
 
-/// `evaluate_split_candidate(view, vertex, target, now=...)`.
+/// How the law of a split candidate gates a time against `now` (the one comparison it makes between the time of the triple and `now`, before the trace bound, the place and the
+/// containment): the front refuses a time BEFORE `now`; a call that wants only what happens exactly AT `now` (the symbolic discoveries of one exact time) may refuse every time
+/// but that one. The gate is a parameter, not a branch of the callers, so that moving the oracle's symbolic call path from the first to the second is the change of one constant
+/// ([`crate::contacts::SYMBOLIC_GATE`]). The refusal of the second is the same named reason (`FILTER_EVENT_IN_THE_PAST`: the symbolic callers read only the candidate).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NowGate {
+    NotBefore,
+    ExactlyNow,
+}
+
+/// `evaluate_split_candidate(view, vertex, target, now=...)`: the law of the front (the gate [`NowGate::NotBefore`]).
 pub fn evaluate_split_candidate<V: CandidateView>(
     ctx: &mut ExactCtx<'_>,
     view: &V,
@@ -198,6 +208,19 @@ pub fn evaluate_split_candidate<V: CandidateView>(
     vertex_ref: VertexRef,
     target_ref: SpanRef,
     now: &EventTime,
+) -> SkelResult<SplitDecision> {
+    evaluate_split_candidate_gated(ctx, view, memo, vertex_ref, target_ref, now, NowGate::NotBefore)
+}
+
+/// `evaluate_split_candidate(view, vertex, target, now=...)` with the gate of the comparison against `now` named.
+pub fn evaluate_split_candidate_gated<V: CandidateView>(
+    ctx: &mut ExactCtx<'_>,
+    view: &V,
+    memo: &mut PositionMemo,
+    vertex_ref: VertexRef,
+    target_ref: SpanRef,
+    now: &EventTime,
+    gate: NowGate,
 ) -> SkelResult<SplitDecision> {
     let vertex = view.vertex_state(vertex_ref)?;
     let first = view.span_state(vertex.prev_span)?.line;
@@ -217,7 +240,8 @@ pub fn evaluate_split_candidate<V: CandidateView>(
     if time.sign() <= 0 || compare_times(ctx, &time, vertex.birth)? <= 0 {
         return refused(CandidateRefusal::FilterEventInThePast, false, Vec::new());
     }
-    if compare_times(ctx, &time, now)? < 0 {
+    let order = compare_times(ctx, &time, now)?;
+    if (gate == NowGate::NotBefore && order < 0) || (gate == NowGate::ExactlyNow && order != 0) {
         return refused(CandidateRefusal::FilterEventInThePast, false, Vec::new());
     }
     if view.trace_bounds(ctx, vertex_ref, &time)? == Some(false) {

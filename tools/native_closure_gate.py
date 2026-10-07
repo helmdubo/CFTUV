@@ -21,6 +21,7 @@ are decoded before the stopwatch starts).
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import random
 import sys
 import time
@@ -65,7 +66,7 @@ PASSES = {
     "closure": ("plan_symbolic_superlevel_closure",),
     "parts": ("with_line_ports", "build_f0_overlay", "initial_interior_contacts", "build_symbolic_overlay", "discover_interior_split_contacts", "plan_mixed_generations"),
     "inner": ("discover_junction_contacts", "apply_component_deltas", "overlay_signature", "discover_interior_split_contacts"),
-    "fabricated": ("plan_mixed_generations",),
+    "fabricated": ("plan_mixed_generations", "build_symbolic_overlay", "build_f0_overlay", "with_line_ports"),
 }
 HOMES = {
     "plan_symbolic_superlevel_closure": coordinator_module,
@@ -86,17 +87,25 @@ PART_OP = {"with_line_ports": 0, "build_f0_overlay": 1, "initial_interior_contac
 class ClosureVerifier(builder_gate.BuilderVerifier):
     """`BuilderVerifier` plus the wrappers of the symbolic layer."""
 
-    def __init__(self, sampling=None, *, only=None, mirror=None, passes: tuple = ("closure",), seed: int = 2026, cases: int = 4, spoiled: int = 3) -> None:
+    def __init__(self, sampling=None, *, only=None, mirror=None, passes: tuple = ("closure",), seed: int = 2026, cases: int = 4, spoiled: int = 3, scripted: int = 2) -> None:
         super().__init__(sampling, only=only, mirror=mirror)
         from cftuv_native import closure_seams
 
         self.cseams = closure_seams
         self.passes = passes
         self.rng = random.Random(seed)
-        self.cases, self.spoiled = cases, spoiled
+        self.cases, self.spoiled, self.scripted = cases, spoiled, scripted
         self.timed |= set(SEAM_OF.values())
         #: how often each function was called from outside the others, and how many of those were checked
         self.part_calls: Counter = Counter()
+        #: nanoseconds per phase of the native closure, summed over the checked calls (empty without a wheel built with the feature `profile`)
+        self.closure_phases: list = []
+
+    def native(self, seam: str, arguments, pre):
+        answer, seconds = super().native(seam, arguments, pre)
+        if seam in SEAM_OF.values() and len(answer.extras) > 1 and isinstance(answer.extras[1], list):
+            self.closure_phases = [sum(pair) for pair in zip(self.closure_phases or [0] * len(answer.extras[1]), answer.extras[1])]
+        return answer, seconds
 
     def wanted(self, name: str) -> bool:
         seam = SEAM_OF.get(name, name)
@@ -165,13 +174,16 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
         self.check(seam, pre, encode, decode, budget, result, error, seconds, normalize, extra)
         return result
 
-    def pure_call(self, seam: str, overlay_time, oracle, tail):
+    def pure_call(self, seam: str, overlay_time, oracle, tail, *, guarded: bool = False):
         """A call that reads no builder (`apply_component_deltas`, `overlay_signature`): a bare state."""
 
         def encode():
             return [self.cseams.bare_state(overlay_time), self.bseams.enc_options(False, None, False), *tail()]
 
-        return self.lockstep(seam, oracle, encode, lambda value: self.bseams.dec_str(value[0]), budget=None, normalize=self.text)
+        decode = lambda value: self.bseams.dec_str(value[0])  # noqa: E731
+        if guarded:
+            return self.guarded(seam, oracle, encode, decode, None, self.text, None)
+        return self.lockstep(seam, oracle, encode, decode, budget=None, normalize=self.text)
 
     # ---- the wrappers ----------------------------------------------------------------------------------------------------------------
 
@@ -236,7 +248,65 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
 
         cseams = self.cseams
         tail = lambda: [cseams.enc_overlay(overlay, builder), [cseams.enc_junction_contact(item) for item in junction], [cseams.enc_interior_contact(item) for item in interior]]  # noqa: E731
-        return self.memo_call("NORMALIZE_MIXED_GENERATION", builder, oracle, tail, guarded=True)
+        found = self.memo_call("NORMALIZE_MIXED_GENERATION", builder, oracle, tail, guarded=True)
+        if found is not None and found[1] is not None:
+            for variant in fabricate.delta_variants(self.rng, found[0], found[1].deltas):
+                self.check_apply(found[0], variant)
+        return found
+
+    def check_apply(self, overlay, deltas) -> None:
+        """`apply_component_deltas` over deltas the normalisation does not make (a delta twice, a birth the overlay already holds, an arm to a leaf nobody owns)."""
+
+        cseams = self.cseams
+        reason = "SYMBOLIC_MIXED_COMPONENT_DELTAS_OVERLAP"
+        oracle = lambda: component_module.apply_component_deltas(overlay, deltas, collision_reason=reason)  # noqa: E731
+        tail = lambda: [cseams.enc_overlay(overlay), [cseams.enc_delta(delta) for delta in deltas], self.wire.enc_str(reason)]  # noqa: E731
+        self.pure_call("APPLY_COMPONENT_DELTAS", overlay.time, oracle, tail, guarded=True)
+
+    def wrap_part_fabricating(self, name: str, original):
+        """`build_f0_overlay(builder, snapshot, time)` and `with_line_ports(builder, snapshot, time)` over frozen vertices and builders no front makes, then the real call, unchecked."""
+
+        verifier = self
+        op = PART_OP[name]
+        cseams, wire = self.cseams, self.wire
+
+        def with_builder(builder, snapshot, time_value):
+            if not verifier.depth and (verifier.only is None or "CLOSURE_PART" in verifier.only):
+                for turn in range(verifier.spoiled):
+                    vertices = fabricate.spoiled_vertices(verifier.rng, snapshot.vertices)
+                    owners = fabricate.SharedOwner(builder, verifier.rng) if turn % 3 == 2 else contextlib.nullcontext()
+                    spoiled = dataclasses.replace(snapshot, vertices=vertices)
+                    tail = lambda vertices=vertices: [op, cseams.enc_vertices(vertices), wire.enc_time(time_value)]  # noqa: E731
+                    normalize = (lambda found: found if isinstance(found, str) else ("None" if found is None else cseams.canon_text(found.vertices))) if name == "with_line_ports" else None
+                    with owners:
+                        verifier.memo_call("CLOSURE_PART", builder, lambda: original(builder, spoiled, time_value), tail, normalize=normalize, guarded=True)
+            return original(builder, snapshot, time_value)
+
+        return with_builder
+
+    def wrap_overlay_fabricating(self, original):
+        """`build_symbolic_overlay` over materializations a packet never makes (see `native_closure_fabricate.spoiled_materialization`), then the real call, unchecked."""
+
+        verifier = self
+
+        def build_symbolic_overlay(builder, snapshot, materialization, *, include_line_ports=False):
+            if not verifier.depth and (verifier.only is None or "BUILD_SYMBOLIC_OVERLAY" in verifier.only):
+                for _ in range(verifier.spoiled):
+                    made = fabricate.spoiled_materialization(verifier.rng, snapshot.vertices, materialization)
+                    if made is None:
+                        continue
+                    vertices, spoiled = made
+                    cseams = verifier.cseams
+                    tail = lambda vertices=vertices, spoiled=spoiled: [cseams.enc_vertices(vertices), cseams.enc_materialization(spoiled), include_line_ports]  # noqa: E731
+                    run = lambda vertices=vertices, spoiled=spoiled: original(builder, dataclasses.replace(snapshot, vertices=vertices), spoiled, include_line_ports=include_line_ports)  # noqa: E731
+                    verifier.memo_call("BUILD_SYMBOLIC_OVERLAY", builder, run, tail, guarded=True)
+                with fabricate.SharedOwner(builder, verifier.rng):
+                    run = lambda: original(builder, snapshot, materialization, include_line_ports=include_line_ports)  # noqa: E731
+                    tail = lambda: [verifier.cseams.enc_vertices(snapshot.vertices), verifier.cseams.enc_materialization(materialization), include_line_ports]  # noqa: E731
+                    verifier.memo_call("BUILD_SYMBOLIC_OVERLAY", builder, run, tail, guarded=True)
+            return original(builder, snapshot, materialization, include_line_ports=include_line_ports)
+
+        return build_symbolic_overlay
 
     def check_spoiled(self, builder, overlay, budget: int) -> None:
         """The discoveries and the generations over an overlay no front would make, against the native seams."""
@@ -247,6 +317,23 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
         self.memo_call("DISCOVER_JUNCTION_CONTACTS", builder, lambda: junction_module.discover_junction_contacts(builder, overlay), tail, guarded=True)
         run = lambda: mixed_module.plan_mixed_generations(builder, overlay, coordinator_module.discover_interior_split_contacts, budget=budget)  # noqa: E731
         self.memo_call("PLAN_MIXED_GENERATIONS", builder, run, lambda: [cseams.enc_overlay(overlay, builder), budget], guarded=True)
+
+    def check_scripted(self, builder, initial, original, budget: int) -> None:
+        """`plan_mixed_generations` with the discoveries of its first rounds made up (see `native_closure_fabricate.ScriptedDiscovery`) against the native seam given the script."""
+
+        script = fabricate.ScriptedDiscovery(self.rng, self.rng.choice((1, 2, 3)), junction_module.discover_junction_contacts, coordinator_module.discover_interior_split_contacts)
+
+        def oracle():
+            held = mixed_module.discover_junction_contacts
+            mixed_module.discover_junction_contacts = script.junction
+            try:
+                return original(builder, initial, script.interior, budget=budget)
+            finally:
+                mixed_module.discover_junction_contacts = held
+
+        cseams = self.cseams
+        tail = lambda: [cseams.enc_overlay(initial, builder), budget, script.wire(cseams, self.wire.enc_str)]  # noqa: E731
+        self.memo_call("PLAN_MIXED_GENERATIONS", builder, oracle, tail, guarded=True)
 
     def wrap_fabricating(self, original):
         """`plan_mixed_generations` itself is not checked: it is the place where a real overlay of a real closure is at hand for the contacts and the spoiled copies."""
@@ -260,6 +347,10 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
                     verifier.check_generation(builder, initial, junction, interior)
                 for spoiled in fabricate.mutants(initial, verifier.rng, verifier.spoiled):
                     verifier.check_spoiled(builder, spoiled, min(budget, 3))
+                    for junction, interior in fabricate.Fabricator(spoiled).generation_cases(verifier.rng, 1):
+                        verifier.check_generation(builder, spoiled, junction, interior)
+                for _ in range(verifier.scripted):
+                    verifier.check_scripted(builder, initial, original, verifier.rng.choice((0, 1, 2, 4, 8)))
             return original(builder, initial, discover_interior, budget=budget)
 
         return plan_mixed_generations
@@ -322,7 +413,7 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
             if name == "plan_symbolic_superlevel_closure":
                 found.append((name, self.wrap_closure, home))
             elif name == "build_symbolic_overlay":
-                found.append((name, self.wrap_build_overlay, home))
+                found.append((name, self.wrap_overlay_fabricating if "fabricated" in self.passes else self.wrap_build_overlay, home))
             elif name == "discover_interior_split_contacts":
                 found.append((name, self.wrap_overlay_call(name, "DISCOVER_INTERIOR_CONTACTS"), home))
             elif name == "discover_junction_contacts":
@@ -331,6 +422,8 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
                 found.append((name, self.wrap_fabricating if "fabricated" in self.passes else self.wrap_mixed, home))
             elif name == "apply_component_deltas":
                 found.append((name, self.wrap_apply, home))
+            elif "fabricated" in self.passes and name in ("build_f0_overlay", "with_line_ports"):
+                found.append((name, (lambda original, name=name: self.wrap_part_fabricating(name, original)), home))
             else:
                 found.append((name, (lambda original, name=name: self.wrap_part(name, original)), home))
         return found

@@ -20,6 +20,7 @@ from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 from cftuv_envelope.wavefront import superlevel as base
 from cftuv_envelope.wavefront.event_time import EventPointV1
 from cftuv_envelope.wavefront.exact_identity import exact_point_key
+from cftuv_envelope.wavefront.superlevel import VertexReferenceV1
 from cftuv_envelope.wavefront.superlevel_closure import SegmentRefV1, SpanFamilyRefV1
 from cftuv_envelope.wavefront.superlevel_fixed_point import SymbolicSplitContactKeyV1, SymbolicSplitContactV1
 from cftuv_envelope.wavefront.symbolic_edge_closure import SymbolicEdgeContactKeyV1, SymbolicEdgeContactV1
@@ -36,7 +37,8 @@ def random_point(rng: random.Random) -> EventPointV1:
     def coordinate():
         value = Fraction(rng.randrange(-24, 24), rng.choice((1, 1, 2, 3)))
         if rng.random() < 0.25:
-            return SqrtSumV1(((1, value), (2, Fraction(rng.choice((-1, 1, 2)), rng.choice((1, 2))))))
+            root = Fraction(rng.choice((-1, 1, 2)), rng.choice((1, 2)))
+            return SqrtSumV1(((1, value), (2, root)) if value else ((2, root),))
         return SqrtSumV1.rational(value)
 
     return EventPointV1(coordinate(), coordinate())
@@ -127,6 +129,198 @@ class Fabricator:
             interior = self.interior(rng) if roll > 0.3 else ()
             cases.append((junction, interior))
         return cases
+
+
+# --------------------------------------------------------------------------
+# deltas applied in ways a normalisation never makes
+# --------------------------------------------------------------------------
+
+
+def delta_variants(rng: random.Random, overlay, deltas: tuple) -> list:
+    """Sets of deltas close to the ones a generation made: one twice (the same junctions die twice), two with one birth, a birth that the overlay already holds, a delta whose arm leads
+    to a leaf nobody owns (the reciprocity of what is left fails), and the same set reordered."""
+
+    if not deltas:
+        return []
+    found = [(*deltas, deltas[0])]
+    reborn = [position for position, delta in enumerate(deltas) if delta.rewires]
+    if reborn:
+        position = reborn[0]
+        delta = deltas[position]
+        incoming, outgoing, birth = delta.rewires[0]
+        rest = delta.rewires[1:]
+        existing = rng.choice(list(overlay.vertices))
+        lost = SegmentRefV1(SpanFamilyRefV1(("lost", None, None), (("lost",),)), None, None, ("lost", None, None))
+        for changed in (
+            dataclasses.replace(delta, rewires=((incoming, outgoing, existing), *rest)),
+            dataclasses.replace(delta, dead_refs=()),
+            dataclasses.replace(delta, rewires=((incoming, (outgoing[0], lost), birth), *rest)),
+        ):
+            found.append((*deltas[:position], changed, *deltas[position + 1:]))
+    shuffled = list(deltas)
+    rng.shuffle(shuffled)
+    found.append(tuple(shuffled))
+    return found
+
+
+# --------------------------------------------------------------------------
+# materializations the packet never makes
+# --------------------------------------------------------------------------
+
+
+def spoiled_materialization(rng: random.Random, vertices: tuple, materialization):
+    """`(vertices, materialization)` of a real call of `build_symbolic_overlay` with one thing spoiled: a wire dropped or crossed or pointing at a vertex that is not there, a birth
+    twice, a rewrite of a vertex that dies, a plan without its births, a family without its leaves, a vertex without its occurrence."""
+
+    plans = list(materialization.plans)
+    if not plans:
+        return None
+    index = rng.randrange(len(plans))
+    plan = plans[index]
+    kind = rng.randrange(9)
+    families = materialization.families
+    if kind == 0 and plan.birth_wiring:
+        wiring = list(plan.birth_wiring)
+        del wiring[rng.randrange(len(wiring))]
+        plans[index] = dataclasses.replace(plan, birth_wiring=tuple(wiring))
+    elif kind == 1 and plan.birth_wiring:
+        wiring = list(plan.birth_wiring)
+        at = rng.randrange(len(wiring))
+        key, predecessor, successor = wiring[at]
+        wiring[at] = (key, successor, predecessor)
+        plans[index] = dataclasses.replace(plan, birth_wiring=tuple(wiring))
+    elif kind == 2 and plan.birth_wiring:
+        wiring = list(plan.birth_wiring)
+        at = rng.randrange(len(wiring))
+        key, predecessor, successor = wiring[at]
+        wiring[at] = (key, VertexReferenceV1(existing=10_000), successor) if rng.random() < 0.5 else (key, predecessor, VertexReferenceV1(birth_key=("nobody",)))
+        plans[index] = dataclasses.replace(plan, birth_wiring=tuple(wiring))
+    elif kind == 3 and plan.births:
+        plans[index] = dataclasses.replace(plan, births=(*plan.births, plan.births[0]))
+    elif kind == 4 and plan.births:
+        plans[index] = dataclasses.replace(plan, births=plan.births[1:])
+    elif kind == 5 and vertices:
+        at = rng.randrange(len(vertices))
+        spoiled = list(vertices)
+        spoiled[at] = dataclasses.replace(vertices[at], prev_occurrence=None) if rng.random() < 0.5 else dataclasses.replace(vertices[at], next_occurrence=None)
+        return tuple(spoiled), materialization
+    elif kind == 6 and plan.existing_port_rewrites:
+        plans[index] = dataclasses.replace(plan, existing_port_rewrites=plan.existing_port_rewrites[1:])
+    elif kind == 7 and families:
+        return vertices, dataclasses.replace(materialization, families=families[1:])
+    elif kind == 8 and vertices:
+        at = rng.randrange(len(vertices))
+        other = vertices[rng.randrange(len(vertices))]
+        spoiled = list(vertices)
+        spoiled[at] = dataclasses.replace(vertices[at], next_occurrence=other.next_occurrence, prev_occurrence=other.prev_occurrence)
+        return tuple(spoiled), materialization
+    else:
+        plans[index] = dataclasses.replace(plan, dead_vertex_ids=(*plan.dead_vertex_ids, rng.randrange(len(vertices) or 1)))
+    return vertices, dataclasses.replace(materialization, plans=tuple(plans))
+
+
+def spoiled_vertices(rng: random.Random, vertices: tuple) -> tuple:
+    """Frozen vertices of a packet no front would freeze: the occurrences of two vertices exchanged, one occurrence missing (a line-only port), two vertices with one occurrence
+    (an edge with two owners), one vertex's ends equal."""
+
+    alive = [index for index, vertex in enumerate(vertices) if vertex.alive]
+    if len(alive) < 2:
+        return vertices
+    first, second = rng.sample(alive, 2)
+    spoiled = list(vertices)
+    kind = rng.randrange(5)
+    a, b = vertices[first], vertices[second]
+    if kind == 0:
+        spoiled[first] = dataclasses.replace(a, prev_occurrence=b.prev_occurrence, next_occurrence=b.next_occurrence)
+        spoiled[second] = dataclasses.replace(b, prev_occurrence=a.prev_occurrence, next_occurrence=a.next_occurrence)
+    elif kind == 1:
+        spoiled[first] = dataclasses.replace(a, next_occurrence=None) if rng.random() < 0.5 else dataclasses.replace(a, prev_occurrence=None)
+    elif kind == 2:
+        spoiled[second] = dataclasses.replace(b, next_occurrence=a.next_occurrence)
+    elif kind == 3:
+        spoiled[first] = dataclasses.replace(a, prev_occurrence=a.next_occurrence)
+    else:
+        spoiled[second] = dataclasses.replace(b, next_edge=a.next_edge)
+    return tuple(spoiled)
+
+
+class SharedOwner:
+    """A builder in which two live vertices start one edge (what the head of the transaction refuses before the closure): for the duration of the context, then put back."""
+
+    def __init__(self, builder, rng: random.Random) -> None:
+        alive = [vertex for vertex in builder.vertices if vertex.alive]
+        self.vertex, self.other = (rng.sample(alive, 2) if len(alive) >= 2 else (None, None))
+        self.saved = None if self.vertex is None else self.vertex.next_edge
+
+    def __enter__(self):
+        if self.vertex is not None:
+            self.vertex.next_edge = self.other.next_edge
+        return self
+
+    def __exit__(self, *_exception) -> None:
+        if self.vertex is not None:
+            self.vertex.next_edge = self.saved
+
+
+# --------------------------------------------------------------------------
+# a scripted discovery
+# --------------------------------------------------------------------------
+
+CONFLICT = "SYMBOLIC_INTERIOR_SPLIT_CONTACT_METADATA_CONFLICT"
+AMBIGUOUS = "SYMBOLIC_ENDPOINT_REFERENCE_AMBIGUOUS"
+
+
+class ScriptedDiscovery:
+    """The two discoveries of a round of `plan_mixed_generations`, made up for the first rounds: what they answered is written down (`steps`) and goes to the native seam as the
+    script of the same call. The contacts are made from the overlay the oracle has at the round (a clone of the initial one with the generations of the chain applied), so the chain
+    meets contacts of every shape: a generation with an interior cut, one that the replay refuses, a chain that outgrows its budget. A round the script does not cover is answered
+    by the front."""
+
+    def __init__(self, rng: random.Random, rounds: int, junction, interior) -> None:
+        self.rng, self.rounds = rng, rounds
+        self.natural_junction, self.natural_interior = junction, interior
+        self.steps: dict = {}
+        self.junction_calls = self.interior_calls = 0
+
+    def _scripted(self, index: int) -> bool:
+        return index < self.rounds and self.rng.random() < 0.75
+
+    def junction(self, builder, overlay):
+        index, self.junction_calls = self.junction_calls, self.junction_calls + 1
+        made = Fabricator(overlay)
+        if not self._scripted(index) or not made.usable():
+            return self.natural_junction(builder, overlay)
+        found = made.junction(self.rng)
+        reason = AMBIGUOUS if self.rng.random() < 0.05 else None
+        self.steps.setdefault(index, {})["junction"] = (found, reason)
+        return found, reason
+
+    def interior(self, builder, overlay):
+        index, self.interior_calls = self.interior_calls, self.interior_calls + 1
+        made = Fabricator(overlay)
+        if not self._scripted(index) or not made.usable():
+            return self.natural_interior(builder, overlay)
+        found = made.interior(self.rng)
+        reason = CONFLICT if self.rng.random() < 0.05 else None
+        self.steps.setdefault(index, {})["interior"] = (found, reason)
+        return found, reason
+
+    def wire(self, cseams, enc_str) -> list:
+        """`[[junction contacts | none, reason | none, interior contacts | none, reason | none], ...]`, one entry per round up to the last one that was scripted."""
+
+        rounds = []
+        for index in range(max(self.steps, default=-1) + 1):
+            step = self.steps.get(index, {})
+            junction, interior = step.get("junction"), step.get("interior")
+            rounds.append(
+                [
+                    None if junction is None else [cseams.enc_junction_contact(item) for item in junction[0]],
+                    None if junction is None or junction[1] is None else enc_str(junction[1]),
+                    None if interior is None else [cseams.enc_interior_contact(item) for item in interior[0]],
+                    None if interior is None or interior[1] is None else enc_str(interior[1]),
+                ]
+            )
+        return rounds
 
 
 # --------------------------------------------------------------------------
