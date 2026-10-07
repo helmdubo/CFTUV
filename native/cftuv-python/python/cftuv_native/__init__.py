@@ -51,6 +51,7 @@ __all__ = (
     "native_status",
     "native_version",
     "new_clip_seam_session",
+    "new_skeleton_seam_session",
     "new_mirror",
     "number_op_table",
     "oracle_statuses",
@@ -60,6 +61,8 @@ __all__ = (
     "radical_sum",
     "run_number_ops",
     "sign",
+    "skeleton_seam_run",
+    "skeleton_seam_table",
     "squarefree_split",
     "tree_digest",
 )
@@ -264,3 +267,21 @@ def clip_seam_table() -> tuple[tuple[int, str], ...]:
     """Test-only: `(opcode, name)` of every clip seam the extension knows."""
 
     return tuple(_core.clip_seam_table())
+
+
+def new_skeleton_seam_session():
+    """Test-only: a fresh native session for the skeleton differential seams (`cftuv_native.skeleton_seams`)."""
+
+    return _core.Session()
+
+
+def skeleton_seam_run(session, request: bytes) -> bytes:
+    """Test-only: ONE skeleton seam (`cftuv-skeleton/src/seam.rs`) on `session`; the answer buffer is decoded by `skeleton_seams`."""
+
+    return _core.skeleton_seam_run(session, request)
+
+
+def skeleton_seam_table() -> tuple[tuple[int, str], ...]:
+    """Test-only: `(opcode, name)` of every skeleton seam the extension knows."""
+
+    return tuple(_core.skeleton_seam_table())

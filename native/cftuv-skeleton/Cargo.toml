@@ -1,0 +1,15 @@
+[package]
+name = "cftuv-skeleton"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dashu-int.workspace = true
+cftuv-canon = { path = "../cftuv-canon" }
+cftuv-core = { path = "../cftuv-core" }
+
+[features]
+# Phase timers of the leaf (`profile.rs`); a separate wheel is built with it by `tools/native_leaf_gate.py profile`.
+profile = []

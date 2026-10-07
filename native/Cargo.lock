@@ -70,9 +70,19 @@ dependencies = [
  "cftuv-canon",
  "cftuv-clip",
  "cftuv-core",
+ "cftuv-skeleton",
  "mimalloc",
  "pyo3",
  "sha2",
+]
+
+[[package]]
+name = "cftuv-skeleton"
+version = "0.1.0"
+dependencies = [
+ "cftuv-canon",
+ "cftuv-core",
+ "dashu-int",
 ]
 
 [[package]]

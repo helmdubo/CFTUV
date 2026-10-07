@@ -13,10 +13,15 @@ crate-type = ["cdylib"]
 cftuv-clip = { path = "../cftuv-clip" }
 cftuv-core = { path = "../cftuv-core" }
 cftuv-canon = { path = "../cftuv-canon" }
+cftuv-skeleton = { path = "../cftuv-skeleton" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 mimalloc = { version = "0.1", default-features = false }
 # the digest of the Rust sources (`digest.rs`, shared with `build.rs`): `native_build_id()`
 sha2 = { version = "0.10", default-features = false }
+
+[features]
+# the phase timers of the skeleton leaf (answered with the evaluate seam); off in the wheel the product installs
+skeleton-profile = ["cftuv-skeleton/profile"]
 
 [build-dependencies]
 sha2 = { version = "0.10", default-features = false }

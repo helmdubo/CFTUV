@@ -10,6 +10,7 @@ mod coverage;
 mod memlog;
 mod pyobj;
 mod refusal;
+mod skeleton_seams;
 mod view;
 
 // The digest of the Rust sources, shared with `build.rs` (which embeds it) and exposed for the tests to check the algorithm on a tree of their own.
@@ -329,5 +330,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Session>()?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;
+    module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_run, module)?)?;
+    module.add_function(wrap_pyfunction!(skeleton_seams::skeleton_seam_table, module)?)?;
     Ok(())
 }
