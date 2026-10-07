@@ -58,7 +58,7 @@ use cftuv_core::sqrt_sum::SignCounts;
 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
-use crate::pyobj::{alloc, int_from_ibig, int_from_ubig, rat_from_number, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
+use crate::pyobj::{alloc, int_from_ibig, int_from_ubig, note_attr_build, rat_from_number, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw, SlotMode};
 use crate::refusal::{is_native_only, Forced};
 
 /// Planes kept converted per session.
@@ -420,6 +420,7 @@ impl<'py, 'a> Builder<'py, 'a> {
                     [PyFloat::new(self.py, lifted.position[0]).into_any(), PyFloat::new(self.py, lifted.position[1]).into_any(), PyFloat::new(self.py, lifted.position[2]).into_any()],
                 )?,
                 None => {
+                    note_attr_build();
                     let position = alloc(self.py, &classes.local_point)?;
                     for (slot, value) in [(&slots.x, lifted.position[0]), (&slots.y, lifted.position[1]), (&slots.z, lifted.position[2])] {
                         set_slot(&position, slot, PyFloat::new(self.py, value).as_any())?;
@@ -526,13 +527,13 @@ fn commit_normals(table: Option<&Bound<'_, PyDict>>, normals: &[(Bound<'_, PyTup
 }
 
 impl Host {
-    pub fn bind(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, clipped: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>) -> PyResult<()> {
+    pub fn bind(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, clipped: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>, mode: SlotMode) -> PyResult<()> {
         let intern = |text: &str| PyString::intern(py, text).unbind();
         let local_point = local_point.clone().unbind();
         let (x, y, z) = (intern("x"), intern("y"), intern("z"));
-        let local_raw = Raw::probe(py, &local_point, &[&x, &y, &z])?;
+        let local_raw = Raw::select(py, mode, "LocalPoint3V1", &local_point, &[&x, &y, &z])?;
         self.classes = Some(Classes {
-            pool: Pool::new(py, fraction, sqrt_sum)?,
+            pool: Pool::new(py, fraction, sqrt_sum, mode)?,
             clipped: clipped.clone().unbind(),
             local_point,
             local_raw,

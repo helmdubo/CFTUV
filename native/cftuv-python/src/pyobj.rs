@@ -10,6 +10,13 @@
 //! not call the class's `__setattr__`, which is what `frozen=True` overrides; the generated `__init__` of such a
 //! class does the same through `object.__setattr__`. That is the only `unsafe` in the module besides the raw
 //! integer constructors, and each use is a single FFI call with its result checked.
+//!
+//! The raw slot access is a MODE (`SlotMode`, `CFTUV_NATIVE_SLOTS`): `auto` takes the raw path where the probe confirms the layout and the attribute protocol
+//! where it does not (the product's default); `raw` and `attr` FORCE one path, and `raw` turns a layout the probe does not confirm into a named refusal instead of a
+//! quiet fallback. The slot counters (`slot_counters`) say which path actually ran, so a test of a forced mode proves the mode was taken, not assumed.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -41,7 +48,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    pub fn new(py: Python<'_>, fraction: &Bound<'_, PyAny>, sqrt_sum: &Bound<'_, PyAny>) -> PyResult<Pool> {
+    pub fn new(py: Python<'_>, fraction: &Bound<'_, PyAny>, sqrt_sum: &Bound<'_, PyAny>, mode: SlotMode) -> PyResult<Pool> {
         let int_type = py.import("builtins")?.getattr("int")?;
         let zero_sum = sqrt_sum.call1((PyTuple::empty(py),))?;
         let numerator = PyString::intern(py, "_numerator").unbind();
@@ -49,8 +56,8 @@ impl Pool {
         let terms = PyString::intern(py, "terms").unbind();
         let fraction = fraction.clone().unbind();
         let sqrt_sum = sqrt_sum.clone().unbind();
-        let fraction_raw = Raw::probe(py, &fraction, &[&numerator, &denominator])?;
-        let sqrt_raw = Raw::probe(py, &sqrt_sum, &[&terms])?;
+        let fraction_raw = Raw::select(py, mode, "Fraction", &fraction, &[&numerator, &denominator])?;
+        let sqrt_raw = Raw::select(py, mode, "SqrtSumV1", &sqrt_sum, &[&terms])?;
         Ok(Pool { int_type: int_type.unbind(), fraction, sqrt_sum, zero_sum: zero_sum.unbind(), numerator, denominator, terms, fraction_raw, sqrt_raw })
     }
 }
@@ -69,6 +76,91 @@ impl Pool {
 }
 
 // --------------------------------------------------------------------------
+// the slot mode and the counters of the path that ran
+// --------------------------------------------------------------------------
+
+/// The environment variable the process-wide slot mode is read from, once, when the extension is imported.
+pub const SLOT_MODE_ENVIRONMENT: &str = "CFTUV_NATIVE_SLOTS";
+
+/// How the slots of the bound classes are read and written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotMode {
+    /// Raw where the probe confirms the layout, the attribute protocol where it does not.
+    Auto,
+    /// Raw everywhere, and a layout the probe does not confirm is a named refusal (never a fallback).
+    Raw,
+    /// The attribute protocol everywhere (no probe).
+    Attr,
+}
+
+impl SlotMode {
+    /// `raw`, `attr` or `auto` (case and surrounding blanks ignored); an empty text is `auto`.
+    pub fn parse(text: &str) -> Result<SlotMode, String> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => Ok(SlotMode::Auto),
+            "raw" => Ok(SlotMode::Raw),
+            "attr" => Ok(SlotMode::Attr),
+            other => Err(format!("a slot mode is `raw`, `attr` or `auto`, not {other:?}")),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SlotMode::Auto => "auto",
+            SlotMode::Raw => "raw",
+            SlotMode::Attr => "attr",
+        }
+    }
+}
+
+static PROCESS_MODE: OnceLock<SlotMode> = OnceLock::new();
+
+/// Reads `CFTUV_NATIVE_SLOTS` once (the first call decides, later calls return the same mode); an unknown value is a named refusal, the extension does not import.
+pub fn init_process_mode() -> PyResult<SlotMode> {
+    if let Some(mode) = PROCESS_MODE.get() {
+        return Ok(*mode);
+    }
+    let mode = match std::env::var(SLOT_MODE_ENVIRONMENT) {
+        Ok(text) => SlotMode::parse(&text).map_err(|why| pyo3::exceptions::PyValueError::new_err(format!("cftuv_native: {SLOT_MODE_ENVIRONMENT}: {why}")))?,
+        Err(std::env::VarError::NotPresent) => SlotMode::Auto,
+        Err(std::env::VarError::NotUnicode(_)) => return Err(pyo3::exceptions::PyValueError::new_err(format!("cftuv_native: {SLOT_MODE_ENVIRONMENT} is not valid unicode"))),
+    };
+    Ok(*PROCESS_MODE.get_or_init(|| mode))
+}
+
+/// The process-wide mode (`auto` before `init_process_mode` ran, which the module initialisation does).
+pub fn process_mode() -> SlotMode {
+    PROCESS_MODE.get().copied().unwrap_or(SlotMode::Auto)
+}
+
+static RAW_READS: AtomicU64 = AtomicU64::new(0);
+static ATTR_READS: AtomicU64 = AtomicU64::new(0);
+static RAW_BUILDS: AtomicU64 = AtomicU64::new(0);
+static ATTR_BUILDS: AtomicU64 = AtomicU64::new(0);
+
+/// `[raw reads, attribute reads, raw builds, attribute builds]` since the process started or `reset_slot_counters`: a read is one slot of an input object, a build one
+/// result instance, and the path (raw offset or attribute protocol) is the one that actually ran. Relaxed: the GIL serialises the callers, and a diagnostic needs no order.
+pub fn slot_counters() -> [u64; 4] {
+    [RAW_READS.load(Ordering::Relaxed), ATTR_READS.load(Ordering::Relaxed), RAW_BUILDS.load(Ordering::Relaxed), ATTR_BUILDS.load(Ordering::Relaxed)]
+}
+
+pub fn reset_slot_counters() {
+    for counter in [&RAW_READS, &ATTR_READS, &RAW_BUILDS, &ATTR_BUILDS] {
+        counter.store(0, Ordering::Relaxed);
+    }
+}
+
+/// `slots` slots of an input object were read through the attribute protocol.
+pub fn note_attr_reads(slots: u64) {
+    ATTR_READS.fetch_add(slots, Ordering::Relaxed);
+}
+
+/// A result instance was built through the attribute protocol.
+pub fn note_attr_build() {
+    ATTR_BUILDS.fetch_add(1, Ordering::Relaxed);
+}
+
+// --------------------------------------------------------------------------
 // raw access to the slots of `__slots__` classes
 // --------------------------------------------------------------------------
 
@@ -76,20 +168,35 @@ impl Pool {
 /// (`__slots__` and no `__dict__`, no `__weakref__`): the generic attribute protocol costs a type lookup and a descriptor call per
 /// slot, a pointer read or store costs nothing. The layout is NOT assumed: [`Raw::probe`] builds a real instance through the
 /// generic setter, finds where each value landed and refuses (`None`: the callers use the attribute protocol) unless the class has
-/// exactly the expected shape; a read is only done on an instance of exactly the probed class.
+/// exactly the expected shape; a read is only done on an instance of exactly the probed class. What happens to a layout the probe does not confirm is the SLOT MODE's
+/// decision ([`Raw::select`]): `auto` falls back to the attribute protocol, `raw` refuses by name, `attr` never probes.
 pub struct Raw {
     offsets: Vec<usize>,
 }
 
 impl Raw {
-    /// The layout of `class` for `names` (in this order), or `None` when it is not the plain pointer-slot layout.
-    pub fn probe(py: Python<'_>, class: &Py<PyAny>, names: &[&Py<PyString>]) -> PyResult<Option<Raw>> {
+    /// The raw access of `class` for `names` as `mode` asks for it (`label` names the class in a refusal): `Auto` takes what the probe confirms and `None` otherwise,
+    /// `Attr` does not probe, `Raw` is a named `TypeError` when the probe does not confirm the layout (never a silent fallback).
+    pub fn select(py: Python<'_>, mode: SlotMode, label: &str, class: &Py<PyAny>, names: &[&Py<PyString>]) -> PyResult<Option<Raw>> {
+        match mode {
+            SlotMode::Attr => Ok(None),
+            SlotMode::Auto => Ok(Raw::probe(py, class, names)?.ok()),
+            SlotMode::Raw => match Raw::probe(py, class, names)? {
+                Ok(raw) => Ok(Some(raw)),
+                Err(why) => Err(refuse(format!("raw slot access was forced ({SLOT_MODE_ENVIRONMENT}=raw) but the probe does not confirm the layout of {label}: {why}"))),
+            },
+        }
+    }
+
+    /// The layout of `class` for `names` (in this order), or the reason it is not the plain pointer-slot layout.
+    pub fn probe(py: Python<'_>, class: &Py<PyAny>, names: &[&Py<PyString>]) -> PyResult<Result<Raw, String>> {
         let bound = class.bind(py);
         let size: usize = bound.getattr(intern!(py, "__basicsize__"))?.extract()?;
         let items: usize = bound.getattr(intern!(py, "__itemsize__"))?.extract()?;
         let header = 2 * std::mem::size_of::<usize>();
-        if items != 0 || size != header + names.len() * std::mem::size_of::<usize>() {
-            return Ok(None);
+        let wanted = header + names.len() * std::mem::size_of::<usize>();
+        if items != 0 || size != wanted {
+            return Ok(Err(format!("__basicsize__ is {size} and __itemsize__ {items}, a plain {}-slot class has {wanted} and 0", names.len())));
         }
         let instance = alloc(py, class)?;
         let mut values = Vec::with_capacity(names.len());
@@ -99,31 +206,32 @@ impl Raw {
             values.push(value);
         }
         let mut offsets = Vec::with_capacity(names.len());
-        for value in &values {
+        for (index, value) in values.iter().enumerate() {
             let mut found = None;
-            for index in 0..names.len() {
-                let at = header + index * std::mem::size_of::<usize>();
+            for position in 0..names.len() {
+                let at = header + position * std::mem::size_of::<usize>();
                 // SAFETY: `at + 8 <= basicsize`: inside the instance that was just allocated.
                 let held = unsafe { *instance.as_ptr().cast::<u8>().add(at).cast::<*mut ffi::PyObject>() };
                 if held == value.as_ptr() {
                     if found.is_some() {
-                        return Ok(None);
+                        return Ok(Err(format!("the value set through `{}` was found in two slots", names[index].bind(py))));
                     }
                     found = Some(at);
                 }
             }
             match found {
                 Some(at) => offsets.push(at),
-                None => return Ok(None),
+                None => return Ok(Err(format!("the value set through `{}` was found in no slot", names[index].bind(py)))),
             }
         }
-        Ok(Some(Raw { offsets }))
+        Ok(Ok(Raw { offsets }))
     }
 
     /// `object.__new__(class)` with every slot set to the given object (ownership moves into the instance), in the order of the probe's names.
     pub fn build<'py, const N: usize>(&self, py: Python<'py>, class: &Py<PyAny>, values: [Bound<'py, PyAny>; N]) -> PyResult<Bound<'py, PyAny>> {
         debug_assert_eq!(self.offsets.len(), N);
         let object = alloc(py, class)?;
+        RAW_BUILDS.fetch_add(1, Ordering::Relaxed);
         for (offset, value) in self.offsets.iter().zip(values) {
             // SAFETY: `offset` is a slot of exactly this class (probed), the slot is still empty after `alloc`, and the instance owns the reference it is given.
             unsafe { *object.as_ptr().cast::<u8>().add(*offset).cast::<*mut ffi::PyObject>() = value.into_ptr() };
@@ -133,6 +241,7 @@ impl Raw {
 
     /// The object in slot `index` of `obj`, borrowed; `None` when the slot is empty. `obj` must be an instance of exactly the probed class.
     pub fn read<'a, 'py>(&self, obj: &'a Bound<'py, PyAny>, index: usize) -> Option<Borrowed<'a, 'py, PyAny>> {
+        RAW_READS.fetch_add(1, Ordering::Relaxed);
         // SAFETY: the offset is a slot of the probed class and `obj` is an instance of it (the caller checked the type); a slot holds NULL or a valid object that lives as long as `obj`.
         unsafe { Borrowed::from_ptr_or_opt(obj.py(), *obj.as_ptr().cast::<u8>().add(self.offsets[index]).cast::<*mut ffi::PyObject>()) }
     }
@@ -305,6 +414,7 @@ pub fn fraction_from_rat<'py>(py: Python<'py>, pool: &Pool, value: &Rat) -> PyRe
     if let Some(raw) = &pool.fraction_raw {
         return raw.build(py, &pool.fraction, [numerator, denominator]);
     }
+    note_attr_build();
     let fraction = alloc(py, &pool.fraction)?;
     set_slot(&fraction, &pool.numerator, &numerator)?;
     set_slot(&fraction, &pool.denominator, &denominator)?;
@@ -357,7 +467,10 @@ pub fn coef_from_number(pool: &Pool, obj: &Bound<'_, PyAny>) -> PyResult<Coef> {
     if is_exactly(obj, &pool.fraction) {
         let (numerator, denominator) = match pool.fraction_raw.as_ref().and_then(|raw| raw.read(obj, 0).zip(raw.read(obj, 1))) {
             Some((numerator, denominator)) => (ibig_from_int(&numerator)?, ubig_from_int(&denominator)?),
-            None => (ibig_from_int(&obj.getattr(pool.numerator.bind(py))?)?, ubig_from_int(&obj.getattr(pool.denominator.bind(py))?)?),
+            None => {
+                note_attr_reads(2);
+                (ibig_from_int(&obj.getattr(pool.numerator.bind(py))?)?, ubig_from_int(&obj.getattr(pool.denominator.bind(py))?)?)
+            }
         };
         if denominator.is_zero() {
             return Err(refuse("a Fraction with a zero denominator"));
@@ -383,7 +496,10 @@ pub fn sqrt_sum_from_py(pool: &Pool, obj: &Bound<'_, PyAny>) -> PyResult<SqrtSum
     }
     match pool.sqrt_raw.as_ref().and_then(|raw| raw.read(obj, 0)) {
         Some(terms) => sqrt_sum_from_terms(pool, &terms),
-        None => sqrt_sum_from_terms(pool, &obj.getattr(pool.terms.bind(py))?),
+        None => {
+            note_attr_reads(1);
+            sqrt_sum_from_terms(pool, &obj.getattr(pool.terms.bind(py))?)
+        }
     }
 }
 
@@ -418,6 +534,7 @@ pub fn sqrt_sum_to_py<'py>(py: Python<'py>, pool: &Pool, sum: &SqrtSum) -> PyRes
     if let Some(raw) = &pool.sqrt_raw {
         return raw.build(py, &pool.sqrt_sum, [terms]);
     }
+    note_attr_build();
     let value = alloc(py, &pool.sqrt_sum)?;
     set_slot(&value, &pool.terms, &terms)?;
     Ok(value)

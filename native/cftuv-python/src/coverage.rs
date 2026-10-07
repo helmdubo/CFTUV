@@ -38,7 +38,7 @@ use cftuv_core::session::{CostRun, Session};
 use cftuv_core::sqrt_sum::SignCounts;
 
 use crate::memlog::{apply_log, insort, Tables};
-use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
+use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, note_attr_build, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw, SlotMode};
 use crate::refusal::{is_native_only, Forced};
 
 /// Partitions kept converted per session.
@@ -161,13 +161,14 @@ impl Host {
         face_exact: &Bound<'_, PyAny>,
         store_key: &Bound<'_, PyAny>,
         memory_delta: &Bound<'_, PyAny>,
+        mode: SlotMode,
     ) -> PyResult<()> {
         let intern = |text: &str| pyo3::types::PyString::intern(py, text).unbind();
         let face_coverage = face_coverage.clone().unbind();
         let (owner, points, doubled_area) = (intern("owner"), intern("points"), intern("doubled_area"));
-        let face_raw = Raw::probe(py, &face_coverage, &[&owner, &points, &doubled_area])?;
+        let face_raw = Raw::select(py, mode, "FaceCoverageV1", &face_coverage, &[&owner, &points, &doubled_area])?;
         self.classes = Some(Classes {
-            pool: Pool::new(py, fraction, sqrt_sum)?,
+            pool: Pool::new(py, fraction, sqrt_sum, mode)?,
             coverage: coverage.clone().unbind(),
             face_coverage,
             face_raw,
@@ -510,6 +511,7 @@ impl Host {
             let item = match &classes.face_raw {
                 Some(raw) => raw.build(py, &classes.face_coverage, [face.owner.bind(py).clone(), points, doubled])?,
                 None => {
+                    note_attr_build();
                     let item = alloc(py, &classes.face_coverage)?;
                     set_slot(&item, &names.owner, face.owner.bind(py))?;
                     set_slot(&item, &names.points, &points)?;
