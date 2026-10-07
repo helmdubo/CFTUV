@@ -10,7 +10,8 @@
 снимки таблиц памяти), как в сеансе.
 
 Отказ ПОРТА (`cftuv_native.NATIVE_REFUSALS`) — второй вид исхода, не расхождение: он обязан оставить ВСЁ состояние как до вызова, после чего ядро на тех же бюджете и таблицах даёт записанный
-исход. Допустимые отказы названы здесь: внутренний отказ самого эталона (`TypeError` символьной ссылки без концов и несравнимых ключей, 30 синтетических записей). Поиск `EXHAUSTIVE` (эталон тестов) порт несёт.
+исход. Допустимых отказов на корпусах больше нет: 30 синтетических записей, на которых эталон падал внутренним `TypeError` (конец пролёта символьной ссылки без места, несравнимые ключи рождений), с
+d6b2c49 дают названные исходы эталона, и порт отвечает на них так же. Поиск `EXHAUSTIVE` (эталон тестов) порт несёт. Среду `CFTUV_SYMBOLIC_REPLAY_CHECK` вызова несёт запись (`StateV1.replay_check`).
 
 Модуль пропускается с названной причиной, пока расширение не собрано, нативный `skeleton` не сверен с этим деревом ядра (`native_gate`) или корпуса нет. Переменные окружения:
 `CFTUV_SKELETON_SYNTHETIC_STRIDE` (каждая N-я синтетическая запись; по умолчанию все), `CFTUV_SKELETON_LIVE_LIMIT` (записей живого эталона; по умолчанию 40).
@@ -203,11 +204,9 @@ def test_every_synthetic_record_through_the_dropin_equals_the_recorded_oracle(ru
     runs = run_rows(runner, SYNTHETIC, rows, "synthetic")
     assert len(runs) >= 5000 // SYNTHETIC_STRIDE
     assert_all_equal(runs)
-    refused = [(name, run) for name, run in runs if run.refused]
-    for name, run in refused:
-        record = sc.read(SYNTHETIC, next(row for row in rows if row["id"] == name))
-        assert run.refused[0] == "NativePortUnsupported", (name, run.refused)
-        assert sc.is_internal_error(record.expected().exception), f"{name}: the port refused a call the oracle answers: {run.refused}"
+    refused = [(name, run.refused) for name, run in runs if run.refused]
+    assert not refused, f"the port refused calls the oracle answers by name: {refused[:3]}"
+    assert sc.inventory(SYNTHETIC)["internal_errors_of_the_oracle"] == 0, "no record of the corpus ends in an internal error of the oracle (a TypeError of a sort)"
     counts = labels(runs)
     assert counts["EXACT"] > 1000 * 1 // SYNTHETIC_STRIDE
     for name in ("raised:ExactCanonicalizationWorkBudgetExhausted", "LEVEL_BUDGET_EXHAUSTED", "SUPERLEVEL_COMPONENT_UNRESOLVABLE", "WAVEFRONT_LEFT_UNRESOLVED"):
@@ -219,6 +218,16 @@ def test_the_dense_hydration_and_the_replaced_level_budget_records_are_in_the_sy
     rows = _rows(SYNTHETIC, derived=False)
     assert any(row["dense_hydration"] for row in rows) and any(row["outcome"] == "LEVEL_BUDGET_EXHAUSTED" for row in rows)
     assert any(row["budget"] is False for row in rows), "a call without a budget (UNBUDGETED_WORK) is in the corpus"
+
+
+@needs_synthetic
+def test_the_synthetic_corpus_holds_calls_with_and_without_the_self_check_of_the_closure_replay():
+    """The kernel's own tests run with `CFTUV_SYMBOLIC_REPLAY_CHECK=1` (the closure of a packet is planned twice and compared), the generator and the product do not: the two kinds of record
+    are in the corpus, each carries the variable it was made under (`StateV1.replay_check`), and the drop-in is compared on both (the whole-corpus test above)."""
+
+    rows = _rows(SYNTHETIC, derived=False)
+    flags = Counter(sc.read(SYNTHETIC, row).before().replay_check for row in rows[:: max(1, len(rows) // 80)])
+    assert flags[True] >= 5 and flags[False] >= 5, dict(flags)
 
 
 @pytest.mark.skipif(FIELD is None and SYNTHETIC is None, reason=sc.describe_missing("field"))
