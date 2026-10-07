@@ -1,7 +1,7 @@
 """Воспроизведение корпуса скелета эталоном и доказательство детерминизма: повтор, зерно хэша, версия питона, аудит каноники.
 
     python tools/native_skeleton_verify.py replay --corpus field|synthetic|<каталог> [--repeat 2] [--audit keep|off|on]
-        [--hash-seed-note] [--meshes a,b] [--ids 000001,...] [--limit N] [--max-seconds S] [--out digests.json]
+        [--no-derived] [--meshes a,b] [--ids 000001,...] [--limit N] [--max-seconds S] [--out digests.json]
     python tools/native_skeleton_verify.py compare a.json b.json [...]
     python tools/native_skeleton_verify.py matrix --corpus field|synthetic [--out DIR] [--max-seconds S]
 
@@ -60,7 +60,7 @@ def corpus_root(spec: str) -> Path:
 
 
 def selected_rows(root: Path, arguments) -> list:
-    rows = sc.rows_of(root)
+    rows = sc.rows_of(root, derived=False if arguments.no_derived else None)
     if arguments.meshes:
         wanted = set(arguments.meshes.split(","))
         rows = [row for row in rows if row["mesh"] in wanted]
@@ -213,6 +213,7 @@ def main(argv=None) -> int:
     replay.add_argument("--ids", default="")
     replay.add_argument("--limit", type=int, default=0)
     replay.add_argument("--max-seconds", type=float, default=0.0)
+    replay.add_argument("--no-derived", action="store_true", help="только основные записи (замер времени: производные оборваны потолком)")
     replay.add_argument("--out", default="")
     compare = sub.add_parser("compare")
     compare.add_argument("files", nargs="+")

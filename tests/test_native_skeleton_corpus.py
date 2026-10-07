@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import json
 import os
 import subprocess
@@ -451,6 +450,25 @@ def test_the_seam_reader_gives_calls_cost_and_the_memory_of_every_event(seam_run
     assert base["factorization"] == [] and seam_file.state_before(seam_file.calls[0]).budget["stage"] == "PREPARE"
     splits = list(seams.iter_calls(recorder.root, "EVALUATE_SPLIT"))
     assert splits and all(call.extra["view_log"] and "memo" in call.extra for _file, call in splits)
+
+
+def test_the_journal_of_a_record_starts_from_its_recorded_state_not_from_what_the_previous_record_left():
+    """Журнал создаётся ДО того, как воспроизведение ставит процесс в записанное состояние, и в процессе тогда лежит память прошлого прогона: отпечаток начала берётся с базы журнала.
+
+    Иначе запись, чья память по ходу прогона становится такой же, какой кончил прошлая, не видела бы собственного заполнения: события не было, и база (пустая) выдавалась за состояние
+    перед первым вызовом листа (так были записаны первые швы синтетики: повторный вызов эталона тратил единицу, которой в записи не было)."""
+
+    exact._KNOWN_PRIMES.extend((2, 3, 5))
+    exact._KNOWN_PRIME_SET.update((2, 3, 5))
+    exact._FACTORIZATION_MEMO[30] = ((2, 1), (3, 1), (5, 1))
+    exact._SQUAREFREE_MEMO[12] = (3, 2)
+    assert seams.fingerprint() == seams.fingerprint_of(seams.live_tables())
+    journal = seams.Journal({"known_primes": [], "factorization": [], "squarefree": [], "prime_support": []})
+    assert journal.observe() == 1, "the live memory differs from the recorded (empty) base: an event is made"
+    assert seams.apply_diff([], journal.events[1]["factorization"]) == [(30, ((2, 1), (3, 1), (5, 1)))]
+    assert journal.observe() == 1, "and nothing changes while the memory stays"
+    exact.reset_factorization_memory()
+    assert journal.observe() == 2 and seams.apply_diff([(2, None), (3, None), (5, None)], journal.events[2]["known_primes"]) == []
 
 
 def test_the_seam_memory_journal_is_a_chain_of_exact_differences():

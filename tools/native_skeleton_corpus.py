@@ -23,6 +23,15 @@ FIELD_DIR = "skeleton"
 SYNTHETIC_DIR = "synthetic_skeleton"
 SEAMS_DIR = "seams"
 KINDS = {"field": FIELD_DIR, "synthetic": SYNTHETIC_DIR}
+#: Классы встроенных исключений, которыми эталон падает НЕ по замыслу: дефект ядра (не именованный отказ). Именованные исключения ядра (`ExactCanonicalizationWorkBudgetExhausted`,
+#: `ZeroDivisorTimeError`, ...) — подклассы со своим именем и сюда не входят. Запись с таким исключением воспроизводима (класс и текст записаны), но нативный порт её точно не повторит.
+INTERNAL_ERRORS = frozenset({"TypeError", "AttributeError", "KeyError", "IndexError", "AssertionError", "RuntimeError", "ZeroDivisionError", "NameError", "UnboundLocalError", "RecursionError"})
+
+
+def is_internal_error(exception) -> bool:
+    """Записанное исключение `(класс, текст)` — внутренний дефект эталона, а не именованный отказ."""
+
+    return bool(exception) and exception[0] in INTERNAL_ERRORS
 
 
 def _base(base: str | Path | None) -> Path:
@@ -101,6 +110,7 @@ def inventory(root: Path) -> dict:
     return {
         "records": len(rows),
         "derived": sum(1 for row in rows if row.get("derived") is not None),
+        "internal_errors_of_the_oracle": sum(1 for row in rows if is_internal_error(row["exception"])),
         "bytes": sum(row["bytes"] for row in rows),
         "kernel_identity": index.get("kernel_identity"),
         "python": index.get("python"),

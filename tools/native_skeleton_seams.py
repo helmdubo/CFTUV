@@ -19,9 +19,17 @@
 Выборка: голова и шаг по каждому шву (`Sampling`), плюс всегда вызовы, которые платят (статьи бюджета), меняют память, бросают исключение или попадают в новый класс знака;
 `--full` пишет ВСЕ вызовы названных швов у названных записей (целая лента закона кандидата тяжёлого домена для решающих ворот G1).
 
+Читалка (нативный лист питается ею, не зная формата файла):
+
+    for seam_file, call in iter_calls(corpus, "EVALUATE_SPLIT", mesh="building"):      # SeamFile, SeamCall
+        before = seam_file.state_before(call)       # nc.StateV1: память события call.mem_pre, бюджет вызова; nc.restore_state(before) ставит процесс в него
+        # call.arguments (по именам), call.extra["view_log"], ["memo"], ["identity_calls"] у закона кандидата; ответить нужно call.result / call.error,
+        # сдвигом знаков call.sign (пять ключей SIGN_KEYS), статей call.articles (шесть) и памятью seam_file.memory(call.mem_post)
+    seam_file.queue_ops                             # лента операций очереди: op, args, result, sign, heap (порядок записей кучи после операции)
+
     python tools/native_skeleton_seams.py record --corpus field|synthetic [--meshes a,b] [--full EVALUATE_SPLIT,QUEUE --full-ids 000042,...] [--max-seconds S]
     python tools/native_skeleton_seams.py summary --corpus field|synthetic
-    python tools/native_skeleton_seams.py verify --corpus field|synthetic [--limit N]       # вызовы шва -> эталон ещё раз, точное сравнение (проверка самих записей)
+    python tools/native_skeleton_seams.py verify --corpus field|synthetic [--limit N] [--shard I/N]   # вызовы шва -> эталон ещё раз, точное сравнение (проверка самих записей)
 """
 
 from __future__ import annotations
@@ -162,6 +170,16 @@ def fingerprint() -> tuple:
     )
 
 
+def fingerprint_of(tables: dict) -> tuple:
+    """Тот же отпечаток по таблицам-спискам (`live_tables` либо база журнала): журнал начинается с ЗАПИСАННОГО состояния до вызова, а не с того, в котором оставил процесс прошлый прогон."""
+
+    def last(items):
+        return items[-1][0] if items else None
+
+    known, factorization, squarefree, support = (tables[name] for name in ("known_primes", "factorization", "squarefree", "prime_support"))
+    return (len(known), last(known), len(factorization), last(factorization), len(squarefree), last(squarefree), len(support), last(support))
+
+
 def diff_items(old: list, new: list) -> tuple:
     """Разность двух упорядоченных списков пар: `("tail", ушло_с_начала, добавлено_в_конец)` либо `("full", новый)`."""
 
@@ -195,7 +213,7 @@ class Journal:
     def __init__(self, base: dict) -> None:
         self.events: list = [{"full": base}]
         self.tables = base
-        self.fingerprint = fingerprint()
+        self.fingerprint = fingerprint_of(base)
         self.index = 0
 
     def observe(self) -> int:
@@ -645,12 +663,14 @@ def load_index(corpus: Path, out: Path | None = None) -> dict:
     return json.loads(((Path(out) if out else seams_root(corpus)) / "index.json").read_text(encoding="utf-8"))
 
 
-def iter_files(corpus: Path, *, mesh: str | None = None, limit: int | None = None, out: Path | None = None):
-    """`(строка индекса швов, SeamFile)` по файлам корпуса."""
+def iter_files(corpus: Path, *, mesh: str | None = None, limit: int | None = None, out: Path | None = None, shard: tuple | None = None):
+    """`(строка индекса швов, SeamFile)` по файлам корпуса; `shard=(i, n)` — каждый n-й файл начиная с i-го (проверку можно раздать процессам)."""
 
     count = 0
-    for row in load_index(corpus, out)["files"]:
+    for number, row in enumerate(load_index(corpus, out)["files"]):
         if mesh is not None and row["mesh"] != mesh:
+            continue
+        if shard is not None and number % shard[1] != shard[0]:
             continue
         yield row, read_file((Path(out) if out else seams_root(corpus)) / row["path"])
         count += 1
@@ -889,12 +909,12 @@ def verify_queue(seam_file: SeamFile) -> list:
     return found
 
 
-def verify_corpus(corpus: Path, limit: int | None = None, out: Path | None = None) -> dict:
+def verify_corpus(corpus: Path, limit: int | None = None, out: Path | None = None, shard: tuple | None = None) -> dict:
     """Все записанные вызовы всех файлов -> эталон ещё раз, и ленты очередей; `{проверено по швам, расхождения}`."""
 
     checked: Counter = Counter()
     problems: list = []
-    for _row, seam_file in iter_files(corpus, out=out):
+    for _row, seam_file in iter_files(corpus, out=out, shard=shard):
         queue_found = verify_queue(seam_file)
         checked[QUEUE_SEAM] += len(seam_file.queue_ops)
         if queue_found:
@@ -928,6 +948,7 @@ def main(argv=None) -> int:
     parser.add_argument("--full-ids", default="")
     parser.add_argument("--max-seconds", type=float, default=0.0)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--shard", default="", help="I/N: проверять каждый N-й файл начиная с I-го")
     arguments = parser.parse_args(argv)
     corpus = sc.matching(arguments.corpus) if arguments.corpus in sc.KINDS else Path(arguments.corpus)
     if corpus is None:
@@ -943,7 +964,8 @@ def main(argv=None) -> int:
     if arguments.command == "summary":
         print(json.dumps(summary_of(corpus, arguments.out), indent=1))
         return 0
-    report = verify_corpus(corpus, arguments.limit or None, arguments.out)
+    shard = tuple(int(item) for item in arguments.shard.split("/")) if arguments.shard else None
+    report = verify_corpus(corpus, arguments.limit or None, arguments.out, shard)
     print(json.dumps(report, indent=1, default=str))
     print("NATIVE_SKELETON_SEAMS_VERIFY_OK" if not report["problem_count"] else "NATIVE_SKELETON_SEAMS_VERIFY_FAILED", sum(report["checked"].values()))
     return 0 if not report["problem_count"] else 1

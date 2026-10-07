@@ -291,6 +291,7 @@ def named_branches(roots) -> dict:
             modes["level_budget_pinned_below_default"] += int(expected.result is not None and expected.result.levels >= row["level_budget"])
             if expected.exception:
                 exceptions[expected.exception[0]] += 1
+                modes["internal_error_of_the_oracle"] += int(sc.is_internal_error(expected.exception))
             if expected.result is not None:
                 for name, value in expected.result.counters:
                     counters[name] += int(value > 0)

@@ -165,21 +165,7 @@ def polyomino_weighted(rng: random.Random) -> PolygonV1 | None:
 
 
 def polyomino_sources(rng: random.Random) -> PolygonV1 | None:
-    """Источник — часть рёбер (одно, пара соседних, половина); прочие — стены."""
-
-    polygon = polyomino(rng)
-    if polygon is None:
-        return None
-    spans = tuple((start, end) for start, end, _ in polygon.edges())
-    mode = rng.choice(("one", "two", "half"))
-    if mode == "one":
-        chosen = (rng.choice(spans),)
-    elif mode == "two":
-        index = rng.randrange(len(spans))
-        chosen = (spans[index], spans[(index + 1) % len(spans)])
-    else:
-        chosen = tuple(rng.sample(spans, max(1, len(spans) // 2)))
-    return with_source_spans(polygon, chosen)
+    return _sources(rng, polyomino(rng))
 
 
 def _fans(rng: random.Random, polygon: PolygonV1) -> PolygonV1:
@@ -280,9 +266,56 @@ def scaled(rng: random.Random) -> PolygonV1 | None:
     return PolygonV1.build(loops[0], tuple(loops[1:]))
 
 
+def _sources(rng: random.Random, polygon: PolygonV1 | None) -> PolygonV1 | None:
+    """Источник — часть рёбер (одно, пара соседних, половина), прочие — стены: стены неподвижны, и вогнутые вершины встречают их углы."""
+
+    if polygon is None:
+        return None
+    spans = tuple((start, end) for start, end, _ in polygon.edges())
+    mode = rng.choice(("one", "two", "half"))
+    if mode == "one":
+        chosen = (rng.choice(spans),)
+    elif mode == "two":
+        index = rng.randrange(len(spans))
+        chosen = (spans[index], spans[(index + 1) % len(spans)])
+    else:
+        chosen = tuple(rng.sample(spans, max(1, len(spans) // 2)))
+    return with_source_spans(polygon, chosen)
+
+
+def histogram_sources(rng: random.Random) -> PolygonV1:
+    return _sources(rng, histogram(rng))
+
+
+def histogram_weighted(rng: random.Random) -> PolygonV1:
+    return _weights(rng, histogram(rng))
+
+
+def cross_sources(rng: random.Random) -> PolygonV1:
+    return _sources(rng, cross(rng))
+
+
+def cross_weighted(rng: random.Random) -> PolygonV1:
+    return _weights(rng, cross(rng))
+
+
+def diagonal_sources(rng: random.Random) -> PolygonV1:
+    return _sources(rng, diagonal(rng))
+
+
+def classic(rng: random.Random) -> PolygonV1:
+    """Именованные фигуры корпуса ядра (ступени, Г-образная, П-образная, двойная выемка) со случайными источниками и весами."""
+
+    shape = rng.choice((cases.staircase, cases.u_shape, cases.double_notch, lambda: cases.ell(rng.choice((8, 12, 16)))))()
+    shape = _sources(rng, shape) if rng.random() < 0.6 else shape
+    return _weights(rng, shape) if rng.random() < 0.5 else shape
+
+
 FAMILIES = {
     "histogram": histogram, "polyomino": polyomino, "polyomino_weighted": polyomino_weighted, "polyomino_sources": polyomino_sources, "star": star,
-    "skew": skew, "cross": cross, "diagonal": diagonal, "collinear": collinear, "scaled": scaled,
+    "skew": skew, "cross": cross, "diagonal": diagonal, "collinear": collinear, "scaled": scaled, "histogram_sources": histogram_sources,
+    "histogram_weighted": histogram_weighted, "cross_sources": cross_sources, "cross_weighted": cross_weighted, "diagonal_sources": diagonal_sources,
+    "classic": classic,
 }
 
 
@@ -304,12 +337,12 @@ CASES: tuple = (
     ("histogram", 6), ("histogram", 7), ("histogram", 8), ("histogram", 9), ("histogram", 10), ("histogram", 11),
     ("histogram", 12), ("histogram", 13), ("histogram", 14), ("histogram", 15), ("histogram", 16), ("histogram", 17),
     ("histogram", 18), ("histogram", 19), ("histogram", 38), ("histogram", 45), ("histogram", 53), ("histogram", 59),
-    # polyomino: 19
+    # polyomino: 22
     ("polyomino", 0), ("polyomino", 1), ("polyomino", 2), ("polyomino", 3), ("polyomino", 4), ("polyomino", 5),
     ("polyomino", 6), ("polyomino", 7), ("polyomino", 8), ("polyomino", 9), ("polyomino", 10), ("polyomino", 11),
     ("polyomino", 14), ("polyomino", 29), ("polyomino", 37), ("polyomino", 38), ("polyomino", 45), ("polyomino", 46),
-    ("polyomino", 1046),
-    # polyomino_weighted: 44
+    ("polyomino", 1046), ("polyomino", 4000), ("polyomino", 4001), ("polyomino", 4230),
+    # polyomino_weighted: 63
     ("polyomino_weighted", 0), ("polyomino_weighted", 1), ("polyomino_weighted", 2), ("polyomino_weighted", 3), ("polyomino_weighted", 4), ("polyomino_weighted", 5),
     ("polyomino_weighted", 6), ("polyomino_weighted", 7), ("polyomino_weighted", 8), ("polyomino_weighted", 9), ("polyomino_weighted", 10), ("polyomino_weighted", 11),
     ("polyomino_weighted", 12), ("polyomino_weighted", 13), ("polyomino_weighted", 14), ("polyomino_weighted", 15), ("polyomino_weighted", 16), ("polyomino_weighted", 17),
@@ -317,15 +350,22 @@ CASES: tuple = (
     ("polyomino_weighted", 51), ("polyomino_weighted", 62), ("polyomino_weighted", 106), ("polyomino_weighted", 110), ("polyomino_weighted", 119), ("polyomino_weighted", 131),
     ("polyomino_weighted", 312), ("polyomino_weighted", 376), ("polyomino_weighted", 413), ("polyomino_weighted", 490), ("polyomino_weighted", 587), ("polyomino_weighted", 743),
     ("polyomino_weighted", 746), ("polyomino_weighted", 887), ("polyomino_weighted", 1018), ("polyomino_weighted", 1071), ("polyomino_weighted", 1323), ("polyomino_weighted", 1604),
-    ("polyomino_weighted", 1983), ("polyomino_weighted", 2389),
-    # polyomino_sources: 41
+    ("polyomino_weighted", 1983), ("polyomino_weighted", 2389), ("polyomino_weighted", 4000), ("polyomino_weighted", 4001), ("polyomino_weighted", 4004), ("polyomino_weighted", 4005),
+    ("polyomino_weighted", 4010), ("polyomino_weighted", 4031), ("polyomino_weighted", 4065), ("polyomino_weighted", 4373), ("polyomino_weighted", 4403), ("polyomino_weighted", 4518),
+    ("polyomino_weighted", 4531), ("polyomino_weighted", 4571), ("polyomino_weighted", 4721), ("polyomino_weighted", 4762), ("polyomino_weighted", 5057), ("polyomino_weighted", 6021),
+    ("polyomino_weighted", 6157), ("polyomino_weighted", 7753), ("polyomino_weighted", 9212),
+    # polyomino_sources: 61
     ("polyomino_sources", 0), ("polyomino_sources", 1), ("polyomino_sources", 2), ("polyomino_sources", 3), ("polyomino_sources", 4), ("polyomino_sources", 5),
     ("polyomino_sources", 6), ("polyomino_sources", 7), ("polyomino_sources", 8), ("polyomino_sources", 9), ("polyomino_sources", 10), ("polyomino_sources", 11),
     ("polyomino_sources", 12), ("polyomino_sources", 13), ("polyomino_sources", 14), ("polyomino_sources", 16), ("polyomino_sources", 17), ("polyomino_sources", 18),
     ("polyomino_sources", 20), ("polyomino_sources", 21), ("polyomino_sources", 23), ("polyomino_sources", 29), ("polyomino_sources", 38), ("polyomino_sources", 50),
     ("polyomino_sources", 75), ("polyomino_sources", 95), ("polyomino_sources", 105), ("polyomino_sources", 129), ("polyomino_sources", 145), ("polyomino_sources", 152),
     ("polyomino_sources", 209), ("polyomino_sources", 328), ("polyomino_sources", 414), ("polyomino_sources", 446), ("polyomino_sources", 573), ("polyomino_sources", 747),
-    ("polyomino_sources", 1306), ("polyomino_sources", 1400), ("polyomino_sources", 1525), ("polyomino_sources", 1860), ("polyomino_sources", 2014),
+    ("polyomino_sources", 1306), ("polyomino_sources", 1400), ("polyomino_sources", 1525), ("polyomino_sources", 1860), ("polyomino_sources", 2014), ("polyomino_sources", 4000),
+    ("polyomino_sources", 4001), ("polyomino_sources", 4003), ("polyomino_sources", 4016), ("polyomino_sources", 4029), ("polyomino_sources", 4031), ("polyomino_sources", 4044),
+    ("polyomino_sources", 4050), ("polyomino_sources", 4106), ("polyomino_sources", 4170), ("polyomino_sources", 4259), ("polyomino_sources", 4401), ("polyomino_sources", 4639),
+    ("polyomino_sources", 4735), ("polyomino_sources", 4913), ("polyomino_sources", 4996), ("polyomino_sources", 5163), ("polyomino_sources", 5305), ("polyomino_sources", 7207),
+    ("polyomino_sources", 7210),
     # star: 36
     ("star", 0), ("star", 1), ("star", 2), ("star", 3), ("star", 4), ("star", 5),
     ("star", 6), ("star", 7), ("star", 8), ("star", 9), ("star", 10), ("star", 11),
@@ -346,15 +386,33 @@ CASES: tuple = (
     ("diagonal", 6), ("diagonal", 7), ("diagonal", 8), ("diagonal", 9), ("diagonal", 10), ("diagonal", 11),
     ("diagonal", 82), ("diagonal", 367), ("diagonal", 442), ("diagonal", 455), ("diagonal", 512), ("diagonal", 592),
     ("diagonal", 615),
-    # collinear: 18
+    # collinear: 23
     ("collinear", 0), ("collinear", 1), ("collinear", 2), ("collinear", 3), ("collinear", 4), ("collinear", 5),
     ("collinear", 6), ("collinear", 7), ("collinear", 8), ("collinear", 9), ("collinear", 10), ("collinear", 11),
     ("collinear", 14), ("collinear", 18), ("collinear", 28), ("collinear", 39), ("collinear", 46), ("collinear", 54),
+    ("collinear", 4000), ("collinear", 4002), ("collinear", 4011), ("collinear", 4040), ("collinear", 4158),
     # scaled: 23
     ("scaled", 0), ("scaled", 1), ("scaled", 2), ("scaled", 3), ("scaled", 4), ("scaled", 5),
     ("scaled", 6), ("scaled", 7), ("scaled", 8), ("scaled", 9), ("scaled", 10), ("scaled", 11),
     ("scaled", 14), ("scaled", 28), ("scaled", 46), ("scaled", 53), ("scaled", 64), ("scaled", 66),
     ("scaled", 86), ("scaled", 142), ("scaled", 144), ("scaled", 432), ("scaled", 556),
+    # histogram_sources: 9
+    ("histogram_sources", 0), ("histogram_sources", 1), ("histogram_sources", 7), ("histogram_sources", 10), ("histogram_sources", 11), ("histogram_sources", 12),
+    ("histogram_sources", 23), ("histogram_sources", 654), ("histogram_sources", 1943),
+    # histogram_weighted: 10
+    ("histogram_weighted", 0), ("histogram_weighted", 1), ("histogram_weighted", 3), ("histogram_weighted", 6), ("histogram_weighted", 11), ("histogram_weighted", 12),
+    ("histogram_weighted", 14), ("histogram_weighted", 392), ("histogram_weighted", 652), ("histogram_weighted", 2939),
+    # cross_sources: 9
+    ("cross_sources", 0), ("cross_sources", 2), ("cross_sources", 5), ("cross_sources", 9), ("cross_sources", 20), ("cross_sources", 25),
+    ("cross_sources", 2360), ("cross_sources", 3015), ("cross_sources", 3401),
+    # cross_weighted: 10
+    ("cross_weighted", 0), ("cross_weighted", 1), ("cross_weighted", 4), ("cross_weighted", 9), ("cross_weighted", 37), ("cross_weighted", 292),
+    ("cross_weighted", 390), ("cross_weighted", 1079), ("cross_weighted", 2214), ("cross_weighted", 4558),
+    # diagonal_sources: 10
+    ("diagonal_sources", 0), ("diagonal_sources", 1), ("diagonal_sources", 9), ("diagonal_sources", 14), ("diagonal_sources", 82), ("diagonal_sources", 297),
+    ("diagonal_sources", 1237), ("diagonal_sources", 3010), ("diagonal_sources", 4104), ("diagonal_sources", 4505),
+    # classic: 6
+    ("classic", 0), ("classic", 2), ("classic", 4), ("classic", 13), ("classic", 52), ("classic", 1640),
 )
 
 
