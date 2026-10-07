@@ -9,46 +9,56 @@
 эталона на месте его вызова и сами решают, кто считает.
 
 БЭКЕНД — НЕ ПОЛИТИКА ЗАПРОСА. Ответ побитово один, каким бы бэкендом ни считали (иначе нативное ядро неверно, и это находит
-сверка, а не выбор). Но бэкенд входит в идентичность исполнения: ключи кэшей хоста несут `backend_identity`, чтобы результат
-одного бэкенда не подменял результат другого и чтобы сверка двух бэкендов не читала память друг друга.
+сверка, а не выбор). Но бэкенд входит в идентичность исполнения: ключи кэшей хоста несут `backend_identity`
+(`NATIVE:<native_build_id()>`: содержательный отпечаток нативного кода и шима, а не номер версии колеса), чтобы результат
+одного бэкенда не подменял результат другого, пересобранное колесо не читало память прежнего и сверка двух бэкендов
+не читала память друг друга.
 
 ТИХОГО ОТКАТА НЕТ. Нативное ядро заказано, а считать им нельзя, — домен считает эталон, и это ЗАПИСАНО в журнал домена
 (`BackendLedgerV1` -> `BackendRecordV1`) именем причины (`BackendOutcomeV1`):
 
 * `NATIVE_UNAVAILABLE` — `cftuv_native` не импортируется (колесо не установлено, чужой интерпретатор воркера, сломанное
-  расширение); текст исключения лежит в записи;
+  расширение) либо не даёт того, что хост требует от него (`_REQUIRED`: `NATIVE_REFUSALS`, `native_build_id`, ...); текст причины лежит в записи;
 * `NATIVE_PORT_STALE` — эталон ушёл дальше версии, с которой сверен порт (`cftuv_native.NativePortStale`);
-* `NATIVE_UNSUPPORTED_PYTHON` — порт воспроизводит `list.sort` и `sum` CPython 3.11 и 3.13, и только их;
-* `NATIVE_PORT_UNSUPPORTED` — порт отказывает на ЭТОМ входе по имени (эталон его считает);
+* `NATIVE_UNSUPPORTED_PYTHON` — интерпретатор младше порога порта (`cftuv_native.NativeUnsupportedPython`);
+* `NATIVE_PORT_UNSUPPORTED` — порт отказывает на ЭТОМ входе по имени (`cftuv_native.NativePortUnsupported`; эталон его считает);
 * `NATIVE_TRACES_UNSUPPORTED` — покрытие вызвано с `traces` (запись шаблона шага ширины), а колесо такой записи не даёт (старое колесо:
   у `cftuv_native.coverage_at` нет параметра `traces`);
-* `NATIVE_PARTIAL_EFFECTS_REFUSED` — порт отказал ПОСЛЕ того, как применил часть побочных эффектов (бюджет, память канонизации, счётчики знаков,
-  нормали плоскости, `traces`, `store`): считать эталоном по грязному состоянию нельзя, домен получает ЭТОТ исход отказом (`NativePartialEffectsRefused`;
-  `with_kernel_backend` называет им домен), а не тихий откат;
+* `NATIVE_INTERNAL_ERROR` — вход, который расширение не умеет нести (`TypeError("cftuv_native: ...")`), либо паника Rust, пойманная
+  расширением (`RuntimeError` с «native panic»). Оба случая до любого эффекта, но это НЕ отказ порта (их нет в `NATIVE_REFUSALS`), а дефект:
+  домен считает эталон (владелец получает результат), а дефект виден — имя и текст исключения в записи и в строке BACKEND;
+* `NATIVE_DIVISION_DIVERGED` — ОТКАЗ ДОМЕНА, а не откат: `cftuv_native.NativeDivisionDiverged` (обобщённое деление порта не закончилось). Делением эталона
+  на этом входе был бы бесконечный цикл, поэтому эталону домен не отдаётся; домен получает ЭТОТ исход (`NativeDomainRefused`; `with_kernel_backend` называет им домен);
+* `NATIVE_PARTIAL_EFFECTS_REFUSED` — страховочный пояс: порт отказал, а видимое из Python состояние (бюджет, память канонизации, счётчики знаков,
+  нормали плоскости, `traces`, `store`) сдвинулось. По контракту порта (`cftuv_native.NATIVE_REFUSALS`) этого не бывает: отказ порта оставляет состояние
+  как до вызова. Если пояс всё же сработал, считать эталоном по грязному состоянию нельзя, и домен получает ЭТОТ исход отказом, а не тихий откат;
 * `NATIVE_NOT_REACHED` — заказан нативный бэкенд, а домен закончился, ни разу не позвав ни одну нативную операцию (отказ до
-  покрытия, попадание резки в память стадии, либо точки диспетчеризации не подключены в этой версии ядра).
+  покрытия, попадание резки в память стадии, покрытие из шаблона шага ширины).
 
-Любое другое исключение нативного ядра (в том числе `MaterializationRefusal`, который эталон бросает так же) уходит вызывающему
-как есть: именованный отказ домена остаётся тем же, а исключение, которого эталон не бросает, называется выше как
-`PRODUCTION_DOMAIN_RAISED`, а не прячется откатом.
+ЧТО ОТКАТ, А ЧТО ОТВЕТ. Откат на эталон безопасен ТОЛЬКО для `cftuv_native.NATIVE_REFUSALS` (`NativePortStale`, `NativeUnsupportedPython`,
+`NativePortUnsupported`, `NativeDivisionDiverged`): каждый из них оставляет состояние как до вызова, и эталон на том же бюджете, плоскости и таблицах отвечает
+как чистый прогон эталона (кроме `NativeDivisionDiverged`, см. выше). Исход ЭТАЛОНА (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`,
+`OverflowError`, `ValueError`, `KeyError`, `ZeroDivisionError`, ...) нативное ядро применяет с теми частичными эффектами, какие оставило бы исключение эталона:
+он И ЕСТЬ ответ и уходит вызывающему как есть (имя отказа домена остаётся тем же; исключение, которого эталон не бросает, называется выше как
+`PRODUCTION_DOMAIN_RAISED`, а не прячется откатом). Так же уходит всё прочее, чего этот модуль не знает по имени (в том числе `NativeMirrorError` и сбой
+журнала памяти: их состояние могло быть тронуто).
 
 ГДЕ СЧИТАЕТ ЗАКАЗАННЫЙ БЭКЕНД. Заказ — контекст вычисления (`use_backend`, `ContextVar`): поток, начатый внутри блока, его не
 наследует и считает эталоном. Вне блока и в блоке `PYTHON` точки диспетчеризации зовут эталон напрямую, без журнала: этот путь
 побитово совпадает с вызовом эталона (тест `test_backend_dispatch.py`).
 
-ПОДКЛЮЧЕНИЕ ТОЧЕК. Нативный порт закрепляет по дайджесту файлы эталона, которые зеркалит (`cftuv_native.pin.OPERATION_FILES`: покрытие —
-`wavefront/coverage.py`, `wavefront/event_time.py` и основа точной арифметики; резка — `materialize/clip*.py`, `coalesce`, `frames`, `lift*`,
-`offset_normal`, `tessellate`, `numeric`, `_cpython311` и та же основа): правка любого из них делает операцию `stale`. Поэтому диспетчеры
-стоят в НЕЗАКРЕПЛЁННЫХ файлах, у вызывающих:
+ПОДКЛЮЧЕНИЕ ТОЧЕК — прямой правкой вызывающего, без подмены имён в процессе:
 
 * покрытие региона — `wavefront/conveyor.py::_region_coverage` зовёт `covered_at` (то же, что `coverage.coverage_at`: источник покрытия шага
   ширины, затем `coverage_compute`; тест держит равенство обёртки по тексту и по поведению);
-* запись шаблона шага ширины — `materialize/step.py::_Recorder.coverage` зовёт `coverage_compute(..., traces)`.
+* запись шаблона шага ширины — `materialize/step.py::_Recorder.coverage` зовёт `coverage_compute(..., traces)`;
+* резка — `materialize/clip.py::cut_domain` зовёт `run_clip(backend.clip_compute, ...)`.
 
-Вызов резки `run_clip(clip_geometry, ...)` лежит в `materialize/clip.py::cut_domain`, а `clip.py` закреплён: прямая правка сделает порт резки `stale`
-до перевыпуска закреплений. `install_dispatch` ставит диспетчеры подменой имён `wavefront.coverage._coverage_at` и `materialize.clip.clip_geometry` при ЗАПУСКЕ,
-не меняя ни одного файла ядра (закрепления остаются верными; подмена `_coverage_at` берёт и повтор покрытия в `coalesce.py`). Хост ставит её при первом заказе
-`NATIVE` в процессе (`envelope_kernel_backend.entered_backend`), пока `PYTHON` не ставит ничего; прямая правка `clip.py` с перевыпуском закреплений её заменит.
+Нативный порт закрепляет по дайджесту файлы эталона, которые зеркалит (`cftuv_native.pin.OPERATION_FILES`: покрытие — `wavefront/coverage.py`,
+`wavefront/event_time.py` и основа точной арифметики; резка — `materialize/clip*.py`, `coalesce`, `frames`, `lift*`, `offset_normal`, `tessellate`,
+`numeric`, `_cpython311` и та же основа): правка любого из них делает операцию `stale` до перевыпуска закреплений, а тест архитектуры требует нового закрепления
+в том же слиянии с диспетчером в закреплённом файле. `clip.py` закреплён, поэтому правка `cut_domain` идёт вместе с перевыпуском закрепления резки; покрытие
+стоит в незакреплённых файлах. Повтор покрытия в `coalesce.py` (контуры региона, без цены) стоит в закреплённом файле и считает эталон под любым бэкендом (ответ тот же).
 
 Модуль не импортирует ничего из ядра на уровне модуля: эталон берётся при вызове, поэтому точки диспетчеризации можно
 ставить в модули самого ядра без цикла импорта.
@@ -71,6 +81,10 @@ CLIP = "clip"
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
 DETAIL_LIMIT = 240
+#: Как начинается текст `TypeError` расширения о входе, который оно не умеет нести (`pyobj.rs`, `cost.py`).
+SHIM_TEXT_PREFIX = "cftuv_native:"
+#: Что есть в тексте `RuntimeError`, в который расширение превращает пойманную панику Rust (`clip.rs`, `coverage.rs`).
+PANIC_TEXT_MARK = "native panic"
 
 
 class KernelBackendV1(str, Enum):
@@ -79,25 +93,29 @@ class KernelBackendV1(str, Enum):
 
 
 class BackendOutcomeV1(str, Enum):
-    """Именованные причины, по которым заказанный нативный бэкенд не посчитал (считал эталон)."""
+    """Именованные причины, по которым заказанный нативный бэкенд не посчитал (считал эталон либо домен отказан)."""
 
     NATIVE_UNAVAILABLE = "NATIVE_UNAVAILABLE"
     NATIVE_PORT_STALE = "NATIVE_PORT_STALE"
     NATIVE_UNSUPPORTED_PYTHON = "NATIVE_UNSUPPORTED_PYTHON"
     NATIVE_PORT_UNSUPPORTED = "NATIVE_PORT_UNSUPPORTED"
     NATIVE_TRACES_UNSUPPORTED = "NATIVE_TRACES_UNSUPPORTED"
+    NATIVE_INTERNAL_ERROR = "NATIVE_INTERNAL_ERROR"
+    NATIVE_DIVISION_DIVERGED = "NATIVE_DIVISION_DIVERGED"
     NATIVE_PARTIAL_EFFECTS_REFUSED = "NATIVE_PARTIAL_EFFECTS_REFUSED"
     NATIVE_NOT_REACHED = "NATIVE_NOT_REACHED"
 
 
-#: Имена классов отказа нативного шима и исход, которым каждый записывается.
+#: Имена классов отказа порта (все члены `cftuv_native.NATIVE_REFUSALS`) и исход, которым каждый записывается. `NativeDivisionDiverged` — отказ ДОМЕНА.
 _NAMED_REFUSALS = (
     ("NativePortStale", BackendOutcomeV1.NATIVE_PORT_STALE),
     ("NativeUnsupportedPython", BackendOutcomeV1.NATIVE_UNSUPPORTED_PYTHON),
     ("NativePortUnsupported", BackendOutcomeV1.NATIVE_PORT_UNSUPPORTED),
+    ("NativeDivisionDiverged", BackendOutcomeV1.NATIVE_DIVISION_DIVERGED),
 )
-#: Что обязан экспортировать шим, чтобы им можно было пользоваться; без этого он `NATIVE_UNAVAILABLE`.
-_REQUIRED = ("coverage_at", "clip_geometry", "native_status", *(name for name, _ in _NAMED_REFUSALS))
+#: Что обязан экспортировать шим, чтобы им можно было пользоваться; без этого он `NATIVE_UNAVAILABLE`. `NATIVE_REFUSALS` — перечень отказов, после
+#: которых откат на эталон безопасен; без него хост не знает, какие исключения порта оставляют состояние нетронутым.
+_REQUIRED = ("coverage_at", "clip_geometry", "native_status", "native_build_id", "NATIVE_REFUSALS", *(name for name, _ in _NAMED_REFUSALS))
 
 
 def normalize_backend(value) -> KernelBackendV1:
@@ -128,6 +146,12 @@ def _import_native() -> tuple:
     missing = [name for name in _REQUIRED if not hasattr(module, name)]
     if missing:
         return None, f"cftuv_native lacks {', '.join(missing)}"
+    refusals = module.NATIVE_REFUSALS
+    if not (isinstance(refusals, tuple) and all(isinstance(item, type) and issubclass(item, BaseException) for item in refusals)):
+        return None, "cftuv_native.NATIVE_REFUSALS is not a tuple of exception classes"
+    unlisted = [name for name, _ in _NAMED_REFUSALS if getattr(module, name) not in refusals]
+    if unlisted:
+        return None, f"cftuv_native.NATIVE_REFUSALS does not list {', '.join(unlisted)}"
     return module, ""
 
 
@@ -164,19 +188,23 @@ def refresh_native() -> None:
 
 @dataclass(frozen=True, slots=True)
 class NativeStatusV1:
-    """Статус нативных операций: `available`, `stale(<файлы>)`, `unsupported_python` либо `unavailable`."""
+    """Статус нативных операций: `available`, `stale(<файлы>)`, `unsupported_python` либо `unavailable`.
+
+    `version` — номер колеса (для панели), `build_id` — содержательный отпечаток сборки (`native_build_id()`, то, что входит в идентичность бэкенда).
+    """
 
     coverage: str
     clip: str
     version: str = ""
     detail: str = ""
+    build_id: str = ""
 
     @property
     def available(self) -> bool:
         return self.coverage == "available" and self.clip == "available"
 
     def as_record(self) -> dict:
-        return {"coverage": self.coverage, "clip": self.clip, "version": self.version, "detail": self.detail}
+        return {"coverage": self.coverage, "clip": self.clip, "version": self.version, "detail": self.detail, "build_id": self.build_id}
 
 
 def native_status() -> NativeStatusV1:
@@ -188,24 +216,28 @@ def native_status() -> NativeStatusV1:
     try:
         raw = dict(module.native_status())
         version = str(module.native_version()) if hasattr(module, "native_version") else ""
+        build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version)
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id)
 
 
 def backend_identity(backend) -> str:
-    """Идентичность бэкенда для ключей кэшей: `PYTHON` либо `NATIVE:<версия колеса>` (`NATIVE:unavailable` без него)."""
+    """Идентичность бэкенда для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` (`NATIVE:unavailable` без колеса).
+
+    Отпечаток сборки, а не номер колеса: любая правка Rust, шима или закреплений меняет его, и результат прежней сборки не читается как результат новой.
+    """
 
     if normalize_backend(backend) is KernelBackendV1.PYTHON:
         return KernelBackendV1.PYTHON.value
     module, _detail = _native()
-    version = ""
-    if module is not None and hasattr(module, "native_version"):
+    build_id = ""
+    if module is not None:
         try:
-            version = str(module.native_version())
-        except Exception:  # noqa: BLE001 - версия, которую не снять, совпадает с отсутствующей
-            version = ""
-    return f"{KernelBackendV1.NATIVE.value}:{version or UNAVAILABLE}"
+            build_id = str(module.native_build_id())
+        except Exception:  # noqa: BLE001 - отпечаток, который не снять, совпадает с отсутствующим
+            build_id = ""
+    return f"{KernelBackendV1.NATIVE.value}:{build_id or UNAVAILABLE}"
 
 
 # --------------------------------------------------------------------------
@@ -258,15 +290,15 @@ class BackendRecordV1:
 class BackendLedgerV1:
     """Журнал ОДНОГО домена, пока идёт блок `use_backend`: считает операции и откаты (домен считается в одном потоке)."""
 
-    __slots__ = ("requested", "native", "python", "fallbacks", "partial")
+    __slots__ = ("requested", "native", "python", "fallbacks", "refusal")
 
     def __init__(self, requested: str) -> None:
         self.requested = requested
         self.native: dict = {}
         self.python: dict = {}
         self.fallbacks: dict = {}
-        #: Текст первого отказа порта по грязному состоянию (`NATIVE_PARTIAL_EFFECTS_REFUSED`) либо `""`: ответ домена после него недействителен.
-        self.partial = ""
+        #: `(исход, текст)` первого отказа ДОМЕНА (`NATIVE_DIVISION_DIVERGED`, `NATIVE_PARTIAL_EFFECTS_REFUSED`) либо `None`: ответ домена после него недействителен.
+        self.refusal = None
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -276,12 +308,13 @@ class BackendLedgerV1:
         slot = self.fallbacks.setdefault((outcome.value, operation), [0, detail[:DETAIL_LIMIT]])
         slot[0] += 1
 
-    def note_partial(self, operation: str, detail: str) -> None:
-        """Отказ порта после частичных эффектов: считал не эталон и не порт, а домен отказан именем (`NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
+    def note_refusal(self, operation: str, outcome: BackendOutcomeV1, detail: str) -> None:
+        """Отказ домена: считал не эталон и не порт, а домен отказан именем (`NATIVE_DIVISION_DIVERGED`, `NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
 
-        slot = self.fallbacks.setdefault((BackendOutcomeV1.NATIVE_PARTIAL_EFFECTS_REFUSED.value, operation), [0, detail[:DETAIL_LIMIT]])
+        slot = self.fallbacks.setdefault((outcome.value, operation), [0, detail[:DETAIL_LIMIT]])
         slot[0] += 1
-        self.partial = self.partial or f"{operation}: {detail}"[:DETAIL_LIMIT]
+        if self.refusal is None:
+            self.refusal = (outcome.value, f"{operation}: {detail}"[:DETAIL_LIMIT])
 
     def record(self) -> BackendRecordV1:
         return BackendRecordV1(
@@ -320,84 +353,35 @@ def active_backend() -> KernelBackendV1:
 # --------------------------------------------------------------------------
 
 
-#: Эталоны, сохранённые `install_dispatch` до подмены имён: диспетчер зовёт их, а не подменённое имя (иначе он позвал бы сам себя).
-_ORACLES: dict = {}
-#: `(модуль, имя, прежнее значение)` подмен `install_dispatch`; пусто — ядро не тронуто. Заполняется ОДНИМ `extend` после всех подмен: непустой — значит, готов.
-_INSTALLED: list = []
-#: Первый заказ `NATIVE` могут сделать два потока (главный и поток живой ширины): подмена идёт под замком, иначе второй поток снял бы с модуля
-#: УЖЕ подставленный диспетчер как «эталон», и диспетчер позвал бы сам себя.
-_INSTALL_LOCK = threading.Lock()
-
-
 def _python_coverage():
-    found = _ORACLES.get(COVERAGE)
-    if found is None:
-        from .wavefront.coverage import _coverage_at as found
-    return found
+    """Эталон покрытия, `wavefront.coverage._coverage_at` (имя в модуле ядра не подменяется: диспетчер стоит у вызывающего)."""
+
+    from .wavefront.coverage import _coverage_at
+
+    return _coverage_at
 
 
 def _python_clip():
-    found = _ORACLES.get(CLIP)
-    if found is None:
-        from .materialize.clip import clip_geometry as found
-    return found
+    """Эталон резки, `materialize.clip.clip_geometry` (имя в модуле ядра не подменяется: диспетчер стоит у вызывающего)."""
+
+    from .materialize.clip import clip_geometry
+
+    return clip_geometry
 
 
-def install_dispatch() -> tuple:
-    """Ставит диспетчеры на место вызова эталона подменой имён в модулях ядра; `("модуль.имя", ...)` подменённых. Повтор — то же.
+class NativeDomainRefused(RuntimeError):
+    """Домен отказан по имени (`.outcome`): эталону его не отдать (`NATIVE_DIVISION_DIVERGED`) либо состояние грязное (`NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
 
-    Файлы ядра не правятся (закрепления нативного порта остаются верными): подменяются `wavefront.coverage._coverage_at` (его читает
-    `coverage_at`, а с ним `coalesce` при повторе покрытия), `materialize.step._coverage_at` (если модуль ещё берёт его по имени) и
-    `materialize.clip.clip_geometry` (его читает `cut_domain`) — имена, которые вызывающий читает при каждом вызове. Вне блока
-    `use_backend` (и под `PYTHON`) диспетчер зовёт эталон напрямую. Процессное состояние: воркеру пула подмена нужна своя.
-    """
-
-    if not _INSTALLED:
-        with _INSTALL_LOCK:
-            if not _INSTALLED:  # двойная проверка: пока ждали замок, первый поток мог всё поставить
-                _install_locked()
-    return tuple(f"{module.__name__.rsplit('.', 1)[-1]}.{name}" for module, name, _old in _INSTALLED)
-
-
-def _install_locked() -> None:
-    from .materialize import clip, step
-    from .wavefront import coverage
-
-    _ORACLES[COVERAGE], _ORACLES[CLIP] = coverage._coverage_at, clip.clip_geometry
-    replaced = []
-    for module, name, dispatcher in (
-        (coverage, "_coverage_at", coverage_compute),
-        (step, "_coverage_at", coverage_compute),
-        (clip, "clip_geometry", clip_compute),
-    ):
-        if hasattr(module, name):
-            replaced.append((module, name, getattr(module, name)))
-            setattr(module, name, dispatcher)
-    _INSTALLED.extend(replaced)
-
-
-def uninstall_dispatch() -> None:
-    """Возвращает подменённые имена; без `install_dispatch` ничего не делает."""
-
-    with _INSTALL_LOCK:
-        while _INSTALLED:
-            module, name, original = _INSTALLED.pop()
-            setattr(module, name, original)
-        _ORACLES.clear()
-
-
-def dispatch_installed() -> bool:
-    return bool(_INSTALLED)
-
-
-class NativePartialEffectsRefused(RuntimeError):
-    """Порт отказал по имени ПОСЛЕ частичных эффектов: состояние грязное, эталон по нему не считает; домен отказан (`NATIVE_PARTIAL_EFFECTS_REFUSED`)."""
+    def __init__(self, outcome: BackendOutcomeV1, message: str) -> None:
+        super().__init__(message)
+        self.outcome = outcome
 
 
 def _effects_snapshot(budget, plane=None, *sized) -> tuple:
     """Всё, что нативная операция меняет до отказа: статьи бюджета, память канонизации, счётчики знаков, нормали плоскости, размеры `traces`/`store`.
 
-    Дёшево (длины и короткие кортежи; нормали плоскости копируются раз на резку). Сравнение до и после отказа решает, можно ли считать эталоном.
+    Страховочный пояс: по контракту порта отказ из `NATIVE_REFUSALS` ничего из этого не двигает. Дёшево (длины и короткие кортежи; нормали плоскости копируются
+    раз на резку). Сравнение до и после отказа решает, можно ли считать эталоном.
     """
 
     from . import exact_sqrt_sum as exact
@@ -420,29 +404,70 @@ class _TracesUnsupported(RuntimeError):
     """Внутренний отказ диспетчера (не исключение шима): колесо не умеет `traces`; записывается как `NATIVE_TRACES_UNSUPPORTED`."""
 
 
+def _port_outcome(module, exc) -> BackendOutcomeV1:
+    """Исход, которым записывается отказ порта; член `NATIVE_REFUSALS`, которого хост по имени не знает, — `NATIVE_INTERNAL_ERROR` (виден как дефект)."""
+
+    for name, outcome in _NAMED_REFUSALS:
+        if isinstance(exc, getattr(module, name)):
+            return outcome
+    return BackendOutcomeV1.NATIVE_INTERNAL_ERROR
+
+
+def _is_native_defect(exc) -> bool:
+    """Дефект порта, поднятый до любого эффекта, но не отказ из `NATIVE_REFUSALS`: вход, который расширение не несёт, либо пойманная паника Rust.
+
+    Только эти два вида: исход эталона и всё остальное (`NativeMirrorError`, сбой журнала памяти, `ValueError` буфера) здесь не дефект порта и уходят как есть.
+    """
+
+    if type(exc) is TypeError:
+        return str(exc).startswith(SHIM_TEXT_PREFIX)
+    return type(exc) is RuntimeError and PANIC_TEXT_MARK in str(exc)
+
+
+def _declined(ledger: BackendLedgerV1, operation: str, outcome: BackendOutcomeV1, text: str, effects, before, cause) -> tuple:
+    """Откат на эталон, названный `outcome`; `(False, None)`. Страховочный пояс: если видимое состояние сдвинулось, отката нет — домен отказан `NATIVE_PARTIAL_EFFECTS_REFUSED`."""
+
+    if effects is not None and effects() != before:
+        refused = BackendOutcomeV1.NATIVE_PARTIAL_EFFECTS_REFUSED
+        ledger.note_refusal(operation, refused, text)
+        raise NativeDomainRefused(refused, f"{operation}: the native port declined after partial effects ({text})") from cause
+    ledger.note_python(operation, outcome, text)
+    return False, None
+
+
 def _attempt(ledger: BackendLedgerV1, operation: str, call, effects=None) -> tuple:
     """`(True, ответ)`, когда посчитало нативное ядро; `(False, None)` — откат назван и записан, считает эталон.
 
-    `effects()` — снимок побочных эффектов операции (`_effects_snapshot`): отказ порта, после которого он сдвинулся, — не откат, а
-    `NativePartialEffectsRefused` (поздний `NativePortUnsupported` приходит уже после того, как порт применил бюджет, память и нормали).
+    Три рода исключений нативного вызова:
+
+    * отказ порта (`module.NATIVE_REFUSALS`): состояние как до вызова, откат на эталон назван (`NativeDivisionDiverged` — исключение: эталон на нём не завершится,
+      домен отказан `NATIVE_DIVISION_DIVERGED`);
+    * дефект порта до эффектов (`TypeError("cftuv_native: ...")`, паника Rust): откат на эталон назван `NATIVE_INTERNAL_ERROR`;
+    * всё остальное — исход эталона (его частичные эффекты оставлены нативным вызовом так, как оставило бы исключение эталона) и чужие исключения: как есть.
+
+    `effects()` — снимок побочных эффектов операции (`_effects_snapshot`), страховочный пояс отката: если после отказа он сдвинулся, откат запрещён.
     """
 
     module, detail = _native()
     if module is None:
         ledger.note_python(operation, BackendOutcomeV1.NATIVE_UNAVAILABLE, detail)
         return False, None
-    refusals = tuple((getattr(module, name), outcome) for name, outcome in _NAMED_REFUSALS)
-    refusals += ((_TracesUnsupported, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED),)
     before = None if effects is None else effects()
     try:
         answer = call(module)
-    except tuple(cls for cls, _outcome in refusals) as exc:
+    except _TracesUnsupported as exc:
+        return _declined(ledger, operation, BackendOutcomeV1.NATIVE_TRACES_UNSUPPORTED, str(exc), effects, before, exc)
+    except module.NATIVE_REFUSALS as exc:
         text = f"{type(exc).__name__}: {exc}"
-        if effects is not None and effects() != before:
-            ledger.note_partial(operation, text)
-            raise NativePartialEffectsRefused(f"{operation}: the native port refused after partial effects ({text})") from exc
-        ledger.note_python(operation, next(item for cls, item in refusals if isinstance(exc, cls)), text)
-        return False, None
+        outcome = _port_outcome(module, exc)
+        if outcome is BackendOutcomeV1.NATIVE_DIVISION_DIVERGED:
+            ledger.note_refusal(operation, outcome, text)
+            raise NativeDomainRefused(outcome, f"{operation}: the native division did not finish, and the oracle would not either ({text})") from exc
+        return _declined(ledger, operation, outcome, text, effects, before, exc)
+    except Exception as exc:
+        if not _is_native_defect(exc):
+            raise
+        return _declined(ledger, operation, BackendOutcomeV1.NATIVE_INTERNAL_ERROR, f"{type(exc).__name__}: {exc}", effects, before, exc)
     ledger.note_native(operation)
     return True, answer
 
@@ -507,19 +532,18 @@ __all__ = (
     "COVERAGE",
     "CLIP",
     "KernelBackendV1",
-    "NativePartialEffectsRefused",
+    "NativeDomainRefused",
     "NativeStatusV1",
+    "PANIC_TEXT_MARK",
+    "SHIM_TEXT_PREFIX",
     "UNAVAILABLE",
     "active_backend",
     "backend_identity",
     "clip_compute",
     "coverage_compute",
     "covered_at",
-    "dispatch_installed",
-    "install_dispatch",
     "native_status",
     "normalize_backend",
     "refresh_native",
-    "uninstall_dispatch",
     "use_backend",
 )

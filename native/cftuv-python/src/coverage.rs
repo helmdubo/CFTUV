@@ -12,6 +12,13 @@
 //! six budget articles after the call, `changed` the bits of the memory tables the call changed (its memory log was
 //! replayed on the host's real tables here, in the one crossing, see `memlog.rs`), `timings` are nanoseconds
 //! `(prepare, arguments, compute, result, memory log)` measured here.
+//!
+//! An outcome of the ORACLE (`refusal::ORACLE_STATUSES`: an exhaustion, a negative radicand, a zero divisor, a failed reconstruction, a face without a
+//! line) is applied whole, as the oracle's exception leaves its partial effects (memory log, store record, traces). A refusal of the PORT (5 invalid mirror
+//! input, 6 the generic division did not finish, 7 an internal state, anything unknown) is applied NOWHERE: the call answers with zero counts, the articles it
+//! was given and no changed tables, writes nothing into the store or the traces, and the session resets its mirror (`lib.rs`), so the host can run the oracle on
+//! the very same state. Inside the call that means: compute (native state only), classify, build the result, the store record and the trace tuples (new objects
+//! only), and only then commit (the memory log on the real tables, the store record, the traces).
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -32,6 +39,7 @@ use cftuv_core::sqrt_sum::SignCounts;
 
 use crate::memlog::{apply_log, insort, Tables};
 use crate::pyobj::{self, alloc, int_from_ibig, int_from_ubig, refuse, set_slot, sqrt_sum_from_py, sqrt_sum_to_py, Pool, Raw};
+use crate::refusal::{is_native_only, Forced};
 
 /// Partitions kept converted per session.
 pub const PARTITION_LIMIT: usize = 64;
@@ -104,6 +112,15 @@ struct Remembered {
     /// Keeps `id` valid.
     _holder: Py<PyAny>,
     record: Arc<UniverseRecord>,
+}
+
+/// What one call hands the host besides the memory log, built before anything is written (see `Host::build`).
+struct Built<'py> {
+    /// The record a store miss writes (`None`: no store, or no record).
+    stored: Option<Bound<'py, PyAny>>,
+    /// The `(signs, values)` the oracle appends to its `traces`.
+    traces: Vec<Bound<'py, PyAny>>,
+    result: Option<Bound<'py, PyAny>>,
 }
 
 /// `(result, status, detail, counts, articles, changed tables, timings)`.
@@ -307,7 +324,11 @@ impl Host {
         work_budget: &Bound<'py, PyAny>,
         tables: &Tables<'py>,
         traces: Option<&Bound<'py, PyList>>,
+        forced: Option<Forced>,
     ) -> PyResult<Answer7<'py>> {
+        if forced == Some(Forced::Unsupported) {
+            return Err(PyValueError::new_err("the forced refusal `unsupported` is a clip's (status 12): a coverage has no such refusal"));
+        }
         let started = Instant::now();
         let (index, converted) = self.prepare(py, partition)?;
         let prepare_ns = if converted { nanos(started) } else { 0 };
@@ -340,6 +361,8 @@ impl Host {
             Some((cap, articles)) => (cap, Some(articles)),
             None => (None, None),
         };
+        // what a refusal of the port answers for the articles: the ones it was given (nothing was spent as far as the host is concerned)
+        let given = articles.unwrap_or([0; 6]);
         let mut run = CostRun::begin_parts(session, sync_value.as_ref(), cap, articles).map_err(|error| PyValueError::new_err(error.to_string()))?;
         let arguments_ns = nanos(began);
 
@@ -347,7 +370,7 @@ impl Host {
         let outcome = py.detach(|| {
             catch_unwind(AssertUnwindSafe(|| {
                 let mut counts = SignCounts::default();
-                let run_result = {
+                let mut run_result = {
                     let mut ctx = ExactCtx { memory: &mut session.memory, budget: run.budget_mut(), counts: &mut counts, products: &mut session.products };
                     let universe = match (&hit, miss) {
                         (Some(record), _) => UniverseStore::Hit(record),
@@ -356,6 +379,13 @@ impl Host {
                     };
                     coverage::coverage_at(&mut ctx, &core, &alpha_rat, universe, budgeted, traced)
                 };
+                if let Some(knob) = forced {
+                    // the test knob: the computation DID run (the call has effects to drop), then the port refuses
+                    assert!(!knob.panics(), "forced by the test knob");
+                    if let Some(error) = knob.exact_error() {
+                        run_result.outcome = Err(CoverageError::Exact(error));
+                    }
+                }
                 let articles = run.budget_mut().articles();
                 (run_result, counts, articles, session.memory.take_log())
             }))
@@ -366,20 +396,41 @@ impl Host {
             Err(panic) => return Err(PyRuntimeError::new_err(format!("Session.coverage_at: native panic: {}", panic_text(&panic)))),
         };
 
-        let applying = Instant::now();
-        let classes = self.classes()?;
-        let changed = apply_log(py, &classes.pool, &classes.insort, tables, log)?;
-        let log_ns = nanos(applying);
-
-        let building = Instant::now();
-        let result = self.finish(py, &run_result, index, &key, store, alpha, work_budget, traces)?;
+        // Classify first: a refusal of the port is applied nowhere (module note), so nothing below it may have run.
         let (status, detail) = self.status_of(py, &run_result.outcome)?;
-        Ok((result, status, detail, counts.as_array(), articles, changed, [prepare_ns, arguments_ns, compute_ns, nanos(building), log_ns]))
+        if is_native_only(status) {
+            return Ok((None, status, detail, [0; 5], given, 0, [prepare_ns, arguments_ns, compute_ns, 0, 0]));
+        }
+
+        // Build everything the host receives (the result, the store record, the trace tuples): new objects only, no host object is written yet.
+        let building = Instant::now();
+        let built = self.build(py, &run_result, index, store.is_some(), traces.is_some(), alpha, work_budget)?;
+        let building_ns = nanos(building);
+
+        // Commit: the memory log on the real tables, then the store record, then the traces (what the oracle leaves behind, also when it raised afterwards).
+        let applying = Instant::now();
+        let changed = {
+            let classes = self.classes()?;
+            apply_log(py, &classes.pool, &classes.insort, tables, log)?
+        };
+        let log_ns = nanos(applying);
+        let committing = Instant::now();
+        if let (Some(stored), Some(store), Some(record)) = (&built.stored, store, &run_result.record) {
+            store.set_item(key.bind(py), stored)?;
+            self.remember(stored, Arc::new(record.clone()));
+        }
+        if let Some(list) = traces {
+            for trace in &built.traces {
+                list.append(trace)?;
+            }
+        }
+        let result_ns = building_ns + nanos(committing);
+        Ok((built.result, status, detail, counts.as_array(), articles, changed, [prepare_ns, arguments_ns, compute_ns, result_ns, log_ns]))
     }
 
     /// The outcome code and detail of a run (`cost.OpResult`): 0 ok, 1 exhaustion `(operation index, radicand)`, 2 negative
-    /// radicand `(numerator, denominator)`, 3 zero divisor, 4 failed reconstruction `(radicand,)`, 6 diverged, 7 internal, 8 a
-    /// face without a line `(face,)`.
+    /// radicand `(numerator, denominator)`, 3 zero divisor, 4 failed reconstruction `(radicand,)`, 5 invalid input `(text,)`, 6 diverged, 7 internal `(text,)`,
+    /// 8 a face without a line `(face,)`.
     fn status_of<'py>(&self, py: Python<'py>, outcome: &Result<Answer, CoverageError>) -> PyResult<(u8, Option<Bound<'py, PyTuple>>)> {
         let pool = &self.classes()?.pool;
         Ok(match outcome {
@@ -389,33 +440,39 @@ impl Host {
         })
     }
 
-    /// Writes the miss record into the store (the oracle does it before the faces are touched) and builds the result.
+    /// What the host receives besides the memory log, as NEW objects (nothing is written into a host object here): the miss record the oracle stores before the
+    /// faces are touched (`has_store`), the `(signs, values)` tuples of the oracle's `traces.append` (`has_traces`: one per face whose signs were computed, whatever happened
+    /// after) and the result (`None` when the arithmetic refused).
     #[allow(clippy::too_many_arguments)]
-    fn finish<'py>(
+    fn build<'py>(
         &mut self,
         py: Python<'py>,
         run: &coverage::Run,
         index: usize,
-        key: &Py<PyAny>,
-        store: Option<&Bound<'py, PyAny>>,
+        has_store: bool,
+        has_traces: bool,
         alpha: &Bound<'py, PyAny>,
         work_budget: &Bound<'py, PyAny>,
-        traces: Option<&Bound<'py, PyList>>,
-    ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        if let (Some(record), Some(store)) = (&run.record, store) {
-            let stored = record_to_py(py, self.classes()?, record)?;
-            store.set_item(key.bind(py), &stored)?;
-            self.remember(&stored, Arc::new(record.clone()));
-        }
-        if let Some(list) = traces {
-            // the oracle's `traces.append((signs, values))`, one per face whose signs were computed, whatever happened after
+    ) -> PyResult<Built<'py>> {
+        let stored = match (&run.record, has_store) {
+            (Some(record), true) => Some(record_to_py(py, self.classes()?, record)?),
+            _ => None,
+        };
+        let mut recorded = Vec::new();
+        if has_traces {
             let pool = &self.classes()?.pool;
             for trace in &run.traces {
                 let signs = PyList::new(py, trace.signs.iter().map(|sign| i64::from(*sign)))?;
                 let values: Vec<Bound<'py, PyAny>> = trace.values.iter().map(|value| sqrt_sum_to_py(py, pool, value)).collect::<PyResult<_>>()?;
-                list.append(PyTuple::new(py, [signs.into_any(), PyList::new(py, values)?.into_any()])?)?;
+                recorded.push(PyTuple::new(py, [signs.into_any(), PyList::new(py, values)?.into_any()])?.into_any());
             }
         }
+        let result = self.result_of(py, run, index, alpha, work_budget)?;
+        Ok(Built { stored, traces: recorded, result })
+    }
+
+    /// The `CoverageV1` of an exact answer (`None` for a refusal of the arithmetic).
+    fn result_of<'py>(&mut self, py: Python<'py>, run: &coverage::Run, index: usize, alpha: &Bound<'py, PyAny>, work_budget: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
         let Ok(Answer::Exact { faces, total }) = &run.outcome else {
             return Ok(None);
         };
@@ -476,7 +533,7 @@ impl Host {
 
 /// The outcome code and detail of an exact-layer refusal (the codes of `cost.OpResult`): 1 exhaustion `(operation index,
 /// radicand)`, 2 negative radicand `(numerator, denominator)`, 3 zero divisor, 4 failed reconstruction `(radicand,)`, 5 invalid
-/// input, 6 diverged, 7 internal. Shared by the whole operations that spend a budget.
+/// input `(text,)`, 6 diverged, 7 internal `(text,)`. Shared by the whole operations that spend a budget.
 pub(crate) fn exact_status<'py>(py: Python<'py>, pool: &Pool, error: &ExactError) -> PyResult<(u8, Option<Bound<'py, PyTuple>>)> {
     let pair = |first: Bound<'py, PyAny>, second: Bound<'py, PyAny>| PyTuple::new(py, [first, second]).map(Some);
     Ok(match error {
@@ -487,9 +544,9 @@ pub(crate) fn exact_status<'py>(py: Python<'py>, pool: &Pool, error: &ExactError
         ExactError::Canon(CanonError::NegativeRadicand { numerator, denominator }) => (2, pair(int_from_ibig(py, pool, numerator)?, int_from_ubig(py, pool, denominator)?)?),
         ExactError::ZeroDivisor => (3, None),
         ExactError::Canon(CanonError::ReconstructionFailed { radicand }) => (4, Some(PyTuple::new(py, [int_from_ubig(py, pool, radicand)?])?)),
-        ExactError::Canon(CanonError::InvalidInput(_)) => (5, None),
+        ExactError::Canon(CanonError::InvalidInput(text)) => (5, Some(PyTuple::new(py, [pyo3::types::PyString::new(py, text)])?)),
         ExactError::Diverged => (6, None),
-        ExactError::Internal(_) => (7, None),
+        ExactError::Internal(text) => (7, Some(PyTuple::new(py, [pyo3::types::PyString::new(py, text)])?)),
     })
 }
 

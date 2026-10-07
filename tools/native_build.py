@@ -64,6 +64,8 @@ def main(argv: list | None = None) -> int:
         raise SystemExit(f"колесо {wheel.name} не обновилось: сборка ничего не произвела")
     run([python, "-m", "pip", "install", "-q", "--force-reinstall", "--no-deps", wheel], cwd=ROOT, environment=environment)
     print(f"установлено: {wheel.name}")
+    # личность сборки (содержимое исходников Rust и шима, не байты `.pyd`): по ней видно, из какого кода собрано то, что установлено
+    run([python, "-c", "import cftuv_native; print('native_build_id', cftuv_native.native_build_id())"], cwd=ROOT, environment=environment)
     return 0
 
 

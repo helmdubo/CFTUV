@@ -12,9 +12,9 @@
 возврата 1); шесть статей `EXACT_WORK_*` — ЦЕНА (расхождение тоже код 1: нативное ядро обязано стоить столько же, сколько эталон);
 секунды и кто на самом деле посчитал (запись бэкенда домена: `native` / `python` / `mixed`, названный откат) — только в таблице.
 
-Заказ `NATIVE` ставит диспетчер резки сам (`entered_backend`: подмена имени `clip.clip_geometry`, закреплённый файл `clip.py` не правится); домен, который не
+Диспетчеры покрытия и резки подключены в самом ядре (`cut_domain` зовёт `backend.clip_compute`), поэтому заказ `NATIVE` ничего не ставит; домен, который не
 позвал ни одной нативной операции (резка из памяти стадии, покрытие из шаблона шага ширины), назван `NATIVE_NOT_REACHED`; если не позвал никто, отчёт
-говорит об этом строкой `NOTE`.
+говорит об этом строкой `NOTE`. Идентичность нативной сборки (`native_build_id`) лежит в `native_status` отчёта.
 
 Без нативного ядра (`cftuv_native` не импортируется) отчёт называет статус `UNAVAILABLE`, пишет JSON и завершается нулём: сравнивать
 нечего, и это не ошибка. Нативное ядро, которое импортируется, но стоит не на той версии эталона (`stale(...)`), сравнивается: откаты на
@@ -358,8 +358,6 @@ def main() -> int:
         if not isinstance(controller, EnvelopeDebugSessionController):
             controller = EnvelopeDebugSessionController()
             setattr(bpy.context.window_manager, WINDOW_MANAGER_SESSION_ATTRIBUTE, controller)
-        from cftuv_envelope.backend import dispatch_installed
-
         results = []
         for order, spec in enumerate(cases):
             try:
@@ -374,7 +372,6 @@ def main() -> int:
         report = {
             "status": STATUS_FAILED if failed else STATUS_OK,
             "native_status": status.as_record(),
-            "dispatch_installed": dispatch_installed(),
             "root": str(root),
             "workers": args.workers,
             "steps": args.steps,

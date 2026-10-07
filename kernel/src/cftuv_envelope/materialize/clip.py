@@ -112,6 +112,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from fractions import Fraction
 
+from .. import backend
 from .. import float_filter
 from .._cpython311 import sorted_as_cpython311
 from ..contracts.geometry_batch import DecalTopologyLawV1
@@ -1600,7 +1601,7 @@ def cut_domain(
     fans = [item.is_fan for item in frame_faces]
     flows = [getattr(item, "flow_key", None) is not None for item in frame_faces]
     clipped, memo = run_clip(
-        clip_geometry,
+        backend.clip_compute,
         plane,
         budget,
         clip_policy(),
