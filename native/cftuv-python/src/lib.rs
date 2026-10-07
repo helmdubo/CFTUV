@@ -10,6 +10,7 @@ mod coverage;
 mod memlog;
 mod pyobj;
 mod refusal;
+mod skeleton;
 mod skeleton_seams;
 mod view;
 
@@ -83,13 +84,15 @@ struct Session {
     view: view::View,
     /// Test knob (`force_refusal`): a refusal of the port the NEXT whole operation takes after it computed.
     forced: Option<refusal::Forced>,
+    /// The whole `build_skeleton` (WP-S6): the bound classes of its result.
+    skeleton: skeleton::Host,
 }
 
 #[pymethods]
 impl Session {
     #[new]
     fn new() -> Session {
-        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None }
+        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default() }
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -211,6 +214,56 @@ impl Session {
         outcome
     }
 
+    /// Hands the kernel classes to `build_skeleton`: `SqrtSumV1`, `Fraction`, then `SkeletonV1`, `SkeletonNodeV1`, `EventTimeV1`, `EventPointV1`, `ProofObligationV1`, then the tables
+    /// `{value: member}` of `SkeletonOutcome`, `EventKind`, `ProofStatus`, `ProofObligationBranch`, `ProofObligationDisposition`, `CandidateRefusal`.
+    #[allow(clippy::too_many_arguments)]
+    fn bind_skeleton(
+        &mut self,
+        py: Python<'_>,
+        sqrt_sum: &Bound<'_, PyAny>,
+        fraction: &Bound<'_, PyAny>,
+        skeleton: &Bound<'_, PyAny>,
+        node: &Bound<'_, PyAny>,
+        time: &Bound<'_, PyAny>,
+        point: &Bound<'_, PyAny>,
+        obligation: &Bound<'_, PyAny>,
+        outcomes: &Bound<'_, PyAny>,
+        kinds: &Bound<'_, PyAny>,
+        statuses: &Bound<'_, PyAny>,
+        branches: &Bound<'_, PyAny>,
+        dispositions: &Bound<'_, PyAny>,
+        refusals: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        self.skeleton.bind(py, sqrt_sum, fraction, [skeleton, node, time, point, obligation], [outcomes, kinds, statuses, branches, dispositions, refusals])
+    }
+
+    /// `skeleton.build_skeleton` whole (see `skeleton.rs`; `exhaustive`: `split_search is EXHAUSTIVE`): `(result or None, status, detail, sign-counter deltas, budget articles after, changed-tables bits,
+    /// (arguments, compute, result, memory log) nanoseconds, the `superlevel` string the oracle wrote into the budget or None)`. `level_limit` is the live `level_budget(polygon)`, `march_steps` the live
+    /// number of march steps when the oracle's `march_budget` was replaced (`None`: the declared one), `sync` the memory sync in the wire format (`None`: unchanged), `budget` `(cap, six
+    /// articles)` or `None`, `tables` the real memory tables the memory log of the call is replayed on, in place. Any error resets the session, as `run` does, and so does a status that is a refusal
+    /// of the port (`skeleton::is_native_only`): then nothing of the call is applied to `tables`.
+    #[allow(clippy::too_many_arguments)]
+    fn build_skeleton<'py>(
+        &mut self,
+        py: Python<'py>,
+        polygon: &Bound<'py, PyAny>,
+        dense_hydration: bool,
+        exhaustive: bool,
+        level_limit: i64,
+        march_steps: Option<i64>,
+        sync: Option<&[u8]>,
+        budget: Option<(Option<u64>, [u64; 6])>,
+        tables: memlog::Tables<'py>,
+    ) -> PyResult<skeleton::Answer<'py>> {
+        let forced = self.forced.take();
+        let outcome = self.skeleton.build_skeleton(py, &mut self.inner, polygon, dense_hydration, exhaustive, level_limit, march_steps, sync, budget, &tables, forced);
+        // an error, or an answer that is a refusal of the port: nothing of the call reached the host, and the mirror holds what the call did to it
+        if outcome.as_ref().map_or(true, |answer| skeleton::is_native_only(answer.1)) {
+            self.reset_memory();
+        }
+        outcome
+    }
+
     /// Test-only: arms ONE refusal of the port (`unsupported` (a clip), `invalid_input`, `diverged`, `internal`, `panic`; `None` disarms) that the next whole operation
     /// takes AFTER it computed, instead of its own outcome: the call then has real effects (articles, counters, memory log, normal writes, store record, traces) that a refusal
     /// must not let reach the host. Consumed by the first `coverage_at` or `clip_geometry` that reaches its computation.
@@ -232,10 +285,19 @@ impl Session {
         found
     }
 
+    /// `{result class: raw access engaged}` of `build_skeleton` (a layout the probe did not confirm is built through the attribute protocol, which is slower, not wrong).
+    fn skeleton_raw_layouts(&self) -> Vec<(&'static str, bool)> {
+        match self.skeleton.raw_layouts() {
+            Some([skeleton, node, time, point, obligation]) => vec![("SkeletonV1", skeleton), ("SkeletonNodeV1", node), ("EventTimeV1", time), ("EventPointV1", point), ("ProofObligationV1", obligation)],
+            None => Vec::new(),
+        }
+    }
+
     /// Test-only: every slot of the result classes and of the inputs through the attribute protocol (the fallback of the raw access).
     fn disable_raw(&mut self) {
         self.coverage.disable_raw();
         self.clip.disable_raw();
+        self.skeleton.disable_raw();
     }
 
     /// Test-only: a `Fraction` (`sum` false) or a `SqrtSumV1` (`sum` true) through the conversions of the boundary and back (needs `bind_coverage`).
@@ -327,6 +389,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(source_digest, module)?)?;
     module.add_function(wrap_pyfunction!(tree_digest, module)?)?;
     module.add_function(wrap_pyfunction!(refusal::oracle_statuses, module)?)?;
+    module.add_function(wrap_pyfunction!(skeleton::skeleton_oracle_statuses, module)?)?;
     module.add_class::<Session>()?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_run, module)?)?;
     module.add_function(wrap_pyfunction!(clip_seams::clip_seam_table, module)?)?;

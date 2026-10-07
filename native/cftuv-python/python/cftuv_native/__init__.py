@@ -9,9 +9,10 @@
 Три части:
 
 * числа (`run_number_ops`): сценарий операций в ОДНОМ вызове, только для сверки с эталоном;
-* целые операции: `coverage_at` (`wavefront.coverage._coverage_at`, с разбиениями, которые нативная сессия переводит один раз) и `clip_geometry`
-  (`materialize.clip.clip_geometry`: подъём плоскости переводится один раз, результат строится из Rust, нормали смещения пишутся в плоскость);
-  обе сверены с ОДНОЙ версией эталона и отказываются по имени, если дерево ядра ушло от неё (`pin`, `native_status`, `NativePortStale`);
+* целые операции: `coverage_at` (`wavefront.coverage._coverage_at`, с разбиениями, которые нативная сессия переводит один раз), `clip_geometry`
+  (`materialize.clip.clip_geometry`: подъём плоскости переводится один раз, результат строится из Rust, нормали смещения пишутся в плоскость) и `build_skeleton`
+  (`wavefront.skeleton.build_skeleton`: полигон читается из объектов Python, `SkeletonV1` строится из Rust, статьи бюджета и строка `superlevel` пишутся в бюджет; контракт — `skeleton_op.py`);
+  все сверены с ОДНОЙ версией эталона и отказываются по имени, если дерево ядра ушло от неё (`pin`, `native_status`, `NativePortStale`);
 * стоимость (`default_mirror`, `new_mirror`, `sign`, `divided_by`, ...): долгоживущая нативная сессия владеет зеркалом памяти
   канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
   к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
@@ -36,6 +37,7 @@ __all__ = (
     "NativePortStale",
     "NativePortUnsupported",
     "NativeUnsupportedPython",
+    "build_skeleton",
     "clip_geometry",
     "clip_seam_run",
     "clip_seam_table",
@@ -46,6 +48,7 @@ __all__ = (
     "int_round_trip",
     "last_clip_timings",
     "last_coverage_timings",
+    "last_skeleton_timings",
     "native_build_id",
     "native_build_parts",
     "native_status",
@@ -61,6 +64,7 @@ __all__ = (
     "radical_sum",
     "run_number_ops",
     "sign",
+    "skeleton_oracle_statuses",
     "skeleton_seam_run",
     "skeleton_seam_table",
     "squarefree_split",
@@ -125,7 +129,7 @@ def tree_digest(native_root) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`).
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`).
 
     `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
@@ -189,6 +193,28 @@ def clip_geometry(plane, budget, *, points, cycles, polygons, law, seam, fans, f
     """
 
     return default_mirror().clip_geometry(plane, budget, points=points, cycles=cycles, polygons=polygons, law=law, seam=seam, fans=fans, flows=flows, by_faces=by_faces, inert=inert)
+
+
+def build_skeleton(polygon, *, split_search=None, work_budget=None, dense_hydration=False):
+    """`wavefront.skeleton.build_skeleton(polygon, *, split_search, work_budget, dense_hydration)`, native and whole (see `CostMirror.build_skeleton` and `skeleton_op.py`).
+
+    `split_search=None` is the oracle's default (the motorcycle search). A refusal of the port (`NATIVE_REFUSALS`) leaves every Python-visible state exactly as before the call, so the caller
+    may run the oracle on the same budget and memory tables; an exception of the oracle leaves its partial effects, and is raised with the oracle's text.
+    """
+
+    return default_mirror().build_skeleton(polygon, work_budget=work_budget, split_search=split_search, dense_hydration=dense_hydration)
+
+
+def last_skeleton_timings() -> tuple:
+    """Nanoseconds of the last `build_skeleton` of the default mirror: `(sync in, native call, post, total, arguments, compute, result, memory log)`."""
+
+    return default_mirror().last_skeleton_timings
+
+
+def skeleton_oracle_statuses() -> tuple:
+    """Test-only: the status codes of `build_skeleton` the extension treats as outcomes of the oracle (`skeleton.rs`); `skeleton_op.SKELETON_STATUSES` is the same table."""
+
+    return tuple(_core.skeleton_oracle_statuses())
 
 
 def last_clip_timings() -> tuple:

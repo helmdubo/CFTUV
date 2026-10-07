@@ -1,9 +1,11 @@
-"""Замер нативных ЦЕЛЫХ операций ядра против эталона на Python на корпусе вызовов (`tools/native_corpus_export.py`): `coverage._coverage_at` и `clip.clip_geometry`.
+"""Замер нативных ЦЕЛЫХ операций ядра против эталона на Python на корпусе вызовов (`tools/native_corpus_export.py`): `coverage._coverage_at`, `clip.clip_geometry` и `skeleton.build_skeleton`.
 
     set PYTHONSAFEPATH=1
-    python tools/native_bench_native.py [--op coverage|clip|both] [--corpus <каталог корпуса>] [--repeat 3] [--meshes building,...] [--limit N] [--out <json>]
+    python tools/native_bench_native.py [--op coverage|clip|both|skeleton] [--corpus <каталог корпуса>] [--repeat 3] [--meshes building,...] [--limit N] [--out <json>]
     "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe" tools/native_bench_native.py ...   (питон 3.11 продукта;
         расширение: `pip install --target ~/.cftuv-native/py311-site <колесо>` и `PYTHONPATH=~/.cftuv-native/py311-site`)
+
+СКЕЛЕТ (`--op skeleton`) меряет `tools/native_skeleton_whole.py bench` (корпус скелета, не этот): целый вызов `build_skeleton` через вставку, p50/p95/max по мешам и пять самых тяжёлых доменов.
 
 КАЖДЫЙ нативный вызов сверяется с эталоном точно (`native_corpus.compare_outcomes`: результат с различием `int`/`Fraction`, исключение, цена, память с порядком,
 счётчики знаков, неоплаченное, `store`, нормали плоскости); расхождение — отказ замера (код 1). Нет расширения `cftuv_native` или порт устарел относительно дерева ядра
@@ -499,7 +501,7 @@ def run_clip(extension, args) -> tuple:
 
 def _arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--op", choices=("coverage", "clip", "both"), default="both")
+    parser.add_argument("--op", choices=("coverage", "clip", "both", "skeleton"), default="both")
     parser.add_argument("--dump", default="", help="id записи: записать её разбиение и alpha в файл `--dump-to` и выйти")
     parser.add_argument("--dump-to", default="")
     parser.add_argument("--corpus", default="")
@@ -535,6 +537,10 @@ def run_coverage(extension, args, root: Path, index: dict) -> tuple:
 
 def main() -> int:
     args = _arguments()
+    if args.op == "skeleton":
+        import native_skeleton_whole as whole
+
+        return whole.main(["bench", "--corpus", args.corpus or "field", "--repeat", str(args.repeat), "--meshes", args.meshes, "--limit", str(args.limit), "--out", args.out])
     operations = ("coverage", "clip") if args.op == "both" else (args.op,)
     extension = load_extension(*operations)
     root = Path(args.corpus) if args.corpus else nb.default_corpus()

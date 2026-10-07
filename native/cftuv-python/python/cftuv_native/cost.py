@@ -362,12 +362,16 @@ class CostMirror:
         self._face_exact = None
         self._clip_bound = False
         self._clip_classes: tuple = ()
+        self._skeleton_bound = False
         #: Nanoseconds of the last `clip_geometry`: `(sync in, native call, post, total, plane, arguments, compute, result, memory log)`; the last
         #: five are measured inside the extension (see `native/cftuv-python/src/clip.rs`).
         self.last_clip_timings: tuple = ()
         #: Nanoseconds of the last `coverage_at`: `(sync in, native call, post, total, prepare, arguments, compute, result, memory log)`;
         #: the last five are measured inside the extension (see `native/cftuv-python/src/coverage.rs`).
         self.last_timings: tuple = ()
+        #: Nanoseconds of the last `build_skeleton`: `(sync in, native call, post, total, arguments, compute, result, memory log)`; the last four are measured inside the extension
+        #: (see `native/cftuv-python/src/skeleton.rs`).
+        self.last_skeleton_timings: tuple = ()
         #: Calls whose tables were not provably unchanged by identity (the session's view of the host's tables, `view.rs`) and went through the full comparison.
         self.slow_syncs = 0
 
@@ -727,6 +731,20 @@ class CostMirror:
             self._raise_clip(status, detail, counts, articles, budget, outcomes, refusal)
         return result
 
+    # ---- the whole skeleton operation ---------------------------------------------------------------------------------
+
+    def build_skeleton(self, polygon, *, split_search=None, work_budget=None, dense_hydration=False):
+        """`wavefront.skeleton.build_skeleton(polygon, *, split_search, work_budget, dense_hydration)`, whole, with its exact side effects (the body and the contract: `skeleton_op.py`).
+
+        The articles of `work_budget` and its `superlevel` string, the four memory tables with their order, `SIGN_COUNTS` and `UNBUDGETED_WORK` end as the oracle leaves them; the exceptions
+        are the oracle's, with its text. A refusal of the PORT (`NATIVE_REFUSALS`: a stale pin, `python -O`, a split search or a patched bound the port does not carry, an input or an internal
+        state it does not answer, a `TypeError` the oracle itself raises) leaves every Python-visible state as it was, so the caller runs the oracle on the same budget and tables.
+        """
+
+        from . import skeleton_op
+
+        return skeleton_op.build_skeleton(self, polygon, work_budget=work_budget, split_search=split_search, dense_hydration=dense_hydration)
+
     def raw_layouts(self) -> dict:
         """`{slot class: raw access engaged}`: a layout the probe did not confirm is read through the attribute protocol (slower, not wrong). Binds both entry points."""
 
@@ -735,6 +753,15 @@ class CostMirror:
         if not self._clip_bound:
             self._bind_clip()
         return dict(self._session.raw_layouts())
+
+    def skeleton_raw_layouts(self) -> dict:
+        """`{result class: raw access engaged}` of `build_skeleton` (the classes the result is built from; binds the operation)."""
+
+        if not self._skeleton_bound:
+            from . import skeleton_op
+
+            skeleton_op.bind(self)
+        return dict(self._session.skeleton_raw_layouts())
 
     def disable_raw(self) -> None:
         """Test-only: every slot through the attribute protocol (the fallback of the raw access); answers and cost are the same."""
