@@ -62,8 +62,18 @@ def derived_paths() -> list:
     return sorted((corpus_base() / "records" / "_derived").glob("*/*clip_geometry*.rec"))
 
 
+SYNTHETIC_ENVIRONMENT = "CFTUV_SYNTHETIC_CLIP_OUT"
+
+
+def synthetic_base() -> Path:
+    """The synthetic clip corpus (`native_clip_synthetic.py build`): where `CFTUV_SYNTHETIC_CLIP_OUT` says (the native CI builds it there, with no field corpus at all), else beside the field corpus of THIS kernel."""
+
+    explicit = os.environ.get(SYNTHETIC_ENVIRONMENT)
+    return Path(explicit) if explicit else corpus_base() / "synthetic_clip"
+
+
 def synthetic_paths() -> list:
-    return sorted((corpus_base() / "synthetic_clip" / "records").glob("*/*clip_geometry*.rec"))
+    return sorted((synthetic_base() / "records").glob("*/*clip_geometry*.rec"))
 
 
 @dataclass
@@ -178,10 +188,16 @@ class WholeRunner:
 # --------------------------------------------------------------------------
 
 
-def heavy_paths(count: int) -> list:
-    """Самые долгие полевые вызовы (по секундам записи): по одному на сетку-патч, тяжёлые первыми."""
+def real_paths() -> list:
+    """Real ANSWERED calls for the tests that need only A real call (its plane, its points), not the owner's field ones: the field corpus when it is there, else the synthetic records the oracle answers."""
 
-    timed = sorted(((nc.read_meta(path)["seconds"], path) for path in field_paths()), key=lambda item: -item[0])
+    return field_paths() or [path for path in synthetic_paths() if nc.read_meta(path)["exception"] is None]
+
+
+def heavy_paths(count: int, paths: list | None = None) -> list:
+    """Самые долгие вызовы (по секундам записи; `paths` — из каких, по умолчанию полевые): по одному на сетку-патч, тяжёлые первыми."""
+
+    timed = sorted(((nc.read_meta(path)["seconds"], path) for path in (field_paths() if paths is None else paths)), key=lambda item: -item[0])
     chosen, seen = [], set()
     for _seconds, path in timed:
         meta = nc.read_meta(path)

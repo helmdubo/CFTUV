@@ -42,7 +42,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "clip")
 
@@ -56,7 +56,11 @@ import cftuv_envelope.materialize.clip_memo as clip_memo  # noqa: E402
 
 CORPUS = geometry.corpus_base()
 HAS_CORPUS = CORPUS.exists()
-needs_corpus = pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
+needs_corpus = field_tier(HAS_CORPUS, f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
+REAL_PATHS = geometry.real_paths()
+#: the tests that need only A real call (not the owner's field ones): the field corpus when it is there, else the synthetic one
+needs_real_call = pytest.mark.skipif(not REAL_PATHS, reason=f"нет ни полевого, ни синтетического корпуса ({CORPUS}, {geometry.synthetic_base()}): нечем звать операцию")
+needs_synthetic = pytest.mark.skipif(not geometry.synthetic_paths(), reason=f"нет синтетического корпуса {geometry.synthetic_base()}: `python tools/native_clip_synthetic.py build`")
 RECORD_STRIDE = int(os.environ.get("CFTUV_CLIP_SEAM_STRIDE", "1"))
 
 CHECKED: Counter = Counter()
@@ -126,7 +130,7 @@ def test_every_derived_starved_budget_record_through_the_dropin_equals_the_oracl
     assert_all_equal(compare_paths(runner, paths, "derived"))
 
 
-@pytest.mark.skipif(not HAS_CORPUS or not geometry.synthetic_paths(), reason=f"нет синтетического корпуса {CORPUS / 'synthetic_clip'}: `python tools/native_clip_synthetic.py build`")
+@needs_synthetic
 def test_every_synthetic_record_through_the_dropin_equals_the_oracle(runner):
     runs = compare_paths(runner, geometry.synthetic_paths(), "synthetic")
     assert len(runs) >= 400
@@ -136,11 +140,11 @@ def test_every_synthetic_record_through_the_dropin_equals_the_oracle(runner):
     assert labels["raised:ExactCanonicalizationWorkBudgetExhausted"] >= 5 and labels["raised:OverflowError"] >= 1, labels
 
 
-@needs_corpus
+@needs_real_call
 def test_a_cap_sweep_through_the_dropin_exhausts_at_the_same_place_with_the_same_partial_state(runner):
     refused = Counter()
     problems = []
-    for path in geometry.heavy_paths(4):
+    for path in geometry.heavy_paths(4, REAL_PATHS):
         record = nc.read_record(path)
         before = record.before()
         spent = sum(before.budget["articles"])
@@ -301,12 +305,12 @@ def test_the_chain_station_plan_through_the_dropin_equals_the_oracle(runner):
 # --------------------------------------------------------------------------
 
 
-@needs_corpus
+@needs_real_call
 def test_repeated_calls_on_one_plane_and_one_session_equal_the_oracle_each_time():
     """Плоскость переводится один раз и живёт в сеансе: повторные вызовы на ТОЙ ЖЕ плоскости (состояние и нормали восстановлены) равны эталону."""
 
     mirror = cftuv_native.new_mirror()
-    paths = geometry.heavy_paths(3) + geometry.field_paths()[:2]
+    paths = geometry.heavy_paths(3, REAL_PATHS) + REAL_PATHS[:2]
     problems = []
     for path in paths:
         record = nc.read_record(path)
@@ -330,10 +334,10 @@ def test_repeated_calls_on_one_plane_and_one_session_equal_the_oracle_each_time(
     assert mirror.clip_cache_size() == len(paths), "one converted plane per distinct plane object, not per call"
 
 
-@needs_corpus
+@needs_real_call
 def test_the_plane_cache_is_bounded_and_forgets_the_least_recently_used_plane():
     mirror = cftuv_native.new_mirror()
-    record = nc.read_record(geometry.field_paths()[-1])
+    record = nc.read_record(REAL_PATHS[-1])
     before = record.before()
     keep = nc.prepare_call(nc.OP_CLIP, record.call_blob, before)
     for _ in range(40):
@@ -380,13 +384,13 @@ def test_neighbouring_alphas_through_the_warm_cache_equal_the_oracle_at_every_st
     assert total_hits > 1000 and value_hits > 1000 and lift_hits > 100, f"the caches must be exercised, not skipped: {total_hits} crossings, {value_hits} values, {lift_hits} lifts"
 
 
-@needs_corpus
+@needs_real_call
 def test_a_cap_sweep_that_exhausts_inside_a_replayed_computation_leaves_the_oracles_partial_state(runner):
     """Всё в кэше уже лежит (полный бюджет), потолок режет повтор: исчерпание в нужном вопросе, те же частичные статьи, память и нормали."""
 
     refused = Counter()
     problems = []
-    for path in geometry.heavy_paths(3):
+    for path in geometry.heavy_paths(3, REAL_PATHS):
         record = nc.read_record(path)
         before = record.before()
         assert runner.compare(record).equal  # fills the cache
@@ -447,14 +451,14 @@ def _typed_as_ints(point):
     return coordinate(point[0]), coordinate(point[1])
 
 
-@needs_corpus
+@needs_real_call
 def test_the_cache_does_not_hand_a_result_across_different_coefficient_types(runner):
     """Тип коэффициента берётся из входных точек (`product_added` оставляет члены основания как есть): ключ кэша сравнивает концы СТРОГО, с типами."""
 
     mirror = cftuv_native.new_mirror()
     walker = geometry.DropinRunner(mirror)
     typed_differently = 0
-    for path in geometry.field_paths()[:40:4]:
+    for path in REAL_PATHS[:40:4]:
         record = nc.read_record(path)
         before = record.before()
         call = nc.decode_call(nc.OP_CLIP, record.call_blob, nc.build_budget(before.budget), None)
@@ -474,12 +478,12 @@ def test_the_cache_does_not_hand_a_result_across_different_coefficient_types(run
 # --------------------------------------------------------------------------
 
 
-@needs_corpus
+@needs_real_call
 @pytest.mark.parametrize("which", ["small", "heavy"])
 def test_the_dropin_is_a_valid_compute_for_the_clip_memo_miss_and_hit(which):
     """`run_clip(compute=...)`: промах кладёт в память пикл нативного результата и запись памяти, попадание их проигрывает: состояние то же, что у эталона."""
 
-    path = geometry.field_paths()[0] if which == "small" else geometry.heavy_paths(1)[0]
+    path = REAL_PATHS[0] if which == "small" else geometry.heavy_paths(1, REAL_PATHS)[0]
     record = nc.read_record(path)
     before = record.before()
     mirror = cftuv_native.new_mirror()
@@ -530,7 +534,7 @@ def _outcome_exceptions(record, before, mirror):
     return caught
 
 
-@pytest.mark.skipif(not HAS_CORPUS or not geometry.synthetic_paths(), reason="нет синтетического корпуса")
+@needs_synthetic
 def test_the_exceptions_are_the_real_classes_with_the_oracles_fields():
     mirror = cftuv_native.new_mirror()
     seen = Counter()
@@ -553,11 +557,11 @@ def test_the_exceptions_are_the_real_classes_with_the_oracles_fields():
     assert refusal.outcome.value in refusal.args[0] and refusal.counters == () and refusal.station_conflict == ()
 
 
-@needs_corpus
+@needs_real_call
 def test_the_result_reuses_the_objects_the_oracle_would_return():
     """Точка узла, пришедшая из `points`, ключи-строки входа и имена треугольников возвращаются теми же объектами; одна точка — один объект на все списки."""
 
-    record = nc.read_record(geometry.heavy_paths(1)[0])
+    record = nc.read_record(geometry.heavy_paths(1, REAL_PATHS)[0])
     mirror = cftuv_native.new_mirror()
     call = nc.prepare_call(nc.OP_CLIP, record.call_blob, record.before())
     result = mirror.clip_geometry(call.args[0], call.budget, **call.kwargs)
@@ -585,10 +589,10 @@ def test_the_result_reuses_the_objects_the_oracle_would_return():
             break
 
 
-@needs_corpus
+@needs_real_call
 def test_a_call_without_a_budget_spends_the_unbudgeted_telemetry_like_the_oracle(runner):
     spent = 0
-    for path in geometry.heavy_paths(3) + geometry.field_paths()[:3]:
+    for path in geometry.heavy_paths(3, REAL_PATHS) + REAL_PATHS[:3]:
         record = nc.read_record(path)
         before = dataclasses.replace(record.before(), budget=None)
         run = runner.compare(record, before=before)
@@ -603,9 +607,9 @@ def test_a_call_without_a_budget_spends_the_unbudgeted_telemetry_like_the_oracle
 # --------------------------------------------------------------------------
 
 
-@needs_corpus
+@needs_real_call
 def test_an_input_the_extension_cannot_carry_is_refused_by_name_and_the_session_survives(runner):
-    record = nc.read_record(geometry.field_paths()[0])
+    record = nc.read_record(REAL_PATHS[0])
     before = record.before()
     call = nc.prepare_call(nc.OP_CLIP, record.call_blob, before)
     mirror = runner.mirror
@@ -621,8 +625,9 @@ def test_an_input_the_extension_cannot_carry_is_refused_by_name_and_the_session_
     assert runner.compare(record).equal, "the session answers correctly after a refused input"
 
 
+@needs_real_call
 def test_a_plane_without_a_normal_table_is_a_named_refusal_not_a_guess():
-    record = nc.read_record(geometry.field_paths()[0]) if HAS_CORPUS else pytest.skip("нет полевого корпуса")
+    record = nc.read_record(REAL_PATHS[0])
     call = nc.prepare_call(nc.OP_CLIP, record.call_blob, record.before())
 
     class Bare:
@@ -667,6 +672,7 @@ def _spoilers():
 
 @needs_corpus
 def test_the_comparison_names_every_effect_a_spoiled_dropin_gets_wrong(runner):
+    # the HEAVIEST field record: it carries new vertices, normal writes and memory entries, every effect a spoiled drop-in can get wrong
     record = nc.read_record(geometry.heavy_paths(1)[0])
     before = record.before()
     expected = nc.execute(nc.prepare_call(nc.OP_CLIP, record.call_blob, before))

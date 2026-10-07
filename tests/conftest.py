@@ -137,3 +137,12 @@ if "bpy" not in sys.modules:
     sys.modules["bpy"] = types.ModuleType("bpy")
 
 
+
+
+def pytest_configure(config):
+    """Нативные ворота (строгий режим CI, уровень `native_field`) — плагин всех запусков: `tests/native_gate.py`; без `CFTUV_NATIVE_STRICT` он только называет снятый полевой уровень."""
+
+    import native_gate
+
+    if not config.pluginmanager.is_registered(native_gate):
+        config.pluginmanager.register(native_gate, "cftuv-native-gate")
