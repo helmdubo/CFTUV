@@ -8,7 +8,7 @@
     python tools/native_catchup.py status                        # какие файлы эталона ушли от пина (до переноса дельты)
     python tools/native_catchup.py pin                           # пересобрать PINS в pin.py из дерева ядра, назвать изменённые файлы
     python tools/native_catchup.py build                         # cargo test --workspace, колесо, установка в venv (3.13) и py311-site (3.11)
-    python tools/native_catchup.py corpus                        # выгрузка из Blender, производные записи (питон Blender 3.11), синтетический корпус
+    python tools/native_catchup.py corpus                        # выгрузка из Blender, производные записи (питон Blender 3.11), синтетический корпус, корпус скелета (поле, тесты, генератор, производные, швы)
     python tools/native_catchup.py test                          # все tests/test_native_*.py под 3.13 и под 3.11, нули расхождений
     python tools/native_catchup.py bench --out <каталог>         # замер целых операций под 3.11 и 3.13
     python tools/native_catchup.py all --out <каталог>           # pin, build, corpus, test, bench подряд
@@ -128,6 +128,22 @@ def step_corpus() -> None:
     # the synthetic corpus goes beside the field corpus of THIS kernel (`native_corpus.matching_corpus`); the records of an earlier build are dropped first
     shutil.rmtree(out / "synthetic_clip", ignore_errors=True)
     run([venv_python(), ROOT / "tools" / "native_clip_synthetic.py", "build"])
+    step_skeleton_corpus(out)
+
+
+def step_skeleton_corpus(out: Path) -> None:
+    """Корпус скелета рядом с корпусом покрытия и резки ЭТОГО ядра: поле (Blender, питон 3.11) и его производные, тесты ядра, сгенерированные полигоны, производные синтетики, швы обоих."""
+
+    field, synthetic = out / "skeleton", out / "synthetic_skeleton"
+    tools = ROOT / "tools"
+    run([BLENDER, "-b", SCENE, "--python-exit-code", "1", "--python", tools / "native_skeleton_export.py", "--", "--out", field, "--overwrite"])
+    run([BLENDER_PYTHON, tools / "native_skeleton_derive.py", "--corpus", field])
+    shutil.rmtree(synthetic, ignore_errors=True)
+    run([venv_python(), tools / "native_skeleton_synthetic.py", "build", "--out", synthetic])
+    run([venv_python(), tools / "native_skeleton_generated.py", "generate", "--corpus", synthetic])
+    run([venv_python(), tools / "native_skeleton_derive.py", "--corpus", synthetic])
+    for corpus in (field, synthetic):
+        run([venv_python(), tools / "native_skeleton_seams.py", "record", "--corpus", corpus, "--full", "all", "--full-ids", "all"])
 
 
 def step_test() -> None:

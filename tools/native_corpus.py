@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import io
@@ -46,12 +47,18 @@ import cftuv_envelope.float_filter as float_filter  # noqa: E402
 import cftuv_envelope.materialize.clip as clip  # noqa: E402
 import cftuv_envelope.materialize.clip_memo as clip_memo  # noqa: E402
 import cftuv_envelope.wavefront.coverage as coverage  # noqa: E402
+import cftuv_envelope.wavefront.exact_identity as exact_identity  # noqa: E402
+import cftuv_envelope.wavefront.skeleton as skeleton  # noqa: E402
 
 OP_COVERAGE = "coverage_at"
 OP_CLIP = "clip_geometry"
+OP_SKELETON = "build_skeleton"
+#: Операции полевого корпуса покрытия и резки: ровно их воспроизводят замеры (`native_bench`); скелет живёт в своём корпусе (`native_skeleton_*`).
 OPERATIONS = (OP_COVERAGE, OP_CLIP)
+SKELETON_OPERATIONS = (OP_SKELETON,)
 #: Операции эталона: берутся в момент импорта, поэтому подмена модулей рекордером (`Recorder.wrap`) их не задевает.
-ORACLE = {OP_COVERAGE: coverage._coverage_at, OP_CLIP: clip.clip_geometry}
+ORACLE = {OP_COVERAGE: coverage._coverage_at, OP_CLIP: clip.clip_geometry, OP_SKELETON: skeleton.build_skeleton}
+SKELETON_OPTIONS = frozenset({"split_search", "work_budget", "dense_hydration"})
 
 RECORD_MAGIC = b"CFTUVNC1"
 RECORD_SCHEMA = "cftuv.native-corpus.v1"
@@ -102,6 +109,8 @@ class StateV1:
     unbudgeted: tuple
     store: list | None
     canonical_audit: bool
+    #: Представление ключей тождества (`exact_identity`): модульный переключатель, который читает скелет; поле дописано позже, поэтому у старых записей умолчание.
+    identity_mode: str = "CACHED"
 
     def as_payload(self) -> dict:
         return {item.name: getattr(self, item.name) for item in dataclasses.fields(self)}
@@ -143,6 +152,7 @@ def capture_state(budget, store) -> StateV1:
         exact.UNBUDGETED_WORK.spent_by_article(),
         entries,
         exact.canonical_audit_enabled(),
+        exact_identity.identity_mode().value,
     )
 
 
@@ -181,6 +191,7 @@ def restore_state(state: StateV1):
     exact.SIGN_COUNTS.update(state.sign_counts)
     _set_articles(exact.UNBUDGETED_WORK, state.unbudgeted)
     exact.set_canonical_audit(state.canonical_audit)
+    exact_identity.set_identity_mode(state.identity_mode)
     store = None if state.store is None else dict(state.store)
     return build_budget(state.budget), store
 
@@ -240,8 +251,40 @@ def decode_call(op: str, blob: bytes, budget, store) -> Call:
     return Call(op, args, kwargs, budget, store)
 
 
+def skeleton_kwargs(polygon, given: dict) -> dict:
+    """Именованные входы `build_skeleton` в записи: режим поиска, плотная гидратация и ДЕЙСТВУЮЩАЯ граница уровней.
+
+    `level_budget` — не аргумент `build_skeleton`, а функция модуля, которую `_Builder.run` зовёт по имени: тест, подменивший её
+    (`test_wavefront_event_queue.py` ставит единицу), меняет исход, и запись обязана нести значение, которым вызов шёл на самом деле.
+    Воспроизведение ставит его тем же способом (`pinned_level_budget`), а нативная вставка получает целое число аргументом."""
+
+    unknown = set(given) - SKELETON_OPTIONS
+    if unknown:
+        raise CorpusError(f"build_skeleton is called with unknown options {sorted(unknown)}")
+    return {
+        "split_search": given.get("split_search", skeleton.SplitSearch.MOTORCYCLE),
+        "dense_hydration": bool(given.get("dense_hydration", False)),
+        "level_budget": skeleton.level_budget(polygon),
+    }
+
+
+@contextlib.contextmanager
+def pinned_level_budget(limit):
+    """На время вызова `skeleton.level_budget` отвечает `limit` (`None` — штатная функция); имя модуля возвращается в точности."""
+
+    original = skeleton.level_budget
+    if limit is None:
+        yield
+        return
+    skeleton.level_budget = lambda _polygon: limit
+    try:
+        yield
+    finally:
+        skeleton.level_budget = original
+
+
 def unpack_call(op: str, args: tuple, kwargs: dict) -> Call:
-    """Аргументы подменяемой функции -> `Call`: `_coverage_at(partition, alpha, budget, store[, traces])`, `clip_geometry(plane, budget, **)`.
+    """Аргументы подменяемой функции -> `Call`: `_coverage_at(partition, alpha, budget, store[, traces])`, `clip_geometry(plane, budget, **)`, `build_skeleton(polygon, **)`.
 
     `traces` (запись знаков для шаблона покрытия шага ширины, `materialize.step`) в вызов не входит: список лишь наполняется, ответ, цену и память он
     не меняет, а воспроизведённый без него вызов считает то же самое."""
@@ -253,6 +296,9 @@ def unpack_call(op: str, args: tuple, kwargs: dict) -> Call:
         if kwargs:
             raise CorpusError("coverage._coverage_at is called with positional arguments only")
         return Call(op, (partition, alpha), {}, budget, store)
+    if op == OP_SKELETON:
+        (polygon,) = args
+        return Call(op, (polygon,), skeleton_kwargs(polygon, kwargs), kwargs.get("work_budget"), None)
     plane, budget = args
     return Call(op, (plane,), dict(kwargs), budget, None)
 
@@ -262,6 +308,10 @@ def invoke(call: Call, function=None):
 
     if call.op == OP_COVERAGE:
         return (function or ORACLE[OP_COVERAGE])(call.args[0], call.args[1], call.budget, call.store)
+    if call.op == OP_SKELETON:
+        options = dict(call.kwargs)
+        with pinned_level_budget(options.pop("level_budget", None)):
+            return (function or ORACLE[OP_SKELETON])(call.args[0], work_budget=call.budget, **options)
     return (function or ORACLE[OP_CLIP])(call.args[0], call.budget, **call.kwargs)
 
 
@@ -270,6 +320,8 @@ def answer_view(op: str, result):
 
     if op == OP_COVERAGE:
         return dataclasses.replace(result, work_budget=None)
+    if op == OP_SKELETON:
+        return result
     return dataclasses.replace(result, memo="")
 
 
@@ -616,12 +668,33 @@ def result_shape(op: str, result) -> dict:
             "faces": sum(1 for item in result.faces if len(item.points) >= 3),
             "vertices": sum(len(item.points) for item in result.faces),
         }
+    if op == OP_SKELETON:
+        return {"nodes": len(result.nodes), "levels": result.levels, "obligations": len(result.proof_obligations)}
     return {"faces": len(result.polygons), "vertices": len(result.points)}
+
+
+def input_shape(call: Call) -> dict:
+    """Числа входа для индекса (у скелета — размеры полигона и условия вызова); у прочих операций пусто."""
+
+    if call.op != OP_SKELETON:
+        return {}
+    polygon = call.args[0]
+    return {
+        "polygon_vertices": polygon.vertex_count,
+        "polygon_loops": len(polygon.loops),
+        "fan_supports": polygon.fan_edge_count,
+        "reflex": polygon.reflex_count,
+        "split_search": call.kwargs["split_search"].value,
+        "dense_hydration": call.kwargs["dense_hydration"],
+        "level_budget": call.kwargs["level_budget"],
+    }
 
 
 def outcome_label(op: str, result, error) -> str:
     if error is not None:
         return f"raised:{type(error).__qualname__}"
+    if op == OP_SKELETON:
+        return str(result.outcome.value)
     return str(result.outcome.value) if op == OP_COVERAGE else "CLIPPED"
 
 
@@ -631,7 +704,10 @@ class Recorder:
     Время самого рекордера (снимки, пикл, сжатие, запись) копится в `overhead`: вызывающий вычитает его из времени домена.
     """
 
-    def __init__(self, root: Path, description: dict, *, preset: int = DEFAULT_PRESET, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
+    def __init__(
+        self, root: Path, description: dict, *, preset: int = DEFAULT_PRESET, max_bytes: int = DEFAULT_MAX_BYTES, operations: tuple = OPERATIONS
+    ) -> None:
+        self.operations = tuple(operations)
         self.root = Path(root)
         self.description = description
         self.preset = preset
@@ -642,7 +718,7 @@ class Recorder:
         self.sequence = 0
         self.bytes = 0
         self.overhead = 0.0
-        self._op_count = {op: 0 for op in OPERATIONS}
+        self._op_count = {op: 0 for op in self.operations}
         self._domain: dict | None = None
 
     def wrap(self, op: str, original):
@@ -651,12 +727,24 @@ class Recorder:
 
         return recorded
 
+    def resume(self) -> dict:
+        """Продолжает корпус каталога `root`: строки, нумерация и размер берутся из его индекса (записи дописываются, а не заменяют прежние); возвращает индекс."""
+
+        index = load_index(self.root)
+        self.rows = [row for row in index["records"] if row.get("derived") is None]
+        self.domains = list(index.get("domains", []))
+        self.sequence = max((row["seq"] for row in self.rows), default=0)
+        self.bytes = sum(row["bytes"] for row in self.rows)
+        for op in self.operations:
+            self._op_count[op] = sum(1 for row in self.rows if row["op"] == op)
+        return index
+
     def begin_domain(self, patch_id, domain_id, alpha) -> None:
         self.context.update(patch_id=patch_id, domain_id=domain_id, alpha=alpha)
         self._domain = {
-            "calls": {op: 0 for op in OPERATIONS},
-            "seconds": {op: 0.0 for op in OPERATIONS},
-            "op_overhead": {op: 0.0 for op in OPERATIONS},
+            "calls": {op: 0 for op in self.operations},
+            "seconds": {op: 0.0 for op in self.operations},
+            "op_overhead": {op: 0.0 for op in self.operations},
             "stages": {},
             "overhead": self.overhead,
         }
@@ -741,9 +829,12 @@ class Recorder:
             "git_head": self.description["git_head"],
             "canonical_audit": before.canonical_audit,
             **result_shape(op, result),
+            **input_shape(call),
         }
         if op == OP_COVERAGE:
             meta["lattice_alpha"] = str(call.args[1])
+        if op == OP_SKELETON and meta["domain_id"] is None and call.budget is not None and call.budget.domain_id:
+            meta["domain_id"] = call.budget.domain_id
         mesh_dir = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(self.context["mesh"] or "_"))
         patch = self.context["patch_id"]
         relative = f"records/{mesh_dir}/{self.sequence:06d}-{op}-p{patch if patch is not None else 'x'}.rec"
