@@ -463,6 +463,8 @@ def test_zz_the_comparisons_reached_the_live_lines_of_the_symbolic_modules():
     monitor = COVERAGE.get("monitor")
     if monitor is None:
         pytest.skip("монитор строк — `sys.monitoring` (Python 3.12 и новее): под 3.11 охват этого модуля не измеряется")
+    if CHECKED["PLAN_SYMBOLIC_CLOSURE"] < 1500 or not FIELD_POLYGONS.exists() or not builder_tests.corpus_polygons():
+        pytest.skip("охват меряется по всему модулю, с полевыми полигонами и корпусом скелета: часть выбранных тестов или нет корпуса — нет измерения")
     report = monitor.report()
     reached = sum(found for found, _total, _missed in report.values())
     total = sum(count for _found, count, _missed in report.values())

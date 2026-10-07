@@ -535,7 +535,7 @@ fn repr_projection(incident: &Incident) -> String {
 /// `_projection_order(left, right, budget)`: the order of two cuts of one span, by the SIGN of the difference of their projections (paid for), then by their geometry.
 fn projection_order(ctx: &mut ExactCtx<'_>, left: &Incident, right: &Incident) -> SkelResult<std::cmp::Ordering> {
     let (Some(first), Some(second)) = (&left.target_projection, &right.target_projection) else {
-        return Err(SkelError::Unsupported("TypeError: a cut without a projection has no order".to_string()));
+        return Err(SkelError::Unsupported("TypeError in the oracle: a cut without a projection has no order".to_string()));
     };
     let difference = first.sub(second);
     let order = exact::sign(ctx, &difference, SIGN_FILTER_BITS)?;
