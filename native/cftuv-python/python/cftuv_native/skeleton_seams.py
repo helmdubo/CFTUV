@@ -72,6 +72,12 @@ SEAMS = (
     (245, "SLIDING_PROJECTION"),
     (246, "CLASSIFY_POSTSTATE_SPAN"),
     (250, "PROOF_SCRIPT"),
+    (251, "BUILDER_INIT"),
+    (252, "BUILDER_RUN"),
+    (253, "COLLECT_SNAPSHOT"),
+    (254, "PLAN_COMPONENTS"),
+    (255, "PLAN_SPLIT_MATERIALIZATION"),
+    (300, "BUILDER_PRIMITIVE"),
 )
 OPCODES = {name: code for code, name in SEAMS}
 
@@ -100,6 +106,14 @@ LEAF_FILES = (
     "wavefront/proof.py",
     "wavefront/polygon.py",
     "robust/predicates.py",
+    "wavefront/skeleton.py",
+    "wavefront/superlevel.py",
+    "wavefront/superlevel_snapshot.py",
+    "wavefront/superlevel_germ.py",
+    "wavefront/superlevel_closure.py",
+    "wavefront/symbolic_initial_composition.py",
+    "wavefront/exact_identity.py",
+    "wavefront/digest.py",
     *pin.FOUNDATION,
 )
 
@@ -115,6 +129,14 @@ LEAF_PINS = {
     "wavefront/proof.py": "093e9b8de7b8e88687f0ce24d184cb434b608ebab2161b9c4e2a8721fa465de0",
     "wavefront/polygon.py": "d3fe537c884581844cbb62f626af79e6c085332ee53ba647100109e40c84c408",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
+    "wavefront/skeleton.py": "437f35e1faca6897235390ad9cc267d4086312198412148ec976dd0e7757a2ba",
+    "wavefront/superlevel.py": "26061fdbfeed2e0aab553cdf9d6fad4c284c1c2ec5caa3a7d14058971d2ac68d",
+    "wavefront/superlevel_snapshot.py": "8a9b948a0b91074b56b5bc780e38a22c33d9c234b21081df4b013f866ce2b38d",
+    "wavefront/superlevel_germ.py": "7063de9c4497322fe1282b3c511a266fe9c20d361be9f35b5febd869778aee02",
+    "wavefront/superlevel_closure.py": "8d4db91b5635cbb277e3cd3f31381756e395f830ed5bdfc80ae620f5c24f9352",
+    "wavefront/symbolic_initial_composition.py": "9b83f05bc7dabd2e980a7574bd42be1558ece4523bdd30c8b64e440e13231f5e",
+    "wavefront/exact_identity.py": "e306c46e645d9137ac0ec2edccb01aa3be3809ebff24996ce8c8770875663d47",
+    "wavefront/digest.py": "d0b56d73e0da58d196e72541208d7bfd3c91d5d46449573076184ec4b782432f",
 }
 
 
@@ -297,6 +319,12 @@ DECODERS = {
     "SLIDING_TIME": dec_time_entry,
     "SLIDING_POINT": dec_point,
     "EVENT_POINT": dec_point,
+    "BUILDER_INIT": lambda wire: wire,
+    "BUILDER_RUN": lambda wire: wire,
+    "COLLECT_SNAPSHOT": lambda wire: (dec_str(wire[0]), tuple(wire[1])),
+    "PLAN_COMPONENTS": dec_str,
+    "PLAN_SPLIT_MATERIALIZATION": dec_str,
+    "BUILDER_PRIMITIVE": lambda wire: wire,
 }
 
 

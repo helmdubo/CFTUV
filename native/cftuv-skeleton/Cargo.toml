@@ -9,6 +9,7 @@ publish.workspace = true
 dashu-int.workspace = true
 cftuv-canon = { path = "../cftuv-canon" }
 cftuv-core = { path = "../cftuv-core" }
+cftuv-clip = { path = "../cftuv-clip" }
 
 [features]
 # Phase timers of the leaf (`profile.rs`); a separate wheel is built with it by `tools/native_leaf_gate.py profile`.

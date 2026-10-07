@@ -136,4 +136,19 @@ impl EventQueue {
     pub fn arrangement(&self) -> Vec<u64> {
         self.heap.iter().map(|entry| entry.sequence).collect()
     }
+
+    /// The entries of the heap array in its order, each with its sequence number.
+    pub fn entries(&self) -> impl Iterator<Item = (&CandidateEvent, u64)> {
+        self.heap.iter().map(|entry| (&entry.event, entry.sequence))
+    }
+
+    /// The next sequence number a push takes (`next(self._counter)`).
+    pub fn counter(&self) -> u64 {
+        self.counter
+    }
+
+    /// A queue in the state the oracle's is in (the seams restore it): the heap array in its order with the sequence numbers, the counter, `pushed` and `popped`.
+    pub fn from_parts(heap: Vec<(CandidateEvent, u64)>, counter: u64, pushed: u64, popped: u64) -> EventQueue {
+        EventQueue { heap: heap.into_iter().map(|(event, sequence)| Entry { event, sequence }).collect(), counter, pushed, popped }
+    }
 }

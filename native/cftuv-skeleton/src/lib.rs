@@ -14,25 +14,43 @@
 //! * `motorcycle`: the motorcycle graph (marches, the crash queue, `trace_for`) and the two-sided `TraceCandidateIndex`;
 //! * `poststate`, `proof`: the affine classification of a newborn span and the ledger of proof obligations;
 //! * `profile`: phase timers behind the cargo feature `profile` (what the time of an evaluate call or a graph build is spent on);
-//! * `seam`, `seam_graph`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.
+//! * `builder`: the front (`_Builder`) and the event loop, with the primitives the transaction of a packet uses and the BOUNDARY of that transaction (`Transaction`):
+//!   the seed, the candidates of every vertex, the loop (levels, the memory of places on a new exact time, the residual of one time, the short LAVs, the finish) (WP-S3);
+//! * `skeleton`, `superlevel`: the result (`Skeleton`, the accumulation of nodes, the duplicate counters), and the head of the transaction with the records of its refusals
+//!   and the emission of the nodes of a component;
+//! * `pyval`: the Python values the planning layer keys, groups and orders by (identity by value, `repr`, the tuple order of CPython with its `TypeError`);
+//! * `snapshot`, `plans`, `germ`, `closure`, `composition`: the frozen prestate of a packet, the plan of each component (death of ports, reconnection of meetings, cut of a
+//!   span, composition, wiring of the births), the ledger of germs, the stable symbolic normal form of the cuts (WP-S4);
+//! * `seam`, `seam_graph`, `seam_builder`, `seam_primitive`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.
 //!
 //! Every function that pays cost takes an `ExactCtx` and asks its exact questions in the order the oracle asks them. A refusal is a named
 //! [`error::SkelError`]; nothing here panics on valid input and nothing falls back silently.
 
+pub mod builder;
 pub mod candidate;
+pub mod closure;
+pub mod composition;
 pub mod error;
+pub mod germ;
 pub mod grid;
 pub mod heap;
 pub mod line;
 pub mod motorcycle;
+pub mod plans;
 pub mod polygon;
 pub mod poststate;
 pub mod profile;
 pub mod proof;
+pub mod pyval;
 pub mod queue;
 pub mod repr;
 pub mod seam;
+mod seam_builder;
 mod seam_graph;
+mod seam_primitive;
+pub mod skeleton;
+pub mod snapshot;
+pub mod superlevel;
 pub mod time;
 pub mod view;
 mod wire;

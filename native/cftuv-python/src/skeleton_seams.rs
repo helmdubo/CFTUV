@@ -32,6 +32,6 @@ pub fn skeleton_seam_run<'py>(py: Python<'py>, session: &Bound<'py, Session>, re
 
 /// `skeleton_seam_table() -> list[tuple[int, str]]`: the opcodes of the seams, for the harness to compare with its own.
 #[pyfunction]
-pub fn skeleton_seam_table() -> Vec<(u8, &'static str)> {
+pub fn skeleton_seam_table() -> Vec<(u16, &'static str)> {
     cftuv_skeleton::seam::table()
 }

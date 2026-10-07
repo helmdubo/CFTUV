@@ -44,7 +44,7 @@ use crate::wire::{
 };
 
 /// `(opcode, name)` of the seams of this slice.
-pub(crate) const SEAMS: &[(u8, &str)] = &[
+pub(crate) const SEAMS: &[(u16, &str)] = &[
     (230, "CELL_GRID"),
     (231, "BUILD_MOTORCYCLE_GRAPH"),
     (232, "TRACE_FOR"),
@@ -60,7 +60,7 @@ pub(crate) const SEAMS: &[(u8, &str)] = &[
     (250, "PROOF_SCRIPT"),
 ];
 
-fn unsupported_wire(error: SkelError) -> SeamError {
+pub(crate) fn unsupported_wire(error: SkelError) -> SeamError {
     SeamError(format!("unsupported: {error:?}"))
 }
 
@@ -68,23 +68,23 @@ fn unsupported_wire(error: SkelError) -> SeamError {
 // readers and writers
 // --------------------------------------------------------------------------
 
-fn ints_of(value: &Value, what: &str) -> Wire<Vec<i64>> {
+pub(crate) fn ints_of(value: &Value, what: &str) -> Wire<Vec<i64>> {
     list(value, what)?.iter().map(|item| i64_of(item, what)).collect()
 }
 
-fn ints_value(values: &[i64]) -> Value {
+pub(crate) fn ints_value(values: &[i64]) -> Value {
     Value::List(values.iter().map(|value| int(*value)).collect())
 }
 
-fn keys_of(value: &Value, what: &str) -> Wire<Vec<Vec<i64>>> {
+pub(crate) fn keys_of(value: &Value, what: &str) -> Wire<Vec<Vec<i64>>> {
     list(value, what)?.iter().map(|key| ints_of(key, what)).collect()
 }
 
-fn keys_value(keys: &[Vec<i64>]) -> Value {
+pub(crate) fn keys_value(keys: &[Vec<i64>]) -> Value {
     Value::List(keys.iter().map(|key| ints_value(key)).collect())
 }
 
-fn point2_of(first: &Value, second: &Value, what: &str) -> Wire<(i64, i64)> {
+pub(crate) fn point2_of(first: &Value, second: &Value, what: &str) -> Wire<(i64, i64)> {
     Ok((i64_of(first, what)?, i64_of(second, what)?))
 }
 
@@ -137,7 +137,7 @@ fn kind_code(kind: CrashKind) -> u8 {
     }
 }
 
-fn trace_value(trace: &Trace) -> Value {
+pub(crate) fn trace_value(trace: &Trace) -> Value {
     Value::List(vec![
         int(trace.ident),
         int(outcome_code(trace.outcome)),
@@ -154,7 +154,7 @@ fn trace_value(trace: &Trace) -> Value {
     ])
 }
 
-fn trace_of(value: &Value) -> Wire<Trace> {
+pub(crate) fn trace_of(value: &Value) -> Wire<Trace> {
     let [ident, outcome, left, right, start, origin, velocity, crash_time, crash_point, kind, target, reach] = fixed::<12>(value, "a trace")?;
     let [vx, vy] = fixed::<2>(velocity, "a velocity")?;
     Ok(Trace {
@@ -189,11 +189,11 @@ fn cell_value(cell: &Cell) -> Value {
     Value::List(vec![int(cell.0), int(cell.1)])
 }
 
-fn cells_value(cells: &[Cell]) -> Value {
+pub(crate) fn cells_value(cells: &[Cell]) -> Value {
     Value::List(cells.iter().map(cell_value).collect())
 }
 
-fn cells_of(value: &Value) -> Wire<Vec<Cell>> {
+pub(crate) fn cells_of(value: &Value) -> Wire<Vec<Cell>> {
     list(value, "cells")?
         .iter()
         .map(|cell| {
@@ -203,11 +203,11 @@ fn cells_of(value: &Value) -> Wire<Vec<Cell>> {
         .collect()
 }
 
-fn grid_value(grid: &CellGrid) -> Value {
+pub(crate) fn grid_value(grid: &CellGrid) -> Value {
     ints_value(&[grid.x_min, grid.y_min, grid.x_max, grid.y_max, grid.cell])
 }
 
-fn grid_of(value: &Value) -> Wire<CellGrid> {
+pub(crate) fn grid_of(value: &Value) -> Wire<CellGrid> {
     let [x_min, y_min, x_max, y_max, cell] = fixed::<5>(value, "a grid")?;
     let grid = CellGrid { x_min: i64_of(x_min, "a grid limit")?, y_min: i64_of(y_min, "a grid limit")?, x_max: i64_of(x_max, "a grid limit")?, y_max: i64_of(y_max, "a grid limit")?, cell: i64_of(cell, "a grid cell")? };
     if grid.cell <= 0 {
@@ -233,7 +233,7 @@ fn counters_value(counters: &GraphCounters) -> Value {
     Value::List(counters.as_array().iter().map(|count| int(*count)).collect())
 }
 
-fn graph_value(graph: &MotorcycleGraph) -> Value {
+pub(crate) fn graph_value(graph: &MotorcycleGraph) -> Value {
     Value::List(vec![
         Value::List(graph.walls.iter().map(wall_value).collect()),
         grid_value(&graph.grid),
@@ -244,7 +244,7 @@ fn graph_value(graph: &MotorcycleGraph) -> Value {
     ])
 }
 
-fn graph_of(value: &Value) -> Wire<MotorcycleGraph> {
+pub(crate) fn graph_of(value: &Value) -> Wire<MotorcycleGraph> {
     let [walls, grid, buckets, traces, counters, next] = fixed::<6>(value, "a graph")?;
     let walls = list(walls, "walls")?.iter().map(wall_of).collect::<Wire<Vec<Wall>>>()?;
     let mut index = CellIndex::new();
@@ -259,7 +259,7 @@ fn graph_of(value: &Value) -> Wire<MotorcycleGraph> {
     Ok(MotorcycleGraph::from_parts(walls, grid_of(grid)?, index, traces, counters, next_ident))
 }
 
-fn nanoseconds(started: Instant) -> Value {
+pub(crate) fn nanoseconds(started: Instant) -> Value {
     int(started.elapsed().as_nanos() as u64)
 }
 
@@ -428,7 +428,7 @@ fn disposition_index(disposition: PoststateDisposition) -> u8 {
 // the proof ledger
 // --------------------------------------------------------------------------
 
-fn obligation_value(obligation: &ProofObligation) -> Value {
+pub(crate) fn obligation_value(obligation: &ProofObligation) -> Value {
     let (kind, cause) = match obligation.cause {
         ProofCause::Refusal(reason) => (0u8, reason.value()),
         ProofCause::Branch(branch) => (1u8, branch.value()),
@@ -445,7 +445,7 @@ fn obligation_value(obligation: &ProofObligation) -> Value {
     ])
 }
 
-fn cause_of(kind: &Value, name: &Value) -> Wire<ProofCause> {
+pub(crate) fn cause_of(kind: &Value, name: &Value) -> Wire<ProofCause> {
     let name = str_of(name, "a cause")?;
     match u32_of(kind, "a cause kind")? {
         0 => CandidateRefusal::from_value(&name).map(ProofCause::Refusal).ok_or_else(|| bad("a refusal name")),
@@ -494,7 +494,7 @@ fn proof_script(args: &[Value]) -> Wire<SkelResult<Value>> {
 // dispatch
 // --------------------------------------------------------------------------
 
-pub(crate) fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
+pub(crate) fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
     let at = |index: usize| args.get(index).ok_or_else(|| bad("too few arguments"));
     let expect = |count: usize| if args.len() == count { Ok(()) } else { Err(bad("the argument count")) };
     Ok(match code {
@@ -587,6 +587,6 @@ pub(crate) fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras:
             })
         }
         250 => return proof_script(args),
-        other => return Err(SeamError(format!("unknown skeleton seam opcode {other}"))),
+        other => return crate::seam_builder::dispatch(other, args, ctx, extras),
     })
 }

@@ -182,6 +182,11 @@ impl ProofLedger {
         &self.obligations
     }
 
+    /// A ledger holding these obligations as they are (the seams restore the oracle's with it).
+    pub fn from_obligations(obligations: Vec<ProofObligation>) -> ProofLedger {
+        ProofLedger { obligations }
+    }
+
     /// `record(...)`: the identity is normalised (sorted, repeats dropped), the multiplicity of the records themselves is kept.
     #[allow(clippy::too_many_arguments)]
     pub fn record(

@@ -779,6 +779,25 @@ impl TraceCandidateIndex {
     pub fn vertex_cell_table(&self) -> &[(i64, Vec<Cell>)] {
         &self.vertex_cells.entries
     }
+
+    /// The buckets of the line index and of the vertex index (`(cell, identities)` in the order of the oracle's dictionaries).
+    pub fn buckets(&self) -> (&[(Cell, Vec<i64>)], &[(Cell, Vec<i64>)]) {
+        (self.lines.buckets(), self.vertices.buckets())
+    }
+
+    /// An index in the state the oracle's is in (the seams restore it): the tables of cells replayed in their registration order give the buckets.
+    pub fn restore(grid: CellGrid, speed_bound: i64, line_cells: Vec<(i64, Vec<Cell>)>, vertex_cells: Vec<(i64, Vec<Cell>)>) -> TraceCandidateIndex {
+        let mut index = TraceCandidateIndex { grid, speed_bound, lines: CellIndex::new(), vertices: CellIndex::new(), line_cells: CellsByKey::default(), vertex_cells: CellsByKey::default() };
+        for (key, cells) in line_cells {
+            index.lines.add(key, &cells);
+            index.line_cells.insert(key, cells);
+        }
+        for (vertex, cells) in vertex_cells {
+            index.vertices.add(vertex, &cells);
+            index.vertex_cells.insert(vertex, cells);
+        }
+        index
+    }
 }
 
 #[cfg(test)]

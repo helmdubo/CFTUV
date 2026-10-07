@@ -33,7 +33,7 @@ use crate::wire::{
 };
 
 /// `(opcode, name)` of the seams, in the order the Python harness uses.
-pub const SEAMS: &[(u8, &str)] = &[
+pub const SEAMS: &[(u16, &str)] = &[
     (200, "PY_REPR"),
     (201, "SUPPORT_LINE"),
     (202, "COMPARE_TIMES"),
@@ -372,7 +372,7 @@ fn queue_script(ctx: &mut ExactCtx<'_>, script: &Value) -> Wire<SkelResult<Value
     Ok(Ok(Value::List(vec![Value::List(results), Value::List(arrangement), int(queue.pushed), int(queue.popped)])))
 }
 
-fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
+fn dispatch(code: u16, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<Value>) -> Wire<SkelResult<Value>> {
     let at = |index: usize| args.get(index).ok_or_else(|| bad("too few arguments"));
     let expect = |count: usize| if args.len() == count { Ok(()) } else { Err(bad("the argument count")) };
     Ok(match code {
@@ -487,7 +487,7 @@ pub fn run(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, SeamError> 
     let parsed = reader.get_value()?;
     reader.finish()?;
     let [header, code, args] = fixed::<3>(&parsed, "a request")?;
-    let code = u8::try_from(&int_of(code, "an opcode")?).map_err(|_| bad("an opcode"))?;
+    let code = u16::try_from(&int_of(code, "an opcode")?).map_err(|_| bad("an opcode"))?;
     let args = list(args, "the arguments")?;
     let header = if matches!(header, Value::None) { default_header() } else { header.clone() };
     let mut cost = CostRun::begin(session, &header).map_err(|error| SeamError(error.to_string()))?;
@@ -510,8 +510,8 @@ pub fn run(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, SeamError> 
 }
 
 /// The table [`SEAMS`] as the harness reads it (kept beside `run` so a new opcode is one edit).
-pub fn table() -> Vec<(u8, &'static str)> {
-    SEAMS.iter().chain(crate::seam_graph::SEAMS).copied().collect()
+pub fn table() -> Vec<(u16, &'static str)> {
+    SEAMS.iter().chain(crate::seam_graph::SEAMS).chain(crate::seam_builder::SEAMS).chain(crate::seam_primitive::SEAMS).copied().collect()
 }
 
 #[cfg(test)]
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn the_seam_table_has_no_duplicate_opcode() {
-        let mut codes: Vec<u8> = table().iter().map(|(code, _)| *code).collect();
+        let mut codes: Vec<u16> = table().iter().map(|(code, _)| *code).collect();
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(codes.len(), table().len());
