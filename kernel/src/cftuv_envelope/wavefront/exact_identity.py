@@ -149,3 +149,21 @@ def exact_point_key(point) -> tuple:
     """
 
     return identity_key((point.x.terms, point.y.terms))
+
+
+def identity_order_key(value):
+    """Ключ сортировки ключей тождества, где конец пролёта может быть `None`.
+
+    У вершины без места (антипараллельный стык либо сонаправленный стык разных
+    скоростей: `position` возвращает `None` по закону, а не по сбою) конец
+    вхождения `(ребро, начало, конец)` записан как `None`, и голое `<` между
+    `None` и ключом точки — `TypeError`: тихая гибель прогона вместо названного
+    исхода. Порядок ключей без `None` этот ключ не меняет ни на бит; `None`
+    стоит после любого значения в том же слоте.
+    """
+
+    if value is None:
+        return (1,)
+    if isinstance(value, tuple):
+        return (0, tuple(identity_order_key(item) for item in value))
+    return (0, value)
