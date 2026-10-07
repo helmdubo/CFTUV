@@ -70,7 +70,7 @@ def normalize_kernel_backend(value) -> str:
 
 
 def kernel_backend_of(mesh_settings) -> str:
-    """Заказанный бэкенд из настроек декали сцены; без свойства (вне Blender, старая сцена) — `PYTHON`."""
+    """Заказанный бэкенд из настроек декали сцены; без свойства (вне Blender) и в сцене, где его не трогали, — умолчание продукта (`NATIVE`)."""
 
     return normalize_kernel_backend(getattr(mesh_settings, SETTING_NAME, DEFAULT_KERNEL_BACKEND) or DEFAULT_KERNEL_BACKEND)
 
