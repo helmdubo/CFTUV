@@ -69,6 +69,8 @@ import os
 from enum import Enum
 from fractions import Fraction
 
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
+
 CONTENT_KEY_SCHEMA = "cftuv.content-key.v1"
 #: Поля `HostExportInputV1`, которые ключ содержимого НЕ кодирует (см. модуль). Остальные входят.
 EXCLUDED_FIELDS = frozenset({"source_revision_value", "alpha", "request_id"})
@@ -214,7 +216,7 @@ def code_identity() -> tuple[str, str]:
     )
 
 
-def execution_identity(backend="PYTHON") -> tuple[str, str, str]:
+def execution_identity(backend=DEFAULT_KERNEL_BACKEND) -> tuple[str, str, str]:
     """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенд, которым считают."""
 
     from .envelope_kernel_backend import backend_identity_of
@@ -222,7 +224,7 @@ def execution_identity(backend="PYTHON") -> tuple[str, str, str]:
     return (*code_identity(), backend_identity_of(backend))
 
 
-def _policy_constants(backend="PYTHON") -> tuple:
+def _policy_constants(backend=DEFAULT_KERNEL_BACKEND) -> tuple:
     """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра, отпечаток кода и бэкенд ядра."""
 
     from . import envelope_request_export as export
@@ -276,7 +278,7 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None, backend="PYTHON") -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND) -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
@@ -310,9 +312,13 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend="PYTHON
     return hashlib.sha256("\x1e".join(parts).encode("utf-8")).hexdigest()
 
 
-def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str, backend_id: str = "PYTHON") -> tuple:
-    """Часть ключа РЕЗУЛЬТАТА поверх ключа содержимого: alpha, законы материализации и идентичность бэкенда ядра."""
+def result_slot(alpha_text: str, uv_policy_id: str, topology_law: str, lift_law: str, backend_id: str | None = None) -> tuple:
+    """Часть ключа РЕЗУЛЬТАТА поверх ключа содержимого: alpha, законы материализации и идентичность бэкенда ядра (без неё — идентичность умолчания продукта)."""
 
+    if backend_id is None:
+        from .envelope_kernel_backend import backend_identity_of
+
+        backend_id = backend_identity_of(DEFAULT_KERNEL_BACKEND)
     return (str(alpha_text), str(uv_policy_id), str(topology_law), str(lift_law), str(backend_id))
 
 

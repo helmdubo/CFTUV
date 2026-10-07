@@ -82,6 +82,7 @@ import traceback
 from collections import deque
 from dataclasses import dataclass, replace
 
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -216,8 +217,8 @@ class DomainTaskV1:
     #: Ключ привязки к воркеру (`plan_first_round`): задача с тем же ключом идёт к тому же воркеру, если он жив; пусто — без привязки.
     affinity: str = ""
     #: Бэкенд ядра воркера для домена продуктового пути (`PYTHON` | `NATIVE`, `envelope_kernel_backend`): ответ от него не зависит;
-    #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`).
-    backend: str = "PYTHON"
+    #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`). Умолчание — продуктовое.
+    backend: str = DEFAULT_KERNEL_BACKEND
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,7 +2,9 @@
 
 Нативный бэкенд — переключатель, а не политика запроса: ответ побитово один. Что держат тесты:
 
-1. УМОЛЧАНИЕ НИЧЕГО НЕ МЕНЯЕТ. `PYTHON` — ответ тот же, записи нет, строки журнала нет, память резки не сбрасывается.
+1. УМОЛЧАНИЕ ПРОДУКТА — `NATIVE` (решение владельца 2026-10-07), и оно названо ОДНИМ местом (`DEFAULT_KERNEL_BACKEND`). Явный `PYTHON` —
+   ответ тот же, записи нет, строки журнала нет, память резки не сбрасывается. ЭТАЛОН ОТВЕТА В ЭТОМ ФАЙЛЕ — ВСЕГДА ЯВНЫЙ `PYTHON`
+   (`_python`): прогон «по умолчанию» эталоном быть не может, умолчание не Python.
 2. ЗАКАЗ НАЗЫВАЕТ ИСПОЛНИТЕЛЯ. С `NATIVE` каждый посчитанный домен несёт `BackendRecordV1`; без колеса домен считает эталон,
    ответ равен ответу `PYTHON`, а запись называет причину. Запись и строка журнала едут из воркера пула.
 3. КЛЮЧИ НЕ СМЕШИВАЮТСЯ. Результат одного бэкенда не берётся из кэша другого: ни в кэше ревизии, ни по содержимому.
@@ -93,47 +95,111 @@ def _run(bundle, *, backend=None, controller=None, workers=0):
     )
 
 
+def _python(bundle, **kwargs):
+    """Прогон на ЯВНОМ `PYTHON`: эталон ответа. Умолчание продукта — `NATIVE`, поэтому «прогон без заказа» эталоном быть не может."""
+
+    return _run(bundle, backend="PYTHON", **kwargs)
+
+
 def _projection(run):
     return [result_projection(item) for item in run.results]
 
 
 # --------------------------------------------------------------------------
-# 1. Умолчание ничего не меняет
+# 1. Умолчание продукта — NATIVE; явный PYTHON молчит
 # --------------------------------------------------------------------------
 
 
-def test_the_setting_defaults_to_python_and_an_unknown_name_is_refused():
-    assert host_backend.DEFAULT_KERNEL_BACKEND == "PYTHON"
-    assert host_backend.kernel_backend_of(SimpleNamespace()) == "PYTHON"
+def test_the_setting_defaults_to_native_a_chosen_python_stays_python_and_an_unknown_name_is_refused():
+    assert host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
+    assert host_backend.kernel_backend_of(SimpleNamespace()) == "NATIVE"
     assert host_backend.kernel_backend_of(SimpleNamespace(kernel_backend="NATIVE")) == "NATIVE"
+    assert host_backend.kernel_backend_of(SimpleNamespace(kernel_backend="PYTHON")) == "PYTHON"
     assert host_backend.normalize_kernel_backend(" native ") == "NATIVE"
     with pytest.raises(ValueError, match="unknown kernel backend"):
         host_backend.normalize_kernel_backend("RUST")
+    # порядок пунктов — формат хранения в сцене (индекс): PYTHON = 0, NATIVE = 1; сцена с выбранным `PYTHON` читает его и после смены умолчания
     assert [item[0] for item in host_backend.KERNEL_BACKEND_ITEMS] == ["PYTHON", "NATIVE"]
     assert host_backend.KERNEL_BACKEND_ITEMS[1][1] == "Native (Rust)"
+    assert "Default" in host_backend.KERNEL_BACKEND_ITEMS[1][2] and "Default" not in host_backend.KERNEL_BACKEND_ITEMS[0][2]
 
 
-def test_the_default_press_is_the_python_press_with_no_record_and_no_journal_line(row):
-    implicit = _run(row)
-    explicit = _run(row, backend="PYTHON")
+def test_the_default_press_is_the_native_press_and_names_who_computed_while_an_explicit_python_press_stays_silent(row):
+    default = _run(row)
+    python = _python(row)
 
-    assert implicit.kernel_backend == explicit.kernel_backend == "PYTHON"
-    assert _projection(implicit) == _projection(explicit)
-    assert [item.content_digest for item in implicit.results] == [item.content_digest for item in explicit.results]
-    assert all(item.backend_record is None for item in (*implicit.results, *explicit.results))
-    assert host_backend.backend_console_lines(explicit.results, "PYTHON") == []
-    assert host_backend.backend_timing_suffix(explicit.results, "PYTHON") == ""
-    assert "backend" not in production.production_timing_text(explicit)
+    assert default.kernel_backend == "NATIVE" and python.kernel_backend == "PYTHON"
+    # ответ побитово тот же, каким бэкендом ни считали
+    assert _projection(default) == _projection(python)
+    assert [item.content_digest for item in default.results] == [item.content_digest for item in python.results]
+    # умолчание называет исполнителя: колеса в процессе нет, поэтому каждый домен назван откатом `NATIVE_UNAVAILABLE` (или не дошёл до операции)
+    records = [item.backend_record for item in default.results]
+    assert all(record is not None and record.requested == "NATIVE" and record.ran == "python" for record in records)
+    assert all(record.outcomes and set(record.outcomes) <= {"NATIVE_UNAVAILABLE", "NATIVE_NOT_REACHED"} for record in records)
+    line = host_backend.backend_console_lines(default.results, default.kernel_backend)[0]
+    assert line.startswith("[CFTUV][Production] BACKEND native 0 / python " + str(ROW))
+    assert "NATIVE_UNAVAILABLE: patch" in line or "NATIVE_NOT_REACHED: patch" in line
+    assert f" | backend native 0 / python {ROW}" in production.production_timing_text(default)
+    # явный `PYTHON`: записи нет, строки журнала нет, в строке панели бэкенда нет
+    assert all(item.backend_record is None for item in python.results)
+    assert host_backend.backend_console_lines(python.results, "PYTHON") == []
+    assert host_backend.backend_timing_suffix(python.results, "PYTHON") == ""
+    assert "backend" not in production.production_timing_text(python)
 
 
-def test_python_press_never_clears_the_clip_memo(row, monkeypatch):
+@pytest.mark.parametrize("name", ["PYTHON", "NATIVE"])
+def test_a_press_of_the_backend_the_process_already_runs_never_clears_the_clip_memo(row, monkeypatch, name):
     from cftuv_envelope.materialize.clip_memo import MEMO
 
     cleared = []
+    monkeypatch.setattr(host_backend, "_LAST_BACKEND", [name])
     monkeypatch.setattr(MEMO, "clear", lambda: cleared.append(1))
-    _run(row)
-    _run(row, backend="PYTHON")
+    _run(row, backend=name)
+    _run(row, backend=name, controller=EnvelopeDebugSessionController())
     assert cleared == []
+
+
+def test_every_backend_default_of_the_host_is_the_one_named_constant():
+    """Умолчание бэкенда названо ОДНИМ местом (`DEFAULT_KERNEL_BACKEND`): литерал `"PYTHON"`/`"NATIVE"` в умолчании параметра, поля либо свойства сцены — дефект.
+
+    Иначе прогон, задача пула, запись живой ширины и настройка сцены разошлись бы молча (одна часть продукта считает Python, другая Rust).
+    Исключение одно: `backend_id` (идентичность бэкенда для ключа) без значения — `None`, и идентичность берётся у умолчания.
+    """
+
+    import ast
+    from pathlib import Path
+
+    names = {"backend", "kernel_backend", "backend_id"}
+    found: list = []
+    for path in sorted((Path(__file__).resolve().parents[1] / "cftuv").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                arguments = node.args
+                positional = [*arguments.posonlyargs, *arguments.args]
+                pairs = list(zip(positional[len(positional) - len(arguments.defaults) :], arguments.defaults))
+                pairs += [(arg, default) for arg, default in zip(arguments.kwonlyargs, arguments.kw_defaults) if default is not None]
+                found += [(path.name, arg.arg, ast.unparse(default)) for arg, default in pairs if arg.arg in names]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in names:
+                value = node.value
+                if value is None and isinstance(node.annotation, ast.Call):  # свойство сцены: `kernel_backend: EnumProperty(..., default=...)`
+                    value = next((item.value for item in node.annotation.keywords if item.arg == "default"), None)
+                if value is not None:
+                    found.append((path.name, node.target.id, ast.unparse(value)))
+    allowed = {"DEFAULT_KERNEL_BACKEND", "None"}
+    assert not [item for item in found if item[2] not in allowed], [item for item in found if item[2] not in allowed]
+    # правило не пустое: оно видит каждое место проводки (прогон, задача пула, запись живой ширины, свойство сцены, ключи кэшей)
+    seen = {(file, name) for file, name, _default in found}
+    for site in (
+        ("envelope_kernel_backend.py", "backend"),
+        ("envelope_production_export.py", "kernel_backend"),
+        ("envelope_production_export.py", "backend"),
+        ("envelope_domain_pool.py", "backend"),
+        ("envelope_width_live.py", "kernel_backend"),
+        ("envelope_production_operator.py", "kernel_backend"),
+        ("envelope_content_key.py", "backend"),
+        ("envelope_content_key.py", "backend_id"),
+    ):
+        assert site in seen, site
 
 
 # --------------------------------------------------------------------------
@@ -142,7 +208,7 @@ def test_python_press_never_clears_the_clip_memo(row, monkeypatch):
 
 
 def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_every_computed_domain(row):
-    reference = _run(row)
+    reference = _python(row)
     native = _run(row, backend="NATIVE")
 
     assert native.kernel_backend == "NATIVE"
@@ -169,9 +235,9 @@ def test_no_press_replaces_a_name_in_the_kernel_and_the_backends_give_the_same_a
     oracles = (clip.clip_geometry, coverage._coverage_at)
     for name in ("install_dispatch", "uninstall_dispatch", "dispatch_installed"):
         assert not hasattr(kernel_backend, name) and not hasattr(host_backend, name), name
-    python = _run(row)
+    python = _python(row)
     native = _run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())
-    again = _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
+    again = _python(row, controller=EnvelopeDebugSessionController())
     assert (clip.clip_geometry, coverage._coverage_at) == oracles
     assert clip.clip_geometry is not kernel_backend.clip_compute
     assert _projection(again) == _projection(native) == _projection(python)
@@ -179,7 +245,7 @@ def test_no_press_replaces_a_name_in_the_kernel_and_the_backends_give_the_same_a
 
 def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_python_cache(row):
     controller = EnvelopeDebugSessionController()
-    python = _run(row, controller=controller)
+    python = _python(row, controller=controller)
     assert python.counter(production.PRODUCTION_RESULT_CACHE_MISS) == ROW
 
     native = _run(row, backend="NATIVE", controller=controller)
@@ -193,7 +259,7 @@ def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_pyth
     line = host_backend.backend_console_lines(again.results, "NATIVE")[0]
     assert f"native 0 / python 0 / cached {ROW}" in line
 
-    back = _run(row, backend="PYTHON", controller=controller)
+    back = _python(row, controller=controller)
     assert (back.counter(production.PRODUCTION_RESULT_CACHE_HIT), back.counter(production.PRODUCTION_RESULT_CACHE_MISS)) == (ROW, 0)
 
 
@@ -211,28 +277,35 @@ def test_the_backend_travels_with_the_task_and_the_record_comes_back_from_the_wo
     assert tasks and {task.backend for task in tasks} == {"NATIVE"}
     assert all(item.backend_record is not None and item.backend_record.requested == "NATIVE" for item in run.results)
     assert all(item.placement == production.PLACEMENT_WORKER for item in run.results)
-    assert _projection(run) == _projection(_run(row))
+    assert _projection(run) == _projection(_python(row))
 
+    # заказ без слова — умолчание продукта, оно едет в задачу воркера; явный `PYTHON` едет как есть
     tasks.clear()
     _run(row, controller=EnvelopeDebugSessionController(), workers=2)
+    assert tasks and {task.backend for task in tasks} == {"NATIVE"}
+    tasks.clear()
+    _python(row, controller=EnvelopeDebugSessionController(), workers=2)
     assert tasks and {task.backend for task in tasks} == {"PYTHON"}
 
 
-def test_the_task_default_is_python_and_a_task_pickles_with_its_backend():
+def test_the_task_default_is_the_product_default_and_a_task_pickles_with_its_backend():
     task = pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset())
-    assert task.backend == "PYTHON"
-    assert pickle.loads(pickle.dumps(pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), backend="NATIVE"))).backend == "NATIVE"
+    assert task.backend == "NATIVE" == host_backend.DEFAULT_KERNEL_BACKEND
+    assert pickle.loads(pickle.dumps(task)).backend == "NATIVE"
+    assert pickle.loads(pickle.dumps(pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), backend="PYTHON"))).backend == "PYTHON"
 
 
 def test_a_backend_switch_clears_the_clip_memo_once_per_switch(row, monkeypatch):
     from cftuv_envelope.materialize.clip_memo import MEMO
 
     cleared = []
+    monkeypatch.setattr(host_backend, "_LAST_BACKEND", ["PYTHON"])
     monkeypatch.setattr(MEMO, "clear", lambda: cleared.append(host_backend._LAST_BACKEND[0]))
-    _run(row)
+    _python(row)
     _run(row, backend="NATIVE")
     _run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())
-    _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
+    _run(row, controller=EnvelopeDebugSessionController())  # без заказа — умолчание продукта, тот же `NATIVE`: сброса нет
+    _python(row, controller=EnvelopeDebugSessionController())
     assert cleared == ["PYTHON", "NATIVE"]  # метка читается ДО записи: первый сброс — при уходе с PYTHON, второй — при возврате
 
 
@@ -241,7 +314,7 @@ def test_an_installed_native_module_changes_the_identity_not_the_answer(row):
 
     assert host_backend.backend_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("PYTHON") == "PYTHON"
-    assert _projection(_run(row, backend="NATIVE")) == _projection(_run(row))
+    assert _projection(_run(row, backend="NATIVE")) == _projection(_python(row))
     # другая сборка при том же номере колеса — другая идентичность (ключи кэшей не читают результат прежней сборки)
     module.native_build_id = lambda: "cd" * 32
     kernel_backend.refresh_native()
@@ -264,9 +337,13 @@ def test_the_execution_identity_adds_the_backend_to_the_code_fingerprint_and_lea
 
 
 def test_the_content_key_and_the_result_slot_carry_the_backend(row):
-    first = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT")
-    assert first == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "PYTHON")
+    first = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "PYTHON")
     assert first != content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}")
+    # без идентичности слот несёт идентичность умолчания продукта (без колеса — `NATIVE:unavailable`), а не молчаливый `PYTHON`
+    default = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT")
+    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", host_backend.backend_identity_of(host_backend.DEFAULT_KERNEL_BACKEND))
+    assert default == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:unavailable") != first
+    assert content_key.execution_identity() == content_key.execution_identity(host_backend.DEFAULT_KERNEL_BACKEND)
     assert content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}") != content_key.result_slot(
         "0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:" + "cd" * 32
     )
@@ -276,7 +353,7 @@ def test_a_native_press_after_a_python_press_does_not_take_results_from_the_cont
     """Хранилище по содержимому: ключ и слот результата несут бэкенд, поэтому другой бэкенд не читает чужую запись."""
 
     controller = EnvelopeDebugSessionController()
-    _run(row, controller=controller)
+    _python(row, controller=controller)
 
     from cftuv.envelope_production_export import _slot
 
@@ -391,12 +468,13 @@ def test_a_domain_refusal_of_the_native_core_names_the_domain_whatever_the_stage
     assert (refused.outcome, refused.patch_id, refused.domain_id, refused.seconds) == (outcome, 7, "domain-7", 1.5)
     assert detail in refused.detail
     assert refused.backend_record.outcomes == (outcome,) and refused.backend_record.ran == "python"
-    # под `PYTHON` ничего не записывается и ничего не называется
+    # под явным `PYTHON` ничего не записывается и ничего не называется; без слова — умолчание продукта, оно называет исполнителя
     @host_backend.with_kernel_backend
     def plain(patch_id, domain_id):
         return production._refusal(patch_id, domain_id, "MATERIALIZED", "")
 
-    assert plain(7, "domain-7").outcome == "MATERIALIZED" and plain(7, "domain-7").backend_record is None
+    assert plain(7, "domain-7", backend="PYTHON").outcome == "MATERIALIZED" and plain(7, "domain-7", backend="PYTHON").backend_record is None
+    assert plain(7, "domain-7").backend_record is not None and plain(7, "domain-7").backend_record.requested == "NATIVE"
 
 
 def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_of_computing_on_dirty_state(row):
@@ -425,7 +503,7 @@ def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_o
 
     module.coverage_at = clean
     kernel_backend.refresh_native()
-    assert _projection(_run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())) == _projection(_run(row))
+    assert _projection(_run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())) == _projection(_python(row))
 
 
 def test_a_press_whose_native_division_diverges_refuses_every_domain_by_name_and_never_asks_the_oracle(row):
@@ -463,7 +541,7 @@ def test_a_press_whose_native_core_breaks_down_before_any_effect_gives_the_pytho
 
     native = _run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())
 
-    assert _projection(native) == _projection(_run(row))
+    assert _projection(native) == _projection(_python(row))
     assert all("NATIVE_INTERNAL_ERROR" in item.backend_record.outcomes for item in native.results if item.placement != PLACEMENT_CACHED)
     line = host_backend.backend_console_lines(native.results, "NATIVE")[0]
     assert "NATIVE_INTERNAL_ERROR: patch" in line
@@ -503,7 +581,7 @@ def test_the_live_width_thread_passes_the_backend_of_the_last_build_to_run_produ
 
     from cftuv.envelope_width_live import LastProductionBuildV1
 
-    assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["kernel_backend"] == "PYTHON"
+    assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["kernel_backend"] == "NATIVE"
     path = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     begin = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_begin")

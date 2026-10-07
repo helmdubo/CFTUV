@@ -162,6 +162,8 @@ def main() -> int:
                 export_module.run_production(
                     controller, bundle, frozenset(selected), alpha, source_object_key=key, source_data_key=data_key,
                     density=args.density, developable_stretch_budget=envelope_stretch_budget(args.stretch), workers=0,
+                    # Сверка памяти резки идёт на эталоне: умолчание продукта (нативный бэкенд) здесь явным заказом не подменяется.
+                    kernel_backend="PYTHON",
                 )
             row = {"seconds": round(time.perf_counter() - started, 2), **MEMO.snapshot()}
             row["domains_compared"] = stats["domains"] - before["domains"]

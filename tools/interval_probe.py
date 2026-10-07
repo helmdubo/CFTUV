@@ -183,7 +183,8 @@ class _Session:
             source_object_key=self.keys[0], source_data_key=self.keys[1], density=args.density,
             developable_stretch_budget=envelope_stretch_budget(args.stretch),
             silhouette_uv_slide=envelope_dissolve_uv_slide(args.dissolve),
-            workers=0, domain_pool=None,
+            # Зонд сверяет ответ шагов ширины: эталон назван явно (`evaluate` берёт бэкенд из захваченных аргументов домена, то есть тот же).
+            workers=0, domain_pool=None, kernel_backend="PYTHON",
         )
 
     def evaluate(self, patch_id, alpha):
