@@ -336,6 +336,31 @@ def test_the_graph_equals_the_oracle_on_every_named_weighted_generated_and_fan_p
     CHECKED["graph polygons"] += len(polygons)
 
 
+def moved(polygon, dx: int, dy: int, factor: int = 1):
+    """The same polygon translated (negative origins, far from zero) and scaled by a whole factor: the lattice moves, the shape and the speeds stay."""
+
+    def loop_of(loop):
+        speeds = None if loop.speeds_squared is None else tuple(speed * factor * factor for speed in loop.speeds_squared)
+        return LoopV1(tuple((x * factor + dx, y * factor + dy) for x, y in loop.points), speeds)
+
+    fans = tuple(VertexFanV1((fan.point[0] * factor + dx, fan.point[1] * factor + dy), fan.supports) for fan in polygon.vertex_fans)
+    return PolygonV1(loop_of(polygon.outer), tuple(loop_of(hole) for hole in polygon.holes), fans)
+
+
+def test_the_graph_equals_the_oracle_on_translated_and_scaled_polygons():
+    """Negative and far origins, big line offsets (`c` of 90 bits), cells of other sizes: the grid is a filter whose floors must be the oracle's on every one of them."""
+
+    verifier = verifier_of()
+    chosen = [(name, polygon) for name, polygon in parts.named_polygons() if name in ("ell", "comb_4", "hole_1", "holes_2", "cross", "double_notch", "staircase", "star_9_seed_4")]
+    offsets = ((-17, -5, 1), (-10**6, 3 * 10**9, 1), (2**40, -(2**41), 2), (-(2**44), 2**44 + 7, 3), (0, -1, 8))
+    for _name, polygon in chosen:
+        for dx, dy, factor in offsets:
+            graph = graph_pass(verifier, moved(polygon, dx, dy, factor), leaf.fresh_process_state())
+            assert not isinstance(graph, Exception)
+    settle(verifier)
+    assert verifier.checked["BUILD_MOTORCYCLE_GRAPH"] == len(chosen) * len(offsets)
+
+
 def test_the_graph_equals_the_oracle_unbudgeted():
     """`None` is the unbudgeted telemetry (`UNBUDGETED_WORK`)."""
 
