@@ -93,7 +93,7 @@ pub fn vertex_velocity<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, verte
 fn span_orientation<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, span_ref: SpanRef) -> SkelResult<i8> {
     let span = view.span_state(span_ref)?;
     let (a, b) = (Rat::from_i64(span.line.a), Rat::from_i64(span.line.b));
-    if let Some([start_x, start_y, end_x, end_y]) = span.occurrence {
+    if let Some([start_x, start_y, end_x, end_y]) = view.span_occurrence(span_ref)? {
         let direction = end_x.scaled(&b).sub(&end_y.scaled(&a)).sub(&start_x.scaled(&b)).add(&start_y.scaled(&a));
         let sign = exact::sign(ctx, &direction, SIGN_FILTER_BITS)?;
         if sign != 0 {

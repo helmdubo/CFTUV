@@ -23,8 +23,8 @@
 //!
 //! What the port asks of the host, as the oracle does without saying so: the asserts of `_enqueue_edge_event` and `_split_candidate` are executed (they cost a `compare_times`
 //! each: the shim must refuse an interpreter started with `-O`, which strips them); `level_limit` is the LIVE `skeleton.level_budget(polygon)` and `BuilderOptions::march_steps`
-//! the LIVE `motorcycle.march_budget` of the grid (tests replace both); `split_search` other than the motorcycle one (`EXHAUSTIVE`, a reference of the benchmarks) is not
-//! carried and is refused by the host before the call.
+//! the LIVE `motorcycle.march_budget` of the grid (tests replace both); the exhaustive split search (`SplitSearch.EXHAUSTIVE`, the reference of the tests and benchmarks)
+//! is `BuilderOptions::exhaustive`: the trace stage of the seed is skipped, as the oracle's `_seed_traces` returns at once.
 //!
 //! Identity. `exact_candidate_view` keys two of its memories by the identity of Python objects (`id()`), and which lookups hit decides the sign counters. The builder
 //! gives every support line and every sliding projection an identity (`fresh_ident`) and keeps it as the oracle's object keeps its address: a twin shares its edge's
@@ -275,13 +275,15 @@ pub struct NewVertex {
 }
 
 /// What the host decides about the run: the memory of places (`dense_hydration` is the reference mode with none), the number of march steps of the live oracle's
-/// `march_budget` (a test that replaces it forces the exhaustion of the march), and whether the oracle has a named budget (`work_budget is not None`: only then the
-/// string `superlevel` of the budget is written).
+/// `march_budget` (a test that replaces it forces the exhaustion of the march), whether the oracle has a named budget (`work_budget is not None`: only then the
+/// string `superlevel` of the budget is written), and the split search: the motorcycle one (the product) or the exhaustive one (`SplitSearch.EXHAUSTIVE`, the reference of the
+/// tests and benchmarks: no graph, no index, every candidate of every reflex vertex against every edge).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuilderOptions {
     pub dense_hydration: bool,
     pub march_steps: Option<i64>,
     pub budgeted: bool,
+    pub exhaustive: bool,
 }
 
 /// `(vertex ids, participant edge keys, target edge keys)`: the proof identity of an observation.
@@ -620,6 +622,9 @@ impl Builder {
 
     /// `_seed_traces`: the motorcycle graph of the input, the index over its traces, and the trace of every reflex vertex (the born-at-start ones of a fan march by themselves).
     fn seed_traces(&mut self, ctx: &mut ExactCtx<'_>) -> SkelResult<()> {
+        if self.options.exhaustive {
+            return Ok(());
+        }
         let graph = build_motorcycle_graph_with(ctx, &self.polygon, self.options.march_steps)?;
         let mut index = TraceCandidateIndex::covering(&self.polygon, &graph.traces)?;
         for (line, key) in self.line_order.iter().enumerate() {

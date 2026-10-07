@@ -26,6 +26,7 @@ use crate::builder::{is_reflex, Builder, SlidingValue};
 use crate::closure::{span_family, Materialization};
 use crate::error::{SkelError, SkelResult};
 use crate::line::SupportLine;
+use crate::component::point_from_key;
 use crate::omap::OrderedMap;
 use crate::plans::{point_val, time_val, ComponentPlan};
 use crate::pyval::Val;
@@ -901,6 +902,17 @@ impl CandidateView for OverlayView<'_> {
             frozen_end: if cache.born_end { self.born_point(cache.end) } else { None },
             occurrence: None,
         })
+    }
+
+    fn span_occurrence(&self, span: SpanRef) -> SkelResult<Option<[SqrtSum; 4]>> {
+        let (leaf, _) = self.overlay.spans.at(span as usize).ok_or_else(|| key_error("a leaf that is not in the overlay"))?;
+        let occurrence = leaf.occurrence();
+        // `occurrence is not None and len(occurrence) == 3`: a leaf's occurrence is `(edge key, start point key, end point key)`; a point key that is not one is the oracle's `TypeError`
+        if occurrence.items().map_or(true, |items| items.len() != 3) {
+            return Ok(None);
+        }
+        let (start, end) = (point_from_key(occurrence.get(1).unwrap_or(&Val::none()))?, point_from_key(occurrence.get(2).unwrap_or(&Val::none()))?);
+        Ok(Some([start.x, start.y, end.x, end.y]))
     }
 
     fn trace_bounds(&self, ctx: &mut ExactCtx<'_>, vertex: VertexRef, time: &EventTime) -> SkelResult<Option<bool>> {

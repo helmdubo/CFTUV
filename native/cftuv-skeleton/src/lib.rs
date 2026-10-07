@@ -26,6 +26,8 @@
 //!   (`overlay`, the dictionaries of the oracle in insertion order in `omap`), the delta of a component and the signature of an overlay (`component`), the contacts of an exact time
 //!   (`contacts`), the generations of mixed junction and interior contacts replayed to a fixed point (`generations`), and the outer fixed point itself, the twice-run closure
 //!   (`coordinator`);
+//! * `commit`, `transaction`: the runtime commit of a closed overlay (the plan that validates every reference, the materialization that applies it) and the transaction of a packet that
+//!   joins the stages; `transaction::build_skeleton` is the whole operation (WP-S6);
 //! * `seam`, `seam_graph`, `seam_builder`, `seam_primitive`, `seam_closure`, `wire`: the test-only differential seams (opcodes from 200) over the boundary buffers of `cftuv_core::codec`.
 //!
 //! Every function that pays cost takes an `ExactCtx` and asks its exact questions in the order the oracle asks them. A refusal is a named
@@ -34,6 +36,7 @@
 pub mod builder;
 pub mod candidate;
 pub mod closure;
+pub mod commit;
 pub mod component;
 pub mod composition;
 pub mod contacts;
@@ -65,5 +68,6 @@ pub mod skeleton;
 pub mod snapshot;
 pub mod superlevel;
 pub mod time;
+pub mod transaction;
 pub mod view;
 mod wire;

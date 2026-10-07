@@ -161,7 +161,7 @@ fn obligation_of(value: &Value) -> Wire<ProofObligation> {
 
 pub(crate) fn options_of(value: &Value) -> Wire<BuilderOptions> {
     let [dense, march, budgeted] = fixed::<3>(value, "the options")?;
-    Ok(BuilderOptions { dense_hydration: flag_of(dense, "dense hydration")?, march_steps: optional(march, |found| i64_of(found, "the march steps"))?, budgeted: flag_of(budgeted, "budgeted")? })
+    Ok(BuilderOptions { dense_hydration: flag_of(dense, "dense hydration")?, march_steps: optional(march, |found| i64_of(found, "the march steps"))?, budgeted: flag_of(budgeted, "budgeted")?, ..BuilderOptions::default() })
 }
 
 fn counters_value(counters: &Counters) -> Value {

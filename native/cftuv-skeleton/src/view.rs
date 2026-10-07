@@ -67,6 +67,12 @@ pub trait CandidateView {
     /// `view.trace_bounds(vertex, time)`: `None` when the vertex has no trace, else `trace.bounds_time(time)` (the event is not later than the crash;
     /// `false` also for a trace that never crashes, which bounds nothing).
     fn trace_bounds(&self, ctx: &mut ExactCtx<'_>, vertex: VertexRef, time: &EventTime) -> SkelResult<Option<bool>>;
+    /// `getattr(span_ref, "occurrence", None)` read as the end points of the span, `[start_x, start_y, end_x, end_y]` (the poststate law reads it, once per classified span): the answer
+    /// of [`SpanState::occurrence`] unless the view knows better. A symbolic reference whose occurrence has no end points is the oracle's `TypeError` here (an `Unsupported` of the
+    /// port), not when the span is first asked for: the oracle reads the field only in that law.
+    fn span_occurrence(&self, span: SpanRef) -> SkelResult<Option<[SqrtSum; 4]>> {
+        Ok(self.span_state(span)?.occurrence.cloned())
+    }
 }
 
 /// The key of a time memo entry: which question, and the identities of the objects it is asked about.
