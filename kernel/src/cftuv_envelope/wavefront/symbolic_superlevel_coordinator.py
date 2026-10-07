@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 
 from .candidate_law import evaluate_split_candidate
@@ -30,6 +31,16 @@ from .symbolic_overlay import (
     is_symbolic_split_emitter,
 )
 from .symbolic_sparse_ports import with_line_ports
+
+
+#: Самопроверка детерминизма: второй проход замыкания на тех же входах обязан дать то же множество контактов и ту же
+#: подпись. Это проверка чистой функции, а не закона: в продукте она не выполняется (удваивала счёт замыкания),
+#: включается в тестах и при отладке (`CFTUV_SYMBOLIC_REPLAY_CHECK=1`).
+ENVIRONMENT_REPLAY_CHECK = "CFTUV_SYMBOLIC_REPLAY_CHECK"
+
+
+def replay_check_enabled() -> bool:
+    return os.environ.get(ENVIRONMENT_REPLAY_CHECK, "0").strip().lower() in ("1", "on", "true", "yes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,27 +288,28 @@ def _plan_closure(builder, snapshot, outer_budget, junction_budget):
             junction.unresolved_reason
             or "SYMBOLIC_JUNCTION_OVERLAY_UNRESOLVABLE",
         )
-    replay, replay_later = plan_mixed_generations(
-        builder,
-        split_overlay,
-        discover_interior_split_contacts,
-        budget=budget,
-    )
-    if (
-        replay.unresolved_reason is not None
-        or replay.overlay is None
-        or replay_later != later
-        or overlay_signature(replay.overlay)
-        != overlay_signature(junction.overlay)
-    ):
-        return _refusal(
-            materialization,
-            (*contacts, *later),
-            replay,
-            len(later),
-            junction.signatures,
-            "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE",
+    if replay_check_enabled():
+        replay, replay_later = plan_mixed_generations(
+            builder,
+            split_overlay,
+            discover_interior_split_contacts,
+            budget=budget,
         )
+        if (
+            replay.unresolved_reason is not None
+            or replay.overlay is None
+            or replay_later != later
+            or overlay_signature(replay.overlay)
+            != overlay_signature(junction.overlay)
+        ):
+            return _refusal(
+                materialization,
+                (*contacts, *later),
+                replay,
+                len(later),
+                junction.signatures,
+                "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE",
+            )
     all_contacts = {
         item.key: item for item in (*contacts, *later)
     }
