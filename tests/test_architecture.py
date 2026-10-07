@@ -1617,8 +1617,9 @@ def test_the_dispatch_hook_detector_flags_a_wired_module_and_passes_a_plain_one(
 def test_a_dispatch_hook_in_a_pinned_oracle_file_comes_with_its_new_pin():
     """Диспетчер в закреплённом файле эталона делает порт `stale`, пока закрепление (`python -m cftuv_native.pin`) не перевыпущено.
 
-    Диспетчеры стоят в НЕзакреплённых файлах (`conveyor.py`, `step.py`). Правка закреплённого файла допустима только вместе с новым закреплением
-    в том же слиянии: тогда дайджест файла равен записи `PINS`, и этот тест зелёный; иначе он называет файл.
+    Диспетчер покрытия стоит в НЕзакреплённых файлах (`conveyor.py`, `step.py`); диспетчер резки — в `cut_domain` закреплённого `materialize/clip.py`
+    (`run_clip(backend.clip_compute, ...)`, без подмены имён при запуске). Правка закреплённого файла допустима только вместе с новым закреплением
+    в том же слиянии: тогда дайджест файла равен записи `PINS`, и этот тест зелёный; иначе он называет файл (резка названа `stale(materialize/clip.py)`).
     """
 
     import hashlib

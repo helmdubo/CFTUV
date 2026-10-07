@@ -10,9 +10,9 @@
   (какой бэкенд посчитал на самом деле и по какой названной причине откат на Python). Результат с записью и без неё равен по
   ответу: запись — метка запуска, как `placement`. Смена бэкенда в процессе сбрасывает память стадии резки ядра (`clip_memo`):
   её ключ бэкенд не несёт, а ключи кэшей хоста несут (`backend_identity` в `envelope_content_key` и в ключах прогона).
-  Первый заказ `NATIVE` в процессе ставит диспетчер резки (`backend.install_dispatch`: подмена имени `clip.clip_geometry`): вызов резки лежит в
-  закреплённом нативным портом файле (`clip.py`), и подмена имени оставляет закрепления верными. Покрытие подключено в самом ядре.
-  Воркер пула ставит её сам на первом домене с заказом `NATIVE` (состояние процесса).
+  Диспетчеры покрытия и резки подключены в самом ядре (`cftuv_envelope.backend`), при запуске ничего не ставится: воркер пула, как и главный
+  процесс, считает заказанным бэкендом с первого домена. Домен, который нативное ядро отказало по имени (`NATIVE_DIVISION_DIVERGED`, пояс
+  `NATIVE_PARTIAL_EFFECTS_REFUSED`), получает ЭТОТ исход отказом.
 * СТРОКА ЖУРНАЛА. `backend_console_lines`: `[CFTUV][Production] BACKEND native 120 / python 2 (NATIVE_PORT_STALE: patch 7, 9)`.
   Печатается только когда заказан нативный бэкенд; домен из кэша сессии в счёт не идёт (в этом прогоне он не считался).
 
@@ -65,7 +65,7 @@ def kernel_backend_of(mesh_settings) -> str:
 
 
 def backend_identity_of(kernel_backend) -> str:
-    """Идентичность бэкенда для ключей кэшей: `PYTHON` либо `NATIVE:<версия колеса>`; ядро не импортируется — `PYTHON`/`NATIVE`."""
+    """Идентичность бэкенда для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>`; ядро не импортируется — `PYTHON`/`NATIVE`."""
 
     name = normalize_kernel_backend(kernel_backend)
     try:
@@ -77,16 +77,14 @@ def backend_identity_of(kernel_backend) -> str:
 
 @contextmanager
 def entered_backend(kernel_backend):
-    """`use_backend` ядра; `NATIVE` сперва ставит диспетчер резки, а смена бэкенда в ЭТОМ процессе сбрасывает память стадии резки.
+    """`use_backend` ядра; смена бэкенда в ЭТОМ процессе сбрасывает память стадии резки.
 
     Отдаёт журнал домена (`NATIVE`) либо `None` (`PYTHON`). Память резки сбрасывается потому, что её ключ бэкенд не несёт.
     """
 
     name = normalize_kernel_backend(kernel_backend)
-    from cftuv_envelope.backend import install_dispatch, use_backend
+    from cftuv_envelope.backend import use_backend
 
-    if name == KERNEL_BACKEND_NATIVE:
-        install_dispatch()
     if _LAST_BACKEND[0] != name:
         from cftuv_envelope.materialize.clip_memo import MEMO
 
@@ -100,9 +98,9 @@ def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
     `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). С `backend=PYTHON`
-    (умолчание) результат остаётся тем же объектом, без записи. Если порт отказал после частичных эффектов
-    (`NATIVE_PARTIAL_EFFECTS_REFUSED`), ответ домена недействителен, каким бы он ни вернулся (исключение могла проглотить промежуточная стадия):
-    домен отказан этим именем.
+    (умолчание) результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
+    завершился бы; `NATIVE_PARTIAL_EFFECTS_REFUSED`: пояс, состояние сдвинулось), ответ домена недействителен, каким бы он ни вернулся (исключение могла
+    проглотить промежуточная стадия): домен отказан этим именем.
 
     Бэкенд ЗАДАЁТСЯ ЯВНО на каждом вызове (поток, начатый внутри блока `use_backend`, его не наследует): поток живой ширины передаёт его
     через `run_production(kernel_backend=...)`.
@@ -114,24 +112,22 @@ def with_kernel_backend(produce):
             result = produce(*args, **kwargs)
         if ledger is None:
             return result
-        if ledger.partial:
-            result = _partial_refusal(result, ledger.partial)
+        if ledger.refusal is not None:
+            result = _domain_refusal(result, *ledger.refusal)
         return result.with_changes(backend_record=ledger.record())
 
     return scoped
 
 
-def _partial_refusal(result, detail):
-    """Отказ домена с именем `NATIVE_PARTIAL_EFFECTS_REFUSED` на месте результата, посчитанного по грязному состоянию."""
-
-    from cftuv_envelope.backend import BackendOutcomeV1
+def _domain_refusal(result, outcome, detail):
+    """Отказ домена именем `outcome` (`NATIVE_DIVISION_DIVERGED` либо `NATIVE_PARTIAL_EFFECTS_REFUSED`) на месте результата, который домен всё же вернул."""
 
     from .envelope_production_export import _refusal
 
     return _refusal(
         result.patch_id,
         result.domain_id,
-        BackendOutcomeV1.NATIVE_PARTIAL_EFFECTS_REFUSED.value,
+        outcome,
         detail,
         result.seconds,
         result.placement,
@@ -235,7 +231,7 @@ def draw_kernel_backend_row(layout, mesh_settings) -> None:
         layout.label(text=f"Native status: {type(exc).__name__}", icon="ERROR")
         return
     if status.available:
-        layout.label(text=f"Native {status.version or '?'}: coverage and clip available", icon="CHECKMARK")
+        layout.label(text=f"Native {status.version or '?'} ({status.build_id[:10] or '?'}): coverage and clip available", icon="CHECKMARK")
     else:
         layout.label(
             text=f"Native: coverage {status.coverage}, clip {status.clip} (Python computes)",

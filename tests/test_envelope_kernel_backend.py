@@ -30,6 +30,9 @@ from content_equivalence import result_projection
 
 from cftuv_envelope import backend as kernel_backend
 
+#: Отпечаток сборки подставного нативного ядра (`native_build_id()`).
+BUILD_ID = "ab" * 32
+
 
 @pytest.fixture(autouse=True)
 def _backend_state(monkeypatch):
@@ -37,11 +40,38 @@ def _backend_state(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "cftuv_native", None)
     monkeypatch.setattr(host_backend, "_LAST_BACKEND", [host_backend.DEFAULT_KERNEL_BACKEND])
-    kernel_backend.uninstall_dispatch()
     kernel_backend.refresh_native()
     yield
-    kernel_backend.uninstall_dispatch()
     kernel_backend.refresh_native()
+
+
+def _fake_native(**attributes):
+    """Подставной `cftuv_native` с тем, что хост требует от колеса (`backend._REQUIRED`); `attributes` переопределяют и дополняют."""
+
+    class Stale(RuntimeError):
+        pass
+
+    class Unsupported(RuntimeError):
+        pass
+
+    class UnsupportedPython(RuntimeError):
+        pass
+
+    class NativeDivisionDiverged(ArithmeticError):
+        pass
+
+    module = types.ModuleType("cftuv_native")
+    module.NativePortStale, module.NativePortUnsupported, module.NativeUnsupportedPython = Stale, Unsupported, UnsupportedPython
+    module.NativeDivisionDiverged = NativeDivisionDiverged
+    module.NATIVE_REFUSALS = (Stale, UnsupportedPython, Unsupported, NativeDivisionDiverged)
+    module.coverage_at = module.clip_geometry = module.native_status = lambda *a, **k: None
+    module.native_version = lambda: "0.1.0"
+    module.native_build_id = lambda: BUILD_ID
+    for name, value in attributes.items():
+        setattr(module, name, value)
+    sys.modules["cftuv_native"] = module
+    kernel_backend.refresh_native()
+    return module
 
 
 def _run(bundle, *, backend=None, controller=None, workers=0):
@@ -130,20 +160,21 @@ def test_a_native_press_without_the_wheel_gives_the_python_answer_and_names_ever
     assert f" | backend native 0 / python {ROW}" in production.production_timing_text(native)
 
 
-def test_a_native_press_installs_the_clip_dispatcher_and_a_python_press_never_does(row):
+def test_no_press_replaces_a_name_in_the_kernel_and_the_backends_give_the_same_answer(row):
+    """Диспетчеры подключены в самом ядре: ни `PYTHON`, ни `NATIVE` ничего не ставит в процесс (подмены имён нет), воркер и главный процесс равны с первого домена."""
+
     from cftuv_envelope.materialize import clip
+    from cftuv_envelope.wavefront import coverage
 
-    oracle = clip.clip_geometry
-    assert not kernel_backend.dispatch_installed()
-    _run(row)
-    _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
-    assert not kernel_backend.dispatch_installed() and clip.clip_geometry is oracle
-
-    native = _run(row, backend="NATIVE")
-    assert kernel_backend.dispatch_installed() and clip.clip_geometry is kernel_backend.clip_compute
-    # `PYTHON` после подмены: диспетчер без журнала зовёт эталон, ответ тот же
+    oracles = (clip.clip_geometry, coverage._coverage_at)
+    for name in ("install_dispatch", "uninstall_dispatch", "dispatch_installed"):
+        assert not hasattr(kernel_backend, name) and not hasattr(host_backend, name), name
+    python = _run(row)
+    native = _run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())
     again = _run(row, backend="PYTHON", controller=EnvelopeDebugSessionController())
-    assert _projection(again) == _projection(native) == _projection(_run(row, controller=EnvelopeDebugSessionController()))
+    assert (clip.clip_geometry, coverage._coverage_at) == oracles
+    assert clip.clip_geometry is not kernel_backend.clip_compute
+    assert _projection(again) == _projection(native) == _projection(python)
 
 
 def test_a_native_press_after_a_python_press_recomputes_and_never_reads_the_python_cache(row):
@@ -206,16 +237,15 @@ def test_a_backend_switch_clears_the_clip_memo_once_per_switch(row, monkeypatch)
 
 
 def test_an_installed_native_module_changes_the_identity_not_the_answer(row):
-    module = types.ModuleType("cftuv_native")
-    module.NativePortStale = module.NativePortUnsupported = module.NativeUnsupportedPython = RuntimeError
-    module.coverage_at = module.clip_geometry = module.native_status = lambda *a, **k: None
-    module.native_version = lambda: "0.1.0"
-    sys.modules["cftuv_native"] = module
-    kernel_backend.refresh_native()
+    module = _fake_native()
 
-    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:0.1.0"
+    assert host_backend.backend_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}"
     assert host_backend.backend_identity_of("PYTHON") == "PYTHON"
     assert _projection(_run(row, backend="NATIVE")) == _projection(_run(row))
+    # другая сборка при том же номере колеса — другая идентичность (ключи кэшей не читают результат прежней сборки)
+    module.native_build_id = lambda: "cd" * 32
+    kernel_backend.refresh_native()
+    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:" + "cd" * 32
 
 
 # --------------------------------------------------------------------------
@@ -228,14 +258,17 @@ def test_the_execution_identity_adds_the_backend_to_the_code_fingerprint_and_lea
     assert content_key.execution_identity("PYTHON") == (kernel_fingerprint, host_fingerprint, "PYTHON")
     assert content_key.execution_identity("NATIVE") == (kernel_fingerprint, host_fingerprint, "NATIVE:unavailable")
     assert len(content_key.code_identity()) == 2
+    # с колесом идентичность исполнения несёт отпечаток сборки (`native_build_id()`), а не номер колеса
+    _fake_native()
+    assert content_key.execution_identity("NATIVE") == (kernel_fingerprint, host_fingerprint, f"NATIVE:{BUILD_ID}")
 
 
 def test_the_content_key_and_the_result_slot_carry_the_backend(row):
     first = content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT")
     assert first == content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "PYTHON")
-    assert first != content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:0.1.0")
-    assert content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:0.1.0") != content_key.result_slot(
-        "0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:0.2.0"
+    assert first != content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}")
+    assert content_key.result_slot("0.25", "UV", "TOPOLOGY", "LIFT", f"NATIVE:{BUILD_ID}") != content_key.result_slot(
+        "0.25", "UV", "TOPOLOGY", "LIFT", "NATIVE:" + "cd" * 32
     )
 
 
@@ -251,7 +284,7 @@ def test_a_native_press_after_a_python_press_does_not_take_results_from_the_cont
         alpha_text="0.25", uv_policy_id="UV", topology_law="T", backend_id="PYTHON"
     )
     native_run = SimpleNamespace(
-        alpha_text="0.25", uv_policy_id="UV", topology_law="T", backend_id="NATIVE:0.1.0"
+        alpha_text="0.25", uv_policy_id="UV", topology_law="T", backend_id=f"NATIVE:{BUILD_ID}"
     )
     assert _slot(python_run) != _slot(native_run)
 
@@ -339,18 +372,25 @@ def test_an_external_worker_gets_the_native_package_directory_when_the_parent_fi
 # --------------------------------------------------------------------------
 
 
-def test_a_partial_effects_refusal_names_the_domain_whatever_the_stage_returned():
+@pytest.mark.parametrize(
+    "outcome, detail",
+    [
+        ("NATIVE_PARTIAL_EFFECTS_REFUSED", "NativePortUnsupported: late"),
+        ("NATIVE_DIVISION_DIVERGED", "NativeDivisionDiverged: the generic division fallback did not finish"),
+    ],
+)
+def test_a_domain_refusal_of_the_native_core_names_the_domain_whatever_the_stage_returned(outcome, detail):
     @host_backend.with_kernel_backend
     def produce(patch_id, domain_id):
         # стадию, проглотившую исключение, имитирует результат, вернувшийся как ни в чём не бывало
-        kernel_backend._SCOPE.get().note_partial("clip", "NativePortUnsupported: late")
+        kernel_backend._SCOPE.get().note_refusal("clip", kernel_backend.BackendOutcomeV1(outcome), detail)
         return production._refusal(patch_id, domain_id, "MATERIALIZED", "", 1.5)
 
     refused = produce(7, "domain-7", backend="NATIVE")
 
-    assert (refused.outcome, refused.patch_id, refused.domain_id, refused.seconds) == ("NATIVE_PARTIAL_EFFECTS_REFUSED", 7, "domain-7", 1.5)
-    assert "NativePortUnsupported: late" in refused.detail
-    assert refused.backend_record.outcomes == ("NATIVE_PARTIAL_EFFECTS_REFUSED",) and refused.backend_record.ran == "python"
+    assert (refused.outcome, refused.patch_id, refused.domain_id, refused.seconds) == (outcome, 7, "domain-7", 1.5)
+    assert detail in refused.detail
+    assert refused.backend_record.outcomes == (outcome,) and refused.backend_record.ran == "python"
     # под `PYTHON` ничего не записывается и ничего не называется
     @host_backend.with_kernel_backend
     def plain(patch_id, domain_id):
@@ -360,14 +400,8 @@ def test_a_partial_effects_refusal_names_the_domain_whatever_the_stage_returned(
 
 
 def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_of_computing_on_dirty_state(row):
-    class Unsupported(RuntimeError):
-        pass
-
-    module = types.ModuleType("cftuv_native")
-    module.NativePortStale = module.NativeUnsupportedPython = RuntimeError
-    module.NativePortUnsupported = Unsupported
-    module.clip_geometry = module.native_status = lambda *a, **k: None
-    module.native_version = lambda: "9.9.9"
+    module = _fake_native()
+    Unsupported = module.NativePortUnsupported
     asked = []
 
     def late(partition, alpha, work_budget=None, store=None, traces=None):
@@ -376,7 +410,6 @@ def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_o
         raise Unsupported("a sort of 64 nodes or more")
 
     module.coverage_at = late
-    sys.modules["cftuv_native"] = module
     kernel_backend.refresh_native()
 
     native = _run(row, backend="NATIVE")
@@ -393,6 +426,47 @@ def test_a_press_whose_native_coverage_refuses_late_names_every_domain_instead_o
     module.coverage_at = clean
     kernel_backend.refresh_native()
     assert _projection(_run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())) == _projection(_run(row))
+
+
+def test_a_press_whose_native_division_diverges_refuses_every_domain_by_name_and_never_asks_the_oracle(row):
+    """`NativeDivisionDiverged`: эталон на этом входе не завершился бы, поэтому домен отказан `NATIVE_DIVISION_DIVERGED`, а не откатом на Python."""
+
+    module = _fake_native()
+    asked = []
+
+    def diverge(partition, alpha, work_budget=None, store=None, traces=None):
+        asked.append(1)
+        raise module.NativeDivisionDiverged("the generic division fallback did not finish")
+
+    module.coverage_at = diverge
+    kernel_backend.refresh_native()
+
+    native = _run(row, backend="NATIVE")
+
+    assert asked
+    assert {item.outcome for item in native.results} == {"NATIVE_DIVISION_DIVERGED"}
+    assert all(item.batch is None and item.detail.startswith("coverage: NativeDivisionDiverged") for item in native.results)
+    assert all(item.backend_record.outcomes == ("NATIVE_DIVISION_DIVERGED",) for item in native.results)
+    assert "NATIVE_DIVISION_DIVERGED: patch" in host_backend.backend_console_lines(native.results, "NATIVE")[0]
+
+
+def test_a_press_whose_native_core_breaks_down_before_any_effect_gives_the_python_answer_and_names_the_defect(row):
+    """Дефект порта до эффектов (вход, который расширение не несёт; паника Rust): домен считает эталон, ответ тот же, а в строке журнала — `NATIVE_INTERNAL_ERROR`."""
+
+    module = _fake_native()
+
+    def panic(partition, alpha, work_budget=None, store=None, traces=None):
+        raise RuntimeError("Session.coverage_at: native panic: index out of bounds")
+
+    module.coverage_at = panic
+    kernel_backend.refresh_native()
+
+    native = _run(row, backend="NATIVE", controller=EnvelopeDebugSessionController())
+
+    assert _projection(native) == _projection(_run(row))
+    assert all("NATIVE_INTERNAL_ERROR" in item.backend_record.outcomes for item in native.results if item.placement != PLACEMENT_CACHED)
+    line = host_backend.backend_console_lines(native.results, "NATIVE")[0]
+    assert "NATIVE_INTERNAL_ERROR: patch" in line
 
 
 # --------------------------------------------------------------------------
