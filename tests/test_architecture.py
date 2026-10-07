@@ -308,9 +308,9 @@ def test_the_width_preview_and_adjust_cores_and_the_live_glue_load_without_blend
     for name in ("envelope_width_live.py", "envelope_width_session.py", "envelope_width_mesh_preview.py"):
         leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _module_level_import_roots(HOST_PACKAGE / name)
         assert not leaked, f"{name} импортирует {sorted(leaked)} на верхнем уровне: только лениво, внутри функций"
-    # Сертификат превью меша — чистая математика над массивами: ему Blender не нужен нигде, даже лениво.
-    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_certificate.py")
-    assert not leaked, f"envelope_width_certificate.py импортирует {sorted(leaked)}: сертификат чистый (его строит поток счёта)"
+    # Модель превью меша — чистая математика над массивами: ей Blender не нужен нигде, даже лениво.
+    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_preview_model.py")
+    assert not leaked, f"envelope_width_preview_model.py импортирует {sorted(leaked)}: модель чистая (её строит поток счёта)"
 
 
 #: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ точного пересчёта живой ширины: объекты,
@@ -334,9 +334,10 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "cancel",
         "exc",
         "str",
-        # Хвост потока (`finish_live_run`): массивы меша, образец и сертификат строятся ТАМ, а не на главном потоке; все они значения
-        # (неизменяемые образцы и числа), захваченные `_begin` на главном потоке.
+        # Хвост потока (`finish_live_run`): массивы меша, образец, модель, сверка и журнал доверия строятся ТАМ, а не на главном потоке;
+        # все они значения (неизменяемые образцы, модели, журналы и числа), захваченные `_begin` на главном потоке.
         "finish_live_run",
+        "trust",
         "run",
         "offset",
         "key",
@@ -448,6 +449,128 @@ def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_from_it
     for function in ("preview_mesh_now", "restore_base_mesh"):
         node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
         assert "_mesh_problem" in _called_names(node), f"{function} пишет превью, не спросив, принадлежит ли меш сертификату"
+
+
+def _functions_of(name: str) -> dict:
+    return {
+        node.name: node
+        for node in ast.walk(_parse(HOST_PACKAGE / name))
+        if isinstance(node, ast.FunctionDef)
+    }
+
+
+def test_every_exact_write_of_the_decal_mesh_records_the_mesh_ownership_in_the_same_function():
+    """Точная запись меша (кнопка, точный результат живой ширины) фиксирует владение мешем СРАЗУ после записи (`capture_ownership`).
+
+    Превью меша пишется только в меш, которым владеет сессия: тождество объекта и датаблока, поколение раскладки и её отпечаток, снятые
+    сразу после точной записи (аудит ad6074f, F2). Функция, которая ставит образец на экран (`note_button_display`, `note_exact_display`), без
+    фиксации владения оставила бы превью без доказательства, что меш тот, а размеры и свойства такого доказательства не дают.
+    """
+
+    found: dict = {}
+    for path in _python_files(HOST_PACKAGE):
+        if path.name == "envelope_width_mesh_preview.py":
+            continue
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.FunctionDef):
+                names = _called_names(node)
+                for noted in ("note_button_display", "note_exact_display"):
+                    if noted in names:
+                        found.setdefault(noted, {})[(path.name, node.name)] = "capture_ownership" in names
+    assert set(found) == {"note_button_display", "note_exact_display"}, found
+    assert {key[0] for key in found["note_button_display"]} == {"envelope_production_operator.py"}, found
+    assert {key[0] for key in found["note_exact_display"]} == {"envelope_width_live.py"}, found
+    assert all(captured for item in found.values() for captured in item.values()), found
+
+
+def test_the_decal_ownership_is_checked_before_a_preview_write_and_every_external_change_drops_the_model():
+    """Кадр сверяет владение (поколение, указатели и `session_uid`), а внешнее изменение (история, depsgraph) снимает модель названно.
+
+    Строго, а не «сверим потом»: после шага истории или чужого обновления геометрии декали указатели, счётчики и свойства меша
+    не доказывают ничего (аудит ad6074f, F2).
+    """
+
+    preview = _functions_of("envelope_width_mesh_preview.py")
+    problem = preview["_mesh_problem"]
+    attributes = {node.attr for node in ast.walk(problem) if isinstance(node, ast.Attribute)}
+    assert {"width_mesh_owner", "sample", "as_pointer", "session_uid", "recheck_after"} <= attributes, sorted(attributes)
+    assert "_read_layout" in _called_names(problem)
+    for function in ("preview_mesh_now", "restore_base_mesh", "note_history", "note_decal_updates"):
+        assert "drop_model" in _called_names(preview[function]), f"{function} не снимает модель названно"
+    assert "_mesh_problem" in _called_names(preview["preview_mesh_now"]) and "_mesh_problem" in _called_names(preview["restore_base_mesh"])
+    assert "note_decal_updates" in _called_names(_functions_of("envelope_width_live.py")["note_depsgraph"])
+    assert "note_depsgraph" in _called_names(_functions_of("envelope_width_modal.py")["_after_depsgraph"])
+    assert "note_history" in _called_names(_functions_of("envelope_width_live.py")["reconcile_after_history"])
+
+
+def test_a_refuted_domain_reaches_the_trust_ledger_and_the_next_model_is_built_under_it():
+    """Опровержение точным прогоном не только записывается: оно двигает журнал доверия, а следующая модель строится под ним (аудит F5)."""
+
+    preview = _functions_of("envelope_width_mesh_preview.py")
+    assert {"deviation", "advance_ledger", "_model_or_refusal"} <= _called_names(preview["finish_live_run"])
+    assert "build_model" in _called_names(preview["_model_or_refusal"])
+    assigned = {
+        target.attr
+        for node in ast.walk(preview["note_exact_display"])
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute)
+    }
+    assert "width_trust" in assigned, "точный результат обязан положить журнал доверия в сессию"
+    compute = next(
+        node
+        for node in ast.walk(_functions_of("envelope_width_live.py")["_begin"])
+        if isinstance(node, ast.FunctionDef) and node.name == "compute"
+    )
+    keywords = {
+        keyword.arg
+        for call in ast.walk(compute)
+        if isinstance(call, ast.Call) and _called_names_of(call) == "finish_live_run"
+        for keyword in call.keywords
+    }
+    assert "trust" in keywords, "поток точного счёта обязан получить журнал доверия значением"
+
+
+def test_the_preview_model_is_never_called_a_certificate():
+    """Приблизительная модель превью (аудит ad6074f, F4) нигде не названа сертификатом: ни идентификатором, ни строкой исхода или статуса.
+
+    Сертифицирован только ИНТЕРВАЛ событий и структуры у ядра (R1); многочлен внутри него, его область доверия и самопроверка — эвристика
+    без доказанной границы ошибки. Имя, которое обещает больше, чем есть, — то, что аудит нашёл и что здесь закрыто исполняемо.
+    """
+
+    assert not (HOST_PACKAGE / "envelope_width_certificate.py").exists(), "модель превью называется `envelope_width_preview_model`"
+    for name in (
+        "envelope_width_preview_model.py",
+        "envelope_width_mesh_preview.py",
+        "envelope_width_live.py",
+        "envelope_width_session.py",
+        "envelope_width_modal.py",
+    ):
+        tree = _parse(HOST_PACKAGE / name)
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        }
+        words = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                words.append(node.id)
+            elif isinstance(node, ast.Attribute):
+                words.append(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                words.append(node.name)
+            elif isinstance(node, ast.arg):
+                words.append(node.arg)
+            elif isinstance(node, ast.alias):
+                words.append(node.name)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                words.append(node.value)
+        called = [word for word in words if "certificate" in word.lower()]
+        assert not called, f"{name} называет приблизительную модель сертификатом: {called}"
 
 
 def _called_names_of(call: ast.Call) -> str:

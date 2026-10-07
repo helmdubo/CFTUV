@@ -38,7 +38,7 @@ from .envelope_width_adjust import (
     PHASE_CONFIRMED,
     WidthEventV1,
 )
-from .envelope_width_live import follow_active_object, reconcile_after_history, sync_width_field
+from .envelope_width_live import follow_active_object, note_depsgraph, reconcile_after_history, sync_width_field
 from .envelope_width_overlay import register_overlay, unregister_overlay
 from .envelope_width_session import (
     NO_VIEW,
@@ -191,13 +191,18 @@ def _sync_once():
 
 
 @persistent
-def _after_depsgraph(*_args) -> None:
-    """Смена активного объекта: превью снято, поле «Decal width» подтягивается к ширине меша нового объекта.
+def _after_depsgraph(*args) -> None:
+    """Смена активного объекта: превью снято, поле «Decal width» подтягивается к ширине меша нового объекта; правка геометрии декали
+    мимо нас — модель превью меша снята (`note_depsgraph`: строгая инвалидация, названная `PREVIEW_DECAL_CHANGED_EXTERNALLY`).
 
-    Обработчик depsgraph вызывается часто, поэтому здесь только дешёвая сверка имени (`follow_active_object`);
-    запись в свойство — отложенным таймером, не из обработчика.
+    Обработчик depsgraph вызывается часто, поэтому здесь только дешёвая сверка имени (`follow_active_object`) и просмотр обновлений, пока у сессии
+    есть владение мешем; запись в свойство — отложенным таймером, не из обработчика. Аргументы Blender — `(scene, depsgraph)`.
     """
 
+    try:
+        note_depsgraph(bpy.context, args[1] if len(args) > 1 else None)
+    except Exception as exc:  # noqa: BLE001 - отказ слежения называется строкой консоли, а не молчит
+        print(f"[CFTUV][WidthLive] decal update watch failed: {type(exc).__name__}: {exc}", flush=True)
     try:
         changed = follow_active_object(bpy.context)
     except Exception as exc:  # noqa: BLE001 - отказ слежения называется строкой консоли, а не молчит

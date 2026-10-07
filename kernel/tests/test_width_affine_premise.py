@@ -1,6 +1,6 @@
 """Посылка превью меша на живой ширине: что внутри заверенного интервала аффинно по ширине, а что нет, и чем это тогда описывается.
 
-Превью (`cftuv/envelope_width_certificate.py`) двигает настоящий меш декали между точными пересчётами: по двум либо трём точным
+Превью (`cftuv/envelope_width_preview_model.py`) двигает настоящий меш декали между точными пересчётами: по двум либо трём точным
 материализациям домена внутри ОДНОГО заверенного интервала (`materialize.interval`) строится многочлен положения вершины и произведения
 `u * alpha`, `v * alpha`. Это законно, только если форма зависимости известна, а не «похожа». Здесь она проверена на самом ядре, без хоста,
 на ширинах, которых в построении нет:
@@ -45,7 +45,7 @@ SILHOUETTE = DecalTopologyLawV1.SILHOUETTE_TOPOLOGY_V1
 AFFINE_TOLERANCE = 1e-9
 #: Допуск квадрата через три точки у кривого домена, метры, на ширинах до `CURVED_REACH` от базы (измерено: порядка 1e-4).
 CURVED_QUADRATIC_TOLERANCE = 1e-3
-#: Досягаемость модели у кривого домена: доля ширины базы (`envelope_width_certificate.CURVED_REACH_RATIO`).
+#: Досягаемость модели у кривого домена: доля ширины базы (`envelope_width_preview_model.CURVED_REACH_RATIO`).
 CURVED_REACH = 0.10
 #: Доля ширины базы, на которую две опорные ширины отходят от неё (как затравка хоста, `PRIME_RELATIVE_STEP`).
 SUPPORT_STEP = 0.005
@@ -124,7 +124,7 @@ def line(first, second, alpha_first, alpha_second, alpha):
 
 
 def parabola(base, near, far, alpha0, alpha1, alpha2, alpha):
-    """Многочлен второй степени через три точки в форме Ньютона: ровно то, что строит `envelope_width_certificate._newton`."""
+    """Многочлен второй степени через три точки в форме Ньютона: ровно то, что строит `envelope_width_preview_model._newton`."""
 
     slopes = [(b - a) / (alpha1 - alpha0) for a, b in zip(base, near)]
     curves = [(((c - a) / (alpha2 - alpha0)) - s) / (alpha2 - alpha1) for a, c, s in zip(base, far, slopes)]
