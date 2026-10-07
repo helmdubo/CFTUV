@@ -145,3 +145,28 @@ fn the_exhaustive_search_builds_the_same_skeleton_at_the_price_of_the_oracles_ex
     assert_eq!((counter(&skeleton, "split_search_exhaustive_vertices"), counter(&skeleton, "split_candidates_examined")), (8, 80));
     assert_eq!(world.counts.as_array(), [590, 189, 401, 0, 0]);
 }
+
+fn square_with_two_holes() -> Polygon {
+    let outer = each(&[(0, 0), (20, 0), (20, 20), (0, 20)]);
+    let first = each(&[(4, 4), (4, 8), (8, 8), (8, 4)]);
+    let second = each(&[(12, 12), (12, 16), (16, 16), (16, 12)]);
+    Polygon::new(vec![outer, first, second], Vec::new()).unwrap()
+}
+
+#[test]
+fn the_oracles_self_check_pays_the_second_plan_of_the_closure_and_changes_no_answer() {
+    // `CFTUV_SYMBOLIC_REPLAY_CHECK=1` (the kernel's own test suite runs with it; the product does not): the closure of a packet is planned a second time and compared. The signs are the
+    // oracle's with the variable set (taken with the same script as above); the nodes, the levels and the counters are those of the run without it.
+    let mut off = World::new();
+    let plain = off.build(square_with_two_holes());
+    let mut on = World::new();
+    let checked = on.build_with(square_with_two_holes(), BuilderOptions { replay_check: true, ..BuilderOptions::default() });
+    assert_eq!(off.counts.as_array(), [805, 234, 571, 0, 0]);
+    assert_eq!(on.counts.as_array(), [853, 234, 619, 0, 0]);
+    assert_eq!((plain.outcome, plain.nodes.len(), plain.levels, plain.proof_obligations.len()), (checked.outcome, checked.nodes.len(), checked.levels, checked.proof_obligations.len()));
+    assert_eq!(plain.counters, checked.counters);
+    // the exhaustive search runs the same closure
+    let mut exhaustive_on = World::new();
+    exhaustive_on.build_with(square_with_two_holes(), BuilderOptions { exhaustive: true, replay_check: true, ..BuilderOptions::default() });
+    assert_eq!(exhaustive_on.counts.as_array(), [638, 189, 449, 0, 0]);
+}
