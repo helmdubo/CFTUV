@@ -5,7 +5,8 @@ name: Native accelerator
 #
 #   rust          cargo test --workspace --locked (ядро, канонизация, резка; Rust-векторы);
 #   wheel         release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
-#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python;
+#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python; колесо нужно и здесь: отвечает эталон,
+#                 но вызовы швов кодирует шим (`tools/native_clip_seams.py` импортирует `cftuv_native.clip_seams`), а пакет шима импортирует скомпилированное расширение;
 #   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
 #                 равна личности дерева, обе операции `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
 #                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
@@ -119,6 +120,9 @@ jobs:
 
   corpus:
     name: synthetic clip corpus (py${{ matrix.python }})
+    # the recorder encodes the seam calls with the SHIM's wire format (`tools/native_clip_seams.py` imports `cftuv_native.clip_seams`), and the shim package imports the
+    # compiled extension: the wheel is a dependency of this job, not only of the differential one
+    needs: wheel
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -130,9 +134,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install the kernel's test dependencies
-        run: python -m pip install $TEST_REQUIREMENTS
-      # the records are the kernel tests' own calls, replayed on the oracle (tools/native_clip_synthetic.py); no extension is involved, nothing is committed
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - name: Install the kernel's test dependencies and the wheel (the recorder's seam encoders)
+        run: |
+          python -m pip install $TEST_REQUIREMENTS
+          python -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+      # the records are the kernel tests' own calls: the ORACLE answers every one of them (tools/native_clip_synthetic.py), the extension only ENCODES the seam calls; nothing is committed
       - name: Build the synthetic corpus from the kernel tests
         env:
           PYTHONSAFEPATH: "1"
