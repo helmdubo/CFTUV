@@ -41,7 +41,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "coverage")
 
@@ -943,6 +943,7 @@ def _corpus_sums(tool) -> list:
     return [value for value in found.values() if 0 < len(value.terms) <= 24]
 
 
+@field_tier(bool(_corpus_directories()), "корпус не собран (E:/cftuv_native_corpus/*/index.json): настоящие значения корпуса не сверены")
 def test_corpus_values_equal_the_oracle():
     if not _corpus_directories():
         pytest.skip("корпус не собран (E:/cftuv_native_corpus/*/index.json): настоящие значения корпуса не сверены")

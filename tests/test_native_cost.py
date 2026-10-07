@@ -50,7 +50,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "coverage")
 
@@ -990,6 +990,7 @@ def _pick_records(directory: Path, per_group: int) -> list:
     return picked
 
 
+@field_tier(_corpus_directory() is not None, "нет полевого корпуса под это ядро: настоящие операнды не сверены")
 def test_real_calls_of_coverage_and_clip_cost_what_python_costs(mirror):
     directory = _corpus_directory()
     if directory is None:
@@ -1019,6 +1020,7 @@ def test_real_calls_of_coverage_and_clip_cost_what_python_costs(mirror):
     print(f"real operands: {compared} calls {kinds}, signs through the conjugation: {conjugated}")
 
 
+@field_tier(_corpus_directory() is not None, "нет полевого корпуса под это ядро: настоящие операнды не сверены")
 def test_real_calls_under_every_cap_sweep_a_slice(mirror):
     """Потолок режет настоящую цепочку (коммит `radical`, `prime_universe`, делений): граница на каждом потолке равна эталону."""
 
