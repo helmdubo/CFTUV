@@ -1,9 +1,9 @@
-"""Память времён события на superlevel: тот же ответ, считается один раз.
+"""Память времён события на сборку скелета: тот же ответ, считается один раз.
 
 Закон кандидата спрашивает время одной тройки прямых по десятку раз:
 поколения exact-time замыкания и его повтор считают одни и те же пары
 (вершина, цель). `concurrency_time_in` и `sliding_time_in` кладут ответ в память
-мест superlevel'а (`PositionMemoV1`), ключ — идентичность прямых. Это ЦЕНА, а не
+мест сборки скелета (`PositionMemoV1`), ключ — идентичность прямых. Это ЦЕНА, а не
 семантика: чистая функция трёх аргументов, повторный вопрос ничего не оплачивает
 (память разложений уже ответила), поэтому ответ памяти и пересчёта один, а
 статьи бюджета те же. Меняется только счётчик знаков `SIGN_COUNTS`: пропущенный
@@ -124,7 +124,7 @@ def test_a_repeated_question_is_answered_by_the_memo_with_the_same_object(
     assert counter.calls == 2
 
 
-def test_no_memo_or_a_foreign_basis_or_a_clear_means_recomputation(monkeypatch):
+def test_no_memo_or_a_foreign_basis_or_a_fresh_memo_means_recomputation(monkeypatch):
     counter = Counter(monkeypatch, "concurrency_time")
     rng = random.Random(5)
     first, second, third = (random_line(rng) for _ in range(3))
@@ -138,8 +138,8 @@ def test_no_memo_or_a_foreign_basis_or_a_clear_means_recomputation(monkeypatch):
     concurrency_time_in(view, first, second, third)
     concurrency_time_in(view, first, second, third)
     assert counter.calls == 7
-    memo.clear()
-    concurrency_time_in(view, first, second, third)
+    # Память принадлежит ОДНОЙ сборке скелета: у другой сборки память своя, и она считает заново.
+    concurrency_time_in(view_with(PositionMemoV1(UNIVERSE)), first, second, third)
     assert counter.calls == 8
 
 

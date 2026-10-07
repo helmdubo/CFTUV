@@ -251,19 +251,25 @@ def test_the_memo_refuses_a_foreign_prime_universe():
     assert not memo.admits(())
 
 
-def test_the_memo_is_bounded_by_the_superlevel():
-    """Память ограничена уровнем: `clear` действительно чистит.
+def test_the_memo_is_bounded_by_one_build():
+    """Память ограничена сборкой скелета, а не процессом и не уровнем.
 
+    Её создаёт строитель (`_Builder.__init__`), точные времена её не чистят
+    (`test_position_memo_across_times.py`), а другая сборка получает свою пустую.
     Ограничение — про ПАМЯТЬ, а не про правильность: значение не зависит от
-    возраста записи. Но незачищаемая память у длинного марша копила бы словарь
-    на весь домен, и это надо было бы заметить не профилем, а падением.
+    возраста записи.
     """
 
-    memo = PositionMemoV1((2,))
-    memo.entries[("k",)] = "v"
-    assert memo.entries
-    memo.clear()
-    assert not memo.entries
+    from cftuv_envelope.wavefront import skeleton as skeleton_module
+
+    polygon = dict(named_corpus())["cross"]
+    first = skeleton_module._Builder(polygon)
+    second = skeleton_module._Builder(polygon)
+    assert first._position_memo is not second._position_memo
+    at_start = len(second._position_memo.entries)
+    first.run()
+    assert len(first._position_memo.entries) > at_start
+    assert len(second._position_memo.entries) == at_start
 
 
 def test_dense_mode_really_switches_the_memo_off():
