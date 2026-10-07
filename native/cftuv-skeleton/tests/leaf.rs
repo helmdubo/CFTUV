@@ -120,7 +120,7 @@ impl CandidateView for TriangleView {
     }
 
     fn span_state(&self, span: u32) -> SkelResult<SpanState<'_>> {
-        Ok(SpanState { line: &self.lines[span as usize], source_span: &[0, 0, 0, 0], start_vertex: None, end_vertex: None, frozen_instant: None, frozen_start: None, frozen_end: None })
+        Ok(SpanState { line: &self.lines[span as usize], source_span: &[0, 0, 0, 0], start_vertex: None, end_vertex: None, frozen_instant: None, frozen_start: None, frozen_end: None, occurrence: None })
     }
 
     fn trace_bounds(&self, _ctx: &mut ExactCtx<'_>, _vertex: VertexRef, _time: &EventTime) -> SkelResult<Option<bool>> {

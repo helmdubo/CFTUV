@@ -147,7 +147,7 @@ mod tests {
                 Ok(left < right)
             };
             for _ in 0..(5 + rng.next() % 120) {
-                if rng.next() % 4 == 0 && !heap.is_empty() {
+                if rng.next().is_multiple_of(4) && !heap.is_empty() {
                     let popped = heappop(&mut heap, &mut less).unwrap();
                     assert_eq!(popped, reference_pop(&mut reference, &mut reference_log));
                 } else {

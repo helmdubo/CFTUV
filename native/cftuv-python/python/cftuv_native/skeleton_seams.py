@@ -18,9 +18,11 @@ it inserted; the hits that were not inserted by the call itself are the memory t
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
+from types import SimpleNamespace
 
 from . import clip_seams, codec, cost, pin
 from .clip_seams import Answer, SeamUnsupported, answer_of, dec_str, enc_str, full_header
@@ -34,6 +36,8 @@ __all__ = (
     "SeamRunner",
     "SeamUnsupported",
     "dec_time",
+    "enc_graph",
+    "enc_polygon",
     "enc_repr",
     "exception_of",
     "full_header",
@@ -55,6 +59,19 @@ SEAMS = (
     (220, "EVALUATE_SPLIT_CANDIDATE"),
     (221, "POSITION"),
     (222, "SPAN_CONTAINMENT"),
+    (230, "CELL_GRID"),
+    (231, "BUILD_MOTORCYCLE_GRAPH"),
+    (232, "TRACE_FOR"),
+    (233, "TRACE_INDEX_SCRIPT"),
+    (234, "MOTORCYCLE_PART"),
+    (240, "EVALUATE_EDGE_CANDIDATE"),
+    (241, "EDGE_EVENT_TIME"),
+    (242, "IS_FUTURE"),
+    (243, "COLLAPSING_SPAN"),
+    (244, "SPAN_END"),
+    (245, "SLIDING_PROJECTION"),
+    (246, "CLASSIFY_POSTSTATE_SPAN"),
+    (250, "PROOF_SCRIPT"),
 )
 OPCODES = {name: code for code, name in SEAMS}
 
@@ -64,9 +81,10 @@ STATUS_ZERO_DIVISOR_TIME = 14
 STATUS_PARALLEL_LINES = 15
 STATUS_DEGENERATE_EDGE = 16
 STATUS_NEGATIVE_SPEED = 17
+STATUS_CELL_GRID_REJECTED = 18
 
 #: The oracle's own exceptions among the native statuses (the others are refusals of the port: `12`, `5`, `6`, `7`).
-ORACLE_STATUSES = frozenset({0, 1, 2, 3, 4, STATUS_VALUE, STATUS_ZERO_DIVISOR_TIME, STATUS_PARALLEL_LINES, STATUS_DEGENERATE_EDGE, STATUS_NEGATIVE_SPEED})
+ORACLE_STATUSES = frozenset({0, 1, 2, 3, 4, STATUS_VALUE, STATUS_ZERO_DIVISOR_TIME, STATUS_PARALLEL_LINES, STATUS_DEGENERATE_EDGE, STATUS_NEGATIVE_SPEED, STATUS_CELL_GRID_REJECTED})
 
 #: The oracle files the leaf seams mirror (relative to the `cftuv_envelope` package). The leaf is a test-only slice of the future whole-operation port, so it has
 #: no `OPERATION_FILES` entry (that table is the whole operations'); the test module skips with a named reason when one of these files moved.
@@ -76,6 +94,12 @@ LEAF_FILES = (
     "wavefront/candidate_law.py",
     "wavefront/candidate_refusal.py",
     "wavefront/exact_candidate_view.py",
+    "wavefront/cell_grid.py",
+    "wavefront/motorcycle.py",
+    "wavefront/poststate_span.py",
+    "wavefront/proof.py",
+    "wavefront/polygon.py",
+    "robust/predicates.py",
     *pin.FOUNDATION,
 )
 
@@ -85,6 +109,12 @@ LEAF_PINS = {
     "wavefront/candidate_refusal.py": "b1ca2217abbfe87286ef49ca1bb17c5121e1889b94700bcbeed9cf4e2aada787",
     "wavefront/exact_candidate_view.py": "dd53dbd3e3736966fe706d02842cf2729df5e2fd6fbb37413573613c525d87e0",
     "wavefront/events.py": "e69a1328c2aac9001f7d0830a6fe5d644d61195e1fb063058584717da288067f",
+    "wavefront/cell_grid.py": "e2ef50ff61222345e338ca9836f4281350007039daf40292f383ecba8f60030a",
+    "wavefront/motorcycle.py": "4460f277c899186319b405187025b60692187a33d95b14d80d75d907e244866f",
+    "wavefront/poststate_span.py": "2f60c4689cd442e88c3fe68e28fd5feb96c4bcc304202c87e7c0189d42022886",
+    "wavefront/proof.py": "093e9b8de7b8e88687f0ce24d184cb434b608ebab2161b9c4e2a8721fa465de0",
+    "wavefront/polygon.py": "d3fe537c884581844cbb62f626af79e6c085332ee53ba647100109e40c84c408",
+    "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
 }
 
 
@@ -132,6 +162,12 @@ def _kernel():
     from cftuv_envelope.wavefront import candidate_law, event_time, exact_candidate_view, exact_identity
 
     return event_time, candidate_law, exact_candidate_view, exact_identity
+
+
+def _motorcycle():
+    from cftuv_envelope.wavefront import cell_grid, motorcycle
+
+    return motorcycle, cell_grid
 
 
 # --------------------------------------------------------------------------
@@ -311,6 +347,8 @@ def exception_of(answer: Answer, budget) -> tuple:
         return ("DegenerateEdgeError", dec_str(answer.detail[0]))
     if status == STATUS_NEGATIVE_SPEED:
         return ("NegativeSpeedError", dec_str(answer.detail[0]))
+    if status == STATUS_CELL_GRID_REJECTED:
+        return ("CellGridRejected", dec_str(answer.detail[0]))
     return clip_seams.exception_of(answer, budget)
 
 
@@ -439,6 +477,7 @@ class CallRecorder:
                 _enc_optional(state.frozen_instant, enc_time),
                 _enc_optional(state.frozen_start, enc_point),
                 _enc_optional(state.frozen_end, enc_point),
+                span_occurrence(ref),
             ]
         return state
 
@@ -453,6 +492,292 @@ class CallRecorder:
 
     def view_wire(self) -> list:
         return [[int(prime) for prime in self.original.prime_universe], list(self.vertices.values()), list(self.spans.values()), [[number, crash] for number, crash in self.traces.items()]]
+
+
+# --------------------------------------------------------------------------
+# the span occurrence, polygons, traces, the graph (WP-S1) and the ledger (WP-S2b)
+# --------------------------------------------------------------------------
+
+
+def span_occurrence(ref):
+    """`[start_x, start_y, end_x, end_y]` of `getattr(ref, "occurrence", None)` when it has three parts (what `_span_orientation` reads), else `None`."""
+
+    occurrence = getattr(ref, "occurrence", None)
+    if occurrence is None or len(occurrence) != 3:
+        return None
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
+
+    try:
+        start_x, start_y = (SqrtSumV1(item) for item in occurrence[1])
+        end_x, end_y = (SqrtSumV1(item) for item in occurrence[2])
+    except (TypeError, ValueError):
+        return None
+    return [start_x, start_y, end_x, end_y]
+
+
+#: `|x|, |y| < COORDINATE_LIMIT` of a polygon point (`native/cftuv-skeleton/src/polygon.rs`).
+COORDINATE_LIMIT = 1 << 60
+
+
+def _checked_int(value, limit: int, what: str) -> int:
+    if type(value) is not int or not -limit < value < limit:
+        raise SeamUnsupported(f"{what} {value!r} is not a machine integer of the port")
+    return value
+
+
+def _speed(value, what: str):
+    if type(value) not in (int, Fraction):
+        raise SeamUnsupported(f"{what} must be an int or a Fraction, not {type(value).__name__}")
+    return value
+
+
+def enc_polygon(polygon) -> list:
+    """`[loops, fans]`: a loop is `[x0, y0, x1, y1, ..., speeds]` split in two lists (`points`, the speeds with the default spelt out), a fan `[x, y, [[nx, ny, q], ...]]`."""
+
+    loops = []
+    for loop in polygon.loops:
+        flat = [_checked_int(value, COORDINATE_LIMIT, "a polygon coordinate") for point in loop.points for value in point]
+        loops.append([flat, [_speed(speed, "an edge speed") for speed in loop.edge_speeds_squared]])
+    fans = []
+    for fan in polygon.vertex_fans:
+        point = [_checked_int(value, COORDINATE_LIMIT, "a fan vertex coordinate") for value in fan.point]
+        supports = [[_checked_int(item.normal_x, LINE_LIMIT, "a fan normal"), _checked_int(item.normal_y, LINE_LIMIT, "a fan normal"), _speed(item.speed_squared, "a fan speed")] for item in fan.supports]
+        fans.append([*point, supports])
+    return [loops, fans]
+
+
+def enc_line4(line) -> list:
+    """A line without its identity: `[a, b, c, q]` (the native side gives it identity zero)."""
+
+    return enc_line(line, 0)[:4]
+
+
+def enc_wall(wall) -> list:
+    return [wall.ident, wall.start[0], wall.start[1], wall.end[0], wall.end[1], enc_line4(wall.line)]
+
+
+def enc_trace(trace) -> list:
+    motorcycle, _grid = _motorcycle()
+    outcomes = list(motorcycle.TraceOutcome)
+    kinds = list(motorcycle.CrashKind)
+    reach = trace.reach
+    if reach is not None and type(reach) is not Fraction:
+        raise SeamUnsupported(f"a trace reach must be a Fraction, not {type(reach).__name__}")
+    return [
+        _checked_int(trace.ident, 1 << 62, "a trace identity"),
+        outcomes.index(trace.outcome),
+        enc_line4(trace.left_line),
+        enc_line4(trace.right_line),
+        enc_time(trace.start_time),
+        enc_point(trace.origin),
+        [trace.velocity[0], trace.velocity[1]],
+        _enc_optional(trace.crash_time, enc_time),
+        _enc_optional(trace.crash_point, enc_point),
+        kinds.index(trace.crash_kind),
+        _checked_int(trace.crash_target, 1 << 62, "a crash target"),
+        reach,
+    ]
+
+
+def enc_grid(grid) -> list:
+    return [_checked_int(value, 1 << 61, "a grid number") for value in (grid.x_min, grid.y_min, grid.x_max, grid.y_max, grid.cell)]
+
+
+def enc_graph(graph, *, traces=True, counters=None, next_ident=None) -> list:
+    """`[walls, grid, buckets, traces, counters, next identity]` of a `MotorcycleGraphV1`; the counters and the next identity may be given (the state BEFORE a call)."""
+
+    buckets = [[cell[0], cell[1], list(idents)] for cell, idents in graph.wall_index.buckets.items()]
+    counters = graph.counters if counters is None else counters
+    if next_ident is None:
+        next_ident = count_value(graph._next_ident)
+    names = _counter_names()
+    return [
+        [enc_wall(wall) for wall in graph.walls],
+        enc_grid(graph.grid),
+        buckets,
+        [enc_trace(trace) for trace in graph.traces.values()] if traces else [],
+        [counters[name] for name in names],
+        next_ident,
+    ]
+
+
+def count_value(counter) -> int:
+    """The next value an `itertools.count` gives, read from its `repr` (`count(5)`) without consuming it (`copy` of an iterator is deprecated)."""
+
+    return int(repr(counter).split("(", 1)[1].rstrip(")").split(",", 1)[0])
+
+
+def _counter_names() -> tuple:
+    return (
+        "motorcycle_traces",
+        "motorcycle_wall_tests",
+        "motorcycle_march_steps",
+        "motorcycle_wall_crashes",
+        "motorcycle_trace_pairs",
+        "motorcycle_trace_crashes",
+        "motorcycle_unbounded_traces",
+        "resting_steiner_vertices",
+    )
+
+
+def dec_line4(wire):
+    event_time, *_ = _kernel()
+    return event_time.SupportLineV1(wire[0], wire[1], wire[2], wire[3])
+
+
+def dec_trace(wire):
+    motorcycle, _grid = _motorcycle()
+    ident, outcome, left, right, start, origin, velocity, crash_time, crash_point, kind, target, reach = wire
+    return motorcycle.TraceV1(
+        ident,
+        list(motorcycle.TraceOutcome)[outcome],
+        dec_line4(left),
+        dec_line4(right),
+        dec_time(start),
+        dec_point(origin),
+        (velocity[0], velocity[1]),
+        None if crash_time is None else dec_time(crash_time),
+        None if crash_point is None else dec_point(crash_point),
+        list(motorcycle.CrashKind)[kind],
+        target,
+        reach,
+    )
+
+
+def dec_wall(wire):
+    motorcycle, _grid = _motorcycle()
+    ident, sx, sy, ex, ey, line = wire
+    return motorcycle.WallV1(ident, (sx, sy), (ex, ey), dec_line4(line))
+
+
+def dec_cells(wire) -> tuple:
+    return tuple((cell[0], cell[1]) for cell in wire)
+
+
+def dec_graph(wire):
+    """A stand-in for a `MotorcycleGraphV1` built from the native answer: the same attributes `graph_view` reads."""
+
+    _motorcycle_module, cell_grid = _motorcycle()
+    walls, grid, buckets, traces, counters, next_ident = wire
+    decoded = [dec_trace(trace) for trace in traces]
+    return SimpleNamespace(
+        walls=tuple(dec_wall(wall) for wall in walls),
+        grid=cell_grid.CellGridV1(*grid),
+        wall_index=SimpleNamespace(buckets={(column, row): list(idents) for column, row, idents in buckets}),
+        traces={trace.ident: trace for trace in decoded},
+        counters=dict(zip(_counter_names(), counters)),
+        _next_ident=itertools.count(next_ident),
+    )
+
+
+def graph_view(graph) -> tuple:
+    """The comparable shape of a graph (the oracle's or a decoded one): walls, grid, the buckets in order, the traces in order, the counters in order, the next identity."""
+
+    return (
+        tuple(graph.walls),
+        graph.grid,
+        tuple((cell, tuple(idents)) for cell, idents in graph.wall_index.buckets.items()),
+        tuple(graph.traces.items()),
+        tuple(graph.counters.items()),
+        repr(graph._next_ident),
+    )
+
+
+def dec_trace_for(wire):
+    """`(trace, counters, next identity)` of a `trace_for` answer, in the shape `trace_for_view` gives the oracle's."""
+
+    trace, counters, next_ident = wire
+    return dec_trace(trace), tuple(zip(_counter_names(), counters)), repr(itertools.count(next_ident))
+
+
+def trace_for_view(trace, graph) -> tuple:
+    return trace, tuple(graph.counters.items()), repr(graph._next_ident)
+
+
+def dec_cell_grid(name_or_op, wire):
+    """The grid seam's answers as Python values (`op` as in `native/cftuv-skeleton/src/seam_graph.rs::cell_grid`)."""
+
+    _motorcycle_module, cell_grid = _motorcycle()
+    if name_or_op == 0:
+        return cell_grid.CellGridV1(*wire)
+    if name_or_op in (3, 5, 6):
+        return dec_cells(wire)
+    if name_or_op == 7:
+        results, buckets = wire
+        return [None if item is None else tuple(item) for item in results], tuple(((column, row), tuple(idents)) for column, row, idents in buckets)
+    return tuple(wire) if isinstance(wire, list) else wire
+
+
+def dec_edge_decision(wire, now, identity_factory=None):
+    """The `EdgeCandidateDecisionV1` of the answer (the effects as in `dec_decision`)."""
+
+    _event_time, candidate_law, *_ = _kernel()
+    from cftuv_envelope.wavefront.candidate_refusal import CandidateRefusal
+
+    candidate_wire, effects_wire, _memo = wire
+    candidate = None
+    if candidate_wire is not None:
+        time, point, span_unproven = candidate_wire
+        candidate = candidate_law.EdgeCandidateV1(dec_time(time), dec_point(point), span_unproven)
+    effects = []
+    for reason, needs_identity, deltas in effects_wire:
+        identity = identity_factory() if needs_identity and identity_factory is not None else None
+        effects.append(candidate_law.CandidateRefusalEffectV1(CandidateRefusal(dec_str(reason)), identity, now, tuple((dec_str(name), delta) for name, delta in deltas)))
+    return candidate_law.EdgeCandidateDecisionV1(candidate, tuple(effects))
+
+
+def dec_poststate(wire):
+    """`PoststateSpanClassificationV1` of the answer."""
+
+    from cftuv_envelope.wavefront import poststate_span
+
+    index, birth_length, slope, orientation_sign, _memo = wire
+    return poststate_span.PoststateSpanClassificationV1(list(poststate_span.PoststateSpanDisposition)[index], birth_length, slope, orientation_sign)
+
+
+def dec_obligation(wire):
+    from cftuv_envelope.wavefront import proof
+    from cftuv_envelope.wavefront.candidate_refusal import CandidateRefusal
+    from cftuv_envelope.wavefront.events import EventKind
+
+    kind, cause, disposition, vertices, participants, targets, level, event_kind = wire
+    name = dec_str(cause)
+    return proof.ProofObligationV1(
+        cause=CandidateRefusal(name) if kind == 0 else proof.ProofObligationBranch(name),
+        disposition=proof.ProofObligationDisposition(dec_str(disposition)),
+        vertex_ids=tuple(vertices),
+        participant_edge_keys=tuple(tuple(key) for key in participants),
+        target_edge_keys=tuple(tuple(key) for key in targets),
+        level=dec_time(level),
+        event_kind=None if event_kind is None else EventKind(dec_str(event_kind)),
+    )
+
+
+def enc_obligation_record(cause, disposition, vertex_ids, participants, targets, level, event_kind) -> list:
+    from cftuv_envelope.wavefront import proof
+
+    kind = 1 if isinstance(cause, proof.ProofObligationBranch) else 0
+    for ids in (vertex_ids, *participants, *targets):
+        for value in ids:
+            _checked_int(value, 1 << 62, "an obligation number")
+    return [
+        0,
+        kind,
+        enc_str(cause.value),
+        enc_str(disposition.value),
+        list(vertex_ids),
+        [list(key) for key in participants],
+        [list(key) for key in targets],
+        enc_time(level),
+        None if event_kind is None else enc_str(event_kind.value),
+    ]
+
+
+def enc_refusal_record(reason, vertex_ids, participants, targets, level) -> list:
+    for ids in (vertex_ids, *participants, *targets):
+        for value in ids:
+            _checked_int(value, 1 << 62, "an obligation number")
+    return [1, enc_str(reason.value), list(vertex_ids), [list(key) for key in participants], [list(key) for key in targets], enc_time(level)]
 
 
 if __name__ == "__main__":

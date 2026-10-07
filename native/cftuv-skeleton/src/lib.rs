@@ -16,12 +16,18 @@
 
 pub mod candidate;
 pub mod error;
+pub mod grid;
 pub mod heap;
 pub mod line;
+pub mod motorcycle;
+pub mod polygon;
+pub mod poststate;
 pub mod profile;
+pub mod proof;
 pub mod queue;
 pub mod repr;
 pub mod seam;
+mod seam_graph;
 pub mod time;
 pub mod view;
 mod wire;

@@ -21,6 +21,12 @@ pub enum EventKind {
 }
 
 impl EventKind {
+    pub const ALL: [EventKind; 5] = [EventKind::Edge, EventKind::Multiway, EventKind::Split, EventKind::Start, EventKind::Switch];
+
+    pub fn from_value(value: &str) -> Option<EventKind> {
+        EventKind::ALL.into_iter().find(|kind| kind.value() == value)
+    }
+
     pub fn value(self) -> &'static str {
         match self {
             EventKind::Edge => "EDGE",

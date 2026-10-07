@@ -1,9 +1,11 @@
-//! The split candidate law (`wavefront/candidate_law.py::evaluate_split_candidate`, `candidate_refusal.py`): an id-free, pure exact decision whether a
-//! reflex or sliding vertex meets a span of the front, with the named refusals it ends with as ordered effects the builder applies.
+//! The candidate laws (`wavefront/candidate_law.py`, `candidate_refusal.py`): id-free, pure exact decisions whether two neighbours of the front collapse
+//! (`evaluate_edge_candidate`) or a reflex or sliding vertex meets a span of the front (`evaluate_split_candidate`), with the named refusals they end with
+//! as ordered effects the builder applies.
 //!
-//! The order of the exact questions is the cost, and it is the oracle's: the three lines first, then the time of the triple (through the identity
-//! memory), then its signs against the vertex's birth and `now`, then the trace bound (a filter that answers before any place is built), the place of
-//! the vertex (hydrated once, through the value memory), and last the containment in the target span. An early refusal leaves the later questions unasked.
+//! The order of the exact questions is the cost, and it is the oracle's. For a split: the three lines first, then the time of the triple (through the
+//! identity memory), then its signs against the vertex's birth and `now`, then the trace bound (a filter that answers before any place is built), the place
+//! of the vertex (hydrated once, through the value memory), and last the containment in the target span. For an edge: the time of the pair, whether it is in the
+//! future, the length of the span that must collapse (both ends first), the births, and last the place. An early refusal leaves the later questions unasked.
 
 use std::rc::Rc;
 
@@ -13,7 +15,7 @@ use cftuv_core::rat::Rat;
 use crate::error::SkelResult;
 use crate::line::SupportLine;
 use crate::time::{compare_times, EventTime, PointRef, TimeOutcome, TimeRef};
-use crate::view::{concurrency_time_in, position, sliding_time_in, span_containment, CandidateView, PositionMemo, SpanRef, VertexRef};
+use crate::view::{collapsing_span, concurrency_time_in, edge_event_time, is_future, position, sliding_time_in, span_containment, CandidateView, PositionMemo, SpanRef, VertexRef};
 
 /// `CandidateRefusal`: FILTER means proven absence, NO_RULE a named open seam. `value` is the enum's `.value`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -120,8 +122,72 @@ pub struct SplitDecision {
     pub effects: Vec<RefusalEffect>,
 }
 
+fn refusal(reason: CandidateRefusal, needs_identity: bool, counter_deltas: Vec<(&'static str, i64)>) -> Vec<RefusalEffect> {
+    vec![RefusalEffect { reason, needs_identity, counter_deltas }]
+}
+
 fn refused(reason: CandidateRefusal, needs_identity: bool, counter_deltas: Vec<(&'static str, i64)>) -> SkelResult<SplitDecision> {
-    Ok(SplitDecision { candidate: None, effects: vec![RefusalEffect { reason, needs_identity, counter_deltas }] })
+    Ok(SplitDecision { candidate: None, effects: refusal(reason, needs_identity, counter_deltas) })
+}
+
+/// `EdgeCandidateV1`: `span_unproven` is set when the collapsing span had no proof (an end without a place on a moving line); the event is accepted with it.
+#[derive(Debug, Clone)]
+pub struct EdgeCandidate {
+    pub time: TimeRef,
+    pub point: PointRef,
+    pub span_unproven: bool,
+}
+
+/// `EdgeCandidateDecisionV1`.
+#[derive(Debug, Clone)]
+pub struct EdgeDecision {
+    pub candidate: Option<EdgeCandidate>,
+    pub effects: Vec<RefusalEffect>,
+}
+
+fn edge_refused(reason: CandidateRefusal, needs_identity: bool) -> SkelResult<EdgeDecision> {
+    Ok(EdgeDecision { candidate: None, effects: refusal(reason, needs_identity, Vec::new()) })
+}
+
+/// `evaluate_edge_candidate(view, vertex, peer, now=..., same_vertex=...)`.
+pub fn evaluate_edge_candidate<V: CandidateView>(
+    ctx: &mut ExactCtx<'_>,
+    view: &V,
+    memo: &mut PositionMemo,
+    vertex_ref: VertexRef,
+    peer_ref: VertexRef,
+    now: &EventTime,
+    same_vertex: bool,
+) -> SkelResult<EdgeDecision> {
+    if same_vertex {
+        return edge_refused(CandidateRefusal::FilterSoloVertex, false);
+    }
+    let (time, outcome) = edge_event_time(ctx, view, memo, vertex_ref, peer_ref, now)?;
+    if outcome == TimeOutcome::NeverConcurrent {
+        return edge_refused(CandidateRefusal::FilterTripleNeverConcurrent, false);
+    }
+    let time = match (outcome, time) {
+        (TimeOutcome::Exact, Some(time)) => time,
+        _ => return edge_refused(CandidateRefusal::NoRuleTripleAlwaysConcurrent, true),
+    };
+    if !is_future(ctx, view, &time, &[vertex_ref, peer_ref], now)? {
+        return edge_refused(CandidateRefusal::FilterEventInThePast, false);
+    }
+    let span = collapsing_span(ctx, view, memo, vertex_ref, peer_ref, &time)?;
+    if span.as_ref().is_some_and(|length| !length.is_zero()) {
+        return edge_refused(CandidateRefusal::FilterSpanDoesNotCollapse, false);
+    }
+    let vertex = view.vertex_state(vertex_ref)?;
+    let peer = view.vertex_state(peer_ref)?;
+    if span.is_some() && compare_times(ctx, &time, vertex.birth)? == 0 && compare_times(ctx, &time, peer.birth)? == 0 {
+        return edge_refused(CandidateRefusal::FilterSpanIsBornZero, false);
+    }
+    let Some(point) = position(ctx, view, memo, vertex_ref, &time)? else {
+        let first = view.span_state(vertex.prev_span)?.line;
+        let second = view.span_state(vertex.next_span)?.line;
+        return edge_refused(joint_refusal(first, second), true);
+    };
+    Ok(EdgeDecision { candidate: Some(EdgeCandidate { time, point, span_unproven: span.is_none() }), effects: Vec::new() })
 }
 
 /// `evaluate_split_candidate(view, vertex, target, now=...)`.

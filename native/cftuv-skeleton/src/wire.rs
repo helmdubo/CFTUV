@@ -169,3 +169,22 @@ pub fn time_value(time: &EventTime) -> Value {
 pub fn point_value(point: &EventPoint) -> Value {
     Value::List(vec![Value::Sum(point.x.clone()), Value::Sum(point.y.clone())])
 }
+
+/// A line without its identity as the seams answer it: `[a, b, c, q]` (`q` as the oracle holds it, an `int` when whole).
+pub fn line_answer(line: &SupportLine) -> Value {
+    Value::List(vec![int(line.a), int(line.b), int(line.c), speed_value(&line.q)])
+}
+
+/// A line of four elements (`[a, b, c, q]`, identity zero) or five (`[a, b, c, q, ident]`).
+pub fn line_any_of(value: &Value) -> Wire<SupportLine> {
+    match list(value, "a support line")? {
+        [a, b, c, q] => SupportLine::new(i64_of(a, "line a")?, i64_of(b, "line b")?, i128::try_from(&int_of(c, "line c")?).map_err(|_| bad("line c"))?, rat_of(q, "a line speed")?, 0)
+            .map_err(|error| SeamError(format!("unsupported: {error:?}"))),
+        _ => line_of(value),
+    }
+}
+
+/// An optional sum.
+pub fn sum_option_value(sum: Option<SqrtSum>) -> Value {
+    sum.map_or(Value::None, Value::Sum)
+}

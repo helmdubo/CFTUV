@@ -3,7 +3,7 @@
 //! `timed(phase, || work)` charges the time of `work` to `phase` and takes it away from the phase it was called in, so the phases add up to the whole and a
 //! nested phase is not counted twice. Without the feature `timed` is the call of `work` and nothing else; `take()` answers an empty list.
 
-/// What the time of an evaluate call is spent on. `Other` is everything not named (the memory lookups, the view, the glue).
+/// What the time of an evaluate call (or of a graph build) is spent on. `Other` is everything not named (the memory lookups, the view, the glue).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Other,
@@ -18,10 +18,16 @@ pub enum Phase {
     MemoKey,
     MemoLookup,
     AlongSpan,
+    GraphVelocity,
+    GraphExtent,
+    GraphCells,
+    GraphProjection,
+    GraphReach,
+    GraphCrashes,
 }
 
 /// `(name, phase)` in the order of the answer of [`take`].
-pub const PHASES: [(&str, Phase); 12] = [
+pub const PHASES: [(&str, Phase); 18] = [
     ("other", Phase::Other),
     ("compare_times", Phase::CompareTimes),
     ("concurrency_time", Phase::ConcurrencyTime),
@@ -34,6 +40,12 @@ pub const PHASES: [(&str, Phase); 12] = [
     ("memo keys", Phase::MemoKey),
     ("memo lookups", Phase::MemoLookup),
     ("projections on a span", Phase::AlongSpan),
+    ("graph: bisector velocity", Phase::GraphVelocity),
+    ("graph: boxes of the march", Phase::GraphExtent),
+    ("graph: cells and walls of a step", Phase::GraphCells),
+    ("graph: projection into a wall", Phase::GraphProjection),
+    ("graph: reach test", Phase::GraphReach),
+    ("graph: crashes into traces", Phase::GraphCrashes),
 ];
 
 #[cfg(feature = "profile")]

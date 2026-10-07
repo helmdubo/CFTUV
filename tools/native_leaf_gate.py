@@ -27,6 +27,7 @@ native side does not.
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 import pickle
 import sys
@@ -60,7 +61,7 @@ SEAM_OF = {
     "_event_point_with_prime_universe": "EVENT_POINT",
 }
 #: The phases of the native evaluate call, in the order of `cftuv_skeleton::profile::PHASES` (answered only by a wheel built with the feature `skeleton-profile`).
-PHASE_NAMES = ("other (glue, memory lookups)", "compare_times", "concurrency_time", "sliding_time", "sliding_point", "event_point: radicals", "event_point: sums and products", "event_point: divisions", "difference_sign", "memo keys", "memo lookups (hash, compare, clone)", "projections on a span")
+PHASE_NAMES = ("other (glue, memory lookups)", "compare_times", "concurrency_time", "sliding_time", "sliding_point", "event_point: radicals", "event_point: sums and products", "event_point: divisions", "difference_sign", "memo keys", "memo lookups (hash, compare, clone)", "projections on a span", "graph: bisector velocity", "graph: boxes of the march", "graph: cells and walls of a step", "graph: projection into a wall", "graph: reach test", "graph: crashes into traces")
 #: What a `proof_identity_factory` answers in the native comparison (only its presence is compared).
 IDENTITY_SENTINEL = ("identity",)
 
@@ -161,8 +162,11 @@ class LeafVerifier:
         self.timing: dict = {}
         self.depth = 0
         self.probe: list = []
-        #: every checked `evaluate_split_candidate` call in order: `[oracle seconds, native compute seconds, whole-call seconds, outcome label]`
-        self.calls: list = []
+        #: every checked call of the seams in `timed`, in order, per seam: `[oracle seconds, native compute seconds, whole-call seconds, outcome label]`;
+        #: `calls` is the list of `evaluate_split_candidate` (what gate G1 reads)
+        self.timed: set = {"EVALUATE_SPLIT_CANDIDATE"}
+        self.call_log: dict = {}
+        self.calls: list = self.call_log.setdefault("EVALUATE_SPLIT_CANDIDATE", [])
         self.outcomes: Counter = Counter()
         self.raised: Counter = Counter()
         #: the profile mode: only the calls made INSIDE an `evaluate_split_candidate` are checked, and that function itself is only marked
@@ -282,10 +286,10 @@ class LeafVerifier:
         row["decode"] += decode_seconds
         row["compute"] += (answer.extras[0] if answer.extras else answer.nanoseconds) * 1e-9
         row["inside"] += answer.nanoseconds * 1e-9
-        if seam == "EVALUATE_SPLIT_CANDIDATE":
-            if len(answer.extras) > 1:
+        if seam in self.timed:
+            if seam == "EVALUATE_SPLIT_CANDIDATE" and len(answer.extras) > 1:
                 self.phases = [sum(pair) for pair in zip(self.phases or [0] * len(answer.extras[1]), answer.extras[1])]
-            self.calls.append([oracle_seconds, (answer.extras[0] if answer.extras else answer.nanoseconds) * 1e-9, encode_seconds + native_seconds + decode_seconds, ""])
+            self.call_log.setdefault(seam, []).append([oracle_seconds, (answer.extras[0] if answer.extras else answer.nanoseconds) * 1e-9, encode_seconds + native_seconds + decode_seconds, ""])
 
     def wanted(self, name: str) -> bool:
         seam = SEAM_OF[name]
@@ -313,9 +317,11 @@ class LeafVerifier:
             return [recorder.view_wire(), self.wire.memo_wire(memo, log, active), *tail(recorder)]
 
         def extra(answer):
+            if not grown:
+                return []
             added = list(self.wire.placed_in(log))
             reported = list(answer.value[-1])
-            return [] if not grown or reported == added else [Mismatch(seam, "memory_growth", f"oracle inserted {added}, native {reported}")]
+            return [] if reported == added else [Mismatch(seam, "memory_growth", f"oracle inserted {added}, native {reported}")]
 
         try:
             return self.lockstep(seam, lambda: call(recorder.view), encode, decode, budget=view.budget, normalize=normalize, extra=extra)
@@ -380,13 +386,14 @@ class LeafVerifier:
 
         return evaluate_split_candidate
 
-    def note_decision(self, decision) -> None:
+    def note_decision(self, decision, seam: str = "EVALUATE_SPLIT_CANDIDATE") -> None:
         """Which outcome the call had (the coverage of the law's branches)."""
 
         label = "CANDIDATE" if decision.candidate is not None else decision.effects[0].reason.value
-        self.outcomes[label] += 1
-        if self.calls:
-            self.calls[-1][3] = label
+        self.outcomes[label if seam == "EVALUATE_SPLIT_CANDIDATE" else f"{seam}:{label}"] += 1
+        calls = self.call_log.get(seam)
+        if calls:
+            calls[-1][3] = label
 
     def wrap_time_function(self, name: str, original):
         """`concurrency_time`, `sliding_time`, `sliding_point`, `_event_point`, `compare_times`: arguments in the wire, the budget is the last argument."""
@@ -422,6 +429,14 @@ class LeafVerifier:
         encoder_arity = {"compare_times": 2, "concurrency_time": 3, "sliding_time": 3, "sliding_point": 3, "_event_point_with_prime_universe": 4}
         return wrapper
 
+    def factories(self):
+        """`(name, factory, home)` of the functions the recording wrappers replace; a subclass adds its own."""
+
+        return (
+            ("evaluate_split_candidate", self.mark_evaluate if self.restrict else self.wrap_evaluate, candidate_law),
+            *((name, (lambda original, name=name: self.wrap_time_function(name, original)), event_time) for name in ("compare_times", "concurrency_time", "sliding_time", "sliding_point", "_event_point_with_prime_universe")),
+        )
+
     @contextlib.contextmanager
     def installed(self):
         """Puts the recording wrappers on the oracle and the trace probe on `TraceV1.bounds_time`; everything is restored in the end (see `swapped`)."""
@@ -433,13 +448,9 @@ class LeafVerifier:
             verifier.probe[:] = [trace.crash_time]
             return original_bounds(trace, time_value, budget)
 
-        factories = (
-            ("evaluate_split_candidate", self.mark_evaluate if self.restrict else self.wrap_evaluate, candidate_law),
-            *((name, (lambda original, name=name: self.wrap_time_function(name, original)), event_time) for name in ("compare_times", "concurrency_time", "sliding_time", "sliding_point", "_event_point_with_prime_universe")),
-        )
         motorcycle.TraceV1.bounds_time = bounds_time
         try:
-            with swapped(factories):
+            with swapped(self.factories()):
                 yield self
         finally:
             motorcycle.TraceV1.bounds_time = original_bounds
@@ -463,7 +474,7 @@ class LeafVerifier:
 
 @contextlib.contextmanager
 def swapped(factories):
-    """For each `(name, factory, home)`: the function `home.name` is replaced, in EVERY kernel module that holds it by name, by `factory(original)`.
+    """For each `(name, factory, home)`: the function `home.name` is replaced, in EVERY kernel module that holds it (under any name: an alias is a holder too), by `factory(original)`.
 
     A module the oracle imports LATER (a lazy import inside a function) takes the wrapper from the module it imports it from, so on the way out every kernel module in
     `sys.modules` is swept for the wrappers, not only those that held the original on the way in."""
@@ -471,22 +482,27 @@ def swapped(factories):
     originals = {}
     for name, factory, home in factories:
         original = getattr(home, name)
-        originals[name] = (original, factory(original))
+        # the wrapper says it IS the function (`__wrapped__`, name, docstring): a test that reads the source or the signature of the oracle's function sees the oracle's
+        originals[name] = (original, functools.update_wrapper(factory(original), original))
 
     def kernel_modules():
         return [module for module in list(sys.modules.values()) if module is not None and getattr(module, "__name__", "").startswith("cftuv_envelope.")]
 
+    def replace(module, found, put):
+        """Every attribute of the module that IS `found` (whatever its name: `from .x import f as _f` is held under `_f`) becomes `put`."""
+
+        for key, value in list(vars(module).items()):
+            for original, wrapper in originals.values():
+                if value is found(original, wrapper):
+                    setattr(module, key, put(original, wrapper))
+
     try:
         for module in kernel_modules():
-            for name, (original, wrapper) in originals.items():
-                if getattr(module, name, None) is original:
-                    setattr(module, name, wrapper)
+            replace(module, lambda original, wrapper: original, lambda original, wrapper: wrapper)
         yield
     finally:
         for module in kernel_modules():
-            for name, (original, wrapper) in originals.items():
-                if getattr(module, name, None) is wrapper:
-                    setattr(module, name, original)
+            replace(module, lambda original, wrapper: wrapper, lambda original, wrapper: original)
 
 
 def fresh_process_state():

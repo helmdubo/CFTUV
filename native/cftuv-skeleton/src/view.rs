@@ -45,7 +45,8 @@ pub struct VertexState<'a> {
 }
 
 /// `CandidateSpanStateV1`: the line of the span, the source nodes it spans, its end vertices, and the places the symbolic layer knows EXACTLY at
-/// `frozen_instant`.
+/// `frozen_instant`. `occurrence` is what `getattr(span_ref, "occurrence", None)` answers for a reference that carries the span's two end points exactly
+/// (the symbolic layer's segment references, a tuple of three whose last two are `(x, y)` terms): `[start_x, start_y, end_x, end_y]`; a runtime reference has none.
 pub struct SpanState<'a> {
     pub line: &'a SupportLine,
     pub source_span: &'a [i64],
@@ -54,6 +55,7 @@ pub struct SpanState<'a> {
     pub frozen_instant: Option<&'a EventTime>,
     pub frozen_start: Option<&'a EventPoint>,
     pub frozen_end: Option<&'a EventPoint>,
+    pub occurrence: Option<&'a [SqrtSum; 4]>,
 }
 
 /// `ExactCandidateViewV1` minus the memory (which is [`PositionMemo`], passed beside it) and the budget (the call's [`ExactCtx`]).
@@ -203,8 +205,19 @@ fn along_span(place: &EventPoint, line: &SupportLine) -> SqrtSum {
     timed(Phase::AlongSpan, || combined(&place.x, &rat_of(i128::from(line.b)), &place.y, &rat_of(i128::from(line.a))))
 }
 
+/// `x0, y0, x1, y1 = span.source_span`: the interpreter's own `ValueError` text for a span of any other length (a fan span has five numbers).
+pub fn unpack_source_span(source_span: &[i64]) -> SkelResult<[i64; 4]> {
+    match *source_span {
+        [x0, y0, x1, y1] => Ok([x0, y0, x1, y1]),
+        _ => {
+            let found = source_span.len();
+            Err(SkelError::Value(if found > 4 { "too many values to unpack (expected 4)".to_string() } else { format!("not enough values to unpack (expected 4, got {found})") }))
+        }
+    }
+}
+
 /// `span_end(view, vertex, span, time, at_start)`: the projection of the span's end on the span's line, or `None` when the end has no place and the line moves.
-fn span_end<V: CandidateView>(
+pub fn span_end<V: CandidateView>(
     ctx: &mut ExactCtx<'_>,
     view: &V,
     memo: &mut PositionMemo,
@@ -220,10 +233,7 @@ fn span_end<V: CandidateView>(
     if !span.line.is_stationary() {
         return Ok(None);
     }
-    let [x0, y0, x1, y1] = *span.source_span else {
-        let found = span.source_span.len();
-        return Err(SkelError::Value(if found > 4 { "too many values to unpack (expected 4)".to_string() } else { format!("not enough values to unpack (expected 4, got {found})") }));
-    };
+    let [x0, y0, x1, y1] = unpack_source_span(span.source_span)?;
     let (node_x, node_y) = if at_start { (x0, y0) } else { (x1, y1) };
     let value = i128::from(node_x) * i128::from(span.line.b) - i128::from(node_y) * i128::from(span.line.a);
     Ok(Some(SqrtSum::rational(&rat_of(value))))
@@ -277,7 +287,7 @@ pub fn span_containment<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo
         Some(low) => Some(timed(Phase::DifferenceSign, || exact::difference_sign(ctx, &here, low))?),
     };
     let mut high_sign = None;
-    if low_sign.map_or(true, |sign| sign >= 0) {
+    if low_sign.is_none_or(|sign| sign >= 0) {
         if let Some(high) = &high {
             high_sign = Some(timed(Phase::DifferenceSign, || exact::difference_sign(ctx, high, &here))?);
         }
@@ -290,4 +300,76 @@ pub fn span_containment<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo
         (Some(high), None) => high.difference_is_zero(&here),
     };
     Ok(SpanContainment { inside, at_start, at_end })
+}
+
+/// `span_contains(view, span, point, time)`: the point lies inside the span.
+pub fn span_contains<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo: &mut PositionMemo, span_ref: SpanRef, point: &EventPoint, time: &EventTime) -> SkelResult<bool> {
+    Ok(span_containment(ctx, view, memo, span_ref, point, time)?.inside)
+}
+
+/// `edge_event_time(view, vertex, peer, now)`: when two neighbours of the front meet. Three cases, and they are different: an ordinary pair is a triple of lines
+/// (`concurrency_time`); with ONE sliding vertex the triple degenerates (two of its lines are one moving line) and the question is when the other reaches the
+/// pinned projection (`sliding_time`); with BOTH sliding they stand on one line and move together: they met always (the projections agree) or never.
+/// The times are asked directly, NOT through the superlevel's memory (as in the oracle).
+pub fn edge_event_time<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo: &mut PositionMemo, vertex_ref: VertexRef, peer_ref: VertexRef, now: &EventTime) -> SkelResult<TimeEntry> {
+    let vertex = view.vertex_state(vertex_ref)?;
+    let peer = view.vertex_state(peer_ref)?;
+    if let (Some(_), Some(_)) = (vertex.sliding, peer.sliding) {
+        let missing = || SkelError::Unsupported("a sliding vertex has a place (AttributeError in the oracle otherwise)".to_string());
+        let here = position(ctx, view, memo, vertex_ref, now)?.ok_or_else(missing)?;
+        let there = position(ctx, view, memo, peer_ref, now)?.ok_or_else(missing)?;
+        if here.x.difference_is_zero(&there.x) && here.y.difference_is_zero(&there.y) {
+            return Ok((Some(Rc::new(now.clone())), TimeOutcome::Exact));
+        }
+        return Ok((None, TimeOutcome::NeverConcurrent));
+    }
+    if let Some(sliding) = vertex.sliding {
+        let line = view.span_state(vertex.prev_span)?.line;
+        let other = view.span_state(peer.next_span)?.line;
+        return Ok(entry_of(sliding_time(ctx, line, sliding.value, other)?));
+    }
+    if let Some(sliding) = peer.sliding {
+        let line = view.span_state(peer.prev_span)?.line;
+        let other = view.span_state(vertex.prev_span)?.line;
+        return Ok(entry_of(sliding_time(ctx, line, sliding.value, other)?));
+    }
+    let first = view.span_state(vertex.prev_span)?.line;
+    let second = view.span_state(vertex.next_span)?.line;
+    let third = view.span_state(peer.next_span)?.line;
+    Ok(entry_of(concurrency_time(ctx, first, second, third)?))
+}
+
+/// `is_future(view, time, *vertices, now)`: not before zero, not before `now`, not before the birth of any of the vertices (the first failure stops the questions).
+pub fn is_future<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, time: &EventTime, vertex_refs: &[VertexRef], now: &EventTime) -> SkelResult<bool> {
+    if time.sign() < 0 || compare_times(ctx, time, now)? < 0 {
+        return Ok(false);
+    }
+    for vertex_ref in vertex_refs {
+        if compare_times(ctx, time, view.vertex_state(*vertex_ref)?.birth)? < 0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// `collapsing_span(view, vertex, peer, time)`: the oriented length of the span the two neighbours share, `high - low`, or `None` when an end has no place on a
+/// moving line (absence of a proof is not a proof of absence). BOTH ends are asked before either is judged.
+pub fn collapsing_span<V: CandidateView>(ctx: &mut ExactCtx<'_>, view: &V, memo: &mut PositionMemo, vertex_ref: VertexRef, peer_ref: VertexRef, time: &EventTime) -> SkelResult<Option<SqrtSum>> {
+    let shared = view.vertex_state(vertex_ref)?.next_span;
+    let low = span_end(ctx, view, memo, vertex_ref, shared, time, true)?;
+    let high = span_end(ctx, view, memo, peer_ref, shared, time, false)?;
+    match (low, high) {
+        (Some(low), Some(high)) => Ok(Some(high.sub(&low))),
+        _ => Ok(None),
+    }
+}
+
+/// `sliding_projection(first, second, point)`: the projection a vertex pins when its two lines are one line (parallel, the same way, at one speed), else `None`.
+pub fn sliding_projection(first: &SupportLine, second: &SupportLine, point: &EventPoint) -> Option<SqrtSum> {
+    let dot = i128::from(first.a) * i128::from(second.a) + i128::from(first.b) * i128::from(second.b);
+    let same_speed = first.q.mul(&rat_of(second.normal_squared())) == second.q.mul(&rat_of(first.normal_squared()));
+    if !(first.determinant(second) == 0 && dot > 0 && same_speed) {
+        return None;
+    }
+    Some(point.x.scaled_difference(&rat_of(i128::from(first.b)), &point.y, &rat_of(i128::from(first.a))))
 }

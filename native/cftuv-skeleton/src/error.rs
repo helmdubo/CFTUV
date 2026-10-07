@@ -25,6 +25,8 @@ pub enum SkelError {
     DegenerateEdge(String),
     /// `NegativeSpeedError`; the text is the whole message (`q отрицательно: <the str of the number>`).
     NegativeSpeed(String),
+    /// `CellGridRejected` (a `ValueError`): the area of the grid is empty; the text is the whole message.
+    CellGridRejected(String),
     /// `ValueError` with the exact text of the interpreter (`too many values to unpack`).
     Value(String),
     /// The port does not carry this input (never an answer; the host must see it).

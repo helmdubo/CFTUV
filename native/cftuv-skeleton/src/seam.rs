@@ -56,8 +56,9 @@ pub const STATUS_ZERO_DIVISOR_TIME: u8 = 14;
 pub const STATUS_PARALLEL_LINES: u8 = 15;
 pub const STATUS_DEGENERATE_EDGE: u8 = 16;
 pub const STATUS_NEGATIVE_SPEED: u8 = 17;
+pub const STATUS_CELL_GRID_REJECTED: u8 = 18;
 
-fn outcome_code(outcome: TimeOutcome) -> u8 {
+pub(crate) fn outcome_code(outcome: TimeOutcome) -> u8 {
     match outcome {
         TimeOutcome::Exact => 0,
         TimeOutcome::NeverConcurrent => 1,
@@ -65,7 +66,7 @@ fn outcome_code(outcome: TimeOutcome) -> u8 {
     }
 }
 
-fn outcome_of(value: &Value) -> Wire<TimeOutcome> {
+pub(crate) fn outcome_of(value: &Value) -> Wire<TimeOutcome> {
     match u32_of(value, "a time outcome")? {
         0 => Ok(TimeOutcome::Exact),
         1 => Ok(TimeOutcome::NeverConcurrent),
@@ -88,6 +89,7 @@ fn answer_outcome(result: SkelResult<Value>) -> Value {
         Err(SkelError::DegenerateEdge(text)) => coded(STATUS_DEGENERATE_EDGE, vec![str_value(&text)]),
         Err(SkelError::NegativeSpeed(text)) => coded(STATUS_NEGATIVE_SPEED, vec![str_value(&text)]),
         Err(SkelError::Value(text)) => coded(STATUS_VALUE, vec![str_value(&text)]),
+        Err(SkelError::CellGridRejected(text)) => coded(STATUS_CELL_GRID_REJECTED, vec![str_value(&text)]),
         Err(SkelError::Unsupported(text)) => coded(STATUS_UNSUPPORTED, vec![str_value(&text)]),
     }
 }
@@ -111,11 +113,12 @@ struct SpanData {
     frozen_instant: Option<EventTime>,
     frozen_start: Option<EventPoint>,
     frozen_end: Option<EventPoint>,
+    occurrence: Option<[SqrtSum; 4]>,
 }
 
 /// What the oracle's callbacks answered during one call, as a [`CandidateView`]. The references are the dense numbers the harness gave (`CallRecorder`), so
 /// the tables are indexed by them: a lookup in the view costs what the builder's arena costs, not what a hash map costs.
-struct SnapshotView {
+pub(crate) struct SnapshotView {
     universe: Vec<UBig>,
     vertices: Vec<Option<VertexData>>,
     spans: Vec<Option<SpanData>>,
@@ -159,6 +162,7 @@ impl CandidateView for SnapshotView {
             frozen_instant: data.frozen_instant.as_ref(),
             frozen_start: data.frozen_start.as_ref(),
             frozen_end: data.frozen_end.as_ref(),
+            occurrence: data.occurrence.as_ref(),
         })
     }
 
@@ -171,7 +175,7 @@ impl CandidateView for SnapshotView {
     }
 }
 
-fn view_of(value: &Value) -> Wire<SnapshotView> {
+pub(crate) fn view_of(value: &Value) -> Wire<SnapshotView> {
     let [universe, vertices, spans, traces] = fixed::<4>(value, "a view")?;
     let universe = list(universe, "a prime universe")?.iter().map(|prime| ubig_of(prime, "a prime")).collect::<Wire<_>>()?;
     let mut view = SnapshotView { universe, vertices: Vec::new(), spans: Vec::new(), traces: Vec::new() };
@@ -185,7 +189,7 @@ fn view_of(value: &Value) -> Wire<SnapshotView> {
         slot(&mut view.vertices, u32_of(reference, "a vertex reference")?, data)?;
     }
     for entry in list(spans, "spans")? {
-        let [reference, line, source, start, end, instant, frozen_start, frozen_end] = fixed::<8>(entry, "a span")?;
+        let [reference, line, source, start, end, instant, frozen_start, frozen_end, occurrence] = fixed::<9>(entry, "a span")?;
         let data = SpanData {
             line: line_of(line)?,
             source_span: list(source, "a source span")?.iter().map(|node| i64_of(node, "a source node")).collect::<Wire<_>>()?,
@@ -194,6 +198,10 @@ fn view_of(value: &Value) -> Wire<SnapshotView> {
             frozen_instant: optional(instant, time_of)?,
             frozen_start: optional(frozen_start, point_of)?,
             frozen_end: optional(frozen_end, point_of)?,
+            occurrence: optional(occurrence, |found| {
+                let [start_x, start_y, end_x, end_y] = fixed::<4>(found, "a span occurrence")?;
+                Ok([sum_of(start_x, "an occurrence x")?.clone(), sum_of(start_y, "an occurrence y")?.clone(), sum_of(end_x, "an occurrence x")?.clone(), sum_of(end_y, "an occurrence y")?.clone()])
+            })?,
         };
         slot(&mut view.spans, u32_of(reference, "a span reference")?, data)?;
     }
@@ -206,13 +214,13 @@ fn view_of(value: &Value) -> Wire<SnapshotView> {
 
 /// `[active, entries]`; an entry is `[0, first line, second line, sliding sum or none, time, place or none]` (a place),
 /// `[1, id, id, id, time or none, outcome]` (a concurrency time) or `[2, ...]` (a sliding time).
-fn memo_of(value: &Value) -> Wire<PositionMemo> {
+pub(crate) fn memo_of(value: &Value) -> Wire<PositionMemo> {
     let [active, entries] = fixed::<2>(value, "a memo")?;
     let mut memo = PositionMemo::new(flag_of(active, "the memo flag")?);
     for entry in list(entries, "memo entries")? {
         let items = list(entry, "a memo entry")?;
         match items {
-            [kind, first, second, sliding, time, place] if matches!(kind, Value::Int(number) if *number == 0.into()) => {
+            [Value::Int(number), first, second, sliding, time, place] if *number == 0.into() => {
                 let key = PlaceKey {
                     first: line_of(first)?.value(),
                     second: line_of(second)?.value(),
@@ -236,21 +244,29 @@ fn memo_of(value: &Value) -> Wire<PositionMemo> {
     Ok(memo)
 }
 
+pub(crate) fn effects_value(effects: &[crate::candidate::RefusalEffect]) -> Value {
+    Value::List(
+        effects
+            .iter()
+            .map(|effect| {
+                let deltas = effect.counter_deltas.iter().map(|(name, delta)| Value::List(vec![str_value(name), int(*delta)])).collect();
+                Value::List(vec![str_value(effect.reason.value()), Value::Bool(effect.needs_identity), Value::List(deltas)])
+            })
+            .collect(),
+    )
+}
+
+pub(crate) fn growth_value(memo_before: (usize, usize), memo_after: (usize, usize)) -> Value {
+    let added = |after: usize, before: usize| int(after.saturating_sub(before) as u64);
+    Value::List(vec![added(memo_after.0, memo_before.0), added(memo_after.1, memo_before.1)])
+}
+
 fn decision_value(decision: &SplitDecision, memo_before: (usize, usize), memo_after: (usize, usize)) -> Value {
     let candidate = match &decision.candidate {
         None => Value::None,
         Some(candidate) => Value::List(vec![time_value(&candidate.time), point_value(&candidate.point), Value::Bool(candidate.at_start), Value::Bool(candidate.at_end)]),
     };
-    let effects = decision
-        .effects
-        .iter()
-        .map(|effect| {
-            let deltas = effect.counter_deltas.iter().map(|(name, delta)| Value::List(vec![str_value(name), int(*delta)])).collect();
-            Value::List(vec![str_value(effect.reason.value()), Value::Bool(effect.needs_identity), Value::List(deltas)])
-        })
-        .collect();
-    let added = |after: usize, before: usize| int(after.saturating_sub(before) as u64);
-    Value::List(vec![candidate, Value::List(effects), Value::List(vec![added(memo_after.0, memo_before.0), added(memo_after.1, memo_before.1)])])
+    Value::List(vec![candidate, effects_value(&decision.effects), growth_value(memo_before, memo_after)])
 }
 
 // --------------------------------------------------------------------------
@@ -327,7 +343,7 @@ fn borrowed(node: &Node) -> Repr<'_> {
 // the seams
 // --------------------------------------------------------------------------
 
-fn time_entry_value(entry: (Option<EventTime>, TimeOutcome)) -> Value {
+pub(crate) fn time_entry_value(entry: (Option<EventTime>, TimeOutcome)) -> Value {
     Value::List(vec![entry.0.as_ref().map_or(Value::None, time_value), int(outcome_code(entry.1))])
 }
 
@@ -456,7 +472,7 @@ fn dispatch(code: u8, args: &[Value], ctx: &mut ExactCtx<'_>, extras: &mut Vec<V
                 ])
             })
         }
-        other => return Err(SeamError(format!("unknown skeleton seam opcode {other}"))),
+        other => return crate::seam_graph::dispatch(other, args, ctx, extras),
     })
 }
 
@@ -495,7 +511,7 @@ pub fn run(session: &mut Session, request: &[u8]) -> Result<Vec<u8>, SeamError> 
 
 /// The table [`SEAMS`] as the harness reads it (kept beside `run` so a new opcode is one edit).
 pub fn table() -> Vec<(u8, &'static str)> {
-    SEAMS.to_vec()
+    SEAMS.iter().chain(crate::seam_graph::SEAMS).copied().collect()
 }
 
 #[cfg(test)]
@@ -504,10 +520,10 @@ mod tests {
 
     #[test]
     fn the_seam_table_has_no_duplicate_opcode() {
-        let mut codes: Vec<u8> = SEAMS.iter().map(|(code, _)| *code).collect();
+        let mut codes: Vec<u8> = table().iter().map(|(code, _)| *code).collect();
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), SEAMS.len());
+        assert_eq!(codes.len(), table().len());
     }
 
     #[test]
