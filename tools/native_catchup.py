@@ -21,12 +21,12 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,11 +40,15 @@ PINS_BLOCK = re.compile(r"PINS: dict = \{\n.*?\n\}\n", re.S)
 
 
 def load_pin(path: Path = PIN_FILE):
-    """Модуль `pin.py` по пути файла (он не импортирует расширение и не знает пакета)."""
+    """Модуль `pin.py` по пути файла (он не импортирует расширение и не знает пакета).
 
-    spec = importlib.util.spec_from_file_location("cftuv_native_pin_file", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    Читается ТЕКСТ файла и исполняется в свежем пространстве имён: ни `sys.modules`, ни кэша байткода (`__pycache__/*.pyc` сверяет исходник по mtime в целых секундах и по размеру). Через систему
+    импорта пин, переписанный `rewrite_pins` в ту же секунду и той же длины (шестнадцатеричные дайджесты одной длины; так бывает на быстром диске CI), читался бы СТАРЫМ.
+    """
+
+    module = types.ModuleType("cftuv_native_pin_file")
+    module.__file__ = str(path)
+    exec(compile(Path(path).read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
     return module
 
 
