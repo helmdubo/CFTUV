@@ -9,10 +9,12 @@
 - `finish_adjust` — подтверждение (ширина уходит в ползунок один раз, дальше работает путь ползунка:
   заказ точного пересчёта планировщиком, `envelope_width_live`) либо отмена (превью снято, ничего не менялось).
 
-В течение перетаскивания в свойство ширины НИЧЕГО не пишется: меняются только превью и заголовок.
-Поэтому отмена возвращает прежнюю ширину тривиально (она и не менялась) и прежний меш побитово (его
-никто не трогал), а подтверждение — единственная запись в свойство, один заказ точного счёта и один
-шаг отмены на всё перетаскивание (его кладёт Blender при завершении оператора с флагом UNDO).
+В течение перетаскивания в свойство ширины НИЧЕГО не пишется: меняются линии превью, заголовок и — когда у сессии есть сертификат —
+позиции и UV настоящего меша декали (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`: превью, не сертифицировано).
+Меш при этом тот же объект и тот же датаблок (`foreach_set`, ни одного нового датаблока), поэтому отмена возвращает прежний меш ПОБИТОВО
+(`restore_base_mesh`: кадр на ширине базы — сама база), а подтверждение — единственная запись в свойство, один заказ точного счёта и
+один шаг отмены на всё перетаскивание (его кладёт Blender при завершении оператора с флагом UNDO). Вход в инструмент заказывает затравку
+сертификата (`ensure_prime`), если его ещё нет: точный прогон на соседней ширине в фоне, без записи в меш.
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .envelope_width_adjust import PHASE_CONFIRMED, WidthAdjustSessionV1, WidthStepV1
-from .envelope_width_live import preview_now, set_preview, width_problem
+from .envelope_width_live import ensure_prime, preview_now, set_preview, width_problem
+from .envelope_width_mesh_preview import preview_mesh_now, restore_base_mesh
 
 NO_VIEW = "Adjust Decal Width needs a 3D View"
 
@@ -118,6 +121,7 @@ def begin_adjust(context, mouse, view: ViewScaleV1) -> AdjustRuntimeV1 | str:
     runtime = AdjustRuntimeV1(session, controller, float(mesh_settings.offset), start)
     # Начальное превью на стартовой ширине: линии видны сразу, ещё до первого движения.
     preview_now(controller, start, runtime.offset)
+    ensure_prime(context)  # у сессии нет сертификата меша — затравка считается, пока рука доходит до перетаскивания
     return runtime
 
 
@@ -135,6 +139,7 @@ def apply_step(context, runtime: AdjustRuntimeV1, step: WidthStepV1) -> None:
     runtime.last_step = step
     if step.changed:
         preview_now(runtime.controller, step.width, runtime.offset)
+        preview_mesh_now(runtime.controller, step.width)
     set_header(context, step.header)
 
 
@@ -151,6 +156,7 @@ def finish_adjust(context, runtime: AdjustRuntimeV1, *, confirmed: bool) -> str:
     if confirmed and runtime.session.phase == PHASE_CONFIRMED and width != runtime.start_width:
         context.scene.hotspotuv_settings.envelope_debug_alpha = width
         return "FINISHED"
+    restore_base_mesh(runtime.controller)  # меш назад на геометрию базы, побитово: ничего не менялось
     set_preview(runtime.controller, None)
     return "CANCELLED"
 

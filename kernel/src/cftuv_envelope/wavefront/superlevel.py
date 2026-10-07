@@ -9,6 +9,7 @@ from .._cpython311 import sorted_as_cpython311
 from ..exact_sqrt_sum import ExactWorkBudgetV1
 from .event_time import EventPointV1, EventTimeV1, compare_times
 from .events import CandidateEventV1, EventKind, EventQueueV1
+from .exact_identity import identity_order_key
 from .proof import (
     ProofObligationBranch,
     ProofObligationDisposition,
@@ -101,6 +102,12 @@ class BoundaryBirthV1:
     next_occurrence: tuple
     key: tuple
     replaces: tuple[int, ...] = ()
+
+    @property
+    def order_key(self) -> tuple:
+        """Порядок зародышей; `None` (конец вхождения без места) не ломает `<`."""
+
+        return identity_order_key(self.key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,7 +442,7 @@ def _edge_contact_plans(
                 participants=participants,
                 dead_vertex_ids=tuple(sorted(dead)),
                 chains=chains,
-                births=tuple(sorted(births, key=lambda item: item.key)),
+                births=tuple(sorted(births, key=lambda item: item.order_key)),
                 kinds=kinds,
             )
         )
@@ -531,7 +538,7 @@ def _meeting_plans(
             fallbacks.extend(incident.event for incident in incidents)
             continue
         births = tuple(
-            sorted(planned_births, key=lambda item: item.key)
+            sorted(planned_births, key=lambda item: item.order_key)
         )
         participants = tuple(
             sorted(
@@ -706,7 +713,7 @@ def _split_cut_plans(
                 target_occurrence=target_occurrence,
                 events=tuple(item.event for item in ordered),
                 segment_occurrences=segment_occurrences,
-                births=tuple(sorted(births, key=lambda item: item.key)),
+                births=tuple(sorted(births, key=lambda item: item.order_key)),
                 final_birth_ports=tuple(sorted(final_birth_ports, key=repr)),
             )
         )
@@ -899,7 +906,7 @@ def _wire_births(
                 )
                 for birth in births
             ),
-            key=lambda item: item.key,
+            key=lambda item: item.order_key,
         )
     )
     components, decomposable = _decompose_birth_function(rewritten)

@@ -305,9 +305,12 @@ def test_the_width_preview_and_adjust_cores_and_the_live_glue_load_without_blend
     for name in ("envelope_width_preview.py", "envelope_width_adjust.py"):
         leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / name)
         assert not leaked, f"{name} импортирует {sorted(leaked)}: превью и автомат чистые"
-    for name in ("envelope_width_live.py", "envelope_width_session.py"):
+    for name in ("envelope_width_live.py", "envelope_width_session.py", "envelope_width_mesh_preview.py"):
         leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _module_level_import_roots(HOST_PACKAGE / name)
         assert not leaked, f"{name} импортирует {sorted(leaked)} на верхнем уровне: только лениво, внутри функций"
+    # Сертификат превью меша — чистая математика над массивами: ему Blender не нужен нигде, даже лениво.
+    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_certificate.py")
+    assert not leaked, f"envelope_width_certificate.py импортирует {sorted(leaked)}: сертификат чистый (его строит поток счёта)"
 
 
 #: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ точного пересчёта живой ширины: объекты,
@@ -331,6 +334,16 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "cancel",
         "exc",
         "str",
+        # Хвост потока (`finish_live_run`): массивы меша, образец и сертификат строятся ТАМ, а не на главном потоке; все они значения
+        # (неизменяемые образцы и числа), захваченные `_begin` на главном потоке.
+        "finish_live_run",
+        "run",
+        "offset",
+        "key",
+        "displayed",
+        "aux",
+        "previous",
+        "prime",
     }
 )
 
@@ -396,7 +409,10 @@ def _writer_references(path: Path) -> set[str]:
 
 
 def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
-    """Превью не пишется в меш: писатели зовут только точные пути (кнопка и точный результат живой ширины)."""
+    """Линии превью не пишутся в меш: писатели точного результата зовут только точные пути (кнопка и точный результат живой ширины).
+
+    Превью МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`) пишет в меш другой писатель, `write_preview_geometry`, и о нём — следующий тест.
+    """
 
     callers = {}
     for path in _python_files(HOST_PACKAGE):
@@ -408,6 +424,34 @@ def test_the_width_tool_never_writes_the_mesh_from_the_preview_path():
         "rewrite_decal_mesh": {"envelope_width_live.py"},
         "write_decal_object": {"envelope_production_operator.py"},
     }, callers
+
+
+def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_from_its_two_frame_functions():
+    """Позиции и UV превью пишет один писатель (`write_preview_geometry`), и звать его вправе лишь кадр и возврат базы.
+
+    Превью меша двигает ТОТ ЖЕ меш на месте (`foreach_set`), не создавая и не освобождая датаблоки: поэтому его можно звать из
+    таймера и модального оператора, не трогая шаг отмены. Любой другой вызов писателя — повод остановиться: превью, записанное
+    мимо проверки состава меша (`_mesh_problem`), легло бы на чужую геометрию.
+    """
+
+    callers = {}
+    for path in _python_files(HOST_PACKAGE):
+        if path.name == "envelope_production_mesh.py":
+            continue
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.FunctionDef):
+                for call in ast.walk(node):
+                    if isinstance(call, ast.Call) and _called_names_of(call) == "write_preview_geometry":
+                        callers.setdefault(path.name, set()).add(node.name)
+    assert callers == {"envelope_width_mesh_preview.py": {"preview_mesh_now", "restore_base_mesh"}}, callers
+    path = HOST_PACKAGE / "envelope_width_mesh_preview.py"
+    for function in ("preview_mesh_now", "restore_base_mesh"):
+        node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
+        assert "_mesh_problem" in _called_names(node), f"{function} пишет превью, не спросив, принадлежит ли меш сертификату"
+
+
+def _called_names_of(call: ast.Call) -> str:
+    return call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", "")
 
 
 #: Входы инструмента ширины и вопрос, который каждый из них обязан задавать: у АКТИВНОГО объекта есть своя декаль,
@@ -424,6 +468,7 @@ _WIDTH_ENTRY_POINTS = (
     ("envelope_width_live.py", "draw_decal_width_rows", "width_problem"),
     ("envelope_width_live.py", "sync_width_field", "width_problem"),
     ("envelope_width_live.py", "follow_active_object", "width_problem"),
+    ("envelope_width_live.py", "ensure_prime", "width_problem"),
     ("envelope_width_live.py", "width_problem", "availability_problem"),
 )
 

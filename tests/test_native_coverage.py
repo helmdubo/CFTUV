@@ -55,7 +55,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "coverage")
 
@@ -237,6 +237,11 @@ FIELD_PARAMS = (
 )
 
 
+#: the tests that need the owner's FIELD corpus (calls recorded from the Blender scene): tier `native_field`, which the native CI deselects by name
+needs_field = field_tier(bool(FIELD_ROWS), nc.describe_missing_corpus() + ": настоящие вызовы не сверены")
+
+
+@needs_field
 @pytest.mark.parametrize("row", FIELD_PARAMS)
 def test_every_field_record_equals_the_oracle_on_a_fresh_and_on_the_shared_session(row, shared_mirror):
     record = nc.read_record(CORPUS_DIRECTORY / row["path"])
@@ -247,6 +252,7 @@ def test_every_field_record_equals_the_oracle_on_a_fresh_and_on_the_shared_sessi
     COMPARED["field records"] += 1
 
 
+@needs_field
 def test_the_field_corpus_reaches_the_branches_it_is_meant_to_pin():
     if not FIELD_ROWS:
         pytest.skip("корпус не собран: настоящие вызовы не сверены")
@@ -464,6 +470,7 @@ def _run_chain(runner, partition, alphas, budget, store):
     return trace
 
 
+@needs_field
 def test_repeated_alphas_on_one_session_reuse_the_partition_and_hit_the_store(shared_mirror):
     records = _chain_records()
     mirror = cftuv_native.new_mirror()
@@ -484,6 +491,7 @@ def test_repeated_alphas_on_one_session_reuse_the_partition_and_hit_the_store(sh
         COMPARED["chain steps"] += len(alphas)
 
 
+@needs_field
 def test_the_second_call_on_a_partition_is_a_store_hit_that_replays_the_recorded_price(shared_mirror):
     """Попадание в `store` под бюджетом платит ЗАПИСАННУЮ цену вселенной (цена вычисления не зависит от истории), а не ноль; ответ, статьи и запись равны эталону."""
 
@@ -686,6 +694,7 @@ def check_traced(mirror, op, blob, before, label: str):
     return oracle, got
 
 
+@needs_field
 def test_the_sign_traces_of_the_recording_pass_equal_the_oracles(shared_mirror):
     """`_coverage_at(..., traces)`: знаки и значения по граням на полевых записях (каждая третья), включая исчерпание посреди грани и частичную запись."""
 
@@ -702,6 +711,7 @@ def test_the_sign_traces_of_the_recording_pass_equal_the_oracles(shared_mirror):
     assert checked > 20
 
 
+@needs_field
 def test_the_sign_traces_stop_where_the_oracles_stop_under_every_cap():
     """Свип потолка с записью знаков: список `traces` после исчерпания держит ровно те грани, чьи знаки успели посчитаться."""
 
@@ -811,6 +821,7 @@ def _sweep(row, mirror) -> int:
     return refused
 
 
+@needs_field
 def test_a_cap_sweep_over_real_records_gives_the_same_exhaustion_and_the_same_partial_state(shared_mirror):
     if not FIELD_ROWS:
         pytest.skip("корпус не собран: настоящие вызовы не сверены")

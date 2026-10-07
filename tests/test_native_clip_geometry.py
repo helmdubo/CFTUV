@@ -43,7 +43,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "clip")
 
@@ -58,6 +58,10 @@ CORPUS = geometry.corpus_base()
 HAS_CORPUS = CORPUS.exists()
 #: Каждый какой по счёту полевой вызов сверяется (1 — все).
 RECORD_STRIDE = int(os.environ.get("CFTUV_CLIP_SEAM_STRIDE", "1"))
+
+REAL_PATHS = geometry.real_paths()
+#: the tests that need only A real call (not the owner's field ones): the field corpus when it is there, else the synthetic one
+needs_real_call = pytest.mark.skipif(not REAL_PATHS, reason=f"нет ни полевого, ни синтетического корпуса ({CORPUS}, {geometry.synthetic_base()}): нечем звать операцию")
 
 CHECKED: Counter = Counter()
 TIMINGS: dict = {}
@@ -119,7 +123,7 @@ def assert_all_equal(runs: list) -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
+@field_tier(HAS_CORPUS, f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
 def test_every_field_record_equals_the_oracle(runner):
     paths = geometry.field_paths(RECORD_STRIDE)
     assert len(paths) >= 100 // RECORD_STRIDE
@@ -128,7 +132,7 @@ def test_every_field_record_equals_the_oracle(runner):
     assert Counter(run.outcome_label for _name, run in runs) == {"CLIPPED": len(runs)}, "the field corpus holds successful cuts only"
 
 
-@pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
+@field_tier(HAS_CORPUS, f"нет полевого корпуса {CORPUS}: `tools/native_corpus_export.py`")
 def test_every_derived_starved_budget_record_equals_the_oracle(runner):
     paths = geometry.derived_paths()
     assert len(paths) >= 20
@@ -136,7 +140,7 @@ def test_every_derived_starved_budget_record_equals_the_oracle(runner):
     assert_all_equal(runs)
 
 
-@pytest.mark.skipif(not HAS_CORPUS or not geometry.synthetic_paths(), reason=f"нет синтетического корпуса {CORPUS / 'synthetic_clip'}: `python tools/native_clip_synthetic.py build`")
+@pytest.mark.skipif(not geometry.synthetic_paths(), reason=f"нет синтетического корпуса {geometry.synthetic_base()}: `python tools/native_clip_synthetic.py build`")
 def test_every_synthetic_record_equals_the_oracle(runner):
     paths = geometry.synthetic_paths()
     assert len(paths) >= 400
@@ -153,11 +157,11 @@ def test_every_synthetic_record_equals_the_oracle(runner):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}")
+@needs_real_call
 def test_a_cap_sweep_on_heavy_records_exhausts_at_the_same_place_with_the_same_partial_state(runner):
     refused = Counter()
     problems = []
-    for path in geometry.heavy_paths(4):
+    for path in geometry.heavy_paths(4, REAL_PATHS):
         record = nc.read_record(path)
         before = record.before()
         spent = sum(before.budget["articles"])
@@ -375,7 +379,7 @@ def spoilers(actual: "nc.Outcome") -> dict:
     }
 
 
-@pytest.mark.skipif(not HAS_CORPUS, reason=f"нет полевого корпуса {CORPUS}")
+@field_tier(HAS_CORPUS, f"нет полевого корпуса {CORPUS}")
 def test_the_comparison_names_every_part_of_a_spoiled_native_outcome(runner):
     """Отрицательный контроль самого сравнения: исход без порчи равен, исход с порчей любой части назван её полем."""
 

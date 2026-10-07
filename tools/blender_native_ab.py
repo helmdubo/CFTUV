@@ -209,6 +209,18 @@ def _arguments():
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
 
 
+def path_with_tree(current, root: Path, native_path: str = "") -> list:
+    """`sys.path` после загрузки дерева: каталог нативного порта (если назван) ВПЕРЕДИ всего, затем хост и ядро дерева, затем прежнее.
+
+    Каталог несёт только пакет `cftuv_native`, поэтому деревья `cftuv` и `cftuv_envelope` он не затеняет, а установленное колесо
+    `cftuv_native` (site-packages) не затеняет заказанный каталог: раньше каталог дописывался в КОНЕЦ, и колесо побеждало.
+    """
+
+    named = [str(native_path)] if native_path else []
+    tree = [str(root), str(root / "kernel" / "src")]
+    return [*named, *tree, *(item for item in current if item not in (*named, *tree))]
+
+
 def _load_tree(root: Path, native_path: str) -> None:
     installed = sys.modules.get("cftuv")
     if installed is not None:
@@ -219,13 +231,7 @@ def _load_tree(root: Path, native_path: str) -> None:
     for name in tuple(sys.modules):
         if name in {"cftuv", "cftuv_envelope"} or name.startswith(("cftuv.", "cftuv_envelope.")):
             del sys.modules[name]
-    for path in (root / "kernel" / "src", root):
-        text = str(path)
-        if text in sys.path:
-            sys.path.remove(text)
-        sys.path.insert(0, text)
-    if native_path:
-        sys.path.append(native_path)  # после дерева: колесо не затеняет ядро, а ядро — колесо
+    sys.path[:] = path_with_tree(sys.path, root, native_path)
     import cftuv
     import cftuv_envelope
 

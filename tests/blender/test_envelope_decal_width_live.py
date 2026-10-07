@@ -27,7 +27,11 @@
    источнику; удаление декали закрывает инструмент и снимает линии;
 7. КОЛЬЦО КУПОЛА ПОД СУЖЕННОЙ ДОСЯГАЕМОСТЬЮ: карта купола при умолчании досягаемости отказывает швом, кнопка строит её под
    `alpha * (1 + b)` (0.3 м при ширине 0.25); ширина 0.3 через путь ползунка пересобирает карту под 0.36 м (своя
-   карта, а не прежняя 0.3 м), меш применён на месте и ПОБИТОВО равен прямому нажатию в холодной сессии.
+   карта, а не прежняя 0.3 м), меш применён на месте и ПОБИТОВО равен прямому нажатию в холодной сессии;
+8. ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`, `envelope_width_mesh_preview`): вход инструмента заказывает затравку сертификата (два точных
+   прогона рядом, в меш не пишутся), настоящий меш двигается каждый кадр перетаскивания (позиции и UV; датаблоки, указатели и свойство ширины
+   меша те же, заказа точного счёта нет), на ширине базы он побитово база, отмена возвращает его побитово, подтверждение даёт точный меш,
+   равный холодной кнопке (отклонение превью от него названо числом), а меш чужого состава снимает сертификат с названной причиной.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -36,6 +40,7 @@ blender --background --python-exit-code 1 --python <этот файл>
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 import sys
 import time
@@ -354,6 +359,157 @@ def _width_property(decal):
     return bpy.data.objects[decal].data["cftuv_decal_width"]
 
 
+def _pump_all(*, timeout=120.0):
+    """Таймеры обоих планировщиков (точный счёт и затравка) шагают, пока оба не опустеют."""
+
+    controller = _controller()
+    end = time.perf_counter() + timeout
+    while True:
+        busy = [item for item in (controller.width_live, controller.width_prime) if item is not None and item.busy]
+        if not busy:
+            return
+        assert time.perf_counter() < end, "the schedulers did not settle"
+        for scheduler in busy:
+            scheduler._callback()
+        time.sleep(0.01)
+
+
+def _mesh_arrays(name):
+    import numpy as np
+
+    mesh = bpy.data.objects[name].data
+    co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    uv = np.empty(len(mesh.uv_layers["UVMap"].data) * 2, dtype=np.float32)
+    mesh.uv_layers["UVMap"].data.foreach_get("uv", uv)
+    return co, uv
+
+
+def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_result_replaces_it():
+    """ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`): настоящий меш двигается между точными пересчётами, и точный меш потом тот же, что у кнопки.
+
+    1. кнопка кладёт образец, сертификата нет; вход инструмента заказывает ЗАТРАВКУ (точный прогон рядом, в меш не пишет), после неё
+       сертификат есть (квадрат), а меш и датаблоки те же;
+    2. перетаскивание теми же функциями, что у оператора: меш двигается КАЖДЫЙ кадр (позиции и UV), датаблоки, указатели и свойство
+       ширины меша те же, строка статуса называет превью; кадр в пределах интервала близок к точному (отклонение названо числом);
+    3. отмена возвращает меш побитово; подтверждение даёт точный меш, равный холодной кнопке, и новый сертификат;
+    4. отказ назван: после правки состава меша (чужой меш) сертификат снят именем и кадров нет.
+    """
+
+    import numpy as np
+
+    from cftuv.envelope_width_adjust import KIND_CANCEL, KIND_CONFIRM, KIND_MOVE, WidthEventV1
+    from cftuv.envelope_width_session import ViewScaleV1, apply_step, begin_adjust, finish_adjust
+
+    source = _fresh()
+    _press(source)
+    controller = _controller()
+    settings = _settings()
+    start = float(settings.envelope_debug_alpha)
+    assert controller.width_displayed is not None and controller.width_certificate is None
+    assert controller.width_displayed.alpha == start and controller.width_displayed.arrays_digest
+
+    mesh_pointer, object_pointer = bpy.data.objects[DECAL].data.as_pointer(), bpy.data.objects[DECAL].as_pointer()
+    blocks = _datablock_counts()
+    before = _digest()
+    still = _mesh_arrays(DECAL)
+
+    # 1. Вход инструмента: затравка (две подряд), сертификат, меш не тронут.
+    view = ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0)
+    runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
+    assert not isinstance(runtime, str), runtime
+    assert controller.width_prime is not None and controller.width_prime.busy, "the tool entry orders the certificate prime"
+    _pump_all()
+    certificate = controller.width_certificate
+    assert certificate is not None, controller.width_certificate_refusal
+    assert certificate.certified_domains >= 1 and certificate.quadratic_domains == certificate.certified_domains
+    assert controller.width_prime.counters.applied == 2 and controller.width_prime.counters.failed == 0
+    assert controller.width_live is None or controller.width_live.counters.requested == 0, "the prime never goes through the width order"
+    assert _digest() == before and _datablock_counts() == blocks
+    assert _width_property(DECAL) == start
+    assert any(line.startswith("Preview certificate:") for line in _status_lines())
+    print(
+        f"PREVIEW CERTIFICATE {certificate.certified_domains}/{certificate.domain_count} domains, {certificate.quadratic_domains} quadratic, "
+        f"{certificate.own_bytes} B (+{certificate.base.nbytes} B base)"
+    )
+
+    # 2. Перетаскивание: каждый кадр двигает меш; всё остальное на месте.
+    frames = []
+    for offset in (0.002, 0.004, 0.006, 0.008, 0.004, 0.0):
+        step = runtime.session.handle(WidthEventV1(KIND_MOVE, offset, 0.0))
+        apply_step(bpy.context, runtime, step)
+        state = controller.width_mesh_preview
+        assert state is not None and state.outcome == "PREVIEW_MESH_FROM_INTERVAL_V1", state
+        frames.append((step.width, _mesh_arrays(DECAL)))
+    assert abs(frames[0][0] - (start + 0.002)) < 1e-9 and abs(frames[-1][0] - start) < 1e-9
+    moving = [width for width, (co, _uv) in frames[:-1] if not np.array_equal(co, still[0])]
+    assert len(moving) == 5, "every frame of the drag moves the real mesh"
+    assert np.array_equal(frames[-1][1][0], still[0]) and np.array_equal(frames[-1][1][1], still[1]), "the base width is the base mesh, bitwise"
+    assert _datablock_counts() == blocks
+    decal = bpy.data.objects[DECAL]
+    assert (decal.data.as_pointer(), decal.as_pointer()) == (mesh_pointer, object_pointer)
+    assert _width_property(DECAL) == start and float(settings.envelope_debug_alpha) == start
+    assert (controller.width_live is None or controller.width_live.counters.requested == 0), "no exact order during the drag"
+    step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.006, 0.0))
+    apply_step(bpy.context, runtime, step)
+    assert any("PREVIEW_MESH_FROM_INTERVAL_V1 preview, not certified" in line for line in _status_lines())
+    preview_co, preview_uv = _mesh_arrays(DECAL)
+    assert controller.width_mesh_preview.seconds < 0.03, controller.width_mesh_preview.seconds
+
+    # 3. Отмена: побитово. Затем настоящее подтверждение: меш точный и равен холодной кнопке; превью против точного — числом.
+    closing = runtime.session.handle(WidthEventV1(KIND_CANCEL))
+    apply_step(bpy.context, runtime, closing)
+    assert finish_adjust(bpy.context, runtime, confirmed=False) == "CANCELLED"
+    assert _digest() == before and controller.width_mesh_preview is None
+    runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
+    for offset in (0.002, 0.004, 0.006):
+        step = runtime.session.handle(WidthEventV1(KIND_MOVE, offset, 0.0))
+        apply_step(bpy.context, runtime, step)
+    again = _mesh_arrays(DECAL)
+    assert np.array_equal(again[0], preview_co) and np.array_equal(again[1], preview_uv), "the same width gives the same frame"
+    closing = runtime.session.handle(WidthEventV1(KIND_CONFIRM))
+    apply_step(bpy.context, runtime, closing)
+    assert finish_adjust(bpy.context, runtime, confirmed=True) == "FINISHED"
+    assert controller.width_live.busy and controller.width_mesh_preview is not None  # точного ещё нет: меш показывает превью
+    _pump_all()
+    exact_co, exact_uv = _mesh_arrays(DECAL)
+    final = float(settings.envelope_debug_alpha)
+    assert abs(final - (start + 0.006)) < 1e-6  # ползунок — float32
+    deviation = float(np.max(np.abs(exact_co - preview_co))), float(np.max(np.abs(exact_uv - preview_uv)))
+    print(f"PREVIEW vs EXACT at width {final:.4f}: max position {deviation[0]:.3e} m, max uv {deviation[1]:.3e}")
+    assert deviation[0] < 1e-4 and deviation[1] < 1e-4, deviation
+    assert controller.width_mesh_preview is None and controller.width_displayed.alpha == final
+    assert _datablock_counts() == blocks
+    assert controller.width_live.counters.failed == 0 and controller.width_live.counters.applied == 1
+    earlier = dataclasses.asdict(controller.width_preview_log)  # прямое нажатие ниже сбрасывает сессию вместе с журналом
+    live = _digest()
+    assert live != before
+    assert _direct_digest_at(final, cold=False) == live and _direct_digest_at(final, cold=True) == live
+
+    # 4. Меш чужого состава: сертификат снят с названной причиной, кадров нет.
+    _pump_all()
+    runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
+    _pump_all()
+    assert controller.width_certificate is not None
+    decal = bpy.data.objects[DECAL]
+    decal["cftuv_source_revision"] = str(decal["cftuv_source_revision"]) + "-edited"
+    step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.002, 0.0))
+    apply_step(bpy.context, runtime, step)
+    assert controller.width_certificate is None and controller.width_mesh_preview is None
+    assert any("PREVIEW_CERTIFICATE_DROPPED:PREVIEW_MESH_NOT_THE_BASE" in line for line in _status_lines()), _status_lines()
+    log = controller.width_preview_log
+    assert log.dropped == {"PREVIEW_CERTIFICATE_DROPPED:PREVIEW_MESH_NOT_THE_BASE": 1}, log.dropped
+    assert earlier["frames"] >= 12 and earlier["certificates"] >= 3 and earlier["checks"] >= 1, earlier
+    assert earlier["max_position_error"] < 1e-4 and earlier["domains_refuted"] == 0, earlier
+    closing = runtime.session.handle(WidthEventV1(KIND_CANCEL))
+    apply_step(bpy.context, runtime, closing)
+    finish_adjust(bpy.context, runtime, confirmed=False)
+    print(
+        f"PREVIEW MESH: {earlier['frames']} frames, max {earlier['frame_seconds_max'] * 1000:.2f} ms; certificates {earlier['certificates']}; "
+        f"self-check max {earlier['max_position_error']:.3e} m over {earlier['domains_checked']} domains; dropped {dict(log.dropped)}"
+    )
+
+
 def _run_timer_writes_keep_the_scene_and_the_undo_history_consistent():
     from cftuv.envelope_width_live import reconcile_after_history
 
@@ -637,6 +793,7 @@ def _main():
     finally:
         envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
     _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm()
+    _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_result_replaces_it()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()
     _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width()

@@ -52,8 +52,49 @@ def _participants(*leaves):
     return tuple(sorted({participant for leaf in leaves
                          for participant in leaf.family.participant_keys}))
 
-def discover_endpoint_contacts(builder, overlay):
-    view = exact_overlay_view(builder, overlay)
+
+class SplitDecisionMemoV1:
+    """Решения закона SPLIT пар (излучатель, лист) ОДНОГО наложения: одно вычисление на пару.
+
+    Обнаружение концов и обнаружение внутренних разрезов обходят одни и те же пары одного и того же наложения и
+    маршрутизируют один и тот же ответ закона по-разному (`at_start`/`at_end` либо внутри пролёта); на нулевом поколении
+    те же пары уже спрашивал последний проход начального замыкания. Закон — чистая функция вида, вид строится из наложения
+    и его не меняет, поэтому ответ на пару один и вычисляется один раз. Память принадлежит наложению, из которого построен
+    её вид (вид строится по первому вопросу): её не отдают другому содержимому (клон того же содержимого — нулевое
+    поколение — годится). Решение — для уровня самого наложения (`at_now_only`): кандидат позже уровня обоим
+    потребителям не нужен.
+    """
+
+    __slots__ = ("builder", "overlay", "_view", "decisions")
+
+    def __init__(self, builder, overlay):
+        self.builder = builder
+        self.overlay = overlay
+        self._view = None
+        self.decisions = {}
+
+    @property
+    def view(self):
+        if self._view is None:
+            self._view = exact_overlay_view(self.builder, self.overlay)
+        return self._view
+
+    def decision(self, evaluate, emitter_ref, leaf):
+        key = (emitter_ref, leaf)
+        found = self.decisions.get(key)
+        if found is None:
+            found = evaluate(
+                self.view, emitter_ref, leaf,
+                now=self.overlay.time, at_now_only=True,
+            )
+            self.decisions[key] = found
+        return found
+
+
+def discover_endpoint_contacts(builder, overlay, memo=None):
+    if memo is None:
+        memo = SplitDecisionMemoV1(builder, overlay)
+    view = memo.view
     contacts = {}
     emitters = tuple(
         vertex for vertex in overlay.vertices.values()
@@ -65,8 +106,8 @@ def discover_endpoint_contacts(builder, overlay):
         for emitter in sorted(emitters, key=lambda item: repr(item.ref)):
             if leaf in (emitter.prev_leaf, emitter.next_leaf):
                 continue
-            decision = evaluate_split_candidate(
-                view, emitter.ref, leaf, now=overlay.time
+            decision = memo.decision(
+                evaluate_split_candidate, emitter.ref, leaf
             )
             candidate = decision.candidate
             if (candidate is None

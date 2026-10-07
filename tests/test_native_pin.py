@@ -146,13 +146,16 @@ def test_a_file_missing_from_both_the_pin_and_the_tree_is_still_stale(tmp_path, 
 
 
 def _a_call(path_index: int = 0):
-    from native_clip_geometry import field_paths
+    """A real answered call of the clip: from the field corpus when it is there, else from the synthetic one (any real call will do, the refusal is what is under test)."""
 
-    paths = field_paths()
-    if not paths:
-        pytest.skip("нет полевого корпуса: нечем звать операцию")
-    record = nc.read_record(paths[path_index])
-    return record, nc.prepare_call(nc.OP_CLIP, record.call_blob, record.before())
+    from native_clip_geometry import field_paths, synthetic_paths
+
+    paths = field_paths() or synthetic_paths()
+    for path in paths[path_index:]:
+        record = nc.read_record(path)
+        if not record.expected().exception:
+            return record, nc.prepare_call(nc.OP_CLIP, record.call_blob, record.before())
+    pytest.skip("нет ни полевого, ни синтетического корпуса: нечем звать операцию")
 
 
 def _tamper(monkeypatch, name: str):

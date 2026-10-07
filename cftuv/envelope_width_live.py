@@ -42,11 +42,17 @@ Decal Mesh»), а активный объект меняется. Инструм
 
 НИЧЕГО НЕ ПРОПАДАЕТ МОЛЧА: нет сборки, смена плотности/допуска, правка меша, исчезнувший объект — строки статуса
 и счётчики планировщика (`status_lines`); ошибка потока — консоль и статус.
+
+ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`). Между точными пересчётами калбэк ползунка и модальный
+инструмент двигают НАСТОЯЩИЙ меш декали из сертификата (`preview_mesh_now`), а линии превью остаются поверх. Сертификат строит поток
+точного счёта (хвост `compute`: массивы меша, образец, сертификат), поэтому главный поток только применяет; второй планировщик контроллера
+(`width_prime`, «затравка») считает ТОЧНЫЙ прогон на соседней ширине без записи в меш — из него и образца на экране строится первый
+сертификат. Затравка уступает дорогу настоящему заказу ширины (`hold`, `supersede`) и в меш не пишет никогда.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .envelope_alpha_preview import (
     AlphaPreviewScheduler,
@@ -54,6 +60,19 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
+from .envelope_width_mesh_preview import (
+    PRIME_BASE_REPLACED,
+    finish_live_run,
+    log_of,
+    next_prime_alpha,
+    note_exact_display,
+    note_history,
+    note_prime,
+    preview_mesh_now,
+    sample_key,
+    wants_prime,
+)
+from .envelope_width_mesh_preview import status_lines as mesh_preview_status_lines
 from .envelope_width_preview import (
     PREVIEW_BINARY64_V1,
     WidthPreviewV1,
@@ -105,6 +124,12 @@ class WidthLiveTargetV1:
     offset: float
     material_name: str
     dissolve_percent: float = 0.390625
+    #: `EXACT` — заказ точного результата в меш; `PRIME` — затравка сертификата: тот же точный прогон, но в меш он не пишется.
+    purpose: str = "EXACT"
+
+
+PURPOSE_EXACT = "EXACT"
+PURPOSE_PRIME = "PRIME"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +154,8 @@ class WidthPreviewStateV1:
 class _JobContextV1:
     record: LastProductionBuildV1
     pooled: bool
+    #: Образец на экране в момент старта затравки: её результат применяется, только если он всё ещё на экране.
+    base: object | None = None
 
 
 # --------------------------------------------------------------------------
@@ -445,10 +472,15 @@ def _begin(controller, request):
     budget = envelope_stretch_budget(record.stretch_percent)
     slide = envelope_dissolve_uv_slide(record.dissolve_percent)
     kernel_backend = record.kernel_backend
+    # Образец на экране, прежняя сверка и ключ читает главный поток; поток счёта получает их значениями (образцы и сертификаты неизменяемы).
+    prime = target.purpose == PURPOSE_PRIME
+    displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_certificate
+    offset = float(target.offset)
+    key = sample_key(record, offset)
 
     def compute(cancel):
         try:
-            return run_production(
+            run = run_production(
                 controller,
                 bundle,
                 selected,
@@ -465,8 +497,18 @@ def _begin(controller, request):
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc
+        return finish_live_run(
+            run,
+            alpha=alpha,
+            offset=offset,
+            key=key,
+            displayed=displayed,
+            aux=aux,
+            previous=previous,
+            prime=prime,
+        )
 
-    return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None))
+    return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None, displayed))
 
 
 def _validity(controller, request, job) -> str | None:
@@ -481,10 +523,21 @@ def _validity(controller, request, job) -> str | None:
         return SOURCE_GONE
     if find_decal_object(source) is None:
         return DECAL_GONE
+    if request.payload.purpose == PURPOSE_PRIME and controller.width_displayed is not job.context.base:
+        return PRIME_BASE_REPLACED
     return None
 
 
-def _apply(controller, request, job, run) -> None:
+def _apply_prime(controller, request, job, live) -> None:
+    """Затравка посчитана: образец и сертификат в сессию, меш не трогается (в него пишет только точный заказ ширины)."""
+
+    reason = note_prime(controller, job.context.base, live)
+    if reason:
+        raise PreviewUnavailable(reason)
+    request_prime(controller, request.payload)  # прямая через две точки уступает квадрату через три: вторая затравка с другой стороны
+
+
+def _apply(controller, request, job, live) -> None:
     import bpy
 
     from .envelope_production_export import (
@@ -494,6 +547,7 @@ def _apply(controller, request, job, run) -> None:
     )
     from .envelope_production_mesh import ProductionWriteError, rewrite_decal_mesh
 
+    run = live.run
     target = request.payload
     source = bpy.data.objects.get(target.source_name)
     if source is None:
@@ -505,9 +559,11 @@ def _apply(controller, request, job, run) -> None:
             offset=float(target.offset),
             material_name=target.material_name,
             width=float(request.alpha),
+            arrays=live.arrays,
         )
     except ProductionWriteError as exc:
         raise PreviewUnavailable(str(exc)) from exc
+    note_exact_display(controller, live)
     mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
     if mesh_settings is not None:
         mesh_settings.status = receipt_status_text(receipt)
@@ -518,6 +574,7 @@ def _apply(controller, request, job, run) -> None:
     for line in receipt_console_lines(receipt, run.results):
         print(line, flush=True)
     set_preview(controller, None)  # точный результат на последней ширине применён: превью не нужно
+    request_prime(controller, target)  # сертификату следующего перетаскивания не хватает второго образца: затравка в фоне
 
 
 # --------------------------------------------------------------------------
@@ -539,6 +596,10 @@ class _BpyTimers:
         return bpy.app.timers.is_registered(function)
 
 
+def _in_flight(scheduler) -> bool:
+    return scheduler is not None and scheduler.in_flight
+
+
 def scheduler_of(controller) -> AlphaPreviewScheduler:
     """Планировщик живой ширины контроллера; заводится при первом заказе и живёт с контроллером."""
 
@@ -546,17 +607,77 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
     if scheduler is None:
         scheduler = AlphaPreviewScheduler(
             begin=lambda request: _begin(controller, request),
-            apply=lambda request, job, run: _apply(controller, request, job, run),
+            apply=lambda request, job, live: _apply(controller, request, job, live),
             valid=lambda request, job: _validity(controller, request, job),
             timers=_BpyTimers(),
             on_change=lambda _status: tag_view3d_redraw(),
             label="width",
-            hold=lambda: bool(
-                controller.alpha_preview is not None and controller.alpha_preview.in_flight
-            ),
+            hold=lambda: _in_flight(controller.alpha_preview) or _in_flight(controller.width_prime),
         )
         controller.width_live = scheduler
     return scheduler
+
+
+#: Пауза затравки: она не реагирует на движение руки, а ждёт её конца (`hold` ниже уступает настоящему заказу ширины).
+PRIME_DEBOUNCE_SECONDS = 0.05
+
+
+def prime_scheduler_of(controller) -> AlphaPreviewScheduler:
+    """Планировщик затравки сертификата: тот же класс и тот же `_begin`, но результат идёт в сессию, а не в меш."""
+
+    scheduler = controller.width_prime
+    if scheduler is None:
+        scheduler = AlphaPreviewScheduler(
+            begin=lambda request: _begin(controller, request),
+            apply=lambda request, job, live: _apply_prime(controller, request, job, live),
+            valid=lambda request, job: _validity(controller, request, job),
+            timers=_BpyTimers(),
+            on_change=lambda _status: tag_view3d_redraw(),
+            debounce=PRIME_DEBOUNCE_SECONDS,
+            label="certificate",
+            hold=lambda: bool(
+                (controller.width_live is not None and controller.width_live.busy) or _in_flight(controller.alpha_preview)
+            ),
+        )
+        controller.width_prime = scheduler
+    return scheduler
+
+
+def request_prime(controller, target: WidthLiveTargetV1) -> bool:
+    """Заказ затравки, если сертификату она нужна: ширина рядом с базой, точный прогон без записи в меш. `True` — заказано.
+
+    Условия: запись кнопки цела и согласна с настройками (`target_problem`), образец на экране есть и его ключ — этого меша, а нужда есть
+    (`wants_prime`: сертификата нет либо он прямой). Заказ ничего не пишет и не вмешивается в ширину: пока идёт настоящий заказ,
+    планировщик затравки ждёт (`hold`), а настоящий заказ снимает затравку (`supersede` в `schedule_width_live`).
+    """
+
+    record = controller.width_build
+    displayed = controller.width_displayed
+    if record is None or displayed is None or not wants_prime(controller) or target_problem(controller, target):
+        return False
+    if sample_key(record, target.offset) != displayed.key:
+        return False
+    alpha = next_prime_alpha(displayed, controller.width_aux)
+    if alpha is None:
+        return False
+    controller.width_prime_attempts += 1
+    log_of(controller).primes_requested += 1
+    prime_scheduler_of(controller).request(alpha, replace(target, purpose=PURPOSE_PRIME))
+    return True
+
+
+def ensure_prime(context) -> bool:
+    """Вход инструмента ширины: у активного объекта своя декаль и запись кнопки — тогда затравка заказывается, если нужна."""
+
+    if width_problem(context):
+        return False
+    controller = _controller_of(context)
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "hotspotuv_settings", None)
+    mesh_settings = getattr(scene, "hotspotuv_decal_mesh", None)
+    if controller is None or settings is None or mesh_settings is None or controller.width_build is None:
+        return False
+    return request_prime(controller, target_of(settings, mesh_settings, controller.width_build))
 
 
 def target_of(settings, mesh_settings, record: LastProductionBuildV1) -> WidthLiveTargetV1:
@@ -605,6 +726,10 @@ def schedule_width_live(settings, context) -> None:
         scheduler.note_unavailable(problem)
         return
     preview_now(controller, width, float(mesh_settings.offset))
+    # Настоящий заказ ширины важнее затравки: она снята (результат выброшен), а меш пока двигает сертификат.
+    if controller.width_prime is not None:
+        controller.width_prime.supersede("the width is being changed")
+    preview_mesh_now(controller, width)
     scheduler.request(width, target)
 
 
@@ -627,6 +752,7 @@ def status_lines(controller) -> tuple[str, ...]:
     state = controller.width_preview
     if state is not None:
         lines.append(state.preview.status_text())
+    lines.extend(mesh_preview_status_lines(controller))
     return tuple(lines)
 
 
@@ -674,6 +800,7 @@ def reconcile_after_history(context=None) -> None:
     if controller is None:
         return
     set_preview(controller, None)
+    note_history(controller)  # что показывает меш, неизвестно; сертификат сверит состав меша на первом же кадре
     record = controller.width_build
     scene = getattr(context, "scene", None)
     settings = None if scene is None else getattr(scene, "hotspotuv_settings", None)

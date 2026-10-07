@@ -47,7 +47,7 @@ use cftuv_skeleton::transaction::build_skeleton;
 
 use crate::coverage::exact_status;
 use crate::memlog::{apply_log, insort, Tables};
-use crate::pyobj::{alloc, fraction_from_rat, ibig_from_int, is_exactly, rat_from_number, refuse, set_slot, sqrt_sum_to_py, Pool, Raw};
+use crate::pyobj::{alloc, fraction_from_rat, ibig_from_int, is_exactly, note_attr_build, rat_from_number, refuse, set_slot, sqrt_sum_to_py, Pool, Raw, SlotMode};
 use crate::refusal::Forced;
 
 const STATUS_VALUE: u8 = 10;
@@ -102,10 +102,11 @@ struct Shape {
 }
 
 impl Shape {
-    fn new(py: Python<'_>, class: &Bound<'_, PyAny>, names: &[&str]) -> PyResult<Shape> {
+    /// `label` names the class in the refusal a forced `raw` mode makes of a layout the probe does not confirm; `Attr` does not probe (see [`Raw::select`]).
+    fn new(py: Python<'_>, mode: SlotMode, label: &str, class: &Bound<'_, PyAny>, names: &[&str]) -> PyResult<Shape> {
         let class = class.clone().unbind();
         let names: Vec<Py<PyString>> = names.iter().map(|name| PyString::intern(py, name).unbind()).collect();
-        let raw = Raw::probe(py, &class, &names.iter().collect::<Vec<_>>())?;
+        let raw = Raw::select(py, mode, label, &class, &names.iter().collect::<Vec<_>>())?;
         Ok(Shape { class, raw, names })
     }
 
@@ -114,6 +115,7 @@ impl Shape {
         if let Some(raw) = &self.raw {
             return raw.build(py, &self.class, values);
         }
+        note_attr_build();
         let object = alloc(py, &self.class)?;
         for (name, value) in self.names.iter().zip(values.iter()) {
             set_slot(&object, name, value)?;
@@ -398,17 +400,18 @@ impl Host {
         fraction: &Bound<'_, PyAny>,
         classes: [&Bound<'_, PyAny>; 5],
         enums: [&Bound<'_, PyAny>; 6],
+        mode: SlotMode,
     ) -> PyResult<()> {
         let [skeleton, node, time, point, obligation] = classes;
         let [outcomes, kinds, statuses, branches, dispositions, refusals] = enums;
         let intern = |text: &str| PyString::intern(py, text).unbind();
         self.classes = Some(Classes {
-            pool: Pool::new(py, fraction, sqrt_sum)?,
-            skeleton: Shape::new(py, skeleton, &["outcome", "nodes", "levels", "counters", "proof_status", "proof_obligations"])?,
-            node: Shape::new(py, node, &["kind", "time", "point", "participants", "converging_vertices", "kinds", "incidences"])?,
-            time: Shape::new(py, time, &["dividend", "divisor"])?,
-            point: Shape::new(py, point, &["x", "y"])?,
-            obligation: Shape::new(py, obligation, &["cause", "disposition", "vertex_ids", "participant_edge_keys", "target_edge_keys", "level", "event_kind"])?,
+            pool: Pool::new(py, fraction, sqrt_sum, mode)?,
+            skeleton: Shape::new(py, mode, "SkeletonV1", skeleton, &["outcome", "nodes", "levels", "counters", "proof_status", "proof_obligations"])?,
+            node: Shape::new(py, mode, "SkeletonNodeV1", node, &["kind", "time", "point", "participants", "converging_vertices", "kinds", "incidences"])?,
+            time: Shape::new(py, mode, "EventTimeV1", time, &["dividend", "divisor"])?,
+            point: Shape::new(py, mode, "EventPointV1", point, &["x", "y"])?,
+            obligation: Shape::new(py, mode, "ProofObligationV1", obligation, &["cause", "disposition", "vertex_ids", "participant_edge_keys", "target_edge_keys", "level", "event_kind"])?,
             outcomes: members(outcomes, &SkeletonOutcome::ALL.map(SkeletonOutcome::value), "SkeletonOutcome")?,
             kinds: members(kinds, &EventKind::ALL.map(EventKind::value), "EventKind")?,
             statuses: members(statuses, &[ProofStatus::Complete.value(), ProofStatus::Incomplete.value()], "ProofStatus")?,

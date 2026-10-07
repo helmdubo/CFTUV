@@ -768,6 +768,11 @@ class CostMirror:
 
         self._session.disable_raw()
 
+    def slot_mode(self) -> str:
+        """`raw`, `attr` or `auto`: how this session reads and writes the slots (the process-wide mode unless `new_mirror(slots=...)` said otherwise)."""
+
+        return self._session.slot_mode()
+
     def force_refusal(self, kind) -> None:
         """Test-only: arms ONE refusal of the port (`unsupported` (a clip), `invalid_input`, `diverged`, `internal`, `panic`; `None` disarms).
 

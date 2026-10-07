@@ -119,3 +119,18 @@ def test_without_the_native_kernel_the_report_names_the_status_and_is_not_a_fail
     line = ab.final_line(report)
     assert line.startswith("NATIVE_AB_UNAVAILABLE coverage=unavailable clip=unavailable detail=")
     assert "cftuv_native" in line
+
+
+def test_the_native_directory_is_prepended_so_an_installed_wheel_never_shadows_it(ab):
+    root = Path("/repo")
+    tree = [str(root), str(root / "kernel" / "src")]
+    current = ["/site-packages-with-the-installed-wheel", str(root), "/other", "/native"]
+
+    found = ab.path_with_tree(current, root, "/native")
+
+    assert found[0] == "/native" and found[1:3] == tree
+    assert found.index("/native") < found.index("/site-packages-with-the-installed-wheel")
+    assert [found.count(item) for item in ("/native", *tree)] == [1, 1, 1]
+    assert found[3:] == ["/site-packages-with-the-installed-wheel", "/other"]  # прежний порядок остального сохранён
+    # Без названного каталога порядок прежний: хост и ядро дерева впереди, остальное как было.
+    assert ab.path_with_tree(current, root)[:2] == tree and ab.path_with_tree(current, root)[2:] == [current[0], "/other", "/native"]

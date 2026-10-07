@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .events import EventKind
+from .exact_identity import identity_order_key
 
 
 def compose_edge_split_overlap(
@@ -107,8 +108,11 @@ def compose_edge_split_overlap(
     }
     final_birth_ports = tuple(
         sorted(
-            (remapped[key], keep_prev, keep_next)
-            for key, (keep_prev, keep_next) in flags.items()
+            (
+                (remapped[key], keep_prev, keep_next)
+                for key, (keep_prev, keep_next) in flags.items()
+            ),
+            key=identity_order_key,
         )
     )
     return (
@@ -116,7 +120,7 @@ def compose_edge_split_overlap(
         (
             replace(
                 cut,
-                births=tuple(sorted(composed_births, key=lambda item: item.key)),
+                births=tuple(sorted(composed_births, key=lambda item: item.order_key)),
                 final_birth_ports=final_birth_ports,
             ),
         ),

@@ -62,6 +62,25 @@ fn tree_digest(native_root: &str) -> PyResult<String> {
     digest::tree_digest(std::path::Path::new(native_root)).map(|found| found.hex).map_err(|error| PyValueError::new_err(format!("tree_digest({native_root:?}): {error}")))
 }
 
+/// `process_slot_mode() -> str`: the mode of the raw slot access the extension read from `CFTUV_NATIVE_SLOTS` when it was imported (`raw`, `attr` or `auto`).
+#[pyfunction]
+fn process_slot_mode() -> &'static str {
+    pyobj::process_mode().name()
+}
+
+/// `slot_counters() -> (raw reads, attribute reads, raw builds, attribute builds)`: which path the slot accesses of the whole operations actually took (`pyobj::slot_counters`).
+#[pyfunction]
+fn slot_counters() -> (u64, u64, u64, u64) {
+    let [raw_reads, attr_reads, raw_builds, attr_builds] = pyobj::slot_counters();
+    (raw_reads, attr_reads, raw_builds, attr_builds)
+}
+
+/// Zeroes the four slot counters.
+#[pyfunction]
+fn reset_slot_counters() {
+    pyobj::reset_slot_counters();
+}
+
 /// `number_op_table() -> list[tuple[int, str]]`: the opcode table, for the harness to compare with its own.
 #[pyfunction]
 fn number_op_table() -> Vec<(u8, &'static str)> {
@@ -86,13 +105,21 @@ struct Session {
     forced: Option<refusal::Forced>,
     /// The whole `build_skeleton` (WP-S6): the bound classes of its result.
     skeleton: skeleton::Host,
+    /// How the slots of the bound classes are read and written (`pyobj::SlotMode`): the process-wide mode (`CFTUV_NATIVE_SLOTS`) unless the session was made with its own.
+    slots: pyobj::SlotMode,
 }
 
 #[pymethods]
 impl Session {
+    /// `slots`: `raw`, `attr` or `auto` for this session alone (tests); `None` takes the process-wide mode the extension read from `CFTUV_NATIVE_SLOTS` when it was imported.
     #[new]
-    fn new() -> Session {
-        Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default() }
+    #[pyo3(signature = (slots=None))]
+    fn new(slots: Option<&str>) -> PyResult<Session> {
+        let slots = match slots {
+            Some(text) => pyobj::SlotMode::parse(text).map_err(|why| pyobj::refuse(format!("Session(slots=...): {why}")))?,
+            None => pyobj::process_mode(),
+        };
+        Ok(Session { inner: cftuv_core::session::Session::new(), coverage: coverage::Host::default(), clip: clip::Host::default(), view: view::View::default(), forced: None, skeleton: skeleton::Host::default(), slots })
     }
 
     fn run<'py>(&mut self, py: Python<'py>, request: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
@@ -129,7 +156,7 @@ impl Session {
         store_key: &Bound<'_, PyAny>,
         memory_delta: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        self.coverage.bind(py, sqrt_sum, fraction, coverage, face_coverage, [outcome_exact, outcome_not_exact, outcome_negative], face_exact, store_key, memory_delta)
+        self.coverage.bind(py, sqrt_sum, fraction, coverage, face_coverage, [outcome_exact, outcome_not_exact, outcome_negative], face_exact, store_key, memory_delta, self.slots)
     }
 
     /// The `CoverageV1` of a refused call (`negative`: `ALPHA_IS_NEGATIVE`, else `PARTITION_IS_NOT_EXACT`).
@@ -177,7 +204,7 @@ impl Session {
 
     /// Hands the kernel classes to `clip_geometry` (`SqrtSumV1`, `Fraction`, `ClippedV1`, `LocalPoint3V1`). Forgets every converted plane.
     fn bind_clip(&mut self, py: Python<'_>, sqrt_sum: &Bound<'_, PyAny>, fraction: &Bound<'_, PyAny>, clipped: &Bound<'_, PyAny>, local_point: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.clip.bind(py, sqrt_sum, fraction, clipped, local_point)
+        self.clip.bind(py, sqrt_sum, fraction, clipped, local_point, self.slots)
     }
 
     /// `clip.clip_geometry` whole (see `clip.rs`): `(result or None, status, detail, sign-counter deltas, budget articles after,
@@ -234,7 +261,7 @@ impl Session {
         dispositions: &Bound<'_, PyAny>,
         refusals: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        self.skeleton.bind(py, sqrt_sum, fraction, [skeleton, node, time, point, obligation], [outcomes, kinds, statuses, branches, dispositions, refusals])
+        self.skeleton.bind(py, sqrt_sum, fraction, [skeleton, node, time, point, obligation], [outcomes, kinds, statuses, branches, dispositions, refusals], self.slots)
     }
 
     /// `skeleton.build_skeleton` whole (see `skeleton.rs`; `exhaustive`: `split_search is EXHAUSTIVE`): `(result or None, status, detail, sign-counter deltas, budget articles after, changed-tables bits,
@@ -293,11 +320,17 @@ impl Session {
         }
     }
 
-    /// Test-only: every slot of the result classes and of the inputs through the attribute protocol (the fallback of the raw access).
+    /// Test-only: every slot of the result classes and of the inputs through the attribute protocol (the fallback of the raw access); the session's mode becomes `attr`.
     fn disable_raw(&mut self) {
+        self.slots = pyobj::SlotMode::Attr;
         self.coverage.disable_raw();
         self.clip.disable_raw();
         self.skeleton.disable_raw();
+    }
+
+    /// `raw`, `attr` or `auto`: how this session reads and writes the slots of the bound classes.
+    fn slot_mode(&self) -> &'static str {
+        self.slots.name()
     }
 
     /// Test-only: a `Fraction` (`sum` false) or a `SqrtSumV1` (`sum` true) through the conversions of the boundary and back (needs `bind_coverage`).
@@ -382,7 +415,12 @@ pub(crate) fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
 
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    // the slot mode is read ONCE, here: an unknown `CFTUV_NATIVE_SLOTS` is a named refusal and the extension does not import
+    pyobj::init_process_mode()?;
     module.add_function(wrap_pyfunction!(version, module)?)?;
+    module.add_function(wrap_pyfunction!(process_slot_mode, module)?)?;
+    module.add_function(wrap_pyfunction!(slot_counters, module)?)?;
+    module.add_function(wrap_pyfunction!(reset_slot_counters, module)?)?;
     module.add_function(wrap_pyfunction!(run_number_ops, module)?)?;
     module.add_function(wrap_pyfunction!(number_op_table, module)?)?;
     module.add_function(wrap_pyfunction!(int_round_trip, module)?)?;
