@@ -153,20 +153,26 @@ fn a_candidate_born_before_its_time_gets_a_place_and_is_refused_outside_the_fron
 }
 
 #[test]
-fn a_gate_of_exactly_now_refuses_a_later_time_before_the_trace_the_place_and_the_containment() {
+fn a_gate_of_exactly_now_answers_a_later_time_with_no_candidate_and_no_effects_before_the_trace_the_place_and_the_containment() {
     let mut world = World::new();
     let view = triangle_view(rational_time(0, 1));
     let mut memo = PositionMemo::new(true);
     let now = rational_time(0, 1);
     let decision = evaluate_split_candidate_gated(&mut world.ctx(), &view, &mut memo, 0, 2, &now, NowGate::ExactlyNow).unwrap();
     assert!(decision.candidate.is_none());
-    assert_eq!(decision.effects[0].reason, CandidateRefusal::FilterEventInThePast);
+    // the oracle's `at_now_only`: `SplitCandidateDecisionV1(None)`, not a named refusal (the time is AFTER `now`, which only the front's own gate would carry on with)
+    assert!(decision.effects.is_empty());
     assert_eq!(world.budget.exact_position_hydrations, 0, "no place is asked of a time that is not now");
     assert_eq!(memo.len(), (0, 1));
     // the gate of the front lets the same question through to the place
     let through = evaluate_split_candidate_gated(&mut world.ctx(), &view, &mut memo, 0, 2, &now, NowGate::NotBefore).unwrap();
     assert_eq!(through.effects[0].reason, CandidateRefusal::FilterPointOutsideFront);
     assert_eq!(world.budget.exact_position_hydrations, 1);
+    // a time BEFORE `now` is refused by name by both gates
+    let after = rational_time(100, 1);
+    let past = evaluate_split_candidate_gated(&mut world.ctx(), &view, &mut memo, 0, 2, &after, NowGate::ExactlyNow).unwrap();
+    assert!(past.candidate.is_none());
+    assert_eq!(past.effects[0].reason, CandidateRefusal::FilterEventInThePast);
 }
 
 #[test]

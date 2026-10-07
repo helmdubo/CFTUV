@@ -1,7 +1,8 @@
 //! The whole operation (`transaction::build_skeleton`) on small worlds: outcome, nodes, levels and the number of signs the oracle paid for the same polygon.
 //!
 //! The numbers are the Python oracle's (`kernel/src/cftuv_envelope/wavefront/skeleton.py::build_skeleton`, cold memory, no budget), taken with the script that prints
-//! `outcome, nodes, levels, SIGN_COUNTS`; the differential against the oracle itself over the field and synthetic corpora is `tests/test_native_skeleton_whole.py`.
+//! `outcome, nodes, levels, SIGN_COUNTS` (retaken for the oracle of main bd5f4e1: the closure of a packet is no longer replayed and the law of a split is asked once per pair, so the two polygons
+//! with holes pay 48 signs less than before and the rest the same); the differential against the oracle itself over the field and synthetic corpora is `tests/test_native_skeleton_whole.py`.
 
 use cftuv_canon::{CanonMemory, WorkBudget};
 use cftuv_core::exact::ExactCtx;
@@ -93,7 +94,7 @@ fn a_square_with_two_holes_is_nine_nodes_in_three_levels() {
     let second = each(&[(12, 12), (12, 16), (16, 16), (16, 12)]);
     let skeleton = world.build(Polygon::new(vec![outer, first, second], Vec::new()).unwrap());
     assert_eq!((skeleton.outcome, skeleton.nodes.len(), skeleton.levels, skeleton.proof_obligations.len()), (SkeletonOutcome::Exact, 9, 3, 8));
-    assert_eq!(world.counts.as_array(), [853, 234, 619, 0, 0]);
+    assert_eq!(world.counts.as_array(), [805, 234, 571, 0, 0]);
 }
 
 #[test]
@@ -142,5 +143,5 @@ fn the_exhaustive_search_builds_the_same_skeleton_at_the_price_of_the_oracles_ex
     let skeleton = world.build_with(Polygon::new(vec![outer, first, second], Vec::new()).unwrap(), exhaustive());
     assert_eq!((skeleton.outcome, skeleton.nodes.len(), skeleton.levels), (SkeletonOutcome::Exact, 9, 3));
     assert_eq!((counter(&skeleton, "split_search_exhaustive_vertices"), counter(&skeleton, "split_candidates_examined")), (8, 80));
-    assert_eq!(world.counts.as_array(), [638, 189, 449, 0, 0]);
+    assert_eq!(world.counts.as_array(), [590, 189, 401, 0, 0]);
 }

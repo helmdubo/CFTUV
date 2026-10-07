@@ -33,15 +33,27 @@ __all__ = (
     "skeleton_wire",
 )
 
-#: The text a refusal of the port begins with where the oracle raises `TypeError` from a sort (an internal error of the oracle that the port answers by name, never by guess).
+#: The text a refusal of the port begins with where the oracle raises `TypeError` from a sort (an internal error of the oracle that the port answers by name, never by guess). The births and
+#: their ports are ordered by `identity_order_key` now (a `None` end of an occurrence sorts last), so a real run no longer reaches such a refusal there; the mark stays for the inputs
+#: the harness makes up and for the sorts that remain plain.
 ORACLE_UNSUPPORTED_MARK = "TypeError in the oracle"
 
 #: The next identity the native builder gives to a line or a sliding projection it makes: far above any address of the oracle's objects (a `repr` of an `id` is below 2**48).
 NEXT_IDENT = 1 << 62
 
 
-def enc_options(dense: bool, march_steps, budgeted: bool) -> list:
-    return [bool(dense), march_steps, bool(budgeted)]
+def replay_check_now() -> bool:
+    """The oracle's `replay_check_enabled()` now (the environment variable `CFTUV_SYMBOLIC_REPLAY_CHECK`): whether its closure replays a packet a second time."""
+
+    from cftuv_envelope.wavefront.symbolic_superlevel_coordinator import replay_check_enabled
+
+    return bool(replay_check_enabled())
+
+
+def enc_options(dense: bool, march_steps, budgeted: bool, replay=None) -> list:
+    """`[dense hydration, march steps | None, budgeted, replay check]`; `replay=None` is what the oracle does NOW (`replay_check_now`), so a call recorded under the variable replays."""
+
+    return [bool(dense), march_steps, bool(budgeted), replay_check_now() if replay is None else bool(replay)]
 
 
 def enc_event(event) -> list:

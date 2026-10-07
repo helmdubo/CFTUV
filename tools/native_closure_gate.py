@@ -84,6 +84,14 @@ HOMES = {
 PART_OP = {"with_line_ports": 0, "build_f0_overlay": 1, "initial_interior_contacts": 2, "overlay_signature": 3}
 
 
+def cold(memo) -> bool:
+    """Whether the oracle's `SplitDecisionMemoV1` of a call holds no decision yet. A native seam starts from an EMPTY memo (the wire carries none), so a call whose memo is warm (the endpoint pass
+    of the round filled it before the interior pass asked, or the last pass of the initial closure left it for generation zero) pays less than the seam and is not comparable on its own: the
+    closure that contains it is (`PLAN_SYMBOLIC_CLOSURE`), and so is a call that starts cold."""
+
+    return memo is None or not memo.decisions
+
+
 class ClosureVerifier(builder_gate.BuilderVerifier):
     """`BuilderVerifier` plus the wrappers of the symbolic layer."""
 
@@ -228,15 +236,15 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
         return build_symbolic_overlay
 
     def wrap_overlay_call(self, name: str, seam: str):
-        """`discover_interior_split_contacts(builder, overlay)` and `discover_junction_contacts(builder, overlay)`."""
+        """`discover_interior_split_contacts(builder, overlay, memo)` and `discover_junction_contacts(builder, overlay, memo)`; only a call that starts with an empty memo is compared (see `cold`)."""
 
         verifier = self
 
         def factory(original):
-            def call(builder, overlay):
-                if not verifier.wanted(name):
-                    return original(builder, overlay)
-                return verifier.memo_call(seam, builder, lambda: original(builder, overlay), lambda: [verifier.cseams.enc_overlay(overlay, builder)])
+            def call(builder, overlay, memo=None):
+                if not cold(memo) or not verifier.wanted(name):
+                    return original(builder, overlay, memo)
+                return verifier.memo_call(seam, builder, lambda: original(builder, overlay, memo), lambda: [verifier.cseams.enc_overlay(overlay, builder)])
 
             return call
 
@@ -245,9 +253,9 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
     def wrap_mixed(self, original):
         verifier = self
 
-        def plan_mixed_generations(builder, initial, discover_interior, *, budget):
-            run = lambda: original(builder, initial, discover_interior, budget=budget)  # noqa: E731
-            if not verifier.wanted("plan_mixed_generations"):
+        def plan_mixed_generations(builder, initial, discover_interior, *, budget, initial_memo=None):
+            run = lambda: original(builder, initial, discover_interior, budget=budget, initial_memo=initial_memo)  # noqa: E731
+            if not cold(initial_memo) or not verifier.wanted("plan_mixed_generations"):
                 return run()
             return verifier.memo_call("PLAN_MIXED_GENERATIONS", builder, run, lambda: [verifier.cseams.enc_overlay(initial, builder), budget])
 
@@ -357,7 +365,7 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
 
         verifier = self
 
-        def plan_mixed_generations(builder, initial, discover_interior, *, budget):
+        def plan_mixed_generations(builder, initial, discover_interior, *, budget, initial_memo=None):
             if not verifier.depth and (verifier.only is None or "NORMALIZE_MIXED_GENERATION" in verifier.only):
                 made = fabricate.Fabricator(initial)
                 for junction, interior in made.generation_cases(verifier.rng, verifier.cases):
@@ -368,7 +376,7 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
                         verifier.check_generation(builder, spoiled, junction, interior)
                 for _ in range(verifier.scripted):
                     verifier.check_scripted(builder, initial, original, verifier.rng.choice((0, 1, 2, 4, 8)))
-            return original(builder, initial, discover_interior, budget=budget)
+            return original(builder, initial, discover_interior, budget=budget, initial_memo=initial_memo)
 
         return plan_mixed_generations
 

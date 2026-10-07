@@ -2,7 +2,7 @@
 
 The unit the product replaces is the one call `wavefront/conveyor.py` makes (`build_skeleton(report.polygon, work_budget=..., dense_hydration=...)`): the builder (the
 prime universe of the speeds, the loops with their fans, the motorcycle graph, the first candidates of every vertex), the event loop over exact-time packets (a frozen snapshot,
-the symbolic closure replayed twice, the commit of the final overlay), and the result. Everything the oracle does besides returning a `SkeletonV1` is part of the answer and is
+the symbolic closure of a packet and, only under the oracle's self-check, its replay, the commit of the final overlay), and the result. Everything the oracle does besides returning a `SkeletonV1` is part of the answer and is
 reproduced here by `CostMirror.build_skeleton` (this module holds its body, so that `cost.py` stays what it is): the six articles of the budget and the string `superlevel` the loop
 writes into it at every level, the four tables of the canonicalization memory with their order, `SIGN_COUNTS`, `UNBUDGETED_WORK` for a call without a budget, and the real exceptions
 with the oracle's text (an exhaustion gets its detail from `ExactWorkBudgetV1.exhaustion_detail` of the real budget, after every partial effect is in place).
@@ -14,11 +14,14 @@ What the oracle reads LIVE, and what the shim does about it:
   function is a named refusal (`NativePortUnsupported`); the declared one is what the port computes;
 * `__debug__`: the oracle's two `assert compare_times(effect.evaluation_level, self.now, ...) == 0` COST a sign each, and `python -O` strips them. The port pays them, so an interpreter
   started with `-O` is a named refusal;
-* `split_search`: both searches are carried (`MOTORCYCLE`, the product, and `EXHAUSTIVE`, the reference of the tests and benchmarks: no graph, no index); anything else is a named refusal.
+* `split_search`: both searches are carried (`MOTORCYCLE`, the product, and `EXHAUSTIVE`, the reference of the tests and benchmarks: no graph, no index); anything else is a named refusal;
+* `CFTUV_SYMBOLIC_REPLAY_CHECK` (`symbolic_superlevel_coordinator.replay_check_enabled()`): the oracle reads the variable at EVERY closure of a packet and, when it is on, plans the mixed
+  generations a second time and compares (the product does not: the check doubled the cost of the closure). The shim reads it with the oracle's own function at the call and hands the
+  answer to the extension, which runs the same replay (and answers the same refusal `SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE`) exactly when the oracle would.
 
 A refusal of the PORT (`NativePortStale`, `NativePortUnsupported` whenever it is raised, an input the port does not carry, an internal state of the port) leaves every Python-visible state
 exactly as it was before the call (articles, `superlevel`, `SIGN_COUNTS`, `UNBUDGETED_WORK`, the four memory tables with their order): the caller runs `skeleton.build_skeleton` on the same
-budget and tables and gets what a pure oracle run would. The oracle's own internal failures (a `TypeError` of a symbolic reference without end points, ...) are such refusals too: the
+budget and tables and gets what a pure oracle run would. The oracle's own internal failures that remain (an input the kernel's own builders never make) are such refusals too: the
 oracle raises them itself when the caller falls back. An exception of the ORACLE (`ExactCanonicalizationWorkBudgetExhausted`, `ZeroDivisorTimeError`, `ValueError`, ...) leaves the partial effects
 the oracle's exception leaves.
 
@@ -72,6 +75,14 @@ def _kernel():
 
         _KERNEL.append((exact_sqrt_sum, skeleton, superlevel, event_time, events, proof, candidate_refusal, motorcycle, cell_grid))
     return _KERNEL[0]
+
+
+def _coordinator():
+    """`symbolic_superlevel_coordinator` (the module that owns `replay_check_enabled`), resolved on first use."""
+
+    from cftuv_envelope.wavefront import symbolic_superlevel_coordinator
+
+    return symbolic_superlevel_coordinator
 
 
 def _members(enum) -> dict:
@@ -151,6 +162,7 @@ def build_skeleton(mirror, polygon, *, split_search=None, work_budget=None, dens
         raise pin.NativePortUnsupported(f"`skeleton.level_budget(polygon)` failed ({type(error).__name__}: {error})") from None
     if type(level_limit) is not int:
         raise pin.NativePortUnsupported(f"`skeleton.level_budget(polygon)` answered {level_limit!r}, not an int")
+    replay = bool(_coordinator().replay_check_enabled())
     sync, slow = mirror._sync_in(exact)
     try:
         value = mirror._budget_value(work_budget)
@@ -161,7 +173,7 @@ def build_skeleton(mirror, polygon, *, split_search=None, work_budget=None, dens
     called = perf_counter_ns()
     try:
         result, status, detail, counts, articles, bits, native, superlevel = mirror._session.build_skeleton(
-            polygon, bool(dense_hydration), split_search is skeleton.SplitSearch.EXHAUSTIVE, level_limit, None, None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real
+            polygon, bool(dense_hydration), split_search is skeleton.SplitSearch.EXHAUSTIVE, replay, level_limit, None, None if sync is cost.UNCHANGED_SYNC else codec.encode_value(sync), state, real
         )
     except BaseException:
         mirror.invalidate()

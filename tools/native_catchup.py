@@ -6,7 +6,7 @@
 
     git merge <ветка ядра или тег>                               # руками; конфликты — руками
     python tools/native_catchup.py status                        # какие файлы эталона ушли от пина (до переноса дельты)
-    python tools/native_catchup.py pin                           # пересобрать PINS в pin.py из дерева ядра, назвать изменённые файлы
+    python tools/native_catchup.py pin                           # пересобрать PINS в pin.py и LEAF_PINS в skeleton_seams.py из дерева ядра, назвать изменённые файлы
     python tools/native_catchup.py build                         # cargo test --workspace, колесо, установка в venv (3.13) и py311-site (3.11)
     python tools/native_catchup.py corpus                        # выгрузка из Blender, производные записи (питон Blender 3.11), синтетический корпус, корпус скелета (поле, тесты, генератор, производные, швы)
     python tools/native_catchup.py test                          # все tests/test_native_*.py под 3.13 и под 3.11, нули расхождений
@@ -32,11 +32,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KERNEL_PACKAGE = ROOT / "kernel" / "src" / "cftuv_envelope"
 PIN_FILE = ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / "pin.py"
+SEAMS_FILE = ROOT / "native" / "cftuv-python" / "python" / "cftuv_native" / "skeleton_seams.py"
 BLENDER = Path(os.environ.get("CFTUV_BLENDER", "C:/Program Files/Blender Foundation/Blender 4.5/blender.exe"))
 BLENDER_PYTHON = Path(os.environ.get("CFTUV_BLENDER_PYTHON", "C:/Program Files/Blender Foundation/Blender 4.5/4.5/python/bin/python.exe"))
 SCENE = os.environ.get("CFTUV_NATIVE_SCENE", "E:/testScene.blend")
 PY311_SITE = Path.home() / ".cftuv-native" / "py311-site"
 PINS_BLOCK = re.compile(r"PINS: dict = \{\n.*?\n\}\n", re.S)
+LEAF_PINS_BLOCK = re.compile(r"LEAF_PINS = \{\n.*?\n\}\n", re.S)
 
 
 def load_pin(path: Path = PIN_FILE):
@@ -77,6 +79,24 @@ def rewrite_pins(pin_file: Path = PIN_FILE, root: Path = KERNEL_PACKAGE) -> list
     return [name for name in names if pin.PINS.get(name) != found[name]]
 
 
+def rewrite_leaf_pins(seams_file: Path = SEAMS_FILE, root: Path = KERNEL_PACKAGE) -> list:
+    """Переписывает блок `LEAF_PINS` в `skeleton_seams.py` дайджестами дерева `root` (файлы листа сверок: `LEAF_FILES`, их держит тест листа); возвращает файлы, чей дайджест изменился."""
+
+    text = seams_file.read_text(encoding="utf-8")
+    names = re.findall(r'^    "([^"]+)": "[0-9a-f]{64}",$', LEAF_PINS_BLOCK.search(text).group(0), re.M) if LEAF_PINS_BLOCK.search(text) else []
+    if not names or len(LEAF_PINS_BLOCK.findall(text)) != 1:
+        raise SystemExit(f"NATIVE_CATCHUP_FAILED {seams_file} has no single `LEAF_PINS = {{...}}` block to rewrite")
+    pin = load_pin(PIN_FILE)
+    found = {name: pin.digest(root, name) for name in names}
+    gone = [name for name, value in found.items() if value is None]
+    if gone:
+        raise SystemExit(f"NATIVE_CATCHUP_FAILED the oracle tree {root} lacks leaf files {gone}: edit LEAF_FILES / LEAF_PINS by hand")
+    old = dict(re.findall(r'^    "([^"]+)": "([0-9a-f]{64})",$', LEAF_PINS_BLOCK.search(text).group(0), re.M))
+    block = "LEAF_PINS = {\n" + "".join(f'    "{name}": "{found[name]}",\n' for name in names) + "}\n"
+    seams_file.write_text(LEAF_PINS_BLOCK.sub(lambda _match: block, text, count=1), encoding="utf-8")
+    return [name for name in names if old.get(name) != found[name]]
+
+
 def run(command: list, *, environment: dict | None = None, cwd: Path = ROOT, output: Path | None = None) -> None:
     """Команда с печатью; ненулевой код — отказ шага (`check`), вывод по желанию в файл."""
 
@@ -112,6 +132,8 @@ def step_status() -> None:
 def step_pin() -> None:
     changed = rewrite_pins()
     print(f"PINS rewritten from {KERNEL_PACKAGE}: {len(changed)} file(s) changed" + (": " + ", ".join(changed) if changed else ""))
+    leaf = rewrite_leaf_pins()
+    print(f"LEAF_PINS rewritten from {KERNEL_PACKAGE}: {len(leaf)} file(s) changed" + (": " + ", ".join(leaf) if leaf else ""))
 
 
 def step_build() -> None:

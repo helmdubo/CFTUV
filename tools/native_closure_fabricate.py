@@ -352,21 +352,21 @@ class ScriptedDiscovery:
     def _scripted(self, index: int) -> bool:
         return index < self.rounds and self.rng.random() < 0.75
 
-    def junction(self, builder, overlay):
+    def junction(self, builder, overlay, memo=None):
         index, self.junction_calls = self.junction_calls, self.junction_calls + 1
         made = Fabricator(overlay)
         if not self._scripted(index) or not made.usable():
-            return self.natural_junction(builder, overlay)
+            return self.natural_junction(builder, overlay, memo)
         found = made.junction(self.rng)
         reason = AMBIGUOUS if self.rng.random() < 0.05 else None
         self.steps.setdefault(index, {})["junction"] = (found, reason)
         return found, reason
 
-    def interior(self, builder, overlay):
+    def interior(self, builder, overlay, memo=None):
         index, self.interior_calls = self.interior_calls, self.interior_calls + 1
         made = Fabricator(overlay)
         if not self._scripted(index) or not made.usable():
-            return self.natural_interior(builder, overlay)
+            return self.natural_interior(builder, overlay, memo)
         found = made.interior(self.rng)
         reason = CONFLICT if self.rng.random() < 0.05 else None
         self.steps.setdefault(index, {})["interior"] = (found, reason)
