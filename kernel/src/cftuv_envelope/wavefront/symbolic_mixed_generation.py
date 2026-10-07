@@ -22,6 +22,7 @@ from .symbolic_overlay import (
     SymbolicSpanBindingV1,
     refreshed_span_bindings,
 )
+from .symbolic_split_endpoint import SplitDecisionMemoV1
 from .superlevel_closure import SegmentRefV1
 from .superlevel_fixed_point import merge_symbolic_split_contacts
 
@@ -194,7 +195,12 @@ def apply_mixed_generation(expanded, generation):
     )
 
 
-def plan_mixed_generations(builder, initial, discover_interior, *, budget):
+def plan_mixed_generations(
+    builder, initial, discover_interior, *, budget, initial_memo=None
+):
+    """`initial_memo` — решения закона на пары `initial` (последний проход начального замыкания): нулевое поколение
+    строится клоном `initial`, то есть на том же содержимом, и не спрашивает закон о тех же парах второй раз."""
+
     causal = []
     for iteration in range(budget + 1):
         overlay = clone_overlay(initial)
@@ -214,12 +220,16 @@ def plan_mixed_generations(builder, initial, discover_interior, *, budget):
                 ), ()
             generations.append(generation)
             signatures.append(overlay_signature(overlay))
-        junction, reason = discover_junction_contacts(builder, overlay)
+        memo = (
+            initial_memo if initial_memo is not None and not causal
+            else SplitDecisionMemoV1(builder, overlay)
+        )
+        junction, reason = discover_junction_contacts(builder, overlay, memo)
         if reason is not None:
             return SymbolicJunctionFixedPointV1(
                 tuple(generations), overlay, tuple(signatures), reason
             ), ()
-        interior, reason = discover_interior(builder, overlay)
+        interior, reason = discover_interior(builder, overlay, memo)
         if reason is not None:
             return SymbolicJunctionFixedPointV1(
                 tuple(generations), overlay, tuple(signatures), reason

@@ -40,7 +40,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "coverage")
 skip_unless_available(cftuv_native, "clip")
@@ -97,7 +97,8 @@ def test_integers_cross_the_boundary_unchanged_in_both_directions():
 
 
 def test_raw_slot_access_is_engaged_on_the_supported_interpreters():
-    layouts = cftuv_native.new_mirror().raw_layouts()
+    # `auto` (not the process default: a CI leg may force `attr`): the probe itself must confirm every layout here
+    layouts = cftuv_native.new_mirror("auto").raw_layouts()
     assert layouts and all(layouts.values()), f"the probe did not confirm a raw slot layout (the attribute protocol is used instead, slower): {layouts}"
     assert set(layouts) == {"coverage Fraction", "coverage SqrtSumV1", "FaceCoverageV1", "clip Fraction", "clip SqrtSumV1", "LocalPoint3V1"}
 
@@ -122,10 +123,11 @@ def _fractions() -> list:
 
 @pytest.mark.parametrize("raw", [True, False], ids=["raw slots", "attribute protocol"])
 def test_fractions_and_sums_round_trip_through_the_boundary(raw):
-    mirror = cftuv_native.new_mirror()
-    mirror.raw_layouts()
-    if not raw:
-        mirror.disable_raw()
+    # the mode is forced on THIS session, and the counters say the forced path is the one that ran
+    mirror = cftuv_native.new_mirror("raw" if raw else "attr")
+    assert mirror.slot_mode() == ("raw" if raw else "attr")
+    assert all(mirror.raw_layouts().values()) is raw
+    cftuv_native.reset_slot_counters()
     for value in _fractions():
         back = mirror.round_trip(value)
         assert type(back) is Fraction and back == value and back.numerator == value.numerator and back.denominator == value.denominator, value
@@ -141,6 +143,10 @@ def test_fractions_and_sums_round_trip_through_the_boundary(raw):
         for (radicand, coefficient), (back_radicand, back_coefficient) in zip(value.terms, back.terms):
             assert back_radicand == radicand and type(back_radicand) is int
             assert type(back_coefficient) is type(coefficient) and back_coefficient == coefficient, (value, back)
+    counters = cftuv_native.slot_counters()
+    taken, other = ("raw", "attr") if raw else ("attr", "raw")
+    assert counters[f"{taken}_reads"] > 1000 and counters[f"{taken}_builds"] > 1000, counters
+    assert counters[f"{other}_reads"] == 0 and counters[f"{other}_builds"] == 0, f"the {taken} path was forced but the {other} path ran: {counters}"
 
 
 def test_a_fraction_in_lowest_terms_is_kept_and_a_hand_made_one_is_reduced():
@@ -184,6 +190,7 @@ def _field_rows(operation: str) -> list:
     return [(directory, row) for row in nc.load_index(directory)["records"] if row["op"] == operation and not row.get("derived") and not row["exception"]]
 
 
+@field_tier(nc.matching_corpus() is not None, "нет полевого корпуса под это ядро: настоящие вызовы не сверены")
 def test_answers_through_the_attribute_protocol_equal_the_oracle():
     """Без быстрого пути слотов результат тот же (запасная дорога не гниёт): выборка полевых вызовов обеих операций."""
 
@@ -242,6 +249,7 @@ def _coverage_rows_with_lines():
     return [(directory, row) for directory, row in rows if row["mesh"] != "building" or row["faces"] >= 4][::13]
 
 
+@field_tier(nc.matching_corpus() is not None, "нет полевого корпуса под это ядро: настоящие вызовы не сверены")
 def test_a_store_holding_the_oracles_key_is_hit_and_stays_as_the_oracle_wrote_it():
     """Попадание в `store`, заполненный эталоном (ключ — ДРУГОЙ объект): ответ и цена как у эталона, ключ в `store` остаётся обычным кортежем и тем же объектом."""
 
@@ -282,6 +290,7 @@ def test_a_store_holding_the_oracles_key_is_hit_and_stays_as_the_oracle_wrote_it
     assert checked >= 8
 
 
+@field_tier(nc.matching_corpus() is not None, "нет полевого корпуса под это ядро: настоящие вызовы не сверены")
 def test_a_miss_writes_the_plain_key_and_the_next_call_hits_it():
     rows = _coverage_rows_with_lines()
     if not rows:

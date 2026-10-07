@@ -57,8 +57,8 @@ def contact_identity(contact):
     return contact.kind, contact.key
 
 
-def discover_junction_contacts(builder, overlay):
-    endpoints, reason = discover_endpoint_contacts(builder, overlay)
+def discover_junction_contacts(builder, overlay, memo=None):
+    endpoints, reason = discover_endpoint_contacts(builder, overlay, memo)
     if reason is not None:
         return (), reason
     contacts = tuple(

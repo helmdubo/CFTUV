@@ -2,6 +2,7 @@
 
     python tools/native_build_id.py            # id и половины установленного расширения, id дерева; код возврата 1, если Rust-половины различаются
     python tools/native_build_id.py --json
+    python tools/native_build_id.py --require  # код возврата 1, если расширения нет или ЛЮБАЯ из трёх величин (rust, shim, id) установленного не равна дереву (так CI доказывает, что стоит колесо ЭТОГО дерева)
 
 `cftuv_native.native_build_id()` — sha256 содержимого (не байтов `_core.pyd`: MSVC пишет в каждую сборку метку времени и GUID PDB, и две сборки одного кода
 различаются побайтно): половина `rust` — отпечаток исходников Rust, вшитый при сборке (`native/cftuv-python/build.rs`, правило в `digest.rs`), половина `shim` — отпечаток
@@ -72,6 +73,7 @@ def tree_parts(native_root: Path = NATIVE_ROOT) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true", help="напечатать JSON")
+    parser.add_argument("--require", action="store_true", help="код возврата 1, если расширения нет или rust, shim либо id установленного не равны дереву")
     arguments = parser.parse_args(argv)
     tree = tree_parts()
     report = {"tree": tree, "installed": None, "match": None}
@@ -94,6 +96,8 @@ def main(argv=None) -> int:
             installed = report["installed"]
             print(f"installed id {installed['id']}  rust {installed['rust'][:16]}  shim {installed['shim'][:16]}  (version {installed['version']})")
             print("match: " + ", ".join(f"{name} {'yes' if value else 'NO'}" for name, value in report["match"].items()))
+    if arguments.require:
+        return 0 if report["match"] is not None and all(report["match"].values()) else 1
     return 0 if report["match"] is None or report["match"]["rust"] else 1
 
 

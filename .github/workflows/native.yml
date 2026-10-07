@@ -1,0 +1,296 @@
+name: Native accelerator
+
+# Приёмка Rust не может пройти без самого Rust (аудит F3). Прежде ни один workflow не собирал колесо и не гонял `cargo test`, а нативные сверки при отсутствии
+# расширения ПРОПУСКАЛИСЬ: зелёный CI не говорил, что ускоритель вообще существует. Здесь:
+#
+#   rust          cargo test --workspace --locked (ядро, канонизация, резка; Rust-векторы);
+#   wheel         release-колесо maturin ОДНО (abi3, cp311-abi3: то же колесо ставится и под 3.11, и под 3.13) + личность ДЕРЕВА (`tools/native_build_id.py`);
+#   corpus        синтетический корпус резки, записанный из тестов ядра на лету (никогда не коммитится), по одному на версию Python;
+#   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
+#                 равна личности дерева, обе операции `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
+#                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
+#   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет).
+#
+# Раннер windows-latest — платформа продукта; Rust (rustc, cargo, rustup) и MSVC (Visual Studio 2022) в образе предустановлены (runner-images, Windows2025-Readme.md),
+# версии печатаются шагом «Toolchain».
+
+on:
+  push:
+    paths:
+      - "native/**"
+      - "tools/native_*.py"
+      - "tests/test_native_*.py"
+      - "tests/native_gate.py"
+      - "tests/conftest.py"
+      - "tests/test_architecture.py"
+      # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
+      - "kernel/src/cftuv_envelope/**"
+      - "kernel/tests/**"
+      - "kernel/pyproject.toml"
+      - "pytest.ini"
+      - ".github/workflows/native.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "tools/native_*.py"
+      - "tests/test_native_*.py"
+      - "tests/native_gate.py"
+      - "tests/conftest.py"
+      - "tests/test_architecture.py"
+      # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
+      - "kernel/src/cftuv_envelope/**"
+      - "kernel/tests/**"
+      - "kernel/pyproject.toml"
+      - "pytest.ini"
+      - ".github/workflows/native.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  # no debug info for the test profile: smaller binaries, faster link, and the test results do not depend on it
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # exact test dependencies of the native job (the kernel's own pin is `sympy==1.14.0`, `kernel/pyproject.toml`)
+  TEST_REQUIREMENTS: pytest==9.1.1 sympy==1.14.0
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  rust:
+    name: cargo test (workspace)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # pyo3 (abi3) finds the interpreter's import library through a Python on PATH
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Toolchain
+        run: |
+          rustc -vV
+          cargo --version
+          rustup show
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}"
+      - name: cargo test --workspace --locked
+        working-directory: native
+        run: cargo test --workspace --locked
+
+  wheel:
+    name: release wheel (maturin)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # the FLOOR interpreter builds the one abi3 wheel; the differential job installs that same file under 3.11 and under 3.13
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Toolchain
+        run: |
+          rustc -vV
+          cargo --version
+          python -VV
+      - name: Install maturin (the range of native/cftuv-python/pyproject.toml)
+        run: python -m pip install "maturin>=1.15,<2"
+      - name: Build the release wheel
+        working-directory: native/cftuv-python
+        run: python -m maturin build --release --locked -o "$GITHUB_WORKSPACE/dist"
+      - name: Identity of the TREE the wheel is built from
+        run: |
+          python tools/native_build_id.py --json | tee dist/tree-id.json
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-wheel
+          path: dist
+          if-no-files-found: error
+          retention-days: 3
+
+  corpus:
+    name: synthetic clip corpus (py${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the kernel's test dependencies
+        run: python -m pip install $TEST_REQUIREMENTS
+      # the records are the kernel tests' own calls, replayed on the oracle (tools/native_clip_synthetic.py); no extension is involved, nothing is committed
+      - name: Build the synthetic corpus from the kernel tests
+        env:
+          PYTHONSAFEPATH: "1"
+        run: python tools/native_clip_synthetic.py build --out "$RUNNER_TEMP/synthetic-clip"
+      - name: Size of the corpus
+        run: |
+          du -sh "$RUNNER_TEMP/synthetic-clip" || true
+          find "$RUNNER_TEMP/synthetic-clip" -type f | wc -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-clip-py${{ matrix.python }}
+          path: ${{ runner.temp }}/synthetic-clip
+          if-no-files-found: error
+          retention-days: 1
+
+  differential:
+    name: differential (py${{ matrix.python }}, slots ${{ matrix.slots }})
+    needs: [wheel, corpus]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+        # `auto` is what the product runs; `raw` and `attr` FORCE one path of native/cftuv-python/src/pyobj.rs (raw: a layout the probe does not confirm is a named refusal)
+        slots: [auto, raw, attr]
+    env:
+      PYTHONSAFEPATH: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - uses: actions/download-artifact@v4
+        with:
+          name: synthetic-clip-py${{ matrix.python }}
+          path: ${{ runner.temp }}/synthetic-clip
+      # CLEAN venv: nothing of the repository is importable but what the tests put on `sys.path` themselves (kernel/src, kernel/tests, tools); `PYTHONSAFEPATH` keeps the checkout out
+      - name: Clean venv with the exact test dependencies and the wheel
+        run: |
+          python -VV
+          python -m venv "$RUNNER_TEMP/venv"
+          PY="$RUNNER_TEMP/venv/Scripts/python.exe"
+          "$PY" -m pip install $TEST_REQUIREMENTS
+          "$PY" -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+          "$PY" -m pip freeze
+          echo "PY=$PY" >> "$GITHUB_ENV"
+      - name: The installed wheel is the build of THIS tree (native_build_id, nonzero exit on mismatch)
+        run: |
+          "$PY" tools/native_build_id.py --require
+          "$PY" tools/native_build_id.py --json > "$RUNNER_TEMP/tree-now.json"
+          "$PY" - <<'PYCODE'
+          import json
+          import os
+
+          temp = os.environ["RUNNER_TEMP"]
+          built_from = json.load(open(os.path.join(temp, "wheel", "tree-id.json"), encoding="utf-8"))["tree"]["id"]
+          now = json.load(open(os.path.join(temp, "tree-now.json"), encoding="utf-8"))
+          print("tree the wheel was built from:", built_from)
+          print("tree of this checkout        :", now["tree"]["id"])
+          print("installed native_build_id    :", now["installed"]["id"])
+          if not built_from == now["tree"]["id"] == now["installed"]["id"]:
+              raise SystemExit("NATIVE_BUILD_ID_MISMATCH: the wheel under test is not the build of the tree under test")
+          PYCODE
+      - name: Both native operations are available against this kernel (the pin), on this interpreter, in this slot mode
+        env:
+          PYTHONPATH: kernel/src
+          CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
+        run: |
+          "$PY" - <<'PYCODE'
+          import sys
+          import cftuv_native
+
+          status = cftuv_native.native_status()
+          print("python", sys.version.split()[0], "| build_id", cftuv_native.native_build_id(), "| slots", cftuv_native.slot_mode(), "|", status)
+          if status != {"coverage": "available", "clip": "available"}:
+              raise SystemExit(f"NATIVE_NOT_AVAILABLE {status}")
+          mode = cftuv_native.slot_mode()
+          layouts = cftuv_native.new_mirror().raw_layouts()
+          print("slot layouts:", layouts)
+          if all(layouts.values()) is not (mode != "attr"):
+              raise SystemExit(f"NATIVE_SLOT_MODE_NOT_HONOURED mode {mode}: {layouts}")
+          PYCODE
+      # STRICT: a missing extension, a stale pin, a moved build id, a missing synthetic corpus or any other skip FAILS. The field tier (`native_field`) needs the owner's
+      # corpus recorded from the Blender scene: it is deselected BY NAME and reported (the step summary lists every deselected test).
+      - name: Differential tests against the live oracle (strict)
+        env:
+          CFTUV_NATIVE_STRICT: "1"
+          CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
+          CFTUV_NATIVE_EXPECT_PYTHON: ${{ matrix.python }}
+          CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/synthetic-clip
+          # no field corpus here, and the job says so (the default is the owner's drive)
+          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/no-field-corpus
+        run: >-
+          "$PY" -m pytest tests/test_native_*.py -m "not native_field"
+          -p no:cacheprovider -q -rsfE --durations=25
+      - name: Architecture rules of the native port (the shim is the only importer, the Rust-only stages stay at their pin)
+        if: matrix.slots == 'auto'
+        env:
+          PYTHONPATH: kernel/src
+        run: >-
+          "$PY" -m pytest tests/test_architecture.py -k "native or rust_only or pinned_oracle"
+          -p no:cacheprovider -q -rsfE
+
+  # ADVISORY, not part of `native-gate`: the interpreters the product does not run (yet). The instance layout of `Fraction`/`SqrtSumV1` is no part of the stable ABI, so a
+  # wheel that LOADS on 3.12 or 3.14 (abi3) proves nothing about its raw slot access: `raw` forced makes the probe's verdict a failure here instead of a quiet fallback.
+  # A red leg is information (the layout moved, or the kernel does not run there), never a block.
+  interpreters-advisory:
+    name: other interpreters, advisory (py${{ matrix.python }}, slots raw)
+    needs: wheel
+    continue-on-error: true
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    env:
+      PYTHONSAFEPATH: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheel
+          path: ${{ runner.temp }}/wheel
+      - name: Clean venv with the exact test dependencies and the wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          PY="$RUNNER_TEMP/venv/Scripts/python.exe"
+          "$PY" -m pip install $TEST_REQUIREMENTS
+          "$PY" -m pip install --no-deps --force-reinstall "$RUNNER_TEMP"/wheel/cftuv_native-*.whl
+          echo "PY=$PY" >> "$GITHUB_ENV"
+      - name: The slot matrix and the boundary on this interpreter (raw forced, strict)
+        env:
+          CFTUV_NATIVE_STRICT: "1"
+          CFTUV_NATIVE_SLOTS: raw
+          CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/no-field-corpus
+        run: >-
+          "$PY" -m pytest tests/test_native_slots.py tests/test_native_boundary.py -m "not native_field"
+          -p no:cacheprovider -q -rsfE
+
+  native-gate:
+    name: native-gate
+    if: always()
+    needs: [rust, wheel, corpus, differential]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job of the native proof succeeded
+        run: |
+          echo "rust=${{ needs.rust.result }} wheel=${{ needs.wheel.result }} corpus=${{ needs.corpus.result }} differential=${{ needs.differential.result }}"
+          test "${{ needs.rust.result }}" = success
+          test "${{ needs.wheel.result }}" = success
+          test "${{ needs.corpus.result }}" = success
+          test "${{ needs.differential.result }}" = success

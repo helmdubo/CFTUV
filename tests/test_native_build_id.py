@@ -215,6 +215,25 @@ def test_a_directory_that_is_no_workspace_is_a_named_refusal_not_a_digest(tmp_pa
         tool.rust_tree_digest(tmp_path)
 
 
+def test_the_require_switch_of_the_tool_fails_unless_the_installed_build_is_the_build_of_the_tree(monkeypatch, capsys):
+    """`native_build_id.py --require` (the CI step): an absent extension, a moved Rust half, a moved shim half and a moved id are each a failure; all three equal is success."""
+
+    tree = tool.tree_parts()
+
+    def installed(**changed):
+        monkeypatch.setattr(cftuv_native, "native_build_parts", lambda: {**tree, "version": "0", **changed})
+
+    installed()
+    assert tool.main(["--require"]) == 0
+    for half in ("rust", "shim", "id"):
+        installed(**{half: "0" * 64})
+        assert tool.main(["--require"]) == 1, f"a moved {half} half must fail the CI step"
+    assert "match: " in capsys.readouterr().out
+    monkeypatch.setitem(sys.modules, "cftuv_native", None)
+    assert tool.main(["--require"]) == 1, "no extension installed: the step fails, it does not pass for lack of a counterpart"
+    assert tool.main([]) == 0, "without the switch the tool still only reports"
+
+
 def test_the_embedded_rust_digest_is_the_digest_of_the_tree_the_extension_was_built_from():
     found, wanted = cftuv_native.native_build_parts()["rust"], tool.rust_tree_digest(ROOT / "native")
     if found != wanted:

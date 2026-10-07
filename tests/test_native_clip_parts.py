@@ -51,7 +51,7 @@ except ModuleNotFoundError as error:
         allow_module_level=True,
     )
 
-from native_gate import skip_unless_available  # noqa: E402
+from native_gate import field_tier, skip_for_interpreter, skip_unless_available  # noqa: E402
 
 skip_unless_available(cftuv_native, "clip")
 
@@ -71,7 +71,7 @@ from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
 from cftuv_envelope.materialize.lift_surface import LiftTriangleV1, SurfaceLiftV1  # noqa: E402
 
 CORPUS_BASE = geometry.corpus_base()
-SYNTHETIC_BASE = CORPUS_BASE / "synthetic_clip"
+SYNTHETIC_BASE = geometry.synthetic_base()
 PYTHON_VERSION = (sys.version_info.major, sys.version_info.minor)
 #: Сколько вызовов каждого шва из тестов ядра проверяется (остальные прорежены шагом): весь корпус — сотни тысяч вызовов.
 KERNEL_SEAM_BUDGET = 3000
@@ -219,7 +219,7 @@ def test_the_sort_comparison_sequence_equals_the_real_interpreter_on_cpython_311
     """На 3.11 явная сортировка ядра и настоящий `sorted` дают один журнал, а значит и нативная (на 3.13 `sorted` спрашивает иначе: сверка идёт с ядром)."""
 
     if PYTHON_VERSION != (3, 11):
-        pytest.skip(f"only CPython 3.11 asks `list.sort` questions in the kernel's order (this is {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]})")
+        skip_for_interpreter(f"only CPython 3.11 asks `list.sort` questions in the kernel's order (this is {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]})")
     runner = wire.SeamRunner()
     rng = random.Random(311)
     for size in list(range(0, 130)) + [200, 257, 300]:
@@ -307,7 +307,7 @@ def record_timings(source: str, verifier: "seams.Verifier") -> None:
     TIMINGS[source] = verifier.report()
 
 
-@pytest.mark.skipif(not CORPUS_BASE.exists(), reason=f"нет полевого корпуса {CORPUS_BASE}: `tools/native_corpus_export.py`")
+@field_tier(CORPUS_BASE.exists(), f"нет полевого корпуса {CORPUS_BASE}: `tools/native_corpus_export.py`")
 def test_every_seam_equals_the_oracle_on_the_field_corpus():
     paths = field_paths()
     assert len(paths) >= 100 // RECORD_STRIDE
