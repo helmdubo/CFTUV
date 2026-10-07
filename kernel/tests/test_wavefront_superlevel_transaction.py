@@ -51,7 +51,7 @@ from weighted_wall_differential_cases import weighted_wall_differential_corpus
 
 
 _REPRO_PATH = (
-    Path(__file__).parents[2]
+    Path(__file__).parents[1]  # kernel/artifacts: внутри ядра, чтобы извлечённое ядро и колесо находили его (CI: extraction-readiness)
     / "artifacts"
     / "p0_2_same_time_closure"
     / "repro_superlevel_order_dependence.py"

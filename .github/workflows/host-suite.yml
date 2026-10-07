@@ -4,6 +4,19 @@ name: Host addon suite
 # мост хоста. Вне проверки оставалось ~1.1 МБ самого сложного и численно
 # хрупкого кода (analysis_*, solve_*, frontier_*) и большая часть
 # host-тестов. Ошибки в них находились только вручную и только в поле.
+#
+# Матрица. Аддон исполняется в Python Blender: 4.5 даёт CPython 3.11.11 и numpy
+# 1.26.4, поэтому ведущая ветка — 3.11 с этим numpy (зависимости — в
+# tests/requirements.txt, единственном месте версий). 3.10 — нижняя граница,
+# заявленная в AGENTS.md («Python 3.10+»): без этой ветки заявление не
+# исполняется. Windows-ветка — платформа владельца и единственное место, где
+# есть Windows PowerShell 5.1 для tools/field_cycle.ps1 (на Linux эти два теста
+# пропускаются с названной причиной, на Windows пропуск запрещён тестом).
+#
+# Нативное расширение (cftuv_native) здесь НЕ собирается: его сверки с эталоном
+# пропускаются по названному статусу `unavailable`. Сборку колеса, cargo test и
+# дифференциальные тесты без пропусков держит отдельная native-job (сессия
+# native/), а не это: зелёный host-suite ничего не говорит о Rust.
 
 on:
   push:
@@ -25,30 +38,42 @@ on:
 
 jobs:
   host-tests:
-    runs-on: ubuntu-latest
+    name: host-tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.11"
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONPATH: kernel/src
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
 
       # mathutils/bpy/bmesh подменяются заглушками в tests/conftest.py —
-      # Blender для этого набора не нужен.
+      # Blender для этого набора не нужен. Сторонние пакеты (numpy, sympy,
+      # pytest) — только из tests/requirements.txt.
       - name: Install dependencies
-        run: |
-          python -m pip install --disable-pip-version-check \
-            pytest sympy==1.14.0
+        run: python -m pip install --disable-pip-version-check -r tests/requirements.txt
 
       # Отдельным шагом и первым: структурные правила должны падать быстро
       # и с понятным сообщением, до того как утонут в общем прогоне.
       - name: Architecture invariants
-        env:
-          PYTHONPATH: kernel/src
         run: python -m pytest tests/test_architecture.py -q -p no:cacheprovider
 
       - name: Host suite
-        env:
-          PYTHONPATH: kernel/src
         run: >-
-          python -m pytest tests -q -p no:cacheprovider
+          python -m pytest tests -q -p no:cacheprovider -rs
           --ignore=tests/test_architecture.py

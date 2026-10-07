@@ -67,3 +67,18 @@ def test_a_missing_oracle_file_refuses_and_leaves_the_pin_alone(tmp_path):
         catchup.rewrite_pins(pin_file, root)
     assert "numeric.py" in str(refusal.value)
     assert pin_file.read_text(encoding="utf-8") == before
+
+
+def test_the_pin_is_read_from_the_file_not_from_stale_bytecode(tmp_path, monkeypatch):
+    """Блок `PINS` переписывается дайджестами той же длины в ту же секунду: `.pyc` (секунды плюс размер) принял бы старый блок за новый.
+
+    Владелец гоняет тесты с `PYTHONDONTWRITEBYTECODE=1` и этого не видит, а чистый CI байткод пишет, поэтому запись байткода включена явно.
+    """
+
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    pin_file = tmp_path / "pin.py"
+    shutil.copyfile(catchup.PIN_FILE, pin_file)
+    root = _fake_oracle(tmp_path, catchup.load_pin(pin_file))
+    catchup.rewrite_pins(pin_file, root)
+    assert catchup.changed_files(catchup.load_pin(pin_file), root) == {operation: [] for operation in catchup.load_pin(pin_file).OPERATION_FILES}
+    assert not list(tmp_path.rglob("*.pyc")), "the loader must not leave bytecode next to the pin it reads"

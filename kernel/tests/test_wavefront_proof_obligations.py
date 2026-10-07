@@ -206,7 +206,7 @@ _CASES = (
 )
 
 _TRANSACTION_RECEIPT_PATH = (
-    Path(__file__).parents[2]
+    Path(__file__).parents[1]  # kernel/artifacts: внутри ядра, чтобы извлечённое ядро и колесо находили его (CI: extraction-readiness)
     / "artifacts"
     / "p0_2b_superlevel_transaction"
     / "delta_receipt_v2.json"

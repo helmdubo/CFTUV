@@ -21,12 +21,12 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import re
 import shutil
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,11 +40,16 @@ PINS_BLOCK = re.compile(r"PINS: dict = \{\n.*?\n\}\n", re.S)
 
 
 def load_pin(path: Path = PIN_FILE):
-    """Модуль `pin.py` по пути файла (он не импортирует расширение и не знает пакета)."""
+    """Модуль `pin.py` по пути файла (он не импортирует расширение и не знает пакета).
 
-    spec = importlib.util.spec_from_file_location("cftuv_native_pin_file", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    Источник исполняется напрямую, мимо кэша байткода: `rewrite_pins` переписывает блок `PINS` дайджестами РОВНО той же длины, и
+    `.pyc` рядом с файлом (метка времени в секундах плюс размер) принимал бы старый блок за актуальный, если две загрузки одного файла
+    лежат в одной секунде. На машине с `PYTHONDONTWRITEBYTECODE=1` этого не видно, а чистый CI байткод пишет.
+    """
+
+    module = types.ModuleType("cftuv_native_pin_file")
+    module.__file__ = str(path)
+    exec(compile(Path(path).read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)  # noqa: S102 - собственный файл репозитория
     return module
 
 

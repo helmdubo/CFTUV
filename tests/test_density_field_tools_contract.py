@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -31,6 +32,21 @@ def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def _windows_powershell() -> str:
+    """Исполняемый файл Windows PowerShell 5.1 (`tools/field_cycle.ps1` пишется под него: обратные слэши, `Test-Path`, кириллица).
+
+    Нет его на Windows — отказ теста, не пропуск: пропуск, который молча покрывает платформу владельца, и есть слух. На Linux его нет по
+    определению (там только `pwsh`, другой язык путей): пропуск с названной причиной, а эти два теста исполняет Windows-ветка `host-suite.yml`.
+    """
+
+    found = shutil.which("powershell")
+    if found is not None:
+        return found
+    if os.name == "nt":
+        pytest.fail("NO_WINDOWS_POWERSHELL: на Windows нет `powershell`, а tools/field_cycle.ps1 написан под Windows PowerShell 5.1")
+    pytest.skip("нужен Windows PowerShell 5.1 (tools/field_cycle.ps1); его исполняет Windows-ветка .github/workflows/host-suite.yml")
 
 
 def _json_output(result: subprocess.CompletedProcess[str]) -> dict:
@@ -86,7 +102,7 @@ def test_direct_gate_rejects_unmeasured_density(density):
 
 def test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument():
     result = _run(
-        "powershell",
+        _windows_powershell(),
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -108,7 +124,7 @@ def test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument():
 
 def test_field_cycle_missing_density_is_named_failure():
     result = _run(
-        "powershell",
+        _windows_powershell(),
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
