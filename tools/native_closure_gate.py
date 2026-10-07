@@ -66,7 +66,7 @@ PASSES = {
     "closure": ("plan_symbolic_superlevel_closure",),
     "parts": ("with_line_ports", "build_f0_overlay", "initial_interior_contacts", "build_symbolic_overlay", "discover_interior_split_contacts", "plan_mixed_generations"),
     "inner": ("discover_junction_contacts", "apply_component_deltas", "overlay_signature", "discover_interior_split_contacts"),
-    "fabricated": ("plan_mixed_generations", "build_symbolic_overlay", "build_f0_overlay", "with_line_ports"),
+    "fabricated": ("plan_symbolic_superlevel_closure", "plan_mixed_generations", "build_symbolic_overlay", "build_f0_overlay", "with_line_ports"),
 }
 HOMES = {
     "plan_symbolic_superlevel_closure": coordinator_module,
@@ -87,14 +87,14 @@ PART_OP = {"with_line_ports": 0, "build_f0_overlay": 1, "initial_interior_contac
 class ClosureVerifier(builder_gate.BuilderVerifier):
     """`BuilderVerifier` plus the wrappers of the symbolic layer."""
 
-    def __init__(self, sampling=None, *, only=None, mirror=None, passes: tuple = ("closure",), seed: int = 2026, cases: int = 4, spoiled: int = 3, scripted: int = 2) -> None:
+    def __init__(self, sampling=None, *, only=None, mirror=None, passes: tuple = ("closure",), seed: int = 2026, cases: int = 4, spoiled: int = 3, scripted: int = 2, snapshots: int = 3) -> None:
         super().__init__(sampling, only=only, mirror=mirror)
         from cftuv_native import closure_seams
 
         self.cseams = closure_seams
         self.passes = passes
         self.rng = random.Random(seed)
-        self.cases, self.spoiled, self.scripted = cases, spoiled, scripted
+        self.cases, self.spoiled, self.scripted, self.snapshots = cases, spoiled, scripted, snapshots
         self.timed |= set(SEAM_OF.values())
         #: how often each function was called from outside the others, and how many of those were checked
         self.part_calls: Counter = Counter()
@@ -195,6 +195,23 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
             if not verifier.wanted("plan_symbolic_superlevel_closure"):
                 return run()
             return verifier.memo_call("PLAN_SYMBOLIC_CLOSURE", builder, run, lambda: [verifier.bseams.enc_snapshot(snapshot), outer_budget, junction_budget])
+
+        return plan_symbolic_superlevel_closure
+
+    def wrap_closure_fabricating(self, original):
+        """`plan_symbolic_superlevel_closure` over packets no front freezes (see `native_closure_fabricate.spoiled_snapshots`), then the real call, unchecked."""
+
+        verifier = self
+
+        def plan_symbolic_superlevel_closure(builder, snapshot, *, outer_budget, junction_budget):
+            if not verifier.depth and (verifier.only is None or "PLAN_SYMBOLIC_CLOSURE" in verifier.only):
+                # the real packet with budgets that run out (a fixed point that is cut short: the named exhaustion), then packets no front freezes
+                for spoiled in (snapshot, *fabricate.spoiled_snapshots(snapshot, verifier.rng, verifier.snapshots)):
+                    outer, junction = verifier.rng.choice((0, 1, 3, outer_budget)), verifier.rng.choice((0, 1, 3, junction_budget))
+                    run = lambda spoiled=spoiled, outer=outer, junction=junction: original(builder, spoiled, outer_budget=outer, junction_budget=junction)  # noqa: E731
+                    tail = lambda spoiled=spoiled, outer=outer, junction=junction: [verifier.bseams.enc_snapshot(spoiled), outer, junction]  # noqa: E731
+                    verifier.memo_call("PLAN_SYMBOLIC_CLOSURE", builder, run, tail, guarded=True)
+            return original(builder, snapshot, outer_budget=outer_budget, junction_budget=junction_budget)
 
         return plan_symbolic_superlevel_closure
 
@@ -411,7 +428,7 @@ class ClosureVerifier(builder_gate.BuilderVerifier):
         for name in sorted({item for each in self.passes for item in PASSES[each]}):
             home = HOMES[name]
             if name == "plan_symbolic_superlevel_closure":
-                found.append((name, self.wrap_closure, home))
+                found.append((name, self.wrap_closure_fabricating if "fabricated" in self.passes else self.wrap_closure, home))
             elif name == "build_symbolic_overlay":
                 found.append((name, self.wrap_overlay_fabricating if "fabricated" in self.passes else self.wrap_build_overlay, home))
             elif name == "discover_interior_split_contacts":

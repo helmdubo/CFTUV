@@ -143,7 +143,7 @@ fn replay_unit(
     split_overlay: &Overlay,
     budget: i64,
     memo: &mut SignatureMemo,
-    first_overlay: &Overlay,
+    first_signature: &Val,
     first_later: &[SymSplitContact],
 ) -> SkelResult<Option<JunctionFixedPoint>> {
     let (replay, replay_later) = plan_mixed_generations(ctx, builder, split_overlay, budget, memo)?;
@@ -151,7 +151,7 @@ fn replay_unit(
         (Some(overlay), None) => {
             replay_later.len() == first_later.len()
                 && replay_later.iter().zip(first_later).all(|(left, right)| contacts_equal(left, right))
-                && overlay_signature(overlay, memo)? == overlay_signature(first_overlay, memo)?
+                && overlay_signature(overlay, memo)? == *first_signature
         }
         _ => false,
     };
@@ -161,7 +161,13 @@ fn replay_unit(
 /// `plan_symbolic_superlevel_closure(builder, snapshot, outer_budget=..., junction_budget=...)`: rebuild from F0 whenever the stable interior contact set grows, then close the
 /// junctions. The signatures of the overlays of one transaction share the memory of their immutable parts (`signature_memo`).
 pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snapshot, outer_budget: i64, junction_budget: i64) -> SkelResult<SymbolicSuperlevelClosure> {
-    let mut memo = SignatureMemo::new();
+    let mut memo = std::mem::take(&mut builder.signature_memo);
+    let answer = plan_closure(ctx, builder, snapshot, outer_budget, junction_budget, &mut memo);
+    builder.signature_memo = memo;
+    answer
+}
+
+fn plan_closure(ctx: &mut ExactCtx<'_>, builder: &mut Builder, snapshot: &Snapshot, outer_budget: i64, junction_budget: i64, memo: &mut SignatureMemo) -> SkelResult<SymbolicSuperlevelClosure> {
     let Some(first) = snapshot.incidents.first() else {
         return Ok(refusal(None, Vec::new(), None, 0, Vec::new(), "SYMBOLIC_SUPERLEVEL_EMPTY_PACKET"));
     };
@@ -181,14 +187,15 @@ pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Bu
         return Ok(refusal(None, contacts, None, 0, Vec::new(), "SYMBOLIC_SPLIT_OVERLAY_UNRESOLVABLE"));
     };
     let budget = outer_budget + junction_budget;
-    let (junction, later) = plan_mixed_generations(ctx, builder, &split_overlay, budget, &mut memo)?;
+    let (junction, later) = plan_mixed_generations(ctx, builder, &split_overlay, budget, memo)?;
     let Some(junction_overlay) = junction.overlay.clone().filter(|_| junction.unresolved_reason.is_none()) else {
         let reason = junction.unresolved_reason.unwrap_or("SYMBOLIC_JUNCTION_OVERLAY_UNRESOLVABLE");
         let signatures = junction.signatures.clone();
         return Ok(refusal(Some(materialization), contacts, Some(junction), later.len() as i64, signatures, reason));
     };
     // THE REPLAY (a removable unit: the call and `replay_unit` go together, and with them the refusal `REPEATED_CONTACT_SET_CHANGED_SIGNATURE`)
-    if let Some(replayed) = replay_unit(ctx, builder, &split_overlay, budget, &mut memo, &junction_overlay, &later)? {
+    let junction_signature = overlay_signature(&junction_overlay, memo)?;
+    if let Some(replayed) = replay_unit(ctx, builder, &split_overlay, budget, memo, &junction_signature, &later)? {
         let mut every = contacts;
         every.extend(later.iter().cloned());
         let signatures = junction.signatures.clone();
@@ -200,9 +207,9 @@ pub fn plan_symbolic_superlevel_closure(ctx: &mut ExactCtx<'_>, builder: &mut Bu
     }
     let mut ordered: Vec<SymSplitContact> = all_contacts.values().cloned().collect();
     ordered.sort_by(|left, right| left.key.val.repr().as_bytes().cmp(right.key.val.repr().as_bytes()));
-    let mut signatures = vec![overlay_signature(&split_overlay, &mut memo)?];
+    let mut signatures = vec![overlay_signature(&split_overlay, memo)?];
     signatures.extend(junction.signatures.iter().cloned());
-    signatures.push(overlay_signature(&junction_overlay, &mut memo)?);
+    signatures.push(junction_signature);
     let generations = junction.generations.len() as i64;
     Ok(SymbolicSuperlevelClosure {
         materialization: Some(materialization),

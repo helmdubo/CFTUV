@@ -368,6 +368,10 @@ pub struct Builder {
     pub now: TimeRef,
     pub memo: PositionMemo,
     pub counters: Counters,
+    /// Pure caches of the symbolic closure that live as long as the builder: the leaf of an occurrence nobody refined, and the values of the immutable parts of a signature (the
+    /// oracle keeps the second for ONE closure; the answers are the same, the price is once per object over the whole run).
+    pub leaf_cache: crate::overlay::LeafCache,
+    pub signature_memo: crate::component::SignatureMemo,
     /// The oracle's `_FutureQueueV1` while the commit enqueues: a candidate is pushed only if its time is later than this one (a `compare_times` per push).
     pub future_only: Option<TimeRef>,
     next_ident: Cell<u64>,
@@ -419,6 +423,8 @@ impl Builder {
             now: Rc::new(EventTime::zero()),
             memo: PositionMemo::new(!options.dense_hydration),
             counters: Counters::default(),
+            leaf_cache: crate::overlay::LeafCache::default(),
+            signature_memo: crate::component::SignatureMemo::new(),
             future_only: None,
             next_ident: Cell::new(1),
         }

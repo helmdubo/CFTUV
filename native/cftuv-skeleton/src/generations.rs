@@ -105,6 +105,9 @@ fn ray(builder: &Builder, overlay: &Overlay, leaf: &Leaf, incoming: bool) -> Ske
 
 type Arm = (Option<JRef>, Leaf, JRef);
 
+/// `(incoming port, outgoing port, junction)`: one rewire of a delta.
+type Rewire = ((Option<JRef>, Leaf), (Option<JRef>, Leaf), JRef);
+
 fn arm_port(arm: &Arm) -> (Option<JRef>, Leaf) {
     (arm.0.clone(), arm.1.clone())
 }
@@ -196,11 +199,11 @@ fn multi_delta(builder: &Builder, overlay: &Overlay, component: &[JunctionContac
         }
     }
     let keys = Val::tuple(identities.clone());
-    let mut rewires: Vec<((Option<JRef>, Leaf), (Option<JRef>, Leaf), JRef)> = pairs
+    let mut rewires: Vec<Rewire> = pairs
         .iter()
         .map(|(first, second)| (arm_port(first), arm_port(second), JRef::new("JUNCTION", Val::tuple(vec![keys.clone(), first.1.val().clone(), second.1.val().clone()]))))
         .collect();
-    let text = |item: &((Option<JRef>, Leaf), (Option<JRef>, Leaf), JRef)| {
+    let text = |item: &Rewire| {
         let port = |found: &(Option<JRef>, Leaf)| Val::tuple(vec![found.0.as_ref().map_or_else(Val::none, |reference| reference.val().clone()), found.1.val().clone()]);
         Val::tuple(vec![port(&item.0), port(&item.1), item.2.val().clone()]).repr()
     };
@@ -308,7 +311,7 @@ fn expand_target_leaves(ctx: &mut ExactCtx<'_>, overlay: &Overlay, contacts: &[S
             Some(found) if found.start.is_some() && found.end.is_some() => found.clone(),
             _ => return Ok(Err("SYMBOLIC_INTERIOR_SPLIT_TARGET_STALE")),
         };
-        let ordered = sort_by_projection(ctx, group, |contact| (&contact.key.val, &contact.projection))?;
+        let ordered = sort_by_projection(ctx, group, |contact| (&contact.key.val, contact.projection.as_ref()))?;
         let distinct: HashSet<&Val> = ordered.iter().map(|item| &item.key.val).collect();
         if distinct.len() != ordered.len() {
             return Ok(Err("SYMBOLIC_INTERIOR_SPLIT_CONTACT_DUPLICATE"));

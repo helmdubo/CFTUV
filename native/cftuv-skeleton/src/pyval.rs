@@ -188,6 +188,9 @@ impl Val {
 
     /// A `set` (`frozen == false`) or `frozenset` of the items: equal items once (the first kept), in the canonical order of their `repr`.
     pub fn set(items: Vec<Val>, frozen: bool) -> Val {
+        if items.len() <= 1 {
+            return Val::new(Kind::Set(items, frozen));
+        }
         let mut unique: Vec<Val> = Vec::with_capacity(items.len());
         let mut seen: std::collections::HashSet<Val> = std::collections::HashSet::new();
         for item in items {

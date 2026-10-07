@@ -31,7 +31,11 @@ use crate::plans::{point_val, time_val, ComponentPlan};
 use crate::pyval::Val;
 use crate::snapshot::{exact_point_key, port_identity, sparse_occurrences, VertexSnapshot};
 use crate::time::{times_are_equal, EventPoint, EventTime, PointRef, TimeRef};
+use crate::profile::{timed, Phase};
 use crate::view::{sliding_projection, CandidateView, PositionMemo, Sliding, SpanRef, SpanState, VertexRef, VertexState};
+
+/// The leaf of an occurrence, by occurrence (a pure cache: see `Builder::leaf_cache`).
+pub type LeafCache = HashMap<Val, Leaf, FxBuild>;
 
 fn key_error(what: &str) -> SkelError {
     SkelError::Unsupported(format!("KeyError in the oracle: {what}"))
@@ -286,6 +290,10 @@ fn line_occurrence(builder: &Builder, edge: i64) -> SkelResult<Val> {
 /// `with_line_ports(builder, snapshot, time)`: the vertices of the frozen front with a line-only occurrence where a live vertex has none (an end stays `None`; its exact place
 /// is asked when somebody needs it), and the twin edges of one physical key told apart by hydrating those families. `None` when two live vertices own one edge.
 pub fn with_line_ports(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
+    timed(Phase::OverlayPorts, || with_line_ports_body(ctx, builder, vertices, time))
+}
+
+fn with_line_ports_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
     let mut line_only: Vec<VertexSnapshot> = Vec::with_capacity(vertices.len());
     for vertex in vertices {
         if !vertex.alive {
@@ -348,6 +356,10 @@ pub fn with_line_ports(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: 
 /// `_hydrate_f0(builder, snapshot, plans, time)`: the frozen vertices with the exact end points of every occurrence the packet names (and of the two edges of every existing
 /// port a wiring or a rewrite refers to); `None` when two live vertices own one edge.
 fn hydrate_f0(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], plans: &[ComponentPlan], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
+    timed(Phase::OverlayHydrate, || hydrate_f0_body(ctx, builder, vertices, plans, time))
+}
+
+fn hydrate_f0_body(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices: &[VertexSnapshot], plans: &[ComponentPlan], time: &EventTime) -> SkelResult<Option<Vec<VertexSnapshot>>> {
     let mut required: HashSet<Vec<i64>> = HashSet::new();
     for vertex in vertices {
         for occurrence in [&vertex.prev_occurrence, &vertex.next_occurrence].into_iter().flatten() {
@@ -454,7 +466,11 @@ pub struct LeafBindings {
 }
 
 /// `_leaf_bindings(snapshot, materialization)`.
-pub fn leaf_bindings(vertices: &[VertexSnapshot], materialization: &Materialization) -> SkelResult<Option<LeafBindings>> {
+pub fn leaf_bindings(vertices: &[VertexSnapshot], materialization: &Materialization, cache: &mut LeafCache) -> SkelResult<Option<LeafBindings>> {
+    timed(Phase::OverlayLeaves, || leaf_bindings_body(vertices, materialization, cache))
+}
+
+fn leaf_bindings_body(vertices: &[VertexSnapshot], materialization: &Materialization, cache: &mut LeafCache) -> SkelResult<Option<LeafBindings>> {
     let mut leaves: OrderedMap<Val, Leaf> = OrderedMap::new();
     for family in &materialization.families {
         for segment in &family.segments {
@@ -464,7 +480,8 @@ pub fn leaf_bindings(vertices: &[VertexSnapshot], materialization: &Materializat
     }
     for occurrence in occurrences_of(vertices, &materialization.plans) {
         if !leaves.contains_key(&occurrence) {
-            leaves.insert(occurrence.clone(), Leaf::of_occurrence(&occurrence));
+            let leaf = cache.entry(occurrence.clone()).or_insert_with(|| Leaf::of_occurrence(&occurrence)).clone();
+            leaves.insert(occurrence, leaf);
         }
     }
     let Some(mut physical) = existing_edges_by_occurrence(vertices, &materialization.plans) else {
@@ -528,6 +545,10 @@ pub struct InitialVertices {
 
 /// `_initial_vertices(builder, snapshot, materialization, leaves)`: `None` when two surviving ports are indistinguishable.
 pub fn initial_vertices(builder: &Builder, frozen: &[VertexSnapshot], plans: &[ComponentPlan], leaves: &OrderedMap<Val, Leaf>) -> SkelResult<Option<InitialVertices>> {
+    timed(Phase::OverlayVertices, || initial_vertices_body(builder, frozen, plans, leaves))
+}
+
+fn initial_vertices_body(builder: &Builder, frozen: &[VertexSnapshot], plans: &[ComponentPlan], leaves: &OrderedMap<Val, Leaf>) -> SkelResult<Option<InitialVertices>> {
     let dead: HashSet<i64> = plans.iter().flat_map(|plan| plan.dead_vertex_ids.iter().copied()).collect();
     let mut rewrites: HashMap<i64, (&Val, &Val), FxBuild> = HashMap::default();
     for plan in plans {
@@ -588,7 +609,10 @@ pub fn build_f0_overlay(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices:
         return Ok(None);
     };
     let empty = Materialization { plans: Vec::new(), families: Vec::new(), signature: Val::tuple(Vec::new()), unresolved_reason: None };
-    let Some(LeafBindings { leaves, physical }) = leaf_bindings(&ported, &empty)? else {
+    let mut cache = std::mem::take(&mut builder.leaf_cache);
+    let found = leaf_bindings(&ported, &empty, &mut cache);
+    builder.leaf_cache = cache;
+    let Some(LeafBindings { leaves, physical }) = found? else {
         return Ok(None);
     };
     let Some(initial) = initial_vertices(builder, &ported, &empty.plans, &leaves)? else {
@@ -644,7 +668,10 @@ pub fn build_symbolic_overlay(ctx: &mut ExactCtx<'_>, builder: &mut Builder, ver
             None => return Ok(None),
         }
     }
-    let Some(LeafBindings { leaves, physical }) = leaf_bindings(&hydrated, materialization)? else {
+    let mut cache = std::mem::take(&mut builder.leaf_cache);
+    let found = leaf_bindings(&hydrated, materialization, &mut cache);
+    builder.leaf_cache = cache;
+    let Some(LeafBindings { leaves, physical }) = found? else {
         return Ok(None);
     };
     let Some(initial) = initial_vertices(builder, &hydrated, &materialization.plans, &leaves)? else {
@@ -814,10 +841,7 @@ impl<'a> OverlayView<'a> {
 
     fn span_cache(&self, slot: usize, binding: &Binding) -> &SpanCache {
         self.spans[slot].get_or_init(|| {
-            let locate = |reference: &Option<JRef>| match reference {
-                None => None,
-                Some(found) => Some(self.overlay.vertices.slot_of(found).and_then(|place| u32::try_from(place).ok()).unwrap_or(ABSENT)),
-            };
+            let locate = |reference: &Option<JRef>| reference.as_ref().map(|found| self.overlay.vertices.slot_of(found).and_then(|place| u32::try_from(place).ok()).unwrap_or(ABSENT));
             let born = |place: Option<u32>| match place.and_then(|found| self.overlay.vertices.at(found as usize)) {
                 Some((_, vertex)) => vertex.point.is_some() && times_are_equal(&vertex.birth, &self.overlay.time),
                 None => false,

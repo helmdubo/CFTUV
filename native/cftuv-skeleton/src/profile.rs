@@ -31,10 +31,17 @@ pub enum Phase {
     ClosureGenerations,
     ClosureSignature,
     ClosureClone,
+    ClosureKeys,
+    ClosureSortKey,
+    OverlayHydrate,
+    OverlayPorts,
+    OverlayLeaves,
+    OverlayVertices,
+    OverlayWiring,
 }
 
 /// `(name, phase)` in the order of the answer of [`take`].
-pub const PHASES: [(&str, Phase); 25] = [
+pub const PHASES: [(&str, Phase); 32] = [
     ("other", Phase::Other),
     ("compare_times", Phase::CompareTimes),
     ("concurrency_time", Phase::ConcurrencyTime),
@@ -60,6 +67,13 @@ pub const PHASES: [(&str, Phase); 25] = [
     ("closure: generations", Phase::ClosureGenerations),
     ("closure: signatures", Phase::ClosureSignature),
     ("closure: clones", Phase::ClosureClone),
+    ("closure: point and time keys", Phase::ClosureKeys),
+    ("closure: sort keys of incidents", Phase::ClosureSortKey),
+    ("overlay: hydrate f0", Phase::OverlayHydrate),
+    ("overlay: line ports", Phase::OverlayPorts),
+    ("overlay: leaf bindings", Phase::OverlayLeaves),
+    ("overlay: initial vertices", Phase::OverlayVertices),
+    ("overlay: wiring and spans", Phase::OverlayWiring),
 ];
 
 #[cfg(feature = "profile")]

@@ -136,13 +136,22 @@ pub struct SymSplitContact {
     pub key: SplitKey,
     pub time: TimeRef,
     pub point: PointRef,
-    pub projection: SqrtSum,
+    /// `None` for a split incident of a frozen packet that carries no projection (no front makes one): the oracle holds it as it is and fails (a `TypeError`) only where it is ordered.
+    pub projection: Option<SqrtSum>,
     pub leaf: Option<Leaf>,
 }
 
 /// `left == right` of two contacts (a dataclass: every field, the times raw).
 pub fn contacts_equal(left: &SymSplitContact, right: &SymSplitContact) -> bool {
-    left.key.val == right.key.val && time_eq(&left.time, &right.time) && point_eq(&left.point, &right.point) && sum_eq(&left.projection, &right.projection) && left.leaf == right.leaf
+    left.key.val == right.key.val && time_eq(&left.time, &right.time) && point_eq(&left.point, &right.point) && projections_equal(left.projection.as_ref(), right.projection.as_ref()) && left.leaf == right.leaf
+}
+
+fn projections_equal(left: Option<&SqrtSum>, right: Option<&SqrtSum>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => sum_eq(left, right),
+        _ => false,
+    }
 }
 
 impl PlanVal for SymSplitContact {
@@ -153,7 +162,7 @@ impl PlanVal for SymSplitContact {
                 ("key", self.key.val.clone()),
                 ("time", time_val(&self.time)),
                 ("point", point_val(&self.point)),
-                ("projection", sum_val(&self.projection)),
+                ("projection", self.projection.as_ref().map_or_else(Val::none, sum_val)),
                 ("leaf", self.leaf.as_ref().map_or_else(Val::none, |leaf| leaf.val().clone())),
             ],
         )
@@ -185,9 +194,8 @@ pub fn initial_interior_contacts(snapshot: &Snapshot) -> SkelResult<(Vec<SymSpli
         if found.event.kind != EventKind::Split || occurrence.get(1) == Some(&found.point_key) || occurrence.get(2) == Some(&found.point_key) {
             continue;
         }
-        let projection = found.target_projection.clone().ok_or_else(|| SkelError::Unsupported("TypeError in the oracle: a split incident without a projection".to_string()))?;
         let key = SplitKey::new(time_key(&found.event.time)?, found.point_key.clone(), JRef::new("EXISTING", found.emitter_key.clone()), span_family(occurrence), found.participants.clone());
-        contacts.push(SymSplitContact { key, time: Rc::clone(&found.event.time), point: Rc::clone(&found.event.point), projection, leaf: None });
+        contacts.push(SymSplitContact { key, time: Rc::clone(&found.event.time), point: Rc::clone(&found.event.point), projection: found.target_projection.clone(), leaf: None });
     }
     Ok(merge_symbolic_split_contacts(&[&contacts]))
 }
@@ -260,7 +268,7 @@ pub fn compile_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, vertices:
         compiled.push(Incident {
             participants: contact.key.participants.clone(),
             target_participants: contact.key.family_participants(),
-            target_projection: Some(contact.projection.clone()),
+            target_projection: contact.projection.clone(),
             target_occurrence: Some(contact.key.occurrence()),
             emitter_key: contact.key.emitter.key(),
             sort_cache: std::cell::OnceCell::new(),
@@ -288,13 +296,15 @@ fn emitters_of<'a>(builder: &Builder, overlay: &'a Overlay) -> SkelResult<Vec<&'
 pub fn discover_interior_split_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<SymSplitContact>, Option<&'static str>)> {
     let found = with_view(builder, overlay, |owner, view, memo| -> SkelResult<Vec<SymSplitContact>> {
         let emitters = emitters_of(owner, overlay)?;
+        let emitter_refs = emitters.iter().map(|emitter| view.vertex_ref(&emitter.reference)).collect::<SkelResult<Vec<_>>>()?;
         let mut contacts = Vec::new();
         for leaf in overlay.changed_by_repr() {
-            for emitter in &emitters {
+            let target = view.span_ref(&leaf);
+            for (emitter, emitter_ref) in emitters.iter().zip(&emitter_refs) {
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate_gated(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time, SYMBOLIC_GATE)?;
+                let decision = evaluate_split_candidate_gated(ctx, view, memo, *emitter_ref, target.clone()?, &overlay.time, SYMBOLIC_GATE)?;
                 let Some(candidate) = decision.candidate else {
                     continue;
                 };
@@ -305,7 +315,7 @@ pub fn discover_interior_split_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Bu
                 let line = &owner.edge_at(binding.physical_edge_id)?.line;
                 let projection = candidate.point.x.scaled_difference(&Rat::from_i64(line.b), &candidate.point.y, &Rat::from_i64(line.a));
                 let key = SplitKey::new(time_key(&candidate.time)?, exact_point_key(&candidate.point), emitter.reference.clone(), leaf.family(), participants_of(&[&emitter.prev_leaf, &emitter.next_leaf, &leaf]));
-                contacts.push(SymSplitContact { key, time: candidate.time, point: candidate.point, projection, leaf: Some(leaf.clone()) });
+                contacts.push(SymSplitContact { key, time: candidate.time, point: candidate.point, projection: Some(projection), leaf: Some(leaf.clone()) });
             }
         }
         Ok(contacts)
@@ -365,14 +375,16 @@ impl EndpointKey {
 pub fn discover_endpoint_contacts(ctx: &mut ExactCtx<'_>, builder: &mut Builder, overlay: &Overlay) -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
     with_view(builder, overlay, |owner, view, memo| -> SkelResult<(Vec<EndpointKey>, Option<&'static str>)> {
         let emitters = emitters_of(owner, overlay)?;
+        let emitter_refs = emitters.iter().map(|emitter| view.vertex_ref(&emitter.reference)).collect::<SkelResult<Vec<_>>>()?;
         let mut contacts: OrderedMap<Val, EndpointKey> = OrderedMap::new();
         for leaf in overlay.changed_by_repr() {
             let binding = overlay.spans.get(&leaf).ok_or_else(|| SkelError::Unsupported("KeyError in the oracle: a leaf that is not in the overlay".to_string()))?;
-            for emitter in &emitters {
+            let target = view.span_ref(&leaf);
+            for (emitter, emitter_ref) in emitters.iter().zip(&emitter_refs) {
                 if leaf == emitter.prev_leaf || leaf == emitter.next_leaf {
                     continue;
                 }
-                let decision = evaluate_split_candidate_gated(ctx, view, memo, view.vertex_ref(&emitter.reference)?, view.span_ref(&leaf)?, &overlay.time, SYMBOLIC_GATE)?;
+                let decision = evaluate_split_candidate_gated(ctx, view, memo, *emitter_ref, target.clone()?, &overlay.time, SYMBOLIC_GATE)?;
                 let Some(candidate) = decision.candidate else {
                     continue;
                 };

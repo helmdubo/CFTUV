@@ -111,7 +111,7 @@ pub fn same_event(left: &CandidateEvent, right: &CandidateEvent) -> bool {
 impl Incident {
     /// `_incident_sort_key(incident)` (computed once).
     pub fn sort_key(&self) -> &IncidentSortKey {
-        self.sort_cache.get_or_init(|| self.compute_sort_key())
+        self.sort_cache.get_or_init(|| crate::profile::timed(crate::profile::Phase::ClosureSortKey, || self.compute_sort_key()))
     }
 
     /// The identity of the event of the incident (`==` and `hash` of `CandidateEventV1`), computed once.
@@ -259,7 +259,7 @@ pub fn sparse_occurrences(ctx: &mut ExactCtx<'_>, builder: &mut Builder, time: &
     let mut point_keys: Vec<Option<Val>> = vec![None; builder.vertices.len()];
     for ident in point_vertex_ids {
         let point = builder.position(ctx, ident, time)?;
-        point_keys[ident as usize] = point.map(|point| exact_point_key(&point));
+        point_keys[ident as usize] = point.map(|point| crate::profile::timed(crate::profile::Phase::ClosureKeys, || exact_point_key(&point)));
     }
     let mut occurrences = HashMap::new();
     for (start, end) in span_starts {

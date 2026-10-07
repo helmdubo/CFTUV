@@ -47,8 +47,11 @@ fn field(value: &Val, name: &str) -> SkelResult<Val> {
 }
 
 /// `_contact_compare(first, second, budget)` as `< 0`: the sign of the difference of the projections (paid), then the equality of the keys, then their `repr`.
-fn contact_less(ctx: &mut ExactCtx<'_>, first: (&Val, &SqrtSum), second: (&Val, &SqrtSum)) -> SkelResult<bool> {
-    let difference = first.1.sub(second.1);
+fn contact_less(ctx: &mut ExactCtx<'_>, first: (&Val, Option<&SqrtSum>), second: (&Val, Option<&SqrtSum>)) -> SkelResult<bool> {
+    let (Some(first_projection), Some(second_projection)) = (first.1, second.1) else {
+        return Err(SkelError::Unsupported("TypeError in the oracle: a contact without a projection has no order".to_string()));
+    };
+    let difference = first_projection.sub(second_projection);
     let sign = exact::sign(ctx, &difference, SIGN_FILTER_BITS)?;
     if sign != 0 {
         return Ok(sign < 0);
@@ -61,7 +64,7 @@ fn contact_less(ctx: &mut ExactCtx<'_>, first: (&Val, &SqrtSum), second: (&Val, 
 
 /// `sorted_as_cpython311(items, lambda a, b: _contact_compare(a, b, budget))` over anything that has a key and a projection (the contacts of a family, the interior contacts of a
 /// generation): CPython 3.11's sequence of questions, each comparison a paid sign.
-pub fn sort_by_projection<T: Clone>(ctx: &mut ExactCtx<'_>, items: &[T], key_and_projection: impl Fn(&T) -> (&Val, &SqrtSum)) -> SkelResult<Vec<T>> {
+pub fn sort_by_projection<T: Clone>(ctx: &mut ExactCtx<'_>, items: &[T], key_and_projection: impl Fn(&T) -> (&Val, Option<&SqrtSum>)) -> SkelResult<Vec<T>> {
     let mut failure: Option<SkelError> = None;
     let sorted = {
         let mut less = |left: &usize, right: &usize| -> cftuv_clip::error::ClipResult<bool> {
@@ -83,7 +86,7 @@ pub fn sort_by_projection<T: Clone>(ctx: &mut ExactCtx<'_>, items: &[T], key_and
 
 /// `sorted_as_cpython311(contacts, lambda a, b: _contact_compare(a, b, budget))`.
 pub fn sort_contacts(ctx: &mut ExactCtx<'_>, contacts: &[SplitContact]) -> SkelResult<Vec<SplitContact>> {
-    sort_by_projection(ctx, contacts, |contact| (&contact.key, &contact.projection))
+    sort_by_projection(ctx, contacts, |contact| (&contact.key, Some(&contact.projection)))
 }
 
 /// `_event_incident_map(snapshot)`: the incident of every event, or none when two incidents of one event differ in their geometry.

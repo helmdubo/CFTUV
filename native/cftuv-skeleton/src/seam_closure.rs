@@ -265,7 +265,7 @@ fn interior_contact_of(value: &Value) -> Wire<SymSplitContact> {
         key: SplitKey::from_val(&val_of(key)?).map_err(refusal)?,
         time: Rc::new(time_of(time)?),
         point: Rc::new(point_of(point)?),
-        projection: sum_of(projection, "a projection")?.clone(),
+        projection: optional(projection, |found| Ok(sum_of(found, "a projection")?.clone()))?,
         leaf: optional(leaf, leaf_of)?,
     })
 }

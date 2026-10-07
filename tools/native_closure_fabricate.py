@@ -263,6 +263,73 @@ class SharedOwner:
 
 
 # --------------------------------------------------------------------------
+# packets no front freezes
+# --------------------------------------------------------------------------
+
+
+def _spoiled_vertex(vertex, rng: random.Random):
+    """The vertex with one occurrence missing, or one end of one occurrence without its point (what an antiparallel joint leaves in a real front: a `None` among the keys)."""
+
+    choice = rng.randrange(4)
+    if choice == 0:
+        return dataclasses.replace(vertex, prev_occurrence=None)
+    occurrence = vertex.prev_occurrence if choice % 2 else vertex.next_occurrence
+    if occurrence is None:
+        return vertex
+    parts = list(occurrence)
+    parts[1 + rng.randrange(2)] = None
+    spoiled = type(occurrence)(parts)
+    return dataclasses.replace(vertex, prev_occurrence=spoiled) if choice % 2 else dataclasses.replace(vertex, next_occurrence=spoiled)
+
+
+def spoiled_snapshots(snapshot, rng: random.Random, count: int) -> list:
+    """Snapshots no front would make, close to the real one: a repeated incident, an incident of another vertex, a swapped point, a meeting that is not one, a lost ray, a lost
+    occurrence, a different projection, an order, a missing incident. Every reference stays inside the front (a reference outside it is a crash, not a contract)."""
+
+    incidents, vertices = list(snapshot.incidents), list(snapshot.vertices)
+    if not incidents:
+        return []
+    found = []
+    # a split incident of a cut with no projection (the oracle keeps it and fails only where the cut is ordered): all of them, then the first only
+    cuts = [index for index, incident in enumerate(incidents) if incident.event.kind.value == "SPLIT" and incident.target_occurrence is not None]
+    for dropped in ((cuts, cuts[:1]) if cuts else ()):
+        found.append(dataclasses.replace(snapshot, incidents=tuple(dataclasses.replace(incident, target_projection=None) if index in dropped else incident for index, incident in enumerate(incidents))))
+    for _ in range(count):
+        mine = list(incidents)
+        for _step in range(rng.randrange(1, 4)):
+            index = rng.randrange(len(mine))
+            incident = mine[index]
+            kind = rng.randrange(10)
+            if kind == 0:
+                mine.insert(rng.randrange(len(mine) + 1), incident)
+            elif kind == 1:
+                mine.append(dataclasses.replace(incident, event=dataclasses.replace(incident.event, vertex=rng.choice(vertices).ident)))
+            elif kind == 2 and len(mine) > 1:
+                mine[index] = dataclasses.replace(incident, point_key=mine[rng.randrange(len(mine))].point_key)
+            elif kind == 3 and incident.event.kind.value == "SPLIT":
+                mine[index] = dataclasses.replace(incident, met_vertex_id=rng.choice(vertices).ident, met_adjacent=rng.random() < 0.5)
+            elif kind == 4:
+                mine[index] = dataclasses.replace(incident, target_ray=None if rng.random() < 0.5 else (1, 0))
+            elif kind == 5:
+                mine[index] = dataclasses.replace(incident, target_occurrence=None if rng.random() < 0.3 else incident.target_occurrence, emitter_key=rng.choice(mine).emitter_key)
+            elif kind == 6 and len(mine) > 1:
+                mine[index] = dataclasses.replace(incident, target_projection=mine[rng.randrange(len(mine))].target_projection)
+            elif kind == 7:
+                rng.shuffle(mine)
+            elif kind == 8 and len(mine) > 1:
+                del mine[index]
+            elif kind == 9:
+                mine[index] = dataclasses.replace(incident, peer_key=rng.choice(mine).peer_key, participants=rng.choice(mine).participants)
+        spoiled = vertices
+        if rng.random() < 0.5:
+            at = rng.randrange(len(vertices))
+            spoiled = list(vertices)
+            spoiled[at] = _spoiled_vertex(vertices[at], rng)
+        found.append(dataclasses.replace(snapshot, incidents=tuple(mine), vertices=tuple(spoiled)))
+    return found
+
+
+# --------------------------------------------------------------------------
 # a scripted discovery
 # --------------------------------------------------------------------------
 

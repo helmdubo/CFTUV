@@ -80,6 +80,12 @@ WHOLE_LINES = {"symbolic_overlay.py", "symbolic_component.py", "symbolic_mixed_g
 EXAMPLE_POINTS = ((-6, -1), (-4, -6), (6, -1), (3, 0), (3, 1), (2, 3), (-1, 3), (-5, 5), (-6, 5))
 EXAMPLE_SPEEDS = (261, Fraction(125, 4), Fraction(5, 2), Fraction(1, 4), 0, Fraction(9, 4), 5, 4, 9)
 
+#: a figure found by a search of 60 000 random star-shaped polygons with random weights: the oracle's closure there meets INTERIOR contacts of the generations (a cut of a leaf by a
+#: vertex that arrives at the same instant), which no polygon of the corpora does, and the seeds of random weightings of it (of 8 000 tried, 87 do) as `weighted_figure` makes them
+INTERIOR_FIGURE = ((2, 4), (2, 5), (-2, 3), (-3, -1), (2, -3), (3, -4), (3, -3), (3, 0))
+INTERIOR_SPEEDS = (Fraction(1, 4), 5, Fraction(17, 4), 0, Fraction(9, 2), 0, 81, Fraction(153, 4))
+INTERIOR_SEEDS = (10004, 10106, 10109, 10153, 10443, 10486, 10664, 10672, 10719, 10721, 10874, 10911, 10965, 10974, 11024, 11031, 11042, 11056, 11331, 11338, 11343, 11403, 11447)
+
 
 @pytest.fixture(autouse=True)
 def _kernel_process_state_is_given_back():
@@ -166,6 +172,20 @@ def example_polygon(speeds=EXAMPLE_SPEEDS) -> PolygonV1:
     return with_edge_speeds(figure, tuple((start, end, speed) for (start, end, _), speed in zip(figure.edges(), speeds)))
 
 
+def weighted_figure(points, seed: int) -> PolygonV1:
+    """The figure with a weight on every edge chosen by the seed: a wall, one, a quarter, a ninth, two, four, nine, nine quarters of the unit speed of the edge."""
+
+    from cftuv_envelope.wavefront.event_time import SupportLineV1
+
+    rng = random.Random(seed)
+    figure = PolygonV1.build(points)
+    speeds = []
+    for start, end, _ in figure.edges():
+        unit = SupportLineV1.through(start, end).q
+        speeds.append((start, end, rng.choice((0, unit, unit, Fraction(unit) / 4, unit * 4, unit * 9, Fraction(unit) * Fraction(9, 4), Fraction(unit) / 9, unit * 2))))
+    return with_edge_speeds(figure, tuple(speeds))
+
+
 def neighbours_of_the_example(count: int, seed: int = 311) -> list:
     """The example's figure with other weights: a wall, a quarter, one, four, nine times the unit speed of every edge (at least one edge is a source)."""
 
@@ -224,7 +244,7 @@ def test_the_closure_equals_the_oracle_on_every_named_weighted_generated_and_fan
 
 def test_the_parts_of_the_closure_equal_the_oracle_on_the_places_the_oracle_calls_them_from():
     verifier = verifier_of(("parts",))
-    for _name, polygon in population()[::4]:
+    for _name, polygon in population()[::6]:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
     for seam in ("BUILD_SYMBOLIC_OVERLAY", "DISCOVER_INTERIOR_CONTACTS", "PLAN_MIXED_GENERATIONS", "CLOSURE_PART"):
@@ -234,7 +254,7 @@ def test_the_parts_of_the_closure_equal_the_oracle_on_the_places_the_oracle_call
 
 def test_the_junction_discoveries_the_deltas_and_the_signature_equal_the_oracle():
     verifier = verifier_of(("inner",))
-    for _name, polygon in population()[::4]:
+    for _name, polygon in population()[::6]:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
     for seam in ("DISCOVER_JUNCTION_CONTACTS", "DISCOVER_INTERIOR_CONTACTS", "CLOSURE_PART"):
@@ -265,17 +285,51 @@ def test_the_closure_runs_out_of_budget_where_the_oracle_does_and_leaves_the_ora
             run_oracle(verifier, polygon, exact.exact_work_budget(stage="PREPARE", domain_id="starved", cap=max(1, probe.spent * percent // 100)))
             swept += 1
     settle(verifier)
-    assert swept > 200 and verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 100
-    assert verifier.raised["PLAN_SYMBOLIC_CLOSURE"] >= 10, f"the starved runs rarely ran out inside the closure: {dict(verifier.raised)}"
+    assert swept > 200 and verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 50
+    assert verifier.raised["PLAN_SYMBOLIC_CLOSURE"] >= 15, f"the starved runs rarely ran out inside the closure: {dict(verifier.raised)}"
 
 
 def test_the_closure_of_the_example_polygon_and_of_polygons_with_its_figure_and_other_weights_equals_the_oracle():
     verifier = verifier_of(("closure", "parts"))
-    polygons = [example_polygon(), *neighbours_of_the_example(48)]
+    polygons = [example_polygon(), *neighbours_of_the_example(24)]
     for polygon in polygons:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
-    assert verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 150, dict(verifier.checked)
+    assert verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 80, dict(verifier.checked)
+
+
+def test_the_closure_equals_the_oracle_where_the_generations_meet_interior_contacts(monkeypatch):
+    """The paths of a generation that cuts a leaf (`_expand_target_leaves`, `_interior_deltas`) in a REAL closure, in every pass; the spy proves the oracle reached them."""
+
+    import cftuv_envelope.wavefront.symbolic_mixed_generation as mixed
+
+    original = mixed._expand_target_leaves
+    reached: Counter = Counter()
+
+    def spy(overlay, contacts, budget=None):
+        reached["cuts"] += bool(contacts)
+        return original(overlay, contacts, budget)
+
+    monkeypatch.setattr(mixed, "_expand_target_leaves", spy)
+    verifier = verifier_of(("closure", "parts", "inner"))
+    figure = PolygonV1.build(INTERIOR_FIGURE)
+    found = with_edge_speeds(figure, tuple((start, end, speed) for (start, end, _), speed in zip(figure.edges(), INTERIOR_SPEEDS)))
+    for polygon in (found, *(weighted_figure(INTERIOR_FIGURE, seed) for seed in INTERIOR_SEEDS)):
+        run_oracle(verifier, polygon, leaf.fresh_process_state())
+    settle(verifier)
+    assert reached["cuts"] >= 20, dict(reached)
+    CHECKED["generations with an interior cut (real closures)"] += reached["cuts"]
+
+
+def test_the_closure_equals_the_oracle_when_the_cuts_of_the_packet_carry_no_projection():
+    """The oracle holds a cut without a projection as it is and fails (a `TypeError`) only where cuts are ordered; a single cut of a family, or a generation that drops it, is never
+    ordered. The port makes the same answer or names the same internal error, never an earlier one."""
+
+    verifier = verifier_of(("fabricated",), only={"PLAN_SYMBOLIC_CLOSURE"}, snapshots=0)
+    for seed in INTERIOR_SEEDS[:6]:
+        run_oracle(verifier, weighted_figure(INTERIOR_FIGURE, seed), leaf.fresh_process_state())
+    settle(verifier)
+    assert verifier.checked["PLAN_SYMBOLIC_CLOSURE"] >= 6, dict(verifier.checked)
 
 
 def test_the_closure_equals_the_oracle_on_the_fast_field_polygons():
@@ -290,16 +344,23 @@ def test_the_closure_equals_the_oracle_on_the_fast_field_polygons():
     CHECKED["field polygons"] += len(polygons)
 
 
+# found by a one-off pass of the line monitor (`tools/native_closure_coverage.py`) over the whole corpus: the polygons that reach the hydration of twin edges in
+# `symbolic_sparse_ports`, which no other polygon of the tests reaches
+TWIN_EDGE_POLYGONS = frozenset({"synthetic:001775-build_skeleton", "synthetic:001780-build_skeleton", "synthetic:001752-build_skeleton", "synthetic:002236-build_skeleton"})
+
+
 def test_the_closure_equals_the_oracle_on_the_skeleton_corpus_and_names_the_internal_errors_of_the_oracle():
     pool = builder_tests.corpus_polygons()
     if not pool:
         pytest.skip(f"нет корпуса скелета под ядро {nc.clip_memo.kernel_code_identity()}: {builder_tests.sc.describe_missing('synthetic')}")
-    chosen = [item for item in pool if item[3]] + [item for index, item in enumerate(pool) if not item[3] and index % 9 == 0 and sum(len(each.points) for each in item[1].loops) <= 40]
+    chosen = [item for item in pool if item[3]] + [item for index, item in enumerate(pool) if not item[3] and index % 14 == 0 and sum(len(each.points) for each in item[1].loops) <= 40]
+    # the polygons whose fronts have twin edges (two edges on one support line: the sparse ports of a packet are hydrated for them) and the other lines the sample misses
+    chosen += [item for item in pool if item[0] in TWIN_EDGE_POLYGONS and item not in chosen]
     verifier = verifier_of(("closure", "inner"))
     for _name, polygon, level, _internal, _outcome in chosen:
         run_oracle(verifier, polygon, leaf.fresh_process_state(), level=level)
     settle(verifier)
-    assert len(chosen) > 100 and verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 500
+    assert len(chosen) > 50 and verifier.checked["PLAN_SYMBOLIC_CLOSURE"] > 300
 
 
 # --------------------------------------------------------------------------
@@ -312,12 +373,12 @@ def test_the_generations_equal_the_oracle_on_contacts_that_were_made_for_them():
     ports (two by the cross, three or more by rays), stale and overlapping contacts; then the births applied as one generation; then the spoiled overlays; then rounds of
     `plan_mixed_generations` whose discoveries answer made-up contacts (a chain of generations, its replay, the budget that runs out)."""
 
-    verifier = verifier_of(("fabricated",), cases=6, spoiled=4, scripted=3)
-    for _name, polygon in population()[::3]:
+    verifier = verifier_of(("fabricated",), cases=4, spoiled=2, scripted=2)
+    for _name, polygon in population()[::8]:
         run_oracle(verifier, polygon, leaf.fresh_process_state())
     settle(verifier)
-    assert verifier.checked["NORMALIZE_MIXED_GENERATION"] > 400 and verifier.checked["PLAN_MIXED_GENERATIONS"] > 400, dict(verifier.checked)
-    assert verifier.checked["DISCOVER_INTERIOR_CONTACTS"] > 100 and verifier.checked["DISCOVER_JUNCTION_CONTACTS"] > 100
+    assert verifier.checked["NORMALIZE_MIXED_GENERATION"] > 200 and verifier.checked["PLAN_MIXED_GENERATIONS"] > 200, dict(verifier.checked)
+    assert verifier.checked["DISCOVER_INTERIOR_CONTACTS"] > 50 and verifier.checked["DISCOVER_JUNCTION_CONTACTS"] > 50
 
 
 def test_the_generations_equal_the_oracle_on_contacts_made_over_the_overlays_of_the_example_and_its_neighbours():

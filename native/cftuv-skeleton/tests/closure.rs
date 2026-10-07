@@ -89,7 +89,7 @@ fn the_closure_of_the_first_packet_of_a_square_is_resolved_with_one_overlay_and_
     // the signatures are the split overlay, one per generation, and the closed one
     let junction = closure.junction.as_ref().expect("a resolved closure has a junction fixed point");
     assert_eq!(closure.signatures.len(), 2 + junction.generations.len());
-    assert!(closure.canonical_batch_count >= 1 + junction.generations.len() as i64);
+    assert!(closure.canonical_batch_count > junction.generations.len() as i64);
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn the_dead_junctions_of_a_closed_overlay_pair_their_boundary_arms_and_the_birth
         return;
     };
     assert_eq!(delta.rewires.len(), usize::from(delta.birth_ref.is_some()));
-    let (applied, why) = apply_component_deltas(&overlay, &[delta.clone()], "OVERLAP").unwrap();
+    let (applied, why) = apply_component_deltas(&overlay, std::slice::from_ref(&delta), "OVERLAP").unwrap();
     match applied {
         Some(result) => {
             assert_eq!(result.vertices.len(), overlay.vertices.len() + delta.rewires.len());

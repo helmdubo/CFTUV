@@ -286,6 +286,7 @@ pub struct SignatureMemo {
     points: HashMap<*const EventPoint, (PointRef, Val)>,
     slides: HashMap<*const SlidingValue, (Rc<SlidingValue>, Val)>,
     crashes: HashMap<*const EventTime, (TimeRef, Val)>,
+    provenances: HashMap<*const Vec<Val>, (Rc<Vec<Val>>, Val)>,
 }
 
 impl SignatureMemo {
@@ -309,6 +310,16 @@ impl SignatureMemo {
         }
         let value = point_val(point);
         self.points.insert(Rc::as_ptr(point), (Rc::clone(point), value.clone()));
+        value
+    }
+
+    /// `frozenset` of a vertex's provenance (the clones of an overlay share it).
+    fn provenance(&mut self, provenance: &Rc<Vec<Val>>) -> Val {
+        if let Some((_, found)) = self.provenances.get(&Rc::as_ptr(provenance)) {
+            return found.clone();
+        }
+        let value = Val::set(provenance.to_vec(), true);
+        self.provenances.insert(Rc::as_ptr(provenance), (Rc::clone(provenance), value.clone()));
         value
     }
 
@@ -337,57 +348,38 @@ impl SignatureMemo {
     }
 }
 
-fn shown(value: &Option<Val>) -> String {
-    value.as_ref().map_or_else(|| "None".to_string(), |found| found.repr().to_string())
-}
-
-fn joined(texts: &[String]) -> String {
-    format!("({})", texts.join(", "))
-}
-
 /// `overlay_signature(overlay)`: `(vertices, spans, changed)`: the alive vertices as rows ordered by their text, every span as a row ordered by its text, the changed leaves
-/// by `repr`. A value that compares equal to the oracle's tuple exactly when the oracle's tuples do.
+/// by `repr`. A value that compares equal to the oracle's tuple exactly when the oracle's tuples do. The text of a row begins with the `repr` of its junction (its leaf, for a span)
+/// and no `repr` of one is the beginning of another's (the closing parenthesis of a dataclass ends it), so the order of the rows is the order of those reprs alone: the rest of
+/// the text is never read, and is not made.
 pub fn overlay_signature(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> {
     timed(Phase::ClosureSignature, || signature_of(overlay, memo))
 }
 
 fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> {
-    let mut rows: Vec<(String, Val)> = Vec::new();
+    let mut rows: Vec<(Rc<str>, Val)> = Vec::new();
     for vertex in overlay.vertices.values() {
         if !vertex.alive {
             continue;
         }
+        let none = Val::none;
         let birth = memo.birth(&vertex.birth)?;
         let authority = memo.authority(&vertex.trace)?;
-        let point = vertex.point.as_ref().map(|found| memo.point(found));
-        let sliding = vertex.sliding.as_ref().map(|found| memo.slide(found));
-        let provenance = Val::set(vertex.provenance.to_vec(), true);
-        let prev = vertex.prev.as_ref().map(|found| found.val().clone());
-        let next = vertex.next.as_ref().map(|found| found.val().clone());
-        let text = joined(&[
-            vertex.reference.val().repr().to_string(),
-            shown(&prev),
-            shown(&next),
-            vertex.prev_leaf.val().repr().to_string(),
-            vertex.next_leaf.val().repr().to_string(),
-            birth.repr().to_string(),
-            shown(&point),
-            shown(&sliding),
-            provenance.repr().to_string(),
-            authority.repr().to_string(),
-        ]);
-        let orphan = |value: Option<Val>| value.unwrap_or_else(Val::none);
+        let point = vertex.point.as_ref().map_or_else(none, |found| memo.point(found));
+        let sliding = vertex.sliding.as_ref().map_or_else(none, |found| memo.slide(found));
+        let provenance = memo.provenance(&vertex.provenance);
+        let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(none, |found| found.val().clone());
         rows.push((
-            text,
+            vertex.reference.val().repr(),
             Val::tuple(vec![
                 vertex.reference.val().clone(),
-                orphan(prev),
-                orphan(next),
+                link(&vertex.prev),
+                link(&vertex.next),
                 vertex.prev_leaf.val().clone(),
                 vertex.next_leaf.val().clone(),
                 birth,
-                orphan(point),
-                orphan(sliding),
+                point,
+                sliding,
                 provenance,
                 authority,
             ]),
@@ -395,13 +387,12 @@ fn signature_of(overlay: &Overlay, memo: &mut SignatureMemo) -> SkelResult<Val> 
     }
     rows.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
     let vertices = Val::tuple(rows.into_iter().map(|(_, row)| row).collect());
-    let mut spans: Vec<(String, Val)> = overlay
+    let mut spans: Vec<(Rc<str>, Val)> = overlay
         .spans
         .iter()
         .map(|(leaf, binding)| {
-            let (start, end) = (binding.start.as_ref().map(|found| found.val().clone()), binding.end.as_ref().map(|found| found.val().clone()));
-            let text = joined(&[leaf.val().repr().to_string(), binding.physical_edge_id.to_string(), shown(&start), shown(&end)]);
-            (text, Val::tuple(vec![leaf.val().clone(), Val::int(binding.physical_edge_id), start.unwrap_or_else(Val::none), end.unwrap_or_else(Val::none)]))
+            let link = |reference: &Option<JRef>| reference.as_ref().map_or_else(Val::none, |found| found.val().clone());
+            (leaf.val().repr(), Val::tuple(vec![leaf.val().clone(), Val::int(binding.physical_edge_id), link(&binding.start), link(&binding.end)]))
         })
         .collect();
     spans.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
