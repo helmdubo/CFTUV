@@ -90,11 +90,7 @@ from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, backend_identity_of
 from .envelope_production_weld import (
     COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
     COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
-    COUNTER_WELD_GROUPS,
-    COUNTER_WELD_SEAMS_MARKED,
-    COUNTER_WELD_VERTICES_MERGED,
-    OUTCOME_WELD_MITER_FALLBACK,
-    OUTCOME_WELD_POSITION_MISMATCH,
+    weld_console_lines,
 )
 from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
@@ -1842,15 +1838,7 @@ def receipt_console_lines(receipt, results) -> list[str]:
         )
     lines.extend(diagnostic_summary_lines(results))
     lines.extend(developable_stretch_lines(results))
-    weld = dict(getattr(receipt, "weld_counters", ()) or ())
-    if weld.get(COUNTER_WELD_GROUPS):
-        lines.append(
-            f"[CFTUV][Production] WELD: {weld[COUNTER_WELD_GROUPS]} shared vertices "
-            f"({weld[COUNTER_WELD_VERTICES_MERGED]} domain vertices merged), "
-            f"{weld[COUNTER_WELD_SEAMS_MARKED]} fold seams, "
-            f"position mismatches {weld[OUTCOME_WELD_POSITION_MISMATCH]}, "
-            f"miter fallbacks {weld[OUTCOME_WELD_MITER_FALLBACK]}"
-        )
+    lines.extend(weld_console_lines(getattr(receipt, "weld_counters", ())))
     offset = dict(getattr(receipt, "offset_counters", ()) or ())
     if offset.get(COUNTER_FACES_OFF_PLANE_AFTER_OFFSET):
         lines.append(
