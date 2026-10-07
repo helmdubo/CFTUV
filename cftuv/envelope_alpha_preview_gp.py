@@ -213,9 +213,10 @@ def scheduler_of(controller) -> AlphaPreviewScheduler:
             valid=lambda request, job: _validity(controller, request, job),
             timers=_BpyTimers(),
             on_change=_tag_redraw,
-            # Живая ширина делит с отладкой подготовки сессии и пул: два потока счёта разом не летят.
+            # Живая ширина (и затравка её сертификата) делит с отладкой подготовки сессии и пул: два потока счёта разом не летят.
             hold=lambda: bool(
-                controller.width_live is not None and controller.width_live.in_flight
+                (controller.width_live is not None and controller.width_live.in_flight)
+                or (controller.width_prime is not None and controller.width_prime.in_flight)
             ),
         )
         controller.alpha_preview = scheduler

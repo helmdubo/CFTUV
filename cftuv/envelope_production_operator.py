@@ -51,10 +51,12 @@ from .envelope_production_mesh import (
     DEFAULT_DECAL_MATERIAL,
     DEFAULT_DECAL_OFFSET,
     ProductionWriteError,
+    build_mesh_arrays,
     write_decal_object,
 )
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .envelope_width_live import remember_build
+from .envelope_width_mesh_preview import build_sample, note_button_display, sample_key
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
 UNDO_REQUIRED_REASON = (
@@ -213,13 +215,17 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         finally:
             _restore_edge_selection(source_obj, selected)
         try:
+            offset = float(mesh_settings.offset)
+            # Массивы строятся один раз: их же читает образец превью ширины (`envelope_width_mesh_preview`), а писатель берёт готовые.
+            arrays = build_mesh_arrays(run.results, offset)
             receipt = write_decal_object(
                 source_obj,
                 run.results,
-                offset=float(mesh_settings.offset),
+                offset=offset,
                 material_name=str(mesh_settings.material_name).strip()
                 or DEFAULT_DECAL_MATERIAL,
                 width=float(settings.envelope_debug_alpha),
+                arrays=arrays,
             )
         except ProductionWriteError as exc:
             mesh_settings.status = f"Decal mesh not written: {exc.outcome}"
@@ -228,7 +234,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         # Запись для живой ширины: пакет анализа, выделение, плотность и допуск этого нажатия. Меш уже записан:
         # сбой записи не отменяет кнопку, а называется строкой консоли, и ширина тогда не живая до следующего нажатия.
         try:
-            remember_build(
+            record = remember_build(
                 controller,
                 source_obj.name,
                 bundle,
@@ -241,6 +247,10 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 dissolve_percent=float(settings.envelope_debug_dissolve_uv_tolerance),
                 width=float(settings.envelope_debug_alpha),
                 kernel_backend=kernel_backend,
+            )
+            note_button_display(
+                controller,
+                build_sample(run.results, arrays, sample_key(record, offset), float(settings.envelope_debug_alpha)),
             )
         except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку
             controller.width_build = None

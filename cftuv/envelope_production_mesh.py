@@ -157,6 +157,13 @@ class MeshArraysV1:
     offset_counters: tuple = ()
     #: Шов по цепям батчей: T-стыки между доменами и вершины `clip:` на шовных цепях (`seam_report`).
     seam_counters: tuple = ()
+    #: Состав меша по ЗАПИСАННЫМ доменам в порядке записи (читает сертификат превью ширины, `envelope_width_certificate`): `(патч,
+    #: домен)`, номера вершин меша по локальным вершинам домена, число петель UV (петли домена лежат в `uvs` подряд) и токен
+    #: локальной структуры (грани, швы, ссылки вершин; чисел в нём нет). В дайджест не входят.
+    domain_keys: tuple = ()
+    domain_vertex_index: tuple = ()
+    domain_loop_counts: tuple = ()
+    domain_tokens: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +289,7 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         revision = revision or view.source_revision
     weld = weld_vertices([view.vertices for _result, view in entries], float(offset))
     seam_pairs: set = set()
+    domain_keys, domain_vertex_index, domain_loop_counts, domain_tokens = [], [], [], []
     for (result, view), index in zip(entries, weld.index):
         _vertices, d_faces, d_uvs, d_owner, d_seams = view.arrays
         faces.extend(tuple(index[item] for item in loop) for loop in d_faces)
@@ -289,6 +297,10 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         face_domain.extend([result.patch_id] * len(d_faces))
         face_owner.extend(d_owner)
         seam_pairs.update(tuple(sorted((index[a], index[b]))) for a, b in d_seams)
+        domain_keys.append((result.patch_id, result.domain_id))
+        domain_vertex_index.append(tuple(index))
+        domain_loop_counts.append(len(d_uvs))
+        domain_tokens.append(_structure_token(view))
     folds = cross_domain_seams(faces, uvs, face_domain)
     seam_pairs.update(folds)
     seams = sorted(seam_pairs)
@@ -346,7 +358,23 @@ def build_mesh_arrays(results, offset: float) -> MeshArraysV1:
         ),
         offset_counters=off_plane_after_offset(positions, faces),
         seam_counters=seam,
+        domain_keys=tuple(domain_keys),
+        domain_vertex_index=tuple(domain_vertex_index),
+        domain_loop_counts=tuple(domain_loop_counts),
+        domain_tokens=tuple(domain_tokens),
     )
+
+
+def _structure_token(view) -> str:
+    """Токен локальной структуры домена: грани, швы и ссылки вершин в локальной нумерации (чисел позиций и UV в нём нет).
+
+    Два точных прогона одного домена с равным токеном кладут вершины и петли в меш одинаково, и превью ширины вправе
+    сравнивать их по номерам (`envelope_width_certificate`). Номера владельцев (`claim:N`) в токен не входят: они меняют
+    лишь целочисленный атрибут граней, а не геометрию.
+    """
+
+    text = repr((view.faces, view.seams, view.vertices.refs, len(view.uvs)))
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=10).hexdigest()
 
 
 # --------------------------------------------------------------------------
@@ -629,6 +657,7 @@ def write_decal_object(
     offset: float = DEFAULT_DECAL_OFFSET,
     material_name: str = DEFAULT_DECAL_MATERIAL,
     width: float | None = None,
+    arrays: MeshArraysV1 | None = None,
 ) -> ProductionWriteReceiptV1:
     """Записывает все MATERIALIZED домены одним объектом `<исходный>.CFTUV_Decal`.
 
@@ -637,9 +666,12 @@ def write_decal_object(
     имени (имя Blender режет до 63 байт). Пустой результат НЕ создаёт объекта, а
     у существующего заменяет меш пустым: устаревший декаль не должен выдавать себя
     за свежий. Отказ имени — `ProductionWriteError`.
+
+    `arrays` — массивы тех же `results` и `offset`, уже построенные вызывающим (`build_mesh_arrays`): кнопка берёт
+    из них образец превью ширины, не строя их дважды. Без них писатель строит их сам; ответ тот же.
     """
 
-    arrays = build_mesh_arrays(results, offset)
+    arrays = build_mesh_arrays(results, offset) if arrays is None else arrays
     name = decal_object_name(source_obj.name)
     existing, warnings = _find_decal(source_obj, name)
     if existing is not None:
@@ -688,6 +720,7 @@ def rewrite_decal_mesh(
     offset: float = DEFAULT_DECAL_OFFSET,
     material_name: str = DEFAULT_DECAL_MATERIAL,
     width: float | None = None,
+    arrays: MeshArraysV1 | None = None,
 ) -> ProductionWriteReceiptV1:
     """Заменяет геометрию СУЩЕСТВУЮЩЕГО меша декали НА МЕСТЕ: тот же объект, тот же датаблок меша.
 
@@ -698,9 +731,12 @@ def rewrite_decal_mesh(
     `write_decal_object` на тех же результатах (общие `build_mesh_arrays` и `_fill_mesh`; равенство держит
     смок по `mesh_content_digest`). Нет объекта, нет меша или объект в Edit-режиме — именованный отказ
     `ProductionWriteError`, а не создание нового.
+
+    `arrays` — массивы тех же `results` и `offset`, построенные потоком точного счёта (`build_mesh_arrays` в нём): главный
+    поток не строит их заново, и содержимое то же, что у кнопки (общий код массивов).
     """
 
-    arrays = build_mesh_arrays(results, offset)
+    arrays = build_mesh_arrays(results, offset) if arrays is None else arrays
     existing, warnings = _find_decal(source_obj, decal_object_name(source_obj.name))
     if existing is None:
         raise ProductionWriteError(
@@ -746,6 +782,34 @@ def rewrite_decal_mesh(
     )
 
 
+OUTCOME_PREVIEW_SHAPE_MISMATCH = "PREVIEW_MESH_SHAPE_MISMATCH"
+OUTCOME_PREVIEW_NO_UV_LAYER = "PREVIEW_MESH_UV_LAYER_MISSING"
+
+
+def write_preview_geometry(mesh, positions, uvs) -> None:
+    """Позиции и UV превью в СУЩЕСТВУЮЩИЙ меш того же состава: `foreach_set`, без пересоздания геометрии (путь живой ширины).
+
+    Единственный писатель превью. Его вызывает только `envelope_width_mesh_preview` (стена `tests/test_architecture.py`), и
+    он не создаёт и не освобождает датаблоки: таймер и модальный оператор вправе его звать, не ломая шаг отмены (см.
+    `rewrite_decal_mesh`). `positions` и `uvs` — плоские float32 (`vertices * 3`, петли UV `* 2`); состав меша другой —
+    именованный отказ, а не запись наугад. Топологию, швы, атрибуты граней и материал писатель не трогает: они те же, что у
+    точного результата, на котором держится сертификат.
+    """
+
+    layer = mesh.uv_layers.get(DECAL_UV_LAYER)
+    if layer is None:
+        raise ProductionWriteError(OUTCOME_PREVIEW_NO_UV_LAYER, f"mesh {mesh.name!r} has no UV layer {DECAL_UV_LAYER!r}")
+    if len(mesh.vertices) * 3 != len(positions) or len(layer.data) * 2 != len(uvs):
+        raise ProductionWriteError(
+            OUTCOME_PREVIEW_SHAPE_MISMATCH,
+            f"the preview carries {len(positions) // 3} vertices and {len(uvs) // 2} loops, "
+            f"mesh {mesh.name!r} has {len(mesh.vertices)} and {len(layer.data)}",
+        )
+    mesh.vertices.foreach_set("co", positions)
+    layer.data.foreach_set("uv", uvs)
+    mesh.update()
+
+
 __all__ = (
     "DECAL_DOMAIN_ATTRIBUTE",
     "DECAL_OBJECT_SUFFIX",
@@ -772,6 +836,8 @@ __all__ = (
     "OUTCOME_NORMAL_MISSING",
     "OUTCOME_NORMAL_OPPOSES_SOURCE",
     "OUTCOME_PARENT_REASSERTED",
+    "OUTCOME_PREVIEW_NO_UV_LAYER",
+    "OUTCOME_PREVIEW_SHAPE_MISMATCH",
     "OUTCOME_SEAM_EDGE_MISSING",
     "OUTCOME_SOURCE_NORMAL_UNKNOWN",
     "OUTCOME_VERTEX_MISSING",
@@ -783,4 +849,5 @@ __all__ = (
     "mesh_content_digest",
     "rewrite_decal_mesh",
     "write_decal_object",
+    "write_preview_geometry",
 )
