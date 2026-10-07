@@ -10,7 +10,7 @@ name: Envelope kernel contracts and reference evaluator
 # (Blender 4.5; на нём же собирается нативное колесо `abi3-py311`). Поэтому колесо ядра проверяется на обеих: 3.10 держит заявленный
 # пол, 3.11 — то, что исполняется у владельца. Проверку матрицы держит tests/test_architecture.py
 # (`test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter`). Нативную сборку (колесо Rust, cargo test,
-# дифференциальные тесты без пропусков) этот workflow НЕ проверяет: она живёт в отдельной native-job.
+# дифференциальные тесты без пропусков) этот workflow НЕ проверяет: она живёт в .github/workflows/native.yml.
 
 on:
   push:

@@ -23,6 +23,11 @@ Python состояние, как оно было до вызова: стать�
 `traces`. Вызывающий вправе запустить эталон на тех же бюджете, плоскости и таблицах и получить исход и состояние чистого прогона эталона.
 
 Личность сборки: `native_build_id()` — содержательный отпечаток (sha256) нативного кода и шима, устойчивый к перелинковке (`buildid.py`).
+
+Доступ к слотам (`Fraction`, `SqrtSumV1`, `FaceCoverageV1`, `LocalPoint3V1`): по смещению, найденному пробой настоящего экземпляра, либо по протоколу атрибутов. Режим читается ОДИН раз при импорте
+расширения из `CFTUV_NATIVE_SLOTS`: `auto` (умолчание: смещение там, где проба подтвердила раскладку, иначе протокол атрибутов), `raw` (только смещение; раскладка, которую проба не подтвердила, —
+названный отказ при привязке классов, а не тихий откат) и `attr` (только протокол атрибутов, проб нет); неизвестное значение — названный отказ импорта. `slot_mode()` называет режим процесса,
+`slot_counters()` — какой путь слотов реально прошёл вызов (тест принудительного режима доказывает, что режим сработал, а не предполагает это).
 """
 
 from __future__ import annotations
@@ -58,8 +63,11 @@ __all__ = (
     "prime_universe_remembered",
     "radical",
     "radical_sum",
+    "reset_slot_counters",
     "run_number_ops",
     "sign",
+    "slot_counters",
+    "slot_mode",
     "squarefree_split",
     "tree_digest",
 )
@@ -97,6 +105,38 @@ def native_build_parts() -> dict:
             rust, shim = _core.source_digest(), buildid.shim_digest()
             _BUILD.append({"id": buildid.compose(rust, shim), "rust": rust, "shim": shim, "version": _core.version()})
         return dict(_BUILD[0])
+
+
+#: The environment variable the extension reads the process-wide slot mode from, once, when it is imported (see the module note).
+SLOT_MODE_ENVIRONMENT = "CFTUV_NATIVE_SLOTS"
+
+#: The slot modes: `auto` (raw where the probe confirms the layout), `raw` (forced, a failed probe is a named refusal), `attr` (forced attribute protocol).
+SLOT_MODES = ("auto", "raw", "attr")
+
+#: The names of the four slot counters, in the order the extension reports them.
+SLOT_COUNTER_NAMES = ("raw_reads", "attr_reads", "raw_builds", "attr_builds")
+
+
+def slot_mode() -> str:
+    """`raw`, `attr` or `auto`: the process-wide slot mode, read from `CFTUV_NATIVE_SLOTS` once when the extension was imported (a mirror made with `new_mirror(slots=...)` has its own)."""
+
+    return _core.process_slot_mode()
+
+
+def slot_counters() -> dict:
+    """`{"raw_reads", "attr_reads", "raw_builds", "attr_builds"}`: which path the slot accesses of the whole operations took since the process started or `reset_slot_counters()`.
+
+    A read is one slot of an input object (`Fraction._numerator`, `SqrtSumV1.terms`, ...), a build one result instance (`Fraction`, `SqrtSumV1`, `FaceCoverageV1`, `LocalPoint3V1`); `raw` is the
+    offset path, `attr` the attribute protocol. The counters are process-wide (every mirror adds to them).
+    """
+
+    return dict(zip(SLOT_COUNTER_NAMES, _core.slot_counters()))
+
+
+def reset_slot_counters() -> None:
+    """Zeroes the four slot counters (`slot_counters`)."""
+
+    _core.reset_slot_counters()
 
 
 def native_build_id() -> str:
@@ -155,10 +195,14 @@ def run_number_ops(ops, *, strict: bool = True, memo: bool = True) -> list:
     return codec.decode_response(_core.run_number_ops(codec.encode_request(ops, strict=strict, memo=memo)))
 
 
-def new_mirror() -> cost.CostMirror:
-    """A new native session with its own mirror (empty): for tests and for callers that isolate state."""
+def new_mirror(slots: str | None = None) -> cost.CostMirror:
+    """A new native session with its own mirror (empty): for tests and for callers that isolate state.
 
-    return cost.CostMirror(_core.Session())
+    `slots` (`SLOT_MODES`): the slot mode of THIS session alone (tests); `None` takes the process-wide mode (`slot_mode()`). `raw` is refused by name, at the first call that binds the
+    kernel classes, when the probe does not confirm a layout.
+    """
+
+    return cost.CostMirror(_core.Session(slots))
 
 
 def default_mirror() -> cost.CostMirror:

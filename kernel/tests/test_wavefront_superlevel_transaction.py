@@ -3071,6 +3071,7 @@ def test_outer_coordinator_replays_one_mixed_generation_from_same_f0(monkeypatch
     from cftuv_envelope.wavefront import symbolic_junction_fixed_point as mixed
     from cftuv_envelope.wavefront import symbolic_superlevel_coordinator as outer
 
+    monkeypatch.setenv(outer.ENVIRONMENT_REPLAY_CHECK, "1")
     overlay, _ = _symbolic_edge_fixture(
         ((("D", "A", "B", "C"), ("L0", "L1", "L2", "L3")),)
     )
@@ -3112,11 +3113,15 @@ def test_outer_coordinator_replays_one_mixed_generation_from_same_f0(monkeypatch
     assert mixed_calls == 2
 
 
-def test_outer_coordinator_names_changed_signature_on_stable_replay(monkeypatch):
+@pytest.mark.parametrize("flag", ("1", "0"), ids=("replay_check_on", "product_path"))
+def test_outer_coordinator_names_changed_signature_on_stable_replay(monkeypatch, flag):
+    """Самопроверка детерминизма включена флагом и именует расхождение; продукт её не выполняет (`flag=0`)."""
+
     from cftuv_envelope.wavefront import symbolic_junction_fixed_point as mixed
     from cftuv_envelope.wavefront import symbolic_superlevel_coordinator as outer
     from cftuv_envelope.wavefront.symbolic_component import clone_overlay
 
+    monkeypatch.setenv(outer.ENVIRONMENT_REPLAY_CHECK, flag)
     overlay, _ = _symbolic_edge_fixture(
         ((("D", "A", "B", "C"), ("L0", "L1", "L2", "L3")),)
     )
@@ -3149,10 +3154,14 @@ def test_outer_coordinator_names_changed_signature_on_stable_replay(monkeypatch)
     fixed = outer.plan_symbolic_superlevel_closure(
         SimpleNamespace(), snapshot, outer_budget=1, junction_budget=1
     )
-    assert fixed.unresolved_reason == (
-        "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE"
-    )
-    assert mixed_calls == 2
+    if flag == "1":
+        assert fixed.unresolved_reason == (
+            "SYMBOLIC_SUPERLEVEL_REPEATED_CONTACT_SET_CHANGED_SIGNATURE"
+        )
+        assert mixed_calls == 2
+    else:
+        assert fixed.unresolved_reason is None
+        assert mixed_calls == 1
 
 
 def test_real_e2_s4_packets_use_one_permutation_free_junction_batch(monkeypatch):
