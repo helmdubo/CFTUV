@@ -13,11 +13,12 @@
    корня. Ни одного float на этом шаге нет.
 2. Границы угла проверяются ОБРАТНО, через интервальный косинус `mpmath.iv`:
    `arccos c ∈ [lo, hi]` тогда и только тогда, когда `cos hi ≤ c ≤ cos lo` при
-   `0 ≤ lo ≤ hi ≤ π`. Кандидат берётся из быстрого `math.acos`, но НЕ
-   принимается на слово: пока проверка не прошла, окно расширяется. Ошибиться
-   кандидату можно, проверке — нет.
+   `0 ≤ lo ≤ hi ≤ π`. Кандидат берётся детерминированно из `libmp` при
+   объявленной точности, затем округляется в binary64, но НЕ принимается на
+   слово: пока проверка не прошла, окно расширяется. Ошибиться кандидату можно,
+   проверке — нет.
 
-Почему не `mpmath.acos` с высокой точностью: она даёт число, а не границу.
+Одна высокая точность кандидата даёт число, а не доказанную границу.
 «Много знаков» — не доказательство, а обещание; ровно этого рода обещания
 запрещает модель точности поверхности.
 """
@@ -26,7 +27,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from fractions import Fraction
-from math import acos, isqrt
+from math import isqrt
 
 from mpmath import iv, libmp
 
@@ -36,13 +37,14 @@ from .numeric import CertifiedDecimalIntervalV1, IntervalEndpointKind
 # Число десятичных знаков, которыми оболочка ЗАПИСЫВАЕТСЯ, и одновременно
 # стартовый радиус поиска окна. Это НЕ обещание ширины: поиск расширяет окно,
 # пока проверка не пройдёт, поэтому фактическая ширина определяется тем, куда
-# попал кандидат (`math.acos`, порядка 1e-16), и она ИЗМЕРЯЕТСЯ, а потом
+# попал кандидат binary64 (порядка 1e-16), и она ИЗМЕРЯЕТСЯ, а потом
 # записывается в `named_epsilon`. Обещать ширину заранее значило бы называть
 # точность, которой никто не проверял.
 CONE_ANGLE_DECIMALS = 24
 CONE_ANGLE_EPSILON_NAME = "SURFACE_CONE_ANGLE_INTERVAL_ENCLOSURE_V1"
+CONE_ANGLE_SEED_LAW = "SURFACE_CONE_ANGLE_DETERMINISTIC_SEED_V1"
 
-# Битовая точность `mpmath.iv`. Взята с той же лестницы, что и у
+# Битовая точность кандидата и `mpmath.iv`. Взята с той же лестницы, что и у
 # `reference/angle_measure.py`: 24 знака — это ~80 бит, запас нужен, чтобы
 # оболочка сходилась заведомо тоньше последнего записываемого знака.
 _ENCLOSURE_PRECISION = 256
@@ -104,12 +106,26 @@ def _cos_bounds(value: Fraction) -> tuple[Fraction, Fraction]:
     return _endpoints(iv.cos(point))
 
 
+def _acos_seed(argument: float) -> float:
+    """Детерминированный binary64-кандидат, НЕ доказательство границ угла.
+
+    Системный `acos` расходится на Windows/Linux на один ULP. Явные точность и
+    округление `libmp` не читают глобальный контекст; власть остаётся у обратной
+    `iv.cos`-проверки `_verified_angle_window`, включая расширение окна и отказ.
+    """
+
+    candidate = libmp.mpf_acos(
+        libmp.from_float(argument), _ENCLOSURE_PRECISION, libmp.round_nearest
+    )
+    return libmp.to_float(candidate, rnd=libmp.round_nearest)
+
+
 def _verified_angle_window(
     cos_low: Fraction, cos_high: Fraction
 ) -> tuple[Fraction, Fraction]:
     """Окно `[lo, hi]`, для которого ДОКАЗАНО `arccos c ∈ [lo, hi]`."""
 
-    guess = Fraction(acos(max(-1.0, min(1.0, float((cos_low + cos_high) / 2)))))
+    guess = Fraction(_acos_seed(max(-1.0, min(1.0, float((cos_low + cos_high) / 2)))))
     pi_high = _endpoints(iv.pi)[1] + _STEP
     radius = _STEP
     for _attempt in range(64):
@@ -181,6 +197,7 @@ def certified_cone_angle(angles) -> CertifiedDecimalIntervalV1:
 __all__ = (
     "CONE_ANGLE_DECIMALS",
     "CONE_ANGLE_EPSILON_NAME",
+    "CONE_ANGLE_SEED_LAW",
     "angle_bounds",
     "certified_cone_angle",
     "cosine_bounds",
