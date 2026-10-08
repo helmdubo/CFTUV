@@ -298,7 +298,7 @@ SYMPY_AUDIT = {
     ),
     "surface_cone_angle.py": (
         "B_KEEP",
-        'iv.cos/pi: угол конуса, интервальная тригонометрия',
+        'iv.cos/pi: доказательство угла; libmp: deterministic candidate only, inverse interval verification unchanged',
         (
             "mp.iv",
             "mp.iv.cos",
@@ -306,6 +306,10 @@ SYMPY_AUDIT = {
             "mp.iv.pi",
             "mp.iv.prec",
             "mp.libmp",
+            "mp.libmp.from_float",
+            "mp.libmp.mpf_acos",
+            "mp.libmp.round_nearest",
+            "mp.libmp.to_float",
             "mp.libmp.to_rational",
         ),
     ),
