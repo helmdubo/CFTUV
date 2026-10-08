@@ -348,13 +348,15 @@ def _refusal_case(runner, record, arrange, expected_text: str):
     """Вызов, на котором порт обязан отказать по имени: состояние (память, статьи, `superlevel`, знаки) как до вызова, и эталон после отказа даёт свой исход."""
 
     before = record.before()
-    call = nc.prepare_call(nc.OP_SKELETON, record.call_blob, before)
     with arrange():
+        # Подмена может менять ответ и цену эталона: ожидаемое считаем с той же подменой, а не берём из записи без неё.
+        expected = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before))
+        call = nc.prepare_call(nc.OP_SKELETON, record.call_blob, before)
         actual = nc.execute(call, function=runner.mirror.build_skeleton)
         assert actual.exception is not None and actual.exception[0] == "NativePortUnsupported" and expected_text in actual.exception[1], actual.exception
         assert not whole._untouched(before, actual.after)
         fallback = nc.execute(call)
-    assert not nc.compare_outcomes(nc.OP_SKELETON, before, record.expected(), fallback)
+    assert not nc.compare_outcomes(nc.OP_SKELETON, before, expected, fallback)
 
 
 @needs_record
