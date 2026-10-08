@@ -1,4 +1,4 @@
-# Полевой цикл на building.002: замер на настоящем меше, а не на синтетике.
+﻿# Полевой цикл на building.002: замер на настоящем меше, а не на синтетике.
 #
 # Что делает, по шагам:
 #   1. (по желанию, -Install) кладёт аддон и ядро в Blender и сверяет отпечатки
@@ -44,6 +44,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# WINDOWS_CLI_UTF8_TRANSPORT_V1: BOM задаёт чтение PS5.1, UTF-8 — вывод в pipe.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $repo = Split-Path -Parent $PSScriptRoot
 
 function Fail($message) {
