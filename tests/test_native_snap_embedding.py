@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import json
 import os
 import sys
 import types
@@ -274,11 +275,26 @@ def test_the_kernel_suite_records_equal_the_oracle():
     records_equal_the_oracle(records, "kernel_suite")
 
 
+def test_corpus_provenance_stays_with_its_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(nec.sys, "version", "3.11.11 field")
+    nec.write_index(tmp_path, {"field": {"mesh": {"records": 1}}, "blender": "4.5.12", "scene": "scene.blend"})
+    monkeypatch.setattr(nec.sys, "version", "3.13.1 synthetic")
+    nec.write_index(tmp_path, {"synthetic": {"records": 2}})
+    index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    assert "python" not in index
+    assert index["provenance"]["field"] == {"python": "3.11.11", "oracle_digest": nec.oracle_digest(), "blender": "4.5.12", "scene": "scene.blend"}
+    assert index["provenance"]["synthetic"] == {"python": "3.13.1", "oracle_digest": nec.oracle_digest()}
+    assert index["field"] == {"mesh": {"records": 1}}
+
+
 @needs_field
 def test_the_field_corpus_equals_the_oracle():
     records = nec.read_corpus(nec.corpus_directory(), "field")
     assert len(records) >= 150
     records_equal_the_oracle(records, "field")
+    for source, count in sorted(Counter(record["source"] for record in records).items()):
+        calls = sum(record["count"] for record in records if record["source"] == source)
+        print(f"EMBEDDING_FIELD_REPLAY source={source} distinct_records={count} calls={calls} mismatches=0")
 
 
 @needs_field

@@ -298,7 +298,17 @@ def write_index(directory: Path, extra: dict) -> None:
 
     path = directory / "index.json"
     index = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    index.update({"schema": SCHEMA, "oracle_file": "_embedding.py", "oracle_digest": oracle_digest(), "python": sys.version.split()[0], **extra})
+    origin = {"python": sys.version.split()[0], "oracle_digest": oracle_digest()}
+    for name in ("blender", "scene"):
+        if name in extra:
+            origin[name] = extra[name]
+    provenance = index.setdefault("provenance", {})
+    for source in ("field", "kernel_suite", "synthetic"):
+        if source in extra:
+            provenance[source] = dict(origin)
+    # Старое общее поле не доказывает происхождение каждого источника.
+    index.pop("python", None)
+    index.update({"schema": SCHEMA, "oracle_file": "_embedding.py", "oracle_digest": oracle_digest(), **extra})
     path.write_text(json.dumps(index, indent=1, sort_keys=True), encoding="utf-8")
 
 
