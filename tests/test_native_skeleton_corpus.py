@@ -402,6 +402,22 @@ def test_the_spend_trace_is_the_order_of_the_budget_spends_of_the_recorded_call(
     assert all(not tag["boundary"] or any(cap == spent for _name, spent in trace) for cap, tag in caps)
 
 
+def test_deriving_from_an_unlimited_reference_builds_a_bounded_replay_and_preserves_unlisted_files(tmp_path):
+    budget = exact.ExactWorkBudgetV1(mode=exact.ExactWorkBudgetModeV1.UNLIMITED_REFERENCE, cap=None, stage="PREPARE", domain_id="reference")
+    recorder, base = _record_polygon(tmp_path, wavefront_cases.ell(12), work_budget=budget)
+    sentinel = recorder.root / "records" / "_derived" / "unlisted.txt"
+    sentinel.parent.mkdir(parents=True, exist_ok=True)
+    sentinel.write_text("preserve", encoding="utf-8")
+    rows = derive.derive_records(recorder.root, per_mesh=1, shares=(0.5,), min_spent=1, max_seconds=60, occurrences=1, preset=1)
+    assert rows and sentinel.read_text(encoding="utf-8") == "preserve"
+    assert base.before().budget["mode"] == exact.ExactWorkBudgetModeV1.UNLIMITED_REFERENCE.value
+    for row in rows:
+        record = sc.read(recorder.root, row)
+        assert record.before().budget["mode"] == exact.ExactWorkBudgetModeV1.BOUNDED.value
+        before, replayed = _replay(record)
+        assert nc.compare_outcomes(record.op, before, record.expected(), replayed) == []
+
+
 # --------------------------------------------------------------------------
 # 6. Швы
 # --------------------------------------------------------------------------

@@ -17,7 +17,6 @@ import argparse
 import dataclasses
 import json
 import re
-import shutil
 import sys
 from collections import Counter
 from pathlib import Path
@@ -47,7 +46,7 @@ def _derive_one(root: Path, row: dict, cap: int, tag: dict, number: int, preset:
 
     record = sc.read(root, row)
     before = record.before()
-    before = dataclasses.replace(before, budget={**before.budget, "cap": cap})
+    before = dataclasses.replace(before, budget={**before.budget, "mode": exact.ExactWorkBudgetModeV1.BOUNDED.value, "cap": cap})
     call = nc.prepare_call(record.op, record.call_blob, before)
     outcome = nc.execute(call)
     meta = {key: value for key, value in row.items() if key not in ("path", "bytes", "live_equal", "label", "test")}
@@ -116,7 +115,13 @@ def derive_records(
     """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей."""
 
     index = sc.load_index(root)
-    shutil.rmtree(root / "records" / "_derived", ignore_errors=True)
+    # Удаляем только файлы прежнего индекса; чужие и незавершённые записи сохраняем.
+    derived_root = (root / "records" / "_derived").resolve()
+    previous = [(root / row["path"]).resolve() for row in index["records"] if row.get("derived") is not None]
+    if any(not path.is_relative_to(derived_root) for path in previous):
+        raise ValueError("derived record path escapes records/_derived")
+    for path in previous:
+        path.unlink(missing_ok=True)
     base = [row for row in index["records"] if row.get("derived") is None]
     groups: dict = {}
     for row in base:
