@@ -21,6 +21,56 @@ from reference_factories import straight_snapshot
 from test_contact_candidates_memo import CONCAVE, _geometry, _sources
 
 
+def _run_kernel_child(code):
+    # Источник уже загруженного ядра, а не соседний с тестами checkout/src.
+    package_root = Path(nx.__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(package_root.parent), *sys.path)))
+    flags = ["-I"] if sys.flags.isolated or os.environ.get("CFTUV_TEST_REQUIRE_WHEEL") == "1" else []
+    guard = """
+import sys
+from pathlib import Path
+import cftuv_envelope
+
+def check_parent_kernel_origin():
+    expected = Path(sys.argv[1]).resolve()
+    for name, module in tuple(sys.modules.items()):
+        if name != "cftuv_envelope" and not name.startswith("cftuv_envelope."):
+            continue
+        paths = (getattr(module, "__file__", None),
+                 getattr(getattr(module, "__spec__", None), "origin", None))
+        assert all(paths), f"KERNEL_CHILD_ORIGIN_INVALID: {name}: missing file/spec origin"
+        for raw in paths:
+            path = Path(raw).resolve()
+            assert path.is_file() and path.is_relative_to(expected), (
+                f"KERNEL_CHILD_ORIGIN_INVALID: {name}: {raw}; expected {expected}"
+            )
+
+check_parent_kernel_origin()
+"""
+    return subprocess.run(
+        [sys.executable, *flags, "-c", guard + code + "\ncheck_parent_kernel_origin()", str(package_root)],
+        env=env, check=True, capture_output=True, text=True,
+    )
+
+
+def test_child_keeps_the_parent_kernel_origin():
+    run = _run_kernel_child("print(Path(cftuv_envelope.__file__).resolve().parent)")
+    assert Path(run.stdout.strip()) == Path(nx.__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("attribute", ("__file__", "__spec__.origin"))
+def test_child_rejects_a_foreign_kernel_origin(tmp_path, attribute):
+    foreign = tmp_path / "checkout" / "src" / "cftuv_envelope" / "__init__.py"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("# Другой источник ядра.\n", encoding="utf-8")
+    # Проверяется настоящий child; parent и второй канал происхождения остаются прежними.
+    code = f"cftuv_envelope.{attribute} = {str(foreign)!r}"
+    with pytest.raises(subprocess.CalledProcessError) as caught:
+        _run_kernel_child(code)
+    assert "KERNEL_CHILD_ORIGIN_INVALID" in caught.value.stderr
+    assert str(foreign) in caught.value.stderr
+
+
 def test_factor_cache_history_changes_the_old_control_but_never_v2():
     # Отдельный процесс: отрицательный контроль не оставляет прогретый кэш другим тестам.
     code = """
@@ -39,9 +89,7 @@ b = sp.srepr(sp.sqrt(n))
 second = canonical_text(RadicalSumV1.sqrt_of_rational(100003).scaled(65537))
 print(json.dumps([a, b, first, second]))
 """
-    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
-    run = subprocess.run([sys.executable, "-c", code], env=env, check=True,
-                         capture_output=True, text=True)
+    run = _run_kernel_child(code)
     cold, warm, first, second = json.loads(run.stdout)
     assert cold != warm, "контроль обязан воспроизвести старую зависимость от истории"
     assert first == second == "Sqrt(Rational(429522722195107, 1))"
