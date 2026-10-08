@@ -106,12 +106,17 @@ SKELETON_FILES = (
     *FOUNDATION,
 )
 
-OPERATION_FILES = {"coverage": COVERAGE_FILES, "clip": CLIP_FILES, "skeleton": SKELETON_FILES}
+#: `_embedding._compute_source_snap_embedding_certificate` and its leaf helpers (exact segment relations, the physical-edge grouping): the memo wrapper in the same file stays Python and may
+#: dispatch the three calls of the leaf; the file is pinned whole, so a change anywhere in it asks for a new pin (`python -m cftuv_native.pin`).
+SNAP_EMBEDDING_FILES = ("_embedding.py",)
+
+OPERATION_FILES = {"coverage": COVERAGE_FILES, "clip": CLIP_FILES, "skeleton": SKELETON_FILES, "snap_embedding": SNAP_EMBEDDING_FILES}
 
 #: `{file: sha256 of the file with CRLF turned into LF}` of the oracle the ports were compared with (the file lists of the
 #: operations above overlap, a file has one digest). Regenerate by `python cftuv_native/pin.py <cftuv_envelope dir>` after a catch-up.
 PINS: dict = {
     "_cpython311.py": "d0ce9f6eccb090f0ef1e0615830f0534ac5211615da0d04103934d017e97e034",
+    "_embedding.py": "a8609892589100ee9c9d441b01c90496e333d8057931d00f457c9c4d90a1e3a4",
     "_radicand_products.py": "9d64abad54bd202442384fe79cc9c2f45582bcebf0781043c36968c4cf979f70",
     "exact_sqrt_sum.py": "80abe9927dd193609d32b53103aa6dd663a6bec963549fa90896c0c354fb1741",
     "exact_sqrt_sum_fused.py": "1f7f7d50a56159090eb5c33633221c7ff69cb5a02f4a0e373df949b887e9a9a4",

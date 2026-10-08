@@ -64,12 +64,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cftuv-embedding"
+version = "0.1.0"
+dependencies = [
+ "dashu-int",
+]
+
+[[package]]
 name = "cftuv-python"
 version = "0.1.0"
 dependencies = [
  "cftuv-canon",
  "cftuv-clip",
  "cftuv-core",
+ "cftuv-embedding",
  "cftuv-skeleton",
  "mimalloc",
  "pyo3",

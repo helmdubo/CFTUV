@@ -17,6 +17,9 @@
   канонизации, а `cost.CostMirror` держит зеркало равным настоящим таблицам Python до вызова и применяет журнал изменений
   к ним после (бюджет, `SIGN_COUNTS`, `UNBUDGETED_WORK`, исключения). Подробности — в `cost.py`.
 
+Четвёртая целая операция — `snap_embedding_certificate` (`_embedding._compute_source_snap_embedding_certificate`: чистый лист без состояния, бюджета и памяти; контракт — `embedding_op.py`): отказ порта — `NativePortUnsupported` ДО вычисления,
+исключение эталона (`ValueError`) поднимается с его текстом.
+
 Отказ целой операции бывает двух видов (`NATIVE_REFUSALS`, `cost.ORACLE_STATUSES`). Исход ЭТАЛОНА (`MaterializationRefusal`, `ExactCanonicalizationWorkBudgetExhausted`,
 `OverflowError`, `ValueError`, `ZeroDivisionError`, `KeyError`, ...) оставляет частичные эффекты ровно так, как их оставляет исключение Python. Отказ ПОРТА
 (`NativePortStale`, `NativeUnsupportedPython`, `NativePortUnsupported` — в том числе поздний, посреди вычисления —, `NativeDivisionDiverged`) оставляет ВСЁ видимое из
@@ -33,7 +36,7 @@ Python состояние, как оно было до вызова: стать�
 
 from __future__ import annotations
 
-from . import _core, buildid, codec, cost, pin
+from . import _core, buildid, codec, cost, embedding_op, pin
 
 __all__ = (
     "CostMirror",
@@ -70,6 +73,7 @@ __all__ = (
     "reset_slot_counters",
     "run_number_ops",
     "sign",
+    "snap_embedding_certificate",
     "skeleton_oracle_statuses",
     "skeleton_seam_run",
     "skeleton_seam_table",
@@ -169,7 +173,7 @@ def tree_digest(native_root) -> str:
 
 
 def native_status() -> dict:
-    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`).
+    """`{operation: "available" | "stale(files)" | "unsupported_python"}` for the whole operations (`coverage`, `clip`, `skeleton`, `snap_embedding`).
 
     `unsupported_python` only below the floor (`pin.MINIMUM_PYTHON`, 3.11); the ports are tested on 3.11 and 3.13 (`pin.TESTED_PYTHON`) and nothing in their
     answers depends on the interpreter version (the kernel names the CPython 3.11 sort and float fold explicitly, `_cpython311.py`).
@@ -247,6 +251,16 @@ def build_skeleton(polygon, *, split_search=None, work_budget=None, dense_hydrat
     """
 
     return default_mirror().build_skeleton(polygon, work_budget=work_budget, split_search=split_search, dense_hydration=dense_hydration)
+
+
+def snap_embedding_certificate(before, after, faces, intended_corners, unclassifiable_corners, snapping_law):
+    """`_embedding._compute_source_snap_embedding_certificate(before, after, faces, intended_corners, unclassifiable_corners, snapping_law)`, native and whole (see `embedding_op.py`).
+
+    Returns the oracle's `SourceSnapEmbeddingCertificateV1`; raises the oracle's `ValueError` (inconsistent physical edge) with its text. A refusal of the port (`NATIVE_REFUSALS`: a stale pin, an input
+    the port does not carry) changes nothing anywhere, so the caller runs the oracle on the same arguments.
+    """
+
+    return embedding_op.snap_embedding_certificate(_core.snap_embedding, before, after, faces, intended_corners, unclassifiable_corners, snapping_law)
 
 
 def last_skeleton_timings() -> tuple:
