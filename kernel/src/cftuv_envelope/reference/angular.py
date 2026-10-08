@@ -116,20 +116,53 @@ def _density_runtime_vector(x: sp.Expr, y: sp.Expr) -> _DensityRuntimeVector:
     return _DensityRuntimeVector(sp.sympify(x), sp.sympify(y))
 
 
-def _incident_normal(
-    context: GeometryContext, chain_use_id, anchor_vertex_id
-) -> tuple[ExactPlanarVector, str]:
-    strip = next(
+def _strip_of_chain_use(context: GeometryContext, chain_use_id):
+    """Первая полоса цепочки: та же, что дал бы прямой обход `envelope_specs` x `seeds`, но по индексу.
+
+    Прямой обход стоил O(полос x семян) на КАЖДЫЙ вызов, а вызовов два на веер. Индекс строится по
+    порядку обхода `envelope_specs` и берёт первую полосу цепочки, значит выбор тот же. Полоса без своего
+    семени индекс обрывает: цепочку, которой в нём нет, решает прежний обход, он же и называет поломку.
+    """
+
+    compilation = context.compilation
+    entry = context.strip_index_cache.get("incident")
+    if entry is None or entry[0] is not compilation:
+        first_seed = {}
+        for seed in compilation.seeds:
+            seed_id = getattr(seed, "seed_id", None)
+            if seed_id is not None and seed_id not in first_seed:
+                first_seed[seed_id] = seed
+        strips = {}
+        for item in compilation.envelope_specs:
+            if not isinstance(item, StripEnvelopeSpec):
+                continue
+            seed = first_seed.get(item.source_seed_id)
+            use_id = getattr(seed, "chain_use_id", None)
+            if use_id is None:
+                break
+            strips.setdefault(use_id, item)
+        entry = (compilation, strips)
+        context.strip_index_cache["incident"] = entry
+    strip = entry[1].get(chain_use_id)
+    if strip is not None:
+        return strip
+    return next(
         item
-        for item in context.compilation.envelope_specs
+        for item in compilation.envelope_specs
         if isinstance(item, StripEnvelopeSpec)
         and next(
             seed.chain_use_id
-            for seed in context.compilation.seeds
+            for seed in compilation.seeds
             if getattr(seed, "seed_id", None) == item.source_seed_id
         )
         == chain_use_id
     )
+
+
+def _incident_normal(
+    context: GeometryContext, chain_use_id, anchor_vertex_id
+) -> tuple[ExactPlanarVector, str]:
+    strip = _strip_of_chain_use(context, chain_use_id)
     segments = context.support_segments_for_use(
         chain_use_id, strip.envelope_spec_id.value
     )
@@ -278,10 +311,15 @@ def _density_dot_expression(
 
     lx, ly = metric.density_expressions(left)
     rx, ry = metric.density_expressions(right)
-    return (
-        lx * (metric.gram[0][0] * rx + metric.gram[0][1] * ry)
-        + ly * (metric.gram[1][0] * rx + metric.gram[1][1] * ry)
-    )
+    remembered = metric._density_exact_memo.dot_expressions
+    key = (lx, ly, rx, ry)
+    cached = remembered.get(key)
+    if cached is None:
+        cached = remembered[key] = (
+            lx * (metric.gram[0][0] * rx + metric.gram[0][1] * ry)
+            + ly * (metric.gram[1][0] * rx + metric.gram[1][1] * ry)
+        )
+    return cached
 
 
 def _density_exact_sign(
@@ -348,18 +386,27 @@ def _density_unit_from_squared(
     squared: sp.Expr,
     metric: ExactPlanarMetric | None = None,
 ) -> ExactPlanarVector:
+    if metric is not None:
+        # Чистая функция `(x, y, squared)`: единичный вектор из квадрата. Повтор берётся из памяти
+        # транзакции; отказ (неположительная норма) в память не попадает и повторяется как был.
+        x, y = metric.density_expressions(vector)
+        remembered = metric._density_exact_memo.unit_vectors
+        key = (x, y, squared)
+        cached = remembered.get(key)
+        if cached is not None:
+            return cached
     if _density_exact_sign(squared, metric) <= 0:
         raise ReferenceGeometryError(
             ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
             "Density A support direction has non-positive Gram norm",
         )
-    x, y = (
-        vector.expressions()
-        if metric is None
-        else metric.density_expressions(vector)
-    )
+    if metric is None:
+        x, y = vector.expressions()
     length = sp.sqrt(squared)
-    return _density_runtime_vector(x / length, y / length)
+    unit = _density_runtime_vector(x / length, y / length)
+    if metric is not None:
+        remembered[key] = unit
+    return unit
 
 
 def _density_left_unit_normal(
@@ -389,30 +436,87 @@ def _density_left_unit_normal(
     )
 
 
-def _huber_density_interpolated_normals(
-    metric: ExactPlanarMetric,
-    incoming: ExactPlanarVector,
-    outgoing: ExactPlanarVector,
-    count: int,
-    orientation_sign: int,
-    canonical_excess_over_pi=None,
-    rational_rotation=None,
-) -> tuple[ExactPlanarVector, ...]:
-    """Равноугольный веер H=1..5 без generic root solver.
+class _TurnAtom:
+    """Всё, что веер Huber читает об УГЛЕ и что не зависит от числа скрытых лучей.
 
-    Власть ветви выводится из production Gram-фактов: знак `dot_g` и
-    несократимый рациональный `dot_g²`.  `atan2(sqrt(1-c²), c)/(H+1)` —
-    точная principal-ветвь того же корня `T_n(x)=c`; интервалы ниже лишь
-    сертифицируют знаки/окна и никогда не подменяют конструкцию числом.
+    Один угол (входящая и исходящая опоры) строят на нескольких счетах (`H`, `H + 1`, ...) и в двух
+    геометриях транзакции; общая часть веера — квадраты норм, единичные опоры, `cos^2` и главный
+    поворот — для всех них одна. Поля заполняются по ступеням, в том же порядке и с теми же отказами,
+    что прежде: отказавшая ступень в память не пишется и на повторе отказывает так же.
     """
 
-    # `H = 0` — митрованный угол JOIN (`CORNER_JOIN_SOFT_BEND_V1`): опоры есть
-    # только входящая и исходящая, и ниже проверяется лишь их поворот.
-    if count not in range(0, 6):
-        raise ReferenceGeometryError(
-            ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-            "Density A supports only the certified H=0..5 range",
-        )
+    __slots__ = (
+        "incoming_squared",
+        "outgoing_squared",
+        "raw_dot",
+        "incoming",
+        "outgoing",
+        "cosine_squared",
+        "turn_sign",
+        "principal_turn",
+        "basis",
+    )
+
+    def __init__(self, incoming_squared, outgoing_squared, raw_dot, incoming, outgoing):
+        self.incoming_squared = incoming_squared
+        self.outgoing_squared = outgoing_squared
+        self.raw_dot = raw_dot
+        self.incoming = incoming
+        self.outgoing = outgoing
+        self.cosine_squared = None
+        self.turn_sign = None
+        self.principal_turn = None
+        self.basis = None
+
+
+class _PrincipalFan(tuple):
+    """Равноугольный веер по ГЛАВНОМУ повороту угла вместе с точными фактами этого поворота.
+
+    `turn_facts = (знак dot, cos^2 дробью, Грамм)` записаны тем же кодом, что строил веер, и верны ровно
+    для него: срез или перестановка возвращают обычный `tuple` без фактов. Факты позволяют ответить на
+    вопросы вида «подшаг не больше pi/q» рациональным сравнением вместо знака многочлена в радикалах.
+    """
+
+    turn_facts: tuple
+
+
+class _CanonicalFan(tuple):
+    """Канонический веер: лучи `0..H` — ТОЧНЫЕ повороты входящей опоры на `j * u * pi / (H + 1)`.
+
+    `canonical_facts = (u, Грамм)`. Последний сектор (до исходящей опоры вычислительной геометрии) на
+    повороты не опирается и фактами не описан: они говорят только о первых `H` секторах.
+    """
+
+    canonical_facts: tuple
+
+
+def canonical_sector_over_pi(metric, ideal):
+    """Доля `pi` одного из первых `H` секторов канонического веера, `u / (H + 1)`, либо `None`."""
+
+    facts = getattr(ideal, "canonical_facts", None)
+    if facts is None or len(ideal) < 3:
+        return None
+    fraction, gram = facts
+    if gram is not metric.gram and gram != metric.gram:
+        return None
+    return fraction / (len(ideal) - 1)
+
+
+def principal_turn_facts(metric, ideal):
+    """`(знак, cos^2)` главного поворота веера либо `None`, если веер не равноугольный или чужого Грамма."""
+
+    facts = getattr(ideal, "turn_facts", None)
+    if facts is None:
+        return None
+    sign, cosine_squared, gram = facts
+    if gram is not metric.gram and gram != metric.gram:
+        return None
+    return sign, cosine_squared
+
+
+def _turn_atom(metric, incoming, outgoing, orientation_sign):
+    """Ступень A веера: квадраты норм, знак поворота и единичные опоры (общая часть всех счетов)."""
+
     incoming_squared = sp.expand(
         _density_dot_expression(metric, incoming, incoming)
     )
@@ -444,48 +548,93 @@ def _huber_density_interpolated_normals(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
             "Density A source Gram norms are not rational",
         )
-    incoming = _density_unit_from_squared(
-        incoming,
+    return _TurnAtom(
         incoming_squared,
-        metric,
-    )
-    outgoing = _density_unit_from_squared(
-        outgoing,
         outgoing_squared,
-        metric,
+        raw_dot,
+        _density_unit_from_squared(incoming, incoming_squared, metric),
+        _density_unit_from_squared(outgoing, outgoing_squared, metric),
     )
+
+
+def _huber_density_interpolated_normals(
+    metric: ExactPlanarMetric,
+    incoming: ExactPlanarVector,
+    outgoing: ExactPlanarVector,
+    count: int,
+    orientation_sign: int,
+    canonical_excess_over_pi=None,
+    rational_rotation=None,
+) -> tuple[ExactPlanarVector, ...]:
+    """Равноугольный веер H=1..5 без generic root solver.
+
+    Власть ветви выводится из production Gram-фактов: знак `dot_g` и
+    несократимый рациональный `dot_g²`.  `atan2(sqrt(1-c²), c)/(H+1)` —
+    точная principal-ветвь того же корня `T_n(x)=c`; интервалы ниже лишь
+    сертифицируют знаки/окна и никогда не подменяют конструкцию числом.
+    """
+
+    # `H = 0` — митрованный угол JOIN (`CORNER_JOIN_SOFT_BEND_V1`): опоры есть
+    # только входящая и исходящая, и ниже проверяется лишь их поворот.
+    if count not in range(0, 6):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
+            "Density A supports only the certified H=0..5 range",
+        )
+    memo = metric._density_exact_memo
+    incoming_x, incoming_y = metric.density_expressions(incoming)
+    outgoing_x, outgoing_y = metric.density_expressions(outgoing)
+    atom_key = (incoming_x, incoming_y, outgoing_x, outgoing_y, orientation_sign)
+    atom = memo.turn_atoms.get(atom_key)
+    if atom is None:
+        atom = memo.turn_atoms[atom_key] = _turn_atom(
+            metric, incoming, outgoing, orientation_sign
+        )
     if count == 0:
-        return incoming, outgoing
-    raw_dot_squared = sp.expand(raw_dot * raw_dot)
-    if raw_dot_squared.is_Rational is not True:
-        raise ReferenceGeometryError(
-            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
-            "Density A signed-cos-squared is not rational in the declared Gram metric",
+        return atom.incoming, atom.outgoing
+    fan_key = (atom_key, count, canonical_excess_over_pi, rational_rotation)
+    cached = memo.fans.get(fan_key)
+    if cached is not None:
+        return cached
+    if atom.cosine_squared is None:
+        raw_dot_squared = sp.expand(atom.raw_dot * atom.raw_dot)
+        if raw_dot_squared.is_Rational is not True:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                "Density A signed-cos-squared is not rational in the declared Gram metric",
+            )
+        cosine_squared = raw_dot_squared / (
+            atom.incoming_squared * atom.outgoing_squared
         )
-    cosine_squared = raw_dot_squared / (
-        incoming_squared * outgoing_squared
-    )
-    if (
-        _density_exact_sign(cosine_squared, metric) < 0
-        or _density_exact_sign(cosine_squared - 1, metric) >= 0
-    ):
-        raise ReferenceGeometryError(
-            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
-            "Density A requires a strict principal turn in (0, pi)",
-        )
+        if (
+            _density_exact_sign(cosine_squared, metric) < 0
+            or _density_exact_sign(cosine_squared - 1, metric) >= 0
+        ):
+            raise ReferenceGeometryError(
+                ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                "Density A requires a strict principal turn in (0, pi)",
+            )
+        atom.cosine_squared = cosine_squared
+    cosine_squared = atom.cosine_squared
     # Угол поворота нужен только равноугольной ветке; луч по таблице
     # (`rational_rotation`) его не читает, и считать его — пустая точная работа.
     principal_turn = None
     if rational_rotation is None:
-        turn_sign = _density_exact_sign(raw_dot, metric)
-        cosine_total = turn_sign * sp.sqrt(cosine_squared)
-        sine_squared = 1 - cosine_squared
-        principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
+        if atom.principal_turn is None:
+            turn_sign = _density_exact_sign(atom.raw_dot, metric)
+            cosine_total = turn_sign * sp.sqrt(cosine_squared)
+            sine_squared = 1 - cosine_squared
+            atom.turn_sign = turn_sign
+            atom.principal_turn = sp.atan2(sp.sqrt(sine_squared), cosine_total)
+        principal_turn = atom.principal_turn
     subturn_count = count + 1
-    ix, iy = metric.density_expressions(incoming)
-    lx, ly = metric.density_expressions(
-        _density_left_unit_normal(metric, incoming)
-    )
+    if atom.basis is None:
+        ix, iy = metric.density_expressions(atom.incoming)
+        lx, ly = metric.density_expressions(
+            _density_left_unit_normal(metric, atom.incoming)
+        )
+        atom.basis = (ix, iy, lx, ly)
+    ix, iy, lx, ly = atom.basis
     hidden = []
     for ordinal in range(1, subturn_count):
         if rational_rotation is not None:
@@ -525,7 +674,26 @@ def _huber_density_interpolated_normals(
         hidden.append(normal)
     # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
     # Поэтому каждая разность соседних ordinal углов строго одного знака.
-    return incoming, *hidden, outgoing
+    fan = (atom.incoming, *hidden, atom.outgoing)
+    if rational_rotation is None:
+        if canonical_excess_over_pi is None:
+            fan = _PrincipalFan(fan)
+            fan.turn_facts = (
+                atom.turn_sign,
+                Fraction(int(cosine_squared.p), int(cosine_squared.q)),
+                metric.gram,
+            )
+        else:
+            fan = _CanonicalFan(fan)
+            fan.canonical_facts = (
+                Fraction(
+                    canonical_excess_over_pi.numerator,
+                    canonical_excess_over_pi.denominator,
+                ),
+                metric.gram,
+            )
+    memo.fans[fan_key] = fan
+    return fan
 
 
 def _verify_canonical_subturn_fan(context, spec, orientation, ideal, q):
@@ -948,6 +1116,36 @@ def _compare_turn_cos_squared(
     raise ValueError("Density H-lift threshold is outside q<=6")
 
 
+def turn_count_is_feasible(
+    sign: int,
+    cosine_squared: Fraction,
+    hidden_count: int,
+    q: int,
+) -> bool:
+    """theta/(H+1)<=pi/q по знаку и `cos^2` поворота `theta` в `(0, pi)` — рационально и точно."""
+
+    threshold_turn = Fraction(hidden_count + 1, q)
+    if threshold_turn >= 1:
+        return True
+    if threshold_turn == Fraction(1, 2):
+        return sign >= 0
+    return _turn_beyond_half_is_feasible(sign, cosine_squared, threshold_turn)
+
+
+def _turn_beyond_half_is_feasible(
+    sign: int,
+    cosine_squared: Fraction,
+    threshold_turn: Fraction,
+) -> bool:
+    comparison = _compare_turn_cos_squared(
+        cosine_squared,
+        threshold_turn,
+    )
+    if threshold_turn < Fraction(1, 2):
+        return sign > 0 and comparison >= 0
+    return sign >= 0 or comparison <= 0
+
+
 def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
     """Проверить theta/(H+1)<=pi/q по sealed signed-cos² рационально."""
 
@@ -967,13 +1165,7 @@ def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
         lift.evaluation_turn_cosine_squared.numerator,
         lift.evaluation_turn_cosine_squared.denominator,
     )
-    comparison = _compare_turn_cos_squared(
-        cosine_squared,
-        threshold_turn,
-    )
-    if threshold_turn < Fraction(1, 2):
-        return sign > 0 and comparison >= 0
-    return sign >= 0 or comparison <= 0
+    return _turn_beyond_half_is_feasible(sign, cosine_squared, threshold_turn)
 
 
 def _verify_evaluation_subturn_count_lift(

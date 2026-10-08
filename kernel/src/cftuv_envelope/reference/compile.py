@@ -599,7 +599,23 @@ def _density_spec_with_hidden_count(
 
 def _density_ideal_is_subturn_feasible(metric, ideal, q: int) -> bool:
     from .adaptive_density_fan import _covectors
+    from .angular import (
+        canonical_sector_over_pi,
+        principal_turn_facts,
+        turn_count_is_feasible,
+    )
 
+    # Равноугольный веер по главному повороту несёт точные факты поворота (знак и `cos^2`), и подшаг
+    # `theta/(H+1) <= pi/q` решается ими рационально — тот же вопрос, что `_subturn` задаёт знаку
+    # многочлена в радикалах (`test_plan_compile_fast_paths`). Прочие веера идут прежним путём.
+    facts = principal_turn_facts(metric, ideal) if len(ideal) >= 3 else None
+    if facts is not None:
+        return turn_count_is_feasible(facts[0], facts[1], len(ideal) - 2, q)
+    # Первые `H` секторов канонического веера — точные повороты на `u * pi / (H + 1)`: первый из них
+    # не больше `pi / q` ровно когда `u / (H + 1) <= 1 / q`.
+    sector = canonical_sector_over_pi(metric, ideal)
+    if sector is not None:
+        return sector <= Fraction(1, q)
     ideal = _covectors(metric, ideal)
     # Huber construction is equal-subturn by its ordinal law. Проверка
     # первого соседства поэтому удостоверяет весь ideal fan; повторять один
@@ -609,7 +625,21 @@ def _density_ideal_is_subturn_feasible(metric, ideal, q: int) -> bool:
 
 def _exact_turn_witness(metric, ideal):
     from .adaptive_density_fan import _covectors, _dual_dot, _sign
+    from .angular import principal_turn_facts
 
+    facts = principal_turn_facts(metric, ideal)
+    if facts is not None:
+        # Знак и `cos^2` полного поворота уже посчитаны тем же кодом, что строил равноугольный веер.
+        return (
+            ExactTurnSignV1.POSITIVE
+            if facts[0] > 0
+            else ExactTurnSignV1.NEGATIVE
+            if facts[0] < 0
+            else ExactTurnSignV1.ZERO
+        ), ExactRatioV1(
+            numerator=facts[1].numerator,
+            denominator=facts[1].denominator,
+        )
     ideal = _covectors(metric, ideal)
     incoming = ideal[0]
     outgoing = ideal[-1]
