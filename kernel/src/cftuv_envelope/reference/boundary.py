@@ -399,6 +399,9 @@ def resolve_component_alphas(
                         continue
                     source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
+                    # Ключ вершины остаётся координатным, не каноном alpha V2: контур и контакт
+                    # в его вершине имеют одни рациональные координаты (Integer/Rational).
+                    # Иррациональная метрика этого не меняет; проверка — test_exact_scalar_text_canon.
                     split = interior and (
                         boundary.role in (BoundaryRole.HOLE, BoundaryRole.EXPLICIT_BARRIER)
                         or point_key(point) in boundary.concave_vertex_keys

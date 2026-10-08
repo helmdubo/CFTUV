@@ -58,6 +58,8 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
         return sp.Rational(str(value))
     if isinstance(value, int):
         return sp.Integer(value)
+    if isinstance(value, str):
+        return _parse_expr(value)
     return sp.sympify(value)
 
 
@@ -210,6 +212,8 @@ class ExactScalar:
         try:
             if isinstance(value, cls):
                 native = value.native()
+            elif isinstance(value, str):
+                native = _NATIVE_OF_TEXT(value)
             else:
                 expression = _expr(value)
                 if expression.is_Rational:
