@@ -1,5 +1,5 @@
 //! The exact geometry view shared by the runtime and the symbolic candidates (`wavefront/exact_candidate_view.py`): where a vertex stands at a time,
-//! when a triple of lines meets, whether a point lies inside a span of the front, and the memory of the superlevel those answers are given through.
+//! when a triple of lines meets, whether a point lies inside a span of the front, and the build-local memory those answers are given through.
 //!
 //! The oracle's view is a bundle of callbacks (`vertex_state`, `span_state`, `trace_bounds`); here it is the trait [`CandidateView`], and the port's
 //! builder (or a recorded snapshot, in the seams) implements it. The memory is [`PositionMemo`], and it is cost: a place that is in it is not
@@ -113,6 +113,7 @@ pub type TimeEntry = (Option<TimeRef>, TimeOutcome);
 
 /// `PositionMemoV1`. `active` is `position_memo is not None and memo.admits(view.prime_universe)`: a view whose memory does not serve its basis
 /// answers everything anew and writes nothing.
+/// Память принадлежит одной сборке скелета; смена точного времени её не очищает.
 #[derive(Debug, Default)]
 pub struct PositionMemo {
     pub active: bool,
@@ -123,12 +124,6 @@ pub struct PositionMemo {
 impl PositionMemo {
     pub fn new(active: bool) -> PositionMemo {
         PositionMemo { active, places: HashMap::default(), times: HashMap::default() }
-    }
-
-    /// `clear()`: a new exact time begins.
-    pub fn clear(&mut self) {
-        self.places.clear();
-        self.times.clear();
     }
 
     /// An entry the memory already held (the seams load the oracle's before-state this way).

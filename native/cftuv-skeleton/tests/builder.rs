@@ -103,6 +103,12 @@ fn the_loop_stops_at_the_first_transaction_with_the_whole_level_and_writes_the_l
     let mut world = World::new();
     let options = BuilderOptions { budgeted: true, ..BuilderOptions::default() };
     let mut builder = Builder::new(&mut world.ctx(), square(), options).unwrap();
+    let future = builder.queue.peek_time().unwrap().clone();
+    let mut memo = std::mem::take(&mut builder.memo);
+    cftuv_skeleton::view::position(&mut world.ctx(), &builder, &mut memo, 0, &future).unwrap();
+    builder.memo = memo;
+    let seeded_memory = builder.memo.len();
+    assert!(seeded_memory.0 > 0);
     let limit = level_budget(&builder.polygon);
     let RunEnd::Stopped { levels, level } = builder.run(&mut world.ctx(), limit, &mut Stop).unwrap() else {
         panic!("the loop must stop at the transaction");
@@ -110,9 +116,15 @@ fn the_loop_stops_at_the_first_transaction_with_the_whole_level_and_writes_the_l
     assert_eq!((levels, level.len()), (1, 4));
     assert_eq!(world.budget.superlevel, "1");
     assert!(builder.queue.is_empty());
-    // the memory of places is cleared on a new exact time, and the time of the packet is `now`
-    assert_eq!(builder.memo.len(), (0, 0));
+    // Будущие места, оплаченные при посеве кандидатов, переживают вход в уровень.
+    assert_eq!(builder.memo.len(), seeded_memory);
     assert!(times_are_equal(&builder.now, &level[0].time));
+    let hydrations = world.budget.exact_position_hydrations;
+    let mut memo = std::mem::take(&mut builder.memo);
+    let place = cftuv_skeleton::view::position(&mut world.ctx(), &builder, &mut memo, 0, &builder.now).unwrap();
+    assert!(place.is_some());
+    assert_eq!(world.budget.exact_position_hydrations, hydrations, "место кандидата повторно не оплачивается на своём уровне");
+    builder.memo = memo;
 }
 
 #[test]
