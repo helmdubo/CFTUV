@@ -318,3 +318,50 @@ def test_named_epsilon_is_the_measured_width_not_a_promise():
 def test_named_epsilon_rejects_a_negative_bound():
     with pytest.raises(ValueError):
         NamedEpsilonV1(name=LawId("x"), absolute_bound=Decimal("-1"))
+
+
+def test_deterministic_cone_seed_survives_the_observed_one_ulp_libm_difference():
+    """SURFACE_CONE_ANGLE_DETERMINISTIC_SEED_V1: кандидат независим от ОС и ambient precision."""
+    import json
+    from pathlib import Path
+    from mpmath import iv, mp
+    from cftuv_envelope import surface_cone_angle as cone
+
+    fixture = json.loads((Path(__file__).parents[1] / "fixtures/cone_angle_legacy_libm_v1.json").read_text())
+    changed = [row for row in fixture["arguments"] if row["windows"] != row["linux"]]
+    assert [row["argument_hex"] for row in changed] == ["0x1.259dbc715fc7bp-1"]
+    old_iv, old_mp = iv.prec, mp.prec
+    try:
+        for precision in (53, 512):
+            iv.prec = mp.prec = precision
+            for row in fixture["arguments"]:
+                actual = cone._acos_seed(float.fromhex(row["argument_hex"]))
+                assert actual.hex() == row["linux"]
+            assert iv.prec == mp.prec == precision
+    finally:
+        iv.prec, mp.prec = old_iv, old_mp
+
+
+def test_an_inaccurate_cone_seed_is_still_judged_by_the_inverse_proof(monkeypatch):
+    """Кандидат нуль для прямого угла не проходит на слово: окно расширяется до доказанного."""
+    from cftuv_envelope import surface_cone_angle as cone
+
+    monkeypatch.setattr(cone, "_acos_seed", lambda _argument: 0.0)
+    low, high = cone.angle_bounds(Fraction(9), Fraction(16), Fraction(25))
+    two_pi_low, two_pi_high = cone.two_pi_bounds()
+    assert low <= two_pi_low / 4 <= two_pi_high / 4 <= high
+    assert high - low > cone._STEP
+    saved = cone.iv.prec
+    cone.iv.prec = cone._ENCLOSURE_PRECISION
+    try:
+        assert cone._cos_bounds(high)[1] <= 0 <= cone._cos_bounds(low)[0]
+    finally:
+        cone.iv.prec = saved
+
+
+def test_a_cone_seed_cannot_bypass_the_existing_verification_refusal(monkeypatch):
+    from cftuv_envelope import surface_cone_angle as cone
+
+    monkeypatch.setattr(cone, "_cos_bounds", lambda _value: (Fraction(-1), Fraction(1)))
+    with pytest.raises(ValueError, match="оболочка угла не подтвердилась ни на одном окне"):
+        cone.angle_bounds(Fraction(9), Fraction(16), Fraction(25))
