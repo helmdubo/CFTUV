@@ -176,6 +176,7 @@ def _run_alphas(ctx: dict, name: str, opened: dict, alphas: list) -> dict:
             developable_stretch_budget=ctx["stretch_budget"], workers=0,
             # ЭТАЛОН: рекордер подменяет Python-операции, а нативный бэкенд (умолчание продукта) их не зовёт и писать было бы нечего.
             kernel_backend="PYTHON",
+            skeleton_backend="PYTHON",
         )
         print(f"  {name} alpha={alpha}: records +{len(recorder.rows) - count} domains +{len(recorder.domains) - domains} "
               f"{time.perf_counter() - began:.1f}s", flush=True)
