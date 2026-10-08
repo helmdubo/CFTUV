@@ -588,28 +588,34 @@ def _corpus_run(*arguments) -> subprocess.CompletedProcess:
         [sys.executable, str(TOOLS / "surfer2_corpus_run.py"), *arguments],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
         check=False,
     )
 
 
-def test_corpus_run_skips_with_a_named_outcome_when_the_binary_is_absent():
+def test_corpus_run_skips_with_a_named_outcome_when_the_binary_is_absent(monkeypatch):
     """Нет бинаря — ИМЕНОВАННЫЙ пропуск и rc = 0. Расписка при этом НЕ пишется.
 
     Молчаливый пропуск сделал бы ворота бессмысленными: зелёный прогон без
     оракула выглядел бы как прогон с оракулом.
     """
 
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
     completed = _corpus_run("--binary=/nonexistent/surfer")
     assert completed.returncode == 0
     payload = json.loads(completed.stdout)
     assert payload["outcome"] == CORPUS.BINARY_IS_NOT_AVAILABLE
     assert payload["report_written"] is False
+    assert "файла нет" in payload["detail"]
 
 
-def test_corpus_run_can_be_told_that_the_binary_is_required():
+def test_corpus_run_can_be_told_that_the_binary_is_required(monkeypatch):
     """`--require-binary` превращает пропуск в отказ — дверь fail-closed."""
 
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
     completed = _corpus_run("--binary=/nonexistent/surfer", "--require-binary")
     assert completed.returncode == 1
     assert json.loads(completed.stdout)["outcome"] == CORPUS.BINARY_IS_NOT_AVAILABLE

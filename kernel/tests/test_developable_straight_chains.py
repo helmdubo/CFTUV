@@ -49,6 +49,46 @@ def _chart(parts, chain=None, **overrides):
     return factories.developable_chart(parts, declared_straight_chains=chains, **overrides)
 
 
+@pytest.mark.parametrize("kink", (0.0078125, 0.25), ids=("accepted", "refused"))
+def test_seed_controls_keep_declared_chain_proof_map_and_refusal(monkeypatch, record_property, kink):
+    from cftuv_envelope import _developable, surface_cone_angle as cone
+    from cftuv_envelope.codec import to_canonical_data
+    from cftuv_envelope._straight_chain import bent_chain_text
+    from test_developable_unfold import _boundary_seed_controls
+
+    records, answers, chain_records = [], [], []
+    real_declared = _developable.declared_chain_records
+    for mode, seed in _boundary_seed_controls():
+        calls, observed = [], []
+        def seed_spy(argument):
+            result = seed(argument)
+            calls.append((argument.hex(), result.hex()))
+            return result
+        def declared_spy(*args, **kwargs):
+            result = real_declared(*args, **kwargs)
+            observed.append(result)
+            return result
+        _developable.clear_developable_chart_memory()
+        with monkeypatch.context() as scoped:
+            scoped.setattr(cone, "_acos_seed", seed_spy)
+            scoped.setattr(_developable, "declared_chain_records", declared_spy)
+            try:
+                answer = build_metric(factories.kinked_fold_strip(kink), declared_straight_chains=(factories.kinked_chain(),))
+                outcome, detail = "METRIC_ACCEPTED", ""
+            except PlanarMetricAdmissionError as error:
+                answer, outcome, detail = None, error.outcome.value, str(error)
+        assert observed
+        assert outcome == ("METRIC_ACCEPTED" if kink < 0.01 else NamedOutcome.DEVELOPABLE_DECLARED_STRAIGHT_CHAIN_BENT.value)
+        answers.append((answer, outcome, detail))
+        chain_records.append(observed)
+        records.append(dict(mode=mode, outcome=outcome, detail=detail, record=to_canonical_data(answer),
+                            declared=to_canonical_data(tuple(observed)), bent_text=[bent_chain_text(row) for row in observed], acos_calls=calls))
+    # Любое новое изменение цепи/карты/отказа останавливает этот узкий control.
+    assert answers[0] == answers[1]
+    assert chain_records[0] == chain_records[1]
+    record_property("seed_boundary", dict(consumer="declared_chain", kink=kink.hex(), linux_legacy="UNKNOWN", records=records))
+
+
 def _coordinates(nodes, chain):
     return [(Fraction(nodes[vertex][0]), Fraction(nodes[vertex][1])) for vertex in chain]
 

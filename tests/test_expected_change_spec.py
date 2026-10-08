@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 SWEEP_DIR = ROOT / "artifacts" / "materialize_sweep"
 FIXTURES = ROOT / "kernel" / "fixtures" / "expected_change"
 NUMERIC_REPR = ROOT / "artifacts" / "numeric_repr"

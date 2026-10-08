@@ -33,6 +33,8 @@ import sys
 from fractions import Fraction
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT
+
 import pytest
 
 from cftuv_envelope import exact_sqrt_sum as canon
@@ -60,7 +62,12 @@ from exact_work_budget_ban import (
 from test_wavefront_motorcycle_graph import CORPUS
 
 
-KERNEL_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
+KERNEL_SOURCE_ROOT = PACKAGE_ROOT.parent
+
+
+def _kernel_sites():
+    # Имя модуля остаётся прежним, обход ограничен только установленным пакетом ядра.
+    return tuple(("cftuv_envelope/" + module, name, line) for module, name, line in scan_tree(PACKAGE_ROOT))
 
 
 # (модуль относительно kernel/src, имя вызова) -> (число мест, причина).
@@ -119,7 +126,7 @@ def test_no_charged_exact_call_escapes_a_named_budget():
     место, как самое горячее.
     """
 
-    grouped = _grouped(scan_tree(KERNEL_SOURCE_ROOT))
+    grouped = _grouped(_kernel_sites())
     unregistered = sorted(
         f"{module}:{sorted(lines)} -> {name}"
         for (module, name), lines in grouped.items()
@@ -136,7 +143,7 @@ def test_no_charged_exact_call_escapes_a_named_budget():
 def test_the_frozen_exemption_list_does_not_grow():
     """Замороженное место не размножается: число мест не растёт ни на одно."""
 
-    grouped = _grouped(scan_tree(KERNEL_SOURCE_ROOT))
+    grouped = _grouped(_kernel_sites())
     grown = sorted(
         f"{module} {name}: было {frozen}, стало {len(grouped[(module, name)])}"
         for (module, name), (frozen, _) in FROZEN_UNBUDGETED_SITES.items()
@@ -156,7 +163,7 @@ def test_every_name_of_the_charged_surface_exists_in_the_kernel():
 
     declared = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted(KERNEL_SOURCE_ROOT.rglob("*.py"))
+        for path in sorted(PACKAGE_ROOT.rglob("*.py"))
     )
     missing = sorted(
         name
@@ -180,7 +187,7 @@ def test_every_frozen_exemption_names_a_registered_reason():
 def test_no_frozen_exemption_is_dead():
     """Мёртвая запись врёт в сторону «дыра ещё есть». Убирайте вместе с местом."""
 
-    grouped = _grouped(scan_tree(KERNEL_SOURCE_ROOT))
+    grouped = _grouped(_kernel_sites())
     dead = sorted(
         f"{module} {name}"
         for (module, name) in FROZEN_UNBUDGETED_SITES

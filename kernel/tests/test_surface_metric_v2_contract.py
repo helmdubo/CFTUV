@@ -318,3 +318,88 @@ def test_named_epsilon_is_the_measured_width_not_a_promise():
 def test_named_epsilon_rejects_a_negative_bound():
     with pytest.raises(ValueError):
         NamedEpsilonV1(name=LawId("x"), absolute_bound=Decimal("-1"))
+
+
+def test_deterministic_cone_seed_survives_the_observed_one_ulp_libm_difference():
+    """SURFACE_CONE_ANGLE_DETERMINISTIC_SEED_V1: кандидат независим от ОС и ambient precision."""
+    import json
+    from pathlib import Path
+    from mpmath import iv, mp
+    from cftuv_envelope import surface_cone_angle as cone
+
+    fixture = json.loads((Path(__file__).parents[1] / "fixtures/cone_angle_legacy_libm_v1.json").read_text())
+    changed = [row for row in fixture["arguments"] if row["windows"] != row["linux"]]
+    assert [row["argument_hex"] for row in changed] == ["0x1.259dbc715fc7bp-1"]
+    old_iv, old_mp = iv.prec, mp.prec
+    try:
+        for precision in (53, 512):
+            iv.prec = mp.prec = precision
+            for row in fixture["arguments"]:
+                actual = cone._acos_seed(float.fromhex(row["argument_hex"]))
+                assert actual.hex() == row["linux"]
+            assert iv.prec == mp.prec == precision
+    finally:
+        iv.prec, mp.prec = old_iv, old_mp
+
+
+def test_an_inaccurate_cone_seed_is_still_judged_by_the_inverse_proof(monkeypatch):
+    """Кандидат нуль для прямого угла не проходит на слово: окно расширяется до доказанного."""
+    from cftuv_envelope import surface_cone_angle as cone
+
+    monkeypatch.setattr(cone, "_acos_seed", lambda _argument: 0.0)
+    low, high = cone.angle_bounds(Fraction(9), Fraction(16), Fraction(25))
+    two_pi_low, two_pi_high = cone.two_pi_bounds()
+    assert low <= two_pi_low / 4 <= two_pi_high / 4 <= high
+    assert high - low > cone._STEP
+    saved = cone.iv.prec
+    cone.iv.prec = cone._ENCLOSURE_PRECISION
+    try:
+        assert cone._cos_bounds(high)[1] <= 0 <= cone._cos_bounds(low)[0]
+    finally:
+        cone.iv.prec = saved
+
+
+def test_a_cone_seed_cannot_bypass_the_existing_verification_refusal(monkeypatch):
+    from cftuv_envelope import surface_cone_angle as cone
+
+    monkeypatch.setattr(cone, "_cos_bounds", lambda _value: (Fraction(-1), Fraction(1)))
+    with pytest.raises(ValueError, match="оболочка угла не подтвердилась ни на одном окне"):
+        cone.angle_bounds(Fraction(9), Fraction(16), Fraction(25))
+
+
+@pytest.mark.parametrize("sign,power", ((1, 10), (-1, 10), (1, 30), (-1, 30), (1, None)))
+def test_surface_metric_seed_controls_keep_cone_verdict_and_measured_epsilon(monkeypatch, record_property, sign, power):
+    from dataclasses import replace
+    from cftuv_envelope import surface_cone_angle as cone
+    from cftuv_envelope.codec import to_canonical_data
+    from surface_adjacency_factories import triangulated_surface
+    from test_developable_unfold import _boundary_seed_controls, _symmetric_cone_rays
+
+    height = Fraction(0) if power is None else Fraction(1, 2**power)
+    rays = _symmetric_cone_rays(sign, height)
+    surface = triangulated_surface([(0, k + 1, (k + 1) % 4 + 1) for k in range(4)])
+    positions = {vertex(0): (Fraction(0),)*3}
+    positions.update({vertex(k + 1): tuple(Fraction(x) for x in ray) for k, ray in enumerate(rays)})
+    metrics, records, decisions = [], [], []
+    for mode, seed in _boundary_seed_controls():
+        calls = []
+        def spy(argument):
+            result = seed(argument)
+            calls.append((argument.hex(), result.hex()))
+            return result
+        with monkeypatch.context() as scoped:
+            scoped.setattr(cone, "_acos_seed", spy)
+            metric = _metric(surface=surface, positions=positions, snapping_law=GridSnappingLawV1.UNSNAPPED_EXACT_V1)
+        center = next(item for item in metric.vertex_cone_angles if item.vertex_id == vertex(0))
+        expected = (ConeAngleVerdictV1.EXACT_TWO_PI if power is None else
+                    ConeAngleVerdictV1.UNDECIDED_FAIL_CLOSED if power == 30 else
+                    ConeAngleVerdictV1.STRICTLY_LESS if sign > 0 else ConeAngleVerdictV1.STRICTLY_GREATER)
+        assert center.verdict is expected
+        assert metric.named_epsilon.absolute_bound == max(item.enclosure.absolute_error_bound for item in metric.vertex_cone_angles)
+        decisions.append(sorted((item.vertex_id.value, item.verdict.value, item.measure_law.value) for item in metric.vertex_cone_angles))
+        metrics.append(metric)
+        records.append(dict(mode=mode, metric=to_canonical_data(metric), acos_calls=calls))
+    assert decisions[0] == decisions[1]
+    assert replace(metrics[1], vertex_cone_angles=metrics[0].vertex_cone_angles, named_epsilon=metrics[0].named_epsilon) == metrics[0]
+    record_property("seed_boundary", dict(consumer="surface_metric_v2", height=str(height), sign=sign,
+                    linux_legacy="UNKNOWN", records=records))

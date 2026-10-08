@@ -410,7 +410,7 @@ def test_the_envelope_solver_agrees_with_an_independent_dense_solution():
 #: Перезаписан 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): четыре новых поля сертификата; прежнее значение
 #: (`0f5562b4...`) восстанавливается их вычёркиванием (`test_developable_best_proposal`), сам ARAP не менялся.
 ARAP_RECORD_SHA256 = (
-    "2edc14cb58431d28d8b63fc74274e980bb9006f3d1b6bff3154aff03c7d7eae4"
+    "7920e15673bc2ae84d42164e1f685c75e3e9a69132bc477b56cef2aeae552a5c"
 )
 
 
@@ -518,3 +518,104 @@ def test_the_validator_catches_a_moved_node_of_the_arap_chart():
     assert any(
         "unfolded chart coordinates differ" in item.message for item in _issues(forged, parts)
     )
+
+
+def _cone_seed_witness():
+    import json
+    from pathlib import Path
+
+    return json.loads((Path(__file__).parents[1] / "fixtures/cone_angle_legacy_libm_v1.json").read_text())
+
+
+def _legacy_cone_seed(platform):
+    """Независимый старый libm-контроль из наблюдавшихся hex, без вызова нового кандидата."""
+    values = {row["argument_hex"]: row[platform] for row in _cone_seed_witness()["arguments"]}
+
+    def seed(argument):
+        assert argument.hex() in values, f"UNMEASURED_LEGACY_ACOS_ARGUMENT: {argument.hex()}"
+        return float.fromhex(values[argument.hex()])
+
+    return seed
+
+
+def _cone_decisions(classes):
+    from cftuv_envelope._fan_closure import angle_defect_lower_bound, worst_defect_vertex
+
+    labels = tuple(sorted((item.vertex_id.value, item.developability_class.value,
+                           item.closure_law.value, item.fan_triangle_count) for item in classes))
+    ranking = tuple(item.vertex_id.value for item in sorted(
+        classes, key=lambda item: (-angle_defect_lower_bound(item), item.vertex_id.value)
+    ))
+    return labels, ranking, worst_defect_vertex(classes)
+
+
+@pytest.mark.parametrize("budget", (Fraction(1, 5), Fraction(1, 50)))
+def test_deterministic_seed_preserves_both_legacy_arap_decision_paths(monkeypatch, budget):
+    """Оба старых seed независимы от нового: классы, порядок дефекта, отказ и карта прежние."""
+    from cftuv_envelope import surface_cone_angle as cone
+
+    new_seed = cone._acos_seed
+    classify = developable.classify_interior_vertices
+    observed = []
+
+    def spy(*args, **kwargs):
+        result = classify(*args, **kwargs)
+        observed.append(result)
+        return result
+
+    monkeypatch.setattr(developable, "classify_interior_vertices", spy)
+    records, decisions, refusals = {}, {}, {}
+    for name, seed in (("windows", _legacy_cone_seed("windows")),
+                       ("linux", _legacy_cone_seed("linux")), ("deterministic", new_seed)):
+        developable.clear_developable_chart_memory()
+        observed.clear()
+        monkeypatch.setattr(cone, "_acos_seed", seed)
+        try:
+            records[name] = build_metric(_perturbed_fold_grid(ARAP_FIXTURE_DROP), ladder=ON,
+                                         developable_stretch_budget=budget)
+        except PlanarMetricAdmissionError as error:
+            refusals[name] = (error.outcome, str(error))
+        assert observed
+        decisions[name] = tuple(_cone_decisions(classes) for classes in observed)
+    assert decisions["windows"] == decisions["linux"] == decisions["deterministic"]
+    if refusals:
+        assert len(refusals) == 3 and not records
+        assert refusals["windows"] == refusals["linux"] == refusals["deterministic"]
+        return
+    assert len(records) == 3
+    witness = _cone_seed_witness()
+    assert _digest(records["windows"]) == witness["record_sha256"]["windows"]
+    assert _digest(records["linux"]) == witness["record_sha256"]["linux"]
+    assert records["deterministic"] == records["linux"]
+    original = records["windows"]
+    for name in ("linux", "deterministic"):
+        changed = records[name]
+        old_cert, new_cert = original.metric.planarity_certificate, changed.metric.planarity_certificate
+        old_classes = {item.vertex_id: item for item in old_cert.vertex_classes}
+        new_classes = {item.vertex_id: item for item in new_cert.vertex_classes}
+        differing = [key for key in old_classes if old_classes[key] != new_classes[key]]
+        assert [key.value for key in differing] == ["v:g1_2"]
+        for key in differing:
+            assert replace(new_classes[key], angle_sum_enclosure=old_classes[key].angle_sum_enclosure) == old_classes[key]
+        assert replace(new_cert, vertex_classes=old_cert.vertex_classes) == old_cert
+        assert replace(changed, metric=replace(changed.metric, planarity_certificate=old_cert)) == original
+
+
+def test_deterministic_seed_preserves_both_legacy_arap_materializations(monkeypatch):
+    """Полный меш с UV/ценой сравнивается; различие сертификата не скрывается новым golden."""
+    from cftuv_envelope import surface_cone_angle as cone
+    from cftuv_envelope.materialize.admit import MaterializationOutcome
+    from developable_route import materialize_developable
+
+    new_seed = cone._acos_seed
+    results = []
+    for seed in (_legacy_cone_seed("windows"), _legacy_cone_seed("linux"), new_seed):
+        developable.clear_developable_chart_memory()
+        monkeypatch.setattr(cone, "_acos_seed", seed)
+        result, _prepared = materialize_developable(
+            _perturbed_fold_grid(ARAP_FIXTURE_DROP), ("g0_0", "g1_0"), alpha="0.2"
+        )
+        assert result.outcome is MaterializationOutcome.MATERIALIZED
+        results.append((canonical_json_bytes(result.batch), result.vertex_normals,
+                        result.counters, result.diagnostics, result.offset_normals_digest))
+    assert results[0] == results[1] == results[2]

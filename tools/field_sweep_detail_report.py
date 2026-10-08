@@ -504,4 +504,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # WINDOWS_CLI_UTF8_TRANSPORT_V1: протокол CLI не зависит от ANSI-кодировки терминала.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     raise SystemExit(main())

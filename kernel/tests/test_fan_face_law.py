@@ -197,7 +197,7 @@ def _result(law, mirrored=False):
 
 @lru_cache(maxsize=None)
 def _tool():
-    path = Path(__file__).resolve().parents[2] / "tools" / "fan_congruence_check.py"
+    path = Path(__file__).resolve().parents[1] / "tools" / "fan_congruence_check.py"
     spec = importlib.util.spec_from_file_location("fan_congruence_check", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

@@ -1,0 +1,69 @@
+{
+  "schema": "CONE_ANGLE_LEGACY_LIBM_WITNESS_V1",
+  "source_sha": "3af3ea92ce3ea1b95381709a2c0c79a512cadcf3",
+  "linux_run": "https://github.com/helmdubo/CFTUV/actions/runs/37740086645",
+  "linux_runtime": "CPython 3.10.21 and 3.11.16, x86_64, glibc2.39",
+  "windows_runtime": "CPython 3.10.20, x86_64, MSVC1944",
+  "input_sha256": "240dcbc96a9a7b49938d024169c3ad82225107042876b460e21affe81ea1642b",
+  "record_sha256": {
+    "windows": "2edc14cb58431d28d8b63fc74274e980bb9006f3d1b6bff3154aff03c7d7eae4",
+    "linux": "7920e15673bc2ae84d42164e1f685c75e3e9a69132bc477b56cef2aeae552a5c"
+  },
+  "arguments": [
+    {
+      "argument_hex": "0x1.6a09e667f3bcdp-1",
+      "windows": "0x1.921fb54442d18p-1",
+      "linux": "0x1.921fb54442d18p-1"
+    },
+    {
+      "argument_hex": "0x1.263bb64e5368ap-2",
+      "windows": "0x1.4783878fc27b3p+0",
+      "linux": "0x1.4783878fc27b3p+0"
+    },
+    {
+      "argument_hex": "0x1.5ac575504c619p-1",
+      "windows": "0x1.a748b318815d8p-1",
+      "linux": "0x1.a748b318815d8p-1"
+    },
+    {
+      "argument_hex": "0x0.0p+0",
+      "windows": "0x1.921fb54442d18p+0",
+      "linux": "0x1.921fb54442d18p+0"
+    },
+    {
+      "argument_hex": "0x1.3d63ab19b6185p-1",
+      "windows": "0x1.cdea81269110dp-1",
+      "linux": "0x1.cdea81269110dp-1"
+    },
+    {
+      "argument_hex": "0x1.259dbc715fc7bp-1",
+      "windows": "0x1.eb8d44caf53f0p-1",
+      "linux": "0x1.eb8d44caf53efp-1"
+    },
+    {
+      "argument_hex": "-0x1.263bb64e5368ap-2",
+      "windows": "0x1.dcbbe2f8c327ep+0",
+      "linux": "0x1.dcbbe2f8c327ep+0"
+    },
+    {
+      "argument_hex": "0x1.71c0422debeecp-1",
+      "windows": "0x1.8718ee435b211p-1",
+      "linux": "0x1.8718ee435b211p-1"
+    },
+    {
+      "argument_hex": "0x1.522d34a971824p-4",
+      "windows": "0x1.7cf6b77004458p+0",
+      "linux": "0x1.7cf6b77004458p+0"
+    },
+    {
+      "argument_hex": "0x1.c2cc697d9f0b6p-1",
+      "windows": "0x1.f9ceb3b684499p-2",
+      "linux": "0x1.f9ceb3b684499p-2"
+    },
+    {
+      "argument_hex": "0x1.62288e9bfcfd0p-1",
+      "windows": "0x1.9d267c452a81fp-1",
+      "linux": "0x1.9d267c452a81fp-1"
+    }
+  ]
+}

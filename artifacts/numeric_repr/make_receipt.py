@@ -423,7 +423,7 @@ receipt = {
             "RawCoverageResultV1.semantic_digest = sha256(canonical_json(result)) включает exact_area_expression (srepr); "
             "заморожен в kernel/tests/test_building_002_point_contact_fixture.py:260 и "
             "test_sem_clb_02_chain_straight_regression.py:509 (402ec97a…); "
-            "artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
+            "kernel/artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
             "тексты исключений: str(expression)/sp.srepr в IntervalEnclosureUnsupported, CertifiedPredicateUndecidable, "
             "ExactQuadraticFieldUnsupported, DensityIntervalEnclosureUnsupported — могут попасть в detail отказа",
             "kernel/tests/test_exact_numeric_fast_path.py (докстринг): «Строка srepr — идентичность ExactScalar и вход "

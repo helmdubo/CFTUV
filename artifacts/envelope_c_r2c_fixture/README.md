@@ -23,8 +23,8 @@ The same command can use a detached worktree at
 `df587ed166cfb0e0b615148f08c583b4477c5ac4` as `--source-root`. The committed
 receipts are:
 
-- `historical_df587ed_result.json`: `REFERENCE_ARRANGEMENT_NON_MANIFOLD`;
-- `selected_c262_result.json`: exact RawCoverage V2, digest
+- `../../kernel/artifacts/envelope_c_r2c_fixture/historical_df587ed_result.json`: `REFERENCE_ARRANGEMENT_NON_MANIFOLD`;
+- `../../kernel/artifacts/envelope_c_r2c_fixture/selected_c262_result.json`: exact RawCoverage V2, digest
   `622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a`;
 - `point_contact_topology_comparison.json`: the two rejected historical
   construction points and contributor sets are exactly the two selected

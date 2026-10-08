@@ -3,8 +3,12 @@ from __future__ import annotations
 import ast
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import cftuv_envelope
+import pytest
+
+from kernel_test_paths import InstalledKernelGuard, KERNEL_ROOT, PACKAGE_ROOT, kernel_reference
 
 
 FORBIDDEN = {"bpy", "mathutils", "cftuv"}
@@ -45,4 +49,39 @@ def test_no_geometry_implementation_modules_exist():
     assert FORBIDDEN_IMPLEMENTATION_MODULES.isdisjoint(
         {path.name for path in package_root.iterdir() if path.is_file()}
     )
+
+
+def test_extracted_support_and_runtime_source_inventory_is_not_empty():
+    assert (PACKAGE_ROOT / "reference" / "arrangement.py").is_file()
+    for relative in (
+        "tools/generate_contract_schemas.py",
+        "tools/generate_surface_contract_schemas.py",
+        "tools/fan_congruence_check.py",
+        "artifacts/envelope_c_r2c_fixture/historical_df587ed_result.json",
+        "artifacts/envelope_c_r2c_fixture/selected_c262_result.json",
+        "artifacts/kernel_audit_exact_proof/p0_3_post_p0_2b_absolute_digests.json",
+    ):
+        assert (KERNEL_ROOT / relative).is_file(), relative
+    assert kernel_reference("kernel/tests/test_isolation.py") == Path(__file__).resolve()
+
+
+def test_wheel_guard_rejects_checkout_origin_even_after_a_cached_valid_module(tmp_path):
+    wheel = tmp_path / "site-packages" / "cftuv_envelope"
+    checkout = tmp_path / "checkout" / "src" / "cftuv_envelope"
+    for root in (wheel, checkout):
+        root.mkdir(parents=True)
+        (root / "__init__.py").write_text("", encoding="utf-8")
+    module = SimpleNamespace(__file__=str(wheel / "__init__.py"), __spec__=SimpleNamespace(origin=str(wheel / "__init__.py")))
+    guard = InstalledKernelGuard(wheel)
+    modules = {"cftuv_envelope": module}
+    guard.check(modules)
+    guard.check(modules)
+    assert guard.path_resolutions == 1
+    module.__file__ = str(checkout / "__init__.py")
+    with pytest.raises(AssertionError, match="KERNEL_WHEEL_ORIGIN_INVALID"):
+        guard.check(modules)
+    module.__file__ = str(wheel / "__init__.py")
+    module.__spec__.origin = str(checkout / "__init__.py")
+    with pytest.raises(AssertionError, match="KERNEL_WHEEL_ORIGIN_INVALID"):
+        guard.check(modules)
 
