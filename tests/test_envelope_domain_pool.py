@@ -14,6 +14,7 @@ Blender не нужен: воркер поднимает пакет хоста �
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
 import pickle
@@ -1843,8 +1844,13 @@ def _host_entries():
     """Каталоги пакетов хоста: единственное, что внешний воркер берёт у родителя."""
 
     entries = []
-    for name in pool_module.HOST_PACKAGES:
-        entry = os.path.dirname(pool_module.package_directory(name))
+    # Независимый оракул: обязательные пакеты и найденный нативный порт; не план путей самого пула.
+    for name in ("cftuv_envelope", "sympy", "mpmath", "cftuv_native"):
+        spec = importlib.util.find_spec(name)
+        if spec is None:
+            assert name == "cftuv_native", f"обязательный пакет хоста не найден: {name}"
+            continue
+        entry = str(Path(spec.origin).absolute().parent.parent)
         if entry not in entries:
             entries.append(entry)
     return entries
@@ -1854,17 +1860,30 @@ def _normal(path):
     return os.path.normcase(os.path.abspath(path))
 
 
+@pytest.mark.parametrize("optional_native", ("ambient", "absent", "present"))
 def test_an_external_worker_inherits_no_path_but_the_host_packages(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, optional_native
 ):
     """Ни stdlib, ни site-packages родителя внешнему воркеру не достаются.
 
     В `sys.path` родителя подложен «чужой stdlib» с модулем-маркёром: у
     встроенного воркера он был бы виден, у внешнего — нет. Пакеты хоста (ядро,
-    `sympy`, `mpmath`) стоят ПОСЛЕ stdlib самого воркера, чтобы не затенить её;
+    `sympy`, `mpmath` и доступный `cftuv_native`) стоят ПОСЛЕ stdlib самого воркера, чтобы не затенить её;
     каталог, из которого загружен сам аддон, не нужен вовсе (пакет поднимается по
     файлу) и не передаётся.
     """
+
+    native_site = tmp_path / "optional_native_site"
+    if optional_native != "ambient":
+        package = native_site / "cftuv_native"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        monkeypatch.syspath_prepend(str(native_site))
+        # Проверяется наличие пакета на пути, без загрузки расширения и зависимости от установленного колеса.
+        if optional_native == "absent":
+            monkeypatch.setitem(sys.modules, "cftuv_native", None)
+        else:
+            monkeypatch.delitem(sys.modules, "cftuv_native", raising=False)
 
     fake = tmp_path / "fake_python311_stdlib"
     fake.mkdir()
@@ -1885,6 +1904,10 @@ def test_an_external_worker_inherits_no_path_but_the_host_packages(
         assert all(worker_path.index(entry) > stdlib for entry in entries)
         # Позади stdlib стоят ровно пакеты хоста и ничего больше.
         assert worker_path[worker_path.index(entries[0]) :] == entries
+        if optional_native == "present":
+            assert _normal(native_site) in worker_path
+        elif optional_native == "absent":
+            assert _normal(native_site) not in worker_path
         assert identity["python"] == tuple(sys.version_info[:3])
         assert pool.interpreter == pool_module.PoolInterpreterV1(
             tuple(sys.version_info[:3]), True
