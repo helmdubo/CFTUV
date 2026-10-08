@@ -54,7 +54,7 @@ def main():
         return 0
     if options.repeat < 1:
         parser.error("--repeat must be positive")
-    report = {"python": sys.version, "native_origin": cftuv_native.__file__, "build_id": cftuv_native.native_build_id(), "oracle_digest": corpus.oracle_digest(), "repeat": options.repeat, "timer": "warm whole leaf including conversion; corpus decode and output comparison excluded; cold first call in a fresh process when requested (startup/import/decode excluded)", "meshes": {}}
+    report = {"python": sys.version, "native_origin": cftuv_native.__file__, "build_id": cftuv_native.native_build_id(), "oracle_digest": corpus.oracle_digest(), "repeat": options.repeat, "timer": "warm whole leaf including conversion; corpus decode and output comparison excluded; cold first call in a fresh process when requested (startup/import/decode excluded)", "aggregate": "sum of per-record median times times recorded count; recording disabled embedding memo and field includes stretches42/12; this is not end-to-end export wall time", "meshes": {}}
     paths = sorted((options.corpus / "field").glob("*.recs.xz"))
     if options.stress_file:
         paths.append(options.stress_file)
