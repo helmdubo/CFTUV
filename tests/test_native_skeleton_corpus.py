@@ -368,8 +368,14 @@ def test_a_call_that_raises_inside_the_oracle_records_the_exception_and_the_part
 # --------------------------------------------------------------------------
 
 
-def test_derived_records_starve_the_budget_and_name_the_operation_that_ran_out(preparation):
+@pytest.mark.parametrize("index_schema", ["cftuv.native-corpus.v1", sc.SYNTHETIC_INDEX_SCHEMA])
+def test_derived_records_starve_the_budget_and_name_the_operation_that_ran_out(preparation, index_schema):
     recorder, _prepared = preparation
+    old_index = nc.load_index(recorder.root)
+    old_index["schema"] = index_schema
+    for row in old_index["records"]:
+        row["schema"] = "cftuv.native-corpus.v1"
+    (recorder.root / "index.json").write_text(json.dumps(old_index), encoding="utf-8")
     derived = derive.derive_records(recorder.root, per_mesh=1, shares=(0.05, 0.6), min_spent=1, max_seconds=60.0, occurrences=2, preset=1)
     assert derived and all(row["outcome"] == "raised:ExactCanonicalizationWorkBudgetExhausted" for row in derived)
     operations = derive.exhaustion_operations(derived)
@@ -379,8 +385,10 @@ def test_derived_records_starve_the_budget_and_name_the_operation_that_ran_out(p
     assert boundary and exact_trigger
     index = nc.load_index(recorder.root)
     assert index["derived_count"] == len(derived) and index["records_count"] == 1
+    assert index["schema"] == (sc.SYNTHETIC_INDEX_SCHEMA if index_schema == sc.SYNTHETIC_INDEX_SCHEMA else nc.RECORD_SCHEMA)
     base = nc.read_record(recorder.root / recorder.rows[0]["path"])
     for row in derived:
+        assert row["schema"] == nc.read_meta(recorder.root / row["path"])["schema"] == nc.RECORD_SCHEMA
         record = nc.read_record(recorder.root / row["path"])
         assert record.before().budget["cap"] == row["derived"]["cap"] < sum(base.expected().after.budget["articles"])
         before, replayed = _replay(record)
@@ -589,10 +597,10 @@ def test_the_line_coverage_tracer_sees_the_lines_of_a_call_and_names_the_uncover
 def test_the_skeleton_corpus_of_another_kernel_is_never_substituted_for_the_corpus_of_this_one(tmp_path):
     identity = nc.clip_memo.kernel_code_identity()
 
-    def write(name: str, kernel_identity: str, age: int, kind: str = sc.FIELD_DIR) -> Path:
+    def write(name: str, kernel_identity: str, age: int, kind: str = sc.FIELD_DIR, schema=nc.RECORD_SCHEMA) -> Path:
         directory = tmp_path / name / kind
         directory.mkdir(parents=True)
-        (directory / "index.json").write_text(json.dumps({"kernel_identity": kernel_identity, "records": []}), encoding="utf-8")
+        (directory / "index.json").write_text(json.dumps({"schema": schema, "kernel_identity": kernel_identity, "records": []}), encoding="utf-8")
         os.utime(directory / "index.json", (1_000_000 + age, 1_000_000 + age))
         return directory
 
@@ -600,10 +608,15 @@ def test_the_skeleton_corpus_of_another_kernel_is_never_substituted_for_the_corp
     assert sc.matching("field", tmp_path) is None
     reason = sc.describe_missing("field", tmp_path)
     assert identity in reason and "old=0000000000000000" in reason
-    write("this-older", identity, 10)
+    older = write("this-older", identity, 10, schema="cftuv.native-corpus.v1")
+    assert sc.matching("field", tmp_path) == older
     newer = write("this-newer", identity, 20)
     write("other-newest", "ffffffffffffffff", 40)
-    write("this-synthetic", identity, 25, sc.SYNTHETIC_DIR)
+    write("this-synthetic", identity, 25, sc.SYNTHETIC_DIR, sc.SYNTHETIC_INDEX_SCHEMA)
+    for kind in (sc.FIELD_DIR, sc.SYNTHETIC_DIR):
+        write("unknown-newest", identity, 50, kind, "cftuv.native-corpus.v999")
+        write("missing-schema", identity, 60, kind, None)
+    assert "schema='cftuv.native-corpus.v999'" in sc.describe_missing("field", tmp_path)
     assert sc.matching("field", tmp_path) == newer and sc.matching("synthetic", tmp_path).parent.name == "this-synthetic"
     assert sc.matching("field", tmp_path / "absent") is None
 
@@ -622,19 +635,23 @@ def test_the_synthetic_writer_makes_the_memory_cold_drops_repeats_and_flags_what
         items.append({"test": "kernel/tests/test_some_group.py::test_case", "before": synthetic.cold_state(warm), "blob": nc.encode_call(call), "live": synthetic._live_view(result, None)})
     items.append({**items[2], "test": "kernel/tests/test_other_group.py::test_case", "live": ("result", "planted")})
     description = {"python": sys.version.split()[0], "kernel_identity": nc.clip_memo.kernel_code_identity(), "git_head": "test"}
-    document = synthetic.write_items(tmp_path / "out", items, description, {})
+    output = tmp_path / "actual-writer" / sc.SYNTHETIC_DIR
+    document = synthetic.write_items(output, items, description, {})
+    assert document["schema"] == synthetic.INDEX_SCHEMA == sc.SYNTHETIC_INDEX_SCHEMA
+    assert sc.matching("synthetic", tmp_path) == output
     assert document["records_count"] == 2 and document["test_duplicates_after_normalization"] == 2, "the repeated polygon and its twin under another test are one record"
     rows = document["records"]
     assert [row["mesh"] for row in rows] == ["some_group", "some_group"] and [row["live_equal"] for row in rows] == [True, True]
     for row in rows:
-        record = nc.read_record(tmp_path / "out" / row["path"])
+        record = nc.read_record(output / row["path"])
+        assert row["schema"] == record.meta["schema"] == nc.RECORD_SCHEMA
         before = record.before()
         assert before.factorization == before.squarefree == before.prime_support == before.known_primes == [] and before.unbudgeted == (0,) * 6
         assert set(before.sign_counts.values()) == {0} and before.canonical_audit is False
         assert nc.compare_outcomes(record.op, before, record.expected(), _replay(record)[1]) == []
     flagged = synthetic.write_items(tmp_path / "flagged", [items[3]], description, {})
     assert flagged["records"][0]["live_equal"] is False and flagged["test_live_differs"] == 1
-    again = synthetic.rewrite(tmp_path / "out", tmp_path / "again")
+    again = synthetic.rewrite(output, tmp_path / "again")
     assert [row["outcome"] for row in again["records"]] == [row["outcome"] for row in rows] and again["records_count"] == 2
 
 

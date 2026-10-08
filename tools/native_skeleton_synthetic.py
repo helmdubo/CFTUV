@@ -47,7 +47,7 @@ import native_skeleton_corpus as sc  # noqa: E402
 OUT_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_OUT"
 FILES_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_FILES"
 COVERAGE_ENVIRONMENT = "CFTUV_SKELETON_COVERAGE"
-INDEX_SCHEMA = "cftuv.native-corpus.synthetic-skeleton.v1"
+INDEX_SCHEMA = sc.SYNTHETIC_INDEX_SCHEMA
 
 #: Тесты ядра, которые доходят до `build_skeleton` (прямо или через `prepare_conveyor`). Плагин пишет только то, что вызвано.
 TEST_FILES = (

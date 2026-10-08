@@ -64,6 +64,7 @@ def derive_records(root: Path, *, per_group: int = 3, shares=(0.3, 0.7), min_spe
     """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей."""
 
     index = nc.load_index(root)
+    nc.require_index_schema(index)
     nc.remove_indexed_derived(root, index["records"])
     base = [row for row in index["records"] if not row.get("derived")]
     groups: dict = {}
@@ -77,6 +78,7 @@ def derive_records(root: Path, *, per_group: int = 3, shares=(0.3, 0.7), min_spe
             for share in shares:
                 derived.append(_derive_one(root, row, share, len(derived) + 1, preset))
     index["records"] = base + derived
+    index["schema"] = nc.RECORD_SCHEMA
     index["records_count"] = len(base)
     index["derived_count"] = len(derived)
     index["total_bytes"] = sum(row["bytes"] for row in base) + sum(row["bytes"] for row in derived)

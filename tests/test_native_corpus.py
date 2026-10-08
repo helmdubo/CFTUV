@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.util
+import json
+import lzma
 import math
 import pickle
 import sys
+import struct
 from fractions import Fraction
 from pathlib import Path
 
@@ -62,6 +65,79 @@ def _load_tool(name: str):
 
 
 nc = _load_tool("native_corpus")
+
+
+def _replace_record_header(path, schema, payload=None):
+    data = path.read_bytes()
+    offset = len(nc.RECORD_MAGIC)
+    size = struct.unpack(">I", data[offset:offset + 4])[0]
+    meta = json.loads(data[offset + 4:offset + 4 + size])
+    if schema is None:
+        meta.pop("schema", None)
+    else:
+        meta["schema"] = schema
+    head = json.dumps(meta).encode("utf-8")
+    body = data[offset + 4 + size:] if payload is None else lzma.compress(pickle.dumps(payload, protocol=5))
+    path.write_bytes(nc.RECORD_MAGIC + struct.pack(">I", len(head)) + head + body)
+
+
+@pytest.mark.parametrize("schema,old_shape", [("cftuv.native-corpus.v1", True), ("cftuv.native-corpus.v1", False), (nc.RECORD_SCHEMA, False)])
+def test_record_versions_preserve_new_flags_and_default_old_state(domain, schema, old_shape):
+    recorder, _result = domain
+    path = recorder.root / recorder.rows[0]["path"]
+    payload = nc.read_record(path).payload
+    for state in (payload["before"], payload["expected"]["after"]):
+        if old_shape:
+            state.pop("identity_mode", None)
+            state.pop("replay_check", None)
+        else:
+            state.update(identity_mode="RAW", replay_check=True)
+    _replace_record_header(path, schema, payload)
+    record = nc.read_record(path)
+    assert nc.read_meta(path)["schema"] == schema
+    for state in (record.before(), record.expected().after):
+        assert state.identity_mode == ("CACHED" if old_shape else "RAW")
+        assert state.replay_check is (not old_shape)
+
+
+@pytest.mark.parametrize("schema", [None, "cftuv.native-corpus.v999", []])
+def test_unsupported_record_schema_is_rejected_before_decoding_the_body(tmp_path, schema):
+    meta = {} if schema is None else {"schema": schema}
+    head = json.dumps(meta).encode("utf-8")
+    path = tmp_path / "bad.rec"
+    path.write_bytes(nc.RECORD_MAGIC + struct.pack(">I", len(head)) + head + b"not compressed or pickled")
+    for reader in (nc.read_meta, nc.read_record):
+        with pytest.raises(nc.CorpusError, match="schema"):
+            reader(path)
+
+
+def test_record_and_index_writers_force_current_schema_including_the_callers_row(domain):
+    recorder, _result = domain
+    source = nc.read_record(recorder.root / recorder.rows[0]["path"])
+    meta = {**source.meta, "schema": "cftuv.native-corpus.v1"}
+    path = recorder.root / "rewritten.rec"
+    nc.write_record(path, meta, source.payload, preset=1)
+    assert meta["schema"] == nc.read_meta(path)["schema"] == nc.RECORD_SCHEMA
+    assert all(row["schema"] == nc.RECORD_SCHEMA for row in recorder.rows)
+    recorder.description["schema"] = "description cannot override"
+    recorder.write_index({"schema": "extra cannot override"})
+    assert nc.load_index(recorder.root)["schema"] == nc.RECORD_SCHEMA
+
+
+@pytest.mark.parametrize("tool", ["native_corpus_derive", "native_skeleton_derive"])
+@pytest.mark.parametrize("schema", [None, "cftuv.native-corpus.v999", []])
+def test_derivation_rejects_unknown_index_before_deleting_or_relabeling_it(tmp_path, tool, schema):
+    derive = _load_tool(tool)
+    sentinel = tmp_path / "records/_derived/keep.rec"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_bytes(b"preserve")
+    index = {"schema": schema, "records": [{"path": "records/_derived/keep.rec", "derived": {}}]}
+    path = tmp_path / "index.json"
+    original = json.dumps(index).encode("utf-8")
+    path.write_bytes(original)
+    with pytest.raises(nc.CorpusError, match="index schema"):
+        derive.derive_records(tmp_path)
+    assert path.read_bytes() == original and sentinel.read_bytes() == b"preserve"
 
 ROUTE = ("r0a", "r0b")
 
@@ -424,13 +500,20 @@ def test_derived_records_starve_the_budget_of_a_real_call_and_replay_exactly(dom
     nc.coverage._coverage_at(partition, alpha, exact.exact_work_budget(stage="COVERAGE", domain_id="cold"), {})
     recorder.write_index()
     assert derive.spent_by(nc.read_record(recorder.root / recorder.rows[-1]["path"])) > 0
+    old_index = nc.load_index(recorder.root)
+    old_index["schema"] = "cftuv.native-corpus.v1"
+    for row in old_index["records"]:
+        row["schema"] = "cftuv.native-corpus.v1"
+    (recorder.root / "index.json").write_text(json.dumps(old_index), encoding="utf-8")
     derived = derive.derive_records(recorder.root, per_group=2, shares=(0.0, 0.5), min_spent=1, preset=1)
     assert derived and all(row["derived"]["share"] in (0.0, 0.5) for row in derived)
     raised = [row for row in derived if row["outcome"].startswith("raised:")]
     assert raised and all(row["exception"][0] == "ExactCanonicalizationWorkBudgetExhausted" for row in raised)
     index = nc.load_index(recorder.root)
     assert index["derived_count"] == len(derived) and index["records_count"] == len(index["records"]) - len(derived)
+    assert index["schema"] == nc.RECORD_SCHEMA
     for row in derived:
+        assert row["schema"] == nc.read_meta(recorder.root / row["path"])["schema"] == nc.RECORD_SCHEMA
         record = nc.read_record(recorder.root / row["path"])
         original = next(item for item in index["records"] if item["id"] == row["derived"]["from"])
         assert record.before().budget["cap"] == row["derived"]["cap"] < nc.read_record(recorder.root / original["path"]).before().budget["cap"]
@@ -451,10 +534,10 @@ def test_a_corpus_of_another_kernel_is_never_substituted_for_the_corpus_of_this_
 
     identity = nc.clip_memo.kernel_code_identity()
 
-    def write(name: str, kernel: str, age: int) -> Path:
+    def write(name: str, kernel: str, age: int, schema=nc.RECORD_SCHEMA) -> Path:
         directory = tmp_path / name
         directory.mkdir()
-        (directory / "index.json").write_text(json.dumps({"kernel_identity": kernel, "records": []}), encoding="utf-8")
+        (directory / "index.json").write_text(json.dumps({"schema": schema, "kernel_identity": kernel, "records": []}), encoding="utf-8")
         os.utime(directory / "index.json", (1_000_000 + age, 1_000_000 + age))
         return directory
 
@@ -462,11 +545,27 @@ def test_a_corpus_of_another_kernel_is_never_substituted_for_the_corpus_of_this_
     assert nc.matching_corpus(str(tmp_path)) is None
     reason = nc.describe_missing_corpus(str(tmp_path))
     assert identity in reason and "old-kernel=0000000000000000" in reason
-    older = write("this-kernel-older", identity, 10)
+    older = write("this-kernel-older", identity, 10, "cftuv.native-corpus.v1")
+    assert nc.matching_corpus(str(tmp_path)) == older
     newer = write("this-kernel-newer", identity, 20)
     write("another-kernel-newest", "ffffffffffffffff", 40)
+    write("unknown-newest", identity, 50, "cftuv.native-corpus.v999")
+    write("missing-schema", identity, 60, None)
+    assert "schema='cftuv.native-corpus.v999'" in nc.describe_missing_corpus(str(tmp_path))
     assert nc.matching_corpus(str(tmp_path)) == newer and older != newer
     (tmp_path / "broken").mkdir()
     (tmp_path / "broken" / "index.json").write_text("{not json", encoding="utf-8")
     assert nc.matching_corpus(str(tmp_path)) == newer
     assert nc.matching_corpus(str(tmp_path / "absent")) is None
+
+
+def test_the_synthetic_clip_index_has_its_own_schema_and_its_records_are_readable(tmp_path, domain):
+    synthetic = _load_tool("native_clip_synthetic")
+    recorder, _result = domain
+    row = next(row for row in recorder.rows if row["op"] == nc.OP_CLIP)
+    index = {"schema": synthetic.INDEX_SCHEMA, "records": [row]}
+    (tmp_path / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    loaded = synthetic.load_index(tmp_path)
+    assert loaded["schema"] == "cftuv.native-corpus.synthetic-clip.v1"
+    assert loaded["schema"] not in nc.READABLE_SCHEMAS
+    assert nc.read_record(recorder.root / loaded["records"][0]["path"]).meta["schema"] == nc.RECORD_SCHEMA

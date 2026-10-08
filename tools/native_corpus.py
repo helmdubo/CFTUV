@@ -62,7 +62,8 @@ ORACLE = {OP_COVERAGE: coverage._coverage_at, OP_CLIP: clip.clip_geometry, OP_SK
 SKELETON_OPTIONS = frozenset({"split_search", "work_budget", "dense_hydration"})
 
 RECORD_MAGIC = b"CFTUVNC1"
-RECORD_SCHEMA = "cftuv.native-corpus.v1"
+RECORD_SCHEMA = "cftuv.native-corpus.v2"
+READABLE_SCHEMAS = frozenset({"cftuv.native-corpus.v1", RECORD_SCHEMA})
 PRIME_UNIVERSE_KEY = "prime-universe"
 MEMORY_TABLES = ("known_primes", "factorization", "squarefree", "prime_support")
 DEFAULT_CORPUS_BASE = "E:/cftuv_native_corpus"
@@ -580,8 +581,9 @@ def make_payload(op: str, before: StateV1, blob: bytes, outcome: Outcome) -> dic
 
 
 def write_record(path: Path, meta: dict, payload: dict, preset: int = DEFAULT_PRESET) -> int:
-    """Пишет запись, возвращает размер файла в байтах."""
+    """Пишет текущую версию записи и её метаданных для строки индекса; возвращает размер в байтах."""
 
+    meta["schema"] = RECORD_SCHEMA
     body = lzma.compress(pickle.dumps(payload, protocol=5), format=lzma.FORMAT_XZ, preset=preset)
     head = json.dumps(meta, sort_keys=True, ensure_ascii=False).encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -595,7 +597,11 @@ def _read_head(handle) -> dict:
     if handle.read(len(RECORD_MAGIC)) != RECORD_MAGIC:
         raise CorpusError("not a corpus record (magic differs)")
     (size,) = struct.unpack(">I", handle.read(4))
-    return json.loads(handle.read(size).decode("utf-8"))
+    meta = json.loads(handle.read(size).decode("utf-8"))
+    schema = meta.get("schema")
+    if not isinstance(schema, str) or schema not in READABLE_SCHEMAS:
+        raise CorpusError(f"unsupported corpus record schema: {schema!r}")
+    return meta
 
 
 def read_meta(path: Path) -> dict:
@@ -639,7 +645,8 @@ def matching_corpus(base: str | None = None) -> Path | None:
     found = []
     for path in root.glob("*/index.json"):
         try:
-            if load_index(path.parent).get("kernel_identity") == identity:
+            index = load_index(path.parent)
+            if isinstance(index.get("schema"), str) and index["schema"] in READABLE_SCHEMAS and index.get("kernel_identity") == identity:
                 found.append(path)
         except (OSError, ValueError):
             continue
@@ -653,7 +660,8 @@ def describe_missing_corpus(base: str | None = None) -> str:
     present = []
     for path in sorted(root.glob("*/index.json")):
         try:
-            present.append(f"{path.parent.name}={load_index(path.parent).get('kernel_identity')}")
+            index = load_index(path.parent)
+            present.append(f"{path.parent.name}={index.get('kernel_identity')} (schema={index.get('schema')!r})")
         except (OSError, ValueError):
             present.append(f"{path.parent.name}=<индекс не читается>")
     return f"нет корпуса под ядро {clip_memo.kernel_code_identity()} в {root} (лежат: {', '.join(present) or 'ничего'}): `tools/native_corpus_export.py`"
@@ -858,13 +866,13 @@ class Recorder:
 
     def write_index(self, extra: dict | None = None) -> Path:
         document = {
-            "schema": RECORD_SCHEMA,
             **self.description,
             **(extra or {}),
             "records_count": len(self.rows),
             "total_bytes": self.bytes,
             "records": self.rows,
             "domains": self.domains,
+            "schema": RECORD_SCHEMA,
         }
         path = self.root / "index.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -874,6 +882,13 @@ class Recorder:
 
 def load_index(root: Path) -> dict:
     return json.loads((Path(root) / "index.json").read_text(encoding="utf-8"))
+
+
+def require_index_schema(index: dict, schemas=READABLE_SCHEMAS) -> None:
+    """До изменения корпуса отказывает неизвестному формату индекса."""
+    schema = index.get("schema")
+    if not isinstance(schema, str) or schema not in schemas:
+        raise CorpusError(f"unsupported corpus index schema: {schema!r}")
 
 
 def bounded_before(before: StateV1, cap: int) -> StateV1:

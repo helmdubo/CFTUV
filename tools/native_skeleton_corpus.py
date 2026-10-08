@@ -23,6 +23,8 @@ FIELD_DIR = "skeleton"
 SYNTHETIC_DIR = "synthetic_skeleton"
 SEAMS_DIR = "seams"
 KINDS = {"field": FIELD_DIR, "synthetic": SYNTHETIC_DIR}
+SYNTHETIC_INDEX_SCHEMA = "cftuv.native-corpus.synthetic-skeleton.v1"
+SYNTHETIC_INDEX_SCHEMAS = nc.READABLE_SCHEMAS | {SYNTHETIC_INDEX_SCHEMA}
 #: Классы встроенных исключений, которыми эталон падает НЕ по замыслу: дефект ядра (не именованный отказ). Именованные исключения ядра (`ExactCanonicalizationWorkBudgetExhausted`,
 #: `ZeroDivisorTimeError`, ...) — подклассы со своим именем и сюда не входят. Запись с таким исключением воспроизводима (класс и текст записаны), но нативный порт её точно не повторит.
 INTERNAL_ERRORS = frozenset({"TypeError", "AttributeError", "KeyError", "IndexError", "AssertionError", "RuntimeError", "ZeroDivisionError", "NameError", "UnboundLocalError", "RecursionError"})
@@ -49,10 +51,12 @@ def matching(kind: str, base: str | Path | None = None) -> Path | None:
     """Каталог корпуса `kind`, чей индекс записан под отпечаток кода ядра процесса (новейший); `None` — такого нет."""
 
     identity = nc.clip_memo.kernel_code_identity()
+    schemas = SYNTHETIC_INDEX_SCHEMAS if kind == "synthetic" else nc.READABLE_SCHEMAS
     found = []
     for path in _base(base).glob(f"*/{KINDS[kind]}/index.json"):
         try:
-            if json.loads(path.read_text(encoding="utf-8")).get("kernel_identity") == identity:
+            index = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(index.get("schema"), str) and index["schema"] in schemas and index.get("kernel_identity") == identity:
                 found.append(path)
         except (OSError, ValueError):
             continue
@@ -65,7 +69,8 @@ def describe_missing(kind: str, base: str | Path | None = None) -> str:
     present = []
     for path in sorted(_base(base).glob(f"*/{KINDS[kind]}/index.json")):
         try:
-            present.append(f"{path.parent.parent.name}={json.loads(path.read_text(encoding='utf-8')).get('kernel_identity')}")
+            index = json.loads(path.read_text(encoding="utf-8"))
+            present.append(f"{path.parent.parent.name}={index.get('kernel_identity')} (schema={index.get('schema')!r})")
         except (OSError, ValueError):
             present.append(f"{path.parent.parent.name}=<индекс не читается>")
     tool = "tools/native_skeleton_export.py" if kind == "field" else "tools/native_skeleton_synthetic.py build"
