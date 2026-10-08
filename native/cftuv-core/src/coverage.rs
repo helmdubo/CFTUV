@@ -343,7 +343,7 @@ pub struct Trace {
 }
 
 /// The result of one call: the answer or the refusal, the store record a miss produced (whatever happened after it: the oracle stores it
-/// first) and, when the call asked for them, the traces of the faces whose signs were all computed (also when a later face refused, as the
+/// first) and, when the call asked for them, the traces of the faces whose clipping completed (also when a later face refused, as the
 /// oracle's `traces` list holds them).
 #[derive(Debug)]
 pub struct Run {
@@ -382,7 +382,12 @@ fn clip_all(ctx: &mut ExactCtx<'_>, partition: &Partition, alpha: &Rat, universe
         let Some(line) = face.line.as_ref() else {
             return Err(CoverageError::MissingLine { face: faces.len() });
         };
-        let clipped = clip_to_halfplane(ctx, face, line, alpha, universe, partition.planned.then_some(epoch), traces.as_deref_mut())?;
+        // Эталон публикует локальную трассу только после успешного усечения всей грани.
+        let mut face_traces = Vec::new();
+        let clipped = clip_to_halfplane(ctx, face, line, alpha, universe, partition.planned.then_some(epoch), traces.as_ref().map(|_| &mut face_traces))?;
+        if let Some(traces) = traces.as_deref_mut() {
+            traces.extend(face_traces);
+        }
         let timer = started();
         let area = match &clipped {
             Clipped::Unchanged => Area::Original,
@@ -496,7 +501,7 @@ fn clip_to_halfplane(ctx: &mut ExactCtx<'_>, face: &Face, line: &Line, alpha: &R
     }
     lap(1, timer);
     if let Some(trace) = trace {
-        // the oracle appends `(signs, values)` once the signs are in (`values` cost nothing: no budget, no memory)
+        // Локальная запись после знаков ещё не опубликована вызывающему: усечение может исчерпать бюджет.
         trace.push(Trace { signs: signs.clone(), values: face.base_values(line).iter().map(|base| base.sub(&front)).collect() });
     }
     if signs.iter().all(|sign| *sign <= 0) {
@@ -876,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn a_traced_call_records_the_signs_and_the_values_of_every_face_whose_signs_were_computed() {
+    fn a_traced_call_records_the_signs_and_the_values_of_every_face_whose_clipping_completed() {
         let face = square_face();
         let partition = Partition::new(true, vec![face, square_face()]);
         let mut session = Session::new();

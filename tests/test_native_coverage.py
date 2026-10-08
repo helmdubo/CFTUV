@@ -22,6 +22,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import dataclasses
+import hashlib
 import importlib.util
 import math
 import os
@@ -692,6 +693,30 @@ def check_traced(mirror, op, blob, before, label: str):
     COMPARED["traced calls"] += 1
     COMPARED["traced faces"] += len(got)
     return oracle, got
+
+
+def test_frozen_coverage_traces_commit_only_completed_faces_across_budget_caps():
+    """Полевая граница хранится в CI: не публикует неоконченную грань, но сохраняет уже оконченные."""
+    path = ROOT / "tests/data/native_coverage_trace_budget_boundary.rec"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == "64bfb46fb671f0459f91043617dffc480433f5cbff99b16d00bccf896eb26be0"
+    record = nc.read_record(path)
+    before = record.before()
+    mirror = cftuv_native.new_mirror()
+    boundary = dataclasses.replace(before, budget={**before.budget, "cap": 1776, "mode": "BOUNDED"})
+    exhausted, traces = check_traced(mirror, record.op, record.call_blob, boundary, "frozen building p40 cap=1776")
+    assert exhausted.exception is not None and "operation=SQUAREFREE_SPLIT" in exhausted.exception[1]
+    assert traces == [], "исчерпание внутри первой грани не публикует её знаки"
+    unlimited = dataclasses.replace(before, budget={**before.budget, "cap": None, "mode": "UNLIMITED_REFERENCE"})
+    completed = nc.execute(nc.prepare_call(record.op, record.call_blob, unlimited))
+    assert completed.exception is None
+    start = sum(before.budget["articles"])
+    cost = sum(completed.after.budget["articles"]) - start
+    partial = 0
+    for cap in sorted(set(_cap_values(start, cost)) | {1775, 1777}):
+        starved = dataclasses.replace(before, budget={**before.budget, "cap": cap, "mode": "BOUNDED"})
+        outcome, traces = check_traced(mirror, record.op, record.call_blob, starved, f"frozen building p40 cap={cap}")
+        partial += outcome.exception is not None and bool(traces)
+    assert partial > 0, "потолки должны проверять сохранение граней, оконченных до отказа следующей"
 
 
 @needs_field

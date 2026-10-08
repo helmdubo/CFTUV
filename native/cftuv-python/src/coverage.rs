@@ -442,7 +442,7 @@ impl Host {
     }
 
     /// What the host receives besides the memory log, as NEW objects (nothing is written into a host object here): the miss record the oracle stores before the
-    /// faces are touched (`has_store`), the `(signs, values)` tuples of the oracle's `traces.append` (`has_traces`: one per face whose signs were computed, whatever happened
+    /// faces are touched (`has_store`), the `(signs, values)` tuples of the oracle's `traces.append` (`has_traces`: one per face whose clipping completed, whatever happened
     /// after) and the result (`None` when the arithmetic refused).
     #[allow(clippy::too_many_arguments)]
     fn build<'py>(
