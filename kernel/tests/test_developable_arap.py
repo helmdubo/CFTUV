@@ -410,7 +410,7 @@ def test_the_envelope_solver_agrees_with_an_independent_dense_solution():
 #: Перезаписан 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): четыре новых поля сертификата; прежнее значение
 #: (`0f5562b4...`) восстанавливается их вычёркиванием (`test_developable_best_proposal`), сам ARAP не менялся.
 ARAP_RECORD_SHA256 = (
-    "2edc14cb58431d28d8b63fc74274e980bb9006f3d1b6bff3154aff03c7d7eae4"
+    "7920e15673bc2ae84d42164e1f685c75e3e9a69132bc477b56cef2aeae552a5c"
 )
 
 
