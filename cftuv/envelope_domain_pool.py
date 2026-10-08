@@ -220,7 +220,7 @@ class DomainTaskV1:
     #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`). Умолчание — продуктовое.
     backend: str = DEFAULT_KERNEL_BACKEND
     #: Бэкенд стадии скелета воркера (`PYTHON` | `NATIVE`): скелет считается в подготовке (холодная задача, задача очереди), а не в материализации, и воркер ставит блок
-    #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, в этом срезе `PYTHON`).
+    #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, `NATIVE`).
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND
 
 

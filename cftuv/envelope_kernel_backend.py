@@ -24,7 +24,7 @@
   резки (`skeleton python` — стадия заказана на Python, счёта нет); у скелета домена «не считался» значит «подготовка из кэша», а не откат.
 
 СТАДИЯ SKELETON — ВТОРАЯ НАСТРОЙКА (`skeleton_backend`, `PYTHON` | `NATIVE`). Продукт переводит стадии на Rust по одной: покрытие и резка уже NATIVE по умолчанию, скелет —
-`DEFAULT_SKELETON_BACKEND` (`PYTHON` в этом срезе: на `NATIVE` его переводит владелец после строгой сверки Python и Rust на полевых случаях). Настройка едет всюду, где едет `kernel_backend`
+`DEFAULT_SKELETON_BACKEND` (`NATIVE`, SKELETON_NATIVE_DEFAULT_V1 после строгой сверки и замера кнопки). Явный `PYTHON` остаётся эталоном; сохранённый выбор сцены не меняется. Настройка едет всюду, где едет `kernel_backend`
 (`run_production`, `DomainTaskV1.skeleton_backend`, запись живой ширины, свойство сцены).
 
 ПОДГОТОВКА ПОД БЛОКОМ БЭКЕНДА. Скелет считается в подготовке (`prepare_conveyor` -> `_prepare_region`), которая идёт ДО `produce_domain` — в родителе и в воркерах пула. Поэтому блок `use_backend`
@@ -48,9 +48,9 @@ KERNEL_BACKEND_NATIVE = "NATIVE"
 #: остаётся именованным откатом). ЕДИНСТВЕННОЕ место, где умолчание названо: настройка сцены, прогон, задача пула и запись живой ширины
 #: берут его отсюда (тест `test_every_backend_default_of_the_host_is_the_one_named_constant`), литерал `"PYTHON"` в умолчании параметра — дефект.
 DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_NATIVE
-#: УМОЛЧАНИЕ СТАДИИ SKELETON — Python. Покрытие и резка переведены на Rust, скелет ещё нет: нативный скелет включается (константой либо настройкой сцены) ПОСЛЕ строгой
-#: сверки Python и Rust на полевых случаях (ответы, цены и дайджесты равны; `tools/blender_native_ab.py --stage skeleton`). Названо ОДНИМ местом, как и `DEFAULT_KERNEL_BACKEND`.
-DEFAULT_SKELETON_BACKEND = KERNEL_BACKEND_PYTHON
+#: УМОЛЧАНИЕ СТАДИИ SKELETON — Native (SKELETON_NATIVE_DEFAULT_V1): строгий полевой A/B и замер настоящей кнопки; явный Python — эталон и именованный откат.
+#: Названо ОДНИМ местом, как и `DEFAULT_KERNEL_BACKEND`; сохранённый выбор PYTHON не меняется.
+DEFAULT_SKELETON_BACKEND = KERNEL_BACKEND_NATIVE
 #: Имя свойства в `HOTSPOTUV_DecalMeshSettings`.
 SETTING_NAME = "kernel_backend"
 #: Имя свойства стадии скелета там же.
@@ -75,12 +75,12 @@ SKELETON_BACKEND_ITEMS = (
     (
         KERNEL_BACKEND_PYTHON,
         "Python",
-        "Default. Frozen reference skeleton in Python (the preparation stage SKELETON): the answer the native skeleton is checked against",
+        "Frozen reference skeleton in Python (the preparation stage SKELETON): the answer the native skeleton is checked against",
     ),
     (
         KERNEL_BACKEND_NATIVE,
         "Native (Rust)",
-        "Explicit test opt-in for the native skeleton. Python remains the default until strict field A/B validation passes. "
+        "Default. Native (Rust) skeleton for the preparation stage. A scene that chose Python keeps it. "
         "An unavailable or stale port uses Python and names the fallback in the console. Applies to the next Build Decal Mesh",
     ),
 )
@@ -114,7 +114,7 @@ def skeleton_backend_of(mesh_settings) -> str:
 def backend_identity_of(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
     """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...` при нативном скелете.
 
-    Скелет на `PYTHON` (умолчание) строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
+    Явный скелет на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
     """
 
     name = normalize_kernel_backend(kernel_backend)
@@ -205,7 +205,7 @@ def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
     `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). Умолчание `backend` —
-    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
+    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON, skeleton_backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
     завершился бы; `NATIVE_PARTIAL_EFFECTS_REFUSED`: пояс, состояние сдвинулось), ответ домена недействителен, каким бы он ни вернулся (исключение могла
     проглотить промежуточная стадия): домен отказан этим именем.
 

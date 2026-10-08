@@ -3,7 +3,7 @@
 Скелет считается в ПОДГОТОВКЕ (`prepare_conveyor` -> `_prepare_region`), а подготовка идёт до `produce_domain` — в родителе и в воркерах пула. Нативное ядро здесь подставное
 (`_fake_native`: отвечает эталоном и пишет, в каком блоке его позвали). Что держат тесты:
 
-1. УМОЛЧАНИЕ СТАДИИ — `PYTHON` (`DEFAULT_SKELETON_BACKEND`), и оно названо своим единственным местом; покрытие и резка при этом остаются `NATIVE`.
+1. УМОЛЧАНИЕ СТАДИИ — `NATIVE` (`DEFAULT_SKELETON_BACKEND`), и оно названо своим единственным местом; покрытие и резка при этом остаются `NATIVE`.
 2. БЛОК БЭКЕНДА СТОИТ ВОКРУГ ПОДГОТОВКИ на каждом пути, где её строят: родитель (`prepare_for_production`, кэш сессии), холодная задача воркера (`solve_cold_production_task`),
    очередь (`run_queue_domain`, в том числе задача `solve_task` и задача с выгрузкой `solve_exported_task`), провайдер подготовки отладочной сессии.
 3. ЗАПИСЬ ДОМЕНА несёт скелет ОТДЕЛЬНО (`skeleton_*`), доезжает из воркера и сливается с записью материализации; строка журнала называет стадии порознь.
@@ -76,27 +76,28 @@ def keys_of(controller):
 # --------------------------------------------------------------------------
 
 
-def test_the_skeleton_stage_defaults_to_python_while_coverage_and_clip_stay_native():
+def test_the_skeleton_stage_defaults_to_native_with_coverage_and_clip():
     from types import SimpleNamespace
 
-    assert host_backend.DEFAULT_SKELETON_BACKEND == "PYTHON" and host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
-    assert host_backend.skeleton_backend_of(SimpleNamespace()) == "PYTHON"
+    assert host_backend.DEFAULT_SKELETON_BACKEND == "NATIVE" and host_backend.DEFAULT_KERNEL_BACKEND == "NATIVE"
+    assert host_backend.skeleton_backend_of(SimpleNamespace()) == "NATIVE"
     assert host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="NATIVE")) == "NATIVE"
     assert host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="PYTHON")) == "PYTHON"
     with pytest.raises(ValueError, match="unknown kernel backend"):
         host_backend.skeleton_backend_of(SimpleNamespace(skeleton_backend="RUST"))
     # порядок пунктов — формат хранения в сцене (индекс): PYTHON = 0, NATIVE = 1
     assert [item[0] for item in host_backend.SKELETON_BACKEND_ITEMS] == ["PYTHON", "NATIVE"]
-    assert "Default" in host_backend.SKELETON_BACKEND_ITEMS[0][2] and "Default" not in host_backend.SKELETON_BACKEND_ITEMS[1][2]
+    assert "Default" not in host_backend.SKELETON_BACKEND_ITEMS[0][2] and "Default" in host_backend.SKELETON_BACKEND_ITEMS[1][2]
     # задача пула и прогон несут умолчание стадии
     task = pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset())
-    assert (task.backend, task.skeleton_backend) == ("NATIVE", "PYTHON")
+    assert (task.backend, task.skeleton_backend) == ("NATIVE", "NATIVE")
     assert pickle.loads(pickle.dumps(pool_module.DomainTaskV1(1, 0, "d", None, None, "0.25", frozenset(), skeleton_backend="NATIVE"))).skeleton_backend == "NATIVE"
 
 
 def test_the_identity_of_the_stage_and_of_the_execution(monkeypatch):
-    assert host_backend.skeleton_identity_of() == "PYTHON" and host_backend.skeleton_identity_of("NATIVE") == "NATIVE:unavailable"
-    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:unavailable" == host_backend.backend_identity_of("NATIVE", "PYTHON")
+    assert host_backend.skeleton_identity_of("PYTHON") == "PYTHON" and host_backend.skeleton_identity_of() == "NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE", "PYTHON") == "NATIVE:unavailable"
+    assert host_backend.backend_identity_of("NATIVE") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
     assert host_backend.backend_identity_of("NATIVE", "NATIVE") == "NATIVE:unavailable|skeleton=NATIVE:unavailable"
     _fake_native()
     assert host_backend.skeleton_identity_of("NATIVE") == f"NATIVE:{BUILD_ID}"
@@ -136,18 +137,18 @@ def test_a_native_skeleton_press_gives_the_python_answer_computes_the_skeleton_i
     assert host_backend.backend_timing_suffix(reference.results, "PYTHON", "PYTHON") == ""
 
 
-def test_the_default_press_names_the_python_skeleton_in_one_word_and_computes_it_by_the_oracle(row):
+def test_the_default_press_computes_the_native_skeleton_and_names_its_actual_calls(row):
     module = _fake_native()
     calls = native_skeleton(module)
 
     run = _press(row, EnvelopeDebugSessionController(), workers=0)
 
-    assert calls == []
-    assert run.skeleton_backend == "PYTHON" and run.kernel_backend == "NATIVE"
-    assert all(item.backend_record.skeleton_requested == "PYTHON" and item.backend_record.skeleton_ran == "" for item in run.results)
+    assert calls == [("NATIVE", "NATIVE")] * ROW
+    assert run.skeleton_backend == "NATIVE" and run.kernel_backend == "NATIVE"
+    assert all(item.backend_record.skeleton_requested == "NATIVE" and item.backend_record.skeleton_native_calls == 1 and not item.backend_record.skeleton_outcomes for item in run.results)
     line = host_backend.backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend)[0]
-    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native ") and line.endswith("; skeleton python")
-    assert "skeleton native" not in production.production_timing_text(run)
+    assert line.startswith("[CFTUV][Production] BACKEND coverage/clip native ") and line.endswith(f"; skeleton native {ROW} / python 0")
+    assert f"skeleton native {ROW} / python 0" in production.production_timing_text(run)
 
 
 def test_both_stages_native_are_named_apart_in_one_line(row):
@@ -180,7 +181,7 @@ def test_a_cold_press_in_the_worker_pool_ships_the_stage_computes_the_skeleton_i
     # заказ без слова про скелет — умолчание стадии, оно едет в задачу
     tasks.clear()
     _press(row, EnvelopeDebugSessionController(), workers=2)
-    assert tasks and {task.skeleton_backend for task in tasks} == {"PYTHON"}
+    assert tasks and {task.skeleton_backend for task in tasks} == {"NATIVE"}
 
 
 def test_a_warm_press_on_the_cached_preparations_does_not_compute_a_skeleton_and_the_line_says_so(row, pool):
@@ -265,14 +266,14 @@ def test_the_debug_session_preparation_is_keyed_by_the_default_stage_and_a_produ
     calls = native_skeleton(module)
     controller = EnvelopeDebugSessionController()
 
-    _debug_build(row, controller)  # провайдер подготовки отладочной сессии: умолчание стадии (`PYTHON`)
-    assert calls == [] and keys_of(controller) == ["PYTHON"] * ROW
+    _debug_build(row, controller)  # провайдер подготовки отладочной сессии: умолчание стадии (`NATIVE`)
+    assert len(calls) == ROW and keys_of(controller) == [f"NATIVE:{BUILD_ID}"] * ROW
 
-    same, _ = press(row, skeleton="PYTHON", backend="NATIVE", controller=controller)  # умолчание: подготовки отладки берутся
+    same, _ = press(row, skeleton="NATIVE", backend="NATIVE", controller=controller)  # умолчание: подготовки отладки берутся
     assert same.counter(production.PRODUCTION_PREPARATION_BUILDS) == 0 and same.counter(production.PRODUCTION_PREPARATION_REUSED) == ROW
 
-    native, _ = press(row, skeleton="NATIVE", controller=controller)  # другая стадия: подготовки отладки не читаются
-    assert native.counter(production.PRODUCTION_PREPARATION_BUILDS) == ROW and native.counter(production.PRODUCTION_PREPARATION_REUSED) == 0
+    python, _ = press(row, skeleton="PYTHON", controller=controller)  # другая стадия: подготовки отладки не читаются
+    assert python.counter(production.PRODUCTION_PREPARATION_BUILDS) == ROW and python.counter(production.PRODUCTION_PREPARATION_REUSED) == 0
     assert len(calls) == ROW
 
 
@@ -282,11 +283,11 @@ def test_the_content_key_and_the_scan_memo_key_carry_the_stage(row, monkeypatch)
     from cftuv.envelope_content_key import domain_content_key, execution_identity
 
     export, selected = next(iter(_domains(row).values()))
-    assert domain_content_key(export, selected) == domain_content_key(export, selected, None, "NATIVE", "PYTHON")
+    assert domain_content_key(export, selected) == domain_content_key(export, selected, None, "NATIVE", "NATIVE")
     assert domain_content_key(export, selected, None, "NATIVE", "NATIVE") != domain_content_key(export, selected, None, "NATIVE", "PYTHON")
     assert domain_content_key(export, selected, None, "PYTHON", "NATIVE") != domain_content_key(export, selected, None, "PYTHON", "PYTHON")
     assert execution_identity("NATIVE", "NATIVE") != execution_identity("NATIVE", "PYTHON")
-    assert execution_identity() == execution_identity("NATIVE", "PYTHON")
+    assert execution_identity() == execution_identity("NATIVE", "NATIVE")
 
     # запись сборки несёт ключ подготовки, поэтому память записей ключится стадией: запись под другим скелетом не принимается
     seen: list = []
@@ -398,9 +399,9 @@ def test_prepare_for_production_runs_the_preparation_in_the_block_and_returns_th
     plain = production.prepare_for_production(snapshot, request, backend="PYTHON", skeleton_backend="PYTHON")
     assert plain.outcome == prepared.outcome and len(calls) == 1
     assert production.prepare_for_production_recorded(snapshot, request, backend="PYTHON", skeleton_backend="PYTHON")[1] is None
-    # умолчание продукта: покрытие и резка заказаны, скелет нет - запись называет заказ стадии и не называет счёта
+    # умолчание продукта: все стадии заказаны NATIVE; запись подготовки называет настоящий вызов скелета
     default_record = production.prepare_for_production_recorded(snapshot, request)[1]
-    assert default_record.requested == "NATIVE" and default_record.skeleton_requested == "PYTHON" and default_record.skeleton_ran == ""
+    assert default_record.requested == "NATIVE" and default_record.skeleton_requested == "NATIVE" and default_record.skeleton_ran == "native" and default_record.skeleton_native_calls == 1
 
     native_skeleton(module, raising=lambda: module.NativeDivisionDiverged("did not finish"))
     with pytest.raises(host_backend.PreparationRefused, match="NATIVE_DIVISION_DIVERGED") as refused:
@@ -433,9 +434,9 @@ def test_the_queue_preparation_runs_in_the_block_through_the_session_provider_an
     # провайдер, у которого подготовка уже в кэше, скелета не считает
     queue_export.run_queue_domain(0, "domain", snapshot, request, "0.25", preparation_provider=provider, backend="PYTHON", skeleton_backend="NATIVE")
     assert len(calls) == 1
-    # без заказа стадии — умолчание: эталон, запись называет заказ PYTHON
+    # без заказа стадии — умолчание NATIVE: настоящий второй вызов и запись подготовки
     _prepared, plain = queue_export.run_queue_domain(0, "domain", snapshot, request, "0.25")
-    assert len(calls) == 1 and plain.backend_record.skeleton_requested == "PYTHON" and plain.backend_record.skeleton_ran == ""
+    assert len(calls) == 2 and plain.backend_record.skeleton_requested == "NATIVE" and plain.backend_record.skeleton_native_calls == 1
 
     # задача очереди воркера и задача с выгрузкой берут заказ у задачи, а не из умолчания
     for solve in (solve_task, solve_exported_task):

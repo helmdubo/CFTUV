@@ -1854,7 +1854,7 @@ def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются
 #: ТОЛЬКО в Rust; её Python-файлы — замороженный эталон-архив. Правка закреплённого файла такой стадии — это работа Rust-сессии:
 #: порт и новое закрепление в одном изменении, иначе эталон тихо разъехался бы с продуктом (продукт по умолчанию считает на Rust).
-RUST_ONLY_OPERATIONS = ("coverage", "clip")
+RUST_ONLY_OPERATIONS = ("coverage", "clip", "skeleton")
 
 
 def test_python_sources_of_rust_only_stages_stay_at_their_pin():

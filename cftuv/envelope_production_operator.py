@@ -106,8 +106,8 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         items=SKELETON_BACKEND_ITEMS,
         default=DEFAULT_SKELETON_BACKEND,
         description=(
-            "Which kernel computes the skeleton stage of the preparation: the frozen Python reference (default) or the "
-            "native (Rust) one. The answer and the price are bitwise the same; a domain the native kernel cannot compute "
+            "Which kernel computes the skeleton stage of the preparation: the native (Rust) one (default) or the "
+            "frozen Python reference. The answer and the price are bitwise the same; a domain the native kernel cannot compute "
             "is computed in Python and named in the console. Applies to the next Build Decal Mesh"
         ),
     )

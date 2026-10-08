@@ -731,7 +731,7 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
-    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, kernel_backend_of, skeleton_backend_of
+    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_PYTHON, kernel_backend_of, skeleton_backend_of
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
@@ -744,7 +744,7 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
         assert skeleton_backend_of(mesh_settings) == backend
     else:
         mesh_settings.kernel_backend = backend
-        mesh_settings.skeleton_backend = DEFAULT_SKELETON_BACKEND
+        mesh_settings.skeleton_backend = KERNEL_BACKEND_PYTHON  # изоляция coverage/clip не зависит от умолчания продукта
         assert kernel_backend_of(mesh_settings) == backend
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
