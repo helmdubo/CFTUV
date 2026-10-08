@@ -367,9 +367,6 @@ class _IdealTuple(tuple):
     window_law: str
     band_cache: dict
     band_orientation: int | None
-    # Факты главного поворота равноугольного веера (`angular.principal_turn_facts`): веер нормалей, из
-    # которого сняты ковекторы, их и несёт; у прочих вееров `None`.
-    turn_facts: tuple | None
 
 
 def _covectors(
@@ -399,7 +396,6 @@ def _covectors(
     values.band_orientation = (
         None if orientation is None else _expected_orientation(orientation)
     )
-    values.turn_facts = getattr(ideal_unit_normals, "turn_facts", None)
     return values
 
 

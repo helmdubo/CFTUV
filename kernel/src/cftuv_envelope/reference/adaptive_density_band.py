@@ -63,34 +63,6 @@ def _double_band_trig():
     )
 
 
-def _principal_sectors_are_inside_the_double_band(ideal) -> bool | None:
-    """Все сектора равноугольного веера ближе `2*omega` — рационально; `None`, если факты веера неприменимы.
-
-    Сектор такого веера равен `phi = theta/(H+1)` (`theta` — главный поворот угла, `H` — число скрытых
-    лучей), и `phi <= 2*omega` равносильно `cos(theta) >= T_{H+1}(cos 2*omega)`: многочлен Чебышёва от
-    рационального `cos 2*omega` рационален. Правая часть положительна (сектора узкие), поэтому условие —
-    `знак поворота > 0` и `cos^2(theta) >= T^2`. Это ровно тот же вопрос, что `_neighbour_is_inside_the_
-    double_band` задаёт знаку многочлена в радикалах, только без радикалов; не положительное `T` (широкий
-    сектор) условие не решает и уступает прежнему пути.
-    """
-
-    facts = getattr(ideal, "turn_facts", None)
-    if facts is None:
-        return None
-    sign, cosine_squared, gram = facts
-    metric = ideal.metric
-    if gram is not metric.gram and gram != metric.gram:
-        return None
-    t = ADAPTIVE_FAN_NARROW_BAND_HALF_TANGENT
-    cosine = (1 - t * t) / (1 + t * t)
-    previous, current = Fraction(1), cosine
-    for _ in range(len(ideal) - 2):
-        previous, current = current, 2 * cosine * current - previous
-    if current <= 0:
-        return None
-    return sign > 0 and cosine_squared >= current * current
-
-
 def _neighbour_is_inside_the_double_band(metric, vector, neighbour) -> bool:
     """Настоящий сосед идеала ближе `2*omega`: `cos(angle) >= cos(2*omega)`, ТОЧНО.
 
@@ -142,14 +114,9 @@ def window_neighbours(ideal, ordinal: int):
         if ideal.band_orientation is None:
             raise ValueError("the narrow band needs the turn orientation of the sector")
         center, metric = ideal[ordinal], ideal.metric
-        sectors_inside = _principal_sectors_are_inside_the_double_band(ideal)
         cache[ordinal] = tuple(
             real
-            if (
-                _neighbour_is_inside_the_double_band(metric, center, real)
-                if sectors_inside is None
-                else sectors_inside
-            )
+            if _neighbour_is_inside_the_double_band(metric, center, real)
             else _rotated_by_double_band(metric, center, sign, ideal.band_orientation)
             for real, sign in ((ideal[ordinal - 1], -1), (ideal[ordinal + 1], 1))
         )

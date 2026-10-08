@@ -460,13 +460,7 @@ def canonical_sectors_hold(context, ideal, q: int) -> bool:
     """
 
     from .adaptive_density_fan import _covectors, _subturn
-    from .angular import canonical_sector_over_pi
 
-    # Все `H` секторов — один и тот же точный поворот `u * pi / (H + 1)`: условие каждого —
-    # `u / (H + 1) <= 1 / q`, и повторять его для каждой пары незачем.
-    sector = canonical_sector_over_pi(context.metric, ideal)
-    if sector is not None:
-        return sector <= Fraction(1, q)
     covectors = _covectors(context.metric, ideal)
     return all(
         _subturn(context.metric, covectors[index], covectors[index + 1], q)

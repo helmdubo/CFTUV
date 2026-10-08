@@ -58,28 +58,9 @@ def ideal_is_exact_limit_with_irrational_direction(
     """
 
     from .adaptive_density_fan import _covectors, _subturn_boundary
-    from .angular import canonical_sector_over_pi, principal_turn_facts
     from .direction_binding import density_support_direction_rationality
 
     if len(ideal) < 3:
-        return False
-    # Равноугольный веер с рациональными фактами поворота: «не ровно на пределе» доказывается без
-    # многочлена (`turn_is_exactly_at_count_limit`), а «на пределе» уступает прежнему пути ниже.
-    facts = principal_turn_facts(metric, ideal)
-    if facts is not None and not turn_is_exactly_at_count_limit(
-        ExactTurnSignV1.POSITIVE
-        if facts[0] > 0
-        else ExactTurnSignV1.NEGATIVE
-        if facts[0] < 0
-        else ExactTurnSignV1.ZERO,
-        facts[1],
-        len(ideal) - 2,
-        q,
-    ):
-        return False
-    # Канонический веер: первый сектор ровно `pi / q`, только если `u / (H + 1) == 1 / q`.
-    sector = canonical_sector_over_pi(metric, ideal)
-    if sector is not None and sector != Fraction(1, q):
         return False
     covectors = _covectors(metric, ideal)
     if not _subturn_boundary(metric, covectors[0], covectors[1], q):

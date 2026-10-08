@@ -386,6 +386,11 @@ def _density_unit_from_squared(
     squared: sp.Expr,
     metric: ExactPlanarMetric | None = None,
 ) -> ExactPlanarVector:
+    if _density_exact_sign(squared, metric) <= 0:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+            "Density A support direction has non-positive Gram norm",
+        )
     if metric is not None:
         # Чистая функция `(x, y, squared)`: единичный вектор из квадрата. Повтор берётся из памяти
         # транзакции; отказ (неположительная норма) в память не попадает и повторяется как был.
@@ -395,11 +400,6 @@ def _density_unit_from_squared(
         cached = remembered.get(key)
         if cached is not None:
             return cached
-    if _density_exact_sign(squared, metric) <= 0:
-        raise ReferenceGeometryError(
-            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
-            "Density A support direction has non-positive Gram norm",
-        )
     if metric is None:
         x, y = vector.expressions()
     length = sp.sqrt(squared)
@@ -467,51 +467,6 @@ class _TurnAtom:
         self.turn_sign = None
         self.principal_turn = None
         self.basis = None
-
-
-class _PrincipalFan(tuple):
-    """Равноугольный веер по ГЛАВНОМУ повороту угла вместе с точными фактами этого поворота.
-
-    `turn_facts = (знак dot, cos^2 дробью, Грамм)` записаны тем же кодом, что строил веер, и верны ровно
-    для него: срез или перестановка возвращают обычный `tuple` без фактов. Факты позволяют ответить на
-    вопросы вида «подшаг не больше pi/q» рациональным сравнением вместо знака многочлена в радикалах.
-    """
-
-    turn_facts: tuple
-
-
-class _CanonicalFan(tuple):
-    """Канонический веер: лучи `0..H` — ТОЧНЫЕ повороты входящей опоры на `j * u * pi / (H + 1)`.
-
-    `canonical_facts = (u, Грамм)`. Последний сектор (до исходящей опоры вычислительной геометрии) на
-    повороты не опирается и фактами не описан: они говорят только о первых `H` секторах.
-    """
-
-    canonical_facts: tuple
-
-
-def canonical_sector_over_pi(metric, ideal):
-    """Доля `pi` одного из первых `H` секторов канонического веера, `u / (H + 1)`, либо `None`."""
-
-    facts = getattr(ideal, "canonical_facts", None)
-    if facts is None or len(ideal) < 3:
-        return None
-    fraction, gram = facts
-    if gram is not metric.gram and gram != metric.gram:
-        return None
-    return fraction / (len(ideal) - 1)
-
-
-def principal_turn_facts(metric, ideal):
-    """`(знак, cos^2)` главного поворота веера либо `None`, если веер не равноугольный или чужого Грамма."""
-
-    facts = getattr(ideal, "turn_facts", None)
-    if facts is None:
-        return None
-    sign, cosine_squared, gram = facts
-    if gram is not metric.gram and gram != metric.gram:
-        return None
-    return sign, cosine_squared
 
 
 def _turn_atom(metric, incoming, outgoing, orientation_sign):
@@ -675,23 +630,6 @@ def _huber_density_interpolated_normals(
     # `principal_turn in (0, pi)` доказан signed-cos² и знаком cross.
     # Поэтому каждая разность соседних ordinal углов строго одного знака.
     fan = (atom.incoming, *hidden, atom.outgoing)
-    if rational_rotation is None:
-        if canonical_excess_over_pi is None:
-            fan = _PrincipalFan(fan)
-            fan.turn_facts = (
-                atom.turn_sign,
-                Fraction(int(cosine_squared.p), int(cosine_squared.q)),
-                metric.gram,
-            )
-        else:
-            fan = _CanonicalFan(fan)
-            fan.canonical_facts = (
-                Fraction(
-                    canonical_excess_over_pi.numerator,
-                    canonical_excess_over_pi.denominator,
-                ),
-                metric.gram,
-            )
     memo.fans[fan_key] = fan
     return fan
 
@@ -1116,36 +1054,6 @@ def _compare_turn_cos_squared(
     raise ValueError("Density H-lift threshold is outside q<=6")
 
 
-def turn_count_is_feasible(
-    sign: int,
-    cosine_squared: Fraction,
-    hidden_count: int,
-    q: int,
-) -> bool:
-    """theta/(H+1)<=pi/q по знаку и `cos^2` поворота `theta` в `(0, pi)` — рационально и точно."""
-
-    threshold_turn = Fraction(hidden_count + 1, q)
-    if threshold_turn >= 1:
-        return True
-    if threshold_turn == Fraction(1, 2):
-        return sign >= 0
-    return _turn_beyond_half_is_feasible(sign, cosine_squared, threshold_turn)
-
-
-def _turn_beyond_half_is_feasible(
-    sign: int,
-    cosine_squared: Fraction,
-    threshold_turn: Fraction,
-) -> bool:
-    comparison = _compare_turn_cos_squared(
-        cosine_squared,
-        threshold_turn,
-    )
-    if threshold_turn < Fraction(1, 2):
-        return sign > 0 and comparison >= 0
-    return sign >= 0 or comparison <= 0
-
-
 def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
     """Проверить theta/(H+1)<=pi/q по sealed signed-cos² рационально."""
 
@@ -1165,7 +1073,13 @@ def _lift_count_is_feasible(lift, hidden_count: int) -> bool:
         lift.evaluation_turn_cosine_squared.numerator,
         lift.evaluation_turn_cosine_squared.denominator,
     )
-    return _turn_beyond_half_is_feasible(sign, cosine_squared, threshold_turn)
+    comparison = _compare_turn_cos_squared(
+        cosine_squared,
+        threshold_turn,
+    )
+    if threshold_turn < Fraction(1, 2):
+        return sign > 0 and comparison >= 0
+    return sign >= 0 or comparison <= 0
 
 
 def _verify_evaluation_subturn_count_lift(
