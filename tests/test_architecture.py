@@ -332,6 +332,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "budget",
         "slide",
         "kernel_backend",
+        "skeleton_backend",
         "pool",
         "cancel",
         "exc",
@@ -901,7 +902,8 @@ MODULE_LINE_ALLOWANCE = {
     # строка журнала и сама настройка живут в `envelope_kernel_backend.py` (здесь — декоратор `produce_domain`, пять мест проводки
     # и два поля прогона). Файл стоял на 13 строках от общего потолка; вынести кусок, не трогая десяток имён, которые
     # импортируют тесты и инструменты, нечем. Число поднято осознанно, до фактического.
-    "cftuv/envelope_production_export.py": 2010,
+    # 2010 -> 1910: статус, консоль, квитанция и JSON-свидетельство вынесены в `envelope_production_report.py` (место под подготовку под блоком бэкенда).
+    "cftuv/envelope_production_export.py": 1910,
 }
 
 
@@ -1782,6 +1784,71 @@ def test_the_dispatch_hook_detector_flags_a_wired_module_and_passes_a_plain_one(
     plain = "from .sqrt_sum import SqrtSumV1\n\ndef f():\n    return _coverage_at(1)\n"
     assert _dispatch_hooks(ast.parse(wired))
     assert not _dispatch_hooks(ast.parse(plain))
+
+
+def _call_sites(tree: ast.AST, name: str) -> list[tuple[str, ...]]:
+    """Вызовы `name(...)` (по имени либо как атрибут) и цепочка охватывающих функций каждого (внешняя первой)."""
+
+    found: list[tuple[str, ...]] = []
+
+    def visit(node: ast.AST, stack: tuple[str, ...]) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            stack = (*stack, node.name)
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Name) and func.id == name) or (isinstance(func, ast.Attribute) and func.attr == name):
+                found.append(stack)
+        for child in ast.iter_child_nodes(node):
+            visit(child, stack)
+
+    visit(tree, ())
+    return found
+
+
+#: Где хост строит подготовку (`prepare_conveyor`): скелет считается в ней, и блок бэкенда обязан стоять вокруг. Внешняя функция: что вокруг.
+#: `prepare_for_production_recorded` и `run_queue_domain` ставят блок сами (`prepared_under_backend`); провайдер подготовки отладочной сессии
+#: (`evaluate_staged` -> `preparation_provider`) вызывается ИЗНУТРИ блока `run_queue_domain`, поэтому своего блока не ставит (второй заслонил бы запись первого).
+_PREPARATION_SITES = {
+    "envelope_production_export.py": {"prepare_for_production_recorded"},
+    "envelope_queue_export.py": {"run_queue_domain"},
+    "envelope_debug_session.py": {"evaluate_staged"},
+}
+
+
+def test_every_host_preparation_stands_under_the_backend_block():
+    """Новый путь, строящий подготовку мимо блока бэкенда, считал бы скелет эталоном при заказе нативного (и записи бы не было): тихий разнобой стадий."""
+
+    sites: dict[str, set[str]] = {}
+    for path in _python_files(HOST_PACKAGE):
+        for stack in _call_sites(_parse(path), "prepare_conveyor"):
+            sites.setdefault(path.name, set()).add(stack[0] if stack else "<module>")
+    assert sites == _PREPARATION_SITES, (
+        f"подготовка строится в {sites}, а блок бэкенда стоит в {_PREPARATION_SITES}: новому пути нужен `prepared_under_backend` "
+        "(`envelope_kernel_backend`) либо он идёт изнутри блока `run_queue_domain`, и тогда его место называется здесь"
+    )
+    for name in ("envelope_production_export.py", "envelope_queue_export.py"):
+        scoped = {stack[0] for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepared_under_backend")}
+        assert scoped == _PREPARATION_SITES[name], name
+    # холодная задача воркера и родитель строят подготовку одной функцией, блок которой несёт запись скелета
+    for name, function in (("envelope_production_export.py", "solve_cold_production_task"), ("envelope_production_export.py", "_produce_cold_in_parent")):
+        assert any(stack[0] == function for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepare_for_production_recorded")), function
+
+
+def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
+    """`build_skeleton` зовёт только диспетчер бэкенда (эталон берётся при вызове, `backend._python_skeleton`); `_prepare_region` зовёт `backend.skeleton_compute`."""
+
+    callers: dict[str, int] = {}
+    for path in _python_files(KERNEL_SOURCE):
+        count = len(_call_sites(_parse(path), "build_skeleton"))
+        if count:
+            callers[_relative(path)] = count
+    # единственный вызов по имени — `module.build_skeleton(...)` нативного шима внутри `backend.skeleton_compute`; эталон диспетчер зовёт через `oracle(...)`
+    assert callers == {"kernel/src/cftuv_envelope/backend.py": 1}, f"build_skeleton зовут мимо диспетчера: {sorted(callers)}"
+    conveyor = KERNEL_SOURCE / "cftuv_envelope" / "wavefront" / "conveyor.py"
+    assert [stack[0] for stack in _call_sites(_parse(conveyor), "skeleton_compute")] == ["_prepare_region"]
+    assert not any(isinstance(node, ast.ImportFrom) and any(alias.name == "build_skeleton" for alias in node.names) for node in ast.walk(_parse(conveyor)))
+    backend_module = KERNEL_SOURCE / "cftuv_envelope" / "backend.py"
+    assert "from .wavefront.skeleton import build_skeleton" in _source_text(backend_module)
 
 
 #: Стадии, переведённые на Rust насовсем (решение владельца 2026-10-07: пересадка ядра по стадиям). Законы такой стадии меняются

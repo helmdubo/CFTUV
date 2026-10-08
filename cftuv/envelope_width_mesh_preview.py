@@ -192,12 +192,14 @@ def sample_key(record, offset: float) -> tuple:
     другая политика дают другой меш (`build_model` отказывает именем `PREVIEW_KEY_MISMATCH`).
     """
 
+    from .envelope_kernel_backend import DEFAULT_SKELETON_BACKEND
     from .envelope_request_policy import normalize_envelope_fan_density
 
     return (
         str(record.source_name),
         str(record.source_digest),
         str(record.kernel_backend),
+        str(getattr(record, "skeleton_backend", DEFAULT_SKELETON_BACKEND)),
         str(normalize_envelope_fan_density(record.density)),
         int(record.stretch_percent),
         float(record.dissolve_percent),

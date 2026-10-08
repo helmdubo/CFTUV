@@ -363,3 +363,123 @@ def test_the_names_the_strict_gate_relies_on_are_the_names_of_the_kernel_and_the
     assert ab.STEP_FAST == PATH_FAST and ab.MATERIALIZED == MATERIALIZED
     assert ab.ALLOWED_FALLBACKS == {BackendOutcomeV1.NATIVE_NOT_REACHED.value}
     assert ab.NOT_MEASURED["apply_seconds"].startswith("NOT_MEASURED"), "the apply stage is named as not measured, never silently absent"
+
+
+def _skeleton_record(ran, *outcomes, native=None, python=None, coverage="python"):
+    calls = {"native": (1, 0), "python": (0, 1), "mixed": (1, 1), "": (0, 0)}[ran]
+    return SimpleNamespace(
+        ran=coverage,
+        native_calls=0,
+        python_calls=0,
+        outcomes=(),
+        skeleton_ran=ran,
+        skeleton_native_calls=calls[0] if native is None else native,
+        skeleton_python_calls=calls[1] if python is None else python,
+        skeleton_outcomes=tuple(outcomes),
+    )
+
+
+def test_the_skeleton_stage_has_its_own_runner_and_fallbacks_in_the_row_and_the_summary(ab):
+    assert ab.STAGES == ("coverage_clip", "skeleton")
+    row = ab.domain_row(_result(5, record=_skeleton_record("native")))
+    assert (row["skeleton_ran"], row["skeleton_native_calls"], row["skeleton_python_calls"], row["skeleton_fallbacks"]) == ("native", 1, 0, [])
+    plain = ab.domain_row(_result(6, record=_record("native")))  # запись до скелета: «скелет не считался»
+    assert (plain["skeleton_ran"], plain["skeleton_native_calls"], plain["skeleton_fallbacks"]) == ("", 0, [])
+
+    python = [ab.domain_row(_result(patch, seconds=4.0)) for patch in range(4)]
+    native = [
+        ab.domain_row(_result(0, seconds=1.0, record=_skeleton_record("native"))),
+        ab.domain_row(_result(1, seconds=1.0, record=_skeleton_record("python", "NATIVE_PORT_STALE"))),
+        ab.domain_row(_result(2, seconds=1.0, record=_skeleton_record(""))),  # подготовка из кэша: скелет не считался
+        ab.domain_row(_result(3, seconds=9.0, placement="cache", record=_skeleton_record("native"))),
+    ]
+    summary = ab.summarize_width(0.25, python, native, {"wall_seconds": 12.3456, "pack_seconds": 0}, {"wall_seconds": 7.0, "pack_seconds": 0}, stage=ab.STAGE_SKELETON, prepared_patches={2})
+    assert summary["stage"] == "skeleton" and not ab.has_differences(summary)
+    assert summary["ran"] == {"native": 1, "python": 1, "mixed": 0}
+    assert summary["fallbacks"] == {"NATIVE_PORT_STALE": [1]}
+    assert (summary["python_interaction"], summary["native_interaction"]) == (12.346, 7.0)
+    # стадия покрытия и резки на тех же строках считает по своим полям
+    assert ab.summarize_width(0.25, python, native)["ran"] == {"native": 0, "python": 3, "mixed": 0}
+
+
+def test_the_table_shows_the_press_wall_of_both_backends_and_the_final_line_names_the_stage(ab):
+    python = [ab.domain_row(_result(patch, seconds=2.0)) for patch in range(2)]
+    native = [ab.domain_row(_result(patch, seconds=1.0, record=_skeleton_record("native"))) for patch in range(2)]
+    case = {"case": "building:0.25:2:20", "widths": [ab.summarize_width(0.25, python, native, {"wall_seconds": 11.0, "pack_seconds": 0}, {"wall_seconds": 8.5, "pack_seconds": 0}, stage="skeleton")]}
+    lines = ab.format_table({"cases": [case]}).splitlines()
+    assert "py wall" in lines[0] and "nat wall" in lines[0] and "11.00" in lines[2] and "8.50" in lines[2]
+    totals = ab.totals_of([case])
+    assert ab.final_line({"status": "OK", "totals": totals, "stage": "skeleton"}).endswith("stage=skeleton")
+    assert ab.final_line({"status": "OK", "totals": totals}).endswith("stage=coverage_clip")
+    unavailable = ab.final_line(ab.unavailable_report({"coverage": "available", "clip": "available", "detail": "", "skeleton": "unavailable"}, "C:/tree", []))
+    assert unavailable.startswith("NATIVE_AB_UNAVAILABLE coverage=available clip=available") and unavailable.endswith("skeleton=unavailable")
+
+
+def _skeleton_width(ab, rows, *, prepared=(), step=0):
+    python = [ab.domain_row(_result(row["patch_id"])) for row in rows]
+    width = ab.summarize_width(0.25 + step * 0.01, python, rows, stage=ab.STAGE_SKELETON, prepared_patches=prepared)
+    width["step"] = step
+    return width
+
+
+def test_skeleton_preflight_requires_its_port_without_weakening_coverage_clip(ab):
+    assert ab.parse_arguments([]).stage == ab.STAGE_COVERAGE_CLIP
+    assert ab.parse_arguments(["--stage", "skeleton"]).stage == ab.STAGE_SKELETON
+    available = {**NATIVE_OK, "skeleton": "available"}
+    assert ab.port_violations(available, "abc123", ab.STAGE_SKELETON) == []
+    for state, name in (("unavailable", "STRICT_PORT_UNAVAILABLE"), ("stale(skeleton.py)", "STRICT_PORT_STALE")):
+        status = {**available, "skeleton": state}
+        assert ab.port_violations(status, "abc123") == []
+        assert ab.port_violations(status, "abc123", ab.STAGE_SKELETON) == [f"{name}: skeleton={state}"]
+    missing = ab.port_violations({**available, "clip": "unavailable"}, "abc123", ab.STAGE_SKELETON)
+    assert missing == ["STRICT_PORT_UNAVAILABLE: clip=unavailable"]
+    wrong = ab.port_violations(available, "other", ab.STAGE_SKELETON)
+    assert wrong == ["STRICT_BUILD_ID_MISMATCH: expected other, loaded abc123"]
+
+
+def test_skeleton_strict_counts_only_the_skeleton_calls_and_refuses_its_fallbacks(ab):
+    rows = [ab.domain_row(_result(0, record=_skeleton_record("native")))]
+    case = {"case": "building", "widths": [_skeleton_width(ab, rows)]}
+    report = _report(ab, [case], status={**NATIVE_OK, "skeleton": "available"}, stage="skeleton")
+    assert ab.strict_violations(report, "abc123") == []
+    assert report["totals"]["native_calls"] == 1
+    rows[0] = ab.domain_row(_result(0, record=_skeleton_record("python", "NATIVE_PORT_STALE", coverage="native")))
+    case["widths"] = [_skeleton_width(ab, rows)]
+    found = ab.strict_violations(report, "abc123")
+    assert any(line.startswith("STRICT_UNEXPECTED_FALLBACK: NATIVE_PORT_STALE") for line in found)
+    assert any(line.startswith("STRICT_CASE_NEVER_NATIVE") for line in found)
+
+
+def test_skeleton_not_reached_needs_a_prior_native_preparation_and_fast_hit_is_not_evidence(ab):
+    rows = [ab.domain_row(_result(0, record=_skeleton_record(""), step_path="FAST_HIT"))]
+    cold = _skeleton_width(ab, rows)
+    assert cold["unexplained_not_reached"] == [0]
+    assert ab.width_violations("building", cold)[0].startswith("STRICT_NOT_REACHED_UNEXPLAINED")
+    warm = _skeleton_width(ab, rows, prepared={0}, step=1)
+    assert warm["preparation_reused"] == [0] and warm["unexplained_not_reached"] == []
+    assert ab.width_violations("building", warm) == []
+    assert ab.case_violations({"case": "building", "widths": [warm]})[0].startswith("STRICT_CASE_NEVER_NATIVE")
+
+
+def test_skeleton_case_reuse_is_derived_from_actual_earlier_calls_per_patch(ab, monkeypatch):
+    def fake_run(_controller, _spec, backend, _args):
+        def step(index, records):
+            return {"width": 0.25 + index * 0.01, "rows": [ab.domain_row(_result(patch, record=record, step_path="FAST_HIT")) for patch, record in enumerate(records)]}
+        if backend == "NATIVE":
+            return [step(0, [_skeleton_record("native"), _skeleton_record("")]), step(1, [_skeleton_record(""), _skeleton_record("")])]
+        return [step(0, [None, None]), step(1, [None, None])]
+
+    monkeypatch.setattr(ab, "_run_backend", fake_run)
+    case = ab._case(None, "building", 0, SimpleNamespace(stage="skeleton"))
+    cold, warm = case["widths"]
+    assert cold["unexplained_not_reached"] == [1]
+    assert warm["preparation_reused"] == [0] and warm["unexplained_not_reached"] == [1]
+
+
+def test_a_skeleton_trial_cannot_hide_a_fallback_of_its_native_prerequisite(ab):
+    record = _skeleton_record("native")
+    record.outcomes = ("NATIVE_PORT_STALE",)
+    rows = [ab.domain_row(_result(0, record=record))]
+    width = _skeleton_width(ab, rows)
+    assert width["fallbacks"] == {} and width["prerequisite_fallbacks"] == {"NATIVE_PORT_STALE": [0]}
+    assert ab.width_violations("building", width) == ["STRICT_UNEXPECTED_FALLBACK: coverage_clip NATIVE_PORT_STALE case building width 0.25 patches [0]"]

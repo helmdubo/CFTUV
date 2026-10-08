@@ -82,7 +82,7 @@ import traceback
 from collections import deque
 from dataclasses import dataclass, replace
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -219,6 +219,9 @@ class DomainTaskV1:
     #: Бэкенд ядра воркера для домена продуктового пути (`PYTHON` | `NATIVE`, `envelope_kernel_backend`): ответ от него не зависит;
     #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`). Умолчание — продуктовое.
     backend: str = DEFAULT_KERNEL_BACKEND
+    #: Бэкенд стадии скелета воркера (`PYTHON` | `NATIVE`): скелет считается в подготовке (холодная задача, задача очереди), а не в материализации, и воркер ставит блок
+    #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, в этом срезе `PYTHON`).
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +477,8 @@ def solve_task(task: DomainTaskV1) -> DomainTaskResultV1:
             task.alpha_text,
             selected_edges=task.selected_edges,
             profile=None,
+            backend=task.backend,
+            skeleton_backend=task.skeleton_backend,
         )
         return DomainTaskResultV1(
             task.task_id, prepared, replace(domain, preparation=None)
