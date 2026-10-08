@@ -80,8 +80,8 @@ SKELETON_BACKEND_ITEMS = (
     (
         KERNEL_BACKEND_NATIVE,
         "Native (Rust)",
-        "The skeleton in the native kernel (cftuv_native.build_skeleton). The answer and the price are bitwise the same; a domain the native "
-        "kernel cannot compute is computed in Python and named in the console. Applies to the next Build Decal Mesh",
+        "Explicit test opt-in for the native skeleton. Python remains the default until strict field A/B validation passes. "
+        "An unavailable or stale port uses Python and names the fallback in the console. Applies to the next Build Decal Mesh",
     ),
 )
 #: Сколько номеров патчей называет строка журнала на исход.

@@ -59,6 +59,35 @@ def _no_pool_outlives_the_module():
 # --------------------------------------------------------------------------
 
 
+class _Layout:
+    """`mesh.loops` и `mesh.polygons` фальшивого меша: длина и `foreach_get` (владение мешем читает отпечаток раскладки)."""
+
+    def __init__(self, count) -> None:
+        self.count = count
+
+    def __len__(self) -> int:
+        return self.count
+
+    def foreach_get(self, name, buffer) -> None:
+        buffer[:] = 0
+
+
+class _FakeMesh(dict):
+    """Меш декали: свойства (ширина записи) и раскладка, которую читает `capture_ownership`."""
+
+    def __init__(self, props) -> None:
+        super().__init__(props)
+        self.vertices, self.edges = [None] * 4, [None] * 5
+        self.loops, self.polygons = _Layout(6), _Layout(2)
+
+    def as_pointer(self) -> int:
+        return id(self)
+
+    @property
+    def session_uid(self) -> int:
+        return id(self) % 1_000_000_007
+
+
 class _Props:
     """Свойства объекта Blender, как их читает хост: `keys`, индекс, `get`."""
 
@@ -79,6 +108,13 @@ class _Props:
     def get(self, key, default=None):
         return self._props.get(key, default)
 
+    def as_pointer(self) -> int:
+        return id(self)
+
+    @property
+    def session_uid(self) -> int:
+        return id(self) % 1_000_000_007
+
 
 class _Decal(_Props):
     """Объект декали: режим, имя, метки сборки и меш, чьи свойства (`keys`, индекс) хранят ширину записи."""
@@ -91,7 +127,7 @@ class _Decal(_Props):
                 production_mesh.DECAL_REVISION_PROPERTY: revision,
             },
         )
-        self.data = {production_mesh.DECAL_WIDTH_PROPERTY: width}
+        self.data = _FakeMesh({production_mesh.DECAL_WIDTH_PROPERTY: width})
 
 
 class _FakeBpy(types.ModuleType):
@@ -201,6 +237,7 @@ class _World:
         self.decal.data[production_mesh.DECAL_WIDTH_PROPERTY] = width
         arrays = production_mesh.build_mesh_arrays(results, offset) if arrays is None else arrays
         return types.SimpleNamespace(
+            object_name=self.decal.name,
             domains=arrays.domains,
             skipped=arrays.skipped,
             warnings=arrays.warnings,
@@ -482,6 +519,12 @@ def test_five_changes_give_five_previews_and_one_exact_result_equal_to_a_direct_
     assert world.mesh_settings.status.startswith("MATERIALIZED")
     assert "live width 0.34" in world.mesh_settings.timing
     assert [line for line in live.status_lines(world.controller) if PREVIEW_BINARY64_V1 in line] == []  # линий превью нет
+    # Точная запись зафиксировала владение мешем: образец на экране, поколение раскладки, тождество объекта и датаблока декали.
+    owner = world.controller.width_mesh_owner
+    assert owner is not None and owner.sample is world.controller.width_displayed and owner.generation == 1
+    assert owner.object_pointer == world.decal.as_pointer() and owner.mesh_pointer == world.decal.data.as_pointer()
+    refusals = world.controller.width_preview_log.refusals  # первый точный результат без других образцов: модели не на чем строиться, и это названо
+    assert refusals == {"PREVIEW_NO_OTHER_EXACT_SAMPLE": 1}, refusals
 
 
 def test_a_width_change_without_a_build_does_nothing_and_orders_nothing(monkeypatch):

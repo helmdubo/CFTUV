@@ -59,7 +59,7 @@ from .envelope_production_mesh import (
 )
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .envelope_width_live import remember_build
-from .envelope_width_mesh_preview import build_sample, note_button_display, sample_key
+from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
 
 SETTINGS_ATTRIBUTE = "hotspotuv_decal_mesh"
 UNDO_REQUIRED_REASON = (
@@ -264,10 +264,10 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 kernel_backend=kernel_backend,
                 skeleton_backend=skeleton_backend,
             )
-            note_button_display(
-                controller,
-                build_sample(run.results, arrays, sample_key(record, offset), float(settings.envelope_debug_alpha)),
-            )
+            sample = build_sample(run.results, arrays, sample_key(record, offset), float(settings.envelope_debug_alpha))
+            note_button_display(controller, sample)
+            # Владение мешем (тождество, размеры, поколение раскладки, её отпечаток) — тут же после записи: превью меша принадлежит только ему.
+            capture_ownership(controller, bpy.data.objects.get(receipt.object_name or ""), sample)
         except Exception as exc:  # noqa: BLE001 - живая ширина не ломает кнопку
             controller.width_build = None
             print(f"[CFTUV][WidthLive] the build was not remembered: {type(exc).__name__}: {exc}", flush=True)

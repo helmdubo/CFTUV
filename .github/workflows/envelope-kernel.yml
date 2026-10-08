@@ -1,5 +1,17 @@
 name: Envelope kernel contracts and reference evaluator
 
+# История этого workflow: с 2026-08-04 он был красным на каждом пуше по двум причинам, которых никто не читал, пока красным было всё:
+#   1. kernel-hermetic и kernel-extraction-readiness падали на сборе: два теста ядра читали `artifacts/p0_2*` из КОРНЯ репозитория,
+#      то есть «извлечённое» ядро не было извлекаемым (ровно то, что job обязан был поймать). Артефакты теперь лежат в `kernel/artifacts/`.
+#   2. blender-free-host-bridge-v0b держал белый список файлов хоста (sparse checkout), который отстал от графа импортов: отладочный
+#      рендерер тянет ~65 модулей хоста. Изоляция этим списком давно не доказывалась; границы слоёв держит tests/test_architecture.py.
+#
+# Матрица Python. Чистое ядро заявляет `requires-python >=3.10` (kernel/pyproject.toml), а интерпретатор продукта — CPython 3.11
+# (Blender 4.5; на нём же собирается нативное колесо `abi3-py311`). Поэтому колесо ядра проверяется на обеих: 3.10 держит заявленный
+# пол, 3.11 — то, что исполняется у владельца. Проверку матрицы держит tests/test_architecture.py
+# (`test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter`). Нативную сборку (колесо Rust, cargo test,
+# дифференциальные тесты без пропусков) этот workflow НЕ проверяет: она живёт в .github/workflows/native.yml.
+
 on:
   push:
     paths:
@@ -9,6 +21,7 @@ on:
       - "cftuv/envelope_debug_renderer.py"
       - "cftuv/debug.py"
       - "cftuv/operators.py"
+      - "tests/requirements.txt"
       - "tests/test_envelope_host_adapter.py"
       - "tests/test_envelope_debug_renderer_contract.py"
       - "tests/blender/test_envelope_debug_bridge.py"
@@ -21,6 +34,7 @@ on:
       - "cftuv/envelope_debug_renderer.py"
       - "cftuv/debug.py"
       - "cftuv/operators.py"
+      - "tests/requirements.txt"
       - "tests/test_envelope_host_adapter.py"
       - "tests/test_envelope_debug_renderer_contract.py"
       - "tests/blender/test_envelope_debug_bridge.py"
@@ -28,14 +42,20 @@ on:
 
 jobs:
   kernel-hermetic:
+    name: kernel-hermetic (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: kernel
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python-version }}
       - name: Build wheel
         run: |
           python -m pip install --disable-pip-version-check build
@@ -49,12 +69,13 @@ jobs:
           python -m venv "$VENV"
           "$VENV/bin/python" -m pip install --disable-pip-version-check kernel/dist/*.whl pytest
           mkdir -p "$STANDALONE"
-          cp -R kernel/tests kernel/fixtures kernel/schema "$STANDALONE/"
+          cp -R kernel/tests kernel/fixtures kernel/schema kernel/artifacts "$STANDALONE/"
           cd "$STANDALONE"
           env -u PYTHONPATH "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
 
   kernel-extraction-readiness:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,41 +112,24 @@ jobs:
           env -u PYTHONPATH "$VENV/bin/python" -I tools/sync_session_a_fixtures.py --check --fixture-root fixtures/session_a_v5
           test -z "$(git status --porcelain)"
 
+  # Мост AnalysisBundle -> DebugScene без Blender. Раньше checkout сводился к белому списку файлов хоста; список отстал от графа
+  # импортов (рендерер тянет ~65 модулей), поэтому checkout полный, а изоляцию слоёв держат архитектурные тесты хоста.
   blender-free-host-bridge-v0b:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /kernel/
-            /cftuv/__init__.py
-            /cftuv/constants.py
-            /cftuv/debug.py
-            /cftuv/envelope_debug_profile.py
-            /cftuv/envelope_debug_renderer.py
-            /cftuv/envelope_debug_session.py
-            /cftuv/envelope_host_adapter.py
-            /cftuv/envelope_metric_export.py
-            /cftuv/envelope_request_export.py
-            /cftuv/envelope_topology_debug.py
-            /cftuv/envelope_topology_export.py
-            /cftuv/model.py
-            /cftuv/surface_ir.py
-            /tests/conftest.py
-            /tests/test_envelope_debug_renderer_contract.py
-            /tests/test_envelope_host_adapter.py
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
       - name: Install exact host-test dependencies
         run: |
-          python -m pip install --disable-pip-version-check pytest sympy==1.14.0
+          python -m pip install --disable-pip-version-check -r tests/requirements.txt
       - name: Test AnalysisBundle to DebugScene bridge
         env:
           PYTHONPATH: kernel/src
         run: |
-          python -m pytest -q \
+          python -m pytest -q -p no:cacheprovider \
             tests/test_envelope_host_adapter.py \
             tests/test_envelope_debug_renderer_contract.py
       - name: Prove debug bridge does not import legacy decal geometry

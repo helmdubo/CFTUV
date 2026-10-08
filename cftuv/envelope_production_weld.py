@@ -20,6 +20,22 @@
 домена-развёртки приносят СВОИ нормали смещения (закон ядра `SOURCE_VERTEX_ANGLE_WEIGHTED_NORMAL_V1`).
 Равные нормали (компланарные соседи) смещаются ровно как одиночная вершина: побитово прежний ответ.
 
+КОНЕЦ СТЕНЫ (закон `WALL_MITER_OFFSET_V1`). Цепь-стена (`boundary:WALL:*`) — граница домена вдоль контура патча там, где выделенной цепи нет: с другой
+стороны того же ребра источника стоит стена соседнего домена. Её вершины `src:` общие и свариваются (митра выше); конец стены — вершина `node:` (место, где
+фронт доходит до ребра): она ДОМЕННАЯ, у соседа свой узел на глубине, измеренной метрикой ЕГО патча (`rounded_wall.001`: плоский торец и изогнутая грань
+различаются на 0.3 % глубины, 0.7 мм при ширине 0.22 и 3.1 мм при 1.0), позиции не равны, по ссылке и по расстоянию она не сваривается. Узел смещался по нормали
+одного домена, а вершина `src:` у начала той же стены — митрой: два ребра стены выходили из одной митровой точки и расходились клином `d |n1 - n2|` до конца
+стены (7 мм при d = 5 мм, 28 мм при d = 20 мм на сгибе 90 градусов; от глубины и ширины не зависит) — щель вдоль невыделенного шва. Геометрия батча ни при чём (до
+смещения обе стены лежат на одном ребре); клин родился вместе со сваркой (DECAL-WELD), позднего релиза за ним нет.
+Закон: узел стены, у которой на том же ребре стоит стена другого домена, смещается в точку пересечения сдвинутых плоскостей ОБОИХ доменов (`n_i . o = d`), то есть
+на линию сгиба, на которой уже лежит митровая вершина начала стены. Нормаль соседа в точке узла — линейная по длине его стены между его нормалью в общей вершине
+и нормалью за ней (за концом его стены — нормаль конца), нормированная; каждая грань остаётся на сдвинутой плоскости СВОЕГО домена. Сосед — домен, у которого стена
+выходит из той же вершины `src:` (одна ссылка, побитово равная позиция) вдоль того же ребра (синус угла не больше `WALL_DIRECTION_SINE`, направления сонаправлены).
+Узлы с побитово равными позициями (симметричные глубины) свариваются в одну вершину; разные — каждый остаётся своей вершиной на той же линии, а более короткая
+стена лежит на ребре более длинной. Геометрию батча закон не трогает, это политика смещения. Правило 4 (эвристика, меняющая ответ, пишется): `ADAPTER_WALL_NODES_LIFTED`
+(узлы на линии сгиба), `_WELDED` (вершины меша из пар узлов), `_ALONE` (узел без соседа на стене: край меша, сосед вне выделения; смещение прежнее),
+`ADAPTER_WALL_MITER_FALLBACK` (митра отказала пределом `MITER_LIMIT` либо несовместностью: узел со своим смещением, причина и худший множитель названы).
+
 ОТКАЗ ОТ СВАРКИ ИМЕНОВАН. Нормали почти противоположны (митра улетает: длина `d / cos(угла / 2)`
 выше предела), вырождены (три плоскости без общей точки), либо система несовместна — вершины
 остаются раздельными, каждая со смещением по своей нормали, и это `ADAPTER_WELD_MITER_FALLBACK`
@@ -92,12 +108,16 @@ MITER_RESIDUAL_EPSILON = 1e-9
 
 @dataclass(frozen=True, slots=True)
 class DomainVerticesV1:
-    """Вершины одного домена в порядке ключей: позиция батча, нормаль смещения, ссылка (либо `None`)."""
+    """Вершины одного домена в порядке ключей: позиция батча, нормаль смещения, ссылка (либо `None`).
+
+    `walls` — цепи-стены домена (`boundary:WALL:*`): по цепи кортеж номеров вершин в порядке цепи (пусто — стен нет, закон конца стены не действует).
+    """
 
     patch_id: int
     positions: tuple
     normals: tuple
     refs: tuple
+    walls: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,10 +242,163 @@ def _plan(domains):
     return classes, miters, (mismatches, worst_gap, fallbacks, worst_factor, reasons)
 
 
+#: Закон `WALL_MITER_OFFSET_V1` (конец стены на линии сгиба; описание — в докстринге модуля). Синус наибольшего угла между направлениями стен двух
+#: доменов из общей вершины `src:`, при котором это одно ребро источника: позиции батча несут шум подъёма (до одной ячейки решётки, ~1 мм у изогнутого
+#: патча: узел лежит на ребре с отклонением ~4e-4 на длине 0.22, это 2e-3), а разные рёбра источника в одной вершине различаются на градусы.
+WALL_DIRECTION_SINE = 1e-2
+OUTCOME_WALL_MITER_FALLBACK = "ADAPTER_WALL_MITER_FALLBACK"
+COUNTER_WALL_NODES_LIFTED = "ADAPTER_WALL_NODES_LIFTED"
+COUNTER_WALL_NODES_WELDED = "ADAPTER_WALL_NODES_WELDED"
+COUNTER_WALL_NODES_ALONE = "ADAPTER_WALL_NODES_ALONE"
+
+
+@dataclass(frozen=True, slots=True)
+class WallPlanV1:
+    """Итог закона конца стены: сдвиги узлов (при `d = 1`), слитые пары узлов и числа.
+
+    `lifts[(домен, вершина)]` — вектор смещения узла; `classes[(домен, вершина)]` — голова класса слитых узлов, `miters[голова]` — общий вектор
+    класса. Числа: смещённые узлы, слитые вершины (`len(classes) - len(miters)`), узлы без соседа, отказы митры с причинами и худшим множителем.
+    """
+
+    lifts: dict
+    classes: dict
+    miters: dict
+    lifted: int
+    alone: int
+    fallbacks: int
+    worst_factor: float
+    reasons: frozenset
+
+    @property
+    def welded(self) -> int:
+        return len(self.classes) - len(self.miters)
+
+
+def _is_anchor(domain, local) -> bool:
+    ref = domain.refs[local]
+    return ref is not None and ref.startswith(WELD_LOCATION_PREFIX)
+
+
+def _normalised(vector):
+    length = math.sqrt(_dot(vector, vector))
+    return None if not length else (vector[0] / length, vector[1] / length, vector[2] / length)
+
+
+def _wall_heading(other, chain, at, direction):
+    """`(вершина за якорем, вектор от якоря, его длина)` первой стороны стены соседа, идущей тем же ребром, что `direction`, либо `None`."""
+
+    length = math.sqrt(_dot(direction, direction))
+    for step in (-1, 1):
+        position = at + step
+        if not 0 <= position < len(chain):
+            continue
+        heading = tuple(b - a for a, b in zip(other.positions[chain[at]], other.positions[chain[position]]))
+        reach = math.sqrt(_dot(heading, heading))
+        if not reach or not length:
+            continue
+        cross = _cross(direction, heading)
+        if _dot(direction, heading) > 0.0 and math.sqrt(_dot(cross, cross)) <= WALL_DIRECTION_SINE * length * reach:
+            return chain[position], heading, reach
+    return None
+
+
+def _wall_partner(domains, walls, table, ordinal, chain, at):
+    """`(домен соседа, его вершина за якорем, нормаль соседа в точке узла)` либо `None`: у узла нет соседа на стене.
+
+    Якорь узла — соседняя с ним по цепи вершина `src:`; сосед — домен, у которого стена выходит из той же вершины (одна ссылка, побитово равная позиция)
+    вдоль того же ребра. Нормаль соседа в точке узла — линейная по длине его стены между нормалью в якоре и нормалью за якорем (дальше конца — она сама).
+    """
+
+    domain = domains[ordinal]
+    for step in (-1, 1):
+        position = at + step
+        if not 0 <= position < len(chain) or not _is_anchor(domain, chain[position]):
+            continue
+        anchor = chain[position]
+        direction = tuple(b - a for a, b in zip(domain.positions[anchor], domain.positions[chain[at]]))
+        for other_ordinal, number, place in table.get(domain.refs[anchor], ()):
+            other = domains[other_ordinal]
+            other_chain = walls[other_ordinal][number]
+            if other_ordinal == ordinal or _hex(other.positions[other_chain[place]]) != _hex(domain.positions[anchor]):
+                continue
+            along = _wall_heading(other, other_chain, place, direction)
+            if along is None:
+                continue
+            beyond, heading, reach = along
+            share = min(1.0, _dot(direction, heading) / (reach * reach))
+            blended = _normalised(
+                tuple((1.0 - share) * a + share * b for a, b in zip(other.normals[other_chain[place]], other.normals[beyond]))
+            )
+            if blended is not None:
+                return other_ordinal, beyond, blended
+    return None
+
+
+def plan_wall_nodes(domains) -> WallPlanV1:
+    """Закон `WALL_MITER_OFFSET_V1`: сдвиги узлов стены на линию сгиба и слияние пар узлов с побитово равными позициями.
+
+    `domains` — `DomainVerticesV1` с цепями стен (`walls`); домен без них ничего не даёт (поведение прежнее). Предел митры и допуски — те же, что у
+    `miter_offset`. Обход по номеру домена, цепям и местам в цепи: ответ от порядка множеств не зависит. Домен прежней раскладки
+    (воркер пула, поднятый до правки, присылает вершины без поля `walls`) стен не имеет: закон на нём не действует, как и без цепей.
+    """
+
+    walls = [getattr(domain, "walls", ()) for domain in domains]
+    table: dict = {}
+    for ordinal, domain in enumerate(domains):
+        for number, chain in enumerate(walls[ordinal]):
+            for at, local in enumerate(chain):
+                if _is_anchor(domain, local):
+                    table.setdefault(domain.refs[local], []).append((ordinal, number, at))
+    lifts: dict = {}
+    classes: dict = {}
+    miters: dict = {}
+    seen: set = set()
+    lifted = alone = fallbacks = 0
+    worst = 0.0
+    reasons: set = set()
+    for ordinal, domain in enumerate(domains):
+        for chain in walls[ordinal]:
+            for at, local in enumerate(chain):
+                if _is_anchor(domain, local) or (ordinal, local) in seen:
+                    continue
+                seen.add((ordinal, local))
+                partner = _wall_partner(domains, walls, table, ordinal, chain, at)
+                if partner is None:
+                    alone += 1
+                    continue
+                other_ordinal, beyond, blended = partner
+                other = domains[other_ordinal]
+                twin = (
+                    not _is_anchor(other, beyond)
+                    and (other_ordinal, beyond) not in seen
+                    and _hex(other.positions[beyond]) == _hex(domain.positions[local])
+                )
+                offset, factor, reason = miter_offset([domain.normals[local], other.normals[beyond] if twin else blended])
+                if offset is None:
+                    fallbacks += 1
+                    reasons.add(reason)
+                    worst = max(worst, factor or 0.0)
+                    continue
+                if not twin:
+                    lifts[(ordinal, local)] = offset
+                    lifted += 1
+                    continue
+                head = (ordinal, local)
+                seen.add((other_ordinal, beyond))
+                classes[head] = classes[(other_ordinal, beyond)] = head
+                miters[head] = offset
+                lifted += 2
+    return WallPlanV1(lifts, classes, miters, lifted, alone, fallbacks, worst, frozenset(reasons))
+
+
 def weld_vertices(domains, offset: float) -> WeldV1:
     """Вершины меша из вершин доменов: сварка по ссылке при равных позициях, митра смещения."""
 
     classes, miters, (mismatches, gap, fallbacks, factor, reasons) = _plan(domains)
+    merged = len(classes) - len(miters)
+    wall = plan_wall_nodes(domains)
+    classes = {**classes, **wall.classes}
+    miters = {**miters, **wall.miters}
     positions: list = []
     placed: dict = {}
     index = []
@@ -236,7 +409,7 @@ def weld_vertices(domains, offset: float) -> WeldV1:
             if head is not None and head in placed:
                 mapping.append(placed[head])
                 continue
-            shift = miters[head] if head is not None else domain.normals[local]
+            shift = miters[head] if head is not None else wall.lifts.get((ordinal, local), domain.normals[local])
             positions.append(
                 (
                     point[0] + offset * shift[0],
@@ -248,7 +421,6 @@ def weld_vertices(domains, offset: float) -> WeldV1:
             if head is not None:
                 placed[head] = len(positions) - 1
         index.append(tuple(mapping))
-    merged = len(classes) - len(miters)
     warnings = []
     if mismatches:
         warnings.append(
@@ -269,14 +441,27 @@ def weld_vertices(domains, offset: float) -> WeldV1:
                 f"limit {MITER_LIMIT:g})",
             )
         )
+    if wall.fallbacks:
+        warnings.append(
+            (
+                None,
+                OUTCOME_WALL_MITER_FALLBACK,
+                f"{wall.fallbacks} wall end nodes keep their own offsets: {'; '.join(sorted(wall.reasons))} "
+                f"(worst miter factor {wall.worst_factor:.6g}, limit {MITER_LIMIT:g})",
+            )
+        )
     return WeldV1(
         positions=tuple(positions),
         index=tuple(index),
         counters=(
-            (COUNTER_WELD_GROUPS, len(miters)),
+            (COUNTER_WELD_GROUPS, len(miters) - len(wall.miters)),
             (COUNTER_WELD_VERTICES_MERGED, merged),
             (OUTCOME_WELD_POSITION_MISMATCH, mismatches),
             (OUTCOME_WELD_MITER_FALLBACK, fallbacks),
+            (COUNTER_WALL_NODES_LIFTED, wall.lifted),
+            (COUNTER_WALL_NODES_WELDED, wall.welded),
+            (COUNTER_WALL_NODES_ALONE, wall.alone),
+            (OUTCOME_WALL_MITER_FALLBACK, wall.fallbacks),
         ),
         warnings=tuple(warnings),
     )
@@ -480,19 +665,52 @@ def half_edge_conflicts(faces) -> int:
     return sum(1 for count in seen.values() if count > 1)
 
 
+def weld_console_lines(counters) -> list:
+    """Строки консоли о сварке и о законе конца стены по числам квитанции (`weld_counters`): пусто, когда сварки не было.
+
+    Строка стены печатается, когда закон сработал или отказал: узлы без соседа (`_ALONE`) — край меша и вне выделения, сами по себе не событие.
+    """
+
+    found = dict(counters or ())
+    lines = []
+    if found.get(COUNTER_WELD_GROUPS):
+        lines.append(
+            f"[CFTUV][Production] WELD: {found[COUNTER_WELD_GROUPS]} shared vertices "
+            f"({found[COUNTER_WELD_VERTICES_MERGED]} domain vertices merged), "
+            f"{found[COUNTER_WELD_SEAMS_MARKED]} fold seams, "
+            f"position mismatches {found[OUTCOME_WELD_POSITION_MISMATCH]}, "
+            f"miter fallbacks {found[OUTCOME_WELD_MITER_FALLBACK]}"
+        )
+    if found.get(COUNTER_WALL_NODES_LIFTED) or found.get(OUTCOME_WALL_MITER_FALLBACK):
+        lines.append(
+            f"[CFTUV][Production] WALL: {found[COUNTER_WALL_NODES_LIFTED]} wall end nodes lifted onto the fold line "
+            f"({found[COUNTER_WALL_NODES_WELDED]} welded), {found[COUNTER_WALL_NODES_ALONE]} without a neighbour wall, "
+            f"miter fallbacks {found[OUTCOME_WALL_MITER_FALLBACK]}"
+        )
+    return lines
+
+
 __all__ = (
+    "COUNTER_WALL_NODES_ALONE",
+    "COUNTER_WALL_NODES_LIFTED",
+    "COUNTER_WALL_NODES_WELDED",
     "COUNTER_WELD_GROUPS",
     "COUNTER_WELD_SEAMS_MARKED",
     "COUNTER_WELD_VERTICES_MERGED",
     "DomainVerticesV1",
     "MITER_LIMIT",
+    "OUTCOME_WALL_MITER_FALLBACK",
     "OUTCOME_WELD_HALF_EDGE_CONFLICT",
     "OUTCOME_WELD_MITER_FALLBACK",
     "OUTCOME_WELD_POSITION_MISMATCH",
+    "WALL_DIRECTION_SINE",
     "WELD_LOCATION_PREFIX",
+    "WallPlanV1",
     "WeldV1",
     "cross_domain_seams",
     "half_edge_conflicts",
     "miter_offset",
+    "plan_wall_nodes",
+    "weld_console_lines",
     "weld_vertices",
 )

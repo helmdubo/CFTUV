@@ -22,6 +22,8 @@
 from __future__ import annotations
 
 import ast
+import re
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -308,9 +310,9 @@ def test_the_width_preview_and_adjust_cores_and_the_live_glue_load_without_blend
     for name in ("envelope_width_live.py", "envelope_width_session.py", "envelope_width_mesh_preview.py"):
         leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _module_level_import_roots(HOST_PACKAGE / name)
         assert not leaked, f"{name} импортирует {sorted(leaked)} на верхнем уровне: только лениво, внутри функций"
-    # Сертификат превью меша — чистая математика над массивами: ему Blender не нужен нигде, даже лениво.
-    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_certificate.py")
-    assert not leaked, f"envelope_width_certificate.py импортирует {sorted(leaked)}: сертификат чистый (его строит поток счёта)"
+    # Модель превью меша — чистая математика над массивами: ей Blender не нужен нигде, даже лениво.
+    leaked = {"bpy", "bmesh", "mathutils", "gpu"} & _imported_roots(HOST_PACKAGE / "envelope_width_preview_model.py")
+    assert not leaked, f"envelope_width_preview_model.py импортирует {sorted(leaked)}: модель чистая (её строит поток счёта)"
 
 
 #: Имена, которые смеет использовать функция, исполняемая ПОТОКОМ точного пересчёта живой ширины: объекты,
@@ -335,9 +337,10 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "cancel",
         "exc",
         "str",
-        # Хвост потока (`finish_live_run`): массивы меша, образец и сертификат строятся ТАМ, а не на главном потоке; все они значения
-        # (неизменяемые образцы и числа), захваченные `_begin` на главном потоке.
+        # Хвост потока (`finish_live_run`): массивы меша, образец, модель, сверка и журнал доверия строятся ТАМ, а не на главном потоке;
+        # все они значения (неизменяемые образцы, модели, журналы и числа), захваченные `_begin` на главном потоке.
         "finish_live_run",
+        "trust",
         "run",
         "offset",
         "key",
@@ -449,6 +452,128 @@ def test_only_the_preview_mesh_glue_writes_the_preview_geometry_and_only_from_it
     for function in ("preview_mesh_now", "restore_base_mesh"):
         node = next(item for item in ast.walk(_parse(path)) if isinstance(item, ast.FunctionDef) and item.name == function)
         assert "_mesh_problem" in _called_names(node), f"{function} пишет превью, не спросив, принадлежит ли меш сертификату"
+
+
+def _functions_of(name: str) -> dict:
+    return {
+        node.name: node
+        for node in ast.walk(_parse(HOST_PACKAGE / name))
+        if isinstance(node, ast.FunctionDef)
+    }
+
+
+def test_every_exact_write_of_the_decal_mesh_records_the_mesh_ownership_in_the_same_function():
+    """Точная запись меша (кнопка, точный результат живой ширины) фиксирует владение мешем СРАЗУ после записи (`capture_ownership`).
+
+    Превью меша пишется только в меш, которым владеет сессия: тождество объекта и датаблока, поколение раскладки и её отпечаток, снятые
+    сразу после точной записи (аудит ad6074f, F2). Функция, которая ставит образец на экран (`note_button_display`, `note_exact_display`), без
+    фиксации владения оставила бы превью без доказательства, что меш тот, а размеры и свойства такого доказательства не дают.
+    """
+
+    found: dict = {}
+    for path in _python_files(HOST_PACKAGE):
+        if path.name == "envelope_width_mesh_preview.py":
+            continue
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.FunctionDef):
+                names = _called_names(node)
+                for noted in ("note_button_display", "note_exact_display"):
+                    if noted in names:
+                        found.setdefault(noted, {})[(path.name, node.name)] = "capture_ownership" in names
+    assert set(found) == {"note_button_display", "note_exact_display"}, found
+    assert {key[0] for key in found["note_button_display"]} == {"envelope_production_operator.py"}, found
+    assert {key[0] for key in found["note_exact_display"]} == {"envelope_width_live.py"}, found
+    assert all(captured for item in found.values() for captured in item.values()), found
+
+
+def test_the_decal_ownership_is_checked_before_a_preview_write_and_every_external_change_drops_the_model():
+    """Кадр сверяет владение (поколение, указатели и `session_uid`), а внешнее изменение (история, depsgraph) снимает модель названно.
+
+    Строго, а не «сверим потом»: после шага истории или чужого обновления геометрии декали указатели, счётчики и свойства меша
+    не доказывают ничего (аудит ad6074f, F2).
+    """
+
+    preview = _functions_of("envelope_width_mesh_preview.py")
+    problem = preview["_mesh_problem"]
+    attributes = {node.attr for node in ast.walk(problem) if isinstance(node, ast.Attribute)}
+    assert {"width_mesh_owner", "sample", "as_pointer", "session_uid", "recheck_after"} <= attributes, sorted(attributes)
+    assert "_read_layout" in _called_names(problem)
+    for function in ("preview_mesh_now", "restore_base_mesh", "note_history", "note_decal_updates"):
+        assert "drop_model" in _called_names(preview[function]), f"{function} не снимает модель названно"
+    assert "_mesh_problem" in _called_names(preview["preview_mesh_now"]) and "_mesh_problem" in _called_names(preview["restore_base_mesh"])
+    assert "note_decal_updates" in _called_names(_functions_of("envelope_width_live.py")["note_depsgraph"])
+    assert "note_depsgraph" in _called_names(_functions_of("envelope_width_modal.py")["_after_depsgraph"])
+    assert "note_history" in _called_names(_functions_of("envelope_width_live.py")["reconcile_after_history"])
+
+
+def test_a_refuted_domain_reaches_the_trust_ledger_and_the_next_model_is_built_under_it():
+    """Опровержение точным прогоном не только записывается: оно двигает журнал доверия, а следующая модель строится под ним (аудит F5)."""
+
+    preview = _functions_of("envelope_width_mesh_preview.py")
+    assert {"deviation", "advance_ledger", "_model_or_refusal"} <= _called_names(preview["finish_live_run"])
+    assert "build_model" in _called_names(preview["_model_or_refusal"])
+    assigned = {
+        target.attr
+        for node in ast.walk(preview["note_exact_display"])
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute)
+    }
+    assert "width_trust" in assigned, "точный результат обязан положить журнал доверия в сессию"
+    compute = next(
+        node
+        for node in ast.walk(_functions_of("envelope_width_live.py")["_begin"])
+        if isinstance(node, ast.FunctionDef) and node.name == "compute"
+    )
+    keywords = {
+        keyword.arg
+        for call in ast.walk(compute)
+        if isinstance(call, ast.Call) and _called_names_of(call) == "finish_live_run"
+        for keyword in call.keywords
+    }
+    assert "trust" in keywords, "поток точного счёта обязан получить журнал доверия значением"
+
+
+def test_the_preview_model_is_never_called_a_certificate():
+    """Приблизительная модель превью (аудит ad6074f, F4) нигде не названа сертификатом: ни идентификатором, ни строкой исхода или статуса.
+
+    Сертифицирован только ИНТЕРВАЛ событий и структуры у ядра (R1); многочлен внутри него, его область доверия и самопроверка — эвристика
+    без доказанной границы ошибки. Имя, которое обещает больше, чем есть, — то, что аудит нашёл и что здесь закрыто исполняемо.
+    """
+
+    assert not (HOST_PACKAGE / "envelope_width_certificate.py").exists(), "модель превью называется `envelope_width_preview_model`"
+    for name in (
+        "envelope_width_preview_model.py",
+        "envelope_width_mesh_preview.py",
+        "envelope_width_live.py",
+        "envelope_width_session.py",
+        "envelope_width_modal.py",
+    ):
+        tree = _parse(HOST_PACKAGE / name)
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        }
+        words = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                words.append(node.id)
+            elif isinstance(node, ast.Attribute):
+                words.append(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                words.append(node.name)
+            elif isinstance(node, ast.arg):
+                words.append(node.arg)
+            elif isinstance(node, ast.alias):
+                words.append(node.name)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                words.append(node.value)
+        called = [word for word in words if "certificate" in word.lower()]
+        assert not called, f"{name} называет приблизительную модель сертификатом: {called}"
 
 
 def _called_names_of(call: ast.Call) -> str:
@@ -1808,3 +1933,92 @@ def test_the_installers_swap_directories_and_never_erase_the_installed_copy_firs
         if required not in common:
             problems.append(f"tools/install_common.ps1: нет {required}")
     assert not problems, "установщик теряет прежнюю установку при сбое:\n" + "\n".join(problems)
+
+
+# --------------------------------------------------------------------------
+# 14. Каждое стороннее имя, которое импортируют код и тесты, объявлено для CI
+# --------------------------------------------------------------------------
+# Прежний CI ставил `pytest sympy` и месяцами падал на сборе двумя `ModuleNotFoundError: numpy`: `cftuv/envelope_width_certificate.py`
+# импортирует numpy (в Blender он есть), а список зависимостей workflow об этом не знал. Единственное место версий —
+# `tests/requirements.txt`; здесь держится, что (1) любое стороннее имя из `cftuv/`, `tests/`, `tools/`, `kernel/` в нём названо или
+# отнесено к тому, что даёт Blender, (2) чистое ядро по-прежнему просит только sympy, (3) workflow ставят именно этот файл,
+# (4) матрица Python покрывает и заявленный пол (`kernel/pyproject.toml`), и интерпретатор Blender (3.11, на нём собирается нативное колесо).
+
+#: Даёт сам Blender (4.5: CPython 3.11.11, numpy 1.26.4); в CI заменяется заглушками `tests/conftest.py`.
+_BLENDER_PROVIDED = frozenset({"bpy", "bmesh", "mathutils", "gpu", "gpu_extras", "bpy_extras", "addon_utils"})
+#: Нативное расширение собирается отдельно (`native/`), не из PyPI; host-тесты пропускают его по названному статусу `unavailable`.
+_NATIVE_EXTENSION = frozenset({"cftuv_native"})
+#: Зависимость, которая приходит вместе с объявленной (`sympy` тянет `mpmath`).
+_BROUGHT_BY = {"mpmath": "sympy"}
+_CI_REQUIREMENTS = TESTS / "requirements.txt"
+_CI_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+
+
+def _declared_requirements() -> set[str]:
+    names: set[str] = set()
+    for line in _CI_REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            names.add(re.split(r"[=<>!~\[;\s]", line, maxsplit=1)[0].lower().replace("-", "_"))
+    return names
+
+
+def _third_party_imports(folders) -> dict[str, set[str]]:
+    """`{стороннее имя: {файлы, что его импортируют}}`: не стандартная библиотека и не модуль, лежащий в самих деревьях проекта."""
+
+    files = [path for folder in folders for path in _python_files(folder)]
+    own = {path.stem for path in files} | {path.parent.name for path in files} | {"cftuv", "cftuv_envelope", "research"}
+    found: dict[str, set[str]] = {}
+    for path in files:
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                roots = [node.module.split(".")[0]]
+            else:
+                continue
+            for root in roots:
+                if root not in sys.stdlib_module_names and root not in own:
+                    found.setdefault(root, set()).add(_relative(path))
+    return found
+
+
+def test_every_third_party_import_is_declared_for_ci():
+    declared = _declared_requirements()
+    known = declared | _BLENDER_PROVIDED | _NATIVE_EXTENSION | {name for name, parent in _BROUGHT_BY.items() if parent in declared}
+    found = _third_party_imports([HOST_PACKAGE, TESTS, TOOLS, KERNEL_SOURCE, REPO_ROOT / "kernel" / "tests", REPO_ROOT / "kernel" / "tools"])
+    missing = {name: sorted(files)[:3] for name, files in found.items() if name not in known}
+
+    assert not missing, (
+        "CI_DEPENDENCY_UNDECLARED: стороннее имя импортируется, а в tests/requirements.txt его нет "
+        f"(workflow его не поставит, и сбор тестов упадёт ModuleNotFoundError): {missing}"
+    )
+    assert {"numpy", "sympy", "pytest"} <= declared, "tests/requirements.txt потерял зависимость, которую импортирует хост"
+
+
+def test_the_pure_kernel_asks_for_nothing_but_sympy():
+    kernel = set(_third_party_imports([KERNEL_SOURCE]))
+    extra = kernel - {"sympy", "mpmath"} - _NATIVE_EXTENSION
+
+    assert not extra, (
+        f"чистое ядро (kernel/src) потребовало стороннее имя сверх sympy: {sorted(extra)}; "
+        "оно ставится колесом `cftuv-envelope-core` с одной зависимостью, и CI-ветка 3.10 его не получит"
+    )
+
+
+def test_the_host_workflows_install_the_declared_requirements():
+    for name in ("host-suite.yml", "envelope-kernel.yml"):
+        text = (_CI_WORKFLOWS / name).read_text(encoding="utf-8")
+        assert "-r tests/requirements.txt" in text, f"{name}: host-тесты запускаются без tests/requirements.txt: зависимости разойдутся с набором"
+        assert "sympy==" not in text and "numpy==" not in text, f"{name}: версия зависимости прибита в workflow, а не в tests/requirements.txt"
+
+
+def test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter():
+    floor = re.search(r'requires-python\s*=\s*">=(\d+\.\d+)"', (REPO_ROOT / "kernel" / "pyproject.toml").read_text(encoding="utf-8"))
+    assert floor is not None, "kernel/pyproject.toml без requires-python"
+    for name in ("host-suite.yml", "envelope-kernel.yml"):
+        text = (_CI_WORKFLOWS / name).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if "python-version:" in line]
+        versions = {version for line in lines for version in re.findall(r'"(3\.\d+)"', line)}
+        assert floor.group(1) in versions, f"{name}: нет ветки на заявленном полу Python {floor.group(1)}: {sorted(versions)}"
+        assert "3.11" in versions, f"{name}: нет ветки на CPython 3.11 (Blender 4.5, нативное колесо `abi3-py311`): {sorted(versions)}"

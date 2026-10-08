@@ -3,20 +3,22 @@
     blender -b E:/testScene.blend --python-exit-code 1 --python tools/blender_width_replay.py -- \\
         --meshes rounded_wall_noise_top:0.25,sagging_wall:0.25,building:0.2239 --workers 8 --density 2 --stretch 42 --out replay.json
 
-Для каждого меша: холодная кнопка «Build Decal Mesh», вход инструмента (`begin_adjust`: затравка сертификата в фоне), затем фазы:
+Для каждого меша: холодная кнопка «Build Decal Mesh», вход инструмента (`begin_adjust`: затравка модели в фоне), затем фазы:
 
 1. `early_drag` — рука тянет СРАЗУ, не дожидаясь затравки: кадры идут, пока поток затравки считает (борьба за GIL), меш начинает двигаться,
-   когда сертификат лёг (`first_mesh_frame_after_s`); цена событий и самая долгая остановка главного потока;
+   когда модель легла (`first_mesh_frame_after_s`); цена событий и самая долгая остановка главного потока;
 2. `frames` — воспроизведение перетаскивания (`WidthAdjustSessionV1.handle` -> `apply_step`) по пути вверх на `--up` и назад ниже базы,
    `--frames` кадров с паузой `--frame-ms`; между кадрами шагают таймеры, как их шагал бы главный цикл. `frame_ms` — цена кадра превью меша
    (p50, p95, максимум), `event_ms` — события целиком (линии + меш), `stall_ms_max` — самая долгая остановка главного потока, `live_domains` —
    сколько доменов двигалось и `held_domains_max` — сколько придержано;
-3. `certificate` — домены, степень, байты сертификата, время до готовности затравки;
-4. `deviation` — предсказание сертификата против ТОЧНОГО прогона на ряде ширин пути (`envelope_width_certificate.deviation`): наибольшее
+3. `model` — домены, степень, байты приблизительной модели, время до готовности затравки;
+4. `deviation` — предсказание модели против ТОЧНОГО прогона на ряде ширин пути (`envelope_width_preview_model.deviation`): наибольшее
    отклонение позиций меша (метры) и UV; `readback_max_abs_m` — меш, прочитанный из Blender (float32), против кадра;
 5. `cancel` — отмена после перетаскивания возвращает меш побитово (`mesh_content_digest` и массивы float32);
 6. `confirm` — подтверждение: точный результат побитово равен холодной кнопке на той же ширине, цена применения и счёта;
-7. `slider` — ползунок: каждое значение идёт через калбэк `update` (линии, кадр, заказ точного счёта) под нагрузкой точных прогонов.
+7. `slider` — ползунок: каждое значение идёт через калбэк `update` (линии, кадр, заказ точного счёта) под нагрузкой точных прогонов;
+8. `ownership` — цена проверки владения мешем перед кадром (`_mesh_problem`, микросекунды) и одного чтения отпечатка раскладки (миллисекунды), и
+   `log` — журнал превью сессии за весь прогон (снятия модели, карантин, наибольшее отношение отклонения к пределу): штатный прогон ничего не снимает.
 
 Ничего не сохраняется. Последняя строка при успехе: `WIDTH_REPLAY_OK`.
 """
@@ -24,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import statistics
 import sys
@@ -187,14 +190,14 @@ def _pace(args, tick):
     time.sleep(max(0.0, args.frame_ms / 1000.0 - (time.perf_counter() - tick)))
 
 
-def _certificate_record(controller, started):
-    cert = controller.width_certificate
+def _model_record(controller, started):
+    cert = controller.width_model
     return {
         "ready_s": round(time.perf_counter() - started, 3),
         "present": cert is not None,
-        "refusal": None if controller.width_certificate_refusal is None else controller.width_certificate_refusal.outcome,
+        "refusal": None if controller.width_model_refusal is None else controller.width_model_refusal.outcome,
         "domains": None if cert is None else cert.domain_count,
-        "certified": None if cert is None else cert.certified_domains,
+        "modelled": None if cert is None else cert.modelled_domains,
         "quadratic": None if cert is None else cert.quadratic_domains,
         "own_bytes": None if cert is None else cert.own_bytes,
         "total_bytes": None if cert is None else cert.nbytes,
@@ -205,7 +208,7 @@ def _certificate_record(controller, started):
 
 
 def _early_drag(runtime, base, args, result):
-    """Рука тянет сразу после входа в инструмент: кадры идут, пока считает затравка; ждём, пока сертификат ляжет."""
+    """Рука тянет сразу после входа в инструмент: кадры идут, пока считает затравка; ждём, пока модель ляжет."""
 
     from cftuv.envelope_width_adjust import KIND_MOVE, WidthEventV1
     from cftuv.envelope_width_session import apply_step
@@ -228,13 +231,13 @@ def _early_drag(runtime, base, args, result):
     apply_step(bpy.context, runtime, runtime.session.handle(WidthEventV1(KIND_MOVE, 0.0, 0.0)))  # рука вернулась к исходной ширине
     _settle(controller)
     result["early_drag"] = {
-        "frames_before_the_certificate_settled": count,
+        "frames_before_the_model_settled": count,
         "event_ms": _stats(events),
         "stall_ms_max": round(max(stalls), 3) if stalls else 0.0,
         "first_mesh_frame_after_s": None if first_mesh is None else round(first_mesh, 3),
     }
-    result["certificate"] = _certificate_record(controller, started)
-    return controller.width_certificate
+    result["model"] = _model_record(controller, started)
+    return controller.width_model
 
 
 def _drag(runtime, base, args, result):
@@ -278,11 +281,11 @@ def _drag(runtime, base, args, result):
 
 
 def _deviation(cert, base, args):
-    """Предсказание сертификата против точного прогона на ряде ширин пути; запись float32 против кадра."""
+    """Предсказание модели против точного прогона на ряде ширин пути; запись float32 против кадра."""
 
     import numpy as np
 
-    from cftuv import envelope_width_certificate as certificate_module
+    from cftuv import envelope_width_preview_model as model_module
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_production_mesh import build_mesh_arrays, write_preview_geometry
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
@@ -294,7 +297,7 @@ def _deviation(cert, base, args):
     rows, readback = [], []
     for index in range(1, args.checks + 1):
         width = base * (1.0 + args.up * index / args.checks)
-        frame = certificate_module.evaluate(cert, width)
+        frame = model_module.evaluate(cert, width)
         if frame.refusal == "":
             write_preview_geometry(mesh, frame.positions, frame.uvs)
             co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
@@ -316,8 +319,8 @@ def _deviation(cert, base, args):
             workers=args.workers,
         )
         arrays = build_mesh_arrays(exact.results, offset)
-        check = certificate_module.deviation(
-            cert, certificate_module.sample_of(exact.results, arrays, key=cert.key, alpha_text=str(float(width)))
+        check = model_module.deviation(
+            cert, model_module.sample_of(exact.results, arrays, key=cert.key, alpha_text=str(float(width)))
         )
         rows.append(
             {
@@ -334,6 +337,39 @@ def _deviation(cert, base, args):
             }
         )
     return rows, (max(readback) if readback else None)
+
+
+def _log_of_session() -> dict:
+    log = _controller().width_preview_log
+    return dataclasses.asdict(log) if log is not None else {}
+
+
+def _ownership_cost(controller):
+    """Цена проверки владения мешем перед кадром без чтения раскладки и цена одного чтения отпечатка раскладки (принудительно)."""
+
+    from cftuv.envelope_width_mesh_preview import _decal_of, _mesh_problem
+
+    model, owner = controller.width_model, controller.width_mesh_owner
+    if model is None or owner is None:
+        return {"refusal": "no model or ownership at this point"}
+    decal = _decal_of(controller)
+    repeats = 300
+    started = time.perf_counter()
+    for _ in range(repeats):
+        problem = _mesh_problem(controller, model, decal)
+    cheap_us = (time.perf_counter() - started) / repeats * 1e6
+    owner.verified_at -= 10.0
+    started = time.perf_counter()
+    layout_problem = _mesh_problem(controller, model, decal)
+    layout_ms = (time.perf_counter() - started) * 1000.0
+    return {
+        "check_us": round(cheap_us, 2),
+        "layout_read_ms": round(layout_ms, 3),
+        "problem": problem or layout_problem,
+        "recheck_after_s": round(owner.recheck_after(), 3),
+        "loops": owner.loops,
+        "generation": owner.generation,
+    }
 
 
 def _cancel(runtime, base, args, before, before_arrays):
@@ -433,26 +469,33 @@ def _replay(obj, base, args, result):
     assert not isinstance(runtime, str), runtime
     cert = _early_drag(runtime, base, args, result)
     if cert is None:
-        result["failure"] = "no certificate: " + str(result["certificate"]["refusal"])
+        result["failure"] = "no preview model: " + str(result["model"]["refusal"])
         return
     _drag(runtime, base, args, result)
+    result["ownership"] = _ownership_cost(_controller())
     result["deviation"], result["readback_max_abs_m"] = _deviation(cert, base, args)
     result["cancel"] = _cancel(runtime, base, args, before, before_arrays)
+    result["log"] = _log_of_session()  # до подтверждения: оно сбрасывает сессию
     result["confirm"] = _confirm(obj, base, args)
     result["slider"] = _slider(result["confirm"]["width"], args)
+    result["slider"]["log"] = _log_of_session()
 
 
 def _summary(name, result) -> str:
-    frames, certificate = result["frames"], result["certificate"]
+    frames, model = result["frames"], result["model"]
     worst = max((item["max_position_m"] for item in result["deviation"]), default=0.0)
     early, slider = result["early_drag"], result["slider"]
     return (
         f"REPLAY {name}: frame {frames['frame_ms']} ms, event {frames['event_ms']} ms, stall max {frames['stall_ms_max']} ms, "
-        f"certificate {certificate['certified']}/{certificate['domains']} domains {certificate['own_bytes']} B in {certificate['ready_s']} s, "
+        f"model {model['modelled']}/{model['domains']} domains {model['own_bytes']} B in {model['ready_s']} s, "
         f"max deviation {worst:.3e} m, cancel {result['cancel']['restored_bitwise']}, confirm == cold {result['confirm']['equal_to_cold_button']}\n"
         f"REPLAY {name}: immediate drag while the prime computes: event {early['event_ms']} ms, stall max {early['stall_ms_max']} ms, "
         f"first mesh frame after {early['first_mesh_frame_after_s']} s; slider: callback {slider['callback_ms']} ms, "
-        f"frame {slider['frame_ms']} ms; exact apply {result['confirm']['exact_apply_ms']} ms"
+        f"frame {slider['frame_ms']} ms; exact apply {result['confirm']['exact_apply_ms']} ms\n"
+        f"REPLAY {name}: ownership check {result['ownership'].get('check_us')} us per frame, layout read {result['ownership'].get('layout_read_ms')} ms "
+        f"(every {result['ownership'].get('recheck_after_s')} s at most), dropped {result['log'].get('dropped')}, "
+        f"trust events {result['log'].get('trust_events')}, max deviation ratio {result['log'].get('max_deviation_ratio')}; "
+        f"slider phase dropped {slider['log'].get('dropped')}"
     )
 
 

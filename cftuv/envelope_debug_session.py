@@ -267,18 +267,22 @@ class EnvelopeDebugSessionController:
         #: снимает превью; запись кнопки (`width_build`) при этом остаётся, она про СВОЙ источник.
         self.width_target = None
         #: Превью МЕША ширины (`envelope_width_mesh_preview`): образец точного прогона, чья геометрия лежит в меше, вспомогательные
-        #: образцы, сертификат образца на экране (либо названный отказ), что меш показывает сейчас, счётчики и планировщик затравки.
+        #: образцы, приблизительная модель образца на экране (либо названный отказ), журнал доверия к её доменам, владение мешем
+        #: (тождество, поколение и отпечаток раскладки точной записи), что меш показывает сейчас, счётчики и планировщик затравки.
         #: Всё это данные ревизии и записи кнопки: смена ревизии и полный сброс их роняют.
         self.width_prime = None
         self.reset_width_mesh_preview()
 
     def reset_width_mesh_preview(self) -> None:
-        """Образцы, сертификат и состояние кадра превью меша забыты (ревизия сменилась, сессия сброшена, файл загружен)."""
+        """Образцы, модель, журнал доверия, владение мешем и состояние кадра превью меша забыты (ревизия сменилась, сессия сброшена, файл загружен)."""
 
         self.width_displayed = None
         self.width_aux = ()
-        self.width_certificate = None
-        self.width_certificate_refusal = None
+        self.width_model = None
+        self.width_model_refusal = None
+        self.width_trust = None
+        self.width_mesh_owner = None
+        self.width_layout_generation = 0
         self.width_mesh_preview = None
         self.width_prime_attempts = 0
         self.width_preview_log = None

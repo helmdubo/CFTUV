@@ -132,14 +132,18 @@ def build_domain_view(result) -> DomainViewV1:
         for first, second in zip(keys, keys[1:]):
             if first in index and second in index and first != second:
                 seams.add(tuple(sorted((index[first], index[second]))))
+    chains = boundary_chain_names(batch)
+    walls = tuple(
+        tuple(index[key] for key in keys if key in index) for name, keys in chains if name.split(":")[1] == "WALL"
+    )
     return DomainViewV1(
         None,
-        DomainVerticesV1(result.patch_id, tuple(positions), tuple(normals), tuple(refs)),
+        DomainVerticesV1(result.patch_id, tuple(positions), tuple(normals), tuple(refs), walls),
         tuple(faces),
         tuple(uvs),
         tuple(face_owner),
         tuple(sorted(seams)),
-        boundary_chain_names(batch),
+        chains,
         revision,
     )
 
