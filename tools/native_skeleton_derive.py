@@ -14,10 +14,8 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import re
-import shutil
 import sys
 from collections import Counter
 from pathlib import Path
@@ -47,7 +45,7 @@ def _derive_one(root: Path, row: dict, cap: int, tag: dict, number: int, preset:
 
     record = sc.read(root, row)
     before = record.before()
-    before = dataclasses.replace(before, budget={**before.budget, "cap": cap})
+    before = nc.bounded_before(before, cap)
     call = nc.prepare_call(record.op, record.call_blob, before)
     outcome = nc.execute(call)
     meta = {key: value for key, value in row.items() if key not in ("path", "bytes", "live_equal", "label", "test")}
@@ -116,7 +114,8 @@ def derive_records(
     """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей."""
 
     index = sc.load_index(root)
-    shutil.rmtree(root / "records" / "_derived", ignore_errors=True)
+    nc.require_index_schema(index, sc.SYNTHETIC_INDEX_SCHEMAS)
+    nc.remove_indexed_derived(root, index["records"])
     base = [row for row in index["records"] if row.get("derived") is None]
     groups: dict = {}
     for row in base:
@@ -137,6 +136,8 @@ def derive_records(
             for cap, tag in targeted_caps(spend_trace(record), occurrences):
                 derived.append(_derive_one(root, row, cap, {"share": None, **tag}, len(derived) + 1, preset))
     index["records"] = base + derived
+    if index.get("schema") != sc.SYNTHETIC_INDEX_SCHEMA:
+        index["schema"] = nc.RECORD_SCHEMA
     index["records_count"] = len(base)
     index["derived_count"] = len(derived)
     index["total_bytes"] = sum(row["bytes"] for row in base) + sum(row["bytes"] for row in derived)

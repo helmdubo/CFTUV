@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import ast
+import codecs
 from decimal import Decimal
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -28,9 +30,25 @@ def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
         arguments,
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
+
+
+def _windows_powershell() -> str:
+    """Исполняемый файл Windows PowerShell 5.1 (`tools/field_cycle.ps1` пишется под него: обратные слэши, `Test-Path`, кириллица).
+
+    Нет его на Windows — отказ теста, не пропуск: пропуск, который молча покрывает платформу владельца, и есть слух. На Linux его нет по
+    определению (там только `pwsh`, другой язык путей): пропуск с названной причиной, а эти два теста исполняет Windows-ветка `host-suite.yml`.
+    """
+
+    found = shutil.which("powershell")
+    if found is not None:
+        return found
+    if os.name == "nt":
+        pytest.fail("NO_WINDOWS_POWERSHELL: на Windows нет `powershell`, а tools/field_cycle.ps1 написан под Windows PowerShell 5.1")
+    pytest.skip("нужен Windows PowerShell 5.1 (tools/field_cycle.ps1); его исполняет Windows-ветка .github/workflows/host-suite.yml")
 
 
 def _json_output(result: subprocess.CompletedProcess[str]) -> dict:
@@ -84,9 +102,40 @@ def test_direct_gate_rejects_unmeasured_density(density):
     assert NAMED_OMISSION in result.stderr
 
 
-def test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument():
+def _windows_ansi_parse(source: Path, tmp_path: Path) -> dict:
+    """PS5.1 читает файл без BOM как ANSI: воспроизводим именно английскую кодовую страницу CI."""
+
+    parser = tmp_path / "parse_ansi.ps1"
+    parser.write_text(
+        """param([string]$CliSource)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$cliBytes = [System.IO.File]::ReadAllBytes($CliSource)
+if ($cliBytes.Length -ge 3 -and $cliBytes[0] -eq 239 -and $cliBytes[1] -eq 187 -and $cliBytes[2] -eq 191) {
+    $cliText = [System.Text.Encoding]::UTF8.GetString($cliBytes, 3, $cliBytes.Length - 3)
+} else {
+    $cliText = [System.Text.Encoding]::GetEncoding(1252).GetString($cliBytes)
+}
+$cliTokens = $null
+$cliErrors = $null
+$null = [System.Management.Automation.Language.Parser]::ParseInput($cliText, [ref]$cliTokens, [ref]$cliErrors)
+@{major=$PSVersionTable.PSVersion.Major; errors=@($cliErrors | ForEach-Object {$_.ErrorId})} | ConvertTo-Json -Compress
+""",
+        encoding="ascii",
+    )
+    return _json_output(_run(
+        _windows_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(parser), str(source)
+    ))
+
+
+def test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument(tmp_path):
+    parsed = _windows_ansi_parse(FIELD_CYCLE, tmp_path)
+    assert parsed == {"major": 5, "errors": []}
+    # Красный контроль: потеря BOM обязана воспроизводить исходный отказ PS5.1 до исполнения.
+    without_bom = tmp_path / "field_cycle_without_bom.ps1"
+    without_bom.write_bytes(FIELD_CYCLE.read_bytes().removeprefix(codecs.BOM_UTF8))
+    assert _windows_ansi_parse(without_bom, tmp_path)["errors"]
     result = _run(
-        "powershell",
+        _windows_powershell(),
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -108,7 +157,7 @@ def test_field_cycle_dry_run_forwards_density_as_fifth_gate_argument():
 
 def test_field_cycle_missing_density_is_named_failure():
     result = _run(
-        "powershell",
+        _windows_powershell(),
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -118,6 +167,7 @@ def test_field_cycle_missing_density_is_named_failure():
     )
     assert result.returncode != 0
     assert NAMED_OMISSION in result.stdout
+    assert "НЕ ГОТОВО" in result.stdout
 
 
 @pytest.mark.parametrize(

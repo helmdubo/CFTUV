@@ -1046,7 +1046,8 @@ impl Builder {
                 }
                 level = self.queue.pop_level(ctx)?;
                 self.now = Rc::clone(&level[0].time);
-                self.memo.clear();
+                // Память живёт всю сборку: ключ места уже содержит точное время.
+                // Кандидат мог гидратировать будущее место до входа в этот уровень.
             } else {
                 level = Vec::new();
             }

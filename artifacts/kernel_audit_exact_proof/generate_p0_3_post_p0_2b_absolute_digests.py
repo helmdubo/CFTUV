@@ -9,7 +9,7 @@ import test_wavefront_weighted_wall_differential as differential
 
 
 HERE = Path(__file__).resolve().parent
-OUTPUT = HERE / "p0_3_post_p0_2b_absolute_digests.json"
+OUTPUT = HERE.parents[1] / "kernel" / "artifacts" / "kernel_audit_exact_proof" / "p0_3_post_p0_2b_absolute_digests.json"
 P0_2B_PRODUCT_COMMIT = "852059a34062fd5c5dd18b1833c2908904a08362"
 P0_2B_KERNEL_SOURCE_TREE = "d87b96e08fc54353ba330689da1895acd114064a"
 P0_3_ACCEPTANCE_COMMIT = "2851e85053fc1047fc938a51dcc3b5d8dceed88b"

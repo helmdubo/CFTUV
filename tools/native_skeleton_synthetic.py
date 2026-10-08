@@ -12,7 +12,8 @@
 поиска, плотная гидратация, ДЕЙСТВУЮЩАЯ граница уровней), исход эталона и состояние ПОСЛЕ. Исход считается ПОСЛЕ прогона тестов, заново, чистым эталоном
 от записанного состояния (тест мог подменить внутренности ядра: запись описывает вызов, а не ход теста), с продуктовым значением аудита каноники
 (выключен; набор тестов его включает, и сверка `--audit on` в `native_skeleton_verify.py` доказывает, что исход от аудита не зависит). Одинаковые вызовы (тот же полигон,
-режим, бюджет и память) пишутся один раз; `live_equal` в строке индекса — совпал ли исход, увиденный тестом, с исходом чистого эталона (нет — тест подменял ядро).
+режим, бюджет и память) пишутся один раз. `live_equal` сравнивает только ответ или исключение, увиденные тестом, с ответом или исключением чистого эталона;
+цену и эффекты памяти этот флаг не сравнивает. `False` возможен как при подмене ядра тестом, так и при нормализации прогретой памяти до холодной.
 
     python tools/native_skeleton_synthetic.py build [--out DIR] [--files a.py,b.py | --ci]    # прогон тестов ядра с плагином (подпроцесс), индекс; `--ci` — подмножество `CI_FILES`
     python tools/native_skeleton_synthetic.py inventory [--out DIR]                    # опись корпуса
@@ -47,7 +48,7 @@ import native_skeleton_corpus as sc  # noqa: E402
 OUT_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_OUT"
 FILES_ENVIRONMENT = "CFTUV_SYNTHETIC_SKELETON_FILES"
 COVERAGE_ENVIRONMENT = "CFTUV_SKELETON_COVERAGE"
-INDEX_SCHEMA = "cftuv.native-corpus.synthetic-skeleton.v1"
+INDEX_SCHEMA = sc.SYNTHETIC_INDEX_SCHEMA
 
 #: Тесты ядра, которые доходят до `build_skeleton` (прямо или через `prepare_conveyor`). Плагин пишет только то, что вызвано.
 TEST_FILES = (

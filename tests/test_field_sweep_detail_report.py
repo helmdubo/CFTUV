@@ -527,13 +527,18 @@ def test_unknown_shape_is_named_not_silently_empty(tmp_path: Path):
 def test_cli_prints_table_and_json_and_fails_closed_on_empty_input(
     field_sidecar: Path,
     tmp_path: Path,
+    monkeypatch,
 ):
     """Кнопка владельца — один вызов; вход без доменов не притворяется успехом."""
 
+    # CI Windows задаёт ANSI stdout дочернего Python; CLI обязан всё равно ответить UTF-8.
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
     table = subprocess.run(
         [sys.executable, str(TOOL_PATH), str(field_sidecar)],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
@@ -546,6 +551,7 @@ def test_cli_prints_table_and_json_and_fails_closed_on_empty_input(
         [sys.executable, str(TOOL_PATH), "--json", str(field_sidecar)],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
@@ -560,6 +566,7 @@ def test_cli_prints_table_and_json_and_fails_closed_on_empty_input(
         [sys.executable, str(TOOL_PATH), str(empty)],
         cwd=REPO_ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )

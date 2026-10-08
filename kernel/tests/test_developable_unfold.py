@@ -554,3 +554,181 @@ def test_the_certificate_survives_the_codec():
     data = to_canonical_data(certificate)
     assert data["$type"] == "DevelopableUnfoldCertificateV1"
     assert data["stretch"]["$type"] == "DevelopableStretchCertificateV1"
+
+
+# --------------------------------------------------------------------------
+# Независимые граничные controls детерминированного кандидата угла
+# --------------------------------------------------------------------------
+
+
+def _machin_two_pi_bounds():
+    """Рациональный oracle: 2π = 32 atan(1/5) - 8 atan(1/239), знак остатка ряда."""
+    def atan_bounds(x):
+        terms = 64
+        partial = sum(((-1)**k * x**(2*k + 1) / (2*k + 1) for k in range(terms)), Fraction(0))
+        following = partial + (-1)**terms * x**(2*terms + 1) / (2*terms + 1)
+        return min(partial, following), max(partial, following)
+
+    a, b = atan_bounds(Fraction(1, 5)), atan_bounds(Fraction(1, 239))
+    return 32*a[0] - 8*b[1], 32*a[1] - 8*b[0]
+
+
+def _rational_fan(rays, *, name="c", scale=1):
+    """Замкнутый ориентированный диск: точные рациональные лучи, без snap/float."""
+    center = SourceVertexId(f"v:{name}")
+    rim = [SourceVertexId(f"v:{name}:p{k}") for k in range(len(rays))]
+    positions = {center: (Fraction(0),)*3}
+    positions.update({vertex: tuple(Fraction(x)*scale for x in ray)
+                      for vertex, ray in zip(rim, rays, strict=True)})
+    triangles = [SurfaceTriangleV1(
+        SurfaceTriangleId(f"{name}:t{k}"), SourceFaceId(f"{name}:f{k}"),
+        (center, rim[k], rim[(k + 1) % len(rim)]), (None,)*3, LocalVector3V1(0, 0, 1),
+    ) for k in range(len(rim))]
+    return center, tuple(item.triangle_id for item in triangles), {item.triangle_id: item for item in triangles}, positions, name
+
+
+def _symmetric_cone_rays(sign, height):
+    # Смежные скалярные произведения = sign*h²; четыре нормы² = 1+h².
+    return ((1, 0, height), (0, 1, sign*height), (-1, 0, height), (0, -1, sign*height))
+
+
+def _folded_rational_rays(subdivisions):
+    # Четыре квадранта исходной плоскости; нижняя полуплоскость сложена на 90°.
+    quarter = {1: ((1, 0),), 2: ((1, 0), (1, 1)), 3: ((1, 0), (2, 1), (1, 2))}[subdivisions]
+    rays = []
+    for turn in range(4):
+        for first, second in quarter:
+            x, y = first, second
+            for _ in range(turn):
+                x, y = -y, x
+            rays.append((x, y, 0) if y >= 0 else (x, 0, -y))
+    return tuple(rays)
+
+
+def _boundary_seed_controls(*, captured=False):
+    from cftuv_envelope import surface_cone_angle as cone
+
+    controls = [("local_libm", math.acos), ("deterministic", cone._acos_seed)]
+    if captured:
+        from test_developable_arap import _legacy_cone_seed
+
+        controls.extend((platform, _legacy_cone_seed(platform)) for platform in ("windows", "linux"))
+    return controls
+
+
+def _classify_seed_control(monkeypatch, fan, seed, *, cap=None):
+    from cftuv_envelope import _fan_closure as closure, surface_cone_angle as cone
+
+    calls, budgets = [], []
+    def spy(argument):
+        result = seed(argument)
+        calls.append((argument.hex(), result.hex()))
+        return result
+    def budget_factory(**kwargs):
+        budget = exact_work_budget(**kwargs, cap=cap)
+        budgets.append(budget)
+        return budget
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cone, "_acos_seed", spy)
+        if cap is not None:
+            scoped.setattr(closure, "exact_work_budget", budget_factory)
+        result = closure.classify_vertex(*fan)
+    return result, calls, [(item.cap, item.spent) for item in budgets]
+
+
+def _boundary_control_record(mode, item, calls, budgets=()):
+    from cftuv_envelope.codec import to_canonical_data
+
+    return dict(mode=mode, classification=to_canonical_data(item), acos_calls=calls,
+                budgets=budgets, defect_lower_bound=str(angle_defect_lower_bound(item)))
+
+
+@pytest.mark.parametrize("sign", (1, -1), ids=("below", "above"))
+@pytest.mark.parametrize("power", (10, 30))
+def test_seed_boundary_two_pi_has_independent_rational_bounds(monkeypatch, record_property, sign, power):
+    """Истинный знак не заменяет классификацию: при пересечении 2π разрешён именованный UNKNOWN."""
+    height = Fraction(1, 2**power)
+    cosine = height*height / (1 + height*height)
+    pi_low, pi_high = _machin_two_pi_bounds()
+    # Для 0<c<1: c <= asin(c) <= c/(1-c²), интеграл монотонной производной.
+    delta_low, delta_high = 4*cosine, 4*cosine/(1 - cosine*cosine)
+    oracle = (pi_low - delta_high, pi_high - delta_low) if sign > 0 else (pi_low + delta_low, pi_high + delta_high)
+    assert oracle[1] < pi_low if sign > 0 else oracle[0] > pi_high
+    fan = _rational_fan(_symmetric_cone_rays(sign, height))
+    records, decisions = [], []
+    for mode, seed in _boundary_seed_controls():
+        item, calls, budgets = _classify_seed_control(monkeypatch, fan, seed)
+        low, high = Fraction(item.angle_sum_enclosure.lower), Fraction(item.angle_sum_enclosure.upper)
+        assert low <= oracle[0] <= oracle[1] <= high
+        assert item.developability_class is not VertexDevelopabilityClassV1.EXACT_DEVELOPABLE
+        contains = low <= pi_low and pi_high <= high
+        assert contains is (power == 30)
+        if power == 10:
+            assert item.developability_class is VertexDevelopabilityClassV1.NEAR_DEVELOPABLE
+            assert item.closure_law is DevelopableFanClosureLawV1.CERTIFIED_INTERVAL_ENCLOSURE_V1
+        else:
+            assert item.closure_law in (DevelopableFanClosureLawV1.EXACT_FAN_CLOSURE_SQRT_SUM_V1,
+                                        DevelopableFanClosureLawV1.FAN_CLOSURE_UNDECIDED_V1)
+        decisions.append((item.developability_class, item.closure_law, angle_defect_lower_bound(item) > 0))
+        records.append(_boundary_control_record(mode, item, calls, budgets))
+    assert decisions[0] == decisions[1]
+    record_property("seed_boundary", dict(height=str(height), cosine=str(sign*cosine),
+                    oracle=[str(x) for x in oracle], linux_legacy="UNKNOWN", records=records))
+
+
+def test_seed_flat_equality_bypasses_acos_and_exact_work(monkeypatch, record_property):
+    fan = _rational_fan(_symmetric_cone_rays(1, Fraction(0)))
+    def forbidden(_argument):
+        raise AssertionError("flat exact fan must not request a seed")
+    item, calls, budgets = _classify_seed_control(monkeypatch, fan, forbidden, cap=0)
+    oracle = _machin_two_pi_bounds()
+    assert Fraction(item.angle_sum_enclosure.lower) <= oracle[0] <= oracle[1] <= Fraction(item.angle_sum_enclosure.upper)
+    assert item.developability_class is VertexDevelopabilityClassV1.EXACT_DEVELOPABLE
+    assert item.closure_law is DevelopableFanClosureLawV1.EXACT_PLANAR_CLOSED_FAN_V1
+    assert calls == budgets == []
+    assert angle_defect_lower_bound(item) == 0 and worst_defect_vertex((item,)) is None
+    record_property("seed_boundary", _boundary_control_record("seed_independent", item, calls, budgets))
+
+
+@pytest.mark.parametrize("subdivisions,cap", ((1, None), (2, None), (3, None), (2, 0)))
+def test_seed_folded_fan_keeps_structural_and_exact_work_limits(monkeypatch, record_property, subdivisions, cap):
+    """Изометрия двух полуплоскостей доказывает 2π независимо от численного ядра."""
+    fan = _rational_fan(_folded_rational_rays(subdivisions))
+    oracle = _machin_two_pi_bounds()
+    records, decisions = [], []
+    for mode, seed in _boundary_seed_controls(captured=subdivisions <= 2):
+        item, calls, budgets = _classify_seed_control(monkeypatch, fan, seed, cap=cap)
+        assert Fraction(item.angle_sum_enclosure.lower) <= oracle[0] <= oracle[1] <= Fraction(item.angle_sum_enclosure.upper)
+        assert item.fan_triangle_count == 4*subdivisions
+        limited = subdivisions > 2 or cap == 0
+        assert item.developability_class is (VertexDevelopabilityClassV1.UNDECIDED_WORK_BUDGET if limited else VertexDevelopabilityClassV1.EXACT_DEVELOPABLE)
+        assert item.closure_law is (DevelopableFanClosureLawV1.FAN_CLOSURE_UNDECIDED_V1 if limited else DevelopableFanClosureLawV1.EXACT_FAN_CLOSURE_SQRT_SUM_V1)
+        assert angle_defect_lower_bound(item) == 0 and worst_defect_vertex((item,)) is None
+        if cap == 0:
+            assert len(budgets) == 1 and budgets[0][0] == 0 and budgets[0][1] > 0
+        decisions.append((item.developability_class, item.closure_law))
+        records.append(_boundary_control_record(mode, item, calls, budgets))
+    assert all(item == decisions[0] for item in decisions)
+    record_property("seed_boundary", dict(count=4*subdivisions, cap=cap,
+                    linux_legacy="CAPTURED" if subdivisions <= 2 else "UNKNOWN", records=records))
+
+
+def test_seed_equal_defects_have_a_stable_id_tie_break(monkeypatch, record_property):
+    from itertools import permutations
+
+    rays = _symmetric_cone_rays(1, Fraction(1, 2**10))
+    records = []
+    for mode, seed in _boundary_seed_controls():
+        # Изометрия и равномерный масштаб сохраняют истинный ненулевой дефект точно.
+        first, calls, _ = _classify_seed_control(monkeypatch, _rational_fan(rays, name="a"), seed)
+        second, other_calls, _ = _classify_seed_control(monkeypatch, _rational_fan(rays, name="z", scale=8), seed)
+        flat, _, _ = _classify_seed_control(monkeypatch, _rational_fan(_symmetric_cone_rays(1, 0), name="0"), seed)
+        assert first.angle_sum_enclosure == second.angle_sum_enclosure
+        assert angle_defect_lower_bound(first) == angle_defect_lower_bound(second) > 0
+        for order in permutations((first, second, flat)):
+            assert worst_defect_vertex(order) == SourceVertexId("v:a")
+            ranking = [item.vertex_id.value for item in sorted(order, key=lambda item: (-angle_defect_lower_bound(item), item.vertex_id.value))]
+            assert ranking == ["v:a", "v:z", "v:0"]
+        records.append(dict(mode=mode, first=_boundary_control_record(mode, first, calls),
+                            second=_boundary_control_record(mode, second, other_calls), winner="v:a"))
+    record_property("seed_boundary", dict(linux_legacy="UNKNOWN", records=records))

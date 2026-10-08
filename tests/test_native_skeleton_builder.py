@@ -352,7 +352,9 @@ def test_the_loop_runs_out_of_budget_where_the_oracle_does_and_leaves_the_oracle
     for _name, polygon in parts.named_polygons()[8:30]:
         probe = leaf.fresh_process_state()
         build_skeleton(polygon, work_budget=probe)
-        for percent in (30, 50, 70, 85, 92, 97):
+        # После M3 меньший общий расход сдвигает ранние лимиты в init;
+        # близкие к полному лимиты сохраняют покрытие цикла и снимков.
+        for percent in (30, 50, 70, 85, 92, 97, 98, 99):
             leaf.fresh_process_state()
             budget = exact.exact_work_budget(stage="PREPARE", domain_id="starved", cap=max(1, probe.spent * percent // 100))
             run_oracle(verifier, polygon, budget)

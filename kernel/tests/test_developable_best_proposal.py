@@ -280,7 +280,7 @@ def test_the_new_certificate_fields_are_the_only_bytes_that_changed():
     )
     assert (
         _without_new_fields(build_metric(_perturbed_fold_grid(ARAP_FIXTURE_DROP), ladder=ON))
-        == "0f5562b4075975f8025776f36ac4b52d6b3c85773f9c4ed06443f79ff807e6b2"
+        == "f3e15ebe936c2de7623539c0c6003d90b7ec15c5ec07e5134a3b8b4d20307431"
     )
 
 

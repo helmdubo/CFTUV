@@ -42,7 +42,7 @@ AXES = (
     "proof_obligations",
 )
 ABSOLUTE_DIGEST_RECEIPT = (
-    Path(__file__).parents[2]
+    Path(__file__).resolve().parents[1]
     / "artifacts"
     / "kernel_audit_exact_proof"
     / "p0_3_post_p0_2b_absolute_digests.json"

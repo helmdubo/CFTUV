@@ -61,8 +61,8 @@ R = ChainStationReasonV1
 A, B = PatchId("patch:A"), PatchId("patch:B")
 DOMAIN_A, DOMAIN_B = PatchDomainId("domain:A"), PatchDomainId("domain:B")
 CHAIN = PhysicalChainId("chain:C")
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = ROOT / "kernel" / "fixtures"
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / "fixtures"
 BUDGET = float(CLIP_DIAGONAL_CHORD_BUDGET)
 LENGTH = 0.4
 

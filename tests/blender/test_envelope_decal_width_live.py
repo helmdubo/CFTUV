@@ -28,10 +28,14 @@
 7. КОЛЬЦО КУПОЛА ПОД СУЖЕННОЙ ДОСЯГАЕМОСТЬЮ: карта купола при умолчании досягаемости отказывает швом, кнопка строит её под
    `alpha * (1 + b)` (0.3 м при ширине 0.25); ширина 0.3 через путь ползунка пересобирает карту под 0.36 м (своя
    карта, а не прежняя 0.3 м), меш применён на месте и ПОБИТОВО равен прямому нажатию в холодной сессии;
-8. ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`, `envelope_width_mesh_preview`): вход инструмента заказывает затравку сертификата (два точных
+8. ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`, ПРИБЛИЗИТЕЛЬНОЕ, `envelope_width_mesh_preview`): вход инструмента заказывает затравку модели (два точных
    прогона рядом, в меш не пишутся), настоящий меш двигается каждый кадр перетаскивания (позиции и UV; датаблоки, указатели и свойство ширины
    меша те же, заказа точного счёта нет), на ширине базы он побитово база, отмена возвращает его побитово, подтверждение даёт точный меш,
-   равный холодной кнопке (отклонение превью от него названо числом), а меш чужого состава снимает сертификат с названной причиной.
+   равный холодной кнопке (отклонение превью от него названо числом), а меш чужого состава снимает модель с названной причиной;
+9. ВЛАДЕНИЕ МЕШЕМ (аудит ad6074f, F2): превью пишется только в меш, который записал точный путь. Свои записи (кнопка, кадры, точный результат)
+   обработчик depsgraph не принимает за чужие; подмена датаблока с теми же счётчиками и свойствами, правка раскладки при тех же счётчиках
+   (в Object и через Edit с правкой UV), обновление геометрии декали мимо нас и шаг Undo/Redo снимают модель с названной причиной, ничего
+   не записав в меш, а точный путь после этого работает как прежде (меш равен холодной кнопке) и заводит владение и модель заново.
 
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
@@ -385,15 +389,15 @@ def _mesh_arrays(name):
     return co, uv
 
 
-def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_result_replaces_it():
+def _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it():
     """ПРЕВЬЮ МЕША (`PREVIEW_MESH_FROM_INTERVAL_V1`): настоящий меш двигается между точными пересчётами, и точный меш потом тот же, что у кнопки.
 
-    1. кнопка кладёт образец, сертификата нет; вход инструмента заказывает ЗАТРАВКУ (точный прогон рядом, в меш не пишет), после неё
-       сертификат есть (квадрат), а меш и датаблоки те же;
+    1. кнопка кладёт образец и владение мешем, модели нет; вход инструмента заказывает ЗАТРАВКУ (точный прогон рядом, в меш не пишет), после неё
+       модель есть (квадрат), а меш и датаблоки те же;
     2. перетаскивание теми же функциями, что у оператора: меш двигается КАЖДЫЙ кадр (позиции и UV), датаблоки, указатели и свойство
        ширины меша те же, строка статуса называет превью; кадр в пределах интервала близок к точному (отклонение названо числом);
-    3. отмена возвращает меш побитово; подтверждение даёт точный меш, равный холодной кнопке, и новый сертификат;
-    4. отказ назван: после правки состава меша (чужой меш) сертификат снят именем и кадров нет.
+    3. отмена возвращает меш побитово; подтверждение даёт точный меш, равный холодной кнопке, и новую модель;
+    4. отказ назван: после правки состава меша (чужой меш) модель снята именем и кадров нет.
     """
 
     import numpy as np
@@ -406,7 +410,8 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_
     controller = _controller()
     settings = _settings()
     start = float(settings.envelope_debug_alpha)
-    assert controller.width_displayed is not None and controller.width_certificate is None
+    assert controller.width_displayed is not None and controller.width_model is None
+    assert controller.width_mesh_owner is not None and controller.width_mesh_owner.sample is controller.width_displayed
     assert controller.width_displayed.alpha == start and controller.width_displayed.arrays_digest
 
     mesh_pointer, object_pointer = bpy.data.objects[DECAL].data.as_pointer(), bpy.data.objects[DECAL].as_pointer()
@@ -414,23 +419,23 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_
     before = _digest()
     still = _mesh_arrays(DECAL)
 
-    # 1. Вход инструмента: затравка (две подряд), сертификат, меш не тронут.
+    # 1. Вход инструмента: затравка (две подряд), модель, меш не тронут.
     view = ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0)
     runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
     assert not isinstance(runtime, str), runtime
-    assert controller.width_prime is not None and controller.width_prime.busy, "the tool entry orders the certificate prime"
+    assert controller.width_prime is not None and controller.width_prime.busy, "the tool entry orders the preview-model prime"
     _pump_all()
-    certificate = controller.width_certificate
-    assert certificate is not None, controller.width_certificate_refusal
-    assert certificate.certified_domains >= 1 and certificate.quadratic_domains == certificate.certified_domains
+    model = controller.width_model
+    assert model is not None, controller.width_model_refusal
+    assert model.modelled_domains >= 1 and model.quadratic_domains == model.modelled_domains
     assert controller.width_prime.counters.applied == 2 and controller.width_prime.counters.failed == 0
     assert controller.width_live is None or controller.width_live.counters.requested == 0, "the prime never goes through the width order"
     assert _digest() == before and _datablock_counts() == blocks
     assert _width_property(DECAL) == start
-    assert any(line.startswith("Preview certificate:") for line in _status_lines())
+    assert any(line.startswith("Preview model (approximate") for line in _status_lines())
     print(
-        f"PREVIEW CERTIFICATE {certificate.certified_domains}/{certificate.domain_count} domains, {certificate.quadratic_domains} quadratic, "
-        f"{certificate.own_bytes} B (+{certificate.base.nbytes} B base)"
+        f"PREVIEW MODEL {model.modelled_domains}/{model.domain_count} domains, {model.quadratic_domains} quadratic, "
+        f"{model.own_bytes} B (+{model.base.nbytes} B base)"
     )
 
     # 2. Перетаскивание: каждый кадр двигает меш; всё остальное на месте.
@@ -452,7 +457,7 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_
     assert (controller.width_live is None or controller.width_live.counters.requested == 0), "no exact order during the drag"
     step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.006, 0.0))
     apply_step(bpy.context, runtime, step)
-    assert any("PREVIEW_MESH_FROM_INTERVAL_V1 preview, not certified" in line for line in _status_lines())
+    assert any("PREVIEW_MESH_FROM_INTERVAL_V1 preview (approximate, not certified)" in line for line in _status_lines())
     preview_co, preview_uv = _mesh_arrays(DECAL)
     assert controller.width_mesh_preview.seconds < 0.03, controller.width_mesh_preview.seconds
 
@@ -486,28 +491,237 @@ def _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_
     assert live != before
     assert _direct_digest_at(final, cold=False) == live and _direct_digest_at(final, cold=True) == live
 
-    # 4. Меш чужого состава: сертификат снят с названной причиной, кадров нет.
+    # 4. Меш чужого состава: модель снята с названной причиной, кадров нет.
     _pump_all()
     runtime = begin_adjust(bpy.context, (0.0, 0.0), view)
     _pump_all()
-    assert controller.width_certificate is not None
+    assert controller.width_model is not None
     decal = bpy.data.objects[DECAL]
     decal["cftuv_source_revision"] = str(decal["cftuv_source_revision"]) + "-edited"
     step = runtime.session.handle(WidthEventV1(KIND_MOVE, 0.002, 0.0))
     apply_step(bpy.context, runtime, step)
-    assert controller.width_certificate is None and controller.width_mesh_preview is None
-    assert any("PREVIEW_CERTIFICATE_DROPPED:PREVIEW_MESH_NOT_THE_BASE" in line for line in _status_lines()), _status_lines()
+    assert controller.width_model is None and controller.width_mesh_preview is None
+    assert any("PREVIEW_MODEL_DROPPED:PREVIEW_MESH_NOT_THE_BASE" in line for line in _status_lines()), _status_lines()
     log = controller.width_preview_log
-    assert log.dropped == {"PREVIEW_CERTIFICATE_DROPPED:PREVIEW_MESH_NOT_THE_BASE": 1}, log.dropped
-    assert earlier["frames"] >= 12 and earlier["certificates"] >= 3 and earlier["checks"] >= 1, earlier
+    assert log.dropped == {"PREVIEW_MODEL_DROPPED:PREVIEW_MESH_NOT_THE_BASE": 1}, log.dropped
+    assert earlier["frames"] >= 12 and earlier["models"] >= 3 and earlier["checks"] >= 1, earlier
     assert earlier["max_position_error"] < 1e-4 and earlier["domains_refuted"] == 0, earlier
     closing = runtime.session.handle(WidthEventV1(KIND_CANCEL))
     apply_step(bpy.context, runtime, closing)
     finish_adjust(bpy.context, runtime, confirmed=False)
     print(
-        f"PREVIEW MESH: {earlier['frames']} frames, max {earlier['frame_seconds_max'] * 1000:.2f} ms; certificates {earlier['certificates']}; "
+        f"PREVIEW MESH: {earlier['frames']} frames, max {earlier['frame_seconds_max'] * 1000:.2f} ms; models {earlier['models']}; "
         f"self-check max {earlier['max_position_error']:.3e} m over {earlier['domains_checked']} domains; dropped {dict(log.dropped)}"
     )
+
+
+def _layout_of(mesh):
+    """Отпечаток раскладки меша теми же функциями, что и кадр (`_read_layout`): индексы вершин петель и начала граней."""
+
+    import numpy as np
+
+    from cftuv.envelope_width_mesh_preview import _read_layout
+
+    return _read_layout(mesh, np.empty(len(mesh.loops), dtype=np.int32), np.empty(len(mesh.polygons), dtype=np.int32))
+
+
+def _manual_layout_change(mesh):
+    """Ручная правка раскладки в режиме Object: те же вершины, петли, грани и свойства, но порядок вершин одной грани обратный."""
+
+    import bmesh
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.reverse_faces(bm, faces=[bm.faces[0]])
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+
+
+def _tool_ready(*, undo=False):
+    """Кнопка, вход инструмента и затравка: у сессии есть модель и владение мешем; depsgraph доложил о нашей записи и ничего не снял."""
+
+    from cftuv.envelope_width_session import ViewScaleV1, begin_adjust
+
+    source = _fresh()
+    if undo:
+        _enable_background_undo(source)
+        assert bpy.ops.hotspotuv.build_envelope_decal_mesh(True) == {"FINISHED"}
+    else:
+        _press(source)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    if undo:
+        bpy.ops.ed.undo_push(message="Decal built")
+    controller = _controller()
+    runtime = begin_adjust(bpy.context, (0.0, 0.0), ViewScaleV1(pivot=(0.0, 0.0), metres_per_pixel=1.0))
+    assert not isinstance(runtime, str), runtime
+    _pump_all()
+    assert controller.width_model is not None and controller.width_mesh_owner is not None, controller.width_model_refusal
+    bpy.context.view_layer.update()
+    assert controller.width_model is not None, "the depsgraph report of our own write must not drop the model"
+    return controller, runtime
+
+
+def _drag_frame(runtime, offset):
+    from cftuv.envelope_width_adjust import KIND_MOVE, WidthEventV1
+    from cftuv.envelope_width_session import apply_step
+
+    apply_step(bpy.context, runtime, runtime.session.handle(WidthEventV1(KIND_MOVE, offset, 0.0)))
+
+
+def _dropped_names(controller):
+    return set(controller.width_preview_log.dropped)
+
+
+def _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start):
+    """После снятия модели точный путь работает как прежде: меш равен холодной кнопке, владение и модель заведены заново, кадры снова идут."""
+
+    settings = _settings()
+    _pump_all()
+    generation = controller.width_layout_generation
+    width = start + 0.01
+    for item in bpy.context.view_layer.objects:
+        item.select_set(item == bpy.data.objects[SOURCE])
+    bpy.context.view_layer.objects.active = bpy.data.objects[SOURCE]
+    settings.envelope_debug_alpha = width
+    _pump_all()
+    assert controller.width_live.counters.failed == 0
+    live = _digest()
+    assert controller.width_layout_generation == generation + 1 and controller.width_mesh_owner is not None
+    assert controller.width_mesh_owner.sample is controller.width_displayed
+    assert controller.width_model is not None, controller.width_model_refusal  # затравка в конце применения заказала модель заново
+    bpy.context.view_layer.update()
+    assert controller.width_model is not None
+    _drag_frame(runtime, 0.007)  # другая ширина, чем на прежних кадрах: автомат не двигает кадр на той же
+    assert controller.width_mesh_preview is not None and controller.width_model is not None
+    assert _direct_digest_at(float(settings.envelope_debug_alpha), cold=True) == live, "the exact result equals the cold button"
+
+
+def _run_the_preview_mesh_belongs_only_to_the_mesh_the_exact_path_wrote():
+    import bmesh
+    import numpy as np
+
+    from cftuv.envelope_width_adjust import KIND_CANCEL, WidthEventV1
+    from cftuv.envelope_width_session import apply_step, finish_adjust
+
+    drop = "PREVIEW_MODEL_DROPPED:"
+
+    # a. Свои записи (кнопка, кадры, возврат базы) обработчик depsgraph не принимает за чужие.
+    controller, runtime = _tool_ready()
+    start = float(_settings().envelope_debug_alpha)
+    for offset in (0.002, 0.004, 0.006):
+        _drag_frame(runtime, offset)
+        bpy.context.view_layer.update()
+    assert controller.width_model is not None and controller.width_preview_log.dropped == {} and controller.width_preview_log.frames == 3
+    closing = runtime.session.handle(WidthEventV1(KIND_CANCEL))
+    apply_step(bpy.context, runtime, closing)
+    assert finish_adjust(bpy.context, runtime, confirmed=False) == "CANCELLED"
+    bpy.context.view_layer.update()
+    assert controller.width_model is not None and controller.width_preview_log.dropped == {}
+    assert controller.width_layout_generation >= 1 and controller.width_preview_log.layout_generation == controller.width_layout_generation
+
+    # b. Другой датаблок с теми же счётчиками, раскладкой и пользовательскими свойствами (копия): тождество его не признаёт, записи нет.
+    controller, runtime = _tool_ready()
+    decal = bpy.data.objects[DECAL]
+    original = decal.data
+    twin = original.copy()
+    assert twin["cftuv_decal_width"] == original["cftuv_decal_width"] and _layout_of(twin) == _layout_of(original)
+    assert twin.as_pointer() != original.as_pointer() and twin.session_uid != original.session_uid
+    decal.data = twin
+    still = _mesh_arrays(DECAL)
+    _drag_frame(runtime, 0.004)
+    assert controller.width_model is None and controller.width_mesh_preview is None
+    assert controller.width_preview_log.dropped == {drop + "PREVIEW_MESH_DATABLOCK_REPLACED": 1}, controller.width_preview_log.dropped
+    moved = _mesh_arrays(DECAL)
+    assert np.array_equal(moved[0], still[0]) and np.array_equal(moved[1], still[1]), "nothing was written into a mesh we do not own"
+    _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start)
+
+    # c. Раскладку изменили на месте при тех же счётчиках (порядок вершин грани), сигнала depsgraph нет: сеть (перепроверка отпечатка) видит.
+    controller, runtime = _tool_ready()
+    decal = bpy.data.objects[DECAL]
+    owner = controller.width_mesh_owner
+    counts = (len(decal.data.vertices), len(decal.data.loops), len(decal.data.polygons), len(decal.data.edges))
+    _manual_layout_change(decal.data)
+    assert (len(decal.data.vertices), len(decal.data.loops), len(decal.data.polygons), len(decal.data.edges)) == counts
+    assert _layout_of(decal.data) != owner.layout, "the same counts, another loop-to-vertex order"
+    still = _mesh_arrays(DECAL)
+    owner.verified_at -= 10.0
+    _drag_frame(runtime, 0.004)
+    assert controller.width_model is None
+    assert controller.width_preview_log.dropped == {drop + "PREVIEW_MESH_LAYOUT_CHANGED": 1}, controller.width_preview_log.dropped
+    assert controller.width_preview_log.layout_checks == 1
+    moved = _mesh_arrays(DECAL)
+    assert np.array_equal(moved[0], still[0]) and np.array_equal(moved[1], still[1])
+    _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start)
+
+    # d. То же, но depsgraph докладывает об обновлении геометрии: настоящий обработчик снимает модель сразу, до любого кадра.
+    controller, runtime = _tool_ready()
+    _manual_layout_change(bpy.data.objects[DECAL].data)
+    bpy.context.view_layer.update()
+    assert controller.width_model is None and controller.width_mesh_owner is None
+    assert controller.width_preview_log.dropped == {drop + "PREVIEW_DECAL_CHANGED_EXTERNALLY": 1}, controller.width_preview_log.dropped
+    still = _mesh_arrays(DECAL)
+    _drag_frame(runtime, 0.004)
+    assert controller.width_mesh_preview is None and np.array_equal(_mesh_arrays(DECAL)[0], still[0])
+    _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start)
+
+    # e. Edit декали с ручной правкой раскладки и UV и выход из Edit: модель снята (сигналом либо режимом), меш не перезаписан превью.
+    controller, runtime = _tool_ready()
+    decal = bpy.data.objects[DECAL]
+    for item in bpy.context.view_layer.objects:
+        item.select_set(item == decal)
+    bpy.context.view_layer.objects.active = decal
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.context.view_layer.update()
+    _drag_frame(runtime, 0.002)
+    assert controller.width_model is None and controller.width_mesh_preview is None
+    first = _dropped_names(controller)
+    assert first and first <= {drop + "PREVIEW_DECAL_CHANGED_EXTERNALLY", drop + "PREVIEW_DECAL_IN_EDIT_MODE"}, first
+    bm = bmesh.from_edit_mesh(decal.data)
+    bm.faces.ensure_lookup_table()
+    bmesh.ops.reverse_faces(bm, faces=[bm.faces[0]])
+    uv_layer = bm.loops.layers.uv.verify()
+    bm.faces[0].loops[0][uv_layer].uv.x += 0.05
+    bmesh.update_edit_mesh(decal.data)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.context.view_layer.update()
+    manual = _mesh_arrays(DECAL)
+    _drag_frame(runtime, 0.004)
+    assert controller.width_model is None and np.array_equal(_mesh_arrays(DECAL)[0], manual[0]) and np.array_equal(_mesh_arrays(DECAL)[1], manual[1])
+    print(f"EDIT ROUND TRIP: the model was dropped by {sorted(first)}")
+    _the_exact_path_recovers_and_owns_the_mesh_again(controller, runtime, start)
+
+    # f. Undo/Redo: шаг истории снимает модель (строго), сцена целая, точный путь заводит всё заново.
+    from cftuv.envelope_width_modal import _reconcile_once
+
+    controller, runtime = _tool_ready(undo=True)
+    bpy.ops.ed.undo_push(message="Adjust Decal Width")
+    _drag_frame(runtime, 0.004)
+    assert controller.width_mesh_preview is not None
+    assert bpy.ops.ed.undo() == {"FINISHED"}
+    _assert_scene_links_only_live_objects()
+    bpy.context.view_layer.update()
+    _walk_every_datablock()
+    handler_ran = bpy.app.timers.is_registered(_reconcile_once)
+    if handler_ran:
+        bpy.app.timers.unregister(_reconcile_once)
+    _reconcile_once()  # то, что делает таймер обработчика undo_post
+    controller = _controller()
+    assert controller.width_model is None and controller.width_mesh_owner is None and controller.width_mesh_preview is None
+    names = _dropped_names(controller)
+    assert names and names <= {drop + "PREVIEW_HISTORY_STEP", drop + "PREVIEW_DECAL_CHANGED_EXTERNALLY"}, names
+    _drag_frame(runtime, 0.006)
+    assert controller.width_mesh_preview is None, "no frame without a model"
+    _pump_all()
+    _redo_and_check()
+    _reconcile_once()
+    _pump_all()
+    assert _controller().width_model is None
+    print(f"UNDO/REDO: handler timer registered by undo_post: {handler_ran}; model dropped by {sorted(names)}")
+    _the_exact_path_recovers_and_owns_the_mesh_again(_controller(), runtime, start)
+    print("OWNERSHIP: own writes pass; replaced datablock, other loop order, foreign geometry update, Edit round trip and Undo/Redo drop the preview by name")
 
 
 def _run_timer_writes_keep_the_scene_and_the_undo_history_consistent():
@@ -793,7 +1007,8 @@ def _main():
     finally:
         envelope_queue_pool.COVERAGE_POOL_MIN_BYTES = original
     _run_the_modal_tool_drags_the_preview_and_the_buttons_answer_follows_only_a_confirm()
-    _run_the_preview_mesh_follows_the_hand_inside_the_certificate_and_the_exact_result_replaces_it()
+    _run_the_preview_mesh_follows_the_hand_inside_the_model_and_the_exact_result_replaces_it()
+    _run_the_preview_mesh_belongs_only_to_the_mesh_the_exact_path_wrote()
     _run_timer_writes_keep_the_scene_and_the_undo_history_consistent()
     _run_the_tool_belongs_to_the_active_objects_own_decal()
     _run_the_width_tool_rebuilds_a_tightened_dome_ring_for_the_new_width()

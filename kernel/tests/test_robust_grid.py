@@ -17,6 +17,8 @@ import random
 from fractions import Fraction
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT
+
 import pytest
 
 from cftuv_envelope.reference.planar_types import (
@@ -216,7 +218,7 @@ def test_the_robust_core_never_imports_sympy():
     решётка и заводилась.
     """
 
-    root = Path(__file__).resolve().parents[1] / "src" / "cftuv_envelope" / "robust"
+    root = PACKAGE_ROOT / "robust"
     for path in sorted(root.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

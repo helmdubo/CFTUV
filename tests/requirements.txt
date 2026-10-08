@@ -1,0 +1,11 @@
+# Зависимости host-набора (`python -m pytest tests`) и всех workflow, которые его гоняют.
+# Единственное место версий: `tests/test_architecture.py::test_every_third_party_import_is_declared_for_ci`
+# роняет сборку, если код, тесты или инструменты импортируют стороннее имя, которого здесь нет.
+#
+# numpy: аддон исполняется в Python Blender (4.5: CPython 3.11.11, numpy 1.26.4), а не в системном; хост-код
+# (`cftuv/envelope_width_certificate.py`) его импортирует, поэтому CI ставит ту же версию, что в Blender.
+# 1.26.4 существует для CPython 3.10 и 3.11, обе ветки матрицы host-suite.yml ставят одно и то же.
+# mpmath приходит вместе с sympy (его зависимость), отдельной строки не требует.
+pytest>=8,<10
+sympy==1.14.0
+numpy==1.26.4

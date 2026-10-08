@@ -4,6 +4,8 @@ import importlib
 import subprocess
 import sys
 
+from kernel_test_paths import PACKAGE_ROOT
+
 import pytest
 
 import cftuv_envelope
@@ -133,7 +135,7 @@ def test_missing_lazy_name_keeps_exact_attribute_error(module_name: str):
 
 
 def test_lazy_root_resolution_does_not_leak_child_modules():
-    source_root = str(__file__.rsplit("tests", 1)[0] + "src")
+    source_root = str(PACKAGE_ROOT.parent)
     script = f"""
 import sys
 sys.path.insert(0, {source_root!r})
@@ -155,7 +157,7 @@ assert not leaks, sorted(leaks)
 
 
 def test_wavefront_leaf_imports_do_not_require_sympy_or_mpmath():
-    source_root = str(__file__.rsplit("tests", 1)[0] + "src")
+    source_root = str(PACKAGE_ROOT.parent)
     script = f"""
 import importlib.abc
 import sys
@@ -200,7 +202,7 @@ assert not any(
 
 
 def test_direct_child_imports_work_without_root_attribute_leaks():
-    source_root = str(__file__.rsplit("tests", 1)[0] + "src")
+    source_root = str(PACKAGE_ROOT.parent)
     script = f"""
 import sys
 sys.path.insert(0, {source_root!r})

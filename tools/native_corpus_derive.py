@@ -16,9 +16,7 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -40,7 +38,7 @@ def starved_before(before: nc.StateV1, spent: int, share: float) -> nc.StateV1:
     """Состояние до с потолком `потрачено_до + int(доля * цена)`: ниже цены вызова, пока доля < 1."""
 
     cap = sum(before.budget["articles"]) + int(spent * share)
-    return dataclasses.replace(before, budget={**before.budget, "cap": cap})
+    return nc.bounded_before(before, cap)
 
 
 def _derive_one(root: Path, row: dict, share: float, number: int, preset: int) -> dict:
@@ -66,7 +64,8 @@ def derive_records(root: Path, *, per_group: int = 3, shares=(0.3, 0.7), min_spe
     """Строит производные записи корпуса `root`, обновляет `index.json`; возвращает строки производных записей."""
 
     index = nc.load_index(root)
-    shutil.rmtree(root / "records" / "_derived", ignore_errors=True)
+    nc.require_index_schema(index)
+    nc.remove_indexed_derived(root, index["records"])
     base = [row for row in index["records"] if not row.get("derived")]
     groups: dict = {}
     for row in base:
@@ -79,6 +78,7 @@ def derive_records(root: Path, *, per_group: int = 3, shares=(0.3, 0.7), min_spe
             for share in shares:
                 derived.append(_derive_one(root, row, share, len(derived) + 1, preset))
     index["records"] = base + derived
+    index["schema"] = nc.RECORD_SCHEMA
     index["records_count"] = len(base)
     index["derived_count"] = len(derived)
     index["total_bytes"] = sum(row["bytes"] for row in base) + sum(row["bytes"] for row in derived)

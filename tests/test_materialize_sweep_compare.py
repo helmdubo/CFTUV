@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-SWEEP = Path(__file__).resolve().parents[2] / "artifacts" / "materialize_sweep" / "sweep.py"
+SWEEP = Path(__file__).resolve().parents[1] / "artifacts" / "materialize_sweep" / "sweep.py"
 
 
 def _sweep():

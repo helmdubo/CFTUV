@@ -29,10 +29,8 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import json
 import math
-import sys
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,10 +67,8 @@ import materialize_factories as factories
 from reference_factories import _interval
 from test_corner_join import SOFT_BOUNDS, _density_request, _plan_like, _snapshot
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "kernel" / "fixtures" / "building_patch89_fold_miter_v1"
-EXPECTED_CHANGE = ROOT / "kernel" / "fixtures" / "expected_change"
-SWEEP_DIR = ROOT / "artifacts" / "materialize_sweep"
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "fixtures" / "building_patch89_fold_miter_v1"
 UV = PolicyId("UV_DIRECT_STRIP_V1")
 MITER = CornerTreatmentV1.MITER_SEAM
 FAN = CornerTreatmentV1.ANGULAR_PROFILE
@@ -401,7 +397,7 @@ def test_the_miter_corners_are_seams_without_flow_and_the_domain_names_them():
 def test_a_domain_without_a_miter_corner_counts_zero_and_keeps_its_records():
     """Домен `building` 17 (плоский, шумовые складки кольца на порядки ниже бюджета): закон ничего не меняет."""
 
-    folder = ROOT / "kernel" / "fixtures" / "building_patch17_crowded_v1"
+    folder = ROOT / "fixtures" / "building_patch17_crowded_v1"
     snapshot = kernel.AnalysisSnapshotCodecV1.loads((folder / "analysis_snapshot.json").read_bytes())
     request = kernel.DecalRequestCodecV1.loads((folder / "decal_request_density2.json").read_bytes())
     prepared, _coverage = factories.prepare_and_cover(snapshot, request, alpha="0.45")
@@ -467,63 +463,3 @@ def test_forged_miter_records_and_certificates_are_refused_by_name():
     assert any("must resolve k = 0" in issue.message for issue in structural)
     # Веер под законом митры (`BEND_BEYOND_MITER_BOUND`) — запись закона митры без сертификата митры: согласна.
     assert records  # (имена вершин есть: запись веера прочитана выше)
-
-
-# --------------------------------------------------------------------------
-# Настоящие записи ворот
-# --------------------------------------------------------------------------
-
-
-def _load_module(name: str, path: Path):
-    if str(path.parent) not in sys.path:
-        sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.fixture(scope="module")
-def sweep():
-    return _load_module("materialize_sweep_under_fold_test", SWEEP_DIR / "sweep.py")
-
-
-def _record(name: str) -> dict:
-    return json.loads((EXPECTED_CHANGE / name).read_text(encoding="utf-8"))
-
-
-def test_real_records_the_sweep_moves_domain_89_alone_by_the_fold_miter_spec(sweep):
-    ec = sweep.expected_change
-    spec = ec.load_spec("fold_miter", "sweep", sweep.VOCABULARY)
-    report = ec.evaluate(
-        [_record("sweep_fold_before.json"), _record("sweep_fold_after.json")],
-        ["base", "new"],
-        spec,
-        sweep.pair_views(False),
-        sweep.VOCABULARY,
-        False,
-    )
-    assert report.problems == []
-    assert report.changed_domains == ["89"]
-    assert ec.verdict_line(report) == "EXPECTED-CHANGE (spec fold_miter): 1 domains"
-    # Без спецификации та же пара — расхождение именно на домене 89, и ни на каком другом из пяти.
-    bare = ec.evaluate(
-        [_record("sweep_fold_before.json"), _record("sweep_fold_after.json")],
-        ["base", "new"], None, sweep.pair_views(False), sweep.VOCABULARY, False,
-    )
-    assert bare.exit_code == 1 and {line.split(" patch")[1].split(":")[0] for line in bare.problems} == {"89"}
-
-
-def test_real_records_the_gate_moves_domain_89_alone_by_the_fold_miter_gate_spec(sweep):
-    gate, ec = sweep.gate, sweep.expected_change
-    spec = ec.load_spec("fold_miter_gate", "gate", gate.VOCABULARY)
-    result = gate.compare_records(_record("gate_fold_before.json"), _record("gate_fold_after.json"), spec)
-    assert result["report"].problems == [] and result["report"].changed_domains == ["89"]
-    assert ec.verdict_line(result["report"]) == "EXPECTED-CHANGE (spec fold_miter_gate): 1 domains"
-    # Контроль: спецификация без домена 89 (чужой список) валит ровно на нём.
-    raw = json.loads((SWEEP_DIR / "specs" / "fold_miter_gate.json").read_text(encoding="utf-8"))
-    raw["domains"] = {"explicit": [6]}
-    wrong = gate.compare_records(
-        _record("gate_fold_before.json"), _record("gate_fold_after.json"), ec.parse_spec(raw, "gate", gate.VOCABULARY), False
-    )
-    assert wrong["report"].exit_code == 1

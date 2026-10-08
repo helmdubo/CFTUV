@@ -491,7 +491,7 @@ def test_the_result_is_made_of_ordinary_python_objects_that_pickle_and_compare_a
 def test_the_raw_layouts_of_the_result_classes_and_the_attribute_fallback_build_the_same_objects(runner):
     record = _small_record()
     before = record.before()
-    mirror = cftuv_native.new_mirror()
+    mirror = cftuv_native.new_mirror("auto")  # the product's mode, whatever slot mode this leg of the CI matrix forces for the process (`tests/test_native_slots.py` holds the matrix)
     layouts = mirror.skeleton_raw_layouts()
     assert all(layouts.values()) and set(layouts) == {"SkeletonV1", "SkeletonNodeV1", "EventTimeV1", "EventPointV1", "ProofObligationV1"}
     fast = nc.execute(nc.prepare_call(nc.OP_SKELETON, record.call_blob, before), function=mirror.build_skeleton)

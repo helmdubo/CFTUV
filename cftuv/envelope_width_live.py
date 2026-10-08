@@ -43,11 +43,14 @@ Decal Mesh»), а активный объект меняется. Инструм
 НИЧЕГО НЕ ПРОПАДАЕТ МОЛЧА: нет сборки, смена плотности/допуска, правка меша, исчезнувший объект — строки статуса
 и счётчики планировщика (`status_lines`); ошибка потока — консоль и статус.
 
-ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`). Между точными пересчётами калбэк ползунка и модальный
-инструмент двигают НАСТОЯЩИЙ меш декали из сертификата (`preview_mesh_now`), а линии превью остаются поверх. Сертификат строит поток
-точного счёта (хвост `compute`: массивы меша, образец, сертификат), поэтому главный поток только применяет; второй планировщик контроллера
-(`width_prime`, «затравка») считает ТОЧНЫЙ прогон на соседней ширине без записи в меш — из него и образца на экране строится первый
-сертификат. Затравка уступает дорогу настоящему заказу ширины (`hold`, `supersede`) и в меш не пишет никогда.
+ПРЕВЬЮ МЕША (`envelope_width_mesh_preview`, `PREVIEW_MESH_FROM_INTERVAL_V1`, ПРИБЛИЗИТЕЛЬНОЕ, не сертифицировано). Между точными
+пересчётами калбэк ползунка и модальный инструмент двигают НАСТОЯЩИЙ меш декали из модели (`preview_mesh_now`), а линии превью остаются
+поверх. Модель строит поток точного счёта (хвост `compute`: массивы меша, образец, модель, сверка с прежней моделью и журнал доверия),
+поэтому главный поток только применяет; второй планировщик контроллера (`width_prime`, «затравка») считает ТОЧНЫЙ прогон на соседней
+ширине без записи в меш — из него и образца на экране строится первая модель. Затравка уступает дорогу настоящему заказу ширины (`hold`,
+`supersede`) и в меш не пишет никогда. Меш принадлежит модели, только пока его владение (`capture_ownership`) цело: точная запись фиксирует
+его тут же после себя (`_apply`), а любое внешнее изменение (история, правка геометрии декали мимо нас — `note_depsgraph`) снимает модель
+с названной причиной, и точный путь продолжает работать без превью меша.
 """
 
 from __future__ import annotations
@@ -63,9 +66,11 @@ from .envelope_alpha_preview import (
 from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
 from .envelope_width_mesh_preview import (
     PRIME_BASE_REPLACED,
+    capture_ownership,
     finish_live_run,
     log_of,
     next_prime_alpha,
+    note_decal_updates,
     note_exact_display,
     note_history,
     note_prime,
@@ -125,7 +130,7 @@ class WidthLiveTargetV1:
     offset: float
     material_name: str
     dissolve_percent: float = 0.390625
-    #: `EXACT` — заказ точного результата в меш; `PRIME` — затравка сертификата: тот же точный прогон, но в меш он не пишется.
+    #: `EXACT` — заказ точного результата в меш; `PRIME` — затравка модели: тот же точный прогон, но в меш он не пишется.
     purpose: str = "EXACT"
 
 
@@ -385,6 +390,18 @@ def follow_active_object(context) -> bool:
     return changed
 
 
+def note_depsgraph(context, depsgraph) -> str:
+    """Обработчик depsgraph: геометрию декали изменили не мы — модель снята. Пусто либо причина (`note_decal_updates`).
+
+    Дёшево: пока у сессии нет владения мешем, обновления не просматриваются вовсе. Запись в Blender обработчик не делает.
+    """
+
+    controller = _controller_of(context)
+    if controller is None or controller.width_mesh_owner is None or depsgraph is None:
+        return ""
+    return note_decal_updates(controller, depsgraph.updates)
+
+
 def sync_width_field(context=None) -> bool:
     """Поле «Decal width» показывает ширину меша активного объекта. `True` — поле подтянуто.
 
@@ -473,9 +490,10 @@ def _begin(controller, request):
     budget = envelope_stretch_budget(record.stretch_percent)
     slide = envelope_dissolve_uv_slide(record.dissolve_percent)
     kernel_backend = record.kernel_backend
-    # Образец на экране, прежняя сверка и ключ читает главный поток; поток счёта получает их значениями (образцы и сертификаты неизменяемы).
+    # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     prime = target.purpose == PURPOSE_PRIME
-    displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_certificate
+    displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_model
+    trust = controller.width_trust
     offset = float(target.offset)
     key = sample_key(record, offset)
 
@@ -507,6 +525,7 @@ def _begin(controller, request):
             aux=aux,
             previous=previous,
             prime=prime,
+            trust=trust,
         )
 
     return ThreadedPreviewJob(compute, context=_JobContextV1(record, pool is not None, displayed))
@@ -530,7 +549,7 @@ def _validity(controller, request, job) -> str | None:
 
 
 def _apply_prime(controller, request, job, live) -> None:
-    """Затравка посчитана: образец и сертификат в сессию, меш не трогается (в него пишет только точный заказ ширины)."""
+    """Затравка посчитана: образец и модель в сессию, меш не трогается (в него пишет только точный заказ ширины)."""
 
     reason = note_prime(controller, job.context.base, live)
     if reason:
@@ -565,6 +584,8 @@ def _apply(controller, request, job, live) -> None:
     except ProductionWriteError as exc:
         raise PreviewUnavailable(str(exc)) from exc
     note_exact_display(controller, live)
+    # Точная запись только что переписала раскладку: владение (тождество, размеры, поколение, отпечаток раскладки) — тут же, пока меш не тронул никто.
+    capture_ownership(controller, bpy.data.objects.get(receipt.object_name or ""), live.sample)
     mesh_settings = getattr(bpy.context.scene, "hotspotuv_decal_mesh", None)
     if mesh_settings is not None:
         mesh_settings.status = receipt_status_text(receipt)
@@ -575,7 +596,7 @@ def _apply(controller, request, job, live) -> None:
     for line in receipt_console_lines(receipt, run.results):
         print(line, flush=True)
     set_preview(controller, None)  # точный результат на последней ширине применён: превью не нужно
-    request_prime(controller, target)  # сертификату следующего перетаскивания не хватает второго образца: затравка в фоне
+    request_prime(controller, target)  # модели следующего перетаскивания не хватает второго образца: затравка в фоне
 
 
 # --------------------------------------------------------------------------
@@ -624,7 +645,7 @@ PRIME_DEBOUNCE_SECONDS = 0.05
 
 
 def prime_scheduler_of(controller) -> AlphaPreviewScheduler:
-    """Планировщик затравки сертификата: тот же класс и тот же `_begin`, но результат идёт в сессию, а не в меш."""
+    """Планировщик затравки модели: тот же класс и тот же `_begin`, но результат идёт в сессию, а не в меш."""
 
     scheduler = controller.width_prime
     if scheduler is None:
@@ -635,7 +656,7 @@ def prime_scheduler_of(controller) -> AlphaPreviewScheduler:
             timers=_BpyTimers(),
             on_change=lambda _status: tag_view3d_redraw(),
             debounce=PRIME_DEBOUNCE_SECONDS,
-            label="certificate",
+            label="preview model",
             hold=lambda: bool(
                 (controller.width_live is not None and controller.width_live.busy) or _in_flight(controller.alpha_preview)
             ),
@@ -645,10 +666,10 @@ def prime_scheduler_of(controller) -> AlphaPreviewScheduler:
 
 
 def request_prime(controller, target: WidthLiveTargetV1) -> bool:
-    """Заказ затравки, если сертификату она нужна: ширина рядом с базой, точный прогон без записи в меш. `True` — заказано.
+    """Заказ затравки, если модели она нужна: ширина рядом с базой, точный прогон без записи в меш. `True` — заказано.
 
     Условия: запись кнопки цела и согласна с настройками (`target_problem`), образец на экране есть и его ключ — этого меша, а нужда есть
-    (`wants_prime`: сертификата нет либо он прямой). Заказ ничего не пишет и не вмешивается в ширину: пока идёт настоящий заказ,
+    (`wants_prime`: модели нет либо она прямая). Заказ ничего не пишет и не вмешивается в ширину: пока идёт настоящий заказ,
     планировщик затравки ждёт (`hold`), а настоящий заказ снимает затравку (`supersede` в `schedule_width_live`).
     """
 
@@ -727,7 +748,7 @@ def schedule_width_live(settings, context) -> None:
         scheduler.note_unavailable(problem)
         return
     preview_now(controller, width, float(mesh_settings.offset))
-    # Настоящий заказ ширины важнее затравки: она снята (результат выброшен), а меш пока двигает сертификат.
+    # Настоящий заказ ширины важнее затравки: она снята (результат выброшен), а меш пока двигает модель.
     if controller.width_prime is not None:
         controller.width_prime.supersede("the width is being changed")
     preview_mesh_now(controller, width)
@@ -801,7 +822,7 @@ def reconcile_after_history(context=None) -> None:
     if controller is None:
         return
     set_preview(controller, None)
-    note_history(controller)  # что показывает меш, неизвестно; сертификат сверит состав меша на первом же кадре
+    note_history(controller)  # что показывает меш, неизвестно: модель снята (`PREVIEW_HISTORY_STEP`), точный путь заведёт её заново
     record = controller.width_build
     scene = getattr(context, "scene", None)
     settings = None if scene is None else getattr(scene, "hotspotuv_settings", None)
@@ -844,6 +865,7 @@ __all__ = (
     "availability_problem",
     "draw_decal_width_rows",
     "follow_active_object",
+    "note_depsgraph",
     "preview_now",
     "reconcile_after_history",
     "remember_build",
