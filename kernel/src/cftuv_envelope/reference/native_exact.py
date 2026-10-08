@@ -430,7 +430,18 @@ def rational_ratio(numerator: object, denominator: object) -> Fraction | None:
     """
 
     try:
-        return (_coerce(numerator) / _coerce(denominator)).as_rational()
+        top, bottom = _coerce(numerator), _coerce(denominator)
+        if not bottom.terms:
+            return None
+        if not top.terms and len(bottom.terms) == 1:
+            return Fraction(0)
+        if len(top.terms) == len(bottom.terms) == 1:
+            # Одночлены поля не требуют собирать обратную сумму и произведение.
+            (top_root, top_coefficient), = top.terms
+            (bottom_root, bottom_coefficient), = bottom.terms
+            ratio = Fraction(1) if top_root == bottom_root else _class_ratio(bottom_root, top_root)
+            return None if ratio is None else top_coefficient / bottom_coefficient * ratio
+        return (top / bottom).as_rational()
     except ZeroDivisionError:
         return None
 

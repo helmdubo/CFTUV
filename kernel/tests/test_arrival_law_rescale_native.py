@@ -1,20 +1,8 @@
-"""Доказательство рациональности при пере-масштабировании закона: родной предикат против sympy.
+"""Рациональность закона прихода: сохранённые исходы и измеримое исключение общей алгебры.
 
-`wavefront.conveyor._rational_after_scaling` отвечает, рационально ли частное `value/scale`, и от ответа зависит,
-запишется ли закон прихода в точных дробях или домен откажет по имени. Прежнее доказательство (`radsimp` и обратная
-подстановка через `simplify`) стоило сотни микросекунд на вызов и остаётся ОРАКУЛОМ (`_rational_after_scaling_sympy`,
-режим `SYMPY`, уступка вне поля); по умолчанию решает `native_exact.rational_ratio`.
-
-Здесь это исполняется, а не обещается:
-
-* на вызовах, записанных на сцене `building` (122 домена, Fan Density 1, 2, 4), родной предикат равен записанному
-  ответу sympy и живому оракулу;
-* на КАЖДОМ вызове, который делают фикстуры ядра, — то же;
-* на сетке выражений (рациональные, одночленные, суммы нескольких классов, нуль, отрицательные, «вложенно
-  выглядящие») родной ответ равен оракулу ВЕЗДЕ, где оракул ответил дробью, и никогда не слабее его; там, где оракул
-  дроби не нашёл, а родной предикат нашёл, дробь проверена независимо (оракул sympy не раскрывает произведение сумм);
-* выражение вне поля — не `None`, а `OutsideNativeField`, и тогда ответ оракула приходит с названной уступкой;
-* `radsimp` и `simplify` на пути законов прихода не вызываются вовсе.
+Оракул ниже — независимая копия прежних двух функций из afc989c, без вызова
+нового предиката или переключателя. Сверяются дроби, отказы и исключения,
+включая формы, на которых родная арифметика сильнее прежнего доказательства.
 """
 
 from __future__ import annotations
@@ -60,7 +48,27 @@ ARRIVAL_FIXTURES = (
     "wall_noise_top_rung_clip_v1",
 )
 
-oracle = conveyor_module._rational_after_scaling_sympy
+
+def oracle(value, scale):
+    """afc989c: exact_rational + _rational_after_scaling, без нового кода."""
+
+    candidate_value = sp.sympify(sp.radsimp(value / scale))
+    if not candidate_value.is_Rational:
+        return None
+    candidate = Fraction(int(candidate_value.p), int(candidate_value.q))
+    residue = sp.simplify(
+        value - sp.Rational(candidate.numerator, candidate.denominator) * scale
+    )
+    return candidate if residue.is_zero is True else None
+
+
+def _capture(function, value, scale):
+    try:
+        return ("answer", function(value, scale))
+    except Exception as error:
+        return ("exception", type(error), str(error))
+
+
 S = sp.sqrt
 R = sp.Rational
 
@@ -100,11 +108,12 @@ def test_the_native_predicate_equals_the_sympy_proof_on_the_calls_recorded_on_th
         value, scale = sp.sympify(value_text), sp.sympify(scale_text)
         native = rational_ratio(value, scale)
         recorded = _fraction(recorded_text)
-        if not (native == recorded == oracle(value, scale)):
+        if not (native == recorded == oracle(value, scale) == conveyor_module._rational_after_scaling(value, scale)):
             mismatches.append((value_text, scale_text, recorded, native))
         assert native is not None
         answers.add((native > 0) - (native < 0))
     assert mismatches == []
+    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.native": len(calls)}
     # Положительные контроли: выборка не выродилась в один знак ответа и не пуста по рациональным и одночленным.
     assert len(calls) >= 90
     assert answers == {-1, 0, 1}
@@ -245,47 +254,41 @@ OUTSIDE_FIELD = (
 )
 
 
-def _independently_proved(value, scale, ratio: Fraction) -> bool:
-    """`value == ratio * scale` по независимой оценке в 80 знаков (не доказательство, но не родной код)."""
-
-    residue = sp.N(value - sp.Rational(ratio.numerator, ratio.denominator) * scale, 80)
-    return abs(residue) < sp.Float(10) ** -70
-
-
-def test_the_native_predicate_never_proves_less_than_sympy_and_never_differs_in_value():
+def test_the_conveyor_matches_parent_including_refusals_on_the_expression_grid():
     scales = tuple(item for item in IN_FIELD if item != 0)
     fractions = 0
+    refusals = 0
     for value, scale in itertools.product(IN_FIELD, scales):
-        native = rational_ratio(value, scale)
-        proof = oracle(value, scale)
-        if native == proof:
-            fractions += native is not None
-            continue
-        # Единственное допустимое расхождение: sympy не нашёл дробь (None), а родной предикат её доказал, и
-        # доказанная дробь подтверждается независимой оценкой.
-        assert proof is None and native is not None, (
-            sp.srepr(value),
-            sp.srepr(scale),
-            native,
-            proof,
-        )
-        assert _independently_proved(value, scale, native), (value, scale, native)
-    # Положительный контроль: сетка содержит достаточно пар с рациональным частным.
+        expected = _capture(oracle, value, scale)
+        actual = _capture(conveyor_module._rational_after_scaling, value, scale)
+        assert actual == expected, (sp.srepr(value), sp.srepr(scale), actual, expected)
+        fractions += expected[0] == "answer" and expected[1] is not None
+        refusals += expected == ("answer", None)
     assert fractions >= 200
+    assert refusals >= 100
+    assert symbolic_backend.BACKEND_COUNTS["arrival_law_rescale.native"] > 0
+    assert symbolic_backend.BACKEND_COUNTS["arrival_law_rescale.legacy_shape"] > 0
 
 
-def test_a_value_sympy_cannot_expand_is_still_a_proven_fraction_natively():
+def test_a_stronger_native_proof_must_not_expand_the_conveyor_admitted_set():
     """Положительный контроль независимого знания: `(1-sqrt2)(1+sqrt2) == -1`, а не «похоже на».
 
     Это не зависит от версии sympy: ответ проверен вычислением в поле.
     """
 
     product = sp.Mul(1 - S(2), 1 + S(2), evaluate=False)
+    assert oracle(product, sp.Integer(1)) is None
+    assert oracle(product, sp.Integer(-2)) is None
     assert rational_ratio(product, sp.Integer(1)) == Fraction(-1)
     assert rational_ratio(product, sp.Integer(-2)) == Fraction(1, 2)
     assert (RadicalSumV1.rational(1) - RadicalSumV1.sqrt_of_rational(2)) * (
         RadicalSumV1.rational(1) + RadicalSumV1.sqrt_of_rational(2)
     ) == RadicalSumV1.rational(-1)
+    for mode in SymbolicBackendV1:
+        with symbolic_backend.symbolic_backend(mode, DisagreementPolicyV1.RAISE):
+            assert conveyor_module._rational_after_scaling(product, sp.Integer(1)) is None
+            assert conveyor_module._rational_after_scaling(product, sp.Integer(-2)) is None
+    assert symbolic_backend.DISAGREEMENTS == []
 
 
 @pytest.mark.parametrize(
@@ -313,14 +316,14 @@ def test_the_named_cases_have_one_answer_in_every_backend_mode(value, scale, exp
         assert conveyor_module._rational_after_scaling(value, scale) == expected
 
 
-def test_a_divisor_of_four_square_classes_is_a_named_refusal_and_the_oracle_answers():
+def test_a_divisor_of_four_square_classes_keeps_the_legacy_answer_without_native_inversion():
     """Предел обращения назван: частное `x / x` на таком делителе sympy сокращает само, родной предикат уступает."""
 
     with pytest.raises(OutsideNativeField):
         rational_ratio(sp.Integer(1), FOUR_CLASSES)
     assert rational_ratio(FOUR_CLASSES, sp.Integer(2)) == oracle(FOUR_CLASSES, sp.Integer(2)) is None
     assert conveyor_module._rational_after_scaling(FOUR_CLASSES, FOUR_CLASSES) == Fraction(1)
-    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.outside_field": 1}
+    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.legacy_shape": 1}
 
 
 def test_an_expression_outside_the_field_is_a_named_refusal_not_a_none():
@@ -332,14 +335,14 @@ def test_an_expression_outside_the_field_is_a_named_refusal_not_a_none():
             rational_ratio(sp.Integer(1), value)
 
 
-def test_outside_the_field_the_oracle_answers_and_the_yield_is_counted():
+def test_outside_the_fast_shape_the_oracle_answers_and_the_yield_is_counted():
     """Уступка названа счётом и возвращает ТОТ ЖЕ ответ, что дал бы режим `SYMPY`."""
 
     scale = S(2) + S(3)
     value = S(5 + 2 * S(6))
     expected = oracle(value, scale)
     assert conveyor_module._rational_after_scaling(value, scale) == expected
-    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.outside_field": 1}
+    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.legacy_shape": 1}
     # Тот же вопрос в режиме SYMPY не считает ничего: счёт описывает именно уступку родного пути.
     symbolic_backend.reset_backend_counts()
     with symbolic_backend.symbolic_backend(SymbolicBackendV1.SYMPY):
@@ -452,3 +455,93 @@ def test_the_arrival_laws_are_read_without_radsimp_and_simplify(name, rescaled, 
     assert calls["radsimp"] > 0 and calls["simplify"] > 0
     # Тот же ответ: законы, веера и деградировавшие углы равны побитово.
     assert native_reading == sympy_reading
+
+
+@pytest.mark.parametrize("mode", list(SymbolicBackendV1))
+@pytest.mark.parametrize(
+    "value,scale",
+    [
+        (1, 0), (0, 0), (1, 2), (1.0, 2.0), (Fraction(1), Fraction(2)),
+        (None, sp.Integer(1)), (sp.Integer(1), None),
+        (sp.Float(1), sp.Integer(2)), (sp.oo, sp.Integer(1)),
+        (sp.I, sp.Integer(1)), (sp.nan, sp.Integer(1)),
+        (S(2) + sp.Rational(1, 2**200), S(2)),
+        (S(2) - sp.Rational(1, 2**200), S(2)),
+        (sp.Add(S(2), -S(2), evaluate=False), sp.Integer(1)),
+        (sp.Pow(4, R(1, 2), evaluate=False), sp.Integer(2)),
+        (sp.Mul(R(1, 2), S(8), evaluate=False), S(2)),
+        (sp.Integer(1), sp.Add(S(2), -S(2), evaluate=False)),
+        (sp.Symbol("x"), sp.Symbol("x")),
+        (S(3 + 2 * S(2)), 1 + S(2)),
+    ],
+)
+def test_error_types_text_and_partial_canonicalization_equal_the_parent(value, scale, mode):
+    expected = _capture(oracle, value, scale)
+    with symbolic_backend.symbolic_backend(mode, DisagreementPolicyV1.RAISE):
+        assert _capture(conveyor_module._rational_after_scaling, value, scale) == expected
+    assert symbolic_backend.DISAGREEMENTS == []
+
+
+def test_complex_shapes_do_not_expand_or_invert_for_the_native_attempt(monkeypatch):
+    def forbidden(*args):
+        raise AssertionError("native arithmetic visited a legacy-only shape")
+
+    monkeypatch.setattr(conveyor_module, "rational_ratio", forbidden)
+    cases = (
+        (FOUR_CLASSES, FOUR_CLASSES),
+        ((1 + S(2)) ** 10000, (1 + S(2)) ** 10000),
+        (sp.Mul(1 - S(2), 1 + S(2), evaluate=False), sp.Integer(1)),
+    )
+    for value, scale in cases:
+        assert conveyor_module._rational_after_scaling(value, scale) == oracle(value, scale)
+    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.legacy_shape": len(cases)}
+
+
+def test_a_native_field_refusal_keeps_the_named_fallback(monkeypatch):
+    def refuse(*args):
+        raise OutsideNativeField("injected field refusal")
+
+    monkeypatch.setattr(conveyor_module, "rational_ratio", refuse)
+    for mode in (SymbolicBackendV1.NATIVE_EXACT, SymbolicBackendV1.SHADOW):
+        with symbolic_backend.symbolic_backend(mode):
+            assert conveyor_module._rational_after_scaling(-S(2), S(2)) == oracle(-S(2), S(2))
+    assert symbolic_backend.BACKEND_COUNTS == {"arrival_law_rescale.outside_field": 2}
+
+
+def test_an_unexpanded_constant_preserves_the_arrival_law_refusal(monkeypatch):
+    from types import SimpleNamespace
+
+    product = sp.Mul(1 - S(2), 1 + S(2), evaluate=False)
+    normal = SimpleNamespace(expressions=lambda: (S(2), sp.Integer(0)))
+    constant = SimpleNamespace(as_expr=lambda: product * S(2))
+    actual = conveyor_module._read_arrival_law("unexpanded", normal, constant, sp.Integer(2))
+    with monkeypatch.context() as old:
+        old.setattr(conveyor_module, "_rational_after_scaling", oracle)
+        expected = conveyor_module._read_arrival_law("unexpanded", normal, constant, sp.Integer(2))
+    assert actual == expected == (None, False, "запись закона не рациональна и после масштаба")
+
+
+@pytest.mark.parametrize(
+    "value,scale,expected",
+    [
+        (sp.Integer(0), S(2), Fraction(0)),
+        (sp.Integer(0), sp.Integer(0), None),
+        (sp.Integer(1), sp.Integer(0), None),
+        (sp.Integer(-2), sp.Integer(-3), Fraction(2, 3)),
+        (3 * S(2), S(8), Fraction(3, 2)),
+        (S(12), -2 * S(3), Fraction(-1)),
+        (S(2), S(3), None),
+        (R(-3, 7) * S(2), R(9, 5) * S(18), Fraction(-5, 63)),
+        (S(10**40 + 1), S(4 * (10**40 + 1)), Fraction(1, 2)),
+        (S(10**40 + 1), S(10**40 + 2), None),
+        (S(2) + R(1, 2**200), S(2), None),
+        (sp.Mul(1 - S(2), 1 + S(2), evaluate=False), sp.Integer(1), Fraction(-1)),
+    ],
+)
+def test_native_ratio_exact_classes_without_numerical_tolerance(value, scale, expected):
+    assert rational_ratio(value, scale) == expected
+
+
+def test_zero_does_not_bypass_the_native_denominator_class_limit():
+    with pytest.raises(OutsideNativeField, match="too many square classes to invert"):
+        rational_ratio(sp.Integer(0), FOUR_CLASSES)

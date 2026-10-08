@@ -311,9 +311,12 @@ SYMPY_AUDIT = {
     ),
     "wavefront/conveyor.py": (
         "REPLACED_HOT",
-        'доказательство рациональности _rational_after_scaling: родной предикат, radsimp/simplify только оракул режима SYMPY и уступка вне поля',
+        'доказательство рациональности _rational_after_scaling: родной предикат на совместимой одночленной форме; radsimp/simplify в SYMPY и на остальных формах',
         (
+            "sp.Expr",
             "sp.Rational",
+            "sp.S",
+            "sp.S.Zero",
             "sp.radsimp",
             "sp.simplify",
             "sp.srepr",
@@ -419,7 +422,7 @@ def test_class_b_rows_are_the_only_ones_with_general_algebra():
         "sp.radsimp", "sp.expand", "sp.Symbol", "sp.ask", "sp.Q.positive", "sp.Q.negative", "sp.Q",
     }
     # `planar_types` держит ask/Q в точном символьном пути знака (уступка sympy для выхода из поля), а
-    # `conveyor` — radsimp/simplify в оракуле доказательства рациональности (режим SYMPY, уступка вне поля): оба
+    # `conveyor` — radsimp/simplify в оракуле доказательства рациональности (SYMPY и непокрытые быстрым путём формы): оба
     # названы в своих строках.
     named_exceptions = {"reference/planar_types.py", "wavefront/conveyor.py"}
     for module, (cls, _why, features) in SYMPY_AUDIT.items():

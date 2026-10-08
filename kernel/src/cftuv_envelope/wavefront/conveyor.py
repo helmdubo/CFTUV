@@ -490,29 +490,46 @@ def _positive_common_factor(normal_x, normal_y):
 
 
 def _rational_after_scaling(value, scale) -> Fraction | None:
-    """Точная дробь `value/scale`, ДОКАЗАННАЯ точной арифметикой, либо `None`.
+    """Точная дробь без расширения множества ответов прежнего доказательства.
 
-    Одного `is_Rational` у частного было бы мало: он отвечает про то
-    выражение, которое получилось, а вопрос стоит про исходное. Доказательство
-    читает значение, а не вид: `native_exact.rational_ratio` — частное
-    рационально тогда и только тогда, когда сокращаются ВСЕ иррациональные
-    члены (корни из разных квадратных классов линейно независимы над `Q`).
-    Ни `radsimp`, ни `simplify`, ни факторизации, ни единицы бюджета работы;
-    ни порога, ни численной проверки.
+    Родной предикат сильнее `radsimp`: он раскрывает произведения сумм,
+    которые прежний путь мог отвергнуть. Поэтому быстрый путь ограничен
+    одночленами `c*sqrt(q)` и рациональными числами. Само частное уже должно
+    быть `Rational`, а обратная подстановка — структурным нулём. На этой
+    форме `radsimp(Rational)` и `simplify(0)` тождественны; это проверка
+    совместимости, а не дополнительное приближение или новый допуск.
 
-    Режим выбирает `symbolic_backend`, как в остальных местах. `SYMPY` —
-    прежнее доказательство обратной подстановкой (оракул и откат).
-    `NATIVE_EXACT` — родной предикат; выражение вне поля он не решает, и тогда
-    уступка sympy названа счётом `arrival_law_rescale.outside_field`, а ответ
-    тот же, что дал бы `SYMPY`. `SHADOW` — оба пути, ответ sympy, расхождение
-    значений — `EXACT_SYMBOLIC_BACKEND_DISAGREEMENT`.
-
-    `None` — доказательства нет. Тогда вызывающий обязан оставить прежний
-    именованный отказ, а не принять запись «на глаз».
+    Остальные формы идут прежним путём с именем `legacy_shape`, включая
+    не-SymPy аргументы: их исключения и частичная канонизация тоже контракт.
+    Никакие произведения сумм не раскрываются ради родного предиката.
+    `SYMPY` — прежний путь; `SHADOW` сверяет быстрый ответ и возвращает
+    прежний. `None` по-прежнему сохраняет именованный отказ вызывающего.
     """
 
     mode = _backend.backend_mode()
     if mode is SymbolicBackendV1.SYMPY:
+        return _rational_after_scaling_sympy(value, scale)
+
+    def _simple_term(expression):
+        if isinstance(expression, sp.Rational):
+            return True
+        if not isinstance(expression, sp.Expr):
+            return False
+        if expression.is_Mul and len(expression.args) == 2:
+            coefficient, expression = expression.args
+            if not isinstance(coefficient, sp.Rational):
+                return False
+        if not expression.is_Pow:
+            return False
+        base, exponent = expression.args
+        return isinstance(base, sp.Rational) and base > 0 and exponent == sp.Rational(1, 2)
+
+    if not (_simple_term(value) and _simple_term(scale)):
+        _backend.count("arrival_law_rescale", "legacy_shape")
+        return _rational_after_scaling_sympy(value, scale)
+    quotient = value / scale
+    if not isinstance(quotient, sp.Rational) or value - quotient * scale is not sp.S.Zero:
+        _backend.count("arrival_law_rescale", "legacy_shape")
         return _rational_after_scaling_sympy(value, scale)
     try:
         native = rational_ratio(value, scale)
