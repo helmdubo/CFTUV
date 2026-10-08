@@ -29,6 +29,8 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT
+
 from mpmath import iv
 import pytest
 import sympy as sp
@@ -581,7 +583,7 @@ def test_traversal_permutation_gives_bitwise_identical_restorations():
     import sys
 
     source = _PERMUTATION_PROBE.format(
-        src=str(Path(__file__).resolve().parents[1] / "src"),
+        src=str(PACKAGE_ROOT.parent),
         tests=str(Path(__file__).resolve().parent),
     )
     results = []

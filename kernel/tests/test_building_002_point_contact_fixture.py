@@ -12,8 +12,8 @@ import sympy as sp
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 
 
-ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "kernel" / "fixtures" / "building_002_point_contact_v1"
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "fixtures" / "building_002_point_contact_v1"
 EVIDENCE = ROOT / "artifacts" / "envelope_c_r2c_fixture"
 HISTORICAL_SHA = "df587ed166cfb0e0b615148f08c583b4477c5ac4"
 SELECTED_SHA = "c2622d07020338e5231b81f41655fe6c74cdca72"

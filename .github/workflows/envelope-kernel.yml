@@ -69,9 +69,9 @@ jobs:
           python -m venv "$VENV"
           "$VENV/bin/python" -m pip install --disable-pip-version-check kernel/dist/*.whl pytest
           mkdir -p "$STANDALONE"
-          cp -R kernel/tests kernel/fixtures kernel/schema kernel/artifacts "$STANDALONE/"
+          cp -R kernel/tests kernel/fixtures kernel/schema kernel/artifacts kernel/tools "$STANDALONE/"
           cd "$STANDALONE"
-          env -u PYTHONPATH "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
 
   kernel-extraction-readiness:
     runs-on: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
           python -m venv "$VENV"
           "$VENV/bin/python" -m pip install --disable-pip-version-check "$EXTRACTED"/dist/*.whl pytest
           cd "$EXTRACTED"
-          env -u PYTHONPATH "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+          env -u PYTHONPATH CFTUV_TEST_REQUIRE_WHEEL=1 "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
           env -u PYTHONPATH "$VENV/bin/python" -I tools/check_forbidden_imports.py src/cftuv_envelope
           env -u PYTHONPATH "$VENV/bin/python" -I tools/sync_session_a_fixtures.py --check --fixture-root fixtures/session_a_v5
           test -z "$(git status --porcelain)"

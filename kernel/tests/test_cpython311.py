@@ -24,10 +24,12 @@ from array import array
 from functools import cmp_to_key
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT
+
 from cftuv_envelope._cpython311 import left_fold_sum, sorted_as_cpython311
 
 HERE = Path(__file__).resolve().parent
-KERNEL_SOURCE = HERE.parent / "src"
+KERNEL_SOURCE = PACKAGE_ROOT.parent
 BLENDER_PYTHON_GLOBS = ("C:/Program Files/Blender Foundation/Blender */*/python/bin/python.exe",)
 CPYTHON_311_UNAVAILABLE = "CPYTHON_311_UNAVAILABLE"
 
