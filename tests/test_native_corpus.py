@@ -27,7 +27,6 @@ import pytest
 
 
 def test_indexed_derived_cleanup_checks_every_path_before_removing_anything(tmp_path):
-    nc = _load_tool("native_corpus")
     derived = tmp_path / "records" / "_derived" / "known.rec"
     derived.parent.mkdir(parents=True)
     derived.write_bytes(b"known")
