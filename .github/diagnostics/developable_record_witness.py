@@ -47,6 +47,7 @@ def main():
     import pytest
     import sympy
     import cftuv_envelope
+    from cftuv_envelope import surface_cone_angle
     from cftuv_envelope.codec import canonical_json_bytes
 
     package_path = Path(cftuv_envelope.__file__).resolve()
@@ -76,8 +77,24 @@ def main():
         "test_order": [name for _, name in CASES],
         "source_hashes_before": source_hashes(root),
         "calls": [],
+        "acos_calls": [],
         "test_reports": [],
     }
+
+    original_acos = surface_cone_angle.acos
+
+    def acos_spy(argument):
+        result = original_acos(argument)
+        receipt["acos_calls"].append({
+            "argument_hex": argument.hex(),
+            "argument_exact_ratio": argument.as_integer_ratio(),
+            "result_hex": result.hex(),
+            "result_exact_ratio": result.as_integer_ratio(),
+        })
+        # Передаём оригинальный float, без округления или пересчёта.
+        return result
+
+    surface_cone_angle.acos = acos_spy
 
     class Witness:
         def pytest_runtest_call(self, item):
@@ -126,6 +143,7 @@ def main():
     except BaseException:
         receipt["exception"] = traceback.format_exc()
     finally:
+        surface_cone_angle.acos = original_acos
         receipt["source_hashes_after"] = source_hashes(root)
         receipt["sources_unchanged"] = receipt["source_hashes_before"] == receipt["source_hashes_after"]
         receipt["loaded_modules"] = {
