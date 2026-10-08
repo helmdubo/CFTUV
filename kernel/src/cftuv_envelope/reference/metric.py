@@ -267,6 +267,11 @@ class _DensityExactMemo:
         "subturns",
         "support_segments",
         "native_gram",
+        "dot_expressions",
+        "unit_vectors",
+        "turn_atoms",
+        "fans",
+        "covector_rows",
     )
 
     def __init__(self) -> None:
@@ -280,6 +285,15 @@ class _DensityExactMemo:
         self.support_segments: dict[tuple, tuple] = {}
         # Грамм в `Fraction` для родной арифметики (ключ `"gram"`); считается по требованию.
         self.native_gram: dict[str, tuple] = {}
+        # Память чистых функций Density над ВЫРАЖЕНИЯМИ (`angular`): скалярное произведение, единичный
+        # вектор из квадрата, «атом» угла (всё, что не зависит от числа скрытых лучей) и готовый веер.
+        # Как и остальные, владеет ею один метрик транзакции: Грамм в ключ не кладётся, а вход каждой
+        # записи — сами выражения, поэтому запись по сути значение, а не наблюдение.
+        self.dot_expressions: dict[tuple, sp.Expr] = {}
+        self.unit_vectors: dict[tuple, object] = {}
+        self.turn_atoms: dict[tuple, object] = {}
+        self.fans: dict[tuple, tuple] = {}
+        self.covector_rows: dict[tuple, tuple] = {}
 
     def __reduce__(self):
         # Кэш — не часть значения, и пересылается ПУСТЫМ. Причина не

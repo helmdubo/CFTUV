@@ -220,6 +220,48 @@ def _reject_constant(value: str) -> None:
     raise ContractCodecError(f"non-finite JSON number is forbidden: {value}")
 
 
+class _ReadPlan:
+    """Что чтение записи берёт из определения её класса, посчитанное ОДИН раз на класс.
+
+    `get_type_hints` разбирает строковые аннотации (`from __future__ import annotations`) через `eval` на КАЖДЫЙ вызов,
+    а `dataclasses.fields` строит кортеж на каждый вызов; запись читается тысячами раз на снапшоте (разбор подсказок был
+    около 60 % времени чтения снапшота `building`). Определение класса за жизнь процесса не меняется, поэтому ни план, ни
+    подсказки не пересчитываются. Подсказки разрешаются ЛЕНИВО, при первом чтении записи этого класса и ПОСЛЕ проверки
+    её полей — ровно там, где их звали раньше: класс с неразрешимой ссылкой отказывает тем же `NameError` на каждом
+    чтении, а отказ не запоминается.
+    """
+
+    __slots__ = ("names", "expected", "required", "wire_defaults", "_hints")
+
+    def __init__(self, annotation: type) -> None:
+        record_fields = fields(annotation)
+        self.names = tuple(item.name for item in record_fields)
+        self.expected = frozenset(self.names) | {"$type"}
+        self.required = frozenset(
+            item.name for item in record_fields if not is_wire_default_field(item)
+        ) | {"$type"}
+        self.wire_defaults = tuple(
+            (item.name, item.default) for item in record_fields if is_wire_default_field(item)
+        )
+        self._hints: dict[str, Any] | None = None
+
+    def hints(self, annotation: type) -> dict[str, Any]:
+        if self._hints is None:
+            self._hints = get_type_hints(annotation)
+        return self._hints
+
+
+#: `класс записи -> _ReadPlan`: класс попадает сюда, только пройдя ветку записи в `_decode_as` (не `OpaqueId`, не `Enum`).
+_READ_PLANS: dict[type, _ReadPlan] = {}
+
+
+def _read_plan(annotation: type) -> _ReadPlan:
+    plan = _READ_PLANS.get(annotation)
+    if plan is None:
+        plan = _READ_PLANS[annotation] = _ReadPlan(annotation)
+    return plan
+
+
 def _decode_union(data: Any, annotation: Any) -> Any:
     choices = get_args(annotation)
     if data is None and type(None) in choices:
@@ -291,24 +333,23 @@ def _decode_as(data: Any, annotation: Any) -> Any:
             raise ContractCodecError(
                 f"expected record {annotation.__name__}, got {data.get('$type')}"
             )
-        expected = {field.name for field in fields(annotation)} | {"$type"}
-        required = {field.name for field in fields(annotation) if not is_wire_default_field(field)} | {"$type"}
-        extra = set(data) - expected
-        missing = required - set(data)
+        plan = _read_plan(annotation)
+        extra = set(data) - plan.expected
+        missing = plan.required - set(data)
         if extra or missing:
             raise ContractCodecError(
                 f"{annotation.__name__} field mismatch; extra={sorted(extra)}, missing={sorted(missing)}"
             )
-        hints = get_type_hints(annotation)
+        hints = plan.hints(annotation)
         kwargs = {
-            field.name: _decode_as(data[field.name], hints[field.name])
-            for field in fields(annotation)
-            if field.name in data
+            name: _decode_as(data[name], hints[name])
+            for name in plan.names
+            if name in data
         }
-        for field in fields(annotation):
-            if is_wire_default_field(field) and field.name in kwargs and kwargs[field.name] == field.default:
+        for name, default in plan.wire_defaults:
+            if name in kwargs and kwargs[name] == default:
                 raise ContractCodecError(
-                    f"{annotation.__name__}.{field.name} equals its default and must be omitted on the wire"
+                    f"{annotation.__name__}.{name} equals its default and must be omitted on the wire"
                 )
         return annotation(**kwargs)
     if annotation is bool:
