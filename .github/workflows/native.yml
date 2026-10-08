@@ -11,7 +11,7 @@ name: Native accelerator
 #                 замороженные случаи генератора и производные записи с урезанным потолком бюджета. Полевого корпуса скелета (пять мешей сцены Blender) в CI нет; всё, что не требует именно поля,
 #                 сверяется на синтетическом, а то, что требует, — уровень `native_field`;
 #   differential  матрица Python (3.11 = Blender 4.5, 3.13 = пул) x режим слотов (`CFTUV_NATIVE_SLOTS`: auto, raw, attr): колесо ставится в ЧИСТЫЙ venv, личность установленного
-#                 равна личности дерева, все три операции (покрытие, резка, скелет) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
+#                 равна личности дерева, все операции (покрытие, резка, скелет, snap_embedding) `available`, сверка с живым эталоном идёт в СТРОГОМ режиме (`CFTUV_NATIVE_STRICT=1`, `tests/native_gate.py`):
 #                 пропуск = провал; пропущенным по имени остаётся только уровень `native_field` (нужен полевой корпус владельца из сцены Blender, его в CI нет), он назван в отчёте;
 #   changes       какие пути трогает коммит (`tools/native_ci_changes.py`, обычный git, без чужих действий): `native=true|false`; любая ошибка = `true`;
 #   native-gate   единственная проверка, которую можно сделать обязательной (имена ножек матрицы меняются, её имя — нет); отчитывается на КАЖДОМ коммите
@@ -249,7 +249,7 @@ jobs:
           if not built_from == now["tree"]["id"] == now["installed"]["id"]:
               raise SystemExit("NATIVE_BUILD_ID_MISMATCH: the wheel under test is not the build of the tree under test")
           PYCODE
-      - name: All three native operations are available against this kernel (the pin), on this interpreter, in this slot mode
+      - name: All native operations are available against this kernel (the pin), on this interpreter, in this slot mode
         env:
           PYTHONPATH: kernel/src
           CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
@@ -260,7 +260,7 @@ jobs:
 
           status = cftuv_native.native_status()
           print("python", sys.version.split()[0], "| build_id", cftuv_native.native_build_id(), "| slots", cftuv_native.slot_mode(), "|", status)
-          if status != {"coverage": "available", "clip": "available", "skeleton": "available"}:
+          if status != {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available"}:
               raise SystemExit(f"NATIVE_NOT_AVAILABLE {status}")
           mode = cftuv_native.slot_mode()
           layouts = cftuv_native.new_mirror().raw_layouts()

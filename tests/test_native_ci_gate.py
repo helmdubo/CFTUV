@@ -4,7 +4,7 @@
 
 1. САМ ПЛАГИН СТРОГОГО РЕЖИМА (`tests/native_gate.py`), без расширения: в подпроцессе `pytest` на временных тестах строгий режим превращает пропуск теста, пропуск модуля при сборе и пропуск параметра в провал; оставляет
    пропуск `skip_for_interpreter`; снимает уровень `native_field` по имени и называет его в отчёте; не даёт скрыть что-либо ещё через `-k`; не принимает опечатку в значении `CFTUV_NATIVE_STRICT`.
-2. ТО, ЧТО УСТАНОВЛЕНО (нужно расширение; в строгом режиме его отсутствие — провал, не пропуск): обе нативные операции `available` против ЭТОГО дерева ядра; личность сборки равна личности дерева (`tools/native_build_id.py`);
+2. ТО, ЧТО УСТАНОВЛЕНО (нужно расширение; в строгом режиме его отсутствие — провал, не пропуск): все нативные операции `available` против ЭТОГО дерева ядра; личность сборки равна личности дерева (`tools/native_build_id.py`);
    расширение — установленное колесо, не дерево исходников; интерпретатор и режим слотов — те, что ножка CI называет (`CFTUV_NATIVE_EXPECT_PYTHON`, `CFTUV_NATIVE_SLOTS`); синтетический корпус резки есть и записан под ЭТО ядро;
    настоящий малый домен ядра, посчитанный нативным бэкендом через диспетчер продукта (`backend.use_backend("NATIVE")`), даёт ответ и цену эталона, а журнал домена называет нативные вызовы без единого отката.
 """
@@ -185,9 +185,9 @@ def _extension():
     return cftuv_native
 
 
-def test_all_three_native_operations_are_available_against_this_tree_of_the_kernel():
+def test_all_native_operations_are_available_against_this_tree_of_the_kernel():
     status = _extension().native_status()
-    assert status == {"coverage": "available", "clip": "available", "skeleton": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
+    assert status == {"coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "available"}, f"a native operation is not compared with THIS kernel (the pin moved, or the interpreter is below the floor): {status}"
 
 
 def test_the_installed_build_is_the_build_of_this_tree():

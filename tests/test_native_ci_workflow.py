@@ -51,6 +51,7 @@ ZERO = changes.ZERO_SHA
         ("tests/native_gate.py", True),
         ("tests/conftest.py", True),
         ("tests/test_architecture.py", True),
+        ("tests/data/native_embedding_kernel_suite.recs.xz", True),
         ("tests/test_envelope_host_adapter.py", False),
         ("tests/blender/test_native_x.py", False),
         ("kernel/src/cftuv_envelope/wavefront/coverage.py", True),
@@ -74,6 +75,7 @@ def test_the_native_path_set_is_the_old_workflow_filter(path, native):
 def test_the_path_set_is_exactly_the_filter_the_workflow_used_to_carry():
     assert changes.NATIVE_PATHS == (
         "native/**", "tools/native_*.py", "tests/test_native_*.py", "tests/native_gate.py", "tests/conftest.py", "tests/test_architecture.py",
+        "tests/data/native_embedding_kernel_suite.recs.xz",
         "kernel/src/cftuv_envelope/**", "kernel/tests/**", "kernel/pyproject.toml", "pytest.ini", ".github/workflows/native.yml",
     )
     assert all(changes.is_native_path(path) for path in ("tools/native_ci_changes.py", "tools/native_ci_gate.py", "tests/test_native_ci_workflow.py")), "the files of this very mechanism are native-relevant"
@@ -135,6 +137,13 @@ def test_a_push_of_host_files_only_does_not_require_the_native_acceptance(repo):
     tip = repo.commit("cftuv/b.py", "DECISIONS.md")
     decision = push(repo, tip, before=repo.native)
     assert decision.native is False and decision.matched == [] and sorted(decision.files) == ["DECISIONS.md", "cftuv/b.py"]
+
+
+def test_an_embedding_corpus_only_push_requires_the_native_gate(repo):
+    path = "tests/data/native_embedding_kernel_suite.recs.xz"
+    tip = repo.commit(path)
+    decision = push(repo, tip, before=repo.native)
+    assert decision.native is True and decision.files == decision.matched == [path]
 
 
 def test_a_push_that_touches_one_native_path_requires_it_and_names_the_path(repo):
@@ -362,5 +371,6 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     strict = next(step for step in differential if step.get("name", "").startswith("Differential tests against the live oracle"))
     assert strict["env"]["CFTUV_NATIVE_CORPUS"] == "${{ runner.temp }}/skeleton-corpus", "the strict run reads the synthetic corpus and nothing of the owner's drive"
     assert strict["env"]["CFTUV_NATIVE_STRICT"] == "1" and "not native_field" in strict["run"]
-    available = next(step for step in differential if step.get("name", "").startswith("All three native operations are available"))
+    available = next(step for step in differential if step.get("name", "").startswith("All native operations are available"))
     assert '"skeleton": "available"' in available["run"] and "skeleton_raw_layouts" in available["run"]
+    assert '"snap_embedding": "available"' in available["run"]

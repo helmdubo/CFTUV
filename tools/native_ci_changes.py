@@ -34,6 +34,7 @@ NATIVE_PATHS = (
     "tests/native_gate.py",
     "tests/conftest.py",
     "tests/test_architecture.py",
+    "tests/data/native_embedding_kernel_suite.recs.xz",
     # every oracle file pinned in `cftuv_native/pin.py` lives here, and the tests import the kernel's own test helpers
     "kernel/src/cftuv_envelope/**",
     "kernel/tests/**",
