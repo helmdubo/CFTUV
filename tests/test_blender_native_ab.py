@@ -134,3 +134,53 @@ def test_the_native_directory_is_prepended_so_an_installed_wheel_never_shadows_i
     assert found[3:] == ["/site-packages-with-the-installed-wheel", "/other"]  # прежний порядок остального сохранён
     # Без названного каталога порядок прежний: хост и ядро дерева впереди, остальное как было.
     assert ab.path_with_tree(current, root)[:2] == tree and ab.path_with_tree(current, root)[2:] == [current[0], "/other", "/native"]
+
+
+def _skeleton_record(ran, *outcomes, native=None, python=None, coverage="python"):
+    calls = {"native": (1, 0), "python": (0, 1), "mixed": (1, 1), "": (0, 0)}[ran]
+    return SimpleNamespace(
+        ran=coverage,
+        native_calls=0,
+        python_calls=0,
+        outcomes=(),
+        skeleton_ran=ran,
+        skeleton_native_calls=calls[0] if native is None else native,
+        skeleton_python_calls=calls[1] if python is None else python,
+        skeleton_outcomes=tuple(outcomes),
+    )
+
+
+def test_the_skeleton_stage_has_its_own_runner_and_fallbacks_in_the_row_and_the_summary(ab):
+    assert ab.STAGES == ("coverage_clip", "skeleton")
+    row = ab.domain_row(_result(5, record=_skeleton_record("native")))
+    assert (row["skeleton_ran"], row["skeleton_native_calls"], row["skeleton_python_calls"], row["skeleton_fallbacks"]) == ("native", 1, 0, [])
+    plain = ab.domain_row(_result(6, record=_record("native")))  # запись до скелета: «скелет не считался»
+    assert (plain["skeleton_ran"], plain["skeleton_native_calls"], plain["skeleton_fallbacks"]) == ("", 0, [])
+
+    python = [ab.domain_row(_result(patch, seconds=4.0)) for patch in range(4)]
+    native = [
+        ab.domain_row(_result(0, seconds=1.0, record=_skeleton_record("native"))),
+        ab.domain_row(_result(1, seconds=1.0, record=_skeleton_record("python", "NATIVE_PORT_STALE"))),
+        ab.domain_row(_result(2, seconds=1.0, record=_skeleton_record(""))),  # подготовка из кэша: скелет не считался
+        ab.domain_row(_result(3, seconds=9.0, placement="cache", record=_skeleton_record("native"))),
+    ]
+    summary = ab.summarize_width(0.25, python, native, ab.STAGE_SKELETON, python_wall=12.3456, native_wall=7.0)
+    assert summary["stage"] == "skeleton" and not ab.has_differences(summary)
+    assert summary["ran"] == {"native": 1, "python": 1, "mixed": 0}
+    assert summary["fallbacks"] == {"NATIVE_PORT_STALE": [1]}
+    assert (summary["python_wall"], summary["native_wall"]) == (12.346, 7.0)
+    # стадия покрытия и резки на тех же строках считает по своим полям
+    assert ab.summarize_width(0.25, python, native)["ran"] == {"native": 0, "python": 3, "mixed": 0}
+
+
+def test_the_table_shows_the_press_wall_of_both_backends_and_the_final_line_names_the_stage(ab):
+    python = [ab.domain_row(_result(patch, seconds=2.0)) for patch in range(2)]
+    native = [ab.domain_row(_result(patch, seconds=1.0, record=_skeleton_record("native"))) for patch in range(2)]
+    case = {"case": "building:0.25:2:20", "widths": [ab.summarize_width(0.25, python, native, "skeleton", python_wall=11.0, native_wall=8.5)]}
+    lines = ab.format_table({"cases": [case]}).splitlines()
+    assert "wall py" in lines[0] and "wall nat" in lines[0] and "11.00" in lines[2] and "8.50" in lines[2]
+    totals = ab.totals_of([case])
+    assert ab.final_line({"status": "OK", "totals": totals, "stage": "skeleton"}).endswith("stage=skeleton")
+    assert ab.final_line({"status": "OK", "totals": totals}).endswith("stage=coverage_clip")
+    unavailable = ab.final_line(ab.unavailable_report({"coverage": "available", "clip": "available", "detail": "", "skeleton": "unavailable"}, "C:/tree", []))
+    assert unavailable.startswith("NATIVE_AB_UNAVAILABLE coverage=available clip=available") and unavailable.endswith("skeleton=unavailable")

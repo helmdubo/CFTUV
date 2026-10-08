@@ -1,7 +1,7 @@
 """A/B нативного ядра против Python-эталона на полевых случаях: исход, дайджест батча, цена, секунды — по каждому домену.
 
     blender -b E:\\testscene.blend --python-exit-code 1 --python tools/blender_native_ab.py -- \\
-        [--cases mesh:alpha:density:stretch,...] [--steps 3] [--width-step 0.01] [--workers 0] \\
+        [--cases mesh:alpha:density:stretch,...] [--steps 3] [--width-step 0.01] [--workers 0] [--stage coverage_clip|skeleton] \\
         [--native-path <каталог с cftuv_native>] [--root <дерево>] [--out <json>]
 
 Каждый случай (по умолчанию 22 полевых — рецепт `field_rel.py`: меш, alpha, плотность веера, допуск растяжения) считается кнопкой
@@ -11,6 +11,10 @@
 сравниваются попарно по номеру патча: исход, дайджест содержимого батча и семантический дайджест — это ОТВЕТ (расхождение — код
 возврата 1); шесть статей `EXACT_WORK_*` — ЦЕНА (расхождение тоже код 1: нативное ядро обязано стоить столько же, сколько эталон);
 секунды и кто на самом деле посчитал (запись бэкенда домена: `native` / `python` / `mixed`, названный откат) — только в таблице.
+
+`--stage` называет стадию под проверкой: `coverage_clip` (умолчание; настройка `Kernel backend`, скелет на умолчании стадии) либо `skeleton` (настройка `Skeleton backend`; покрытие и резка
+остаются на умолчании продукта в обоих прогонах, меняется только скелет подготовки). Ширина `n = 0` на пустой сессии - ХОЛОДНОЕ нажатие (подготовки строятся, скелет считается), следующие - тёплые:
+таблица даёт секунды стены нажатия (`wall`) для обоих бэкендов по каждой ширине, а различия ответа и цены по-прежнему код возврата 1.
 
 Диспетчеры покрытия и резки подключены в самом ядре (`cut_domain` зовёт `backend.clip_compute`), поэтому заказ `NATIVE` ничего не ставит; домен, который не
 позвал ни одной нативной операции (резка из памяти стадии, покрытие из шаблона шага ширины), назван `NATIVE_NOT_REACHED`; если не позвал никто, отчёт
@@ -42,6 +46,9 @@ FIELD_CASES = (
     "rounded_wall_noise_top:0.2239:2:42,sagging_wall:0.2239:2:42,building:0.2239:2:42"
 )
 PRICE_PREFIX = "EXACT_WORK_"
+#: Стадии под проверкой: покрытие с резкой (настройка `kernel_backend`) и скелет подготовки (`skeleton_backend`).
+STAGE_COVERAGE_CLIP, STAGE_SKELETON = "coverage_clip", "skeleton"
+STAGES = (STAGE_COVERAGE_CLIP, STAGE_SKELETON)
 STATUS_OK, STATUS_UNAVAILABLE, STATUS_FAILED = "OK", "UNAVAILABLE", "FAILED"
 
 
@@ -69,6 +76,11 @@ def domain_row(result) -> dict:
         "native_calls": 0 if record is None else record.native_calls,
         "python_calls": 0 if record is None else record.python_calls,
         "fallbacks": [] if record is None else list(record.outcomes),
+        # скелет подготовки - отдельные поля записи (записи без них, старые, считаются как «скелет не считался»)
+        "skeleton_ran": "" if record is None else getattr(record, "skeleton_ran", ""),
+        "skeleton_native_calls": 0 if record is None else getattr(record, "skeleton_native_calls", 0),
+        "skeleton_python_calls": 0 if record is None else getattr(record, "skeleton_python_calls", 0),
+        "skeleton_fallbacks": [] if record is None else list(getattr(record, "skeleton_outcomes", ())),
     }
 
 
@@ -92,17 +104,23 @@ def compare_domains(python_rows, native_rows) -> dict:
     return found
 
 
-def summarize_width(width, python_rows, native_rows) -> dict:
-    """Одна ширина случая: различия, секунды двух бэкендов, кто посчитал в нативном прогоне и названные откаты."""
+def summarize_width(width, python_rows, native_rows, stage=STAGE_COVERAGE_CLIP, python_wall=None, native_wall=None) -> dict:
+    """Одна ширина случая: различия, секунды двух бэкендов, кто посчитал в нативном прогоне и названные откаты.
+
+    `stage` выбирает, чей исполнитель и чьи откаты считаются: покрытия с резкой либо скелета (домен, чей скелет в этом прогоне не считался - подготовка из кэша, - в счёт скелета не идёт).
+    `python_wall` и `native_wall` - секунды стены нажатия (`ProductionRunV1.wall_seconds`) двух бэкендов на этой ширине: у ХОЛОДНОГО нажатия это цена подготовок.
+    """
 
     computed = [item for item in native_rows if item["placement"] != "cache"]
     python_seconds = sum(item["seconds"] for item in python_rows if item["placement"] != "cache")
     native_seconds = sum(item["seconds"] for item in computed)
     ran = {"native": 0, "python": 0, "mixed": 0}
     fallbacks: dict = {}
+    ran_key, fallbacks_key = ("skeleton_ran", "skeleton_fallbacks") if stage == STAGE_SKELETON else ("ran", "fallbacks")
     for item in computed:
-        ran[item["ran"]] += 1
-        for name in item["fallbacks"]:
+        if item[ran_key]:
+            ran[item[ran_key]] += 1
+        for name in item[fallbacks_key]:
             fallbacks.setdefault(name, []).append(item["patch_id"])
     differences = compare_domains(python_rows, native_rows)
     return {
@@ -112,6 +130,9 @@ def summarize_width(width, python_rows, native_rows) -> dict:
         "python_seconds": round(python_seconds, 3),
         "native_seconds": round(native_seconds, 3),
         "speedup": round(python_seconds / native_seconds, 2) if native_seconds else None,
+        "stage": stage,
+        "python_wall": None if python_wall is None else round(float(python_wall), 3),
+        "native_wall": None if native_wall is None else round(float(native_wall), 3),
         "ran": ran,
         "fallbacks": {name: sorted(set(found)) for name, found in sorted(fallbacks.items())},
     }
@@ -128,11 +149,11 @@ def _fallback_text(fallbacks: dict) -> str:
 def format_table(report: dict) -> str:
     """Таблица случаев и ширин: различия ответа и цены, секунды, исполнитель и откаты."""
 
-    header = ("case", "width", "doms", "ans", "price", "py s", "nat s", "x", "native/python/mixed", "fallbacks")
+    header = ("case", "width", "doms", "ans", "price", "py s", "nat s", "x", "wall py", "wall nat", "native/python/mixed", "fallbacks")
     rows = [header]
     for case in report.get("cases", ()):
         if "failure" in case:
-            rows.append((case["case"], "-", "-", "-", "-", "-", "-", "-", "-", "FAILED: " + case["failure"].strip().splitlines()[-1][:60]))
+            rows.append((case["case"], "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "FAILED: " + case["failure"].strip().splitlines()[-1][:60]))
             continue
         for item in case["widths"]:
             differences = item["differences"]
@@ -147,6 +168,8 @@ def format_table(report: dict) -> str:
                     f"{item['python_seconds']:.2f}",
                     f"{item['native_seconds']:.2f}",
                     "-" if item["speedup"] is None else f"{item['speedup']:.2f}",
+                    "-" if item.get("python_wall") is None else f"{item['python_wall']:.2f}",
+                    "-" if item.get("native_wall") is None else f"{item['native_wall']:.2f}",
                     f"{ran['native']}/{ran['python']}/{ran['mixed']}",
                     _fallback_text(item["fallbacks"]),
                 )
@@ -167,12 +190,12 @@ def final_line(report: dict) -> str:
     status = report["status"]
     if status == STATUS_UNAVAILABLE:
         native = report["native_status"]
-        return f"NATIVE_AB_UNAVAILABLE coverage={native['coverage']} clip={native['clip']} detail={native['detail']!r}"
+        return f"NATIVE_AB_UNAVAILABLE coverage={native['coverage']} clip={native['clip']} detail={native['detail']!r} skeleton={native.get('skeleton', 'unavailable')}"
     totals = report["totals"]
     return (
         f"NATIVE_AB_{status} cases={totals['cases']} domains={totals['domains']} answer_differences={totals['answer']} "
         f"price_differences={totals['price']} python_seconds={totals['python_seconds']:.1f} native_seconds={totals['native_seconds']:.1f} "
-        f"native_domains={totals['native']} python_domains={totals['python']} mixed_domains={totals['mixed']}"
+        f"native_domains={totals['native']} python_domains={totals['python']} mixed_domains={totals['mixed']} stage={report.get('stage', STAGE_COVERAGE_CLIP)}"
     )
 
 
@@ -204,6 +227,7 @@ def _arguments():
     parser.add_argument("--steps", type=int, default=3)
     parser.add_argument("--width-step", type=float, default=0.01)
     parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--stage", choices=STAGES, default=STAGE_COVERAGE_CLIP)
     parser.add_argument("--native-path", default="")
     parser.add_argument("--out", default="")
     return parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else [])
@@ -277,22 +301,29 @@ def _fresh_state(controller, workers: int) -> None:
 
 
 def _run_backend(controller, spec: str, backend: str, args) -> list:
-    """Строки доменов по ширинам случая под заказанным бэкендом: `[(ширина, [строка домена, ...]), ...]`."""
+    """Строки доменов по ширинам случая под заказанным бэкендом стадии под проверкой: `[(ширина, [строка домена, ...], секунды стены нажатия), ...]`."""
 
     import bmesh
     import bpy
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
-    from cftuv.envelope_kernel_backend import kernel_backend_of
+    from cftuv.envelope_kernel_backend import kernel_backend_of, skeleton_backend_of
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
     mesh_name, alpha_text, density, stretch = spec.split(":")
     settings = bpy.context.scene.hotspotuv_settings
     mesh_settings = bpy.context.scene.hotspotuv_decal_mesh
-    mesh_settings.kernel_backend = backend  # тем же путём, каким его выставит панель
-    assert kernel_backend_of(mesh_settings) == backend
+    # тем же путём, каким его выставит панель; стадия под проверкой меняется, другая стоит на умолчании продукта в обоих прогонах
+    if args.stage == STAGE_SKELETON:
+        mesh_settings.skeleton_backend = backend
+        mesh_settings.kernel_backend = "NATIVE"
+        assert skeleton_backend_of(mesh_settings) == backend
+    else:
+        mesh_settings.kernel_backend = backend
+        mesh_settings.skeleton_backend = "PYTHON"
+        assert kernel_backend_of(mesh_settings) == backend
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
     selected = _select_seams(obj)
@@ -320,9 +351,10 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
             silhouette_uv_slide=slide,
             workers=args.workers,
             kernel_backend=mesh_settings.kernel_backend,
+            skeleton_backend=mesh_settings.skeleton_backend,
         )
-        assert run.kernel_backend == backend
-        widths.append((width, [domain_row(item) for item in run.results]))
+        assert (run.skeleton_backend if args.stage == STAGE_SKELETON else run.kernel_backend) == backend
+        widths.append((width, [domain_row(item) for item in run.results], run.wall_seconds))
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     return widths
@@ -340,7 +372,10 @@ def _case(controller, spec: str, order: int, args) -> dict:
         seconds[backend] = round(time.perf_counter() - started, 2)
     python, native = runs["PYTHON"], runs["NATIVE"]
     assert [item[0] for item in python] == [item[0] for item in native]
-    widths = [summarize_width(width, rows, native[index][1]) for index, (width, rows) in enumerate(python)]
+    widths = [
+        summarize_width(width, rows, native[index][1], args.stage, python_wall=wall, native_wall=native[index][2])
+        for index, (width, rows, wall) in enumerate(python)
+    ]
     return {"case": spec, "order": list(sequence), "wall_seconds": seconds, "widths": widths}
 
 
@@ -355,7 +390,9 @@ def main() -> int:
     status = native_status()
     print("native status:", json.dumps(status.as_record()), flush=True)
     cases = [item for item in args.cases.split(",") if item]
-    if status.coverage == UNAVAILABLE and status.clip == UNAVAILABLE:
+    # стадия под проверкой недоступна: сравнивать нечего (скелет старого колеса - именованный `unavailable`, покрытие и резка при этом могут быть доступны)
+    absent = status.skeleton == UNAVAILABLE if args.stage == STAGE_SKELETON else status.coverage == UNAVAILABLE and status.clip == UNAVAILABLE
+    if absent:
         report = unavailable_report(status.as_record(), str(root), cases)
     else:
         from cftuv.envelope_debug_session import WINDOW_MANAGER_SESSION_ATTRIBUTE, EnvelopeDebugSessionController
@@ -380,6 +417,7 @@ def main() -> int:
             "native_status": status.as_record(),
             "root": str(root),
             "workers": args.workers,
+            "stage": args.stage,
             "steps": args.steps,
             "width_step": args.width_step,
             "cases": results,
