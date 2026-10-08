@@ -63,6 +63,9 @@
    отказ карты запроса не пересобирается, подготовка домена пересчитывается, прежняя alpha возвращает прежний меш из кэша;
    суженная карта, отказавшая и сама (0.48 м при 0.4: шов 7.2 мм), остаётся названным отказом без третьей попытки.
 
+17. КОНЕЦ СТЕНЫ НА НЕВЫДЕЛЕННОМ ШВЕ (`WALL_MITER_OFFSET_V1`): угол комнаты (пол и две стены), выделены два ребра пола, вертикальный шов стен не выделен —
+   узлы концов двух стен сварены в одну вершину на линии сгиба сдвинутых стен, шов — ребро граней двух доменов вдоль всей стены, клина `d * sqrt(2)` нет.
+
 Прогон (без `--factory-startup`: sympy в 4.5 живёт в профиле пользователя):
 blender --background --python-exit-code 1 --python <этот файл>
 Последняя строка при успехе: ENVELOPE_PRODUCTION_MESH_BLENDER_SMOKE_OK
@@ -1087,6 +1090,96 @@ def _run_a_fold_welds_the_shared_chain_into_single_vertices():
     return decal
 
 
+def _build_room_corner():
+    """Угол комнаты: пол `z = 0` и две стены `x = 1` и `y = 1` под 90°; швы — три общих ребра, ВЫДЕЛЕНЫ два ребра пола (с каждой стеной).
+
+    Вертикальный шов стен `(1,1,0)-(1,1,1)` не выделен: его касается конец выделенной цепи, и с обеих сторон стоит стена соседнего домена
+    (юбка стены `x = 1` и юбка стены `y = 1`). Нормали всех трёх патчей смотрят внутрь комнаты: `+z`, `-x`, `-y`.
+    """
+
+    mesh = bpy.data.meshes.new("EnvelopeRoomCornerMesh")
+    vertices = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (1.0, 0.0, 1.0),
+        (1.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0),
+    ]
+    mesh.from_pydata(vertices, (), [(0, 1, 2, 3), (2, 1, 4, 5), (2, 5, 6, 3)])
+    mesh.update()
+    seams = {frozenset(pair) for pair in ((1, 2), (2, 3), (2, 5))}
+    selected = []
+    for edge in mesh.edges:
+        pair = frozenset(edge.vertices)
+        if pair in seams:
+            edge.use_seam = True
+        if pair in (frozenset((1, 2)), frozenset((2, 3))):
+            selected.append(edge.index)
+    assert len(selected) == 2
+    obj = bpy.data.objects.new(SOURCE, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    _enter_edge_selection(obj, tuple(selected))
+    return obj
+
+
+def _run_two_skirts_meeting_at_an_unselected_wall_share_it_without_a_gap():
+    """WALL_MITER_OFFSET_V1: узлы концов двух стен на невыделенном шве сварены и лежат на линии сгиба, клина между юбками нет.
+
+    До закона узел каждой стены смещался по нормали своего домена, общая вершина у начала шва — митрой, и два ребра шва
+    расходились клином `d * sqrt(2)` до конца стены (полевая беда `rounded_wall.001`). Глубины здесь симметричны, поэтому узлы стен
+    побитово равны, сливаются в одну вершину, и шов — ребро двух граней разных доменов вдоль всей стены.
+    """
+
+    controller = _controller()
+    if controller is not None:
+        controller.clear()
+    _reset_scene()
+    _build_room_corner()
+    settings = _settings()
+    settings.envelope_debug_engine = "QUEUE"
+    alpha, offset = 0.25, 0.02
+    settings.envelope_debug_alpha = alpha
+    settings.envelope_debug_workers = 0
+    _decal_settings().offset = offset
+    decal = _press()
+    status = _decal_settings().status
+    assert status == "MATERIALIZED 3 / refused 0", status
+    mesh = decal.data
+    domain = mesh.attributes["cftuv_domain"].data
+    assert {item.value for item in domain} == {0, 1, 2}
+
+    # Линия сгиба сдвинутых стен: пересечение плоскостей `x = 1 - d` и `y = 1 - d`.
+    line = sorted(
+        (item.index for item in mesh.vertices if abs(item.co.x - (1.0 - offset)) < 1e-6 and abs(item.co.y - (1.0 - offset)) < 1e-6),
+        key=lambda index: mesh.vertices[index].co.z,
+    )
+    heights = [round(mesh.vertices[index].co.z, 6) for index in line]
+    assert heights[0] == offset and heights[-1] == alpha, heights
+    for first, second in zip(line, line[1:]):
+        edge = {first, second}
+        users = [value.value for polygon, value in zip(mesh.polygons, domain) if edge <= set(polygon.vertices)]
+        assert sorted(users) == [1, 2], (heights, users)
+    # Конец стены — ОДНА вершина меша (две вершины в одной точке были бы щелью по UV и по сварке).
+    end = [item.index for item in mesh.vertices if all(abs(a - b) < 1e-6 for a, b in zip(item.co, (1.0 - offset, 1.0 - offset, alpha)))]
+    assert end == [line[-1]], end
+    # Ни одного ребра вдоль шва, открытого с одной стороны.
+    open_on_line = [
+        item
+        for item in mesh.edges
+        if set(item.vertices) <= set(line)
+        and sum(1 for polygon in mesh.polygons if set(item.vertices) <= set(polygon.vertices)) == 1
+    ]
+    assert not open_on_line
+    for polygon, value in zip(mesh.polygons, domain):
+        for index in polygon.vertices:
+            x, y, z = mesh.vertices[index].co
+            plane = {0: z - offset, 1: x - (1.0 - offset), 2: y - (1.0 - offset)}[value.value]
+            assert abs(plane) < 1e-5, (polygon.index, value.value, plane)
+    return decal
+
+
 def _build_slanted_fold():
     """Одна складка 90° в одном патче: плоский квад и вертикальная стена вдоль КОСОГО ребра `(2, 0)-(2.5, 1)`.
 
@@ -1214,6 +1307,7 @@ def _main():
     _run_a_concave_polygon_is_one_face_with_the_same_uv_under_any_triangulation()
     _run_a_fold_welds_the_shared_chain_into_single_vertices()
     _run_a_decal_across_a_fold_stays_on_the_surface()
+    _run_two_skirts_meeting_at_an_unselected_wall_share_it_without_a_gap()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()
