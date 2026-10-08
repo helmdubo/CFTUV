@@ -416,6 +416,25 @@ def from_sympy(expression: sp.Basic) -> RadicalSumV1:
     raise OutsideNativeField(sp.srepr(expression))
 
 
+def rational_ratio(numerator: object, denominator: object) -> Fraction | None:
+    """`numerator / denominator` точной дробью, если оно рационально; иначе `None`.
+
+    Частное рационально тогда и только тогда, когда в нём сокращаются ВСЕ иррациональные члены: корни из
+    разных квадратных классов линейно независимы над `Q`, а класс канонизирован (`_accumulate`), поэтому
+    рациональное значение есть сумма с единственным членом радиканда 1, а нуль — пустота членов. Ни
+    `radsimp`, ни `simplify`, ни факторизации, ни порога: это предикат, а не оценка, и работы бюджета он не тратит.
+
+    `None` — частное ИРРАЦИОНАЛЬНО (доказано) либо знаменатель точно нуль (частного нет). Выражение вне поля —
+    `OutsideNativeField`, а не `None`: потребитель обязан отличать «доказано, что нет» от «здесь не решается» и
+    уступить sympy по имени, как остальные места `symbolic_backend`.
+    """
+
+    try:
+        return (_coerce(numerator) / _coerce(denominator)).as_rational()
+    except ZeroDivisionError:
+        return None
+
+
 _SYMPY_TERMS: dict[tuple, sp.Expr] = {}
 _SYMPY_TERMS_LIMIT = 1 << 16
 

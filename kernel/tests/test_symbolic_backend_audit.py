@@ -310,12 +310,13 @@ SYMPY_AUDIT = {
         ),
     ),
     "wavefront/conveyor.py": (
-        "A_LATER",
-        'radsimp/simplify в _rational_after_scaling: значение sympy -> Fraction, холодное',
+        "REPLACED_HOT",
+        'доказательство рациональности _rational_after_scaling: родной предикат, radsimp/simplify только оракул режима SYMPY и уступка вне поля',
         (
             "sp.Rational",
             "sp.radsimp",
             "sp.simplify",
+            "sp.srepr",
             "sp.sympify",
         ),
     ),
@@ -418,7 +419,8 @@ def test_class_b_rows_are_the_only_ones_with_general_algebra():
         "sp.radsimp", "sp.expand", "sp.Symbol", "sp.ask", "sp.Q.positive", "sp.Q.negative", "sp.Q",
     }
     # `planar_types` держит ask/Q в точном символьном пути знака (уступка sympy для выхода из поля), а
-    # `conveyor` — radsimp/simplify в холодном переводе значения в дробь: оба названы в своих строках.
+    # `conveyor` — radsimp/simplify в оракуле доказательства рациональности (режим SYMPY, уступка вне поля): оба
+    # названы в своих строках.
     named_exceptions = {"reference/planar_types.py", "wavefront/conveyor.py"}
     for module, (cls, _why, features) in SYMPY_AUDIT.items():
         if cls == "B_KEEP" or module in named_exceptions:
@@ -440,6 +442,7 @@ def test_replaced_rows_exist_in_the_backend_switch():
         "reference/boundary.py",
         "reference/metric.py",
         "reference/planar_types.py",
+        "wavefront/conveyor.py",
     }
 
 

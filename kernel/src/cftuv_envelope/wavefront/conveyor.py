@@ -113,6 +113,9 @@ from ..reference.evaluation_geometry import (
     verify_evaluation_geometry_binding,
 )
 from ..reference.metric import ExactPlanarMetric
+from ..reference import symbolic_backend as _backend
+from ..reference.native_exact import NativeExactError, rational_ratio
+from ..reference.symbolic_backend import SymbolicBackendV1
 from ..reference.planar_types import (
     CertifiedPredicateUndecidable,
     exact_sign,
@@ -487,16 +490,53 @@ def _positive_common_factor(normal_x, normal_y):
 
 
 def _rational_after_scaling(value, scale) -> Fraction | None:
-    """Точная дробь `value/scale`, ДОКАЗАННАЯ обратной подстановкой.
+    """Точная дробь `value/scale`, ДОКАЗАННАЯ точной арифметикой, либо `None`.
 
     Одного `is_Rational` у частного было бы мало: он отвечает про то
-    выражение, которое получилось, а вопрос стоит про исходное. Поэтому
-    найденная дробь `r` возвращается только если `value - r*scale`
-    обращается в ноль ТОЧНО (`is_zero is True`, а не «не отличается от нуля»).
-    Ни порога, ни численной проверки здесь нет.
+    выражение, которое получилось, а вопрос стоит про исходное. Доказательство
+    читает значение, а не вид: `native_exact.rational_ratio` — частное
+    рационально тогда и только тогда, когда сокращаются ВСЕ иррациональные
+    члены (корни из разных квадратных классов линейно независимы над `Q`).
+    Ни `radsimp`, ни `simplify`, ни факторизации, ни единицы бюджета работы;
+    ни порога, ни численной проверки.
+
+    Режим выбирает `symbolic_backend`, как в остальных местах. `SYMPY` —
+    прежнее доказательство обратной подстановкой (оракул и откат).
+    `NATIVE_EXACT` — родной предикат; выражение вне поля он не решает, и тогда
+    уступка sympy названа счётом `arrival_law_rescale.outside_field`, а ответ
+    тот же, что дал бы `SYMPY`. `SHADOW` — оба пути, ответ sympy, расхождение
+    значений — `EXACT_SYMBOLIC_BACKEND_DISAGREEMENT`.
 
     `None` — доказательства нет. Тогда вызывающий обязан оставить прежний
     именованный отказ, а не принять запись «на глаз».
+    """
+
+    mode = _backend.backend_mode()
+    if mode is SymbolicBackendV1.SYMPY:
+        return _rational_after_scaling_sympy(value, scale)
+    try:
+        native = rational_ratio(value, scale)
+    except NativeExactError:
+        _backend.count("arrival_law_rescale", "outside_field")
+        return _rational_after_scaling_sympy(value, scale)
+    if mode is SymbolicBackendV1.NATIVE_EXACT:
+        _backend.count("arrival_law_rescale", "native")
+        return native
+    legacy = _rational_after_scaling_sympy(value, scale)
+    _backend.count("arrival_law_rescale", "shadow_checked")
+    if native != legacy:
+        _backend.disagreement(
+            "arrival_law_rescale",
+            f"{sp.srepr(value)} / {sp.srepr(scale)}: native {native}, sympy {legacy}",
+        )
+    return legacy
+
+
+def _rational_after_scaling_sympy(value, scale) -> Fraction | None:
+    """Прежнее доказательство: найденная дробь `r` возвращается, только если
+    `value - r*scale` обращается в ноль ТОЧНО (`is_zero is True`, а не «не
+    отличается от нуля»). Оракул режимов `SYMPY` и `SHADOW` и уступка для
+    выражений вне поля родной арифметики.
     """
 
     candidate = exact_rational(sp.radsimp(value / scale))
