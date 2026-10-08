@@ -4,8 +4,8 @@
 подсказок (строковые аннотации через `eval`) был около 60 % чтения снапшота `building` и 78-91 % времени стадии
 `SNAPSHOT_VALIDATION` выгрузки хоста. Теперь план считается один раз на класс. Эти проверки доказывают три вещи, а не
 обещают их: (1) план равен определению класса, включая то, как разрешаются подсказки (и неразрешимые отказывают тем же
-образом КАЖДЫЙ раз: отказ не запоминается); (2) чтение без плана (`_read_plan`, возвращающий свежий план на каждую
-запись, — прежнее поведение) и чтение с планом дают одинаковые объекты и побайтно те же канонические байты на каждом
+образом КАЖДЫЙ раз: отказ не запоминается); (2) прежняя ветка чтения записи из родителя e85b063 (без `_ReadPlan`)
+и чтение с планом дают одинаковые объекты и побайтно те же канонические байты на каждом
 сохранённом снапшоте и запросе; (3) названные отказы чтения (лишнее поле, недостающее, тег не того типа, умолчание,
 названное явно) совпадают текстом в обоих режимах; а подсказки класса разрешаются ровно один раз.
 """
@@ -54,9 +54,52 @@ def _fresh_caches(monkeypatch) -> None:
 
 
 def _without_plans(monkeypatch) -> None:
-    """Прежнее чтение: новый план на КАЖДУЮ запись, то есть `fields` и `get_type_hints` каждый раз."""
+    """Независимая прежняя ветка записи (e85b063^): не использует ни план, ни его построитель."""
 
-    monkeypatch.setattr(codec, "_read_plan", lambda annotation: codec._ReadPlan(annotation))
+    decode_other = codec._decode_as
+
+    def legacy_decode(data, annotation):
+        if (
+            not isinstance(annotation, type)
+            or issubclass(annotation, (OpaqueId, Enum))
+            or not dataclasses.is_dataclass(annotation)
+        ):
+            return decode_other(data, annotation)
+        if not isinstance(data, dict):
+            raise codec.ContractCodecError(f"{annotation.__name__} must be a JSON object")
+        if data.get("$type") != annotation.__name__:
+            raise codec.ContractCodecError(
+                f"expected record {annotation.__name__}, got {data.get('$type')}"
+            )
+        expected = {field.name for field in dataclasses.fields(annotation)} | {"$type"}
+        required = {
+            field.name for field in dataclasses.fields(annotation) if not is_wire_default_field(field)
+        } | {"$type"}
+        extra = set(data) - expected
+        missing = required - set(data)
+        if extra or missing:
+            raise codec.ContractCodecError(
+                f"{annotation.__name__} field mismatch; extra={sorted(extra)}, missing={sorted(missing)}"
+            )
+        hints = typing.get_type_hints(annotation)
+        kwargs = {
+            field.name: legacy_decode(data[field.name], hints[field.name])
+            for field in dataclasses.fields(annotation)
+            if field.name in data
+        }
+        for field in dataclasses.fields(annotation):
+            if is_wire_default_field(field) and field.name in kwargs and kwargs[field.name] == field.default:
+                raise codec.ContractCodecError(
+                    f"{annotation.__name__}.{field.name} equals its default and must be omitted on the wire"
+                )
+        return annotation(**kwargs)
+
+    monkeypatch.setattr(codec, "_decode_as", legacy_decode)
+
+    def forbidden_plan(annotation):
+        pytest.fail(f"legacy oracle used a read plan for {annotation.__name__}")
+
+    monkeypatch.setattr(codec, "_read_plan", forbidden_plan)
 
 
 def _outcome(call):
@@ -140,6 +183,34 @@ def test_an_unresolvable_forward_reference_refuses_identically_every_time(monkey
     legacy = _outcome(lambda: codec._decode_as(data, _NeverResolves))
     assert first[:2] == ("refused", "NameError")
     assert first == second == legacy
+
+
+def test_field_errors_precede_forward_reference_errors_even_after_a_failed_resolution(monkeypatch):
+    complete = {"$type": "_NeverResolves", "value": 1}
+    incomplete = {"$type": "_NeverResolves", "bogus": 1}
+    with monkeypatch.context() as scope:
+        _without_plans(scope)
+        legacy = _outcome(lambda: codec._decode_as(incomplete, _NeverResolves))
+    _fresh_caches(monkeypatch)
+    assert _outcome(lambda: codec._decode_as(incomplete, _NeverResolves)) == legacy
+    assert _outcome(lambda: codec._decode_as(complete, _NeverResolves))[:2] == ("refused", "NameError")
+    assert _outcome(lambda: codec._decode_as(incomplete, _NeverResolves)) == legacy
+    assert legacy == (
+        "refused",
+        "ContractCodecError",
+        "_NeverResolves field mismatch; extra=['bogus'], missing=['value']",
+    )
+
+
+def test_a_failed_forward_reference_can_resolve_on_a_later_read(monkeypatch):
+    _fresh_caches(monkeypatch)
+    data = {"$type": "_NeverResolves", "value": 1}
+    assert _outcome(lambda: codec._decode_as(data, _NeverResolves))[:2] == ("refused", "NameError")
+    monkeypatch.setitem(globals(), "_DefinedNowhere", int)
+    decoded = codec._decode_as(data, _NeverResolves)
+    with monkeypatch.context() as scope:
+        _without_plans(scope)
+        assert codec._decode_as(data, _NeverResolves) == decoded == _NeverResolves(1)
 
 
 # --------------------------------------------------------------------------
