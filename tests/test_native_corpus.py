@@ -25,6 +25,21 @@ from pathlib import Path
 
 import pytest
 
+
+def test_indexed_derived_cleanup_checks_every_path_before_removing_anything(tmp_path):
+    nc = _load_tool("native_corpus")
+    derived = tmp_path / "records" / "_derived" / "known.rec"
+    derived.parent.mkdir(parents=True)
+    derived.write_bytes(b"known")
+    foreign = tmp_path / "foreign.rec"
+    foreign.write_bytes(b"preserve")
+    rows = [{"derived": {}, "path": "records/_derived/known.rec"}, {"derived": {}, "path": "foreign.rec"}]
+    with pytest.raises(ValueError, match="escapes"):
+        nc.remove_indexed_derived(tmp_path, rows)
+    assert derived.read_bytes() == b"known" and foreign.read_bytes() == b"preserve"
+    nc.remove_indexed_derived(tmp_path, rows[:1])
+    assert not derived.exists() and foreign.read_bytes() == b"preserve"
+
 ROOT = Path(__file__).resolve().parents[1]
 for _path in (ROOT / "kernel" / "src", ROOT / "kernel" / "tests"):
     if str(_path) not in sys.path:

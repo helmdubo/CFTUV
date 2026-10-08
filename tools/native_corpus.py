@@ -874,3 +874,18 @@ class Recorder:
 
 def load_index(root: Path) -> dict:
     return json.loads((Path(root) / "index.json").read_text(encoding="utf-8"))
+
+
+def bounded_before(before: StateV1, cap: int) -> StateV1:
+    """Производная с потолком всегда ограничена, даже если исходный прогон эталонный."""
+    return dataclasses.replace(before, budget={**before.budget, "mode": exact.ExactWorkBudgetModeV1.BOUNDED.value, "cap": cap})
+
+
+def remove_indexed_derived(root: Path, rows: list) -> None:
+    """Удаляет только перечисленные производные файлы после проверки всех путей."""
+    derived_root = (root / "records" / "_derived").resolve()
+    previous = [(root / row["path"]).resolve() for row in rows if row.get("derived") is not None]
+    if any(not path.is_relative_to(derived_root) for path in previous):
+        raise ValueError("derived record path escapes records/_derived")
+    for path in previous:
+        path.unlink(missing_ok=True)
