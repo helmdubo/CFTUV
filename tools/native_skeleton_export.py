@@ -7,8 +7,8 @@
 Меш считается кнопкой («Build Decal Mesh», `run_production`, последовательно: воркеров нет) на одной ширине, с ПУСТЫМ кэшем сессии: подготовка
 каждого домена холодная (`prepare_for_production` обнуляет память разложений и счётчик неоплаченного перед `prepare_conveyor`, поэтому вызов
 `build_skeleton` видит холодную память и свежий бюджет `PREPARE`, потраченный только тем, что успел мост). Подготовка не зависит от ширины, а ряд ширин
-не добавляет новых подготовок: кэш сессии отдаёт готовую. Единица записи — `wavefront.conveyor.build_skeleton`: подменено ИМЯ, которое зовёт `_prepare_region`
-(модуль импортировал его по имени), поэтому в запись попадает ровно то, что считала бы нативная вставка на том же месте.
+не добавляет новых подготовок: кэш сессии отдаёт готовую. Единица записи — `wavefront.skeleton.build_skeleton`: подменено имя, которое динамически получает
+диспетчер бэкенда `PYTHON`, поэтому в запись попадает ровно то, что считала бы нативная вставка на том же месте.
 
 Каждая подготовка (`wavefront.prepare_conveyor`) обёрнута: строка домена индекса несёт её чистое время (стенка минус время рекордера), секунды стадий
 (`prepare.SKELETON`, `prepare.FACES`, `prepare.BRIDGE`, ...) и число записанных вызовов. Порядок вызовов `build_skeleton` внутри домена — порядок регионов (в v1 — один).
@@ -73,13 +73,13 @@ def _prepared(original, recorder, nc):
 
 
 def _install(ctx: dict, nc) -> None:
-    """Подмена `conveyor.build_skeleton` и `wavefront.prepare_conveyor` рекордером."""
+    """Подмена `skeleton.build_skeleton` и `wavefront.prepare_conveyor` рекордером."""
 
     import cftuv_envelope.wavefront as wavefront
-    import cftuv_envelope.wavefront.conveyor as conveyor
+    import cftuv_envelope.wavefront.skeleton as skeleton
 
     recorder = ctx["recorder"]
-    conveyor.build_skeleton = recorder.wrap(nc.OP_SKELETON, nc.ORACLE[nc.OP_SKELETON])
+    skeleton.build_skeleton = recorder.wrap(nc.OP_SKELETON, nc.ORACLE[nc.OP_SKELETON])
     wavefront.prepare_conveyor = _prepared(wavefront.prepare_conveyor, recorder, nc)
 
 
