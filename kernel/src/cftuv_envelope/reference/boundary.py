@@ -408,7 +408,7 @@ def resolve_component_alphas(
                         source.front_component_id,
                         source.support_id,
                         boundary.segment.segment_id,
-                        ExactScalar.from_value(alpha).expression,
+                        ExactScalar.canonical(alpha).expression,
                     )
                     construction = ConstructionCertificate(
                         kind=ConstructionKind.EVENT_ANCHOR,
@@ -452,7 +452,7 @@ def resolve_component_alphas(
                     envelope_spec_id=spec.envelope_spec_id.value,
                     front_component_id=source.front_component_id,
                     requested_alpha=requested_alpha,
-                    effective_alpha=ExactScalar.from_value(alpha),
+                    effective_alpha=ExactScalar.canonical(alpha),
                     construction=construction,
                 )
                 diagnostics.append(diagnostic)
@@ -461,7 +461,7 @@ def resolve_component_alphas(
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
-                        ExactScalar.from_value(alpha),
+                        ExactScalar.canonical(alpha),
                         ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
                         tuple(sorted(set((*current.event_keys, event_key)))),
                         tuple((*current.diagnostics, diagnostic)),
@@ -475,7 +475,7 @@ def resolve_component_alphas(
                     envelope_spec_id=spec.envelope_spec_id.value,
                     front_component_id=source.front_component_id,
                     requested_alpha=requested_alpha,
-                    effective_alpha=ExactScalar.from_value(alpha),
+                    effective_alpha=ExactScalar.canonical(alpha),
                     construction=construction,
                 )
                 diagnostics.append(diagnostic)
@@ -484,7 +484,7 @@ def resolve_component_alphas(
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
-                        ExactScalar.from_value(alpha),
+                        ExactScalar.canonical(alpha),
                         ReferenceOutcome.BARRIER_SPLIT_REQUIRED,
                         tuple(sorted(set((*current.event_keys, event_key)))),
                         tuple((*current.diagnostics, diagnostic)),
