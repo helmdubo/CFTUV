@@ -26,6 +26,8 @@ import subprocess
 import sys
 from fractions import Fraction
 from pathlib import Path
+
+from kernel_test_paths import PACKAGE_ROOT
 from types import SimpleNamespace
 
 import pytest
@@ -50,7 +52,7 @@ from cftuv_envelope.wavefront.coverage import coverage_source
 from test_interval_step import CASES, alpha_text, certificate_of, developable
 
 HERE = Path(__file__).resolve().parent
-KERNEL_SOURCE = HERE.parent / "src"
+KERNEL_SOURCE = PACKAGE_ROOT.parent
 
 ARTICLES = 6
 

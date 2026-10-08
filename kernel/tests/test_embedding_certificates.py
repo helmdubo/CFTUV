@@ -6,6 +6,8 @@ from dataclasses import replace
 from fractions import Fraction
 import os
 from pathlib import Path
+
+from kernel_test_paths import PACKAGE_ROOT
 import subprocess
 import sys
 
@@ -1574,7 +1576,7 @@ def test_validator_does_not_return_early_when_projection_claim_is_absent():
 
 
 def test_planar_metric_has_a_clean_fresh_subprocess_import():
-    source_root = Path(__file__).resolve().parents[1] / "src"
+    source_root = PACKAGE_ROOT.parent
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(source_root)
     completed = subprocess.run(

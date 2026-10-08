@@ -44,6 +44,8 @@ from fractions import Fraction
 from functools import cache
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT, kernel_reference
+
 import pytest
 
 from cftuv_envelope.contracts.envelopes import AngleTolerancePolicyIdV1
@@ -64,7 +66,7 @@ from cftuv_envelope.contracts.tolerance_policy import (
 
 KERNEL_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = KERNEL_ROOT.parent
-KERNEL_SOURCE = KERNEL_ROOT / "src"
+KERNEL_SOURCE = PACKAGE_ROOT.parent
 
 CONSTANT_CONSTRUCTORS = frozenset({"Fraction", "Decimal", "Rational", "mpf"})
 
@@ -81,7 +83,7 @@ NEUTRAL_VALUES = frozenset({Fraction(0), Fraction(1)})
 
 @cache
 def _python_files() -> tuple[Path, ...]:
-    return tuple(sorted(KERNEL_SOURCE.rglob("*.py")))
+    return tuple(sorted(PACKAGE_ROOT.rglob("*.py")))
 
 
 @cache
@@ -90,7 +92,7 @@ def _parse(path: Path) -> ast.Module:
 
 
 def _relative(path: Path) -> str:
-    return path.relative_to(REPO_ROOT).as_posix()
+    return "kernel/src/" + path.relative_to(KERNEL_SOURCE).as_posix()
 
 
 def _dotted(path: Path, name: str) -> str:
@@ -259,7 +261,7 @@ def test_fixtures_point_at_tests_that_actually_exist(policy: TolerancePolicyV1):
     for reference in (policy.positive_fixture, policy.negative_fixture):
         assert "::" in reference, (policy.id, reference)
         relative, name = reference.split("::")
-        path = REPO_ROOT / relative
+        path = kernel_reference(relative)
         assert path.is_file(), (policy.id, reference)
         defined = {
             node.name

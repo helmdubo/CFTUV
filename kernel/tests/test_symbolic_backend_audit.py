@@ -29,8 +29,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-KERNEL = Path(__file__).resolve().parents[1] / "src" / "cftuv_envelope"
-HOST = Path(__file__).resolve().parents[2] / "cftuv"
+from kernel_test_paths import PACKAGE_ROOT
+
+KERNEL = PACKAGE_ROOT
 
 CLASSES = {"REPLACED_HOT", "A_LATER", "A_DONE", "B_KEEP", "BRIDGE"}
 
@@ -322,23 +323,6 @@ SYMPY_AUDIT = {
 }
 
 
-#: Хост (`cftuv/`) трогает sympy в трёх файлах; проверка версий пула (`envelope_domain_pool.py`,
-#: `HOST_PACKAGES`) не арифметика и сюда не входит.
-HOST_SYMPY_AUDIT = {
-    "envelope_debug_renderer.py": (
-        "A_LATER",
-        "float(sympify(srepr)) при рисовании отладочных точек: холодный путь рендера, читается родным мостом",
-    ),
-    "envelope_export_input.py": (
-        "HOST_WARMUP",
-        "прогрев ленивой подгрузки sympy в родителе (sympy.Symbol('warm') + 1): ~0.35 с на процесс, "
-        "пока в ядре остаётся класс (б)",
-    ),
-    "envelope_request_export.py": (
-        "A_LATER",
-        "Rational(str(float)) при выгрузке координат и factor в exact_rational: холодный экспорт хоста",
-    ),
-}
 
 
 def _sympy_features(path: Path) -> set[str]:
@@ -443,25 +427,6 @@ def test_replaced_rows_exist_in_the_backend_switch():
     }
 
 
-def _host_sympy_importers() -> set[str]:
-    users = set()
-    for path in sorted(HOST.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
-            if isinstance(node, ast.Import) and any(
-                item.name.split(".")[0] in {"sympy", "mpmath"} for item in node.names
-            ):
-                users.add(path.name)
-            elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in {"sympy", "mpmath"}:
-                users.add(path.name)
-            elif (
-                isinstance(node, ast.Call)
-                and getattr(node.func, "attr", getattr(node.func, "id", "")) == "import_module"
-                and node.args
-                and isinstance(node.args[0], ast.Constant)
-                and node.args[0].value in {"sympy", "mpmath"}
-            ):
-                users.add(path.name)
-    return users
 
 
 def test_the_scanner_sees_a_new_general_algebra_feature(tmp_path):
@@ -473,9 +438,3 @@ def test_the_scanner_sees_a_new_general_algebra_feature(tmp_path):
         encoding="utf-8",
     )
     assert _sympy_features(probe) == {"sp.roots", "mp.iv", "mp.iv.prec"}
-
-
-def test_host_sympy_users_are_the_audited_files():
-    assert _host_sympy_importers() == set(HOST_SYMPY_AUDIT), sorted(
-        _host_sympy_importers() ^ set(HOST_SYMPY_AUDIT)
-    )

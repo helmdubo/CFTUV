@@ -7,6 +7,29 @@ import pytest
 
 from cftuv_envelope.exact_sqrt_sum import set_canonical_audit
 from ec0_adapter import load_projection
+from kernel_test_paths import installed_kernel_guard
+
+
+_WHEEL_GUARD = installed_kernel_guard() if os.environ.get("CFTUV_TEST_REQUIRE_WHEEL") == "1" else None
+
+
+def pytest_sessionstart(session):
+    if _WHEEL_GUARD is not None:
+        _WHEEL_GUARD.check()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    # До удаления monkeypatch: подмена источника импорта не должна исчезнуть вместе с фикстурой.
+    yield
+    if _WHEEL_GUARD is not None:
+        _WHEEL_GUARD.check()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_runtest_teardown(item, nextitem):
+    if _WHEEL_GUARD is not None:
+        _WHEEL_GUARD.check()
 
 # Набор тестов ядра всегда гоняется с полным аудитом каноники сумм корней:
 # каждая величина, входящая в машину времён, проверяется на бесквадратность
@@ -35,6 +58,9 @@ if _SYMBOLIC_BACKEND:
 def pytest_sessionfinish(session, exitstatus):
     """Под выбранным бэкендом сессия печатает свод счётчиков: сколько сверено и чем решено."""
 
+    if _WHEEL_GUARD is not None:
+        _WHEEL_GUARD.check()
+        print(f"\nKERNEL_WHEEL_ORIGIN_OK checks={_WHEEL_GUARD.checks} path_resolutions={_WHEEL_GUARD.path_resolutions}")
     if not _SYMBOLIC_BACKEND:
         return
     from cftuv_envelope.reference import planar_types

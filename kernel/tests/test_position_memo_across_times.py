@@ -25,6 +25,8 @@ import sys
 import weakref
 from pathlib import Path
 
+from kernel_test_paths import PACKAGE_ROOT
+
 import pytest
 
 from cftuv_envelope.exact_sqrt_sum import (
@@ -43,7 +45,7 @@ from wavefront_cases import named_corpus, partial_source_corpus
 from weighted_wall_differential_cases import weighted_wall_differential_corpus
 
 HERE = Path(__file__).resolve().parent
-KERNEL_SOURCE = HERE.parent / "src"
+KERNEL_SOURCE = PACKAGE_ROOT.parent
 
 CORPUS = (
     tuple(named_corpus())
