@@ -143,7 +143,7 @@ LEAF_FILES = (
 LEAF_PINS = {
     "wavefront/candidate_law.py": "d8a84854151b170cc3543ad53d4b0db2eeafb7587cc68e45500e6e4df36fd4c0",
     "wavefront/candidate_refusal.py": "b1ca2217abbfe87286ef49ca1bb17c5121e1889b94700bcbeed9cf4e2aada787",
-    "wavefront/exact_candidate_view.py": "dd53dbd3e3736966fe706d02842cf2729df5e2fd6fbb37413573613c525d87e0",
+    "wavefront/exact_candidate_view.py": "64fdb7a4256dfe3e5d6858cb6a29bd18a3b61ab0499d84b1efedf6bf3001a579",
     "wavefront/events.py": "e69a1328c2aac9001f7d0830a6fe5d644d61195e1fb063058584717da288067f",
     "wavefront/cell_grid.py": "e2ef50ff61222345e338ca9836f4281350007039daf40292f383ecba8f60030a",
     "wavefront/motorcycle.py": "4460f277c899186319b405187025b60692187a33d95b14d80d75d907e244866f",
@@ -151,7 +151,7 @@ LEAF_PINS = {
     "wavefront/proof.py": "093e9b8de7b8e88687f0ce24d184cb434b608ebab2161b9c4e2a8721fa465de0",
     "wavefront/polygon.py": "d3fe537c884581844cbb62f626af79e6c085332ee53ba647100109e40c84c408",
     "robust/predicates.py": "913a134bb932fa6579072fa82549d086ad975c3b552e0a7d18953526ffe75ff8",
-    "wavefront/skeleton.py": "437f35e1faca6897235390ad9cc267d4086312198412148ec976dd0e7757a2ba",
+    "wavefront/skeleton.py": "c3821dff47eb248adf3e09175b102a9d06c40f6cc317fcfcfd8fcdf927c984b2",
     "wavefront/superlevel.py": "10ff96083fb0b8f8f9868c395e1bec08b1a849125780681a8439002b7921960c",
     "wavefront/superlevel_snapshot.py": "8a9b948a0b91074b56b5bc780e38a22c33d9c234b21081df4b013f866ce2b38d",
     "wavefront/superlevel_germ.py": "7063de9c4497322fe1282b3c511a266fe9c20d361be9f35b5febd869778aee02",
