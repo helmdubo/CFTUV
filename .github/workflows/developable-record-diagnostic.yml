@@ -1,0 +1,65 @@
+name: Diagnostic only - ARAP canonical records
+
+# Одноразовый свидетель: не release gate и не замена существующих проверок.
+on:
+  push:
+    branches: [codex/diag-arap-record-linux]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic-arap-record:
+    name: diagnostic-arap-record (py${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10.21", "3.11.16"]
+    env:
+      PYTHONHASHSEED: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Prepare identical source and extracted wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/arap-witness-venv"
+          PY="$RUNNER_TEMP/arap-witness-venv/bin/python"
+          "$PY" -m pip install build==1.6.1 pytest==9.1.1 sympy==1.14.0 mpmath==1.3.0
+          mkdir -p "$RUNNER_TEMP/arap-extracted" "$RUNNER_TEMP/arap-records"
+          cp -R kernel/. "$RUNNER_TEMP/arap-extracted/"
+          "$PY" -m build --wheel "$RUNNER_TEMP/arap-extracted"
+          "$PY" -m pip install --no-deps "$RUNNER_TEMP"/arap-extracted/dist/*.whl
+          git rev-parse HEAD > "$RUNNER_TEMP/arap-records/commit.txt"
+          "$PY" -m pip freeze > "$RUNNER_TEMP/arap-records/packages.txt"
+      - name: Capture only the two failing records in both roots
+        shell: bash
+        run: |
+          set +e
+          set -uo pipefail
+          PY="$RUNNER_TEMP/arap-witness-venv/bin/python"
+          HELPER="$GITHUB_WORKSPACE/.github/diagnostics/developable_record_witness.py"
+          env -u PYTHONPATH "$PY" -s "$HELPER" --root "$GITHUB_WORKSPACE/kernel" --mode source --output "$RUNNER_TEMP/arap-records/mono" > "$RUNNER_TEMP/arap-records/mono.log" 2>&1
+          MONO_STATUS=$?
+          cat "$RUNNER_TEMP/arap-records/mono.log"
+          env -u PYTHONPATH "$PY" -s "$HELPER" --root "$RUNNER_TEMP/arap-extracted" --mode wheel --output "$RUNNER_TEMP/arap-records/extracted" > "$RUNNER_TEMP/arap-records/extracted.log" 2>&1
+          WHEEL_STATUS=$?
+          cat "$RUNNER_TEMP/arap-records/extracted.log"
+          printf 'mono=%s\nwheel=%s\n' "$MONO_STATUS" "$WHEEL_STATUS" > "$RUNNER_TEMP/arap-records/status.txt"
+          if [ "$MONO_STATUS" -ne 0 ] || [ "$WHEEL_STATUS" -ne 0 ]; then exit 1; fi
+      - name: Retain records even when assertions fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-arap-records-py${{ matrix.python-version }}
+          path: ${{ runner.temp }}/arap-records
+          if-no-files-found: error
+          retention-days: 7
