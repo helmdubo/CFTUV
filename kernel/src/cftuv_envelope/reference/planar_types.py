@@ -22,12 +22,14 @@ from .._cpython311 import sorted_as_cpython311
 from ..exact_sqrt_sum import SqrtSumV1
 from . import symbolic_backend as _backend
 from .native_exact import (
+    CANON_V2_TEXT,
+    ExactScalarTextCanonUnsupported,
     NativeSignUndecided,
     OutsideNativeField,
     RadicalSumV1,
     _NATIVE_OF_TEXT,
+    canonical_text as _canonical_text,
     from_sympy as _native_from_sympy,
-    native_text as _native_text,
     to_sympy as _native_to_sympy,
 )
 from .symbolic_backend import SymbolicBackendV1
@@ -56,6 +58,8 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
         return sp.Rational(str(value))
     if isinstance(value, int):
         return sp.Integer(value)
+    if isinstance(value, str):
+        return _parse_expr(value)
     return sp.sympify(value)
 
 
@@ -141,12 +145,29 @@ def _parse_expr_uncached(expression: str) -> sp.Expr:
     match = _RATIONAL_SREPR.match(expression)
     if match is not None:
         return sp.Rational(int(match.group(1)), int(match.group(2)))
+    # Строка V2 (`Sqrt(Rational(P, Q))`) не `srepr`: `sympify` прочёл бы её как неопределённую функцию `Sqrt`, а не как число.
+    match = CANON_V2_TEXT.match(expression)
+    if match is not None:
+        root = sp.sqrt(sp.Rational(int(match.group("p")), int(match.group("q"))))
+        return -root if match.group("neg") else root
     return sp.sympify(expression)
 
 
 @lru_cache(maxsize=32768)
 def _parse_expr(expression: str) -> sp.Expr:
     return _parse_expr_uncached(expression)
+
+
+def _canon_text_counted(value: RadicalSumV1, route: str) -> str:
+    """Строка V2 величины; событие учтено под своим именем, отказ — тоже (тихого отказа нет)."""
+
+    try:
+        text = _canonical_text(value)
+    except ExactScalarTextCanonUnsupported:
+        _backend.count("exact_scalar_text", "canon_unsupported")
+        raise
+    _backend.count("exact_scalar_text", route)
+    return text
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,17 +179,50 @@ class ExactScalar:
         cls,
         value: ExactScalar | RadicalSumV1 | sp.Expr | Decimal | Fraction | int | float | str,
     ) -> ExactScalar:
+        """Величина со строкой: родная (`RadicalSumV1`) — по канону V2, остальное — прежним `srepr(factor(cancel(...)))`.
+
+        Строка канона V2 зависит только от значения; прежняя форма `sympy` — от вида выражения и истории процесса. Где строка
+        называет событие или экземпляр и значение может прийти любым путём, зовут `canonical`.
+        """
+
         if isinstance(value, cls):
             return value
         if type(value) is RadicalSumV1:
-            text, emulated = _native_text(value)
-            _backend.count("exact_scalar_text", "native" if emulated else "native_via_sympy")
-            return cls(text)
+            return cls(_canon_text_counted(value, "native"))
         expression = _expr(value)
         result = cls(_canonical_expr(expression))
         if _backend.backend_mode() is SymbolicBackendV1.SHADOW and not expression.is_Rational:
             _shadow_text(expression, result.expression)
         return result
+
+    @classmethod
+    def canonical(
+        cls,
+        value: ExactScalar | RadicalSumV1 | sp.Expr | Decimal | Fraction | int | float | str,
+    ) -> ExactScalar:
+        """Величина со строкой канона V2 (EXACT_SCALAR_TEXT_CANON_V2): равные значения дают равные строки при любом пути прихода.
+
+        Родная величина, выражение `sympy` и `ExactScalar` (в том числе с прежней строкой) читаются в `RadicalSumV1` и пишутся одной
+        функцией `canonical_text`: без `factor`, без `sp.sqrt` радиканта, без памяти разложений. Вне родного поля либо больше одного
+        члена — `ExactScalarTextCanonUnsupported` (`EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`), прежней формы в ответ не будет.
+        """
+
+        if type(value) is RadicalSumV1:
+            return cls(_canon_text_counted(value, "native"))
+        try:
+            if isinstance(value, cls):
+                native = value.native()
+            elif isinstance(value, str):
+                native = _NATIVE_OF_TEXT(value)
+            else:
+                expression = _expr(value)
+                if expression.is_Rational:
+                    return cls(_rational_srepr(expression))
+                native = _native_from_sympy(expression)
+        except OutsideNativeField as outside:
+            _backend.count("exact_scalar_text", "canon_unsupported")
+            raise ExactScalarTextCanonUnsupported(f"outside the native field: {outside.detail}") from None
+        return cls(_canon_text_counted(native, "canonical"))
 
     def native(self) -> RadicalSumV1:
         """Значение в родной арифметике (память по строке); вне поля — `OutsideNativeField`."""
@@ -266,15 +320,20 @@ def _shadow_same_value(site: str, left: sp.Expr, right: sp.Expr) -> None:
         _backend.disagreement(site, f"{sp.srepr(left)} != {sp.srepr(right)}")
 
 
-#: Образцы расхождения ТЕКСТА (дайджесты): шагу 3 нужно знать, какие строки меняются.
+#: Образцы строк V2, которые НЕ читаются обратно в то же значение (дефект канона): пусты, пока канон верен. Прежняя форма `sympy`
+#: у обычного `from_value` от канона V2 отличается по замыслу и сюда не попадает (счёт `text_legacy_form`).
 TEXT_DIFFERENCES: list[tuple[str, str]] = []
-#: То же, но только для ОДНОЧЛЕННЫХ величин (текст собран без sympy): их расхождение — не «другая форма
-#: суммы», а ошибка эмуляции, и в образцах оно не должно тонуть среди многочленных.
+#: То же, но только для ОДНОЧЛЕННЫХ величин.
 SINGLE_TERM_TEXT_DIFFERENCES: list[tuple[str, str]] = []
 
 
 def _shadow_text(expression: sp.Expr, legacy_text: str) -> None:
-    """Сверка строки `ExactScalar`: значение обязано совпасть, текст — считается отдельно."""
+    """Сверка строки `ExactScalar`: значение строки обязано совпасть со значением выражения; форма — отдельным счётом.
+
+    `legacy_text` — то, что вернул обычный `from_value` (форма `sympy`). Канон V2 она повторяет только у рациональных; у одночленных
+    отличается по замыслу (`text_legacy_form`), у многочленных канона нет (`text_multi_term`). Строка V2 самой величины обязана
+    читаться обратно в неё (`canon_round_trip`): иначе это расхождение значений.
+    """
 
     site = "exact_scalar_text"
     try:
@@ -287,15 +346,19 @@ def _shadow_text(expression: sp.Expr, legacy_text: str) -> None:
     if (native - legacy_value).terms:
         _backend.disagreement(site, f"value of {legacy_text}")
         return
-    text, emulated = _native_text(native)
-    if text == legacy_text:
-        _backend.count(site, "text_equal" if emulated else "text_equal_via_sympy")
+    try:
+        text = _canonical_text(native)
+    except ExactScalarTextCanonUnsupported:
+        _backend.count(site, "text_multi_term")
         return
-    _backend.count(site, "text_differs" if emulated else "text_differs_via_sympy")
-    if len(TEXT_DIFFERENCES) < 100:
-        TEXT_DIFFERENCES.append((legacy_text, text))
-    if emulated and len(SINGLE_TERM_TEXT_DIFFERENCES) < 50:
-        SINGLE_TERM_TEXT_DIFFERENCES.append((legacy_text, text))
+    if (_NATIVE_OF_TEXT(text) - native).terms:
+        _backend.disagreement(site, f"canon text {text} reads back as another value than {legacy_text}")
+        if len(TEXT_DIFFERENCES) < 100:
+            TEXT_DIFFERENCES.append((legacy_text, text))
+        if len(SINGLE_TERM_TEXT_DIFFERENCES) < 50:
+            SINGLE_TERM_TEXT_DIFFERENCES.append((legacy_text, text))
+        return
+    _backend.count(site, "text_equal" if text == legacy_text else "text_legacy_form")
 
 
 def _native_sign_or_none(value: RadicalSumV1, site: str) -> int | None:

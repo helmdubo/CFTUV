@@ -399,6 +399,9 @@ def resolve_component_alphas(
                         continue
                     source_length = _source_length(context, source, contact_memo)
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
+                    # Ключ вершины остаётся координатным, не каноном alpha V2: контур и контакт
+                    # в его вершине имеют одни рациональные координаты (Integer/Rational).
+                    # Иррациональная метрика этого не меняет; проверка — test_exact_scalar_text_canon.
                     split = interior and (
                         boundary.role in (BoundaryRole.HOLE, BoundaryRole.EXPLICIT_BARRIER)
                         or point_key(point) in boundary.concave_vertex_keys
@@ -408,7 +411,7 @@ def resolve_component_alphas(
                         source.front_component_id,
                         source.support_id,
                         boundary.segment.segment_id,
-                        ExactScalar.from_value(alpha).expression,
+                        ExactScalar.canonical(alpha).expression,
                     )
                     construction = ConstructionCertificate(
                         kind=ConstructionKind.EVENT_ANCHOR,
@@ -452,7 +455,7 @@ def resolve_component_alphas(
                     envelope_spec_id=spec.envelope_spec_id.value,
                     front_component_id=source.front_component_id,
                     requested_alpha=requested_alpha,
-                    effective_alpha=ExactScalar.from_value(alpha),
+                    effective_alpha=ExactScalar.canonical(alpha),
                     construction=construction,
                 )
                 diagnostics.append(diagnostic)
@@ -461,7 +464,7 @@ def resolve_component_alphas(
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
-                        ExactScalar.from_value(alpha),
+                        ExactScalar.canonical(alpha),
                         ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
                         tuple(sorted(set((*current.event_keys, event_key)))),
                         tuple((*current.diagnostics, diagnostic)),
@@ -475,7 +478,7 @@ def resolve_component_alphas(
                     envelope_spec_id=spec.envelope_spec_id.value,
                     front_component_id=source.front_component_id,
                     requested_alpha=requested_alpha,
-                    effective_alpha=ExactScalar.from_value(alpha),
+                    effective_alpha=ExactScalar.canonical(alpha),
                     construction=construction,
                 )
                 diagnostics.append(diagnostic)
@@ -484,7 +487,7 @@ def resolve_component_alphas(
                     resolutions[source.front_component_id] = ComponentResolution(
                         source.front_component_id,
                         requested_alpha,
-                        ExactScalar.from_value(alpha),
+                        ExactScalar.canonical(alpha),
                         ReferenceOutcome.BARRIER_SPLIT_REQUIRED,
                         tuple(sorted(set((*current.event_keys, event_key)))),
                         tuple((*current.diagnostics, diagnostic)),

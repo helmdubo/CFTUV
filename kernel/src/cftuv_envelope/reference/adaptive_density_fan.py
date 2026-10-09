@@ -375,16 +375,20 @@ def _covectors(
     window_law: str = _band.WINDOW_LAW_VORONOI,
     orientation: TurnOrientation | None = None,
 ):
+    remembered = metric._density_exact_memo.covector_rows
     covectors = []
     for normal in ideal_unit_normals:
         nx, ny = metric.density_expressions(normal)
-        covectors.append(
-            _vector(
+        row = remembered.get((nx, ny))
+        if row is None:
+            # Ковектор нормали — чистая функция её выражений; повтор (а нормаль входит и в веер своего
+            # счёта, и в веера соседних счетов, и в обе геометрии) берётся из памяти транзакции.
+            row = remembered[(nx, ny)] = _vector(
                 metric.gram[0][0] * nx + metric.gram[0][1] * ny,
                 metric.gram[1][0] * nx + metric.gram[1][1] * ny,
                 metric,
             )
-        )
+        covectors.append(row)
     values = _IdealTuple(covectors)
     values.metric = metric
     values.window_law = window_law

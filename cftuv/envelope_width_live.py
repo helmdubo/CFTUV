@@ -63,7 +63,7 @@ from .envelope_alpha_preview import (
     PreviewUnavailable,
     ThreadedPreviewJob,
 )
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND
 from .envelope_width_mesh_preview import (
     PRIME_BASE_REPLACED,
     capture_ownership,
@@ -117,6 +117,8 @@ class LastProductionBuildV1:
     dissolve_percent: float = 0.390625
     #: Бэкенд ядра кнопки: живая ширина считает тем же (смена настройки действует с ближайшей кнопки).
     kernel_backend: str = DEFAULT_KERNEL_BACKEND
+    #: Бэкенд стадии скелета кнопки: живая ширина берёт подготовки из кэша сессии под ключом ЭТОЙ стадии (подготовки Python и Rust не смешиваются).
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +185,7 @@ def remember_build(
     width: float,
     dissolve_percent: float = 0.390625,
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
 ) -> LastProductionBuildV1:
     """Кнопка отработала: запись для живой ширины. Старое превью снимается (оно про прежний прогон)."""
 
@@ -200,6 +203,7 @@ def remember_build(
         width=float(width),
         dissolve_percent=float(dissolve_percent),
         kernel_backend=str(kernel_backend),
+        skeleton_backend=str(skeleton_backend),
     )
     controller.width_build = record
     controller.width_target = record.source_name
@@ -490,6 +494,7 @@ def _begin(controller, request):
     budget = envelope_stretch_budget(record.stretch_percent)
     slide = envelope_dissolve_uv_slide(record.dissolve_percent)
     kernel_backend = record.kernel_backend
+    skeleton_backend = record.skeleton_backend
     # Образец на экране, прежняя модель, журнал доверия и ключ читает главный поток; поток счёта получает их значениями (образцы, модели и журналы неизменяемы).
     prime = target.purpose == PURPOSE_PRIME
     displayed, aux, previous = controller.width_displayed, controller.width_aux, controller.width_model
@@ -513,6 +518,7 @@ def _begin(controller, request):
                 cancel=cancel,
                 quiesce=False,
                 kernel_backend=kernel_backend,
+                skeleton_backend=skeleton_backend,
             )
         except ProductionCancelled as exc:
             raise PreviewCancelled(str(exc)) from exc

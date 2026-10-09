@@ -339,6 +339,8 @@ def solve_exported_task(task):
         task.alpha_text,
         selected_edges=task.selected_edges,
         profile=None,
+        backend=task.backend,
+        skeleton_backend=task.skeleton_backend,
     )
     return inputs.result(
         prepared=prepared,

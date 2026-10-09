@@ -196,6 +196,10 @@ class GeometryContext:
     evaluation_noise_cache: dict = field(default_factory=dict)
     # Углы разреза кольца (`BandCutV1.right_corners`) как множество пар: читается один раз.
     chart_name_cache: dict = field(default_factory=dict)
+    # Индекс «цепочка -> первая её полоса» (`angular._incident_normal`): строится по `compilation` один раз.
+    # Запись несёт сам `compilation` и читается только при тождестве объекта, поэтому копия контекста с
+    # подменённой записью (`replace(context, compilation=...)`) чужого индекса не получает.
+    strip_index_cache: dict = field(default_factory=dict)
 
     @classmethod
     def build(
