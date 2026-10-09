@@ -380,7 +380,7 @@ def _skeleton_record(ran, *outcomes, native=None, python=None, coverage="python"
 
 
 def test_the_skeleton_stage_has_its_own_runner_and_fallbacks_in_the_row_and_the_summary(ab):
-    assert ab.STAGES == ("coverage_clip", "skeleton")
+    assert ab.STAGES == ("coverage_clip", "skeleton", "embedding")  # B1 added the embedding stage (own runner, port `snap_embedding`; tested below)
     row = ab.domain_row(_result(5, record=_skeleton_record("native")))
     assert (row["skeleton_ran"], row["skeleton_native_calls"], row["skeleton_python_calls"], row["skeleton_fallbacks"]) == ("native", 1, 0, [])
     plain = ab.domain_row(_result(6, record=_record("native")))  # запись до скелета: «скелет не считался»
