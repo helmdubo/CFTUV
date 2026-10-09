@@ -43,7 +43,7 @@ import wavefront_cases  # noqa: E402
 
 import cftuv_envelope as kernel  # noqa: E402
 import cftuv_envelope.wavefront as wavefront  # noqa: E402
-import cftuv_envelope.wavefront.conveyor as conveyor  # noqa: E402
+from cftuv_envelope import backend  # noqa: E402
 import cftuv_envelope.wavefront.skeleton as skeleton  # noqa: E402
 from cftuv_envelope import exact_sqrt_sum as exact  # noqa: E402
 from cftuv_envelope.exact_sqrt_sum import SqrtSumV1  # noqa: E402
@@ -75,11 +75,12 @@ def preparation(tmp_path, monkeypatch):
     """Настоящая подготовка малого домена: `build_skeleton` зовёт конвейер, и вызов идёт через рекордер. `(рекордер, подготовка)`."""
 
     recorder = _recorder(tmp_path)
-    monkeypatch.setattr(conveyor, "build_skeleton", recorder.wrap(nc.OP_SKELETON, nc.ORACLE[nc.OP_SKELETON]))
+    monkeypatch.setattr(skeleton, "build_skeleton", recorder.wrap(nc.OP_SKELETON, nc.ORACLE[nc.OP_SKELETON]))
     snapshot = kernel.AnalysisSnapshotCodecV1.loads((FIXTURE / "analysis_snapshot.json").read_bytes())
     request = kernel.DecalRequestCodecV1.loads((FIXTURE / "decal_request.json").read_bytes())
     recorder.context.update(mesh="point_contact", mesh_digest="fixture")
-    prepared = wavefront.prepare_conveyor(snapshot, request)
+    with backend.use_backend("PYTHON", "PYTHON"):
+        prepared = wavefront.prepare_conveyor(snapshot, request)
     assert prepared.outcome.value == "EXACT"
     recorder.write_index()
     return recorder, prepared
