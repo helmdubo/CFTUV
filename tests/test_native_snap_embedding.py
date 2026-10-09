@@ -340,3 +340,63 @@ def test_the_memo_wrapper_keeps_its_contents_order_and_statistics_with_the_nativ
     assert [step[0] for step in found] == [step[0] for step in wanted]
     assert [step[1:] for step in found] == [step[1:] for step in wanted], "hits, misses, entries and the order of the keys are the memo's, not the leaf's"
     assert wanted[-1][1]["hits"] > 0 and wanted[-1][1]["misses"] > 3
+
+
+def test_the_dispatcher_uses_the_real_native_leaf_and_a_memo_hit_keeps_identity(monkeypatch):
+    from cftuv_envelope import backend
+
+    arguments = square_call()
+    original, calls = cftuv_native.snap_embedding_certificate, []
+
+    def recorded(*actual):
+        calls.append(actual)
+        return original(*actual)
+
+    monkeypatch.setattr(cftuv_native, "snap_embedding_certificate", recorded)
+    embedding.clear_embedding_memo()
+    try:
+        with embedding.embedding_memo_limit(3), backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+            kwargs = dict(zip(("before", "after", "faces", "intended_corners", "unclassifiable_corners", "snapping_law"), arguments))
+            first = embedding.build_source_snap_embedding_certificate(**kwargs)
+            second = embedding.build_source_snap_embedding_certificate(**kwargs)
+            assert first is second and first == nec.ORACLE(*arguments)
+        assert len(calls) == 1 and all(a is b for a, b in zip(calls[0], arguments))
+        record = ledger.record()
+        assert (record.embedding_native_calls, record.embedding_python_calls, record.embedding_cache_hits) == (1, 0, 1)
+        assert not record.embedding_fallbacks
+    finally:
+        embedding.clear_embedding_memo()
+
+
+@pytest.mark.parametrize("missing_position", [True, False])
+def test_real_native_dispatch_preserves_missing_position_fallback_and_inconsistent_edge_error(monkeypatch, missing_position):
+    from cftuv_envelope import backend
+
+    before, after, faces, intended, unclassifiable, law = square_call()
+    if missing_position:
+        before = {key: value for key, value in before.items() if key != vertex(3)}
+        after = before
+    else:
+        faces = faces + (nec.FaceLike(SourceFaceId("f2"), (vertex(0), vertex(1), vertex(3)), (PhysicalEdgeId("d"), PhysicalEdgeId("a"), PhysicalEdgeId("c"))),)
+    arguments = before, after, faces, intended, unclassifiable, law
+    wanted = oracle(arguments)
+    assert wanted[0] == "raised" and wanted[1] == ("KeyError" if missing_position else "ValueError")
+    native_leaf, python_leaf = cftuv_native.snap_embedding_certificate, embedding._compute_source_snap_embedding_certificate
+    native_calls, python_calls = [], []
+
+    def native_recorded(*actual):
+        native_calls.append(actual)
+        return native_leaf(*actual)
+
+    def python_recorded(*actual):
+        python_calls.append(actual)
+        return python_leaf(*actual)
+
+    monkeypatch.setattr(cftuv_native, "snap_embedding_certificate", native_recorded)
+    monkeypatch.setattr(embedding, "_compute_source_snap_embedding_certificate", python_recorded)
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert nec.outcome_of(backend.embedding_compute, arguments) == wanted
+    assert len(native_calls) == 1 and all(a is b for a, b in zip(native_calls[0], arguments))
+    assert len(python_calls) == int(missing_position)
+    assert all(a is b for call in python_calls for a, b in zip(call, arguments))
+    assert len(ledger.record().embedding_fallbacks) == int(missing_position)
