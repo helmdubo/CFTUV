@@ -522,7 +522,7 @@ def _rational_after_scaling(value, scale) -> Fraction | None:
         if not expression.is_Pow:
             return False
         base, exponent = expression.args
-        return isinstance(base, sp.Rational) and base > 0 and exponent == sp.Rational(1, 2)
+        return isinstance(base, sp.Rational) and base > 0 and exponent == sp.S.Half
 
     if not (_simple_term(value) and _simple_term(scale)):
         _backend.count("arrival_law_rescale", "legacy_shape")
