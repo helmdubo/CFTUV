@@ -6,7 +6,11 @@
 
 Запуск (фоновый Blender БЕЗ `--factory-startup`; копия файла, не оригинал владельца):
   set PYTHONSAFEPATH=1
-  blender -b <копия buildings2_2.blend> --python-exit-code 1 --python tools\\blender_field_case_cover008.py -- --out r.json [--workers 3] [--source installed]
+  blender -b <копия buildings2_2.blend> --python-exit-code 1 --python tools\\blender_field_case_cover008.py -- --out r.json [--workers 3] [--source installed] [--rows rows.json] [--geometry positions.json.gz]
+
+`--rows`: запись ПО ДОМЕНАМ для судьи `artifacts/materialize_sweep/field_judge.py` (строка домена: исход, дайджест содержания батча, дайджест позиций, счётчики и диагностики материализатора;
+номер случая `cover.008:<alpha>:<плотность>:<растяжение>:<патч>`, поэтому плотность судья читает из той же позиции, что у полевых случаев). `--geometry`: позиции вершин каждого построенного домена
+(`{патч: {имя вершины: [x, y, z]}}`, gzip-JSON) для расстояний между двумя прогонами (этот же скрипт на основе и на дереве среза).
 
 `--source worktree` (умолчание): пакеты берутся из этого дерева (установленный аддон из настроек снимается);
 `--source installed`: что установлено и включено. Выход 0 — новых отказов нет; 1 — файл/выделение/политика не те
@@ -16,6 +20,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -152,6 +157,42 @@ def _verdict(run, receipt) -> dict:
     }
 
 
+def _positions_of(item) -> dict:
+    """Позиции вершин построенного домена: имя вершины (`semantic_location_ref`) -> [x, y, z]; у отказа пусто."""
+
+    if not item.is_materialized:
+        return {}
+    return {
+        vertex.semantic_location_ref.value: [float(vertex.position.x), float(vertex.position.y), float(vertex.position.z)]
+        for vertex in item.batch.vertices
+    }
+
+
+def _domain_rows(run, positions: dict) -> list:
+    """Строки для `field_judge.py`: одна на домен; цена (секунды) в строку не входит."""
+
+    policy = CASE["policy"]
+    prefix = f"{CASE['object']}:{policy['alpha']!r}:{policy['density']}:{policy['max_stretch']}"
+    rows = []
+    for item in sorted(run.results, key=lambda result: result.patch_id):
+        placed = positions.get(item.patch_id, {})
+        done = item.is_materialized
+        rows.append({
+            "case": f"{prefix}:{item.patch_id}",
+            "operator": ["FINISHED"] if done else ["CANCELLED"],
+            "status": item.outcome,
+            "verts": len(placed) if done else None,
+            "faces": len(item.batch.faces) if done else None,
+            "mesh_digest": item.content_digest if done else None,
+            "geometry_sha256": hashlib.sha256(json.dumps(placed, sort_keys=True).encode()).hexdigest() if done else None,
+            "domain_outcomes": {item.outcome: 1},
+            "refused": [] if done else [[item.patch_id, item.outcome, str(item.detail)[:160]]],
+            "counters": dict(item.counters),
+            "diagnostics": list(item.diagnostics),
+        })
+    return rows
+
+
 def main() -> int:
     if os.environ.get("PYTHONSAFEPATH") != "1":
         print("PYTHONSAFEPATH_REQUIRED: kernel field runs require PYTHONSAFEPATH=1")
@@ -171,6 +212,14 @@ def main() -> int:
     verdict = {**_verdict(run, receipt), "status": status, "run_seconds": round(seconds, 1)}
     if "--out" in option:
         Path(option["--out"]).write_text(json.dumps(verdict, indent=1, sort_keys=True), encoding="utf-8")
+    if "--rows" in option or "--geometry" in option:
+        positions = {item.patch_id: _positions_of(item) for item in run.results}
+        if "--rows" in option:
+            record = {"root": str(ROOT), "cases": _domain_rows(run, positions)}
+            Path(option["--rows"]).write_text(json.dumps(record, indent=1, sort_keys=True), encoding="utf-8")
+        if "--geometry" in option:
+            with gzip.open(option["--geometry"], "wt", encoding="utf-8") as handle:
+                json.dump({str(patch): placed for patch, placed in positions.items() if placed}, handle, sort_keys=True)
     print(status)
     print(f"recovered vs baseline: {verdict['recovered']}; new refusals: {verdict['new_refusals']}; outcome changes: {verdict['changed_outcome']}")
     more_weld = verdict["weld_miter_fallback_vertices"] > CASE["baseline_weld_miter_fallbacks"]
