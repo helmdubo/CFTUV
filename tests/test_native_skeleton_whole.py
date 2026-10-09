@@ -57,7 +57,7 @@ import wavefront_cases  # noqa: E402
 import cftuv_envelope as kernel  # noqa: E402
 import cftuv_envelope.exact_sqrt_sum as exact  # noqa: E402
 import cftuv_envelope.wavefront as wavefront  # noqa: E402
-import cftuv_envelope.wavefront.conveyor as conveyor  # noqa: E402
+from cftuv_envelope import backend  # noqa: E402
 import cftuv_envelope.wavefront.motorcycle as motorcycle  # noqa: E402
 import cftuv_envelope.wavefront.skeleton as skeleton  # noqa: E402
 
@@ -567,12 +567,13 @@ def _prepared(fixture: str, skeleton_function):
     exact.reset_factorization_memory()
     exact.reset_unbudgeted_work()
     exact.reset_sign_counts()
-    original = conveyor.build_skeleton
-    conveyor.build_skeleton = skeleton_function
+    original = skeleton.build_skeleton
+    skeleton.build_skeleton = skeleton_function
     try:
-        prepared = wavefront.prepare_conveyor(snapshot, request)
+        with backend.use_backend("PYTHON", "PYTHON"):
+            prepared = wavefront.prepare_conveyor(snapshot, request)
     finally:
-        conveyor.build_skeleton = original
+        skeleton.build_skeleton = original
     return prepared, nc.capture_state(prepared.work_budget, None)
 
 
