@@ -39,6 +39,7 @@ from functools import lru_cache
 
 from ..codec import canonical_json_bytes
 from ..contracts.envelopes import StripEnvelopeSpec
+from ..reference.native_exact import ExactScalarTextCanonUnsupported
 from ..reference.planar_types import ExactScalar
 from ..reference.strip import strip_envelope_instance_id
 from .. import wavefront as wavefront_package
@@ -322,6 +323,23 @@ def _recorded(prepared, alpha_text, alpha, arguments, memo, key, certificates):
 
 
 def step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True) -> StepV1:
+    """Шаг ширины (`_step_domain`) с именованным отказом: величина без канонической строки V2 даёт исход `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`.
+
+    Покрытие (`wavefront.coverage`, закреплено за Rust) исключение не называет: оно выходит из шага и именуется ЗДЕСЬ, на границе ядра. Путь шага у
+    такого отказа — `FALLBACK:COVERAGE_REFUSED` (домен отказан), а счётчик промаха растёт, как у любого другого отказа покрытия.
+    """
+
+    try:
+        return _step_domain(
+            prepared, alpha_text, request=request, near_planar_lift_law=near_planar_lift_law,
+            decal_topology_law=decal_topology_law, digests=digests,
+        )
+    except ExactScalarTextCanonUnsupported as unsupported:
+        STEP_COUNTERS["INTERVAL_FALLBACK_" + FALLBACK_REFUSED] += 1
+        return StepV1(domain_module.canon_unsupported_refusal(unsupported), "FALLBACK:" + FALLBACK_REFUSED)
+
+
+def _step_domain(prepared, alpha_text, *, request, near_planar_lift_law, decal_topology_law, digests=True) -> StepV1:
     """Покрытие и материализация домена при `alpha_text`: из шаблона внутри заверенного интервала, иначе полным путём с записью шаблона.
 
     Ответ (`StepV1.result`) равен ответу `materialize_domain(prepared, conveyor_coverage(prepared, alpha_text), ...)` с `certify=True`, и цена
