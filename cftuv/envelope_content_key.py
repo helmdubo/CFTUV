@@ -69,7 +69,7 @@ import os
 from enum import Enum
 from fractions import Fraction
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, DEFAULT_EMBEDDING_BACKEND
 
 CONTENT_KEY_SCHEMA = "cftuv.content-key.v1"
 #: Поля `HostExportInputV1`, которые ключ содержимого НЕ кодирует (см. модуль). Остальные входят.
@@ -216,15 +216,15 @@ def code_identity() -> tuple[str, str]:
     )
 
 
-def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> tuple[str, str, str]:
+def execution_identity(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> tuple[str, str, str]:
     """`(отпечаток ядра, отпечаток хоста, идентичность бэкенда)`: отпечаток кода процесса и бэкенды обеих стадий (покрытие с резкой и скелет), которыми считают."""
 
     from .envelope_kernel_backend import backend_identity_of
 
-    return (*code_identity(), backend_identity_of(backend, skeleton_backend))
+    return (*code_identity(), backend_identity_of(backend, skeleton_backend, embedding_backend))
 
 
-def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> tuple:
+def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> tuple:
     """Политики хоста, которые читает выгрузка снапшота, схемы контрактов ядра, отпечаток кода и бэкенд ядра."""
 
     from . import envelope_request_export as export
@@ -240,7 +240,7 @@ def _policy_constants(backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_S
         export.HOST_NEAR_PLANAR_FRAME_POLICY.value,
         export.HOST_NEAR_PLANAR_LIFT_POLICY.value,
         export.HOST_CURVATURE_LADDER_POLICY.value,
-        execution_identity(backend, skeleton_backend),
+        execution_identity(backend, skeleton_backend, embedding_backend),
         kernel.ANALYSIS_SNAPSHOT_SCHEMA_V1,
         GEOMETRY_BATCH_SCHEMA_V1,
     )
@@ -278,7 +278,7 @@ def _normalized_budget(budget):
     return None if budget == policy.DEFAULT_ENVELOPE_STRETCH_BUDGET else budget
 
 
-def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
+def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> str:
     """Ключ содержимого домена: sha256 от входа воркера без ревизии, выделения домена и политик.
 
     `export` — `HostExportInputV1` ЭТОГО домена, `selected_edge_ids` — выделенные рёбра домена, `band_key` —
@@ -291,7 +291,7 @@ def domain_content_key(export, selected_edge_ids, band_key=None, backend=DEFAULT
     from .envelope_request_policy import normalize_envelope_fan_density
 
     encoder = _Encoder(export.source_revision_value, _patch_ranks(export))
-    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend, skeleton_backend))]
+    parts = [CONTENT_KEY_SCHEMA, encoder.encode(_policy_constants(backend, skeleton_backend, embedding_backend))]
     for name in _fields(type(export)):
         if name in EXCLUDED_FIELDS:
             continue

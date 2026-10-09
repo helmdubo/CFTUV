@@ -63,7 +63,8 @@ FIELD_CASES = (
     "rounded_wall_noise_top:0.2239:2:42,sagging_wall:0.2239:2:42,building:0.2239:2:42"
 )
 STAGE_COVERAGE_CLIP, STAGE_SKELETON = "coverage_clip", "skeleton"
-STAGES = (STAGE_COVERAGE_CLIP, STAGE_SKELETON)
+STAGE_EMBEDDING = "embedding"
+STAGES = (STAGE_COVERAGE_CLIP, STAGE_SKELETON, STAGE_EMBEDDING)
 PRICE_PREFIX = "EXACT_WORK_"
 STATUS_OK, STATUS_UNAVAILABLE, STATUS_FAILED, STATUS_REFUSED = "OK", "UNAVAILABLE", "FAILED", "REFUSED"
 #: Коды возврата: различие ответа или цены (и упавший случай) сильнее отказа приёмки.
@@ -111,6 +112,9 @@ def domain_row(result) -> dict:
         "skeleton_native_calls": 0 if record is None else getattr(record, "skeleton_native_calls", 0),
         "skeleton_python_calls": 0 if record is None else getattr(record, "skeleton_python_calls", 0),
         "skeleton_fallbacks": [] if record is None else list(getattr(record, "skeleton_outcomes", ())),
+        **{"embedding_" + name: getattr(record, "embedding_" + name, default) for name, default in (
+            ("ran", ""), ("native_calls", 0), ("python_calls", 0), ("cache_hits", 0), ("outcomes", ()),
+        )},
         "area": None,
     }
 
@@ -142,6 +146,8 @@ def classify_row(row: dict) -> str:
         return "cache"
     if row["outcome"] != MATERIALIZED:
         return "refused"
+    if row.get("embedding_cache_hits", 0) and not (row["native_calls"] or row["python_calls"] or row["fallbacks"]):
+        return "cache"
     if row["ran"] in ("native", "mixed"):
         return "native"
     if row["python_calls"] or any(name not in ALLOWED_FALLBACKS for name in row["fallbacks"]):
@@ -154,6 +160,8 @@ def unexplained_not_reached(rows, stage=STAGE_COVERAGE_CLIP) -> list:
 
     def explained(row):
         # Шаблон покрытия не доказывает, что подготовку строил нативный скелет.
+        if stage == STAGE_EMBEDDING:
+            return True  # невычисленный B1 честно остаётся not_reached; cold case отдельно требует реальные вызовы
         return row.get("preparation_reused", False) if stage == STAGE_SKELETON else row["step_path"] == STEP_FAST
 
     return sorted(row["patch_id"] for row in rows if classify_row(row) == "not_reached" and not explained(row))
@@ -199,6 +207,9 @@ def _stage_rows(rows, stage, prepared_patches):
 
     if stage == STAGE_COVERAGE_CLIP:
         return list(rows)
+    if stage == STAGE_EMBEDDING:
+        return [{**row, **{name: row["embedding_" + name] for name in ("ran", "native_calls", "python_calls")},
+                 "fallbacks": list(row["embedding_outcomes"])} for row in rows]
     if stage != STAGE_SKELETON:
         raise ValueError(f"unknown A/B stage: {stage}")
     return [
@@ -215,11 +226,15 @@ def summarize_width(width, python_rows, native_rows, python_run=None, native_run
     """
 
     prerequisites = {}
-    if stage == STAGE_SKELETON:
-        for item in native_rows:
+    if stage in (STAGE_SKELETON, STAGE_EMBEDDING):
+        prerequisite_rows = [*python_rows, *native_rows] if stage == STAGE_EMBEDDING else native_rows
+        for item in prerequisite_rows:
             for name in item["fallbacks"]:
                 if name not in ALLOWED_FALLBACKS:
                     prerequisites.setdefault(name, []).append(item["patch_id"])
+            if stage == STAGE_EMBEDDING:
+                for name in item["skeleton_fallbacks"]:
+                    prerequisites.setdefault("skeleton:" + name, []).append(item["patch_id"])
     native_rows = _stage_rows(native_rows, stage, prepared_patches)
     computed = [item for item in native_rows if item["placement"] != PLACEMENT_CACHED]
     python_seconds = sum(item["seconds"] for item in python_rows if item["placement"] != PLACEMENT_CACHED)
@@ -232,6 +247,8 @@ def summarize_width(width, python_rows, native_rows, python_run=None, native_run
         for name in item["fallbacks"]:
             fallbacks.setdefault(name, []).append(item["patch_id"])
     differences = compare_domains(python_rows, native_rows)
+    if stage == STAGE_EMBEDDING and (python_run or {}).get("ordered_mesh") != (native_run or {}).get("ordered_mesh"):
+        differences["answer"].append("ordered mesh positions/faces/UV/owners/seams differ")
     python_wall, native_wall = _interaction(python_run), _interaction(native_run)
     return {
         "width": width,
@@ -247,6 +264,8 @@ def summarize_width(width, python_rows, native_rows, python_run=None, native_run
         "python_run": dict(python_run or {}),
         "native_run": dict(native_run or {}),
         "ran": ran,
+        "embedding_cache_hits": sum(item.get("embedding_cache_hits", 0) for item in computed),
+        "ordered_mesh_compared": "ordered_mesh" in (python_run or {}) and "ordered_mesh" in (native_run or {}),
         "calls": {
             "native": sum(item["native_calls"] for item in computed),
             "python": sum(item["python_calls"] for item in computed),
@@ -463,7 +482,7 @@ def port_violations(status: dict, expected_build_id, stage=STAGE_COVERAGE_CLIP) 
     """Отказы, видные до первого случая: порт не `available` (нет расширения, устарел, чужой интерпретатор) и сборка не та (если ждали конкретную)."""
 
     found = []
-    operations = ("coverage", "clip", "skeleton") if stage == STAGE_SKELETON else ("coverage", "clip")
+    operations = ("coverage", "clip", "skeleton", "snap_embedding") if stage == STAGE_EMBEDDING else (("coverage", "clip", "skeleton") if stage == STAGE_SKELETON else ("coverage", "clip"))
     for operation in operations:
         state = str(status.get(operation, "unavailable"))
         if state != "available":
@@ -480,6 +499,8 @@ def width_violations(case: str, item: dict) -> list:
     """Отказы одной ширины: откат кроме разрешённого, `NATIVE_NOT_REACHED` без объяснения."""
 
     found = []
+    if item.get("stage") == STAGE_EMBEDDING and not item.get("ordered_mesh_compared"):
+        found.append(f"STRICT_EMBEDDING_MESH_CAPTURE_MISSING: case {case} width {item['width']:g}")
     for name, patches in item["fallbacks"].items():
         if name not in ALLOWED_FALLBACKS:
             found.append(f"STRICT_UNEXPECTED_FALLBACK: {name} case {case} width {item['width']:g} patches {patches[:8]}")
@@ -500,6 +521,8 @@ def case_violations(case: dict) -> list:
     for item in case.get("widths", ()):
         found.extend(width_violations(case["case"], item))
     widths = case.get("widths", ())
+    if widths and widths[0].get("stage") == STAGE_EMBEDDING and not widths[0]["calls"]["native"]:
+        found.append(f"STRICT_EMBEDDING_COLD_NEVER_NATIVE: case {case['case']} cold width did not call B1")
     if widths and not any(item["calls"]["native"] for item in widths):
         found.append(f"STRICT_CASE_NEVER_NATIVE: case {case['case']} made no native call at any width: nothing about the port was checked")
     return found
@@ -709,7 +732,20 @@ def _pool_numbers(run) -> dict:
     }
 
 
-def _pack(run) -> tuple:
+def ordered_mesh_record(arrays) -> dict:
+    """Порядок вершин, циклов и UV строгий; float сохраняется hex, без округления/сортировки."""
+
+    return {
+        "positions": [[float(v).hex() for v in point] for point in arrays.positions],
+        "faces": [list(face) for face in arrays.faces],
+        "uvs": [[float(v).hex() for v in uv] for uv in arrays.uvs],
+        "face_domain": list(arrays.face_domain),
+        "face_owner": list(arrays.face_owner),
+        "seams": [list(edge) for edge in arrays.seam_edges],
+    }
+
+
+def _pack(run, *, capture=None) -> tuple:
     """`(секунды упаковки, {патч: площадь}, ошибка | None)`: тот же `build_mesh_arrays`, что зовёт кнопка, на результатах прогона."""
 
     from cftuv.envelope_production_mesh import DEFAULT_DECAL_OFFSET, build_mesh_arrays
@@ -720,6 +756,8 @@ def _pack(run) -> tuple:
     except Exception as exc:  # noqa: BLE001 - упаковка не должна ронять сравнение: причина названа в отчёте
         return time.perf_counter() - started, {}, f"PACK_FAILED: {type(exc).__name__}: {exc}"
     seconds = time.perf_counter() - started
+    if capture is not None:
+        capture["ordered_mesh"] = ordered_mesh_record(arrays)
     return seconds, area_by_domain(arrays), None
 
 
@@ -738,7 +776,15 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
     mesh_name, alpha_text, density, stretch = spec.split(":")
     settings = bpy.context.scene.hotspotuv_settings
     mesh_settings = bpy.context.scene.hotspotuv_decal_mesh
-    if args.stage == STAGE_SKELETON:
+    embedding = KERNEL_BACKEND_PYTHON
+    if args.stage == STAGE_EMBEDDING:
+        from cftuv_envelope._embedding import clear_embedding_memo
+
+        clear_embedding_memo()  # cold A/B: Python половина не прогревает значение для Native половины
+        mesh_settings.kernel_backend = "NATIVE"
+        mesh_settings.skeleton_backend = "NATIVE"
+        embedding = backend
+    elif args.stage == STAGE_SKELETON:
         mesh_settings.skeleton_backend = backend
         mesh_settings.kernel_backend = DEFAULT_KERNEL_BACKEND
         assert skeleton_backend_of(mesh_settings) == backend
@@ -775,16 +821,19 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
             workers=args.workers,
             kernel_backend=mesh_settings.kernel_backend,
             skeleton_backend=mesh_settings.skeleton_backend,
+            embedding_backend=embedding,
         )
         wall = time.perf_counter() - started
-        assert (run.skeleton_backend if args.stage == STAGE_SKELETON else run.kernel_backend) == backend
-        pack_seconds, areas, pack_error = _pack(run)  # до строк: упаковка читает результаты так же, как кнопка (отложенные разворачиваются в ней)
+        assert (run.embedding_backend if args.stage == STAGE_EMBEDDING else (run.skeleton_backend if args.stage == STAGE_SKELETON else run.kernel_backend)) == backend
+        capture = {} if args.stage == STAGE_EMBEDDING else None
+        pack_seconds, areas, pack_error = _pack(run, capture=capture)  # до строк: упаковка читает результаты так же, как кнопка (отложенные разворачиваются в ней)
         rows = [domain_row(item) for item in run.results]
         for row in rows:
             row["area"] = areas.get(row["patch_id"])
         widths.append(
             {
                 "width": width,
+                **(capture or {}),
                 "rows": rows,
                 "wall_seconds": wall,
                 "pack_seconds": pack_seconds,

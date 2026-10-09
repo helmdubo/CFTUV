@@ -9,6 +9,11 @@
 `coverage_compute`, `clip_compute` и `skeleton_compute` — точки диспетчеризации: они зовутся ВМЕСТО эталона на месте его
 вызова и сами решают, кто считает.
 
+B1 — отдельный чистый лист `embedding_compute` (`_embedding._compute_source_snap_embedding_certificate`). Он выбирается
+параметром `embedding_backend=PYTHON`, без зависимости остальных операций от наличия четвёртой в колесе. Отдельные
+`embedding_*` поля журнала отличают actual calls, именованный fallback и настоящий memo hit (`note_embedding_cache_hit`).
+Ключ value-memo и Python `__code__` не зависят от выбора B1; прежняя запись возвращает тот же объект.
+
 СТАДИИ ЗАКАЗЫВАЮТСЯ ПОРОЗНЬ. `use_backend(backend, skeleton_backend)`: `backend` заказывает покрытие и резку, `skeleton_backend`
 (умолчание `PYTHON`) — скелет; продукт переводит стадии на Rust по одной, и покрытие с резкой могут считать нативно, пока скелет
 считает эталон. Журнал домена (`BackendRecordV1`) несёт скелет ОТДЕЛЬНО (`skeleton_*`): счёты, откаты и исходы покрытия с резкой
@@ -87,6 +92,7 @@ COVERAGE = "coverage"
 CLIP = "clip"
 #: Третья целая операция: `wavefront.skeleton.build_skeleton` (стадия SKELETON подготовки; своя настройка, см. `use_backend`).
 SKELETON = "skeleton"
+EMBEDDING = "snap_embedding"
 #: Статус операции нативного ядра, когда `cftuv_native` не импортируется.
 UNAVAILABLE = "unavailable"
 #: Сколько символов текста исключения несёт запись об откате.
@@ -211,6 +217,7 @@ class NativeStatusV1:
     detail: str = ""
     build_id: str = ""
     skeleton: str = UNAVAILABLE
+    embedding: str = UNAVAILABLE
 
     @property
     def available(self) -> bool:
@@ -220,8 +227,13 @@ class NativeStatusV1:
     def skeleton_available(self) -> bool:
         return self.skeleton == "available"
 
+    @property
+    def embedding_available(self) -> bool:
+        return self.embedding == "available"
+
     def as_record(self) -> dict:
         return {
+            "snap_embedding": self.embedding,
             "coverage": self.coverage,
             "clip": self.clip,
             "skeleton": self.skeleton,
@@ -243,7 +255,7 @@ def native_status() -> NativeStatusV1:
         build_id = str(module.native_build_id())
     except Exception as exc:  # noqa: BLE001 - статус, который не удалось снять, назван, а не брошен
         return NativeStatusV1(UNAVAILABLE, UNAVAILABLE, "", f"native_status failed: {type(exc).__name__}: {exc}"[:DETAIL_LIMIT])
-    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)))
+    return NativeStatusV1(str(raw.get(COVERAGE, UNAVAILABLE)), str(raw.get(CLIP, UNAVAILABLE)), version, "", build_id, str(raw.get(SKELETON, UNAVAILABLE)), str(raw.get(EMBEDDING, UNAVAILABLE)))
 
 
 def stage_identity(backend) -> str:
@@ -265,7 +277,7 @@ def stage_identity(backend) -> str:
     return f"{KernelBackendV1.NATIVE.value}:{build_id or UNAVAILABLE}"
 
 
-def backend_identity(backend, skeleton_backend=KernelBackendV1.PYTHON) -> str:
+def backend_identity(backend, skeleton_backend=KernelBackendV1.PYTHON, embedding_backend=KernelBackendV1.PYTHON) -> str:
     """Идентичность исполнения для ключей кэшей: стадия покрытия и резки (`stage_identity(backend)`) и, если скелет считает нативное ядро, его стадия.
 
     Скелет на `PYTHON` (умолчание) не меняет строку: ключи прогона без нативного скелета те же, что и были. Нативный скелет добавляет `|skeleton=NATIVE:<id>`,
@@ -273,9 +285,10 @@ def backend_identity(backend, skeleton_backend=KernelBackendV1.PYTHON) -> str:
     """
 
     base = stage_identity(backend)
-    if normalize_backend(skeleton_backend) is KernelBackendV1.PYTHON:
-        return base
-    return f"{base}|skeleton={stage_identity(skeleton_backend)}"
+    for stage, choice in ((SKELETON, skeleton_backend), (EMBEDDING, embedding_backend)):
+        if normalize_backend(choice) is KernelBackendV1.NATIVE:
+            base += f"|{stage}={stage_identity(choice)}"
+    return base
 
 
 # --------------------------------------------------------------------------
@@ -303,6 +316,11 @@ class BackendRecordV1:
     skeleton_native_calls: int = 0
     skeleton_python_calls: int = 0
     skeleton_fallbacks: tuple = ()
+    embedding_requested: str = KernelBackendV1.PYTHON.value
+    embedding_native_calls: int = 0
+    embedding_python_calls: int = 0
+    embedding_fallbacks: tuple = ()
+    embedding_cache_hits: int = 0
 
     @property
     def ran(self) -> str:
@@ -338,6 +356,18 @@ class BackendRecordV1:
 
         return tuple(sorted({item[0] for item in self.skeleton_fallbacks}))
 
+    @property
+    def embedding_ran(self) -> str:
+        if not (self.embedding_native_calls or self.embedding_python_calls):
+            return ""
+        if not self.embedding_native_calls:
+            return "python"
+        return "native" if not self.embedding_python_calls else "mixed"
+
+    @property
+    def embedding_outcomes(self) -> tuple:
+        return tuple(sorted({item[0] for item in self.embedding_fallbacks}))
+
     def merged(self, other: "BackendRecordV1 | None") -> "BackendRecordV1":
         """Запись домена из двух блоков (`other` — второй по времени, обычно материализация): счёты складываются, откаты сливаются по `(исход, операция)`.
 
@@ -355,6 +385,11 @@ class BackendRecordV1:
             self.skeleton_native_calls + other.skeleton_native_calls,
             self.skeleton_python_calls + other.skeleton_python_calls,
             _merged_fallbacks(self.skeleton_fallbacks, other.skeleton_fallbacks),
+            self.embedding_requested,
+            self.embedding_native_calls + other.embedding_native_calls,
+            self.embedding_python_calls + other.embedding_python_calls,
+            _merged_fallbacks(self.embedding_fallbacks, other.embedding_fallbacks),
+            self.embedding_cache_hits + other.embedding_cache_hits,
         )
 
     def as_record(self) -> dict:
@@ -365,6 +400,13 @@ class BackendRecordV1:
             "python_calls": self.python_calls,
             "outcomes": list(self.outcomes),
             "fallbacks": [list(item) for item in self.fallbacks],
+            "embedding_requested": self.embedding_requested,
+            "embedding_ran": self.embedding_ran,
+            "embedding_native_calls": self.embedding_native_calls,
+            "embedding_python_calls": self.embedding_python_calls,
+            "embedding_fallbacks": [list(item) for item in self.embedding_fallbacks],
+            "embedding_outcomes": list(self.embedding_outcomes),
+            "embedding_cache_hits": self.embedding_cache_hits,
             "skeleton_requested": self.skeleton_requested,
             "skeleton_ran": self.skeleton_ran,
             "skeleton_native_calls": self.skeleton_native_calls,
@@ -390,11 +432,13 @@ class BackendLedgerV1:
     `requested` заказывает покрытие и резку, `skeleton_requested` — скелет; точка диспетчеризации стадии, чей заказ `PYTHON`, зовёт эталон напрямую и журнала не пишет.
     """
 
-    __slots__ = ("requested", "skeleton_requested", "native", "python", "fallbacks", "refusal")
+    __slots__ = ("requested", "skeleton_requested", "embedding_requested", "embedding_cache_hits", "native", "python", "fallbacks", "refusal")
 
-    def __init__(self, requested: str, skeleton_requested: str = KernelBackendV1.PYTHON.value) -> None:
+    def __init__(self, requested: str, skeleton_requested: str = KernelBackendV1.PYTHON.value, embedding_requested: str = KernelBackendV1.PYTHON.value) -> None:
         self.requested = requested
         self.skeleton_requested = skeleton_requested
+        self.embedding_requested = embedding_requested
+        self.embedding_cache_hits = 0
         self.native: dict = {}
         self.python: dict = {}
         self.fallbacks: dict = {}
@@ -408,6 +452,10 @@ class BackendLedgerV1:
     @property
     def skeleton_native(self) -> bool:
         return self.skeleton_requested == KernelBackendV1.NATIVE.value
+
+    @property
+    def embedding_native(self) -> bool:
+        return self.embedding_requested == KernelBackendV1.NATIVE.value
 
     def note_native(self, operation: str) -> None:
         self.native[operation] = self.native.get(operation, 0) + 1
@@ -426,22 +474,27 @@ class BackendLedgerV1:
             self.refusal = (outcome.value, f"{operation}: {detail}"[:DETAIL_LIMIT])
 
     def record(self) -> BackendRecordV1:
-        def fallbacks(of_skeleton: bool) -> tuple:
+        def fallbacks(operations: tuple) -> tuple:
             return tuple(
                 (outcome, operation, slot[0], slot[1])
                 for (outcome, operation), slot in sorted(self.fallbacks.items())
-                if (operation == SKELETON) is of_skeleton
+                if operation in operations
             )
 
         return BackendRecordV1(
             self.requested,
-            sum(count for operation, count in self.native.items() if operation != SKELETON),
-            sum(count for operation, count in self.python.items() if operation != SKELETON),
-            fallbacks(False),
+            sum(count for operation, count in self.native.items() if operation in (COVERAGE, CLIP)),
+            sum(count for operation, count in self.python.items() if operation in (COVERAGE, CLIP)),
+            fallbacks((COVERAGE, CLIP)),
             self.skeleton_requested,
             self.native.get(SKELETON, 0),
             self.python.get(SKELETON, 0),
-            fallbacks(True),
+            fallbacks((SKELETON,)),
+            self.embedding_requested,
+            self.native.get(EMBEDDING, 0),
+            self.python.get(EMBEDDING, 0),
+            fallbacks((EMBEDDING,)),
+            self.embedding_cache_hits,
         )
 
 
@@ -450,16 +503,26 @@ _SCOPE: ContextVar = ContextVar("cftuv_kernel_backend", default=None)
 
 
 @contextmanager
-def use_backend(backend, skeleton_backend=KernelBackendV1.PYTHON):
-    """Внутри блока вычисление идёт заказанными бэкендами: `backend` — покрытие и резка, `skeleton_backend` — скелет.
+def use_backend(backend, skeleton_backend=KernelBackendV1.PYTHON, embedding_backend=KernelBackendV1.PYTHON, *, borrowed_ledger=None):
+    """Внутри блока вычисление идёт заказанными бэкендами: покрытие/резка, скелет и B1 (`embedding_backend`).
+
+    `borrowed_ledger` допустим только внутри scope владельца с тем же выбором: вложенная подготовка не заводит второй журнал.
 
     Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если обе `PYTHON` (тогда точки диспетчеризации зовут эталон напрямую).
     Стадия с заказом `PYTHON` в журнал не пишет и в блоке с нативной другой стадией: она считает эталон тем же путём, что вне блока.
     """
 
     choice, skeleton = normalize_backend(backend), normalize_backend(skeleton_backend)
+    embedding = normalize_backend(embedding_backend)
+    if borrowed_ledger is not None:
+        requested = (choice.value, skeleton.value, embedding.value)
+        actual = (borrowed_ledger.requested, borrowed_ledger.skeleton_requested, borrowed_ledger.embedding_requested)
+        if _SCOPE.get() is not borrowed_ledger or actual != requested:
+            raise ValueError("BACKEND_BORROW_SCOPE_MISMATCH: preparation must borrow its active owner ledger")
+        yield borrowed_ledger
+        return
     native = KernelBackendV1.NATIVE
-    ledger = BackendLedgerV1(choice.value, skeleton.value) if native in (choice, skeleton) else None
+    ledger = BackendLedgerV1(choice.value, skeleton.value, embedding.value) if native in (choice, skeleton, embedding) else None
     token = _SCOPE.set(ledger)
     try:
         yield ledger
@@ -479,6 +542,19 @@ def active_skeleton_backend() -> KernelBackendV1:
 
     ledger = _SCOPE.get()
     return KernelBackendV1.NATIVE if ledger is not None and ledger.skeleton_native else KernelBackendV1.PYTHON
+
+
+def active_embedding_backend() -> KernelBackendV1:
+    ledger = _SCOPE.get()
+    return KernelBackendV1.NATIVE if ledger is not None and ledger.embedding_native else KernelBackendV1.PYTHON
+
+
+def note_embedding_cache_hit() -> None:
+    """Только наблюдение уже состоявшегося попадания: ключ и значение памяти не меняются."""
+
+    ledger = _SCOPE.get()
+    if ledger is not None and ledger.embedding_native:
+        ledger.embedding_cache_hits += 1
 
 
 # --------------------------------------------------------------------------
@@ -701,6 +777,25 @@ def skeleton_compute(polygon, *, split_search=None, work_budget=None, dense_hydr
     return answer if done else oracle(polygon, **keywords)
 
 
+def embedding_compute(before, after, faces, intended_corners, unclassifiable_corners, snapping_law):
+    """Чистый лист B1; именованный отказ порта повторяет ТОТ ЖЕ вызов эталона без сброса памяти/бюджета."""
+
+    from ._embedding import _compute_source_snap_embedding_certificate as oracle
+
+    args = before, after, faces, intended_corners, unclassifiable_corners, snapping_law
+    ledger = _SCOPE.get()
+    if ledger is None or not ledger.embedding_native:
+        return oracle(*args)
+
+    def call(module):
+        if not hasattr(module, "snap_embedding_certificate"):
+            raise _OperationAbsent("this cftuv_native wheel has no `snap_embedding_certificate`")
+        return module.snap_embedding_certificate(*args)
+
+    done, answer = _attempt(ledger, EMBEDDING, call)
+    return answer if done else oracle(*args)
+
+
 __all__ = (
     "BackendLedgerV1",
     "BackendOutcomeV1",
@@ -708,6 +803,10 @@ __all__ = (
     "COVERAGE",
     "CLIP",
     "SKELETON",
+    "EMBEDDING",
+    "active_embedding_backend",
+    "embedding_compute",
+    "note_embedding_cache_hit",
     "KernelBackendV1",
     "NativeDomainRefused",
     "NativeStatusV1",

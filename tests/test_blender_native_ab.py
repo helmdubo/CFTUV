@@ -483,3 +483,54 @@ def test_a_skeleton_trial_cannot_hide_a_fallback_of_its_native_prerequisite(ab):
     width = _skeleton_width(ab, rows)
     assert width["fallbacks"] == {} and width["prerequisite_fallbacks"] == {"NATIVE_PORT_STALE": [0]}
     assert ab.width_violations("building", width) == ["STRICT_UNEXPECTED_FALLBACK: coverage_clip NATIVE_PORT_STALE case building width 0.25 patches [0]"]
+
+
+
+def _embedding_record(*, calls=0, hits=0, fallback=()):
+    record = _skeleton_record("native")
+    record.embedding_ran = "native" if calls else "python" if fallback else ""
+    record.embedding_native_calls = calls
+    record.embedding_python_calls = int(bool(fallback))
+    record.embedding_cache_hits = hits
+    record.embedding_outcomes = fallback
+    return record
+
+
+def test_embedding_strict_requires_four_operations_and_actual_cold_calls(ab):
+    assert ab.parse_arguments(["--stage", "embedding"]).stage == ab.STAGE_EMBEDDING
+    status = {**NATIVE_OK, "skeleton": "available", "snap_embedding": "available"}
+    assert ab.port_violations(status, "abc123", "embedding") == []
+    assert ab.port_violations({**status, "snap_embedding": "unavailable"}, "abc123", "embedding") == ["STRICT_PORT_UNAVAILABLE: snap_embedding=unavailable"]
+    python = [ab.domain_row(_result(0))]
+    native = [ab.domain_row(_result(0, record=_embedding_record(calls=1)))]
+    width = ab.summarize_width(.25, python, native, {"ordered_mesh": {}}, {"ordered_mesh": {}}, stage="embedding")
+    assert width["calls"]["native"] == 1 and ab.case_violations({"case": "building", "widths": [width]}) == []
+    cold = ab.summarize_width(.25, python, [ab.domain_row(_result(0, record=_embedding_record(hits=1)))], stage="embedding")
+    assert cold["share"]["domains"]["cache"] == 1 and cold["embedding_cache_hits"] == 1
+    assert any(v.startswith("STRICT_EMBEDDING_COLD_NEVER_NATIVE") for v in ab.case_violations({"case": "building", "widths": [cold, width]}))
+
+
+def test_embedding_not_reached_is_distinct_from_memo_and_fallback_is_never_pure_native(ab):
+    python = [ab.domain_row(_result(0))]
+    idle = ab.summarize_width(.3, python, [ab.domain_row(_result(0, record=_embedding_record()))], stage="embedding")
+    assert idle["share"]["domains"]["not_reached"] == 1 and idle["share"]["domains"]["cache"] == 0
+    fallback = ab.summarize_width(.3, python, [ab.domain_row(_result(0, record=_embedding_record(fallback=("NATIVE_PORT_UNSUPPORTED",))))], stage="embedding")
+    assert fallback["share"]["domains"]["python"] == 1
+    assert any(v.startswith("STRICT_UNEXPECTED_FALLBACK") for v in ab.width_violations("building", fallback))
+    prerequisite = _embedding_record(calls=1)
+    prerequisite.skeleton_outcomes = ("NATIVE_PORT_STALE",)
+    bad_python = [ab.domain_row(_result(0, record=prerequisite))]
+    width = ab.summarize_width(.3, bad_python, [ab.domain_row(_result(0, record=_embedding_record(calls=1)))], stage="embedding")
+    assert width["prerequisite_fallbacks"] == {"skeleton:NATIVE_PORT_STALE": [0]}
+
+
+def test_embedding_ordered_mesh_capture_keeps_vertex_face_and_uv_order(ab):
+    arrays = SimpleNamespace(positions=((0., -0., 1.), (2., 3., 4.)), faces=((0, 1, 0),),
+        uvs=((0., 1.), (1., 0.), (0., 1.)), face_domain=(7,), face_owner=("owner",), seam_edges=((0, 1),))
+    first = ab.ordered_mesh_record(arrays)
+    assert first["positions"][0][1] == (-0.).hex()
+    arrays.faces = ((1, 0, 0),)
+    second = ab.ordered_mesh_record(arrays)
+    rows = [ab.domain_row(_result(0, record=_embedding_record(calls=1)))]
+    width = ab.summarize_width(.25, rows, rows, {"ordered_mesh": first}, {"ordered_mesh": second}, stage="embedding")
+    assert width["differences"]["answer"] == ["ordered mesh positions/faces/UV/owners/seams differ"]

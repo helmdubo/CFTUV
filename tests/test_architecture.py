@@ -2022,3 +2022,36 @@ def test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter
         versions = {version for line in lines for version in re.findall(r'"(3\.\d+)"', line)}
         assert floor.group(1) in versions, f"{name}: нет ветки на заявленном полу Python {floor.group(1)}: {sorted(versions)}"
         assert "3.11" in versions, f"{name}: нет ветки на CPython 3.11 (Blender 4.5, нативное колесо `abi3-py311`): {sorted(versions)}"
+
+
+# B1_HOST_DISPATCH_V1: выбор исполнителя не становится законом памяти сертификатов.
+def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
+    import copy
+    import hashlib
+
+    tree = _parse(KERNEL_SOURCE / "cftuv_envelope" / "_embedding.py")
+    node = copy.deepcopy(next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "build_source_snap_embedding_certificate"))
+    calls = [n for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "backend"]
+    assert [n.func.attr for n in calls].count("embedding_compute") == 3
+    assert [n.func.attr for n in calls].count("note_embedding_cache_hit") == 1
+
+    class OriginalMemo(ast.NodeTransformer):
+        def visit_ImportFrom(self, n):
+            return None if n.level == 1 and n.module is None and [a.name for a in n.names] == ["backend"] else n
+
+        def visit_Expr(self, n):
+            if isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Attribute) and n.value.func.attr == "note_embedding_cache_hit":
+                return None
+            return self.generic_visit(n)
+
+        def visit_Call(self, n):
+            if isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name) and n.func.value.id == "backend" and n.func.attr == "embedding_compute":
+                n.func = ast.Name(id="_compute_source_snap_embedding_certificate", ctx=ast.Load())
+            return self.generic_visit(n)
+
+    original = OriginalMemo().visit(node)
+    assert hashlib.sha256(ast.dump(original, include_attributes=False).encode()).hexdigest() == "be46c04c1b07c0323926de1d9e9d575c29e4acd0ed8b67b9713089bfcc16ca1e", "B1 changed memo value/code key, normalization, lock, LRU, or returned identity"
+    dispatcher = _parse(KERNEL_SOURCE / "cftuv_envelope" / "backend.py")
+    required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
+    assert "snap_embedding_certificate" not in ast.dump(required), "B1 must not disable the older three-operation wheel"
+    assert "snap_embedding" not in RUST_ONLY_OPERATIONS, "B1 default remains PYTHON until parity acceptance"
