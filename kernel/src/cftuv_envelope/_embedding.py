@@ -531,9 +531,11 @@ def build_source_snap_embedding_certificate(
 ):
     """Сертификат вложения привязки источника: из памяти по ЗНАЧЕНИЯМ аргументов либо посчитанный (см. `EMBEDDING_MEMO_LIMIT`)."""
 
+    from . import backend
+
     faces, intended_corners, unclassifiable_corners = tuple(faces), tuple(intended_corners), tuple(unclassifiable_corners)
     if _memo_limit <= 0:
-        return _compute_source_snap_embedding_certificate(
+        return backend.embedding_compute(
             before, after, faces, intended_corners, unclassifiable_corners, snapping_law
         )
     key = (
@@ -551,13 +553,14 @@ def build_source_snap_embedding_certificate(
             if found is not None:
                 _memo.move_to_end(key)
                 _memo_stats["hits"] += 1
+                backend.note_embedding_cache_hit()
                 return found
             _memo_stats["misses"] += 1
     except TypeError:  # значение без хеша: ключа нет, и память не отвечает - считаем, как без неё
-        return _compute_source_snap_embedding_certificate(
+        return backend.embedding_compute(
             before, after, faces, intended_corners, unclassifiable_corners, snapping_law
         )
-    certificate = _compute_source_snap_embedding_certificate(
+    certificate = backend.embedding_compute(
         before, after, faces, intended_corners, unclassifiable_corners, snapping_law
     )
     with _memo_lock:

@@ -51,6 +51,8 @@ DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_NATIVE
 #: УМОЛЧАНИЕ СТАДИИ SKELETON — Native (SKELETON_NATIVE_DEFAULT_V1): строгий полевой A/B и замер настоящей кнопки; явный Python — эталон и именованный откат.
 #: Названо ОДНИМ местом, как и `DEFAULT_KERNEL_BACKEND`; сохранённый выбор PYTHON не меняется.
 DEFAULT_SKELETON_BACKEND = KERNEL_BACKEND_NATIVE
+#: B1 пока доступен только через API; до строгой сверки умолчание — эталон.
+DEFAULT_EMBEDDING_BACKEND = KERNEL_BACKEND_PYTHON
 #: Имя свойства в `HOTSPOTUV_DecalMeshSettings`.
 SETTING_NAME = "kernel_backend"
 #: Имя свойства стадии скелета там же.
@@ -111,7 +113,7 @@ def skeleton_backend_of(mesh_settings) -> str:
     return normalize_kernel_backend(getattr(mesh_settings, SKELETON_SETTING_NAME, DEFAULT_SKELETON_BACKEND) or DEFAULT_SKELETON_BACKEND)
 
 
-def backend_identity_of(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
+def backend_identity_of(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> str:
     """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...` при нативном скелете.
 
     Явный скелет на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
@@ -122,8 +124,10 @@ def backend_identity_of(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEN
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
-        return name if skeleton == KERNEL_BACKEND_PYTHON else f"{name}|skeleton={skeleton}"
-    return backend_identity(name, skeleton)
+        base = name if skeleton == KERNEL_BACKEND_PYTHON else f"{name}|skeleton={skeleton}"
+        embedding = normalize_kernel_backend(embedding_backend)
+        return base if embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={embedding}"
+    return backend_identity(name, skeleton, embedding_backend)
 
 
 def skeleton_identity_of(skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
@@ -138,7 +142,7 @@ def skeleton_identity_of(skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
 
 
 @contextmanager
-def entered_backend(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND):
+def entered_backend(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND):
     """`use_backend` ядра; смена бэкенда покрытия и резки в ЭТОМ процессе сбрасывает память стадии резки.
 
     Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если обе `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
@@ -154,7 +158,7 @@ def entered_backend(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND):
 
         MEMO.clear()
         _LAST_BACKEND[0] = name
-    with use_backend(name, skeleton) as ledger:
+    with use_backend(name, skeleton, embedding_backend) as ledger:
         yield ledger
 
 
@@ -171,9 +175,10 @@ class PreparationRefused(RuntimeError):
         self.record = record
 
 
-def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND):
+def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND, *, borrowed_ledger=None):
     """`(подготовка, запись | None)`: `build()` под блоком бэкенда, скелет считается в нём.
 
+    Заимствованный журнал принадлежит вызывающему: при нём возвращаемая запись — None, чтобы счёт не удвоился.
     Запись — `BackendRecordV1` подготовки (скелет ОТДЕЛЬНО от покрытия и резки: в подготовке считается только он) либо `None`, когда обе стадии `PYTHON` (блок журнала
     не заводит, путь побитово равен вызову без блока). Домен, которому нативное ядро отказало по имени, отказан `PreparationRefused`, как бы ни кончилась `build` (исключение могла
     проглотить промежуточная стадия: ответ после отказа недействителен). Память стадии резки здесь не трогается: подготовка резки не зовёт.
@@ -181,16 +186,24 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
 
     from cftuv_envelope.backend import NativeDomainRefused, use_backend
 
-    with use_backend(normalize_kernel_backend(kernel_backend), normalize_kernel_backend(skeleton_backend)) as ledger:
+    with use_backend(kernel_backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger) as ledger:
         try:
             prepared = build()
         except NativeDomainRefused as exc:
-            raise PreparationRefused(exc.outcome.value, str(exc), ledger.record()) from exc
+            raise PreparationRefused(exc.outcome.value, str(exc), None if borrowed_ledger is not None else ledger.record()) from exc
     if ledger is None:
         return prepared, None
     if ledger.refusal is not None:
-        raise PreparationRefused(*ledger.refusal, ledger.record())
-    return prepared, ledger.record()
+        raise PreparationRefused(*ledger.refusal, None if borrowed_ledger is not None else ledger.record())
+    return prepared, None if borrowed_ledger is not None else ledger.record()
+
+
+def merge_backend_records(first, second):
+    return second if first is None else first.merged(second)
+
+
+def ledger_record(ledger):
+    return None if ledger is None else ledger.record()
 
 
 def with_preparation_record(result, record):
@@ -215,8 +228,8 @@ def with_kernel_backend(produce):
     """
 
     @functools.wraps(produce)
-    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, **kwargs):
-        with entered_backend(backend, skeleton_backend) as ledger:
+    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND, **kwargs):
+        with entered_backend(backend, skeleton_backend, embedding_backend) as ledger:
             result = produce(*args, **kwargs)
         if ledger is None:
             return result
@@ -263,6 +276,11 @@ class BackendSummaryV1:
     skeleton_mixed: int = 0
     #: Как `outcomes`, для скелета.
     skeleton_outcomes: tuple = ()
+    embedding_requested: str = DEFAULT_EMBEDDING_BACKEND
+    embedding_native: int = 0
+    embedding_python: int = 0
+    embedding_cache_hits: int = 0
+    embedding_outcomes: tuple = ()
 
     @property
     def computed(self) -> int:
@@ -285,8 +303,17 @@ def backend_summary(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_B
     cached = 0
     patches: dict = {}
     skeleton_patches: dict = {}
+    embedding_name, embedding_native, embedding_python, embedding_hits = DEFAULT_EMBEDDING_BACKEND, 0, 0, 0
+    embedding_patches: dict = {}
     for item in results:
         record = getattr(item, "backend_record", None)
+        if record is not None and record.embedding_requested == KERNEL_BACKEND_NATIVE:
+            embedding_name = KERNEL_BACKEND_NATIVE
+            embedding_native += record.embedding_native_calls
+            embedding_python += record.embedding_python_calls
+            embedding_hits += record.embedding_cache_hits
+            for outcome in record.embedding_outcomes:
+                embedding_patches.setdefault(outcome, set()).add(int(item.patch_id))
         if item.placement == PLACEMENT_CACHED:
             cached += 1
         elif record is not None:
@@ -309,6 +336,8 @@ def backend_summary(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_B
         skeleton_counts["python"],
         skeleton_counts["mixed"],
         tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(skeleton_patches.items())),
+        embedding_name, embedding_native, embedding_python, embedding_hits,
+        tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(embedding_patches.items())),
     )
 
 
@@ -344,15 +373,20 @@ def backend_text(summary: BackendSummaryV1) -> str:
         skeleton = "skeleton " + " / ".join(parts) + _outcomes_text(summary.skeleton_outcomes)
     else:
         skeleton = "skeleton python"
-    return f"{coverage}; {skeleton}"
+    text = f"{coverage}; {skeleton}"
+    if summary.embedding_requested == KERNEL_BACKEND_NATIVE:
+        text += f"; embedding calls native {summary.embedding_native} / python {summary.embedding_python} / memo {summary.embedding_cache_hits}"
+        text += _outcomes_text(summary.embedding_outcomes)
+    return text
 
 
 def backend_console_lines(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> list:
     """Одна строка журнала прогона; пусто, пока обе стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE` для покрытия и резки, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
-    if KERNEL_BACKEND_NATIVE not in (normalize_kernel_backend(kernel_backend), normalize_kernel_backend(skeleton_backend)):
+    summary = backend_summary(results, kernel_backend, skeleton_backend)
+    if KERNEL_BACKEND_NATIVE not in (summary.requested, summary.skeleton_requested, summary.embedding_requested):
         return []
-    return [f"[CFTUV][Production] BACKEND {backend_text(backend_summary(results, kernel_backend, skeleton_backend))}"]
+    return [f"[CFTUV][Production] BACKEND {backend_text(summary)}"]
 
 
 def backend_timing_suffix(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
@@ -364,6 +398,8 @@ def backend_timing_suffix(results, kernel_backend, skeleton_backend=DEFAULT_SKEL
         text += f" | backend native {summary.native} / python {summary.python + summary.mixed}"
     if summary.skeleton_requested == KERNEL_BACKEND_NATIVE:
         text += f" | skeleton native {summary.skeleton_native} / python {summary.skeleton_python + summary.skeleton_mixed}"
+    if summary.embedding_requested == KERNEL_BACKEND_NATIVE:
+        text += f" | embedding calls native {summary.embedding_native} / python {summary.embedding_python} / memo {summary.embedding_cache_hits}"
     return text
 
 
@@ -404,6 +440,9 @@ def draw_kernel_backend_row(layout, mesh_settings) -> None:
 __all__ = (
     "BackendSummaryV1",
     "DEFAULT_KERNEL_BACKEND",
+    "DEFAULT_EMBEDDING_BACKEND",
+    "merge_backend_records",
+    "ledger_record",
     "DEFAULT_SKELETON_BACKEND",
     "KERNEL_BACKEND_ITEMS",
     "KERNEL_BACKEND_NATIVE",

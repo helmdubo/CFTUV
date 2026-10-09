@@ -173,3 +173,37 @@ def test_the_memo_is_bounded_by_recency_and_a_zero_limit_switches_it_off():
         assert embedding_memo_stats() == {"hits": 0, "misses": 0, "entries": 0}
     clear_embedding_memo()
     assert _embedding.EMBEDDING_MEMO_LIMIT == 8
+
+
+@pytest.mark.parametrize("limit, unhashable, expected", [(0, False, 2), (8, False, 1), (8, True, 2)])
+def test_dispatch_only_replaces_the_three_leaf_paths_and_preserves_memo_identity(monkeypatch, limit, unhashable, expected):
+    from cftuv_envelope import backend
+    positions, faces = _square()
+    calls, certificate = [], object()
+    def dispatch(*args):
+        calls.append(args)
+        return certificate
+    monkeypatch.setattr(backend, "embedding_compute", dispatch)
+    intended = ([_vertex(0), _vertex(1), _vertex(2)],) if unhashable else ()
+    with embedding_memo_limit(limit):
+        with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+            first = _certificate(positions, positions, faces, intended=intended)
+            second = _certificate(positions, positions, faces, intended=intended)
+        assert first is second is certificate and len(calls) == expected
+        assert ledger.record().embedding_cache_hits == (1 if expected == 1 else 0)
+        assert not ledger.record().embedding_native_calls and not ledger.record().embedding_python_calls
+
+
+def test_existing_python_memo_hit_is_same_object_under_native_and_never_calls_leaf(monkeypatch):
+    from cftuv_envelope import backend
+    positions, faces = _square()
+    with embedding_memo_limit(8):
+        python = _certificate(positions, positions, faces)
+        before = embedding_memo_stats()
+        monkeypatch.setattr(backend, "embedding_compute", lambda *a: pytest.fail("memo hit must not call leaf"))
+        with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+            assert _certificate(positions, positions, faces) is python
+        assert ledger.record().embedding_cache_hits == 1 and not ledger.record().embedding_ran
+        assert ledger.record().embedding_native_calls == ledger.record().embedding_python_calls == 0
+        assert embedding_memo_stats() == {**before, "hits": before["hits"] + 1}
+    backend.note_embedding_cache_hit()  # вне scope — no-op, не заводит память и журнал

@@ -564,3 +564,19 @@ def test_a_neighbour_that_splits_the_shared_seam_changes_the_key_of_the_other_do
     assert set(keys["split"]) == set(keys["coarse"]) == {1}
     assert keys["split"][1] != keys["coarse"][1]
     assert _snapshot_bytes(split, 1) != _snapshot_bytes(coarse, 1)
+
+
+
+def test_embedding_execution_identity_separates_results_and_content_without_changing_preparation(row):
+    from cftuv.envelope_content_key import execution_identity
+    from cftuv.envelope_kernel_backend import backend_identity_of, skeleton_identity_of
+
+    export, selected = next(iter(_domains(row).values()))
+    python = backend_identity_of("NATIVE", "NATIVE", "PYTHON")
+    native = backend_identity_of("NATIVE", "NATIVE", "NATIVE")
+    assert python != native
+    assert domain_content_key(export, selected) == domain_content_key(export, selected, embedding_backend="PYTHON")
+    assert domain_content_key(export, selected, embedding_backend="NATIVE") != domain_content_key(export, selected, embedding_backend="PYTHON")
+    assert execution_identity(embedding_backend="NATIVE") != execution_identity(embedding_backend="PYTHON")
+    assert result_slot(".25", "uv", "topology", "lift", python) != result_slot(".25", "uv", "topology", "lift", native)
+    assert skeleton_identity_of("PYTHON") == "PYTHON"  # выбор B1 не участвует в API ключа подготовки

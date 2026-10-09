@@ -82,7 +82,7 @@ import traceback
 from collections import deque
 from dataclasses import dataclass, replace
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, DEFAULT_EMBEDDING_BACKEND
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -222,6 +222,7 @@ class DomainTaskV1:
     #: Бэкенд стадии скелета воркера (`PYTHON` | `NATIVE`): скелет считается в подготовке (холодная задача, задача очереди), а не в материализации, и воркер ставит блок
     #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, `NATIVE`).
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +257,8 @@ class DomainTaskResultV1:
     prepared_key: str = ""
     #: `((ключ, размер), ...)` подготовок, которые воркер положил в память, пока считал эту задачу: зеркало родителя повторяет это.
     stored: tuple = ()
+    #: Запись экспорта, если он завершился до production (отказ либо ошибка).
+    backend_record: object | None = None
 
     @property
     def ok(self) -> bool:

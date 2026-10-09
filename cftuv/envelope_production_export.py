@@ -1,74 +1,21 @@
-"""Продуктовый путь Envelope: подготовка из сессии -> покрытие -> `GeometryBatchV1`.
+"""Продуктовый путь Envelope: вход домена -> подготовка -> покрытие и GeometryBatchV1.
 
-Модуль ничего не знает о Blender (`bpy` в него не попадает ни прямо, ни через
-импорты) и ничего не решает о геометрии: хост ОТОБРАЖАЕТ контракты. Покрытие и
-батч считает ядро (`conveyor_coverage` и `materialize.domain.materialize_domain`),
-а здесь — только склейка: откуда взять готовую подготовку, где посчитать (воркер
-пула либо родитель) и как назвать то, что не вышло.
+Хост отображает контракты, геометрию считает ядро. Единица работы — весь
+(DecalRequestId, PatchDomainId), со всеми выбранными источниками вместе.
+Холодный воркер возвращает подготовку и результат; родитель принимает их в
+те же кэши сессии. После отказа метрики целого патча полосу строит родитель.
 
-КЛЮЧ ИСПОЛНЕНИЯ — домен `(DecalRequestId, PatchDomainId)` целиком: покрытие и
-материализация берут ВСЕ источники домена вместе (AGENTS.md, п.2). Задача
-пула — одна на домен; цепь за цепью с последующей сшивкой тут не бывает.
+Снапшот и подготовка не зависят от исполнителя B1. Семантическая память B1
+и ключ подготовки не расширяются его выбором; идентичность исполнения
+результата и хранилища по содержимому несёт все заказанные стадии.
+Журнал B1 начинается ДО экспорта и сохраняется при раннем отказе. Вложенная
+подготовка заимствует журнал, материализация пишет отдельный. Записи родителя
+и воркера складываются один раз при сборке результатов текущего прогона.
+Кэшированный результат не приписывает текущему прогону прежние вызовы.
 
-ЗАКОН ТОПОЛОГИИ — явный параметр, как закон UV: `HOST_DECAL_TOPOLOGY_POLICY` (кнопка
-просит силуэтную топологию: плоские многоугольники лент и растворение рёбер и вершин, не
-влияющих на силуэт, `SILHOUETTE_TOPOLOGY_V1`). Он идёт в задачу пула (`ProductionInputV1`), в
-`produce_domain`, в результат домена (`decal_topology_law`) и в строку JSON; у трёх прежних
-законов сетка вершин и семантика от закона не зависят, у силуэтного вершины и цепи другие
-(растворённых вершин в сетке нет), и это названо счётчиками `MATERIALIZE_SILHOUETTE_*`. Какие точки на прямых цепях источника и
-стены декаль не несёт, решено при компиляции (план станций цепей `CHAIN_STATION_PLAN_V1`) и исполнено в самом домене:
-результат домена в кэшах остаётся чистой функцией своего входа, а прогон над готовыми результатами ничего не решает.
-
-ЗАКОН UV — явный параметр. Запрос подготовки несёт отладочный
-`ENVELOPE_DEBUG_NO_UV_V1`, а продукту нужен `UV_DIRECT_STRIP_V1`. Подготовка от
-закона UV не зависит (ключ её кэша — ревизия, домен, рёбра и подпись угловой
-политики), поэтому нажатие продукта сразу после отладочной кнопки берёт ТЕ ЖЕ
-подготовки из кэша сессии; закон приходит в материализацию через
-`materialization_request(prepared, uv_policy_id=...)` — это скомпилированный
-запрос подготовки с одной заменой, и ключ исполнения батча остаётся ровно тем,
-с которым подготовка скомпилирована (аудит материализатора 2026-10-02).
-
-ОТКУДА ПОДГОТОВКА. Тёплая сессия (на том же выделении, плотности и ревизии уже
-считали) отдаёт подготовки без единой сборки: это доказывается счётчиками сборок
-контроллера (`PRODUCTION_PREPARATION_BUILDS` = 0). Холодный домен — ОДНА задача пула:
-подготовка и материализация подряд (`ColdProductionInputV1`, `prepare_for_production` ->
-`produce_domain`), а подготовка возвращается ответом и входит в кэш сессии тем же
-путём (`get_conveyor_preparation`), что и подготовка кнопки отладки: подготовки
-продукта и отладки одни и те же объекты. Прежний холодный путь сперва гнал отладочный
-вычислитель по ВСЕМ доменам (подготовка, покрытие, контур), а потом считал покрытие
-второй раз: на `building` ~19 с работы воркеров впустую.
-
-РЕЗУЛЬТАТЫ ДОМЕНОВ КЭШИРУЮТСЯ в сессии (`production_result_key`): ключ — ключ
-подготовки, alpha текстом, закон UV, закон топологии и закон подъёма. Домен с тем же
-ключом не считается вовсе (`PRODUCTION_RESULT_CACHE_HIT`, размещение `cache`), а
-считается только то, чего под ключом нет (`..._MISS`). Правка выделения меняет ключ
-подготовки лишь у доменов, которых она касается, поэтому снятая цепочка пересчитывает
-ровно их. Вытеснение — по давности (`PRODUCTION_RESULT_CACHE_LIMIT`), а исключение
-внутри домена (`PRODUCTION_DOMAIN_RAISED`) в кэш не кладётся.
-
-ХРАНИЛИЩЕ ПО СОДЕРЖИМОМУ (`envelope_content_store`) переживает смену ревизии источника. Кэши выше
-ключатся ревизией, а она — хэш всего меша: правка вершины или шва делала холодными ВСЕ домены. Домен
-без метрики в кэше ревизии получает ключ содержимого (`envelope_content_key`: вход воркера без ревизии,
-`alpha` и id запроса, номера патчей — рангами); с тем же ключом его подготовка и результат берутся из
-хранилища, а результат переносится на ревизию, запрос и номер патча прогона в воркере пула
-(`ProductionInputV1.relabel`), параллельно. Холодным остаётся домен, чьё содержимое изменилось.
-Что именно перенос обещает и чего нет — в `envelope_content_store`; перенос, которого не вышло, назван
-(`PRODUCTION_CONTENT_RELABEL_FAILED`), а домен посчитан заново.
-
-ПОЛОСА В РОДИТЕЛЕ. Воркер строит метрику ЦЕЛОГО патча; после её именованного отказа полосу вокруг выбранных цепей
-строит родитель (`get_patch_metric`). Решение о полосе зависит от выбора цепей домена и досягаемости запроса, поэтому
-оба входят и в ключ содержимого, и в привязку ключа (`_band_key`), а перенесённый результат не обходит его; отказ
-запроса по alpha выше досягаемости полосы строитель запроса даёт на каждом нажатии, и для домена на подготовке из
-хранилища он берётся тем же `refuse_alpha_beyond_reach` (`_alpha_refusal`).
-
-ОТКАЗ НАЗВАН НА КАЖДОМ УРОВНЕ. Домен, чей вход не выгрузился, называется
-исходом хоста (`EnvelopeDebugHostOutcome`); домен, который материализатор
-отклонил, — исходом ядра (`MaterializationOutcome`); исключение внутри домена —
-`PRODUCTION_DOMAIN_RAISED` с хвостом трассы; домен, не вернувшийся ни от воркера,
-ни от родителя, — `PREPARATION_UNAVAILABLE`. Пул, который не стартовал
-(`ENVELOPE_DOMAIN_POOL_UNAVAILABLE`), и задача, которая упала
-(`ENVELOPE_DOMAIN_POOL_TASK_FALLBACK`), — счётчик профиля, строка консоли и
-пометка `placement` домена; считает при этом родитель, ТЕМ ЖЕ `produce_domain`.
+Законы UV/топологии передаются материализатору явно. Результат и подготовка
+кэшируются раздельно; перенос между ревизиями проверяет identity/labeling.
+Отказ входа, отказ ядра, исключение и пропажа ответа всегда именованы.
 """
 
 from __future__ import annotations
@@ -87,6 +34,10 @@ from .envelope_host_labels import record_host_tokens
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
     DEFAULT_SKELETON_BACKEND,
+    DEFAULT_EMBEDDING_BACKEND,
+    entered_backend,
+    ledger_record,
+    merge_backend_records,
     PreparationRefused,
     backend_identity_of,
     backend_timing_suffix,
@@ -583,6 +534,8 @@ def prepare_for_production_recorded(
     *,
     backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
+    borrowed_ledger=None,
 ):
     """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда.
 
@@ -604,7 +557,7 @@ def prepare_for_production_recorded(
 
     reset_factorization_memory()
     reset_unbudgeted_work()
-    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request), backend, skeleton_backend)
+    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request), backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger)
 
 
 def prepare_for_production(
@@ -613,10 +566,11 @@ def prepare_for_production(
     *,
     backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
 ):
     """Подготовка очереди с холодной памятью разложений (то, что делала кнопка отладки) без записи бэкенда: `prepare_for_production_recorded(...)[0]`."""
 
-    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend)[0]
+    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend, embedding_backend=embedding_backend)[0]
 
 
 def _trace_tail() -> str:
@@ -625,6 +579,22 @@ def _trace_tail() -> str:
 
 
 def solve_cold_production_task(task):
+    """Один журнал экспорта и подготовки, включая ранний отказ; вложенная подготовка его заимствует."""
+
+    from .envelope_domain_pool import DomainTaskResultV1
+
+    with entered_backend(task.backend, task.skeleton_backend, task.embedding_backend) as ledger:
+        try:
+            reply = _solve_cold_production_task(task, ledger)
+        except Exception:  # тот же ответ ошибки пула, но запись экспорта не теряется
+            reply = DomainTaskResultV1(task.task_id, error=traceback.format_exc())
+    record = ledger_record(ledger)
+    if reply.production is not None:
+        return replace(reply, production=with_preparation_record(reply.production, record))
+    return replace(reply, backend_record=record)
+
+
+def _solve_cold_production_task(task, ledger):
     """Воркер пула: холодный домен целиком — выгрузка (если нужна), подготовка, материализация.
 
     Подготовка и материализация идут подряд тем же кодом, что и порознь (`prepare_for_production`
@@ -646,6 +616,8 @@ def solve_cold_production_task(task):
             inputs.request,
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
+            embedding_backend=task.embedding_backend,
+            borrowed_ledger=ledger,
         )
     except PreparationRefused as refused:
         # Нативное ядро отказало скелету по имени: домен отказан этим именем (эталону он не отдаётся), подготовки у него нет.
@@ -673,6 +645,7 @@ def solve_cold_production_task(task):
         defer=True,
         backend=task.backend,
         skeleton_backend=task.skeleton_backend,
+        embedding_backend=task.embedding_backend,
     )
     return inputs.result(
         prepared=prepared,
@@ -711,6 +684,7 @@ def solve_production_task(task):
             defer=True,
             backend=task.backend,
             skeleton_backend=task.skeleton_backend,
+            embedding_backend=task.embedding_backend,
         )
     )
     if production.relabel is not None:
@@ -773,6 +747,15 @@ class _DomainEntryV1:
     #: Готовый результат из хранилища по содержимому, ещё НЕ перенесённый на ревизию прогона: перенос — работа
     #: (воркера либо родителя), поэтому домен остаётся в `needs_work`, но не считается и не холоден.
     carried: object | None = None
+    #: Журнал экспорта только этого прогона; сливается с подготовкой/материализацией один раз.
+    export_records: list = field(default_factory=list, compare=False, repr=False)
+
+    @property
+    def export_record(self):
+        record = None
+        for part in self.export_records:
+            record = merge_backend_records(record, part)
+        return record
 
     @property
     def is_cold(self) -> bool:
@@ -822,6 +805,7 @@ class _RunInputsV1:
     #: Бэкенд стадии скелета; `backend_id` несёт идентичность обеих стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND
     skeleton_id: str = DEFAULT_SKELETON_BACKEND
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
@@ -990,7 +974,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend)
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend)
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
@@ -1110,17 +1094,21 @@ def _scan(run: _RunInputsV1):
         if export is not None:
             entries.append(_content_entry(run, patch_id, domain_id, selected, export))
             continue
-        try:
-            snapshot = snapshots(patch_id, domain_id)
-            if record is not None and record.snapshot is snapshot:
-                entries.append(_entry_from_record(run, patch_id, domain_id, selected, record, alpha))
-                reused += 1
+        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
+            try:
+                snapshot = snapshots(patch_id, domain_id)
+                if record is not None and record.snapshot is snapshot:
+                    entry = _entry_from_record(run, patch_id, domain_id, selected, record, alpha)
+                    entry.export_records.append(ledger_record(ledger))
+                    entries.append(entry)
+                    reused += 1
+                    continue
+                inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
+            except EnvelopeHostAdapterError as exc:
+                entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc, export_records=[ledger_record(ledger)]))
                 continue
-            inputs = _inputs_of(run, (patch_id, domain_id, selected), lambda _patch, _domain: snapshot)
-        except EnvelopeHostAdapterError as exc:
-            entries.append(_DomainEntryV1(patch_id, domain_id, selected, failure=exc))
-            continue
         entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
+        entry.export_records.append(ledger_record(ledger))
         entries.append(entry)
         if records is not None and not carries_band(snapshot):
             records[patch_id] = ScanRecordV1(
@@ -1133,7 +1121,7 @@ def _scan(run: _RunInputsV1):
 def _host_refusal(entry: _DomainEntryV1, failure=None) -> ProductionDomainResultV1:
     failure = entry.failure if failure is None else failure
     outcome = getattr(failure.outcome, "value", failure.outcome)
-    return _refusal(entry.patch_id, entry.domain_id, outcome, str(failure))
+    return with_preparation_record(_refusal(entry.patch_id, entry.domain_id, outcome, str(failure)), entry.export_record)
 
 
 def _remember(run: _RunInputsV1, key, result) -> None:
@@ -1153,45 +1141,28 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
     _check_cancel(run)
     snapshot, request = inputs
     started = time.perf_counter()
-    built = []  # запись бэкенда подготовки, когда подготовку строила эта функция (подготовка из кэша скелет не считала)
+    with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger:
+        def build():
+            return prepare_for_production_recorded(
+                snapshot, request, backend=run.backend, skeleton_backend=run.skeleton_backend,
+                embedding_backend=run.embedding_backend, borrowed_ledger=ledger,
+            )[0]
 
-    def build():
-        prepared, record = prepare_for_production_recorded(
-            snapshot, request, backend=run.backend, skeleton_backend=run.skeleton_backend
-        )
-        built.append(record)
-        return prepared
-
-    try:
-        prepared = run.controller.get_conveyor_preparation(
-            run.revision,
-            entry.domain_id,
-            entry.selected,
-            request,
-            build,
-            profile=run.profile,
-            skeleton_id=run.skeleton_id,
-        )
-    except PreparationRefused as refused:
-        return _placed(
-            _refusal(
-                entry.patch_id,
-                entry.domain_id,
-                refused.outcome,
-                refused.detail,
+        try:
+            prepared = run.controller.get_conveyor_preparation(
+                run.revision, entry.domain_id, entry.selected, request, build,
+                profile=run.profile, skeleton_id=run.skeleton_id,
+            )
+        except PreparationRefused as refused:
+            return _placed(_refusal(
+                entry.patch_id, entry.domain_id, refused.outcome, refused.detail,
                 time.perf_counter() - started,
-            ).with_changes(backend_record=refused.record),
-            placement,
-        )
-    except Exception:  # noqa: BLE001 - исход называется, а не теряется
-        return _refusal(
-            entry.patch_id,
-            entry.domain_id,
-            OUTCOME_DOMAIN_RAISED,
-            _trace_tail(),
-            time.perf_counter() - started,
-            placement,
-        )
+            ).with_changes(backend_record=ledger_record(ledger)), placement)
+        except Exception:  # noqa: BLE001 - исход и запись вычисления сохраняются
+            return _refusal(
+                entry.patch_id, entry.domain_id, OUTCOME_DOMAIN_RAISED, _trace_tail(),
+                time.perf_counter() - started, placement,
+            ).with_changes(backend_record=ledger_record(ledger))
     produced = produce_domain(
         entry.patch_id,
         entry.domain_id,
@@ -1201,8 +1172,9 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
         topology_law=run.topology_law,
         backend=run.backend,
         skeleton_backend=run.skeleton_backend,
+        embedding_backend=run.embedding_backend,
     )
-    return _placed(with_preparation_record(produced, built[0] if built else None), placement)
+    return _placed(with_preparation_record(produced, ledger_record(ledger)), placement)
 
 
 def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
@@ -1223,10 +1195,12 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
         run.hooks.export_adopter(entry.patch_id, reply)
     elif answered:
         replay_export_records(run.profile, reply)
+    if reply is not None:
+        entry.export_records.append(reply.backend_record)
     inputs = entry.inputs
     parent_log = None
     if inputs is None:
-        with record_host_tokens() as parent_log:
+        with entered_backend(run.backend, run.skeleton_backend, run.embedding_backend) as ledger, record_host_tokens() as parent_log:
             try:
                 inputs = _inputs_of(
                     run,
@@ -1234,7 +1208,11 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                     run.hooks.snapshot_provider,
                 )
             except EnvelopeHostAdapterError as exc:
+                entry.export_records.append(ledger_record(ledger))
+                if reply is not None and reply.production is not None:
+                    entry.export_records.append(reply.production.backend_record)
                 return exc, None
+        entry.export_records.append(ledger_record(ledger))
     request = inputs[1]
     if reply is not None and reply.ok and reply.production is not None:
         prepared = reply.prepared
@@ -1305,6 +1283,8 @@ def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
     """
 
     controller = run.controller
+    if item.carried is not None:
+        result = result.with_changes(backend_record=None)
     if result.outcome == OUTCOME_DOMAIN_RAISED:
         return None, result
     key, labeling = item.content_key, item.labeling
@@ -1359,6 +1339,7 @@ def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
                     topology_law=run.topology_law,
                     backend=run.backend,
                     skeleton_backend=run.skeleton_backend,
+                    embedding_backend=run.embedding_backend,
                 ),
                 placement.get(item.domain_id, PLACEMENT_PARENT),
             )
@@ -1404,6 +1385,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             affinity=domain_id,
             backend=run.backend,
             skeleton_backend=run.skeleton_backend,
+            embedding_backend=run.embedding_backend,
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
@@ -1424,6 +1406,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
                 affinity=entry.domain_id,
                 backend=run.backend,
                 skeleton_backend=run.skeleton_backend,
+                embedding_backend=run.embedding_backend,
             )
         )
     return tasks
@@ -1554,6 +1537,7 @@ class ProductionRunV1:
     selected_by_patch: tuple = ()
     kernel_backend: str = DEFAULT_KERNEL_BACKEND  # бэкенд ядра, заказанный прогоном
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND  # бэкенд стадии скелета, заказанный прогоном
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -1589,9 +1573,9 @@ def _domain_results(entries, done, refused):
         elif entry.domain_id in refused:
             results.append(_host_refusal(entry, refused[entry.domain_id]))
         elif entry.cached is not None:
-            results.append(entry.cached.with_changes(seconds=0.0, placement=PLACEMENT_CACHED, clip_memo=""))
+            results.append(entry.cached.with_changes(seconds=0.0, placement=PLACEMENT_CACHED, clip_memo="", backend_record=entry.export_record))
         elif entry.domain_id in done:
-            results.append(done[entry.domain_id])
+            results.append(with_preparation_record(done[entry.domain_id], entry.export_record))
         else:
             results.append(
                 _refusal(
@@ -1705,6 +1689,7 @@ def run_production(
     quiesce: bool = True,
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
     skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -1766,8 +1751,9 @@ def run_production(
         profile,
         cancel=cancel,
         backend=kernel_backend,
-        backend_id=backend_identity_of(kernel_backend, skeleton_backend),
+        backend_id=backend_identity_of(kernel_backend, skeleton_backend, embedding_backend),
         skeleton_backend=skeleton_backend,
+        embedding_backend=embedding_backend,
         skeleton_id=skeleton_identity_of(skeleton_backend),
     )
     entries = _scan(run)
@@ -1801,6 +1787,7 @@ def run_production(
         ),
         kernel_backend=run.backend,
         skeleton_backend=run.skeleton_backend,
+        embedding_backend=run.embedding_backend,
     )
 
 

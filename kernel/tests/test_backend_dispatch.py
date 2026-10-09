@@ -880,3 +880,103 @@ def test_a_coverage_refusal_after_the_traces_were_filled_is_a_partial_effects_re
         with pytest.raises(backend.NativeDomainRefused):
             backend.coverage_compute(partition, Fraction(7, 4), exact_work_budget(stage="COVERAGE"), {}, [])
     assert ran == [] and ledger.record().outcomes == ("NATIVE_PARTIAL_EFFECTS_REFUSED",)
+
+
+# B1 — чистый лист с отдельным выбором; старое колесо не лишается остальных операций.
+def test_embedding_status_and_old_three_operation_wheel_stay_independent(monkeypatch):
+    module, calls = install_native(monkeypatch, coverage_at=lambda *a: "coverage", clip_geometry=lambda *a: "clip",
+                                  status={"coverage": "available", "clip": "available", "skeleton": "available"})
+    module.build_skeleton = lambda *a, **k: "skeleton"
+    from cftuv_envelope import _embedding
+    args = tuple(object() for _ in range(6))
+    seen = []
+    monkeypatch.setattr(_embedding, "_compute_source_snap_embedding_certificate", lambda *a: seen.append(a) or "embedding")
+    assert backend.native_status().available and backend.native_status().skeleton_available
+    assert backend.native_status().embedding == "unavailable"
+    with backend.use_backend("NATIVE", "NATIVE", "NATIVE") as ledger:
+        assert backend.coverage_compute(None, 1) == "coverage"
+        assert backend.clip_compute(None, None) == "clip"
+        assert backend.skeleton_compute(None) == "skeleton"
+        assert backend.embedding_compute(*args) == "embedding"
+    record = ledger.record()
+    assert (record.native_calls, record.skeleton_native_calls, record.embedding_native_calls) == (2, 1, 0)
+    assert record.embedding_python_calls == 1 and record.embedding_outcomes == ("NATIVE_UNAVAILABLE",)
+    assert not record.fallbacks and not record.skeleton_fallbacks and seen == [args]
+
+
+def test_embedding_leaf_native_and_python_receive_the_same_six_objects(monkeypatch):
+    from cftuv_envelope import _embedding
+    module, _ = install_native(monkeypatch, status={"coverage": "available", "clip": "available", "snap_embedding": "available"})
+    args, answer, seen = tuple(object() for _ in range(6)), object(), []
+    def leaf(*actual):
+        assert all(a is b for a, b in zip(args, actual))
+        seen.append(backend.active_embedding_backend().value)
+        return answer
+    module.snap_embedding_certificate = leaf
+    monkeypatch.setattr(_embedding, "_compute_source_snap_embedding_certificate", leaf)
+    assert backend.embedding_compute(*args) is answer
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.embedding_compute(*args) is answer
+    assert seen == ["PYTHON", "NATIVE"]
+    assert backend.native_status().embedding_available
+    record = ledger.record()
+    assert (record.embedding_native_calls, record.embedding_python_calls, record.native_calls, record.skeleton_native_calls) == (1, 0, 0, 0)
+    assert record.embedding_ran == "native" and not record.embedding_outcomes
+    assert backend.backend_identity("PYTHON", "PYTHON", "NATIVE") == f"PYTHON|snap_embedding=NATIVE:{BUILD_ID}"
+    assert backend.stage_identity("PYTHON") == "PYTHON"
+
+
+@pytest.mark.parametrize("failure", [Stale, Unsupported, UnsupportedPython])
+def test_embedding_named_refusal_falls_back_to_the_same_call(monkeypatch, failure):
+    from cftuv_envelope import _embedding
+    module, _ = install_native(monkeypatch)
+    args, seen = tuple(object() for _ in range(6)), []
+    def refused(*actual):
+        assert actual == args
+        raise failure("B1 unsupported")
+    module.snap_embedding_certificate = refused
+    monkeypatch.setattr(_embedding, "_compute_source_snap_embedding_certificate", lambda *a: seen.append(a) or "oracle")
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+        assert backend.embedding_compute(*args) == "oracle"
+    assert seen == [args] and ledger.record().embedding_python_calls == 1
+    assert len(ledger.record().embedding_fallbacks) == 1 and not ledger.record().fallbacks
+
+
+def test_embedding_value_error_is_not_fallback_and_missing_position_repeats_python_key_error(monkeypatch):
+    from cftuv_envelope import _embedding
+    module, _ = install_native(monkeypatch)
+    args = tuple(object() for _ in range(6))
+    def value_error(*a):
+        raise ValueError("inconsistent physical edge")
+    module.snap_embedding_certificate = value_error
+    monkeypatch.setattr(_embedding, "_compute_source_snap_embedding_certificate", lambda *a: pytest.fail("must not call oracle"))
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+        with pytest.raises(ValueError, match="inconsistent physical edge"):
+            backend.embedding_compute(*args)
+    assert not ledger.record().embedding_fallbacks
+    def missing(*a):
+        raise Unsupported("missing position")
+    def oracle(*a):
+        assert all(x is y for x, y in zip(a, args))
+        raise KeyError("v7")
+    module.snap_embedding_certificate = missing
+    monkeypatch.setattr(_embedding, "_compute_source_snap_embedding_certificate", oracle)
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as ledger:
+        with pytest.raises(KeyError) as error:
+            backend.embedding_compute(*args)
+    assert error.value.args == ("v7",) and ledger.record().embedding_outcomes == ("NATIVE_PORT_UNSUPPORTED",)
+
+
+
+def test_borrowed_scope_must_be_the_active_owner_with_the_same_choices():
+    with backend.use_backend("PYTHON", "PYTHON", "NATIVE") as owner:
+        with backend.use_backend("PYTHON", "PYTHON", "NATIVE", borrowed_ledger=owner) as nested:
+            assert nested is owner
+            backend.note_embedding_cache_hit()
+        assert owner.record().embedding_cache_hits == 1
+        with pytest.raises(ValueError, match="BACKEND_BORROW_SCOPE_MISMATCH"):
+            with backend.use_backend("NATIVE", "PYTHON", "NATIVE", borrowed_ledger=owner):
+                pass
+    with pytest.raises(ValueError, match="BACKEND_BORROW_SCOPE_MISMATCH"):
+        with backend.use_backend("PYTHON", "PYTHON", "NATIVE", borrowed_ledger=owner):
+            pass
