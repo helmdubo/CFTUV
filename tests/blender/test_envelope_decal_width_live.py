@@ -56,6 +56,28 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 for path in (REPO_ROOT, REPO_ROOT / "kernel" / "src"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+
+def _retire_the_profile_addon_copy() -> None:
+    """Профиль Blender держит включённой УСТАНОВЛЕННУЮ копию `cftuv`: её обработчики depsgraph/история/загрузка уже стоят.
+
+    Смок чистит `sys.modules` и ставит рядом обработчики рабочего дерева, но обработчик установленной копии остаётся в
+    `bpy.app.handlers` и разделяет с деревом сессию окна. Метка `pending_own_update` (F2) гаснет от первого же обработчика, и второй
+    читает собственную запись кнопки как чужую: модель снята `PREVIEW_DECAL_CHANGED_EXTERNALLY`, смок падает на «затравке». Установленную копию
+    выключаем её же `unregister` ДО чистки модулей: в процессе остаётся одна копия аддона, как у владельца в Blender.
+    """
+
+    installed = sys.modules.get("cftuv")
+    origin = getattr(installed, "__file__", None)
+    if installed is None or origin is None or Path(origin).resolve().is_relative_to(REPO_ROOT):
+        return
+    try:
+        installed.unregister()
+    except Exception as exc:  # noqa: BLE001 - назван и не скрыт: остаток поймает проверка обработчиков в _main
+        print(f"WIDTH_LIVE_SMOKE installed addon copy did not unregister cleanly: {type(exc).__name__}: {exc}")
+
+
+_retire_the_profile_addon_copy()
 for module_name in tuple(sys.modules):
     if module_name == "cftuv" or module_name.startswith("cftuv."):
         del sys.modules[module_name]
@@ -983,6 +1005,13 @@ def _run_the_tool_is_registered_with_undo_and_the_overlay_and_history_handlers_s
         ("depsgraph_update_post", _after_depsgraph),
     ):
         assert handler in getattr(bpy.app.handlers, name), name
+        foreign = [
+            item
+            for item in getattr(bpy.app.handlers, name)
+            if getattr(item, "__module__", "").startswith("cftuv")
+            and not Path(item.__code__.co_filename).resolve().is_relative_to(REPO_ROOT)
+        ]
+        assert not foreign, f"{name}: a second copy of the addon handles the same events: {foreign}"
     assert line_segments([((0, 0, 0), (1, 0, 0), (1, 1, 0))]) == [(0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 1, 0)]
     assert not bpy.ops.hotspotuv.adjust_decal_width.poll()  # фоновый Blender: нет области 3D View
 
