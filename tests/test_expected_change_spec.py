@@ -487,11 +487,14 @@ def test_a_spec_naming_a_counter_nobody_records_is_a_printed_note(sweep, ec):
 # --------------------------------------------------------------------------
 
 STORED = {
+    "canon_v2_interface_representation_shift": "sweep",
     "chain_station_plan": "sweep",
     "chord_station": "sweep",
     "clip_by_faces": "sweep",
     "clip_by_triangles": "sweep",
+    "cone_angle_numeric_windows": "field",
     "convex_partition": "sweep",
+    "exact_scalar_text_canon_v2": "gate",
     "fold_miter": "sweep",
     "fold_miter_gate": "gate",
     "join_same_pchain": "sweep",
@@ -501,9 +504,11 @@ STORED = {
 
 
 def test_every_stored_spec_parses_for_its_tool_and_is_named_after_its_file(sweep, ec, gate):
+    field = _load("field_judge_under_test", SWEEP_DIR / "field_judge.py")
+    vocabularies = {"sweep": sweep.VOCABULARY, "gate": gate.VOCABULARY, "field": field.VOCABULARY}
     assert ec.stored_spec_names() == sorted(STORED)
     for name, tool in STORED.items():
-        vocabulary = sweep.VOCABULARY if tool == "sweep" else gate.VOCABULARY
+        vocabulary = vocabularies[tool]
         spec = ec.load_spec(name, tool, vocabulary)
         assert spec.name == name and spec.tool == tool and spec.about and spec.law
 
