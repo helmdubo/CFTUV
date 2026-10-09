@@ -11,7 +11,7 @@ from cftuv import envelope_kernel_backend as host
 from cftuv import envelope_production_export as production
 from cftuv.envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from cftuv.envelope_debug_session import EnvelopeDebugSessionController
-from cftuv.envelope_production_mesh import build_mesh_arrays
+from cftuv.envelope_production_mesh import DEFAULT_DECAL_OFFSET, build_mesh_arrays
 from cftuv.envelope_request_export import EnvelopeHostAdapterError
 from test_envelope_kernel_backend import _backend_state, _fake_native  # noqa: F401 - фикстура состояния
 from test_envelope_production_content import ROW, row, pool  # noqa: F401 - настоящий путь с внутрипроцессным пулом
@@ -175,7 +175,7 @@ def test_real_host_paths_keep_certificates_ordered_mesh_uv_and_price(row, pool, 
         assert (one.outcome, one.content_digest, one.batch) == (other.outcome, other.content_digest, other.batch)
         assert {k: v for k, v in one.counters if k.startswith("EXACT_WORK_")} == {k: v for k, v in other.counters if k.startswith("EXACT_WORK_")}
         assert not other.backend_record.embedding_fallbacks
-    a, b = build_mesh_arrays(reference.results), build_mesh_arrays(native.results)
+    a, b = build_mesh_arrays(reference.results, DEFAULT_DECAL_OFFSET), build_mesh_arrays(native.results, DEFAULT_DECAL_OFFSET)
     assert (a.positions, a.faces, a.uvs, a.face_domain, a.face_owner, a.seam_edges) == (b.positions, b.faces, b.uvs, b.face_domain, b.face_owner, b.seam_edges)
     count = len(calls)
     warm = _press(row, controller, "NATIVE", workers, .3)
