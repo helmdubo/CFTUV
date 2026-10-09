@@ -251,8 +251,10 @@ def test_the_evidence_json_of_a_deferred_run_is_the_json_of_an_eager_run(tmp_pat
 DIGEST_READERS = {
     # (файл, имя поля): что читает
     ("cftuv/envelope_content_store.py", "content_digest"): "relabel_result: дайджест переписанного результата (результат развёрнут `materialized`)",
-    ("cftuv/envelope_production_export.py", "content_digest"): "produce_domain (дайджест ядра) и export_production_json (строка свидетельства)",
-    ("cftuv/envelope_production_export.py", "semantic_digest"): "export_production_json (строка свидетельства), запечатывание батча при первом чтении",
+    ("cftuv/envelope_production_export.py", "content_digest"): "produce_domain (дайджест ядра)",
+    ("cftuv/envelope_production_export.py", "semantic_digest"): "запечатывание батча при первом чтении",
+    ("cftuv/envelope_production_report.py", "content_digest"): "export_production_json: дайджест содержимого в строке свидетельства",
+    ("cftuv/envelope_production_report.py", "semantic_digest"): "export_production_json: семантический дайджест батча в строке свидетельства",
 }
 #: Инструменты, читающие `semantic_digest` ЭТАЛОННОГО покрытия ядра (`RawCoverage`), а не результата продуктового пути.
 TOOL_DIGEST_READERS = {
