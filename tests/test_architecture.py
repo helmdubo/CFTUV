@@ -1829,9 +1829,12 @@ def test_every_host_preparation_stands_under_the_backend_block():
     for name in ("envelope_production_export.py", "envelope_queue_export.py"):
         scoped = {stack[0] for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepared_under_backend")}
         assert scoped == _PREPARATION_SITES[name], name
-    # холодная задача воркера и родитель строят подготовку одной функцией, блок которой несёт запись скелета
-    for name, function in (("envelope_production_export.py", "solve_cold_production_task"), ("envelope_production_export.py", "_produce_cold_in_parent")):
-        assert any(stack[0] == function for stack in _call_sites(_parse(HOST_PACKAGE / name), "prepare_for_production_recorded")), function
+    # холодная задача воркера и родитель строят подготовку одной функцией, блок которой несёт запись скелета;
+    # задача воркера открывает журнал в `solve_cold_production_task`, а подготовку зовёт `_solve_cold_production_task`, заимствуя его
+    export = _parse(HOST_PACKAGE / "envelope_production_export.py")
+    for function in ("_solve_cold_production_task", "_produce_cold_in_parent"):
+        assert any(stack[0] == function for stack in _call_sites(export, "prepare_for_production_recorded")), function
+    assert any(stack[0] == "solve_cold_production_task" for stack in _call_sites(export, "_solve_cold_production_task")), "solve_cold_production_task"
 
 
 def test_the_skeleton_is_called_in_the_kernel_only_through_the_dispatcher():
@@ -2024,6 +2027,22 @@ def test_the_python_matrix_covers_the_declared_floor_and_the_blender_interpreter
         assert "3.11" in versions, f"{name}: нет ветки на CPython 3.11 (Blender 4.5, нативное колесо `abi3-py311`): {sorted(versions)}"
 
 
+def _portable_ast_dump(node) -> str:
+    """`ast.dump` без пустых полей: одинаков на 3.10–3.13 (3.12 добавил `type_params=[]`, 3.13 перестал печатать пустые поля)."""
+
+    if isinstance(node, ast.AST):
+        parts = []
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if value is None or (isinstance(value, list) and not value):
+                continue
+            parts.append(f"{name}={_portable_ast_dump(value)}")
+        return f"{type(node).__name__}({', '.join(parts)})"
+    if isinstance(node, list):
+        return "[" + ", ".join(_portable_ast_dump(item) for item in node) + "]"
+    return repr(node)
+
+
 # B1_HOST_DISPATCH_V1: выбор исполнителя не становится законом памяти сертификатов.
 def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
     import copy
@@ -2050,7 +2069,8 @@ def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
             return self.generic_visit(n)
 
     original = OriginalMemo().visit(node)
-    assert hashlib.sha256(ast.dump(original, include_attributes=False).encode()).hexdigest() == "be46c04c1b07c0323926de1d9e9d575c29e4acd0ed8b67b9713089bfcc16ca1e", "B1 changed memo value/code key, normalization, lock, LRU, or returned identity"
+    # дайджест обёртки до хука (a9744e54), снятый на 3.10, 3.11 и 3.13 одинаково
+    assert hashlib.sha256(_portable_ast_dump(original).encode()).hexdigest() == "29107da47955c0e78171a6f214b2525dc1067c33d142ec0bb16e160707b24a9a", "B1 changed memo value/code key, normalization, lock, LRU, or returned identity"
     dispatcher = _parse(KERNEL_SOURCE / "cftuv_envelope" / "backend.py")
     required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
     assert "snap_embedding_certificate" not in ast.dump(required), "B1 must not disable the older three-operation wheel"
