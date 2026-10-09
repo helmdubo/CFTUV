@@ -640,10 +640,10 @@ def test_a_new_preparation_on_another_tightened_map_replaces_the_stored_one_and_
     result = SimpleNamespace(labels=object(), outcome="MATERIALIZED")
     old, new, same = prepared(Fraction(3, 10)), prepared(Fraction(12, 25)), prepared(Fraction(12, 25))
     store.register_preparation("content-key", old, object())
-    controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: new)
+    controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: new, skeleton_id=run.skeleton_id)
     production._register_content(run, entry, request, result)
     assert store.find("content-key").prepared is new  # запись лежала на карте другой досягаемости: заменена
-    controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: same)  # кэш сессии держит `new`
+    controller.get_conveyor_preparation("rev", "domain0", frozenset({2}), request, lambda: same, skeleton_id=run.skeleton_id)  # кэш сессии держит `new`
     production._register_content(run, entry, request, result)
     assert store.find("content-key").prepared is new  # та же досягаемость: запись остаётся
 
