@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import ast
 import itertools
 import os
 import subprocess
@@ -374,3 +375,20 @@ def test_the_skeleton_corpus_is_built_by_the_corpus_job_under_a_time_bound_and_h
     available = next(step for step in differential if step.get("name", "").startswith("All native operations are available"))
     assert '"skeleton": "available"' in available["run"] and "skeleton_raw_layouts" in available["run"]
     assert '"snap_embedding": "available"' in available["run"]
+
+
+def test_embedding_inline_and_tracked_kernel_checks_are_mandatory_in_the_strict_matrix(workflow):
+    differential = workflow["jobs"]["differential"]
+    assert set(differential["strategy"]["matrix"]["python"]) == {"3.11", "3.13"}
+    assert set(differential["strategy"]["matrix"]["slots"]) == {"auto", "raw", "attr"}
+    strict = next(step for step in differential["steps"] if step.get("name", "").startswith("Differential tests against the live oracle"))
+    assert strict["env"]["CFTUV_EMBEDDING_SYNTHETIC"] == "600"
+    assert 'tests/test_native_*.py' in strict["run"] and 'not native_field' in strict["run"]
+    # Уровень поля снимается в CI; inline и tracked seed обязаны оставаться в каждом строгом прогоне.
+    module = ast.parse((ROOT / "tests" / "test_native_snap_embedding.py").read_text(encoding="utf8"))
+    required = {"test_synthetic_cases_equal_the_oracle", "test_the_kernel_suite_records_equal_the_oracle"}
+    found = {node.name: node for node in module.body if isinstance(node, ast.FunctionDef) and node.name in required}
+    assert set(found) == required
+    assert all(not node.decorator_list for node in found.values())
+    seed = ROOT / "tests" / "data" / "native_embedding_kernel_suite.recs.xz"
+    assert seed.is_file() and changes.is_native_path(seed.relative_to(ROOT).as_posix())

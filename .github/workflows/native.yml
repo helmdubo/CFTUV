@@ -278,6 +278,7 @@ jobs:
           CFTUV_NATIVE_SLOTS: ${{ matrix.slots }}
           CFTUV_NATIVE_EXPECT_PYTHON: ${{ matrix.python }}
           CFTUV_SYNTHETIC_CLIP_OUT: ${{ runner.temp }}/synthetic-clip
+          CFTUV_EMBEDDING_SYNTHETIC: "600"
           # NO field corpus here, and the job says so (the default is the owner's drive): the base holds only the synthetic skeleton corpus built above (`<base>/ci/synthetic_skeleton`); the field
           # corpora of coverage and clip (`<base>/<name>/index.json`), of the skeleton (`<base>/<name>/skeleton`) and the field polygons (`<base>/skeleton_polygons`) are not there
           CFTUV_NATIVE_CORPUS: ${{ runner.temp }}/skeleton-corpus

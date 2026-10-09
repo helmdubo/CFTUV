@@ -224,6 +224,17 @@ def test_a_stale_skeleton_port_refuses_by_name_before_it_touches_any_state_and_t
 
 
 @needs_matching_tree
+def test_an_embedding_oracle_edit_stales_only_embedding_before_argument_conversion(monkeypatch):
+    _tamper(monkeypatch, "_embedding.py")
+    assert cftuv_native.native_status() == {
+        "coverage": "available", "clip": "available", "skeleton": "available", "snap_embedding": "stale(_embedding.py)",
+    }
+    # Негодные аргументы не должны маскировать именованный отказ по настоящему дайджесту файла.
+    with pytest.raises(cftuv_native.NativePortStale, match="_embedding.py"):
+        cftuv_native.snap_embedding_certificate(None, None, None, None, None, None)
+
+
+@needs_matching_tree
 def test_an_edit_to_a_coverage_or_clip_file_does_not_stale_the_skeleton_and_a_shared_file_stales_all_three(monkeypatch):
     _tamper(monkeypatch, COVERAGE_ONLY)
     assert cftuv_native.native_status()["skeleton"] == "available"
