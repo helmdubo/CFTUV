@@ -150,6 +150,13 @@ def test_cached_result_does_not_claim_old_native_calls():
     assert cached.placement == production.PLACEMENT_CACHED and cached.backend_record is None
 
 
+def test_cached_result_keeps_only_the_export_calls_of_this_run():
+    # `_domain_results` кладёт в результат из кэша запись экспорта ЭТОГО прогона (она может нести вызовы: запрос строится внутри области экспорта), а не запись, с которой он лёг в кэш
+    entry = production._DomainEntryV1(7, "domain", frozenset(), cached=_produced(_record(99)), export_records=[_record(2)])
+    cached, = production._domain_results([entry], {}, {})
+    assert cached.placement == production.PLACEMENT_CACHED and cached.backend_record.embedding_native_calls == 2
+
+
 def _press(bundle, controller, choice, workers, alpha=.25):
     return production.run_production(controller, bundle, frozenset(range(ROW)), alpha,
         source_object_key="obj", source_data_key="mesh", density=None, workers=workers,
@@ -182,4 +189,15 @@ def test_real_host_paths_keep_certificates_ordered_mesh_uv_and_price(row, pool, 
     assert len(calls) == count
     assert sum(getattr(item.backend_record, "embedding_native_calls", 0) for item in warm.results) == 0
     cached = _press(row, controller, "NATIVE", workers, .3)
-    assert all(item.placement == production.PLACEMENT_CACHED and item.backend_record is None for item in cached.results)
+    assert all(item.placement == production.PLACEMENT_CACHED for item in cached.results)
+    assert len(calls) == count, "a press that serves every domain from the result cache computes no certificate"
+    # Результат из кэша не приписывает прогону прежние вызовы. Запись у него есть: журнал экспорта домена ЭТОГО прогона (область экспорта открыта до поиска в кэше результатов,
+    # потому что запрос, из которого берётся ключ, строится внутри неё), но в этом прогоне она пуста - ни одного вызова ни одной стадии.
+    assert all(
+        item.backend_record is None
+        or not (
+            item.backend_record.native_calls + item.backend_record.python_calls + item.backend_record.skeleton_native_calls + item.backend_record.skeleton_python_calls
+            + item.backend_record.embedding_native_calls + item.backend_record.embedding_python_calls
+        )
+        for item in cached.results
+    )
