@@ -26,7 +26,7 @@ if str(HERE) not in sys.path:
 import expected_change  # noqa: E402
 
 #: Дайджесты строки (`allow.digests` спецификации) и прочие скалярные поля ответа (`allow.fields`).
-DIGEST_FIELDS = ("geometry_sha256", "mesh_digest")
+DIGEST_FIELDS = ("geometry_sha256", "mesh_digest", "owner_labels_sha256", "owner_partition_sha256")
 ANSWER_FIELDS = ("case", "domain_outcomes", "edges", "face_sizes", "faces", "op_error", "operator", "refused", "src_faces", "status", "verts")
 VOCABULARY = expected_change.Vocabulary(digests=frozenset(DIGEST_FIELDS), fields=frozenset(ANSWER_FIELDS), counters=frozenset())
 
@@ -68,8 +68,21 @@ def compare(base: dict, new: dict, spec=None, partial: bool = False) -> expected
     return expected_change.evaluate(aligned, ["base", "new"], spec, pair_views, VOCABULARY, partial)
 
 
-def load_spec(reference: str | None):
-    return None if reference is None else expected_change.load_spec(reference, "field", VOCABULARY)
+def load_spec(references):
+    """Спецификация по имени либо пути; список (`--spec a --spec b`) склеивается: группы друг за другом, `no_refusal` у любой - у всех. Пусто - `None`."""
+
+    if not references:
+        return None
+    if isinstance(references, str):
+        references = [references]
+    specs = [expected_change.load_spec(reference, "field", VOCABULARY) for reference in references]
+    if len(specs) == 1:
+        return specs[0]
+    require = expected_change.Require(no_refusal=any(item.require.no_refusal for item in specs))
+    return expected_change.Spec(
+        "+".join(item.name for item in specs), "field", " | ".join(item.law for item in specs), " ".join(item.about for item in specs),
+        tuple(group for item in specs for group in item.groups), expected_change.AllowList(), require,
+    )
 
 
 def main(argv=None) -> int:
@@ -77,7 +90,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     comparer = sub.add_parser("compare")
     comparer.add_argument("paths", nargs="*")
-    comparer.add_argument("--spec", default=None, help="спецификация ожидаемого изменения: имя из specs/ либо путь к .json")
+    comparer.add_argument("--spec", action="append", default=None, help="спецификация ожидаемого изменения: имя из specs/ либо путь к .json; можно несколько")
     comparer.add_argument("--partial", action="store_true", help="прогон части случаев: объявленные случаи вне записей - примечание")
     comparer.add_argument("--list-specs", action="store_true", help="перечислить сохранённые спецификации")
     arguments = parser.parse_args(argv)

@@ -489,6 +489,7 @@ def test_a_spec_naming_a_counter_nobody_records_is_a_printed_note(sweep, ec):
 STORED = {
     "canon_v2_interface_representation_shift": "sweep",
     "chain_station_plan": "sweep",
+    "canon_v2_owner_ordinals": "field",
     "chord_station": "sweep",
     "clip_by_faces": "sweep",
     "clip_by_triangles": "sweep",

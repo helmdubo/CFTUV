@@ -53,13 +53,16 @@ def _row(case: str, **over) -> dict:
         "op_error": None,
         "mesh_digest": "m-" + case,
         "geometry_sha256": "g-" + case,
+        "owner_labels_sha256": "l-" + case,
+        "owner_partition_sha256": "p-" + case,
         "button_seconds": 1.0,
     }
     row.update(over)
     return row
 
 
-CASES = ("2:0.25:2:20", "building:0.25:2:20", "sagging_wall:0.987:2:42") + CONE_CASES
+OWNER_CASES = ("2:0.25:2:20", "building:0.25:2:20", "building:0.2239:2:42")
+CASES = OWNER_CASES + ("sagging_wall:0.987:2:42",) + CONE_CASES
 
 
 def _record(**changed) -> dict:
@@ -87,7 +90,7 @@ def test_the_mesh_of_a_cone_window_case_does_not_move_even_by_one_name(judge, ca
 
 
 def test_another_case_moving_is_unexpected_under_the_cone_spec(judge):
-    code, verdict = _verdict(judge, _record(), _record(**{"building:0.25:2:20": {"geometry_sha256": "moved"}}))
+    code, verdict = _verdict(judge, _record(), _record(**{"sagging_wall:0.987:2:42": {"geometry_sha256": "moved"}}))
     assert code == 1 and "UNEXPECTED" in verdict
 
 
@@ -106,6 +109,54 @@ def test_a_case_missing_from_the_new_record_is_a_problem_unless_the_run_is_parti
     del new["cases"][-1]
     assert judge.compare(_record(), new, judge.load_spec("cone_angle_numeric_windows")).exit_code == 1
     assert judge.compare(_record(), new, judge.load_spec("cone_angle_numeric_windows"), partial=True).exit_code == 0
+
+
+# --------------------------------------------------------------------------
+# Номера заявок владения (`cftuv_owner`): имена канона V2 переставляют метки, не геометрию
+# --------------------------------------------------------------------------
+
+
+def _relabelled(case: str, **over) -> dict:
+    return {case: {"owner_labels_sha256": "relabelled", "mesh_digest": "relabelled", **over}}
+
+
+def _owner_verdict(judge, base, new):
+    return _verdict(judge, base, new, "canon_v2_owner_ordinals")
+
+
+@pytest.mark.parametrize("case", OWNER_CASES)
+def test_a_pure_relabelling_of_the_owner_ordinals_is_the_expected_change_of_the_declared_cases(judge, case):
+    changes = {item: _relabelled(item)[item] for item in OWNER_CASES}
+    code, verdict = _owner_verdict(judge, _record(), _record(**changes))
+    assert (code, verdict) == (0, "EXPECTED-CHANGE (spec canon_v2_owner_ordinals): 3 domains"), verdict
+    code, verdict = _owner_verdict(judge, _record(), _record(**{item: changes[item] for item in OWNER_CASES if item != case}))
+    assert code == 1 and "expected change is absent" in verdict, "a declared case that stayed fails: must_change is 'each'"
+
+
+@pytest.mark.parametrize("name", ("owner_partition_sha256", "geometry_sha256", "verts"))
+def test_a_move_of_the_partition_or_the_geometry_of_a_declared_case_is_not_a_relabelling(judge, name):
+    changes = {item: _relabelled(item)[item] for item in OWNER_CASES}
+    changes[OWNER_CASES[1]] = {**changes[OWNER_CASES[1]], name: 7 if name == "verts" else "moved"}
+    code, verdict = _owner_verdict(judge, _record(), _record(**changes))
+    assert code == 1 and verdict.startswith("UNEXPECTED (spec canon_v2_owner_ordinals)"), verdict
+
+
+def test_the_owner_labels_of_another_case_moving_is_unexpected(judge):
+    changes = {item: _relabelled(item)[item] for item in OWNER_CASES}
+    changes["sagging_wall:0.987:2:42"] = {"owner_labels_sha256": "relabelled"}
+    code, _verdict_text = _owner_verdict(judge, _record(), _record(**changes))
+    assert code == 1
+
+
+def test_two_specs_merge_into_one_judgement_and_the_cone_cases_stay_pinned(judge):
+    specs = ["canon_v2_owner_ordinals", "cone_angle_numeric_windows"]
+    changes = {item: _relabelled(item)[item] for item in OWNER_CASES}
+    report = judge.compare(_record(), _record(**changes), judge.load_spec(specs))
+    assert (report.exit_code, judge.expected_change.verdict_line(report)) == (0, "EXPECTED-CHANGE (spec canon_v2_owner_ordinals+cone_angle_numeric_windows): 3 domains")
+    assert dict(report.declared_rows) == {"owner_ordinals_relabelled": 3, "rounded_wall_noise_top_cone_windows": 2}
+    moved = {**changes, CONE_CASES[0]: {"mesh_digest": "moved"}}
+    assert judge.compare(_record(), _record(**moved), judge.load_spec(specs)).exit_code == 1
+    assert judge.load_spec([]) is None and judge.load_spec(None) is None
 
 
 def test_the_spec_names_exactly_the_two_cases_of_the_decision():

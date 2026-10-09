@@ -167,6 +167,8 @@ def _geometry(me):
         "faces": [list(p.vertices) for p in me.polygons],
         "loops": [[p.loop_start, p.loop_total] for p in me.polygons],
         "uv": [[repr(c) for c in d.uv] for d in uv.data] if uv is not None else None,
+        # атрибуты граней (`cftuv_domain`, `cftuv_owner`) входят в `mesh_content_digest`: без них дамп не объяснил бы расхождение дайджеста
+        "attributes": {name: ([item.value for item in me.attributes[name].data] if name in me.attributes else None) for name in ("cftuv_domain", "cftuv_owner")},
     }
 
 
@@ -226,8 +228,20 @@ def _case(spec):
         from cftuv.envelope_production_mesh import mesh_content_digest
         row["mesh_digest"] = mesh_content_digest(me)
         geometry = _geometry(me)
+        # `cftuv_owner` - порядковый номер заявки владения: имя, а не геометрия. Его метки (`owner_labels_sha256`) отделены от самой геометрии и от РАЗБИЕНИЯ граней на
+        # группы владения (`owner_partition_sha256`): переименование заявок двигает метки, а разбиение и геометрия остаются теми же.
+        attributes = geometry["attributes"]
+        owner = attributes.pop("cftuv_owner")
+        domain = attributes["cftuv_domain"]
         blob = json.dumps(geometry, sort_keys=True).encode("utf-8")
         row["geometry_sha256"] = hashlib.sha256(blob).hexdigest()
+        row["owner_labels_sha256"] = hashlib.sha256(json.dumps(owner).encode("utf-8")).hexdigest()
+        groups: dict = {}
+        for face, key in enumerate(zip(domain or (), owner or ())):
+            groups.setdefault(key, []).append(face)
+        row["owner_partition_sha256"] = hashlib.sha256(json.dumps(sorted(groups.values())).encode("utf-8")).hexdigest()
+        geometry["owner_labels"] = owner
+        blob = json.dumps(geometry, sort_keys=True).encode("utf-8")
         if _ARGS.geom_dir:
             directory = Path(_ARGS.geom_dir)
             directory.mkdir(parents=True, exist_ok=True)
