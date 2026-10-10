@@ -99,6 +99,19 @@ SYMPY_AUDIT = {
             "sp.Expr",
         ),
     ),
+    "reference/angle_certificate_sign.py": (
+        "B_KEEP",
+        'cos(пи*r) строгой интервальной оболочкой iv на 256 бит; sympy не используется, остальное - Fraction',
+        (
+            "mp.iv",
+            "mp.iv.cos",
+            "mp.iv.mpf",
+            "mp.iv.pi",
+            "mp.iv.prec",
+            "mp.libmp",
+            "mp.libmp.to_rational",
+        ),
+    ),
     "reference/angle_measure.py": (
         "B_KEEP",
         'atan2/pi: сертифицированные углы, тригонометрия',

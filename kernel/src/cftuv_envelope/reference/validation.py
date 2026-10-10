@@ -22,6 +22,7 @@ from ..contracts.surface import SurfacePayloadMode
 from ..ids import PatchDomainId
 from ..numeric import IntervalEndpointKind, LocalPoint3V1
 from ..validation import validate_rational_affine_planar_metric
+from .angle_certificate_sign import certified_oriented_support_delta
 from .contracts import (
     ReferenceDiagnosticSeverity,
     ReferenceEnvelopeCompilationV1,
@@ -66,6 +67,25 @@ def _diagnostic(outcome: ReferenceOutcome, message: str):
 
 
 def _interval_contains_oriented_support_delta(
+    metric: ExactPlanarMetric,
+    incoming: ExactPlanarVector,
+    outgoing: ExactPlanarVector,
+    orientation: TurnOrientation,
+    interval,
+) -> bool:
+    """Сначала сертификат дешёвого однородного пути; точный путь — для всего, что тот уступил (VALIDATOR_CERTIFIED_SIGN_V1)."""
+
+    certified = certified_oriented_support_delta(
+        metric, incoming, outgoing, orientation, interval
+    )
+    if certified is not None:
+        return certified
+    return _interval_contains_oriented_support_delta_exact(
+        metric, incoming, outgoing, orientation, interval
+    )
+
+
+def _interval_contains_oriented_support_delta_exact(
     metric: ExactPlanarMetric,
     incoming: ExactPlanarVector,
     outgoing: ExactPlanarVector,
