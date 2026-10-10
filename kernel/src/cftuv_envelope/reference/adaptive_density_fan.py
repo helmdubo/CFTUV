@@ -36,6 +36,7 @@ from .adaptive_density_atlas import (
     validate_atlas_structure,
 )
 from . import adaptive_density_band as _band
+from . import density_residual as _residual
 from .common import ReferenceGeometryError, stable_id
 from .metric import ExactPlanarMetric
 from .planar_types import ExactPlanarVector
@@ -438,25 +439,13 @@ def _subturn(metric, left, right, q: int) -> bool:
         metric._density_exact_memo.subturns[key] = False
         metric._density_exact_memo.subturns[reverse_key] = False
         return False
-    norm_product = _dual_dot(metric, left, left) * _dual_dot(
+    result = _residual.residual_sign(
         metric,
-        right,
-        right,
-    )
-    dot_squared = dot * dot
-    if q == 3:
-        residual = 4 * dot_squared - norm_product
-    elif q == 4:
-        residual = 2 * dot_squared - norm_product
-    elif q == 5:
-        residual = (
-            8 * dot_squared - (3 + sp.sqrt(5)) * norm_product
-        )
-    elif q == 6:
-        residual = 4 * dot_squared - 3 * norm_product
-    else:
-        raise AdaptiveDensityFanInvalid("unsupported Density q")
-    result = _sign(residual, metric) >= 0
+        dot,
+        _dual_dot(metric, left, left),
+        _dual_dot(metric, right, right),
+        q,
+    ) >= 0
     metric._density_exact_memo.subturns[key] = result
     metric._density_exact_memo.subturns[reverse_key] = result
     return result
@@ -466,27 +455,11 @@ def _subturn_boundary(metric, left, right, q: int) -> bool:
     dot = _dual_dot(metric, left, right)
     if _sign(dot, metric) < 0:
         return False
-    norm_product = _dual_dot(metric, left, left) * _dual_dot(
-        metric,
-        right,
-        right,
-    )
-    dot_squared = dot * dot
+    norm_left = _dual_dot(metric, left, left)
+    norm_right = _dual_dot(metric, right, right)
     if q == 2:
-        residual = dot
-    elif q == 3:
-        residual = 4 * dot_squared - norm_product
-    elif q == 4:
-        residual = 2 * dot_squared - norm_product
-    elif q == 5:
-        residual = (
-            8 * dot_squared - (3 + sp.sqrt(5)) * norm_product
-        )
-    elif q == 6:
-        residual = 4 * dot_squared - 3 * norm_product
-    else:
-        raise AdaptiveDensityFanInvalid("unsupported Density q")
-    return _sign(residual, metric) == 0
+        return _sign(dot, metric) == 0
+    return _residual.residual_sign(metric, dot, norm_left, norm_right, q) == 0
 
 
 def _quarter_turn(metric, vector, orientation: int):
@@ -1342,8 +1315,18 @@ def _search(
 ):
     candidates = [set() for _ in records]
     previous_counts = tuple(0 for _ in records)
+    # Внешние границы окон целыми: на большинстве высот оболочка пуста, и пустая высота стоит ровно один probe, как
+    # `_farey_shell_candidates` платит за неё (`max(last - first + 1, 1)`), - вызывать её ради этого незачем.
+    outer = [
+        (item[0].numerator, item[0].denominator, item[3].numerator, item[3].denominator)
+        for item in sealed_intervals
+    ]
     for height in range(1, stop_height + 1):
         for ordinal, record in enumerate(records, start=1):
+            lower_n, lower_d, upper_n, upper_d = outer[ordinal - 1]
+            if lower_n * height // lower_d + 1 > -(-upper_n * height // upper_d) - 1:
+                budget.spend_shell_probes(1)
+                continue
             candidates[ordinal - 1].update(
                 _farey_shell_candidates(
                     metric,

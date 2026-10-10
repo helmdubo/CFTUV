@@ -272,6 +272,8 @@ class _DensityExactMemo:
         "turn_atoms",
         "fans",
         "covector_rows",
+        "fan_bindings",
+        "settled",
     )
 
     def __init__(self) -> None:
@@ -294,6 +296,12 @@ class _DensityExactMemo:
         self.turn_atoms: dict[tuple, object] = {}
         self.fans: dict[tuple, tuple] = {}
         self.covector_rows: dict[tuple, tuple] = {}
+        # Результат `density_fan_binding.bind_density_fan` по ЗНАЧЕНИЮ входов (Грамм, лучи идеала, ориентация, q,
+        # причины привязки, закон окна): угол с теми же значениями на другом углу домена получает ту же власть.
+        self.fan_bindings: dict[tuple, tuple] = {}
+        # Результаты чистых проверок и планов по ТОЖДЕСТВУ их неизменяемых входов (`common.settled_result`):
+        # ключ - `id` входов, запись держит сами входы живыми, поэтому чужой объект на том же адресе её не прочтёт.
+        self.settled: dict[tuple, tuple] = {}
 
     def __reduce__(self):
         # Кэш — не часть значения, и пересылается ПУСТЫМ. Причина не
