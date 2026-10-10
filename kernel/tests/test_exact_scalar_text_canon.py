@@ -219,3 +219,161 @@ def test_event_key_dedup_is_unchanged_for_other_representatives_of_contact_value
     assert changed
     assert actual == expected
     assert any(item.event_keys for item in actual[0].values())
+
+
+# --------------------------------------------------------------------------
+# Все экземпляры огибающих называют эффективную alpha каноном V2, а не только полоса
+# --------------------------------------------------------------------------
+# Срез V2-COMPLETION: `cap.py`, `angular.py` и `raw_coverage.py` писали строку alpha прежним `ExactScalar.from_value` (`srepr(factor(cancel(...)))`):
+# имя экземпляра Cap/Angular и `effective_alpha` в записи RAW зависели от вида выражения `sympy` и от истории разложений процесса, а полоса того же
+# домена с той же alpha называлась каноном V2.
+
+def _cap_fixture():
+    return straight_snapshot(
+        faces=CONCAVE,
+        source_routes=({"name": "source", "points": ((0, 0), (10, 0))},),
+        alpha="4",
+    )
+
+
+def _evaluators():
+    from cftuv_envelope.contracts.envelopes import AngularEnvelopeSpec, CapEnvelopeSpec
+    from cftuv_envelope.reference.angular import evaluate_angular_envelope
+    from cftuv_envelope.reference.cap import evaluate_cap_envelope
+    from reference_factories import angular_snapshot
+
+    return {
+        "cap": (_cap_fixture, CapEnvelopeSpec, evaluate_cap_envelope),
+        "angular": (lambda: angular_snapshot(1), AngularEnvelopeSpec, evaluate_angular_envelope),
+    }
+
+
+def _instance_of(kind, effective_alpha):
+    from cftuv_envelope.reference.common import stable_id
+
+    build, spec_type, evaluate = _evaluators()[kind]
+    context, _ = _geometry(*build())
+    spec = next(item for item in context.compilation.envelope_specs if isinstance(item, spec_type))
+    instance = evaluate(context, spec, LocalLengthV1(Decimal("1")), effective_alpha)
+    return instance, stable_id("envelope-instance", spec.envelope_spec_id, instance.effective_alpha.expression)
+
+
+@pytest.mark.parametrize("kind", ("cap", "angular"))
+@pytest.mark.parametrize("square", (8, 65537**2 * 100003))
+def test_cap_and_angular_name_an_irrational_effective_alpha_by_the_v2_canon(kind, square):
+    expected = nx.canonical_text(nx.RadicalSumV1.sqrt_of_rational(square))
+    forms = (
+        sp.sqrt(sp.Integer(square)),
+        sp.Pow(sp.Integer(square), sp.Rational(1, 2), evaluate=False),
+        nx.to_sympy(nx.RadicalSumV1.sqrt_of_rational(square)),
+    )
+    ids = set()
+    for form in forms:
+        instance, id_by_text = _instance_of(kind, form)
+        assert instance.effective_alpha.expression == expected
+        assert instance.envelope_instance_id == id_by_text
+        ids.add(instance.envelope_instance_id)
+    assert len(ids) == 1
+
+
+@pytest.mark.parametrize("kind", ("cap", "angular"))
+def test_cap_and_angular_names_do_not_depend_on_the_factorization_history_of_the_process(kind):
+    from sympy.core.cache import clear_cache
+    from sympy.ntheory.factor_ import factor_cache
+
+    n = 65537**2 * 100003
+    try:
+        factor_cache.clear()
+        clear_cache()
+        cold = sp.sqrt(n)
+        sp.factorint(n)
+        clear_cache()
+        warm = sp.sqrt(n)
+    finally:
+        factor_cache.clear()
+        clear_cache()
+    # Красный контроль: прежний путь действительно зависел от истории, и тест это видит; V2 - нет.
+    assert ExactScalar.from_value(cold) != ExactScalar.from_value(warm), "контроль обязан воспроизвести старую зависимость от истории"
+    cold_instance, _ = _instance_of(kind, cold)
+    warm_instance, _ = _instance_of(kind, warm)
+    assert cold_instance.effective_alpha == warm_instance.effective_alpha
+    assert cold_instance.envelope_instance_id == warm_instance.envelope_instance_id
+    assert cold_instance.effective_alpha.expression == "Sqrt(Rational(429522722195107, 1))"
+
+
+def test_a_raw_evaluation_with_an_irrational_alpha_names_every_instance_like_its_component():
+    from cftuv_envelope.reference import compile_reference_envelopes, evaluate_reference_raw_coverage
+
+    def transform(point):
+        x, y = point
+        return 2 * x + y + 0.125, x + 2 * y - 0.25
+
+    snapshot, request = straight_snapshot(
+        faces=tuple(tuple(map(transform, face)) for face in CONCAVE),
+        source_routes=({"name": "source", "points": tuple(map(transform, ((0, 0), (10, 0))))},),
+        alpha="20",
+    )
+    raw = evaluate_reference_raw_coverage(compile_reference_envelopes(snapshot, request).compilation, Decimal("20")).raw_coverage
+    assert raw is not None
+    components = {item.effective_alpha.expression for item in raw.component_effective_alphas}
+    irrational = [item for item in raw.envelope_instances if item.effective_alpha.native().as_rational() is None]
+    assert {item.envelope_variant for item in irrational} == {"StripEnvelope", "CapEnvelope"}, "случай обязан нести иррациональную alpha у полосы и торцов"
+    for item in irrational:
+        assert item.effective_alpha.expression == nx.canonical_text(item.effective_alpha.native())
+        assert item.effective_alpha.expression in components
+    for item in raw.boundary_resolved_envelopes:
+        assert item.effective_alpha.expression == nx.canonical_text(item.effective_alpha.native())
+
+
+def _from_value_of_an_alpha(source):
+    """Места, где имя alpha (`alpha`, `effective`, `effective_alpha`) уходит в прежний `ExactScalar.from_value`: строка alpha обязана быть каноном V2."""
+
+    import ast
+
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "from_value"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "ExactScalar"
+            and node.args
+        ):
+            argument = node.args[0]
+            name = argument.id if isinstance(argument, ast.Name) else argument.attr if isinstance(argument, ast.Attribute) else ""
+            if name in {"alpha", "effective", "effective_alpha"}:
+                found.append(node.lineno)
+    return found
+
+
+def test_the_alpha_text_rule_catches_the_old_call_and_passes_the_canon():
+    assert _from_value_of_an_alpha("x = ExactScalar.from_value(effective_alpha)\n") == [1]
+    assert _from_value_of_an_alpha("y = ExactScalar.from_value(self.alpha)\n") == [1]
+    assert _from_value_of_an_alpha("x = ExactScalar.canonical(effective_alpha)\n") == []
+    assert _from_value_of_an_alpha("x = ExactScalar.from_value(requested)\n") == []
+
+
+def test_no_reference_evaluator_writes_an_alpha_text_by_the_old_from_value():
+    root = Path(nx.__file__).resolve().parent
+    offenders = {
+        path.name: lines
+        for path in sorted(root.glob("*.py"))
+        if (lines := _from_value_of_an_alpha(path.read_text(encoding="utf-8")))
+    }
+    assert not offenders, f"строка alpha пишется прежним ExactScalar.from_value (нужен ExactScalar.canonical, канон V2): {offenders}"
+
+
+@pytest.mark.parametrize("mode", list(sb.SymbolicBackendV1), ids=lambda mode: mode.value)
+@pytest.mark.parametrize("kind", ("cap", "angular"))
+def test_the_sympy_mode_names_alphas_by_the_v2_canon_and_has_no_sympy_fallback_for_text(mode, kind):
+    # `SYMPY` - откат по ЗНАЧЕНИЯМ: прежних имён alpha (`srepr(factor(cancel(...)))`) он не воспроизводит, и уступки sympy для текста нет.
+    with sb.symbolic_backend(mode):
+        assert ExactScalar.canonical(sp.sqrt(8)).expression == "Sqrt(Rational(8, 1))"
+        assert ExactScalar.canonical(-sp.sqrt(sp.Rational(14, 9))).expression == "-Sqrt(Rational(14, 9))"
+        for outside in (sp.sqrt(2) + sp.sqrt(3), sp.pi):
+            with pytest.raises(nx.ExactScalarTextCanonUnsupported):
+                ExactScalar.canonical(outside)
+        instance, id_by_text = _instance_of(kind, sp.sqrt(8))
+    assert instance.effective_alpha.expression == "Sqrt(Rational(8, 1))"
+    assert instance.envelope_instance_id == id_by_text

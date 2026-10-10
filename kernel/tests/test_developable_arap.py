@@ -407,8 +407,10 @@ def test_the_envelope_solver_agrees_with_an_independent_dense_solution():
 #: платформы, ни от версии Python (в `sum` над float CPython 3.12 суммирует иначе, чем 3.11).
 #: Перезаписан 2026-10-03 решением владельца «до 20 %»: другая фикстура (шарнир теперь отказывает при невязке 0.3, а не
 #: 0.05) и записанный бюджет `1/5`; сам ARAP (80 итераций, порядок операций) не менялся.
-#: Перезаписан 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): четыре новых поля сертификата; прежнее значение
-#: (`0f5562b4...`) восстанавливается их вычёркиванием (`test_developable_best_proposal`), сам ARAP не менялся.
+#: Перезаписан 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): четыре новых поля сертификата; вычёркивание этих полей тогда возвращало
+#: прежнее значение (`0f5562b4...`), сам ARAP не менялся.
+#: Перезаписан 2026-10-08 (APPROVED_EXACT_TWO_GOLDEN_MIGRATION, SURFACE_CONE_ANGLE_DETERMINISTIC_SEED_V1): запись включает численно изменённую
+#: оболочку `v:g1_2`; вычёркивание четырёх полей теперь даёт `f3e15ebe...` (`test_developable_best_proposal`), а не `0f5562b4...`.
 ARAP_RECORD_SHA256 = (
     "7920e15673bc2ae84d42164e1f685c75e3e9a69132bc477b56cef2aeae552a5c"
 )

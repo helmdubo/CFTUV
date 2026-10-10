@@ -605,7 +605,7 @@ def test_the_live_width_thread_passes_the_backend_of_the_last_build_to_run_produ
 
     assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["kernel_backend"] == "NATIVE"
     assert {item.name: item.default for item in dataclasses.fields(LastProductionBuildV1)}["skeleton_backend"] == "NATIVE"
-    path =Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
+    path = Path(__file__).resolve().parents[1] / "cftuv" / "envelope_width_live.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     begin = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_begin")
     compute = next(node for node in ast.walk(begin) if isinstance(node, ast.FunctionDef) and node.name == "compute")

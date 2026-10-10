@@ -67,11 +67,12 @@ python : C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.e
 
 ```powershell
 $py = "C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.exe"
-& $py -m pip install "sympy==1.14.0"
+& $py -m pip install "sympy==1.14.0" "mpmath==1.3.0"
 ```
 
 - `sympy` — нужен envelope-ядру (и тянет за собой `mpmath`, на котором работает
   интервальный фильтр знака).
+- `mpmath` — версия прибита (`1.3.0`, как в `kernel/pyproject.toml`): детерминизм ответа доказан для неё.
 
 Если pip ругается на права — запустите PowerShell от администратора либо
 добавьте `--user`.
