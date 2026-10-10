@@ -54,14 +54,37 @@ def bind_density_fan(
 ):
     """`(построчные сертификаты, власть)` под законом окна `law`, отказ полосы — в `refusals`."""
 
+    remembered = metric._density_exact_memo.fan_bindings
+
     def build(window_law: str):
-        if lifted or window_law != WINDOW_LAW_VORONOI:
-            return (None,) * (len(ideal) - 2), certify_adaptive_huber_density_direction_fan(
+        adaptive_only = lifted or window_law != WINDOW_LAW_VORONOI
+        # Власть и построчные сертификаты — чистая функция значений входа: угол с теми же лучами идеала на другом
+        # углу домена получает ту же власть, а поиск (самая дорогая работа компиляции) не повторяется. В память
+        # попадает только успех; отказ повторяется как был, поэтому названные исходы и их тексты не меняются.
+        key = (
+            metric.gram,
+            metric.inverse_gram,
+            metric.owner_orientation_sign,
+            tuple(metric.density_expressions(normal) for normal in ideal),
+            orientation,
+            q,
+            binding_reasons,
+            adaptive_only,
+            window_law,
+        )
+        cached = remembered.get(key)
+        if cached is not None:
+            return cached
+        if adaptive_only:
+            result = (None,) * (len(ideal) - 2), certify_adaptive_huber_density_direction_fan(
                 metric, ideal, orientation, q, binding_reasons, window_law=window_law
             )
-        return certify_huber_density_bindings_with_adaptive_fallback(
-            metric, ideal, orientation, q, binding_reasons
-        )
+        else:
+            result = certify_huber_density_bindings_with_adaptive_fallback(
+                metric, ideal, orientation, q, binding_reasons
+            )
+        remembered[key] = result
+        return result
 
     if law == WINDOW_LAW_VORONOI:
         return build(law)

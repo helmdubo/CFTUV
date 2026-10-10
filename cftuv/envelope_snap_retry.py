@@ -148,6 +148,7 @@ def retry_snap_lottery(run, entries, results, pool, *, scan, dispatch, collect):
         relabeled=[],
         relabel_failures=[],
         registered=[],
+        scan_records={},
     )
     retry_entries = scan(retry)
     work = [item for item in retry_entries if item.needs_work]

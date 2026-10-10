@@ -583,17 +583,20 @@ def structure_errors(plans) -> tuple:
     return tuple(errors)
 
 
-def plan_errors(snapshot, patch_domain_id, plans, facts: StationFacts | None = None) -> tuple:
+def plan_errors(snapshot, patch_domain_id, plans, facts: StationFacts | None = None, recompute=None) -> tuple:
     """Пересчёт плана по сырому снапшоту: имена расхождений; пусто — каждая запись доказана.
 
     План без единой записи — прежний план (решений нет, все вершины несутся): пересчитывать нечем и не нужно.
+    `recompute` - вызываемое, отдающее ТЕ ЖЕ планы, что `chain_station_plans(snapshot, patch_domain_id)` (транзакция уже посчитала
+    их из этого снапшота); без него план пересчитывается здесь.
     """
 
     plans = tuple(plans)
     if not plans:
         return ()
     errors = list(structure_errors(plans))
-    expected = {item.physical_chain_id: item for item in chain_station_plans(snapshot, patch_domain_id, facts)}
+    recomputed = chain_station_plans(snapshot, patch_domain_id, facts) if recompute is None else recompute()
+    expected = {item.physical_chain_id: item for item in recomputed}
     found = {item.physical_chain_id: item for item in plans}
     for chain_id in sorted(set(expected) | set(found), key=lambda item: item.value):
         if chain_id not in found:

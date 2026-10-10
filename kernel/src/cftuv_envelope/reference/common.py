@@ -25,6 +25,7 @@ from .._canonical_angle import (
     canonical_reflex_excess_restoration,
 )
 from .._annulus_cut import chart_cycle, chart_side_ends
+from .._chain_station import chain_station_plans
 from .._chain_station import plan_errors as chain_station_plan_errors
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from ..robust.grid import reset_snap_counts, set_active_grid
@@ -62,6 +63,64 @@ class ReferenceGeometryError(ValueError):
 def stable_id(kind: str, *parts: object) -> str:
     payload = "\x1f".join((kind, *(str(part) for part in parts))).encode("utf-8")
     return f"{kind}:{sha256(payload).hexdigest()[:24]}"
+
+
+def settled_result(memo, name: str, subjects: tuple, compute):
+    """Результат чистой функции от неизменяемых `subjects` внутри транзакции: повтор берётся из памяти.
+
+    Ключ - `id` входов; запись держит сами входы, поэтому адрес освободиться и достаться другому объекту не может, а
+    подменённый вход (`replace(...)` с другим значением) - другой объект и считается заново. Отказ (исключение) в
+    память не пишется. Без памяти (`memo is None`) - прежнее прямое вычисление.
+    """
+
+    if memo is None:
+        return compute()
+    key = (name, *map(id, subjects))
+    entry = memo.settled.get(key)
+    if entry is not None and all(kept is subject for kept, subject in zip(entry[0], subjects)):
+        return entry[1]
+    result = compute()
+    memo.settled[key] = (subjects, result)
+    return result
+
+
+def station_plans_of(snapshot, patch_domain_id, memo):
+    """Планы станций домена (`chain_station_plans`): один раз на снапшот и домен транзакции, а не на каждую проверку."""
+
+    return settled_result(memo, "station-plans", (snapshot, patch_domain_id), lambda: chain_station_plans(snapshot, patch_domain_id))
+
+
+def _verify_plan_inputs(compilation, memo) -> None:
+    """Записи плана честны перед сырым снапшотом: углы, затем станции цепей; первое расхождение - названный отказ.
+
+    Обе проверки - чистые функции неизменяемых входов, а одна транзакция строит контекст не раз (геометрия вычисления и
+    геометрия источника, затем область): повтор берётся из памяти транзакции, ответ и отказ те же.
+    """
+
+    snapshot = compilation.analysis_snapshot
+    verify_canonical_angle_restorations(compilation)
+    treatment_errors = settled_result(
+        memo,
+        "corner-treatment-errors",
+        (snapshot, compilation.profile_selection_certificates, compilation.corner_treatments),
+        lambda: corner_treatment_errors(compilation),
+    )
+    if treatment_errors:
+        raise ReferenceGeometryError(ReferenceOutcome.CORNER_TREATMENT_INVALID, treatment_errors[0])
+    domain_id = compilation.plan_key.patch_domain_id
+    station_errors = settled_result(
+        memo,
+        "station-plan-errors",
+        (snapshot, domain_id, compilation.chain_station_plans),
+        lambda: chain_station_plan_errors(
+            snapshot,
+            domain_id,
+            compilation.chain_station_plans,
+            recompute=lambda: station_plans_of(snapshot, domain_id, memo),
+        ),
+    )
+    if station_errors:
+        raise ReferenceGeometryError(ReferenceOutcome.CHAIN_STATION_PLAN_INVALID, station_errors[0])
 
 
 def verify_canonical_angle_restorations(
@@ -213,19 +272,7 @@ class GeometryContext:
         density_exact_memo: _DensityExactMemo | None = None,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
-        verify_canonical_angle_restorations(compilation)
-        treatment_errors = corner_treatment_errors(compilation)
-        if treatment_errors:
-            raise ReferenceGeometryError(
-                ReferenceOutcome.CORNER_TREATMENT_INVALID, treatment_errors[0]
-            )
-        station_errors = chain_station_plan_errors(
-            snapshot, compilation.plan_key.patch_domain_id, compilation.chain_station_plans
-        )
-        if station_errors:
-            raise ReferenceGeometryError(
-                ReferenceOutcome.CHAIN_STATION_PLAN_INVALID, station_errors[0]
-            )
+        _verify_plan_inputs(compilation, density_exact_memo)
         from .evaluation_geometry import (
             EvaluationGeometryBindingInvalid,
             verify_evaluation_geometry_binding,
