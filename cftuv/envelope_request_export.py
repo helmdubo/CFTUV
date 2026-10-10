@@ -542,16 +542,13 @@ def _normalize_physical_seam_partitions(
         for name, value in zip(SEAM_PARTITION_COUNTERS, measured, strict=True):
             profile.set_counter(name, value)
 
+    loops: dict[tuple[int, int], list[_HostChainRecord]] = {}
+    for record in expanded:
+        loops.setdefault((record.patch_id, record.loop_index), []).append(record)
     normalized = []
-    for patch_loop in sorted(
-        {(record.patch_id, record.loop_index) for record in expanded}
-    ):
+    for patch_loop in sorted(loops):
         loop_records = sorted(
-            (
-                record
-                for record in expanded
-                if (record.patch_id, record.loop_index) == patch_loop
-            ),
+            loops[patch_loop],
             key=lambda record: (
                 record.source_chain_index,
                 record.source_segment_index,
@@ -1515,11 +1512,11 @@ def _build_angular_relations(
 
 def _rational_affine_metric(
     kernel, *, source_revision, patch_domain_id, owner_patch_id, source_vertices, surface_ir, chains, budget,
-    chart_band=None,
+    chart_band=None, grid_scale_law=None,
 ):
-    """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses; `chart_band`: the band policy)."""
+    """Thin host delegation; the kernel builds the chart (`chains`: snapshot physical chains and uses; `chart_band`: the band policy; `grid_scale_law`: `None` - the kernel default, the plane-preserving law only for the snap-lottery retry)."""
 
-    from cftuv_envelope.contracts.metric import CurvatureLadderPolicyV1, NearPlanarFramePolicyV1, NearPlanarLiftLawV1
+    from cftuv_envelope.contracts.metric import CurvatureLadderPolicyV1, GridScaleLawV1, NearPlanarFramePolicyV1, NearPlanarLiftLawV1
     from cftuv_envelope.declared_chains import declared_straight_chain_vertices
 
     try:
@@ -1536,6 +1533,7 @@ def _rational_affine_metric(
             declared_straight_chains=declared_straight_chain_vertices(*chains, patch_domain_id),
             developable_stretch_budget=budget,
             **({} if chart_band is None else {"chart_band": chart_band}),
+            **({} if grid_scale_law is None else {"grid_scale_law": GridScaleLawV1(grid_scale_law)}),
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
@@ -1983,6 +1981,7 @@ def build_envelope_analysis_snapshot(
                 chart_band=chart_band_request(
                     getattr(topology_export, "chart_band", None), edge_ids, physical_chains, chain_uses, patch_domains[patch_id]
                 ),
+                grid_scale_law=getattr(topology_export, "grid_scale_law", None),
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)

@@ -1,40 +1,40 @@
-"""Бэкенд ядра в хосте: настройка «Kernel backend», запись бэкенда на каждом домене и строка журнала.
+"""Бэкенд ядра в хосте: ГЛАВНЫЙ переключатель «Kernel backend», порядки стадий, запись бэкенда на каждом домене и строка журнала.
 
-Ядро умеет считать две горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка), и выбор бэкенда — НЕ политика
-запроса: ответ побитово один. Поэтому здесь нет ни слова о геометрии. Здесь три вещи:
+Ядро умеет считать горячие операции нативно (`cftuv_envelope.backend`: покрытие и резка, скелет, вложение привязки источника), и выбор бэкенда — НЕ политика
+запроса: ответ побитово один. Поэтому здесь нет ни слова о геометрии. Здесь четыре вещи:
 
-* НАСТРОЙКА. `kernel_backend` (`PYTHON` | `NATIVE`) живёт в настройках сцены рядом с остальными настройками декали
-  (`HOTSPOTUV_DecalMeshSettings`), едет в прогон (`run_production`), в задачу пула (`DomainTaskV1.backend`) и в запись живой
-  ширины. Умолчание — `NATIVE` (`DEFAULT_KERNEL_BACKEND`, решение владельца 2026-10-07: покрытие и резка — стадии, переведённые на
-  Rust; Python — замороженный эталон и именованный откат). Нет колеса либо порт устарел — домен считает Python, и строка журнала это
-  называет (`NATIVE_UNAVAILABLE`, `NATIVE_PORT_STALE`, ...): тихого отката нет. СТАРЫЕ СЦЕНЫ: свойство Blender хранит значение только
-  когда его присвоили (`is_property_set`), поэтому сцена, где `kernel_backend` не трогали, читает новое умолчание `NATIVE`, а сцена, где
-  выбрали `PYTHON` (хоть то же значение, что было умолчанием), хранит его и остаётся на `PYTHON`; миграции нет и не нужна. Порядок
-  `KERNEL_BACKEND_ITEMS` — формат хранения (в сцене лежит индекс): `PYTHON` — 0, `NATIVE` — 1, порядок не менять
+* ГЛАВНЫЙ ПЕРЕКЛЮЧАТЕЛЬ. `kernel_backend` (`PYTHON` | `NATIVE`) — ЕДИНСТВЕННАЯ настройка владельца: она заказывает ВСЕ стадии, которые ядро считает на Rust
+  (покрытие и резка, скелет, вложение привязки источника и любая будущая стадия). `NATIVE` — каждая стадия считает нативную реализацию там, где она есть
+  (нет колеса либо порт устарел — стадия считает Python, и строка журнала это называет: `NATIVE_UNAVAILABLE`, `NATIVE_PORT_STALE`, ...; тихого отката нет);
+  `PYTHON` — Python-эталон на каждой стадии. Настройка живёт в настройках сцены (`HOTSPOTUV_DecalMeshSettings`), едет в прогон (`run_production`), в задачу пула
+  (`DomainTaskV1`) и в запись живой ширины. Умолчание — `NATIVE` (`DEFAULT_KERNEL_BACKEND`, решение владельца 2026-10-07; Python — замороженный эталон и
+  именованный откат). СТАРЫЕ СЦЕНЫ: свойство Blender хранит значение только когда его присвоили, поэтому сцена, где `kernel_backend` не трогали, читает умолчание
+  `NATIVE`, а сцена с выбранным `PYTHON` остаётся на нём. Порядок `KERNEL_BACKEND_ITEMS` — формат хранения (в сцене лежит индекс): `PYTHON` — 0, `NATIVE` — 1
   (проверяет `tests/blender/test_envelope_kernel_backend_default.py`).
-* ЗАПИСЬ ДОМЕНА. `with_kernel_backend` оборачивает вычисление домена в блок `use_backend` и кладёт в результат `BackendRecordV1`
-  (какой бэкенд посчитал на самом деле и по какой названной причине откат на Python). Результат с записью и без неё равен по
-  ответу: запись — метка запуска, как `placement`. Смена бэкенда в процессе сбрасывает память стадии резки ядра (`clip_memo`):
-  её ключ бэкенд не несёт, а ключи кэшей хоста несут (`backend_identity` в `envelope_content_key` и в ключах прогона).
-  Диспетчеры покрытия и резки подключены в самом ядре (`cftuv_envelope.backend`), при запуске ничего не ставится: воркер пула, как и главный
+* ПОРЯДКИ СТАДИЙ. `stage_orders` — ЕДИНСТВЕННОЕ место, где из главного переключателя выводятся порядки стадий (`StageOrdersV1`). Постадийный выбор остаётся
+  ТОЛЬКО в API и инструментах (`run_production(..., skeleton_backend=..., embedding_backend=...)`, A/B-инструменты): `None` значит «как главный переключатель»,
+  явное имя — порядок этой стадии. Параметр стадии со значением по умолчанию, отличным от `None`, — дефект (тест
+  `test_every_backend_default_of_the_host_is_the_one_named_constant`). Записи, которые едут в пул и в живую ширину, приводят свои поля к порядкам через
+  `settle_stage_orders` (то же единственное место).
+* МИГРАЦИЯ. Прежняя отдельная настройка сцены `skeleton_backend` удалена из панели и из RNA. В старых сценах её значение ещё лежит ключом `skeleton_backend`:
+  явно сохранённый `PYTHON` в ЛЮБОЙ из двух настроек (старой стадии скелета либо `kernel_backend`) делает главный переключатель `PYTHON`; ничего не сохранено — умолчание
+  `NATIVE`. `kernel_backend_of` читает это сразу (без записи), `fold_legacy_skeleton_setting` переносит выбор в главный переключатель и снимает ключ (обработчик
+  загрузки файла, нажатие кнопки), а смена переключателя владельцем снимает старый ключ (`drop_legacy_skeleton_setting`), чтобы выбор владельца не перебивался прошлым.
+* ЗАПИСЬ ДОМЕНА И СТРОКА ЖУРНАЛА. `with_kernel_backend` оборачивает вычисление домена в блок `use_backend` и кладёт в результат `BackendRecordV1` (какой
+  бэкенд посчитал на самом деле и по какой названной причине откат на Python). Результат с записью и без неё равен по ответу: запись — метка запуска, как `placement`.
+  Смена бэкенда в процессе сбрасывает память стадии резки ядра (`clip_memo`): её ключ бэкенд не несёт, а ключи кэшей хоста несут (`backend_identity` в
+  `envelope_content_key` и в ключах прогона). Диспетчеры подключены в самом ядре (`cftuv_envelope.backend`), при запуске ничего не ставится: воркер пула, как и главный
   процесс, считает заказанным бэкендом с первого домена. Домен, который нативное ядро отказало по имени (`NATIVE_DIVISION_DIVERGED`, пояс
-  `NATIVE_PARTIAL_EFFECTS_REFUSED`), получает ЭТОТ исход отказом.
-* СТРОКА ЖУРНАЛА. `backend_console_lines`: `[CFTUV][Production] BACKEND coverage/clip native 120 / python 2 (NATIVE_PORT_STALE: patch 7, 9); skeleton native 118 / python 4 (NATIVE_UNAVAILABLE: patch 3)`.
-  Печатается, когда нативным заказана хоть одна стадия; домен из кэша сессии в счёт не идёт (в этом прогоне он не считался). Скелет назван ОТДЕЛЬНО от покрытия и
-  резки (`skeleton python` — стадия заказана на Python, счёта нет); у скелета домена «не считался» значит «подготовка из кэша», а не откат.
-
-СТАДИЯ SKELETON — ВТОРАЯ НАСТРОЙКА (`skeleton_backend`, `PYTHON` | `NATIVE`). Продукт переводит стадии на Rust по одной: покрытие и резка уже NATIVE по умолчанию, скелет —
-`DEFAULT_SKELETON_BACKEND` (`NATIVE`, SKELETON_NATIVE_DEFAULT_V1 после строгой сверки и замера кнопки). Явный `PYTHON` остаётся эталоном; сохранённый выбор сцены не меняется. Настройка едет всюду, где едет `kernel_backend`
-(`run_production`, `DomainTaskV1.skeleton_backend`, запись живой ширины, свойство сцены).
-
-СТАДИЯ SNAP_EMBEDDING — ТРЕТЬЯ, ТОЛЬКО API (`embedding_backend`, `PYTHON` | `NATIVE`, настройки сцены нет). Сертификат вложения привязки источника (`cftuv_envelope._embedding`) считается в экспорте, подготовке и
-материализации; его умолчание — `DEFAULT_EMBEDDING_BACKEND` (`NATIVE`, EMBEDDING_NATIVE_DEFAULT_V1). Явный `PYTHON` остаётся эталоном и именованным откатом; память сертификата по значениям остаётся на Python (хук
-подменяет только лист), идентичность стадии входит в ключи результата и содержимого, но не в ключ подготовки.
+  `NATIVE_PARTIAL_EFFECTS_REFUSED`), получает ЭТОТ исход отказом. Строка журнала называет стадии:
+  `[CFTUV][Production] BACKEND native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9), skeleton 4 (NATIVE_UNAVAILABLE: patch 3) | cached 3`.
+  Счёт — в ДОМЕНАХ, посчитанных в этом прогоне (`native` — домен целиком нативно, `python` — домен, где стадия откатилась хоть раз); домен из кэша сессии в счёт покрытия, резки и скелета
+  не идёт (`cached`). Стадия, заказанная на `PYTHON` порядком API, называется в `ordered python:` без счёта: она считала эталон по заказу, а не по откату. Все стадии на
+  `PYTHON` — строки нет.
 
 ПОДГОТОВКА ПОД БЛОКОМ БЭКЕНДА. Скелет считается в подготовке (`prepare_conveyor` -> `_prepare_region`), которая идёт ДО `produce_domain` — в родителе и в воркерах пула. Поэтому блок `use_backend`
 стоит и вокруг подготовки (`prepared_under_backend`, `prepare_for_production`, `run_queue_domain`), а запись домена — слияние записи подготовки и записи материализации
 (`BackendRecordV1.merged`). Подготовка зависит только от бэкенда скелета, поэтому ключ её кэша в сессии несёт `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`):
-подготовка, построенная Python, не читается как построенная Rust и наоборот. Ключи результата и хранилища по содержимому несут идентичность обеих стадий (`backend_identity_of`).
+подготовка, построенная Python, не читается как построенная Rust и наоборот. Ключи результата и хранилища по содержимому несут идентичность всех стадий (`backend_identity_of`).
 Домен, чей скелет нативное ядро отказало по имени (`NATIVE_DIVISION_DIVERGED`), отказан этим именем (`PreparationRefused`), а не посчитан эталоном.
 
 Модуль не импортирует `bpy` и не импортирует ядро при загрузке: пакет остаётся импортируемым без него.
@@ -48,49 +48,39 @@ from dataclasses import dataclass
 
 KERNEL_BACKEND_PYTHON = "PYTHON"
 KERNEL_BACKEND_NATIVE = "NATIVE"
-#: УМОЛЧАНИЕ ПРОДУКТА — нативный бэкенд (решение владельца 2026-10-07: покрытие и резка переведены на Rust; Python-эталон заморожен и
-#: остаётся именованным откатом). ЕДИНСТВЕННОЕ место, где умолчание названо: настройка сцены, прогон, задача пула и запись живой ширины
-#: берут его отсюда (тест `test_every_backend_default_of_the_host_is_the_one_named_constant`), литерал `"PYTHON"` в умолчании параметра — дефект.
+#: УМОЛЧАНИЕ ПРОДУКТА — нативный бэкенд (решение владельца 2026-10-07; Python-эталон заморожен и остаётся именованным откатом). ЕДИНСТВЕННОЕ место, где умолчание
+#: названо: настройка сцены, прогон, задача пула, запись живой ширины и порядки ВСЕХ стадий берут его отсюда (тест
+#: `test_every_backend_default_of_the_host_is_the_one_named_constant`); у стадии собственного умолчания нет — её порядок по умолчанию это главный переключатель.
+#: Литерал `"PYTHON"` в умолчании параметра — дефект.
 DEFAULT_KERNEL_BACKEND = KERNEL_BACKEND_NATIVE
-#: УМОЛЧАНИЕ СТАДИИ SKELETON — Native (SKELETON_NATIVE_DEFAULT_V1): строгий полевой A/B и замер настоящей кнопки; явный Python — эталон и именованный откат.
-#: Названо ОДНИМ местом, как и `DEFAULT_KERNEL_BACKEND`; сохранённый выбор PYTHON не меняется.
-DEFAULT_SKELETON_BACKEND = KERNEL_BACKEND_NATIVE
-#: УМОЛЧАНИЕ СТАДИИ SNAP_EMBEDDING (сертификат вложения привязки источника, `_embedding`) — Native (EMBEDDING_NATIVE_DEFAULT_V1): строгий полевой A/B (`blender_native_ab.py --stage embedding`)
-#: и паритет; явный Python — эталон и именованный откат. Названо ОДНИМ местом, как и остальные умолчания; настройки сцены у стадии нет (только API), поэтому сохранённого выбора PYTHON нет.
-DEFAULT_EMBEDDING_BACKEND = KERNEL_BACKEND_NATIVE
-#: Имя свойства в `HOTSPOTUV_DecalMeshSettings`.
+#: Имя свойства главного переключателя в `HOTSPOTUV_DecalMeshSettings`.
 SETTING_NAME = "kernel_backend"
-#: Имя свойства стадии скелета там же.
-SKELETON_SETTING_NAME = "skeleton_backend"
+#: Ключ УДАЛЁННОЙ настройки стадии скелета: в сценах, сохранённых до единого переключателя, он ещё лежит индексом пункта (`PYTHON` = 0, `NATIVE` = 1).
+LEGACY_SKELETON_SETTING_NAME = "skeleton_backend"
 #: ПОРЯДОК — ФОРМАТ ХРАНЕНИЯ: Blender кладёт в сцену индекс пункта (`PYTHON` = 0, `NATIVE` = 1); новый пункт — только в конец.
 KERNEL_BACKEND_ITEMS = (
     (
         KERNEL_BACKEND_PYTHON,
         "Python",
-        "Frozen reference kernel in Python: the answer the native kernel is checked against, and the named fallback "
+        "Frozen Python reference for every stage: the answer the native kernel is checked against, and the named fallback "
         "when the native one is unavailable",
     ),
     (
         KERNEL_BACKEND_NATIVE,
         "Native (Rust)",
-        "Default. Coverage and clip in the native kernel (cftuv_native). The answer is bitwise the same; a domain the "
-        "native kernel cannot compute is computed in Python and named in the console",
+        "Default. Every stage runs its native (Rust) implementation where there is one (coverage/clip, skeleton, embedding). "
+        "The answer is bitwise the same; a stage the native kernel cannot compute is computed in Python and named in the console",
     ),
 )
-#: Порядок тот же (`PYTHON` — 0, `NATIVE` — 1): в сцене лежит индекс пункта.
-SKELETON_BACKEND_ITEMS = (
-    (
-        KERNEL_BACKEND_PYTHON,
-        "Python",
-        "Frozen reference skeleton in Python (the preparation stage SKELETON): the answer the native skeleton is checked against",
-    ),
-    (
-        KERNEL_BACKEND_NATIVE,
-        "Native (Rust)",
-        "Default. Native (Rust) skeleton for the preparation stage. A scene that chose Python keeps it. "
-        "An unavailable or stale port uses Python and names the fallback in the console. Applies to the next Build Decal Mesh",
-    ),
+#: Стадии, которыми владеет главный переключатель, в порядке аргументов `cftuv_envelope.backend.use_backend`: `(поле StageOrdersV1, подпись в журнале и панели)`.
+#: Новая стадия ядра добавляется ЗДЕСЬ, в `StageOrdersV1`, `_STATUS_FLAGS` и `stage_orders` — и больше нигде (тест сверяет их с сигнатурой `use_backend`).
+STAGES = (
+    ("coverage_clip", "coverage/clip"),
+    ("skeleton", "skeleton"),
+    ("snap_embedding", "embedding"),
 )
+#: Какой признак `NativeStatusV1` говорит, что стадия готова нативно.
+_STATUS_FLAGS = {"coverage_clip": "available", "skeleton": "skeleton_available", "snap_embedding": "embedding_available"}
 #: Сколько номеров патчей называет строка журнала на исход.
 PATCHES_SHOWN = 12
 
@@ -106,39 +96,120 @@ def normalize_kernel_backend(value) -> str:
     return text
 
 
-def kernel_backend_of(mesh_settings) -> str:
-    """Заказанный бэкенд из настроек декали сцены; без свойства (вне Blender) и в сцене, где его не трогали, — умолчание продукта (`NATIVE`)."""
+@dataclass(frozen=True, slots=True)
+class StageOrdersV1:
+    """Порядки стадий прогона: какой бэкенд заказан каждой стадии ядра (`PYTHON` | `NATIVE`)."""
 
-    return normalize_kernel_backend(getattr(mesh_settings, SETTING_NAME, DEFAULT_KERNEL_BACKEND) or DEFAULT_KERNEL_BACKEND)
+    coverage_clip: str
+    skeleton: str
+    snap_embedding: str
+
+    def as_arguments(self) -> tuple:
+        """`(backend, skeleton_backend, embedding_backend)` для `cftuv_envelope.backend.use_backend`."""
+
+        return (self.coverage_clip, self.skeleton, self.snap_embedding)
 
 
-def skeleton_backend_of(mesh_settings) -> str:
-    """Заказанный бэкенд скелета из настроек декали сцены; без свойства (вне Blender, старая сцена) — умолчание стадии (`DEFAULT_SKELETON_BACKEND`)."""
+def stage_orders(kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None) -> StageOrdersV1:
+    """Порядки стадий из ГЛАВНОГО переключателя: ЕДИНСТВЕННОЕ место, где они выводятся.
 
-    return normalize_kernel_backend(getattr(mesh_settings, SKELETON_SETTING_NAME, DEFAULT_SKELETON_BACKEND) or DEFAULT_SKELETON_BACKEND)
-
-
-def backend_identity_of(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND) -> str:
-    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...` при нативном скелете.
-
-    Явный скелет на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
+    `kernel_backend` — главный переключатель (он же порядок покрытия и резки); `None` у `skeleton_backend` и `embedding_backend` — «как главный переключатель»,
+    явное имя — постадийный порядок (API и инструменты: A/B одной стадии, корпус эталона). Продуктовый путь (кнопка, живая ширина, воркеры пула) постадийного порядка не задаёт.
     """
 
-    name = normalize_kernel_backend(kernel_backend)
-    skeleton = normalize_kernel_backend(skeleton_backend)
+    master = normalize_kernel_backend(kernel_backend)
+    return StageOrdersV1(
+        master,
+        master if skeleton_backend is None else normalize_kernel_backend(skeleton_backend),
+        master if embedding_backend is None else normalize_kernel_backend(embedding_backend),
+    )
+
+
+def settle_stage_orders(record, master_field: str = "backend") -> None:
+    """Приводит поля порядков записи (`skeleton_backend`, `embedding_backend` со значением `None` — «как главный переключатель») к конкретным именам.
+
+    Для замороженных записей прогона, задачи пула и живой ширины: зовётся из их `__post_init__`, поле главного переключателя называется `master_field`.
+    """
+
+    orders = stage_orders(getattr(record, master_field), record.skeleton_backend, record.embedding_backend)
+    object.__setattr__(record, master_field, orders.coverage_clip)
+    object.__setattr__(record, "skeleton_backend", orders.skeleton)
+    object.__setattr__(record, "embedding_backend", orders.snap_embedding)
+
+
+def legacy_skeleton_choice(mesh_settings):
+    """Выбор удалённой настройки `skeleton_backend`, сохранённый в сцене (`PYTHON` | `NATIVE`), либо `None`: ключа нет либо он нечитаем."""
+
+    try:
+        raw = mesh_settings[LEGACY_SKELETON_SETTING_NAME]  # ключ свойства Blender: индекс пункта
+    except (KeyError, TypeError, AttributeError, IndexError):
+        raw = getattr(mesh_settings, LEGACY_SKELETON_SETTING_NAME, None)
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return KERNEL_BACKEND_ITEMS[raw][0] if 0 <= raw < len(KERNEL_BACKEND_ITEMS) else None
+        return normalize_kernel_backend(raw)
+    except ValueError:
+        return None
+
+
+def kernel_backend_of(mesh_settings) -> str:
+    """Главный переключатель из настроек декали сцены.
+
+    Без свойства (вне Blender) и в сцене, где его не трогали, — умолчание продукта (`NATIVE`). Явно сохранённый `PYTHON` в старой настройке скелета (`legacy_skeleton_choice`)
+    делает переключатель `PYTHON`, даже если свойство ещё не перенесено (`fold_legacy_skeleton_setting`): чтение ничего не пишет.
+    """
+
+    chosen = normalize_kernel_backend(getattr(mesh_settings, SETTING_NAME, DEFAULT_KERNEL_BACKEND) or DEFAULT_KERNEL_BACKEND)
+    return KERNEL_BACKEND_PYTHON if legacy_skeleton_choice(mesh_settings) == KERNEL_BACKEND_PYTHON else chosen
+
+
+def drop_legacy_skeleton_setting(mesh_settings) -> None:
+    """Снимает ключ удалённой настройки скелета (нет ключа — ничего не делает)."""
+
+    try:
+        del mesh_settings[LEGACY_SKELETON_SETTING_NAME]
+    except (KeyError, TypeError, AttributeError, IndexError):
+        if hasattr(mesh_settings, LEGACY_SKELETON_SETTING_NAME):
+            delattr(mesh_settings, LEGACY_SKELETON_SETTING_NAME)
+
+
+def fold_legacy_skeleton_setting(mesh_settings):
+    """Переносит выбор удалённой настройки скелета в главный переключатель и снимает её ключ; возвращает перенесённый выбор либо `None` (переносить нечего).
+
+    Явный `PYTHON` старой настройки делает главный переключатель явным `PYTHON`; `NATIVE` старой настройки и сцена без неё оставляют переключатель как есть (не присвоен — умолчание `NATIVE`).
+    """
+
+    legacy = legacy_skeleton_choice(mesh_settings)
+    if legacy == KERNEL_BACKEND_PYTHON:
+        setattr(mesh_settings, SETTING_NAME, KERNEL_BACKEND_PYTHON)
+    drop_legacy_skeleton_setting(mesh_settings)
+    return legacy
+
+
+def backend_identity_of(kernel_backend, skeleton_backend=None, embedding_backend=None) -> str:
+    """Идентичность исполнения для ключей кэшей: `PYTHON` либо `NATIVE:<native_build_id()>` для покрытия и резки, плюс `|skeleton=...` и `|snap_embedding=...` при нативных стадиях.
+
+    Стадия на `PYTHON` строку не меняет. Ядро не импортируется — `PYTHON`/`NATIVE` по именам.
+    """
+
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
     try:
         from cftuv_envelope.backend import backend_identity
     except ImportError:
-        base = name if skeleton == KERNEL_BACKEND_PYTHON else f"{name}|skeleton={skeleton}"
-        embedding = normalize_kernel_backend(embedding_backend)
-        return base if embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={embedding}"
-    return backend_identity(name, skeleton, embedding_backend)
+        base = orders.coverage_clip if orders.skeleton == KERNEL_BACKEND_PYTHON else f"{orders.coverage_clip}|skeleton={orders.skeleton}"
+        return base if orders.snap_embedding == KERNEL_BACKEND_PYTHON else f"{base}|snap_embedding={orders.snap_embedding}"
+    return backend_identity(*orders.as_arguments())
 
 
-def skeleton_identity_of(skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
-    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ кэша подготовки сессии несёт её, и только её (подготовка от покрытия и резки не зависит)."""
+def skeleton_identity_of(skeleton_backend=None) -> str:
+    """Идентичность стадии скелета: `PYTHON` либо `NATIVE:<native_build_id()>`. Ключ кэша подготовки сессии несёт её, и только её (подготовка от покрытия и резки не зависит).
 
-    skeleton = normalize_kernel_backend(skeleton_backend)
+    `None` — порядок скелета по умолчанию (как главный переключатель по умолчанию).
+    """
+
+    skeleton = stage_orders(DEFAULT_KERNEL_BACKEND, skeleton_backend).skeleton
     try:
         from cftuv_envelope.backend import stage_identity
     except ImportError:
@@ -147,23 +218,22 @@ def skeleton_identity_of(skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
 
 
 @contextmanager
-def entered_backend(kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND):
+def entered_backend(kernel_backend, skeleton_backend=None, embedding_backend=None):
     """`use_backend` ядра; смена бэкенда покрытия и резки в ЭТОМ процессе сбрасывает память стадии резки.
 
     Отдаёт журнал домена, если нативным заказана хоть одна стадия, и `None`, если все `PYTHON`. Память резки сбрасывается потому, что её ключ бэкенд не несёт;
     скелет в этой памяти не участвует (ответ скелета побитово один), поэтому его смена память резки не трогает.
     """
 
-    name = normalize_kernel_backend(kernel_backend)
-    skeleton = normalize_kernel_backend(skeleton_backend)
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
     from cftuv_envelope.backend import use_backend
 
-    if _LAST_BACKEND[0] != name:
+    if _LAST_BACKEND[0] != orders.coverage_clip:
         from cftuv_envelope.materialize.clip_memo import MEMO
 
         MEMO.clear()
-        _LAST_BACKEND[0] = name
-    with use_backend(name, skeleton, embedding_backend) as ledger:
+        _LAST_BACKEND[0] = orders.coverage_clip
+    with use_backend(*orders.as_arguments()) as ledger:
         yield ledger
 
 
@@ -180,7 +250,7 @@ class PreparationRefused(RuntimeError):
         self.record = record
 
 
-def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND, *, borrowed_ledger=None):
+def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, *, borrowed_ledger=None):
     """`(подготовка, запись | None)`: `build()` под блоком бэкенда, скелет считается в нём.
 
     Заимствованный журнал принадлежит вызывающему: при нём возвращаемая запись — None, чтобы счёт не удвоился.
@@ -191,7 +261,8 @@ def prepared_under_backend(build, kernel_backend=DEFAULT_KERNEL_BACKEND, skeleto
 
     from cftuv_envelope.backend import NativeDomainRefused, use_backend
 
-    with use_backend(kernel_backend, skeleton_backend, embedding_backend, borrowed_ledger=borrowed_ledger) as ledger:
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    with use_backend(*orders.as_arguments(), borrowed_ledger=borrowed_ledger) as ledger:
         try:
             prepared = build()
         except NativeDomainRefused as exc:
@@ -223,17 +294,17 @@ def with_kernel_backend(produce):
     """Добавляет вычислению домена именованный параметр `backend` и кладёт в результат запись бэкенда.
 
     `produce(...)` возвращает результат, у которого есть `with_changes` (результат продуктового пути). Умолчание `backend` —
-    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON, skeleton_backend=PYTHON, embedding_backend=PYTHON` результат остаётся тем же объектом, без записи. Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
+    `DEFAULT_KERNEL_BACKEND` (`NATIVE`); с `backend=PYTHON` результат остаётся тем же объектом, без записи (стадии `skeleton_backend` и `embedding_backend` — как `backend`,
+    пока API не задал им порядок). Если нативное ядро отказало ДОМЕНУ (`NATIVE_DIVISION_DIVERGED`: эталон на этом входе не
     завершился бы; `NATIVE_PARTIAL_EFFECTS_REFUSED`: пояс, состояние сдвинулось), ответ домена недействителен, каким бы он ни вернулся (исключение могла
     проглотить промежуточная стадия): домен отказан этим именем.
 
     Бэкенд ЗАДАЁТСЯ ЯВНО на каждом вызове (поток, начатый внутри блока `use_backend`, его не наследует): поток живой ширины передаёт его
-    через `run_production(kernel_backend=...)`. `skeleton_backend` (умолчание `DEFAULT_SKELETON_BACKEND`) заказывает стадию скелета того же журнала:
-    материализация скелета не считает, но запись домена несёт заказ обеих стадий, а запись подготовки сливается с ней (`with_preparation_record`).
+    через `run_production(kernel_backend=...)`. Материализация скелет не считает, но запись домена несёт заказ всех стадий, а запись подготовки сливается с ней (`with_preparation_record`).
     """
 
     @functools.wraps(produce)
-    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=DEFAULT_SKELETON_BACKEND, embedding_backend=DEFAULT_EMBEDDING_BACKEND, **kwargs):
+    def scoped(*args, backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, **kwargs):
         with entered_backend(backend, skeleton_backend, embedding_backend) as ledger:
             result = produce(*args, **kwargs)
         if ledger is None:
@@ -261,91 +332,82 @@ def _domain_refusal(result, outcome, detail):
 
 
 @dataclass(frozen=True, slots=True)
-class BackendSummaryV1:
-    """Сводка бэкенда по результатам прогона: домены по исполнителю и откаты по названным исходам.
+class StageTallyV1:
+    """Счёт одной стадии по результатам прогона: домены, посчитанные в нём нативно либо откатом на Python, и названные исходы отката.
 
-    `requested`, `native`, `python`, `mixed`, `cached`, `outcomes` — покрытие и резка. Скелет (`skeleton_*`) считается ОТДЕЛЬНО: у него свой заказ, и домен, чей скелет в этом
-    прогоне не считался (подготовка из кэша, отказ до скелета), в его счёт не идёт.
+    `python` — домены, где стадия откатилась хоть раз (`python` и `mixed` записи). Домен, где стадия не считалась (подготовка из кэша, отказ до неё), в счёт не идёт.
     """
 
+    stage: str
     requested: str
     native: int = 0
     python: int = 0
-    mixed: int = 0
-    cached: int = 0
     #: `((исход, (патчи, ...)), ...)` по имени исхода; патч входит в каждый исход, который у него был.
     outcomes: tuple = ()
-    skeleton_requested: str = KERNEL_BACKEND_PYTHON
-    skeleton_native: int = 0
-    skeleton_python: int = 0
-    skeleton_mixed: int = 0
-    #: Как `outcomes`, для скелета.
-    skeleton_outcomes: tuple = ()
-    #: Стадия сертификата вложения заказана на `NATIVE`, только если об этом говорит запись домена: сводка не знает заказа прогона, поэтому «ничего не видно» - `PYTHON`, а не умолчание стадии
-    #: (иначе прогон с явным `PYTHON` печатал бы строку о сертификате, которого не заказывал).
-    embedding_requested: str = KERNEL_BACKEND_PYTHON
-    embedding_native: int = 0
-    embedding_python: int = 0
-    embedding_cache_hits: int = 0
-    embedding_outcomes: tuple = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BackendSummaryV1:
+    """Сводка бэкенда по результатам прогона: счёт по стадиям (в порядке `STAGES`), домены из кэша и попадания памяти вложения."""
+
+    stages: tuple
+    cached: int = 0
+    embedding_memo_hits: int = 0
+
+    def stage(self, name: str) -> StageTallyV1:
+        return next(item for item in self.stages if item.stage == name)
 
     @property
-    def computed(self) -> int:
-        return self.native + self.python + self.mixed
-
-    @property
-    def skeleton_computed(self) -> int:
-        return self.skeleton_native + self.skeleton_python + self.skeleton_mixed
+    def native_stages(self) -> tuple:
+        return tuple(item for item in self.stages if item.requested == KERNEL_BACKEND_NATIVE)
 
 
-def backend_summary(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> BackendSummaryV1:
-    """Сводка по результатам; результат без записи (отказ входа, пропавший домен) в счёт не идёт."""
+def _outcome_list(patches: dict) -> tuple:
+    return tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(patches.items()))
+
+
+def backend_summary(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> BackendSummaryV1:
+    """Сводка по результатам прогона; результат без записи (отказ входа, пропавший домен) в счёт не идёт.
+
+    Порядки стадий называют записи доменов (`BackendRecordV1.requested`, `skeleton_requested`, `embedding_requested`: что заказал прогон на самом деле); пока записей нет,
+    порядки берутся из аргументов (`stage_orders`). Домен из кэша сессии в счёт покрытия, резки и скелета не идёт (в этом прогоне он их не считал), а вложение привязки источника
+    считается в экспорте и для него.
+    """
 
     from .envelope_production_export import PLACEMENT_CACHED
 
-    name = normalize_kernel_backend(kernel_backend)
-    skeleton_name = normalize_kernel_backend(skeleton_backend)
-    counts = {"native": 0, "python": 0, "mixed": 0}
-    skeleton_counts = {"native": 0, "python": 0, "mixed": 0}
-    cached = 0
-    patches: dict = {}
-    skeleton_patches: dict = {}
-    embedding_name, embedding_native, embedding_python, embedding_hits = KERNEL_BACKEND_PYTHON, 0, 0, 0  # заказ стадии видят записи доменов, а не умолчание
-    embedding_patches: dict = {}
+    orders = stage_orders(kernel_backend, skeleton_backend, embedding_backend)
+    recorded = next((item.backend_record for item in results if getattr(item, "backend_record", None) is not None), None)
+    if recorded is not None:
+        orders = StageOrdersV1(recorded.requested, recorded.skeleton_requested, recorded.embedding_requested)
+    counts = {name: {"native": 0, "python": 0} for name, _label in STAGES}
+    patches = {name: {} for name, _label in STAGES}
+    cached = memo_hits = 0
     for item in results:
         record = getattr(item, "backend_record", None)
-        if record is not None and record.embedding_requested == KERNEL_BACKEND_NATIVE:
-            embedding_name = KERNEL_BACKEND_NATIVE
-            embedding_native += record.embedding_native_calls
-            embedding_python += record.embedding_python_calls
-            embedding_hits += record.embedding_cache_hits
-            for outcome in record.embedding_outcomes:
-                embedding_patches.setdefault(outcome, set()).add(int(item.patch_id))
-        if item.placement == PLACEMENT_CACHED:
-            cached += 1
-        elif record is not None:
-            counts[record.ran] += 1
-            for outcome in record.outcomes:
-                patches.setdefault(outcome, set()).add(int(item.patch_id))
-            if record.skeleton_ran:
-                skeleton_counts[record.skeleton_ran] += 1
-            for outcome in record.skeleton_outcomes:
-                skeleton_patches.setdefault(outcome, set()).add(int(item.patch_id))
-    return BackendSummaryV1(
-        name,
-        counts["native"],
-        counts["python"],
-        counts["mixed"],
-        cached,
-        tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(patches.items())),
-        skeleton_name,
-        skeleton_counts["native"],
-        skeleton_counts["python"],
-        skeleton_counts["mixed"],
-        tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(skeleton_patches.items())),
-        embedding_name, embedding_native, embedding_python, embedding_hits,
-        tuple((outcome, tuple(sorted(found))) for outcome, found in sorted(embedding_patches.items())),
+        fresh = item.placement != PLACEMENT_CACHED
+        cached += not fresh
+        if record is None:
+            continue
+        memo_hits += record.embedding_cache_hits
+        views = {
+            "coverage_clip": (record.ran, record.outcomes) if fresh else ("", ()),
+            "skeleton": (record.skeleton_ran, record.skeleton_outcomes) if fresh else ("", ()),
+            "snap_embedding": (record.embedding_ran, record.embedding_outcomes),
+        }
+        for name, _label in STAGES:
+            ran, outcomes = views[name]
+            ran = ran or ("python" if outcomes else "")  # домен, которому стадию отказали по имени, нативно её не считал
+            if not ran:
+                continue
+            counts[name]["native" if ran == "native" else "python"] += 1
+            for outcome in outcomes:
+                patches[name].setdefault(outcome, set()).add(int(item.patch_id))
+    tallies = tuple(
+        StageTallyV1(name, getattr(orders, name), counts[name]["native"], counts[name]["python"], _outcome_list(patches[name]))
+        for name, _label in STAGES
     )
+    return BackendSummaryV1(tallies, cached, memo_hits if orders.snap_embedding == KERNEL_BACKEND_NATIVE else 0)
 
 
 def _patch_list(patches) -> str:
@@ -358,118 +420,122 @@ def _outcomes_text(outcomes) -> str:
     return " (" + "; ".join(f"{name}: {_patch_list(found)}" for name, found in outcomes) + ")" if outcomes else ""
 
 
-def backend_text(summary: BackendSummaryV1) -> str:
-    """`coverage/clip native 120 / python 2 / mixed 1 / cached 3 (NATIVE_PORT_STALE: patch 7, 9); skeleton native 118 / python 4 / mixed 1 (NATIVE_UNAVAILABLE: patch 3)`.
+def _tally_segments(summary: BackendSummaryV1, *, reasons: bool) -> list:
+    """Части строки по порядку: `native: ...`, `python: ...`, `ordered python: ...`; стадия без откатов в `python:` не попадает."""
 
-    Стадия, заказанная на `PYTHON`, называется одним словом без счёта (`coverage/clip python`, `skeleton python`): она считала эталон по заказу, а не по откату.
+    labels = dict(STAGES)
+    segments = []
+    ordered = summary.native_stages
+    if ordered:
+        segments.append("native: " + ", ".join(f"{labels[item.stage]} {item.native}" for item in ordered))
+    fallen = [item for item in ordered if item.python]
+    if fallen:
+        segments.append(
+            "python: " + ", ".join(f"{labels[item.stage]} {item.python}" + (_outcomes_text(item.outcomes) if reasons else "") for item in fallen)
+        )
+    python_ordered = [labels[item.stage] for item in summary.stages if item.requested == KERNEL_BACKEND_PYTHON]
+    if python_ordered:
+        segments.append("ordered python: " + ", ".join(python_ordered))
+    return segments
+
+
+def backend_text(summary: BackendSummaryV1) -> str:
+    """`native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2 (NATIVE_PORT_STALE: patch 7, 9), skeleton 4 (NATIVE_UNAVAILABLE: patch 3) | cached 3`.
+
+    Стадия, заказанная на `PYTHON`, называется в `ordered python:` без счёта: она считала эталон по заказу, а не по откату. `embedding memo K` — попадания памяти вложения (только при `K > 0`).
     """
 
-    if summary.requested == KERNEL_BACKEND_NATIVE:
-        parts = [f"native {summary.native}", f"python {summary.python}"]
-        if summary.mixed:
-            parts.append(f"mixed {summary.mixed}")
-        if summary.cached:
-            parts.append(f"cached {summary.cached}")
-        coverage = "coverage/clip " + " / ".join(parts) + _outcomes_text(summary.outcomes)
-    else:
-        coverage = "coverage/clip python"
-    if summary.skeleton_requested == KERNEL_BACKEND_NATIVE:
-        parts = [f"native {summary.skeleton_native}", f"python {summary.skeleton_python}"]
-        if summary.skeleton_mixed:
-            parts.append(f"mixed {summary.skeleton_mixed}")
-        skeleton = "skeleton " + " / ".join(parts) + _outcomes_text(summary.skeleton_outcomes)
-    else:
-        skeleton = "skeleton python"
-    text = f"{coverage}; {skeleton}"
-    if summary.embedding_requested == KERNEL_BACKEND_NATIVE:
-        text += f"; embedding calls native {summary.embedding_native} / python {summary.embedding_python} / memo {summary.embedding_cache_hits}"
-        text += _outcomes_text(summary.embedding_outcomes)
-    return text
+    segments = _tally_segments(summary, reasons=True)
+    if summary.embedding_memo_hits:
+        segments.append(f"embedding memo {summary.embedding_memo_hits}")
+    if summary.cached:
+        segments.append(f"cached {summary.cached}")
+    return " | ".join(segments)
 
 
-def backend_console_lines(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> list:
-    """Одна строка журнала прогона; пусто, пока все стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE` для покрытия и резки, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
+def backend_console_lines(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> list:
+    """Одна строка журнала прогона; пусто, пока все стадии заказаны на `PYTHON`. Умолчание продукта — `NATIVE`, поэтому строка печатается каждым нажатием, а откат на Python назван в ней."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend)
-    if KERNEL_BACKEND_NATIVE not in (summary.requested, summary.skeleton_requested, summary.embedding_requested):
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    if not summary.native_stages:
         return []
     return [f"[CFTUV][Production] BACKEND {backend_text(summary)}"]
 
 
-def backend_timing_suffix(results, kernel_backend, skeleton_backend=DEFAULT_SKELETON_BACKEND) -> str:
-    """` | backend native 120 / python 2 | skeleton native 118 / python 4` в строку панели; каждая часть — только для стадии, заказанной на `NATIVE`."""
+def backend_timing_suffix(results, kernel_backend, skeleton_backend=None, embedding_backend=None) -> str:
+    """` | native: coverage/clip 120, skeleton 118, embedding 118 | python: coverage/clip 2, skeleton 4` в строку панели (без причин); пусто, пока все стадии `PYTHON`."""
 
-    summary = backend_summary(results, kernel_backend, skeleton_backend)
-    text = ""
-    if summary.requested == KERNEL_BACKEND_NATIVE:
-        text += f" | backend native {summary.native} / python {summary.python + summary.mixed}"
-    if summary.skeleton_requested == KERNEL_BACKEND_NATIVE:
-        text += f" | skeleton native {summary.skeleton_native} / python {summary.skeleton_python + summary.skeleton_mixed}"
-    if summary.embedding_requested == KERNEL_BACKEND_NATIVE:
-        text += f" | embedding calls native {summary.embedding_native} / python {summary.embedding_python} / memo {summary.embedding_cache_hits}"
-    return text
+    summary = backend_summary(results, kernel_backend, skeleton_backend, embedding_backend)
+    if not summary.native_stages:
+        return ""
+    return "".join(f" | {segment}" for segment in _tally_segments(summary, reasons=False) if not segment.startswith("ordered"))
+
+
+def native_status_line(kernel_backend, status) -> tuple:
+    """`(текст, значок)` одной строки состояния под переключателем: какие стадии готовы нативно (по `native_status()`).
+
+    `NATIVE`: все готовы — `Native (Rust): coverage/clip, skeleton, embedding`; часть — `Native: ...; Python: ...` (недостающие считает Python); ни одной — Python считает всё.
+    `PYTHON`: `Python for all stages` и, что готово нативно.
+    """
+
+    ready = [label for name, label in STAGES if getattr(status, _STATUS_FLAGS[name])]
+    missing = [label for name, label in STAGES if not getattr(status, _STATUS_FLAGS[name])]
+    if normalize_kernel_backend(kernel_backend) == KERNEL_BACKEND_PYTHON:
+        return ("Python for all stages; native ready: " + (", ".join(ready) or "none")), "INFO"
+    if not missing:
+        return "Native (Rust): " + ", ".join(ready), "CHECKMARK"
+    if ready:
+        return f"Native: {', '.join(ready)}; Python: {', '.join(missing)}", "ERROR"
+    return "Native unavailable: Python computes every stage", "ERROR"
 
 
 def draw_kernel_backend_row(layout, mesh_settings) -> None:
-    """Строки настройки в панели; при заказе нативного бэкенда — статус нативного ядра одной строкой на стадию."""
+    """Панель: один выпадающий список главного переключателя и одна строка состояния нативных стадий."""
 
     if not hasattr(mesh_settings, SETTING_NAME):
         return
     layout.prop(mesh_settings, SETTING_NAME)
-    if hasattr(mesh_settings, SKELETON_SETTING_NAME):
-        layout.prop(mesh_settings, SKELETON_SETTING_NAME)
-    coverage_native = kernel_backend_of(mesh_settings) == KERNEL_BACKEND_NATIVE
-    skeleton_native = skeleton_backend_of(mesh_settings) == KERNEL_BACKEND_NATIVE
-    if not (coverage_native or skeleton_native):
-        return
     try:
         from cftuv_envelope.backend import native_status
 
-        status = native_status()
+        text, icon = native_status_line(kernel_backend_of(mesh_settings), native_status())
     except Exception as exc:  # noqa: BLE001 - панель не падает из-за статуса
         layout.label(text=f"Native status: {type(exc).__name__}", icon="ERROR")
         return
-    if coverage_native:
-        if status.available:
-            layout.label(text=f"Native {status.version or '?'} ({status.build_id[:10] or '?'}): coverage and clip available", icon="CHECKMARK")
-        else:
-            layout.label(
-                text=f"Native: coverage {status.coverage}, clip {status.clip} (Python computes)",
-                icon="ERROR",
-            )
-    if skeleton_native:
-        if status.skeleton_available:
-            layout.label(text="Native skeleton available", icon="CHECKMARK")
-        else:
-            layout.label(text=f"Native: skeleton {status.skeleton} (Python computes)", icon="ERROR")
+    layout.label(text=text, icon=icon)
 
 
 __all__ = (
     "BackendSummaryV1",
     "DEFAULT_KERNEL_BACKEND",
-    "DEFAULT_EMBEDDING_BACKEND",
-    "merge_backend_records",
-    "ledger_record",
-    "DEFAULT_SKELETON_BACKEND",
     "KERNEL_BACKEND_ITEMS",
     "KERNEL_BACKEND_NATIVE",
     "KERNEL_BACKEND_PYTHON",
+    "LEGACY_SKELETON_SETTING_NAME",
     "PreparationRefused",
     "SETTING_NAME",
-    "SKELETON_BACKEND_ITEMS",
-    "SKELETON_SETTING_NAME",
+    "STAGES",
+    "StageOrdersV1",
+    "StageTallyV1",
     "backend_console_lines",
     "backend_identity_of",
     "backend_summary",
     "backend_text",
     "backend_timing_suffix",
     "draw_kernel_backend_row",
+    "drop_legacy_skeleton_setting",
     "entered_backend",
+    "fold_legacy_skeleton_setting",
     "kernel_backend_of",
+    "ledger_record",
+    "legacy_skeleton_choice",
+    "merge_backend_records",
+    "native_status_line",
     "normalize_kernel_backend",
     "prepared_under_backend",
-    "skeleton_backend_of",
+    "settle_stage_orders",
     "skeleton_identity_of",
+    "stage_orders",
     "with_kernel_backend",
     "with_preparation_record",
 )

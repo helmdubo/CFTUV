@@ -131,7 +131,10 @@ class PatchSurfaceIR:
         return {triangle.triangle_id: triangle for triangle in self.triangles}
 
     def patch_faces(self, patch_id: int) -> tuple[SourceFace, ...]:
-        return tuple(face for face in self.faces if face.patch_id == int(patch_id))
+        # По индексу поверхности (`surface_index`), а не проходом по всем граням на каждый патч: порядок поверхности тот же.
+        from .surface_index import patch_faces_of
+
+        return patch_faces_of(self, patch_id)
 
     def patch_triangles(self, patch_id: int) -> tuple[SurfaceTriangle, ...]:
         face_ids = {face.face_id for face in self.patch_faces(patch_id)}

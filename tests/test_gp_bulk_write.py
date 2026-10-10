@@ -9,6 +9,8 @@ Blender здесь нет, поэтому frame/drawing — записывающ
 from __future__ import annotations
 
 from fractions import Fraction
+import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -249,4 +251,27 @@ def test_exact_coordinate_is_parsed_once_per_distinct_string():
 
     assert values == [float(Fraction(1, 3)), 2.0] * 2 + [float(Fraction(1, 3))]
     assert sympy.calls == ["1/3", "2"]
+    _exact_float.cache_clear()
+
+
+def test_exact_coordinate_reads_the_v2_canon_text_the_kernel_writes(monkeypatch):
+    """Строка канона V2 (`Sqrt(Rational(P, Q))`, знак впереди) - не `srepr`: `sympify` читал её как неопределённую функцию `Sqrt`, и `float` падал.
+
+    Читатель строки - тот же, что её пишет (`ExactScalar.as_expr`); рациональные строки и прежняя форма идут прежним путём.
+    """
+
+    import sympy
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "kernel" / "src"))
+    from cftuv_envelope.reference.native_exact import RadicalSumV1, canonical_text
+
+    with pytest.raises(TypeError):
+        float(sympy.sympify("Sqrt(Rational(2, 1))"))  # красный контроль: прежний разбор строки V2 не читал
+    _exact_float.cache_clear()
+    for square, sign in ((Fraction(2), 1), (Fraction(81, 5), -1), (Fraction(65537**2 * 100003), 1), (Fraction(14, 9), -1)):
+        text = canonical_text(RadicalSumV1.sqrt_of_rational(square).scaled(sign))
+        assert text == ("-" if sign < 0 else "") + f"Sqrt(Rational({square.numerator}, {square.denominator}))"
+        assert _exact_float(text, sympy) == pytest.approx(sign * math.sqrt(square), rel=1e-14)
+    assert _exact_float("Rational(-5, 4)", sympy) == -1.25
+    assert _exact_float("Mul(Rational(9, 5), Pow(Integer(5), Rational(1, 2)))", sympy) == pytest.approx(9 / 5 * math.sqrt(5), rel=1e-14)
     _exact_float.cache_clear()

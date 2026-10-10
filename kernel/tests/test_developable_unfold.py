@@ -68,7 +68,7 @@ FOLD_STRIP_CERTIFICATE_SHA256_AT_ONE_FIFTIETH = (
 )
 # Оба дайджеста перезаписаны 2026-10-03 (STRETCH-BUDGET-POLICY + BEST-PROPOSAL): сертификат получил четыре поля
 # выбора предложения. Прежние значения (`f492bc8c...` при 1/5, `ef2baa0b...` при 1/50) восстанавливаются
-# вычёркиванием ровно этих полей — это закрыто тестом `test_the_new_certificate_fields_are_the_only_bytes_that_changed`.
+# вычёркиванием ровно этих полей — это закрыто тестом `test_the_certificate_without_the_four_new_fields_equals_the_pinned_golden_digests`.
 
 
 def _digest(record) -> str:

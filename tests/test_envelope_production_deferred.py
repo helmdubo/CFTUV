@@ -263,6 +263,8 @@ TOOL_DIGEST_READERS = {
     # A/B бэкендов читает дайджесты РЕЗУЛЬТАТА продуктового пути (с воркерами они приходят лениво из отложенного результата).
     ("tools/blender_native_ab.py", "content_digest"): "domain_row: дайджест содержимого результата домена",
     ("tools/blender_native_ab.py", "semantic_digest"): "domain_row: семантический дайджест батча результата домена",
+    # Полевой случай `cover.008` пишет строку по домену для судьи (`field_judge.py`): дайджест содержимого результата продуктового пути.
+    ("tools/blender_field_case_cover008.py", "content_digest"): "_domain_rows: дайджест содержимого результата домена",
 }
 _DIGEST_FIELDS = ("content_digest", "semantic_digest")
 

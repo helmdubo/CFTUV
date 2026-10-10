@@ -33,8 +33,6 @@ from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_host_labels import record_host_tokens
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
-    DEFAULT_SKELETON_BACKEND,
-    DEFAULT_EMBEDDING_BACKEND,
     entered_backend,
     ledger_record,
     merge_backend_records,
@@ -42,10 +40,13 @@ from .envelope_kernel_backend import (
     backend_identity_of,
     backend_timing_suffix,
     prepared_under_backend,
+    settle_stage_orders,
     skeleton_identity_of,
     with_kernel_backend,
     with_preparation_record,
 )
+from .envelope_snap_retry import retry_snap_lottery, snap_scale_notes
+from .envelope_topology_export import metric_law_key
 from .envelope_production_report import (  # noqa: F401 - переэкспорт: имена прежние
     diagnostic_summary_lines,
     export_production_json,
@@ -504,7 +505,7 @@ def produce_domain(
             counters=tuple((str(name), value) for name, value in result.counters),
             normal=(normal.x, normal.y, normal.z),
             content_digest=result.content_digest,
-            diagnostics=tuple(result.diagnostics),
+            diagnostics=(*result.diagnostics, *snap_scale_notes(prepared)),
             source_normal=_source_normal(prepared),
             chart_orientation=str(prepared.context.frame.chart_orientation.value),
             vertex_normals=tuple(result.vertex_normals),
@@ -529,8 +530,8 @@ def prepare_for_production_recorded(
     request,
     *,
     backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
+    skeleton_backend: str | None = None,
+    embedding_backend: str | None = None,
     borrowed_ledger=None,
 ):
     """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда.
@@ -561,8 +562,8 @@ def prepare_for_production(
     request,
     *,
     backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
+    skeleton_backend: str | None = None,
+    embedding_backend: str | None = None,
 ):
     """Подготовка очереди с холодной памятью разложений (то, что делала кнопка отладки) без записи бэкенда: `prepare_for_production_recorded(...)[0]`."""
 
@@ -801,16 +802,30 @@ class _RunInputsV1:
     #: прогона, и переносы, которых не вышло (`(патч, причина)`).
     #: `threading.Event` заказа остановки либо `None` (кнопка не отменяется).
     cancel: object = None
-    #: Бэкенд ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
+    #: Главный переключатель ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
     backend: str = DEFAULT_KERNEL_BACKEND
-    backend_id: str = DEFAULT_KERNEL_BACKEND
-    #: Бэкенд стадии скелета; `backend_id` несёт идентичность обеих стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
-    skeleton_id: str = DEFAULT_SKELETON_BACKEND
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
+    #: Идентичности (`None` — их выводит `__post_init__` из порядков): `backend_id` несёт идентичность всех стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
+    backend_id: str | None = None
+    #: Постадийные порядки (`None` — как `backend`; `__post_init__` приводит поля к именам).
+    skeleton_backend: str | None = None
+    skeleton_id: str | None = None
+    embedding_backend: str | None = None
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        settle_stage_orders(self)
+        if self.backend_id is None:
+            object.__setattr__(self, "backend_id", backend_identity_of(self.backend, self.skeleton_backend, self.embedding_backend))
+        if self.skeleton_id is None:
+            object.__setattr__(self, "skeleton_id", skeleton_identity_of(self.skeleton_backend))
+
+    @property
+    def grid_scale_law(self):
+        """Закон выбора масштаба решётки прогона (`None`: умолчание ядра; повтор после отказа лотереи привязки - `PLANE_PRESERVING_V1`): часть ключей кэшей."""
+
+        return getattr(self.topology_export, "grid_scale_law", None)
 
 
 def _check_cancel(run: _RunInputsV1) -> None:
@@ -850,6 +865,7 @@ def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
         run.backend_id,
         skeleton_id=run.skeleton_id,
+        grid_scale_law=run.grid_scale_law,
     )
 
 
@@ -864,7 +880,7 @@ def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs)
         domain_id,
         selected,
         prepared=controller.peek_conveyor_preparation(
-            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id
+            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
         ),
         inputs=inputs,
         result_key=key,
@@ -937,6 +953,7 @@ def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
         run.topology_export.silhouette_uv_slide,
         _band_key(run, patch_id),
         run.backend_id,
+        *metric_law_key(run.topology_export),
     )
 
 
@@ -1153,7 +1170,7 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
         try:
             prepared = run.controller.get_conveyor_preparation(
                 run.revision, entry.domain_id, entry.selected, request, build,
-                profile=run.profile, skeleton_id=run.skeleton_id,
+                profile=run.profile, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law,
             )
         except PreparationRefused as refused:
             return _placed(_refusal(
@@ -1225,6 +1242,7 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                 lambda: prepared,
                 profile=run.profile,
                 skeleton_id=run.skeleton_id,
+                grid_scale_law=run.grid_scale_law,
             )
             if reply.prepared_blob is not None and cached is prepared:
                 run.controller.preparation_blobs.adopt(prepared, reply.prepared_blob, reply.prepared_key)
@@ -1259,7 +1277,7 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     if entry.content_key is None or result.labels is None or result.outcome == OUTCOME_DOMAIN_RAISED:
         return
     prepared = controller.peek_conveyor_preparation(
-        run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id
+        run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
     )
     if prepared is None:
         return
@@ -1534,9 +1552,12 @@ class ProductionRunV1:
     wall_seconds: float
     #: `((патч, (рёбра хоста, чью полосу строит домен патча), ...), ...)`: ровно то, что превью ширины рисует.
     selected_by_patch: tuple = ()
-    kernel_backend: str = DEFAULT_KERNEL_BACKEND  # бэкенд ядра, заказанный прогоном
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND  # бэкенд стадии скелета, заказанный прогоном
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
+    kernel_backend: str = DEFAULT_KERNEL_BACKEND  # главный переключатель ядра, заказанный прогоном
+    skeleton_backend: str | None = None  # порядки стадий прогона: `None` — как `kernel_backend`, `__post_init__` приводит их к именам
+    embedding_backend: str | None = None
+
+    def __post_init__(self) -> None:
+        settle_stage_orders(self, "kernel_backend")
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -1687,8 +1708,8 @@ def run_production(
     cancel=None,
     quiesce: bool = True,
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
+    skeleton_backend: str | None = None,
+    embedding_backend: str | None = None,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -1702,6 +1723,8 @@ def run_production(
     после его установки пул не берёт новые задачи, родитель не начинает новый домен, а прогон бросает
     `ProductionCancelled`. `quiesce=False` у такого прогона обязателен: он сам идёт в потоке планировщика
     превью и не вправе останавливать тот же планировщик из потока счёта; кнопка оставляет `True`.
+
+    `kernel_backend` — ГЛАВНЫЙ переключатель всех стадий ядра; `skeleton_backend`/`embedding_backend` (только API) — порядок одной стадии, `None` — как главный (`stage_orders`).
     """
 
     from .envelope_chart_band import policy_alpha
@@ -1750,10 +1773,8 @@ def run_production(
         profile,
         cancel=cancel,
         backend=kernel_backend,
-        backend_id=backend_identity_of(kernel_backend, skeleton_backend, embedding_backend),
         skeleton_backend=skeleton_backend,
         embedding_backend=embedding_backend,
-        skeleton_id=skeleton_identity_of(skeleton_backend),
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -1771,7 +1792,7 @@ def run_production(
             [item for item in work if item.prepared is None and item.carried is None],
             pool,
         )
-    results = _domain_results(entries, done, refused)
+    results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     _record_run_counters(profile, controller, builds_before, entries, results, cold)
     _record_content_counters(profile, run, entries)
     return ProductionRunV1(
@@ -1813,7 +1834,7 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"built {builds} | results cached {cached}, computed {computed}"
         f"{_content_timing_suffix(run, content)}"
         f"{_clip_memo_timing_suffix(run)}"
-        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend)}"
+        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
 

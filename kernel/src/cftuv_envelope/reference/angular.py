@@ -1584,7 +1584,7 @@ def evaluate_angular_envelope(
     instance_id = stable_id(
         "envelope-instance",
         spec.envelope_spec_id,
-        ExactScalar.from_value(effective_alpha).expression,
+        ExactScalar.canonical(effective_alpha).expression,
     )
     base_provenance = merge_provenance(
         context.provenance_by_spec_id[spec.envelope_spec_id.value],
@@ -1677,7 +1677,7 @@ def evaluate_angular_envelope(
         envelope_spec_id=spec.envelope_spec_id.value,
         envelope_variant="AngularEnvelope",
         requested_alpha=alpha_value,
-        effective_alpha=ExactScalar.from_value(effective_alpha),
+        effective_alpha=ExactScalar.canonical(effective_alpha),
         regions=(region,) if region is not None else (),
         exposed_segments=region.outer.segments if region is not None else (),
         provenance=base_provenance,

@@ -6,7 +6,11 @@
 
 Запуск (фоновый Blender БЕЗ `--factory-startup`; копия файла, не оригинал владельца):
   set PYTHONSAFEPATH=1
-  blender -b <копия buildings2_2.blend> --python-exit-code 1 --python tools\\blender_field_case_cover008.py -- --out r.json [--workers 3] [--source installed]
+  blender -b <копия buildings2_2.blend> --python-exit-code 1 --python tools\\blender_field_case_cover008.py -- --out r.json [--workers 3] [--source installed] [--rows rows.json] [--geometry positions.json.gz]
+
+`--rows`: запись ПО ДОМЕНАМ для судьи `artifacts/materialize_sweep/field_judge.py` (строка домена: исход, дайджест содержания батча, дайджест позиций, счётчики и диагностики материализатора;
+номер случая `cover.008:<alpha>:<плотность>:<растяжение>:<патч>`, поэтому плотность судья читает из той же позиции, что у полевых случаев). `--geometry`: позиции вершин каждого построенного домена
+(`{патч: {имя вершины: [x, y, z]}}`, gzip-JSON) для расстояний между двумя прогонами (этот же скрипт на основе и на дереве среза).
 
 `--source worktree` (умолчание): пакеты берутся из этого дерева (установленный аддон из настроек снимается);
 `--source installed`: что установлено и включено. Выход 0 — новых отказов нет; 1 — файл/выделение/политика не те
@@ -14,10 +18,14 @@
 стало больше базы, либо предполёт источника назвал не те домены не теми именами (ровно патч 18 `SOURCE_T_VERTEX` и патч 285
 `SOURCE_FACE_SELF_INTERSECTION`), либо деталь отказа в консоли длиннее 240 знаков (`FIELD_CASE_REGRESSED`). Восстановленные домены базы
 называются в выводе: это улучшение, а не сбой.
+
+Повтор `SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1` (`cftuv/envelope_snap_retry.py`): домены `CASE["snap_retry_domains"]` обязаны быть построены именно
+повтором (диагностика исхода с именем первоначального отказа), и ни один другой домен повтор нести не вправе; расхождение - `FIELD_CASE_SNAP_RETRY_MISMATCH`.
 """
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -43,11 +51,15 @@ CASE = {
         1002: "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", 1007: "NO_GRID_SCALE_RESTORES_RELATIONS",
     },
     "baseline_weld_miter_fallbacks": 3,
+    # Домены, которые строит повтор с масштабом решётки, сохраняющим плоскость патча (лотерея привязки на 6a46ec0d: отказы 118, 629, 630 -
+    # DENSITY_RATIONAL_AUTHORITY_EXHAUSTED, 1005 - PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED, 1002 - SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE).
+    "snap_retry_domains": (118, 629, 630, 1002, 1005),
     # С COVER008-A предполёт источника называет два из десяти отказов ДО ядра (T-вершины патча 18, «бабочка» грани 1497 патча 285).
-    # Ровно эти два домена и ровно этими именами; остальные восемь отказов базы прежние.
+    # Ровно эти два домена и ровно этими именами; остальные восемь отказов базы прежние (из них 40, 312, 1007 остаются отказами и после повтора).
     "source_contact_refusals": {18: "SOURCE_T_VERTEX", 285: "SOURCE_FACE_SELF_INTERSECTION"},
     "console_detail_limit": 240,
 }
+RETRY_OUTCOME = "SOURCE_SNAP_PLANE_PRESERVED_RETRY_V1"
 
 
 class FieldCaseError(RuntimeError):
@@ -149,10 +161,14 @@ def _verdict(run, receipt) -> dict:
     refused = {item.patch_id: item.outcome for item in run.results if not item.is_materialized}
     base = CASE["baseline_refused"]
     fallbacks = sum(int(detail.split()[0]) for _patch, name, detail in receipt.warnings if name == "ADAPTER_WELD_MITER_FALLBACK")
+    retried = sorted(
+        item.patch_id for item in run.results if any(line.startswith(RETRY_OUTCOME + ":") for line in item.diagnostics)
+    )
     from cftuv.envelope_production_report import console_detail
 
     contact_names = set(CASE["source_contact_refusals"].values())
     return {
+        "snap_retry": retried,
         "source_contact_refusals": {p: o for p, o in sorted(refused.items()) if o in contact_names},
         "longest_console_detail": max((len(console_detail(item.detail, item.outcome)) for item in run.results if not item.is_materialized), default=0),
         "domains": len(run.results), "refused": dict(sorted(refused.items())),
@@ -161,6 +177,42 @@ def _verdict(run, receipt) -> dict:
         "recovered": sorted(p for p in base if p not in refused),
         "weld_miter_fallback_vertices": fallbacks,
     }
+
+
+def _positions_of(item) -> dict:
+    """Позиции вершин построенного домена: имя вершины (`semantic_location_ref`) -> [x, y, z]; у отказа пусто."""
+
+    if not item.is_materialized:
+        return {}
+    return {
+        vertex.semantic_location_ref.value: [float(vertex.position.x), float(vertex.position.y), float(vertex.position.z)]
+        for vertex in item.batch.vertices
+    }
+
+
+def _domain_rows(run, positions: dict) -> list:
+    """Строки для `field_judge.py`: одна на домен; цена (секунды) в строку не входит."""
+
+    policy = CASE["policy"]
+    prefix = f"{CASE['object']}:{policy['alpha']!r}:{policy['density']}:{policy['max_stretch']}"
+    rows = []
+    for item in sorted(run.results, key=lambda result: result.patch_id):
+        placed = positions.get(item.patch_id, {})
+        done = item.is_materialized
+        rows.append({
+            "case": f"{prefix}:{item.patch_id}",
+            "operator": ["FINISHED"] if done else ["CANCELLED"],
+            "status": item.outcome,
+            "verts": len(placed) if done else None,
+            "faces": len(item.batch.faces) if done else None,
+            "mesh_digest": item.content_digest if done else None,
+            "geometry_sha256": hashlib.sha256(json.dumps(placed, sort_keys=True).encode()).hexdigest() if done else None,
+            "domain_outcomes": {item.outcome: 1},
+            "refused": [] if done else [[item.patch_id, item.outcome, str(item.detail)[:160]]],
+            "counters": dict(item.counters),
+            "diagnostics": list(item.diagnostics),
+        })
+    return rows
 
 
 def main() -> int:
@@ -182,6 +234,14 @@ def main() -> int:
     verdict = {**_verdict(run, receipt), "status": status, "run_seconds": round(seconds, 1)}
     if "--out" in option:
         Path(option["--out"]).write_text(json.dumps(verdict, indent=1, sort_keys=True), encoding="utf-8")
+    if "--rows" in option or "--geometry" in option:
+        positions = {item.patch_id: _positions_of(item) for item in run.results}
+        if "--rows" in option:
+            record = {"root": str(ROOT), "cases": _domain_rows(run, positions)}
+            Path(option["--rows"]).write_text(json.dumps(record, indent=1, sort_keys=True), encoding="utf-8")
+        if "--geometry" in option:
+            with gzip.open(option["--geometry"], "wt", encoding="utf-8") as handle:
+                json.dump({str(patch): placed for patch, placed in positions.items() if placed}, handle, sort_keys=True)
     print(status)
     print(f"recovered vs baseline: {verdict['recovered']}; new refusals: {verdict['new_refusals']}; outcome changes: {verdict['changed_outcome']}")
     more_weld = verdict["weld_miter_fallback_vertices"] > CASE["baseline_weld_miter_fallbacks"]
@@ -189,8 +249,11 @@ def main() -> int:
     console_too_long = verdict["longest_console_detail"] > CASE["console_detail_limit"]
     print(f"source contact refusals: {verdict['source_contact_refusals']} (expected {CASE['source_contact_refusals']}); longest console detail {verdict['longest_console_detail']}")
     regressed = verdict["domains"] != CASE["domains"] or bool(verdict["new_refusals"]) or more_weld or contacts_differ or console_too_long
+    retry_mismatch = verdict["snap_retry"] != sorted(CASE["snap_retry_domains"])
+    if retry_mismatch:
+        print(f"FIELD_CASE_SNAP_RETRY_MISMATCH: built by the retry {verdict['snap_retry']}, the case records {sorted(CASE['snap_retry_domains'])}")
     print("FIELD_CASE_REGRESSED" if regressed else "FIELD_CASE_OK")
-    return 1 if regressed else 0
+    return 1 if regressed or retry_mismatch else 0
 
 
 if __name__ == "__main__":
