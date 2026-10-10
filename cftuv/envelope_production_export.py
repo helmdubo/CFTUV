@@ -817,7 +817,7 @@ class _RunInputsV1:
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
-    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет)}`; повтор лотереи привязки заводит свои.
+    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет), "key_memo": тексты общих записей для ключей содержимого этого прогона}`; повтор лотереи привязки заводит свои.
     scan_records: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -999,7 +999,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend)
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend, run.embedding_backend, run.scan_records.setdefault("key_memo", {}))
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
