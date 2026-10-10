@@ -82,7 +82,7 @@ import traceback
 from collections import deque
 from dataclasses import dataclass, replace
 
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, DEFAULT_EMBEDDING_BACKEND
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, settle_stage_orders
 from .envelope_worker_store import STORE, PreparationLruV1, PreparationMissing, blob_key
 
 #: Меньше двух воркеров — это последовательный путь, пула не заводится.
@@ -216,14 +216,17 @@ class DomainTaskV1:
     cold: object | None = None
     #: Ключ привязки к воркеру (`plan_first_round`): задача с тем же ключом идёт к тому же воркеру, если он жив; пусто — без привязки.
     affinity: str = ""
-    #: Бэкенд ядра воркера для домена продуктового пути (`PYTHON` | `NATIVE`, `envelope_kernel_backend`): ответ от него не зависит;
+    #: ГЛАВНЫЙ переключатель ядра воркера для домена продуктового пути (`PYTHON` | `NATIVE`, `envelope_kernel_backend`): ответ от него не зависит;
     #: запись «кто посчитал на самом деле и какой названный откат» приходит в ответе домена (`backend_record`). Умолчание — продуктовое.
     backend: str = DEFAULT_KERNEL_BACKEND
-    #: Бэкенд стадии скелета воркера (`PYTHON` | `NATIVE`): скелет считается в подготовке (холодная задача, задача очереди), а не в материализации, и воркер ставит блок
-    #: бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`). Умолчание — умолчание стадии (`DEFAULT_SKELETON_BACKEND`, `NATIVE`).
-    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
-    #: Бэкенд сертификата вложения привязки источника воркера (`PYTHON` | `NATIVE`): он считается в экспорте, подготовке и материализации. Умолчание — умолчание стадии (`DEFAULT_EMBEDDING_BACKEND`, `NATIVE`).
-    embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
+    #: Постадийные порядки воркера (API): `None` — как `backend`, и `__post_init__` приводит поле к имени (`settle_stage_orders`). Скелет считается в подготовке (холодная
+    #: задача, задача очереди), а не в материализации, и воркер ставит блок бэкенда вокруг подготовки (`prepare_for_production_recorded`, `run_queue_domain`); сертификат
+    #: вложения привязки источника считается в экспорте, подготовке и материализации.
+    skeleton_backend: str | None = None
+    embedding_backend: str | None = None
+
+    def __post_init__(self) -> None:
+        settle_stage_orders(self)
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,18 +37,18 @@ from __future__ import annotations
 
 import bmesh
 import bpy
+from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, FloatProperty, PointerProperty, StringProperty
 
 from .analysis import build_analysis_bundle
 from .analysis_surface import source_revision_from_bmesh
 from .envelope_kernel_backend import (
     DEFAULT_KERNEL_BACKEND,
-    DEFAULT_SKELETON_BACKEND,
     KERNEL_BACKEND_ITEMS,
-    SKELETON_BACKEND_ITEMS,
     backend_console_lines,
+    drop_legacy_skeleton_setting,
+    fold_legacy_skeleton_setting,
     kernel_backend_of,
-    skeleton_backend_of,
 )
 from .envelope_production_mesh import (
     DEFAULT_DECAL_MATERIAL,
@@ -68,6 +68,12 @@ UNDO_REQUIRED_REASON = (
     "(dangling pointer, crash in the depsgraph); the pushed step makes Blender write "
     "the memfile that holds the decal"
 )
+
+
+def _kernel_backend_changed(self, _context) -> None:
+    """Владелец выбрал переключатель: прежний ключ настройки скелета больше не говорит за него (иначе старый `PYTHON` перебил бы выбор)."""
+
+    drop_legacy_skeleton_setting(self)
 
 
 class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
@@ -95,20 +101,12 @@ class HOTSPOTUV_DecalMeshSettings(bpy.types.PropertyGroup):
         name="Kernel backend",
         items=KERNEL_BACKEND_ITEMS,
         default=DEFAULT_KERNEL_BACKEND,
+        update=_kernel_backend_changed,
         description=(
-            "Which kernel computes the decal: the native (Rust) one (default) or the frozen Python reference. The "
-            "answer is bitwise the same; a domain the native kernel cannot compute is computed in Python and "
-            "named in the console. A scene that chose Python keeps it. Applies to the next Build Decal Mesh"
-        ),
-    )
-    skeleton_backend: EnumProperty(
-        name="Skeleton backend",
-        items=SKELETON_BACKEND_ITEMS,
-        default=DEFAULT_SKELETON_BACKEND,
-        description=(
-            "Which kernel computes the skeleton stage of the preparation: the native (Rust) one (default) or the "
-            "frozen Python reference. The answer and the price are bitwise the same; a domain the native kernel cannot compute "
-            "is computed in Python and named in the console. Applies to the next Build Decal Mesh"
+            "One switch for every stage the kernel has in Rust (coverage/clip, skeleton, embedding): the native (Rust) "
+            "implementation (default) or the frozen Python reference. The answer is bitwise the same; a stage the native "
+            "kernel cannot compute is computed in Python and named in the console. A scene that chose Python keeps it. "
+            "Applies to the next Build Decal Mesh"
         ),
     )
     status: StringProperty(name="Decal Mesh Status", default="")
@@ -179,8 +177,8 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
         source_obj = context.active_object
         mesh_settings.status = "Building decal mesh..."
         mesh_settings.timing = ""
+        fold_legacy_skeleton_setting(mesh_settings)
         kernel_backend = kernel_backend_of(mesh_settings)
-        skeleton_backend = skeleton_backend_of(mesh_settings)
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
         selected = [edge.index for edge in source_bm.edges if edge.select]
@@ -221,7 +219,6 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 silhouette_uv_slide=envelope_dissolve_uv_slide(settings.envelope_debug_dissolve_uv_tolerance),
                 workers=settings.envelope_debug_workers,
                 kernel_backend=kernel_backend,
-                skeleton_backend=skeleton_backend,
             )
         except Exception as exc:  # noqa: BLE001 - причина идёт владельцу
             mesh_settings.status = f"Decal mesh failed: {type(exc).__name__}"
@@ -261,8 +258,9 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
                 stretch_percent=int(settings.envelope_debug_max_stretch),
                 dissolve_percent=float(settings.envelope_debug_dissolve_uv_tolerance),
                 width=float(settings.envelope_debug_alpha),
-                kernel_backend=kernel_backend,
-                skeleton_backend=skeleton_backend,
+                kernel_backend=run.kernel_backend,
+                skeleton_backend=run.skeleton_backend,
+                embedding_backend=run.embedding_backend,
             )
             sample = build_sample(run.results, arrays, sample_key(record, offset), float(settings.envelope_debug_alpha))
             note_button_display(controller, sample)
@@ -278,7 +276,7 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
             f"{production_timing_text(run)} | "
             f"{receipt.faces} faces, {receipt.vertices} vertices"
         )
-        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend), *receipt_console_lines(receipt, run.results)):
+        for line in (*backend_console_lines(run.results, run.kernel_backend, run.skeleton_backend, run.embedding_backend), *receipt_console_lines(receipt, run.results)):
             print(line, flush=True)
         self.report(
             {receipt_report_level(receipt)},
@@ -288,6 +286,34 @@ class HOTSPOTUV_OT_BuildEnvelopeDecalMesh(bpy.types.Operator):
 
 
 _CLASSES = (HOTSPOTUV_DecalMeshSettings, HOTSPOTUV_OT_BuildEnvelopeDecalMesh)
+
+
+def fold_scene_settings() -> int:
+    """Переносит выбор прежней настройки скелета в главный переключатель во всех сценах файла (`fold_legacy_skeleton_setting`); число сцен, где она лежала."""
+
+    folded = 0
+    for scene in bpy.data.scenes:
+        settings = getattr(scene, SETTINGS_ATTRIBUTE, None)
+        if settings is not None and fold_legacy_skeleton_setting(settings) is not None:
+            folded += 1
+    return folded
+
+
+@persistent
+def _fold_after_load(*_args) -> None:
+    """Загрузка файла: сцены, сохранённые с прежней настройкой скелета, получают главный переключатель (панель показывает то, что считает кнопка)."""
+
+    try:
+        fold_scene_settings()
+    except Exception as exc:  # noqa: BLE001 - миграция не ломает загрузку: чтение `kernel_backend_of` и так учитывает прежний ключ
+        print(f"[CFTUV][Backend] legacy skeleton setting was not folded: {type(exc).__name__}: {exc}", flush=True)
+
+
+def _fold_once():
+    """Таймер регистрации: аддон включён в открытой сцене (у `load_post` повода нет), а в ограниченном контексте регистрации `bpy.data` не читается."""
+
+    _fold_after_load()
+    return None
 
 
 def register_production_operator() -> None:
@@ -305,6 +331,10 @@ def register_production_operator() -> None:
         PointerProperty(type=HOTSPOTUV_DecalMeshSettings),
     )
     register_width_tools()
+    if _fold_after_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_fold_after_load)
+    if not bpy.app.timers.is_registered(_fold_once):
+        bpy.app.timers.register(_fold_once, first_interval=0.0)
 
 
 def unregister_production_operator() -> None:
@@ -313,6 +343,10 @@ def unregister_production_operator() -> None:
     from .envelope_width_modal import unregister_width_tools
 
     unregister_width_tools()
+    while _fold_after_load in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_fold_after_load)
+    if bpy.app.timers.is_registered(_fold_once):
+        bpy.app.timers.unregister(_fold_once)
     if hasattr(bpy.types.Scene, SETTINGS_ATTRIBUTE):
         delattr(bpy.types.Scene, SETTINGS_ATTRIBUTE)
     for cls in reversed(_CLASSES):
@@ -325,6 +359,7 @@ __all__ = (
     "HOTSPOTUV_OT_BuildEnvelopeDecalMesh",
     "SETTINGS_ATTRIBUTE",
     "UNDO_REQUIRED_REASON",
+    "fold_scene_settings",
     "register_production_operator",
     "unregister_production_operator",
 )

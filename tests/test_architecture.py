@@ -333,6 +333,7 @@ _WIDTH_COMPUTE_NAMES = frozenset(
         "slide",
         "kernel_backend",
         "skeleton_backend",
+        "embedding_backend",
         "pool",
         "cancel",
         "exc",
@@ -2075,3 +2076,140 @@ def test_embedding_hook_preserves_the_value_memo_and_frozen_python_leaf():
     required = next(n for n in dispatcher.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_REQUIRED" for t in n.targets))
     assert "snap_embedding_certificate" not in ast.dump(required), "B1 must not disable the older three-operation wheel"
     assert "snap_embedding" in RUST_ONLY_OPERATIONS, "EMBEDDING_NATIVE_DEFAULT_V1: the certificate stage is Rust-only after the strict field A/B and parity"
+
+
+# --------------------------------------------------------------------------
+# Главный переключатель бэкенда ядра: одно именованное умолчание, стадии без своих
+# --------------------------------------------------------------------------
+
+#: Имена параметров, полей и свойств сцены, которыми хост заказывает бэкенд ядра.
+_BACKEND_NAMES = frozenset({"backend", "kernel_backend", "backend_id", "skeleton_backend", "embedding_backend"})
+#: Постадийные порядки: у стадии собственного умолчания нет, `None` значит «как главный переключатель» (`stage_orders`).
+_BACKEND_STAGE_NAMES = frozenset({"skeleton_backend", "embedding_backend"})
+_BACKEND_MASTER_DEFAULTS = frozenset({"DEFAULT_KERNEL_BACKEND", "None"})
+
+
+def _backend_defaults(tree: ast.Module, file: str) -> list:
+    """`[(файл, имя, текст умолчания)]` по параметрам функций, полям записей и свойствам сцены (`kernel_backend: EnumProperty(..., default=...)`)."""
+
+    found: list = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            arguments = node.args
+            positional = [*arguments.posonlyargs, *arguments.args]
+            pairs = list(zip(positional[len(positional) - len(arguments.defaults) :], arguments.defaults))
+            pairs += [(arg, default) for arg, default in zip(arguments.kwonlyargs, arguments.kw_defaults) if default is not None]
+            found += [(file, arg.arg, ast.unparse(default)) for arg, default in pairs if arg.arg in _BACKEND_NAMES]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in _BACKEND_NAMES:
+            value = node.value
+            if value is None and isinstance(node.annotation, ast.Call):
+                value = next((item.value for item in node.annotation.keywords if item.arg == "default"), None)
+            if value is not None:
+                found.append((file, node.target.id, ast.unparse(value)))
+    return found
+
+
+def _backend_violations(tree: ast.Module, file: str) -> list:
+    """Умолчание не из единственного места либо имя бэкенда литералом в вызове: `[(файл, имя, что нашли)]`."""
+
+    bad = [
+        item
+        for item in _backend_defaults(tree, file)
+        if item[2] not in (frozenset({"None"}) if item[1] in _BACKEND_STAGE_NAMES else _BACKEND_MASTER_DEFAULTS)
+    ]
+    bad += [
+        (file, node.arg, f"literal {node.value.value!r} at line {node.lineno}")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg in _BACKEND_NAMES
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    ]
+    return bad
+
+
+#: Места проводки, которые правило обязано видеть: прогон, задача пула, запись живой ширины, свойство сцены, ключи кэшей и постадийные порядки API.
+_BACKEND_WIRING_SITES = (
+    ("envelope_kernel_backend.py", "backend"),
+    ("envelope_production_export.py", "kernel_backend"),
+    ("envelope_production_export.py", "backend"),
+    ("envelope_domain_pool.py", "backend"),
+    ("envelope_width_live.py", "kernel_backend"),
+    ("envelope_production_operator.py", "kernel_backend"),
+    ("envelope_content_key.py", "backend"),
+    ("envelope_content_key.py", "backend_id"),
+    ("envelope_kernel_backend.py", "skeleton_backend"),
+    ("envelope_production_export.py", "skeleton_backend"),
+    ("envelope_domain_pool.py", "skeleton_backend"),
+    ("envelope_queue_export.py", "skeleton_backend"),
+    ("envelope_width_live.py", "skeleton_backend"),
+    ("envelope_width_live.py", "embedding_backend"),
+    ("envelope_content_key.py", "skeleton_backend"),
+    ("envelope_kernel_backend.py", "embedding_backend"),
+    ("envelope_production_export.py", "embedding_backend"),
+    ("envelope_domain_pool.py", "embedding_backend"),
+    ("envelope_content_key.py", "embedding_backend"),
+)
+
+
+def test_every_backend_default_of_the_host_is_the_one_named_constant():
+    """Умолчание бэкенда названо ОДНИМ местом — главным переключателем `DEFAULT_KERNEL_BACKEND`; у стадии умолчания нет.
+
+    Литерал `"PYTHON"`/`"NATIVE"` в умолчании параметра, поля либо свойства сцены — дефект: прогон, задача пула, запись живой ширины и настройка сцены разошлись бы молча.
+    `backend_id` без значения — `None` (идентичность берётся у умолчания). Порядок стадии (`skeleton_backend`, `embedding_backend`) без слова — `None`, то есть «как главный
+    переключатель» (`stage_orders`): прогон с `kernel_backend="PYTHON"` без слов о стадиях считает эталон на ВСЕХ стадиях. Литерал имени бэкенда в вызове на продуктовом пути
+    (`skeleton_backend="PYTHON"`) — тоже дефект: постадийный порядок живёт только в API и инструментах (`tools/`), а не в хосте.
+    """
+
+    found: list = []
+    violations: list = []
+    for path in _python_files(HOST_PACKAGE):
+        tree = _parse(path)
+        found += _backend_defaults(tree, path.name)
+        violations += _backend_violations(tree, path.name)
+    assert not violations, violations
+    # единственная константа умолчания: ни у одной стадии своей нет
+    module = _parse(HOST_PACKAGE / "envelope_kernel_backend.py")
+    constants = {
+        target.id
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id.startswith("DEFAULT_") and target.id.endswith("_BACKEND")
+    }
+    assert constants == {"DEFAULT_KERNEL_BACKEND"}, constants
+    # правило не пустое: оно видит каждое место проводки
+    seen = {(file, name) for file, name, _default in found}
+    missing = [site for site in _BACKEND_WIRING_SITES if site not in seen]
+    assert not missing, missing
+
+
+def test_the_backend_default_rule_flags_a_spoiled_source_and_passes_an_honest_one():
+    spoiled = (
+        "def run(kernel_backend='PYTHON', skeleton_backend='NATIVE', embedding_backend=DEFAULT_KERNEL_BACKEND):\n"
+        "    return other(skeleton_backend='PYTHON')\n"
+        "class Record:\n"
+        "    backend: str = 'NATIVE'\n"
+        "    skeleton_backend: str = DEFAULT_SKELETON_BACKEND\n"
+    )
+    honest = (
+        "def run(kernel_backend=DEFAULT_KERNEL_BACKEND, skeleton_backend=None, embedding_backend=None, backend_id=None):\n"
+        "    return other(kernel_backend=kernel_backend, skeleton_backend=skeleton_backend)\n"
+        "class Record:\n"
+        "    backend: str = DEFAULT_KERNEL_BACKEND\n"
+        "    skeleton_backend: str | None = None\n"
+    )
+    assert len(_backend_violations(ast.parse(spoiled), "spoiled.py")) == 6
+    assert _backend_violations(ast.parse(honest), "honest.py") == []
+
+
+def test_the_scene_has_exactly_one_backend_setting_the_master_switch():
+    """Настройка владельца одна: «Kernel backend» заказывает все стадии; отдельного свойства стадии в сцене и в панели нет."""
+
+    group = next(
+        node
+        for node in _parse(HOST_PACKAGE / "envelope_production_operator.py").body
+        if isinstance(node, ast.ClassDef) and node.name == "HOTSPOTUV_DecalMeshSettings"
+    )
+    properties = [node.target.id for node in group.body if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)]
+    assert [name for name in properties if "backend" in name] == ["kernel_backend"], properties

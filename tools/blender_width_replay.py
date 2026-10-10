@@ -315,6 +315,7 @@ def _deviation(cert, base, args):
             silhouette_uv_slide=envelope_dissolve_uv_slide(record.dissolve_percent),
             kernel_backend=record.kernel_backend,
             skeleton_backend=record.skeleton_backend,
+            embedding_backend=record.embedding_backend,
             quiesce=False,
             workers=args.workers,
         )

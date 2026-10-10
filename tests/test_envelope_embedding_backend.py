@@ -43,13 +43,14 @@ def _produced(record=None):
     return production._refusal(7, "domain", "MATERIALIZED", "").with_changes(backend_record=record)
 
 
-def test_embedding_is_api_only_native_by_default_and_preparation_identity_is_unchanged():
-    assert host.DEFAULT_EMBEDDING_BACKEND == "NATIVE"  # EMBEDDING_NATIVE_DEFAULT_V1; явный PYTHON остаётся эталоном
+def test_embedding_follows_the_master_switch_unless_the_api_orders_it_apart_and_preparation_identity_is_unchanged():
+    assert not hasattr(host, "DEFAULT_EMBEDDING_BACKEND")  # единственная константа - главный переключатель (EMBEDDING_NATIVE_DEFAULT_V1 теперь через него)
     task = pool_module.DomainTaskV1(0, 7, "d", None, None, ".25", frozenset())
     assert task.embedding_backend == "NATIVE"
+    assert pool_module.DomainTaskV1(0, 7, "d", None, None, ".25", frozenset(), backend="PYTHON").embedding_backend == "PYTHON"
     assert host.backend_identity_of("PYTHON", "PYTHON", "PYTHON") == "PYTHON"
-    assert host.backend_identity_of("PYTHON", "PYTHON") == host.backend_identity_of("PYTHON", "PYTHON", "NATIVE")
-    assert host.backend_identity_of("PYTHON", "PYTHON").startswith("PYTHON|snap_embedding=NATIVE:")
+    assert host.backend_identity_of("PYTHON", "PYTHON") == host.backend_identity_of("PYTHON") == "PYTHON"  # стадия без слова - как главный переключатель
+    assert host.backend_identity_of("PYTHON", "PYTHON", "NATIVE").startswith("PYTHON|snap_embedding=NATIVE:")
     assert host.skeleton_identity_of("PYTHON") == "PYTHON"
 
 

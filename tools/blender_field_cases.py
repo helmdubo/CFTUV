@@ -3,8 +3,8 @@
     blender -b <сцена.blend> --python-exit-code 1 --python tools/blender_field_cases.py -- --out <json> --cases меш:alpha:плотность:растяжение,... \
         [--root <дерево>] [--backend PYTHON|DEFAULT] [--workers N] [--geom-dir DIR] [--wheel-site DIR]
 
---backend PYTHON : свойства сцены `kernel_backend` и `skeleton_backend` (там, где дерево их имеет) заказаны `PYTHON` - все стадии эталон.
---backend DEFAULT: оба свойства СНЯТЫ (`property_unset`), и действует умолчание продукта ДЕРЕВА.
+--backend PYTHON : свойство сцены `kernel_backend` (главный переключатель; у деревьев до единого переключателя ещё и `skeleton_backend`) заказано `PYTHON` - все стадии эталон.
+--backend DEFAULT: свойства СНЯТЫ (`property_unset`), и действует умолчание продукта ДЕРЕВА.
 --wheel-site     : каталог с колесом `cftuv_native`; ставится первым в `sys.path` (иначе Blender берёт модуль из своих пользовательских скриптов).
 Запись строки на случай: оператор, статус, исходы доменов, V/E/F, дайджест меша (`mesh_content_digest`), секунды кнопки, а с `--geom-dir` - точная геометрия (позиции,
 UV по углам, грани, рёбра, швы) gzip-JSON: два прогона сравниваются побитово (`geometry_sha256`). Запуск - с `PYTHONSAFEPATH=1`.
@@ -201,15 +201,16 @@ def _case(spec):
             if name != "MATERIALIZED":
                 refused.append([item.patch_id, name, str(item.detail)[:160]])
         row["domain_seconds"] = round(sum(item.seconds for item in run.results), 3)
-        row["backend_requested"] = str(getattr(run, "backend", None))
+        row["backend_requested"] = str(getattr(run, "kernel_backend", getattr(run, "backend", None)))
         row["skeleton_backend_requested"] = str(getattr(run, "skeleton_backend", "n/a"))
+        row["embedding_backend_requested"] = str(getattr(run, "embedding_backend", "n/a"))
         row["backend_ran"] = dict(sorted(Counter(str(getattr(getattr(item, "backend_record", None), "ran", "none")) for item in run.results).items()))
         record_attrs = {}
         for item in run.results:
             record = getattr(item, "backend_record", None)
             if record is None:
                 continue
-            for key in ("native_calls", "python_calls", "skeleton_native_calls", "skeleton_python_calls", "fallbacks", "skeleton_fallbacks"):
+            for key in ("native_calls", "python_calls", "skeleton_native_calls", "skeleton_python_calls", "embedding_native_calls", "embedding_python_calls", "fallbacks", "skeleton_fallbacks"):
                 value = getattr(record, key, None)
                 if value is None:
                     continue
