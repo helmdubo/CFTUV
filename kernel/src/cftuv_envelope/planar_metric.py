@@ -55,6 +55,7 @@ from ._embedding import (
     projection_violation,
 )
 from ._band_chart import band_metric_id, build_band_chart
+from .embedding_refusal import projection_refusal
 from ._developable import build_developable_chart
 from ._plane_basis import chart_of_positions, reduced_frame
 from ._width_distortion import (
@@ -600,11 +601,7 @@ def _projection_embedding(
     )
     outcome = projection_violation(certificate)
     if enforce_embedding and outcome is not None:
-        raise PlanarMetricAdmissionError(
-            outcome,
-            "near-planar projection did not preserve the embedding: "
-            f"{certificate!r}",
-        )
+        raise PlanarMetricAdmissionError(outcome, projection_refusal(outcome, certificate))
     return certificate
 
 

@@ -90,11 +90,29 @@ def receipt_report_level(receipt) -> str:
     return "WARNING" if receipt.skipped or receipt.warnings else "INFO"
 
 
+#: Предел детали отказа в строке консоли (знаков). Деталь отказа - первая строка (исход, счёт, первая находка), после неё
+#: до конца текста идёт полная запись (`record: ...`): JSON-свидетельство и квитанция несут текст целиком, консоль - строку.
+#: Тот же предел у ядра (`cftuv_envelope.embedding_refusal.COMPACT_LINE_LIMIT`); равенство держит тест.
+CONSOLE_DETAIL_LIMIT = 240
+
+
+def console_detail(detail, outcome="") -> str:
+    """Деталь для консоли: первая строка текста отказа без повтора исхода, который строка уже называет, не длиннее `CONSOLE_DETAIL_LIMIT`.
+
+    Текст отказа начинается с имени исхода (так он самодостаточен в JSON и квитанции); в строке консоли имя стоит перед ним, и второй раз его не печатают.
+    """
+
+    first = str(detail).split("\n", 1)[0]
+    if outcome and first.startswith(f"{outcome}: "):
+        first = first[len(outcome) + 2 :]
+    return first if len(first) <= CONSOLE_DETAIL_LIMIT else first[: CONSOLE_DETAIL_LIMIT - 1] + "\u2026"
+
+
 def _row_line(kind, patch_id, domain_id, outcome, detail) -> str:
     return (
         f"[CFTUV][Production] {kind} patch {patch_id} "
         f"(domain ...{str(domain_id)[-6:]}): {outcome}"
-        + (f": {detail}" if detail else "")
+        + (f": {console_detail(detail, outcome)}" if detail else "")
     )
 
 
@@ -201,6 +219,8 @@ def export_production_json(results, directory, *, label: str = "production") -> 
 
 
 __all__ = (
+    "CONSOLE_DETAIL_LIMIT",
+    "console_detail",
     "diagnostic_summary_lines",
     "export_production_json",
     "production_console_lines",

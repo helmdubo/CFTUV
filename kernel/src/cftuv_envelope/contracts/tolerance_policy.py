@@ -139,6 +139,7 @@ class TolerancePolicyIdV1(str, Enum):
     CORNER_FOLD_SIN2_BUDGET_V1 = "CORNER_FOLD_SIN2_BUDGET_V1"
     PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1 = "PERIODIC_CUT_SEAM_RESIDUAL_BOUND_V1"
     SILHOUETTE_UV_SLIDE_V1 = "SILHOUETTE_UV_SLIDE_V1"
+    SOURCE_CONTACT_GAP_V1 = "SOURCE_CONTACT_GAP_V1"
 
 
 class TolerancePolicyUnitsV1(str, Enum):
@@ -174,6 +175,7 @@ class TolerancePolicyScalingLawV1(str, Enum):
 
     ABSOLUTE_INDEPENDENT_OF_EXTENT = "ABSOLUTE_INDEPENDENT_OF_EXTENT"
     RELATIVE_TO_PATCH_EXTENT_WITH_FLOOR = "RELATIVE_TO_PATCH_EXTENT_WITH_FLOOR"
+    RELATIVE_TO_PATCH_EXTENT = "RELATIVE_TO_PATCH_EXTENT"
     DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL = (
         "DERIVED_FROM_PATCH_EXTENT_AND_DECAL_DETAIL"
     )
@@ -218,6 +220,7 @@ class TolerancePolicyAppliedStageV1(str, Enum):
     SURFACE_OFFSET_NORMAL_OPPOSITION = "SURFACE_OFFSET_NORMAL_OPPOSITION"
     BAND_CHART_ADMISSION = "BAND_CHART_ADMISSION"
     SILHOUETTE_VERTEX_DISSOLVE = "SILHOUETTE_VERTEX_DISSOLVE"
+    SOURCE_DEFECT_PREFLIGHT = "SOURCE_DEFECT_PREFLIGHT"
 
 
 class TolerancePolicyAllowedEffectV1(str, Enum):
@@ -346,7 +349,7 @@ def _rational(value: Fraction | int) -> ExactRationalV1:
 _KERNEL_TESTS = "kernel/tests"
 
 
-TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
+_BASE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
     TolerancePolicyV1(
         id=TolerancePolicyIdV1.PRODUCT_SKIRT_ABSOLUTE_V1,
         category=TolerancePolicyCategoryV1.PRODUCT_ADMISSION,
@@ -1931,6 +1934,11 @@ TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (
         ),
     ),
 )
+
+# Записи двери предполёта источника лежат рядом с законом: этот модуль на потолке размера. Импорт здесь, а не вверху: типы выше.
+from .tolerance_policy_source_defects import source_defect_policies  # noqa: E402
+
+TOLERANCE_POLICIES_V1: tuple[TolerancePolicyV1, ...] = (*_BASE_POLICIES_V1, *source_defect_policies())
 
 
 TOLERANCE_POLICY_REGISTRY_V1 = TolerancePolicyRegistryV1(

@@ -11,7 +11,9 @@
 `--source worktree` (умолчание): пакеты берутся из этого дерева (установленный аддон из настроек снимается);
 `--source installed`: что установлено и включено. Выход 0 — новых отказов нет; 1 — файл/выделение/политика не те
 (`FIELD_CASE_*_MISMATCH`), число доменов иное, появился отказ вне базы либо вершин с `ADAPTER_WELD_MITER_FALLBACK`
-стало больше базы (`FIELD_CASE_REGRESSED`). Восстановленные домены базы называются в выводе: это улучшение, а не сбой.
+стало больше базы, либо предполёт источника назвал не те домены не теми именами (ровно патч 18 `SOURCE_T_VERTEX` и патч 285
+`SOURCE_FACE_SELF_INTERSECTION`), либо деталь отказа в консоли длиннее 240 знаков (`FIELD_CASE_REGRESSED`). Восстановленные домены базы
+называются в выводе: это улучшение, а не сбой.
 """
 
 from __future__ import annotations
@@ -41,6 +43,10 @@ CASE = {
         1002: "SURFACE_OFFSET_NORMAL_OPPOSES_TRIANGLE", 1007: "NO_GRID_SCALE_RESTORES_RELATIONS",
     },
     "baseline_weld_miter_fallbacks": 3,
+    # С COVER008-A предполёт источника называет два из десяти отказов ДО ядра (T-вершины патча 18, «бабочка» грани 1497 патча 285).
+    # Ровно эти два домена и ровно этими именами; остальные восемь отказов базы прежние.
+    "source_contact_refusals": {18: "SOURCE_T_VERTEX", 285: "SOURCE_FACE_SELF_INTERSECTION"},
+    "console_detail_limit": 240,
 }
 
 
@@ -143,7 +149,12 @@ def _verdict(run, receipt) -> dict:
     refused = {item.patch_id: item.outcome for item in run.results if not item.is_materialized}
     base = CASE["baseline_refused"]
     fallbacks = sum(int(detail.split()[0]) for _patch, name, detail in receipt.warnings if name == "ADAPTER_WELD_MITER_FALLBACK")
+    from cftuv.envelope_production_report import console_detail
+
+    contact_names = set(CASE["source_contact_refusals"].values())
     return {
+        "source_contact_refusals": {p: o for p, o in sorted(refused.items()) if o in contact_names},
+        "longest_console_detail": max((len(console_detail(item.detail, item.outcome)) for item in run.results if not item.is_materialized), default=0),
         "domains": len(run.results), "refused": dict(sorted(refused.items())),
         "new_refusals": {p: o for p, o in sorted(refused.items()) if p not in base},
         "changed_outcome": {p: [base[p], o] for p, o in sorted(refused.items()) if p in base and base[p] != o},
@@ -174,7 +185,10 @@ def main() -> int:
     print(status)
     print(f"recovered vs baseline: {verdict['recovered']}; new refusals: {verdict['new_refusals']}; outcome changes: {verdict['changed_outcome']}")
     more_weld = verdict["weld_miter_fallback_vertices"] > CASE["baseline_weld_miter_fallbacks"]
-    regressed = verdict["domains"] != CASE["domains"] or bool(verdict["new_refusals"]) or more_weld
+    contacts_differ = verdict["source_contact_refusals"] != CASE["source_contact_refusals"]
+    console_too_long = verdict["longest_console_detail"] > CASE["console_detail_limit"]
+    print(f"source contact refusals: {verdict['source_contact_refusals']} (expected {CASE['source_contact_refusals']}); longest console detail {verdict['longest_console_detail']}")
+    regressed = verdict["domains"] != CASE["domains"] or bool(verdict["new_refusals"]) or more_weld or contacts_differ or console_too_long
     print("FIELD_CASE_REGRESSED" if regressed else "FIELD_CASE_OK")
     return 1 if regressed else 0
 
