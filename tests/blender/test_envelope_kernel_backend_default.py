@@ -8,7 +8,7 @@
    как `PYTHON`; присвоение `PYTHON` (то же значение, что было умолчанием) тоже хранится. Порядок пунктов — формат хранения: `PYTHON` = 0,
    `NATIVE` = 1. Миграции нет и не нужна: Blender хранит только присвоенное.
 3. КНОПКА БЕЗ ЗАКАЗА считает `NATIVE`: прогон, запись живой ширины и запись бэкенда у каждого домена называют `NATIVE`, строка
-   `[CFTUV][Production] BACKEND native ...` печатается. С колесом, пока порт не устарел, считает нативное ядро; без колеса — домен
+   `[CFTUV][Production] BACKEND coverage/clip native ...; skeleton native ...` печатается. С колесом, пока порт не устарел, считает нативное ядро; без колеса — домен
    считает Python, и строка называет `NATIVE_UNAVAILABLE` (колесо прячется `sys.modules['cftuv_native'] = None`; настоящий
    `ModuleNotFoundError` проверяет запуск этого файла с убранным путём пользовательских модулей).
 4. ОТВЕТ ТОТ ЖЕ. Меш (дайджест того, что лежит в Blender) одинаков для умолчания с колесом, умолчания без колеса и явного `PYTHON`;
@@ -61,7 +61,7 @@ from test_envelope_debug_bridge import (  # noqa: E402
 
 SOURCE = "EnvelopeTwoPatch"
 DECAL = SOURCE + ".CFTUV_Decal"
-BACKEND_LINE = "[CFTUV][Production] BACKEND native"
+BACKEND_LINE = "[CFTUV][Production] BACKEND coverage/clip native"
 
 
 def _decal_settings():
@@ -93,6 +93,12 @@ def _run_the_scene_property_defaults_to_native_and_stores_only_what_was_assigned
     assert [item.identifier for item in property_.enum_items] == ["PYTHON", "NATIVE"]
     assert not settings.is_property_set("kernel_backend") and "kernel_backend" not in settings.keys()
     assert settings.kernel_backend == "NATIVE" and host_backend.kernel_backend_of(settings) == "NATIVE"
+    # стадия скелета: своё свойство с умолчанием NATIVE (как покрытие и резка), тот же порядок пунктов и та же непротронутость
+    skeleton = settings.bl_rna.properties["skeleton_backend"]
+    assert skeleton.default == "NATIVE" == host_backend.DEFAULT_SKELETON_BACKEND, skeleton.default
+    assert [item.identifier for item in skeleton.enum_items] == ["PYTHON", "NATIVE"]
+    assert not settings.is_property_set("skeleton_backend") and "skeleton_backend" not in settings.keys()
+    assert settings.skeleton_backend == "NATIVE" and host_backend.skeleton_backend_of(settings) == "NATIVE"
 
     # 2. старая сцена: хранимое не переписывается умолчанием; сцены создаются свежими, ни одна из них не трогалась
     old_python = bpy.data.scenes.new("KernelBackendOldPython")
@@ -114,6 +120,17 @@ def _run_the_scene_property_defaults_to_native_and_stores_only_what_was_assigned
         assert untouched.hotspotuv_decal_mesh.kernel_backend == "NATIVE"
         assert not untouched.hotspotuv_decal_mesh.is_property_set("kernel_backend")
         assert "kernel_backend" not in untouched.hotspotuv_decal_mesh.keys()
+        # старая сцена без свойства скелета читает умолчание стадии
+        assert host_backend.skeleton_backend_of(old_python.hotspotuv_decal_mesh) == "NATIVE"
+        assert not old_python.hotspotuv_decal_mesh.is_property_set("skeleton_backend")
+        old_python.hotspotuv_decal_mesh["skeleton_backend"] = 0
+        assigned.hotspotuv_decal_mesh.skeleton_backend = "PYTHON"
+        old_native.hotspotuv_decal_mesh["skeleton_backend"] = 1
+        assert host_backend.skeleton_backend_of(old_python.hotspotuv_decal_mesh) == "PYTHON"
+        assert assigned.hotspotuv_decal_mesh.is_property_set("skeleton_backend") and assigned.hotspotuv_decal_mesh["skeleton_backend"] == 0
+        assert assigned.hotspotuv_decal_mesh.skeleton_backend == "PYTHON"
+        assert host_backend.skeleton_backend_of(old_native.hotspotuv_decal_mesh) == "NATIVE"
+        assert untouched.hotspotuv_decal_mesh.skeleton_backend == "NATIVE" and not untouched.hotspotuv_decal_mesh.is_property_set("skeleton_backend")
     finally:
         for item in (old_python, old_native, assigned, untouched):
             bpy.data.scenes.remove(item)
@@ -217,10 +234,13 @@ def _run_the_default_press_is_native_names_the_executor_and_gives_the_same_mesh(
     assert any("NATIVE_UNAVAILABLE" in record.outcomes for record in records)
     assert all(set(record.outcomes) <= {"NATIVE_UNAVAILABLE", "NATIVE_NOT_REACHED"} for record in records)
     assert BACKEND_LINE + " 0 / python" in printed and "NATIVE_UNAVAILABLE: patch" in printed, printed
+    assert all(record.skeleton_requested == "NATIVE" and record.skeleton_outcomes == ("NATIVE_UNAVAILABLE",) for record in records)
+    assert printed.count("; skeleton native 0 / python") == 1, printed
     assert digest == default_digest, "ответ без колеса равен ответу с колесом"
 
     # --- явный PYTHON: молчит, и ответ тот же
     settings.kernel_backend = "PYTHON"
+    settings.skeleton_backend = "PYTHON"
     assert settings.is_property_set("kernel_backend") and settings["kernel_backend"] == 0
     run, printed, digest = _press()
     assert run.kernel_backend == "PYTHON" and _controller().width_build.kernel_backend == "PYTHON"
@@ -229,6 +249,54 @@ def _run_the_default_press_is_native_names_the_executor_and_gives_the_same_mesh(
     assert digest == default_digest, "ответ явного PYTHON равен ответу умолчания"
     settings["kernel_backend"] = 1  # возврат на NATIVE тем же путём, каким его хранит файл
     assert settings.kernel_backend == "NATIVE"
+    settings.property_unset("skeleton_backend")  # следующий случай проверяет неприсвоенное новое умолчание
+
+
+def _run_the_skeleton_stage_is_ordered_apart_and_gives_the_same_mesh():
+    from cftuv_envelope import backend as kernel_backend
+
+    settings = _decal_settings()
+    assert not settings.is_property_set("skeleton_backend")
+    settings.skeleton_backend = "PYTHON"  # независимый явный эталон скелета при нативных coverage/clip
+    reference_run, _printed, reference_digest = _press()
+    assert reference_run.skeleton_backend == "PYTHON" and _controller().width_build.skeleton_backend == "PYTHON"
+
+    settings.property_unset("skeleton_backend")
+    assert not settings.is_property_set("skeleton_backend") and settings.skeleton_backend == "NATIVE"
+    kernel_backend.refresh_native()
+    status = kernel_backend.native_status()
+    run, printed, digest = _press()
+    assert run.skeleton_backend == "NATIVE" and run.kernel_backend == "NATIVE"
+    assert _controller().width_build.skeleton_backend == "NATIVE"  # запись живой ширины несёт стадию
+    records = [item.backend_record for item in _computed(run)]
+    assert records and all(record is not None and record.skeleton_requested == "NATIVE" for record in records)
+    assert "; skeleton native " in printed, printed
+    if status.skeleton_available:
+        assert all(record.skeleton_ran == "native" for record in records), [record.as_record() for record in records]
+        print("SKELETON_NATIVE_WITH_WHEEL:", [record.skeleton_ran for record in records], status.build_id[:10])
+    else:
+        assert all(record.skeleton_ran == "python" and record.skeleton_outcomes for record in records)
+        print("SKELETON_NATIVE_WHEEL_NOT_AVAILABLE_HERE:", status.skeleton, sorted({o for r in records for o in r.skeleton_outcomes}))
+    assert digest == reference_digest, "меш при нативном скелете по умолчанию равен мешу явного PYTHON"
+
+    # колесо спрятано: настоящий откат скелета на Python, названный `NATIVE_UNAVAILABLE`, меш тот же
+    hidden = sys.modules.get("cftuv_native", False)
+    sys.modules["cftuv_native"] = None
+    kernel_backend.refresh_native()
+    try:
+        run, printed, digest = _press()
+    finally:
+        if hidden is False:
+            sys.modules.pop("cftuv_native", None)
+        else:
+            sys.modules["cftuv_native"] = hidden
+        kernel_backend.refresh_native()
+    records = [item.backend_record for item in _computed(run)]
+    assert records and all(record.skeleton_ran == "python" and record.skeleton_outcomes == ("NATIVE_UNAVAILABLE",) for record in records)
+    assert "skeleton native 0 / python" in printed and "NATIVE_UNAVAILABLE: patch" in printed, printed
+    assert digest == reference_digest
+    settings["skeleton_backend"] = 0  # назад на PYTHON тем же путём, каким его хранит файл
+    assert settings.skeleton_backend == "PYTHON"
 
 
 def _main():
@@ -236,6 +304,7 @@ def _main():
     _run_the_scene_property_defaults_to_native_and_stores_only_what_was_assigned()
     _fresh_scene()
     _run_the_default_press_is_native_names_the_executor_and_gives_the_same_mesh()
+    _run_the_skeleton_stage_is_ordered_apart_and_gives_the_same_mesh()
     from cftuv.envelope_domain_pool import shutdown_domain_pool
 
     shutdown_domain_pool()

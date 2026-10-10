@@ -24,11 +24,14 @@
 радикалы `sqrt(10 - 2*sqrt(5))`), даёт `OutsideNativeField` с кодом `EXACT_NATIVE_OUTSIDE_FIELD`.
 Потребитель уступает `sympy` и записывает уступку в `symbolic_backend.BACKEND_COUNTS`.
 
-ТЕКСТ. `ExactScalar` хранит `srepr`-строку, и она входит в дайджесты. Для одночленной величины
-`c * sqrt(m)` строка воспроизводится БЕЗ `sympy.factor`: форма sympy для неё единственна, а
-радикант приводится самим `sp.sqrt(Integer)` (один раз на радикант, с памятью). Многочленные
-величины идут через `sympy` прежним путём (`factor(cancel(...))`): их строка зависит от вида
-исходного выражения, а не только от значения, и родная форма её бы не повторила.
+ТЕКСТ (EXACT_SCALAR_TEXT_CANON_V2). `ExactScalar` хранит строку, и она входит в дайджесты и в ключи событий, поэтому строка
+величины обязана быть функцией её ЗНАЧЕНИЯ и только. Рациональная величина — `Integer(n)` либо `Rational(p, q)`, как всегда.
+Одночленная `c * sqrt(m)` — `Sqrt(Rational(P, Q))`, где `P/Q = c^2 * m` в несократимой записи, а у отрицательной впереди стоит `-`:
+значение однозначно определяет пару (знак, `c^2 * m`), и пара не зависит от представителя класса, поэтому строка не требует ни
+факторизации, ни `sympy`. Прежняя форма выводила радикант через `sp.sqrt(Integer(m))`, то есть через `factorint(limit=2**15)`
+без ро-метода и модульный кэш разложений sympy: радикант вида `p^2 * s` с простым `p > 2^15` давал разный текст у процесса,
+который уже раскладывал `p`, и у свежего. Многочленная величина канона не имеет: `canonical_text` отказывает именованно
+(`EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`), а не отдаёт форму, зависящую от вида исходного выражения.
 """
 
 from __future__ import annotations
@@ -156,7 +159,7 @@ class RadicalSumV1:
     не является полным квадратом (кроме радиканда 1 — рациональной части).
 
     `==` сравнивает ЗНАЧЕНИЯ (через разность), поэтому величина не хэшируема: ключом словаря служит
-    `native_text` либо `terms` вместе с пониманием, что представитель класса может быть другим.
+    `canonical_text` для одночленной величины; `terms` требуют учёта разных представителей класса.
     """
 
     terms: tuple[tuple[int, Fraction], ...]
@@ -416,6 +419,36 @@ def from_sympy(expression: sp.Basic) -> RadicalSumV1:
     raise OutsideNativeField(sp.srepr(expression))
 
 
+def rational_ratio(numerator: object, denominator: object) -> Fraction | None:
+    """`numerator / denominator` точной дробью, если оно рационально; иначе `None`.
+
+    Частное рационально тогда и только тогда, когда в нём сокращаются ВСЕ иррациональные члены: корни из
+    разных квадратных классов линейно независимы над `Q`, а класс канонизирован (`_accumulate`), поэтому
+    рациональное значение есть сумма с единственным членом радиканда 1, а нуль — пустота членов. Ни
+    `radsimp`, ни `simplify`, ни факторизации, ни порога: это предикат, а не оценка, и работы бюджета он не тратит.
+
+    `None` — частное ИРРАЦИОНАЛЬНО (доказано) либо знаменатель точно нуль (частного нет). Выражение вне поля —
+    `OutsideNativeField`, а не `None`: потребитель обязан отличать «доказано, что нет» от «здесь не решается» и
+    уступить sympy по имени, как остальные места `symbolic_backend`.
+    """
+
+    try:
+        top, bottom = _coerce(numerator), _coerce(denominator)
+        if not bottom.terms:
+            return None
+        if not top.terms and len(bottom.terms) == 1:
+            return Fraction(0)
+        if len(top.terms) == len(bottom.terms) == 1:
+            # Одночлены поля не требуют собирать обратную сумму и произведение.
+            (top_root, top_coefficient), = top.terms
+            (bottom_root, bottom_coefficient), = bottom.terms
+            ratio = Fraction(1) if top_root == bottom_root else _class_ratio(bottom_root, top_root)
+            return None if ratio is None else top_coefficient / bottom_coefficient * ratio
+        return (top / bottom).as_rational()
+    except ZeroDivisionError:
+        return None
+
+
 _SYMPY_TERMS: dict[tuple, sp.Expr] = {}
 _SYMPY_TERMS_LIMIT = 1 << 16
 
@@ -443,24 +476,25 @@ def to_sympy(value: RadicalSumV1) -> sp.Expr:
 
 
 # --------------------------------------------------------------------------
-# Строка `srepr` (identity ExactScalar)
+# Строка `ExactScalar` (EXACT_SCALAR_TEXT_CANON_V2)
 # --------------------------------------------------------------------------
 
+EXACT_SCALAR_TEXT_CANON_V2 = "EXACT_SCALAR_TEXT_CANON_V2"
+EXACT_SCALAR_TEXT_CANON_UNSUPPORTED = "EXACT_SCALAR_TEXT_CANON_UNSUPPORTED"
 
-@lru_cache(maxsize=1 << 15)
-def _sympy_radical(radicand: int) -> tuple[int, int]:
-    """`sqrt(radicand) = outside*sqrt(inside)` в канонической для sympy форме (один раз на радикант)."""
 
-    root = sp.sqrt(sp.Integer(radicand))
-    if root.is_Integer:
-        return int(root), 1
-    if root.is_Pow:
-        return 1, int(root.args[0])
-    if root.is_Mul:
-        coefficient, power = root.args
-        if coefficient.is_Integer and power.is_Pow:
-            return int(coefficient), int(power.args[0])
-    raise OutsideNativeField(sp.srepr(root))
+class ExactScalarTextCanonUnsupported(ValueError):
+    """У величины нет канонической строки V2 (больше одного члена либо вне поля): именованный отказ, а не форма из `sympy`.
+
+    Не наследует `NativeExactError`: потребители того корня уступают `sympy`, а уступка здесь вернула бы ровно ту строку, которая
+    зависит от вида исходного выражения и от истории процесса.
+    """
+
+    code = EXACT_SCALAR_TEXT_CANON_UNSUPPORTED
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(f"{self.code}: {detail}" if detail else self.code)
+        self.detail = detail
 
 
 def _rational_text(value: Fraction) -> str:
@@ -469,34 +503,50 @@ def _rational_text(value: Fraction) -> str:
     return f"Rational({value.numerator}, {value.denominator})"
 
 
-def one_term_text(value: RadicalSumV1) -> str | None:
-    """`srepr(factor(cancel(c*sqrt(m))))` без sympy; `None` — не одночленная нерациональная величина.
+def _rational_root(value: Fraction) -> Fraction | None:
+    """Точный корень неотрицательной дроби либо `None`."""
 
-    Формы проверены против sympy (`kernel/tests/test_symbolic_backend.py`): положительный
-    коэффициент идёт первым множителем, отрицательный — `Integer(-1)`, затем модуль, если он не 1.
+    numerator = isqrt(value.numerator)
+    denominator = isqrt(value.denominator)
+    if numerator * numerator == value.numerator and denominator * denominator == value.denominator:
+        return Fraction(numerator, denominator)
+    return None
+
+
+def canonical_text(value: RadicalSumV1) -> str:
+    """Строка `ExactScalar` величины по канону V2: функция ЗНАЧЕНИЯ, без факторизации и без `sympy`.
+
+    Рациональная — `Integer(n)` / `Rational(p, q)`. Одночленная `c * sqrt(m)` — `Sqrt(Rational(P, Q))` с `P/Q = c^2 * m` и знаком `-`
+    впереди у отрицательной: пара (знак, `c^2 * m`) определяется значением и определяет его (`c * sqrt(m) = c' * sqrt(m')` тогда и
+    только тогда, когда знаки равны и `c^2 * m = c'^2 * m'`), поэтому равные величины дают равные строки, разные — разные, какой бы
+    представитель класса ни стоял в `terms`. Радикант, который сам полный квадрат (вне инварианта класса, но конструктор его не
+    запрещает), даёт строку рационального числа: у величины ровно одна строка.
+
+    Больше одного члена — `ExactScalarTextCanonUnsupported`.
     """
 
     terms = value.terms
-    if len(terms) != 1 or terms[0][0] == 1:
-        return None
+    if not terms:
+        return _rational_text(Fraction(0))
+    if len(terms) != 1:
+        raise ExactScalarTextCanonUnsupported(f"{len(terms)} square classes have no canonical text")
     radicand, coefficient = terms[0]
-    outside, inside = _sympy_radical(radicand)
-    if inside == 1:
-        return None
-    coefficient = coefficient * outside
-    root = f"Pow(Integer({inside}), Rational(1, 2))"
-    magnitude = abs(coefficient)
-    if coefficient < 0:
-        if magnitude == 1:
-            return f"Mul(Integer(-1), {root})"
-        return f"Mul(Integer(-1), {_rational_text(magnitude)}, {root})"
-    if magnitude == 1:
-        return root
-    return f"Mul({_rational_text(magnitude)}, {root})"
+    if radicand == 1:
+        return _rational_text(coefficient)
+    square = coefficient * coefficient * radicand
+    root = _rational_root(square)
+    if root is not None:
+        return _rational_text(-root if coefficient < 0 else root)
+    sign = "-" if coefficient < 0 else ""
+    return f"{sign}Sqrt(Rational({square.numerator}, {square.denominator}))"
 
 
 _INTEGER_TEXT = re.compile(r"\AInteger\((-?\d+)\)\Z")
 _RATIONAL_TEXT = re.compile(r"\ARational\((-?\d+), (-?\d+)\)\Z")
+#: Строка V2 одночленной величины. `sympify` читает `Sqrt(...)` как неопределённую функцию, не как число: читают её только `native_of_text`
+#: и `planar_types._parse_expr_uncached`.
+CANON_V2_TEXT = re.compile(r"\A(?P<neg>-)?Sqrt\(Rational\((?P<p>\d+), (?P<q>\d+)\)\)\Z")
+#: Прежняя (до V2) форма одночленной строки: читается, но больше не пишется.
 _ONE_TERM_TEXT = re.compile(
     r"\A(?:Mul\((?P<sign>Integer\(-1\), )?"
     r"(?:(?:Integer\((?P<int>\d+)\)|Rational\((?P<num>\d+), (?P<den>\d+)\)), )?"
@@ -514,6 +564,10 @@ def native_of_text(text: str) -> RadicalSumV1:
     match = _RATIONAL_TEXT.match(text)
     if match is not None:
         return RadicalSumV1.rational(Fraction(int(match.group(1)), int(match.group(2))))
+    match = CANON_V2_TEXT.match(text)
+    if match is not None:
+        root = RadicalSumV1.sqrt_of_rational(Fraction(int(match.group("p")), int(match.group("q"))))
+        return -root if match.group("neg") else root
     match = _ONE_TERM_TEXT.match(text)
     if match is not None:
         groups = match.groupdict()
@@ -531,20 +585,3 @@ def native_of_text(text: str) -> RadicalSumV1:
 
 
 _NATIVE_OF_TEXT = lru_cache(maxsize=1 << 17)(native_of_text)
-
-
-def native_text(value: RadicalSumV1) -> tuple[str, bool]:
-    """`(srepr, emulated)`: строка `ExactScalar`; `emulated` ложно, когда пришлось звать sympy.
-
-    Рациональная и одночленная величины собираются без sympy. Остальное — прежний путь
-    `srepr(factor(cancel(выражение)))`: он единственный, который знает, как sympy записывает
-    многочленную сумму, и повторять его вручную значило бы второй экземпляр правила.
-    """
-
-    rational = value.as_rational()
-    if rational is not None:
-        return _rational_text(rational), True
-    emulated = one_term_text(value)
-    if emulated is not None:
-        return emulated, True
-    return sp.srepr(sp.factor(sp.cancel(to_sympy(value)))), False

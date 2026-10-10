@@ -64,7 +64,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SPECS_DIR = HERE / "specs"
 SPEC_SCHEMA = "expected_change_spec_v1"
-TOOLS = ("sweep", "gate")
+TOOLS = ("sweep", "gate", "field")
 MUST_CHANGE_MODES = ("each", "any", "none")
 OPERATORS = ("eq", "ne", "gt", "ge", "lt", "le", "in", "not_in")
 SIDES = ("base", "new", "either")

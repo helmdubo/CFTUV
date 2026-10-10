@@ -460,6 +460,9 @@ def _queue_payload(patch_id: int, domain_id: str, snapshot, request) -> dict:
         snapshot,
         request,
         alpha_text,
+        # Ворота сверяют ОТВЕТ эталона: умолчание продукта (нативные стадии) здесь явным заказом не подменяется.
+        backend="PYTHON",
+        skeleton_backend="PYTHON",
     )
     if domain.preparation_outcome != "EXACT":
         stage = "QUEUE_PREPARE_REJECTED"

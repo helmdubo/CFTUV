@@ -42,6 +42,8 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 
+from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, DEFAULT_SKELETON_BACKEND, prepared_under_backend
+
 #: Имена, переехавшие в ядро (`cftuv_envelope.materialize`), и их прежние
 #: хостовые синонимы. Разрешаются ЛЕНИВО: модуль импортируется при
 #: регистрации аддона, а ядро (sympy, mpmath) — только когда оно нужно.
@@ -276,6 +278,8 @@ class EnvelopeQueueDomainV1:
     #: домена. Подготовка покрытием не меняется (`ConveyorCoverageV1.work_budget`), поэтому цену читают отсюда, а не из подготовки.
     #: Не часть значения: цена, не ответ.
     coverage_work: tuple[tuple[str, int], ...] = field(default=(), compare=False)
+    #: Запись бэкенда ПОДГОТОВКИ домена (`BackendRecordV1`: скелет считается в ней) либо `None`, когда обе стадии заказаны на `PYTHON`. Метка запуска, не ответ.
+    backend_record: object | None = field(default=None, compare=False, repr=False)
 
     @property
     def is_exact(self) -> bool:
@@ -877,12 +881,19 @@ def run_queue_domain(
     selected_edges: frozenset[int] = frozenset(),
     profile=None,
     preparation_provider=None,
+    backend: str = DEFAULT_KERNEL_BACKEND,
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
 ):
     """Две ступени очереди на одном домене, каждая под своей стадией профиля.
 
     Возвращает `(ConveyorPreparationV1, EnvelopeQueueDomainV1)`: подготовка
     нужна вызывающему и дальше — её кэширует сессия и по ней же считается
     покрытие при смене alpha.
+
+    ПОДГОТОВКА ИДЁТ ПОД БЛОКОМ БЭКЕНДА (`prepared_under_backend`): скелет считается в ней, и стадия заказана `skeleton_backend` (умолчание продукта — `NATIVE`).
+    Блок стоит вокруг ВСЕГО шага подготовки, включая `preparation_provider` (провайдер кэша сессии отладки зовёт `prepare_conveyor` изнутри блока), поэтому и
+    собственная подготовка, и подготовка через кэш записаны одинаково; запись бэкенда подготовки лежит в `EnvelopeQueueDomainV1.backend_record`. Домен, которому
+    нативное ядро отказало по имени, поднимает `PreparationRefused` (отладочная кнопка называет сбой, а не прячет его).
 
     КАЖДЫЙ ДОМЕН СЧИТАЕТСЯ С ХОЛОДНОЙ ПАМЯТЬЮ канонизации. Попадание в
     процессную память разложений возвращается до любой оплаты, поэтому статьи
@@ -903,26 +914,32 @@ def run_queue_domain(
     reset_factorization_memory()
     reset_unbudgeted_work()
     started = time.perf_counter()
-    with _measure(profile, "QUEUE_PREPARE", patch_domain_id):
+
+    def prepare():
         if preparation_provider is None:
-            prepared = prepare_conveyor(snapshot, request)
-        else:
-            prepared = preparation_provider(
-                patch_id,
-                patch_domain_id,
-                frozenset(selected_edges),
-                snapshot,
-                request,
-            )
+            return prepare_conveyor(snapshot, request)
+        return preparation_provider(
+            patch_id,
+            patch_domain_id,
+            frozenset(selected_edges),
+            snapshot,
+            request,
+        )
+
+    with _measure(profile, "QUEUE_PREPARE", patch_domain_id):
+        prepared, record = prepared_under_backend(prepare, backend, skeleton_backend)
     prepare_seconds = time.perf_counter() - started
 
-    return prepared, cover_prepared(
-        patch_id,
-        patch_domain_id,
-        prepared,
-        alpha_text,
-        prepare_seconds=prepare_seconds,
-        profile=profile,
+    return prepared, replace(
+        cover_prepared(
+            patch_id,
+            patch_domain_id,
+            prepared,
+            alpha_text,
+            prepare_seconds=prepare_seconds,
+            profile=profile,
+        ),
+        backend_record=record,
     )
 
 

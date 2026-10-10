@@ -8,8 +8,9 @@
    зависит от истории вычисления, у `SqrtSumV1` — нет. Корпус случайный (фиксированные зёрна) и
    состязательный: нулевые суммы, сопряжённые, `sqrt(8)` против `2*sqrt(2)`, радиканды с квадратом
    простого больше 2**15, разность двух близких корней.
-2. ТЕКСТ. `srepr` одночленной величины, собранный без sympy, равен `srepr(factor(cancel(x)))` по
-   сетке знаков, знаменателей и радикандов; многочленная идёт через sympy и помечена.
+2. ТЕКСТ (EXACT_SCALAR_TEXT_CANON_V2). Строка одночленной величины — `Sqrt(Rational(P, Q))` с `P/Q = c^2 * m` (знак впереди),
+   считается из значения без sympy и сверяется с независимым расчётом по сетке знаков, знаменателей и радикандов; многочленная —
+   именованный отказ. Полный набор свойств канона (история процесса, единственность, отказ) — `test_exact_scalar_text_canon.py`.
 3. ВЫХОД ЗА ПОЛЕ. Тригонометрия, вложенные радикалы и корень из суммы — `OutsideNativeField` с
    кодом, а не догадка; `exact_sign` уступает sympy и считает уступку.
 4. РЕЖИМЫ. Умолчание `NATIVE_EXACT` (шаг 3), `SYMPY` и `SHADOW` выбираемы; контекст возвращает режим; `SHADOW` ловит ПОДМЕНЁННЫЙ неверный ответ
@@ -238,7 +239,7 @@ def test_exact_sign_hands_outside_the_field_values_to_sympy_in_every_mode():
 # --------------------------------------------------------------------------
 
 
-def test_one_term_text_equals_the_sympy_text_over_a_grid():
+def test_one_term_text_is_the_v2_canon_of_the_value_over_a_grid():
     coefficients = [
         Fraction(n, d)
         for n in (1, 2, 3, 7, 60, 1180581228544)
@@ -249,10 +250,17 @@ def test_one_term_text_equals_the_sympy_text_over_a_grid():
     for coefficient in coefficients:
         for radicand in RADICANDS[1:]:
             expression = sp.Rational(coefficient.numerator, coefficient.denominator) * sp.sqrt(radicand)
+            square = coefficient * coefficient * radicand
+            expected = ("-" if coefficient < 0 else "") + f"Sqrt(Rational({square.numerator}, {square.denominator}))"
+            value = nx.from_sympy(expression)
+            assert nx.canonical_text(value) == expected, (coefficient, radicand)
+            assert ExactScalar.canonical(expression).expression == expected
+            assert ExactScalar.from_value(value).expression == expected
+            # Строка читается обратно в то же значение, прежняя форма sympy — тоже, и обе дают одну строку канона.
+            assert nx.native_of_text(expected) == value
             legacy = sp.srepr(sp.factor(sp.cancel(expression)))
-            text, emulated = nx.native_text(nx.from_sympy(expression))
-            assert text == legacy, (coefficient, radicand)
-            assert emulated
+            assert nx.native_of_text(legacy) == value
+            assert ExactScalar.canonical(ExactScalar(legacy)).expression == expected
             checked += 1
     assert checked == len(coefficients) * (len(RADICANDS) - 1)
 
@@ -267,13 +275,15 @@ def test_text_round_trips_through_the_fast_parser():
         assert nx.native_of_text(text) == nx.from_sympy(sp.sympify(text))
 
 
-def test_a_sum_goes_through_sympy_and_says_so():
+def test_a_sum_has_no_canonical_text_and_says_so():
     value = R.rational(1) + R.sqrt_of_rational(2)
-    text, emulated = nx.native_text(value)
-    assert not emulated
-    assert text == sp.srepr(sp.factor(sp.cancel(1 + sp.sqrt(2))))
-    assert ExactScalar.from_value(value).expression == text
-    assert sb.BACKEND_COUNTS["exact_scalar_text.native_via_sympy"] == 1
+    with pytest.raises(nx.ExactScalarTextCanonUnsupported) as caught:
+        nx.canonical_text(value)
+    assert caught.value.code == nx.EXACT_SCALAR_TEXT_CANON_UNSUPPORTED
+    with pytest.raises(nx.ExactScalarTextCanonUnsupported):
+        ExactScalar.from_value(value)
+    assert sb.BACKEND_COUNTS["exact_scalar_text.canon_unsupported"] == 1
+    assert "exact_scalar_text.native_via_sympy" not in sb.BACKEND_COUNTS
 
 
 # --------------------------------------------------------------------------

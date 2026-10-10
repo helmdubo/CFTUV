@@ -1,0 +1,39 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "canon_v2_owner_ordinals",
+  "tool": "field",
+  "law": "EXACT_SCALAR_TEXT_CANON_V2 (host face attribute cftuv_owner)",
+  "about": "`cftuv_owner` - порядковый номер заявки владения граней (`_claim_ordinals`: порядок отсортированных идентификаторов заявок); идентификаторы заявок несут имена канона V2, поэтому у доменов с переименованными заявками номера переставляются. На поле (22 случая, замороженная сцена, все стадии PYTHON, основа `6a46ec0d` -> выпуск) это ровно три случая: `2` (wall_2_001, домен 0) и `building` при 0.25/d2/20 и 0.2239/d2/42 (домены 1, 7, 17). Это ЧИСТАЯ перестановка меток внутри домена: функция метка-до -> метка-после на домене взаимно однозначна, разбиение граней на группы владения (`owner_partition_sha256`) и вся геометрия, UV, швы и атрибут `cftuv_domain` (`geometry_sha256`) побитово те же. Меняются ровно `owner_labels_sha256` и сводный `mesh_digest`; остальные 19 случаев совпадают целиком.",
+  "groups": [
+    {
+      "name": "owner_ordinals_relabelled",
+      "domains": {
+        "where": [
+          {
+            "side": "either",
+            "field": "case",
+            "op": "in",
+            "value": [
+              "2:0.25:2:20",
+              "building:0.25:2:20",
+              "building:0.2239:2:42"
+            ]
+          }
+        ]
+      },
+      "must_change": "each",
+      "allow": {
+        "digests": [
+          "mesh_digest",
+          "owner_labels_sha256"
+        ]
+      }
+    }
+  ],
+  "require": {
+    "changed_any_of": [
+      "owner_labels_sha256"
+    ],
+    "no_refusal": true
+  }
+}

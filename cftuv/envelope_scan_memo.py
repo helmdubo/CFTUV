@@ -99,7 +99,7 @@ class ScanMemoV1:
 
 
 def scan_key(run) -> tuple | None:
-    """Ключ прогона: код, ревизия, запрос (он несёт выделение), плотность и допуски; `None` — ключа нет (память не работает)."""
+    """Ключ прогона: код, ревизия, запрос (он несёт выделение), плотность, допуски и идентичность стадии скелета; `None` — ключа нет (память не работает)."""
 
     from .envelope_content_key import ContentKeyUnsupported, code_identity
     from .envelope_request_policy import normalize_envelope_fan_density, topology_chart_reach_cap
@@ -118,4 +118,6 @@ def scan_key(run) -> tuple | None:
         export.developable_stretch_budget,
         export.silhouette_uv_slide,
         topology_chart_reach_cap(export),
+        # запись несёт ключ подготовки, а он — идентичность стадии скелета: запись, снятая под другим скелетом, не принимается
+        getattr(run, "skeleton_id", ""),
     )

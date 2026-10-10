@@ -184,7 +184,7 @@ class _Session:
             developable_stretch_budget=envelope_stretch_budget(args.stretch),
             silhouette_uv_slide=envelope_dissolve_uv_slide(args.dissolve),
             # Зонд сверяет ответ шагов ширины: эталон назван явно (`evaluate` берёт бэкенд из захваченных аргументов домена, то есть тот же).
-            workers=0, domain_pool=None, kernel_backend="PYTHON",
+            workers=0, domain_pool=None, kernel_backend="PYTHON", skeleton_backend="PYTHON",
         )
 
     def evaluate(self, patch_id, alpha):

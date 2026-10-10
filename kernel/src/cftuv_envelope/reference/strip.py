@@ -35,12 +35,14 @@ def strip_envelope_instance_id(
     ГЕОМЕТРИЮ юбки на эффективной alpha, поэтому при разных alpha это разные
     экземпляры. Отсюда же следует, что имя экземпляра от alpha ЗАВИСИТ, и
     alpha-независимой ступени конвейера оно не принадлежит.
+
+    Строка alpha — канон V2 (`ExactScalar.canonical`): функция ЗНАЧЕНИЯ, а не вида выражения `sympy` и не истории процесса.
     """
 
     return stable_id(
         "envelope-instance",
         spec.envelope_spec_id,
-        ExactScalar.from_value(effective_alpha).expression,
+        ExactScalar.canonical(effective_alpha).expression,
     )
 
 
@@ -170,7 +172,7 @@ def evaluate_strip_envelope(
         envelope_spec_id=spec.envelope_spec_id.value,
         envelope_variant="StripEnvelope",
         requested_alpha=alpha_value,
-        effective_alpha=ExactScalar.from_value(effective_alpha),
+        effective_alpha=ExactScalar.canonical(effective_alpha),
         regions=tuple(regions),
         exposed_segments=tuple(exposed),
         provenance=provenance,

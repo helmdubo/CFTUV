@@ -1,0 +1,30 @@
+{
+  "schema": "expected_change_spec_v1",
+  "name": "cone_angle_numeric_windows",
+  "tool": "field",
+  "law": "SURFACE_CONE_ANGLE_DETERMINISTIC_SEED_V1",
+  "about": "Замена кандидата угла конуса (`libmp` при `_ENCLOSURE_PRECISION = 256` вместо системного `acos`) меняет ЧИСЛЕННЫЕ доказанные оболочки сертификатов развёртки: полный полевой inventory 22 случаев `3af3ea92` -> `0c787d4` нашёл 68 изменённых окон и 58 записей классификации в 34 контекстах (case, domain, vertex) ТОЛЬКО у `rounded_wall_noise_top` при alpha 0.25/d2/20 и 0.5/d2/42 (DECISIONS 2026-10-08, APPROVED_EXACT_TWO_GOLDEN_MIGRATION). Окна живут внутри сертификата, а не в меше: классы, законы, точные замыкания, карты, растяжение, цепи, отказы, геометрия, UV и нормали прежние. Поэтому на уровне кнопки у этих двух случаев разрешено НЕ ИЗМЕНИТЬСЯ ничего (`must_change: none` и пустой `allow` объявленной группы: любое движение ответа - UNEXPECTED), а остальные 20 случаев совпадают побитово. Замена уже в основной ветке (`0c787d4` предок `6a46ec0d`): выпуск относительно неё обязан дать IDENTICAL, а любое движение меша на этих двух случаях - UNEXPECTED.",
+  "groups": [
+    {
+      "name": "rounded_wall_noise_top_cone_windows",
+      "domains": {
+        "where": [
+          {
+            "side": "either",
+            "field": "case",
+            "op": "in",
+            "value": [
+              "rounded_wall_noise_top:0.25:2:20",
+              "rounded_wall_noise_top:0.5:2:42"
+            ]
+          }
+        ]
+      },
+      "must_change": "none",
+      "allow": {}
+    }
+  ],
+  "require": {
+    "no_refusal": true
+  }
+}

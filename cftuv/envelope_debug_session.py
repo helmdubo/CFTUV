@@ -835,7 +835,16 @@ class EnvelopeDebugSessionController:
         patch_domain_id: str,
         selected_edge_ids: frozenset[int],
         request,
+        skeleton_id: str | None = None,
     ):
+        """Ключ подготовки: ревизия, домен, выделение, подпись политики запроса и ИДЕНТИЧНОСТЬ СТАДИИ СКЕЛЕТА.
+
+        Скелет считается в подготовке, и подготовка, построенная Python, не читается как построенная Rust (и наоборот; пересобранное колесо — другая идентичность):
+        пятый элемент ключа — `skeleton_identity_of` (`PYTHON` | `NATIVE:<native_build_id()>`). Без `skeleton_id` берётся идентичность умолчания стадии
+        (отладочный путь стадию не заказывает). Покрытие и резка в подготовке не считаются, поэтому их бэкенд в ключе подготовки не нужен.
+        """
+
+        from .envelope_kernel_backend import skeleton_identity_of
         from .envelope_request_policy import envelope_request_policy_signature
 
         return (
@@ -843,6 +852,7 @@ class EnvelopeDebugSessionController:
             str(patch_domain_id),
             frozenset(int(item) for item in selected_edge_ids),
             envelope_request_policy_signature(request),
+            skeleton_identity_of() if skeleton_id is None else str(skeleton_id),
         )
 
     def peek_conveyor_preparation_by_key(self, key: tuple):
@@ -856,6 +866,8 @@ class EnvelopeDebugSessionController:
         patch_domain_id: str,
         selected_edge_ids: frozenset[int],
         request,
+        *,
+        skeleton_id: str | None = None,
     ):
         """Подготовка из кэша либо `None`. Счётчиков не пишет: это вопрос.
 
@@ -868,6 +880,7 @@ class EnvelopeDebugSessionController:
                 patch_domain_id,
                 selected_edge_ids,
                 request,
+                skeleton_id,
             )
         )
 
@@ -880,11 +893,13 @@ class EnvelopeDebugSessionController:
         build,
         *,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
+        skeleton_id: str | None = None,
     ):
         """Подготовка очереди из кэша либо построенная и запомненная.
 
         Ключ не содержит alpha намеренно, но содержит каноническую подпись
-        angular policy: геометрия подготовки зависит от плотности веера.
+        angular policy: геометрия подготовки зависит от плотности веера. Он несёт и идентичность
+        стадии скелета (`skeleton_id`, см. `_preparation_key`): подготовки Python и Rust не смешиваются.
         """
 
         key = self._preparation_key(
@@ -892,6 +907,7 @@ class EnvelopeDebugSessionController:
             patch_domain_id,
             selected_edge_ids,
             request,
+            skeleton_id,
         )
         cached = self._conveyor_preparation_cache.get(key)
         if cached is not None:
@@ -934,6 +950,7 @@ class EnvelopeDebugSessionController:
         selected_edge_ids: frozenset[int],
         request,
         *laws: Hashable,
+        skeleton_id: str | None = None,
     ) -> tuple:
         """Ключ результата продуктового пути: ключ подготовки и всё, что вне её.
 
@@ -949,6 +966,7 @@ class EnvelopeDebugSessionController:
                 patch_domain_id,
                 selected_edge_ids,
                 request,
+                skeleton_id,
             ),
             *laws,
         )

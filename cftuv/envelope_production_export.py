@@ -73,24 +73,37 @@
 
 from __future__ import annotations
 
-import json
 import pickle
 import time
 import traceback
 import zlib
 from dataclasses import dataclass, field, fields, replace
-from pathlib import Path
 
 from .envelope_chart_band import tightened_cap_of, tightening_is_current
 from .envelope_content_key import result_slot
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_host_labels import record_host_tokens
-from .envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, backend_identity_of, backend_timing_suffix, with_kernel_backend
-from .envelope_production_weld import (
-    COUNTER_FACES_OFF_PLANE_AFTER_OFFSET,
-    COUNTER_MAX_OFF_PLANE_AFTER_OFFSET,
-    weld_console_lines,
+from .envelope_kernel_backend import (
+    DEFAULT_KERNEL_BACKEND,
+    DEFAULT_SKELETON_BACKEND,
+    PreparationRefused,
+    backend_identity_of,
+    backend_timing_suffix,
+    prepared_under_backend,
+    skeleton_identity_of,
+    with_kernel_backend,
+    with_preparation_record,
+)
+from .envelope_production_report import (  # noqa: F401 - переэкспорт: имена прежние
+    diagnostic_summary_lines,
+    export_production_json,
+    production_console_lines,
+    production_status_text,
+    receipt_console_lines,
+    receipt_report_level,
+    receipt_status_text,
+    refused_outcome_counts,
 )
 from .envelope_request_policy import (
     ENVELOPE_UV_POLICIES,
@@ -114,6 +127,8 @@ MATERIALIZED = "MATERIALIZED"
 OUTCOME_PREPARATION_UNAVAILABLE = "PREPARATION_UNAVAILABLE"
 OUTCOME_PRODUCTION_CANCELLED = "PRODUCTION_CANCELLED"
 OUTCOME_DOMAIN_RAISED = "PRODUCTION_DOMAIN_RAISED"
+#: Зеркало исхода ядра `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`; исключение, которое ядро не успело назвать само (подготовка), хост называет тем же словом.
+OUTCOME_CANON_UNSUPPORTED = "EXACT_SCALAR_TEXT_CANON_UNSUPPORTED"
 
 #: Стадия профиля продукта и числа, которые он называет.
 PRODUCTION_BUILD_KIND = "PRODUCTION"
@@ -554,22 +569,27 @@ def produce_domain(
         if defer:
             produced = deferred_result(produced).with_changes(seconds=time.perf_counter() - started)
         return produced
-    except Exception:  # noqa: BLE001 - исход называется, а не теряется
-        return _refusal(
-            patch_id,
-            domain_id,
-            OUTCOME_DOMAIN_RAISED,
-            _trace_tail(),
-            time.perf_counter() - started,
-        )
+    except Exception as exc:  # noqa: BLE001 - исход называется, а не теряется
+        return _raised(exc, patch_id, domain_id, time.perf_counter() - started)
 
 
-def prepare_for_production(snapshot, request):
-    """Подготовка очереди с холодной памятью разложений: то, что делала кнопка отладки.
+def prepare_for_production_recorded(
+    snapshot,
+    request,
+    *,
+    backend: str = DEFAULT_KERNEL_BACKEND,
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+):
+    """`(подготовка, запись бэкенда | None)`: подготовка очереди с холодной памятью разложений под блоком бэкенда.
 
     Память разложений и счётчик внебюджетной работы обнуляются ПЕРЕД подготовкой
     (`run_queue_domain` делает ровно это): статьи бюджета не зависят от того, какие
     домены процесс уже видел, а в пуле — от того, как задачи легли на воркеры.
+
+    Скелет считается ЗДЕСЬ (`prepare_conveyor` -> `_prepare_region` -> `backend.skeleton_compute`), а не в `produce_domain`, поэтому блок бэкенда стоит
+    вокруг подготовки (`prepared_under_backend`) и в родителе, и в воркере пула; запись подготовки (скелет отдельно) идёт к записи материализации
+    (`with_preparation_record`). Обе стадии `PYTHON` — записи нет, путь побитово равен вызову без блока. Домен, которому нативное ядро отказало по имени, отказан
+    `PreparationRefused`: подготовки у него нет.
     """
 
     from cftuv_envelope.exact_sqrt_sum import (
@@ -580,12 +600,30 @@ def prepare_for_production(snapshot, request):
 
     reset_factorization_memory()
     reset_unbudgeted_work()
-    return prepare_conveyor(snapshot, request)
+    return prepared_under_backend(lambda: prepare_conveyor(snapshot, request), backend, skeleton_backend)
 
 
-def _trace_tail() -> str:
-    tail = traceback.format_exc().strip().splitlines()[-3:]
-    return " | ".join(item.strip() for item in tail)
+def prepare_for_production(
+    snapshot,
+    request,
+    *,
+    backend: str = DEFAULT_KERNEL_BACKEND,
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
+):
+    """Подготовка очереди с холодной памятью разложений (то, что делала кнопка отладки) без записи бэкенда: `prepare_for_production_recorded(...)[0]`."""
+
+    return prepare_for_production_recorded(snapshot, request, backend=backend, skeleton_backend=skeleton_backend)[0]
+
+
+def _raised(exc, patch_id, domain_id, seconds, placement=PLACEMENT_PARENT):
+    """Отказ домена по исключению: «нет канонической строки V2» называется своим словом, прочее - `PRODUCTION_DOMAIN_RAISED` с хвостом трассы."""
+
+    from cftuv_envelope.reference.native_exact import ExactScalarTextCanonUnsupported
+
+    if isinstance(exc, ExactScalarTextCanonUnsupported):
+        return _refusal(patch_id, domain_id, OUTCOME_CANON_UNSUPPORTED, str(exc), seconds, placement)
+    tail = " | ".join(item.strip() for item in traceback.format_exc().strip().splitlines()[-3:])
+    return _refusal(patch_id, domain_id, OUTCOME_DOMAIN_RAISED, tail, seconds, placement)
 
 
 def solve_cold_production_task(task):
@@ -604,7 +642,27 @@ def solve_cold_production_task(task):
     if not isinstance(inputs, TaskInputsV1):
         return inputs
     started = time.perf_counter()
-    prepared = prepare_for_production(inputs.snapshot, inputs.request)
+    try:
+        prepared, preparation_record = prepare_for_production_recorded(
+            inputs.snapshot,
+            inputs.request,
+            backend=task.backend,
+            skeleton_backend=task.skeleton_backend,
+        )
+    except PreparationRefused as refused:
+        # Нативное ядро отказало скелету по имени: домен отказан этим именем (эталону он не отдаётся), подготовки у него нет.
+        prepare_seconds = time.perf_counter() - started
+        inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
+        return inputs.result(
+            prepared=None,
+            production=_placed(
+                _refusal(task.patch_id, task.domain_id, refused.outcome, refused.detail, prepare_seconds).with_changes(
+                    backend_record=refused.record, labels=inputs.labeling
+                ),
+                PLACEMENT_WORKER,
+            ),
+            snapshot=inputs.snapshot if inputs.exported else None,
+        )
     prepare_seconds = time.perf_counter() - started
     inputs.profile.add_timing("QUEUE_PREPARE", prepare_seconds, task.domain_id)
     produced = produce_domain(
@@ -616,11 +674,12 @@ def solve_cold_production_task(task):
         topology_law=task.cold.topology_law,
         defer=True,
         backend=task.backend,
+        skeleton_backend=task.skeleton_backend,
     )
     return inputs.result(
         prepared=prepared,
         production=_placed(
-            produced.with_changes(
+            with_preparation_record(produced, preparation_record).with_changes(
                 seconds=produced.seconds + prepare_seconds,
                 labels=inputs.labeling,
             ),
@@ -653,6 +712,7 @@ def solve_production_task(task):
             topology_law=production.topology_law,
             defer=True,
             backend=task.backend,
+            skeleton_backend=task.skeleton_backend,
         )
     )
     if production.relabel is not None:
@@ -761,6 +821,9 @@ class _RunInputsV1:
     #: Бэкенд ядра и его идентичность в ключах кэшей: результат одного бэкенда не подменяет результат другого.
     backend: str = DEFAULT_KERNEL_BACKEND
     backend_id: str = DEFAULT_KERNEL_BACKEND
+    #: Бэкенд стадии скелета; `backend_id` несёт идентичность обеих стадий (результат), `skeleton_id` — только скелета (ключ кэша подготовки сессии).
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND
+    skeleton_id: str = DEFAULT_SKELETON_BACKEND
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
@@ -802,6 +865,7 @@ def _result_key(run: _RunInputsV1, domain_id, selected, request) -> tuple:
         run.topology_law,
         HOST_NEAR_PLANAR_LIFT_POLICY.value,
         run.backend_id,
+        skeleton_id=run.skeleton_id,
     )
 
 
@@ -816,7 +880,7 @@ def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs)
         domain_id,
         selected,
         prepared=controller.peek_conveyor_preparation(
-            run.revision, domain_id, selected, request
+            run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id
         ),
         inputs=inputs,
         result_key=key,
@@ -928,7 +992,7 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
 
     cold = _DomainEntryV1(patch_id, domain_id, selected, export=export)
     try:
-        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend)
+        key = domain_content_key(export, selected, _band_key(run, patch_id), run.backend, run.skeleton_backend)
     except ContentKeyUnsupported:
         return cold
     controller = run.controller
@@ -1091,36 +1155,49 @@ def _produce_cold_in_parent(run: _RunInputsV1, entry, inputs, placement):
     _check_cancel(run)
     snapshot, request = inputs
     started = time.perf_counter()
+    built = []  # запись бэкенда подготовки, когда подготовку строила эта функция (подготовка из кэша скелет не считала)
+
+    def build():
+        prepared, record = prepare_for_production_recorded(
+            snapshot, request, backend=run.backend, skeleton_backend=run.skeleton_backend
+        )
+        built.append(record)
+        return prepared
+
     try:
         prepared = run.controller.get_conveyor_preparation(
             run.revision,
             entry.domain_id,
             entry.selected,
             request,
-            lambda: prepare_for_production(snapshot, request),
+            build,
             profile=run.profile,
+            skeleton_id=run.skeleton_id,
         )
-    except Exception:  # noqa: BLE001 - исход называется, а не теряется
-        return _refusal(
-            entry.patch_id,
-            entry.domain_id,
-            OUTCOME_DOMAIN_RAISED,
-            _trace_tail(),
-            time.perf_counter() - started,
+    except PreparationRefused as refused:
+        return _placed(
+            _refusal(
+                entry.patch_id,
+                entry.domain_id,
+                refused.outcome,
+                refused.detail,
+                time.perf_counter() - started,
+            ).with_changes(backend_record=refused.record),
             placement,
         )
-    return _placed(
-        produce_domain(
-            entry.patch_id,
-            entry.domain_id,
-            prepared,
-            run.alpha_text,
-            uv_policy_id=run.uv_policy_id,
-            topology_law=run.topology_law,
-            backend=run.backend,
-        ),
-        placement,
+    except Exception as exc:  # noqa: BLE001 - исход называется, а не теряется
+        return _raised(exc, entry.patch_id, entry.domain_id, time.perf_counter() - started, placement)
+    produced = produce_domain(
+        entry.patch_id,
+        entry.domain_id,
+        prepared,
+        run.alpha_text,
+        uv_policy_id=run.uv_policy_id,
+        topology_law=run.topology_law,
+        backend=run.backend,
+        skeleton_backend=run.skeleton_backend,
     )
+    return _placed(with_preparation_record(produced, built[0] if built else None), placement)
 
 
 def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
@@ -1156,16 +1233,19 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
     request = inputs[1]
     if reply is not None and reply.ok and reply.production is not None:
         prepared = reply.prepared
-        cached = run.controller.get_conveyor_preparation(
-            run.revision,
-            entry.domain_id,
-            entry.selected,
-            request,
-            lambda: prepared,
-            profile=run.profile,
-        )
-        if reply.prepared_blob is not None and cached is prepared:
-            run.controller.preparation_blobs.adopt(prepared, reply.prepared_blob, reply.prepared_key)
+        # Домен, чей скелет нативное ядро отказало по имени, приходит отказом без подготовки: в кэш сессии кладут то, что есть.
+        if prepared is not None:
+            cached = run.controller.get_conveyor_preparation(
+                run.revision,
+                entry.domain_id,
+                entry.selected,
+                request,
+                lambda: prepared,
+                profile=run.profile,
+                skeleton_id=run.skeleton_id,
+            )
+            if reply.prepared_blob is not None and cached is prepared:
+                run.controller.preparation_blobs.adopt(prepared, reply.prepared_blob, reply.prepared_key)
         result = reply.production
     else:
         result = _produce_cold_in_parent(run, entry, inputs, placement)
@@ -1197,7 +1277,7 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     if entry.content_key is None or result.labels is None or result.outcome == OUTCOME_DOMAIN_RAISED:
         return
     prepared = controller.peek_conveyor_preparation(
-        run.revision, entry.domain_id, entry.selected, request
+        run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id
     )
     if prepared is None:
         return
@@ -1273,6 +1353,7 @@ def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
                     uv_policy_id=run.uv_policy_id,
                     topology_law=run.topology_law,
                     backend=run.backend,
+                    skeleton_backend=run.skeleton_backend,
                 ),
                 placement.get(item.domain_id, PLACEMENT_PARENT),
             )
@@ -1317,6 +1398,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
             production=_production_input(run, entry_of[domain_id], blob),
             affinity=domain_id,
             backend=run.backend,
+            skeleton_backend=run.skeleton_backend,
         )
         for index, ((patch_id, domain_id, _payload), blob) in enumerate(shipped)
     ]
@@ -1336,6 +1418,7 @@ def _worker_tasks(run: _RunInputsV1, ready, shipped, cold):
                 cold=laws,
                 affinity=entry.domain_id,
                 backend=run.backend,
+                skeleton_backend=run.skeleton_backend,
             )
         )
     return tasks
@@ -1465,6 +1548,7 @@ class ProductionRunV1:
     #: `((патч, (рёбра хоста, чью полосу строит домен патча), ...), ...)`: ровно то, что превью ширины рисует.
     selected_by_patch: tuple = ()
     kernel_backend: str = DEFAULT_KERNEL_BACKEND  # бэкенд ядра, заказанный прогоном
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND  # бэкенд стадии скелета, заказанный прогоном
 
     @property
     def materialized(self) -> tuple[ProductionDomainResultV1, ...]:
@@ -1615,6 +1699,7 @@ def run_production(
     cancel=None,
     quiesce: bool = True,
     kernel_backend: str = DEFAULT_KERNEL_BACKEND,
+    skeleton_backend: str = DEFAULT_SKELETON_BACKEND,
 ) -> ProductionRunV1:
     """Один продуктовый прогон по доменам выделения: сессия, пул, названные исходы.
 
@@ -1676,7 +1761,9 @@ def run_production(
         profile,
         cancel=cancel,
         backend=kernel_backend,
-        backend_id=backend_identity_of(kernel_backend),
+        backend_id=backend_identity_of(kernel_backend, skeleton_backend),
+        skeleton_backend=skeleton_backend,
+        skeleton_id=skeleton_identity_of(skeleton_backend),
     )
     entries = _scan(run)
     _check_cancel(run)
@@ -1708,146 +1795,13 @@ def run_production(
             for patch_id in run.patch_ids
         ),
         kernel_backend=run.backend,
+        skeleton_backend=run.skeleton_backend,
     )
 
 
 # --------------------------------------------------------------------------
 # Строки владельцу и свидетельства
 # --------------------------------------------------------------------------
-
-
-def refused_outcome_counts(results) -> dict[str, int]:
-    """`{исход: сколько доменов}` по отказам, порядок — по имени исхода."""
-
-    counts: dict[str, int] = {}
-    for item in results:
-        if not item.is_materialized:
-            counts[item.outcome] = counts.get(item.outcome, 0) + 1
-    return dict(sorted(counts.items()))
-
-
-def _outcome_counts(rows) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for _patch, _domain, outcome, _detail in rows:
-        counts[outcome] = counts.get(outcome, 0) + 1
-    return dict(sorted(counts.items()))
-
-
-def _status_text(written: int, rows, warnings=()) -> str:
-    """`MATERIALIZED n / refused m (OUTCOME x2, OTHER)` и, если есть, `| warnings`."""
-
-    rows = tuple(rows)
-    text = f"MATERIALIZED {written} / refused {len(rows)}"
-    counts = _outcome_counts(rows)
-    if counts:
-        text += " (" + ", ".join(
-            name if count == 1 else f"{name} x{count}"
-            for name, count in counts.items()
-        ) + ")"
-    names: dict[str, int] = {}
-    for _patch, outcome, _detail in warnings:
-        names[outcome] = names.get(outcome, 0) + 1
-    if names:
-        text += " | warnings: " + ", ".join(
-            name if count == 1 else f"{name} x{count}"
-            for name, count in sorted(names.items())
-        )
-    return text
-
-
-def _refused_rows(results):
-    return [
-        (item.patch_id, item.domain_id, item.outcome, item.detail)
-        for item in results
-        if not item.is_materialized
-    ]
-
-
-def production_status_text(results) -> str:
-    """Строка по результатам ПРОДУКТОВОГО пути (до записи меша)."""
-
-    results = tuple(results)
-    return _status_text(
-        sum(1 for item in results if item.is_materialized), _refused_rows(results)
-    )
-
-
-def receipt_status_text(receipt) -> str:
-    """Строка панели по КВИТАНЦИИ записи: сколько домен лежит в меше, а остальное названо.
-
-    Пропуск писателя (`ADAPTER_*`) стоит в ней наравне с отказом продуктового
-    пути: домен, которого нет в меше, не может молчать по любой из причин.
-    """
-
-    return _status_text(len(receipt.domains), receipt.skipped, receipt.warnings)
-
-
-def receipt_report_level(receipt) -> str:
-    """`WARNING`, если хоть один домен не в меше (по любой причине) либо есть находка; иначе `INFO`."""
-
-    return "WARNING" if receipt.skipped or receipt.warnings else "INFO"
-
-
-def _row_line(kind, patch_id, domain_id, outcome, detail) -> str:
-    return (
-        f"[CFTUV][Production] {kind} patch {patch_id} "
-        f"(domain ...{str(domain_id)[-6:]}): {outcome}"
-        + (f": {detail}" if detail else "")
-    )
-
-
-def production_console_lines(results) -> list[str]:
-    """Каждый отказанный домен — строкой с исходом и деталью; затем итог."""
-
-    results = tuple(results)
-    lines = [
-        _row_line("REFUSED", *row) for row in _refused_rows(results)
-    ]
-    lines.append(f"[CFTUV][Production] {production_status_text(results)}")
-    return lines
-
-
-def diagnostic_summary_lines(results) -> list[str]:
-    """Диагностики батчей (`NEAR_PLANAR_...`, `U_RESTARTS_...`) по именам: сколько доменов и каких."""
-
-    found: dict[str, list[int]] = {}
-    for item in results:
-        for line in item.diagnostics:
-            found.setdefault(line.split(":", 1)[0], []).append(item.patch_id)
-    lines = []
-    for name, patches in sorted(found.items()):
-        shown = sorted(set(patches))
-        tail = ", ".join(str(item) for item in shown[:12])
-        more = f", ... (+{len(shown) - 12})" if len(shown) > 12 else ""
-        lines.append(
-            f"[CFTUV][Production] DIAGNOSTIC {name}: {len(patches)} in "
-            f"{len(shown)} domains (patch {tail}{more})"
-        )
-    return lines
-
-
-def receipt_console_lines(receipt, results) -> list[str]:
-    """Консольная сводка квитанции: каждый пропущенный домен, предупреждения, диагностики, итог."""
-
-    lines = [_row_line("REFUSED", *row) for row in receipt.skipped]
-    for patch_id, outcome, detail in receipt.warnings:
-        where = "mesh" if patch_id is None else f"patch {patch_id}"
-        lines.append(
-            f"[CFTUV][Production] WARNING {where}: {outcome}"
-            + (f": {detail}" if detail else "")
-        )
-    lines.extend(diagnostic_summary_lines(results))
-    lines.extend(developable_stretch_lines(results))
-    lines.extend(weld_console_lines(getattr(receipt, "weld_counters", ())))
-    offset = dict(getattr(receipt, "offset_counters", ()) or ())
-    if offset.get(COUNTER_FACES_OFF_PLANE_AFTER_OFFSET):
-        lines.append(
-            f"[CFTUV][Production] OFFSET: {offset[COUNTER_FACES_OFF_PLANE_AFTER_OFFSET]} faces of 4+ vertices "
-            f"leave their plane after the offset, at most {offset[COUNTER_MAX_OFF_PLANE_AFTER_OFFSET] / 1e6:.3f} mm "
-            "(recorded, not judged)"
-        )
-    lines.append(f"[CFTUV][Production] {receipt_status_text(receipt)}")
-    return lines
 
 
 def production_timing_text(run: ProductionRunV1) -> str:
@@ -1868,7 +1822,7 @@ def production_timing_text(run: ProductionRunV1) -> str:
         f"built {builds} | results cached {cached}, computed {computed}"
         f"{_content_timing_suffix(run, content)}"
         f"{_clip_memo_timing_suffix(run)}"
-        f"{backend_timing_suffix(run.results, run.kernel_backend)}"
+        f"{backend_timing_suffix(run.results, run.kernel_backend, run.skeleton_backend)}"
         f"{_pool_timing_suffix(run.profile)}"
     )
 
@@ -1891,57 +1845,10 @@ def _content_timing_suffix(run: ProductionRunV1, content: int) -> str:
     )
 
 
-def export_production_json(results, directory, *, label: str = "production") -> Path:
-    """Батчи MATERIALIZED-доменов и сводка в `directory`: свидетельство для зонда.
-
-    Батч идёт кодеком ядра (`GeometryBatchCodecV1`): канонические байты, их же
-    читает `GeometryBatchCodecV1.loads`. Сводка — исход, детали и дайджесты
-    каждого домена, всё без секунд (сравнимо между прогонами и воркерами).
-    """
-
-    from cftuv_envelope import GeometryBatchCodecV1
-
-    folder = Path(directory)
-    folder.mkdir(parents=True, exist_ok=True)
-    rows = []
-    for item in results:
-        row = {
-            "patch_id": item.patch_id,
-            "domain_id": item.domain_id,
-            "outcome": item.outcome,
-            "detail": item.detail,
-            "content_digest": item.content_digest,
-            "counters": dict(item.counters),
-            "diagnostics": list(item.diagnostics),
-            "normal": None if item.normal is None else list(item.normal),
-            "offset_normal_law": item.offset_normal_law,
-            "offset_normals_digest": item.offset_normals_digest,
-            "decal_topology_law": item.decal_topology_law,
-            "alpha_interval": None if item.alpha_interval is None else item.alpha_interval.as_record(),
-            "structure_digest": item.structure_digest,
-        }
-        if item.is_materialized:
-            name = f"{label}_patch{item.patch_id:04d}.geometry_batch.json"
-            (folder / name).write_bytes(GeometryBatchCodecV1.dumps(item.batch))
-            row["batch_file"] = name
-            row["semantic_digest"] = item.batch.semantic_digest.value
-        rows.append(row)
-    summary = folder / f"{label}_summary.json"
-    summary.write_text(
-        json.dumps(
-            {"label": label, "domains": rows, "status": production_status_text(results)},
-            ensure_ascii=False,
-            indent=1,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    return summary
-
-
 __all__ = (
     "ColdProductionInputV1",
     "MATERIALIZED",
+    "OUTCOME_CANON_UNSUPPORTED",
     "OUTCOME_DOMAIN_RAISED",
     "OUTCOME_PREPARATION_UNAVAILABLE",
     "PLACEMENT_CACHED",
@@ -1984,6 +1891,7 @@ __all__ = (
     "diagnostic_summary_lines",
     "export_production_json",
     "prepare_for_production",
+    "prepare_for_production_recorded",
     "produce_domain",
     "production_console_lines",
     "receipt_console_lines",

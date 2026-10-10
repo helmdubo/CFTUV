@@ -13,6 +13,11 @@
 возврата 1); шесть статей `EXACT_WORK_*` — ЦЕНА (расхождение тоже код 1: нативное ядро обязано стоить столько же, сколько эталон);
 секунды и кто на самом деле посчитал (запись бэкенда домена: `native` / `python` / `mixed`, названный откат) — в таблице и в отчёте.
 
+`--stage skeleton` проверяет только смену скелета подготовки; покрытие и резка стоят на умолчании продукта в обоих прогонах.
+Без флага проверяются покрытие и резка, скелет остаётся на Python. Счётчики исполнителя, откаты и доля относятся к выбранной стадии.
+В строгой проверке скелета нулевой вызов на тёплом шаге допустим только после настоящего нативного вызова того же патча в этом случае;
+один `FAST_HIT` покрытия этого не доказывает. Порт скелета и его предпосылки coverage/clip должны быть доступны, их откаты отказаны.
+
 РЕЖИМЫ. `--strict` (по умолчанию; приёмка Rust) отказывает КОДОМ 2, не сравнивая ничего «на нуле», если: расширения нет (`UNAVAILABLE`),
 порт устарел (`stale(...)`) или не `available`, сборка не та (`--expect-build-id`: `tree` по умолчанию — id собранного из ЭТОГО дерева,
 считает `tools/native_build_id.py`; `none` отключает сверку и записывается в отчёт; либо точный id), на каком-либо домене случился
@@ -57,6 +62,8 @@ FIELD_CASES = (
     "walls.003:0.25:2:20,walls.006:0.25:2:20,sagging_wall:0.987:2:42,rounded_wall_noise_top:0.5:2:42,"
     "rounded_wall_noise_top:0.2239:2:42,sagging_wall:0.2239:2:42,building:0.2239:2:42"
 )
+STAGE_COVERAGE_CLIP, STAGE_SKELETON = "coverage_clip", "skeleton"
+STAGES = (STAGE_COVERAGE_CLIP, STAGE_SKELETON)
 PRICE_PREFIX = "EXACT_WORK_"
 STATUS_OK, STATUS_UNAVAILABLE, STATUS_FAILED, STATUS_REFUSED = "OK", "UNAVAILABLE", "FAILED", "REFUSED"
 #: Коды возврата: различие ответа или цены (и упавший случай) сильнее отказа приёмки.
@@ -100,6 +107,10 @@ def domain_row(result) -> dict:
         "native_calls": 0 if record is None else record.native_calls,
         "python_calls": 0 if record is None else record.python_calls,
         "fallbacks": [] if record is None else list(record.outcomes),
+        "skeleton_ran": "" if record is None else getattr(record, "skeleton_ran", ""),
+        "skeleton_native_calls": 0 if record is None else getattr(record, "skeleton_native_calls", 0),
+        "skeleton_python_calls": 0 if record is None else getattr(record, "skeleton_python_calls", 0),
+        "skeleton_fallbacks": [] if record is None else list(getattr(record, "skeleton_outcomes", ())),
         "area": None,
     }
 
@@ -138,10 +149,14 @@ def classify_row(row: dict) -> str:
     return "not_reached"
 
 
-def unexplained_not_reached(rows) -> list:
+def unexplained_not_reached(rows, stage=STAGE_COVERAGE_CLIP) -> list:
     """Номера патчей, которые не позвали ни одной операции, хотя их ответ не из кэша и не из шаблона шага ширины (`FAST_HIT`) и не отказ до ядра."""
 
-    return sorted(row["patch_id"] for row in rows if classify_row(row) == "not_reached" and row["step_path"] != STEP_FAST)
+    def explained(row):
+        # Шаблон покрытия не доказывает, что подготовку строил нативный скелет.
+        return row.get("preparation_reused", False) if stage == STAGE_SKELETON else row["step_path"] == STEP_FAST
+
+    return sorted(row["patch_id"] for row in rows if classify_row(row) == "not_reached" and not explained(row))
 
 
 def share_of(rows) -> dict:
@@ -179,25 +194,48 @@ def _interaction(run) -> float | None:
     return float(run["wall_seconds"]) + float(run["pack_seconds"])
 
 
-def summarize_width(width, python_rows, native_rows, python_run=None, native_run=None) -> dict:
+def _stage_rows(rows, stage, prepared_patches):
+    """Записи выбранной стадии; повтор подготовки доказан вызовом скелета на прежней ширине этого случая."""
+
+    if stage == STAGE_COVERAGE_CLIP:
+        return list(rows)
+    if stage != STAGE_SKELETON:
+        raise ValueError(f"unknown A/B stage: {stage}")
+    return [
+        {**row, **{name: row["skeleton_" + name] for name in ("ran", "native_calls", "python_calls", "fallbacks")},
+         "preparation_reused": row["patch_id"] in prepared_patches}
+        for row in rows
+    ]
+
+
+def summarize_width(width, python_rows, native_rows, python_run=None, native_run=None, *, stage=STAGE_COVERAGE_CLIP, prepared_patches=()) -> dict:
     """Одна ширина случая: различия, секунды доменов и стена двух бэкендов, кто посчитал в нативном прогоне, откаты, вызовы, состав меша.
 
     `python_run`/`native_run` — `{"wall_seconds", "pack_seconds", "pool"}` прогона (нет — метрики стены названы `None`, остальное считается по строкам).
     """
 
+    prerequisites = {}
+    if stage == STAGE_SKELETON:
+        for item in native_rows:
+            for name in item["fallbacks"]:
+                if name not in ALLOWED_FALLBACKS:
+                    prerequisites.setdefault(name, []).append(item["patch_id"])
+    native_rows = _stage_rows(native_rows, stage, prepared_patches)
     computed = [item for item in native_rows if item["placement"] != PLACEMENT_CACHED]
     python_seconds = sum(item["seconds"] for item in python_rows if item["placement"] != PLACEMENT_CACHED)
     native_seconds = sum(item["seconds"] for item in computed)
     ran = {"native": 0, "python": 0, "mixed": 0}
     fallbacks: dict = {}
     for item in computed:
-        ran[item["ran"]] += 1
+        if item["ran"]:
+            ran[item["ran"]] += 1
         for name in item["fallbacks"]:
             fallbacks.setdefault(name, []).append(item["patch_id"])
     differences = compare_domains(python_rows, native_rows)
     python_wall, native_wall = _interaction(python_run), _interaction(native_run)
     return {
         "width": width,
+        "stage": stage,
         "domains": len(native_rows),
         "differences": differences,
         "python_seconds": round(python_seconds, 3),
@@ -215,7 +253,9 @@ def summarize_width(width, python_rows, native_rows, python_run=None, native_run
             "fallback_domains": sum(1 for item in computed if item["fallbacks"]),
         },
         "fallbacks": {name: sorted(set(found)) for name, found in sorted(fallbacks.items())},
-        "unexplained_not_reached": unexplained_not_reached(computed),
+        "unexplained_not_reached": unexplained_not_reached(computed, stage),
+        "prerequisite_fallbacks": {name: sorted(set(patches)) for name, patches in sorted(prerequisites.items())},
+        "preparation_reused": sorted(item["patch_id"] for item in computed if item.get("preparation_reused") and not item["native_calls"]),
         "share": share_of(native_rows),
     }
 
@@ -419,11 +459,12 @@ def _port_state_name(state: str) -> str:
     return "STRICT_PORT_NOT_AVAILABLE"
 
 
-def port_violations(status: dict, expected_build_id) -> list:
+def port_violations(status: dict, expected_build_id, stage=STAGE_COVERAGE_CLIP) -> list:
     """Отказы, видные до первого случая: порт не `available` (нет расширения, устарел, чужой интерпретатор) и сборка не та (если ждали конкретную)."""
 
     found = []
-    for operation in ("coverage", "clip"):
+    operations = ("coverage", "clip", "skeleton") if stage == STAGE_SKELETON else ("coverage", "clip")
+    for operation in operations:
         state = str(status.get(operation, "unavailable"))
         if state != "available":
             detail = f" ({status['detail']})" if status.get("detail") else ""
@@ -442,6 +483,8 @@ def width_violations(case: str, item: dict) -> list:
     for name, patches in item["fallbacks"].items():
         if name not in ALLOWED_FALLBACKS:
             found.append(f"STRICT_UNEXPECTED_FALLBACK: {name} case {case} width {item['width']:g} patches {patches[:8]}")
+    for name, patches in item.get("prerequisite_fallbacks", {}).items():
+        found.append(f"STRICT_UNEXPECTED_FALLBACK: coverage_clip {name} case {case} width {item['width']:g} patches {patches[:8]}")
     if item.get("unexplained_not_reached"):
         found.append(
             f"STRICT_NOT_REACHED_UNEXPLAINED: case {case} width {item['width']:g} patches {item['unexplained_not_reached'][:8]} "
@@ -465,7 +508,7 @@ def case_violations(case: dict) -> list:
 def strict_violations(report: dict, expected_build_id, expectation_error: str | None = None) -> list:
     """Все именованные отказы приёмки по отчёту (пусто — строгий режим пройден; различия ответа и цены в него не входят: у них код 1)."""
 
-    found = port_violations(report["native_status"], expected_build_id)
+    found = port_violations(report["native_status"], expected_build_id, report.get("stage", STAGE_COVERAGE_CLIP))
     if expectation_error:
         found.append(expectation_error)
     ran = report["status"] != STATUS_UNAVAILABLE and "skipped" not in report
@@ -534,7 +577,7 @@ def final_line(report: dict) -> str:
     )
     if "totals" not in report:
         native = report["native_status"]
-        return f"NATIVE_AB_{status} coverage={native['coverage']} clip={native['clip']} detail={native['detail']!r}{tail}"
+        return f"NATIVE_AB_{status} coverage={native['coverage']} clip={native['clip']} detail={native['detail']!r}{tail} skeleton={native.get('skeleton', 'unavailable')}"
     totals = report["totals"]
     interaction = ""
     p95 = {backend: report.get("latency", {}).get(backend, {}).get("warm", {}).get("p95") for backend in ("python", "native")}
@@ -545,7 +588,7 @@ def final_line(report: dict) -> str:
         f"price_differences={totals['price']} python_seconds={totals['python_seconds']:.1f} native_seconds={totals['native_seconds']:.1f} "
         f"native_domains={totals['native']} python_domains={totals['python']} mixed_domains={totals['mixed']} "
         f"native_calls={totals['native_calls']} python_calls={totals['python_calls']} fallback_domains={totals['fallback_domains']}"
-        f"{interaction}{tail}"
+        f"{interaction}{tail} stage={report.get('stage', STAGE_COVERAGE_CLIP)}"
     )
 
 
@@ -571,6 +614,7 @@ def parse_arguments(argv=None):
     parser.add_argument("--steps", type=int, default=3)
     parser.add_argument("--width-step", type=float, default=0.01)
     parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--stage", choices=STAGES, default=STAGE_COVERAGE_CLIP)
     parser.add_argument("--native-path", default="")
     parser.add_argument("--out", default="")
     return parser.parse_args(argv)
@@ -687,15 +731,21 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
 
     from cftuv.analysis import build_analysis_bundle
     from cftuv.analysis_surface import source_revision_from_bmesh
-    from cftuv.envelope_kernel_backend import kernel_backend_of
+    from cftuv.envelope_kernel_backend import DEFAULT_KERNEL_BACKEND, KERNEL_BACKEND_PYTHON, kernel_backend_of, skeleton_backend_of
     from cftuv.envelope_production_export import run_production
     from cftuv.envelope_request_policy import envelope_dissolve_uv_slide, envelope_stretch_budget
 
     mesh_name, alpha_text, density, stretch = spec.split(":")
     settings = bpy.context.scene.hotspotuv_settings
     mesh_settings = bpy.context.scene.hotspotuv_decal_mesh
-    mesh_settings.kernel_backend = backend  # тем же путём, каким его выставит панель
-    assert kernel_backend_of(mesh_settings) == backend
+    if args.stage == STAGE_SKELETON:
+        mesh_settings.skeleton_backend = backend
+        mesh_settings.kernel_backend = DEFAULT_KERNEL_BACKEND
+        assert skeleton_backend_of(mesh_settings) == backend
+    else:
+        mesh_settings.kernel_backend = backend
+        mesh_settings.skeleton_backend = KERNEL_BACKEND_PYTHON  # изоляция coverage/clip не зависит от умолчания продукта
+        assert kernel_backend_of(mesh_settings) == backend
     _fresh_state(controller, args.workers)
     obj = bpy.data.objects[mesh_name]
     selected = _select_seams(obj)
@@ -724,9 +774,10 @@ def _run_backend(controller, spec: str, backend: str, args) -> list:
             silhouette_uv_slide=slide,
             workers=args.workers,
             kernel_backend=mesh_settings.kernel_backend,
+            skeleton_backend=mesh_settings.skeleton_backend,
         )
         wall = time.perf_counter() - started
-        assert run.kernel_backend == backend
+        assert (run.skeleton_backend if args.stage == STAGE_SKELETON else run.kernel_backend) == backend
         pack_seconds, areas, pack_error = _pack(run)  # до строк: упаковка читает результаты так же, как кнопка (отложенные разворачиваются в ней)
         rows = [domain_row(item) for item in run.results]
         for row in rows:
@@ -764,8 +815,12 @@ def _case(controller, spec: str, order: int, args) -> dict:
     python, native = runs["PYTHON"], runs["NATIVE"]
     assert [item["width"] for item in python] == [item["width"] for item in native]
     widths = []
+    prepared_patches = set()
+    stage = getattr(args, "stage", STAGE_COVERAGE_CLIP)
     for index, (one, other) in enumerate(zip(python, native)):
-        summary = summarize_width(one["width"], one["rows"], other["rows"], _run_numbers(one), _run_numbers(other))
+        summary = summarize_width(one["width"], one["rows"], other["rows"], _run_numbers(one), _run_numbers(other), stage=stage, prepared_patches=prepared_patches)
+        if stage == STAGE_SKELETON:
+            prepared_patches.update(row["patch_id"] for row in other["rows"] if row["skeleton_native_calls"] and row["placement"] != PLACEMENT_CACHED)
         summary["step"] = index
         widths.append(summary)
     return {"case": spec, "order": list(sequence), "wall_seconds": seconds, "widths": widths}
@@ -800,6 +855,7 @@ def _run_cases(cases, status, root: Path, args) -> dict:
         "native_status": status.as_record(),
         "root": str(root),
         "workers": args.workers,
+        "stage": args.stage,
         "steps": args.steps,
         "width_step": args.width_step,
         "cases": results,
@@ -844,14 +900,15 @@ def main() -> int:
     print("native status:", json.dumps(status.as_record()), flush=True)
     cases = [item for item in args.cases.split(",") if item]
     expected, expectation_error = resolve_expected_build_id(args.expect_build_id, args.strict, root)
-    preflight = port_violations(status.as_record(), expected) if args.strict else []
-    no_native = status.coverage == UNAVAILABLE and status.clip == UNAVAILABLE
+    preflight = port_violations(status.as_record(), expected, args.stage) if args.strict else []
+    no_native = status.skeleton == UNAVAILABLE if args.stage == STAGE_SKELETON else status.coverage == UNAVAILABLE and status.clip == UNAVAILABLE
     if no_native or preflight or (args.strict and expectation_error):
         report = unavailable_report(status.as_record(), str(root), cases)  # нечего сравнивать (диагностика) либо приёмка отказана до прогона
         if args.strict:
             report["skipped"] = "STRICT_PREFLIGHT"
     else:
         report = _run_cases(cases, status, root, args)
+    report["stage"] = args.stage
     finalize(report, strict=args.strict, expected_build_id=expected, expectation_error=expectation_error)
     if "totals" in report:
         _print_report(report)

@@ -81,6 +81,7 @@ from ..exact_sqrt_sum import (
 )
 from ..ids import GeometryDiagnosticId, LineageId
 from ..outcomes import NamedOutcome
+from ..reference.native_exact import ExactScalarTextCanonUnsupported
 from ..validation import validate_geometry_batch
 from .admit import MaterializationOutcome, PlanarityKind, admit_domain
 from .audit import audit_batch, batch_shape_counters
@@ -194,6 +195,16 @@ def _refused(outcome, detail, clock, counters=()) -> MaterializationV1:
         diagnostics=(),
         content_digest="",
     )
+
+
+def canon_unsupported_refusal(unsupported: ExactScalarTextCanonUnsupported, counters=()) -> MaterializationV1:
+    """Отказ домена `EXACT_SCALAR_TEXT_CANON_UNSUPPORTED`: у точной величины нет канонической строки V2 (больше одного члена либо вне поля).
+
+    Исключение называется там, где оно случилось (материализация, шаг ширины); хост получает исход по имени вместо общего `PRODUCTION_DOMAIN_RAISED`.
+    Прежней формы `sympy` в ответ не будет: имя события или экземпляра, зависящее от истории процесса, и есть то, от чего канон V2 избавляет.
+    """
+
+    return _refused(MaterializationOutcome.EXACT_SCALAR_TEXT_CANON_UNSUPPORTED, str(unsupported), _Clock(), counters)
 
 
 def _edge_faces(context) -> dict[str, tuple[str, ...]]:
@@ -1095,6 +1106,8 @@ def _materialize_domain(
             clock,
             budget.counters(),
         )
+    except ExactScalarTextCanonUnsupported as unsupported:
+        return canon_unsupported_refusal(unsupported, budget.counters())
     batch = built.batch
     if digests:
         batch = sealed_geometry_batch(batch)
