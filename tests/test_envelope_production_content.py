@@ -439,6 +439,7 @@ def _band_double(monkeypatch, cap):
 
     from cftuv import envelope_chart_band as chart_band
     from cftuv import envelope_request_export as request_export
+    from cftuv import envelope_scan_memo
 
     def refuse(_snapshot, alpha_decimal):
         if Decimal(alpha_decimal) > Decimal(str(cap)):
@@ -448,7 +449,10 @@ def _band_double(monkeypatch, cap):
             )
 
     monkeypatch.setattr(chart_band, "refuse_alpha_beyond_reach", refuse)
+    monkeypatch.setattr(chart_band, "refuse_alpha_beyond_reach_facts", refuse)  # домен на подготовке из хранилища решает по фактам её карт-полос
     monkeypatch.setattr(request_export, "refuse_alpha_beyond_reach", refuse)
+    # Домен с картой-полосой записи сборки не получает (отказ по досягаемости читает ширину и повторяется на каждом шаге): притворщик — тоже.
+    monkeypatch.setattr(envelope_scan_memo, "carries_band", lambda _snapshot: True)
 
 
 def test_an_alpha_beyond_the_reach_of_a_band_is_refused_for_a_stored_preparation_as_for_a_cold_domain(pool, row, monkeypatch):

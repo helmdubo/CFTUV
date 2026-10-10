@@ -26,6 +26,8 @@ from cftuv import envelope_content_key, envelope_domain_pool as pool_module  # n
 from cftuv import envelope_production_export as production  # noqa: E402
 from cftuv import envelope_queue_pool  # noqa: E402
 from cftuv import envelope_worker_store as store  # noqa: E402
+from cftuv.envelope_chart_band import band_facts_of  # noqa: E402
+from cftuv.envelope_lazy_preparation import LazyPreparationV1  # noqa: E402
 from cftuv.envelope_debug_session import EnvelopeDebugSessionController  # noqa: E402
 from cftuv.envelope_domain_pool import (  # noqa: E402
     PULL_BIG_DIVISOR,
@@ -47,6 +49,7 @@ from cftuv.envelope_production_export import (  # noqa: E402
     PRODUCTION_POOL_BLOBS_SHIPPED,
     PRODUCTION_POOL_BYTES_RECEIVED,
     PRODUCTION_POOL_BYTES_SENT,
+    PRODUCTION_PREPARATIONS_UNPICKLED,
     ProductionInputV1,
     run_production,
 )
@@ -367,14 +370,22 @@ def test_tasks_of_every_other_kind_keep_their_order_in_the_queue():
     assert [queue.take(worker)[0].task_id for _ in range(5)] == [0, 1, 2, 3, 4]
 
 
-def test_a_preparation_blob_that_cannot_be_read_is_a_named_task_failure_not_a_dead_thread():
+def test_a_preparation_blob_that_cannot_be_read_is_a_named_domain_failure_where_the_parent_needs_it_not_a_dead_thread():
     worker, counted = _FakeWorker(), _PoolCounter()
     broken = DomainTaskResultV1(3, production=object(), prepared_blob=b"not a pickle", prepared_key="k", stored=(("k", 12),))
 
     reply = pool_module._received(worker, broken, counted)
 
-    assert reply.task_id == 3 and not reply.ok and "Traceback" in reply.error
+    assert reply is broken and reply.ok  # поток-читатель пикл не читает: ему нечем и незачем упасть
     assert "k" in worker.held  # воркер её положил: зеркало повторяет воркера, чем бы ни кончился разбор у родителя
+    controller = EnvelopeDebugSessionController()
+    handle = LazyPreparationV1(reply.prepared_blob, reply.prepared_key, reply.prepared_facts)
+    entry = SimpleNamespace(patch_id=3, domain_id="d3", prepared=handle, labeling=None)
+
+    result = production._produced_by_parent(SimpleNamespace(controller=controller), entry)
+
+    assert result.outcome == production.OUTCOME_DOMAIN_RAISED and "pickle" in result.detail.lower()  # названный отказ ДОМЕНА
+    assert handle.live is None and controller.lazy_unpickled[0] == 0  # неудачный разворот не засчитан и ручку не подменил
 
 
 # --------------------------------------------------------------------------
@@ -437,14 +448,22 @@ def test_a_cold_reply_carries_the_preparation_bytes_once_and_the_worker_keeps_th
     received = pool_module._received(worker, packed, counted)
 
     assert packed.prepared_key in worker.held  # зеркало повторило то, что воркер положил в память
-    assert received.prepared is not prepared and received.prepared.outcome == prepared.outcome
+    assert received is packed and received.prepared is None  # родитель пикл не разворачивает: он остаётся байтами
+    assert received.prepared_facts == band_facts_of(prepared.context.snapshot) == ()  # факты карт-полос сняты в воркере
+    assert counted.stats(0, 0.0, 0.0).unpickle_wall_seconds == 0.0
+    controller = EnvelopeDebugSessionController()
+    blobs = controller.preparation_blobs
+    handle = LazyPreparationV1(received.prepared_blob, received.prepared_key, received.prepared_facts)
+    assert blobs.blob_of(handle) is packed.prepared_blob and blobs.key_of(handle) == packed.prepared_key  # ручка пикла не снимает
+
+    live = controller.live_preparation(handle)
+
+    assert live is not prepared and live.outcome == prepared.outcome and controller.lazy_unpickled[0] == 1
     # развёрнута из пикла, который воркер снял с ЭТОЙ подготовки: бюджет и состав те же (байты двух снятий пикла равны не обязаны - порядок множеств)
-    assert capture_budget(received.prepared) == capture_budget(prepared) and received.prepared.counters == prepared.counters
-    assert len(received.prepared.regions) == len(prepared.regions) and received.prepared.law_names == prepared.law_names
-    assert counted.stats(0, 0.0, 0.0).unpickle_wall_seconds > 0.0
-    blobs = EnvelopeDebugSessionController().preparation_blobs
-    blobs.adopt(received.prepared, packed.prepared_blob, packed.prepared_key)
-    assert blobs.blob_of(received.prepared) is packed.prepared_blob and blobs.key_of(received.prepared) == packed.prepared_key
+    assert capture_budget(live) == capture_budget(prepared) and live.counters == prepared.counters
+    assert len(live.regions) == len(prepared.regions) and live.law_names == prepared.law_names
+    assert blobs.blob_of(live) is packed.prepared_blob and blobs.key_of(live) == packed.prepared_key  # тот же пикл и после разворота
+    assert blobs.blob_of(handle) is packed.prepared_blob and len(blobs) == 1  # ручка ведёт к тому же объекту и той же записи
 
 
 def test_a_worker_killed_between_presses_costs_one_task_and_its_replacement_just_misses(_pool_always):
@@ -465,6 +484,49 @@ def test_a_worker_killed_between_presses_costs_one_task_and_its_replacement_just
     assert pool_module.get_domain_pool(2).worker_count == 2
     assert tuple(again.results) == tuple(references[0.6].results)
     assert again.counter(PRODUCTION_POOL_BLOB_MISSES) == 0
+
+
+def test_a_cold_press_keeps_the_preparations_as_bytes_and_the_parent_develops_each_only_where_it_computes(_pool_always):
+    bundle = quad_row_bundle(ROW)
+    references = {alpha: _production_run(bundle, alpha=alpha, workers=0)[0] for alpha in (0.4, 0.5, 0.6)}  # до воркеров: workers=0 закрывает пул
+    cold, controller = _production_run(bundle, alpha=0.25)  # холодное нажатие: подготовки строят воркеры
+    held = list(controller._conveyor_preparation_cache.values())  # noqa: SLF001 - тождество того, что лежит в кэше сессии
+
+    assert len(held) == ROW and all(type(item) is LazyPreparationV1 for item in held)  # пикл у родителя, живого объекта нет
+    assert cold.counter(PRODUCTION_PREPARATIONS_UNPICKLED) == 0 and controller.lazy_unpickled[0] == 0
+    assert all(item.facts == () and item.cache_key is not None for item in held)
+
+    warm, _ = _production_run(bundle, controller, alpha=0.4)  # шаг ширины в пуле: воркеры держат подготовки, родитель шлёт ключи
+    assert tuple(warm.results) == tuple(references[0.4].results)
+    assert warm.counter(PRODUCTION_PREPARATIONS_UNPICKLED) == 0 and all(type(item) is LazyPreparationV1 for item in held)
+
+    fallback, _ = _production_run(bundle, controller, alpha=0.5, workers=0)  # считает родитель: каждая ручка разворачивается ОДИН раз
+    assert tuple(fallback.results) == tuple(references[0.5].results)
+    assert fallback.counter(PRODUCTION_PREPARATIONS_UNPICKLED) == ROW and controller.lazy_unpickled[0] == ROW
+    cached = list(controller._conveyor_preparation_cache.values())  # noqa: SLF001
+    assert len(cached) == ROW and all(type(item) is not LazyPreparationV1 for item in cached) and {id(item) for item in cached}.isdisjoint(map(id, held))
+    assert len(controller.preparation_blobs) == ROW and controller.content_store.holds(cached[0])  # те же записи, но под живыми объектами
+
+    again, _ = _production_run(bundle, controller, alpha=0.6)  # новый пул не держит ничего: пикл уходит прежний (взят у воркера), а не снят заново
+    assert tuple(again.results) == tuple(references[0.6].results)
+    assert again.counter(PRODUCTION_POOL_BLOB_MISSES) == 0 and again.counter(PRODUCTION_PREPARATIONS_UNPICKLED) == 0
+
+
+def test_the_first_width_step_after_a_cold_press_pickles_nothing_even_past_the_content_store_limit(_pool_always, monkeypatch):
+    from cftuv import envelope_content_store
+
+    monkeypatch.setattr(envelope_content_store, "CONTENT_STORE_ENTRY_LIMIT", 2)  # на `cover.008` (1051 домен) предел 256 вытесняет три четверти записей
+    bundle = quad_row_bundle(ROW)
+    reference = _production_run(bundle, alpha=0.4, workers=0)[0]
+    _cold, controller = _production_run(bundle, alpha=0.25)
+    assert len(controller.content_store) == 2 and len(controller.preparation_blobs) == ROW  # кэш подготовок держит все пять - и пиклы всех пяти
+    monkeypatch.setattr(envelope_queue_pool, "pickle", SimpleNamespace(dumps=lambda *a, **k: pytest.fail("the parent pickled a preparation")))
+
+    warm, _ = _production_run(bundle, controller, alpha=0.4)
+
+    assert tuple(warm.results) == tuple(reference.results)
+    # Пикл, который воркер не держит (задачу считал другой), уходит БАЙТАМИ из родителя; снять его заново родителю нечем (пиклер подменён выше).
+    assert warm.counter(PRODUCTION_POOL_BLOB_HITS) + warm.counter(PRODUCTION_POOL_BLOBS_SHIPPED) == ROW and warm.counter(PRODUCTION_POOL_BLOB_HITS) >= 1
 
 
 def test_the_pool_run_reports_its_transfer_statistics():
