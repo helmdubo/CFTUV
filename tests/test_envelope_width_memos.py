@@ -103,10 +103,11 @@ def test_after_the_first_press_the_prologue_and_every_domain_input_come_from_the
     first = press(bundle, controller, 0.25)
     assert first.counter(production.PRODUCTION_STAGE_INPUTS_MEMO_HIT) == 0
     assert first.counter(production.PRODUCTION_SCAN_RECORDS_REUSED) == 0
-    # Первое нажатие холодное: метрик в кэше нет, домены идут воркеру выгрузкой, и входа (снапшота с запросом) в родителе нет.
+    # Первое нажатие холодное: метрик в кэше нет, домены идут воркеру выгрузкой, а вход (снапшот с запросом) родитель строит в `_adopt_cold`
+    # и ЗАПИСЫВАЕТ там же: первый шаг ширины после кнопки берёт его из записи, а не собирает снова.
     second = press(bundle, controller, 0.26)
     assert second.counter(production.PRODUCTION_STAGE_INPUTS_MEMO_HIT) == 1
-    assert second.counter(production.PRODUCTION_SCAN_RECORDS_REUSED) == 0, "the second press builds the inputs and records them"
+    assert second.counter(production.PRODUCTION_SCAN_RECORDS_REUSED) == ROW, "the cold press recorded the inputs it built"
     third = press(bundle, controller, 0.27)
     assert third.counter(production.PRODUCTION_STAGE_INPUTS_MEMO_HIT) == 1
     assert third.counter(production.PRODUCTION_SCAN_RECORDS_REUSED) == ROW
@@ -128,9 +129,7 @@ def test_the_request_of_a_record_equals_the_request_built_anew(monkeypatch):
     monkeypatch.setattr(export, "build_envelope_decal_request", spy)
     bundle = quad_row_bundle(ROW)
     controller = session(memo=True)
-    press(bundle, controller, 0.25)  # холодное: входы строит `_adopt_cold`, записей сборки ещё нет
-    captured.clear()
-    press(bundle, controller, 0.26)
+    press(bundle, controller, 0.25)  # холодное: входы строит `_adopt_cold` и записывает их
     assert len(captured) == ROW
     (records,) = controller.scan_memo._runs.values()
     assert len(records) == ROW
@@ -146,6 +145,10 @@ def test_the_request_of_a_record_equals_the_request_built_anew(monkeypatch):
         key = EnvelopeDebugSessionController._preparation_key
         assert record.prep_key == key(record.prep_key[0], record.prep_key[1], record.selected, built)
         assert record.prep_key == key(record.prep_key[0], record.prep_key[1], record.selected, scan_memo.request_at(record, Decimal("0.4")))
+    captured.clear()
+    first_step = press(bundle, controller, 0.26)
+    assert not captured, "the first width step after the cold press builds no request: every input comes from its record"
+    assert first_step.counter(production.PRODUCTION_SCAN_RECORDS_REUSED) == ROW
 
 
 def test_an_invalid_width_never_gets_a_record_and_takes_the_old_path():

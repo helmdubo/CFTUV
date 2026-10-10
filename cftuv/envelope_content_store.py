@@ -45,6 +45,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from enum import Enum
 
+from .envelope_lazy_preparation import canonical
 from .envelope_host_labels import (
     DomainLabelingV1,
     LabelMapV1,
@@ -115,6 +116,7 @@ class ContentStoreV1:
     def holds(self, item) -> bool:
         """Хранилище держит именно этот объект: подготовку либо результат (по ним живут их пиклы)."""
 
+        item = canonical(item)
         key = self._by_preparation.get(id(item))
         entry = None if key is None else self._entries.get(key)
         if entry is not None and entry.prepared is item:
@@ -130,11 +132,22 @@ class ContentStoreV1:
     def key_of(self, prepared) -> tuple[str, ContentEntryV1] | None:
         """`(ключ, запись)` подготовки, если хранилище держит именно этот объект."""
 
+        prepared = canonical(prepared)
         key = self._by_preparation.get(id(prepared))
         entry = None if key is None else self._entries.get(key)
         if entry is None or entry.prepared is not prepared:
             return None
         return key, entry
+
+    def replace_preparation(self, old, new) -> None:
+        """Запись, что держала `old` (ручку подготовки), держит `new` (её развёрнутый объект): тождество в таблице то же, что у записи."""
+
+        key = self._by_preparation.get(id(old))
+        entry = None if key is None else self._entries.get(key)
+        if entry is not None and entry.prepared is old:
+            del self._by_preparation[id(old)]
+            entry.prepared = new
+            self._by_preparation[id(new)] = key
 
     def register_preparation(self, key: str, prepared, labeling: DomainLabelingV1) -> ContentEntryV1:
         """Запись под `key`; готовая запись с тем же ключом остаётся (подготовка та же по построению)."""
@@ -143,6 +156,7 @@ class ContentStoreV1:
         if known is not None:
             self._entries.move_to_end(key)
             return known
+        prepared = canonical(prepared)
         entry = ContentEntryV1(prepared, labeling)
         self._entries[key] = entry
         self._by_preparation[id(prepared)] = key

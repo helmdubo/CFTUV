@@ -57,6 +57,7 @@ from .envelope_production_mesh import (
     build_mesh_arrays,
     write_decal_object,
 )
+from .envelope_pool_prewarm import cancel_pool_prewarm, schedule_pool_prewarm
 from .envelope_source_preflight import reject_source, zero_length_edge_refusal
 from .envelope_width_live import remember_build
 from .envelope_width_mesh_preview import build_sample, capture_ownership, note_button_display, sample_key
@@ -335,6 +336,7 @@ def register_production_operator() -> None:
         bpy.app.handlers.load_post.append(_fold_after_load)
     if not bpy.app.timers.is_registered(_fold_once):
         bpy.app.timers.register(_fold_once, first_interval=0.0)
+    schedule_pool_prewarm()  # воркеры пула стартуют заранее: первое нажатие не платит за их запуск (фоновый Blender не прогревает)
 
 
 def unregister_production_operator() -> None:
@@ -342,6 +344,7 @@ def unregister_production_operator() -> None:
 
     from .envelope_width_modal import unregister_width_tools
 
+    cancel_pool_prewarm()
     unregister_width_tools()
     while _fold_after_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_fold_after_load)

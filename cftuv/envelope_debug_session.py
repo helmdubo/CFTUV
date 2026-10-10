@@ -6,14 +6,18 @@ on the active WindowManager as ``_cftuv_envelope_debug_session``.
 
 from __future__ import annotations
 
+import pickle
 import sys
+import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Callable, Hashable, TYPE_CHECKING
 
-from .envelope_chart_band import policy_alpha, tightened_export
+from .envelope_chart_band import band_facts_of, policy_alpha, tightened_export
 from .envelope_content_store import ContentStoreV1
+from .envelope_lazy_preparation import LazyPreparationV1
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
 from .envelope_domain_pool import shutdown_domain_pool
 from .envelope_scan_memo import ScanMemoV1
@@ -245,6 +249,9 @@ class EnvelopeDebugSessionController:
         # Пиклы подготовок для воркеров пула (покрытие кэшированных подготовок
         # считается в них): живут и чистятся вместе с кэшем подготовок.
         self._preparation_blobs = None
+        # Развороты ручек подготовок (`live_preparation`): `[сколько, ЦП потока, стена]` за жизнь сессии.
+        self._lazy_unpickled = [0, 0.0, 0.0]
+        self._lazy_lock = threading.RLock()
         self._build_counts: dict[str, int] = {
             "ANALYSIS_BUNDLE": 0,
             "TOPOLOGY_EXPORT": 0,
@@ -336,7 +343,15 @@ class EnvelopeDebugSessionController:
         self._content_bindings[binding] = key
 
     def _forget_preparation_blob(self, prepared) -> None:
-        if self._preparation_blobs is not None:
+        """Пикл подготовки уходит, когда её не держит ни хранилище по содержимому (его предел вытесняет записи), ни кэш подготовок сессии.
+
+        Хранилище вызывает это на каждой вытесненной записи, но подготовку может держать кэш подготовок: `cover.008` (1051 домен)
+        вытесняет из 256 записей хранилища три четверти доменов, и первый шаг ширины перепикливал их все (~6 с родителя).
+        """
+
+        if self._preparation_blobs is not None and not any(
+            item is prepared for item in tuple(self._conveyor_preparation_cache.values())
+        ):
             self._preparation_blobs.discard(prepared)
 
     @property
@@ -864,10 +879,72 @@ class EnvelopeDebugSessionController:
             skeleton_identity_of() if skeleton_id is None else str(skeleton_id),
         ) + (() if grid_scale_law is None else (("grid_scale_law", str(grid_scale_law)),))
 
-    def peek_conveyor_preparation_by_key(self, key: tuple):
-        """Подготовка из кэша по готовому ключу (`_preparation_key`) либо `None`: вопрос, счётчиков не пишет."""
+    def live_preparation(self, item):
+        """Живая подготовка: ручка (`LazyPreparationV1`) разворачивается из пикла ОДИН раз и заменяется объектом везде, где её держит сессия.
+
+        Другое (живой объект, `None`) возвращается как есть. Разворот идёт под замком сессии: поток превью и главный поток не развернут одну
+        ручку дважды и не оставят два объекта одной подготовки. Цена разворота копится в `lazy_unpickled`.
+        """
+
+        if type(item) is not LazyPreparationV1:
+            return item
+        with self._lazy_lock:
+            if item.live is None:
+                cpu, wall = time.thread_time(), time.perf_counter()
+                live = pickle.loads(item.blob)
+                cache_key = item.cache_key
+                if cache_key is not None and self._conveyor_preparation_cache.get(cache_key) is item:
+                    self._conveyor_preparation_cache[cache_key] = live
+                self._content_store.replace_preparation(item, live)
+                if self._preparation_blobs is not None:
+                    self._preparation_blobs.adopt(live, item.blob, item.key)
+                    self._preparation_blobs.discard(item)
+                item.live = live
+                self._lazy_unpickled[0] += 1
+                self._lazy_unpickled[1] += time.thread_time() - cpu
+                self._lazy_unpickled[2] += time.perf_counter() - wall
+            return item.live
+
+    def preparation_facts(self, item) -> tuple:
+        """Факты карт-полос снапшота подготовки (`band_facts_of`): у ручки - присланные воркером, иначе по снапшоту живой подготовки."""
+
+        if type(item) is LazyPreparationV1 and item.facts is not None:
+            return item.facts
+        return band_facts_of(self.live_preparation(item).context.snapshot)
+
+    @property
+    def lazy_unpickled(self) -> tuple:
+        """`(сколько ручек развёрнуто, секунды ЦП потока, секунды стены)` за жизнь сессии: цена, которую родитель платит за живые подготовки."""
+
+        return tuple(self._lazy_unpickled)
+
+    def peek_conveyor_item_by_key(self, key: tuple):
+        """Подготовка из кэша по готовому ключу (`_preparation_key`) КАК ЕСТЬ - живой объект либо ручка (`LazyPreparationV1`), либо `None`: вопрос, счётчиков не пишет."""
 
         return self._conveyor_preparation_cache.get(key)
+
+    def peek_conveyor_preparation_by_key(self, key: tuple):
+        """Живая подготовка из кэша по готовому ключу либо `None` (`peek_conveyor_item_by_key`, ручка разворачивается)."""
+
+        return self.live_preparation(self.peek_conveyor_item_by_key(key))
+
+    def peek_conveyor_item(
+        self,
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        request,
+        *,
+        skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
+    ):
+        """`peek_conveyor_preparation`, но подготовка КАК ЕСТЬ (ручка не разворачивается): ею пользуется продуктовый путь, которому пикла достаточно."""
+
+        return self.peek_conveyor_item_by_key(
+            self._preparation_key(
+                source_revision_value, patch_domain_id, selected_edge_ids, request, skeleton_id, grid_scale_law
+            )
+        )
 
     def peek_conveyor_preparation(
         self,
@@ -879,19 +956,19 @@ class EnvelopeDebugSessionController:
         skeleton_id: str | None = None,
         grid_scale_law: str | None = None,
     ):
-        """Подготовка из кэша либо `None`. Счётчиков не пишет: это вопрос.
+        """Живая подготовка из кэша либо `None`. Счётчиков не пишет: это вопрос.
 
         Попадание записывает `get_conveyor_preparation` — когда домен принят.
         """
 
-        return self._conveyor_preparation_cache.get(
-            self._preparation_key(
+        return self.live_preparation(
+            self.peek_conveyor_item(
                 source_revision_value,
                 patch_domain_id,
                 selected_edge_ids,
                 request,
-                skeleton_id,
-                grid_scale_law,
+                skeleton_id=skeleton_id,
+                grid_scale_law=grid_scale_law,
             )
         )
 
@@ -907,7 +984,34 @@ class EnvelopeDebugSessionController:
         skeleton_id: str | None = None,
         grid_scale_law: str | None = None,
     ):
-        """Подготовка очереди из кэша либо построенная и запомненная.
+        """Живая подготовка очереди из кэша либо построенная и запомненная (`get_conveyor_item`, ручка разворачивается)."""
+
+        return self.live_preparation(
+            self.get_conveyor_item(
+                source_revision_value,
+                patch_domain_id,
+                selected_edge_ids,
+                request,
+                build,
+                profile=profile,
+                skeleton_id=skeleton_id,
+                grid_scale_law=grid_scale_law,
+            )
+        )
+
+    def get_conveyor_item(
+        self,
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        request,
+        build,
+        *,
+        profile: EnvelopeDebugProfileBuilderV1 | None = None,
+        skeleton_id: str | None = None,
+        grid_scale_law: str | None = None,
+    ):
+        """Подготовка очереди из кэша либо построенная и запомненная, КАК ЕСТЬ: живой объект либо ручка (`LazyPreparationV1`, ответ воркера).
 
         Ключ не содержит alpha намеренно, но содержит каноническую подпись
         angular policy: геометрия подготовки зависит от плотности веера. Он несёт и идентичность
@@ -933,6 +1037,8 @@ class EnvelopeDebugSessionController:
             )
             return cached
         prepared = build()
+        if type(prepared) is LazyPreparationV1:
+            prepared.cache_key = key
         self._conveyor_preparation_cache[key] = prepared
         self._build_counts["CONVEYOR_PREPARATION"] += 1
         self._cache_build_counts[("CONVEYOR_PREPARATION", key)] = (

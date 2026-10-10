@@ -71,6 +71,19 @@ def carries_band(snapshot) -> bool:
     )
 
 
+def remember_inputs(records, patch_id, selected, inputs, prep_key, binding) -> bool:
+    """Вход домена `(снапшот, запрос)` - в записи сборки, если они есть и в снапшоте нет карты-полосы (она читает ширину); `True` - записан.
+
+    Пишет и `_scan` (вход собран на шаге), и `_dispatch` для холодных доменов: их входы строит `_adopt_cold` после ответа воркера, и без записи
+    первый шаг ширины собирал бы их заново.
+    """
+
+    if records is None or carries_band(inputs[0]):
+        return False
+    records[patch_id] = ScanRecordV1(selected, inputs[0], inputs[1], prep_key, binding)
+    return True
+
+
 class ScanMemoV1:
     """Записи входов доменов по ключу прогона; вытеснение по давности прогона."""
 

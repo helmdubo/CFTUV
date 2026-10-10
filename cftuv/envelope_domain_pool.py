@@ -254,11 +254,13 @@ class DomainTaskResultV1:
     production: object | None = None
     #: Воркер не держит подготовку с присланным ключом (задача пришла без пикла): задачи не было, родитель пересылает пикл.
     needs_blob: bool = False
-    #: Подготовка холодного домена ПИКЛОМ, который воркер снял сам (`prepared` тогда `None`, пока родитель не развернёт его в
-    #: `_exchange`), и ключ этого пикла в памяти воркера: воркер оставил у себя ту же подготовку, родитель берёт пикл как блоб
-    #: этой подготовки (`PreparationBlobsV1.adopt`), и первый шаг ширины после холодной кнопки не пересылает и не снимает пиклов.
+    #: Подготовка холодного домена ПИКЛОМ, который воркер снял сам (`prepared` тогда `None`), и ключ этого пикла в памяти воркера:
+    #: воркер оставил у себя ту же подготовку, родитель берёт пикл как блоб этой подготовки (`LazyPreparationV1`, `PreparationBlobsV1`)
+    #: и НЕ разворачивает его, пока живой объект не понадобится, - первый шаг ширины после холодной кнопки не пересылает и не снимает пиклов.
     prepared_blob: bytes | None = None
     prepared_key: str = ""
+    #: `band_facts_of(снапшот подготовки)`, снятые воркером: всё, что родитель читает в подготовке без разворота; `None` - не сняты.
+    prepared_facts: tuple | None = None
     #: `((ключ, размер), ...)` подготовок, которые воркер положил в память, пока считал эту задачу: зеркало родителя повторяет это.
     stored: tuple = ()
     #: Запись экспорта, если он завершился до production (отказ либо ошибка).
@@ -308,7 +310,8 @@ class PoolStatsV1:
     `blob_hits` — задачи, ушедшие к воркеру одним ключом (воркер держал подготовку); `blobs_shipped` и `blob_bytes_shipped` — задачи,
     у которых ушёл пикл (первая пересылка, воркер не держал, либо промах); `blob_misses` — из них те, где родитель считал, что
     воркер подготовку держит, а он её не держал (вытеснение, расхождение): ответ тот же, цена — один лишний обмен.
-    `unpickle_cpu_seconds` и `unpickle_wall_seconds` — разбор ответов потоками-читателями родителя (CPU потока и стена с ожиданием GIL).
+    `unpickle_cpu_seconds` и `unpickle_wall_seconds` — разбор кадров ответов потоками-читателями родителя (CPU потока и стена с ожиданием GIL);
+    пикл подготовки холодного домена в кадре остаётся байтами и сюда не входит (его разворот считает сессия, `lazy_unpickled`).
     """
 
     bytes_sent: int = 0
@@ -513,7 +516,13 @@ def _packed_cold_reply(task: DomainTaskV1, result: DomainTaskResultV1) -> Domain
         return result
     STORE.put(key, result.prepared, len(blob))
     stored = ((key, len(blob)),) if key in STORE else ()
-    return replace(result, prepared=None, prepared_blob=blob, prepared_key=key, stored=stored)
+    try:
+        from .envelope_chart_band import band_facts_of
+
+        facts = band_facts_of(result.prepared.context.snapshot)
+    except Exception:  # noqa: BLE001 - без фактов родитель разворачивает пикл, когда факты нужны: ответ тот же
+        facts = None
+    return replace(result, prepared=None, prepared_blob=blob, prepared_key=key, stored=stored, prepared_facts=facts)
 
 
 def _reply_frame(task_id: int, result: DomainTaskResultV1) -> bytes:
@@ -921,7 +930,7 @@ class _PoolCounter:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0, "unpickle_cpu": 0.0, "unpickle_wall": 0.0}
+        self._values = {"sent": 0, "hits": 0, "shipped": 0, "shipped_bytes": 0, "misses": 0}
 
     def add(self, **amounts) -> None:
         with self._lock:
@@ -937,25 +946,22 @@ class _PoolCounter:
             values["shipped"],
             values["shipped_bytes"],
             values["misses"],
-            cpu + values["unpickle_cpu"],
-            wall + values["unpickle_wall"],
+            cpu,
+            wall,
         )
 
 
 def _received(worker, reply, counted: _PoolCounter):
-    """Ответ воркера для родителя: зеркало памяти воркера пополнено, подготовка холодного домена развёрнута из своего пикла."""
+    """Ответ воркера для родителя: зеркало памяти воркера пополнено.
 
-    if not isinstance(reply, DomainTaskResultV1):
-        return reply
-    for key, size in reply.stored:
-        worker.held.add(key, size)
-    if reply.prepared_blob is not None and reply.prepared is None:
-        cpu, wall = time.thread_time(), time.perf_counter()
-        try:
-            reply = replace(reply, prepared=pickle.loads(reply.prepared_blob))
-        except Exception:  # noqa: BLE001 - пикл, который не читается, - названный отказ задачи, а не молчаливая смерть потока
-            return DomainTaskResultV1(reply.task_id, error=traceback.format_exc())
-        counted.add(unpickle_cpu=time.thread_time() - cpu, unpickle_wall=time.perf_counter() - wall)
+    Пикл подготовки холодного домена (`prepared_blob`) остаётся байтами: прежде поток-читатель разворачивал его здесь (`pickle.loads` под GIL,
+    ~12 мс на домен), и на `cover.008` эти развороты, идущие по очереди через GIL, держали воркеров в простое. Разворачивает родитель, и только
+    там, где живая подготовка нужна (`EnvelopeDebugSessionController.live_preparation`); не читающийся пикл тогда - названный отказ домена.
+    """
+
+    if isinstance(reply, DomainTaskResultV1):
+        for key, size in reply.stored:
+            worker.held.add(key, size)
     return reply
 
 
@@ -1063,6 +1069,20 @@ class DomainPool:
                 f"external Python rejected ({self._rejection}); "
                 f"bundled Python failed too: {exc}"
             ) from exc
+
+    def warm(self) -> float:
+        """Поднимает воркеров ЗАРАНЕЕ (под замком прогона) и возвращает секунды; прогрев, что опоздал за снятием пула, воркеров не оставляет.
+
+        Кнопка, пришедшая во время прогрева, ждёт замок и находит пул готовым; прогрев, пришедший во время прогона, ждёт его конца.
+        """
+
+        started = time.perf_counter()
+        with self._run_lock:
+            self.ensure_started()
+        with _POOL_LOCK:
+            if _POOL is not self:
+                self.close()
+        return time.perf_counter() - started
 
     def _external_plan(self) -> tuple[str, dict, dict]:
         """Интерпретатор, спецификация и тождество хоста для внешних воркеров."""

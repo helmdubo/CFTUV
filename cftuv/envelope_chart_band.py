@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import importlib
 from fractions import Fraction
+from typing import NamedTuple
 
 _METRIC_CONTRACTS = "cftuv_envelope.contracts.metric"
 
@@ -150,6 +151,43 @@ def tightened_export(topology_export, refused_outcome):
     return None if cap is None else topology_export.with_band_tightened(cap, value)
 
 
+class BandFactV1(NamedTuple):
+    """Что хост читает у одной карты-полосы снапшота: домен метрики, досягаемость, суженность и были ли отброшены треугольники."""
+
+    domain_id: str
+    reach_cap: Fraction
+    tightened: bool
+    excluded: bool
+
+
+def band_facts_of(snapshot) -> tuple:
+    """Факты карт-полос снапшота в порядке его метрик (пусто: полос нет). Воркер шлёт их вместе с пиклом подготовки (`LazyPreparationV1`)."""
+
+    band = band_certificate_type()
+    facts = []
+    for metric in snapshot.surface_metric_descriptors:
+        certificate = getattr(metric, "planarity_certificate", None)
+        if type(certificate) is band:
+            facts.append(
+                BandFactV1(
+                    metric.patch_domain_id.value,
+                    Fraction(certificate.reach_cap.numerator, certificate.reach_cap.denominator),
+                    certificate.tightened is not None,
+                    bool(certificate.excluded_triangle_count),
+                )
+            )
+    return tuple(facts)
+
+
+def tightened_cap_of_facts(facts) -> Fraction | None:
+    """Суженная досягаемость первой суженной карты среди `facts` (метры) либо `None`."""
+
+    for fact in facts:
+        if fact.tightened:
+            return fact.reach_cap
+    return None
+
+
 def tightened_cap_of(snapshot) -> Fraction | None:
     """Суженная досягаемость карты-полосы снапшота (метры) либо `None`: карта под досягаемостью запроса либо не полоса."""
 
@@ -161,15 +199,24 @@ def tightened_cap_of(snapshot) -> Fraction | None:
 
 
 def tightening_is_current(topology_export, snapshot) -> bool:
-    """Карта снапшота годится запросу: она не суженная либо суженная ровно под собственной досягаемостью alpha запроса.
+    """Карта снапшота годится запросу: она не суженная либо суженная ровно под собственной досягаемостью alpha запроса (`_tightening_is_current`)."""
 
-    Суженная карта записывает отказ под досягаемостью запроса (он от alpha не зависит), а её досягаемость - функция alpha:
+    return _tightening_is_current(topology_export, tightened_cap_of(snapshot))
+
+
+def tightening_is_current_facts(topology_export, facts) -> bool:
+    """То же по фактам карт-полос (`band_facts_of`): подготовка, которую родитель не разворачивал, получает тот же ответ."""
+
+    return _tightening_is_current(topology_export, tightened_cap_of_facts(facts))
+
+
+def _tightening_is_current(topology_export, stored) -> bool:
+    """Суженная карта записывает отказ под досягаемостью запроса (он от alpha не зависит), а её досягаемость - функция alpha:
     `tightened_export` называет ту, что нужна ЭТОМУ запросу. Другая (alpha выросла и карта короче неё, либо упала и карта
     шире нужной) - устаревшая карта: подготовку на ней не отдают, а пересобирают. Карта под досягаемостью запроса годится
     всегда: её отказа нет, и от alpha она не зависит.
     """
 
-    stored = tightened_cap_of(snapshot)
     if stored is None:
         return True
     policy = topology_export.chart_band
@@ -184,10 +231,21 @@ def tightening_is_current(topology_export, snapshot) -> bool:
     return wanted == stored
 
 
-def refuse_alpha_beyond_reach(snapshot, alpha_decimal) -> None:
-    """`REQUEST_ALPHA_EXCEEDS_CHART_REACH`, если карта-полоса домена короче alpha запроса: усечённого покрытия нет."""
+def _beyond_reach(domain_id, cap, alpha_decimal):
+    """Отказ `REQUEST_ALPHA_EXCEEDS_CHART_REACH` домена `domain_id`, чья карта-полоса короче alpha запроса (один текст на оба пути)."""
 
     from .envelope_request_export import EnvelopeDebugHostOutcome, EnvelopeHostAdapterError
+
+    return EnvelopeHostAdapterError(
+        EnvelopeDebugHostOutcome.REQUEST_ALPHA_EXCEEDS_CHART_REACH,
+        f"alpha={float(alpha_decimal):.6g} m is beyond the chart reach cap {float(cap):.6g} m of the band chart: "
+        "the whole Patch does not unfold, and the band around the selected chains is valid up to the cap",
+        patch_domain_id=domain_id,
+    )
+
+
+def refuse_alpha_beyond_reach(snapshot, alpha_decimal) -> None:
+    """`REQUEST_ALPHA_EXCEEDS_CHART_REACH`, если карта-полоса домена короче alpha запроса: усечённого покрытия нет."""
 
     for metric in snapshot.surface_metric_descriptors:
         certificate = getattr(metric, "planarity_certificate", None)
@@ -195,18 +253,23 @@ def refuse_alpha_beyond_reach(snapshot, alpha_decimal) -> None:
             continue
         cap = Fraction(certificate.reach_cap.numerator, certificate.reach_cap.denominator)
         if certificate.excluded_triangle_count and Fraction(alpha_decimal) > cap:
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.REQUEST_ALPHA_EXCEEDS_CHART_REACH,
-                f"alpha={float(alpha_decimal):.6g} m is beyond the chart reach cap {float(cap):.6g} m of the band chart: "
-                "the whole Patch does not unfold, and the band around the selected chains is valid up to the cap",
-                patch_domain_id=metric.patch_domain_id.value,
-            )
+            raise _beyond_reach(metric.patch_domain_id.value, cap, alpha_decimal)
+
+
+def refuse_alpha_beyond_reach_facts(facts, alpha_decimal) -> None:
+    """То же по фактам карт-полос (`band_facts_of`): подготовка, которую родитель не разворачивал, отвечает тем же отказом."""
+
+    for fact in facts:
+        if fact.excluded and Fraction(alpha_decimal) > fact.reach_cap:
+            raise _beyond_reach(fact.domain_id, fact.reach_cap, alpha_decimal)
 
 
 __all__ = (
+    "BandFactV1",
     "BeyondChartReach",
     "ChartPoints",
     "band_certificate_type",
+    "band_facts_of",
     "band_trigger_host_outcomes",
     "chart_band_request",
     "chart_edge_ends",
@@ -215,7 +278,10 @@ __all__ = (
     "cut_path_vertices",
     "policy_alpha",
     "refuse_alpha_beyond_reach",
+    "refuse_alpha_beyond_reach_facts",
     "tightened_cap_of",
+    "tightened_cap_of_facts",
     "tightened_export",
     "tightening_is_current",
+    "tightening_is_current_facts",
 )

@@ -45,6 +45,7 @@ import pickle
 import time
 from dataclasses import dataclass, replace
 
+from .envelope_lazy_preparation import LazyPreparationV1, canonical
 from .envelope_worker_store import prepared_of
 from .envelope_queue_export import (
     POOL_COVERAGE_DISPATCHED,
@@ -107,9 +108,13 @@ class PreparationBlobsV1:
         return len(self._items)
 
     def _item_of(self, prepared) -> list:
+        prepared = canonical(prepared)
         item = self._items.get(id(prepared))
         if item is None or item[0] is not prepared:
-            item = [prepared, pickle.dumps(prepared, protocol=PICKLE_PROTOCOL), None]
+            if type(prepared) is LazyPreparationV1:
+                item = [prepared, prepared.blob, prepared.key or None]  # пикл у ручки уже есть: перепикливать нечего
+            else:
+                item = [prepared, pickle.dumps(prepared, protocol=PICKLE_PROTOCOL), None]
             self._items[id(prepared)] = item
         return item
 
@@ -117,8 +122,9 @@ class PreparationBlobsV1:
         return self._item_of(prepared)[1]
 
     def adopt(self, prepared, blob: bytes, key: str) -> None:
-        """Пикл подготовки, который снял воркер и из которого развёрнута `prepared`: перепикливать её родителю незачем."""
+        """Пикл подготовки, который снял воркер и из которого получена `prepared` (ручка либо развёрнутый объект): перепикливать её родителю незачем."""
 
+        prepared = canonical(prepared)
         self._items[id(prepared)] = [prepared, blob, key or None]
 
     def key_of(self, prepared) -> str:
@@ -137,6 +143,7 @@ class PreparationBlobsV1:
     def discard(self, prepared) -> None:
         """Пикл одной подготовки (она ушла из хранилища по содержимому)."""
 
+        prepared = canonical(prepared)
         item = self._items.get(id(prepared))
         if item is not None and item[0] is prepared:
             del self._items[id(prepared)]

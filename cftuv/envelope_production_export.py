@@ -26,7 +26,9 @@ import traceback
 import zlib
 from dataclasses import dataclass, field, fields, replace
 
-from .envelope_chart_band import tightened_cap_of, tightening_is_current
+from .envelope_chart_band import tightened_cap_of_facts, tightening_is_current_facts
+from .envelope_lazy_preparation import PRODUCTION_PREPARATION_UNPICKLE_CPU_US, PRODUCTION_PREPARATIONS_UNPICKLED, LazyPreparationV1, record_unpickled
+from .envelope_scan_memo import remember_inputs
 from .envelope_content_key import result_slot
 from .envelope_content_store import ContentRelabelFailed, RelabelV1, carried_to_run
 from .envelope_debug_profile import EnvelopeDebugProfileBuilderV1
@@ -752,6 +754,8 @@ class _DomainEntryV1:
     carried: object | None = None
     #: Журнал экспорта только этого прогона; сливается с подготовкой/материализацией один раз.
     export_records: list = field(default_factory=list, compare=False, repr=False)
+    #: Вход `(снапшот, запрос)`, который родитель построил для холодного домена после ответа воркера (`_adopt_cold`): `_dispatch` пишет его в записи сборки.
+    built_inputs: list = field(default_factory=list, compare=False, repr=False)
 
     @property
     def export_record(self):
@@ -813,6 +817,8 @@ class _RunInputsV1:
     relabeled: list = field(default_factory=list)
     relabel_failures: list = field(default_factory=list)
     registered: list = field(default_factory=list)
+    #: `{"records": записи сборки, с которыми шёл `_scan` этого прогона (`None`: памяти нет)}`; повтор лотереи привязки заводит свои.
+    scan_records: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         settle_stage_orders(self)
@@ -879,7 +885,7 @@ def _entry_with_inputs(run: _RunInputsV1, patch_id, domain_id, selected, inputs)
         patch_id,
         domain_id,
         selected,
-        prepared=controller.peek_conveyor_preparation(
+        prepared=controller.peek_conveyor_item(
             run.revision, domain_id, selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
         ),
         inputs=inputs,
@@ -957,21 +963,21 @@ def _binding(run: _RunInputsV1, patch_id, domain_id, selected):
     )
 
 
-def _alpha_refusal(run: _RunInputsV1, prepared):
+def _alpha_refusal(run: _RunInputsV1, facts):
     """Отказ ЗАПРОСА по alpha у домена на подготовке из хранилища: карта-полоса короче alpha прогона, либо `None`.
 
     Подготовка alpha-независима, но полоса действует лишь до своей досягаемости, и этот отказ строитель запроса
     даёт на КАЖДОМ нажатии (`refuse_alpha_beyond_reach`). Домен на подготовке из хранилища запроса не строит,
-    поэтому тот же отказ берётся тут, по снапшоту подготовки: без него alpha выше досягаемости дошла бы до
-    материализации и ответила другим, не хостовым исходом. Недопустимую alpha называет сам строитель запроса.
+    поэтому тот же отказ берётся тут, по фактам карт-полос снапшота подготовки (`preparation_facts`): без него alpha выше
+    досягаемости дошла бы до материализации и ответила другим, не хостовым исходом. Недопустимую alpha называет сам строитель запроса.
     """
 
-    from .envelope_chart_band import refuse_alpha_beyond_reach
+    from .envelope_chart_band import refuse_alpha_beyond_reach_facts
     from .envelope_request_export import EnvelopeHostAdapterError
     from .envelope_request_policy import request_alpha_decimal
 
     try:
-        refuse_alpha_beyond_reach(prepared.context.snapshot, request_alpha_decimal(run.alpha))
+        refuse_alpha_beyond_reach_facts(facts, request_alpha_decimal(run.alpha))
     except EnvelopeHostAdapterError as exc:
         return exc
     except (ArithmeticError, TypeError, ValueError):
@@ -1018,12 +1024,13 @@ def _content_entry(run: _RunInputsV1, patch_id, domain_id, selected, export) -> 
         return replace(
             cold, carried=stored, result_key=result_key, labeling=found.labeling, reuse="result"
         )
-    if not tightening_is_current(run.topology_export, found.prepared.context.snapshot):
+    facts = controller.preparation_facts(found.prepared)
+    if not tightening_is_current_facts(run.topology_export, facts):
         # Карта подготовки сужена под ДРУГУЮ alpha: подготовка устарела (ключ содержимого от alpha не зависит), её убирают,
         # и домен считается заново с тем же ключом - новая подготовка ляжет под него по окончании.
         controller.content_store.forget(key)
         return cold
-    refusal = _alpha_refusal(run, found.prepared)
+    refusal = _alpha_refusal(run, facts)
     if refusal is not None:
         return replace(cold, export=None, failure=refusal)
     return replace(
@@ -1064,7 +1071,7 @@ def _entry_from_record(run: _RunInputsV1, patch_id, domain_id, selected, record,
         patch_id,
         domain_id,
         selected,
-        prepared=controller.peek_conveyor_preparation_by_key(record.prep_key),
+        prepared=controller.peek_conveyor_item_by_key(record.prep_key),
         inputs=(record.snapshot, request_at(record, alpha)),
         result_key=key,
         cached=controller.peek_production_result(key),
@@ -1082,12 +1089,12 @@ def _scan(run: _RunInputsV1):
     """
 
     from .envelope_request_export import EnvelopeHostAdapterError, _typed_value
-    from .envelope_scan_memo import ScanRecordV1, carries_band, request_alpha, scan_key
+    from .envelope_scan_memo import request_alpha, scan_key
 
     controller = run.controller
     alpha = request_alpha(run.alpha)
     key = None if alpha is None else scan_key(run)
-    records = None if key is None else controller.scan_memo.records_of(key)
+    records = run.scan_records["records"] = None if key is None else controller.scan_memo.records_of(key)
     reused = 0
 
     def snapshots(patch_id, _domain_id):
@@ -1129,11 +1136,10 @@ def _scan(run: _RunInputsV1):
         entry = _entry_with_inputs(run, patch_id, domain_id, selected, inputs)
         entry.export_records.append(ledger_record(ledger))
         entries.append(entry)
-        if records is not None and not carries_band(snapshot):
-            records[patch_id] = ScanRecordV1(
-                selected, snapshot, inputs[1], entry.result_key[0], _binding(run, patch_id, domain_id, selected)
-            )
-    run.profile.set_counter(PRODUCTION_SCAN_RECORDS_REUSED, reused)
+        if records is not None:
+            remember_inputs(records, patch_id, selected, inputs, entry.result_key[0], _binding(run, patch_id, domain_id, selected))
+    # Повтор лотереи привязки идёт тем же `_scan` в тот же профиль: счётчик копится, а не затирается числом повтора.
+    run.profile.add_counter(PRODUCTION_SCAN_RECORDS_REUSED, reused)
     return entries
 
 
@@ -1229,12 +1235,16 @@ def _adopt_cold(run: _RunInputsV1, entry: _DomainEntryV1, reply, placement):
                     entry.export_records.append(reply.production.backend_record)
                 return exc, None
         entry.export_records.append(ledger_record(ledger))
+        entry.built_inputs.append(inputs)
     request = inputs[1]
     if reply is not None and reply.ok and reply.production is not None:
         prepared = reply.prepared
+        if prepared is None and reply.prepared_blob is not None:
+            # Подготовка пришла пиклом воркера: родитель держит пикл и факты, а живой объект разворачивает там, где он нужен (`live_preparation`).
+            prepared = LazyPreparationV1(reply.prepared_blob, reply.prepared_key, reply.prepared_facts)
         # Домен, чей скелет нативное ядро отказало по имени, приходит отказом без подготовки: в кэш сессии кладут то, что есть.
         if prepared is not None:
-            cached = run.controller.get_conveyor_preparation(
+            cached = run.controller.get_conveyor_item(
                 run.revision,
                 entry.domain_id,
                 entry.selected,
@@ -1276,14 +1286,15 @@ def _register_content(run: _RunInputsV1, entry: _DomainEntryV1, request, result)
     controller = run.controller
     if entry.content_key is None or result.labels is None or result.outcome == OUTCOME_DOMAIN_RAISED:
         return
-    prepared = controller.peek_conveyor_preparation(
+    prepared = controller.peek_conveyor_item(
         run.revision, entry.domain_id, entry.selected, request, skeleton_id=run.skeleton_id, grid_scale_law=run.grid_scale_law
     )
     if prepared is None:
         return
     store = controller.content_store
     known = store.find(entry.content_key)
-    if known is not None and tightened_cap_of(known.prepared.context.snapshot) != tightened_cap_of(prepared.context.snapshot):
+    cap = lambda item: tightened_cap_of_facts(controller.preparation_facts(item))  # noqa: E731 - факты, а не разворот подготовки
+    if known is not None and cap(known.prepared) != cap(prepared):
         store.forget(entry.content_key)  # запись лежит на карте другой суженной досягаемости: новая подготовка её заменяет
     store.register_preparation(entry.content_key, prepared, result.labels)
     store.register_result(entry.content_key, _slot(run), result)
@@ -1338,6 +1349,27 @@ def _finish_ready(run: _RunInputsV1, item: _DomainEntryV1, result):
     return None, moved
 
 
+def _produced_by_parent(run: _RunInputsV1, item: _DomainEntryV1) -> ProductionDomainResultV1:
+    """Домен на готовой подготовке, который считает родитель: ручку подготовки он разворачивает здесь, и пикл, который не читается, - названный отказ домена."""
+
+    started = time.perf_counter()
+    try:
+        prepared = run.controller.live_preparation(item.prepared)
+    except Exception as exc:  # noqa: BLE001 - исход и причина сохраняются, как у остальных исключений домена
+        return _raised(exc, item.patch_id, item.domain_id, time.perf_counter() - started)
+    return produce_domain(
+        item.patch_id,
+        item.labeling.domain_id() if item.labeling is not None else item.domain_id,
+        prepared,
+        run.alpha_text,
+        uv_policy_id=run.uv_policy_id,
+        topology_law=run.topology_law,
+        backend=run.backend,
+        skeleton_backend=run.skeleton_backend,
+        embedding_backend=run.embedding_backend,
+    )
+
+
 def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
     """Домены на готовой подготовке либо результате: посчитанное воркером берётся, остальное делает родитель."""
 
@@ -1345,19 +1377,7 @@ def _complete_ready(run: _RunInputsV1, ready, done, refused, placement) -> None:
         if item.domain_id not in done:
             _check_cancel(run)
             done[item.domain_id] = _placed(
-                item.carried
-                if item.carried is not None
-                else produce_domain(
-                    item.patch_id,
-                    item.labeling.domain_id() if item.labeling is not None else item.domain_id,
-                    item.prepared,
-                    run.alpha_text,
-                    uv_policy_id=run.uv_policy_id,
-                    topology_law=run.topology_law,
-                    backend=run.backend,
-                    skeleton_backend=run.skeleton_backend,
-                    embedding_backend=run.embedding_backend,
-                ),
+                item.carried if item.carried is not None else _produced_by_parent(run, item),
                 placement.get(item.domain_id, PLACEMENT_PARENT),
             )
         input_refusal, finished = _finish_ready(run, item, done[item.domain_id])
@@ -1520,7 +1540,18 @@ def _dispatch(run: _RunInputsV1, ready, cold, domain_pool):
     if domain_pool is not None:
         _record_pool_counters(run.profile, pooled, failure, dispatched, fallbacks, dispatched)
         _record_transfer_counters(run.profile, getattr(pooled, "stats", None))
+    _record_cold_inputs(run, cold)
     return done, refused
+
+
+def _record_cold_inputs(run: _RunInputsV1, cold) -> None:
+    """Входы холодных доменов, построенные родителем после ответов воркеров, - в записи сборки прогона: первый шаг ширины после кнопки берёт их, а не собирает снова."""
+
+    records = run.scan_records.get("records")
+    for entry in cold if records is not None else ():
+        for inputs in entry.built_inputs:
+            prep_key = _result_key(run, entry.domain_id, entry.selected, inputs[1])[0]
+            remember_inputs(records, entry.patch_id, entry.selected, inputs, prep_key, _binding(run, entry.patch_id, entry.domain_id, entry.selected))
 
 
 def _record_transfer_counters(profile, stats) -> None:
@@ -1538,7 +1569,7 @@ def _record_transfer_counters(profile, stats) -> None:
         (PRODUCTION_POOL_UNPICKLE_CPU_US, round(stats.unpickle_cpu_seconds * 1e6)),
         (PRODUCTION_POOL_UNPICKLE_WALL_US, round(stats.unpickle_wall_seconds * 1e6)),
     ):
-        profile.set_counter(name, int(value))
+        profile.add_counter(name, int(value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1744,7 +1775,7 @@ def run_production(
         getattr(analysis_bundle.source_revision, "source_name", "source"),
         PRODUCTION_BUILD_KIND,
     )
-    builds_before = controller.build_counts
+    builds_before, lazy_before = controller.build_counts, controller.lazy_unpickled
     selected = frozenset(int(item) for item in selected_physical_edge_ids)
     topology_export = controller.get_topology_export(
         analysis_bundle, source_object_key, source_data_key, profile=profile
@@ -1794,6 +1825,7 @@ def run_production(
         )
     results = retry_snap_lottery(run, entries, _domain_results(entries, done, refused), pool, scan=_scan, dispatch=_dispatch, collect=_domain_results)
     _record_run_counters(profile, controller, builds_before, entries, results, cold)
+    record_unpickled(profile, lazy_before, controller.lazy_unpickled)
     _record_content_counters(profile, run, entries)
     return ProductionRunV1(
         results=tuple(results),
@@ -1886,7 +1918,9 @@ __all__ = (
     "PRODUCTION_POOL_BYTES_SENT",
     "PRODUCTION_POOL_UNPICKLE_CPU_US",
     "PRODUCTION_POOL_UNPICKLE_WALL_US",
+    "PRODUCTION_PREPARATIONS_UNPICKLED",
     "PRODUCTION_PREPARATION_REUSED",
+    "PRODUCTION_PREPARATION_UNPICKLE_CPU_US",
     "PRODUCTION_REFUSED",
     "PRODUCTION_RESULT_CACHE_HIT",
     "PRODUCTION_RESULT_CACHE_MISS",
