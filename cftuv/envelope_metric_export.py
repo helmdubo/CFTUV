@@ -33,6 +33,9 @@ class EnvelopePatchMetricExportV1:
     #: Ключ ПОЛОСЫ (`None` - метрика целого патча): карта полосы зависит от выделения и досягаемости запроса, поэтому
     #: ключ кэшей сессии для неё шире `(ревизия, домен, допуск)`.
     band_key: tuple | None = None
+    #: Закон выбора масштаба решётки, под которым построена метрика (`None` - умолчание ядра): повторная попытка после отказа лотереи
+    #: привязки пишет сюда `PLANE_PRESERVING_V1`, и ключи кэшей сессии несут его (`envelope_topology_export.metric_law_key`).
+    grid_scale_law: str | None = None
 
     @property
     def metric_descriptor(self):
@@ -47,6 +50,7 @@ class EnvelopeDomainGeometryExportV1:
     snapshot: envelope_kernel.AnalysisSnapshotV1
     developable_stretch_budget: Fraction | None = None
     band_key: tuple | None = None
+    grid_scale_law: str | None = None
 
 
 def band_key_of(topology_export: EnvelopeTopologyExportV1, patch_id: int) -> tuple | None:
@@ -110,6 +114,7 @@ def build_envelope_patch_metric_export(
         snapshot,
         topology_export.developable_stretch_budget,
         band_key_of(topology_export, patch_id),
+        getattr(topology_export, "grid_scale_law", None),
     )
 
 
@@ -128,6 +133,7 @@ def build_envelope_domain_geometry_export(
             metric_export.snapshot,
             metric_export.developable_stretch_budget,
             metric_export.band_key,
+            metric_export.grid_scale_law,
         )
     with profile.measure(
         "DOMAIN_GEOMETRY_EXPORT",
@@ -140,6 +146,7 @@ def build_envelope_domain_geometry_export(
             metric_export.snapshot,
             metric_export.developable_stretch_budget,
             metric_export.band_key,
+            metric_export.grid_scale_law,
         )
 
 

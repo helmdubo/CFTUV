@@ -31,6 +31,7 @@ from .contracts.metric import (
     ExactSourceVertexCoordinateV2,
     ExactVector3V1,
     EmbeddingCertifiedRationalAffinePlanarMetricV1,
+    GridScaleLawV1,
     GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     NearPlanarFramePolicyV1,
@@ -723,6 +724,7 @@ def _build_planar_family_metric(
     near_planar_frame_policy: NearPlanarFramePolicyV1 = (
         NearPlanarFramePolicyV1.CANONICAL_ONLY_V1
     ),
+    grid_scale_law: GridScaleLawV1 = GridScaleLawV1.FIRST_ANGLE_RESTORING_V1,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     faces, required_ids, positions = _source_scope(
         owner_patch_id=owner_patch_id,
@@ -737,6 +739,7 @@ def _build_planar_family_metric(
         faces=faces,
         snapping_law=grid_policy,
         enforce_embedding=enforce_embedding,
+        scale_law=grid_scale_law,
     )
     positions = grid_facts.positions
     snapped_positions = dict(positions)
@@ -936,6 +939,7 @@ def _developable_rung(
     declared_straight_chains=(),
     developable_stretch_budget=None,
     chart_band=None,
+    grid_scale_law=GridScaleLawV1.FIRST_ANGLE_RESTORING_V1,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Последняя ступень лестницы: развёртка после именованного отказа near-planar.
 
@@ -965,6 +969,7 @@ def _developable_rung(
             faces=faces,
             snapping_law=grid_policy,
             enforce_embedding=enforce_embedding,
+            scale_law=grid_scale_law,
         )
         certificate = grid_facts.certificate
         chart = _unfolded_chart(
@@ -1081,6 +1086,7 @@ def _build_embedding_certified_metric(
             declared_straight_chains=tuple(declared_straight_chains),
             developable_stretch_budget=developable_stretch_budget,
             chart_band=chart_band,
+            grid_scale_law=arguments.get("grid_scale_law", GridScaleLawV1.FIRST_ANGLE_RESTORING_V1),
         )
 
 
@@ -1109,6 +1115,7 @@ def build_embedding_certified_rational_affine_planar_metric(
     declared_straight_chains: tuple = (),
     developable_stretch_budget=None,
     chart_band=None,
+    grid_scale_law: GridScaleLawV1 = GridScaleLawV1.FIRST_ANGLE_RESTORING_V1,
 ) -> EmbeddingCertifiedRationalAffinePlanarMetricV1:
     """Build the unchanged V2 metric together with both embedding proofs."""
 
@@ -1128,6 +1135,7 @@ def build_embedding_certified_rational_affine_planar_metric(
         declared_straight_chains=declared_straight_chains,
         developable_stretch_budget=developable_stretch_budget,
         chart_band=chart_band,
+        grid_scale_law=grid_scale_law,
     )
 
 
@@ -1156,6 +1164,7 @@ def build_rational_affine_planar_metric(
     declared_straight_chains: tuple = (),
     developable_stretch_budget=None,
     chart_band=None,
+    grid_scale_law: GridScaleLawV1 = GridScaleLawV1.FIRST_ANGLE_RESTORING_V1,
 ) -> RationalAffinePlanarMetricV2:
     """Build byte-compatible V2 after both additive embedding gates pass."""
 
@@ -1176,6 +1185,7 @@ def build_rational_affine_planar_metric(
         declared_straight_chains=declared_straight_chains,
         developable_stretch_budget=developable_stretch_budget,
         chart_band=chart_band,
+        grid_scale_law=grid_scale_law,
     ).metric
 
 

@@ -1033,7 +1033,8 @@
         "outcome": {
           "enum": [
             "RELATIONS_RESTORED",
-            "RELATIONS_NOT_RESTORED"
+            "RELATIONS_NOT_RESTORED",
+            "RELATIONS_RESTORED_PLANE_TORN"
           ],
           "type": "string"
         },
